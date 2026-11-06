@@ -477,6 +477,53 @@ begin
     ProtectedArchive(True);
     Writeln('PASS Main startup completes a bound archive deletion receipt and clears its private journals'); Flush(Output);
 
+    for var AfterUnlink in [False,True] do
+    begin
+      var Name:='whole-recovery-'+BoolToStr(AfterUnlink,True)+'.zip';
+      var Path:=Root+Name;
+      WriteZip(Path,['one.fb2','two.fb2']);
+      var One:=Insert(Name+' one',Name,'one','.fb2');
+      var Two:=Insert(Name+' two',Name,'two','.fb2');
+      Collection.GetBookRecord(CreateBookKey(One,PrivateID),Book,False);
+      Collection.GetBookRecord(CreateBookKey(Two,PrivateID),Other,False);
+      Binding:=TBookDeletionBinding.Capture(SystemDB.GetCollectionInfo(PrivateID),[Book,Other],True);
+      Task.Archive:=Path; Task.Members:=TArray<string>.Create('one.fb2','two.fb2');
+      Task.SourceIdentity:=ArchiveDeletionSourceIdentity(Path); Task.CatalogueBinding:=Binding.ToJSON;
+      var Hash:=THashSHA2.GetHashStringFromFile(Path);
+      Interrupted:=TArchiveDeletionQueue.Create([Task],JournalRoot,True);
+      try
+        Interrupted.Start; Started:=GetTickCount64;
+        while Length(Interrupted.Results)=0 do
+        begin
+          Require(GetTickCount64-Started<15000,'Direct removal did not produce a receipt');
+          Interrupted.WaitForResult(25);
+        end;
+        Require(Interrupted.Results[0].FilesVerified,'Direct removal did not prepare the verified archive');
+      finally Interrupted.Free; end;
+      Require((THashSHA2.GetHashStringFromFile(Path)=Hash) and Exists(One) and Exists(Two),
+        'Stopping before catalogue acknowledgement modified the whole archive or its rows');
+      if AfterUnlink then
+      begin
+        Require(Binding.CommitRecords(SystemDB)=2,'Could not simulate a committed catalogue after direct removal');
+        TFile.Delete(Path);
+      end;
+      var Recovery:=TBookDeletionOperation.Recover(Settings.SystemFileName[sfSystemDB],JournalRoot);
+      try
+        Recovery.Start; Started:=GetTickCount64;
+        while not Recovery.Status.Finished do
+        begin
+          Require(GetTickCount64-Started<15000,'Whole archive recovery exceeded guard');
+          Sleep(5);
+        end;
+        Recovery.WaitFor;
+        Require((Recovery.Status.Error='') and (Recovery.Status.CompletedBooks=2),
+          'Whole archive recovery did not finish both rows: '+Recovery.Status.Error);
+      finally Recovery.Free; end;
+      Require(not FileExists(Path) and not Exists(One) and not Exists(Two) and not DirectoryExists(JournalRoot),
+        'Whole archive recovery kept an archive, catalogue row or journal');
+    end;
+    Writeln('PASS whole archive catalogue recovery before commit and after final unlink'); Flush(Output);
+
     Trace('delete safety external local FB2 loose files');
     FreeAndNil(frmMain); Settings.ActiveCollection := ExternalID; Settings.ActivePage := PAGE_SEARCH;
     Application.CreateForm(TfrmMain,frmMain); Collection := SystemDB.GetCollection(ExternalID);

@@ -18,6 +18,8 @@ type
     FMetadata, FHeader: TBytes;
     FNext: Integer;
     FPending, FFinished: Boolean;
+    FWholeIdentity: string;
+    FWholeHandle: THandle;
     function Chunks: TJSONArray;
     function ReadAt(Offset: Int64; Count: Integer): TBytes;
     procedure CheckIdentity;
@@ -26,6 +28,10 @@ type
     procedure VerifyFinished;
     procedure PrepareSevenZip(const Names:TArray<string>; const Cancelled:TFunc<Boolean>);
     function GetContextHash: string;
+    function GetFileKey: string;
+    function GetWholeSourceMissing: Boolean;
+    function CanRemoveWhole: Boolean;
+    procedure OpenWholeSource(AllowMissing: Boolean);
     function ChunkHash(Index: Integer): string;
     function ChunkNumber(Index, Field: Integer): Int64;
   public
@@ -39,10 +45,16 @@ type
     // The caller acknowledges only after its catalogue changes are durable.
     procedure Acknowledge;
     procedure RemoveEmptyArchive;
+    // Use only for a queue that commits the matching catalogue changes
+    // before acknowledging and removing the original archive.
+    procedure EnableWholeRemoval;
     // Bind the catalogue receipt before the first destructive write. The
     // persisted plan/checkpoint then protects this association on recovery.
     procedure BindContext(const SHA256: string);
     property ContextHash: string read GetContextHash;
+    property FileKey: string read GetFileKey;
+    property WholeSourceIdentity: string read FWholeIdentity;
+    property WholeSourceMissing: Boolean read GetWholeSourceMissing;
     function BytesToProcess: Int64;
     function JournalBytes: Int64;
     property JobDirectory: string read FJob;
@@ -273,9 +285,65 @@ end;
 
 procedure TZipMemberDeletion.CheckIdentity;
 begin
-  if (TextField(FPlan,'archive') <> FArchive) or
-    (TextField(FPlan,'fileId') <> ArchiveKey(FSource.Handle)) then
+  if TextField(FPlan,'archive')<>FArchive then
     raise EReadError.Create('Архив был заменён. Журнал удаления не применён к другому файлу.');
+  if FWholeIdentity<>'' then
+  begin
+    if (Length(FWholeIdentity)<>59) or (Copy(FWholeIdentity,1,25)<>FileKey) or
+      ((FWholeHandle<>0) and (SourceIdentity(FWholeHandle)<>FWholeIdentity)) then
+      raise EReadError.Create('Архив изменился. Удаление целого архива остановлено.');
+  end
+  else if FileKey<>ArchiveKey(FSource.Handle) then
+    raise EReadError.Create('Архив был заменён. Журнал удаления не применён к другому файлу.');
+end;
+
+function TZipMemberDeletion.GetFileKey:string;
+begin Result:=TextField(FPlan,'fileId'); end;
+
+function TZipMemberDeletion.GetWholeSourceMissing:Boolean;
+begin Result:=(FWholeIdentity<>'') and (FWholeHandle=0); end;
+
+function TZipMemberDeletion.CanRemoveWhole:Boolean;
+begin
+  Result:=((FPlan.GetValue('remaining') as TJSONArray).Count=0) and
+    (FieldNumber(FPlan,'metadataOffset')=Length(FHeader)) and (Chunks.Count=0);
+end;
+
+procedure TZipMemberDeletion.OpenWholeSource(AllowMissing:Boolean);
+var Handle:THandle; Info:TByHandleFileInformation;
+begin
+  Handle:=CreateFile(PChar(DeletionNativePath(FArchive)),GENERIC_READ or DeleteAccess,
+    0,nil,OPEN_EXISTING,FILE_FLAG_OPEN_REPARSE_POINT,0);
+  if Handle=INVALID_HANDLE_VALUE then
+  begin
+    var Error:=GetLastError;
+    if AllowMissing and (Error=ERROR_FILE_NOT_FOUND) then Exit;
+    RaiseLastOSError(Error);
+  end;
+  try
+    if not GetFileInformationByHandle(Handle,Info) then RaiseLastOSError;
+    if (Info.nNumberOfLinks<>1) or
+      ((Info.dwFileAttributes and (FILE_ATTRIBUTE_REPARSE_POINT or FILE_ATTRIBUTE_DIRECTORY))<>0) or
+      (SourceIdentity(Handle)<>FWholeIdentity) then
+      raise EReadError.Create('Путь или файл архива изменился. Архив не удалён.');
+    FWholeHandle:=Handle;
+  except
+    CloseHandle(Handle);
+    raise;
+  end;
+end;
+
+procedure TZipMemberDeletion.EnableWholeRemoval;
+var Info:TByHandleFileInformation;
+begin
+  if (FJob<>'') or (FWholeIdentity<>'') or not CanRemoveWhole then Exit;
+  if not GetFileInformationByHandle(FSource.Handle,Info) then RaiseLastOSError;
+  // Multiple hard links must keep their names. Continue with member removal.
+  if Info.nNumberOfLinks<>1 then Exit;
+  FWholeIdentity:=SourceIdentity(FSource.Handle);
+  FreeAndNil(FSource);
+  OpenWholeSource(False);
+  FPlan.AddPair('wholeIdentity',FWholeIdentity);
 end;
 
 procedure TZipMemberDeletion.CheckPlan;
@@ -507,6 +575,16 @@ begin
   FArchive := ExpandFileName(Archive); FJob := ExpandFileName(Job);
   FPlan := LoadObject(TPath.Combine(FJob,PlanName));
   Bytes := TEncoding.UTF8.GetBytes(FPlan.ToJSON); FPlanHash := Digest(Bytes);
+  if Assigned(FPlan.GetValue('wholeIdentity')) then
+  begin
+    FWholeIdentity:=TextField(FPlan,'wholeIdentity');
+    if FWholeIdentity='' then raise EReadError.Create('Отсутствует идентификатор целого архива.');
+    CheckPlan;
+    if not CanRemoveWhole then raise EReadError.Create('Журнал удаления целого архива содержит сохраняемые файлы.');
+    OpenWholeSource(True);
+    FFinished:=True;
+    Exit;
+  end;
   FSource := TFileStream.Create(DeletionNativePath(FArchive),fmOpenReadWrite or fmShareExclusive);
   CheckPlan;
   State := LoadObject(TPath.Combine(FJob,CheckpointName));
@@ -526,7 +604,11 @@ begin
 end;
 
 destructor TZipMemberDeletion.Destroy;
-begin FPlan.Free; FSource.Free; inherited; end;
+begin
+  if FWholeHandle<>0 then CloseHandle(FWholeHandle);
+  FPlan.Free; FSource.Free;
+  inherited;
+end;
 
 procedure TZipMemberDeletion.SaveCheckpoint;
 var State: TJSONObject;
@@ -597,7 +679,15 @@ begin
     if not CreateDirectory(PChar(DeletionNativePath(FJob)),nil) then RaiseLastOSError;
     Bytes := TEncoding.UTF8.GetBytes(FPlan.ToJSON);
     if Length(Bytes)>MaxPlanBytes then raise EWriteError.Create('Слишком большой журнал ZIP.');
-    FPlanHash := Digest(Bytes); SaveBytes(Bytes,TPath.Combine(FJob,PlanName)); SaveCheckpoint;
+    FPlanHash := Digest(Bytes); SaveBytes(Bytes,TPath.Combine(FJob,PlanName));
+    if FWholeIdentity='' then SaveCheckpoint;
+  end;
+  if FWholeIdentity<>'' then
+  begin
+    // The complete, immutable plan is the receipt. The source remains intact
+    // under its exclusive handle until the catalogue has committed.
+    FFinished:=True;
+    Exit;
   end;
   Done := 0;
   // Recheck blocks already completed before an interruption; no external
@@ -662,12 +752,26 @@ begin
 end;
 
 procedure TZipMemberDeletion.Acknowledge;
-var Path: string;
+var Path: string; Disposition: Byte;
 begin
   if not FFinished or (FJob='') then raise EInvalidOperation.Create('Удаление ZIP ещё не завершено.');
-  CheckIdentity; VerifyFinished;
+  CheckIdentity;
   if Digest(TFile.ReadAllBytes(DeletionNativePath(TPath.Combine(FJob,PlanName))))<>FPlanHash then
     raise EReadError.Create('Журнал ZIP изменён и сохранён для проверки.');
+  if FWholeIdentity='' then VerifyFinished
+  else if FWholeHandle<>0 then
+  begin
+    var Info:TByHandleFileInformation;
+    if not GetFileInformationByHandle(FWholeHandle,Info) then RaiseLastOSError;
+    if Info.nNumberOfLinks<>1 then raise EReadError.Create('Появилась другая ссылка на архив. Архив сохранён.');
+    Disposition:=1;
+    if not SetArchiveFileInformation(FWholeHandle,FileDispositionInfoClass,@Disposition,SizeOf(Disposition)) then
+      RaiseLastOSError;
+    CloseHandle(FWholeHandle); FWholeHandle:=0;
+  end
+  else if (GetFileAttributes(PChar(DeletionNativePath(FArchive)))<>INVALID_FILE_ATTRIBUTES) or
+    (GetLastError<>ERROR_FILE_NOT_FOUND) then
+    raise EReadError.Create('Путь архива изменился после удаления. Журнал сохранён.');
   for var Name in [PendingName,CheckpointName,PlanName] do
   begin
     Path := DeletionNativePath(TPath.Combine(FJob,Name));
@@ -681,6 +785,7 @@ procedure TZipMemberDeletion.RemoveEmptyArchive;
 var Handle: THandle; Info: TByHandleFileInformation; Key: string;
   Expected, Actual: TBytes; ReadCount: DWORD; Disposition: Byte;
 begin
+  if FWholeIdentity<>'' then Exit;
   if not FFinished or (FJob <> '') or not Assigned(FSource) then
     raise EInvalidOperation.Create('Сначала завершите обновление каталога и журнала удаления.');
   // No entries, including companion files and directories, may remain.

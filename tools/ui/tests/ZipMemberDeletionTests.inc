@@ -198,6 +198,42 @@ begin
     end;
     Writeln('PASS empty ZIP footer and truncation recover at every interrupted write boundary'); Flush(Output);
 
+    for var Outcome in ['present','missing','replaced'] do
+    begin
+      Fixture; BeforeHash:=THashSHA2.GetHashStringFromFile(Archive);
+      Zip:=TZipFile.Create;
+      try Zip.Open(Archive,zmRead); var All:=Zip.FileNames; Zip.Close;
+        Delete:=TZipMemberDeletion.Prepare(Archive,All);
+        try
+          Delete.EnableWholeRemoval;
+          Require(Delete.WholeSourceIdentity<>'','All selected members did not use direct removal');
+          Delete.Execute(JournalParent); Job:=Delete.JobDirectory;
+          Require(Delete.Finished and not FileExists(TPath.Combine(Job,'checkpoint.json')),
+            'Direct removal rewrote the original or recorded a member-write checkpoint');
+        finally Delete.Free; end;
+      finally Zip.Free; end;
+      Require(THashSHA2.GetHashStringFromFile(Archive)=BeforeHash,'Direct removal changed the archive before catalogue acknowledgement');
+      if Outcome='missing' then TFile.Delete(Archive);
+      if Outcome='replaced' then
+      begin
+        OriginalPath:=Root+'before-direct-replacement.zip';
+        TFile.Move(Archive,OriginalPath); TFile.Copy(OriginalPath,Archive);
+        Rejected:=False;
+        try Delete:=TZipMemberDeletion.Recover(Archive,Job); Delete.Free;
+        except on E:Exception do Rejected:=True; end;
+        Require(Rejected and (THashSHA2.GetHashStringFromFile(Archive)=BeforeHash),
+          'Direct recovery accepted a different archive at the same path');
+        TFile.Delete(Archive); TFile.Move(OriginalPath,Archive);
+      end;
+      Delete:=TZipMemberDeletion.Recover(Archive,Job);
+      try
+        Require(Delete.WholeSourceMissing=(Outcome='missing'),'Direct removal recovery misidentified the source');
+        Delete.Execute(JournalParent); Delete.Acknowledge;
+      finally Delete.Free; end;
+      Require(not FileExists(Archive) and not DirectoryExists(Job),'Direct recovery left the archive or journal');
+    end;
+    Writeln('PASS direct whole ZIP keeps original bytes until acknowledgement and recovers absent or replaced paths'); Flush(Output);
+
     for FaultStage in ['pending','half-written','written','checkpoint','half-metadata','metadata','truncated','finished'] do
     begin
       Fixture; Interrupted:=False;

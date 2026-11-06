@@ -16,7 +16,7 @@ type
 
   TArchiveDeletionResult = record
     Index: Integer;
-    Archive, CatalogueBinding, WorkDirectory, JournalDirectory, Error, CleanupWarning: string;
+    Archive, SourceIdentity, CatalogueBinding, WorkDirectory, JournalDirectory, Error, CleanupWarning: string;
     FilesVerified, Cancelled: Boolean;
     WaitsForCatalogue, CatalogueCommitted, Acknowledged: Boolean;
   end;
@@ -162,6 +162,7 @@ begin
       not (ObjectValue.GetValue('members') is TJSONArray) then
       raise EReadError.Create('Неподдерживаемый журнал привязки каталога.');
     Result.Archive:=ObjectValue.GetValue('archive').Value;
+    Result.SourceIdentity:=ObjectValue.GetValue('sourceIdentity').Value;
     Result.CatalogueBinding:=ObjectValue.GetValue('catalogue').Value;
     if (Result.Archive='') or not SameFileName(Result.Archive,ExpandFileName(Result.Archive)) then
       raise EReadError.Create('В журнале удаления отсутствует полный путь архива.');
@@ -180,7 +181,9 @@ begin
     Deletion:=TZipMemberDeletion.Recover(Result.Archive,Result.JournalDirectory);
     try
       var State:=THashSHA2.Create; State.Update(Bytes);
-      if (Deletion.ContextHash='') or (Deletion.ContextHash<>State.HashAsString) then
+      if (Deletion.ContextHash='') or (Deletion.ContextHash<>State.HashAsString) or
+        (Copy(Result.SourceIdentity,1,25)<>Deletion.FileKey) or
+        ((Deletion.WholeSourceIdentity<>'') and (Deletion.WholeSourceIdentity<>Result.SourceIdentity)) then
         raise EReadError.Create('Привязка каталога не совпадает с журналом удаления архива.');
       // Finished is not FilesVerified: the worker must still check all moved
       // blocks and the final inventory before catalogue changes are allowed.
@@ -204,10 +207,11 @@ begin
     for var I:=0 to High(TaskDirectories) do
     begin
       Receipt:=ReadReceipt(TaskDirectories[I]);
-      var Key:=Copy(ArchiveDeletionSourceIdentity(Receipt.Archive),1,25);
+      var Key:=Copy(Receipt.SourceIdentity,1,25);
       if Seen.ContainsKey(Key) then raise EReadError.Create('Для одного архива найдены повторные журналы.');
       Seen.Add(Key,0);
       FTasks[I].Archive:=Receipt.Archive; FTasks[I].CatalogueBinding:=Receipt.CatalogueBinding;
+      FTasks[I].SourceIdentity:=Receipt.SourceIdentity;
       FRecoveryJobs[I]:=Receipt.JournalDirectory;
     end;
   finally Seen.Free; end;
@@ -310,6 +314,7 @@ begin
       if TInterlocked.CompareExchange(FStop,0,0)<>0 then Break;
       Item:=Default(TArchiveDeletionResult); Item.Index:=I; Item.WaitsForCatalogue:=FWaitForCatalogue;
       Item.Archive:=FTasks[I].Archive; Item.CatalogueBinding:=FTasks[I].CatalogueBinding;
+      Item.SourceIdentity:=FTasks[I].SourceIdentity;
       if FRecoveryJobs[I]<>'' then
       begin
         Item.JournalDirectory:=FRecoveryJobs[I];
@@ -323,20 +328,26 @@ begin
         FStatus.Stage:='Проверка архива'; FStatus.Done:=0; FStatus.Total:=0;
       finally TMonitor.Exit(FLock); end;
       try
-        Lease:=AcquireArchiveChange(Item.Archive);
         if FRecoveryJobs[I]<>'' then
         begin
+          try Lease:=AcquireArchiveChange(Item.Archive);
+          except on E:EOSError do if E.ErrorCode<>ERROR_FILE_NOT_FOUND then raise; end;
           var Receipt:=ReadReceipt(Item.WorkDirectory);
           if (Receipt.Archive<>Item.Archive) or
+            (Receipt.SourceIdentity<>Item.SourceIdentity) or
             (Receipt.CatalogueBinding<>Item.CatalogueBinding) or
             not SameFileName(Receipt.JournalDirectory,Item.JournalDirectory) then
             raise EReadError.Create('Журнал удаления изменился после выбора восстановления.');
           Deletion:=TZipMemberDeletion.Recover(Item.Archive,Item.JournalDirectory);
+          if ((Lease=nil) and not Deletion.WholeSourceMissing) or
+            ((Deletion.WholeSourceIdentity<>'') and not FWaitForCatalogue) then
+            raise EReadError.Create('Не удалось безопасно продолжить удаление целого архива.');
           if Deletion.ContextHash<>BindingHash(Item.WorkDirectory) then
             raise EReadError.Create('Привязка каталога изменилась перед продолжением удаления.');
         end
         else
         begin
+          Lease:=AcquireArchiveChange(Item.Archive);
           if not CreateDirectory(PChar(DeletionNativePath(Item.WorkDirectory)),nil) then RaiseLastOSError;
           SaveBinding(FTasks[I],Item.WorkDirectory);
           Deletion:=TZipMemberDeletion.Prepare(Item.Archive,FTasks[I].Members,
@@ -344,6 +355,7 @@ begin
             function: Boolean begin Result:=TInterlocked.CompareExchange(FStop,0,0)<>0; end,
             FTasks[I].SourceIdentity);
           Deletion.BindContext(BindingHash(Item.WorkDirectory));
+          if FWaitForCatalogue then Deletion.EnableWholeRemoval;
           // Cancellation is safe before the first write. After that, finish the
           // current archive; never abandon it with half-shifted compressed data.
           if TInterlocked.CompareExchange(FStop,0,0)<>0 then Abort;
