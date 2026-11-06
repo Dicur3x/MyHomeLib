@@ -5,13 +5,13 @@ interface
 uses unit_Interfaces, unit_ArchiveDeletionQueue, System.SysUtils;
 
 procedure CheckArchiveDeletionReferences(const User: ISystemData;
-  const Tasks: TArray<TArchiveDeletionTask>; const Cancelled: TFunc<Boolean>);
+  var Tasks: TArray<TArchiveDeletionTask>; const Cancelled: TFunc<Boolean>);
 
 implementation
 
 uses Winapi.Windows, System.Classes, System.IOUtils, System.Generics.Collections, SQLiteWrap,
   unit_Globals, unit_BookDeletionBinding, unit_BookDeletionInventory,
-  unit_ZipMemberDeletion, unit_MHLArchiveHelpers;
+  unit_ZipMemberDeletion, unit_MHLArchiveHelpers, unit_FLibraryCompat;
 
 type
   TCheckedArchive = class
@@ -60,9 +60,42 @@ begin
 end;
 
 procedure CheckArchiveDeletionReferences(const User:ISystemData;
-  const Tasks:TArray<TArchiveDeletionTask>; const Cancelled:TFunc<Boolean>);
+  var Tasks:TArray<TArchiveDeletionTask>; const Cancelled:TFunc<Boolean>);
 var Targets:TObjectDictionary<string,TCheckedArchive>; Paths:TDictionary<string,string>;
+  ImageOwners:TDictionary<string,string>;
   Collections:ICollectionInfoIterator; Info:TCollectionInfo; InventoryChars:Int64;
+
+  function SourceKey(const Path:string):string;
+  begin
+    try Result:=Copy(ArchiveDeletionSourceIdentity(Path),1,25);
+    except on E:EOSError do
+      if E.ErrorCode in [ERROR_FILE_NOT_FOUND,ERROR_PATH_NOT_FOUND,ERROR_NOT_READY] then Result:=''
+      else raise;
+    end;
+  end;
+
+  procedure CheckPictureOwners(const Path,Key:string);
+  begin
+    if ImageOwners.Count=0 then Exit;
+    if ImageOwners.ContainsKey(Key) then ImageOwners[Key]:='';
+    if (Key='') or not IsSevenZipArchive(Path) then Exit;
+    for var ImagePath in FLibraryImageSourceFiles(Path) do
+      if ImagePath<>'' then
+      begin
+        var ImageKey:string;
+        try ImageKey:=SourceKey(ImagePath);
+        except
+          on E:Exception do
+          begin
+            // The original book can still be removed. Keep every optional
+            // companion if the comparison cannot rule out a shared source.
+            ImageOwners.Clear; Exit;
+          end;
+        end;
+        var Owner:string;
+        if ImageOwners.TryGetValue(ImageKey,Owner) and (Owner<>Key) then ImageOwners[ImageKey]:='';
+      end;
+  end;
 
   procedure CheckRows(Database:TSQLiteDatabase; const SQL,DefaultRoot:string; CID:Integer; HasRoot:Boolean);
   var Query:TSQLiteQuery; Book:TBookRecord; Path,Key,LastFolder,LastRoot,LastKey:string;
@@ -92,11 +125,8 @@ var Targets:TObjectDictionary<string,TCheckedArchive>; Paths:TDictionary<string,
             Path:=ExpandFileName(Book.GetBookFileName);
             if not Paths.TryGetValue(Path,Key) then
             begin
-              try Key:=Copy(ArchiveDeletionSourceIdentity(Path),1,25);
-              except on E:EOSError do
-                if E.ErrorCode in [ERROR_FILE_NOT_FOUND,ERROR_PATH_NOT_FOUND,ERROR_NOT_READY] then Key:=''
-                else raise;
-              end;
+              Key:=SourceKey(Path);
+              CheckPictureOwners(Path,Key);
               // Cache each distinct source, not each row in a large catalogue.
               if Paths.Count<65536 then Paths.Add(Path,Key);
             end;
@@ -125,10 +155,21 @@ begin
   if Length(Tasks)=0 then Exit;
   Targets:=TObjectDictionary<string,TCheckedArchive>.Create([doOwnsValues]);
   Paths:=TDictionary<string,string>.Create;
+  ImageOwners:=TDictionary<string,string>.Create;
   InventoryChars:=0;
   try
     for var Task in Tasks do
+    begin
       Targets.Add(Copy(Task.SourceIdentity,1,25),TCheckedArchive.Create(Task));
+      for var Image in Task.Companions do
+      begin
+        var ImageKey:=Copy(Image.SourceIdentity,1,25);
+        // The same physical companion appearing twice is ambiguous, even
+        // when both primary archives are part of this deletion batch.
+        if ImageOwners.ContainsKey(ImageKey) then ImageOwners[ImageKey]:=''
+        else ImageOwners.Add(ImageKey,Copy(Task.SourceIdentity,1,25));
+      end;
+    end;
     Collections:=User.GetCollectionInfoIterator;
     while Collections.Next(Info) do
     begin
@@ -145,7 +186,19 @@ begin
             '',Info.ID,True);
       finally DB.Free; end;
     end;
-  finally Paths.Free; Targets.Free; end;
+    for var I:=0 to High(Tasks) do
+    begin
+      var Count:=0;
+      for var J:=0 to High(Tasks[I].Companions) do
+      begin
+        var Image:=Tasks[I].Companions[J];
+        var Owner:string;
+        if not ImageOwners.TryGetValue(Copy(Image.SourceIdentity,1,25),Owner) or (Owner='') then Continue;
+        Tasks[I].Companions[Count]:=Image; Inc(Count);
+      end;
+      SetLength(Tasks[I].Companions,Count);
+    end;
+  finally ImageOwners.Free; Paths.Free; Targets.Free; end;
 end;
 
 end.

@@ -5965,6 +5965,7 @@ begin
       else if ParamStr(1) = 'reader-open-choice' then TestReaderOpenChoice
       else if ParamStr(1) = 'reader-host-session' then TestReaderHostSession
       else if ParamStr(1) = 'book-deletion' then TestBookDeletionSafety
+      else if ParamStr(1) = 'flibrary-deletion' then TestBookDeletionSafety(True)
       else if ParamStr(1) = 'book-deletion-identity' then TestBookDeletionIdentity
       else if ParamStr(1) = 'book-deletion-preparation' then TestBookDeletionPreparation
       else if ParamStr(1) = 'zip-member-deletion' then begin TestZipMemberDeletion; TestArchiveDeletionQueue; TestSevenZipDeletionPlan; TestSevenZipDeletionRecovery; end

@@ -43,8 +43,9 @@ type
     procedure Execute(const JournalParent: string; const Progress: TZipDeleteProgress = nil;
       const Fault: TZipDeleteFault = nil);
     // The caller acknowledges only after its catalogue changes are durable.
-    procedure Acknowledge;
+    procedure Acknowledge(const BeforeForget: TProc = nil);
     procedure RemoveEmptyArchive;
+    procedure RequirePrivateSource;
     // Use only for a queue that commits the matching catalogue changes
     // before acknowledging and removing the original archive.
     procedure EnableWholeRemoval;
@@ -65,6 +66,7 @@ type
 // journal I/O independent of MAX_PATH even in a deep portable profile.
 function DeletionNativePath(const FileName: string): string;
 function ArchiveDeletionSourceIdentity(const FileName: string): string;
+function IsPrivateArchiveDeletionSource(const FileName: string): Boolean;
 
 implementation
 
@@ -187,6 +189,18 @@ begin
     FILE_SHARE_READ or FILE_SHARE_WRITE or FILE_SHARE_DELETE,nil,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,0);
   if Handle=INVALID_HANDLE_VALUE then RaiseLastOSError;
   try Result:=SourceIdentity(Handle); finally CloseHandle(Handle); end;
+end;
+
+function IsPrivateArchiveDeletionSource(const FileName:string):Boolean;
+var Handle:THandle; Info:TByHandleFileInformation;
+begin
+  Handle:=CreateFile(PChar(DeletionNativePath(FileName)),FILE_READ_ATTRIBUTES,
+    FILE_SHARE_READ or FILE_SHARE_WRITE or FILE_SHARE_DELETE,nil,OPEN_EXISTING,FILE_FLAG_OPEN_REPARSE_POINT,0);
+  if Handle=INVALID_HANDLE_VALUE then Exit(False);
+  try
+    Result:=GetFileInformationByHandle(Handle,Info) and (Info.nNumberOfLinks=1) and
+      (Info.dwFileAttributes and (FILE_ATTRIBUTE_DIRECTORY or FILE_ATTRIBUTE_REPARSE_POINT)=0);
+  finally CloseHandle(Handle); end;
 end;
 
 function NormalName(const Name: string): string;
@@ -751,7 +765,13 @@ begin
   VerifyFinished; FFinished := True; SaveCheckpoint; Signal('finished');
 end;
 
-procedure TZipMemberDeletion.Acknowledge;
+procedure TZipMemberDeletion.RequirePrivateSource;
+begin
+  if not IsPrivateArchiveDeletionSource(FArchive) then
+    raise EReadError.Create('У архива изображений есть другая ссылка или он недоступен: '+FArchive);
+end;
+
+procedure TZipMemberDeletion.Acknowledge(const BeforeForget:TProc);
 var Path: string; Disposition: Byte;
 begin
   if not FFinished or (FJob='') then raise EInvalidOperation.Create('Удаление ZIP ещё не завершено.');
@@ -772,6 +792,7 @@ begin
   else if (GetFileAttributes(PChar(DeletionNativePath(FArchive)))<>INVALID_FILE_ATTRIBUTES) or
     (GetLastError<>ERROR_FILE_NOT_FOUND) then
     raise EReadError.Create('Путь архива изменился после удаления. Журнал сохранён.');
+  if Assigned(BeforeForget) then BeforeForget();
   for var Name in [PendingName,CheckpointName,PlanName] do
   begin
     Path := DeletionNativePath(TPath.Combine(FJob,Name));

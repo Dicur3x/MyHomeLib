@@ -5390,5 +5390,20 @@
     "logs": "tools/ui/tests/Out/zip-delete-timing-20261106-whole.log and tools/ui/tests/Out/zip-delete-whole-recovery-20261106.log.",
     "cleanup": "All new direct-deletion stages, test archives, temporary projects and their scratch catalogues were removed.",
     "remaining": "FLibrary sidecars are separate archives. The reader searches covers/<container stem>.zip then .7z by book stem, and images/<container stem>.zip then .7z by book-stem/image-id. Equal member stems or same-stem alternate containers can share images. Plan guarded companion deletion with exact ownership and journal recovery, preserving unknown entries and images still referenced by retained books. No companion deletion was performed by these changes."
+  },
+  "flibrary_companion_deletion_20261106": {
+    "status": "Verified in the working branch on x86 and x64.",
+    "implementation": "Physical deletion in the FLibrary 7z layout uses the reader-selected covers/images archive paths. It plans only exact entries owned by selected FB2/EPUB members. It protects matching names for retained members with flat or nested paths, unknown entries, shared archives across registered collections, hard links and reparse files. Independent changed or unreadable companion archives are preserved. With only-catalogue removal the archive worker is not invoked.",
+    "recovery": "The primary archive receipt binds each companion path, source identity and exact member list. Image changes occur after the catalogue phase and primary file removal. Each companion uses the existing archive engine and a small completion marker until the primary receipt can be closed. Recovery replays companion plans, including a companion already changed or acknowledged before interruption.",
+    "verification": "Owned native fixtures used an actual non-solid 7z with separate ZIP image archives, same-stem books, flat and nested image paths, and unrelated retained files. The Main action removed eligible entries, removed all-owned whole archives and preserved a covers archive directly used in another collection. Recovery passed before catalogue commit, after primary removal, after the first image marker, and with a replacement image archive that was kept with a warning. Ordinary catalogue deletion, ZIP/ZIP64, 7z and interrupted recovery passed separately on both architectures.",
+    "logs": "tools/ui/tests/Out/flibrary-delete-20261106-r3.log and tools/ui/tests/Out/flibrary-delete-regressions-20261106-r1.log.",
+    "cleanup": "The new owned test roots and generated Delphi project clones were removed. No user collection was used for destructive testing.",
+    "remaining": "Verify the clean next release packages. Unsupported or shared companion data stays on disk."
+  },
+  "forum_import_progress_and_encoding_20261106": {
+    "status": "Reported scenarios inspected and queued after FLibrary.",
+    "encoding": "The supplied ZIP contains one FB2. It declares Windows-1251, but the payload decodes strictly as UTF-8, parses as XML and has the correct title Отпуск. Strict Windows-1251 decoding fails. The attachment was read only. Implement automatic correction and an explicit encoding choice where useful, then verify catalogue import and reading.",
+    "progress": "The catalogue already receives and persists reading percentages. Add a compact indicator to the book details without increasing panel size.",
+    "single_file": "Existing FB2 import scans the configured folder or collection root. The non-FB2 dialog selects files from its scanned collection root. A direct pick from an arbitrary location is still needed. An internal BookKey consists of DatabaseID and BookID. Flibusta external IDs belong to their source. Use independent local provenance and a stable local ID for manual additions; verify that future INPX updates cannot overwrite them."
   }
 }

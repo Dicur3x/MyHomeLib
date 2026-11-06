@@ -55,7 +55,7 @@ begin
   end;
 end;
 
-procedure TestBookDeletionSafety;
+procedure TestBookDeletionSafety(FLibraryOnly:Boolean=False);
 var PrivateID, OnlineID, ExternalID, RawID, ArchiveID, OtherID, PrivateFBD, FailID, GoodID,
   SevenID, LegacyID, NeighbourID, Count: Integer;
   Collection: IBookCollection; Probe: TBookDeletionDialogProbe;
@@ -195,6 +195,152 @@ var PrivateID, OnlineID, ExternalID, RawID, ArchiveID, OtherID, PrivateFBD, Fail
     finally Zip.Free; end;
   end;
 
+  procedure FLibraryPictureDeletion;
+  const Fixture='N3q8ryccAAS720OouwAAAAAAAAAhAAAAAAAAAC91JgIBAAxmaXh0dXJlIDEuZmIyAAEADGZpeHR1cmUgMi5mYjIAAQAWZml4dHVyZSBuZXN0ZWQvc2FtZS5mYjIAAQAPZml4dHVyZSBzYW1lLmZiMgAAAIEzB65tv4S4Pn+szENcZpUgYdHFIikzccx3Wit7Y7HNiFhZHKc/oqTFoLP1J93K4n9lHcojBCzfCpRQuHO0A+j7AG90HHi+m2+YW6HtzV4LLn9Qr7920LUFEwKry2qDCyFH4HKeuAAAFwZRAQlqAAcLAQABIwMBAQVdABAAAAyAsgoBRh9+dwAA';
+  var One,Two,First,Second:Integer;
+    RootArchive,Covers,Images:string; CurrentCollection:IBookCollection;
+
+    procedure Verify(const FileName:string; const Members:array of string);
+    var Zip:TZipFile; Bytes:TBytes;
+    begin
+      Zip:=TZipFile.Create;
+      try
+        Zip.Open(FileName,zmRead);
+        Require(Zip.FileCount=Length(Members),'Wrong remaining image count: '+FileName);
+        for var Member in Members do
+        begin
+          Zip.Read(Member,Bytes);
+          Require(TEncoding.UTF8.GetString(Bytes)=XML(Member),'Retained image was changed: '+Member);
+        end;
+      finally Zip.Free; end;
+    end;
+
+    procedure Setup(const Folder:string);
+    begin
+      ForceDirectories(Root+Folder+'\covers'); ForceDirectories(Root+Folder+'\images');
+      var Relative:=Folder+'\books.7z';
+      RootArchive:=Root+Relative; Covers:=Root+Folder+'\covers\books.zip'; Images:=Root+Folder+'\images\books.zip';
+      TFile.WriteAllBytes(RootArchive,TNetEncoding.Base64.DecodeStringToBytes(Fixture));
+      One:=Insert(Folder+' one',Relative,'1','.fb2'); Two:=Insert(Folder+' two',Relative,'2','.fb2');
+      First:=Insert(Folder+' shared first',Relative,'same','.fb2');
+      Second:=Insert(Folder+' shared second',Relative,'nested\same','.fb2');
+    end;
+
+    procedure RecoverPictures(const Phase:string);
+    var Selected:TArray<TBookRecord>; Binding:TBookDeletionBinding;
+      Preparation:TBookDeletionPreparation; Queue:TArchiveDeletionQueue; Tasks:TArray<TArchiveDeletionTask>;
+      SavedReceipt:TArchiveDeletionResult; Job, JournalRoot:string; Engine:TZipMemberDeletion;
+      Operation:TBookDeletionOperation; Started:UInt64;
+    begin
+      Setup('flibrary-recovery-'+Phase);
+      WriteZip(Covers,['1','2','same','readme']); WriteZip(Images,['1/1','2/1','same/1']);
+      var IDs:=TArray<Integer>.Create(One,Two,First,Second);
+      SetLength(Selected,4);
+      for var I:=0 to High(Selected) do
+        Collection.GetBookRecord(CreateBookKey(IDs[I],
+          Collection.CollectionID),Selected[I],False);
+      Binding:=TBookDeletionBinding.Capture(SystemDB.GetCollectionInfo(Collection.CollectionID),Selected,True);
+      Preparation:=TBookDeletionPreparation.Create(Binding);
+      try
+        Preparation.Start; Preparation.WaitFor; Tasks:=Preparation.PreparedTasks;
+        Require((Length(Tasks)=1) and (Length(Tasks[0].Companions)=2),'Preparation did not bind both picture archives');
+      finally Preparation.Free; end;
+      JournalRoot:=TPath.Combine(Settings.DataPath,'BookDeletion');
+      Queue:=TArchiveDeletionQueue.Create(Tasks,JournalRoot,True);
+      try
+        Queue.Start; Started:=GetTickCount64;
+        while Length(Queue.Results)=0 do
+        begin
+          Require(GetTickCount64-Started<15000,'Picture cleanup did not record an archive plan');
+          Queue.WaitForResult(25);
+        end;
+        SavedReceipt:=Queue.Results[0];
+        Require(SavedReceipt.FilesVerified,'Picture archive receipt preparation failed: '+SavedReceipt.Error);
+      finally Queue.Free; end;
+      Require(FileExists(RootArchive) and Exists(One),'Archive or catalogue changed before confirmation');
+      Verify(Covers,['1','2','same','readme']); Verify(Images,['1/1','2/1','same/1']);
+      if Phase<>'before-commit' then
+      begin
+        // Model a process stopping after the primary commit and halfway
+        // through the companion phase, before its acknowledgement.
+        Require(Binding.CommitRecords(SystemDB)=4,'Unable to commit the owned fixture before recovery');
+        TFile.Delete(RootArchive);
+        Job:=TPath.Combine(SavedReceipt.WorkDirectory,'pictures-0');
+        ForceDirectories(Job);
+        var Image:=Tasks[0].Companions[0];
+        var Context:=THashSHA2.GetHashStringFromFile(TPath.Combine(SavedReceipt.WorkDirectory,'binding.json'));
+        Engine:=TZipMemberDeletion.Prepare(Image.Archive,Image.Members,nil,nil,Image.SourceIdentity);
+        try
+          Engine.BindContext(Context);
+          Engine.Execute(Job);
+          if Phase='after-marker' then
+            try
+              Engine.Acknowledge(procedure begin
+                TFile.WriteAllText(TPath.Combine(Job,'complete'),Context+':'+Image.SourceIdentity,TEncoding.ASCII);
+                Abort;
+              end);
+            except on E:EAbort do ; end;
+        finally Engine.Free; end;
+        Verify(Covers,['readme']);
+      end;
+      if Phase='replaced-image' then
+      begin
+        TFile.Move(Images,Images+'.saved');
+        WriteZip(Images,['foreign/0']);
+      end;
+      Operation:=TBookDeletionOperation.Recover(Settings.SystemFileName[sfSystemDB],JournalRoot);
+      try
+        Operation.Start; Started:=GetTickCount64;
+        while not Operation.Status.Finished do
+        begin
+          Require(GetTickCount64-Started<15000,'Picture archive recovery timed out'); Sleep(5);
+        end;
+        Operation.WaitFor;
+        Require((Operation.Status.Error='') and ((Operation.Status.CleanupWarning<>'')=(Phase='replaced-image')),
+          'Picture archive recovery failed: '+Operation.Status.Error+' '+Operation.Status.CleanupWarning);
+      finally Operation.Free; end;
+      Require(not FileExists(RootArchive) and not Exists(One) and not Exists(Two) and
+        (FileExists(Images)=(Phase='replaced-image')) and not DirectoryExists(JournalRoot),
+        'Picture archive recovery did not finish');
+      if Phase='replaced-image' then Verify(Images,['foreign/0']);
+      Verify(Covers,['readme']);
+    end;
+
+  begin
+    Settings.DeleteFiles:=True;
+    Setup('flibrary-delete');
+    WriteZip(Covers,['1','2','same','nested/same','readme']);
+    WriteZip(Images,['1/cover','1/1','2/1','same/1','nested/same/1','archive-readme']);
+    Rows([One,First]); Execute(True,False,2,2);
+    Verify(Covers,['2','same','nested/same','readme']);
+    Verify(Images,['2/1','same/1','nested/same/1','archive-readme']);
+    Require(not Exists(One) and not Exists(First) and Exists(Two) and Exists(Second),
+      'Picture cleanup did not retain the surviving books');
+    Rows([Two,Second]); Execute(True,False,2,2);
+    Verify(Covers,['readme']); Verify(Images,['archive-readme']);
+    Require(not FileExists(RootArchive),'A wholly selected FLibrary book archive was not deleted');
+
+    Setup('flibrary-all');
+    WriteZip(Covers,['1','2','same']); WriteZip(Images,['1/0','2/1','same/1']);
+    Rows([One,Two,First,Second]); Execute(True,False,4,4);
+    Require(not FileExists(RootArchive) and not FileExists(Covers) and not FileExists(Images),
+      'Fully owned companions were not removed together with the whole book archive');
+
+    Setup('flibrary-reference');
+    WriteZip(Covers,['1','2','same']); WriteZip(Images,['1/1','2/1','same/1']);
+    var Hash:=THashSHA2.GetHashStringFromFile(Covers);
+    CurrentCollection:=Collection; Collection:=SystemDB.GetCollection(ExternalID);
+    try Insert('shared cover archive','flibrary-reference\covers\books.zip','1','.png');
+    finally Collection:=CurrentCollection; end;
+    Rows([One,Two,First,Second]); Execute(True,False,4,4);
+    Require(not FileExists(RootArchive) and not FileExists(Images) and
+      (THashSHA2.GetHashStringFromFile(Covers)=Hash),'Deletion changed a companion used directly by another collection');
+    Writeln('PASS FLibrary deletion cleans private covers and images and preserves shared stems archives and unrelated members');
+    for var Phase in ['before-commit','after-primary','after-marker','replaced-image'] do RecoverPictures(Phase);
+    Writeln('PASS FLibrary companion plans resume before catalogue commit and during picture cleanup');
+    Flush(Output);
+  end;
+
   procedure TimeSingleBookZipBatch;
   const FixtureCount=3000;
   var Selected: TArray<TBookRecord>; SelectedIDs: TArray<Integer>;
@@ -275,6 +421,11 @@ begin
     Trace('delete safety replace isolated Main');
     FreeAndNil(frmMain); Settings.ActiveCollection := PrivateID; Settings.ActivePage := PAGE_SEARCH;
     Application.CreateForm(TfrmMain,frmMain); Collection := SystemDB.GetCollection(PrivateID);
+    if FLibraryOnly then
+    begin
+      FLibraryPictureDeletion;
+      Exit;
+    end;
 
     Trace('delete safety cancellation');
     Settings.DeleteFiles := True; Sources('cancel'); Trace('delete safety source files ready'); Rows([RawID,ArchiveID]); Trace('delete safety selection ready'); Execute(False,False,2,1);
