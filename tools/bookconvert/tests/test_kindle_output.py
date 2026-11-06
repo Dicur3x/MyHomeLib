@@ -97,6 +97,62 @@ class KindleOutputTests(unittest.TestCase):
             self.assertEqual(archive.read('OPS/image.png'), self.image)
         self.assert_clean()
 
+    def test_legacy_cover_mime_and_missing_fonts_are_repaired_in_private_copy(self):
+        with zipfile.ZipFile(self.source) as archive:
+            files = {name: archive.read(name) for name in archive.namelist()}
+        files['OPS/package.opf'] = (files['OPS/package.opf']
+            .replace(b'id="pic" href="image.png" media-type="image/png"',
+                     b'id="pic" href="image.jpg" media-type="image/jpeg" properties="cover-image"')
+            .replace(b'<manifest>', b'<manifest><item id="cover" href="cover.xhtml" media-type="application/xhtml+xml"/>'
+                     b'<item id="font" href="fonts/present.ttf" media-type="font/ttf"/>'
+                     b'<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>')
+            .replace(b'<spine>', b'<spine toc="ncx"><itemref idref="cover" linear="no"/>'))
+        files['OPS/chapter.xml'] = files['OPS/chapter.xml'].replace(b'image.png', b'image.jpg')
+        files['OPS/image.jpg'] = b'\x89PNG\r\n\x1a\n' + files.pop('OPS/image.png')
+        files['OPS/fonts/present.ttf'] = b'packaged-font-bytes'
+        missing = b'@font-face { font-family: Missing; src: /* font */ url("fonts/missing.ttf") format("truetype"); }'
+        style = (b'/* ' + missing + b' */\n'
+                 b'@font-face {font-family: Keep; src:url(fonts/present.ttf)}\n'
+                 b'@font-face {font-family: "Literal; src:url(missing.ttf);"; src:local("Book Font")}\n'
+                 b'@font-face {font-family: Fallback; src:url(missing.ttf), url(fonts/present.ttf)}\n'
+                 b'p {color: #123456}')
+        files['OPS/style.css'] = missing + style
+        chapter, cover, ncx = ('OPS/chapter.xml', 'OPS/cover.xhtml', 'OPS/toc.ncx')
+        files[cover] = b'<html xmlns="http://www.w3.org/1999/xhtml"><body><div><img src="image.jpg"/></div></body></html>'
+        files[ncx] = b'<ncx><navMap><navPoint><content src="chapter.xml#anchor"/></navPoint></navMap></ncx>'
+        for keep_cover in ('no', 'caption', 'chapter-link', 'toc-link'):
+            with self.subTest(keep_cover=keep_cover):
+                payloads = dict(files)
+                if keep_cover == 'caption':
+                    payloads[cover] = files[cover].replace(b'</div>', b'<p>Edition detail</p></div>')
+                elif keep_cover == 'chapter-link':
+                    payloads[chapter] = files[chapter].replace(b'href="#note"', b'href="cover.xhtml"')
+                elif keep_cover == 'toc-link':
+                    payloads[ncx] = files[ncx].replace(b'chapter.xml#anchor', b'cover.xhtml')
+                source, output = self.root / (keep_cover + '.epub'), self.root / (keep_cover + '-out.epub')
+                with zipfile.ZipFile(source, 'w') as archive:
+                    for name, data in payloads.items():
+                        archive.writestr(name, data)
+                source_hash = hashlib.sha256(source.read_bytes()).digest()
+                warnings = set()
+                self.assertTrue(k.canonical_input(c, source, output, warnings))
+                self.assertEqual(len(warnings), 1)
+                with zipfile.ZipFile(output) as archive:
+                    package = c.xml(archive.read('OPS/package.opf'))
+                    manifest = c.first(package, 'manifest')
+                    image = next(node for node in manifest if node.get('id') == 'pic')
+                    self.assertEqual(image.get('media-type'), 'image/png')
+                    self.assertEqual(image.get('href'), 'image.jpg')
+                    self.assertEqual(archive.read('OPS/image.jpg'), files['OPS/image.jpg'])
+                    self.assertEqual(archive.read('OPS/fonts/present.ttf'), files['OPS/fonts/present.ttf'])
+                    self.assertEqual(archive.read('OPS/style.css'), style)
+                    self.assertEqual(archive.read(ncx), payloads[ncx])
+                    spine = c.first(package, 'spine')
+                    self.assertEqual(spine.get('toc'), 'ncx')
+                    self.assertEqual([item.get('idref') for item in spine],
+                                     ['chapter'] if keep_cover == 'no' else ['cover', 'chapter'])
+                self.assertEqual(hashlib.sha256(source.read_bytes()).digest(), source_hash)
+
     def test_jpeg_record_padding_preserves_codestream_and_unknown_tails(self):
         for length in (1, 2, 3):
             image = b'\xff\xd8\xff' + b'x' * (7 - length) + b'\xff\xd9'

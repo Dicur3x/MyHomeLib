@@ -5448,5 +5448,12 @@
     "limits": "The component files were checked against their real hashes and installed by the real helper; download transport was isolated. The restart fixture consumes the same request and opens the native review directly. The production menu and startup handler in final release archives, public first-use download, and missing/damaged JPEG XL companion behavior still need verification.",
     "cleanup": "The new build profiles and temporary projects on G: were removed. Work paused while the user was playing and resumed after their message.",
     "new_bug": "The user reported MOBI export of Игра вынужденных убийц failing Kindle validation on a duplicate HTML cover, a PNG declared as JPEG, and absent CSS font resources. This is queued for beta 5."
+  },
+  "kindle_epub_cover_fonts_20261106": {
+    "status": "Fixed on the working branch. Both rebuilt KindleExport 3.0.0.5 packages passed the real-book regression.",
+    "reproduction": "Flibusta LibID 881796, Игра вынужденных убийц. The original ZIP EPUB produced five validator errors (one redundant cover page and four missing fonts). Native restoration of the compressed FLibrary EPUB on x86/x64 reproduced all six errors, adding the PNG cover declared as JPEG.",
+    "implementation": "Normalize manifest image types from the actual content in the Kindle preparation copy. Remove the first non-linear page from reading order only when it contains just the declared cover and has no inbound chapter, guide or navigation link. Drop individual simple font-face rules referring to absent local font files and report fallback in Russian. Keep source files, embedded fonts that exist, and strict writer checks.",
+    "verification": "Eight packaged native exports: both real EPUB variants to MOBI and AZW3 on x86 and x64. No validation exception was used. KindleUnpack read back all 1,174 source paragraphs (also in the legacy MOBI7 half), 20 navigation entries in order and the same pixels for both images. Targeted tests also preserve captioned and referenced cover pages, valid font resources and unrelated CSS.",
+    "scope": "The check used isolated Windows packages and KindleUnpack. The original ZIP, compressed 7z and companion image archives were read-only. The beta 5 release gate remains open."
   }
 }
