@@ -23,6 +23,7 @@ type
     procedure Cancel;
     procedure Load(const Book: TBookRecord; Cover, Annotation, Metadata: Boolean;
       LocalSource: Boolean = True);
+    procedure UpdateReadingProgress(const Book: TBookRecord);
     function Busy: Boolean;
   end;
 
@@ -169,9 +170,16 @@ end;
 procedure TBookInfoPreview.Load(const Book: TBookRecord; Cover, Annotation, Metadata, LocalSource: Boolean);
 begin
   Cancel; FBook:=Book; FCover:=Cover; FAnnotation:=Annotation; FMetadata:=Metadata; FLocalSource:=LocalSource;
+  FPanel.SetReadingProgress(Book.Progress);
   FPending:=Cover or Annotation or Metadata;
   if FPending then FPanel.SetPreviewStatus('Загрузка дополнительных сведений из файла…');
   FTimer.Enabled:=FPending or Assigned(FWorker);
+end;
+
+procedure TBookInfoPreview.UpdateReadingProgress(const Book: TBookRecord);
+begin
+  if FPanel.DetailsButton.Visible and FBook.BookKey.IsSameAs(Book.BookKey) then
+    FPanel.SetReadingProgress(Book.Progress);
 end;
 
 function TBookInfoPreview.Busy: Boolean;

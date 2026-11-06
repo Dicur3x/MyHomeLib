@@ -4,7 +4,8 @@ var Collection: IBookCollection; Book: TBookRecord; CID, BID: Integer;
   Source, Hash, Body, ReaderSection: string; Menu: TMenuItem;
   Driver: TRMFMainReaderDriver; Languages: TComboBox; Action: TAction;
   Ini: TMemIniFile; Node: PVirtualNode; Preparations, BusyPreviews, Readers: Integer;
-  OldBuiltin: Boolean;
+  OldBuiltin, OldInfoVisible: Boolean;
+  ProgressBadge: TPaintBox;
 begin
   CID:=SystemDB.CreateCollection('Small FB2 reader',Settings.AppPath,'small-reader.hlc2',
     CT_EXTERNAL_LOCAL_FB,Settings.AppPath+'genres_fb2.glst');
@@ -30,8 +31,10 @@ begin
   Trace('small reader collection active');
   Languages:=TComboBox.Create(nil); Driver:=TRMFMainReaderDriver.Create;
   OldBuiltin:=Settings.UseBuiltinReaderByDefault;
+  OldInfoVisible:=Settings.ShowInfoPanel;
   try
     Settings.UseBuiltinReaderByDefault:=True;
+    if not OldInfoVisible then frmMain.ShowBookInfoPanelExecute(nil);
     Languages.Parent:=frmMain; Languages.Visible:=False; Languages.Items.Add('-'); Languages.ItemIndex:=0;
     frmMain.pgControl.ActivePage:=frmMain.tsSearch; frmMain.pgControlChange(nil);
     Trace('small reader before tree fill');
@@ -46,6 +49,9 @@ begin
     Require(Assigned(Node),'Small FB2 actual Main book row missing');
     frmMain.tvBooksSR.ClearSelection; frmMain.tvBooksSR.Selected[Node]:=True;
     frmMain.tvBooksSR.FocusedNode:=Node; frmMain.Show;
+    frmMain.tvBooksTreeChange(frmMain.tvBooksSR,Node);
+    ProgressBadge:=frmMain.ipnlSearch.FindComponent('BookReadingProgress') as TPaintBox;
+    Require(Assigned(ProgressBadge) and not ProgressBadge.Visible,'Unread FB2 should not have a progress badge');
     Trace('small reader tree ready');
     ReaderSection:='Book.'+Copy(THashSHA2.GetHashString(ReaderHistoryName(Book,
       VarToStr(Collection.GetProperty(PROP_SOURCE_LIBRARY)))),1,40);
@@ -70,11 +76,15 @@ begin
       var SavedBook: TBookRecord;
       Collection.GetBookRecord(Book.BookKey,SavedBook,True);
       Require(SavedBook.Progress>0,'Independent reader did not return its progress to the catalogue');
+      Require(ProgressBadge.Hint=Format('Прочитано %d%%',[SavedBook.Progress]),
+        'Reader closed with the correct saved progress but did not update the selected book preview');
     end;
     Writeln('PASS actual Main small unchanged FB2 opens and pages through explicit builtin and default reader actions without repeated preparation');
+  Writeln('PASS reader return updates the selected catalogue book progress badge');
   finally
     Driver.Timer.Enabled:=False; CancelReaderPreparations(frmMain);
     Settings.UseBuiltinReaderByDefault:=OldBuiltin;
+    if Settings.ShowInfoPanel<>OldInfoVisible then frmMain.ShowBookInfoPanelExecute(nil);
     Driver.Free; Languages.Free; Collection:=nil; frmMain.Hide;
   end;
 end;

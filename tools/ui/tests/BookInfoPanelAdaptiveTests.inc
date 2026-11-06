@@ -4,6 +4,7 @@ procedure TestAdaptiveBookPreview;
 var Infos: TArray<TInfoPanel>; Trees: TArray<TBookTree>; Panel: TInfoPanel;
   OldBounds: TRect; OldPage, DPI, Width, Index, Cases, WideCases, BeforeHeight, BeforePreferred: Integer;
   OldTheme, OldVisible, Dark: Boolean; Annotation: TMemo; Viewport: TScrollBox;
+  ReadingProgress: TPaintBox;
   Content: TWinControl; DescriptionBounds: TRect; Bitmap: TBitmap; Png: TPngImage;
   Source, Hash, XML: string; Images: TMemoryStream; Started: UInt64;
   OldManualHeight: Integer;
@@ -105,6 +106,23 @@ begin
               ' viewport=',Viewport.ClientWidth,' annotation_y=',Annotation.Top); Flush(Output);
             BeforeHeight:=Panel.Height; BeforePreferred:=Panel.PreferredHeight;
             DescriptionBounds:=Annotation.BoundsRect;
+            ReadingProgress:=Panel.FindComponent('BookReadingProgress') as TPaintBox;
+            Require(Assigned(ReadingProgress) and not ReadingProgress.Visible,'No-progress book showed a stale badge');
+            Panel.SetReadingProgress(42);
+            Require((Panel.Height=BeforeHeight) and (Panel.PreferredHeight=BeforePreferred) and
+              (Annotation.BoundsRect=DescriptionBounds),'Reading progress changed the preview footprint');
+            if Width=1280 then Require(ReadingProgress.Visible,'Wide preview did not display reading progress');
+            if ReadingProgress.Visible then
+              Require((ReadingProgress.Left>=Panel.DetailsButton.BoundsRect.Right) and
+                (ReadingProgress.Top>=Panel.DetailsButton.Top) and
+                (ReadingProgress.BoundsRect.Bottom<=Panel.DetailsButton.BoundsRect.Bottom) and
+                (ReadingProgress.BoundsRect.Right<=Panel.ClientWidth),
+                'Reading progress overlaps the footer or leaves the panel');
+            Require(ReadingProgress.Hint='Прочитано 42%','Reading progress did not show the saved value');
+            Panel.SetReadingProgress(100);
+            Require(ReadingProgress.Hint='Прочитано 100%','Reading progress did not refresh');
+            Panel.SetReadingProgress(0);
+            Require(not ReadingProgress.Visible,'Clearing reading progress left the badge visible');
             Panel.GalleryButton.Click;
             Started:=GetTickCount64;
             while Panel.Gallery.Loading and (GetTickCount64-Started<10000) do
@@ -148,6 +166,7 @@ begin
     Require((Cases=72) and (WideCases>=6),'Adaptive preview did not exercise wide/narrow six-view DPI cases');
     Writeln('PASS adaptive preview uses actual Main bounded automatic height in all six views cases=',Cases);
     Writeln('PASS expanded illustrations keep panel height and wide description position');
+    Writeln('PASS reading progress fits the footer and preserves the description bounds');
     Require(THashSHA2.GetHashStringFromFile(Source)=Hash,'Gallery layout changed source book bytes');
     Writeln('PASS adaptive preview keeps thumbnail pixels and original source unchanged'); Flush(Output);
     frmMain.ScaleForPPI(96); frmMain.SetBounds(0,0,1280,900);

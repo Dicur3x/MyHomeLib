@@ -89,6 +89,8 @@ type
     FContentSizePending: Boolean;
     FOnContentSizeChanged: TNotifyEvent;
     FDetailsButton: TButton;
+    FReadingProgress: TPaintBox;
+    FReadingPercent: Integer;
     FReviewsButton: TButton;
     FReviews: TMemo;
     FReviewDownload: TButton;
@@ -111,11 +113,12 @@ type
     FRedrawWindow: HWND;
     FRedrawMemoWindow: HWND;
     FLinkMetrics: array[0..3] of TInfoLinkMetrics;
-    FTextMetrics: array[0..9] of TInfoTextMetrics;
+    FTextMetrics: array[0..10] of TInfoTextMetrics;
     FLayoutProfile: TInfoPanelLayoutProfileEvent;
     FPendingTexts: TDictionary<TControl, string>;
 
     procedure GalleryToggleClick(Sender: TObject);
+    procedure PaintReadingProgress(Sender: TObject);
     procedure ReviewsToggleClick(Sender: TObject);
     procedure ReviewDownloadClick(Sender: TObject);
     function GetReviewsVisible: Boolean;
@@ -186,6 +189,7 @@ type
     procedure SetSavedReview(const Value: string);
     procedure SetPreviewStatus(const Value: string);
     procedure SetReadingSupport(const Value: string);
+    procedure SetReadingProgress(Value: Integer);
     function PreviewStatusText: string;
 
     procedure SetBookAnnotation(
@@ -622,6 +626,13 @@ begin
   FDetailsButton.Caption := 'Информация о книге';
   FDetailsButton.Visible := False;
 
+  FReadingProgress := TPaintBox.Create(Self);
+  FReadingProgress.Name := 'BookReadingProgress';
+  FReadingProgress.Visible := False;
+  FReadingProgress.Parent := Self;
+  FReadingProgress.ShowHint := True;
+  FReadingProgress.OnPaint := PaintReadingProgress;
+
   FReviewsButton := TInfoDetailsButton.Create(Self);
   FReviewsButton.Visible := False;
   FReviewsButton.Parent := Self;
@@ -850,6 +861,42 @@ end;
 procedure TInfoPanel.SetReadingSupport(const Value: string);
 begin SetInfoText(FReadingSupport,Value); FReadingSupport.Visible:=Value<>''; LayoutControls; end;
 
+procedure TInfoPanel.SetReadingProgress(Value: Integer);
+var VisibilityChanged: Boolean;
+begin
+  Value := EnsureRange(Value, 0, 100);
+  if FReadingPercent = Value then Exit;
+  VisibilityChanged := (FReadingPercent = 0) <> (Value = 0);
+  FReadingPercent := Value;
+  FReadingProgress.Hint := Format('Прочитано %d%%', [Value]);
+  if VisibilityChanged then LayoutControls;
+  FReadingProgress.Invalidate;
+end;
+
+procedure TInfoPanel.PaintReadingProgress(Sender: TObject);
+var Bounds, Fill: TRect;
+  Percent: string;
+  BoxCanvas: TCanvas;
+begin
+  BoxCanvas := FReadingProgress.Canvas;
+  Bounds := FReadingProgress.ClientRect;
+  Fill := Bounds;
+  Fill.Right := MulDiv(Fill.Width, FReadingPercent, 100);
+  BoxCanvas.Brush.Style := bsSolid;
+  if MHLThemeDark then BoxCanvas.Brush.Color := RGB(51,57,64)
+  else BoxCanvas.Brush.Color := RGB(230,234,240);
+  BoxCanvas.FillRect(Bounds);
+  if MHLThemeDark then BoxCanvas.Brush.Color := RGB(57,79,103)
+  else BoxCanvas.Brush.Color := RGB(199,220,242);
+  BoxCanvas.FillRect(Fill);
+  BoxCanvas.Font.Assign(FReadingProgress.Font);
+  BoxCanvas.Font.Color := MHLThemeText;
+  BoxCanvas.Brush.Style := bsClear;
+  Percent := IntToStr(FReadingPercent) + '%';
+  DrawText(BoxCanvas.Handle, PChar(Percent), Length(Percent), Bounds,
+    DT_CENTER or DT_VCENTER or DT_SINGLELINE or DT_NOPREFIX);
+end;
+
 procedure TInfoPanel.SetPreviewStatus(const Value: string);
 begin
   SetInfoText(FPreviewStatus,Value); FPreviewStatus.Visible:=Value<>'';
@@ -984,7 +1031,9 @@ procedure TInfoPanel.LayoutControls;
 var
   RowH, LinkH, LinkW, Gap, LblW, W, H, Y, DetailH, Pass: Integer;
   LayoutPPI, FooterH, FooterW, Padding, MetaW, BaseY, ButtonH, DesiredDetailH,
-    ReviewW, ButtonY: Integer;
+    ReviewW, ButtonY, ProgressLeft, ProgressW, ProgressH: Integer;
+  ProgressText: TSize;
+  ShowProgress: Boolean;
   function LinkHeight(Link: TMHLLinkLabel; AvailableWidth: Integer; out LinkWidth: Integer): Integer;
   var
     IdealSize: TSize;
@@ -1053,7 +1102,7 @@ var
 
 begin
   if (csDestroying in ComponentState) or (FUpdateCount > 0) or FUpdatingLayout or not Assigned(FFb2Info) or
-    not Assigned(FDetailsButton) or not Assigned(Parent) then
+    not Assigned(FDetailsButton) or not Assigned(FReadingProgress) or not Assigned(Parent) then
     Exit;
   // Hidden tabs retain their book/font state; measure their final viewport
   // when VCL shows them, instead of laying out all six tabs on every DPI pass.
@@ -1083,6 +1132,22 @@ begin
       end;
       FDetailsButton.SetBounds(FInfoViewport.Left, ButtonY, FooterW, FooterH);
     end;
+    ShowProgress := False;
+    if FDetailsButton.Visible and (FReadingPercent > 0) then
+    begin
+      ProgressLeft := FDetailsButton.BoundsRect.Right;
+      if FReviewsButton.Visible then ProgressLeft := FReviewsButton.BoundsRect.Right;
+      Inc(ProgressLeft, MulDiv(AnnotationGap, LayoutPPI, 96));
+      ProgressText := MeasureInfoText(10, '100%', FReadingProgress.Font);
+      ProgressW := Max(MulDiv(60, LayoutPPI, 96), ProgressText.cx + MulDiv(12, LayoutPPI, 96));
+      ProgressH := Min(FooterH, Max(MulDiv(20, LayoutPPI, 96), ProgressText.cy + MulDiv(4, LayoutPPI, 96)));
+      if ProgressLeft + ProgressW <= FInfoViewport.BoundsRect.Right then
+      begin
+        FReadingProgress.SetBounds(ProgressLeft, ButtonY + (FooterH - ProgressH) div 2, ProgressW, ProgressH);
+        ShowProgress := True;
+      end;
+    end;
+    FReadingProgress.Visible := ShowProgress;
     if Assigned(FReviews) and FReviews.Visible then
     begin
       Gap := MulDiv(AnnotationGap, LayoutPPI, 96);
@@ -1564,6 +1629,7 @@ begin
   SetPreviewStatus(''); SetReadingSupport('');
   FGallery.Clear;
   FDetailsButton.Visible := False;
+  SetReadingProgress(0);
   ConfigureReviews(nil);
   if FReviews.Visible then
   begin

@@ -7006,7 +7006,11 @@ begin
             GroupData:=tvBooksF.GetNodeData(GroupNode);
             if Assigned(GroupData) and GroupData^.BookKey.IsSameAs(ReaderKey) and
               ReaderBookMatchesExpectedIdentity(Expected.LibID,ReaderBookPhysicalIdentity(Expected),GroupData^,Namespace) then
-            begin GroupData^.Progress:=Reply.Progress; tvBooksF.InvalidateNode(GroupNode); end;
+            begin
+              GroupData^.Progress:=Reply.Progress; tvBooksF.InvalidateNode(GroupNode);
+              if Assigned(FBookPreviews[tvBooksF.Tag]) then
+                FBookPreviews[tvBooksF.Tag].UpdateReadingProgress(GroupData^);
+            end;
             GroupNode:=tvBooksF.GetNext(GroupNode);
           end;
           StatusMessage:='Позиция и личный прогресс сохранены. Каталог книги не обновлён.';
@@ -11955,7 +11959,10 @@ begin
           Changed := Data^; Changed.Progress := NewProgress;
           if TryStoreReaderBookPersonal(FSystemData.GetCollection(Data^.BookKey.DatabaseID), FSystemData,
             Changed, [bpfProgress]) <> rpwRejected then
-          begin Data^.Progress := NewProgress; Tree.InvalidateNode(Node); end
+          begin
+            Data^.Progress := NewProgress; Tree.InvalidateNode(Node);
+            if Assigned(FBookPreviews[Tree.Tag]) then FBookPreviews[Tree.Tag].UpdateReadingProgress(Data^);
+          end
           else MHLShowInfo('Не удалось подтвердить личную карточку книги. Прогресс не изменён.');
           Exit;
         end;
@@ -12775,6 +12782,7 @@ begin
       begin
         UpdateProc(Data);
         Tree.RepaintNode(Node);
+        if Assigned(FBookPreviews[Tree.Tag]) then FBookPreviews[Tree.Tag].UpdateReadingProgress(Data^);
       end;
     end;
   end;

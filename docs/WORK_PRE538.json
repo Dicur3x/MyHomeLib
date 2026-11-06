@@ -5433,5 +5433,12 @@
     "status": "User confirmed all unfinished TODO items are in scope for beta 5.",
     "order": "Complete and verify one item at a time. Reader encoding is verified; the compact reading progress indicator is next. Collection compression and incremental INPX, maximum economy and a separate grayscale option, SQL-dump import using MultiLib as reference, and the remaining deletion, export, reader and packaging checks all belong to beta 5.",
     "release": "Publish only after validation on x86 and x64. Beta 4 remains the published release."
+  },
+  "catalogue_preview_reading_progress_20261106": {
+    "status": "Implemented in the working branch and verified in native Win32 and Win64 tests.",
+    "implementation": "The book preview reads the existing per-book progress from its selected catalogue record. A compact track behind the percentage uses spare footer space after the existing buttons. It has no effect on the preferred height or annotation layout. Zero progress or insufficient width hides the badge. Reader session replies and manual read/unread changes refresh the matching preview from the updated record.",
+    "verification": "The actual Main layout checked 72 cases per architecture: all six views, light and dark themes, 96/144/192 DPI and narrow/wide windows. Setting 42, 100 and zero checked bounds and display text. The active FB2 test opened and paged through both Main reader actions and confirmed the selected card updated to the exact persisted progress after the separate reader closed. Review preview and existing illustration, annotation and manual height checks passed.",
+    "cleanup": "New G: build directories, temporary projects and isolated runtime profiles were removed.",
+    "remaining": "The final beta 5 package verification remains open. Next planned area is collection compression and incremental INPX."
   }
 }
