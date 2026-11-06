@@ -22,7 +22,7 @@ const
   ALREADER_FIXED_SIZE = 4739366;
   COMPONENT_FEED_NAME = 'HomeLibRu.components.json';
   COMPONENT_MIRROR_API = 'https://api.github.com/repos/Dicur3x/MyHomeLib/releases/tags/' + ALREADER_FIXED_TAG;
-  UPDATE_COMPONENTS: array[0..23] of TUpdateComponent = (
+  UPDATE_COMPONENTS: array[0..24] of TUpdateComponent = (
     (ID:'SQLite'; Title:'База коллекций'; URL:'https://www.sqlite.org/changes.html'; CheckKind:ccSQLite; CheckOnly:False),
     (ID:'AlReader'; Title:'Внешняя читалка'; URL:'https://github.com/Dicur3x/MyHomeLib/releases/tag/optional-alreader-2.5.1009.25'; CheckKind:ccBundled; CheckOnly:False),
     (ID:'SumatraPDF'; Title:'Внешняя читалка PDF и DjVu'; URL:'https://www.sumatrapdfreader.org/docs/Version-history'; CheckKind:ccSumatra; CheckOnly:False),
@@ -46,7 +46,8 @@ const
     (ID:'KindleExport'; Title:'Сохранение MOBI и AZW3'; URL:'https://github.com/ciscoriordan/kindling'; CheckKind:ccPublished; CheckOnly:False),
     (ID:'FB2Export'; Title:'Дополнительные форматы из FB2'; URL:'https://github.com/rupor-github/fb2cng'; CheckKind:ccPublished; CheckOnly:False),
     (ID:'KoboExport'; Title:'Сохранение EPUB для Kobo'; URL:'https://github.com/pgaskin/kepubify'; CheckKind:ccPublished; CheckOnly:False),
-    (ID:'EpubPdfExport'; Title:'Вёрстка EPUB в PDF'; URL:'https://github.com/vivliostyle/vivliostyle.js'; CheckKind:ccPublished; CheckOnly:False));
+    (ID:'EpubPdfExport'; Title:'Вёрстка EPUB в PDF'; URL:'https://github.com/vivliostyle/vivliostyle.js'; CheckKind:ccPublished; CheckOnly:False),
+    (ID:'OPDSTls'; Title:'Каталог OPDS по HTTPS'; URL:'https://github.com/Dicur3x/MyHomeLib/releases'; CheckKind:ccPublished; CheckOnly:False));
 
 type
   TComponentReleases = array[Low(UPDATE_COMPONENTS)..High(UPDATE_COMPONENTS)] of TProgramRelease;
@@ -225,6 +226,7 @@ begin
   if ID='FB2Export' then Exit('fb2cng преобразует FB2 в EPUB 2, EPUB 3, KEPUB, KFX, AZW8, PDF и Markdown.');
   if ID='KoboExport' then Exit('kepubify преобразует EPUB напрямую в KEPUB для читалок Kobo.');
   if ID='EpubPdfExport' then Exit('Vivliostyle преобразует EPUB напрямую в PDF. Для вёрстки нужна среда Microsoft WebView2 Runtime.');
+  if ID='OPDSTls' then Exit('Модуль HTTPS позволяет HomeLibre обслуживать каталог OPDS с вашим сертификатом и закрытым ключом.');
   if ID='LegacyBooks' then Exit('Кодеки calibre — чтение LIT/LRF и отдельных старых вариантов Mobipocket.');
   if ID='LegacyOffice' then Exit('libwps/libwpd — чтение WPS/WPD; требуется 64-разрядная Windows.');
   if ID='XPS' then Exit('HomeLibXps — чтение страниц документов XPS.');
@@ -677,7 +679,7 @@ begin
   if (ID='HomeLibReader') or (ID='BookConverter') or (ID='BookProcessing') or
     (ID='ImageProcessing') or (ID='Kindle') or (ID='LegacyBooks') or
     (ID='LegacyOffice') or (ID='XPS') or (ID='KindleExport') or
-    (ID='FB2Export') or (ID='KoboExport') or (ID='EpubPdfExport') or (ID='MHLMcpServer') then
+    (ID='FB2Export') or (ID='KoboExport') or (ID='EpubPdfExport') or (ID='MHLMcpServer') or (ID='OPDSTls') then
   begin
     if (Count<>4) or (StrToInt(Parts[0])<3) or (StrToInt(Parts[3])=0) then Exit;
     // In the 3.x series revision 1..65534 is beta N; 65535 is final.

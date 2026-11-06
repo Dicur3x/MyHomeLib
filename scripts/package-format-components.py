@@ -35,6 +35,7 @@ WRITERS = {
     },
 }
 ADVANCED_WRITERS = (*WRITERS, 'EpubPdfExport')
+OPDS_TLS_TOOLCHAIN = 'go1.27.3'
 DESCRIPTORS = {
     'BookProcessing': 'tools/bookconvert/MODULAR_RUNTIME.json',
     'ImageProcessing': 'tools/images/COMPONENT.json',
@@ -44,6 +45,7 @@ DESCRIPTORS = {
     'LegacyOffice': 'tools/office/COMPONENT.json',
     'XPS': 'tools/xps/COMPONENT.json',
     'EpubPdfExport': 'tools/epub-pdf/COMPONENT.json',
+    'OPDSTls': 'tools/opds-tls/COMPONENT.json',
     **{component: 'tools/' + writer['directory'] + '/COMPONENT.json' for component, writer in WRITERS.items()},
 }
 NOTES = {
@@ -57,6 +59,7 @@ NOTES = {
     'FB2Export': 'fb2cng — сохранение FB2 в EPUB 2, EPUB 3, KEPUB, KFX, AZW8, PDF и Markdown.',
     'KoboExport': 'kepubify — прямое сохранение EPUB в KEPUB для Kobo.',
     'EpubPdfExport': 'Vivliostyle — прямая вёрстка EPUB в PDF через Microsoft WebView2 Runtime.',
+    'OPDSTls': 'Каталог OPDS по HTTPS с сертификатом и закрытым ключом пользователя.',
 }
 
 
@@ -173,7 +176,33 @@ def epub_pdf_payload(platform, source):
     return payload, list(payload)
 
 
-def payload_for(platform, component, kindle_export_root=None, advanced_export_root=None):
+def opds_tls_payload(platform, go):
+    if go is None:
+        raise ValueError('Pass the verified Go toolchain using --opds-tls-go')
+    env = dict(os.environ, GOTOOLCHAIN='local', GOTELEMETRY='off', GOENV='off', GOFLAGS='',
+               GOOS='windows', GOARCH={'Win32':'386', 'Win64':'amd64'}[platform],
+               CGO_ENABLED='0', GOPROXY='off')
+    version = subprocess.check_output([str(go), 'env', 'GOVERSION'], env=env, text=True).strip()
+    if version != OPDS_TLS_TOOLCHAIN:
+        raise ValueError('OPDS HTTPS requires ' + OPDS_TLS_TOOLCHAIN)
+    goroot = Path(subprocess.check_output([str(go), 'env', 'GOROOT'], env=env, text=True).strip())
+    with tempfile.TemporaryDirectory(prefix='homelibre-opds-package-') as temporary:
+        root = Path(temporary)
+        binary = root/'HomeLibreOPDSTls.exe'
+        env['GOCACHE'] = str(root/'cache')
+        subprocess.run([str(go), 'build', '-trimpath', '-buildvcs=false', '-ldflags=-s -w',
+                        '-o', str(binary), str(REPO/'tools/opds-tls/main.go')], env=env, check=True)
+        data = binary.read_bytes()
+        helper.binary_platform(data, platform)
+    payload = {'tools/opds-tls/HomeLibreOPDSTls.exe': data,
+               'tools/opds-tls/GO-LICENSE.txt': (goroot/'LICENSE').read_bytes(),
+               'tools/opds-tls/GO-PATENTS.txt': (goroot/'PATENTS').read_bytes()}
+    return payload, list(payload)
+
+
+def payload_for(platform, component, kindle_export_root=None, advanced_export_root=None, opds_tls_go=None):
+    if component == 'OPDSTls':
+        return opds_tls_payload(platform, opds_tls_go)
     if component == 'EpubPdfExport':
         return epub_pdf_payload(platform, advanced_export_root)
     if component in WRITERS:
@@ -250,8 +279,8 @@ def payload_for(platform, component, kindle_export_root=None, advanced_export_ro
     return payload, required
 
 
-def package(output, platform, component, version, kindle_export_root=None, advanced_export_root=None):
-    payload, required = payload_for(platform, component, kindle_export_root, advanced_export_root)
+def package(output, platform, component, version, kindle_export_root=None, advanced_export_root=None, opds_tls_go=None):
+    payload, required = payload_for(platform, component, kindle_export_root, advanced_export_root, opds_tls_go)
     descriptor = dict(format=1, component=component, platform=platform, version=version,
                       required=required, identities={name:helper.digest(payload[name]) for name in required})
     payload[DESCRIPTORS[component]] = helper.json_bytes(descriptor)
@@ -281,18 +310,20 @@ if __name__ == '__main__':
     parser.add_argument('output', type=Path)
     parser.add_argument('--version', required=True)
     parser.add_argument('--platform', choices=('Win32','Win64'), action='append')
-    parser.add_argument('--component', choices=COMPONENTS + ADVANCED_WRITERS, action='append')
+    parser.add_argument('--component', choices=COMPONENTS + ADVANCED_WRITERS + ('OPDSTls',), action='append')
     parser.add_argument('--kindle-export-root', type=Path, help='Verified CI artifacts containing KindleExport-Win32/Win64')
     parser.add_argument('--advanced-export-root', type=Path, help='Pinned upstream files and licenses for optional writers')
+    parser.add_argument('--opds-tls-go', type=Path, help='Verified Go executable for the optional OPDS HTTPS transport')
     options=parser.parse_args()
     import re
     if not re.fullmatch(r'\d+\.\d+(?:\.\d+){0,2}', options.version): parser.error('Invalid component version')
     entries=[]; assets=[]
-    components = options.component or COMPONENTS + (ADVANCED_WRITERS if options.advanced_export_root else ())
+    components = options.component or COMPONENTS + (ADVANCED_WRITERS if options.advanced_export_root else ()) + (
+        ('OPDSTls',) if options.opds_tls_go else ())
     for platform in options.platform or ('Win32','Win64'):
         for component in components:
             entry, asset=package(options.output.resolve(), platform, component, options.version,
-                                 options.kindle_export_root, options.advanced_export_root)
+                                 options.kindle_export_root, options.advanced_export_root, options.opds_tls_go)
             entries.append(entry); assets.append(asset)
     with (options.output/'format-components.json').open('xb') as stream:
         stream.write(helper.json_bytes(dict(format=1, components=entries)))

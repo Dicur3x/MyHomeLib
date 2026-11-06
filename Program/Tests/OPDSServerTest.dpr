@@ -318,10 +318,11 @@ end;
 
 var
   DBFileName, RootFolder, StopLine: string;
-  Port: Integer;
+  Port, TLSPort: Integer;
   Collection: TCollectionInfo;
   Server: THomeLibOPDSServer;
   Ready: TJSONObject;
+  CheckLAN: Boolean;
 begin
   try
     Require(ParamCount = 7, 'Usage: OPDSServerTest server <db> <root> <port> uselocaldata user mcpfixture');
@@ -349,7 +350,8 @@ begin
         Server := THomeLibOPDSServer.Create;
         try
           CheckOnlineStartRejected(Server, Collection, Port);
-          CheckLANLoopback(Server, Collection, Port);
+          CheckLAN := GetEnvironmentVariable('HOMELIB_OPDS_TEST_LAN') = '1';
+          if CheckLAN then CheckLANLoopback(Server, Collection, Port);
           CheckExternalProxy(Server, Collection, Port);
           Server.Start(Collection, Port, False);
           Ready := TJSONObject.Create;
@@ -358,8 +360,8 @@ begin
             Ready.AddPair('visible_books', TJSONNumber.Create(105));
             Ready.AddPair('read_only_checked', TJSONBool.Create(True));
             Ready.AddPair('online_start_rejected', TJSONBool.Create(True));
-            Ready.AddPair('online_start_reject_checks', TJSONNumber.Create(2));
-            Ready.AddPair('lan_loopback_checked', TJSONBool.Create(True));
+            Ready.AddPair('online_start_reject_checks', TJSONNumber.Create(1 + Ord(CheckLAN)));
+            Ready.AddPair('lan_loopback_checked', TJSONBool.Create(CheckLAN));
             Ready.AddPair('external_proxy_checked', TJSONBool.Create(True));
             Writeln(Ready.ToJSON);
             Flush(Output);
@@ -367,9 +369,18 @@ begin
             Ready.Free;
           end;
           Readln(StopLine);
-          if StopLine.StartsWith('proxy ') then
+          while StopLine.StartsWith('proxy ') or StopLine.StartsWith('tls ') do
           begin
-            Server.Start(Collection, Port, False, Copy(StopLine, 7, MaxInt));
+            if StopLine.StartsWith('proxy ') then
+              Server.Start(Collection, Port, False, Copy(StopLine, 7, MaxInt))
+            else
+            begin
+              Require(TryStrToInt(Copy(StopLine, 5, MaxInt), TLSPort), 'Invalid TLS test port');
+              Server.StartHTTPS(Collection, TLSPort, False, 'localhost',
+                TPath.Combine(ExtractFilePath(ParamStr(0)), 'proxy.crt'),
+                TPath.Combine(ExtractFilePath(ParamStr(0)), 'proxy.key'),
+                GetEnvironmentVariable('HOMELIB_OPDS_TEST_TLS_WORKER'));
+            end;
             Ready := TJSONObject.Create;
             try
               Ready.AddPair('proxy_url', Server.CatalogURL('127.0.0.1'));

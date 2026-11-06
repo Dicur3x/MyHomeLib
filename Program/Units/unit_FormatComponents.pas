@@ -21,7 +21,7 @@ function IsFormatComponent(const ID: string): Boolean;
 begin
   Result:=(ID='BookProcessing') or (ID='ImageProcessing') or (ID='Kindle') or
     (ID='LegacyBooks') or (ID='LegacyOffice') or (ID='XPS') or (ID='KindleExport') or
-    (ID='FB2Export') or (ID='KoboExport') or (ID='EpubPdfExport');
+    (ID='FB2Export') or (ID='KoboExport') or (ID='EpubPdfExport') or (ID='OPDSTls');
 end;
 
 function FormatComponentFile(const ID: string): string;
@@ -34,6 +34,7 @@ begin
   if ID='FB2Export' then Result:='tools/fb2-export/fbc.exe';
   if ID='KoboExport' then Result:='tools/kobo-export/kepubify.exe';
   if ID='EpubPdfExport' then Result:='tools/epub-pdf/runtime/HomeLibEpubPdf.exe';
+  if ID='OPDSTls' then Result:='tools/opds-tls/HomeLibreOPDSTls.exe';
   if ID='LegacyBooks' then Result:='tools/bookconvert/vendor/calibre_legacy/native/HomeLibLegacy.dll';
   if ID='LegacyOffice' then Result:='tools/office/wps2html.exe';
   if ID='XPS' then Result:='tools/xps/HomeLibXps.exe';
@@ -49,6 +50,7 @@ begin
   if ID='FB2Export' then Result:='tools/fb2-export/COMPONENT.json';
   if ID='KoboExport' then Result:='tools/kobo-export/COMPONENT.json';
   if ID='EpubPdfExport' then Result:='tools/epub-pdf/COMPONENT.json';
+  if ID='OPDSTls' then Result:='tools/opds-tls/COMPONENT.json';
   if ID='LegacyBooks' then Result:='tools/bookconvert/vendor/calibre_legacy/COMPONENT.json';
   if ID='LegacyOffice' then Result:='tools/office/COMPONENT.json';
   if ID='XPS' then Result:='tools/xps/COMPONENT.json';
@@ -84,6 +86,8 @@ begin
     'tools/office/wpd2html.exe','tools/office/RUNTIME.json','tools/office/NOTICE.txt');
   if ID='XPS' then Result:=TArray<string>.Create('tools/xps/HomeLibXps.exe',
     'tools/xps/RUNTIME.json','tools/xps/HomeLibXps-MIT.txt');
+  if ID='OPDSTls' then Result:=TArray<string>.Create(FormatComponentFile(ID),
+    'tools/opds-tls/GO-LICENSE.txt','tools/opds-tls/GO-PATENTS.txt');
 end;
 
 function SafeFormatComponentFile(const ID, Name: string): Boolean;
@@ -101,7 +105,7 @@ begin
   if ID='Kindle' then Exit((Name='tools/bookconvert/kindle_input.py') or
     (Name.StartsWith('tools/kindle/') and not Name.StartsWith('tools/kindle/python/')));
   if ID='KindleExport' then Exit((Name='tools/bookconvert/kindle_output.py') or Name.StartsWith('tools/kindle-export/'));
-  if (ID='FB2Export') or (ID='KoboExport') or (ID='EpubPdfExport') then
+  if (ID='FB2Export') or (ID='KoboExport') or (ID='EpubPdfExport') or (ID='OPDSTls') then
   begin
     if Name=FormatComponentDescriptor(ID) then Exit(True);
     for var Required in FormatComponentRequiredFiles(ID) do

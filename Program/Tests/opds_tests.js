@@ -109,7 +109,7 @@ function snapshot(folder) {
   return result;
 }
 
-async function checkTLSProxy(bookBytes) {
+async function checkTLS(bookBytes, useWorker = false) {
   const keyPath = path.join(root, 'proxy.key');
   const certPath = path.join(root, 'proxy.crt');
   spawnChecked(process.env.HOMELIB_OPDS_TEST_OPENSSL, ['req', '-x509', '-newkey', 'rsa:2048',
@@ -117,27 +117,32 @@ async function checkTLSProxy(bookBytes) {
     '-days', '1', '-keyout', keyPath, '-out', certPath]);
   const cert = fs.readFileSync(certPath);
   const prefix = '/reader/books';
-  proxy = https.createServer({ key: fs.readFileSync(keyPath), cert, minVersion: 'TLSv1.2' }, (req, res) => {
-    if (!req.url.startsWith(prefix + '/')) { res.writeHead(404).end(); return; }
-    const upstream = http.request({ hostname: '127.0.0.1', port: address.port, method: req.method,
-      path: req.url.slice(prefix.length), agent: false }, reply => {
-      res.writeHead(reply.statusCode, reply.headers);
-      reply.pipe(res);
+  let proxyPort;
+  if (useWorker) proxyPort = await unusedPort();
+  else {
+    proxy = https.createServer({ key: fs.readFileSync(keyPath), cert, minVersion: 'TLSv1.2' }, (req, res) => {
+      if (!req.url.startsWith(prefix + '/')) { res.writeHead(404).end(); return; }
+      const upstream = http.request({ hostname: '127.0.0.1', port: address.port, method: req.method,
+        path: req.url.slice(prefix.length), agent: false }, reply => {
+        res.writeHead(reply.statusCode, reply.headers);
+        reply.pipe(res);
+      });
+      upstream.on('error', () => res.writeHead(502).end());
+      req.pipe(upstream);
     });
-    upstream.on('error', () => res.writeHead(502).end());
-    req.pipe(upstream);
-  });
-  proxy.listen(0, '127.0.0.1');
-  await once(proxy, 'listening');
-  const proxyPort = proxy.address().port;
-  const base = `https://localhost:${proxyPort}${prefix}`;
+    proxy.listen(0, '127.0.0.1');
+    await once(proxy, 'listening');
+    proxyPort = proxy.address().port;
+  }
+  const base = `https://localhost:${proxyPort}${useWorker ? '' : prefix}`;
+  const priorLength = stdout.length;
   const readAddress = new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       server.stdout.off('data', receive);
       reject(new Error(`No proxy catalogue address: ${stderr}`));
     }, 10000);
     function receive() {
-      const line = stdout.split(/\r?\n/).find(value => value.startsWith('{"proxy_url":'));
+      const line = stdout.slice(priorLength).split(/\r?\n/).find(value => value.startsWith('{"proxy_url":'));
       if (!line) return;
       clearTimeout(timer);
       server.stdout.off('data', receive);
@@ -145,7 +150,7 @@ async function checkTLSProxy(bookBytes) {
     }
     server.stdout.on('data', receive);
   });
-  server.stdin.write(`proxy ${base}\n`);
+  server.stdin.write(useWorker ? `tls ${proxyPort}\n` : `proxy ${base}\n`);
   const catalog = await readAddress;
   assert.ok(catalog.startsWith(base + '/'));
   const get = (url, method = 'GET') => new Promise((resolve, reject) => {
@@ -179,7 +184,8 @@ async function checkTLSProxy(bookBytes) {
   assert.equal(head.status, 200);
   assert.equal(head.headers['content-length'], download.headers['content-length']);
   assert.equal(head.bytes.length, 0);
-  pass('HTTPS reverse proxy with a trusted test certificate serves navigation, search, byte-exact book and HEAD');
+  pass(`${useWorker ? 'HomeLibre HTTPS transport' : 'HTTPS reverse proxy'} with a trusted test certificate serves navigation, search, byte-exact book and HEAD`);
+  return proxyPort;
 }
 
 async function main() {
@@ -256,10 +262,11 @@ pdf.extend(b'trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n'+str(xref).encode()
   assert.equal(ready.visible_books, 105);
   assert.equal(ready.read_only_checked, true);
   assert.equal(ready.online_start_rejected, true);
-  assert.equal(ready.online_start_reject_checks, 2);
-  pass('online collections are rejected with a Russian explanation; inactive and active servers end inactive');
-  assert.equal(ready.lan_loopback_checked, true);
-  pass('AllowLAN binds an IPv4 wildcard listener; a loopback Atom GET and Stop succeed');
+  const checkLAN = process.env.HOMELIB_OPDS_TEST_LAN === '1';
+  assert.equal(ready.online_start_reject_checks, checkLAN ? 2 : 1);
+  pass('online collections are rejected with a Russian explanation and the listener ends inactive');
+  assert.equal(ready.lan_loopback_checked, checkLAN);
+  if (checkLAN) pass('AllowLAN binds an IPv4 wildcard listener; a loopback Atom GET and Stop succeed');
   assert.equal(ready.external_proxy_checked, true);
   pass('external HTTPS address is validated; navigation, search and download links retain the configured path and ignore forwarded headers');
   address = new URL(ready.url);
@@ -455,9 +462,15 @@ print('valid Atom/OpenSearch XML')
   assert.deepEqual(snapshot(collectionRoot), before);
   pass('all catalog and book bytes remain unchanged after HTTP requests');
 
-  if (process.env.HOMELIB_OPDS_TEST_OPENSSL) await checkTLSProxy(expectedBook);
+  let tlsPort;
+  if (process.env.HOMELIB_OPDS_TEST_OPENSSL) {
+    await checkTLS(expectedBook);
+    if (process.env.HOMELIB_OPDS_TEST_TLS_WORKER) tlsPort = await checkTLS(expectedBook, true);
+  }
 
-  idle = net.connect(Number(address.port), address.hostname);
+  idle = net.connect(tlsPort || Number(address.port), address.hostname);
+  let idleError;
+  idle.on('error', error => { idleError = error; });
   await once(idle, 'connect');
   const stoppedAt = Date.now();
   server.stdin.end('stop\n');
@@ -469,9 +482,15 @@ print('valid Atom/OpenSearch XML')
   assert.ok(stdout.includes('"stopped":true'));
   assert.ok(Date.now() - stoppedAt < 15000);
   idle.destroy();
+  if (idleError) assert.match(idleError.code, /^(ECONNRESET|EPIPE)$/);
   fs.renameSync(db, heldDB); fs.renameSync(heldDB, db);
   assert.deepEqual(snapshot(collectionRoot), before);
   await assert.rejects(request(''), /ECONNREFUSED|socket hang up|ECONNRESET/);
+  if (tlsPort) {
+    const test = net.connect(tlsPort, address.hostname);
+    try { await assert.rejects(once(test, 'connect'), /ECONNREFUSED|ECONNRESET/); }
+    finally { test.destroy(); }
+  }
   pass('Stop closes an idle connection, releases database handles and preserves the library');
   console.log(`PASS: ${checks} OPDS integration groups; isolated 106-book fixture, no personal data`);
 }

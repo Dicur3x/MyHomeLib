@@ -158,6 +158,7 @@
         </DCCReference>
         <DCCReference Include="Forms\frm_OPDS.pas"/>
         <DCCReference Include="Units\unit_OPDSServer.pas"/>
+        <DCCReference Include="Units\unit_OPDSTlsTransport.pas"/>
         <DCCReference Include="Forms\frm_about.pas">
             <Form>frmAbout</Form>
         </DCCReference>

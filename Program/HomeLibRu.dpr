@@ -179,6 +179,7 @@ uses
   frm_settings in 'Forms\frm_settings.pas' {frmSettings},
   frm_OPDS in 'Forms\frm_OPDS.pas',
   unit_OPDSServer in 'Units\unit_OPDSServer.pas',
+  unit_OPDSTlsTransport in 'Units\unit_OPDSTlsTransport.pas',
   frm_about in 'Forms\frm_about.pas' {frmAbout},
   frm_statistic in 'Forms\frm_statistic.pas' {frmStat},
   unit_PrevInst in 'Units\unit_PrevInst.pas',

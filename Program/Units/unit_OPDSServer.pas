@@ -6,12 +6,13 @@ interface
 
 uses
   System.Classes, System.SysUtils, unit_Globals, SQLiteWrap,
-  IdHTTPServer, IdCustomHTTPServer, IdContext;
+  IdHTTPServer, IdCustomHTTPServer, IdContext, unit_OPDSTlsTransport;
 
 type
   THomeLibOPDSServer = class
   private
     FHTTP: TIdHTTPServer;
+    FTls: TOPDSTlsTransport;
     FCollection: TCollectionInfo;
     FPrefix, FExternalBase, FLinkBase: string;
     FPort: Integer;
@@ -27,11 +28,15 @@ type
       const Page: Integer): string;
     function ReadBook(DB: TSQLiteDatabase; const BookID: Integer): TBookRecord;
     function GetActive: Boolean;
+    procedure StartHTTP(const Collection: TCollectionInfo; Port: Integer;
+      AllowLAN: Boolean; const ExternalBase: string);
   public
     constructor Create;
     destructor Destroy; override;
     procedure Start(const Collection: TCollectionInfo; const Port: Integer;
       const AllowLAN: Boolean; const ExternalBase: string = '');
+    procedure StartHTTPS(const Collection: TCollectionInfo; Port: Integer; AllowLAN: Boolean;
+      const Hostname, Certificate, PrivateKey, Tool: string);
     procedure Stop;
     function CatalogURL(const Host: string): string;
     property Active: Boolean read GetActive;
@@ -129,7 +134,7 @@ end;
 
 function THomeLibOPDSServer.GetActive: Boolean;
 begin
-  Result := FHTTP.Active;
+  Result := FHTTP.Active and (not Assigned(FTls) or FTls.Active);
 end;
 
 function CheckedExternalBase(const Value: string): string;
@@ -158,15 +163,44 @@ end;
 
 procedure THomeLibOPDSServer.Start(const Collection: TCollectionInfo;
   const Port: Integer; const AllowLAN: Boolean; const ExternalBase: string);
+begin
+  Stop;
+  if (Port < 1024) or (Port > 65535) then
+    raise EArgumentException.Create('Укажите порт от 1024 до 65535.');
+  StartHTTP(Collection, Port, AllowLAN, ExternalBase);
+end;
+
+procedure THomeLibOPDSServer.StartHTTPS(const Collection: TCollectionInfo;
+  Port: Integer; AllowLAN: Boolean; const Hostname, Certificate, PrivateKey, Tool: string);
+var PublicBase: string;
+begin
+  Stop;
+  if (Port < 1024) or (Port > 65535) then
+    raise EArgumentException.Create('Укажите порт от 1024 до 65535.');
+  PublicBase := CheckedExternalBase('https://' + Trim(Hostname) + ':' + Port.ToString);
+  try
+    StartHTTP(Collection, 0, False, PublicBase);
+    if FPort = Port then
+    begin
+      FHTTP.Active := False;
+      StartHTTP(Collection, 0, False, PublicBase);
+    end;
+    FTls := TOPDSTlsTransport.Create(Tool, FPrefix, Trim(Hostname), Certificate, PrivateKey,
+      Port, FPort, AllowLAN);
+  except
+    Stop;
+    raise;
+  end;
+end;
+
+procedure THomeLibOPDSServer.StartHTTP(const Collection: TCollectionInfo;
+  Port: Integer; AllowLAN: Boolean; const ExternalBase: string);
 var
   DB: TSQLiteDatabase;
   Key: TGUID;
 begin
-  Stop;
   if isOnlineCollection(Collection.CollectionType) then
     raise Exception.Create('Каталог для читалки доступен для локальных коллекций. Выберите коллекцию с книгами на диске.');
-  if (Port < 1024) or (Port > 65535) then
-    raise Exception.Create('Укажите порт от 1024 до 65535.');
   FExternalBase := CheckedExternalBase(ExternalBase);
   if AllowLAN and (FExternalBase <> '') then
     raise EArgumentException.Create('В режиме внешнего HTTPS-сервера HomeLibre принимает подключения только с этого компьютера.');
@@ -193,10 +227,12 @@ begin
     Port := FPort;
   end;
   FHTTP.Active := True;
+  FPort := FHTTP.Bindings[0].Port;
 end;
 
 procedure THomeLibOPDSServer.Stop;
 begin
+  FreeAndNil(FTls);
   if Assigned(FHTTP) then FHTTP.Active := False;
 end;
 

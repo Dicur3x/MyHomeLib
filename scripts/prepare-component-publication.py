@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 TAG = 'optional-alreader-2.5.1009.25'
 PREFIX = 'https://github.com/Dicur3x/MyHomeLib/releases/download/' + TAG + '/'
 OWNED = {'HomeLibReader', 'BookProcessing', 'ImageProcessing', 'Kindle',
-         'LegacyBooks', 'LegacyOffice', 'XPS', 'MHLMcpServer', 'KindleExport', 'FB2Export', 'KoboExport', 'EpubPdfExport'}
+         'LegacyBooks', 'LegacyOffice', 'XPS', 'MHLMcpServer', 'KindleExport', 'FB2Export', 'KoboExport', 'EpubPdfExport', 'OPDSTls'}
 
 
 def digest(data):
@@ -76,6 +76,8 @@ def main():
                    stage / 'mcp', args.djvu_packages.resolve()]
     if args.kindle_packages:
         directories.append(args.kindle_packages.resolve())
+    if (stage / 'opds-tls').is_dir():
+        directories.append(stage / 'opds-tls')
     for directory in directories:
         for key, entry in entries(json.loads((directory / 'HomeLibRu.components.json').read_bytes())).items():
             assert key in expected and key not in replacement, 'Unexpected/duplicate replacement'
@@ -128,12 +130,12 @@ def main():
                                 archive_sha256=digest(data), managed_files=len(payload_names)))
     assert set(replacement) == expected
     assert not set(baseline) - set(bootstrap), 'Public components would be dropped'
-    # A newly introduced writer needs both validated architectures.
+    # A newly introduced component needs both validated architectures.
     added = set(bootstrap) - set(baseline)
-    writer_ids = {'KindleExport', 'FB2Export', 'KoboExport', 'EpubPdfExport'}
-    assert {component for component, _ in added} <= writer_ids, 'Unexpected new components: ' + str(added)
+    new_ids = {'KindleExport', 'FB2Export', 'KoboExport', 'EpubPdfExport', 'OPDSTls'}
+    assert {component for component, _ in added} <= new_ids, 'Unexpected new components: ' + str(added)
     for component in {component for component, _ in added}:
-        assert {(component, 'Win32'), (component, 'Win64')} <= added, 'Incomplete new writer: ' + component
+        assert {(component, 'Win32'), (component, 'Win64')} <= added, 'Incomplete new component: ' + component
     assert added <= set(replacement)
     merged = {**baseline, **replacement}
     reader_keys = {('HomeLibReader', platform) for platform in ('Win32', 'Win64')}

@@ -960,6 +960,7 @@ type
     FNextCleanupCheck: UInt64;
     procedure EnsureProgramUpdateForm;
     procedure RequestOptionalComponent(const ID: string);
+    procedure InstallOPDSTls(Sender: TObject);
     procedure MCPSetupExecute(Sender: TObject);
     procedure ProgramUpdateSchedule(Sender: TObject);
     procedure RestartForProgramUpdate(Sender: TObject);
@@ -3509,6 +3510,7 @@ begin
   else if ID='DocSharp' then Reason:='Для чтения старого офисного формата нужна библиотека DocSharp.'
   else if ID='7-Zip' then Reason:='Для чтения этого сжатого архива нужен 7-Zip. Обычные ZIP и FB2 работают без него.'
   else if ID='MHLMcpServer' then Reason:='Установить модуль подключения AI-ассистента? После установки откройте «Инструменты → Подключить AI-ассистента…», чтобы скопировать настройки.'
+  else if ID='OPDSTls' then Reason:='После установки снова откройте каталог OPDS и выберите «HTTPS с сертификатом».'
   else Reason:='Внешнюю читалку '+ID+' можно установить отдельно.';
   EnsureProgramUpdateForm; FProgramUpdateForm.RequestComponent(ID,Reason,True);
 end;
@@ -4390,10 +4392,19 @@ begin
     MessageDlg('Сначала выберите коллекцию для каталога читалки.', mtInformation, [mbOK], 0);
     Exit;
   end;
-  if not Assigned(FOPDSForm) then FOPDSForm := TfrmOPDS.Create(Self);
+  if not Assigned(FOPDSForm) then
+  begin
+    FOPDSForm := TfrmOPDS.Create(Self);
+    FOPDSForm.OnNeedTlsComponent := InstallOPDSTls;
+  end;
   FOPDSForm.SetCollection(FSystemData.GetCollectionInfo(FCollection.CollectionID));
   FOPDSForm.Show;
   FOPDSForm.BringToFront;
+end;
+
+procedure TfrmMain.InstallOPDSTls(Sender: TObject);
+begin
+  RequestOptionalComponent('OPDSTls');
 end;
 
 procedure TfrmMain.CheckBookDuplicateApply(Sender: TObject);

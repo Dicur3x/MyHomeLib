@@ -577,7 +577,7 @@
       "history": [
         {
           "version": "3.0.0.4",
-          "notes": "Vivliostyle — прямая вёрстка EPUB в PDF. Нужен установленный Edge или Chrome."
+          "notes": "Vivliostyle — прямая вёрстка EPUB в PDF через Microsoft WebView2 Runtime."
         }
       ]
     },
@@ -589,7 +589,31 @@
       "history": [
         {
           "version": "3.0.0.4",
-          "notes": "Vivliostyle — прямая вёрстка EPUB в PDF. Нужен установленный Edge или Chrome."
+          "notes": "Vivliostyle — прямая вёрстка EPUB в PDF через Microsoft WebView2 Runtime."
+        }
+      ]
+    },
+    {
+      "id": "OPDSTls",
+      "platform": "Win32",
+      "version": "3.0.0.4",
+      "archive": "HomeLibRu-OPDSTls-3.0.0.4-Win32.zip",
+      "history": [
+        {
+          "version": "3.0.0.4",
+          "notes": "Каталог OPDS по HTTPS с сертификатом и закрытым ключом пользователя."
+        }
+      ]
+    },
+    {
+      "id": "OPDSTls",
+      "platform": "Win64",
+      "version": "3.0.0.4",
+      "archive": "HomeLibRu-OPDSTls-3.0.0.4-Win64.zip",
+      "history": [
+        {
+          "version": "3.0.0.4",
+          "notes": "Каталог OPDS по HTTPS с сертификатом и закрытым ключом пользователя."
         }
       ]
     }

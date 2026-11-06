@@ -51,7 +51,7 @@ foreach ($project in @('Program/MyhomeLib.dproj', 'Utils/HomeLibReader/HomeLibRe
     }
 }
 $feed = Get-Content -LiteralPath (Join-Path $repositoryRoot 'Installer/Components.json') -Raw -Encoding UTF8 | ConvertFrom-Json
-$own = @('HomeLibReader','MHLMcpServer','BookProcessing','ImageProcessing','Kindle','LegacyBooks','LegacyOffice','XPS','KindleExport','FB2Export','KoboExport','EpubPdfExport')
+$own = @('HomeLibReader','MHLMcpServer','BookProcessing','ImageProcessing','Kindle','LegacyBooks','LegacyOffice','XPS','KindleExport','FB2Export','KoboExport','EpubPdfExport','OPDSTls')
 foreach ($component in $own) {
     foreach ($platform in @('Win32','Win64')) {
         $rows = @($feed.components | Where-Object { $_.id -ceq $component -and $_.platform -ceq $platform })
