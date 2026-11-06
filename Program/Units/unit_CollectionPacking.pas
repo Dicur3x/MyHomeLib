@@ -14,6 +14,7 @@ type
     SourceID: Integer;
     Python, Script, SevenZip: string;
     ImageProfile: TPackingImageProfile;
+    ImageGrayscale: Boolean;
     VerifySources, VerifyOutputs: Boolean;
   end;
 
@@ -72,8 +73,8 @@ type
 
 function IsPackedCollectionCatalog(const CatalogFile: string): Boolean;
 function TryReadPackingImageProfile(const Folder: string; out Profile: TPackingImageProfile;
-  const Dataset: string = ''): Boolean;
-function PackingImageProfileCaption(Profile: TPackingImageProfile): string;
+  out Grayscale: Boolean; const Dataset: string = ''): Boolean;
+function PackingImageProfileCaption(Profile: TPackingImageProfile; Grayscale: Boolean = False): string;
 
 implementation
 
@@ -108,12 +109,14 @@ begin SQLite3_Result_Int(pCtx,1); end;
 constructor TPackingOutput.Create(Owner: TCollectionPackingSnapshot);
 begin inherited Create; FOwner:=Owner; end;
 
-function PackingEngine(Profile: TPackingImageProfile): string;
+function PackingEngine(Profile: TPackingImageProfile; Grayscale: Boolean): string;
 begin
-  if Profile=pipOriginal then Result:='reversible-ppmd' else Result:='illustrations-ppmd';
+  if Profile=pipOriginal then Result:='reversible-ppmd'
+  else if Grayscale then Result:='illustrations-gray-ppmd'
+  else Result:='illustrations-ppmd';
 end;
 
-function PackingImageProfileCaption(Profile: TPackingImageProfile): string;
+function PackingImageProfileCaption(Profile: TPackingImageProfile; Grayscale: Boolean): string;
 begin
   case Profile of
     pipBalanced: Result:='Сбалансированное сжатие иллюстраций';
@@ -121,13 +124,15 @@ begin
     pipMaximum: Result:='Максимальная экономия места';
     else Result:='Обратимая упаковка';
   end;
+  if Grayscale then Result:=Result+' · оттенки серого';
 end;
 
 function TryReadPackingImageProfile(const Folder: string; out Profile: TPackingImageProfile;
-  const Dataset: string): Boolean;
+  out Grayscale: Boolean; const Dataset: string): Boolean;
 var Marker, Images, Engine: string; Value: TJSONValue;
 begin
   Profile:=pipOriginal;
+  Grayscale:=False;
   Marker:=TPath.Combine(Folder,PACKING_MARKER);
   if not FileExists(Marker) then Exit(False);
   if (GetFileAttributes(PChar(Marker)) and FILE_ATTRIBUTE_REPARSE_POINT<>0) or
@@ -142,8 +147,9 @@ begin
       raise Exception.Create('В этой папке находится другая коллекция.');
     Images:=Value.GetValue<string>('images','original');
     Engine:=Value.GetValue<string>('engine','');
+    Grayscale:=Engine='illustrations-gray-ppmd';
     for var Candidate:=Low(TPackingImageProfile) to High(TPackingImageProfile) do
-      if (Images=PACKING_PROFILES[Candidate]) and (Engine=PackingEngine(Candidate)) then
+      if (Images=PACKING_PROFILES[Candidate]) and (Engine=PackingEngine(Candidate,Grayscale)) then
       begin Profile:=Candidate; Exit(True); end;
     raise Exception.Create('Неизвестный профиль сжатой коллекции.');
   finally Value.Free; end;
@@ -190,6 +196,8 @@ constructor TCollectionPackingSnapshot.Create(const Options: TCollectionPackingO
 var Catalog: TSQLiteDatabase;
 begin
   inherited Create; FLease:=INVALID_HANDLE_VALUE; FOptions:=Options; FStarted:=GetTickCount64;
+  if FOptions.ImageGrayscale and (FOptions.ImageProfile=pipOriginal) then
+    raise EArgumentException.Create('Оттенки серого доступны при сжатии иллюстраций.');
   FOptions.CatalogFile:=TPath.GetFullPath(FOptions.CatalogFile);
   FOptions.PersonalFile:=TPath.GetFullPath(FOptions.PersonalFile);
   FOptions.SourceRoot:=IncludeTrailingPathDelimiter(TPath.GetFullPath(FOptions.SourceRoot));
@@ -307,7 +315,7 @@ begin
 end;
 
 procedure TCollectionPackingSnapshot.InitializeOutput;
-var Marker, Temporary: string; ExistingProfile: TPackingImageProfile; Obj: TJSONObject;
+var Marker, Temporary: string; ExistingProfile: TPackingImageProfile; ExistingGrayscale: Boolean; Obj: TJSONObject;
 begin
   Marker:=TPath.Combine(FOptions.OutputRoot,PACKING_MARKER);
   if not FileExists(Marker) and DirectoryExists(FOptions.OutputRoot) then
@@ -315,16 +323,16 @@ begin
       if not SameText(ExtractFileName(Name),PACKING_LEASE) then
         raise Exception.Create('Для новой сжатой копии нужна пустая папка.');
   AcquireOutputLease;
-  if TryReadPackingImageProfile(FOptions.OutputRoot,ExistingProfile,FOptions.Dataset) then
+  if TryReadPackingImageProfile(FOptions.OutputRoot,ExistingProfile,ExistingGrayscale,FOptions.Dataset) then
   begin
-    if ExistingProfile<>FOptions.ImageProfile then
+    if (ExistingProfile<>FOptions.ImageProfile) or (ExistingGrayscale<>FOptions.ImageGrayscale) then
       raise Exception.Create('Для этой папки выбран другой профиль сжатия. Повторно выберите папку.');
     Exit;
   end;
   Obj:=TJSONObject.Create;
   try
     Obj.AddPair('version',TJSONNumber.Create(1)); Obj.AddPair('dataset',FOptions.Dataset);
-    Obj.AddPair('engine',PackingEngine(FOptions.ImageProfile));
+    Obj.AddPair('engine',PackingEngine(FOptions.ImageProfile,FOptions.ImageGrayscale));
     Obj.AddPair('images',PACKING_PROFILES[FOptions.ImageProfile]);
     Temporary:=Marker+'.'+TGUID.NewGuid.ToString+'.partial';
     TFile.WriteAllText(Temporary,Obj.ToJSON,TEncoding.UTF8);
@@ -637,7 +645,7 @@ begin
   Job:=TJSONObject.Create;
   try
     Job.AddPair('version',TJSONNumber.Create(1)); Job.AddPair('dataset',FOptions.Dataset);
-    Job.AddPair('engine',PackingEngine(FOptions.ImageProfile));
+    Job.AddPair('engine',PackingEngine(FOptions.ImageProfile,FOptions.ImageGrayscale));
     Job.AddPair('images',PACKING_PROFILES[FOptions.ImageProfile]);
     Job.AddPair('plan',FPlanFile); Job.AddPair('output',FOptions.OutputRoot); Job.AddPair('seven_zip',FOptions.SevenZip);
     Job.AddPair('verify_sources',TJSONBool.Create(FOptions.VerifySources));
@@ -689,7 +697,7 @@ begin
     if Total<>FCount then raise Exception.Create('Не все книги получили новое расположение.');
     Catalog.ExecSQL('CREATE TABLE IF NOT EXISTS HomeLibPackingState(Key TEXT PRIMARY KEY,Value TEXT NOT NULL)');
     Catalog.ExecSQL('INSERT OR REPLACE INTO HomeLibPackingState VALUES(?,?)',['dataset',FOptions.Dataset]);
-    Catalog.ExecSQL('INSERT OR REPLACE INTO HomeLibPackingState VALUES(?,?)',['engine',PackingEngine(FOptions.ImageProfile)]);
+    Catalog.ExecSQL('INSERT OR REPLACE INTO HomeLibPackingState VALUES(?,?)',['engine',PackingEngine(FOptions.ImageProfile,FOptions.ImageGrayscale)]);
     Catalog.ExecSQL('INSERT OR REPLACE INTO HomeLibPackingState VALUES(?,?)',['images',PACKING_PROFILES[FOptions.ImageProfile]]);
     Catalog.ExecSQL('INSERT OR REPLACE INTO HomeLibPackingState VALUES(?,?)',['generation',FPrepared]);
     Catalog.ExecSQL('INSERT OR REPLACE INTO HomeLibPackingState VALUES(?,?)',['source_catalog',FOptions.CatalogFile]);

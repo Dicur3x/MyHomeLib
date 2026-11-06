@@ -472,6 +472,8 @@ function run(executable, mode, subcase = "") {
           fs.copyFileSync(path.resolve(__dirname, '../../bookconvert', name), path.join(folder, 'tools/bookconvert', name));
         fs.copyFileSync(fs.realpathSync(packingImagesArg.slice('--packing-images='.length)),
           path.join(folder, 'packing-inpx-illustration.fb2'));
+        if (process.argv.includes('--packing-grayscale'))
+          fs.writeFileSync(path.join(folder, 'packing-inpx-grayscale.flag'), 'grayscale');
       }
       if (packingInventoryArg) {
         const inventory=fs.realpathSync(packingInventoryArg.slice('--packing-inventory='.length));
@@ -874,6 +876,9 @@ with zipfile.ZipFile(sys.argv[2]+'/reader-spread.epub','w') as z:
     if (mode === 'packing-fbd' && packingImagesArg &&
         !output.includes('PASS native packed INPX reuses the profile and opens the optimized FB2'))
       throw Error('Native INPX illustration checks did not execute.');
+    if (mode === 'packing-fbd' && process.argv.includes('--packing-grayscale') &&
+        !output.includes('PASS native INPX retains independent grayscale selection'))
+      throw Error('Native INPX grayscale checks did not execute.');
     if(mode==='flibrary-quality'&&process.env.HOMELIB_TEST_IMAGE_USAGE==='1') {
       if(!output.includes('PASS actual WebP JPEG XL and image-quality module use'))throw Error('Image actual-use assertions did not execute');
       const source=path.join(folder,'image-component-usage.json');const used=JSON.parse(fs.readFileSync(source,'utf8').replace(/^\uFEFF/,''));

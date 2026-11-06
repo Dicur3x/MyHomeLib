@@ -6,6 +6,7 @@ var Source, PackedSource, Updated: IBookCollection; Book, Card: TBookRecord;
   Root, UpdateRoot, IndexFile, BeforeCatalog, BeforeHash, BeforePackedPath: string;
   ImageFixture: string;
   Profile: TPackingImageProfile;
+  Grayscale: Boolean;
   Archive: TZipFile;
 
   procedure AddZipText(const Name, Value: string);
@@ -87,6 +88,7 @@ begin
   Options.SevenZip:=Settings.AppPath+'tools\7zip\7za.exe';
   Options.Script:=Settings.AppPath+'tools\collectionpack\pack_collection.py';
   if FileExists(ImageFixture) then Options.ImageProfile:=pipMaximum;
+  Options.ImageGrayscale:=FileExists(Settings.AppPath+'packing-inpx-grayscale.flag');
   Snapshot:=TCollectionPackingSnapshot.Create(Options);
   try
     Snapshot.Prepare; Snapshot.Pack; Snapshot.ApplyPrepared;
@@ -122,9 +124,11 @@ begin
 
   Options.CatalogFile:=BeforeCatalog; Options.SourceID:=PackedID;
   Options.SourceRoot:=Options.OutputRoot; Options.DisplayName:='Packed after INPX';
-  Require(TryReadPackingImageProfile(Options.OutputRoot,Profile) and (Profile=Options.ImageProfile),
+  Require(TryReadPackingImageProfile(Options.OutputRoot,Profile,Grayscale) and
+    (Profile=Options.ImageProfile) and (Grayscale=Options.ImageGrayscale),
     'The destination did not retain the selected profile');
   Options.ImageProfile:=Profile;
+  Options.ImageGrayscale:=Grayscale;
   Require(IsPackedCollectionCatalog(BeforeCatalog) and
     not IsPackedCollectionCatalog(Source.GetProperty(PROP_DATAFILE)), 'Packed catalogue marker recognition failed');
   LegacyUpdate:=TManualUpdateThread.Create(PackedID,IndexFile,True,gtFb2);
@@ -173,6 +177,7 @@ begin
         (Stream.Size<TFile.GetSize(ImageFixture)),'Native catalogue could not open the optimized FB2');
     finally Stream.Free; end;
     Writeln('PASS native packed INPX reuses the profile and opens the optimized FB2');
+    if Grayscale then Writeln('PASS native INPX retains independent grayscale selection');
   end
   else Require(ReadText(Updated,NewID)='New bytes from INPX','New INPX book was not packed');
   MissingID:=Updated.ResolveBookID('10004',0);

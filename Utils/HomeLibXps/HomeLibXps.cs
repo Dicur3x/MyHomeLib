@@ -56,10 +56,12 @@ internal static class HomeLibXps
                 return 0;
             }
             if (args.Length == 1 && args[0] == "--packing-image-profiles") {
-                Console.WriteLine("maximum"); return 0;
+                Console.WriteLine("maximum grayscale"); return 0;
             }
             if (args.Length == 3 && args[0] == "--image-pages") return ImagePages(args[1], args[2]);
             if (args.Length == 4 && args[0] == "--export-images") return ExportImages(args[1], args[2], args[3]);
+            if (args.Length == 5 && args[0] == "--export-images" && args[4] == "--grayscale")
+                return ExportImages(args[1], args[2], args[3], true);
             if (args.Length == 5 && args[0] == "--scan-images") return ScanImages(args[1], args[2], args[3], args[4]);
 #if HOMELIB_IMAGES_ONLY
             throw new ArgumentException("Expected image processing command. XPS reading is a separate component.");
@@ -123,18 +125,18 @@ internal static class HomeLibXps
     }
 
     // Encode local book pictures in one bounded process. Never upscale a page.
-    private static byte[] ExportImage(byte[] original, BitmapSource decoded, string profile)
+    private static byte[] ExportImage(byte[] original, BitmapSource decoded, string profile, bool grayscale = false)
     {
-        if (profile == "high") return original;
+        if (profile == "high" && !grayscale) return original;
         {
             BitmapSource source = decoded; int width = source.PixelWidth, height = source.PixelHeight;
             if (width <= 0 || height <= 0 || width > 16384 || height > 16384 || (long)width * height > 16777216)
                 throw new IOException("Export image dimensions exceed the reader limit.");
-            if (Math.Max(width, height) <= 512) return original;
+            if (Math.Max(width, height) <= 512 && !grayscale) return original;
             bool maximum = profile == "maximum";
             double edge = profile == "balanced" ? 2200 : maximum ? 1280 : 1600;
             double floor = profile == "balanced" ? .85 : 0;
-            double scale = Math.Min(1.0, Math.Max(floor, edge / Math.Max(width, height)));
+            double scale = profile == "high" ? 1 : Math.Min(1.0, Math.Max(floor, edge / Math.Max(width, height)));
             if (scale < 1.0)
             {
                 var visual = new DrawingVisual(); RenderOptions.SetBitmapScalingMode(visual, BitmapScalingMode.HighQuality);
@@ -157,11 +159,21 @@ internal static class HomeLibXps
                 if (high - low > 12) colored++;
                 int luminance = (pixels[at]*29 + pixels[at+1]*150 + pixels[at+2]*77) >> 8;
                 if (luminance < 80 || luminance > 210) paperOrInk++;
+                if (grayscale && low != high)
+                {
+                    byte neutral = (byte)((pixels[at]*29 + pixels[at+1]*150 + pixels[at+2]*77 + 128) >> 8);
+                    pixels[at] = pixels[at+1] = pixels[at+2] = neutral;
+                }
             }
             BitmapSource encoded = source;
-            if (!alpha) encoded = new FormatConvertedBitmap(source, gray ? PixelFormats.Gray8 : PixelFormats.Bgr24, null, 0);
-            byte[] best = original; bool[] textRows=null;
-            if ((profile == "economy" || maximum) && !alpha && colored == 0)
+            if (grayscale && !gray)
+                encoded = BitmapSource.Create(width, height, 96, 96, PixelFormats.Bgra32, null, pixels, width*4);
+            if (!alpha) encoded = new FormatConvertedBitmap(encoded, gray || grayscale ? PixelFormats.Gray8 : PixelFormats.Bgr24, null, 0);
+            // A color original must never win the grayscale size comparison.
+            byte[] best = grayscale && (!gray || scale < 1) ? null : original;
+            bool[] textRows=null;
+            bool textScanProfile = (profile == "economy" || maximum) && !alpha && colored == 0 && (!grayscale || gray);
+            if (textScanProfile)
             {
                 // A page made of many separated short ink bands is text, rather
                 // than a photograph. Use a one-bit PNG only for that strict case;
@@ -201,13 +213,13 @@ internal static class HomeLibXps
                     var bitonal=BitmapSource.Create(width,height,96,96,PixelFormats.Indexed1,
                         new BitmapPalette(new Color[]{Colors.Black,Colors.White}),packed,stride);
                     var png=new PngBitmapEncoder(); png.Frames.Add(BitmapFrame.Create(bitonal));
-                    using(var bytes=new MemoryStream()) { png.Save(bytes); if(bytes.Length<best.Length) best=bytes.ToArray(); }
+                    using(var bytes=new MemoryStream()) { png.Save(bytes); if(best==null || bytes.Length<best.Length) best=bytes.ToArray(); }
                 }
             }
             // Text scans waste most of their bytes on nearly white paper noise.
             // Keep four gray levels and every stroke at the chosen resolution;
             // photographs and colored pages retain the ordinary color encoder.
-            if ((profile == "economy" || maximum) && !alpha && colored == 0 && paperOrInk >= width*height*.90)
+            if (textScanProfile && paperOrInk >= width*height*.90)
             {
                 int stride = (width+3)/4; byte[] packed = new byte[checked(stride*height)];
                 for (int y=0; y<height; y++) for (int x=0; x<width; x++)
@@ -222,24 +234,24 @@ internal static class HomeLibXps
                 for (int level=0; level<4; level++) colors.Add(Color.FromRgb((byte)(level*85),(byte)(level*85),(byte)(level*85)));
                 BitmapSource textScan=BitmapSource.Create(width,height,96,96,PixelFormats.Indexed2,new BitmapPalette(colors),packed,stride);
                 var png = new PngBitmapEncoder(); png.Frames.Add(BitmapFrame.Create(textScan));
-                using (var bytes=new MemoryStream()) { png.Save(bytes); if(bytes.Length<best.Length) best=bytes.ToArray(); }
+                using (var bytes=new MemoryStream()) { png.Save(bytes); if(best==null || bytes.Length<best.Length) best=bytes.ToArray(); }
             }
-            if (alpha || original[0] != 255 || original[1] != 216)
+            if (grayscale || alpha || original[0] != 255 || original[1] != 216)
             {
                 var png = new PngBitmapEncoder(); png.Frames.Add(BitmapFrame.Create(encoded));
-                using (var bytes = new MemoryStream()) { png.Save(bytes); if (bytes.Length < best.Length) best = bytes.ToArray(); }
+                using (var bytes = new MemoryStream()) { png.Save(bytes); if (best == null || bytes.Length < best.Length) best = bytes.ToArray(); }
             }
-            if (!alpha)
+            if (!alpha && profile != "high")
             {
                 var jpeg = new JpegBitmapEncoder { QualityLevel = profile == "balanced" ? 60 : maximum ? 30 : 40 };
                 jpeg.Frames.Add(BitmapFrame.Create(encoded));
-                using (var bytes = new MemoryStream()) { jpeg.Save(bytes); if (bytes.Length < best.Length) best = bytes.ToArray(); }
+                using (var bytes = new MemoryStream()) { jpeg.Save(bytes); if (best == null || bytes.Length < best.Length) best = bytes.ToArray(); }
             }
             return best;
         }
     }
 
-    private static int ExportImages(string source, string destination, string profile)
+    private static int ExportImages(string source, string destination, string profile, bool grayscale = false)
     {
         bool extendedEstimate = profile == "estimate-maximum";
         bool estimate = profile == "estimate" || extendedEstimate;
@@ -257,7 +269,7 @@ internal static class HomeLibXps
             using (var archive = new ZipArchive(inputFile, ZipArchiveMode.Read))
             using (var outputFile = new FileStream(output, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None))
             {
-                owns = true; long total = 0; int index = 0;
+                owns = true; long total = 0, written = 0; int index = 0;
                 if (archive.Entries.Count == 0 || archive.Entries.Count > (estimate ? 9 : 5000)) throw new IOException("Invalid image count.");
                 using (var result = new ZipArchive(outputFile, ZipArchiveMode.Create, true))
                 foreach (var entry in archive.Entries)
@@ -266,7 +278,7 @@ internal static class HomeLibXps
                         throw new IOException("Invalid export image entry.");
                     byte[] data;
                     using (Stream image = entry.Open()) using (var bytes = new MemoryStream()) { image.CopyTo(bytes); data = bytes.ToArray(); }
-                    byte[] previous = data;
+                    byte[] previous = grayscale ? null : data;
                     // Keep quality/size choices monotonic: a compact profile may
                     // reuse a smaller, clearer result from the previous profile.
                     using (var imageSource = new MemoryStream(data, false))
@@ -277,13 +289,18 @@ internal static class HomeLibXps
                         if (frame.PixelWidth <= 0 || frame.PixelHeight <= 0 || frame.PixelWidth > 16384 || frame.PixelHeight > 16384 ||
                             (long)frame.PixelWidth * frame.PixelHeight > 16777216) throw new IOException("Invalid export image dimensions.");
                         bool keepMetadata = PreserveExportMetadata(frame, data);
+                        if (grayscale && keepMetadata)
+                            throw new IOException("Grayscale cannot safely preserve the original colour profile or orientation.");
                         foreach (string choice in profiles)
                         {
-                            byte[] encoded = keepMetadata ? data : ExportImage(data, frame, choice);
-                            if (previous.Length < encoded.Length) encoded = previous;
+                            byte[] encoded = keepMetadata ? data : ExportImage(data, frame, choice, grayscale);
+                            if (previous != null && previous.Length < encoded.Length) encoded = previous;
                             previous = encoded;
                             if (estimate || choice == profile)
+                            {
+                                if (grayscale && (written += encoded.Length) > MaxTotal) throw new IOException("Encoded images exceed 256 MB.");
                                 using (Stream target = result.CreateEntry(choice + "/" + entry.FullName, CompressionLevel.NoCompression).Open()) target.Write(encoded, 0, encoded.Length);
+                            }
                             if (profile == choice) break;
                         }
                     }

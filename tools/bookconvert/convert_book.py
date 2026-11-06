@@ -1513,7 +1513,7 @@ def validate_epub_output(path):
         archive.close()
 
 
-PACKING_IMAGE_API = 1
+PACKING_IMAGE_API = 2
 
 
 def convert_book(source, destination, **metadata):
@@ -1523,6 +1523,7 @@ def convert_book(source, destination, **metadata):
     cancel_check = metadata.pop('cancel_check', None)
     image_options = metadata.pop('image_options', None)
     image_choice = metadata.pop('image_choice', None)
+    packing_grayscale = metadata.pop('packing_grayscale', False)
     scan_layout = metadata.pop('scan_layout', 'keep')
     scan_exclude = metadata.pop('scan_exclude', '')
     if scan_layout not in {'keep','split','auto'}: raise ConversionError('Неизвестный режим страниц сканов.')
@@ -1536,6 +1537,9 @@ def convert_book(source, destination, **metadata):
     if source.stat().st_size > MAX_TOTAL:
         raise ConversionError('Книга превышает предел конвертации (256 МБ).')
     extension, target_extension = detect_input(source), destination.suffix.lower()
+    if packing_grayscale and (metadata.get('reading') or output_profile or extension != target_extension or
+                              extension not in {'.fb2', '.epub'} or image_quality not in {'balanced', 'economy', 'maximum'}):
+        raise ConversionError('Чёрно-белый режим предназначен для сжатых копий FB2 и EPUB.')
     if image_container not in (None,'raw','fb2-zip') or (image_container == 'fb2-zip' and target_extension != '.fb2'):
         raise ConversionError('Неверный контейнер обработки изображений.')
     if output_profile:
@@ -1654,7 +1658,7 @@ def convert_book(source, destination, **metadata):
             api = type('ConversionAPI', (), {name: value for name, value in globals().items() if not name.startswith('__')})
             module.apply(api, temporary, target_extension, image_quality, metadata.get('tools_root'),
                          metadata.get('progress') or (lambda *_: None), image_options, image_choice,
-                         warnings, image_container, check=cancel_check)
+                         warnings, image_container, check=cancel_check, grayscale=packing_grayscale)
         # Ensure the generated artifact is readable before publishing its name.
         if destination.suffix.lower() == '.epub':
             validate_epub_output(temporary)

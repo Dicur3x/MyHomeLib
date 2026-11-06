@@ -278,7 +278,7 @@ def select_container_profiles(result, profile, storage, layout=False):
     return chosen
 
 
-def run(api, tool, pictures, directory, profile, progress, layout=None, storage='raw', check=None):
+def run(api, tool, pictures, directory, profile, progress, layout=None, storage='raw', check=None, grayscale=False):
     native_profile = 'estimate' if storage != 'raw' and profile in ('balanced','economy') else profile
     if storage != 'raw' and profile == 'maximum':
         native_profile = 'estimate-maximum'
@@ -294,6 +294,7 @@ def run(api, tool, pictures, directory, profile, progress, layout=None, storage=
     with log.open('wb') as stream:
         arguments = [str(tool), '--scan-images' if layout else '--export-images', str(source), str(output), native_profile]
         if layout: arguments.append(layout)
+        if grayscale: arguments.append('--grayscale')
         process = subprocess.Popen(arguments,
                                    stdout=stream, stderr=subprocess.STDOUT,
                                    creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
@@ -358,7 +359,8 @@ def run(api, tool, pictures, directory, profile, progress, layout=None, storage=
             result[p] = []
             for i, original in enumerate(pictures):
                 entry = archive.getinfo(f'{p}/{i:05d}')
-                if not 0 < entry.file_size <= len(original): raise api.ConversionError('Некорректный размер сжатого изображения.')
+                limit = 16*1024*1024 if grayscale else len(original)
+                if not 0 < entry.file_size <= limit: raise api.ConversionError('Некорректный размер сжатого изображения.')
                 if p == 'high' and entry.file_size == len(original):
                     # Reuse an exact source candidate without keeping another
                     # nine originals in a 32-bit process. Older compatible
@@ -377,7 +379,7 @@ def run(api, tool, pictures, directory, profile, progress, layout=None, storage=
     return select_container_profiles(result,profile,storage)
 
 
-def apply(api, book, target_extension, profile, tools_root, progress, options_file=None, choice_file=None, warnings=None, container=None, check=None):
+def apply(api, book, target_extension, profile, tools_root, progress, options_file=None, choice_file=None, warnings=None, container=None, check=None, grayscale=False):
     storage = image_storage(target_extension,container)
     if profile == 'original': return
     if profile not in (*PACKING_PROFILES, 'ask', 'none'): raise api.ConversionError('Неизвестное качество изображений.')
@@ -418,7 +420,7 @@ def apply(api, book, target_extension, profile, tools_root, progress, options_fi
                 with archive.open(entry) as stream: header = stream.read(12)
                 if mime(header): pictures.append(archive.read(entry)); identities.append(entry.filename)
             overhead = book.stat().st_size - sum(archive.getinfo(name).compress_size for name in identities)
-    small = not pictures or sum(map(len, pictures)) < 128*1024
+    small = not pictures or (not grayscale and sum(map(len, pictures)) < 128*1024)
     if small and profile != 'ask': return
     if sum(map(len, pictures)) > api.MAX_TOTAL or len(pictures) > 5000:
         raise api.ConversionError('Изображения превышают предел экспорта.')
@@ -500,7 +502,7 @@ def apply(api, book, target_extension, profile, tools_root, progress, options_fi
             if check is not None: check()
             indices = remaining[at:at+9]
             result = run(api, tool, [pictures[i] for i in indices], directory, profile,
-                         lambda *_: None, storage=storage, check=check)[profile]
+                         lambda *_: None, storage=storage, check=check, grayscale=grayscale)[profile]
             for index,data in zip(indices,result): encoded[index] = data
             progress('optimizing-images', min(len(pictures), at+len(indices)+len(sample_indices)), len(pictures))
         if all(original == changed for original,changed in zip(pictures,encoded)): return

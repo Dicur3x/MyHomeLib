@@ -32,6 +32,7 @@ BLOCK = 256 * 1024
 ARCHIVE_SUFFIXES = {'.zip', '.7z', '.rar', '.tar', '.gz', '.bz2', '.xz'}
 TEXT_SUFFIXES = {'.fb2', '.txt', '.rtf', '.html', '.htm', '.xml', '.md', '.csv'}
 IMAGE_SUFFIXES = {'.fb2', '.epub'}
+IMAGE_ENGINES = ('illustrations-ppmd', 'illustrations-gray-ppmd')
 
 
 class PackingError(ValueError):
@@ -190,12 +191,13 @@ class Packer:
     def __init__(self, job, notify=lambda value: None, canceled=lambda: False):
         self.engine = job.get('engine')
         self.images = job.get('images', 'original')
-        if job.get('version') != API_VERSION or self.engine not in ('reversible-ppmd', 'illustrations-ppmd'):
+        if job.get('version') != API_VERSION or self.engine not in ('reversible-ppmd', *IMAGE_ENGINES):
             raise PackingError('Неизвестная версия или режим сжатия коллекции.')
         if self.engine == 'reversible-ppmd' and self.images != 'original':
             raise PackingError('Этот режим сохраняет изображения без изменений. Для изменения качества нужен соответствующий режим сжатия.')
-        if self.engine == 'illustrations-ppmd' and self.images not in ('balanced', 'economy', 'maximum'):
+        if self.engine in IMAGE_ENGINES and self.images not in ('balanced', 'economy', 'maximum'):
             raise PackingError('Выберите качество иллюстраций для сжатой копии.')
+        self.grayscale = self.engine == 'illustrations-gray-ppmd'
         self.job, self.notify, self.canceled = job, notify, canceled
         self.root = Path(job['output']).absolute()
         self.plan = Path(job['plan']).absolute()
@@ -222,17 +224,20 @@ class Packer:
         tool = converter.image_processor_path(self.tools_root)
         if not tool.is_file():
             raise PackingError('Для сжатия иллюстраций нужен модуль HomeLibre Images.')
-        if self.images == 'maximum':
-            if getattr(converter, 'PACKING_IMAGE_API', 0) < 1:
-                raise PackingError('Для максимальной экономии обновите модуль подготовки книг HomeLibre BookProcessing.')
+        if self.images == 'maximum' or self.grayscale:
+            capability = 'чёрно-белого режима' if self.grayscale else 'максимальной экономии'
+            if getattr(converter, 'PACKING_IMAGE_API', 0) < (2 if self.grayscale else 1):
+                raise PackingError(f'Для {capability} обновите модуль подготовки книг HomeLibre BookProcessing.')
             self.check()
             try:
                 profiles = subprocess.run([str(tool), '--packing-image-profiles'],
                     capture_output=True, timeout=5, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
             except (OSError, subprocess.TimeoutExpired) as error:
                 raise PackingError('Не удалось проверить модуль HomeLibre Images.') from error
-            if profiles.returncode or b'maximum' not in profiles.stdout.split():
-                raise PackingError('Для максимальной экономии обновите модуль HomeLibre Images.')
+            expected = {b'maximum'} if self.images == 'maximum' else set()
+            if self.grayscale: expected.add(b'grayscale')
+            if profiles.returncode or not expected.issubset(profiles.stdout.split()):
+                raise PackingError(f'Для {capability} обновите модуль HomeLibre Images.')
             self.check()
         self.converter = converter
 
@@ -251,7 +256,8 @@ class Packer:
             reserve_space(stage, 3 * size)
             converter.convert_book(target, candidate, image_quality=self.images,
                                    image_container='fb2-zip' if target.suffix == '.fb2' else None,
-                                   tools_root=self.tools_root, cancel_check=self.check)
+                                   tools_root=self.tools_root, cancel_check=self.check,
+                                   packing_grayscale=self.grayscale)
             self.check()
             if candidate.stat().st_size >= size:
                 return {}
@@ -682,7 +688,7 @@ class Packer:
     def execute(self):
         generation, prepared = None, False
         try:
-            if self.engine == 'illustrations-ppmd':
+            if self.engine in IMAGE_ENGINES:
                 self.load_image_processor()
             self.open()
             with self.lock(), closing(sqlite3.connect(self.plan.as_uri() + '?mode=ro', uri=True)) as plan:

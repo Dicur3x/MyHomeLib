@@ -24,15 +24,28 @@ SEVEN = Path(os.environ.get('HLRU_PACK_7ZIP', '../../Program/Out/Bin64/tools/7zi
 IMAGE_TOOLS = os.environ.get('HLRU_PACK_IMAGE_TOOLS')
 
 
-def image_fixture():
+def image_fixture(transparent=False):
     def chunk(kind, data):
         return struct.pack('>I', len(data)) + kind + data + struct.pack('>I', zlib.crc32(kind + data))
 
-    width, height = 480, 640
     rng = random.Random(534)
-    pixels = b''.join(b'\0' + rng.randbytes(width * 3) for _ in range(height))
-    return (b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', width, height, 8, 2, 0, 0, 0))
+    if transparent:
+        width, height, color_type = 128, 96, 6
+        pixels = b''.join(b'\0' + b''.join(rng.randbytes(3) + b'\x4d' for _ in range(width)) for _ in range(height))
+    else:
+        width, height, color_type = 480, 640, 2
+        pixels = b''.join(b'\0' + rng.randbytes(width * 3) for _ in range(height))
+    return (b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', width, height, 8, color_type, 0, 0, 0))
             + chunk(b'IDAT', zlib.compress(pixels)) + chunk(b'IEND', b''))
+
+
+def illustrated_fb2(picture):
+    return b'''<?xml version="1.0" encoding="UTF-8"?>
+<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:l="http://www.w3.org/1999/xlink">
+<description><title-info><genre>sf</genre><author><nickname>A</nickname></author><book-title>Title</book-title><lang>en</lang></title-info>
+<document-info><author><nickname>A</nickname></author><date>2026</date><id>fixture</id><version>1.0</version></document-info></description>
+<body><section><p>Keep <emphasis>this text</emphasis>.</p><image l:href="#picture"/></section></body>
+<binary id="picture" content-type="image/png">''' + base64.b64encode(picture) + b'</binary></FictionBook>'
 
 
 def sha(path):
@@ -563,12 +576,7 @@ Packer(json.loads(open(sys.argv[2],encoding='utf-8').read()),notify).execute()
         self.job.update(engine='illustrations-ppmd', images='economy', tools_root=IMAGE_TOOLS)
         picture = image_fixture()
         fb2 = self.source / 'book.fb2'
-        fb2.write_bytes(b'''<?xml version="1.0" encoding="UTF-8"?>
-<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:l="http://www.w3.org/1999/xlink">
-<description><title-info><genre>sf</genre><author><nickname>A</nickname></author><book-title>Title</book-title><lang>en</lang></title-info>
-<document-info><author><nickname>A</nickname></author><date>2026</date><id>fixture</id><version>1.0</version></document-info></description>
-<body><section><p>Keep <emphasis>this text</emphasis>.</p><image l:href="#picture"/></section></body>
-<binary id="picture" content-type="image/png">''' + base64.b64encode(picture) + b'</binary></FictionBook>')
+        fb2.write_bytes(illustrated_fb2(picture))
         epub = self.source / 'book.epub'
         chapter = b'<html xmlns="http://www.w3.org/1999/xhtml"><body><p>Keep <em>this text</em>.</p><img src="picture.png" alt="Fixture"/></body></html>'
         style = b'p { line-height: 1.25; }'
@@ -646,6 +654,43 @@ Packer(json.loads(open(sys.argv[2],encoding='utf-8').read()),notify).execute()
         self.assertIn(b'New ', self.packed_book(resumed, 6))
         with self.assertRaisesRegex(PackingError, 'другие настройки'):
             Packer(dict(self.job, images='balanced')).execute()
+
+    @unittest.skipUnless(IMAGE_TOOLS, 'Native HomeLibre Images runtime not supplied')
+    def test_grayscale_is_independent_and_preserves_transparent_illustrations(self):
+        picture = image_fixture(transparent=True)
+        book = self.source / 'color.fb2'
+        original = illustrated_fb2(picture)
+        book.write_bytes(original)
+        self.add(1, book, '')
+        self.job.update(engine='illustrations-gray-ppmd', tools_root=IMAGE_TOOLS)
+
+        for profile in ('balanced', 'economy', 'maximum'):
+            with self.subTest(profile=profile), patch.object(self, 'output', self.root / profile):
+                job = dict(self.job, output=str(self.output), images=profile)
+                packed = Packer(job).execute()
+                self.assertEqual((packed.image_books_optimized, packed.image_books_skipped), (1, 0))
+                document = ElementTree.fromstring(self.packed_book(packed, 1))
+                self.assertEqual(''.join(document.find('.//{*}p').itertext()), 'Keep this text.')
+                raster = base64.b64decode(document.find('.//{*}binary').text)
+                self.assertEqual(raster[:8], b'\x89PNG\r\n\x1a\n')
+                self.assertEqual(struct.unpack_from('>IIBB', raster, 16)[:3], (128, 96, 8))
+                color_type = raster[25]
+                self.assertIn(color_type, (4, 6))
+                at, compressed = 8, bytearray()
+                while at < len(raster):
+                    length, kind = struct.unpack_from('>I4s', raster, at)
+                    if kind == b'IDAT':
+                        compressed.extend(raster[at+8:at+8+length])
+                    at += length+12
+                # The first PNG pixel has no preceding samples for any filter.
+                first = zlib.decompress(compressed)[1:5 if color_type == 6 else 3]
+                self.assertEqual(len(set(first[:-1])), 1)
+                self.assertEqual(first[-1], 77)
+                self.assertLess(len(raster), len(picture))
+                self.assertEqual(Packer(job).execute().reused, 1)
+                with self.assertRaisesRegex(PackingError, 'другие настройки'):
+                    Packer(dict(job, engine='illustrations-ppmd')).execute()
+        self.assertEqual(book.read_bytes(), original)
 
     def test_large_zip_member_is_preserved_without_decoding_or_size_inflation(self):
         source = self.archive('large.zip', {'1.fb2': b'Large original text ' * 3000})

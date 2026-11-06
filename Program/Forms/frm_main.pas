@@ -4468,12 +4468,13 @@ begin
   PackCollection(False);
 end;
 
-function ChoosePackingImageProfile(Owner: TForm; out Profile: TPackingImageProfile): Boolean;
+function ChoosePackingImageProfile(Owner: TForm; out Profile: TPackingImageProfile; out Grayscale: Boolean): Boolean;
 const ChoiceBase = 100;
 var Dialog: TTaskDialog; Button: TTaskDialogButtonItem;
 begin
   Result:=False;
   Profile:=pipOriginal;
+  Grayscale:=False;
   Dialog:=TTaskDialog.Create(Owner);
   try
     Dialog.Caption:='Сжатие коллекции';
@@ -4482,6 +4483,7 @@ begin
       'в копиях FB2 и EPUB. PDF, DjVu и другие форматы сохранят исходное содержимое.';
     Dialog.Flags:=[tfUseCommandLinks,tfAllowDialogCancellation];
     Dialog.CommonButtons:=[tcbCancel];
+    Dialog.VerificationText:='При сжатии иллюстраций переводить JPEG и PNG в оттенки серого';
     for var Choice:=Low(TPackingImageProfile) to High(TPackingImageProfile) do
     begin
       Button:=TTaskDialogButtonItem(Dialog.Buttons.Add);
@@ -4499,6 +4501,7 @@ begin
       InRange(Dialog.ModalResult,ChoiceBase,ChoiceBase+Ord(High(TPackingImageProfile))) then
     begin
       Profile:=TPackingImageProfile(Dialog.ModalResult-ChoiceBase);
+      Grayscale:=(Profile<>pipOriginal) and (tfVerificationFlagChecked in Dialog.Flags);
       Result:=True;
     end;
   finally Dialog.Free; end;
@@ -4560,10 +4563,10 @@ begin
         if UpdateFromInpx then UpdateRoot:=Picker.FileName
         else Options.OutputRoot:=Picker.FileName;
       finally Picker.Free; end;
-      if not TryReadPackingImageProfile(Options.OutputRoot,Options.ImageProfile) then
+      if not TryReadPackingImageProfile(Options.OutputRoot,Options.ImageProfile,Options.ImageGrayscale) then
       begin
         if UpdateFromInpx then raise Exception.Create('В папке коллекции отсутствует описание сжатой копии.');
-        if not ChoosePackingImageProfile(Self,Options.ImageProfile) then Exit;
+        if not ChoosePackingImageProfile(Self,Options.ImageProfile,Options.ImageGrayscale) then Exit;
       end;
       Options.Python:=FindBookProcessingPython(Settings.AppPath);
       if (Options.Python='') or ((Options.ImageProfile<>pipOriginal) and
@@ -4579,7 +4582,7 @@ begin
       begin
         EnsureProgramUpdateForm;
         FProgramUpdateForm.RequestComponents(Required,
-          PackingImageProfileCaption(Options.ImageProfile)+'. После установки снова выберите «'+Command+'».',True);
+          PackingImageProfileCaption(Options.ImageProfile,Options.ImageGrayscale)+'. После установки снова выберите «'+Command+'».',True);
         Exit;
       end;
       UpdatePositions;
@@ -4594,7 +4597,7 @@ begin
       finally Progress.Free; end;
       try
         Status:=Snapshot.Status;
-        Summary:=PackingImageProfileCaption(Options.ImageProfile)+'.'+sLineBreak+
+        Summary:=PackingImageProfileCaption(Options.ImageProfile,Options.ImageGrayscale)+'.'+sLineBreak+
           Format('Записей с файлами: %d. Без файла: %d.'+sLineBreak+
           'Архивы и файлы: %s → %s.'+sLineBreak+
           'Повторно использовано архивов и файлов: %d.',
@@ -4608,6 +4611,8 @@ begin
           if Status.ImageBooksSkipped>0 then
             Summary:=Summary+sLineBreak+Format('Не удалось обработать иллюстрации в %d книгах. В копии сохранены исходные файлы.',
               [Status.ImageBooksSkipped]);
+          if Options.ImageGrayscale then
+            Summary:=Summary+sLineBreak+'Преобразование применяется к JPEG и PNG, когда копия книги или архива становится меньше.';
         end;
         Summary:=Summary+sLineBreak+sLineBreak+'Добавить и открыть отдельную коллекцию «'+Options.DisplayName+'»?';
         if MessageDlg(Summary,mtConfirmation,[mbYes,mbNo],0)=mrYes then
