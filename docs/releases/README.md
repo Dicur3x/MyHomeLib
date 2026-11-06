@@ -4,6 +4,7 @@
 
 [О программе](../../README.md) · [Сборка и проверки](../../BUILDING.md)
 
+- [HomeLibre 3.0 beta 4](RELEASE_NOTES_3.0.0_pre1.4.md)
 - [HomeLibre 3.0 beta 3](RELEASE_NOTES_3.0.0_pre1.3.md)
 - [HomeLibre 3.0 beta 2](RELEASE_NOTES_3.0.0_pre1.2.md)
 - [HomeLibre 3.0 beta 1](RELEASE_NOTES_3.0.0_pre1.1.md)
