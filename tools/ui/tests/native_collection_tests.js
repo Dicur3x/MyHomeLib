@@ -605,10 +605,8 @@ function run(executable, mode, subcase = "") {
       if(prep.status!==0) throw Error('Save module fixture preparation failed: '+prep.stdout+prep.stderr);
       fs.copyFileSync(path.join(runtime,'HomeLibRuUpdater.exe'),path.join(folder,'HomeLibRuUpdater.exe'));
       if (packing) {
-        for (const name of ['7zip','collectionpack']) fs.mkdirSync(path.join(folder,'tools',name),{recursive:true});
+        fs.mkdirSync(path.join(folder,'tools/7zip'),{recursive:true});
         fs.copyFileSync(path.join(runtime,'tools/7zip/7za.exe'),path.join(folder,'tools/7zip/7za.exe'));
-        fs.copyFileSync(path.resolve(__dirname,'../../collectionpack/pack_collection.py'),
-          path.join(folder,'tools/collectionpack/pack_collection.py'));
       }
     }
     if (['unified-send','save-planning','kindle-save','advanced-save','builtin-export','export-cache-lifecycle','diagnostics-cache-age','paged-export-progress','reader-story'].includes(mode)) {

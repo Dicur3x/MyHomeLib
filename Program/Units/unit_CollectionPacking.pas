@@ -91,6 +91,7 @@ function TryReadPackingImageProfile(const Folder: string; out Profile: TPackingI
   out Grayscale: Boolean; const Dataset: string = ''): Boolean;
 function PackingImageProfileCaption(Profile: TPackingImageProfile; Grayscale: Boolean = False): string;
 function PackingReducesImageQuality(Profile: TPackingImageProfile): Boolean;
+function ResolvePackingTools(const AppPath: string; var Options: TCollectionPackingOptions): TArray<string>;
 function StorePackingContinuation(const SettingsFile: string; const Request: TCollectionPackingRequest): string;
 function TakePackingContinuation(const SettingsFile, Argument: string; out Request: TCollectionPackingRequest): Boolean;
 
@@ -98,7 +99,8 @@ implementation
 
 uses System.IOUtils, System.Hash, System.Math, System.StrUtils,
   System.Generics.Collections, SQLite3, unit_MHLArchiveHelpers, unit_CollectionSpace,
-  unit_MHLExternalTools, unit_AtomicIniFile, System.DateUtils;
+  unit_MHLExternalTools, unit_AtomicIniFile, System.DateUtils,
+  unit_FormatComponents, unit_ProgramUpdateInstaller;
 
 const
   PACKING_LEASE = 'HomeLibRu-native-packing.lock';
@@ -138,6 +140,39 @@ end;
 function PackingReducesImageQuality(Profile: TPackingImageProfile): Boolean;
 begin
   Result:=Profile in [pipBalanced,pipEconomy,pipMaximum];
+end;
+
+function ResolvePackingTools(const AppPath: string; var Options: TCollectionPackingOptions): TArray<string>;
+var Comparison: Integer; Version: string;
+begin
+  Result:=nil;
+  Options.Script:=TPath.Combine(AppPath,PACKING_WORKER_FILE);
+  Options.Python:=TPath.Combine(AppPath,FormatComponentFile('BookProcessing'));
+  Version:=InstalledComponentVersion(AppPath,'BookProcessing');
+  if not CompareComponentVersions(Version,PACKING_COMPONENT_VERSION,Comparison) or (Comparison<0) then
+    Result:=Result+['BookProcessing'];
+  Options.SevenZip:=FindFullSevenZip(AppPath);
+  if Options.SevenZip='' then Options.SevenZip:=FindExternalTool('7za.exe','7zip');
+  if Options.SevenZip='' then Result:=Result+['7-Zip'];
+  if PackingReducesImageQuality(Options.ImageProfile) then
+  begin
+    Version:=InstalledComponentVersion(AppPath,'ImageProcessing');
+    if (Version='') or (((Options.ImageProfile=pipMaximum) or Options.ImageGrayscale) and
+      (not CompareComponentVersions(Version,PACKING_COMPONENT_VERSION,Comparison) or (Comparison<0))) then
+      Result:=Result+['ImageProcessing'];
+  end;
+  Options.JpegXLEncoder:='';
+  Options.JpegXLDecoder:='';
+  if Options.ImageProfile=pipJpegXL then
+  begin
+    if ComponentNeedsRepair(AppPath,JPEG_XL_ENCODER_COMPONENT) then
+      Result:=Result+[JPEG_XL_ENCODER_COMPONENT]
+    else Options.JpegXLEncoder:=TPath.Combine(AppPath,ComponentFileName(JPEG_XL_ENCODER_COMPONENT));
+    if ComponentNeedsRepair(AppPath,'JPEG XL') or
+      not CompareComponentVersions(InstalledComponentVersion(AppPath,'JPEG XL'),'0.12.0',Comparison) or
+      (Comparison<0) then Result:=Result+['JPEG XL']
+    else Options.JpegXLDecoder:=TPath.Combine(AppPath,ComponentFileName('JPEG XL'));
+  end;
 end;
 
 function PackingImageProfileCaption(Profile: TPackingImageProfile; Grayscale: Boolean): string;

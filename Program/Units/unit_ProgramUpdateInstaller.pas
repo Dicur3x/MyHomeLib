@@ -563,7 +563,7 @@ var ArrayValue: TJSONArray; Value: TJSONValue; I: Integer;
     if IsFormatComponent(ID) then
     begin
       RequireMember(FormatComponentDescriptor(ID));
-      for var Name in FormatComponentRequiredFiles(ID) do RequireMember(Name);
+      for var Name in FormatComponentRequiredFiles(ID,Version) do RequireMember(Name);
     end;
     if ID='Zstandard' then
       for var Name in ['libzstd.dll','tools/zstd/RUNTIME.json','tools/zstd/LICENSE'] do RequireMember(Name);

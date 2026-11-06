@@ -49,7 +49,7 @@ DESCRIPTORS = {
     **{component: 'tools/' + writer['directory'] + '/COMPONENT.json' for component, writer in WRITERS.items()},
 }
 NOTES = {
-    'BookProcessing': 'Общая обработка FB2/EPUB и текстов. Без декодеров Kindle, старых Office, XPS, PDF и DjVu.',
+    'BookProcessing': 'Обработка FB2/EPUB и текстов, упаковка коллекций. Декодеры Kindle, Office, XPS, PDF и DjVu устанавливаются отдельно.',
     'ImageProcessing': 'Сжатие иллюстраций и сканированных страниц. Без чтения документов XPS.',
     'Kindle': 'Чтение MOBI/AZW/KF8 через KindleUnpack. Общая среда обработки устанавливается отдельно при необходимости.',
     'KindleExport': 'Сохранение MOBI7/KF8 и AZW3 через Kindling. Устанавливается только для записи Kindle; без декодеров других форматов.',
@@ -213,12 +213,16 @@ def payload_for(platform, component, kindle_export_root=None, advanced_export_ro
         payload.update(tree(REPO/'tools/bookconvert', 'tools/bookconvert',
                             ('vendor/calibre_legacy', 'kindle_input.py', 'kindle_output.py', 'legacy_helper.py',
                              'epub_pdf_output.py', 'COMPONENT.json')))
+        # The installed path is within the existing BookProcessing allowlist,
+        # so older updater helpers can install the same component ZIP.
+        worker = 'tools/bookconvert/pack_collection.py'
+        payload[worker] = (REPO/'tools/collectionpack/pack_collection.py').read_bytes()
         payload['tools/bookconvert/MODULAR_API.txt'] = b'1\n'
         required = ['tools/python/python.exe', 'tools/bookconvert/convert_book.py',
                     'tools/bookconvert/MODULAR_API.txt', 'tools/bookconvert/IMAGE_CONTAINER_API.txt', 'tools/python/python313.dll',
                     'tools/python/python313.zip', 'tools/python/python313._pth',
                     'tools/bookconvert/ADVANCED_EXPORT_API.txt', 'tools/bookconvert/advanced_output.py',
-                    'tools/bookconvert/markdown_output.py']
+                    'tools/bookconvert/markdown_output.py', 'tools/bookconvert/image_quality.py', worker]
         helper.binary_platform(payload['tools/python/python.exe'], platform)
     elif component == 'ImageProcessing':
         payload = tree(runtime/'images', 'tools/images', ('COMPONENT.json',))

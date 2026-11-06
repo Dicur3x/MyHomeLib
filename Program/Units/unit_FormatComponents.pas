@@ -4,10 +4,16 @@ interface
 
 uses System.SysUtils;
 
+const
+  // Older BookProcessing remains valid for ordinary conversion. Packing
+  // needs the current worker; keep its path in the existing module namespace.
+  PACKING_COMPONENT_VERSION = '3.0.0.5';
+  PACKING_WORKER_FILE = 'tools/bookconvert/pack_collection.py';
+
 function IsFormatComponent(const ID: string): Boolean;
 function FormatComponentFile(const ID: string): string;
 function FormatComponentDescriptor(const ID: string): string;
-function FormatComponentRequiredFiles(const ID: string): TArray<string>;
+function FormatComponentRequiredFiles(const ID: string; const Version: string = ''): TArray<string>;
 function SafeFormatComponentFile(const ID, Name: string): Boolean;
 function FormatComponentVersion(const AppPath, ID: string): string;
 function FindBookProcessingPython(const AppPath: string): string;
@@ -15,7 +21,8 @@ function ModularBookProcessingAvailable(const AppPath: string): Boolean;
 
 implementation
 
-uses System.IOUtils, System.JSON, System.Hash, System.RegularExpressions, unit_ProgramUpdatePaths;
+uses System.IOUtils, System.JSON, System.Hash, System.RegularExpressions,
+  unit_ProgramUpdatePaths, unit_ProgramUpdateInstaller;
 
 function IsFormatComponent(const ID: string): Boolean;
 begin
@@ -56,12 +63,18 @@ begin
   if ID='XPS' then Result:='tools/xps/COMPONENT.json';
 end;
 
-function FormatComponentRequiredFiles(const ID: string): TArray<string>;
+function FormatComponentRequiredFiles(const ID, Version: string): TArray<string>;
+var Comparison: Integer;
 begin
   Result:=nil;
-  if ID='BookProcessing' then Result:=TArray<string>.Create('tools/python/python.exe',
-    'tools/python/python313.dll','tools/python/python313.zip','tools/python/python313._pth',
-    'tools/bookconvert/convert_book.py','tools/bookconvert/MODULAR_API.txt');
+  if ID='BookProcessing' then
+  begin
+    Result:=TArray<string>.Create('tools/python/python.exe',
+      'tools/python/python313.dll','tools/python/python313.zip','tools/python/python313._pth',
+      'tools/bookconvert/convert_book.py','tools/bookconvert/MODULAR_API.txt');
+    if CompareComponentVersions(Version,PACKING_COMPONENT_VERSION,Comparison) and (Comparison>=0) then
+      Result:=Result+[PACKING_WORKER_FILE,'tools/bookconvert/image_quality.py'];
+  end;
   if ID='ImageProcessing' then Result:=TArray<string>.Create('tools/images/HomeLibImages.exe',
     'tools/images/RUNTIME.json','tools/images/HomeLibImages-MIT.txt');
   if ID='Kindle' then Result:=TArray<string>.Create('tools/kindle/convert_kf8.py',
@@ -136,7 +149,7 @@ begin
         not Root.TryGetValue<TJSONObject>('identities',Identities) then Exit;
       Version:=Root.GetValue<string>('version','');
       if not TRegEx.IsMatch(Version,'^[0-9]+(?:\.[0-9]+){1,3}$') then Exit;
-      for Name in FormatComponentRequiredFiles(ID) do
+      for Name in FormatComponentRequiredFiles(ID,Version) do
       begin
         // File names contain periods. They are literal JSON keys, not JSON paths.
         Identity:=Identities.GetValue(Name);

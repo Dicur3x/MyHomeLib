@@ -931,11 +931,9 @@ type
     procedure ShowBookColumnFilters(Sender: TObject);
     procedure ShowCatalogSources(Sender: TObject);
     procedure RestoreCollectionSnapshot(Sender: TObject);
-{$IFDEF MHL_EXPERIMENTAL_COLLECTION_PACKING}
     procedure PackCurrentCollection(Sender: TObject);
     procedure PackCollection(UpdateFromInpx: Boolean; Resume: PCollectionPackingRequest = nil);
     procedure ResumePacking(var Message: TMessage); message WM_RESUME_COLLECTION_PACKING;
-{$ENDIF}
     procedure ShowBookDuplicates(Sender: TObject);
     procedure CheckBookDuplicateApply(Sender: TObject);
     procedure ApplyBookColumnFilters(Tree: TBookTree);
@@ -1297,10 +1295,7 @@ uses
   unit_SystemDatabase_Abstract,
   unit_MHLArchiveHelpers, unit_MHLExternalTools,
   unit_BookCache, unit_MHLOperationStatus, frm_DeleteCollection, unit_ImportOldUserData, unit_BookColumnFilters, frm_CatalogSources, frm_CollectionBackup, frm_BookDuplicates, unit_ComponentUpdates, unit_ProgramUpdateInstaller, unit_Diagnostics, unit_ComponentUsage, unit_ComponentRemoval, frm_ComponentMaintenance,
-{$IFDEF MHL_EXPERIMENTAL_COLLECTION_PACKING}
-  frm_CollectionPackingProgress,
-{$ENDIF}
-  unit_FormatComponents;
+  frm_CollectionPackingProgress;
 
 type
   TBookTreeAccess = class(TBookTree);
@@ -4467,7 +4462,6 @@ begin
   end;
 end;
 
-{$IFDEF MHL_EXPERIMENTAL_COLLECTION_PACKING}
 procedure TfrmMain.PackCurrentCollection(Sender: TObject);
 begin
   PackCollection(False);
@@ -4518,7 +4512,7 @@ procedure TfrmMain.PackCollection(UpdateFromInpx: Boolean; Resume: PCollectionPa
 var Options: TCollectionPackingOptions; Required: TArray<string>;
   Picker: TFileOpenDialog; Progress: TfrmCollectionPackingProgress;
   Snapshot: TCollectionPackingSnapshot; Status: TCollectionPackingStatus;
-  BaseName, Summary, Inpx, UpdateRoot: string; NewID, Suffix, Comparison: Integer;
+  BaseName, Summary, Inpx, UpdateRoot: string; NewID, Suffix: Integer;
   Source: IBookCollection; Request: TCollectionPackingRequest;
   SavedProfile: TPackingImageProfile; SavedGrayscale: Boolean;
 begin
@@ -4530,12 +4524,6 @@ begin
   end;
 
   Options:=Default(TCollectionPackingOptions);
-  Options.Script:=TPath.Combine(Settings.AppPath,'tools/collectionpack/pack_collection.py');
-  if not FileExists(Options.Script) then
-  begin
-    MessageDlg('Файл упаковки отсутствует. Восстановите файлы HomeLibre из архива программы.',mtError,[mbOK],0);
-    Exit;
-  end;
   FFormBusy:=True; NewID:=INVALID_COLLECTION_ID;
   try
     try
@@ -4596,26 +4584,7 @@ begin
           if not ChoosePackingImageProfile(Self,Options.ImageProfile,Options.ImageGrayscale) then Exit;
         end;
       end;
-      Options.Python:=FindBookProcessingPython(Settings.AppPath);
-      if (Options.Python='') or (PackingReducesImageQuality(Options.ImageProfile) and
-        (not ModularBookProcessingAvailable(Settings.AppPath) or
-         not FileExists(TPath.Combine(Settings.AppPath,'tools/bookconvert/image_quality.py')))) then
-        Required:=Required+['BookProcessing'];
-      Options.SevenZip:=FindFullSevenZip(Settings.AppPath);
-      if Options.SevenZip='' then Options.SevenZip:=FindExternalTool('7za.exe','7zip');
-      if Options.SevenZip='' then Required:=Required+['7-Zip'];
-      if PackingReducesImageQuality(Options.ImageProfile) and ComponentNeedsRepair(Settings.AppPath,'ImageProcessing') then
-        Required:=Required+['ImageProcessing'];
-      if Options.ImageProfile=pipJpegXL then
-      begin
-        if ComponentNeedsRepair(Settings.AppPath,JPEG_XL_ENCODER_COMPONENT) then
-          Required:=Required+[JPEG_XL_ENCODER_COMPONENT]
-        else Options.JpegXLEncoder:=TPath.Combine(Settings.AppPath,ComponentFileName(JPEG_XL_ENCODER_COMPONENT));
-        if ComponentNeedsRepair(Settings.AppPath,'JPEG XL') or
-          not CompareComponentVersions(InstalledComponentVersion(Settings.AppPath,'JPEG XL'),'0.12.0',Comparison) or
-          (Comparison<0) then Required:=Required+['JPEG XL']
-        else Options.JpegXLDecoder:=TPath.Combine(Settings.AppPath,ComponentFileName('JPEG XL'));
-      end;
+      Required:=ResolvePackingTools(Settings.AppPath,Options);
       if Length(Required)>0 then
       begin
         if Resume<>nil then
@@ -4631,7 +4600,7 @@ begin
         Request.CaptureIdentity;
         EnsureProgramUpdateForm;
         FProgramUpdateForm.RequestComponents(Required,
-          PackingImageProfileCaption(Options.ImageProfile,Options.ImageGrayscale)+
+          'Сжатие коллекции. '+PackingImageProfileCaption(Options.ImageProfile,Options.ImageGrayscale)+
           '. После установки вернёмся к проверке перед сжатием.',True,
           function: string
           begin Result:=StorePackingContinuation(Settings.SettingsFileName,Request); end);
@@ -4656,6 +4625,7 @@ begin
           [Status.BooksDone,Status.Unavailable,PackingSize(Status.InputBytes),
            PackingSize(Status.OutputBytes),Status.Reused]);
         RecordComponentUse('BookProcessing');
+        RecordComponentUse('7-Zip');
         if Options.ImageProfile=pipJpegXL then
         begin
           RecordComponentUse(JPEG_XL_ENCODER_COMPONENT);
@@ -4708,7 +4678,6 @@ begin
     begin LogDiagnosticError('packing-resume',E); MHLShowError(E.Message); end;
   end;
 end;
-{$ENDIF}
 
 procedure TfrmMain.ShowCatalogSources(Sender: TObject);
 var Dialog: TfrmCatalogSources; Changed, MetadataChanged, DuplicatesRequested: Boolean; CollectionID: Integer;
@@ -5123,11 +5092,9 @@ begin
   FilterMenu:=TMenuItem.Create(Self); FilterMenu.Name:='miRestoreCollectionSnapshot';
   FilterMenu.Caption:='Восстановить из резервной копии…';
   FilterMenu.OnClick:=RestoreCollectionSnapshot; N2.Insert(4,FilterMenu);
-{$IFDEF MHL_EXPERIMENTAL_COLLECTION_PACKING}
   FilterMenu:=TMenuItem.Create(Self); FilterMenu.Name:='miPackCollection';
   FilterMenu.Caption:='Сжать коллекцию…';
   FilterMenu.OnClick:=PackCurrentCollection; N2.Insert(5,FilterMenu);
-{$ENDIF}
 
 
   FMetadataFillAction:=TAction.Create(Self); FMetadataFillAction.Name:='acFillBookMetadata';
@@ -5327,11 +5294,9 @@ begin
   except
     on E: Exception do begin LogDiagnosticError('save-resume-load',E); MHLShowError(E.Message); end;
   end;
-{$IFDEF MHL_EXPERIMENTAL_COLLECTION_PACKING}
   for var I:=1 to ParamCount do
     if ParamStr(I).StartsWith(PACKING_RESUME_SWITCH) then
     begin PostMessage(Handle,WM_RESUME_COLLECTION_PACKING,0,0); Break; end;
-{$ENDIF}
   if Failed then LogCatalogueStartupPhase('collection-failed')
   else if Assigned(FCollection) then LogCatalogueStartupPhase('collection-ready')
   else LogCatalogueStartupPhase('no-collection');
@@ -11628,11 +11593,7 @@ begin
   try
     if IsPackedCollectionCatalog(FCollection.GetProperty(PROP_DATAFILE)) then
     begin
-{$IFDEF MHL_EXPERIMENTAL_COLLECTION_PACKING}
       PackCollection(True);
-{$ELSE}
-      MHLShowWarning('Обновление сжатой коллекции из INPX пока недоступно.');
-{$ENDIF}
       Exit;
     end;
   except

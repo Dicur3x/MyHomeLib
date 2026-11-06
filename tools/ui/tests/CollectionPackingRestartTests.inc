@@ -9,7 +9,7 @@ var Root: TJSONObject; Entry: TJSONValue; Releases: TComponentReleases; Info: TP
   Dialog: TfrmCollectionPackingProgress; Probe: TPackingReviewProbe;
   Timer: TTimer; Snapshot: TCollectionPackingSnapshot; Started: UInt64;
   Folder, Report, Version, Source, SourceRoot, Destination: string;
-  Required: TArray<string>;
+  Required: TArray<string>; PackedCollection: IBookCollection; PackedStream: TStream;
 
   procedure WaitForPrimary(const Caption: string);
   begin
@@ -59,9 +59,9 @@ begin
         Options.PersonalFile:=Settings.SystemFileName[sfSystemDB];
         Options.DisplayName:='Packed after component restart';
         Options.ImageProfile:=Request.ImageProfile; Options.ImageGrayscale:=Request.ImageGrayscale;
-        Options.Python:=FindBookProcessingPython(Folder);
-        Options.SevenZip:=TPath.Combine(Folder,'tools/7zip/7za.exe');
-        Options.Script:=TPath.Combine(Folder,'tools/collectionpack/pack_collection.py');
+        Require((Length(ResolvePackingTools(Folder,Options))=0) and FileExists(Options.Script) and
+          SameFileName(Options.Script,TPath.Combine(Folder,PACKING_WORKER_FILE)),
+          'Packing worker was not installed as part of BookProcessing');
         Dialog:=TfrmCollectionPackingProgress.Create(ReviewParent);
         Probe:=TPackingReviewProbe.Create;
         Timer:=TTimer.Create(nil);
@@ -80,14 +80,46 @@ begin
           not DirectoryExists(TPath.Combine(Destination,'archives')) and
           (UpdateSHA256(Source)=UpdateSHA256(Folder+'module-source.fb2')),
           'Restart replayed the request, altered a source book or published archives before approval');
+        Dialog:=TfrmCollectionPackingProgress.Create(nil);
+        try Snapshot:=Dialog.Execute(Options,False);
+        finally Dialog.Free; end;
+        try
+          Require(Snapshot.Status.BooksDone=1,'Installed worker did not pack the book');
+          PackedCollection:=SystemDB.GetCollection(Snapshot.RegisterNew(SystemDB));
+        finally Snapshot.Free; end;
+        Require(PackedCollection.CollectionID<>Collection.CollectionID,'Packing replaced the source catalogue');
+        BookID:=PackedCollection.ResolveBookID('Packing restart book',0);
+        Require(BookID>0,'Packed copy lost the selected book identity');
+        PackedCollection.GetBookRecord(CreateBookKey(BookID,PackedCollection.CollectionID),Book,True);
+        PackedStream:=Book.GetBookStream(True,False);
+        try
+          Require(Assigned(PackedStream) and SameText(THashSHA2.GetHashString(PackedStream),UpdateSHA256(Source)) and
+            SameText(UpdateSHA256(Source),UpdateSHA256(Folder+'module-source.fb2')),
+            'Packing through the downloaded worker lost the original book bytes');
+        finally PackedStream.Free; end;
+        PackedCollection:=nil;
         Collection:=nil;
+        TFile.WriteAllText(Options.Script,'# corrupted isolated worker',TEncoding.ASCII);
+        Required:=ResolvePackingTools(Folder,Options);
+        Require((Length(Required)=1) and (Required[0]='BookProcessing') and ComponentNeedsRepair(Folder,'BookProcessing'),
+          'A corrupt installed worker must offer same-version BookProcessing repair');
         TFile.WriteAllText(Report,'PASS compact packing download actual installer restart restores selected profile and canceled review'+
           sLineBreak+IntToStr(GetCurrentProcessId),TEncoding.UTF8);
         Exit;
       end;
 
-      Require(ComponentNeedsRepair(Folder,'BookProcessing') and ComponentNeedsRepair(Folder,'ImageProcessing'),
+      Require(ComponentNeedsRepair(Folder,'BookProcessing') and ComponentNeedsRepair(Folder,'ImageProcessing') and
+        not FileExists(TPath.Combine(Folder,PACKING_WORKER_FILE)),
         'Packing first-use fixture already has a requested component');
+      Options:=Default(TCollectionPackingOptions);
+      Required:=ResolvePackingTools(Folder,Options);
+      Require((Length(Required)=1) and (Required[0]='BookProcessing'),
+        'Original-quality packing should request only BookProcessing when 7-Zip is available');
+      Options.ImageProfile:=pipMaximum;
+      Options.ImageGrayscale:=True;
+      Required:=ResolvePackingTools(Folder,Options);
+      Require((Length(Required)=2) and (Required[0]='BookProcessing') and (Required[1]='ImageProcessing'),
+        'Grayscale packing requested unrelated components');
       ForceDirectories(SourceRoot); ForceDirectories(Destination);
       TFile.Copy(Folder+'module-source.fb2',Source);
       SourceID:=SystemDB.CreateCollection('Packing restart source',SourceRoot,'packing-restart.hlc2',
@@ -116,7 +148,7 @@ begin
           Info.Size:=Entry.GetValue<Int64>('size');
           Server.URLs.Add(Info.DownloadURL);
           Server.Files.Add(Folder+'save-module-fixture/'+Entry.GetValue<string>('name'));
-          Required:=Required+[Info.ComponentID];
+          Require(IndexText(Info.ComponentID,Required)>=0,'Unexpected packing module in the feed');
           for var I:=Low(UPDATE_COMPONENTS) to High(UPDATE_COMPONENTS) do
             if UPDATE_COMPONENTS[I].ID=Info.ComponentID then Releases[I]:=Info;
         end;
