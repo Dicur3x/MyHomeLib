@@ -18,7 +18,7 @@ import zipfile
 import zlib
 from xml.etree import ElementTree
 
-from pack_collection import API_VERSION, Canceled, Packer, PackingError
+from pack_collection import API_VERSION, Canceled, JPEG_XL_ENGINE, JpegXL, Packer, PackingError
 
 SEVEN = Path(os.environ.get('HLRU_PACK_7ZIP', '../../Program/Out/Bin64/tools/7zip/7za.exe')).absolute()
 IMAGE_TOOLS = os.environ.get('HLRU_PACK_IMAGE_TOOLS')
@@ -114,6 +114,59 @@ class PackingTests(unittest.TestCase):
             plan.execute('CREATE TABLE IF NOT EXISTS retained(book_id INTEGER PRIMARY KEY,folder TEXT,filename TEXT,ext TEXT,inside_no INTEGER)')
             plan.executemany('INSERT OR REPLACE INTO retained VALUES(?,?,?,?,?)', rows)
             plan.executemany('DELETE FROM books WHERE book_id=?', [(identity,) for identity in identities])
+
+    def test_separated_jpeg_mode_requires_both_tools_before_creating_destination(self):
+        job = dict(self.job, engine=JPEG_XL_ENGINE)
+        with self.assertRaisesRegex(PackingError, 'JPEG XL'):
+            Packer(job).execute()
+        self.assertFalse(self.output.exists())
+
+    def test_separated_jpeg_mode_rejects_lossy_profile(self):
+        with self.assertRaisesRegex(PackingError, 'без изменений'):
+            Packer(dict(self.job, engine=JPEG_XL_ENGINE, images='economy')).execute()
+        self.assertFalse(self.output.exists())
+
+    def test_separated_jpeg_fb2_keeps_cover_duplicate_ids_and_other_xml_bytes(self):
+        jpeg = b'\xff\xd8\xff test image'
+        binary = b'<binary id="%s" content-type="image/jpeg">' + base64.b64encode(jpeg) + b'</binary>'
+        source = self.source / 'preserved.fb2'
+        source.write_bytes(b'''<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0"
+ xmlns:l="http://www.w3.org/1999/xlink"><description><title-info><coverpage>
+ <image l:href="#front"/></coverpage></title-info></description>
+ <body><section id="dupe"><p>Keep <![CDATA[the original]]> text.</p></section></body>
+ <!-- Keep this too -->''' + binary % b'front' + binary % b'dupe' + binary % b'art.1' + b'</FictionBook>')
+        destination = self.root / 'stripped.fb2'
+        codec = JpegXL(sys.executable, sys.executable, lambda: None)
+        with patch.object(codec, 'encode', return_value=b'transcoded') as encode:
+            self.assertEqual(codec.separate(source, destination, self.root), {'art.1': b'transcoded'})
+            encode.assert_called_once_with(jpeg, self.root)
+        self.assertEqual(destination.read_bytes(), source.read_bytes().replace(binary % b'art.1', b''))
+
+    def test_separated_jpeg_epub_keeps_signed_packages_as_originals(self):
+        source = self.archive('signed.epub', {'mimetype': b'application/epub+zip',
+            'META-INF/container.xml': b'<container/>', 'META-INF/signatures.xml': b'<signatures/>',
+            'OPS/art.jpg': b'\xff\xd8\xff test image'})
+        destination = self.root / 'stripped.epub'
+        codec = JpegXL(sys.executable, sys.executable, lambda: None)
+        with patch.object(codec, 'encode') as encode:
+            self.assertEqual(codec.separate(source, destination, self.root), {})
+            encode.assert_not_called()
+        self.assertFalse(destination.exists())
+
+    def test_separated_jpeg_cancel_does_not_publish_partial_package(self):
+        source = self.source / 'illustrated.fb2'
+        source.write_bytes(illustrated_fb2(b'\xff\xd8\xff test image').replace(b'image/png', b'image/jpeg'))
+        before = sha(source)
+        self.add(1, source, '')
+        job = dict(self.job, engine=JPEG_XL_ENGINE, jpeg_xl_encoder=sys.executable,
+                   jpeg_xl_decoder=sys.executable)
+        with patch.object(JpegXL, 'encode', side_effect=Canceled('canceled during image coding')):
+            with self.assertRaises(Canceled):
+                Packer(job).execute()
+        self.assertEqual(sha(source), before)
+        self.assertFalse(list(self.output.rglob('prepared.json')))
+        self.assertFalse(list(self.output.glob('archives/**/*')))
+        self.assertFalse(list(self.output.glob('.packing-*')))
 
     def test_incremental_download_in_copy_requires_opt_in_and_cannot_read_managed_payload_as_source(self):
         source = self.source / 'original.txt'

@@ -10,6 +10,8 @@
     "plan": "absolute path to an immutable native SQLite plan",
     "output": "absolute path to an empty folder or this dataset's existing compressed copy",
     "seven_zip": "absolute path to the installed, verified 7-Zip executable",
+    "jpeg_xl_encoder": "absolute cjxl executable path, required by jpeg-xl-7z",
+    "jpeg_xl_decoder": "absolute djxl executable path, required by jpeg-xl-7z",
     "verify_sources": false,
     "verify_outputs": false,
     "allow_copy_inputs": false
@@ -23,7 +25,8 @@
   ],
   "image_profiles": {
     "default": "reversible-ppmd with original preserves all selected book bytes. Older markers without images mean original.",
-    "optional": "illustrations-ppmd with balanced or economy applies HomeLibre Images to eligible FB2/EPUB without format conversion. Requires the bookconvert scripts and HomeLibre Images in the installation tools folder. tools_root is optional and overrides that folder for an isolated runtime.",
+    "optional": "illustrations-ppmd with balanced, economy or maximum applies HomeLibre Images to eligible FB2/EPUB without format conversion. illustrations-gray-ppmd also converts supported pictures to shades of gray. Requires the bookconvert scripts and HomeLibre Images in the installation tools folder. tools_root is optional and overrides that folder for an isolated runtime.",
+    "separated_jpeg": "Experimental worker mode jpeg-xl-7z with images=original uses upstream cjxl and djxl. It selects only JPEGs which get smaller and reconstruct byte for byte, and publishes books.7z with images/books.zip only if their combined size beats ordinary packing and the source archive. Other pictures stay in the books. Reconstructed FB2 and EPUB may differ in container bytes. The original source files are untouched. This mode is not yet offered in the catalogue.",
     "scope": "PDF, DjVu, DOC and other formats retain their book bytes. FLibrary companions and FBD containers retain the entire original package. FB2/EPUB over 64 MiB, unreadable books or format mismatches preserve their original bytes. An illustration candidate is used only if it shrinks the book; the existing archive-level size safeguard can still keep the original archive.",
     "continuation": "The destination marker binds dataset, engine and image profile for all later runs. Changing profile requires a new output folder. Resume and INPX updates reuse verified archives while using the stored profile for new or changed sources.",
     "counters": "image_books_optimized and image_books_skipped count mapped locations for accepted transformed payloads and books individually declined by the processor, including reused locations. Opaque archives are counted separately. An already compact or unillustrated book is not counted as skipped.",
@@ -65,7 +68,7 @@
     "on_limit": "Abort without publishing a collection; retain completed archives for resumption. Native acceptance against the real library is still required."
   },
   "pending_engines": [
-    "FLibrary-compatible separated images and JPEG XL via verified upstream tools",
+    "Catalogue integration and first-use installation for the separated JPEG writer",
     "WebP image compression using upstream codecs; original LightLib Cleaner integration only if its callable interface and redistribution terms can be verified"
   ],
   "exit_codes": {

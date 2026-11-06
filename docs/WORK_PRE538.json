@@ -5265,5 +5265,29 @@
     ],
     "cleanup": "New benchmark and native temporary folders and isolated source copies on G: were removed. Source member hashes and archive size/time signatures matched.",
     "remaining": "The sidecar comparison was a prototype, not an archive HomeLibre currently writes from its packing menu. Integrate and verify JPEG XL writing with the real worker and native reading route, specify the image and book identity guarantees, and test archive accounting, cancellation, incremental INPX and minimum-package component installation before enabling collection packing."
+  },
+  "collection_packing_jxl_writer_20261106": {
+    "status": "Real collection-packing worker writes and verifies FLibrary-compatible non-solid 7z with a sibling ZIP of exact-recoverable JPEG XL. Both architecture-matched worker runs completed. This backend mode is not enabled in the catalogue UI yet.",
+    "implementation": "The jpeg-xl-7z worker requires explicit cjxl and djxl before creating a destination. It leaves original sources intact, retains photos only if smaller and reconstructed to the same JPEG bytes, preserves FB2 outside separated binary nodes, and keeps untransformed EPUB resources byte for byte. FB2 covers, unsafe/ambiguous identities, existing FLibrary and FBD packages, protected EPUBs, other image codecs and other book formats stay on the original-preserving path. The alternative main archive and image ZIP must together beat the ordinary reversible archive and any archived source. Both artifacts are verified and recorded before one package rename.",
+    "source": "The same five archived real members as collection_packing_jxl_20261106 were copied to an isolated 34,601,187-byte Deflate ZIP. The 46,888,835-byte illustrated FB2 dominates this sample.",
+    "measurements": {
+      "Win32": {
+        "ordinary_bytes": 32778610,
+        "jpeg_xl_bytes": 25292852,
+        "ordinary_seconds": 19,
+        "jpeg_xl_seconds": 52.6
+      },
+      "Win64": {
+        "ordinary_bytes": 32778610,
+        "jpeg_xl_bytes": 25292847,
+        "ordinary_seconds": 18.5,
+        "jpeg_xl_seconds": 47.9
+      }
+    },
+    "verification": "On each architecture, both FB2 and EPUB were transformed. A separate readback checked 271 JPEGs byte for byte, unchanged inline pictures, FB2 text and XML structure, untouched EPUB entries, and exact PDF/DjVu/DOC bytes. The worker counted both published artifacts. Same-plan resume reused the payload and every artifact SHA; a separate incremental SQLite plan retained the original five locations and added one DOC. All 38 worker tests passed per architecture with architecture-matched HomeLibImages and 7-Zip, including missing-tool preflight, lossless-profile separation, FB2 cover/identity safety, signed EPUB and cancellation before publishing a partial package.",
+    "limitations": "The mixed input was tested through the real worker and an independent extraction verifier. It has not yet been registered and reopened by the native catalogue using the new profile. The incremental plan is not a native INPX end-to-end test. The x86/x64 elapsed times are from one shared-machine run, not a guarantee. The separate JPEG profile retains image bytes after reconstruction, whereas the FB2/EPUB book files may have different XML or ZIP container bytes.",
+    "cleanup": "All new temporary fixture directories, extracted books, portable codec archives and built image tools for these probes were removed from G:. Source archive size/time signatures and member hashes matched.",
+    "log": "tools/ui/tests/Out/collection-packing-jxl-writer-20261106-r4.log",
+    "remaining": "Connect the experimental native picker and INPX profile, install the official encoder only for packing, and verify read/export and missing or damaged companion handling for exact real worker output. Run both architectures through ordinary component install, cancel/resume, native INPX and release candidate packaging."
   }
 }

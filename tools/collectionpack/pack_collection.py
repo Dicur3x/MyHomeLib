@@ -7,7 +7,9 @@ HomeLibre export processor before packaging eligible FB2 and EPUB copies.
 from __future__ import annotations
 
 import argparse
+import base64
 import binascii
+from collections import Counter
 from contextlib import closing, contextmanager
 from dataclasses import asdict, dataclass
 import hashlib
@@ -15,12 +17,14 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import sqlite3
 import subprocess
 import tempfile
 import time
 import uuid
+from xml.parsers import expat
 import zipfile
 import zlib
 
@@ -33,6 +37,10 @@ ARCHIVE_SUFFIXES = {'.zip', '.7z', '.rar', '.tar', '.gz', '.bz2', '.xz'}
 TEXT_SUFFIXES = {'.fb2', '.txt', '.rtf', '.html', '.htm', '.xml', '.md', '.csv'}
 IMAGE_SUFFIXES = {'.fb2', '.epub'}
 IMAGE_ENGINES = ('illustrations-ppmd', 'illustrations-gray-ppmd')
+JPEG_XL_ENGINE = 'jpeg-xl-7z'
+FB2_NAMESPACE = 'http://www.gribuser.ru/xml/fictionbook/2.0|'
+XLINK_HREF = 'http://www.w3.org/1999/xlink|href'
+EPUB_IMAGE_INDEX = 'FLibraryImageIndex.json'
 
 
 class PackingError(ValueError):
@@ -178,7 +186,7 @@ class SevenZip:
         for names, method in ((text_names, 'PPMd'), (stored_names, 'Copy')):
             if not names:
                 continue
-            listing = stage / 'entries.txt'
+            listing = stage.parent / 'entries.txt'
             listing.write_text('\n'.join(names) + '\n', encoding='utf-8')
             # Independent ZIP members preserve random access; no solid blocks.
             # Upstream ZIP PPMd defaults keep the decoder's memory modest.
@@ -186,14 +194,178 @@ class SevenZip:
             self.run(['a', '-tzip', '-mm=' + method, '-mmt=2', '-scsUTF-8', '-y',
                       *options, str(target), '@' + str(listing)], cwd=stage)
 
+    def pack_separated(self, stage, target, names):
+        if names:
+            listing = stage.parent / 'entries.txt'
+            listing.write_text('\n'.join(names) + '\n', encoding='utf-8')
+            self.run(['a', '-t7z', '-m0=LZMA2', '-md=16m', '-ms=off', '-mmt=2',
+                      '-scsUTF-8', '-y', str(target), '@' + str(listing)], cwd=stage)
+
+
+class JpegXL:
+    def __init__(self, encoder, decoder, check):
+        self.encoder = Path(encoder).absolute() if encoder else None
+        self.decoder = Path(decoder).absolute() if decoder else None
+        if not all(tool and tool.is_file() for tool in (self.encoder, self.decoder)):
+            raise PackingError('Для этого режима нужен JPEG XL с кодировщиком и декодером.')
+        self.check = check
+
+    def run(self, executable, arguments, directory, output, limit):
+        self.check()
+        with subprocess.Popen([str(executable), *arguments], cwd=directory,
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                              creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)) as process:
+            started = time.monotonic()
+            try:
+                while process.poll() is None:
+                    self.check()
+                    if (time.monotonic() - started > 60 or
+                            (output.exists() and output.stat().st_size > limit)):
+                        return False
+                    time.sleep(.025)
+                self.check()
+                return process.returncode == 0 and output.is_file() and output.stat().st_size <= limit
+            finally:
+                if process.poll() is None:
+                    process.kill()
+                process.wait()
+
+    def encode(self, image, directory):
+        if len(image) > 16 * 1024 * 1024 or not image.startswith(b'\xff\xd8\xff'):
+            return None
+        original, encoded, restored = (directory / name for name in ('input.jpg', 'output.jxl', 'decoded.jpg'))
+        try:
+            original.write_bytes(image)
+            if not self.run(self.encoder, ['input.jpg', 'output.jxl', '-e', '3', '--num_threads=1'],
+                            directory, encoded, len(image) - 1):
+                return None
+            if not self.run(self.decoder, ['output.jxl', 'decoded.jpg', '--reconstruct_jpeg', '--num_threads=1'],
+                            directory, restored, len(image)) or restored.read_bytes() != image:
+                return None
+            return encoded.read_bytes()
+        finally:
+            for file in (original, encoded, restored):
+                file.unlink(missing_ok=True)
+
+    def separate_fb2(self, source, destination, scratch):
+        data = source.read_bytes()
+        # Use Expat to locate only direct binary children. Copy the untouched
+        # XML bytes so the body, namespaces, comments and inline assets survive.
+        parser = expat.ParserCreate(namespace_separator='|')
+        stack, binaries, covers, used_ids = [], [], set(), Counter()
+        root_end = None
+
+        def start(name, attrs):
+            self.check()
+            if 'id' in attrs:
+                used_ids[attrs['id'].casefold()] += 1
+            if name == FB2_NAMESPACE + 'image' and FB2_NAMESPACE + 'coverpage' in stack:
+                covers.add(attrs.get(XLINK_HREF, '').lstrip('#').casefold())
+            if (stack == [FB2_NAMESPACE + 'FictionBook'] and name == FB2_NAMESPACE + 'binary' and
+                    set(attrs) == {'id', 'content-type'} and attrs['content-type'].lower() in ('image/jpeg', 'image/jpg') and
+                    re.fullmatch(r'[a-zA-Z0-9_][a-zA-Z0-9_.-]{0,127}', attrs['id'])):
+                binaries.append([attrs['id'], parser.CurrentByteIndex, None])
+            stack.append(name)
+
+        def end(name):
+            nonlocal root_end
+            if len(stack) == 1:
+                root_end = parser.CurrentByteIndex
+            if (len(stack) == 2 and name == FB2_NAMESPACE + 'binary' and binaries and binaries[-1][2] is None):
+                binaries[-1][2] = parser.CurrentByteIndex
+            stack.pop()
+
+        parser.StartElementHandler, parser.EndElementHandler = start, end
+        def reject_doctype(*_):
+            raise expat.ExpatError('Unsupported FB2 document type')
+        parser.StartDoctypeDeclHandler = reject_doctype
+        try:
+            parser.Parse(data, True)
+        except (expat.ExpatError, LookupError):
+            return {}
+        closing = b'</FictionBook>'
+        if root_end is None or data[root_end:root_end + len(closing)] != closing or data[root_end + len(closing):].strip():
+            return {}
+        images, cursor = {}, 0
+        with destination.open('xb') as output:
+            for identity, begin, end_at in binaries:
+                self.check()
+                if (identity.casefold() in covers or identity.casefold() == 'cover' or
+                        used_ids[identity.casefold()] != 1 or end_at is None or
+                        not data.startswith(b'</binary>', end_at) or not data.startswith(b'<binary', begin)):
+                    continue
+                body_at = data.find(b'>', begin, end_at)
+                if body_at < 0:
+                    continue
+                content = data[body_at + 1:end_at]
+                if not re.fullmatch(rb'[a-zA-Z0-9+/=\r\n\t ]+', content):
+                    continue
+                try:
+                    image = base64.b64decode(b''.join(content.split()), validate=True)
+                except binascii.Error:
+                    continue
+                encoded = self.encode(image, scratch)
+                if encoded is not None:
+                    images[identity] = encoded
+                    output.write(data[cursor:begin])
+                    cursor = end_at + len(b'</binary>')
+            output.write(data[cursor:])
+        if images:
+            remaining = destination.read_bytes()
+            if any(b'id="' + identity.encode('ascii') + b'"' in remaining for identity in images):
+                return {}
+        return images
+
+    def separate_epub(self, source, destination, scratch):
+        with zipfile.ZipFile(source) as archive:
+            entries = archive.infolist()
+            names = {entry.filename.casefold() for entry in entries}
+            if (len(names) != len(entries) or 'meta-inf/container.xml' not in names or
+                    any(name.endswith(EPUB_IMAGE_INDEX.casefold()) for name in names) or
+                    names.intersection({'meta-inf/encryption.xml', 'meta-inf/signatures.xml'}) or
+                    sum(entry.file_size for entry in entries) > MAX_IMAGE_BOOK or
+                    any(entry.flag_bits & 1 or '\\' in entry.filename or ':' in entry.filename or
+                        any(part in ('', '.', '..') for part in entry.filename.rstrip('/').split('/'))
+                        for entry in entries)):
+                return {}
+            if archive.read('mimetype') != b'application/epub+zip':
+                return {}
+            images, index = {}, []
+            with zipfile.ZipFile(destination, 'x') as stripped:
+                for entry in entries:
+                    self.check()
+                    data = archive.read(entry)
+                    if Path(entry.filename).suffix.lower() in ('.jpeg', '.jpg'):
+                        encoded = self.encode(data, scratch)
+                        if encoded is not None:
+                            # Reserve zero for FLibrary's EPUB cover shortcut.
+                            number = len(index) + 1
+                            images[str(number)] = encoded
+                            index.append(dict(id=entry.filename, num=number))
+                            continue
+                    stripped.writestr(entry, data)
+                if index:
+                    stripped.writestr(EPUB_IMAGE_INDEX, json.dumps(index, ensure_ascii=False), zipfile.ZIP_DEFLATED)
+            return images
+
+    def separate(self, source, destination, scratch):
+        if source.stat().st_size > MAX_IMAGE_BOOK or source.suffix not in IMAGE_SUFFIXES:
+            return {}
+        try:
+            if source.suffix == '.fb2':
+                return self.separate_fb2(source, destination, scratch)
+            return self.separate_epub(source, destination, scratch)
+        except (zipfile.BadZipFile, KeyError, NotImplementedError):
+            return {}
+
 
 class Packer:
     def __init__(self, job, notify=lambda value: None, canceled=lambda: False):
         self.engine = job.get('engine')
         self.images = job.get('images', 'original')
-        if job.get('version') != API_VERSION or self.engine not in ('reversible-ppmd', *IMAGE_ENGINES):
+        if job.get('version') != API_VERSION or self.engine not in ('reversible-ppmd', JPEG_XL_ENGINE, *IMAGE_ENGINES):
             raise PackingError('Неизвестная версия или режим сжатия коллекции.')
-        if self.engine == 'reversible-ppmd' and self.images != 'original':
+        if self.engine in ('reversible-ppmd', JPEG_XL_ENGINE) and self.images != 'original':
             raise PackingError('Этот режим сохраняет изображения без изменений. Для изменения качества нужен соответствующий режим сжатия.')
         if self.engine in IMAGE_ENGINES and self.images not in ('balanced', 'economy', 'maximum'):
             raise PackingError('Выберите качество иллюстраций для сжатой копии.')
@@ -211,6 +383,7 @@ class Packer:
         self.last_event = None
         self.progress = {}
         self.seven = SevenZip(job['seven_zip'], self.check)
+        self.jpeg_xl = JpegXL(job.get('jpeg_xl_encoder'), job.get('jpeg_xl_decoder'), self.check) if self.engine == JPEG_XL_ENGINE else None
         self.converter = None
         self.tools_root = Path(job.get('tools_root') or Path(__file__).resolve().parents[1]).resolve()
 
@@ -522,6 +695,56 @@ class Packer:
             return None
         return row[0], json.loads(row[1]), artifacts, row[3], row[4]
 
+    def pack_with_jpeg_xl(self, files, stage, package, mappings, maximum_size):
+        transformed = stage / 'separated'; transformed.mkdir()
+        scratch = stage / 'codec'; scratch.mkdir()
+        sidecar = stage / 'pictures.zip'
+        expected_images, replacements, untouched = {}, {}, []
+        with zipfile.ZipFile(sidecar, 'x', zipfile.ZIP_STORED) as pictures:
+            for locator, item in mappings.items():
+                self.check()
+                name = item['filename'] + item['ext']
+                original, candidate = files / name, transformed / name
+                if item['ext'] in IMAGE_SUFFIXES and original.stat().st_size <= MAX_IMAGE_BOOK:
+                    reserve_space(stage, 3 * original.stat().st_size)
+                images = self.jpeg_xl.separate(original, candidate, scratch)
+                if not images:
+                    candidate.unlink(missing_ok=True)
+                    untouched.append(name)
+                    continue
+                replacements[locator] = dict(item, **book_signature(candidate, self.check),
+                    image_result='optimized', original_sha256=item['payload_sha256'])
+                for identity, encoded in images.items():
+                    self.check()
+                    entry = item['filename'] + '/' + identity
+                    pictures.writestr(entry, encoded)
+                    expected_images[entry] = hashlib.sha256(encoded).hexdigest()
+        if not replacements or sidecar.stat().st_size >= maximum_size:
+            return None
+
+        # Both candidate archives stay private until they jointly beat the
+        # ordinary copy and pass extraction and payload verification.
+        archive = stage / 'books.7z'
+        reserve_space(stage, sum(item['payload_size'] for item in mappings.values()))
+        self.seven.pack_separated(files, archive, untouched)
+        self.seven.pack_separated(transformed, archive,
+            [item['filename'] + item['ext'] for item in replacements.values()])
+        if archive.stat().st_size + sidecar.stat().st_size >= maximum_size:
+            return None
+        with zipfile.ZipFile(sidecar) as pictures:
+            if set(pictures.namelist()) != set(expected_images):
+                raise PackingError('Не совпадает список вынесенных иллюстраций.')
+            for entry, expected in expected_images.items():
+                self.check()
+                if hashlib.sha256(pictures.read(entry)).hexdigest() != expected:
+                    raise PackingError('Архив иллюстраций не прошёл проверку.')
+        destination = package / archive.name
+        archive.rename(destination)
+        (package / 'images').mkdir()
+        sidecar.rename(package / 'images' / 'books.zip')
+        mappings.update(replacements)
+        return destination
+
     def process(self, source, rows, stage, identity, stamp, companions):
         artifacts, mappings, copied_hashes = [], {}, {}
         # Generation files are immutable. A changed source cannot replace an
@@ -624,17 +847,28 @@ class Packer:
                 reserve_space(stage, sum(p.stat().st_size for p in files.iterdir()))
                 archive = package / 'books.zip'
                 self.seven.pack(files, archive, text_names, stored_names)
-                with zipfile.ZipFile(archive) as verification:
-                    if set(verification.namelist()) != set(text_names + stored_names):
-                        raise PackingError('Не совпадает список книг в созданном архиве.')
-                    for item in mappings.values():
-                        info = verification.getinfo(item['filename'] + item['ext'])
-                        if (info.CRC, info.file_size) != (item['payload_crc32'], item['payload_size']):
-                            raise PackingError('Содержимое книги в созданном архиве отличается от подготовленной копии.')
-                folder = str(relative / 'books.zip')
+                separated = None
+                if self.jpeg_xl:
+                    maximum_size = archive.stat().st_size
+                    if source.suffix.lower() in ARCHIVE_SUFFIXES:
+                        maximum_size = min(maximum_size, source.stat().st_size)
+                    separated = self.pack_with_jpeg_xl(files, stage, package, mappings, maximum_size)
+                if separated is None:
+                    with zipfile.ZipFile(archive) as verification:
+                        if set(verification.namelist()) != set(text_names + stored_names):
+                            raise PackingError('Не совпадает список книг в созданном архиве.')
+                        for item in mappings.values():
+                            info = verification.getinfo(item['filename'] + item['ext'])
+                            if (info.CRC, info.file_size) != (item['payload_crc32'], item['payload_size']):
+                                raise PackingError('Содержимое книги в созданном архиве отличается от подготовленной копии.')
+                else:
+                    archive.unlink()
+                    archive = separated
+                folder = str(relative / archive.name)
                 # Already compressed sources must not grow merely because
                 # the new member names or ZIP headers have different lengths.
-                if source.suffix.lower() in ARCHIVE_SUFFIXES and archive.stat().st_size >= source.stat().st_size:
+                if (separated is None and source.suffix.lower() in ARCHIVE_SUFFIXES and
+                        archive.stat().st_size >= source.stat().st_size):
                     archive.unlink()
                     destination = package / source.name
                     copied_hashes[destination] = copy_exact(source, destination, self.check)
@@ -650,6 +884,8 @@ class Packer:
                         (files / name).unlink()
                     reserve_space(stage, sum(item['payload_size'] for item in mappings.values()))
                     self.seven.run(['x', '-y', '-bb0', '-o' + str(files), '--', str(archive)], cwd=stage)
+                    if {file.name for file in files.iterdir()} != set(text_names + stored_names):
+                        raise PackingError('Не совпадает список книг в созданном архиве.')
                     for item in mappings.values():
                         decoded = files / (item['filename'] + item['ext'])
                         if not decoded.is_file() or digest_file(decoded, self.check) != item['payload_sha256']:
