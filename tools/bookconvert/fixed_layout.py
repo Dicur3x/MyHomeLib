@@ -23,9 +23,12 @@ def png(rgb, width, height):
     return b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', width, height, 8, 2, 0, 0, 0)) + chunk(b'IDAT', zlib.compress(rows)) + chunk(b'IEND', b'')
 
 
-def readable(text):
+def readable(text, plain_text=False):
     chars = [ch for ch in text if not ch.isspace()]
     bad = sum(ch == '\ufffd' or unicodedata.category(ch) in {'Co', 'Cs', 'Cc', 'Cn'} for ch in chars)
+    if plain_text:
+        # A native text layer can contain a short label or a numeric table.
+        return any(ch.isalnum() for ch in chars) and bad <= max(1, len(chars) * .02)
     letters = sum(ch.isalpha() for ch in chars)
     # Quality gate catches broken character maps, not spelling/OCR mistakes.
     return letters >= 3 and bad <= max(1, len(chars) * .02) and letters >= len(chars) * .30
@@ -127,7 +130,13 @@ def emit_page(book, number, lines, rgb, width, height, page_width, page_height):
     # A missing or unusable OCR layer is not a reason to discard a readable
     # page. Preserve the complete rendered page, never fabricate searchable
     # text or keep a misleading fragment of the broken character map.
-    if not text.strip() or not readable(text):
+    if not readable(text, book.omit_images):
+        if book.omit_images:
+            section = book.el('section', id='page-' + str(number))
+            section.append(book.el('p', f'[Страница {number} без пригодного текстового слоя]'))
+            book.body.append(section)
+            book.missing_text_pages = getattr(book, 'missing_text_pages', 0) + 1
+            return 0
         book.scan_page(png(rgb,width,height),number,getattr(book,'page_count',number))
         book.fixed_image_pages=getattr(book,'fixed_image_pages',0)+1
         book.warnings.add('Страницы без пригодного текстового слоя сохранены изображениями. Поиск и изменение размера текста на этих страницах недоступны; для текста требуется OCR.')
@@ -141,7 +150,9 @@ def emit_page(book, number, lines, rgb, width, height, page_width, page_height):
         lines = [{**line, 'text': ''.join(replacements.get(ch, ch) for ch in line['text'])} for line in lines]
         book.warnings.add(f'Страница {number}: нечитаемые символы исходного текстового слоя помечены ' +
                           ', '.join(replacements[ch] for ch in sorted(invalid)) + '. Сверьте эти места с оригиналом.')
-    regions, ink = illustration_regions(rgb, width, height, lines, page_width, page_height)
+    regions = []
+    if not book.omit_images:
+        regions, _ = illustration_regions(rgb, width, height, lines, page_width, page_height)
     section = book.el('section', id='page-' + str(number)); book.body.append(section)
     events = [(n['box'][1], 'text', n) for n in order_lines(lines)]
     # Reading order is decided by columns, so place each illustration before the
@@ -160,7 +171,20 @@ def emit_page(book, number, lines, rgb, width, height, page_width, page_height):
             elif item.get('italic'): p.append(book.el('em', text))
             else: p.text = text
             section.append(p)
-    return sum(ch.isalpha() for ch in text) if not lines else sum(ch.isalpha() for n in lines for ch in n['text'])
+    if book.omit_images:
+        return sum(ch.isalnum() for n in lines for ch in n['text'])
+    return sum(ch.isalpha() for n in lines for ch in n['text'])
+
+
+def check_content(book, text_count, format_name):
+    if book.omit_images:
+        if not text_count:
+            book.fail(f'В {format_name} нет пригодного текстового слоя. Для сохранения в TXT требуется OCR.')
+        missing = getattr(book, 'missing_text_pages', 0)
+        if missing:
+            book.warnings.add(f'Страницы без пригодного текстового слоя отмечены в TXT. Страниц без текста: {missing}. Для них требуется OCR.')
+    elif text_count < 20 and not getattr(book, 'fixed_image_pages', 0):
+        book.fail(f'В {format_name} нет текста или изображений для конвертации.')
 
 
 class PDF:
@@ -187,7 +211,7 @@ class PDF:
         for name, (result, args) in signatures.items():
             function = getattr(self.dll, name); function.restype = result; function.argtypes = args; setattr(self, name, function)
 
-    def page(self, page, fail, spread_detail=False):
+    def page(self, page, fail, spread_detail=False, render=True):
         width, height = self.FPDF_GetPageWidth(page), self.FPDF_GetPageHeight(page)
         if not 0 < width < 100000 or not 0 < height < 100000: fail('Некорректные размеры страницы PDF.')
         text = self.FPDFText_LoadPage(page)
@@ -218,6 +242,8 @@ class PDF:
                 if not ch.isspace(): boxes.append(box); weights.append(self.FPDFText_GetFontWeight(text, i))
             flush()
         finally: self.FPDFText_ClosePage(text)
+        if not render:
+            return lines, None, 0, 0, width, height, hidden
         edge=3200 if spread_detail and width>height*1.10 else 1600
         scale = min(2, edge / max(width, height)); w, h = max(1, round(width * scale)), max(1, round(height * scale))
         bitmap = self.FPDFBitmap_Create(w, h, 0)
@@ -254,14 +280,15 @@ def read_pdf(book, tools):
                 page = api.FPDF_LoadPage(document, i)
                 if not page: book.fail(f'Не удалось открыть страницу PDF {i + 1}.')
                 try:
-                    lines, rgb, w, h, pw, ph, hidden = api.page(page, book.fail, bool(getattr(book,'image_export',None)))
+                    lines, rgb, w, h, pw, ph, hidden = api.page(
+                        page, book.fail, bool(book.image_export), render=not book.omit_images)
                     letters += emit_page(book, i + 1, lines, rgb, w, h, pw, ph)
                     if any('\ufffd' in line['text'] for line in lines):
                         book.warnings.add('В PDF встречаются символы без пригодного Unicode-соответствия; они отмечены знаком �. Проверьте эти места в оригинале.')
                     book.warnings.add('Текстовый слой PDF может содержать результат OCR. Возможны ошибки распознавания; сверьте важные цитаты с оригиналом.')
                 finally: api.FPDF_ClosePage(page)
                 book.progress('pages', i + 1, count)
-            if letters < 20 and not getattr(book,'fixed_image_pages',0): book.fail('В PDF нет текста или изображений для конвертации.')
+            check_content(book, letters, 'PDF')
         finally: api.FPDF_CloseDocument(document)
     finally: api.FPDF_DestroyLibrary()
 
@@ -331,7 +358,7 @@ def ppm(data, fail):
 
 def read_djvu(book, tools):
     used, renderer = tools / 'djvu' / 'djvused.exe', tools / 'djvu' / 'ddjvu.exe'
-    if not used.is_file() or not renderer.is_file():
+    if not used.is_file() or (not book.omit_images and not renderer.is_file()):
         book.require('DjVuLibre', 'Для этой книги нужен модуль чтения DjVu.')
     def run(args, limit, timeout=40, step='сведения о книге'):
         with tempfile.TemporaryFile() as out:
@@ -352,6 +379,21 @@ def read_djvu(book, tools):
     raster_width=3200 if getattr(book,'image_export',None) else 1600
     for first in range(0, count, 4):
         last = min(count, first + 4); batch_size = last - first
+        if book.omit_images:
+            # The author's plain output includes even text stored directly on
+            # a page or paragraph, and emits a form feed for every page.
+            script = '; '.join(f'select {number}; print-pure-txt' for number in range(first + 1, last + 1))
+            raw = run([used, '-n', '-u', '-e', script, book.source], book.c.MAX_FILE,
+                      timeout=40*batch_size, step=f'текст страниц {first+1}–{last}').decode('utf-8-sig')
+            pages = raw.split('\f')
+            if len(pages) != batch_size + 1 or pages[-1]:
+                book.fail('Число текстовых страниц DjVu не совпало с запрошенным. Конвертация остановлена, чтобы не перепутать страницы.')
+            for number, page in enumerate(pages[:-1], first + 1):
+                lines = [{'text': line, 'box': (0, i, 1, i + 1)}
+                         for i, line in enumerate(page.replace('\x1f', '\n').splitlines())]
+                letters += emit_page(book, number, lines, None, 0, 0, 0, 0)
+                book.progress('pages', number, count)
+            continue
         script = '; '.join(f'select {number}; print-txt' for number in range(first + 1, last + 1))
         # Both text and pixels decode a batch of up to four pages. Give text
         # the same per-page budget as the raster, within the native idle limit.
@@ -398,7 +440,7 @@ def read_djvu(book, tools):
             letters += emit_page(book, i + 1, lines, rgb, w, h, pw, ph)
             book.progress('pages', i + 1, count)
         if offset != len(raster): book.fail('Число растровых страниц DjVu не совпало с запрошенным.')
-    if letters < 20 and not getattr(book,'fixed_image_pages',0): book.fail('В DjVu нет текста или изображений для конвертации.')
+    check_content(book, letters, 'DjVu')
     book.warnings.add('Текстовый слой DjVu обычно получен OCR. Возможны ошибки распознавания; сверьте важные цитаты с оригиналом.')
 
 
@@ -406,4 +448,7 @@ def read(book, extension):
     tools = book.tools_root
     if extension == '.pdf': read_pdf(book, tools)
     else: read_djvu(book, tools)
-    book.warnings.add('PDF/DjVu: текст перенесён в порядке чтения, строки и обнаруженные области иллюстраций сохранены. Страничная вёрстка, сложные таблицы и формулы могут отличаться; проверьте результат по оригиналу.')
+    if book.omit_images:
+        book.warnings.add('В TXT сохранён исходный текстовый слой. Иллюстрации, расположение элементов и оформление таблиц не переносятся.')
+    else:
+        book.warnings.add('PDF/DjVu: текст перенесён в порядке чтения, строки и обнаруженные области иллюстраций сохранены. Страничная вёрстка, сложные таблицы и формулы могут отличаться; проверьте результат по оригиналу.')

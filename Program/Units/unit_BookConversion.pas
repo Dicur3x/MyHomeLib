@@ -32,7 +32,8 @@ procedure ConvertBasicBook(const AppPath, TempRoot, SourceFile, SourceExtension,
   const OnProgress: TBookConversionProgress = nil;
   const ImageQuality: string = 'original'; const ChooseImageQuality: TBookImageQualityChooser = nil;
   const OverwriteExisting: Boolean = False; const ProtectedSourceFile: string = '';
-  const PackedOutput: Boolean = False; const OutputProfile: string = '');
+  const PackedOutput: Boolean = False; const OutputProfile: string = '';
+  const ExtractTextLayer: Boolean = False);
 
 implementation
 
@@ -187,12 +188,12 @@ procedure ConvertBasicBook(const AppPath, TempRoot, SourceFile, SourceExtension,
   const OnProgress: TBookConversionProgress; const ImageQuality: string;
   const ChooseImageQuality: TBookImageQualityChooser;
   const OverwriteExisting: Boolean; const ProtectedSourceFile: string; const PackedOutput: Boolean;
-  const OutputProfile: string);
+  const OutputProfile: string; const ExtractTextLayer: Boolean);
 var Work, InputName, OutputName, ReportName, ProgressName, Tool, Script, TargetTemporary, LastDiagnosticStage: string;
   Input, Writer: TStream; SavedPosition: Int64; Log: TStringStream;
   Started, DOCStarted, LastAdvance, LastPoll: UInt64; Report: TJSONValue; ArrayValue: TJSONValue; I: Integer;
   Extension, TargetExtension, Actual: string; Check, ReadProgress: TProc;
-  Paged, Finalizing, ImageProcessing, StreamingScans, KindleWriting: Boolean;
+  Paged, Finalizing, ImageProcessing, StreamingScans, KindleWriting, TextLayerOnly: Boolean;
   LastSequence, CompletedPages, PageTotal, LastPercent, RenderedPages, KindleCompleted: Integer;
   Header: TBytes; MaximumInput: Int64;
   ImageOptionsName, ImageChoiceName: string; ImageChoiceHandled: Boolean;
@@ -227,6 +228,7 @@ begin
     if Assigned(OnProgress) then OnProgress(100,0,0,'complete');
     Exit;
   end;
+  TextLayerOnly:=False;
   if not ForReading and (QualityProfile='none') then
   begin
     Actual:=Extension;
@@ -235,7 +237,10 @@ begin
       var Detected:=DetectReaderExtension(SourceFile);
       if Detected<>'' then Actual:=Detected;
     end;
-    if Pos('|'+Actual.TrimLeft(['.'])+'|','|pdf|djvu|djv|dju|djm|djvm|tif|tiff|cbz|cbr|cb7|jpg|jpeg|png|gif|bmp|webp|xps|oxps|')>0 then
+    TextLayerOnly:=ExtractTextLayer and (TargetExtension='.fb2') and
+      (Pos('|'+Actual.TrimLeft(['.'])+'|','|pdf|djvu|djv|dju|djm|djvm|')>0);
+    if not TextLayerOnly and
+      (Pos('|'+Actual.TrimLeft(['.'])+'|','|pdf|djvu|djv|dju|djm|djvm|tif|tiff|cbz|cbr|cb7|jpg|jpeg|png|gif|bmp|webp|xps|oxps|')>0) then
       raise Exception.Create('Этот формат преобразуется как сканы: изображения содержат сами страницы. '+
         'Для режима без изображений сначала нужно распознать текст.');
   end;
@@ -253,8 +258,10 @@ begin
   if not ForReading and ((QualityProfile<>'original') or (ScanLayout<>'keep')) then
   begin
     var Capability:=TPath.Combine(AppPath,'tools\bookconvert\SAVE_OPTIONS_API.txt');
-    if not FileExists(Capability) or (TFile.GetSize(Capability)>16) or
-      (Trim(TFile.ReadAllText(Capability,TEncoding.UTF8))<>'1') then
+    var API:='';
+    if FileExists(Capability) and (TFile.GetSize(Capability)<=16) then
+      API:=Trim(TFile.ReadAllText(Capability,TEncoding.UTF8));
+    if (API<>'2') and ((API<>'1') or TextLayerOnly) then
       if (Length(Missing)=0) or (Missing[0]<>'BookProcessing') then
         Missing:=TArray<string>.Create('BookProcessing')+Missing;
   end;
@@ -274,14 +281,6 @@ begin
   if not ModularBookProcessingAvailable(AppPath) then
     raise EMHLComponentRequired.Create('BookProcessing','Для создания '+UpperCase(TargetExtension.TrimLeft(['.']))+
       ' нужна общая обработка FB2/EPUB. Дополнительные декодеры других форматов в неё не входят.');
-  if not ForReading and ((QualityProfile<>'original') or (ScanLayout<>'keep')) then
-  begin
-    var Capability:=TPath.Combine(AppPath,'tools\bookconvert\SAVE_OPTIONS_API.txt');
-    if not FileExists(Capability) or (TFile.GetSize(Capability)>16) or
-      (Trim(TFile.ReadAllText(Capability,TEncoding.UTF8))<>'1') then
-      raise EMHLComponentRequired.Create('BookProcessing',
-        'Для выбранной обработки изображений нужно обновить общую обработку FB2/EPUB.');
-  end;
   Work:=TPath.Combine(TPath.GetFullPath(TempRoot),'homelib-convert-'+TGUID.NewGuid.ToString);
   LastDiagnosticStage:='';
   LogDiagnosticTrace('conversion-start','Книга: '+Title+sLineBreak+'Исходный файл: '+SourceFile+sLineBreak+
@@ -520,6 +519,7 @@ begin
         begin
           Arguments:=Arguments+TArray<string>.Create('--image-quality',QualityProfile,'--scan-layout',ScanLayout);
           if OutputProfile<>'' then Arguments:=Arguments+TArray<string>.Create('--output-profile',OutputProfile);
+          if TextLayerOnly then Arguments:=Arguments+TArray<string>.Create('--text-layer-only');
           if PackedOutput and (TargetExtension='.fb2') and
             ((QualityProfile='balanced') or (QualityProfile='economy') or (QualityProfile='ask')) then
             Arguments:=Arguments+TArray<string>.Create('--image-container','fb2-zip');

@@ -195,7 +195,7 @@ begin
       else
       begin
         Prepared:=PrepareConversionSource(Book,
-          procedure(Text: string) begin Stage(Text); end,Item.TargetExtension,True);
+          procedure(Text: string) begin Stage(Text); end,Item.TargetExtension,Item.TargetExtension<>'.txt');
         if Prepared='' then Abort;
         FreeAndNil(Pin);
         Pin:=OpenCachedBookFile(Prepared);
@@ -248,7 +248,10 @@ begin
           begin
             var TextFB2:=TPath.Combine(Work,'text-source.fb2');
             ConvertBasicBook(FAppPath,FTempRoot,Prepared,Item.SourceExtension,TextFB2,Pin,Warnings,
-              function: Boolean begin Result:=Terminated; end,Book.Title,'',Book.Lang,False,nil,'none');
+              function: Boolean begin Result:=Terminated; end,Book.Title,'',Book.Lang,False,
+              procedure(Percent, Completed, Total: Integer; const Text: string)
+              begin Stage(Format('Оценка TXT · %d%%',[Percent])); end,
+              'none',nil,False,'',False,'',True);
             TextSource:=TFileStream.Create(TextFB2,fmOpenRead or fmShareDenyWrite);
           end;
           try

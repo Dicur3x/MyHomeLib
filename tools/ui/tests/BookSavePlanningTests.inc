@@ -426,6 +426,69 @@ var Root, Required, Status: string; Books: TArray<TBookRecord>; Hashes: TArray<s
     end;
     Writeln('PASS real mixed save ',Name,' book_count=',Length(Books)); Flush(Output);
   end;
+  procedure RunEstimate(const Sources: TArray<TBookRecord>);
+  begin
+    Thread:=TBookSendEstimateThread.Create(Sources,Choice,Settings.AppPath,Settings.TempPath);
+    try
+      Revision:=-1; Complete:=False; Deadline:=GetTickCount64+120000; Thread.Start;
+      repeat
+        Application.ProcessMessages; Thread.Poll(Revision,Items,Status,Complete);
+        if GetTickCount64>Deadline then begin Thread.Terminate; raise Exception.Create('Mixed estimate timeout: '+Status); end;
+        if not Complete then Sleep(10);
+      until Complete;
+      Require(Length(Items)=Length(Sources),'Mixed estimate lost a book');
+    finally Thread.Free; end;
+  end;
+  procedure TextLayerCases;
+  var SavedEncoding: TTXTEncoding;
+  begin
+    SavedEncoding:=Settings.TXTEncoding; Settings.TXTEncoding:=enUTF8;
+    try
+      Choice:=Default(TBookSaveChoice); Choice.Mode:=emTxt;
+      RunEstimate(Books);
+      Options:=Default(TBookSendOptions); Options.Mode:=emTxt; Options.ExplicitFormat:=True;
+      Options.Folder:=TPath.Combine(Root,'mixed-text'); Options.ImageQuality:='original';
+      Options.FileNameTemplate:='%t'; Options.NameCollision:=bncKeepBoth;
+      ForceDirectories(Options.Folder);
+      Probe.Deadline:=GetTickCount64+120000; Probe.Messages.Clear; Probe.Worker:=nil;
+      Probe.Timer.Enabled:=True;
+      try Results:=SaveFileBooks(Books,Options,Required);
+      finally Probe.Timer.Enabled:=False; Probe.Worker:=nil; end;
+      Require((Required='') and (Probe.Failure='') and (Length(Results)=Length(Books)),
+        'TXT mixed save did not finish: '+Required+Probe.Failure);
+      for var I:=0 to High(Books) do
+      begin
+        Require(Items[I].Completed and (UpdateSHA256(Books[I].GetBookFileName)=Hashes[I]),
+          'TXT size/save changed or lost a source');
+        if I in [4,5] then
+        begin
+          Require((Results[I].State=besFailed) and Results[I].ErrorText.Contains('требуется OCR') and
+            Items[I].ErrorText.Contains('требуется OCR') and (Items[I].Options.OutputBytes[0,0]=0) and
+            not FileExists(Results[I].OutputFile),'An image-only scan was reported as valid TXT');
+          Continue;
+        end;
+        Require((Results[I].State=besSucceeded) and (Items[I].ErrorText='') and
+          SameText(ExtractFileExt(Results[I].OutputFile),'.txt'),Results[I].ErrorText+Items[I].ErrorText);
+        Require(Items[I].Options.OutputBytes[0,0]=TFile.GetSize(Results[I].OutputFile),
+          'TXT estimate did not match final encoded bytes');
+        var Text:=TFile.ReadAllText(Results[I].OutputFile,TEncoding.UTF8);
+        if I=2 then Require(Text.Contains('Last paragraph preserves'), 'PDF text layer was truncated');
+        if I=3 then Require(Text.Contains('knowledge'), 'DjVu text layer was lost');
+      end;
+      Require(Length(TDirectory.GetFiles(Options.Folder,'*.txt'))=Length(Books)-2,
+        'TXT saved a partial or duplicate file');
+      var Capability:=TPath.Combine(Settings.AppPath,'tools/bookconvert/SAVE_OPTIONS_API.txt');
+      var Original:=TFile.ReadAllBytes(Capability);
+      TFile.WriteAllText(Capability,'1',TEncoding.ASCII);
+      try
+        RunEstimate([Books[2]]);
+        Require(String.Join(',',Items[0].RequiredComponents)='BookProcessing',
+          'Old processing engine was accepted for PDF text-layer extraction');
+      finally TFile.WriteAllBytes(Capability,Original); end;
+      Writeln('PASS native mixed TXT exports PDF and DjVu text layers, rejects scans, estimates exact bytes and requests only the needed update');
+      Flush(Output);
+    finally Settings.TXTEncoding:=SavedEncoding; end;
+  end;
 begin
   Root:=Settings.AppPath+'mixed-save-inputs';
   Require(DirectoryExists(Root),'Real mixed conversion fixtures were not prepared');
@@ -445,29 +508,22 @@ begin
     Run('keep-fb2-epub-other-fb2',emFB2,False,True,False);
     Run('keep-epub-other-fb2-zip',emFB2Zip,False,True,False);
     Run('keep-fb2-epub-other-epub',emEpub,False,True,False);
+    TextLayerCases;
   finally
     Application.OnModalBegin:=Probe.SavedModal; Probe.Timer.Free; Probe.Messages.Free; Probe.Free;
   end;
   Choice:=BookSaveChoices(['.fb2','.epub','.pdf','.djvu'])[3];
-  Thread:=TBookSendEstimateThread.Create(Books,Choice,Settings.AppPath,Settings.TempPath);
-  try
-    Revision:=-1; Complete:=False; Deadline:=GetTickCount64+120000; Thread.Start;
-    repeat
-      Application.ProcessMessages; Thread.Poll(Revision,Items,Status,Complete);
-      if GetTickCount64>Deadline then begin Thread.Terminate; raise Exception.Create('Mixed estimate timeout: '+Status); end;
-      if not Complete then Sleep(10);
-    until Complete;
-    for var I:=0 to High(Items) do
-    begin
-      Require(Items[I].Completed and (Items[I].ErrorText=''),Names[I]+': '+Items[I].ErrorText);
-      for var Q:=0 to 2 do
-        Require((Items[I].Options.OutputBytes[0,Q]>0) and (Items[I].Options.ZipOutputBytes[0,Q]>0),
-          Names[I]+': original/balanced/economy size was not estimated');
-      if I<2 then Require(Items[I].Options.OutputBytes[0,3]>0,'Illustrated text has no no-images estimate');
-      Require(UpdateSHA256(Books[I].GetBookFileName)=Hashes[I],'Mixed estimate changed its source');
-    end;
-    Writeln('PASS real illustrated and scan size estimates include all image modes and ZIP without source changes'); Flush(Output);
-  finally Thread.Free; end;
+  RunEstimate(Books);
+  for var I:=0 to High(Items) do
+  begin
+    Require(Items[I].Completed and (Items[I].ErrorText=''),Names[I]+': '+Items[I].ErrorText);
+    for var Q:=0 to 2 do
+      Require((Items[I].Options.OutputBytes[0,Q]>0) and (Items[I].Options.ZipOutputBytes[0,Q]>0),
+        Names[I]+': original/balanced/economy size was not estimated');
+    if I<2 then Require(Items[I].Options.OutputBytes[0,3]>0,'Illustrated text has no no-images estimate');
+    Require(UpdateSHA256(Books[I].GetBookFileName)=Hashes[I],'Mixed estimate changed its source');
+  end;
+  Writeln('PASS real illustrated and scan size estimates include all image modes and ZIP without source changes'); Flush(Output);
 end;
 
 {$I ImageContainerSaveTests.inc}

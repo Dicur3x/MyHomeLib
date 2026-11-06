@@ -27,7 +27,7 @@ text_inputs = module('text_inputs')
 TOOLS = Path(os.environ.get('HOMELIB_TEST_TOOLS', ROOT.parents[1] / 'Program/Out/Bin64/tools'))
 
 
-def pdf_fixture(text=True, ocr=False, pages=1):
+def pdf_fixture(text=True, ocr=False, pages=1, image_only_last=False):
     # Tiny independent PDF writer for a deterministic text/illustration fixture.
     content = b'q 90 0 0 65 40 170 cm /Im Do Q\n'
     if text:
@@ -42,6 +42,13 @@ def pdf_fixture(text=True, ocr=False, pages=1):
     if not 1 <= pages <= 20: raise ValueError('Fixture page count')
     for _ in range(pages - 1): objects.append(objects[2])
     kids = [3] + list(range(7, len(objects) + 1))
+    if image_only_last:
+        assert pages >= 2
+        objects[kids[-1] - 1] = objects[2].replace(
+            b'/Contents 5 0 R', f'/Contents {len(objects) + 1} 0 R'.encode())
+        raster_only = content.splitlines(keepends=True)[0]
+        objects.append(b'<< /Length ' + str(len(raster_only)).encode() + b' >>\nstream\n' +
+                       raster_only + b'endstream')
     objects[1] = b'<< /Type /Pages /Kids [' + b' '.join(str(i).encode() + b' 0 R' for i in kids) + b'] /Count ' + str(pages).encode() + b' >>'
     result = bytearray(b'%PDF-1.4\n'); offsets = [0]
     for i, obj in enumerate(objects, 1): offsets.append(len(result)); result.extend(str(i).encode() + b' 0 obj\n' + obj + b'\nendobj\n')
@@ -191,6 +198,31 @@ class LegacyFixed(unittest.TestCase):
             with self.assertRaisesRegex(c.ConversionError,'размеры страниц'):
                 fixed.read_djvu(book,TOOLS)
 
+    def test_djvu_text_only_reads_page_level_text_and_missing_pages_without_renderer(self):
+        tools = self.root/'tools'
+        (tools/'djvu').mkdir(parents=True)
+        (tools/'djvu/djvused.exe').touch()
+        source = self.root/'book.djvu'
+        source.write_bytes(b'fixture')
+        book = text_inputs.Book(c, source, set(), tools_root=tools, omit_images=True)
+
+        def run(args, stdout, **options):
+            script = args[args.index('-e')+1]
+            self.assertTrue(args[0].endswith('djvused.exe'))
+            if script == 'n':
+                stdout.write(b'3')
+            else:
+                self.assertEqual(script, 'select 1; print-pure-txt; select 2; print-pure-txt; select 3; print-pure-txt')
+                stdout.write('120\x1f400\f\fСохранённый абзац\f'.encode())
+            return subprocess.CompletedProcess(args, 0, b'', b'')
+
+        with patch.object(fixed.subprocess, 'run', side_effect=run):
+            fixed.read_djvu(book, tools)
+        self.assertEqual([''.join(page.itertext()) for page in book.body],
+                         ['120400', '[Страница 2 без пригодного текстового слоя]', 'Сохранённый абзац'])
+        self.assertFalse(book.resources)
+        self.assertTrue(any('Страниц без текста: 1' in warning for warning in book.warnings))
+
     def test_sparse_invalid_ocr_codes_remain_visible_without_bypassing_quality(self):
         source = self.root/'source.pdf'; source.write_bytes(pdf_fixture())
         warnings = set(); book = text_inputs.Book(c, source, warnings)
@@ -233,6 +265,38 @@ class LegacyFixed(unittest.TestCase):
         self.assertEqual(record, {'sequence': 3, 'stage':'finalizing', 'completed':1, 'total':1})
         self.assertTrue(result.exists())
         self.assertFalse(list(self.root.glob('progress.json.*')))
+
+    @unittest.skipUnless(os.name == 'nt' and (TOOLS/'pdfium/pdfium.dll').is_file(), 'bundled Windows PDFium')
+    def test_pdf_text_only_keeps_reading_order_marks_missing_pages_and_cancels(self):
+        source = self.root/'mixed.pdf'
+        original = pdf_fixture(pages=2, image_only_last=True)
+        source.write_bytes(original)
+        output = self.root/'text.fb2'
+        options = dict(tools_root=TOOLS, image_quality='none', text_layer_only=True)
+        result = c.convert_book(source, output, **options)
+        book = ET.fromstring(output.read_bytes())
+        content = ''.join(book.itertext())
+        expected = ['First readable paragraph', 'Last paragraph preserves', 'Страница 2 без пригодного текстового слоя']
+        self.assertEqual([content.index(part) for part in expected], sorted(content.index(part) for part in expected))
+        self.assertFalse(any(c.tag(node) in {'binary', 'image'} for node in book.iter()))
+        self.assertTrue(any('Страниц без текста: 1' in warning for warning in result['warnings']))
+        self.assertEqual(source.read_bytes(), original)
+        # Do not let the no-text marker become a successful empty book.
+        source.write_bytes(pdf_fixture(text=False))
+        with self.assertRaisesRegex(c.ConversionError, 'нет пригодного текстового слоя.*OCR'):
+            c.convert_book(source, self.root/'scan.fb2', **options)
+        self.assertFalse((self.root/'scan.fb2').exists())
+        source.write_bytes(original)
+        progress = []
+        def cancel():
+            if progress:
+                raise InterruptedError('cancel')
+        with self.assertRaises(InterruptedError):
+            c.convert_book(source, self.root/'canceled.fb2', cancel_check=cancel,
+                           progress=lambda *values: progress.append(values), **options)
+        self.assertEqual(progress, [('pages', 0, 2)])
+        self.assertFalse((self.root/'canceled.fb2').exists())
+        self.assertFalse(list(self.root.glob('homelib-*')))
 
     def test_cli_progress_never_replaces_source_report_or_foreign_file(self):
         source = self.root/'source.txt'; source.write_text('Complete original text.', encoding='utf-8')

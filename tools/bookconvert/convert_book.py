@@ -1523,6 +1523,7 @@ PACKING_IMAGE_API = 2
 
 def convert_book(source, destination, **metadata):
     output_profile = metadata.pop('output_profile', None)
+    text_layer_only = metadata.pop('text_layer_only', False)
     image_quality = metadata.pop('image_quality', 'original')
     image_container = metadata.pop('image_container', None)
     cancel_check = metadata.pop('cancel_check', None)
@@ -1547,6 +1548,10 @@ def convert_book(source, destination, **metadata):
         raise ConversionError('Чёрно-белый режим предназначен для сжатых копий FB2 и EPUB.')
     if image_container not in (None,'raw','fb2-zip') or (image_container == 'fb2-zip' and target_extension != '.fb2'):
         raise ConversionError('Неверный контейнер обработки изображений.')
+    scanned_document = extension in {'.pdf','.djvu','.djv','.dju','.djm','.djvm'}
+    if text_layer_only and (not scanned_document or target_extension != '.fb2' or image_quality != 'none' or
+                            output_profile or scan_layout != 'keep'):
+        raise ConversionError('Текстовый слой можно извлечь из PDF или DjVu при сохранении в TXT.')
     if output_profile:
         if metadata.get('reading') or image_container == 'fb2-zip':
             raise ConversionError('Дополнительный формат недоступен для этой операции.')
@@ -1570,13 +1575,20 @@ def convert_book(source, destination, **metadata):
         options = dict(metadata, image_quality=image_quality, image_options=image_options, image_choice=image_choice,
                        scan_layout=scan_layout, scan_exclude=scan_exclude)
         return module.convert(api, source, destination, options)
-    if image_quality == 'none' and extension in {'.pdf','.djvu','.djv','.dju','.djm','.djvm','.tif','.tiff','.cbz','.cbr','.cb7','.jpg','.jpeg','.png','.gif','.bmp','.webp','.xps'}:
+    if image_quality == 'none' and not text_layer_only and (scanned_document or extension in {
+            '.tif','.tiff','.cbz','.cbr','.cb7','.jpg','.jpeg','.png','.gif','.bmp','.webp','.xps'}):
         raise ConversionError('Этот формат преобразуется как сканы: изображения содержат сами страницы. Для режима без изображений сначала нужно распознать текст.')
     image_export = None
     # PDF/DjVu use the same scan rendering detail for estimation and final
     # export, including the original-quality choice. Reading has its own path.
-    scanned_document = extension in {'.pdf','.djvu','.djv','.dju','.djm','.djvm'}
-    if not metadata.get('reading') and (image_quality!='original' or scan_layout!='keep' or scanned_document) and extension in {'.pdf','.djvu','.djv','.dju','.djm','.djvm','.tif','.tiff','.cbz','.cbr','.cb7','.jpg','.jpeg','.png','.gif','.bmp','.webp','.xps'}:
+    if text_layer_only and cancel_check is not None:
+        progress = metadata.get('progress')
+        def checked_progress(*values):
+            cancel_check()
+            if progress is not None:
+                progress(*values)
+        metadata['progress'] = checked_progress
+    if not text_layer_only and not metadata.get('reading') and (image_quality!='original' or scan_layout!='keep' or scanned_document) and extension in {'.pdf','.djvu','.djv','.dju','.djm','.djvm','.tif','.tiff','.cbz','.cbr','.cb7','.jpg','.jpeg','.png','.gif','.bmp','.webp','.xps'}:
         image_export={'profile':image_quality,'layout':scan_layout,'exclude':scan_exclude,'target':target_extension,'container':image_container,
                       'options':image_options,'choice':image_choice,'handled':False}
         metadata['image_export']=image_export
@@ -1656,7 +1668,8 @@ def convert_book(source, destination, **metadata):
         elif conversion is fb2_to_epub:
             fb2_to_epub(source,temporary,warnings,maximum=limit)
         else: conversion(source, temporary, warnings)
-        if image_quality != 'original' and text_only_source is None and not b1_input and not (image_export and image_export['handled']):
+        if (image_quality != 'original' and not text_layer_only and text_only_source is None
+                and not b1_input and not (image_export and image_export['handled'])):
             spec = importlib.util.spec_from_file_location('homelib_image_quality', Path(__file__).with_name('image_quality.py'))
             module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
             api = type('ConversionAPI', (), {name: value for name, value in globals().items() if not name.startswith('__')})
@@ -1707,6 +1720,7 @@ def main():
     parser.add_argument('--resource-root')
     parser.add_argument('--tools-root')
     parser.add_argument('--output-profile', choices=['epub2','epub3','kepub','kfx','azw8','pdf','md'])
+    parser.add_argument('--text-layer-only', action='store_true', help='Prepare a text layer for TXT export')
     parser.add_argument('--image-quality', choices=['original','high','balanced','economy','none','ask'], default='original')
     parser.add_argument('--image-container', choices=['raw','fb2-zip'], help='Internal final image container; EPUB is inferred by default')
     parser.add_argument('--scan-layout', choices=['keep','split','auto'], default='keep')
@@ -1757,7 +1771,7 @@ def main():
                               language=options.language, resource_root=options.resource_root, tools_root=options.tools_root,
                               reading=options.reading, progress=progress, image_quality=options.image_quality, scan_layout=options.scan_layout, scan_exclude=options.scan_exclude,
                               image_options=options.image_options, image_choice=options.image_choice,image_container=options.image_container,
-                              output_profile=options.output_profile)
+                              output_profile=options.output_profile, text_layer_only=options.text_layer_only)
         result['used_tools'] = sorted(used_tools)
         text = json.dumps(result, ensure_ascii=False)
         publish_report(text)

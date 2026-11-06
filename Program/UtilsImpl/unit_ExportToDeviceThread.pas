@@ -362,7 +362,7 @@ begin
       if FCurrentKeepSource then TargetExtension:='';
       PreparedSource:=PrepareConversionSource(R,
         procedure(Stage: string) begin if Canceled or Terminated then Abort; SetComment(Stage); end,TargetExtension,
-        not (FShowImageQualityChoice and SameText(FImageQuality,'none')));
+        (FExportMode<>emTxt) and not (FShowImageQualityChoice and SameText(FImageQuality,'none')));
       if PreparedSource='' then Abort;
       SourceExtension:=LowerCase(ExtractFileExt(PreparedSource));
       // Re-evaluate after exact archive extraction: a catalogue extension may
@@ -804,7 +804,7 @@ begin
           Result:=Selected;
         end,FOverwriteExisting,FFileOprecord.OriginalSourceFile,
         (FExportMode=emFB2Zip) or (FZipEachBook and SameText(ExtractFileExt(ConversionTarget),'.fb2')),
-        BookSaveAdvancedProfile(FExportMode));
+        BookSaveAdvancedProfile(FExportMode),FExportMode=emTxt);
       FLastWarnings := Warnings.Text;
       Result := True;
       if not (FExportMode in ([emFB2,emEpub,emMobi,emAZW3]+BOOK_SAVE_ADVANCED_MODES)) then
