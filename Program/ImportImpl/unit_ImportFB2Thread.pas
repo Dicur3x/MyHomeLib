@@ -83,6 +83,7 @@ resourcestring
   rstrFoundNewArchives       = 'Обнаружены новые архивы: %u';
   rstrErrorFB2Structure      = 'Ошибка структуры fb2: %s -> %s';
   rstrErrorUnpacking         = 'Ошибка распаковки архива: ';
+  rstrArchiveWithoutFB2      = 'В архиве «%s» нет файлов FB2. Для HTML и других форматов выберите «Коллекция → Импорт → Добавить файл…».';
   rstrProcessedArchives      = 'Обработаны архивы: %u из %u';
   // [BUGFIX] Removed stray ',;' typo — was: 'Добавлено книг: %u,; пропущено книг: %u'
   rstrAddedBooks             = 'Добавлено книг: %u; пропущено книг: %u';
@@ -281,7 +282,7 @@ begin
 
         if MatchedEntryCount = 0 then
         begin
-          Teletype(rstrErrorUnpacking + FFiles[i], tsError);
+          Teletype(Format(rstrArchiveWithoutFB2, [ExtractFileName(FFiles[i])]), tsError);
           LogWarning('ProcessFileListArchive: no FB2 entries in "%s"', [FFiles[i]]);
           Inc(Defective);
         end;

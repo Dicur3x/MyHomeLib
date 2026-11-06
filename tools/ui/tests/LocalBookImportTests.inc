@@ -24,7 +24,7 @@ const
     '</title-info></description><body><section><p>Свой текст.</p></section></body></FictionBook>';
 var
   Root, Files, Profile, Original, Index, LocalID, OriginalHash, History, NotesPath, Managed: string;
-  EPUB, PDF, ZipName, Invalid: string;
+  EPUB, PDF, ZipName, HtmlZip, HtmlPath, Invalid: string;
   SystemData: ISystemData;
   Catalog: IBookCollection;
   Cursor: IBookIterator;
@@ -33,7 +33,9 @@ var
   Snapshot: TArray<TLocalCatalogBook>;
   CID, OldID, RemoteID, FileCount: Integer;
   SourceZip: TZipFile;
-  Member: TStream;
+  Member, HtmlOutput: TStream;
+  HtmlEncoding: TEncoding;
+  FoundHtml: Boolean;
   TestReader: TReaderDocument;
   Notes: TReaderAnnotations;
   Note: TReaderAnnotation;
@@ -185,10 +187,24 @@ begin
   finally SourceZip.Free; end;
   AddFile(ZipName);
 
+  HtmlZip:=Files+'Архив с HTML.zip';
+  SourceZip:=TZipFile.Create;
+  try
+    SourceZip.Open(HtmlZip,zmWrite);
+    SourceZip.UTF8Support:=False;
+    HtmlEncoding:=TEncoding.GetEncoding(1251);
+    try
+      SourceZip.Add(HtmlEncoding.GetBytes('<html><head><meta charset="windows-1251"></head>'+
+        '<body><p>Текст из старого HTML.</p></body></html>'),'Книга.html');
+    finally HtmlEncoding.Free; end;
+  finally SourceZip.Free; end;
+  AddFile(HtmlZip);
+
   Catalog:=SystemData.GetCollection(CID,True);
   Snapshot:=Catalog.CaptureLocalBooks;
-  Require(Length(Snapshot)=4,'Multiple chosen formats did not create separate local keys');
+  Require(Length(Snapshot)=5,'Multiple chosen formats did not create separate local keys');
   FileCount:=Length(TDirectory.GetFiles(ExtractFilePath(Managed)));
+  FoundHtml:=False;
   for var Entry in Snapshot do
   begin
     if Entry.Book.FileExt='.epub' then
@@ -205,7 +221,26 @@ begin
       try Require(Assigned(Member) and (Member.Size>0),'The selected ZIP member cannot be read by name');
       finally Member.Free; end;
     end;
+    if Entry.Book.FileExt='.html' then
+    begin
+      FoundHtml:=True;
+      Require(THashSHA2.GetHashStringFromFile(Entry.Book.GetBookFileName)=THashSHA2.GetHashStringFromFile(HtmlZip),
+        'The ZIP with HTML was changed during import');
+      HtmlPath:=Files+'extracted.html';
+      Member:=Entry.Book.GetBookStream(False,False);
+      try
+        Require(Assigned(Member),'The selected HTML entry cannot be read');
+        HtmlOutput:=TFileStream.Create(HtmlPath,fmCreate);
+        try HtmlOutput.CopyFrom(Member,0); finally HtmlOutput.Free; end;
+      finally Member.Free; end;
+      TestReader:=TReaderDocument.Create;
+      try
+        TestReader.Load(HtmlPath);
+        Require(TestReader.PlainText.Contains('Текст из старого HTML.'),'The HTML text did not decode');
+      finally TestReader.Free; end;
+    end;
   end;
+  Require(FoundHtml,'A ZIP containing only HTML was not catalogued');
   Catalog:=nil;
 
   Invalid:=Files+'invalid.exe'; TFile.WriteAllText(Invalid,'MZ is an executable signature',TEncoding.ASCII);
@@ -224,7 +259,7 @@ begin
   UpdateFrom(Index,True);
   CheckBook(True);
   Require(Book.BookKey.BookID<>OldID,'The full reimport did not exercise a changed numeric catalogue key');
-  Require(TOOBookCount(SystemData,CID)=5,'Full INPX import lost or duplicated records');
+  Require(TOOBookCount(SystemData,CID)=6,'Full INPX import lost or duplicated records');
   UpdateFrom(Index,True,True);
   CheckBook(True);
 

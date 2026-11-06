@@ -9802,7 +9802,7 @@ begin
   Dialog := TOpenDialog.Create(Self);
   try
     Dialog.Title := 'Выберите файл для добавления в коллекцию';
-    Dialog.Filter := 'Книги и документы|*.fb2;*.fb2.zip;*.epub;*.pdf;*.djvu;*.doc;*.docx;*.txt;*.zip;*.7z|Все файлы|*.*';
+    Dialog.Filter := 'Книги и документы|*.fb2;*.fb2.zip;*.epub;*.pdf;*.djvu;*.doc;*.docx;*.txt;*.htm;*.html;*.xhtml;*.zip;*.7z|Все файлы|*.*';
     Dialog.Options := [ofFileMustExist,ofPathMustExist,ofNoChangeDir,ofEnableSizing];
     if not Dialog.Execute(Handle) then Exit;
     CID := FCollection.CollectionID;
