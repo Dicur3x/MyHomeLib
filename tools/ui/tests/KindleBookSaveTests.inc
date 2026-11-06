@@ -66,11 +66,15 @@ var Root, Required, Status: string; SavedEncoding: TTXTEncoding; Books: TArray<T
   end;
   procedure PreferenceCases;
   var ChoiceProbe: TKindleSavePreferenceProbe; SavedMode: TExportMode; Cancelled: TBookSendOptions;
+    SavedKeepSourceFormat: Boolean;
   begin
-    SavedMode:=Settings.ExportMode; ChoiceProbe:=TKindleSavePreferenceProbe.Create;
+    SavedMode:=Settings.ExportMode;
+    SavedKeepSourceFormat:=Settings.SaveAsKeepSourceFormat;
+    ChoiceProbe:=TKindleSavePreferenceProbe.Create;
     ChoiceProbe.Timer:=TTimer.Create(nil); ChoiceProbe.Timer.Enabled:=False;
     ChoiceProbe.Timer.Interval:=50; ChoiceProbe.Timer.OnTimer:=ChoiceProbe.Tick;
     try
+      Settings.SaveAsKeepSourceFormat:=False;
       for var Mode in [emTxt,emMobi,emAZW3] do
       begin
         Settings.ExportMode:=Mode;
@@ -85,7 +89,11 @@ var Root, Required, Status: string; SavedEncoding: TTXTEncoding; Books: TArray<T
         Require(ChoiceProbe.Checked and (ChoiceProbe.Failure=''),ChoiceProbe.Failure);
       end;
       Writeln('PASS TXT MOBI AZW3 device format preferences preselect the actual mixed Save As dialog; cancellation creates no file'); Flush(Output);
-    finally Settings.ExportMode:=SavedMode; ChoiceProbe.Timer.Free; ChoiceProbe.Free; end;
+    finally
+      Settings.ExportMode:=SavedMode;
+      Settings.SaveAsKeepSourceFormat:=SavedKeepSourceFormat;
+      ChoiceProbe.Timer.Free; ChoiceProbe.Free;
+    end;
   end;
   procedure CollisionCases;
   var PreviousBooks: TArray<TBookRecord>; First, Kept, Before: string;
