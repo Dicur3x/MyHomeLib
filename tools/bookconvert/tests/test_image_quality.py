@@ -77,6 +77,43 @@ class ImageQuality(unittest.TestCase):
         self.assertFalse(list(self.root.glob('homelib-*')))
         self.assertFalse(list(self.root.glob('.homelib-*')))
 
+    @unittest.skipUnless(os.name == 'nt' and (TOOLS / 'images/HomeLibImages.exe').is_file(),
+                         'Windows image processor')
+    def test_scan_with_faint_labels_avoids_destructive_palette(self):
+        width, height = 720, 960
+        noise = random.Random(535).randbytes(width * height)
+        samples = bytearray()
+        for y in range(height):
+            for x in range(width):
+                shade = 246 + noise[y * width + x] % 10
+                if 30 <= y < 900 and y % 36 in range(4, 12):
+                    if 60 <= x < 300 and x % 11 < 4:
+                        shade = 20
+                    elif 390 <= x < 660 and x % 9 < 3:
+                        shade = 195
+                samples.extend((shade, shade, shade))
+        picture = fixed.png(samples, width, height)
+        source = self.root / 'input.zip'
+        with zipfile.ZipFile(source, 'w') as archive:
+            archive.writestr('00000', picture)
+        for grayscale in (False, True):
+            output = self.root / f'output-{grayscale}.zip'
+            arguments = [TOOLS / 'images/HomeLibImages.exe', '--export-images', source,
+                         output, 'estimate-maximum']
+            if grayscale:
+                arguments.append('--grayscale')
+            subprocess.run(arguments, check=True, capture_output=True, timeout=30,
+                           creationflags=subprocess.CREATE_NO_WINDOW)
+            with zipfile.ZipFile(output) as archive:
+                for profile in ('economy', 'maximum'):
+                    with self.subTest(grayscale=grayscale, profile=profile):
+                        encoded = archive.read(f'{profile}/00000')
+                        self.assertLess(len(encoded), len(picture))
+                        if encoded.startswith(b'\x89PNG\r\n\x1a\n'):
+                            self.assertGreaterEqual(encoded[24], 8)
+                        else:
+                            self.assertTrue(encoded.startswith(b'\xff\xd8'))
+
     def pictures(self,path):
         if path.suffix == '.fb2':
             root = c.xml(path.read_bytes(),c.MAX_TOTAL)

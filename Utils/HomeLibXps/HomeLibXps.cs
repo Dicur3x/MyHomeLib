@@ -124,6 +124,29 @@ internal static class HomeLibXps
         }
     }
 
+    private static int ScanLuminance(byte[] pixels, int at)
+    {
+        return (pixels[at]*29 + pixels[at+1]*150 + pixels[at+2]*77) >> 8;
+    }
+
+    private static bool HasFaintScanDetail(byte[] pixels, int width, int height)
+    {
+        int stride = width * 4, samples = 0;
+        for (int y = 2; y < height - 2; y++)
+            for (int x = 2; x < width - 2; x++)
+            {
+                int at = y * stride + x * 4;
+                int shade = ScanLuminance(pixels, at);
+                if (shade < 180 || shade > 239) continue;
+                // Ink this light can be a separate annotation. Ignore edges
+                // next to dark ink, where antialiasing produces similar shades.
+                if (ScanLuminance(pixels, at - 8) >= 180 && ScanLuminance(pixels, at + 8) >= 180 &&
+                    ScanLuminance(pixels, at - 2 * stride) >= 180 && ScanLuminance(pixels, at + 2 * stride) >= 180 &&
+                    ++samples >= 8) return true;
+            }
+        return false;
+    }
+
     // Encode local book pictures in one bounded process. Never upscale a page.
     private static byte[] ExportImage(byte[] original, BitmapSource decoded, string profile, bool grayscale = false)
     {
@@ -173,6 +196,7 @@ internal static class HomeLibXps
             byte[] best = grayscale && (!gray || scale < 1) ? null : original;
             bool[] textRows=null;
             bool textScanProfile = (profile == "economy" || maximum) && !alpha && colored == 0 && (!grayscale || gray);
+            bool paletteScan = paperOrInk >= width * height * .90;
             if (textScanProfile)
             {
                 // A page made of many separated short ink bands is text, rather
@@ -201,7 +225,10 @@ internal static class HomeLibXps
                     if(run<=Math.Max(32,height/25)) for(int row=height-run;row<height;row++) rows[row]=true;
                 }
                 if(bands>=12) textRows=rows;
-                if(bands>=12 && longest<=Math.Max(32,height/25))
+                bool bitonalScan = bands >= 12 && longest <= Math.Max(32, height / 25);
+                if ((bitonalScan || paletteScan) && HasFaintScanDetail(pixels, width, height))
+                    bitonalScan = paletteScan = false;
+                if(bitonalScan)
                 {
                     int stride=(width+7)/8; byte[] packed=new byte[checked(stride*height)];
                     for(int y=0;y<height;y++) for(int x=0;x<width;x++)
@@ -219,7 +246,7 @@ internal static class HomeLibXps
             // Text scans waste most of their bytes on nearly white paper noise.
             // Keep four gray levels and every stroke at the chosen resolution;
             // photographs and colored pages retain the ordinary color encoder.
-            if (textScanProfile && paperOrInk >= width*height*.90)
+            if (textScanProfile && paletteScan)
             {
                 int stride = (width+3)/4; byte[] packed = new byte[checked(stride*height)];
                 for (int y=0; y<height; y++) for (int x=0; x<width; x++)

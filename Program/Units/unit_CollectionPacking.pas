@@ -157,8 +157,7 @@ begin
   if PackingReducesImageQuality(Options.ImageProfile) then
   begin
     Version:=InstalledComponentVersion(AppPath,'ImageProcessing');
-    if (Version='') or (((Options.ImageProfile=pipMaximum) or Options.ImageGrayscale) and
-      (not CompareComponentVersions(Version,PACKING_COMPONENT_VERSION,Comparison) or (Comparison<0))) then
+    if not CompareComponentVersions(Version,PACKING_COMPONENT_VERSION,Comparison) or (Comparison<0) then
       Result:=Result+['ImageProcessing'];
   end;
   Options.JpegXLEncoder:='';
