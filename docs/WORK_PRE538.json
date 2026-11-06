@@ -5332,8 +5332,38 @@
     "remaining": "Verify on-demand update and export continuation with final clean catalog and Reader packages. Expand direct EPUB 2/3 and the compatible Kindle routes before release."
   },
   "zip_deletion_forum_report_20261106": {
-    "status": "Queued for focused timing and consistency verification after the current export work.",
-    "reported": "A beta 4 user reported successful file removal but about 20 seconds on the first deletion of 5–20 single-book ZIPs, with apparently faster subsequent attempts. Build 1105 felt faster for deletion. The user also recalled historical catalogue records left after file removal. These are observations, not instrumented timings.",
-    "check": "On owned ZIP fixtures, compare first and repeated runs of 5 and 20 single-book ZIPs. Time archive inventory, cross-reference checks, archive removal and catalogue update separately. Verify that successful physical removal also clears the catalogue entry and preserves adjacent books."
+    "status": "Measured on Win32 and Win64 and reduced fixed overhead in the working branch. Beta 4 binaries have not changed.",
+    "reported": "The beta 4 forum user reported 26 books in 18 seconds, each in its own ZIP. Earlier attempts with 5–20 books took around 20 seconds. The same user described historical catalogue records left after their files were removed.",
+    "implementation": "Wake the catalogue worker immediately for an archive receipt and queue completion. For an archive that becomes a plain empty ZIP, flush the final directory and truncation together before marking the archive complete. Per-archive identity checks, the catalogue acknowledgement, and all recovery journals remain in use.",
+    "timings_ms": {
+      "Win32": {
+        "five_before": 1501,
+        "five_after": 1203,
+        "twenty_six_before": [
+          7042,
+          6888
+        ],
+        "twenty_six_after": [
+          5850,
+          5433
+        ]
+      },
+      "Win64": {
+        "five_before": 1658,
+        "five_after": 1275,
+        "twenty_six_before": [
+          8137,
+          7901
+        ],
+        "twenty_six_after": [
+          6777,
+          6412
+        ]
+      }
+    },
+    "scope": "Production deletion worker on isolated local fixtures with 3,000 unrelated single-book ZIPs. These timings exclude time spent in the user confirmation and final display refresh. The forum timing was not reproduced exactly. Both native UI tests exercised a responsive Main, one progress form per operation, missing and locked files, aliases, catalogue recovery and neighbouring archive contents. Full ZIP, ZIP64 and 7z recovery suites passed, including interruptions in the new empty ZIP finalisation sequence.",
+    "logs": "tools/ui/tests/Out/zip-delete-timing-20261106-before-r2.log and tools/ui/tests/Out/zip-delete-timing-20261106-after.log.",
+    "cleanup": "The benchmark ZIPs, scratch catalogues, logs inside their profiles and generated build roots were removed. The comparison logs were retained.",
+    "next": "Directly unlink a proved whole archive without writing an empty replacement. Preserve the current interruption guarantees. In FLibrary, verify ownership of the matching covers and images archives or members before removing them."
   }
 }

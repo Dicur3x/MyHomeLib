@@ -176,6 +176,28 @@ begin
     try Zip.Open(Archive,zmRead); Require(Zip.FileCount=0,'Deleting all selected ZIP members left an entry');
     finally Zip.Free; end;
 
+    for FaultStage in ['half-metadata','metadata','truncated'] do
+    begin
+      Fixture; Interrupted:=False;
+      Zip:=TZipFile.Create;
+      try
+        Zip.Open(Archive,zmRead); var All:=Zip.FileNames; Zip.Close;
+        Delete:=TZipMemberDeletion.Prepare(Archive,All);
+        try
+          try Delete.Execute(JournalParent,nil,FaultCallback);
+          except on E: EAbort do if not Interrupted then raise; end;
+          Job:=Delete.JobDirectory;
+        finally Delete.Free; end;
+        Require(Interrupted and DirectoryExists(Job),'Empty ZIP interruption was not exercised: '+FaultStage);
+        Delete:=TZipMemberDeletion.Recover(Archive,Job);
+        try
+          Delete.Execute(JournalParent); Delete.Acknowledge; Delete.RemoveEmptyArchive;
+        finally Delete.Free; end;
+        Require(not FileExists(Archive) and not DirectoryExists(Job),'Empty ZIP recovery left the archive or journal');
+      finally Zip.Free; end;
+    end;
+    Writeln('PASS empty ZIP footer and truncation recover at every interrupted write boundary'); Flush(Output);
+
     for FaultStage in ['pending','half-written','written','checkpoint','half-metadata','metadata','truncated','finished'] do
     begin
       Fixture; Interrupted:=False;

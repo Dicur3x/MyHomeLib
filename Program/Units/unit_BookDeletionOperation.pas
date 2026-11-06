@@ -145,7 +145,9 @@ begin
       end;
       Inc(Submitted);
     end;
-    if not Progress.Finished then Sleep(25);
+    // Wake for the receipt or end of the queue instead of sleeping for each
+    // small archive. The timeout still refreshes progress and checks Stop.
+    if not Progress.Finished then Queue.WaitForResult(25);
   until Progress.Finished;
   Queue.WaitFor;
   if Assigned(Queue.FatalException) then

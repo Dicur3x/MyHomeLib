@@ -643,9 +643,14 @@ begin
     FSource.Position := FieldNumber(FPlan,'metadataOffset');
     FSource.WriteBuffer(FMetadata[0],Length(FMetadata) div 2); Flush; Signal('half-metadata');
   end;
-  FSource.Position := FieldNumber(FPlan,'metadataOffset');
+  Target := FieldNumber(FPlan,'metadataOffset'); FSource.Position := Target;
   if Length(FMetadata)>0 then FSource.WriteBuffer(FMetadata[0],Length(FMetadata));
-  Flush; Signal('metadata');
+  // An empty ZIP without a prefix has no remaining payload to protect. Its
+  // journal can replay the entire footer at either the old or final size, so
+  // persist the footer and truncation together before recording completion.
+  if (Length(FHeader)>0) or (Target<>0) or
+    ((FPlan.GetValue('remaining') as TJSONArray).Count<>0) then Flush;
+  Signal('metadata');
   if Length(FHeader)>0 then
   begin
     if Assigned(Fault) then

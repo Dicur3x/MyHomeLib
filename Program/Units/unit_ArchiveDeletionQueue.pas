@@ -41,7 +41,7 @@ type
     FStop: Integer;
     FPublished: Integer;
     FWaitForCatalogue: Boolean;
-    FOwnerEvent: TEvent;
+    FOwnerEvent, FResultEvent: TEvent;
     FCommittedIndex, FRejectedIndex, FAbandonOwner: Integer;
     function WaitForCatalogue(var Item: TArchiveDeletionResult): Boolean;
     procedure Report(const Stage: string; Done, Total: Int64);
@@ -60,6 +60,7 @@ type
     // thread confirms its durable database phase. The worker then cleans up.
     procedure CatalogueCommitted(Index: Integer);
     procedure CatalogueRejected(Index: Integer);
+    procedure WaitForResult(Timeout: Cardinal);
     function Status: TArchiveDeletionStatus;
     function Results: TArray<TArchiveDeletionResult>;
     // Revalidate the finished archive, then discard only this task's receipt.
@@ -101,6 +102,7 @@ var Seen: TDictionary<string,Byte>;
 begin
   inherited Create(True); FreeOnTerminate:=False;
   FLock:=TObject.Create; FOwnerEvent:=TEvent.Create(nil,False,False,'');
+  FResultEvent:=TEvent.Create(nil,False,False,'');
   FWaitForCatalogue:=WaitForOwner; FCommittedIndex:=-1; FRejectedIndex:=-1;
   if (Length(Tasks)=0) or (Length(Tasks)>10000) then
     raise EArgumentException.Create('Не выбраны архивы для удаления книг.');
@@ -191,6 +193,7 @@ var Seen:TDictionary<string,Byte>; Receipt:TArchiveDeletionResult;
 begin
   inherited Create(True); FreeOnTerminate:=False; FLock:=TObject.Create;
   FOwnerEvent:=TEvent.Create(nil,False,False,'');
+  FResultEvent:=TEvent.Create(nil,False,False,'');
   FWaitForCatalogue:=WaitForOwner; FCommittedIndex:=-1; FRejectedIndex:=-1;
   if (Length(TaskDirectories)=0) or (Length(TaskDirectories)>10000) then
     raise EArgumentException.Create('Не выбраны журналы для завершения удаления.');
@@ -221,11 +224,14 @@ begin
   // TThread may skip Execute entirely when destroyed before Start. Remove
   // that empty queue root too, without touching any receipt or source file.
   if FRoot<>'' then RemoveDirectory(PChar(DeletionNativePath(FRoot)));
-  FOwnerEvent.Free; FLock.Free;
+  FResultEvent.Free; FOwnerEvent.Free; FLock.Free;
 end;
 
 procedure TArchiveDeletionQueue.StopAfterCurrentArchive;
 begin TInterlocked.Exchange(FStop,1); end;
+
+procedure TArchiveDeletionQueue.WaitForResult(Timeout:Cardinal);
+begin FResultEvent.WaitFor(Timeout); end;
 
 procedure TArchiveDeletionQueue.CatalogueCommitted(Index:Integer);
 begin
@@ -363,6 +369,7 @@ begin
       TMonitor.Enter(FLock);
       try FResults[FPublished]:=Item; Inc(FPublished);
       finally TMonitor.Exit(FLock); end;
+      FResultEvent.SetEvent;
       try
         if Item.FilesVerified and FWaitForCatalogue then
         begin
@@ -400,6 +407,7 @@ begin
     TMonitor.Enter(FLock);
     try FStatus.Archive:=''; FStatus.Finished:=True;
     finally TMonitor.Exit(FLock); end;
+    FResultEvent.SetEvent;
   end;
 end;
 

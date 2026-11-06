@@ -149,12 +149,16 @@ var PrivateID, OnlineID, ExternalID, RawID, ArchiveID, OtherID, PrivateFBD, Fail
           'Book deletion is unavailable in the menu or toolbar of the active collection');
         frmMain.N74.Click;
       end;
-      if Assigned(frmMain.FindComponent('BookDeletionProgress')) then
+      var ProgressForm:=frmMain.FindComponent('BookDeletionProgress');
+      if Assigned(ProgressForm) then
       begin
         Require(frmMain.Enabled,'Background deletion disabled the main window');
         var Started:=GetTickCount64;
         repeat
           Application.ProcessMessages;
+          var CurrentProgress:=frmMain.FindComponent('BookDeletionProgress');
+          Require((CurrentProgress=nil) or (CurrentProgress=ProgressForm),
+            'One deletion batch opened a new progress window');
           if GetTickCount64-Started>20000 then raise Exception.Create('Main archive deletion exceeded guard');
           Sleep(5);
         until not Assigned(frmMain.FindComponent('BookDeletionProgress'));
@@ -189,6 +193,67 @@ var PrivateID, OnlineID, ExternalID, RawID, ArchiveID, OtherID, PrivateFBD, Fail
       Require(Zip.FileCount=2-Ord(Removed),'Unexpected files in the shared archive after deletion');
       Require(TEncoding.UTF8.GetString(Bytes)=XML('unselected.fb2'),'Other archive member is no longer readable');
     finally Zip.Free; end;
+  end;
+
+  procedure TimeSingleBookZipBatch;
+  const FixtureCount=3000;
+  var Selected: TArray<TBookRecord>; SelectedIDs: TArray<Integer>;
+    Operation: TBookDeletionOperation; State: TBookDeletionOperationStatus;
+    Binding: TBookDeletionBinding; Timer: TStopwatch;
+    ReferenceStart, FirstWrite, Finished: Int64; ZipFolder, NeighbourHash: string;
+  begin
+    ZipFolder:=Root+'delete-timing\'; ForceDirectories(ZipFolder);
+    WriteZip(ZipFolder+'template.zip',['only.fb2']);
+    NeighbourHash:=THashSHA2.GetHashStringFromFile(ZipFolder+'template.zip');
+    for var I:=1 to FixtureCount do
+      TFile.Copy(ZipFolder+'template.zip',ZipFolder+'book-'+IntToStr(I)+'.zip');
+    Collection.BeginBulkOperation;
+    try
+      for var I:=1 to FixtureCount do
+        Insert('Timing neighbour '+IntToStr(I),'delete-timing\book-'+IntToStr(I)+'.zip','only','.fb2');
+      Collection.EndBulkOperation;
+    except
+      if Collection.InBulkOperation then Collection.EndBulkOperation(False);
+      raise;
+    end;
+    for var BatchSize in [5,26,26] do
+    begin
+      SetLength(Selected,BatchSize); SetLength(SelectedIDs,BatchSize);
+      for var I:=0 to BatchSize-1 do
+      begin
+        var Name:=Format('selected-%d.zip',[I]);
+        TFile.Copy(ZipFolder+'template.zip',ZipFolder+Name);
+        SelectedIDs[I]:=Insert(Name,'delete-timing\'+Name,'only','.fb2');
+        Collection.GetBookRecord(CreateBookKey(SelectedIDs[I],Collection.CollectionID),Selected[I],False);
+      end;
+      Binding:=TBookDeletionBinding.Capture(SystemDB.GetCollectionInfo(Collection.CollectionID),Selected,True);
+      Operation:=TBookDeletionOperation.Create(Binding,Settings.SystemFileName[sfSystemDB],
+        TPath.Combine(Settings.DataPath,'BookDeletion'));
+      try
+        ReferenceStart:=-1; FirstWrite:=-1;
+        Timer:=TStopwatch.StartNew; Operation.Start;
+        repeat
+          State:=Operation.Status;
+          if (ReferenceStart<0) and (State.Stage='Проверка других записей в этих архивах') then
+            ReferenceStart:=Timer.ElapsedMilliseconds;
+          if (FirstWrite<0) and (State.ArchiveIndex>0) then FirstWrite:=Timer.ElapsedMilliseconds;
+          if Timer.ElapsedMilliseconds>30000 then raise Exception.Create('Isolated archive timing exceeded guard');
+          if not State.Finished then Sleep(1);
+        until State.Finished;
+        Operation.WaitFor;
+        Finished:=Timer.ElapsedMilliseconds;
+        Require((State.Error='') and (State.CleanupWarning='') and (State.CompletedBooks=BatchSize),
+          'Timed deletion failed: '+State.Error+' '+State.CleanupWarning);
+        Require((ReferenceStart>=0) and (FirstWrite>=ReferenceStart),'Timing missed the reference check');
+        for var I:=0 to BatchSize-1 do
+          Require(not Exists(SelectedIDs[I]) and not FileExists(Selected[I].GetBookFileName),
+            'Timed deletion left a catalogue entry or its ZIP');
+        Writeln(Format('TIMING single-book ZIPs: count=%d preparation=%dms references=%dms removal=%dms total=%dms',
+          [BatchSize,ReferenceStart,FirstWrite-ReferenceStart,Finished-FirstWrite,Finished])); Flush(Output);
+      finally Operation.Free; end;
+    end;
+    Require(THashSHA2.GetHashStringFromFile(ZipFolder+'book-1.zip')=NeighbourHash,
+      'Timed deletion changed an unselected ZIP');
   end;
 
 begin
@@ -460,6 +525,8 @@ begin
       end;
     finally Probe.OverrideFiles := False; end;
     Writeln('PASS per-operation checkbox overrides either preference and cancellation preserves files and settings'); Flush(Output);
+
+    if GetEnvironmentVariable('HOMELIB_DELETE_TIMING')='1' then TimeSingleBookZipBatch;
 
     Trace('delete safety online catalog');
     FreeAndNil(frmMain); Settings.ActiveCollection := OnlineID; Settings.ActivePage := PAGE_SEARCH;
