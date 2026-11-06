@@ -530,6 +530,8 @@ begin
           j := Reader.LineNumber;
           try
             ParseData(InputLine, IsOnline, R, Params);
+            if IsLocalBookID(R.LibID) then
+              raise EConvertError.Create('INPX содержит зарезервированный идентификатор локальной книги.');
             // Numeric source IDs collide in combined Librusec/Flibusta INPX.
             // Scope only such indexes; ordinary and existing FLibrary IDs keep
             // their historical values for groups, ratings and read progress.

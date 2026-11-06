@@ -16,6 +16,8 @@ type
   TFB2MetadataStatus = (fmsComplete, fmsInvalid, fmsCanceled, fmsNoMetadata);
 
   TFB2CatalogMetadata = record
+    Title, Language: string;
+    Authors: TArray<string>;
     Publisher, City, ISBN, Translators, Annotation: string;
     PubYear: Integer;
   end;

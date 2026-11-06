@@ -99,7 +99,9 @@ begin
         if Canceled then Exit(fmsCanceled);
         Node:=Root.childNodes.item[I]; if Node.namespaceURI<>DC then Continue;
         Name:=LowerCase(Node.baseName); Value:=Trim(Node.text);
-        if Name='publisher' then AssignValue(Name,Value)
+        if (Name='title') and (Metadata.Title='') then Metadata.Title:=Value
+        else if (Name='language') and (Metadata.Language='') then Metadata.Language:=Value
+        else if Name='publisher' then AssignValue(Name,Value)
         else if Name='description' then AssignValue(Name,Value)
         else if (Name='date') and (Metadata.PubYear=0) and
           ((Attr(Node,'event')='') or SameText(Attr(Node,'event'),'publication')) then
@@ -133,6 +135,11 @@ begin
           begin
             if Metadata.Translators<>'' then Metadata.Translators:=Metadata.Translators+'; ';
             Metadata.Translators:=Metadata.Translators+Value;
+          end
+          else if (Name='creator') and ((Role='') or SameText(Role,'aut')) and (Value<>'') then
+          begin
+            SetLength(Metadata.Authors,Length(Metadata.Authors)+1);
+            Metadata.Authors[High(Metadata.Authors)]:=Value;
           end;
         end;
       end;

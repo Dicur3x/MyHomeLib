@@ -29,7 +29,7 @@ uses
   unit_FB2PublisherMetadataReader, unit_PublisherSeriesSource, unit_SevenZipMetadata, unit_PackageBookMetadata, unit_ReaderAnnotations, unit_ReaderNoteBooks,
   unit_Downloader, unit_DownloadBooksThread, unit_DownloadManagerThread, unit_DownloadView, unit_treeController,
   IdHTTPServer, IdCustomHTTPServer, IdContext,
-  unit_FB2MetadataRecovery, unit_FB2Encoding, unit_WriteFb2Info,
+  unit_FB2MetadataRecovery, unit_FB2Encoding, unit_LibrarySourceID, unit_WriteFb2Info,
   unit_BookConversion in '..\..\..\Program\Units\unit_BookConversion.pas', unit_UserData, unit_Templater,
   unit_Diagnostics in '..\..\..\Program\Units\unit_Diagnostics.pas',
   unit_ExportImageQuality in '..\..\..\Program\Units\unit_ExportImageQuality.pas',
@@ -5608,6 +5608,7 @@ end;
 {$I SystemBookRemapTests.inc}
 {$I UpdateOutcomeTests.inc}
 {$I FB2EncodingTests.inc}
+{$I LocalBookImportTests.inc}
 {$I FavoriteAuthorUiTests.inc}
 {$I ReaderCopyIdentityTests.inc}
 {$I ReaderMainFilterTests.inc}
@@ -5968,6 +5969,7 @@ begin
       else if ParamStr(1) = 'book-deletion' then TestBookDeletionSafety
       else if ParamStr(1) = 'flibrary-deletion' then TestBookDeletionSafety(True)
       else if ParamStr(1) = 'fb2-encoding' then TestFB2Encoding
+      else if ParamStr(1) = 'local-book-import' then TestLocalBookImport
       else if ParamStr(1) = 'book-deletion-identity' then TestBookDeletionIdentity
       else if ParamStr(1) = 'book-deletion-preparation' then TestBookDeletionPreparation
       else if ParamStr(1) = 'zip-member-deletion' then begin TestZipMemberDeletion; TestArchiveDeletionQueue; TestSevenZipDeletionPlan; TestSevenZipDeletionRecovery; end

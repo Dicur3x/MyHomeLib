@@ -30,6 +30,8 @@ procedure ImportFB2(const CollectionID: Integer; const ArchiveFormat: TArchiveFo
 procedure ImportFB2(const CollectionID: Integer; const ArchiveFormat: TArchiveFormat;
   out CommittedChanges: Boolean); overload;
 
+procedure ImportSelectedBook(const CollectionID: Integer; const FileName: string;
+  out CommittedChanges: Boolean);
 procedure ImportFBD(const CollectionID: Integer); overload;
 procedure ImportFBD(const CollectionID: Integer; out CommittedChanges: Boolean); overload;
 
@@ -39,9 +41,37 @@ uses
   Forms,
   unit_ImportFB2Thread,
   unit_ImportFBDThread,
+  unit_CollectionWorkerThread,
   frm_ImportProgressForm,
   frm_ImportProgressFormEx,
   unit_Consts;
+
+procedure RunImport(Worker: TCollectionWorker; out CommittedChanges: Boolean);
+var
+  Progress: TImportProgressFormEx;
+begin
+  CommittedChanges := False;
+  try
+    Progress := TImportProgressFormEx.Create(Application);
+    try
+      Progress.WorkerThread := Worker;
+      Progress.btnSaveLog.Visible := True;
+      Progress.ShowModal;
+      Worker.WaitFor;
+      CommittedChanges := Worker.CommittedChanges;
+    finally
+      Progress.Free;
+    end;
+  finally
+    Worker.Free;
+  end;
+end;
+
+procedure ImportSelectedBook(const CollectionID: Integer; const FileName: string;
+  out CommittedChanges: Boolean);
+begin
+  RunImport(TImportLocalBookThread.Create(CollectionID,FileName),CommittedChanges);
+end;
 
 procedure ImportFB2(const CollectionID: Integer; const ArchiveFormat: TArchiveFormat);
 var CommittedChanges: Boolean;
@@ -51,26 +81,8 @@ end;
 
 procedure ImportFB2(const CollectionID: Integer; const ArchiveFormat: TArchiveFormat;
   out CommittedChanges: Boolean);
-var
-  worker: TImportFB2Thread;
-  frmProgress: TImportProgressFormEx;
 begin
-  CommittedChanges := False;
-  worker := TImportFB2Thread.Create(CollectionID, ArchiveFormat);
-  try
-    frmProgress := TImportProgressFormEx.Create(Application);
-    try
-      frmProgress.WorkerThread := worker;
-      frmProgress.btnSaveLog.Visible := True;
-      frmProgress.ShowModal;
-      worker.WaitFor;
-      CommittedChanges := worker.CommittedChanges;
-    finally
-      frmProgress.Free;
-    end;
-  finally
-    worker.Free;
-  end;
+  RunImport(TImportFB2Thread.Create(CollectionID,ArchiveFormat),CommittedChanges);
 end;
 
 
@@ -82,26 +94,8 @@ begin
 end;
 
 procedure ImportFBD(const CollectionID: Integer; out CommittedChanges: Boolean);
-var
-  worker: TImportFBDThread;
-  frmProgress: TImportProgressFormEx;
 begin
-  CommittedChanges := False;
-  worker := TImportFBDThread.Create(CollectionID);
-  try
-    frmProgress := TImportProgressFormEx.Create(Application);
-    try
-      frmProgress.WorkerThread := worker;
-      frmProgress.btnSaveLog.Visible := True;
-      frmProgress.ShowModal;
-      worker.WaitFor;
-      CommittedChanges := worker.CommittedChanges;
-    finally
-      frmProgress.Free;
-    end;
-  finally
-    worker.Free;
-  end;
+  RunImport(TImportFBDThread.Create(CollectionID),CommittedChanges);
 end;
 
 end.

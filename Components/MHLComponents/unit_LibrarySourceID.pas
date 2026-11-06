@@ -5,6 +5,10 @@ interface
 uses
   System.SysUtils;
 
+const LOCAL_BOOK_ID_PREFIX = 'local:';
+
+function NewLocalBookID: string;
+function IsLocalBookID(const Value: string): Boolean;
 function IsMixedLibraryIndex(const MemberNames: TArray<string>): Boolean;
 function ScopedLibraryID(const MemberName, LibID: string): string;
 function TryParseLibrarySourceID(const LibID: string;
@@ -14,6 +18,29 @@ implementation
 
 uses
   System.StrUtils;
+
+function NewLocalBookID: string;
+begin
+  Result := LOCAL_BOOK_ID_PREFIX + LowerCase(Copy(TGUID.NewGuid.ToString,2,36));
+end;
+
+function IsLocalBookID(const Value: string): Boolean;
+var I: Integer; C: Char;
+begin
+  Result := False;
+  if (Length(Value)<>Length(LOCAL_BOOK_ID_PREFIX)+36) or
+    not StartsText(LOCAL_BOOK_ID_PREFIX,Value) then Exit;
+  for I:=1 to 36 do
+  begin
+    C := Value[Length(LOCAL_BOOK_ID_PREFIX)+I];
+    if I in [9,14,19,24] then
+    begin
+      if C<>'-' then Exit;
+    end
+    else if not CharInSet(C,['0'..'9','a'..'f','A'..'F']) then Exit;
+  end;
+  Result := True;
+end;
 
 function MemberBaseName(const Name: string): string;
 begin

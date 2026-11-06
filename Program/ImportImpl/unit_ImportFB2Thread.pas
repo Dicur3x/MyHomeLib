@@ -24,6 +24,7 @@ unit unit_ImportFB2Thread;
 interface
 
 uses
+  Classes,
   unit_ImportFB2ThreadBase,
   unit_Globals,
   unit_MHLArchiveHelpers;
@@ -48,10 +49,21 @@ type
     constructor Create(const CollectionID: Integer; const ArchiveFormat: TArchiveFormat);
   end;
 
+  TImportLocalBookThread = class(TImportFB2Thread)
+  private
+    FSource: string;
+    procedure AddSelectedBook(const DisplayName, RelativeFolder, Name, Extension, LocalID: string;
+      const Size, ArchiveIndex: Integer; Input: TStream);
+  protected
+    procedure WorkFunction; override;
+  public
+    constructor Create(const CollectionID: Integer; const Source: string);
+  end;
+
 implementation
 
 uses
-  Classes,
+  Winapi.Windows,
   SysUtils,
   IOUtils,
   unit_WorkerThread,
@@ -59,7 +71,9 @@ uses
   unit_Helpers,
   unit_Consts,
   dm_user,
-  unit_Templater;
+  unit_Templater,
+  unit_ReaderFormats, unit_ReaderOffice, unit_ReaderCache, unit_CollectionPacking,
+  unit_LibrarySourceID, unit_PackageBookMetadata, unit_FB2PublisherMetadataReader;
 
 resourcestring
   rstrStructureError         = 'Ошибка структуры fb2: %s.zip -> %s';
@@ -513,6 +527,189 @@ begin
   FOperationSuccess := True;
 
   Teletype(Format(rstrAddedBooksTotal, [FAddCount, FDefectCount]), tsInfo);
+end;
+
+constructor TImportLocalBookThread.Create(const CollectionID: Integer; const Source: string);
+begin
+  inherited Create(CollectionID,afZip);
+  FSource := TPath.GetFullPath(Source);
+end;
+
+function IsLocalImportFormat(const Extension: string): Boolean;
+begin
+  Result := IsBuiltinReaderFormat(Extension) or IsOfficeReaderFormat(Extension) or
+    (Extension='.mobi') or (Extension='.azw') or (Extension='.azw3') or
+    (Extension='.prc') or (Extension='.mp3') or (Extension='.ogg') or
+    (Extension='.wav') or (Extension='.m4b') or IsReaderArchive('book'+Extension);
+end;
+
+procedure TImportLocalBookThread.AddSelectedBook(const DisplayName, RelativeFolder,
+  Name, Extension, LocalID: string; const Size, ArchiveIndex: Integer; Input: TStream);
+var
+  Book: TBookRecord;
+  Metadata: TFB2CatalogMetadata;
+  Details, Author: string;
+begin
+  Book.Clear;
+  Book.LibID := LocalID;
+  Book.Title := ChangeFileExt(ExtractFileName(DisplayName),'');
+  Book.Folder := RelativeFolder;
+  Book.FileName := Name;
+  Book.FileExt := Extension;
+  Book.InsideNo := ArchiveIndex;
+  Book.Size := Size;
+  Book.Date := Now;
+  Include(Book.BookProps,bpIsLocal);
+
+  if Extension=FB2_EXTENSION then
+    GetBookInfo(LoadFictionBook(Input),Book)
+  else if IsMetadataPackage(Extension) and
+    (ReadPackageMetadata(Input,Extension,Metadata,Details,True,
+      function: Boolean begin Result:=Canceled; end)=fmsComplete) then
+  begin
+    if Metadata.Title<>'' then Book.Title := Metadata.Title;
+    Book.Lang := Copy(Metadata.Language,1,2);
+    for Author in Metadata.Authors do TAuthorsHelper.Add(Book.Authors,Author,'','');
+    Book.Publisher := Metadata.Publisher;
+    Book.City := Metadata.City;
+    Book.ISBN := Metadata.ISBN;
+    Book.PubYear := Metadata.PubYear;
+    Book.Translators := Metadata.Translators;
+    Book.Annotation := Metadata.Annotation;
+  end;
+
+  if Canceled then Abort;
+  if FCollection.InsertBook(Book,False,False,FImportCache)=0 then
+    raise EInvalidOperation.CreateFmt('Не удалось добавить книгу «%s».',[Book.Title]);
+end;
+
+procedure TImportLocalBookThread.WorkFunction;
+const
+  LocalFolder = 'HomeLibre-local-books\';
+  MaxMetadataMember = 256*1024*1024;
+var
+  Extension, Detected, Folder, Path, RelativePath, Name, LocalID, Member, MemberExt, ID: string;
+  Attr: DWORD;
+  Archive: TMHLZip;
+  Input: TStream;
+  Added: Integer;
+begin
+  if not isLocalCollection(FCollection.CollectionCode) or
+    IsPackedCollectionCatalog(FCollection.GetProperty(PROP_DATAFILE)) then
+  begin
+    Teletype('Свои файлы можно добавить в обычную локальную коллекцию.',tsError);
+    Exit;
+  end;
+  try
+    Detected := DetectReaderExtension(FSource);
+    Extension := LowerCase(ExtractFileExt(FSource));
+    // Comic archives remain a single book. Preserve the Kindle suffix when
+    // the shared MOBI signature cannot distinguish the container versions.
+    if not (((Detected='.zip') and (Extension='.cbz')) or
+      ((Detected='.7z') and (Extension='.cb7')) or
+      ((Detected='.rar') and (Extension='.cbr')) or
+      ((Detected='.mobi') and ((Extension='.azw') or (Extension='.azw3') or (Extension='.prc')))) then
+    begin
+      if Detected<>'' then Extension := Detected;
+    end;
+    if not IsLocalImportFormat(Extension) then
+      raise ENotSupportedException.Create('Этот файл не распознан как книга или документ.');
+
+    LocalID := NewLocalBookID;
+    Name := Copy(LocalID,Length(LOCAL_BOOK_ID_PREFIX)+1,MaxInt);
+    Folder := TPath.Combine(FCollectionRoot,LocalFolder);
+    if not DirectoryExists(Folder) and not CreateDir(ExcludeTrailingPathDelimiter(Folder)) then
+      RaiseLastOSError;
+    Attr := GetFileAttributes(PChar(ExcludeTrailingPathDelimiter(Folder)));
+    if (Attr=INVALID_FILE_ATTRIBUTES) or ((Attr and FILE_ATTRIBUTE_REPARSE_POINT)<>0) then
+      raise EInOutError.Create('Папка для своих книг недоступна или является ссылкой.');
+    RelativePath := LocalFolder+Name+Extension;
+    Path := TPath.Combine(FCollectionRoot,RelativePath);
+    SetComment('Копируем книгу в папку коллекции…');
+    if not CopyForImport(FSource,Path) then
+      raise EInOutError.Create('Не удалось создать отдельную копию файла.');
+
+    try
+      Attr := GetFileAttributes(PChar(Path));
+      if (Attr=INVALID_FILE_ATTRIBUTES) or
+        (((Attr and FILE_ATTRIBUTE_READONLY)<>0) and
+        not SetFileAttributes(PChar(Path),Attr and not FILE_ATTRIBUTE_READONLY)) then
+        RaiseLastOSError;
+      if Canceled then Abort;
+      FCollection.BeginBulkOperation;
+      try
+        Added := 0;
+        SetComment('Добавляем книгу в каталог…');
+        if IsArchiveExt(Path) then
+        begin
+          Archive := TMHLZip.Create(Path,True,False,function: Boolean begin Result:=Canceled; end);
+          try
+            for var I:=0 to Archive.FileCount-1 do
+            begin
+              if Canceled then Abort;
+              Member := Archive.FileNames[I];
+              MemberExt := LowerCase(ExtractFileExt(Member));
+              if not IsLocalImportFormat(MemberExt) or IsMetadataContainer(MemberExt) then Continue;
+              if Added=0 then ID := LocalID else ID := NewLocalBookID;
+              Input := nil;
+              try
+                if (MemberExt=FB2_EXTENSION) or IsMetadataPackage(MemberExt) then
+                begin
+                  if (Archive.FileSizes[I]<0) or (Archive.FileSizes[I]>MaxMetadataMember) then
+                    raise EReadError.CreateFmt('Файл «%s» слишком велик для чтения описания.',[Member]);
+                  Input := Archive.ExtractToStream(I);
+                end;
+                AddSelectedBook(Member,RelativePath,Copy(Member,1,Length(Member)-Length(MemberExt)),
+                  MemberExt,ID,Archive.FileSizes[I],I,Input);
+              finally
+                Input.Free;
+              end;
+              Inc(Added);
+            end;
+          finally
+            Archive.Free;
+          end;
+        end
+        else
+        begin
+          Input := TFileStream.Create(Path,fmOpenRead or fmShareDenyWrite);
+          try
+            if Input.Size=0 then raise EReadError.Create('Выбранный файл пуст.');
+            if Input.Size>MaxInt then raise EReadError.Create('Файл слишком велик для каталога.');
+            AddSelectedBook(FSource,LocalFolder,Name,Extension,LocalID,Integer(Input.Size),0,Input);
+            Added := 1;
+          finally
+            Input.Free;
+          end;
+        end;
+        if Added=0 then raise EReadError.Create('В архиве нет поддерживаемых книг.');
+        if Canceled then Abort;
+        FCollection.EndBulkOperation(True);
+      except
+        if FCollection.InBulkOperation then FCollection.EndBulkOperation(False)
+        else if FCollection.ResolveBookID(LocalID,0)<>0 then
+        begin
+          // A failure after committing must not remove a catalogued file.
+          CommitFileOperations;
+          CollectionCommitted(FCollectionID);
+        end;
+        raise;
+      end;
+      CommitFileOperations;
+      CollectionCommitted(FCollectionID);
+      FOperationSuccess := True;
+      Teletype(Format('Добавлено книг: %d. Копия сохранена в папке коллекции.',[Added]),tsInfo);
+    finally
+      if not CommittedChanges then RollbackFileOperations;
+    end;
+  except
+    on E: EAbort do if not Canceled then Teletype(E.Message,tsError);
+    on E: Exception do
+    begin
+      Teletype('Не удалось добавить файл. '+E.Message,tsError);
+      LogWarning('Local book import failed: %s',[E.Message]);
+    end;
+  end;
 end;
 
 end.

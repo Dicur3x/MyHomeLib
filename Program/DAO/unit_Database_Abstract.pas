@@ -476,6 +476,7 @@ function TBookCollection.GetViewURL(const LibID: string): string;
 var
   SourceName, OriginalID, BaseURL: string;
 begin
+  if IsLocalBookID(LibID) then Exit('');
   BaseURL := CollectionBaseURL;
   OriginalID := LibID;
   if TryParseLibrarySourceID(LibID, SourceName, OriginalID) then
@@ -494,6 +495,7 @@ function TBookCollection.GetEditURL(const LibID: string): string;
 var
   SourceName, OriginalID, BaseURL: string;
 begin
+  if IsLocalBookID(LibID) then Exit('');
   BaseURL := CollectionBaseURL;
   OriginalID := LibID;
   if TryParseLibrarySourceID(LibID, SourceName, OriginalID) then

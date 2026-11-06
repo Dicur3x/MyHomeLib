@@ -3630,6 +3630,9 @@
       end
       object N39: TMenuItem
         Caption = #1048#1084#1087#1086#1088#1090
+        object miImportSelectedBook: TMenuItem
+          Action = acImportSelectedBook
+        end
         object miFb2Import: TMenuItem
           Action = acImportFb2
           Caption = 'fb2 '#1080' fb2.zip'
@@ -5084,6 +5087,12 @@
       Caption = 'fb2 ('#1080#1079' ZIP)'
       Hint = #1048#1084#1087#1086#1088#1090' '#1082#1085#1080#1075' '#1074' '#1092#1086#1088#1084#1072#1090#1077' FB2 ('#1080#1079' ZIP-'#1072#1088#1093#1080#1074#1072')'
       OnUpdate = ImportFb2Update
+    end
+    object acImportSelectedBook: TAction
+      Category = 'Collection'
+      Caption = #1044#1086#1073#1072#1074#1080#1090#1100#32#1092#1072#1081#1083#8230
+      OnExecute = ImportSelectedBookExecute
+      OnUpdate = ImportSelectedBookUpdate
     end
     object acImportFb2: TAction
       Category = #1048#1084#1087#1086#1088#1090

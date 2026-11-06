@@ -120,6 +120,7 @@ type
     N7: TMenuItem;
     miCollsettings: TMenuItem;
     miCopyToCollection: TMenuItem;
+    miImportSelectedBook: TMenuItem;
     miFb2Import: TMenuItem;
     miAbout: TMenuItem;
     miCheckUpdates: TMenuItem;
@@ -479,6 +480,7 @@ type
     N16: TMenuItem;
     acImportFb2Zip: TAction;
     acImportFb2: TAction;
+    acImportSelectedBook: TAction;
     acImportNonFB2: TAction;
     acImportFBD: TAction;
     acImportUserData: TAction;
@@ -556,6 +558,8 @@ type
     procedure ShowNewCollectionWizard(Sender: TObject);
     procedure ShowCollectionSettingsExecute(Sender: TObject);
     procedure ShowCollectionStatisticsExecute(Sender: TObject);
+    procedure ImportSelectedBookExecute(Sender: TObject);
+    procedure ImportSelectedBookUpdate(Sender: TObject);
     procedure ImportFb2Execute(Sender: TObject);
     procedure ImportFb2Update(Sender: TObject);
     procedure ImportNonFB2Execute(Sender: TObject);
@@ -8862,18 +8866,14 @@ begin
     BookCollection := FCollection;
 
   Assert(Assigned(BookCollection));
-  if isExternalCollection(BookCollection.CollectionCode) then
-  begin
-    if MHLShowWarning(Format(rstrGoToLibrarySite, [BookCollection.CollectionURL]), mbYesNo) = mrYes then
-    begin
-      BookCollection.GetBookRecord(BookKey, BookRecord, False);
-      URL := BookCollection.GetEditURL(BookRecord.LibID);
-      SimpleShellExecute(Handle, URL);
-    end;
-    Result := True;
-  end
-  else
-    Result := False;
+  Result := False;
+  if not isExternalCollection(BookCollection.CollectionCode) then Exit;
+  BookCollection.GetBookRecord(BookKey,BookRecord,False);
+  URL := BookCollection.GetEditURL(BookRecord.LibID);
+  if URL='' then Exit;
+  Result := True;
+  if MHLShowWarning(Format(rstrGoToLibrarySite, [BookCollection.CollectionURL]), mbYesNo) = mrYes then
+    SimpleShellExecute(Handle,URL);
 end;
 
 procedure TfrmMain.EditBookExecute(Sender: TObject);
@@ -9749,6 +9749,50 @@ end;
 procedure TfrmMain.QuickSearchExecute(Sender: TObject);
 begin
   unit_Utils.LocateBook;
+end;
+
+procedure TfrmMain.ImportSelectedBookUpdate(Sender: TObject);
+begin
+  TAction(Sender).Enabled := Assigned(FCollection) and isLocalCollection(FCollection.CollectionCode) and
+    not FFormBusy and not FStartupLoading and not FBookListLoading;
+end;
+
+procedure TfrmMain.ImportSelectedBookExecute(Sender: TObject);
+var
+  Dialog: TOpenDialog;
+  Committed: Boolean;
+  CID: Integer;
+begin
+  ImportSelectedBookUpdate(acImportSelectedBook);
+  if not acImportSelectedBook.Enabled then Exit;
+  if IsPackedCollectionCatalog(FCollection.GetProperty(PROP_DATAFILE)) then
+  begin
+    MHLShowInfo('Добавление отдельных файлов доступно для обычных локальных коллекций.');
+    Exit;
+  end;
+
+  Dialog := TOpenDialog.Create(Self);
+  try
+    Dialog.Title := 'Выберите файл для добавления в коллекцию';
+    Dialog.Filter := 'Книги и документы|*.fb2;*.fb2.zip;*.epub;*.pdf;*.djvu;*.doc;*.docx;*.txt;*.zip;*.7z|Все файлы|*.*';
+    Dialog.Options := [ofFileMustExist,ofPathMustExist,ofNoChangeDir,ofEnableSizing];
+    if not Dialog.Execute(Handle) then Exit;
+    CID := FCollection.CollectionID;
+    FFormBusy := True;
+    try
+      UpdatePositions;
+      unit_Import.ImportSelectedBook(CID,Dialog.FileName,Committed);
+    finally
+      FFormBusy := False;
+    end;
+    if Committed then
+    begin
+      NotifyFavoriteCatalogChanged(TArray<Integer>.Create(CID));
+      InitCollection;
+    end;
+  finally
+    Dialog.Free;
+  end;
 end;
 
 procedure TfrmMain.ImportFb2Execute(Sender: TObject);

@@ -162,6 +162,7 @@ function TCollectionUpdateThreadBase.UpdateCollection(const AFileName: string;
 var
   Collection: IBookCollection;
   UserDataBackup: TUserData;
+  LocalBooks: TArray<TLocalCatalogBook>;
 begin
   Result := False;
 
@@ -176,6 +177,7 @@ begin
       begin
         Teletype(Format(rstrBackupUserData, [ADisplayName]), tsInfo);
         Collection.ExportUserData(UserDataBackup);
+        LocalBooks := Collection.CaptureLocalBooks;
 
         Teletype(Format(rstrRemovingOldCollection, [ADisplayName]), tsInfo);
         Collection.TruncateTablesBeforeImport;
@@ -198,6 +200,7 @@ begin
       begin
         Teletype(Format(rstrRestoreUserData, [ADisplayName]), tsInfo);
         RestoreCatalogUserData(Collection,UserDataBackup);
+        Collection.RestoreLocalBooks(LocalBooks);
       end;
     finally
       FreeAndNil(UserDataBackup);
@@ -434,6 +437,7 @@ procedure TMetabibManualUpdateThread.WorkFunction;
 var
   Collection: IBookCollection;
   UserDataBackup: TUserData;
+  LocalBooks: TArray<TLocalCatalogBook>;
 begin
   if not FileExists(FFileName) then
   begin
@@ -460,6 +464,7 @@ begin
       try
         Teletype(Format(rstrBackupUserData, [FDisplayName]), tsInfo);
         Collection.ExportUserData(UserDataBackup);
+        LocalBooks := Collection.CaptureLocalBooks;
 
         Teletype(Format(rstrRemovingOldCollection, [FDisplayName]), tsInfo);
         Collection.TruncateTablesBeforeImport;
@@ -478,6 +483,7 @@ begin
 
         Teletype(Format(rstrRestoreUserData, [FDisplayName]), tsInfo);
         RestoreCatalogUserData(Collection,UserDataBackup);
+        Collection.RestoreLocalBooks(LocalBooks);
       finally
         FreeAndNil(UserDataBackup);
       end;

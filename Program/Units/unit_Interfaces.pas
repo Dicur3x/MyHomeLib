@@ -174,6 +174,11 @@ type
     procedure RestoreCatalogUserData(Data: TUserData);
   end;
 
+  TLocalCatalogBook = record
+    Book: TBookRecord;
+    Series: TBookSeries;
+  end;
+
   IBookCollection = interface;
 
   ISystemData = interface
@@ -363,6 +368,8 @@ type
 
     procedure GetStatistics(out AuthorsCount: Integer; out BooksCount: Integer; out SeriesCount: Integer);
 
+    function CaptureLocalBooks: TArray<TLocalCatalogBook>;
+    procedure RestoreLocalBooks(const Books: TArray<TLocalCatalogBook>);
     procedure TruncateTablesBeforeImport;
 
     procedure StartBatchUpdate;

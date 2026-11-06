@@ -301,6 +301,8 @@ type
     function EnsureGenre(const FB2Code, Alias, Category: string): TGenreData; override;
     procedure GetStatistics(out AuthorsCount: Integer; out BooksCount: Integer; out SeriesCount: Integer);
 
+    function CaptureLocalBooks: TArray<TLocalCatalogBook>;
+    procedure RestoreLocalBooks(const Books: TArray<TLocalCatalogBook>);
     procedure TruncateTablesBeforeImport;
 
     procedure StartBatchUpdate;
@@ -360,6 +362,7 @@ uses
   IOUtils,
   unit_Consts,
   unit_Logger,
+  unit_LibrarySourceID,
   unit_SearchUtils,
   dm_user,
   unit_Errors,
@@ -842,6 +845,7 @@ function TBookCollection_SQLite.BookDisplaySource(const LibID: string; const Def
 var JSON, Item: TJSONValue; Values: TJSONArray; Obj: TJSONObject; ID: string;
 begin
   Result := DefaultName;
+  if IsLocalBookID(LibID) then Exit('Добавлено вручную');
   if not LibID.StartsWith('merged:') then Exit;
   if not Assigned(FSourceDisplayNames) then
   begin
@@ -4553,6 +4557,68 @@ begin
 
   Sql := Format(SQL_SELECT, ['Series']);
   SeriesCount := FDatabase.QuerySingleInt(Sql);
+end;
+
+function TBookCollection_SQLite.CaptureLocalBooks: TArray<TLocalCatalogBook>;
+var
+  Query: TSQLiteQuery;
+  Saved: TList<TLocalCatalogBook>;
+  Entry: TLocalCatalogBook;
+  Key: TBookKey;
+begin
+  Saved := TList<TLocalCatalogBook>.Create;
+  try
+    // Use IXBooks_LibID with alphabetical bounds, independent of how the
+    // system collation sorts punctuation. Check the exact UUID syntax below.
+    Query := FDatabase.NewQuery('SELECT BookID, LibID FROM Books ' +
+      'WHERE LibID>=? AND LibID<? ORDER BY LibID',['local','locam']);
+    try
+      Query.Open;
+      while not Query.Eof do
+      begin
+        if IsLocalBookID(Query.FieldAsString(1)) then
+        begin
+          Key := CreateBookKey(Query.FieldAsInt(0),CollectionID);
+          GetBookRecord(Key,Entry.Book,True);
+          Entry.Series := GetBookSeries(Key);
+          Saved.Add(Entry);
+        end;
+        Query.Next;
+      end;
+    finally
+      Query.Free;
+    end;
+    Result := Saved.ToArray;
+  finally
+    Saved.Free;
+  end;
+end;
+
+procedure TBookCollection_SQLite.RestoreLocalBooks(const Books: TArray<TLocalCatalogBook>);
+var
+  Entry: TLocalCatalogBook;
+  Series: TBookSeriesData;
+  Cache: TImportCache;
+  ID: Integer;
+begin
+  if Length(Books)=0 then Exit;
+  if not InBulkOperation then
+    raise EInvalidOperation.Create('Восстановление своих книг требует активного обновления.');
+  Cache := TImportCache.Create;
+  try
+    for Entry in Books do
+    begin
+      if ResolveBookID(Entry.Book.LibID,0)<>0 then
+        raise EInvalidOperation.Create('Обновление содержит зарезервированный идентификатор своей книги.');
+      ID := InsertBook(Entry.Book,False,False,Cache);
+      if ID=0 then raise EInvalidOperation.CreateFmt('Не удалось восстановить свою книгу «%s».',[Entry.Book.Title]);
+      for Series in Entry.Series do
+        if not Series.IsPrimary then
+          AddBookSeries(ID,Series.SeriesTitle,Series.SeqNumber,Cache);
+    end;
+  finally
+    Cache.Free;
+  end;
 end;
 
 procedure TBookCollection_SQLite.TruncateTablesBeforeImport;
