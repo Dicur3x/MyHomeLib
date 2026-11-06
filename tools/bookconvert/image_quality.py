@@ -12,6 +12,7 @@ import zipfile
 import zlib
 
 PROFILES = ('high', 'balanced', 'economy')
+PACKING_PROFILES = (*PROFILES, 'maximum')
 SCAN_PROFILES = ('original', *PROFILES)
 OMITTED_IMAGE = '[Изображение не включено в эту копию]'
 
@@ -255,7 +256,7 @@ def select_container_profiles(result, profile, storage, layout=False):
     """Reuse clearer candidates when they cost less in the actual container."""
     if storage == 'raw': return result
     if storage not in ('epub', 'fb2-zip'): raise ValueError('Неизвестный контейнер изображений.')
-    order = SCAN_PROFILES if layout else PROFILES
+    order = SCAN_PROFILES if layout else PACKING_PROFILES
     chosen, costs = {}, {}
     def cost(data):
         key = id(data)
@@ -279,10 +280,12 @@ def select_container_profiles(result, profile, storage, layout=False):
 
 def run(api, tool, pictures, directory, profile, progress, layout=None, storage='raw', check=None):
     native_profile = 'estimate' if storage != 'raw' and profile in ('balanced','economy') else profile
+    if storage != 'raw' and profile == 'maximum':
+        native_profile = 'estimate-maximum'
     # Existing helpers already encode predecessors before economy, so asking
     # for their results does not decode the input again. Their estimate API
     # accepts at most nine images; all callers keep their batches within it.
-    if native_profile == 'estimate' and len(pictures) > 9:
+    if native_profile in ('estimate', 'estimate-maximum') and len(pictures) > 9:
         raise api.ConversionError('Слишком большая порция оценки изображений.')
     source, output, log = directory/'images.zip', directory/'encoded.zip', directory/'codec.log'
     source.unlink(missing_ok=True); output.unlink(missing_ok=True)
@@ -313,7 +316,12 @@ def run(api, tool, pictures, directory, profile, progress, layout=None, storage=
     if process.returncode or not output.is_file():
         detail = '\n'.join(s for s in log.read_bytes()[-1800:].decode('utf-8', errors='replace').splitlines() if not s.startswith('IMAGE '))
         raise api.ConversionError('Не удалось подготовить изображения для экспорта. '+detail)
-    profiles = (SCAN_PROFILES if layout else PROFILES) if native_profile == 'estimate' else (profile,)
+    if native_profile == 'estimate':
+        profiles = SCAN_PROFILES if layout else PROFILES
+    elif native_profile == 'estimate-maximum':
+        profiles = PACKING_PROFILES
+    else:
+        profiles = (profile,)
     with zipfile.ZipFile(output) as archive:
         if layout:
             allowed = {f'{p}/{i:05d}-{half}' for p in profiles for i in range(len(pictures)) for half in (0,1)}
@@ -372,7 +380,7 @@ def run(api, tool, pictures, directory, profile, progress, layout=None, storage=
 def apply(api, book, target_extension, profile, tools_root, progress, options_file=None, choice_file=None, warnings=None, container=None, check=None):
     storage = image_storage(target_extension,container)
     if profile == 'original': return
-    if profile not in (*PROFILES, 'ask', 'none'): raise api.ConversionError('Неизвестное качество изображений.')
+    if profile not in (*PACKING_PROFILES, 'ask', 'none'): raise api.ConversionError('Неизвестное качество изображений.')
     if profile == 'none':
         with tempfile.TemporaryDirectory(prefix='homelib-image-quality-', dir=book.parent) as temporary:
             candidate = Path(temporary)/('text-only'+target_extension)
@@ -516,7 +524,7 @@ def apply(api, book, target_extension, profile, tools_root, progress, options_fi
                             data = api.serialized(package)
                     output.writestr(entry.filename,data,compress_type=zipfile.ZIP_STORED if entry.filename=='mimetype' else zipfile.ZIP_DEFLATED)
             rewritten.replace(book)
-        if warnings is not None: warnings.add('Изображения подготовлены для экспорта: '+{'high':'высокое качество','balanced':'сбалансированный режим','economy':'экономный режим'}[profile]+'. Исходная книга сохранена.')
+        if warnings is not None: warnings.add('Изображения подготовлены для экспорта: '+{'high':'высокое качество','balanced':'сбалансированный режим','economy':'экономный режим','maximum':'максимальная экономия'}[profile]+'. Исходная книга сохранена.')
 
 
 def source_name(package, href):

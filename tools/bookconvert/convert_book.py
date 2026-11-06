@@ -1513,6 +1513,9 @@ def validate_epub_output(path):
         archive.close()
 
 
+PACKING_IMAGE_API = 1
+
+
 def convert_book(source, destination, **metadata):
     output_profile = metadata.pop('output_profile', None)
     image_quality = metadata.pop('image_quality', 'original')

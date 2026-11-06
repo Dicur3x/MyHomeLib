@@ -618,6 +618,24 @@ Packer(json.loads(open(sys.argv[2],encoding='utf-8').read()),notify).execute()
         self.assertEqual(json.loads((balanced_output / 'HomeLibRu-compressed.json').read_text())['images'],
                          'balanced')
 
+        maximum_output = self.root / 'maximum'
+        maximum = Packer(dict(self.job, output=str(maximum_output), images='maximum')).execute()
+        self.assertEqual((maximum.image_books_optimized, maximum.image_books_skipped), (2, 1))
+        self.assertLess(maximum.output_bytes, result.output_bytes)
+        self.assertEqual(json.loads((maximum_output / 'HomeLibRu-compressed.json').read_text())['images'],
+                         'maximum')
+        with patch.object(self, 'output', maximum_output):
+            max_fb2 = ElementTree.fromstring(self.packed_book(maximum, 1))
+            self.assertEqual(''.join(max_fb2.find('.//{*}p').itertext()), 'Keep this text.')
+            self.assertEqual(max_fb2.find('.//{*}binary').get('id'), 'picture')
+            epub_copy.write_bytes(self.packed_book(maximum, 2))
+            with zipfile.ZipFile(epub_copy) as archive:
+                self.assertEqual(archive.read('chapter.xhtml'), chapter)
+                self.assertEqual(archive.read('book.css'), style)
+            for identity, book in enumerate(books[2:], 3):
+                self.assertEqual(self.packed_book(maximum, identity), book.read_bytes())
+        self.assertEqual([sha(book) for book in books], original_hashes)
+
         self.retain(result, range(1, 6))
         new_book = self.source / 'new.fb2'
         new_book.write_bytes(fb2.read_bytes().replace(b'Keep ', b'New '))

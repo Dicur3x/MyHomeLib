@@ -6,7 +6,7 @@ uses System.SysUtils, System.Classes, System.JSON, Winapi.Windows, SQLiteWrap, u
   unit_Globals, unit_CollectionBackup;
 
 type
-  TPackingImageProfile = (pipOriginal, pipBalanced, pipEconomy);
+  TPackingImageProfile = (pipOriginal, pipBalanced, pipEconomy, pipMaximum);
   TCollectionPackingProgress = reference to procedure(const Stage: string; Current, Total: Int64);
   TCollectionPackingCatalogEdit = reference to procedure(const CatalogFile, PersonalFile: string);
   TCollectionPackingOptions = record
@@ -84,7 +84,7 @@ uses System.IOUtils, System.Hash, System.Math, System.StrUtils,
 const
   PACKING_LEASE = 'HomeLibRu-native-packing.lock';
   PACKING_MARKER = 'HomeLibRu-compressed.json';
-  PACKING_PROFILES: array[TPackingImageProfile] of string = ('original','balanced','economy');
+  PACKING_PROFILES: array[TPackingImageProfile] of string = ('original','balanced','economy','maximum');
   PACKING_JOB_KIND = 'HomeLibRu collection packing snapshots';
   DEFERRED_COLUMNS = '(kind INTEGER NOT NULL,book_id INTEGER NOT NULL,source_key TEXT NOT NULL,'+
     'folder TEXT NOT NULL,filename TEXT NOT NULL,ext TEXT NOT NULL,inside_no INTEGER NOT NULL,'+
@@ -118,6 +118,7 @@ begin
   case Profile of
     pipBalanced: Result:='Сбалансированное сжатие иллюстраций';
     pipEconomy: Result:='Экономное сжатие иллюстраций';
+    pipMaximum: Result:='Максимальная экономия места';
     else Result:='Обратимая упаковка';
   end;
 end;

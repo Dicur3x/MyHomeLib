@@ -55,6 +55,9 @@ internal static class HomeLibXps
 #endif
                 return 0;
             }
+            if (args.Length == 1 && args[0] == "--packing-image-profiles") {
+                Console.WriteLine("maximum"); return 0;
+            }
             if (args.Length == 3 && args[0] == "--image-pages") return ImagePages(args[1], args[2]);
             if (args.Length == 4 && args[0] == "--export-images") return ExportImages(args[1], args[2], args[3]);
             if (args.Length == 5 && args[0] == "--scan-images") return ScanImages(args[1], args[2], args[3], args[4]);
@@ -128,8 +131,9 @@ internal static class HomeLibXps
             if (width <= 0 || height <= 0 || width > 16384 || height > 16384 || (long)width * height > 16777216)
                 throw new IOException("Export image dimensions exceed the reader limit.");
             if (Math.Max(width, height) <= 512) return original;
-            double edge = profile == "balanced" ? 2200 : 1600;
-            double floor = profile == "economy" ? 0 : .85;
+            bool maximum = profile == "maximum";
+            double edge = profile == "balanced" ? 2200 : maximum ? 1280 : 1600;
+            double floor = profile == "balanced" ? .85 : 0;
             double scale = Math.Min(1.0, Math.Max(floor, edge / Math.Max(width, height)));
             if (scale < 1.0)
             {
@@ -157,7 +161,7 @@ internal static class HomeLibXps
             BitmapSource encoded = source;
             if (!alpha) encoded = new FormatConvertedBitmap(source, gray ? PixelFormats.Gray8 : PixelFormats.Bgr24, null, 0);
             byte[] best = original; bool[] textRows=null;
-            if (profile == "economy" && !alpha && colored == 0)
+            if ((profile == "economy" || maximum) && !alpha && colored == 0)
             {
                 // A page made of many separated short ink bands is text, rather
                 // than a photograph. Use a one-bit PNG only for that strict case;
@@ -203,7 +207,7 @@ internal static class HomeLibXps
             // Text scans waste most of their bytes on nearly white paper noise.
             // Keep four gray levels and every stroke at the chosen resolution;
             // photographs and colored pages retain the ordinary color encoder.
-            if (profile == "economy" && !alpha && colored == 0 && paperOrInk >= width*height*.90)
+            if ((profile == "economy" || maximum) && !alpha && colored == 0 && paperOrInk >= width*height*.90)
             {
                 int stride = (width+3)/4; byte[] packed = new byte[checked(stride*height)];
                 for (int y=0; y<height; y++) for (int x=0; x<width; x++)
@@ -227,7 +231,7 @@ internal static class HomeLibXps
             }
             if (!alpha)
             {
-                var jpeg = new JpegBitmapEncoder { QualityLevel = profile == "balanced" ? 60 : 40 };
+                var jpeg = new JpegBitmapEncoder { QualityLevel = profile == "balanced" ? 60 : maximum ? 30 : 40 };
                 jpeg.Frames.Add(BitmapFrame.Create(encoded));
                 using (var bytes = new MemoryStream()) { jpeg.Save(bytes); if (bytes.Length < best.Length) best = bytes.ToArray(); }
             }
@@ -237,8 +241,13 @@ internal static class HomeLibXps
 
     private static int ExportImages(string source, string destination, string profile)
     {
-        if (profile != "high" && profile != "balanced" && profile != "economy" && profile != "estimate")
+        bool extendedEstimate = profile == "estimate-maximum";
+        bool estimate = profile == "estimate" || extendedEstimate;
+        if (profile != "high" && profile != "balanced" && profile != "economy" && profile != "maximum" && !estimate)
             throw new ArgumentException("Unknown export image profile.");
+        string[] profiles = extendedEstimate || profile == "maximum"
+            ? new string[] { "high", "balanced", "economy", "maximum" }
+            : new string[] { "high", "balanced", "economy" };
         string input = Path.GetFullPath(source), output = Path.GetFullPath(destination); bool owns = false;
         if (String.Equals(input, output, StringComparison.OrdinalIgnoreCase) || File.Exists(output)) throw new IOException("Output must be new.");
         if (new FileInfo(input).Length > MaxTotal) throw new IOException("Export images exceed 256 MB.");
@@ -249,7 +258,7 @@ internal static class HomeLibXps
             using (var outputFile = new FileStream(output, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None))
             {
                 owns = true; long total = 0; int index = 0;
-                if (archive.Entries.Count == 0 || archive.Entries.Count > (profile == "estimate" ? 9 : 5000)) throw new IOException("Invalid image count.");
+                if (archive.Entries.Count == 0 || archive.Entries.Count > (estimate ? 9 : 5000)) throw new IOException("Invalid image count.");
                 using (var result = new ZipArchive(outputFile, ZipArchiveMode.Create, true))
                 foreach (var entry in archive.Entries)
                 {
@@ -257,7 +266,6 @@ internal static class HomeLibXps
                         throw new IOException("Invalid export image entry.");
                     byte[] data;
                     using (Stream image = entry.Open()) using (var bytes = new MemoryStream()) { image.CopyTo(bytes); data = bytes.ToArray(); }
-                    string[] profiles = new string[] { "high", "balanced", "economy" };
                     byte[] previous = data;
                     // Keep quality/size choices monotonic: a compact profile may
                     // reuse a smaller, clearer result from the previous profile.
@@ -274,7 +282,7 @@ internal static class HomeLibXps
                             byte[] encoded = keepMetadata ? data : ExportImage(data, frame, choice);
                             if (previous.Length < encoded.Length) encoded = previous;
                             previous = encoded;
-                            if (profile == "estimate" || choice == profile)
+                            if (estimate || choice == profile)
                                 using (Stream target = result.CreateEntry(choice + "/" + entry.FullName, CompressionLevel.NoCompression).Open()) target.Write(encoded, 0, encoded.Length);
                             if (profile == choice) break;
                         }

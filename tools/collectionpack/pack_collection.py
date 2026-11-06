@@ -194,7 +194,7 @@ class Packer:
             raise PackingError('Неизвестная версия или режим сжатия коллекции.')
         if self.engine == 'reversible-ppmd' and self.images != 'original':
             raise PackingError('Этот режим сохраняет изображения без изменений. Для изменения качества нужен соответствующий режим сжатия.')
-        if self.engine == 'illustrations-ppmd' and self.images not in ('balanced', 'economy'):
+        if self.engine == 'illustrations-ppmd' and self.images not in ('balanced', 'economy', 'maximum'):
             raise PackingError('Выберите качество иллюстраций для сжатой копии.')
         self.job, self.notify, self.canceled = job, notify, canceled
         self.root = Path(job['output']).absolute()
@@ -219,8 +219,21 @@ class Packer:
         spec = importlib.util.spec_from_file_location('homelibre_pack_book_converter', script)
         converter = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(converter)
-        if not converter.image_processor_path(self.tools_root).is_file():
+        tool = converter.image_processor_path(self.tools_root)
+        if not tool.is_file():
             raise PackingError('Для сжатия иллюстраций нужен модуль HomeLibre Images.')
+        if self.images == 'maximum':
+            if getattr(converter, 'PACKING_IMAGE_API', 0) < 1:
+                raise PackingError('Для максимальной экономии обновите модуль подготовки книг HomeLibre BookProcessing.')
+            self.check()
+            try:
+                profiles = subprocess.run([str(tool), '--packing-image-profiles'],
+                    capture_output=True, timeout=5, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+            except (OSError, subprocess.TimeoutExpired) as error:
+                raise PackingError('Не удалось проверить модуль HomeLibre Images.') from error
+            if profiles.returncode or b'maximum' not in profiles.stdout.split():
+                raise PackingError('Для максимальной экономии обновите модуль HomeLibre Images.')
+            self.check()
         self.converter = converter
 
     def optimize_book(self, target, stage):

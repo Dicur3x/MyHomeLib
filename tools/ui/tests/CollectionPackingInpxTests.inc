@@ -86,7 +86,7 @@ begin
   Options.Python:=Settings.AppPath+'tools\kindle\python\python.exe';
   Options.SevenZip:=Settings.AppPath+'tools\7zip\7za.exe';
   Options.Script:=Settings.AppPath+'tools\collectionpack\pack_collection.py';
-  if FileExists(ImageFixture) then Options.ImageProfile:=pipEconomy;
+  if FileExists(ImageFixture) then Options.ImageProfile:=pipMaximum;
   Snapshot:=TCollectionPackingSnapshot.Create(Options);
   try
     Snapshot.Prepare; Snapshot.Pack; Snapshot.ApplyPrepared;

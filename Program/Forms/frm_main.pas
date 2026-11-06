@@ -4492,6 +4492,7 @@ begin
         pipOriginal: Button.CommandLinkHint:='Сохранить содержимое книг и качество изображений.';
         pipBalanced: Button.CommandLinkHint:='Уменьшить размер крупных иллюстраций с умеренным сжатием.';
         pipEconomy: Button.CommandLinkHint:='Сжать иллюстрации сильнее. Размер и детализация могут уменьшиться.';
+        pipMaximum: Button.CommandLinkHint:='Сильнее уменьшить крупные иллюстрации. Мелкие детали могут стать хуже видны.';
       end;
     end;
     if Dialog.Execute(Owner.Handle) and
