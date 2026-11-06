@@ -57,7 +57,7 @@ uses
   System.Win.ComObj,
   Winapi.Windows,
   Winapi.ActiveX,
-  unit_FB2MetadataRecovery;
+  unit_FB2MetadataRecovery, unit_FB2Encoding;
 
 const
   FB2_NAMESPACE = 'http://www.gribuser.ru/xml/fictionbook/2.0';
@@ -578,6 +578,7 @@ var
   Count, HeaderEnd, I, Start: Integer;
   Header, EncodingName: string;
   HeaderBytes: AnsiString;
+  Probe: TBytes;
   Quote: Char;
 begin
   Charset := '';
@@ -639,8 +640,27 @@ begin
               Start := I;
               while (I < HeaderEnd) and (Header[I] <> Quote) do Inc(I);
               EncodingName := Copy(Header, Start, I - Start);
-              if (I < HeaderEnd) and SameText(EncodingName, 'UTF8') then
-                Charset := 'UTF-8';
+              if I < HeaderEnd then
+              begin
+                if SameText(EncodingName, 'UTF8') then
+                  Charset := 'UTF-8'
+                else if SameText(EncodingName, 'windows-1251') or SameText(EncodingName, 'cp1251') then
+                begin
+                  while FCount < Length(FBuffer) do
+                  begin
+                    Result := FHandler.CheckContinue;
+                    if Failed(Result) then Exit;
+                    Count := FStream.Read(FBuffer[FCount], Length(FBuffer)-FCount);
+                    if Count=0 then Break;
+                    Inc(FCount,Count);
+                    Inc(FBytesRead,Count);
+                  end;
+                  SetLength(Probe,FCount);
+                  Move(FBuffer[0],Probe[0],FCount);
+                  if RepairFB2UTF8Declaration(Probe, FCount=Length(FBuffer)) then
+                    Move(Probe[0],FBuffer[0],FCount);
+                end;
+              end;
             end;
           end;
         end;

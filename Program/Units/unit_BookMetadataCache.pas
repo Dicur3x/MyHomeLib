@@ -55,7 +55,8 @@ var Raw, PrefixFile, XML, Pending: string; Archive: TMHLZip; Prefix: TMemoryStre
 begin
   Raw := CacheName(Book);
   if FileExists(Raw) then Exit(OpenCachedBookFile(Raw));
-  PrefixFile := ExistingBookCacheFile(Raw+'.description.xml');
+  // Previous versions can contain a decoded title in the wrong encoding.
+  PrefixFile := ExistingBookCacheFile(Raw+'.description-v2.xml');
   if FileExists(PrefixFile) then Exit(OpenCachedBookFile(PrefixFile));
   TMonitor.Enter(PrefixLock);
   try

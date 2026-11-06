@@ -80,7 +80,7 @@ implementation
 
 uses Winapi.Windows, Winapi.ActiveX, System.IOUtils, System.Math,
   System.RegularExpressions, System.StrUtils, System.NetEncoding, System.Zip, System.Variants,
-  System.Character, System.Generics.Defaults, System.Win.ComObj, Winapi.MSXML, Vcl.Graphics, Vcl.Imaging.jpeg, unit_ImageBounds, unit_FB2Utils, unit_ReaderMIME, unit_ReaderFormats, unit_ReaderCSS, unit_MHLExternalTools;
+  System.Character, System.Generics.Defaults, System.Win.ComObj, Winapi.MSXML, Vcl.Graphics, Vcl.Imaging.jpeg, unit_ImageBounds, unit_FB2Utils, unit_ReaderMIME, unit_ReaderFormats, unit_ReaderCSS, unit_MHLExternalTools, unit_FB2Encoding;
 
 const
   MAX_DOCUMENT_BYTES = 64 * 1024 * 1024;
@@ -1056,6 +1056,7 @@ begin
     else
     begin
       ReadDocument(Data);
+      if E='.fb2' then RepairFB2UTF8Declaration(Data);
       try Document:=XMLDocument(Data);
       except
         on Error: EMHLComponentRequired do raise;

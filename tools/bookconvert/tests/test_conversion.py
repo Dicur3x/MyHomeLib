@@ -77,6 +77,28 @@ class ConversionTests(unittest.TestCase):
     def tearDown(self):
         self.assertEqual(digest(self.source), self.original)
         self.assertFalse(list(self.root.glob('.homelib-convert-*')))
+    def test_fb2_declared_windows_1251_preserves_real_encoding(self):
+        text = ('<?xml version="1.0" encoding="windows-1251"?>'
+                '<FictionBook xmlns="'+c.FB+'"><description><title-info><author><last-name>Сорокин</last-name>'
+                '</author><book-title>Книга с кодировкой</book-title><lang>ru</lang></title-info></description>'
+                '<body><section><p>Русский текст с буквой ё.</p></section></body></FictionBook>')
+        for encoding in ('utf-8', 'utf-8-sig', 'windows-1251'):
+            with self.subTest(encoding=encoding):
+                source = self.root/(encoding+'.fb2')
+                source.write_bytes(text.encode(encoding))
+                original = source.read_bytes()
+                converted = source.with_suffix('.epub')
+                c.convert_book(source, converted)
+                with zipfile.ZipFile(converted) as archive:
+                    self.assertIn('Книга с кодировкой', archive.read('OEBPS/package.opf').decode('utf-8'))
+                    self.assertIn('Русский текст с буквой ё.', archive.read('OEBPS/body-1.xhtml').decode('utf-8'))
+                self.assertEqual(source.read_bytes(), original)
+                copied = self.root/(encoding+'-copy.fb2')
+                c.convert_book(source, copied)
+                self.assertEqual(copied.read_bytes(), original)
+        mixed = text.encode('utf-8') + b'\xff'
+        self.assertEqual(c.repair_fb2_encoding(mixed), mixed)
+
     def test_already_target_format_is_validated_and_copied_without_rewriting(self):
         target=self.root/'same.fb2';c.convert_book(self.source,target)
         self.assertEqual(target.read_bytes(),self.source.read_bytes())

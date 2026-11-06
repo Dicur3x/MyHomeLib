@@ -5405,5 +5405,13 @@
     "encoding": "The supplied ZIP contains one FB2. It declares Windows-1251, but the payload decodes strictly as UTF-8, parses as XML and has the correct title Отпуск. Strict Windows-1251 decoding fails. The attachment was read only. Implement automatic correction and an explicit encoding choice where useful, then verify catalogue import and reading.",
     "progress": "The catalogue already receives and persists reading percentages. Add a compact indicator to the book details without increasing panel size.",
     "single_file": "Existing FB2 import scans the configured folder or collection root. The non-FB2 dialog selects files from its scanned collection root. A direct pick from an arbitrary location is still needed. An internal BookKey consists of DatabaseID and BookID. Flibusta external IDs belong to their source. Use independent local provenance and a stable local ID for manual additions; verify that future INPX updates cannot overwrite them."
+  },
+  "fb2_misdeclared_encoding_20261106": {
+    "status": "Automatic repair is implemented in the working branch and verified on x86 and x64.",
+    "implementation": "Repair a Windows-1251 or CP1251 declaration when the bytes have a UTF-8 BOM or a run of Russian UTF-8 letters. Full import, reading and export validate the complete UTF-8 input. Metadata preview and streaming metadata inspect a bounded prefix. Rotate the decoded-description cache so it is rebuilt when opened.",
+    "verification": "The supplied Отпуск (2012) archive passed actual catalogue import, metadata preview and cache read, reopening the imported member and reader text validation. The original archive hash was unchanged. Synthetic native tests also covered valid Windows-1251, UTF-8 BOM with a contradictory declaration, UTF-16 and rejected UTF-8 repair when a later byte was invalid. The existing metadata prefix gate passed 184 checks per architecture. All 51 Python conversion tests passed, and the supplied book converted to EPUB with its Cyrillic title and body intact.",
+    "cleanup": "Isolated native build, import and conversion stages and temporary Delphi project clones were removed.",
+    "remaining": "Add the manual text encoding override in the reader. Previously stored catalogue titles and author names are separate from the decoded-description cache. Final release archive validation is pending.",
+    "next": "User approved local:<UUID> for files added manually. Verify their catalogue entries and personal data survive both incremental and full INPX updates."
   }
 }

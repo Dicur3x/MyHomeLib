@@ -1662,6 +1662,8 @@ const
 
 implementation
 
+uses System.SysUtils, System.Math, unit_FB2Encoding;
+
 { Global Functions }
 
 function GetFictionBook(Doc: IXMLDocument): IXMLFictionBook;
@@ -1675,17 +1677,51 @@ begin
 end;
 
 function LoadFictionBook(const FileName: WideString): IXMLFictionBook; overload;
+var
+  Stream: TFileStream;
 begin
-  Result := LoadXMLDocument(FileName).GetDocBinding('FictionBook', TXMLFictionBook, TargetNamespace) as IXMLFictionBook;
+  Stream := TFileStream.Create(FileName, fmOpenRead or fmShareDenyWrite);
+  try
+    Result := LoadFictionBook(Stream);
+  finally
+    Stream.Free;
+  end;
 end;
 
 function LoadFictionBook(const Stream: TStream): IXMLFictionBook; overload;
 var
   Doc: IXMLDocument;
+  Probe, Bytes: TBytes;
+  Patched: TBytesStream;
+  Input: TStream;
 begin
-  Doc := TXMLDocument.Create(nil);
-  Doc.LoadFromStream(Stream);
-  Result := Doc.GetDocBinding('FictionBook', TXMLFictionBook, TargetNamespace) as IXMLFictionBook;
+  Patched := nil;
+  Input := Stream;
+  try
+    Stream.Position := 0;
+    SetLength(Probe,Min(Stream.Size,Int64(FB2_ENCODING_PROBE_SIZE)));
+    Stream.ReadBuffer(Probe,Length(Probe));
+    if RepairFB2UTF8Declaration(Probe, Length(Probe)<Stream.Size) and
+      (Stream.Size<=MaxInt) then
+    begin
+      if Length(Probe)=Stream.Size then
+        Patched := TBytesStream.Create(Probe)
+      else
+      begin
+        Stream.Position := 0;
+        SetLength(Bytes,Stream.Size);
+        Stream.ReadBuffer(Bytes,Length(Bytes));
+        if RepairFB2UTF8Declaration(Bytes) then
+          Patched := TBytesStream.Create(Bytes);
+      end;
+      if Assigned(Patched) then Input := Patched;
+    end;
+    Doc := TXMLDocument.Create(nil);
+    Doc.LoadFromStream(Input);
+    Result := GetFictionBook(Doc);
+  finally
+    Patched.Free;
+  end;
 end;
 
 { TXMLFictionBook }

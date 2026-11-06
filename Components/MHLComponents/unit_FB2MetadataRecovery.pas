@@ -30,7 +30,7 @@ function RecoverMetadataPrefix(Input: TRecordedMetadataStream;
 
 implementation
 
-uses System.Math, System.RegularExpressions, System.Generics.Collections, Winapi.Windows;
+uses System.Math, System.RegularExpressions, System.Generics.Collections, Winapi.Windows, unit_FB2Encoding;
 
 constructor TRecordedMetadataStream.Create(Source: TStream; Limit: Integer);
 begin
@@ -329,7 +329,7 @@ begin
   begin Encoding:=TEncoding.Unicode; Offset:=2; end
   else if (Length(Bytes) >= 2) and (Bytes[0]=$FE) and (Bytes[1]=$FF) then
   begin Encoding:=TEncoding.BigEndianUnicode; Offset:=2; end
-  else
+  else if not RepairFB2UTF8Declaration(Bytes, True) then
   begin
     Header := TEncoding.ANSI.GetString(Bytes, 0, Min(Length(Bytes),1024));
     Match := TRegEx.Match(Header, '^<\?xml\s+[^?]*\bencoding\s*=\s*(["''])([^"'']+)\1');

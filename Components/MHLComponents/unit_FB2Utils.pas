@@ -91,7 +91,7 @@ uses
   jpeg,
   pngimage,
   unit_WebPCompat, unit_ImageBounds, unit_FB2MetadataRecovery, unit_MHLExternalTools, System.RegularExpressions,
-  System.NetEncoding, System.Math, Xml.XMLDoc, Xml.XMLIntf;
+  System.NetEncoding, System.Math, Xml.XMLDoc, Xml.XMLIntf, unit_FB2Encoding;
 
 
 function LoadFB2Description(Stream: TStream; IncludeCover: Boolean): IXMLFictionBook;
@@ -159,10 +159,13 @@ begin
   begin
     Encoding := TEncoding.UTF8; OwnEncoding := False; I := 0;
     if (Length(Bytes)>=3) and (Bytes[0]=$EF) and (Bytes[1]=$BB) and (Bytes[2]=$BF) then I := 3;
-    Header := TRegEx.Match(TEncoding.ASCII.GetString(Bytes,0,Min(1024,Length(Bytes))),
-      '^<\?xml\s+[^?]*\bencoding\s*=\s*(["''])([^"'']+)\1');
-    if Header.Success then
-      try Encoding := TEncoding.GetEncoding(Header.Groups[2].Value); OwnEncoding := True; except end;
+    if not RepairFB2UTF8Declaration(Bytes) then
+    begin
+      Header := TRegEx.Match(TEncoding.ASCII.GetString(Bytes,0,Min(1024,Length(Bytes))),
+        '^<\?xml\s+[^?]*\bencoding\s*=\s*(["''])([^"'']+)\1');
+      if Header.Success then
+        try Encoding := TEncoding.GetEncoding(Header.Groups[2].Value); OwnEncoding := True; except end;
+    end;
     try Text := Encoding.GetString(Bytes,I,Length(Bytes)-I);
     finally if OwnEncoding then Encoding.Free; end;
   end;

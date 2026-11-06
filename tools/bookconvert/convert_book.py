@@ -109,9 +109,29 @@ def tag(node):
     return node.tag.rsplit('}', 1)[-1] if isinstance(node.tag, str) else ''
 
 
+def repair_fb2_encoding(data):
+    """Match the native FB2 reader's conservative repair for mislabeled UTF-8."""
+    prefix = data[:8192]
+    declaration = re.match(
+        br"""^(?:\xef\xbb\xbf)?<\?xml\s+[^?]*\bencoding\s*=\s*(["'])(windows-1251|cp1251)\1""",
+        prefix[:512], re.I)
+    if not declaration or not re.search(br'<(?:[A-Za-z_][\w.-]*:)?FictionBook(?=[\s>/])', prefix):
+        return data
+    if not (prefix.startswith(b'\xef\xbb\xbf') or
+            re.search(br'(?:\xd0[\x81\x90-\xbf]|\xd1[\x80-\x8f\x91]){4}', prefix)):
+        return data
+    try:
+        data.decode('utf-8')
+    except UnicodeDecodeError:
+        return data
+    start, end = declaration.span(2)
+    return data[:start] + b'UTF-8' + data[end:]
+
+
 def xml(data, maximum=MAX_FILE):
     if len(data) > maximum:
         raise ConversionError('Файл превышает предел конвертации ('+str(maximum//1024//1024)+' МБ).')
+    data = repair_fb2_encoding(data)
     # ElementTree never fetches external entities. Reject internal entities too.
     probe = data.replace(b'\x00', b'')  # UTF-16/32 declarations must not bypass the gate.
     if re.search(br'<!\s*ENTITY\b|<!\s*DOCTYPE\b[^>]*\[', probe, re.I):
