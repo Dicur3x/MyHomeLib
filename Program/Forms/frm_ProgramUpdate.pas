@@ -2,7 +2,7 @@
 
 interface
 
-uses System.Classes, Vcl.Forms, Vcl.StdCtrls, Vcl.ComCtrls, Vcl.Controls,
+uses System.Classes, System.SysUtils, Vcl.Forms, Vcl.StdCtrls, Vcl.ComCtrls, Vcl.Controls,
   Winapi.Windows, Winapi.Messages, unit_ProgramUpdates, unit_ComponentUpdates, unit_UpdateNotes, unit_MHLTheme;
 
 type
@@ -40,6 +40,7 @@ type
     FChangingNotification: Boolean;
     FRequestedComponent, FRequestReason: string;
     FRequestedComponents: TArray<string>;
+    FComponentRestartArgument: TFunc<string>;
     FRequestedCheckPending: Boolean;
     FReaderOnly: Boolean;
     FOperationComponent: string;
@@ -143,7 +144,8 @@ type
     procedure CheckComponents(Automatic: Boolean);
     procedure UseReaderComponents;
     procedure RequestComponent(const ID, Reason: string; Compact: Boolean = False);
-    procedure RequestComponents(const IDs: TArray<string>; const Reason: string; Compact: Boolean = True);
+    procedure RequestComponents(const IDs: TArray<string>; const Reason: string; Compact: Boolean = True;
+      const RestartArgument: TFunc<string> = nil);
     function InstallComponentForOperation(const ID, Reason: string): Boolean;
     procedure UseFullWindow;
     procedure ShowFullWindow;
@@ -166,7 +168,7 @@ var ProgramUpdateProfile: TProgramUpdateProfile;
 
 implementation
 
-uses System.SysUtils, System.StrUtils, System.IOUtils, System.JSON, System.RegularExpressions, System.Math,
+uses System.StrUtils, System.IOUtils, System.JSON, System.RegularExpressions, System.Math,
   System.Types, Winapi.ShellAPI,
   Vcl.Graphics, Vcl.Menus, Vcl.Clipbrd, dm_user, unit_Settings, unit_Globals,
   unit_ProgramUpdateInstaller, unit_MHLHttpClient, unit_UpdateTextCache, unit_BookSaveContinuation,
@@ -576,7 +578,7 @@ end;
 procedure TfrmProgramUpdate.HistoryComponentSelected(Sender: TObject);
 begin
   if FRefreshingComponents or (FHistorySelector.ItemIndex<0) then Exit;
-  FRequestedComponent:=''; FRequestedComponents:=nil; FRequestReason:='';
+  FRequestedComponent:=''; FRequestedComponents:=nil; FRequestReason:=''; FComponentRestartArgument:=nil;
   SelectRow(FRowIDs[FHistorySelector.ItemIndex]); ComponentSelected(nil);
 end;
 
@@ -892,7 +894,7 @@ begin
   end;
   if (Item.Index<0) or (Item.Index>High(FRowIDs)) then Exit;
   if FSelectedRow=FRowIDs[Item.Index] then Exit;
-  FRequestedComponent:=''; FRequestedComponents:=nil; FRequestReason:='';
+  FRequestedComponent:=''; FRequestedComponents:=nil; FRequestReason:=''; FComponentRestartArgument:=nil;
   FSelectedRow:=FRowIDs[Item.Index]; ComponentSelected(nil);
 end;
 
@@ -1160,7 +1162,7 @@ begin
     Exit;
   end;
   if FReady then begin if not Automatic then Present; Exit; end;
-  FRequestedComponent:=''; FRequestedComponents:=nil; FRequestReason:='';
+  FRequestedComponent:=''; FRequestedComponents:=nil; FRequestReason:=''; FComponentRestartArgument:=nil;
   RefreshInstalledComponents;
   FCycleAutomatic := Automatic; FCheckingCycle := True; FAppPending := True; FComponentsPending := True;
   FApplicationRelease := Default(TProgramRelease);
@@ -1238,7 +1240,7 @@ end;
 procedure TfrmProgramUpdate.ComponentCheckClick(Sender: TObject);
 begin
   if Assigned(FThread) or FReady or FCheckingCycle then Exit;
-  if Sender<>nil then begin FRequestedComponent:=''; FRequestedComponents:=nil; FRequestReason:=''; end;
+  if Sender<>nil then begin FRequestedComponent:=''; FRequestedComponents:=nil; FRequestReason:=''; FComponentRestartArgument:=nil; end;
   if FRequestedComponent<>'' then begin FComponentExplicit:=True; CheckComponents(False); Exit; end;
   if Assigned(FCheck) then FCheck(Self)
   else begin FComponentExplicit:=True; CheckComponents(False); end;
@@ -1443,7 +1445,8 @@ end;
 procedure TfrmProgramUpdate.RequestComponent(const ID, Reason: string; Compact: Boolean);
 begin RequestComponents(TArray<string>.Create(ID),Reason,Compact); end;
 
-procedure TfrmProgramUpdate.RequestComponents(const IDs: TArray<string>; const Reason: string; Compact: Boolean);
+procedure TfrmProgramUpdate.RequestComponents(const IDs: TArray<string>; const Reason: string; Compact: Boolean;
+  const RestartArgument: TFunc<string>);
 var Index: Integer; Purpose, ID: string; Requested: TArray<string>;
 begin
   Requested:=nil; Index:=-1;
@@ -1459,6 +1462,7 @@ begin
   if Compact then CreateCompactPrompt else UseFullWindow;
   if Assigned(FThread) or FReady then begin Present; Exit; end;
   FRequestedComponents:=Requested; FRequestedComponent:=Requested[0]; FRequestReason:=Trim(Reason);
+  FComponentRestartArgument:=RestartArgument;
   for ID in Requested do
   begin
     Purpose:=ComponentPurpose(ID);
@@ -1782,6 +1786,7 @@ end;
 
 procedure TfrmProgramUpdate.LaterClick(Sender: TObject);
 begin
+  FComponentRestartArgument:=nil;
   if Assigned(FThread) then
   begin
     FThread.Terminate; FLater.Enabled := False;
@@ -2036,8 +2041,8 @@ begin
 end;
 
 function TfrmProgramUpdate.LaunchInstallation: Boolean;
-var Root: TJSONObject; Helper, Parameters, SourceHelper: string; Code: HINST;
-  I: Integer; Args: TJSONArray;
+var Root: TJSONObject; Helper, Parameters, SourceHelper, Argument, CommandLine: string; Code: HINST;
+  I: Integer; Args: TJSONArray; ResumeOperation: Boolean;
 begin
   Result := False;
   try
@@ -2051,16 +2056,28 @@ begin
       SourceHelper := InstallationHelperSource;
       if not Winapi.Windows.CopyFile(PChar(SourceHelper),PChar(Helper),False) then RaiseLastOSError;
     end;
+    CommandLine:=string(GetCommandLine); Argument:='';
+    ResumeOperation:=Assigned(FComponentRestartArgument) and not FRecovery and
+      (FRelease.ComponentID<>'') and (Length(FRequestedComponents)>0);
+    if ResumeOperation then
+      for var Component in FRequestedComponents do
+        if not PreparedIncludesComponent(FJob,Component) then begin ResumeOperation:=False; Break; end;
+    if ResumeOperation then
+    begin
+      Argument:=FComponentRestartArgument();
+      if Argument<>'' then CommandLine:=CommandLine+' "'+Argument+'"';
+    end;
     Root := TJSONObject.Create;
     try
       Root.AddPair('target', ExcludeTrailingPathDelimiter(Settings.AppPath));
       Root.AddPair('application', ExtractFileName(ParamStr(0)));
       Root.AddPair('pid', TJSONNumber.Create(GetCurrentProcessId));
       Root.AddPair('tag', FRelease.Tag); Root.AddPair('sha256', FRelease.SHA256);
-      Root.AddPair('commandLine', string(GetCommandLine));
+      Root.AddPair('commandLine', CommandLine);
       Root.AddPair('recover', TJSONBool.Create(FRecovery));
       Args := TJSONArray.Create;
       for I := 1 to ParamCount do Args.Add(ParamStr(I));
+      if Argument<>'' then Args.Add(Argument);
       Root.AddPair('args', Args);
       TFile.WriteAllText(IncludeTrailingPathDelimiter(FJob) + 'request.json', Root.ToJSON, TEncoding.UTF8);
     finally Root.Free; end;

@@ -4,7 +4,9 @@ var Source, PackedSource, Updated: IBookCollection; Book, Card: TBookRecord;
   LegacyUpdate: TManualUpdateThread;
   SourceID, PackedID, UpdatedID, ChangedID, RetainedID, NewID, MissingID: Integer;
   Root, UpdateRoot, IndexFile, BeforeCatalog, BeforeHash, BeforePackedPath: string;
-  ImageFixture: string;
+  ImageFixture, ResumeArgument, ChangedIndex: string;
+  PendingPacking, ResumedPacking: TCollectionPackingRequest;
+  Rejected: Boolean;
   Profile: TPackingImageProfile;
   Grayscale, UseJpegXL: Boolean;
   Archive: TZipFile;
@@ -206,6 +208,49 @@ begin
     Require(not LegacyUpdate.Success and not LegacyUpdate.CommittedChanges,
       'Ordinary full import replaced a packed catalogue');
   finally LegacyUpdate.Free; end;
+  PendingPacking:=Default(TCollectionPackingRequest);
+  PendingPacking.SourceID:=Options.SourceID;
+  PendingPacking.CatalogFile:=Options.CatalogFile;
+  PendingPacking.SourceRoot:=Options.SourceRoot;
+  PendingPacking.OutputRoot:=Options.OutputRoot;
+  PendingPacking.Inpx:=IndexFile;
+  PendingPacking.UpdateRoot:=UpdateRoot;
+  PendingPacking.ImageProfile:=Options.ImageProfile;
+  PendingPacking.ImageGrayscale:=Options.ImageGrayscale;
+  PendingPacking.CaptureIdentity;
+  Require(not TakePackingContinuation(Settings.SettingsFileName,'',ResumedPacking),
+    'Packing resumed without the updater restart switch');
+  ResumeArgument:=StorePackingContinuation(Settings.SettingsFileName,PendingPacking);
+  Require(not TakePackingContinuation(Settings.SettingsFileName,PACKING_RESUME_SWITCH+TGUID.NewGuid.ToString,ResumedPacking),
+    'A different updater restart claimed the selected INPX request');
+  Require(TakePackingContinuation(Settings.SettingsFileName,ResumeArgument,ResumedPacking),
+    'The selected INPX request was lost after the component restart');
+  ResumedPacking.CheckIdentity(Options.CatalogFile,Options.SourceRoot,Options.SourceID);
+  Require((ResumedPacking.Inpx=IndexFile) and (ResumedPacking.UpdateRoot=UpdateRoot) and
+    (ResumedPacking.OutputRoot=Options.OutputRoot) and (ResumedPacking.ImageProfile=Options.ImageProfile) and
+    (ResumedPacking.ImageGrayscale=Options.ImageGrayscale),
+    'The component restart changed a selected input or the profile');
+  Require(not TakePackingContinuation(Settings.SettingsFileName,ResumeArgument,PendingPacking),
+    'The same restart applied packing settings twice');
+
+  ChangedIndex:=TPath.Combine(UpdateRoot,'changed.inpx');
+  TFile.Copy(IndexFile,ChangedIndex);
+  PendingPacking:=ResumedPacking;
+  PendingPacking.Inpx:=ChangedIndex;
+  PendingPacking.CaptureIdentity;
+  TFile.AppendAllText(ChangedIndex,'changed');
+  ResumeArgument:=StorePackingContinuation(Settings.SettingsFileName,PendingPacking);
+  Require(TakePackingContinuation(Settings.SettingsFileName,ResumeArgument,PendingPacking),
+    'Could not read the changed-source continuation test');
+  Rejected:=False;
+  try PendingPacking.CheckIdentity(Options.CatalogFile,Options.SourceRoot,Options.SourceID);
+  except on E: Exception do Rejected:=E.Message.Contains('INPX'); end;
+  Require(Rejected,'Packing accepted an INPX changed during component installation');
+  Rejected:=False;
+  try ResumedPacking.CheckIdentity(Options.CatalogFile,Options.SourceRoot,Options.SourceID+1);
+  except on E: Exception do Rejected:=True; end;
+  Require(Rejected,'Packing accepted a different source collection');
+  Writeln('PASS packing restart restores selected INPX and profile once and rejects changed inputs');
   ReviewUpdate(True);
   Require(not SystemDB.HasCollectionWithProp(PROP_DISPLAYNAME,Options.DisplayName) and
     (THashSHA2.GetHashStringFromFile(BeforeCatalog)=BeforeHash),'Canceling the estimate changed the active collection');

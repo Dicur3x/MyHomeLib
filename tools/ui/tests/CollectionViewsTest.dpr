@@ -5716,6 +5716,7 @@ end;
 {$I ComponentMonthlyLifecycleTests.inc}
 {$I ComponentInventoryUITests.inc}
 {$I CollectionPackingFbdTests.inc}
+{$I CollectionPackingRestartTests.inc}
 
 var
   One, Two, Online: IBookCollection;

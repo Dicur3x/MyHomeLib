@@ -80,7 +80,7 @@ uses
   VirtualTrees.AncestorVCL,
   unit_Localization, unit_BookInfoPreview, System.Generics.Collections,
   unit_AuthorFavorites, unit_AuthorFavoriteRefresh, unit_ReaderAnnotations, unit_ReaderSession,
-  unit_BookSaveContinuation, unit_BookReviewPreview;
+  unit_BookSaveContinuation, unit_BookReviewPreview, unit_CollectionPacking;
 
 type
   TfrmMain = class(TForm, IDownloadView)
@@ -933,7 +933,8 @@ type
     procedure RestoreCollectionSnapshot(Sender: TObject);
 {$IFDEF MHL_EXPERIMENTAL_COLLECTION_PACKING}
     procedure PackCurrentCollection(Sender: TObject);
-    procedure PackCollection(UpdateFromInpx: Boolean);
+    procedure PackCollection(UpdateFromInpx: Boolean; Resume: PCollectionPackingRequest = nil);
+    procedure ResumePacking(var Message: TMessage); message WM_RESUME_COLLECTION_PACKING;
 {$ENDIF}
     procedure ShowBookDuplicates(Sender: TObject);
     procedure CheckBookDuplicateApply(Sender: TObject);
@@ -1299,7 +1300,7 @@ uses
 {$IFDEF MHL_EXPERIMENTAL_COLLECTION_PACKING}
   frm_CollectionPackingProgress,
 {$ENDIF}
-  unit_CollectionPacking, unit_FormatComponents;
+  unit_FormatComponents;
 
 type
   TBookTreeAccess = class(TBookTree);
@@ -4513,21 +4514,21 @@ begin
   finally Dialog.Free; end;
 end;
 
-procedure TfrmMain.PackCollection(UpdateFromInpx: Boolean);
+procedure TfrmMain.PackCollection(UpdateFromInpx: Boolean; Resume: PCollectionPackingRequest);
 var Options: TCollectionPackingOptions; Required: TArray<string>;
   Picker: TFileOpenDialog; Progress: TfrmCollectionPackingProgress;
   Snapshot: TCollectionPackingSnapshot; Status: TCollectionPackingStatus;
-  BaseName, Summary, Inpx, UpdateRoot, Command: string; NewID, Suffix, Comparison: Integer;
+  BaseName, Summary, Inpx, UpdateRoot: string; NewID, Suffix, Comparison: Integer;
+  Source: IBookCollection; Request: TCollectionPackingRequest;
+  SavedProfile: TPackingImageProfile; SavedGrayscale: Boolean;
 begin
-  if not Assigned(FCollection) or FFormBusy or FStartupLoading or FBookListLoading then Exit;
+  if ((Resume=nil) and not Assigned(FCollection)) or FFormBusy or FStartupLoading or FBookListLoading then Exit;
   if CheckActiveDownloads then
   begin
     MessageDlg('Дождитесь завершения скачивания книг и снова откройте сжатие коллекции.',mtInformation,[mbOK],0);
     Exit;
   end;
 
-  if UpdateFromInpx then Command:='Обновить коллекцию из файла'
-  else Command:='Сжать коллекцию';
   Options:=Default(TCollectionPackingOptions);
   Options.Script:=TPath.Combine(Settings.AppPath,'tools/collectionpack/pack_collection.py');
   if not FileExists(Options.Script) then
@@ -4538,41 +4539,62 @@ begin
   FFormBusy:=True; NewID:=INVALID_COLLECTION_ID;
   try
     try
-      Options.CatalogFile:=FCollection.GetProperty(PROP_DATAFILE);
+      Source:=FCollection;
+      if Resume<>nil then Source:=FSystemData.GetCollection(Resume^.SourceID);
+      if not Assigned(Source) then raise Exception.Create('Исходная коллекция больше недоступна.');
+      Options.CatalogFile:=Source.GetProperty(PROP_DATAFILE);
       Options.PersonalFile:=Settings.SystemFileName[sfSystemDB];
-      Options.SourceRoot:=FCollection.CollectionRoot;
-      Options.SourceID:=FCollection.CollectionID;
-      if UpdateFromInpx then
+      Options.SourceRoot:=Source.CollectionRoot;
+      Options.SourceID:=Source.CollectionID;
+      if UpdateFromInpx then BaseName:=Source.CollectionDisplayName+' (обновление INPX)'
+      else BaseName:=Source.CollectionDisplayName+' (сжатая копия)';
+      if Resume<>nil then
       begin
-        Picker:=TFileOpenDialog.Create(Self);
-        try
-          Picker.Title:='Выберите INPX для обновления сжатой коллекции';
-          Picker.Options:=[fdoForceFileSystem,fdoFileMustExist,fdoPathMustExist];
-          with Picker.FileTypes.Add do begin DisplayName:='Каталог книг (*.inpx)'; FileMask:='*.inpx'; end;
-          if not Picker.Execute(Handle) then Exit;
-          Inpx:=Picker.FileName;
-        finally Picker.Free; end;
-        Options.OutputRoot:=Options.SourceRoot;
-        BaseName:=FCollection.CollectionDisplayName+' (обновление INPX)';
+        Resume^.CheckIdentity(Options.CatalogFile,Options.SourceRoot,Options.SourceID);
+        Options.OutputRoot:=Resume^.OutputRoot;
+        Options.ImageProfile:=Resume^.ImageProfile;
+        Options.ImageGrayscale:=Resume^.ImageGrayscale;
+        Inpx:=Resume^.Inpx; UpdateRoot:=Resume^.UpdateRoot;
+        if TryReadPackingImageProfile(Options.OutputRoot,SavedProfile,SavedGrayscale) then
+        begin
+          if (SavedProfile<>Options.ImageProfile) or (SavedGrayscale<>Options.ImageGrayscale) then
+            raise Exception.Create('Профиль в выбранной папке изменился. Начните сжатие заново.');
+        end
+        else if UpdateFromInpx then
+          raise Exception.Create('В папке коллекции отсутствует описание сжатой копии.');
       end
-      else BaseName:=FCollection.CollectionDisplayName+' (сжатая копия)';
-      Picker:=TFileOpenDialog.Create(Self);
-      try
-        Picker.Options:=[fdoPickFolders,fdoForceFileSystem,fdoPathMustExist];
+      else
+      begin
         if UpdateFromInpx then
         begin
-          Picker.Title:='Выберите папку с книгами и архивами обновления';
-          Picker.DefaultFolder:=ExtractFileDir(Inpx);
-        end
-        else Picker.Title:='Выберите пустую папку или папку ранее начатой сжатой копии';
-        if not Picker.Execute(Handle) then Exit;
-        if UpdateFromInpx then UpdateRoot:=Picker.FileName
-        else Options.OutputRoot:=Picker.FileName;
-      finally Picker.Free; end;
-      if not TryReadPackingImageProfile(Options.OutputRoot,Options.ImageProfile,Options.ImageGrayscale) then
-      begin
-        if UpdateFromInpx then raise Exception.Create('В папке коллекции отсутствует описание сжатой копии.');
-        if not ChoosePackingImageProfile(Self,Options.ImageProfile,Options.ImageGrayscale) then Exit;
+          Picker:=TFileOpenDialog.Create(Self);
+          try
+            Picker.Title:='Выберите INPX для обновления сжатой коллекции';
+            Picker.Options:=[fdoForceFileSystem,fdoFileMustExist,fdoPathMustExist];
+            with Picker.FileTypes.Add do begin DisplayName:='Каталог книг (*.inpx)'; FileMask:='*.inpx'; end;
+            if not Picker.Execute(Handle) then Exit;
+            Inpx:=Picker.FileName;
+          finally Picker.Free; end;
+          Options.OutputRoot:=Options.SourceRoot;
+        end;
+        Picker:=TFileOpenDialog.Create(Self);
+        try
+          Picker.Options:=[fdoPickFolders,fdoForceFileSystem,fdoPathMustExist];
+          if UpdateFromInpx then
+          begin
+            Picker.Title:='Выберите папку с книгами и архивами обновления';
+            Picker.DefaultFolder:=ExtractFileDir(Inpx);
+          end
+          else Picker.Title:='Выберите пустую папку или папку ранее начатой сжатой копии';
+          if not Picker.Execute(Handle) then Exit;
+          if UpdateFromInpx then UpdateRoot:=Picker.FileName
+          else Options.OutputRoot:=Picker.FileName;
+        finally Picker.Free; end;
+        if not TryReadPackingImageProfile(Options.OutputRoot,Options.ImageProfile,Options.ImageGrayscale) then
+        begin
+          if UpdateFromInpx then raise Exception.Create('В папке коллекции отсутствует описание сжатой копии.');
+          if not ChoosePackingImageProfile(Self,Options.ImageProfile,Options.ImageGrayscale) then Exit;
+        end;
       end;
       Options.Python:=FindBookProcessingPython(Settings.AppPath);
       if (Options.Python='') or (PackingReducesImageQuality(Options.ImageProfile) and
@@ -4596,9 +4618,23 @@ begin
       end;
       if Length(Required)>0 then
       begin
+        if Resume<>nil then
+          raise Exception.Create('После перезапуска недоступны компоненты: '+string.Join(', ',Required)+'. Повторите установку и сжатие.');
+        Request:=Default(TCollectionPackingRequest);
+        Request.SourceID:=Options.SourceID;
+        Request.CatalogFile:=Options.CatalogFile;
+        Request.SourceRoot:=Options.SourceRoot;
+        Request.OutputRoot:=Options.OutputRoot;
+        Request.Inpx:=Inpx; Request.UpdateRoot:=UpdateRoot;
+        Request.ImageProfile:=Options.ImageProfile;
+        Request.ImageGrayscale:=Options.ImageGrayscale;
+        Request.CaptureIdentity;
         EnsureProgramUpdateForm;
         FProgramUpdateForm.RequestComponents(Required,
-          PackingImageProfileCaption(Options.ImageProfile,Options.ImageGrayscale)+'. После установки снова выберите «'+Command+'».',True);
+          PackingImageProfileCaption(Options.ImageProfile,Options.ImageGrayscale)+
+          '. После установки вернёмся к проверке перед сжатием.',True,
+          function: string
+          begin Result:=StorePackingContinuation(Settings.SettingsFileName,Request); end);
         Exit;
       end;
       UpdatePositions;
@@ -4654,6 +4690,24 @@ begin
   end;
 end;
 
+procedure TfrmMain.ResumePacking(var Message: TMessage);
+var Request: TCollectionPackingRequest; Argument: string;
+begin
+  if Application.Terminated or (csDestroying in ComponentState) then Exit;
+  try
+    for var I:=ParamCount downto 1 do
+    begin
+      Argument:=ParamStr(I);
+      if not Argument.StartsWith(PACKING_RESUME_SWITCH) then Continue;
+      if TakePackingContinuation(Settings.SettingsFileName,Argument,Request) then
+        PackCollection(Request.Inpx<>'',@Request);
+      Break;
+    end;
+  except
+    on E: Exception do
+    begin LogDiagnosticError('packing-resume',E); MHLShowError(E.Message); end;
+  end;
+end;
 {$ENDIF}
 
 procedure TfrmMain.ShowCatalogSources(Sender: TObject);
@@ -5273,6 +5327,11 @@ begin
   except
     on E: Exception do begin LogDiagnosticError('save-resume-load',E); MHLShowError(E.Message); end;
   end;
+{$IFDEF MHL_EXPERIMENTAL_COLLECTION_PACKING}
+  for var I:=1 to ParamCount do
+    if ParamStr(I).StartsWith(PACKING_RESUME_SWITCH) then
+    begin PostMessage(Handle,WM_RESUME_COLLECTION_PACKING,0,0); Break; end;
+{$ENDIF}
   if Failed then LogCatalogueStartupPhase('collection-failed')
   else if Assigned(FCollection) then LogCatalogueStartupPhase('collection-ready')
   else LogCatalogueStartupPhase('no-collection');

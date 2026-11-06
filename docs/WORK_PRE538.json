@@ -5440,5 +5440,13 @@
     "verification": "The actual Main layout checked 72 cases per architecture: all six views, light and dark themes, 96/144/192 DPI and narrow/wide windows. Setting 42, 100 and zero checked bounds and display text. The active FB2 test opened and paged through both Main reader actions and confirmed the selected card updated to the exact persisted progress after the separate reader closed. Review preview and existing illustration, annotation and manual height checks passed.",
     "cleanup": "New G: build directories, temporary projects and isolated runtime profiles were removed.",
     "remaining": "The final beta 5 package verification remains open. Next planned area is collection compression and incremental INPX."
+  },
+  "collection_packing_component_resume_20261106": {
+    "status": "Implemented and verified in experimental catalogue builds on x86 and x64.",
+    "implementation": "The compact missing-component request retains the original catalogue identity, destination, profile and optional selected INPX. The updater stores the one-use request and supplies its token only when preparing a restart for the selected components. The new process checks source identity, INPX revision, the folder profile and installed dependencies before reopening the space estimate. The user still decides whether to start packing.",
+    "verification": "Both native packing-fbd tests verified single consumption, wrong-token rejection, replaced INPX and wrong catalogue rejection, cancellation, a separate updated catalogue and reuse of unchanged archives. With actual BookProcessing and ImageProcessing packages, a native fixture ran the compact request, two downloads through the test transport, actual external updater, a new catalogue process and the real packing review. Maximum savings and grayscale survived the restart. Canceling the review wrote no archive and kept the book identical. INP streaming passed on both architectures.",
+    "limits": "The component files were checked against their real hashes and installed by the real helper; download transport was isolated. The restart fixture consumes the same request and opens the native review directly. The production menu and startup handler in final release archives, public first-use download, and missing/damaged JPEG XL companion behavior still need verification.",
+    "cleanup": "The new build profiles and temporary projects on G: were removed. Work paused while the user was playing and resumed after their message.",
+    "new_bug": "The user reported MOBI export of Игра вынужденных убийц failing Kindle validation on a duplicate HTML cover, a PNG declared as JPEG, and absent CSS font resources. This is queued for beta 5."
   }
 }

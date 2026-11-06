@@ -61,20 +61,21 @@ def prepare(runtime, profile, old):
     print('PASS real published converter 1102 and independent processing 1105 staged:', platform)
 
 
-def prepare_kindle(runtime, profile):
+def prepare_two_components(runtime, profile, operation):
     if not (profile / 'native-regression.marker').is_file():
         raise ValueError('Owned native profile required')
     platform = 'Win64' if runtime.name == 'Bin64' else 'Win32'
     packages = Path(os.environ['HOMELIB_FORMAT_COMPONENT_PACKAGES']).resolve(strict=True)
     feed = json.loads((packages / 'format-components.json').read_text(encoding='utf-8'))
     assets = json.loads((packages / 'format-component-assets.json').read_text(encoding='utf-8'))
+    required = {'BookProcessing', 'ImageProcessing' if operation == 'packing' else 'KindleExport'}
     selected = [entry for entry in feed['components']
-                if entry['platform'] == platform and entry['id'] in {'BookProcessing', 'KindleExport'}]
-    if len(selected) != 2 or len({entry['id'] for entry in selected}) != 2:
-        raise ValueError('Two distinct actual Kindle packages are required')
+                if entry['platform'] == platform and entry['id'] in required]
+    if len(selected) != 2 or {entry['id'] for entry in selected} != required:
+        raise ValueError('Two distinct actual component packages are required')
     versions = {entry['version'] for entry in selected}
     if len(versions) != 1:
-        raise ValueError('Kindle first-use fixture needs matching candidate versions')
+        raise ValueError('First-use fixture needs matching candidate versions')
     target = profile / 'save-module-fixture'
     target.mkdir()
     entries = []
@@ -86,7 +87,7 @@ def prepare_kindle(runtime, profile):
         asset = next(item for item in assets if item['name'] == name)
         digest = hashlib.sha256(source.read_bytes()).hexdigest()
         if asset['digest'] != 'sha256:' + digest or source.stat().st_size != asset['size']:
-            raise ValueError('Kindle component differs from tested asset metadata')
+            raise ValueError('Component differs from tested asset metadata')
         shutil.copyfile(source, target / name)
         entries.append(dict(id=entry['id'], name=name, sha256=digest,
                             size=asset['size'], url=asset['browser_download_url']))
@@ -96,11 +97,11 @@ def prepare_kindle(runtime, profile):
 <genre>prose</genre><author><first-name>Тест</first-name><last-name>Автор</last-name></author>
 <book-title>Возврат к сохранению</book-title><lang>ru</lang></title-info></description>
 <body><section><title><p>Глава</p></title><p>Исходная книга не должна измениться при установке модулей.</p></section></body></FictionBook>''', encoding='utf-8')
-    print('PASS two real independent Kindle packages staged without installing:', platform)
+    print('PASS two real independent packages staged without installing:', operation, platform)
 
 
 if __name__ == '__main__':
-    if len(sys.argv) == 4 and sys.argv[3] == 'kindle':
-        prepare_kindle(*(Path(p).resolve() for p in sys.argv[1:3]))
+    if len(sys.argv) == 4 and sys.argv[3] in ('kindle', 'packing'):
+        prepare_two_components(*(Path(p).resolve() for p in sys.argv[1:3]), sys.argv[3])
     else:
         prepare(*(Path(p).resolve() for p in sys.argv[1:]))

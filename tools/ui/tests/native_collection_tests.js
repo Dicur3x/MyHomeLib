@@ -275,6 +275,8 @@ function requiredPasses(executable, mode) {
   if (mode==='reader-portable') return ['PASS portable catalogue and standalone reader default without marker explicit profile Unicode books sessions and unchanged existing data'];
   if (mode==='book-output-reset') return ['PASS diagnostic out reset preserves every established field and retained nested arrays','RESETBENCH trial=6','PASS diagnostic managed out record reset comparison completed'];
   if (mode==='display-labels') return ['PASS book display labels preserve established Unicode whitespace initials nicknames empty single multiple authors genres cases=2058','iterations=2000000 trials=7','before_cycles=','LABELBENCH phase=2 trial=6','PASS diagnostic display labels same-process alternating comparison preserves all values'];
+  if (mode==='save-module-restart' && process.argv.includes('--packing-module-restart'))
+    return ['PASS compact packing download actual installer restart restores selected profile and canceled review'];
   if (mode==='save-module-restart') return [process.argv.includes('--save-kindle-restart')
     ? 'PASS compact two-component Kindle download actual installer restart restored MOBI review cancel and unchanged source'
     : 'PASS compact legacy converter to independent processing download actual installer restart restored review cancel and unchanged source'];
@@ -334,6 +336,7 @@ function requiredPasses(executable, mode) {
   if (mode === "series-stream") return ["PASS sequential series stream matches ordinary lookup"];
   if (mode === "fbd-editor-save") return ["PASS FBD editor preserves unsaved metadata"];
   if (mode === "packing-fbd") return ["PASS original FBD container", "PASS packing estimate review", "PASS unavailable books remain in the catalogue", "PASS selected INPX adds and replaces exact books", "PASS selected INPX estimate cancels and continues",
+      "PASS packing restart restores selected INPX and profile once and rejects changed inputs",
     ...(packingInventoryArg ? ["PASS real mixed packed books survive two INPX updates and export with exact original bytes"] : [])];
   if (mode === "update-theme") return ["PASS update notes retain visible dark/light foreground"];
   if (mode === "bulk-writes") return ["PASS bulk writes preserve Unicode fields", "PASS current catalogs reopen without schema/data writes", "PASS metadata delta matches full writes", "PASS metadata delta preserves exact personal review prefix"];
@@ -595,11 +598,18 @@ function run(executable, mode, subcase = "") {
     if (mode==='save-module-restart') {
       const old=process.argv.find(a=>a.startsWith('--save-old-converter='));
       const kindle=process.argv.includes('--save-kindle-restart');
-      if(!old&&!kindle) throw Error('save-module-restart requires --save-old-converter=verified-old-archive');
+      const packing=process.argv.includes('--packing-module-restart');
+      if(!old&&!kindle&&!packing) throw Error('save-module-restart requires --save-old-converter=verified-old-archive');
       const python=process.env.HLRU_PYTHON; if(!python) throw Error('HLRU_PYTHON is required to prepare the private candidate');
-      const prep=cp.spawnSync(python,['-B','-X','utf8',path.join(__dirname,'prepare_save_module_fixture.py'),runtime,folder,kindle?'kindle':path.resolve(old.slice('--save-old-converter='.length))],{encoding:'utf8',windowsHide:true,env:{...process.env,PYTHONDONTWRITEBYTECODE:'1'},timeout:120000});
+      const prep=cp.spawnSync(python,['-B','-X','utf8',path.join(__dirname,'prepare_save_module_fixture.py'),runtime,folder,packing?'packing':kindle?'kindle':path.resolve(old.slice('--save-old-converter='.length))],{encoding:'utf8',windowsHide:true,env:{...process.env,PYTHONDONTWRITEBYTECODE:'1'},timeout:120000});
       if(prep.status!==0) throw Error('Save module fixture preparation failed: '+prep.stdout+prep.stderr);
       fs.copyFileSync(path.join(runtime,'HomeLibRuUpdater.exe'),path.join(folder,'HomeLibRuUpdater.exe'));
+      if (packing) {
+        for (const name of ['7zip','collectionpack']) fs.mkdirSync(path.join(folder,'tools',name),{recursive:true});
+        fs.copyFileSync(path.join(runtime,'tools/7zip/7za.exe'),path.join(folder,'tools/7zip/7za.exe'));
+        fs.copyFileSync(path.resolve(__dirname,'../../collectionpack/pack_collection.py'),
+          path.join(folder,'tools/collectionpack/pack_collection.py'));
+      }
     }
     if (['unified-send','save-planning','kindle-save','advanced-save','builtin-export','export-cache-lifecycle','diagnostics-cache-age','paged-export-progress','reader-story'].includes(mode)) {
       const packages=process.env.HOMELIB_FORMAT_COMPONENT_PACKAGES;
@@ -1034,6 +1044,7 @@ with zipfile.ZipFile(sys.argv[2]+'/reader-spread.epub','w') as z:
 function runView(mode) {
   if (mode==='save-module-restart') {
     if(process.argv.includes('--save-kindle-restart')) return run(tests[2],mode,'kindle');
+    if(process.argv.includes('--packing-module-restart')) return run(tests[2],mode,'packing');
     for (const application of ['HomeLibReader.exe','HOMELIBREADER.EXE','homelibru.exe','legacy-request']) run(tests[2],mode,application);
     return;
   }

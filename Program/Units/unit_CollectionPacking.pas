@@ -5,6 +5,10 @@ interface
 uses System.SysUtils, System.Classes, System.JSON, Winapi.Windows, SQLiteWrap, unit_Interfaces,
   unit_Globals, unit_CollectionBackup;
 
+const
+  PACKING_RESUME_SWITCH = '--resume-collection-packing=';
+  WM_RESUME_COLLECTION_PACKING = $8000+371;
+
 type
   TPackingImageProfile = (pipOriginal, pipBalanced, pipEconomy, pipMaximum, pipJpegXL);
   TCollectionPackingProgress = reference to procedure(const Stage: string; Current, Total: Int64);
@@ -17,6 +21,17 @@ type
     ImageGrayscale: Boolean;
     VerifySources, VerifyOutputs: Boolean;
   end;
+
+  TCollectionPackingRequest = record
+    SourceID: Integer;
+    CatalogFile, SourceRoot, OutputRoot, Inpx, UpdateRoot: string;
+    CatalogIdentity, InpxIdentity: string;
+    ImageProfile: TPackingImageProfile;
+    ImageGrayscale: Boolean;
+    procedure CaptureIdentity;
+    procedure CheckIdentity(const CurrentCatalog, CurrentRoot: string; CurrentID: Integer);
+  end;
+  PCollectionPackingRequest = ^TCollectionPackingRequest;
 
   TCollectionPackingStatus = record
     Stage, StageKey, SourceName: string;
@@ -76,12 +91,14 @@ function TryReadPackingImageProfile(const Folder: string; out Profile: TPackingI
   out Grayscale: Boolean; const Dataset: string = ''): Boolean;
 function PackingImageProfileCaption(Profile: TPackingImageProfile; Grayscale: Boolean = False): string;
 function PackingReducesImageQuality(Profile: TPackingImageProfile): Boolean;
+function StorePackingContinuation(const SettingsFile: string; const Request: TCollectionPackingRequest): string;
+function TakePackingContinuation(const SettingsFile, Argument: string; out Request: TCollectionPackingRequest): Boolean;
 
 implementation
 
 uses System.IOUtils, System.Hash, System.Math, System.StrUtils,
   System.Generics.Collections, SQLite3, unit_MHLArchiveHelpers, unit_CollectionSpace,
-  unit_MHLExternalTools;
+  unit_MHLExternalTools, unit_AtomicIniFile, System.DateUtils;
 
 const
   PACKING_LEASE = 'HomeLibRu-native-packing.lock';
@@ -173,6 +190,135 @@ begin
     Result:=Catalog.QuerySingleInt('SELECT count(*) FROM sqlite_master '+
       'WHERE type=''table'' AND name=''HomeLibPackingState''')<>0;
   finally Catalog.Free; end;
+end;
+
+function PackingInputIdentity(const FileName: string; IncludeWriteTime: Boolean): string;
+var Handle: THandle; Info: TByHandleFileInformation;
+begin
+  Handle:=CreateFile(PChar(FileName),FILE_READ_ATTRIBUTES,FILE_SHARE_READ or FILE_SHARE_WRITE or FILE_SHARE_DELETE,
+    nil,OPEN_EXISTING,FILE_FLAG_OPEN_REPARSE_POINT,0);
+  if Handle=INVALID_HANDLE_VALUE then
+    raise Exception.Create('Исходный файл сжатия недоступен: '+FileName);
+  try
+    if not GetFileInformationByHandle(Handle,Info) then RaiseLastOSError;
+    if (Info.dwFileAttributes and (FILE_ATTRIBUTE_REPARSE_POINT or FILE_ATTRIBUTE_DIRECTORY))<>0 then
+      raise Exception.Create('Исходный файл сжатия заменён ссылкой или папкой: '+FileName);
+    Result:=IntToHex(Info.dwVolumeSerialNumber,8)+IntToHex(Info.nFileIndexHigh,8)+IntToHex(Info.nFileIndexLow,8);
+    if IncludeWriteTime then
+      Result:=Result+IntToHex(Info.ftLastWriteTime.dwHighDateTime,8)+IntToHex(Info.ftLastWriteTime.dwLowDateTime,8)+
+        IntToHex(Info.nFileSizeHigh,8)+IntToHex(Info.nFileSizeLow,8);
+  finally CloseHandle(Handle); end;
+end;
+
+procedure TCollectionPackingRequest.CaptureIdentity;
+begin
+  CatalogIdentity:=PackingInputIdentity(CatalogFile,False);
+  if Inpx<>'' then InpxIdentity:=PackingInputIdentity(Inpx,True);
+end;
+
+procedure TCollectionPackingRequest.CheckIdentity(const CurrentCatalog, CurrentRoot: string; CurrentID: Integer);
+begin
+  if (SourceID<>CurrentID) or not SameFileName(CatalogFile,CurrentCatalog) or
+    not SameFileName(ExcludeTrailingPathDelimiter(SourceRoot),ExcludeTrailingPathDelimiter(CurrentRoot)) or
+    (CatalogIdentity<>PackingInputIdentity(CurrentCatalog,False)) then
+    raise Exception.Create('После перезапуска исходная коллекция изменилась. Начните сжатие заново.');
+  if (Inpx<>'') and (InpxIdentity<>PackingInputIdentity(Inpx,True)) then
+    raise Exception.Create('После выбора файл INPX изменился. Выберите обновление заново.');
+end;
+
+function PackingContinuationFile(const SettingsFile: string): string;
+begin Result:=TPath.GetFullPath(SettingsFile)+'.pending-packing.json'; end;
+
+function StorePackingContinuation(const SettingsFile: string; const Request: TCollectionPackingRequest): string;
+var Root: TJSONObject; Stream: TStringStream; Token: string;
+begin
+  Token:=TGUID.NewGuid.ToString;
+  Root:=TJSONObject.Create;
+  try
+    Root.AddPair('version',TJSONNumber.Create(1));
+    Root.AddPair('token',Token);
+    Root.AddPair('created',DateToISO8601(TTimeZone.Local.ToUniversalTime(Now),True));
+    Root.AddPair('collection',TJSONNumber.Create(Request.SourceID));
+    Root.AddPair('catalog',Request.CatalogFile);
+    Root.AddPair('catalog_identity',Request.CatalogIdentity);
+    Root.AddPair('source_root',Request.SourceRoot);
+    Root.AddPair('output_root',Request.OutputRoot);
+    Root.AddPair('inpx',Request.Inpx);
+    Root.AddPair('inpx_identity',Request.InpxIdentity);
+    Root.AddPair('update_root',Request.UpdateRoot);
+    Root.AddPair('image_profile',TJSONNumber.Create(Ord(Request.ImageProfile)));
+    Root.AddPair('grayscale',TJSONBool.Create(Request.ImageGrayscale));
+    Stream:=TStringStream.Create(Root.ToJSON,TEncoding.UTF8);
+    try SaveStreamAtomically(Stream,PackingContinuationFile(SettingsFile)); finally Stream.Free; end;
+  finally Root.Free; end;
+  Result:=PACKING_RESUME_SWITCH+Token;
+end;
+
+function TakePackingContinuation(const SettingsFile, Argument: string; out Request: TCollectionPackingRequest): Boolean;
+var Token, Name, Claimed: string; Root: TJSONValue; Created, UTCNow: TDateTime; Profile: Integer;
+
+  function ReadPlan(const FileName: string): TJSONValue;
+  var Attr: DWORD;
+  begin
+    Attr:=GetFileAttributes(PChar(FileName));
+    if (Attr=INVALID_FILE_ATTRIBUTES) or ((Attr and (FILE_ATTRIBUTE_REPARSE_POINT or FILE_ATTRIBUTE_DIRECTORY))<>0) or
+      (TFile.GetSize(FileName)>65536) then
+      raise Exception.Create('Некорректный файл продолжения сжатия.');
+    Result:=TJSONObject.ParseJSONValue(TFile.ReadAllText(FileName,TEncoding.UTF8));
+    if not (Result is TJSONObject) then
+    begin Result.Free; raise Exception.Create('Повреждены параметры продолжения сжатия.'); end;
+  end;
+
+  function PathField(const Key: string; AllowEmpty: Boolean = False): string;
+  begin
+    Result:=Root.GetValue<string>(Key);
+    if AllowEmpty and (Result='') then Exit;
+    if (Result='') or (Length(Result)>4096) or Result.Contains(#0) or not TPath.IsPathRooted(Result) then
+      raise Exception.Create('Недопустимый путь в параметрах продолжения сжатия.');
+  end;
+
+begin
+  Result:=False; Request:=Default(TCollectionPackingRequest);
+  if not Argument.StartsWith(PACKING_RESUME_SWITCH) then Exit;
+  Token:=Argument.Substring(Length(PACKING_RESUME_SWITCH));
+  if Length(Token)<>38 then Exit;
+  Name:=PackingContinuationFile(SettingsFile);
+  if not FileExists(Name) then Exit;
+  Root:=ReadPlan(Name);
+  try
+    if Root.GetValue<string>('token','')<>Token then Exit;
+  finally Root.Free; end;
+  Claimed:=Name+'.claimed-'+TGUID.NewGuid.ToString;
+  if not MoveFile(PChar(Name),PChar(Claimed)) then Exit;
+  try
+    Root:=ReadPlan(Claimed);
+    try
+      if Root.GetValue<string>('token','')<>Token then Exit;
+      Created:=ISO8601ToDate(Root.GetValue<string>('created'),True);
+      UTCNow:=TTimeZone.Local.ToUniversalTime(Now);
+      Profile:=Root.GetValue<Integer>('image_profile');
+      if (Root.GetValue<Integer>('version')<>1) or (Created<IncDay(UTCNow,-1)) or
+        (Created>IncMinute(UTCNow,5)) or not InRange(Profile,Ord(Low(TPackingImageProfile)),Ord(High(TPackingImageProfile))) then
+        raise Exception.Create('Параметры продолжения сжатия устарели или повреждены.');
+      Request.SourceID:=Root.GetValue<Integer>('collection');
+      Request.CatalogFile:=PathField('catalog');
+      Request.CatalogIdentity:=Root.GetValue<string>('catalog_identity');
+      Request.SourceRoot:=PathField('source_root');
+      Request.OutputRoot:=PathField('output_root');
+      Request.Inpx:=PathField('inpx',True);
+      Request.InpxIdentity:=Root.GetValue<string>('inpx_identity');
+      Request.UpdateRoot:=PathField('update_root',True);
+      Request.ImageProfile:=TPackingImageProfile(Profile);
+      Request.ImageGrayscale:=Root.GetValue<Boolean>('grayscale');
+      if (Request.SourceID<=0) or (Length(Request.CatalogIdentity)<>24) or
+        ((Request.Inpx='')<>(Request.UpdateRoot='')) or
+        ((Request.Inpx<>'') and ((Length(Request.InpxIdentity)<>56) or
+          not SameFileName(ExcludeTrailingPathDelimiter(Request.OutputRoot),ExcludeTrailingPathDelimiter(Request.SourceRoot)))) or
+        (Request.ImageGrayscale and not PackingReducesImageQuality(Request.ImageProfile)) then
+        raise Exception.Create('Повреждены параметры продолжения сжатия.');
+      Result:=True;
+    finally Root.Free; end;
+  finally Winapi.Windows.DeleteFile(PChar(Claimed)); end;
 end;
 
 function TPackingOutput.Read(var Buffer; Count: Longint): Longint;
