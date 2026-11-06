@@ -220,11 +220,19 @@ class PackingTests(unittest.TestCase):
         old = Packer(self.job).execute(); self.retain(old, [9]); source.unlink(); pictures.unlink()
         self.assertEqual(Packer(self.job).execute().reused, 1)
         packed_pictures = next(self.output.glob('archives/*/*/images/library.zip'))
-        packed_pictures.write_bytes(b'damaged')
+        original = packed_pictures.read_bytes()
+        packed_pictures.unlink()
         generations = set(self.output.glob('generations/*/prepared.json'))
-        with self.assertRaisesRegex(PackingError, 'иллюстрации'):
-            Packer(self.job).execute()
-        self.assertEqual(set(self.output.glob('generations/*/prepared.json')), generations)
+        for fault in (None, b'damaged'):
+            with self.subTest(fault=fault):
+                if fault is not None:
+                    packed_pictures.write_bytes(fault)
+                with self.assertRaisesRegex(PackingError, 'иллюстрации') as error:
+                    Packer(self.job).execute()
+                self.assertIn(str(packed_pictures), str(error.exception))
+                self.assertEqual(set(self.output.glob('generations/*/prepared.json')), generations)
+        packed_pictures.write_bytes(original)
+        self.assertEqual(Packer(self.job).execute().reused, 1)
 
     def test_fbd_and_regular_rows_can_share_one_unchanged_container(self):
         book = b'%PDF-1.0\nSource document'
@@ -422,6 +430,66 @@ class PackingTests(unittest.TestCase):
         for original, digest in companions:
             self.assertEqual(sha(path.parent / original.parent.name / original.name), digest)
             self.assertEqual(sha(original), digest)
+
+    def test_corrupt_source_illustration_archive_cannot_be_published_as_a_copy(self):
+        source = self.archive('library.7z', {'9.fb2': b'<FictionBook>External illustrations</FictionBook>'})
+        (self.source / 'images').mkdir()
+        companion = self.source / 'images/library.zip'
+        picture = b'Unique stored illustration bytes'
+        with zipfile.ZipFile(companion, 'w', zipfile.ZIP_STORED) as archive:
+            archive.writestr('9/1', picture)
+        valid = companion.read_bytes()
+        damaged = valid.replace(picture, b'X' + picture[1:])
+        companion.write_bytes(damaged)
+        with zipfile.ZipFile(companion) as archive:
+            self.assertEqual(archive.testzip(), '9/1')
+        source_hash = sha(source)
+        self.add(9, source, '9.fb2')
+
+        with self.assertRaisesRegex(PackingError, 'исходный архив иллюстраций') as error:
+            Packer(self.job).execute()
+        self.assertIn(str(companion), str(error.exception))
+        self.assertFalse(list(self.output.glob('generations/*')))
+        self.assertFalse(list(self.output.glob('archives/*/*')))
+        self.assertFalse(list(self.output.glob('.packing-*')))
+        self.assertEqual(companion.read_bytes(), damaged)
+        self.assertEqual(sha(source), source_hash)
+
+        companion.write_bytes(valid)
+        result = Packer(self.job).execute()
+        self.assertEqual((result.books, result.opaque_sources), (1, 1))
+        self.assertEqual(next(self.output.glob('archives/*/*/images/library.zip')).read_bytes(), valid)
+
+    def test_nested_epub_preserves_its_outer_archive_and_requires_indexed_images(self):
+        chapter = self.source / 'chapter.xhtml'
+        chapter.write_text('<html><body>Text-only nested book</body></html>', encoding='utf-8')
+        extra = self.source / 'unselected.txt'
+        extra.write_bytes(b'Unselected book in the same archive. ' * 5000)
+        for has_index in (True, False):
+            with self.subTest(has_index=has_index):
+                folder = self.source / str(has_index)
+                folder.mkdir()
+                source, book = folder / 'library.7z', folder / '9.epub'
+                members = [chapter]
+                if has_index:
+                    index = folder / 'FLibraryImageIndex.json'
+                    index.write_text('[{"id":"picture.jpg","num":1}]', encoding='utf-8')
+                    members.append(index)
+                for archive, inputs in ((book, members), (source, [book, extra])):
+                    subprocess.run([str(SEVEN), 'a', '-t7z', '-mx=0', str(archive), *map(str, inputs)],
+                                   cwd=folder, check=True, capture_output=True,
+                                   creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+                self.add(9, source, '9.epub')
+                if has_index:
+                    with self.assertRaisesRegex(PackingError, 'images/library.zip'):
+                        Packer(self.job).execute()
+                    self.assertFalse(list(self.output.glob('generations/*')))
+                else:
+                    result = Packer(self.job).execute()
+                    self.assertEqual((result.books, result.opaque_sources), (1, 1))
+                    self.assertEqual(self.packed_book(result, 9), book.read_bytes())
+                    self.assertEqual(next(self.output.glob('archives/*/*/library.7z')).read_bytes(),
+                                     source.read_bytes())
 
     def test_foreign_destination_and_mismatched_profile_are_rejected(self):
         self.output.mkdir(); (self.output / 'foreign.txt').write_text('Keep me')

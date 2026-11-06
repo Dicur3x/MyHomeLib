@@ -41,6 +41,8 @@ JPEG_XL_ENGINE = 'jpeg-xl-7z'
 FB2_NAMESPACE = 'http://www.gribuser.ru/xml/fictionbook/2.0|'
 XLINK_HREF = 'http://www.w3.org/1999/xlink|href'
 EPUB_IMAGE_INDEX = 'FLibraryImageIndex.json'
+MAX_EPUB_IMAGE_INDEX = 1024 * 1024
+SEVENZIP_MAGIC = b"7z\xbc\xaf'\x1c"
 
 
 class PackingError(ValueError):
@@ -143,14 +145,14 @@ class SevenZip:
             raise PackingError('Для упаковки нужен компонент 7-Zip.')
         self.check = check
 
-    def run(self, arguments, cwd=None, output=None):
+    def run(self, arguments, cwd=None, output=None, limit=MAX_BOOK):
         self.check()
         # File-backed output is bounded and avoids pipe deadlock. Temporary
         # data lives on the selected destination drive, never in the C: cache.
         with tempfile.TemporaryFile(dir=cwd) as log:
             process = subprocess.Popen(
                 [str(self.executable), *arguments], cwd=cwd,
-                stdout=output if output is not None else log, stderr=log,
+                stdin=subprocess.DEVNULL, stdout=output if output is not None else log, stderr=log,
                 creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
             )
             started = time.monotonic()
@@ -161,8 +163,8 @@ class SevenZip:
                         raise PackingError('Обработка одного архива превысила час.')
                     if os.fstat(log.fileno()).st_size > 4 * 1024 * 1024:
                         raise PackingError('Слишком большой отчёт архиватора.')
-                    if output is not None and os.fstat(output.fileno()).st_size > MAX_BOOK:
-                        raise PackingError('Одна книга превышает допустимый размер 512 МБ.')
+                    if output is not None and os.fstat(output.fileno()).st_size > limit:
+                        raise PackingError(f'Извлечённые данные превышают допустимый размер {limit // (1024 * 1024)} МБ.')
                     time.sleep(.05)
                 if process.returncode:
                     log.seek(0)
@@ -181,6 +183,13 @@ class SevenZip:
             raise PackingError('Одна книга превышает допустимый размер 512 МБ.')
         if target.stat().st_size == 0:
             raise PackingError('Книга не найдена в архиве или пуста: ' + member)
+
+    def flibrary_image_index(self, archive, stage):
+        with tempfile.TemporaryFile(dir=stage) as output:
+            self.run(['e', '-so', '-y', str(archive), '-ir!' + EPUB_IMAGE_INDEX],
+                     cwd=stage, output=output, limit=MAX_EPUB_IMAGE_INDEX)
+            output.seek(0)
+            return output.read(MAX_EPUB_IMAGE_INDEX + 1)
 
     def pack(self, stage, target, text_names, stored_names):
         for names, method in ((text_names, 'PPMd'), (stored_names, 'Copy')):
@@ -531,18 +540,21 @@ class Packer:
             raise PackingError('Неизменяемый пакет в журнале сжатия был заменён.')
         self.db.execute('INSERT OR IGNORE INTO payloads VALUES(?,?,?,?,?,?,?,?,?)', (package, *values))
 
-    def artifacts_valid(self, artifacts):
+    def invalid_artifact(self, artifacts):
         if not artifacts:
-            return False
+            return ''
         for item in artifacts:
             self.check()
             file = checked_relative(self.root, item['path'])
-            if not file.is_file() or file.stat().st_size != item['size']:
-                return False
-            if self.job.get('verify_outputs', False) or file.stat().st_mtime_ns != item.get('mtime_ns'):
+            if not file.is_file():
+                return item['path']
+            stat = file.stat()
+            if stat.st_size != item['size']:
+                return item['path']
+            if self.job.get('verify_outputs', False) or stat.st_mtime_ns != item.get('mtime_ns'):
                 if digest_file(file, self.check) != item['sha256']:
-                    return False
-        return True
+                    return item['path']
+        return None
 
     def retain_payloads(self, plan, mapping, payload_column):
         for (folder,) in plan.execute(f'SELECT DISTINCT {payload_column} FROM retained ORDER BY {payload_column}'):
@@ -552,8 +564,10 @@ class Packer:
             if row is None:
                 raise PackingError('Готовый архив не найден в журнале сжатия: ' + folder)
             artifacts = json.loads(row[1])
-            if not self.artifacts_valid(artifacts):
-                raise PackingError('Ранее созданный архив или его иллюстрации не прошли проверку: ' + folder)
+            invalid = self.invalid_artifact(artifacts)
+            if invalid is not None:
+                raise PackingError('Ранее созданный архив или его иллюстрации не прошли проверку: ' +
+                                   str(self.root / (invalid or folder)))
             members = {book_location(folder, item): item.get('image_result') for item in json.loads(row[0]).values()}
             count = 0
             with mapping:
@@ -691,7 +705,7 @@ class Packer:
             if expected != actual:
                 return None
         artifacts = json.loads(row[2])
-        if not self.artifacts_valid(artifacts):
+        if self.invalid_artifact(artifacts) is not None:
             return None
         return row[0], json.loads(row[1]), artifacts, row[3], row[4]
 
@@ -745,6 +759,40 @@ class Packer:
         mappings.update(replacements)
         return destination
 
+    def check_flibrary_epub(self, book, member, source, stage, companion_kinds):
+        # FLibrary's EPUB index records which archive supplies each image.
+        # A nested 7z EPUB needs its original outer 7z even without images,
+        # because that is what activates reconstruction in the catalogue.
+        with book.open('rb') as stream:
+            nested = stream.read(len(SEVENZIP_MAGIC)) == SEVENZIP_MAGIC
+        index = b''
+        if nested:
+            index = self.seven.flibrary_image_index(book, stage)
+        elif zipfile.is_zipfile(book):
+            with zipfile.ZipFile(book) as epub:
+                entry = next((entry for entry in epub.infolist()
+                              if Path(entry.filename).name.lower() == EPUB_IMAGE_INDEX.lower()), None)
+                if entry is not None:
+                    if entry.file_size > MAX_EPUB_IMAGE_INDEX:
+                        raise PackingError('Слишком большой список иллюстраций EPUB: ' + member)
+                    index = epub.read(entry)
+        if not index:
+            return nested
+        try:
+            if len(index) > MAX_EPUB_IMAGE_INDEX:
+                raise ValueError('oversized image index')
+            images = json.loads(index)
+            if not isinstance(images, list):
+                raise ValueError('not an image list')
+            required = {'covers' if image['num'] == -1 else 'images' for image in images}
+        except (ValueError, KeyError, TypeError) as error:
+            raise PackingError('Не удалось прочитать список вынесенных иллюстраций EPUB: ' + member) from error
+        missing = sorted(required - companion_kinds)
+        if missing:
+            names = ', '.join(f'{kind}/{source.stem}.zip' for kind in missing)
+            raise PackingError(f'Для книги {member} отсутствует архив иллюстраций рядом с {source.name}: {names}.')
+        return nested
+
     def process(self, source, rows, stage, identity, stamp, companions):
         artifacts, mappings, copied_hashes = [], {}, {}
         # Generation files are immutable. A changed source cannot replace an
@@ -767,11 +815,21 @@ class Packer:
                 for row in fbd_rows:
                     if not row['member'] or row['member'] not in entries:
                         raise PackingError('Книга с описанием FBD отсутствует в архиве: ' + row['member'])
+        companion_kinds = {name.split('/', 1)[0] for name, _ in companions}
+        check_flibrary = source.suffix.lower() == '.7z' and companion_kinds != {'covers', 'images'}
         preserve_container = bool(companions) or bool(fbd_rows)
         if not preserve_container and any(row['member'] for row in rows) and zipfile.is_zipfile(source):
             with zipfile.ZipFile(source) as directory:
                 preserve_container = any(entry.file_size > MAX_BOOK for entry in directory.infolist() if not entry.is_dir())
         if preserve_container:
+            if check_flibrary:
+                # Only potentially incomplete sets need per-book inspection.
+                for member in {row['member'] for row in rows if row['ext'].lower() == '.epub'}:
+                    self.check()
+                    book = stage / 'check.epub'
+                    self.seven.extract(source, member, book, stage)
+                    self.check_flibrary_epub(book, member, source, stage, companion_kinds)
+                    book.unlink()
             reserve_space(stage, input_bytes)
             destination = package / source.name
             copied_hashes[destination] = copy_exact(source, destination, self.check)
@@ -788,6 +846,7 @@ class Packer:
             files = stage / 'books'; files.mkdir()
             text_names, stored_names = [], []
             original = None
+            keep_source = False
             try:
                 if zipfile.is_zipfile(source):
                     original = zipfile.ZipFile(source)
@@ -836,40 +895,44 @@ class Packer:
                             self.seven.extract(source, entry.filename, target, stage)
                     else:
                         self.seven.extract(source, member, target, stage)
-                    image_result = self.optimize_book(target, stage)
+                    if check_flibrary and extension == '.epub' and member:
+                        if self.check_flibrary_epub(target, member, source, stage, companion_kinds):
+                            keep_source = True
+                    image_result = {} if keep_source else self.optimize_book(target, stage)
                     mappings[locator] = dict(filename=Path(name).stem, ext=extension, inside_no=-1, **image_result,
                                              **book_signature(target, self.check))
                     (text_names if extension in TEXT_SUFFIXES else stored_names).append(name)
                     self.event('books', source=source.name, current=index + 1, total=len(rows))
                 if not mappings:
                     raise PackingError('В исходном архиве нет выбранных книг.')
-                self.event('compressing', source=source.name, books=len(mappings))
-                reserve_space(stage, sum(p.stat().st_size for p in files.iterdir()))
                 archive = package / 'books.zip'
-                self.seven.pack(files, archive, text_names, stored_names)
                 separated = None
-                if self.jpeg_xl:
-                    maximum_size = archive.stat().st_size
-                    if source.suffix.lower() in ARCHIVE_SUFFIXES:
-                        maximum_size = min(maximum_size, source.stat().st_size)
-                    separated = self.pack_with_jpeg_xl(files, stage, package, mappings, maximum_size)
-                if separated is None:
-                    with zipfile.ZipFile(archive) as verification:
-                        if set(verification.namelist()) != set(text_names + stored_names):
-                            raise PackingError('Не совпадает список книг в созданном архиве.')
-                        for item in mappings.values():
-                            info = verification.getinfo(item['filename'] + item['ext'])
-                            if (info.CRC, info.file_size) != (item['payload_crc32'], item['payload_size']):
-                                raise PackingError('Содержимое книги в созданном архиве отличается от подготовленной копии.')
-                else:
-                    archive.unlink()
-                    archive = separated
+                if not keep_source:
+                    self.event('compressing', source=source.name, books=len(mappings))
+                    reserve_space(stage, sum(p.stat().st_size for p in files.iterdir()))
+                    self.seven.pack(files, archive, text_names, stored_names)
+                    if self.jpeg_xl:
+                        maximum_size = archive.stat().st_size
+                        if source.suffix.lower() in ARCHIVE_SUFFIXES:
+                            maximum_size = min(maximum_size, source.stat().st_size)
+                        separated = self.pack_with_jpeg_xl(files, stage, package, mappings, maximum_size)
+                    if separated is None:
+                        with zipfile.ZipFile(archive) as verification:
+                            if set(verification.namelist()) != set(text_names + stored_names):
+                                raise PackingError('Не совпадает список книг в созданном архиве.')
+                            for item in mappings.values():
+                                info = verification.getinfo(item['filename'] + item['ext'])
+                                if (info.CRC, info.file_size) != (item['payload_crc32'], item['payload_size']):
+                                    raise PackingError('Содержимое книги в созданном архиве отличается от подготовленной копии.')
+                    else:
+                        archive.unlink()
+                        archive = separated
                 folder = str(relative / archive.name)
                 # Already compressed sources must not grow merely because
                 # the new member names or ZIP headers have different lengths.
-                if (separated is None and source.suffix.lower() in ARCHIVE_SUFFIXES and
-                        archive.stat().st_size >= source.stat().st_size):
-                    archive.unlink()
+                if keep_source or (separated is None and source.suffix.lower() in ARCHIVE_SUFFIXES and
+                                   archive.stat().st_size >= source.stat().st_size):
+                    archive.unlink(missing_ok=True)
                     destination = package / source.name
                     copied_hashes[destination] = copy_exact(source, destination, self.check)
                     folder = str(relative / source.name)
@@ -905,8 +968,18 @@ class Packer:
         source_hashes = [digest_file(file, self.check) for file in (source, *(p for _, p in companions))]
         if copied_hashes and (list(copied_hashes.values()) != source_hashes or len(copied_hashes) != len(artifacts)):
             raise PackingError('Побайтовая копия архива или иллюстраций не совпала с исходником: ' + str(source))
-        if self.stamp(source, companions) != stamp:
-            raise PackingError('Исходный архив изменился во время сжатия: ' + str(source))
+        # Byte equality cannot tell whether the original side archive was
+        # already damaged. Test its contents once before recording the copy.
+        for name, original in companions:
+            try:
+                self.seven.run(['t', '-bb0', '-bso0', '-bsp0', '-mmt=2', '--',
+                                str(package / name)], cwd=stage)
+            except Canceled:
+                raise
+            except PackingError as error:
+                raise PackingError('Не удалось проверить исходный архив иллюстраций: ' + str(original)) from error
+        if self.stamp(source, self.source_artifacts(source)) != stamp:
+            raise PackingError('Во время сжатия изменился исходный архив или архив иллюстраций: ' + str(source))
         packed = folder, mappings, artifacts, input_bytes, preserve_container
         # Write-ahead recovery: a crash before the rename leaves an invalid
         # cache row (repack); a crash after it leaves a fully reusable row.
