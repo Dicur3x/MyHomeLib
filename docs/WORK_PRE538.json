@@ -5297,5 +5297,13 @@
     "log": "tools/ui/tests/Out/collection-packing-jxl-inpx-20261106-r3.log",
     "cleanup": "New stage, published author ZIP copies, extracted fixture, isolated test profiles, and temporary Delphi project clones were removed from the owned cache. The source archive was only read, and its size and timestamp matched before and after.",
     "remaining": "Verify missing or damaged companion behavior, exercise the actual menu's compact download prompt and restart in a clean candidate, and include the experimental packing options in the release gate. In a fresh operation the user currently needs to invoke the packing command again after installing a component."
+  },
+  "beta4_delete_menu_and_export_issue_10_20261106": {
+    "status": "Both corrections are on GitHub master. The beta 4 release notes explain the connected-local-collection menu limitation.",
+    "deletion": "The ordinary Book menu and toolbar now expose deletion for connected local collections. The native regression checks the menu and toolbar and invokes the real menu item. Tests covered the five normal book views in a connected FB2 catalogue, deletion with and without files, Unicode paths, and exact preservation of unselected books.",
+    "issue_10": "The filename and folder templates sanitize the source-qualified library ID. The native SaveFileBooks path preserves the book bytes. Text templates retain the original ID. The verified fix was published and the issue closed with a reply as Dicur3x.",
+    "verification": "The clean beta 4 tree with the two fixes passed both native scenarios on x86 and x64. The working branch also rendered the live beta 4 notes in the updater on both architectures. Proof: tools/ui/tests/Out/beta4-clean-source-fixes-20261106-r5.log and tools/ui/tests/Out/issue-10-release-notes-and-delete-menu-20261106-r3.log.",
+    "release_gate": "Source publication only. Before the next binary release, build the final packages and confirm deletion through the visible menu in a clean installed application. The extra clean production Win32 IDE attempt ended without a build report. The beta 4 published assets retained their original IDs and digests.",
+    "cleanup": "The isolated build roots, generated project clones, temporary profiles and comment file were removed from the owned staging directory."
   }
 }

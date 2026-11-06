@@ -29,7 +29,7 @@ uses
   unit_Downloader, unit_DownloadBooksThread, unit_DownloadManagerThread, unit_DownloadView, unit_treeController,
   IdHTTPServer, IdCustomHTTPServer, IdContext,
   unit_FB2MetadataRecovery, unit_WriteFb2Info,
-  unit_BookConversion in '..\..\..\Program\Units\unit_BookConversion.pas', unit_UserData,
+  unit_BookConversion in '..\..\..\Program\Units\unit_BookConversion.pas', unit_UserData, unit_Templater,
   unit_Diagnostics in '..\..\..\Program\Units\unit_Diagnostics.pas',
   unit_ExportImageQuality in '..\..\..\Program\Units\unit_ExportImageQuality.pas',
   unit_BookConversionRequirements in '..\..\..\Program\Units\unit_BookConversionRequirements.pas',
@@ -2655,6 +2655,19 @@ begin
       (Pos('Текст beta 1',View.SectionNotes(2).Text)>0),
       'Consecutive different releases must retain separate sections');
     Writeln('PASS update notes retain the dated heading when the Markdown title repeats it');
+    var ReleaseFixture:=GetEnvironmentVariable('HOMELIB_TEST_LIVE_RELEASE_JSON');
+    if ReleaseFixture<>'' then
+    begin
+      Require(ParseProgramReleases(TFile.ReadAllText(ReleaseFixture,TEncoding.UTF8),Info),
+        'Could not parse public beta 4 release metadata');
+      Popup.SetCurrent(Info);
+      Require((View.SectionCount=1) and View.IsExpanded(0) and
+        (Pos('Сохранение книг',View.PrimaryNotes.Text)>0) and
+        (Pos('Удаление книг',View.PrimaryNotes.Text)>0) and
+        (Pos('Автор не опубликовал описание',View.PrimaryNotes.Text)=0),
+        'Public beta 4 release notes are not visible in the updater');
+      Writeln('PASS public beta 4 changelog renders both saving and deletion in the first expanded section');
+    end;
     Flush(Output);
   finally Popup.Free; SetMHLTheme(SavedDark); end;
 end;

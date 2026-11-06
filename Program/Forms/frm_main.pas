@@ -7411,7 +7411,7 @@ end;
 
 procedure TfrmMain.ShowBookDelete(Sender: TObject);
 begin
-  acBookDelete.Visible := IsPrivate or IsOnline;
+  acBookDelete.Visible := Assigned(FCollection) and (IsLocal or IsOnline);
   acCollectionSyncFiles.Visible := IsPrivate or IsOnline;
 end;
 
