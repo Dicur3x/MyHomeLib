@@ -346,11 +346,12 @@ begin
       Exit;
     end;
     PreparedSource:=''; SourceExtension:=LowerCase(R.FileExt);
-    if (R.GetBookFormat in [bfFb2Archive,bfRawArchive]) and (FKeepSourceFormat or FKeepFB2EPUB) then
+    if (R.GetBookFormat in [bfFb2Archive,bfRawArchive]) and (FKeepSourceFormat or FKeepFB2EPUB or
+      ((FExportMode=emAdvancedPDF) and (SourceExtension='.pdf'))) then
       FFileOprecord.Stream:=OpenArchivedBookSaveSource(R,SourceExtension)
     else if not (R.GetBookFormat in [bfFb2Archive,bfRawArchive,bfFbd]) then
       SourceExtension:=BookSaveFileExtension(R.GetBookFileName,R.FileExt);
-    FCurrentKeepSource:=BookSaveKeepsSource(SourceExtension,FKeepSourceFormat,FKeepFB2EPUB);
+    FCurrentKeepSource:=BookSaveKeepsSource(SourceExtension,FExportMode,FKeepSourceFormat,FKeepFB2EPUB);
     if FCurrentKeepSource then FExplicitFormat:=False;
     ProcessSourceImages:=FCurrentKeepSource and (FImageQuality<>'original') and
       ((SourceExtension='.fb2') or (SourceExtension='.epub'));
@@ -366,7 +367,7 @@ begin
       SourceExtension:=LowerCase(ExtractFileExt(PreparedSource));
       // Re-evaluate after exact archive extraction: a catalogue extension may
       // be wrong. A previous book's effective format never affects this one.
-      FCurrentKeepSource:=BookSaveKeepsSource(SourceExtension,FKeepSourceFormat,FKeepFB2EPUB);
+      FCurrentKeepSource:=BookSaveKeepsSource(SourceExtension,FExportMode,FKeepSourceFormat,FKeepFB2EPUB);
       FExplicitFormat:=FRequestedExplicitFormat and not FCurrentKeepSource;
       ProcessSourceImages:=FCurrentKeepSource and (FImageQuality<>'original') and
         ((SourceExtension='.fb2') or (SourceExtension='.epub'));

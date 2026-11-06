@@ -89,11 +89,11 @@ begin
       Result[I].SourceExtension:=BookSaveKnownExtension(Books[I]);
       Result[I].TargetExtension:=BookSaveTargetExtension(Result[I].SourceExtension,Plan.Mode,
         Plan.KeepOriginal,Plan.KeepFB2EPUB);
+      var KeepSource:=BookSaveKeepsSource(Result[I].SourceExtension,Plan.Mode,Plan.KeepOriginal,Plan.KeepFB2EPUB);
       Result[I].ImagesUnchanged:=not ((Result[I].TargetExtension='.fb2') or (Result[I].TargetExtension='.epub') or
-        (((Result[I].TargetExtension='.mobi') or (Result[I].TargetExtension='.azw3')) and
-          not BookSaveKeepsSource(Result[I].SourceExtension,Plan.KeepOriginal,Plan.KeepFB2EPUB)) or
-        (Plan.Mode in BOOK_SAVE_ADVANCED_MODES));
-      if not (Plan.Mode in BOOK_SAVE_ADVANCED_MODES) and
+        (not KeepSource and ((Result[I].TargetExtension='.mobi') or (Result[I].TargetExtension='.azw3') or
+        (Plan.Mode in BOOK_SAVE_ADVANCED_MODES))));
+      if (KeepSource or not (Plan.Mode in BOOK_SAVE_ADVANCED_MODES)) and
         (Books[I].FileName<>'') and SameText(Result[I].SourceExtension,Result[I].TargetExtension) and
         not (Books[I].GetBookFormat in [bfFb2Archive,bfRawArchive,bfFbd]) and FileExists(Books[I].GetBookFileName) then
       begin
@@ -182,7 +182,7 @@ begin
       if Book.GetBookFormat in [bfFb2Archive,bfRawArchive] then
         Pin:=OpenArchivedBookSaveSource(Book,Item.SourceExtension);
       Item.TargetExtension:=BookSaveTargetExtension(Item.SourceExtension,FPlan.Mode,FPlan.KeepOriginal,FPlan.KeepFB2EPUB);
-      if BookSaveKeepsSource(Item.SourceExtension,FPlan.KeepOriginal,FPlan.KeepFB2EPUB) and
+      if BookSaveKeepsSource(Item.SourceExtension,FPlan.Mode,FPlan.KeepOriginal,FPlan.KeepFB2EPUB) and
         not ((Item.SourceExtension='.fb2') or (Item.SourceExtension='.epub')) then
       begin
         if not Assigned(Pin) then Pin:=Book.GetBookStream(True);

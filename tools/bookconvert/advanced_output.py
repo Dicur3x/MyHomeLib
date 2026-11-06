@@ -80,19 +80,22 @@ def convert(api, source, destination, source_extension, profile, options):
     suffix = OUTPUT_SUFFIXES.get(profile)
     if suffix is None or not destination.name.lower().endswith(suffix):
         raise api.ConversionError('Имя файла не соответствует выбранному формату.')
-    if source_extension != '.fb2' and not (source_extension == '.epub' and profile in ('kepub', 'pdf')):
-        raise api.ConversionError('Этот вариант сохранения доступен для FB2. Для EPUB доступен прямой экспорт в KEPUB и PDF.')
+    if source_extension != '.fb2' and (
+            profile not in ('kepub', 'pdf') or source_extension not in api.BOOK_EPUB_INPUTS or
+            (profile == 'pdf' and source_extension == '.pdf')):
+        raise api.ConversionError('Выбранный формат недоступен для исходного файла ' +
+                                  source_extension.lstrip('.').upper() + '.')
     quality = options['image_quality']
     if quality == 'ask':
         raise api.ConversionError('Перед сохранением выберите режим изображений.')
     if quality == 'none' and profile in ('kfx', 'azw8'):
         raise api.ConversionError('Для KFX и AZW8 нужна обложка. Выберите режим с изображениями.')
     tools = Path(options.get('tools_root') or Path(__file__).resolve().parent.parent).resolve()
-    direct_pdf = source_extension == '.epub' and profile == 'pdf'
-    direct_kobo = source_extension == '.epub' and profile == 'kepub'
-    if direct_pdf:
+    epub_pdf = source_extension != '.fb2' and profile == 'pdf'
+    epub_kobo = source_extension != '.fb2' and profile == 'kepub'
+    if epub_pdf:
         component, relative, name = 'EpubPdfExport', 'epub-pdf/epub_pdf_output.py', 'вёрстки EPUB в PDF'
-    elif direct_kobo:
+    elif epub_kobo:
         component, relative, name = 'KoboExport', 'kobo-export/kepubify.exe', 'kepubify'
     else:
         component, relative, name = 'FB2Export', 'fb2-export/fbc.exe', 'fb2cng'
@@ -105,17 +108,17 @@ def convert(api, source, destination, source_extension, profile, options):
     destination.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='homelibre-advanced-', dir=destination.parent) as folder:
         work = Path(folder)
-        prepared = work / ('source' + source_extension)
+        prepared = work / ('source.epub' if epub_pdf or epub_kobo else 'source.fb2')
         output = work / ('book' + suffix)
         preparation = api.convert_book(source, prepared, **options)
         warnings = set(preparation.get('warnings', ()))
         progress('advanced-writing', 0, 1)
-        if direct_pdf:
+        if epub_pdf:
             spec = importlib.util.spec_from_file_location('homelibre_epub_pdf', writer)
             engine = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(engine)
             engine.convert(api, prepared, output, writer.parent, check)
-        elif direct_kobo:
+        elif epub_kobo:
             command = [str(writer), '--no-add-dummy-titlepage', '--output', str(output), str(prepared)]
             run_writer(api, command, work, check)
         else:

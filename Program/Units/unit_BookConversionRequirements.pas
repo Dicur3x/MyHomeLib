@@ -10,6 +10,7 @@ function MissingBookConversionComponents(const AppPath, SourceFile, Extension: s
   InspectImages: Boolean; const IsCanceled: TFunc<Boolean> = nil;
   const TargetExtension: string = ''; const OutputProfile: string = ''): TArray<string>;
 function AdvancedBookOutputExtension(const Profile: string): string;
+function AdvancedWriterComponent(const Ext, Profile: string): string;
 procedure RecordBookConversionUse(const ResolvedExtension: string;
   const TargetExtension: string = ''; const OutputProfile: string = '');
 
@@ -17,8 +18,8 @@ implementation
 
 uses System.Classes, System.StrUtils, System.Generics.Collections, System.Variants,
   System.Win.ComObj, System.IOUtils, Winapi.Windows, Winapi.ActiveX, Winapi.MSXML,
-  unit_ProgramUpdateInstaller, unit_FormatComponents, unit_MHLArchiveHelpers, unit_ReaderFormats,
-  unit_ComponentUsage;
+  unit_ProgramUpdateInstaller, unit_FormatComponents, unit_MHLArchiveHelpers,
+  unit_ComponentUsage, unit_BookConversion, unit_BookSavePolicy;
 
 type
   TFB2ImageProbe = class(TInterfacedObject, ISAXContentHandler)
@@ -205,11 +206,9 @@ begin
   Result:='';
   if AdvancedBookOutputExtension(Profile)='' then Exit;
   if Ext='.fb2' then Exit('FB2Export');
-  if Ext='.epub' then
-  begin
-    if Profile='kepub' then Exit('KoboExport');
-    if Profile='pdf' then Exit('EpubPdfExport');
-  end;
+  if not IsBasicConversionSource(Ext) then Exit;
+  if Profile='kepub' then Exit('KoboExport');
+  if (Profile='pdf') and (Ext<>'.pdf') then Exit('EpubPdfExport');
 end;
 
 procedure RecordBookConversionUse(const ResolvedExtension, TargetExtension, OutputProfile: string);
@@ -241,7 +240,7 @@ end;
 function MissingBookConversionComponents(const AppPath, SourceFile, Extension: string;
   InspectImages: Boolean; const IsCanceled: TFunc<Boolean>;
   const TargetExtension, OutputProfile: string): TArray<string>;
-var Ext, Actual, Writer: string; Images: Boolean;
+var Ext, Writer: string; Images: Boolean;
   procedure Need(const ID: string);
   begin
     if (ID<>'') and (IndexText(ID,Result)<0) and ComponentNeedsRepair(AppPath,ID) then
@@ -250,8 +249,7 @@ var Ext, Actual, Writer: string; Images: Boolean;
 begin
   Result:=nil; if Assigned(IsCanceled) and IsCanceled() then Abort;
   Ext:='.'+LowerCase(Extension.TrimLeft(['.']));
-  if FileExists(SourceFile) then
-  begin Actual:=DetectReaderExtension(SourceFile); if Actual<>'' then Ext:=Actual; end;
+  if FileExists(SourceFile) then Ext:=BookSaveFileExtension(SourceFile,Ext);
   Writer:=AdvancedWriterComponent(Ext,OutputProfile);
   if (OutputProfile<>'') and (Writer='') then
     raise Exception.Create('Выбранный формат недоступен для исходного файла '+UpperCase(Ext.TrimLeft(['.']))+'.');
@@ -259,9 +257,14 @@ begin
   if OutputProfile<>'' then
   begin
     var Capability:=TPath.Combine(AppPath,'tools/bookconvert/ADVANCED_EXPORT_API.txt');
-    if (Length(Result)=0) and (not FileExists(Capability) or (TFile.GetSize(Capability)>16) or
-      (Trim(TFile.ReadAllText(Capability,TEncoding.ASCII))<>'1')) then
-      Result:=TArray<string>.Create('BookProcessing');
+    if Length(Result)=0 then
+    begin
+      var API:='';
+      if FileExists(Capability) and (TFile.GetSize(Capability)<=16) then
+        API:=Trim(TFile.ReadAllText(Capability,TEncoding.ASCII));
+      if (API<>'2') and ((API<>'1') or ((Ext<>'.fb2') and (Ext<>'.epub'))) then
+        Result:=TArray<string>.Create('BookProcessing');
+    end;
     Need(Writer);
   end;
   Need(SourceComponent(Ext));

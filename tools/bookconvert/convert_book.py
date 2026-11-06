@@ -41,6 +41,11 @@ MAX_FILE = 64 * 1024 * 1024
 MAX_TOTAL = 256 * 1024 * 1024
 MAX_ENTRIES = 20000
 
+BOOK_TEXT_INPUTS = {'.txt', '.text', '.faq', '.html', '.htm', '.xhtml', '.shtml', '.rtf', '.docx', '.odt', '.fb3', '.md', '.markdown', '.abw', '.sxw',
+                    '.doc', '.dot', '.docm', '.dotx', '.dotm', '.ppt', '.pps', '.pot', '.pptx', '.pptm', '.ppsx', '.ppsm', '.potx', '.potm', '.xls', '.xlt', '.xlsx', '.xlsm', '.xltx', '.xltm', '.ods', '.ots', '.odp', '.otp', '.ott', '.wps', '.wpd', '.mht', '.mhtml', '.wri', '.pdb', '.ibk', '.rgo', '.jutoh', '.pages', '.tcr', '.chm', '.lit', '.lrf', '.rb', '.xps', '.jpg','.jpeg','.png','.gif','.bmp','.tif','.tiff','.webp','.cbz','.cbr','.cb7', '.pdf', '.djvu', '.djv', '.dju', '.djm', '.djvm'}
+BOOK_KINDLE_INPUTS = {'.mobi', '.azw', '.azw3', '.prc'}
+BOOK_EPUB_INPUTS = BOOK_TEXT_INPUTS | BOOK_KINDLE_INPUTS | {'.fb2', '.epub', '.ha', '.cr3', '.b1'}
+
 
 class ConversionError(ValueError):
     pass
@@ -1580,9 +1585,8 @@ def convert_book(source, destination, **metadata):
     limit = MAX_TOTAL if large_images else MAX_FILE
     if source.stat().st_size > limit: raise ConversionError('Книга превышает предел конвертации ('+str(limit//1024//1024)+' МБ).')
     conversion = {('.fb2', '.epub'): fb2_to_epub, ('.epub', '.fb2'): epub_to_fb2}.get((extension, target_extension))
-    text_input = extension in {'.txt', '.text', '.faq', '.html', '.htm', '.xhtml', '.shtml', '.rtf', '.docx', '.odt', '.fb3', '.md', '.markdown', '.abw', '.sxw',
-                               '.doc', '.dot', '.docm', '.dotx', '.dotm', '.ppt', '.pps', '.pot', '.pptx', '.pptm', '.ppsx', '.ppsm', '.potx', '.potm', '.xls', '.xlt', '.xlsx', '.xlsm', '.xltx', '.xltm', '.ods', '.ots', '.odp', '.otp', '.ott', '.wps', '.wpd', '.mht', '.mhtml', '.wri', '.pdb', '.ibk', '.rgo', '.jutoh', '.pages', '.tcr', '.chm', '.lit', '.lrf', '.rb', '.xps', '.jpg','.jpeg','.png','.gif','.bmp','.tif','.tiff','.webp','.cbz','.cbr','.cb7', '.pdf', '.djvu', '.djv', '.dju', '.djm', '.djvm'} and target_extension in {'.epub', '.fb2'}
-    kindle_input = extension in {'.mobi', '.azw', '.azw3', '.prc'} and target_extension in {'.epub', '.fb2'}
+    text_input = extension in BOOK_TEXT_INPUTS and target_extension in {'.epub', '.fb2'}
+    kindle_input = extension in BOOK_KINDLE_INPUTS and target_extension in {'.epub', '.fb2'}
     same_format=extension==target_extension and extension in {'.fb2','.epub'}
     ha_input = extension == '.ha' and target_extension in {'.fb2','.epub'}
     cr3_input = extension == '.cr3' and target_extension in {'.fb2','.epub'}

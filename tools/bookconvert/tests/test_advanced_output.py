@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import advanced_output
 import convert_book as conversion
 import epub_pdf_output
+from test_text_inputs import docx
 
 
 FB2 = '''<?xml version="1.0" encoding="utf-8"?>
@@ -44,8 +45,11 @@ class AdvancedOutputTest(unittest.TestCase):
     def test_only_selected_writer_is_requested(self):
         epub = self.work / 'source.epub'
         conversion.convert_book(self.source, epub)
+        office = self.work / 'document.docx'
+        docx(office)
         for source, profile, component in [(self.source, 'epub2', 'FB2Export'), (epub, 'kepub', 'KoboExport'),
-                                           (epub, 'pdf', 'EpubPdfExport')]:
+                                           (epub, 'pdf', 'EpubPdfExport'), (office, 'kepub', 'KoboExport'),
+                                           (office, 'pdf', 'EpubPdfExport')]:
             output = self.work / ('book' + advanced_output.OUTPUT_SUFFIXES[profile])
             with self.assertRaises(conversion.ComponentRequired) as failure:
                 conversion.convert_book(source, output, output_profile=profile, tools_root=self.tools)
@@ -147,6 +151,33 @@ class AdvancedOutputTest(unittest.TestCase):
             self.assertIn(b'Text after the illustration.', chapters)
             self.assertFalse(any(n.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.svg')) for n in archive.namelist()))
         self.assertEqual(self.source.read_bytes(), self.original)
+        self.assertFalse(list(self.work.glob('homelibre-advanced-*')))
+
+    @unittest.skipUnless(os.environ.get('HOMELIBRE_ADVANCED_WRITERS') and os.environ.get('HOMELIBRE_EPUB_PDF_TOOLS'),
+                         'needs the packaged Kobo and WebView2 writers')
+    def test_docx_uses_epub_preparation_preserving_notes_tables_and_image(self):
+        tools = Path(os.environ['HOMELIBRE_ADVANCED_WRITERS'])
+        source = self.work / 'document.docx'
+        docx(source)
+        original = source.read_bytes()
+        kobo = self.work / 'document.kepub.epub'
+        conversion.convert_book(source, kobo, output_profile='kepub', tools_root=tools)
+        with zipfile.ZipFile(source) as office, zipfile.ZipFile(kobo) as converted:
+            image = office.read('word/media/p.png')
+            self.assertTrue(any(converted.read(name) == image for name in converted.namelist() if name.endswith('.png')))
+            content = b' '.join(converted.read(name) for name in converted.namelist() if name.endswith('.xhtml'))
+            for fragment in ('Глава один', 'Ячейка', 'Точная сноска'):
+                self.assertIn(fragment.encode(), content)
+            self.assertIn(b'koboSpan', content)
+        output = self.work / 'document.pdf'
+        conversion.convert_book(source, output, output_profile='pdf', tools_root=tools)
+        from pypdf import PdfReader
+        document = PdfReader(output)
+        content = ' '.join(page.extract_text() for page in document.pages)
+        for fragment in ('Глава один', 'Ячейка', 'Точная сноска'):
+            self.assertIn(fragment, content)
+        self.assertTrue(any(page.images for page in document.pages))
+        self.assertEqual(source.read_bytes(), original)
         self.assertFalse(list(self.work.glob('homelibre-advanced-*')))
 
     def test_cancel_running_writer_terminates_child(self):

@@ -605,8 +605,8 @@ function run(executable, mode, subcase = "") {
       if(staged.status!==0) throw Error('Independent format fixture failed: '+staged.stdout+staged.stderr);
     }
     if (mode==='advanced-save') {
-      const made=cp.spawnSync(process.env.HLRU_PYTHON,['-B','-X','utf8',path.join(__dirname,'prepare_kindle_save_fixtures.py'),folder],{windowsHide:true,encoding:'utf8',timeout:90000,env:{...process.env,PYTHONDONTWRITEBYTECODE:'1'}});
-      if(made.status!==0) throw Error('Cannot prepare owned FB2 and EPUB sources: '+made.stdout+made.stderr);
+      const made=cp.spawnSync(process.env.HLRU_PYTHON,['-B','-X','utf8',path.join(__dirname,'prepare_kindle_save_fixtures.py'),folder,'--advanced'],{windowsHide:true,encoding:'utf8',timeout:90000,env:{...process.env,PYTHONDONTWRITEBYTECODE:'1'}});
+      if(made.status!==0) throw Error('Cannot prepare owned advanced export sources: '+made.stdout+made.stderr);
     }
     if (mode==='kindle-save') {
       const packageRoot=path.resolve(process.env.HOMELIB_FORMAT_COMPONENT_PACKAGES);

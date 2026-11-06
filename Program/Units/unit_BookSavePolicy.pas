@@ -26,7 +26,7 @@ function BookSaveDefaultChoiceIndex(const Choices: TArray<TBookSaveChoice>;
 function BookSaveZipsTarget(const TargetExtension: string; Mode: TExportMode;
   LegacyZipEachBook: Boolean = False): Boolean;
 function BookSaveKeepsSource(const SourceExtension: string;
-  KeepOriginal, KeepFB2EPUB: Boolean): Boolean;
+  Mode: TExportMode; KeepOriginal, KeepFB2EPUB: Boolean): Boolean;
 function BookSaveKnownExtension(const Book: TBookRecord): string;
 function BookSaveFileExtension(const FileName, DeclaredExtension: string): string;
 function OpenArchivedBookSaveSource(const Book: TBookRecord; out Extension: string): TStream;
@@ -121,10 +121,11 @@ begin
 end;
 
 function BookSaveKeepsSource(const SourceExtension: string;
-  KeepOriginal, KeepFB2EPUB: Boolean): Boolean;
+  Mode: TExportMode; KeepOriginal, KeepFB2EPUB: Boolean): Boolean;
 begin
-  Result:=KeepOriginal or (KeepFB2EPUB and
-    ((NormalExtension(SourceExtension)='.fb2') or (NormalExtension(SourceExtension)='.epub')));
+  var Ext:=NormalExtension(SourceExtension);
+  Result:=KeepOriginal or ((Mode=emAdvancedPDF) and (Ext='.pdf')) or
+    (KeepFB2EPUB and ((Ext='.fb2') or (Ext='.epub')));
 end;
 
 function BookSaveAdvancedProfile(Mode: TExportMode): string;
@@ -162,7 +163,7 @@ function BookSaveTargetExtension(const SourceExtension: string; Mode: TExportMod
   KeepOriginal, KeepFB2EPUB: Boolean): string;
 begin
   Result:=NormalExtension(SourceExtension);
-  if BookSaveKeepsSource(Result,KeepOriginal,KeepFB2EPUB) then Exit;
+  if BookSaveKeepsSource(Result,Mode,KeepOriginal,KeepFB2EPUB) then Exit;
   if Mode in BOOK_SAVE_ADVANCED_MODES then
     Exit(AdvancedBookOutputExtension(BookSaveAdvancedProfile(Mode)));
   case Mode of
@@ -192,7 +193,7 @@ begin
 end;
 
 function BookSaveChoices(const Extensions: TArray<string>; ShowAdvanced: Boolean): TArray<TBookSaveChoice>;
-var AllFB2, AllEPUB, AllTXT, AllMOBI, AllAZW3, HasFB2EPUB, HasOther: Boolean;
+var AllFB2, AllEPUB, AllTXT, AllMOBI, AllAZW3, HasFB2EPUB, HasOther, CanKepub, CanPDF, AllPDF: Boolean;
   procedure Add(const Caption: string; Mode: TExportMode; KeepOriginal, KeepFB2EPUB: Boolean);
   var Choice: TBookSaveChoice;
   begin
@@ -203,12 +204,15 @@ var AllFB2, AllEPUB, AllTXT, AllMOBI, AllAZW3, HasFB2EPUB, HasOther: Boolean;
 begin
   Result:=nil; AllFB2:=Length(Extensions)>0; AllEPUB:=AllFB2;
   AllTXT:=AllFB2; AllMOBI:=AllFB2; AllAZW3:=AllFB2;
-  HasFB2EPUB:=False; HasOther:=False;
+  HasFB2EPUB:=False; HasOther:=False; CanKepub:=AllFB2; CanPDF:=AllFB2; AllPDF:=AllFB2;
   for var Extension in Extensions do
   begin
     var Ext:=NormalExtension(Extension);
     AllFB2:=AllFB2 and (Ext='.fb2'); AllEPUB:=AllEPUB and (Ext='.epub');
     AllTXT:=AllTXT and (Ext='.txt');
+    AllPDF:=AllPDF and (Ext='.pdf');
+    CanKepub:=CanKepub and (AdvancedWriterComponent(Ext,'kepub')<>'');
+    CanPDF:=CanPDF and ((Ext='.pdf') or (AdvancedWriterComponent(Ext,'pdf')<>''));
     AllMOBI:=AllMOBI and (Ext='.mobi'); AllAZW3:=AllAZW3 and (Ext='.azw3');
     if (Ext='.fb2') or (Ext='.epub') then HasFB2EPUB:=True else HasOther:=True;
   end;
@@ -237,21 +241,18 @@ begin
   if not AllTXT then Add('Преобразовать в TXT — только текст',emTxt,False,False);
   if not AllMOBI then Add('Преобразовать в MOBI — для старых Kindle',emMobi,False,False);
   if not AllAZW3 then Add('Преобразовать в AZW3 — для Kindle с KF8',emAZW3,False,False);
-  if ShowAdvanced and HasFB2EPUB and not HasOther then
+  if ShowAdvanced then
   begin
     if AllFB2 then
     begin
       Add('Преобразовать в EPUB 2',emEpub2,False,False);
       Add('Преобразовать в EPUB 3 через fb2cng',emEpub3,False,False);
-    end;
-    Add('Преобразовать в KEPUB — для Kobo',emKepub,False,False);
-    Add('Преобразовать в PDF',emAdvancedPDF,False,False);
-    if AllFB2 then
-    begin
       Add('Преобразовать в KFX — для Kindle',emKfx,False,False);
       Add('Преобразовать в AZW8 — для Kindle',emAzw8,False,False);
       Add('Преобразовать в Markdown',emMarkdown,False,False);
     end;
+    if CanKepub then Add('Преобразовать в KEPUB — для Kobo',emKepub,False,False);
+    if CanPDF and not AllPDF then Add('Преобразовать в PDF',emAdvancedPDF,False,False);
   end;
 end;
 

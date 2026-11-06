@@ -83,7 +83,7 @@ implementation
 
 uses System.SysUtils, System.StrUtils, System.IOUtils, System.Math, System.Types, Winapi.Windows, Winapi.Messages, Winapi.ActiveX,
   Vcl.Controls, Vcl.Dialogs, Vcl.Graphics, unit_Helpers, unit_MHLTheme, dm_user,
-  unit_Templater, unit_BookConversion, unit_BookEstimateReport, unit_EpubPdfRuntime;
+  unit_Templater, unit_BookConversion, unit_BookEstimateReport, unit_EpubPdfRuntime, unit_BookConversionRequirements;
 
 const
   Qualities: array[0..3] of string = ('original','balanced','economy','none');
@@ -379,7 +379,8 @@ begin
   for var Item in FItems do
     if BookSaveIsScanSource(Item.SourceExtension) and not SameText(Item.SourceExtension,Item.TargetExtension) and
       ((Item.TargetExtension='.fb2') or (Item.TargetExtension='.epub') or
-       (Item.TargetExtension='.mobi') or (Item.TargetExtension='.azw3')) then Exit(True);
+       (Item.TargetExtension='.mobi') or (Item.TargetExtension='.azw3') or
+       (Choice.Mode in [emKepub,emAdvancedPDF])) then Exit(True);
 end;
 
 function TBookSendOptionsForm.EstimateBytes(const Item: TBookSaveEstimateItem; Quality: Integer): Int64;
@@ -484,10 +485,7 @@ begin
   end;
   CanProcess:=Length(FBooks)=0; Opaque:=False;
   for var Item in FItems do
-    if (Choice.Mode in BOOK_SAVE_ADVANCED_MODES) or (Item.TargetExtension='.fb2') or (Item.TargetExtension='.epub') or
-      (((Item.TargetExtension='.mobi') or (Item.TargetExtension='.azw3')) and
-        not BookSaveKeepsSource(Item.SourceExtension,Choice.KeepOriginal,Choice.KeepFB2EPUB)) then
-      CanProcess:=True else Opaque:=True;
+    if Item.ImagesUnchanged then Opaque:=True else CanProcess:=True;
   FImages.Enabled:=CanProcess;
   if not CanProcess then FImages.ItemIndex:=0;
   FScans.Enabled:=HasScanConversion;
@@ -759,7 +757,7 @@ function TBookSendOptionsForm.CheckOutputRuntime: Boolean;
 begin
   if Choice.Mode=emAdvancedPDF then
     for var Book in FBooks do
-      if SameText(BookSaveKnownExtension(Book),'.epub') then
+      if AdvancedWriterComponent(BookSaveKnownExtension(Book),'pdf')='EpubPdfExport' then
         Exit(EnsureEpubPdfRuntime(Self,Settings.TempPath));
   Result:=True;
 end;

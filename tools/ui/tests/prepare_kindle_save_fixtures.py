@@ -14,7 +14,7 @@ def load(path):
     return module
 
 
-def main(profile):
+def main(profile, advanced=False):
     profile = Path(profile).resolve()
     if not (profile / 'native-regression.marker').is_file():
         raise ValueError('Only an owned native regression profile is allowed')
@@ -35,8 +35,12 @@ def main(profile):
     repository = Path(__file__).resolve().parents[3]
     api = load(repository / 'tools/bookconvert/convert_book.py')
     api.convert_book(source, root / 'source.epub')
+    if advanced:
+        tests = repository / 'tools/bookconvert/tests'
+        load(tests / 'test_text_inputs.py').docx(root / 'source.docx')
+        (root / 'source.pdf').write_bytes(load(tests / 'test_legacy_fixed.py').pdf_fixture())
     print('Prepared owned FB2 and EPUB with chapters, notes, Unicode and an illustration')
 
 
 if __name__ == '__main__':
-    main(sys.argv[1])
+    main(sys.argv[1], advanced="--advanced" in sys.argv[2:])
