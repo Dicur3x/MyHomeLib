@@ -6,13 +6,13 @@ uses System.SysUtils, System.Classes, System.JSON, Winapi.Windows, SQLiteWrap, u
   unit_Globals, unit_CollectionBackup;
 
 type
-  TPackingImageProfile = (pipOriginal, pipBalanced, pipEconomy, pipMaximum);
+  TPackingImageProfile = (pipOriginal, pipBalanced, pipEconomy, pipMaximum, pipJpegXL);
   TCollectionPackingProgress = reference to procedure(const Stage: string; Current, Total: Int64);
   TCollectionPackingCatalogEdit = reference to procedure(const CatalogFile, PersonalFile: string);
   TCollectionPackingOptions = record
     CatalogFile, PersonalFile, SourceRoot, OutputRoot, Dataset, DisplayName: string;
     SourceID: Integer;
-    Python, Script, SevenZip: string;
+    Python, Script, SevenZip, JpegXLEncoder, JpegXLDecoder: string;
     ImageProfile: TPackingImageProfile;
     ImageGrayscale: Boolean;
     VerifySources, VerifyOutputs: Boolean;
@@ -75,6 +75,7 @@ function IsPackedCollectionCatalog(const CatalogFile: string): Boolean;
 function TryReadPackingImageProfile(const Folder: string; out Profile: TPackingImageProfile;
   out Grayscale: Boolean; const Dataset: string = ''): Boolean;
 function PackingImageProfileCaption(Profile: TPackingImageProfile; Grayscale: Boolean = False): string;
+function PackingReducesImageQuality(Profile: TPackingImageProfile): Boolean;
 
 implementation
 
@@ -85,7 +86,7 @@ uses System.IOUtils, System.Hash, System.Math, System.StrUtils,
 const
   PACKING_LEASE = 'HomeLibRu-native-packing.lock';
   PACKING_MARKER = 'HomeLibRu-compressed.json';
-  PACKING_PROFILES: array[TPackingImageProfile] of string = ('original','balanced','economy','maximum');
+  PACKING_PROFILES: array[TPackingImageProfile] of string = ('original','balanced','economy','maximum','original');
   PACKING_JOB_KIND = 'HomeLibRu collection packing snapshots';
   DEFERRED_COLUMNS = '(kind INTEGER NOT NULL,book_id INTEGER NOT NULL,source_key TEXT NOT NULL,'+
     'folder TEXT NOT NULL,filename TEXT NOT NULL,ext TEXT NOT NULL,inside_no INTEGER NOT NULL,'+
@@ -112,8 +113,14 @@ begin inherited Create; FOwner:=Owner; end;
 function PackingEngine(Profile: TPackingImageProfile; Grayscale: Boolean): string;
 begin
   if Profile=pipOriginal then Result:='reversible-ppmd'
+  else if Profile=pipJpegXL then Result:='jpeg-xl-7z'
   else if Grayscale then Result:='illustrations-gray-ppmd'
   else Result:='illustrations-ppmd';
+end;
+
+function PackingReducesImageQuality(Profile: TPackingImageProfile): Boolean;
+begin
+  Result:=Profile in [pipBalanced,pipEconomy,pipMaximum];
 end;
 
 function PackingImageProfileCaption(Profile: TPackingImageProfile; Grayscale: Boolean): string;
@@ -122,6 +129,7 @@ begin
     pipBalanced: Result:='Сбалансированное сжатие иллюстраций';
     pipEconomy: Result:='Экономное сжатие иллюстраций';
     pipMaximum: Result:='Максимальная экономия места';
+    pipJpegXL: Result:='JPEG XL без потери качества';
     else Result:='Обратимая упаковка';
   end;
   if Grayscale then Result:=Result+' · оттенки серого';
@@ -149,7 +157,8 @@ begin
     Engine:=Value.GetValue<string>('engine','');
     Grayscale:=Engine='illustrations-gray-ppmd';
     for var Candidate:=Low(TPackingImageProfile) to High(TPackingImageProfile) do
-      if (Images=PACKING_PROFILES[Candidate]) and (Engine=PackingEngine(Candidate,Grayscale)) then
+      if (not Grayscale or PackingReducesImageQuality(Candidate)) and
+        (Images=PACKING_PROFILES[Candidate]) and (Engine=PackingEngine(Candidate,Grayscale)) then
       begin Profile:=Candidate; Exit(True); end;
     raise Exception.Create('Неизвестный профиль сжатой коллекции.');
   finally Value.Free; end;
@@ -196,8 +205,11 @@ constructor TCollectionPackingSnapshot.Create(const Options: TCollectionPackingO
 var Catalog: TSQLiteDatabase;
 begin
   inherited Create; FLease:=INVALID_HANDLE_VALUE; FOptions:=Options; FStarted:=GetTickCount64;
-  if FOptions.ImageGrayscale and (FOptions.ImageProfile=pipOriginal) then
+  if FOptions.ImageGrayscale and not PackingReducesImageQuality(FOptions.ImageProfile) then
     raise EArgumentException.Create('Оттенки серого доступны при сжатии иллюстраций.');
+  if (FOptions.ImageProfile=pipJpegXL) and
+    (not FileExists(FOptions.JpegXLEncoder) or not FileExists(FOptions.JpegXLDecoder)) then
+    raise EFileNotFoundException.Create('Для упаковки JPEG XL нужны кодировщик и декодер.');
   FOptions.CatalogFile:=TPath.GetFullPath(FOptions.CatalogFile);
   FOptions.PersonalFile:=TPath.GetFullPath(FOptions.PersonalFile);
   FOptions.SourceRoot:=IncludeTrailingPathDelimiter(TPath.GetFullPath(FOptions.SourceRoot));
@@ -647,6 +659,11 @@ begin
     Job.AddPair('version',TJSONNumber.Create(1)); Job.AddPair('dataset',FOptions.Dataset);
     Job.AddPair('engine',PackingEngine(FOptions.ImageProfile,FOptions.ImageGrayscale));
     Job.AddPair('images',PACKING_PROFILES[FOptions.ImageProfile]);
+    if FOptions.ImageProfile=pipJpegXL then
+    begin
+      Job.AddPair('jpeg_xl_encoder',FOptions.JpegXLEncoder);
+      Job.AddPair('jpeg_xl_decoder',FOptions.JpegXLDecoder);
+    end;
     Job.AddPair('plan',FPlanFile); Job.AddPair('output',FOptions.OutputRoot); Job.AddPair('seven_zip',FOptions.SevenZip);
     Job.AddPair('verify_sources',TJSONBool.Create(FOptions.VerifySources));
     Job.AddPair('verify_outputs',TJSONBool.Create(FOptions.VerifyOutputs));

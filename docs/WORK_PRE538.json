@@ -5289,5 +5289,13 @@
     "cleanup": "All new temporary fixture directories, extracted books, portable codec archives and built image tools for these probes were removed from G:. Source archive size/time signatures and member hashes matched.",
     "log": "tools/ui/tests/Out/collection-packing-jxl-writer-20261106-r4.log",
     "remaining": "Connect the experimental native picker and INPX profile, install the official encoder only for packing, and verify read/export and missing or damaged companion handling for exact real worker output. Run both architectures through ordinary component install, cancel/resume, native INPX and release candidate packaging."
+  },
+  "collection_packing_jxl_native_20261106": {
+    "status": "Experimental catalogue picker and native INPX integration for separated JPEG XL verified on Win32 and Win64.",
+    "implementation": "An additional JPEG XL profile retains original JPEG bytes and does not accept the grayscale switch. Its engine marker persists for resumption and INPX. BookProcessing and 7-Zip are used for packing, and the JPEG XL encoder and version 0.12.0 or later decoder are requested only when this profile is chosen. JpegXLEncoder has separate official metadata, checksum, architecture validation, installer manifest, component inventory, executable and licences. The ordinary Reader component still installs only djxl.",
+    "proof": "Native profile round-trip, official archive preparation and independent codec installation passed on both architectures, preserving the installed decoder exactly. The native INPX fixture used actual 883585.fb2, recovered every image by exact ID and SHA-256, reused the unchanged archive, changed the existing book by its stable ID, preserved personal data, retained the missing member record, canceled the preview safely and registered a separate updated copy. This is the native worker and confirmation form, not a graphical first-use download from the main menu.",
+    "log": "tools/ui/tests/Out/collection-packing-jxl-inpx-20261106-r3.log",
+    "cleanup": "New stage, published author ZIP copies, extracted fixture, isolated test profiles, and temporary Delphi project clones were removed from the owned cache. The source archive was only read, and its size and timestamp matched before and after.",
+    "remaining": "Verify missing or damaged companion behavior, exercise the actual menu's compact download prompt and restart in a clean candidate, and include the experimental packing options in the release gate. In a fresh operation the user currently needs to invoke the packing command again after installing a component."
   }
 }

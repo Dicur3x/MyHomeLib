@@ -4479,8 +4479,8 @@ begin
   try
     Dialog.Caption:='Сжатие коллекции';
     Dialog.Title:='Как упаковать копию коллекции?';
-    Dialog.Text:='Исходные книги останутся в своих папках. Сжатие иллюстраций может снизить их качество '+
-      'в копиях FB2 и EPUB. PDF, DjVu и другие форматы сохранят исходное содержимое.';
+    Dialog.Text:='Исходные книги останутся в своих папках. Режимы сжатия иллюстраций действуют на FB2 и EPUB. '+
+      'PDF, DjVu и другие форматы сохранят исходное содержимое.';
     Dialog.Flags:=[tfUseCommandLinks,tfAllowDialogCancellation];
     Dialog.CommonButtons:=[tcbCancel];
     Dialog.VerificationText:='При сжатии иллюстраций переводить JPEG и PNG в оттенки серого';
@@ -4495,13 +4495,15 @@ begin
         pipBalanced: Button.CommandLinkHint:='Уменьшить размер крупных иллюстраций с умеренным сжатием.';
         pipEconomy: Button.CommandLinkHint:='Сжать иллюстрации сильнее. Размер и детализация могут уменьшиться.';
         pipMaximum: Button.CommandLinkHint:='Сильнее уменьшить крупные иллюстрации. Мелкие детали могут стать хуже видны.';
+        pipJpegXL: Button.CommandLinkHint:='Вынести часть JPEG в отдельный архив с побайтовым восстановлением. '+
+          'Упаковка может занять больше времени.';
       end;
     end;
     if Dialog.Execute(Owner.Handle) and
       InRange(Dialog.ModalResult,ChoiceBase,ChoiceBase+Ord(High(TPackingImageProfile))) then
     begin
       Profile:=TPackingImageProfile(Dialog.ModalResult-ChoiceBase);
-      Grayscale:=(Profile<>pipOriginal) and (tfVerificationFlagChecked in Dialog.Flags);
+      Grayscale:=PackingReducesImageQuality(Profile) and (tfVerificationFlagChecked in Dialog.Flags);
       Result:=True;
     end;
   finally Dialog.Free; end;
@@ -4511,7 +4513,7 @@ procedure TfrmMain.PackCollection(UpdateFromInpx: Boolean);
 var Options: TCollectionPackingOptions; Required: TArray<string>;
   Picker: TFileOpenDialog; Progress: TfrmCollectionPackingProgress;
   Snapshot: TCollectionPackingSnapshot; Status: TCollectionPackingStatus;
-  BaseName, Summary, Inpx, UpdateRoot, Command: string; NewID, Suffix: Integer;
+  BaseName, Summary, Inpx, UpdateRoot, Command: string; NewID, Suffix, Comparison: Integer;
 begin
   if not Assigned(FCollection) or FFormBusy or FStartupLoading or FBookListLoading then Exit;
   if CheckActiveDownloads then
@@ -4569,15 +4571,25 @@ begin
         if not ChoosePackingImageProfile(Self,Options.ImageProfile,Options.ImageGrayscale) then Exit;
       end;
       Options.Python:=FindBookProcessingPython(Settings.AppPath);
-      if (Options.Python='') or ((Options.ImageProfile<>pipOriginal) and
+      if (Options.Python='') or (PackingReducesImageQuality(Options.ImageProfile) and
         (not ModularBookProcessingAvailable(Settings.AppPath) or
          not FileExists(TPath.Combine(Settings.AppPath,'tools/bookconvert/image_quality.py')))) then
         Required:=Required+['BookProcessing'];
       Options.SevenZip:=FindFullSevenZip(Settings.AppPath);
       if Options.SevenZip='' then Options.SevenZip:=FindExternalTool('7za.exe','7zip');
       if Options.SevenZip='' then Required:=Required+['7-Zip'];
-      if (Options.ImageProfile<>pipOriginal) and ComponentNeedsRepair(Settings.AppPath,'ImageProcessing') then
+      if PackingReducesImageQuality(Options.ImageProfile) and ComponentNeedsRepair(Settings.AppPath,'ImageProcessing') then
         Required:=Required+['ImageProcessing'];
+      if Options.ImageProfile=pipJpegXL then
+      begin
+        if ComponentNeedsRepair(Settings.AppPath,JPEG_XL_ENCODER_COMPONENT) then
+          Required:=Required+[JPEG_XL_ENCODER_COMPONENT]
+        else Options.JpegXLEncoder:=TPath.Combine(Settings.AppPath,ComponentFileName(JPEG_XL_ENCODER_COMPONENT));
+        if ComponentNeedsRepair(Settings.AppPath,'JPEG XL') or
+          not CompareComponentVersions(InstalledComponentVersion(Settings.AppPath,'JPEG XL'),'0.12.0',Comparison) or
+          (Comparison<0) then Required:=Required+['JPEG XL']
+        else Options.JpegXLDecoder:=TPath.Combine(Settings.AppPath,ComponentFileName('JPEG XL'));
+      end;
       if Length(Required)>0 then
       begin
         EnsureProgramUpdateForm;
@@ -4604,7 +4616,13 @@ begin
           [Status.BooksDone,Status.Unavailable,PackingSize(Status.InputBytes),
            PackingSize(Status.OutputBytes),Status.Reused]);
         RecordComponentUse('BookProcessing');
-        if Options.ImageProfile<>pipOriginal then
+        if Options.ImageProfile=pipJpegXL then
+        begin
+          RecordComponentUse(JPEG_XL_ENCODER_COMPONENT);
+          RecordComponentUse('JPEG XL');
+          Summary:=Summary+sLineBreak+Format('Книг с вынесенными JPEG: %d.',[Status.ImageBooksOptimized]);
+        end
+        else if PackingReducesImageQuality(Options.ImageProfile) then
         begin
           RecordComponentUse('ImageProcessing');
           Summary:=Summary+sLineBreak+Format('Книг со сжатыми иллюстрациями: %d.',[Status.ImageBooksOptimized]);

@@ -71,7 +71,7 @@ begin
   Result:=nil;
   for var Component in UPDATE_COMPONENTS do
     if IsOptionalComponent(Component.ID) and not (ReaderOnly and
-      (IndexText(Component.ID,['HomeLibReader','AlReader','SumatraPDF','MHLMcpServer','Zstandard'])>=0)) and
+      (IndexText(Component.ID,['HomeLibReader','AlReader','SumatraPDF','MHLMcpServer','Zstandard',JPEG_XL_ENCODER_COMPONENT])>=0)) and
       (FileExists(CheckedUpdateChildPath(AppPath,ComponentFileName(Component.ID))) or
        FileExists(CheckedUpdateChildPath(AppPath,ComponentReceiptName(Component.ID)))) then
       Result:=Result+TArray<string>.Create(Component.ID);

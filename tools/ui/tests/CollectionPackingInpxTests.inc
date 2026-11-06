@@ -6,7 +6,7 @@ var Source, PackedSource, Updated: IBookCollection; Book, Card: TBookRecord;
   Root, UpdateRoot, IndexFile, BeforeCatalog, BeforeHash, BeforePackedPath: string;
   ImageFixture: string;
   Profile: TPackingImageProfile;
-  Grayscale: Boolean;
+  Grayscale, UseJpegXL: Boolean;
   Archive: TZipFile;
 
   procedure AddZipText(const Name, Value: string);
@@ -64,6 +64,69 @@ var Source, PackedSource, Updated: IBookCollection; Book, Card: TBookRecord;
     finally Stream.Free; end;
   end;
 
+  procedure InstallPackingCodecs;
+  var Job, FileName, DecoderHash, Arch, JSON: string; Info: TProgramRelease;
+  begin
+    FileName:=Settings.AppPath+'official-jxl.zip';
+    if ProgramUpdatePlatform='Win64' then Arch:='x64' else Arch:='x86';
+    JSON:='{"tag_name":"v0.12.0","assets":[{"name":"jxl-'+Arch+'-windows-static.zip",'+
+      '"browser_download_url":"https://github.com/libjxl/libjxl/releases/download/v0.12.0/jxl-'+Arch+'-windows-static.zip",'+
+      '"digest":"sha256:'+UpdateSHA256(FileName)+'","size":'+IntToStr(TFile.GetSize(FileName))+'}]}';
+    Require(IsOptionalComponent(JPEG_XL_ENCODER_COMPONENT) and ParseImageComponent(JSON,JPEG_XL_ENCODER_COMPONENT,Info) and
+      Info.OfficialComponent and (Info.ComponentVersion='0.12.0') and
+      IsOfficialComponentURL(JPEG_XL_ENCODER_COMPONENT,Info.ComponentVersion,Info.DownloadURL,ProgramUpdatePlatform,False),
+      'Official encoder metadata was not accepted');
+    TFile.Copy(ParamStr(0),Settings.AppPath+'HomeLibRu.exe');
+    Options.JpegXLEncoder:=TPath.Combine(Settings.AppPath,ComponentFileName(JPEG_XL_ENCODER_COMPONENT));
+    Options.JpegXLDecoder:=TPath.Combine(Settings.AppPath,ComponentFileName('JPEG XL'));
+    Job:=Settings.AppPath+'packing-decoder-job';
+    PrepareOfficialComponent(FileName,Job,'JPEG XL','0.12.0',ProgramUpdatePlatform);
+    InstallProgramUpdate(Job,Settings.AppPath);
+    Require(not ComponentNeedsRepair(Settings.AppPath,'JPEG XL') and not FileExists(Options.JpegXLEncoder),
+      'Reading module installed the encoder');
+    DecoderHash:=UpdateSHA256(Options.JpegXLDecoder);
+    Job:=Settings.AppPath+'packing-encoder-job';
+    PrepareOfficialComponent(FileName,Job,JPEG_XL_ENCODER_COMPONENT,'0.12.0',ProgramUpdatePlatform);
+    InstallProgramUpdate(Job,Settings.AppPath);
+    Require(not ComponentNeedsRepair(Settings.AppPath,JPEG_XL_ENCODER_COMPONENT) and
+      (InstalledComponentVersion(Settings.AppPath,JPEG_XL_ENCODER_COMPONENT)='0.12.0') and
+      (UpdateSHA256(Options.JpegXLDecoder)=DecoderHash), 'Installing the encoder changed the decoder or left an incomplete module');
+    Writeln('PASS official JPEG XL encoder installs separately from the reading component');
+  end;
+
+  procedure CheckRecoveredPictures(Stream: TStream);
+  var SourceStream: TFileStream; Hashes: TDictionary<string,string>; BookXML: IXMLFictionBook;
+    Image: IXMLBinary; Expected: string;
+    function ImageHash(const Picture: IXMLBinary): string;
+    var Bytes: TBytesStream;
+    begin
+      Bytes:=TBytesStream.Create(TNetEncoding.Base64.DecodeStringToBytes(Picture.Text));
+      try Result:=THashSHA2.GetHashString(Bytes); finally Bytes.Free; end;
+    end;
+  begin
+    Hashes:=TDictionary<string,string>.Create;
+    try
+      SourceStream:=TFileStream.Create(ImageFixture,fmOpenRead or fmShareDenyWrite);
+      try BookXML:=LoadFictionBook(SourceStream); finally SourceStream.Free; end;
+      for var I:=0 to BookXML.Binary.Count-1 do
+      begin
+        Image:=BookXML.Binary[I]; Hashes.Add(Image.ID,ImageHash(Image));
+      end;
+      Image:=nil; BookXML:=nil;
+      Stream.Position:=0;
+      BookXML:=LoadFictionBook(Stream);
+      Require((Hashes.Count>256) and (BookXML.Binary.Count=Hashes.Count),
+        Format('Native INPX read returned %d of %d illustrations',[BookXML.Binary.Count,Hashes.Count]));
+      for var I:=0 to BookXML.Binary.Count-1 do
+      begin
+        Image:=BookXML.Binary[I];
+        Require(Hashes.TryGetValue(Image.ID,Expected) and (ImageHash(Image)=Expected),
+          'Native INPX read changed image bytes: '+Image.ID);
+        Hashes.Remove(Image.ID);
+      end;
+    finally Hashes.Free; end;
+  end;
+
 begin
   Root:=Settings.AppPath+'packing-inpx-source';
   UpdateRoot:=Settings.AppPath+'packing-inpx-input';
@@ -87,7 +150,13 @@ begin
   Options.Python:=Settings.AppPath+'tools\kindle\python\python.exe';
   Options.SevenZip:=Settings.AppPath+'tools\7zip\7za.exe';
   Options.Script:=Settings.AppPath+'tools\collectionpack\pack_collection.py';
-  if FileExists(ImageFixture) then Options.ImageProfile:=pipMaximum;
+  UseJpegXL:=FileExists(Settings.AppPath+'official-jxl.zip');
+  if UseJpegXL then
+  begin
+    Options.ImageProfile:=pipJpegXL;
+    InstallPackingCodecs;
+  end
+  else if FileExists(ImageFixture) then Options.ImageProfile:=pipMaximum;
   Options.ImageGrayscale:=FileExists(Settings.AppPath+'packing-inpx-grayscale.flag');
   Snapshot:=TCollectionPackingSnapshot.Create(Options);
   try
@@ -171,13 +240,20 @@ begin
   if FileExists(ImageFixture) then
   begin
     Updated.GetBookRecord(CreateBookKey(NewID,UpdatedID),Book,True);
-    var Stream:=Book.GetBookStream(True,False);
+    var Stream:=Book.GetBookStream(True,True);
     try
-      Require((Book.FileExt='.fb2') and Assigned(Stream) and (Stream.Size>0) and
-        (Stream.Size<TFile.GetSize(ImageFixture)),'Native catalogue could not open the optimized FB2');
+      Require((Book.FileExt='.fb2') and Assigned(Stream) and (Stream.Size>0),
+        'Native catalogue could not open the optimized FB2');
+      if UseJpegXL then
+      begin
+        Require(SameText(ExtractFileExt(Book.GetBookFileName),'.7z'),'New INPX book did not use the separated JPEG layout');
+        CheckRecoveredPictures(Stream);
+      end
+      else Require(Stream.Size<TFile.GetSize(ImageFixture),'Native catalogue did not open the optimized FB2 copy');
     finally Stream.Free; end;
     Writeln('PASS native packed INPX reuses the profile and opens the optimized FB2');
     if Grayscale then Writeln('PASS native INPX retains independent grayscale selection');
+    if UseJpegXL then Writeln('PASS native INPX retains the JPEG XL profile and reconstructs every image exactly');
   end
   else Require(ReadText(Updated,NewID)='New bytes from INPX','New INPX book was not packed');
   MissingID:=Updated.ResolveBookID('10004',0);

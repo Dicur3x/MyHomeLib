@@ -31,8 +31,11 @@ const conversionFixturesArg = process.argv.find(arg => arg.startsWith("--convers
 const saveDocInventoryArg = process.argv.find(arg => arg.startsWith('--save-doc-inventory='));
 const packingInventoryArg = process.argv.find(arg => arg.startsWith('--packing-inventory='));
 const packingImagesArg = process.argv.find(arg => arg.startsWith('--packing-images='));
+const packingJpegXL = process.argv.includes('--packing-jpeg-xl');
 const packingMenuReaderArg = process.argv.find(arg => arg.startsWith('--packing-menu-reader='));
 const viewsMode = viewsModeArg ? viewsModeArg.slice("--views-mode=".length) : null;
+if (packingJpegXL && (viewsMode!=='packing-fbd' || !packingImagesArg || process.argv.includes('--packing-grayscale')))
+  throw Error('JPEG XL packing requires its own packing-fbd image fixture.');
 if (packingMenuReaderArg && (viewsMode !== 'packing-fbd' || !packingInventoryArg))
   throw Error('The packing menu review requires a real packing inventory and the packing-fbd scenario.');
 const catalogueLabelArg=process.argv.find(a=>a.startsWith('--catalogue-label='));
@@ -395,6 +398,14 @@ function hashLargeFile(file) {
   finally { fs.closeSync(handle); }
   return hash.digest('hex');
 }
+function stageOfficialJpegXL(folder) {
+  const official=process.argv.find(a=>a.startsWith('--official-jxl-zip='));
+  if(!official) throw Error('The actual verified author JPEG XL ZIP is required.');
+  const source=official.slice('--official-jxl-zip='.length);
+  const expected=architecture===0x8664?'3025d7e308390796d20492322e606bc92decaee7b6bc99d3f7547870ae5db7de':'a675587f4fa4f907081ad2abb59d3e2890cac20c91350c27a9b4518f8952941c';
+  if(hashLargeFile(source)!==expected) throw Error('JPEG XL author fixture digest mismatch');
+  fs.copyFileSync(source,path.join(folder,'official-jxl.zip'));
+}
 function requireNoCatalogueJournal(source) {
   // An empty WAL left after a clean close contains no committed frames. Never
   // copy a catalogue with actual WAL/rollback data, nor remove those files.
@@ -462,14 +473,17 @@ function run(executable, mode, subcase = "") {
         path.join(folder, 'tools/collectionpack/pack_collection.py'));
       fs.copyFileSync(path.resolve(__dirname, '../../../Installer/GenreLists/genres_fb2.glst'),
         path.join(folder, 'genres_fb2.glst'));
+      if (packingJpegXL) stageOfficialJpegXL(folder);
       if (packingImagesArg) {
-        const images = path.join(runtime, 'tools/images');
-        if (machine(path.join(images, 'HomeLibImages.exe')) !== architecture)
-          throw Error('Packing image test requires matching HomeLibImages.exe.');
-        fs.cpSync(images, path.join(folder, 'tools/images'), {recursive:true});
-        fs.mkdirSync(path.join(folder, 'tools/bookconvert'), {recursive:true});
-        for (const name of ['convert_book.py', 'image_quality.py'])
-          fs.copyFileSync(path.resolve(__dirname, '../../bookconvert', name), path.join(folder, 'tools/bookconvert', name));
+        if (!packingJpegXL) {
+          const images = path.join(runtime, 'tools/images');
+          if (machine(path.join(images, 'HomeLibImages.exe')) !== architecture)
+            throw Error('Packing image test requires matching HomeLibImages.exe.');
+          fs.cpSync(images, path.join(folder, 'tools/images'), {recursive:true});
+          fs.mkdirSync(path.join(folder, 'tools/bookconvert'), {recursive:true});
+          for (const name of ['convert_book.py', 'image_quality.py'])
+            fs.copyFileSync(path.resolve(__dirname, '../../bookconvert', name), path.join(folder, 'tools/bookconvert', name));
+        }
         fs.copyFileSync(fs.realpathSync(packingImagesArg.slice('--packing-images='.length)),
           path.join(folder, 'packing-inpx-illustration.fb2'));
         if (process.argv.includes('--packing-grayscale'))
@@ -569,12 +583,7 @@ function run(executable, mode, subcase = "") {
       }
     }
     if (mode === 'image-components') {
-      const official=process.argv.find(a=>a.startsWith('--official-jxl-zip='));
-      if(!official)throw Error('Image-component audit requires the actual verified author JPEG XL ZIP');
-      const source=official.slice('--official-jxl-zip='.length);
-      const sha=require('node:crypto').createHash('sha256').update(fs.readFileSync(source)).digest('hex');
-      if(sha!==(architecture===0x8664?'3025d7e308390796d20492322e606bc92decaee7b6bc99d3f7547870ae5db7de':'a675587f4fa4f907081ad2abb59d3e2890cac20c91350c27a9b4518f8952941c'))throw Error('JPEG XL author fixture digest mismatch');
-      fs.copyFileSync(source,path.join(folder,'official-jxl.zip'));
+      stageOfficialJpegXL(folder);
       for(const name of ['webp','jpeg-xl','7zip']) fs.cpSync(path.join(runtime,'tools',name),path.join(folder,'tools',name),{recursive:true});
       fs.copyFileSync(path.join(__dirname,'fixtures/transparent-ink.jxl'),path.join(folder,'transparent-ink.jxl'));
       const platform=architecture===0x8664?'Win64':'Win32';
@@ -866,7 +875,7 @@ with zipfile.ZipFile(sys.argv[2]+'/reader-spread.epub','w') as z:
     }
     const exe = path.join(folder, path.basename(executable));
     if (mode==='packing-fbd' && packingMenuReaderArg) { runPackingMenu(folder,exe); return; }
-    const result = cp.spawnSync(exe, mode ? [mode,...(subcase ? [subcase] : []),...(mode === "audit-new" ? [auditCaseArg ? auditCaseArg.slice(13) : "filters", ...(amberArchiveArg ? [fs.realpathSync(amberArchiveArg.slice(16))] : [])] : []),...(toolProbe ? ["probe"] : []),...((visualCache || visualUI || visualUpdate || visualRecords) ? ["visual"] : []),...(mode === "feedback14" && amberArchiveArg ? [fs.realpathSync(amberArchiveArg.slice("--amber-archive=".length))] : [])] : [], { cwd: folder, env: {...process.env, LOCALAPPDATA: path.join(folder, "LocalAppData")}, encoding: "utf8", timeout: mode==='zip-member-deletion' || mode==='archive-member-engines' ? 180000 : mode==='script-export-paths' ? 900000 : visualEstimates || ((mode==='book-preview-adaptive' && process.env.HOMELIB_TEST_PREVIEW_VISUAL==='1') || (mode==='compact-search-filters' && process.env.HOMELIB_TEST_SEARCH_VISUAL==='1')) ? 900000 : mode==='save-module-restart' || mode==='unified-send' || mode==='save-planning' || mode==='kindle-save' || mode==='advanced-save' ? 900000 : mode==='catalogue-performance' || mode==='first-book-list-large' || mode==='image-quality-dialog' ? 900000 : mode==='catalogue-formats' ? 3600000 : mode==='conversion-menu' ? 300000 : !!process.env.HLRU_FEEDBACK529_VISUAL && mode === "feedback529" ? 300000 : mode === "post525-update" ? (visualUI ? 900000 : 180000) : mode === "filter-captions" && ["annotation-light", "annotation-dark"].includes(subcase) ? 240000 : mode === "large-inpx" ? 900000 : ["component-monthly-lifecycle", "reader-spread", "view-sessions", "builtin-reader", "reader-resource-idle", "update-repair", "compact-book-views", "book-preview-layout", "book-preview-adaptive", "metadata-book-columns", "reader-notes-proposals", "update-keyboard-accessibility", "main-toolbar-states", "favorite-ui"].includes(mode) ? 180000 : mode === 'native-folder-picker' || mode === 'cancel-interactive' || mode === 'export-cancel-interactive' || mode === 'legacy-import-interactive' || proposalVisualModes.includes(mode) || visualUI || visualUpdate || visualRecords ? 900000 : visualCache ? 180000 : 90000, windowsHide: mode !== 'script-export-paths' && !process.env.HLRU_FEEDBACK529_VISUAL && mode !== 'update-keyboard-accessibility' && !mode.startsWith("first-run") && mode !== 'cancel-interactive' && mode !== 'export-cancel-interactive' && mode !== 'legacy-import-interactive' && !proposalVisualModes.includes(mode) && !visualCache && !visualUI && !visualRecords && !visualEstimates, maxBuffer: 2 * 1024 * 1024 });
+    const result = cp.spawnSync(exe, mode ? [mode,...(subcase ? [subcase] : []),...(mode === "audit-new" ? [auditCaseArg ? auditCaseArg.slice(13) : "filters", ...(amberArchiveArg ? [fs.realpathSync(amberArchiveArg.slice(16))] : [])] : []),...(toolProbe ? ["probe"] : []),...((visualCache || visualUI || visualUpdate || visualRecords) ? ["visual"] : []),...(mode === "feedback14" && amberArchiveArg ? [fs.realpathSync(amberArchiveArg.slice("--amber-archive=".length))] : [])] : [], { cwd: folder, env: {...process.env, LOCALAPPDATA: path.join(folder, "LocalAppData")}, encoding: "utf8", timeout: mode==='packing-fbd' && packingJpegXL ? 420000 : mode==='zip-member-deletion' || mode==='archive-member-engines' ? 180000 : mode==='script-export-paths' ? 900000 : visualEstimates || ((mode==='book-preview-adaptive' && process.env.HOMELIB_TEST_PREVIEW_VISUAL==='1') || (mode==='compact-search-filters' && process.env.HOMELIB_TEST_SEARCH_VISUAL==='1')) ? 900000 : mode==='save-module-restart' || mode==='unified-send' || mode==='save-planning' || mode==='kindle-save' || mode==='advanced-save' ? 900000 : mode==='catalogue-performance' || mode==='first-book-list-large' || mode==='image-quality-dialog' ? 900000 : mode==='catalogue-formats' ? 3600000 : mode==='conversion-menu' ? 300000 : !!process.env.HLRU_FEEDBACK529_VISUAL && mode === "feedback529" ? 300000 : mode === "post525-update" ? (visualUI ? 900000 : 180000) : mode === "filter-captions" && ["annotation-light", "annotation-dark"].includes(subcase) ? 240000 : mode === "large-inpx" ? 900000 : ["component-monthly-lifecycle", "reader-spread", "view-sessions", "builtin-reader", "reader-resource-idle", "update-repair", "compact-book-views", "book-preview-layout", "book-preview-adaptive", "metadata-book-columns", "reader-notes-proposals", "update-keyboard-accessibility", "main-toolbar-states", "favorite-ui"].includes(mode) ? 180000 : mode === 'native-folder-picker' || mode === 'cancel-interactive' || mode === 'export-cancel-interactive' || mode === 'legacy-import-interactive' || proposalVisualModes.includes(mode) || visualUI || visualUpdate || visualRecords ? 900000 : visualCache ? 180000 : 90000, windowsHide: mode !== 'script-export-paths' && !process.env.HLRU_FEEDBACK529_VISUAL && mode !== 'update-keyboard-accessibility' && !mode.startsWith("first-run") && mode !== 'cancel-interactive' && mode !== 'export-cancel-interactive' && mode !== 'legacy-import-interactive' && !proposalVisualModes.includes(mode) && !visualCache && !visualUI && !visualRecords && !visualEstimates, maxBuffer: 2 * 1024 * 1024 });
     const output = (result.stdout || "") + (result.stderr || "");
     if (mode === "favorite-ui") {
       const screenshot = path.join(folder, "all-favorite-authors.png");
@@ -879,6 +888,10 @@ with zipfile.ZipFile(sys.argv[2]+'/reader-spread.epub','w') as z:
     if (mode === 'packing-fbd' && packingImagesArg &&
         !output.includes('PASS native packed INPX reuses the profile and opens the optimized FB2'))
       throw Error('Native INPX illustration checks did not execute.');
+    if (mode === 'packing-fbd' && packingJpegXL &&
+        !['PASS official JPEG XL encoder installs separately',
+          'PASS native INPX retains the JPEG XL profile and reconstructs every image exactly'].every(mark => output.includes(mark)))
+      throw Error('Native JPEG XL packing checks did not execute.');
     if (mode === 'packing-fbd' && process.argv.includes('--packing-grayscale') &&
         !output.includes('PASS native INPX retains independent grayscale selection'))
       throw Error('Native INPX grayscale checks did not execute.');

@@ -735,7 +735,7 @@ begin
   if Result and FReaderOnly then
     Result:=(UPDATE_COMPONENTS[Index].ID<>'SQLite') and (UPDATE_COMPONENTS[Index].ID<>'AlReader') and
       (UPDATE_COMPONENTS[Index].ID<>'SumatraPDF') and (UPDATE_COMPONENTS[Index].ID<>'MHLMcpServer') and
-      (UPDATE_COMPONENTS[Index].ID<>'Zstandard');
+      (UPDATE_COMPONENTS[Index].ID<>'Zstandard') and (UPDATE_COMPONENTS[Index].ID<>JPEG_XL_ENCODER_COMPONENT);
 end;
 
 function TfrmProgramUpdate.RowVisible(Value: Integer): Boolean;

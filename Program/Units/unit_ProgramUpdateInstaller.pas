@@ -10,6 +10,7 @@ const
   UPDATE_MANIFEST = 'HomeLibRu.update.json';
   UPDATE_MAX_ARCHIVE = 256 * 1024 * 1024;
   COMPONENT_RECEIPT_FOLDER = 'tools/component-state/';
+  JPEG_XL_ENCODER_COMPONENT = 'JpegXLEncoder';
 
 type
   TUpdateFile = record
@@ -101,11 +102,18 @@ begin
   if ID = '7-Zip' then Result := 'tools/7zip/7z.exe';
   if ID = 'DocSharp' then Result := 'tools/doc/DocSharp.Binary.Doc.dll';
   if ID = 'JPEG XL' then Result := 'tools/jpeg-xl/djxl.exe';
+  if ID = JPEG_XL_ENCODER_COMPONENT then Result := 'tools/jpeg-xl-encoder/cjxl.exe';
   if ID = 'WebP' then Result := 'tools/webp/libwebp.dll';
 end;
 
+function JPEGXLComponentFolder(const ID: string): string;
+begin
+  if ID=JPEG_XL_ENCODER_COMPONENT then Result:='tools/jpeg-xl-encoder/'
+  else Result:='tools/jpeg-xl/';
+end;
+
 function SafeComponentFile(const ID, Name: string): Boolean;
-var Base: string;
+var Base, Folder: string;
 begin
   if IsFormatComponent(ID) then Exit(SafeUpdateName(Name) and SafeFormatComponentFile(ID,Name));
   if ID='Zstandard' then Exit((Name='libzstd.dll') or
@@ -146,9 +154,12 @@ begin
   if ID='BookConverter' then Exit(SafeUpdateName(Name) and
     (Name.StartsWith('tools/bookconvert/') or Name.StartsWith('tools/kindle/') or Name.StartsWith('tools/office/') or
      (Name='tools/xps/HomeLibXps.exe') or (Name='tools/xps/HomeLibXps-MIT.txt') or (Name='tools/xps/RUNTIME.json')));
-  if ID='JPEG XL' then Exit((Name='tools/jpeg-xl/djxl.exe') or
-    (Name='tools/jpeg-xl/RUNTIME.json') or
-    TRegEx.IsMatch(Name,'\Atools/jpeg-xl/licenses/LICENSE\.[A-Za-z0-9._-]{1,64}\z'));
+  if (ID='JPEG XL') or (ID=JPEG_XL_ENCODER_COMPONENT) then
+  begin
+    Folder:=JPEGXLComponentFolder(ID);
+    Exit((Name=ComponentFileName(ID)) or (Name=Folder+'RUNTIME.json') or
+      TRegEx.IsMatch(Name,'\A'+Folder+'licenses/LICENSE\.[A-Za-z0-9._-]{1,64}\z'));
+  end;
   if ID='WebP' then Exit((Name='tools/webp/libwebp.dll') or (Name='tools/webp/RUNTIME.json') or
     (Name='tools/webp/COPYING.txt') or (Name='tools/webp/PATENTS.txt') or (Name='tools/webp/AUTHORS.txt'));
   Result := SafeUpdateName(Name);
@@ -256,7 +267,7 @@ begin
     finally Root.Free; end;
     Exit;
   end;
-  if (ID='JPEG XL') or (ID='WebP') then
+  if (ID='JPEG XL') or (ID=JPEG_XL_ENCODER_COMPONENT) or (ID='WebP') then
   begin
     Result:=''; if not FileExists(FileName) then Exit;
     Root:=nil;
@@ -348,7 +359,8 @@ begin
     else if ID='AlReader' then Names:=TArray<string>.Create('Readers/AlReader/AlReader2.exe')
     else if ID='SumatraPDF' then Names:=TArray<string>.Create('Readers/SumatraPDF/SumatraPDF.exe')
     else if ID='7-Zip' then Names:=TArray<string>.Create('tools/7zip/7z.exe','tools/7zip/7z.dll','tools/7zip/License.txt')
-    else if ID='JPEG XL' then Names:=TArray<string>.Create('tools/jpeg-xl/djxl.exe','tools/jpeg-xl/licenses/LICENSE.libjxl')
+    else if (ID='JPEG XL') or (ID=JPEG_XL_ENCODER_COMPONENT) then
+      Names:=TArray<string>.Create(ComponentFileName(ID),JPEGXLComponentFolder(ID)+'licenses/LICENSE.libjxl')
     else if ID='WebP' then Names:=TArray<string>.Create('tools/webp/libwebp.dll','tools/webp/COPYING.txt','tools/webp/PATENTS.txt','tools/webp/AUTHORS.txt')
     else if ID='DocSharp' then Names:=TArray<string>.Create('tools/doc/HomeLibDoc.exe',
       'tools/doc/DocSharp.Binary.Doc.dll','tools/doc/DocSharp.Binary.Common.dll',
@@ -581,8 +593,11 @@ var ArrayValue: TJSONArray; Value: TJSONValue; I: Integer;
     end;
     if ID='7-Zip' then
       for var Name in ['7z.exe','7z.dll','License.txt'] do RequireMember('tools/7zip/'+Name);
-    if ID='JPEG XL' then
-      for var Name in ['djxl.exe','RUNTIME.json','licenses/LICENSE.libjxl'] do RequireMember('tools/jpeg-xl/'+Name);
+    if (ID='JPEG XL') or (ID=JPEG_XL_ENCODER_COMPONENT) then
+    begin
+      RequireMember(ComponentFileName(ID));
+      for var Name in ['RUNTIME.json','licenses/LICENSE.libjxl'] do RequireMember(JPEGXLComponentFolder(ID)+Name);
+    end;
     if ID='WebP' then
       for var Name in ['libwebp.dll','RUNTIME.json','COPYING.txt','PATENTS.txt','AUTHORS.txt'] do RequireMember('tools/webp/'+Name);
     if ID='DjVuLibre' then
@@ -952,11 +967,11 @@ begin
         raise Exception.Create('Версия или контрольная сумма модуля не совпадает с описанием пакета.');
       if Component='PDFium' then VerifyUpdateExecutable(ChildPath(Stage,'tools/pdfium/HomeLibPDF.exe'),'',Architecture,True);
     end
-    else if (Component='JPEG XL') or (Component='WebP') then
+    else if (Component='JPEG XL') or (Component=JPEG_XL_ENCODER_COMPONENT) or (Component='WebP') then
     begin
       VerifyUpdateExecutable(ChildPath(Stage,ComponentFileName(Component)),'',Architecture,True);
       if InstalledComponentVersion(Stage,Component)<>Version then
-        raise Exception.Create('Версия или контрольная сумма декодера изображений не совпадает с описанием пакета.');
+        raise Exception.Create('Версия или контрольная сумма модуля изображений не совпадает с описанием пакета.');
     end
     else if Component='DjVuLibre' then
     begin
@@ -1168,7 +1183,7 @@ begin
     if Secondary then Exit(URL='https://github.com/ip7z/7zip/releases/download/'+Version+'/7zr.exe');
     Exit(URL='https://github.com/ip7z/7zip/releases/download/'+Version+'/7z'+Version.Replace('.','')+Suffix+'.exe');
   end;
-  if ID='JPEG XL' then
+  if (ID='JPEG XL') or (ID=JPEG_XL_ENCODER_COMPONENT) then
   begin
     if Platform='Win64' then Suffix:='x64' else Suffix:='x86';
     Exit(not Secondary and (URL='https://github.com/libjxl/libjxl/releases/download/v'+Version+'/jxl-'+Suffix+'-windows-static.zip'));
@@ -1246,7 +1261,7 @@ end;
 
 procedure PrepareOfficialComponent(const Archive, Job, ID, Version, Platform: string;
   const SecondaryArchive, AppPath: string; const AdditionalArchives: TArray<string>; const AdapterPath: string);
-var Stage, Raw, Source, Destination, Tools, RuntimePath, AdapterRuntime: string; Names: TArray<string>;
+var Stage, Raw, Source, Destination, Tools, RuntimePath, AdapterRuntime, CodecFolder, CodecTool: string; Names: TArray<string>;
   Manifest, Entry, Metadata, Hashes: TJSONObject; Files: TJSONArray;
   Zip: TZipFile; Bytes: TBytes; Log: TStringStream; Started: UInt64;
   procedure AddFile(const Name, SourceFile: string);
@@ -1289,7 +1304,8 @@ var Stage, Raw, Source, Destination, Tools, RuntimePath, AdapterRuntime: string;
 begin
   if (ID='SQLite') or (ID='SumatraPDF') then
   begin PrepareOfficialSimpleComponent(Archive,Job,ID,Version,Platform); Exit; end;
-  if (ID<>'7-Zip') and (ID<>'DocSharp') and (ID<>'DjVuLibre') and (ID<>'JPEG XL') and (ID<>'IBK') then
+  if (ID<>'7-Zip') and (ID<>'DocSharp') and (ID<>'DjVuLibre') and (ID<>'JPEG XL') and
+    (ID<>JPEG_XL_ENCODER_COMPONENT) and (ID<>'IBK') then
     raise Exception.Create('Не найден официальный Windows-пакет этого компонента.');
   AssertUpdatePath(Archive); AssertUpdatePath(Job); Stage:=ChildPath(Job,'payload');
   if DirectoryExists(Stage) then raise Exception.Create('Папка обновления уже занята.');
@@ -1345,8 +1361,10 @@ begin
       Bytes:=nil;
       if not IBKRuntimeAvailable(Stage) then raise Exception.Create('Данные IBK не прошли итоговую проверку.');
     end
-    else if ID='JPEG XL' then
+    else if (ID='JPEG XL') or (ID=JPEG_XL_ENCODER_COMPONENT) then
     begin
+      CodecFolder:=JPEGXLComponentFolder(ID);
+      CodecTool:=Copy(ComponentFileName(ID),Length(CodecFolder)+1,MaxInt);
       if Platform='Win64' then Raw:='x64-windows-static/' else Raw:='x86-windows-static/';
       Zip:=TZipFile.Create;
       try
@@ -1355,9 +1373,9 @@ begin
         for var I:=0 to Zip.FileCount-1 do
         begin
           Source:=Zip.FileNames[I];
-          if Source=Raw+'bin/djxl.exe' then Source:='tools/jpeg-xl/djxl.exe'
+          if Source=Raw+'bin/'+CodecTool then Source:=ComponentFileName(ID)
           else if Source.StartsWith(Raw+'licenses/LICENSE.') then
-            Source:='tools/jpeg-xl/licenses/'+Copy(Source,Length(Raw+'licenses/')+1,MaxInt)
+            Source:=CodecFolder+'licenses/'+Copy(Source,Length(Raw+'licenses/')+1,MaxInt)
           else Continue;
           if not SafeComponentFile(ID,Source) or (Zip.FileInfo[I].UncompressedSize>128*1024*1024) then
             raise Exception.Create('Неподдерживаемый файл в пакете JPEG XL.');
@@ -1369,10 +1387,10 @@ begin
       try
         Metadata.AddPair('component',ID); Metadata.AddPair('codec',Entry);
         Entry.AddPair('version',Version); Entry.AddPair('files',Hashes);
-        Hashes.AddPair('djxl.exe',UpdateSHA256(ChildPath(Stage,'tools/jpeg-xl/djxl.exe')));
-        WriteJSON(ChildPath(Stage,'tools/jpeg-xl/RUNTIME.json'),Metadata);
+        Hashes.AddPair(CodecTool,UpdateSHA256(ChildPath(Stage,ComponentFileName(ID))));
+        WriteJSON(ChildPath(Stage,CodecFolder+'RUNTIME.json'),Metadata);
       finally Metadata.Free; end;
-      AddFile('tools/jpeg-xl/RUNTIME.json',ChildPath(Stage,'tools/jpeg-xl/RUNTIME.json'));
+      AddFile(CodecFolder+'RUNTIME.json',ChildPath(Stage,CodecFolder+'RUNTIME.json'));
     end
     else if ID='DocSharp' then
     begin
@@ -1605,7 +1623,7 @@ end;
 
 procedure InstallProgramUpdate(const Job, Target: string;
   const Progress: TUpdateProgress; FailAfter: Integer);
-const ComponentNames: array[0..24] of string = ('SQLite', 'AlReader', 'SumatraPDF','DjVuLibre','7-Zip','DocSharp','JPEG XL','WebP','HomeLibReader','PDFium','BookConverter','IBK','MHLMcpServer','Zstandard','BookProcessing','ImageProcessing','Kindle','LegacyBooks','LegacyOffice','XPS','KindleExport','FB2Export','KoboExport','EpubPdfExport','OPDSTls');
+const ComponentNames: array[0..25] of string = ('SQLite', 'AlReader', 'SumatraPDF','DjVuLibre','7-Zip','DocSharp','JPEG XL','WebP','HomeLibReader','PDFium','BookConverter','IBK','MHLMcpServer','Zstandard','BookProcessing','ImageProcessing','Kindle','LegacyBooks','LegacyOffice','XPS','KindleExport','FB2Export','KoboExport','EpubPdfExport','OPDSTls',JPEG_XL_ENCODER_COMPONENT);
 var Manifest, Journal, Entry: TJSONObject; Files: TUpdateFiles; List: TJSONArray;
   Info: TUpdateFile; Source, Destination, Backup, Temporary, State: string;
   Handle: THandle; Existed: Boolean; I, J, Applied, Comparison: Integer;

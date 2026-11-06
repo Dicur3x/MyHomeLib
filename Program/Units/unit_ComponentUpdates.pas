@@ -3,7 +3,7 @@
 interface
 
 uses System.Classes, System.SysUtils, System.Net.HttpClient, Winapi.Windows, Winapi.Messages,
-  unit_ProgramUpdates;
+  unit_ProgramUpdates, unit_ProgramUpdateInstaller;
 
 type
   TComponentCheckKind = (ccBundled, ccSQLite, ccSumatra, ccRaster, ccDocSharp, ccJPEGXL, ccWebP, ccPublished, ccIBK);
@@ -22,7 +22,7 @@ const
   ALREADER_FIXED_SIZE = 4739366;
   COMPONENT_FEED_NAME = 'HomeLibRu.components.json';
   COMPONENT_MIRROR_API = 'https://api.github.com/repos/Dicur3x/MyHomeLib/releases/tags/' + ALREADER_FIXED_TAG;
-  UPDATE_COMPONENTS: array[0..24] of TUpdateComponent = (
+  UPDATE_COMPONENTS: array[0..25] of TUpdateComponent = (
     (ID:'SQLite'; Title:'База коллекций'; URL:'https://www.sqlite.org/changes.html'; CheckKind:ccSQLite; CheckOnly:False),
     (ID:'AlReader'; Title:'Внешняя читалка'; URL:'https://github.com/Dicur3x/MyHomeLib/releases/tag/optional-alreader-2.5.1009.25'; CheckKind:ccBundled; CheckOnly:False),
     (ID:'SumatraPDF'; Title:'Внешняя читалка PDF и DjVu'; URL:'https://www.sumatrapdfreader.org/docs/Version-history'; CheckKind:ccSumatra; CheckOnly:False),
@@ -47,7 +47,8 @@ const
     (ID:'FB2Export'; Title:'Дополнительные форматы из FB2'; URL:'https://github.com/rupor-github/fb2cng'; CheckKind:ccPublished; CheckOnly:False),
     (ID:'KoboExport'; Title:'Сохранение EPUB для Kobo'; URL:'https://github.com/pgaskin/kepubify'; CheckKind:ccPublished; CheckOnly:False),
     (ID:'EpubPdfExport'; Title:'Вёрстка EPUB в PDF'; URL:'https://github.com/vivliostyle/vivliostyle.js'; CheckKind:ccPublished; CheckOnly:False),
-    (ID:'OPDSTls'; Title:'Каталог OPDS по HTTPS'; URL:'https://github.com/Dicur3x/MyHomeLib/releases'; CheckKind:ccPublished; CheckOnly:False));
+    (ID:'OPDSTls'; Title:'Каталог OPDS по HTTPS'; URL:'https://github.com/Dicur3x/MyHomeLib/releases'; CheckKind:ccPublished; CheckOnly:False),
+    (ID:JPEG_XL_ENCODER_COMPONENT; Title:'Сжатие коллекций в JPEG XL'; URL:'https://github.com/libjxl/libjxl/releases'; CheckKind:ccJPEGXL; CheckOnly:False));
 
 type
   TComponentReleases = array[Low(UPDATE_COMPONENTS)..High(UPDATE_COMPONENTS)] of TProgramRelease;
@@ -132,7 +133,7 @@ procedure SaveComponentHistory(const CacheFolder: string; const Releases: TCompo
 implementation
 
 uses System.JSON, System.RegularExpressions, System.IOUtils, System.StrUtils,
-  System.Hash, System.Generics.Collections, System.Generics.Defaults, unit_ProgramUpdateInstaller,
+  System.Hash, System.Generics.Collections, System.Generics.Defaults,
   unit_UpdateNotes, unit_UpdateTextCache, unit_IBKRuntime, unit_ReaderAdapters, unit_FormatComponents;
 
 // Each probe owns its HTTP session. Never share WinHTTP handles across workers.
@@ -154,7 +155,7 @@ begin
 end;
 
 function IsOptionalComponent(const ID: string): Boolean;
-begin Result:=IsFormatComponent(ID) or (ID='AlReader') or (ID='SumatraPDF') or (ID='DjVuLibre') or (ID='DocSharp') or (ID='7-Zip') or (ID='JPEG XL') or (ID='WebP') or (ID='HomeLibReader') or (ID='PDFium') or (ID='BookConverter') or (ID='IBK') or (ID='MHLMcpServer') or (ID='Zstandard'); end;
+begin Result:=IsFormatComponent(ID) or (ID='AlReader') or (ID='SumatraPDF') or (ID='DjVuLibre') or (ID='DocSharp') or (ID='7-Zip') or (ID='JPEG XL') or (ID=JPEG_XL_ENCODER_COMPONENT) or (ID='WebP') or (ID='HomeLibReader') or (ID='PDFium') or (ID='BookConverter') or (ID='IBK') or (ID='MHLMcpServer') or (ID='Zstandard'); end;
 
 function ComponentNotificationEnabled(const ID, Choices: string): Boolean;
 begin Result:=not IsOptionalComponent(ID) or (IndexText(ID,Choices.Split([',']))>=0); end;
@@ -235,6 +236,7 @@ begin
   if ID='DjVuLibre' then Exit('DjVuLibre — модуль чтения страниц DjVu, в том числе для преобразования в FB2/EPUB.');
   if ID='BookConverter' then Exit('Конвертер HomeLibre (BookConverter) — общий модуль создания FB2/EPUB и обработки изображений.');
   if ID='JPEG XL' then Exit('JPEG XL (libjxl) — восстановление иллюстраций JPEG XL для чтения и сохранения книги.');
+  if ID=JPEG_XL_ENCODER_COMPONENT then Exit('Кодировщик libjxl для упаковки JPEG-иллюстраций коллекции без потери качества.');
   if ID='WebP' then Exit('WebP (libwebp) — чтение иллюстраций WebP для показа и сохранения книги.');
   if ID='7-Zip' then Exit('7-Zip — распаковка книг и вспомогательных компонентов из архивов.');
   if ID='IBK' then Exit('Данные ICE Book Reader — чтение книг IBK во встроенной читалке и конвертере.');
@@ -600,14 +602,14 @@ var Root: TJSONValue; Assets: TJSONArray; Asset: TJSONValue;
   Size: Int64; Comparison: Integer; Flag: Boolean; Match: TMatch;
 begin
   Result:=False; Info:=Default(TProgramRelease); Info.ComponentID:=ID;
-  if (ID<>'JPEG XL') and (ID<>'WebP') then Exit;
+  if (ID<>'JPEG XL') and (ID<>JPEG_XL_ENCODER_COMPONENT) and (ID<>'WebP') then Exit;
   Root:=TJSONObject.ParseJSONValue(Text);
   try
     if not (Root is TJSONObject) or not Root.TryGetValue<string>('tag_name',Tag) or
       not Root.TryGetValue<TJSONArray>('assets',Assets) then Exit;
     Flag:=False; Root.TryGetValue<Boolean>('draft',Flag); if Flag then Exit;
     Flag:=False; Root.TryGetValue<Boolean>('prerelease',Flag); if Flag then Exit;
-    if ID='JPEG XL' then
+    if ID<>'WebP' then
     begin
       if not TRegEx.IsMatch(Tag,'\Av[0-9]+\.[0-9]+\.[0-9]+\z') then Exit;
       Version:=Copy(Tag,2,MaxInt);
@@ -623,7 +625,7 @@ begin
     for Asset in Assets do
     begin
       if not (Asset is TJSONObject) or not Asset.TryGetValue<string>('name',Name) then Continue;
-      if ID='JPEG XL' then begin if Name<>Expected then Continue; end
+      if ID<>'WebP' then begin if Name<>Expected then Continue; end
       else
       begin
         Match:=TRegEx.Match(Name,'\AWebP-([0-9]+\.[0-9]+\.[0-9]+)-'+ProgramUpdatePlatform+'\.zip\z');
@@ -641,11 +643,14 @@ begin
       Info.SHA256:=Copy(Digest,8,MaxInt); Info.Size:=Size;
     end;
     if Info.DownloadURL='' then Exit;
-    if ID='JPEG XL' then
+    if ID<>'WebP' then
     begin
       Info.OfficialComponent:=True; Info.URL:='https://github.com/libjxl/libjxl/releases';
       Root.TryGetValue<string>('body',Info.History);
-      Info.History:='Готовый декодер djxl из официального Windows-пакета libjxl. '+
+      if ID=JPEG_XL_ENCODER_COMPONENT then
+        Info.History:='Готовый кодировщик cjxl из официального Windows-пакета libjxl. '+
+          'Нужен для сжатия коллекции с иллюстрациями JPEG XL.'+sLineBreak+Copy(Info.History,1,12000)
+      else Info.History:='Готовый декодер djxl из официального Windows-пакета libjxl. '+
         'Скачивается только при необходимости в изображениях JPEG XL.'+sLineBreak+Copy(Info.History,1,12000);
     end
     else
