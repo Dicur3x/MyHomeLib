@@ -142,7 +142,13 @@ var PrivateID, OnlineID, ExternalID, RawID, ArchiveID, OtherID, PrivateFBD, Fail
     Probe.Timer.Enabled := True;
     Trace('delete safety invoking Main action');
     try
-      if OnlyFiles then frmMain.miDeleteFilesClick(nil) else frmMain.DeleteBookExecute(nil);
+      if OnlyFiles then frmMain.miDeleteFilesClick(nil)
+      else
+      begin
+        Require(frmMain.N74.Visible and frmMain.N74.Enabled and frmMain.tbtnDeleteBook.Visible,
+          'Book deletion is unavailable in the menu or toolbar of the active collection');
+        frmMain.N74.Click;
+      end;
       if Assigned(frmMain.FindComponent('BookDeletionProgress')) then
       begin
         Require(frmMain.Enabled,'Background deletion disabled the main window');
