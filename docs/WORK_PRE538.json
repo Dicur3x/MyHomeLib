@@ -5421,5 +5421,17 @@
     "verification": "The native gate checks the Main menu action, FB2, EPUB, a PDF-shaped input and a Unicode nested FB2 member in ZIP, managed byte equality, no changes to original files, cancellation before import, rollback of malformed FB2 and rejection of an executable. A Flibusta-style numeric ID matching the original SQLite BookID imports separately. The full reimport deliberately renumbers the manual row, ignores an external attempt to claim the local UUID, and retains title, author, both series, annotation, personal note, rating, progress, favorites, bookmark resolution and readable FB2 content. Cancellation of another full update leaves the outcome intact. Update-outcomes, system-remap and the supplied Отпуск encoding regression passed on both architectures.",
     "cleanup": "Temporary builds, copied input and isolated catalogues were placed on G: and cleaned by their runners. No earlier blocked cleanup was retried. The user separately confirmed deleting the two old pre529 test installations on C:.",
     "limits": "The standard picker was wired and its menu action verified by a native test. An interactive picker run in the final release package and manual import into already packed collections were not verified. A PDF-shaped fixture checks import and byte preservation, not PDF rendering."
+  },
+  "manual_reader_text_encoding_20261106": {
+    "status": "Implemented in the working branch and verified with isolated native Win32 and Win64 builds.",
+    "implementation": "The open book exposes Text encoding in the reader Settings menu and reading surface context menu for FB2, plain text, and loose HTML. The selection reloads in the background and is stored for that book only; Automatic removes the override. XML is read from Unicode while preserving the external entity safeguards. An unsuccessful decode or layout keeps the existing presentation. An equal-length reload retains its position exactly; otherwise the current offset is mapped proportionally.",
+    "verification": "The native reader case fixed CP866 text after automatic decoding selected a different code page, recovered a KOI8-R FB2 with an unknown declaration, and checked a tolerant HTML path and UTF-16BE BOM. It tested a failed UTF-8 change, unchanged source hashes, independent book identities, reopen at the saved position, and reset to Automatic. The usual DOCX/ODT spacing and same-position navigation regression cases passed on both architectures.",
+    "cleanup": "The new G: build and test directories and temporary Delphi project clones were removed. Test data remained isolated from the user's library.",
+    "remaining": "The final beta 5 packages and the production standalone Settings menu have not been exercised yet. The verified command was invoked through the real reading-surface menu in the native test runner."
+  },
+  "beta5_scope_20261106": {
+    "status": "User confirmed all unfinished TODO items are in scope for beta 5.",
+    "order": "Complete and verify one item at a time. Reader encoding is verified; the compact reading progress indicator is next. Collection compression and incremental INPX, maximum economy and a separate grayscale option, SQL-dump import using MultiLib as reference, and the remaining deletion, export, reader and packaging checks all belong to beta 5.",
+    "release": "Publish only after validation on x86 and x64. Beta 4 remains the published release."
   }
 }

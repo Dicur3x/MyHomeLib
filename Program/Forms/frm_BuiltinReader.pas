@@ -36,13 +36,13 @@ type
   end;
 
   TReaderLoadThread = class(TThread)
-  private FFileName: string; FRasterEdge: Integer;
+  private FFileName: string; FRasterEdge: Integer; FTextEncoding: TReaderTextEncoding;
   protected procedure Execute; override;
   public
     Document: TReaderDocument;
     Pages: TReaderPDF;
     Error, RequiredComponent: string;
-    constructor Create(const FileName: string; RasterEdge: Integer = 4000);
+    constructor Create(const FileName: string; RasterEdge: Integer; TextEncoding: TReaderTextEncoding);
     destructor Destroy; override;
   end;
 
@@ -85,7 +85,7 @@ type
     FAnnotationMouseDown: TPoint;
     FBookmarkPositions: TArray<Integer>;
     FPageHasBookmark, FBookmarkClick: Boolean;
-    FCopyItem, FCopyPageItem, FCopyAllItem, FCopyViewItem: TMenuItem;
+    FCopyItem, FCopyPageItem, FCopyAllItem, FCopyViewItem, FEncodingMenu: TMenuItem;
     FDictionaryItem, FWebLookupItem, FGoogleItem, FYandexItem: TMenuItem;
     FDictionaryExecutable: string;
     FSearchCase, FSearchWord, FSearchAll: TCheckBox;
@@ -134,6 +134,8 @@ type
     FPDF: TReaderPDF;
     FLoadStatus: TMHLOperationStatus;
     FLoader: TReaderLoadThread;
+    FTextEncoding: TReaderTextEncoding;
+    FChangingEncoding: Boolean;
     FPageWorker: TReaderPageThread;
     FRequestedPage: Integer;
     FRequestedMoved: Boolean;
@@ -190,7 +192,12 @@ type
     function DesiredRasterEdge: Integer;
     procedure PageLoaded(Sender: TObject);
     procedure ResetInspection;
-    procedure LoadPresentation;
+    function CreateFormattingBuffer: TRichEdit;
+    procedure LoadPresentation(Document: TReaderDocument);
+    procedure StartTextLoad(TextEncoding: TReaderTextEncoding);
+    procedure EncodingMenuOpened(Sender: TObject);
+    procedure TextEncodingClick(Sender: TObject);
+    procedure SaveTextEncoding;
     procedure ResizePicturePresentation;
     procedure PrepareVisiblePictures(Start, Finish: Integer);
     function TextCharacterAt(X,Y: Integer): Integer;
@@ -354,6 +361,7 @@ type
     procedure EndInspection;
     function PageLoading: Boolean;
     function SearchRunning: Boolean;
+    function AddTextEncodingMenu(Parent: TMenuItem): TMenuItem;
     procedure GoToChapter(Index: Integer);
     procedure GoToPosition(Position: Integer);
     function ReadingProgress: Double;
@@ -714,8 +722,11 @@ begin
   if FReader.FInspectionHold and FReader.FInspect then FReader.EndInspection;
 end;
 
-constructor TReaderLoadThread.Create(const FileName: string; RasterEdge: Integer);
-begin inherited Create(True); FreeOnTerminate:=False; FFileName:=FileName; FRasterEdge:=RasterEdge; end;
+constructor TReaderLoadThread.Create(const FileName: string; RasterEdge: Integer; TextEncoding: TReaderTextEncoding);
+begin
+  inherited Create(True);
+  FreeOnTerminate:=False; FFileName:=FileName; FRasterEdge:=RasterEdge; FTextEncoding:=TextEncoding;
+end;
 
 destructor TReaderLoadThread.Destroy;
 begin Pages.Free; Document.Free; inherited; end;
@@ -730,7 +741,7 @@ begin
       else
       begin
         Document:=TReaderDocument.Create;
-        Document.Load(FFileName,function: Boolean begin Result:=Terminated; end);
+        Document.Load(FFileName,function: Boolean begin Result:=Terminated; end,FTextEncoding);
       end;
     except
       on E: EMHLComponentRequired do begin Error:=E.Message; RequiredComponent:=E.ComponentID; end;
@@ -1211,7 +1222,7 @@ begin
   FSurface:=TReaderSurface.Create(Self); FSurface.Parent:=Self; FSurface.Align:=alClient; FSurface.FReader:=Self;
   FSurface.DoubleBuffered:=True; FSurface.TabStop:=True;
   FPDFSelectionAnchor:=-1; FPDFSelectionEnd:=-1; FTextSelectionStart:=-1; FTextSelectionEnd:=-1; FInspectionHold:=True; FSelectionEnabled:=True;
-  FCopyMenu:=TPopupMenu.Create(Self); FCopyMenu.OnPopup:=CopyMenuPopup;
+  FCopyMenu:=TPopupMenu.Create(Self); FCopyMenu.Name:='ReaderSelectionMenu'; FCopyMenu.OnPopup:=CopyMenuPopup;
   FAnnotationMenu:=TPopupMenu.Create(Self); FAnnotationMenu.Name:='ReaderAnnotationMenu'; FAnnotationClick:=-1; FSurface.ShowHint:=True;
   FCopyItem:=TMenuItem.Create(FCopyMenu); FCopyItem.Caption:='Копировать выделенный текст';
   FCopyItem.OnClick:=CopyTextClick; FCopyItem.ShortCut:=ShortCut(Ord('C'),[ssCtrl]);
@@ -1240,21 +1251,14 @@ begin
   MenuItem:=TMenuItem.Create(FCopyMenu); MenuItem.Caption:='-'; FCopyMenu.Items.Add(MenuItem);
   MenuItem:=TMenuItem.Create(FCopyMenu); MenuItem.Caption:='Добавить заметку…';
   MenuItem.OnClick:=NotesClick; FCopyMenu.Items.Add(MenuItem);
+  FEncodingMenu:=AddTextEncodingMenu(FCopyMenu.Items);
   // Start with page keys ready; the contents selector keeps its own keys after a click.
   ActiveControl:=FSurface;
-  FRichEdit:=TRichEdit.Create(Self);
   // This hidden formatting buffer must survive showing, scaling and restyling
   // the reader form: recreating a VCL child would discard its OLE pictures.
   FFormattingHost:=TForm.CreateNew(Self); FFormattingHost.Scaled:=False;
   FFormattingHost.Name:='ReaderFormattingHost'; FFormattingHost.StyleElements:=[];
-  FRichEdit.Parent:=FFormattingHost; FRichEdit.Visible:=False;
-  FRichEdit.StyleElements:=[];
-  FRichEdit.Font.Quality:=fqClearTypeNatural;
-  FRichEdit.ReadOnly:=True; FRichEdit.PlainText:=False; FRichEdit.MaxLength:=MAXINT;
-  // The buffer is read-only. Thousands of decorative runs need no undo history.
-  SendMessage(FRichEdit.Handle,EM_SETUNDOLIMIT,0,0);
-  // Only EM_FORMATRANGE paginates this hidden buffer; skip its narrow on-screen wrapping.
-  FRichEdit.WordWrap:=False;
+  FRichEdit:=CreateFormattingBuffer;
   FOleCallback:=AttachReaderPictures(FRichEdit);
   FPageSelection:=TReaderPageSelection.Create(Self,FFormattingHost);
   FBookSkin:=TReaderBookSkin.Create;
@@ -1456,6 +1460,8 @@ begin
   FMissingFonts.Clear; FFontOfferDeclined:=False; FFontsDownloading:=False; FFontOffer.Visible:=False;
   FFileName:=FileName; FIdentity:=Copy(THashSHA2.GetHashString(Identity),1,40);
   FSettingsFile:=SettingsFile; FOnProgress:=OnProgress; FBookTitle:=BookTitle;
+  FTextEncoding:=rteAutomatic;
+  FEncodingMenu.Visible:=ReaderSupportsTextEncoding(FFileName);
   Caption:='HomeLibre — '+BookTitle+' — Читалка';
   RestoreSettings;
   RefreshWindowTheme;
@@ -1481,15 +1487,32 @@ begin
   begin
     FStatus.Caption:='Открытие книги…';
     FLoadStatus:=TMHLOperationStatus.Create('Подготовка текста и изображений книги…');
-    FLoader:=TReaderLoadThread.Create(FileName,DesiredRasterEdge); FLoader.OnTerminate:=LoaderFinished; FLoader.Start;
+    StartTextLoad(FTextEncoding);
   end;
 end;
 
+procedure TfrmBuiltinReader.StartTextLoad(TextEncoding: TReaderTextEncoding);
+begin
+  FreeAndNil(FLoader);
+  FLoader:=TReaderLoadThread.Create(FFileName,DesiredRasterEdge,TextEncoding);
+  FLoadFinished:=False;
+  FLoader.OnTerminate:=LoaderFinished;
+  FLoader.Start;
+end;
+
 procedure TfrmBuiltinReader.LoaderFinished(Sender: TObject);
-var C: TReaderChapter; Chapter: TPDFChapter; SavedPage: Integer;
+var C: TReaderChapter; Chapter: TPDFChapter; SavedPage, PreviousPosition, PreviousLength: Integer;
+  ChangingEncoding: Boolean;
 begin
   if FClosing then Exit;
+  ChangingEncoding:=FChangingEncoding; FChangingEncoding:=False;
   FLoadFinished:=True; FreeAndNil(FLoadStatus);
+  if ChangingEncoding and (FLoader.Error<>'') then
+  begin
+    LogDiagnosticMessage('reader-text-encoding',FLoader.Error);
+    FStatus.Caption:='Не удалось применить кодировку. '+FLoader.Error;
+    Exit;
+  end;
   if FLoader.RequiredComponent<>'' then
   begin
     FRequiredComponent:=FLoader.RequiredComponent; FStatus.Caption:=FLoader.Error;
@@ -1511,18 +1534,52 @@ begin
     if SavedPage<>0 then RequestPage(SavedPage,False);
     Exit;
   end;
-  FDocument:=FLoader.Document; FLoader.Document:=nil;
-  UpdateFootnotesPanel; LoadPresentation;
+  PreviousPosition:=CurrentPosition; PreviousLength:=FLength;
+  LoadPresentation(FLoader.Document);
+  FDocument.Free; FDocument:=FLoader.Document; FLoader.Document:=nil;
+  UpdateFootnotesPanel;
   FLength:=ReaderTextLength(FRichEdit);
+  if ChangingEncoding then
+  begin
+    StopSearch; FSearchStatus:=''; FSearchQuery:=''; FTextMatch:=-1; FTextMatchLength:=0;
+    FSeekTimer.Enabled:=False;
+    FChapters.Items.Clear; FChapterSourceTitles.Clear; FChapterDepths.Clear;
+    FContentsButton.Enabled:=False;
+    if PreviousLength>0 then
+    begin
+      SavedPage:=EnsureRange(Round(PreviousPosition/PreviousLength*FLength),0,Max(0,FLength-1));
+      FPages.Clear; FPages.Add(ReaderCharacterStart(FRichEdit,SavedPage)); FPage:=0;
+    end;
+  end;
   for C in FDocument.Chapters do AddChapter(C.Title,C.Position,C.Depth);
   RebuildChapterTitles;
   FStyleRanges:=FDocument.Styles; FDocument.ReleaseUnusedBuffers;
-  FReady:=True; ReloadAnnotations; InvalidateLayout; RestoreSettings; RenderPage;
+  FReady:=True; ReloadAnnotations;
+  if ChangingEncoding then
+  begin
+    if PreviousLength=0 then RestoreSettings;
+    InvalidateLayout;
+    FTextEncoding:=FLoader.FTextEncoding;
+    try SaveTextEncoding;
+    except
+      on E: Exception do
+      begin
+        LogDiagnosticError('reader-text-encoding-settings',E);
+        FStatus.Caption:='Кодировка применена. Не удалось сохранить настройку.';
+      end;
+    end;
+  end
+  else begin InvalidateLayout; RestoreSettings; RenderPage; end;
   except
     on E: Exception do
     begin
       LogDiagnosticError('reader-presentation',E,LowerCase(ExtractFileExt(FFileName)));
-      FReady:=False; FStatus.Caption:='Не удалось открыть книгу: '+E.Message; FSurface.Invalidate;
+      if ChangingEncoding and Assigned(FLoader.Document) then
+        FStatus.Caption:='Не удалось применить кодировку. '+E.Message
+      else
+      begin
+        FReady:=False; FStatus.Caption:='Не удалось открыть книгу: '+E.Message; FSurface.Invalidate;
+      end;
     end;
   end;
 end;
@@ -1648,24 +1705,46 @@ begin
   InvalidateLayout;
 end;
 
-procedure TfrmBuiltinReader.LoadPresentation;
-var Stream: TReaderRTFStream;
+function TfrmBuiltinReader.CreateFormattingBuffer: TRichEdit;
 begin
-  FImageWidth:=Max(16,TextAreaWidth-16);
-  FImageHeight:=IllustrationHeight;
-  FTypographyDirty:=True;
-  SetLength(FLoadedPictures,0);
-  Stream:=TReaderRTFStream.Create(FDocument.RTF(FImageWidth,FImageHeight,True));
+  Result:=TRichEdit.Create(Self);
   try
-    // Showing or scaling the form can recreate the native edit handle.
-    // Bind picture storage to the current handle before every RTF stream.
-    FOleCallback:=AttachReaderPictures(FRichEdit);
-    ReaderLoadRTF(FRichEdit,Stream);
-  finally Stream.Free; end;
-  FPicturePositions:=ReaderPicturePositions(FRichEdit);
-  if Length(FPicturePositions)<>FDocument.ImageCount then
-    raise EStreamError.Create('Не все изображения книги загружены в разметку.');
-  Inc(FPresentationLoads);
+    Result.Parent:=FFormattingHost; Result.Visible:=False; Result.StyleElements:=[];
+    Result.Font.Quality:=fqClearTypeNatural;
+    Result.ReadOnly:=True; Result.PlainText:=False; Result.MaxLength:=MAXINT;
+    // Only EM_FORMATRANGE wraps this buffer. Formatting needs no undo history.
+    Result.WordWrap:=False;
+    SendMessage(Result.Handle,EM_SETUNDOLIMIT,0,0);
+  except Result.Free; raise; end;
+end;
+
+procedure TfrmBuiltinReader.LoadPresentation(Document: TReaderDocument);
+var Stream: TReaderRTFStream; Edit: TRichEdit; Callback: IInterface;
+  Width, Height: Integer; Positions: TArray<Integer>;
+begin
+  Width:=Max(16,TextAreaWidth-16); Height:=IllustrationHeight;
+  // Keep the current page if decoding succeeds but native layout rejects the new text.
+  Edit:=FRichEdit;
+  if FReady then Edit:=CreateFormattingBuffer;
+  try
+    Stream:=TReaderRTFStream.Create(Document.RTF(Width,Height,True));
+    try
+      // Bind picture storage to the current handle before every RTF stream.
+      Callback:=AttachReaderPictures(Edit);
+      ReaderLoadRTF(Edit,Stream);
+    finally Stream.Free; end;
+    Positions:=ReaderPicturePositions(Edit);
+    if Length(Positions)<>Document.ImageCount then
+      raise EStreamError.Create('Не все изображения книги загружены в разметку.');
+    if Edit<>FRichEdit then
+    begin FRichEdit.Free; FRichEdit:=Edit; end;
+    FOleCallback:=Callback;
+    FImageWidth:=Width; FImageHeight:=Height;
+    FTypographyDirty:=True; FLoadedPictures:=nil; FPicturePositions:=Positions;
+    Inc(FPresentationLoads);
+  finally
+    if Edit<>FRichEdit then Edit.Free;
+  end;
 end;
 
 procedure TfrmBuiltinReader.ResizePicturePresentation;
@@ -2632,8 +2711,64 @@ begin
   end;
 end;
 
+function TfrmBuiltinReader.AddTextEncodingMenu(Parent: TMenuItem): TMenuItem;
+const Captions: array[TReaderTextEncoding] of string = ('Автоматически','UTF-8',
+  'Windows-1251 (кириллица)','CP866 (DOS)','KOI8-R','UTF-16 LE','UTF-16 BE','Windows-1252 (западноевропейская)');
+var Encoding: TReaderTextEncoding; Item: TMenuItem;
+begin
+  Result:=TMenuItem.Create(Parent);
+  Result.Caption:='Кодировка текста';
+  Result.Visible:=ReaderSupportsTextEncoding(FFileName);
+  Result.OnClick:=EncodingMenuOpened;
+  Parent.Add(Result);
+  for Encoding:=Low(TReaderTextEncoding) to High(TReaderTextEncoding) do
+  begin
+    Item:=TMenuItem.Create(Result); Item.Caption:=Captions[Encoding]; Item.Tag:=Ord(Encoding);
+    Item.RadioItem:=True; Item.GroupIndex:=1; Item.OnClick:=TextEncodingClick;
+    Result.Add(Item);
+  end;
+  EncodingMenuOpened(Result);
+end;
+
+procedure TfrmBuiltinReader.EncodingMenuOpened(Sender: TObject);
+var Menu: TMenuItem; I: Integer;
+begin
+  Menu:=TMenuItem(Sender);
+  for I:=0 to Menu.Count-1 do
+  begin
+    Menu.Items[I].Checked:=Menu.Items[I].Tag=Ord(FTextEncoding);
+    Menu.Items[I].Enabled:=FLoadFinished;
+  end;
+end;
+
+procedure TfrmBuiltinReader.TextEncodingClick(Sender: TObject);
+var Encoding: TReaderTextEncoding;
+begin
+  if FClosing or not FLoadFinished or not ReaderSupportsTextEncoding(FFileName) then Exit;
+  Encoding:=TReaderTextEncoding(TMenuItem(Sender).Tag);
+  if (Encoding=FTextEncoding) and FReady then Exit;
+  FChangingEncoding:=True;
+  FStatus.Caption:='Применяется кодировка текста…';
+  StartTextLoad(Encoding);
+end;
+
+procedure TfrmBuiltinReader.SaveTextEncoding;
+var Ini: TMemIniFile; Section: string;
+begin
+  if FSettingsFile='' then Exit;
+  Ini:=TMemIniFile.Create(FSettingsFile,TEncoding.UTF8);
+  try
+    Section:='Book.'+FIdentity;
+    if FTextEncoding=rteAutomatic then Ini.DeleteKey(Section,'TextEncoding')
+    else Ini.WriteInteger(Section,'TextEncoding',Ord(FTextEncoding));
+    Ini.WriteInteger(Section,'Position',CurrentPosition);
+    SaveMemIniFileAtomically(Ini);
+  finally Ini.Free; end;
+end;
+
 procedure TfrmBuiltinReader.CopyMenuPopup(Sender: TObject);
 begin
+  if FEncodingMenu.Visible then EncodingMenuOpened(FEncodingMenu);
   FCopyItem.Visible:=True; FCopyItem.Enabled:=SelectedText<>'';
   FDictionaryItem.Enabled:=ReaderLookupText(SelectedText)<>'';
   FWebLookupItem.Enabled:=FDictionaryItem.Enabled;
@@ -4685,7 +4820,7 @@ begin
 end;
 
 procedure TfrmBuiltinReader.RestoreSettings;
-var Ini: TMemIniFile; Bounds,Work: TRect; Position,I,J: Integer;
+var Ini: TMemIniFile; Bounds,Work: TRect; Position,StoredEncoding,I,J: Integer;
 begin
   if FSettingsFile='' then Exit;
   Ini:=TMemIniFile.Create(FSettingsFile,TEncoding.UTF8);
@@ -4693,6 +4828,12 @@ begin
     // Loading can finish after the user has already adjusted the reader controls.
     if not FReady then
     begin
+      if FEncodingMenu.Visible then
+      begin
+        StoredEncoding:=Ini.ReadInteger('Book.'+FIdentity,'TextEncoding',Ord(rteAutomatic));
+        if (StoredEncoding>=Ord(Low(TReaderTextEncoding))) and (StoredEncoding<=Ord(High(TReaderTextEncoding))) then
+          FTextEncoding:=TReaderTextEncoding(StoredEncoding);
+      end;
       FFontSize:=EnsureRange(Ini.ReadInteger('Reader','FontSize',14),8,48);
       FFontName:=AvailableReaderFont(Ini.ReadString('Reader','FontName','PT Serif'));
       FDictionaryExecutable:=Ini.ReadString('Reader','DictionaryExecutable','');

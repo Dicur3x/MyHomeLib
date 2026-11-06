@@ -5,6 +5,9 @@ interface
 uses System.SysUtils, System.Classes, System.Types, System.Generics.Collections;
 
 type
+  TReaderTextEncoding = (rteAutomatic, rteUTF8, rteWindows1251, rteCP866, rteKOI8R,
+    rteUTF16LE, rteUTF16BE, rteWindows1252);
+
   TReaderChapter = record
     Title: string;
     Position, Depth: Integer;
@@ -55,7 +58,8 @@ type
     Warnings: TStringList;
     constructor Create;
     destructor Destroy; override;
-    procedure Load(const FileName: string; const Canceled: TFunc<Boolean> = nil);
+    procedure Load(const FileName: string; const Canceled: TFunc<Boolean> = nil;
+      TextEncoding: TReaderTextEncoding = rteAutomatic);
     function RTF(MaxPictureWidth: Integer = 500; MaxPictureHeight: Integer = 500; LayoutOnly: Boolean = False): UTF8String;
     function PictureRTF(Index, MaxWidth, MaxHeight: Integer; LayoutOnly: Boolean = False): UTF8String;
     function PictureExtent(Index, MaxWidth, MaxHeight: Integer): TPoint;
@@ -75,6 +79,7 @@ type
 
 function ReaderDecodeText(const Bytes: TBytes): string;
 function ReaderSupportsReflow(const FileName: string): Boolean;
+function ReaderSupportsTextEncoding(const FileName: string): Boolean;
 
 implementation
 
@@ -178,6 +183,42 @@ begin
   try Result := Enc.GetString(Bytes); finally Enc.Free; end;
 end;
 
+function IsReaderPlainText(const Extension: string): Boolean;
+begin
+  Result:=MatchText(Extension,['.txt','.md','.markdown','.faq','.wri']);
+end;
+
+function IsReaderHTML(const Extension: string): Boolean;
+begin
+  Result:=MatchText(Extension,['.html','.htm','.shtml','.xhtml']);
+end;
+
+function ReaderSupportsTextEncoding(const FileName: string): Boolean;
+var Extension: string;
+begin
+  Extension:=ExtractFileExt(FileName);
+  Result:=SameText(Extension,'.fb2') or IsReaderPlainText(Extension) or IsReaderHTML(Extension);
+end;
+
+function DecodeSelectedEncoding(const Bytes: TBytes; TextEncoding: TReaderTextEncoding): string;
+const CodePages: array[TReaderTextEncoding] of Integer = (0,65001,1251,866,20866,1200,1201,1252);
+var Encoding: TEncoding;
+begin
+  if TextEncoding=rteAutomatic then Exit(ReaderDecodeText(Bytes));
+  if Length(Bytes)=0 then Exit('');
+  if ((TextEncoding=rteUTF8) and
+      (MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,PAnsiChar(@Bytes[0]),Length(Bytes),nil,0)=0)) or
+     ((TextEncoding in [rteUTF16LE,rteUTF16BE]) and Odd(Length(Bytes))) then
+    raise EEncodingError.Create('Файл не соответствует выбранной кодировке.');
+  Encoding:=TEncoding.GetEncoding(CodePages[TextEncoding]);
+  try Result:=Encoding.GetString(Bytes); finally Encoding.Free; end;
+  if Result.StartsWith(#$FEFF) then Delete(Result,1,1);
+  if Result.Contains(#0) or Result.StartsWith(#$FFFE) or
+     ((TextEncoding in [rteUTF16LE,rteUTF16BE]) and (Result<>'') and
+      (WideCharToMultiByte(CP_UTF8,WC_ERR_INVALID_CHARS,PChar(Result),Length(Result),nil,0,nil,nil)=0)) then
+    raise EEncodingError.Create('Файл не соответствует выбранной кодировке.');
+end;
+
 function EscapeRTF(const Value: string; const Canceled: TFunc<Boolean> = nil): string;
 var C: Char; B: TStringBuilder; Code,I: Integer;
 begin
@@ -255,17 +296,26 @@ begin
   finally B.Free; end;
 end;
 
-function XMLDocument(const Bytes: TBytes): IXMLDOMDocument3;
+function XMLDocument(const Bytes: TBytes; TextEncoding: TReaderTextEncoding = rteAutomatic): IXMLDOMDocument3;
 var S: string; M: TMatch; Enc: TEncoding;
 begin
   if Length(Bytes)>MAX_DOCUMENT_BYTES then raise Exception.Create('Документ превышает предел встроенной читалки (64 МБ).');
-  S := ReaderDecodeText(Bytes);
-  M := TRegEx.Match(Copy(S,1,512),'^<\?xml\s+[^?]*?\bencoding\s*=\s*["'']([^"'']+)');
-  if M.Success and not SameText(M.Groups[1].Value,'utf-8') and
-    not SameText(M.Groups[1].Value,'utf-16') then
+  S := DecodeSelectedEncoding(Bytes,TextEncoding);
+  if TextEncoding=rteAutomatic then
   begin
-    Enc := TEncoding.GetEncoding(M.Groups[1].Value);
-    try S := Enc.GetString(Bytes); finally Enc.Free; end;
+    M := TRegEx.Match(Copy(S,1,512),'^<\?xml\s+[^?]*?\bencoding\s*=\s*["'']([^"'']+)');
+    if M.Success and not SameText(M.Groups[1].Value,'utf-8') and
+      not SameText(M.Groups[1].Value,'utf-16') then
+    begin
+      Enc := TEncoding.GetEncoding(M.Groups[1].Value);
+      try S := Enc.GetString(Bytes); finally Enc.Free; end;
+    end;
+  end;
+  if TextEncoding<>rteAutomatic then
+  begin
+    // The XML parser receives Unicode. Ignore the declaration of the original byte encoding.
+    M:=TRegEx.Match(Copy(S,1,512),'^<\?xml\s+[^?]*?\?>');
+    if M.Success then Delete(S,1,M.Length);
   end;
   S:=NormalizeReaderXML(S);
   Result := CreateOleObject('Msxml2.DOMDocument.6.0') as IXMLDOMDocument3;
@@ -375,7 +425,8 @@ begin
   finally Stream.Free; end;
 end;
 
-procedure TReaderDocument.Load(const FileName: string; const Canceled: TFunc<Boolean>);
+procedure TReaderDocument.Load(const FileName: string; const Canceled: TFunc<Boolean>;
+  TextEncoding: TReaderTextEncoding);
 var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
   Binaries, Paths: TDictionary<string,string>; Resources: TDictionary<string,TBytes>; NoteFiles: TDictionary<string,IXMLDOMDocument3>; Zip: TZipFile;
   CSS: TReaderCSS; CSSCache: TDictionary<string,string>;
@@ -948,7 +999,7 @@ begin
   CSS:=TReaderCSS.Create; CSSCache:=TDictionary<string,string>.Create;
   Binaries:=TDictionary<string,string>.Create; Paths:=TDictionary<string,string>.Create; Resources:=TDictionary<string,TBytes>.Create; NoteFiles:=TDictionary<string,IXMLDOMDocument3>.Create;
   try
-    if (E='.txt') or (E='.md') or (E='.markdown') or (E='.faq') or (E='.wri') then
+    if IsReaderPlainText(E) then
     begin
       ReadDocument(Data);
       if E='.wri' then
@@ -959,7 +1010,7 @@ begin
         Data:=Copy(Data,128,I-128); Warnings.Add('Windows Write: показан текст без старого форматирования и объектов.');
       end;
       if (E='.md') or (E='.markdown') then Warnings.Add('Markdown: показан исходный текст.');
-      AddText(''); FText.Append(ReaderDecodeText(Data).Replace(#13#10,#13).Replace(#10,#13));
+      AddText(''); FText.Append(DecodeSelectedEncoding(Data,TextEncoding).Replace(#13#10,#13).Replace(#10,#13));
       Check; FPlainRTF:=PlainTextRTF(FText.ToString,Canceled); Check; Exit;
     end;
     if (E='.jpg') or (E='.jpeg') or (E='.png') or (E='.gif') or (E='.bmp') or (E='.webp') or (E='.tif') or (E='.tiff') then
@@ -1056,14 +1107,16 @@ begin
     else
     begin
       ReadDocument(Data);
-      if E='.fb2' then RepairFB2UTF8Declaration(Data);
-      try Document:=XMLDocument(Data);
+      if (E='.fb2') and (TextEncoding=rteAutomatic) then RepairFB2UTF8Declaration(Data);
+      try Document:=XMLDocument(Data,TextEncoding);
       except
         on Error: EMHLComponentRequired do raise;
         on Error: Exception do
         begin
-          if (E<>'.html') and (E<>'.htm') and (E<>'.shtml') then raise;
-          HTML:=DecodeReaderHTML(Data); WalkHTML(HTML);
+          if not IsReaderHTML(E) then raise;
+          if TextEncoding=rteAutomatic then HTML:=DecodeReaderHTML(Data)
+          else HTML:=DecodeSelectedEncoding(Data,TextEncoding);
+          WalkHTML(HTML);
           if FText.Length=0 then raise Exception.Create('В HTML нет текста для чтения.');
           Warnings.Add('HTML: показано упрощённое оформление.'); Exit;
         end;

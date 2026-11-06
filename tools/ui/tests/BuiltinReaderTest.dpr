@@ -1577,6 +1577,7 @@ end;
 
 {$I ReaderWordSelectionTests.inc}
 {$I ReaderLookupTests.inc}
+{$I ReaderTextEncodingTests.inc}
 {$I ReaderBookSkinTests.inc}
 {$I ReaderToolbarTests.inc}
 
@@ -2331,6 +2332,7 @@ begin
       else if ParamStr(1)='doc-reader' then AuditDirectDOC
       else if ParamStr(1)='word-selection' then AuditWordSelection
       else if ParamStr(1)='reader-lookup' then AuditReaderLookup
+      else if ParamStr(1)='reader-text-encoding' then TestReaderTextEncoding
       else if ParamStr(1)='book-appearance' then AuditReaderBookSkin
       else if ParamStr(1)='reader-toolbar' then AuditReaderToolbar
       else if ParamStr(1)='jpeg-rtf' then AuditCompressedJPEGPictures
