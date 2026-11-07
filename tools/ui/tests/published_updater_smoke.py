@@ -50,11 +50,13 @@ def books(path):
 
 def own_processes(target, environment, stop=False):
     command = ("$ErrorActionPreference='Stop'; "
-               "$owned=@(Get-Process HomeLibRu,HomeLibRuUpdater -ErrorAction SilentlyContinue | "
-               "Where-Object {$_.Path -eq $env:HOMELIBRE_TEST_MAIN -or $_.Path -eq $env:HOMELIBRE_TEST_HELPER}); ")
+               "$owned=@(Get-Process HomeLibRu,HomeLibRuUpdater -ErrorAction SilentlyContinue | ForEach-Object {"
+               "$path=$_.Path; if($path -eq $env:HOMELIBRE_TEST_MAIN -or $path -eq $env:HOMELIBRE_TEST_HELPER){"
+               "[pscustomobject]@{Id=$_.Id;Path=$path;Process=$_}}}); ")
     if stop:
-        command += ("foreach($item in $owned){Stop-Process -InputObject $item -Force -ErrorAction Stop; "
-                    "if(-not $item.WaitForExit(15000)){throw 'Owned process did not stop'}}")
+        command += ("foreach($item in $owned){if(-not $item.Process.HasExited){"
+                    "Stop-Process -InputObject $item.Process -Force -ErrorAction Stop; "
+                    "if(-not $item.Process.WaitForExit(15000)){throw 'Owned process did not stop'}}}")
     else:
         command += "ConvertTo-Json -Compress -InputObject @($owned | Select-Object Id,Path)"
     result = subprocess.run(['powershell', '-NoProfile', '-Command', command],
@@ -86,8 +88,9 @@ def main():
                         help='Identify the GUI receiver as an unpublished local candidate; requires --frontend')
     parser.add_argument('--trace-frontend', action='store_true',
                         help='Include update-window diagnostics from the isolated client')
+    parser.add_argument('--notes-file', type=Path, help='Show the candidate release notes in the ready update window')
     args = parser.parse_args()
-    assert not (args.candidate_client or args.trace_frontend) or args.frontend
+    assert not (args.candidate_client or args.trace_frontend or args.notes_file) or args.frontend
     assert sha(args.old_archive) == args.old_sha256
     assert sha(args.new_archive) == args.new_sha256
     assert not args.report.exists()
@@ -228,9 +231,11 @@ def main():
         shutil.copyfile(archive, job / 'release.zip')
         report.update(platform=manifest['platform'], tag=manifest['release'], root=str(root))
         if args.frontend:
+            notes = args.notes_file.read_text(encoding='utf-8-sig') if args.notes_file else (
+                'Проверка готового обновления HomeLibre на отдельной копии.')
             ready = dict(job=str(job), tag=manifest['release'], sha256=args.new_sha256,
                 url='https://github.com/Dicur3x/MyHomeLib/releases/tag/' + manifest['release'],
-                notes='Проверка готового обновления HomeLibre на отдельной копии.',
+                notes=notes,
                 component=component, version=manifest.get('version', ''), size=archive.stat().st_size)
             (cache / 'ready.json').write_text(json.dumps(ready, ensure_ascii=False), encoding='utf-8')
             startup = subprocess.STARTUPINFO()
@@ -281,8 +286,14 @@ def main():
             report['helper_exit'] = 0
         report['helper_result'] = (cache / 'result.txt').read_text('utf-8-sig')
         assert manifest['release'] in report['helper_result']
-        running = own_processes(target, environment)
-        assert len(running) == 1 and running[0]['Path'].lower() == str(target / 'HomeLibRu.exe').lower(), running
+        restart_deadline = time.monotonic() + 30
+        while True:
+            running = [item for item in own_processes(target, environment)
+                       if Path(item['Path']) == target / 'HomeLibRu.exe']
+            if len(running) == 1:
+                break
+            assert time.monotonic() < restart_deadline, 'Updated catalogue did not restart'
+            time.sleep(.1)
         report['restarted_main_pid'] = running[0]['Id']
         print(json.dumps(dict(stage='inspect-restarted-catalogue', **report)), flush=True)
         started = time.monotonic()

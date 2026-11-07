@@ -1,7 +1,10 @@
 {
   "format": 1,
-  "release": "3.0.0_pre1.6",
-  "version": "3.0.0.6",
+  "release": "3.0.0_pre1.7",
+  "version": "3.0.0.7",
   "components_version": "3.0.0.5",
-  "display_version": "3.0 beta 6"
+  "display_version": "3.0 beta 7",
+  "component_versions": {
+    "BookProcessing": "3.0.0.7"
+  }
 }

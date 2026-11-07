@@ -77,9 +77,24 @@ foreach ($project in $projects.Keys) {
     }
 }
 $feed = Get-Content -LiteralPath (Join-Path $repositoryRoot 'Installer/Components.json') -Raw -Encoding UTF8 | ConvertFrom-Json
-$own = @('HomeLibReader','MHLMcpServer','BookProcessing','ImageProcessing','Kindle','LegacyBooks','LegacyOffice','XPS','KindleExport','FB2Export','KoboExport','EpubPdfExport','OPDSTls')
+$own = @('HomeLibReader','MHLMcpServer','BookProcessing','ImageProcessing','Kindle','LegacyBooks','LegacyOffice','XPS','KindleExport','FB2Export','KoboExport','EpubPdfExport','KfxExport','OPDSTls')
+$componentOverrides = @{}
+if ($identity.PSObject.Properties['component_versions']) {
+    if ($identity.component_versions -isnot [pscustomobject]) { throw 'Invalid component version overrides.' }
+    foreach ($entry in $identity.component_versions.PSObject.Properties) {
+        if ($entry.Name -cnotin $own -or $entry.Name -cin @('HomeLibReader', 'MHLMcpServer') -or
+            $entry.Value -isnot [string] -or
+            $entry.Value -cnotmatch '^([0-9]+\.){3}[1-9][0-9]*$' -or
+            [version]$entry.Value -gt [version]$identity.version) {
+            throw "Invalid separate component version: $($entry.Name)"
+        }
+        $componentOverrides[$entry.Name] = $entry.Value
+    }
+}
 foreach ($component in $own) {
-    $packageVersion = if ($component -ceq 'HomeLibReader') { $identity.version } else { $componentsVersion }
+    $packageVersion = if ($component -ceq 'HomeLibReader') { $identity.version }
+        elseif ($componentOverrides.ContainsKey($component)) { $componentOverrides[$component] }
+        else { $componentsVersion }
     foreach ($platform in @('Win32','Win64')) {
         $rows = @($feed.components | Where-Object { $_.id -ceq $component -and $_.platform -ceq $platform })
         if ($rows.Count -ne 1 -or $rows[0].version -cne $packageVersion) {

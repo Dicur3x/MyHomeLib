@@ -48,8 +48,11 @@ def main():
     parser.add_argument('stage', type=Path)
     parser.add_argument('--base-feed', type=Path, required=True)
     parser.add_argument('--release-metadata', type=Path, required=True)
-    parser.add_argument('--reader-only', action='store_true',
-                        help='Replace just the two minimal Reader archives in the existing feed')
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument('--reader-only', action='store_true',
+                       help='Replace just the two minimal Reader archives in the existing feed')
+    modes.add_argument('--selected-only', action='store_true',
+                       help='Replace Reader and only the format components explicitly staged')
     parser.add_argument('--reader-packages', type=Path, required=True,
                         help='Explicit directory of current Reader ZIPs; never infer a numbered build directory')
     parser.add_argument('--format-packages', type=Path,
@@ -62,7 +65,10 @@ def main():
                         help='Corresponding source ZIP for both KfxExport archives')
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
-    if not args.reader_only and (args.djvu_packages is None or args.kfx_source is None):
+    partial = args.reader_only or args.selected_only
+    if args.selected_only and args.format_packages is None:
+        parser.error('Selected publication requires --format-packages')
+    if not partial and (args.djvu_packages is None or args.kfx_source is None):
         parser.error('Full publication requires --djvu-packages and --kfx-source')
     stage, output = args.stage.resolve(), args.output.resolve()
     assert not output.exists(), 'Use a new publication output directory'
@@ -79,8 +85,17 @@ def main():
     identity = json.loads((ROOT / 'Installer/Release.json').read_bytes())
     reader_keys = {('HomeLibReader', platform) for platform in ('Win32', 'Win64')}
     directories = [args.reader_packages.resolve()]
-    if args.reader_only:
+    if partial:
         expected = reader_keys
+        if args.selected_only:
+            formats = args.format_packages.resolve()
+            selected = set(entries(json.loads((formats / 'HomeLibRu.components.json').read_bytes())))
+            assert selected and not selected & reader_keys
+            assert {component for component, _ in selected} <= OWNED - {'KfxExport', 'MHLMcpServer'}
+            for component in {component for component, _ in selected}:
+                assert {(component, 'Win32'), (component, 'Win64')} <= selected, component
+            expected = reader_keys | selected
+            directories.append(formats)
     else:
         expected = {(component, platform) for component in OWNED | {'DjVuLibre'} for platform in ('Win32', 'Win64')}
         source_verifier = runpy.run_path(str(ROOT / 'scripts/package-kfx-export-source.py'))
@@ -101,8 +116,12 @@ def main():
     for directory in directories:
         for key, entry in entries(json.loads((directory / 'HomeLibRu.components.json').read_bytes())).items():
             assert key in expected and key not in replacement, 'Unexpected/duplicate replacement'
-            assert entry['version'] == (bootstrap[key]['version'] if key[0]=='DjVuLibre' else identity['version'])
             assert all(entry[field] == bootstrap[key][field] for field in ('id', 'platform', 'version', 'archive'))
+            if key in reader_keys:
+                assert entry['version'] == identity['version']
+            elif key in baseline and key[0] != 'DjVuLibre':
+                assert tuple(map(int, entry['version'].split('.'))) > tuple(
+                    map(int, baseline[key]['version'].split('.'))), 'Component version must advance: ' + str(key)
             path = directory / entry['archive']
             data = path.read_bytes()
             assert entry['archive'] not in new_names
@@ -143,7 +162,16 @@ def main():
                     assert source_asset['browser_download_url'].encode('ascii') in archive.read(prefix + 'SOURCE.txt')
                     for file in (source_verifier['BUILDER'], source_verifier['PATCH']):
                         assert archive.read(prefix + file) == (ROOT / 'scripts' / file).read_bytes()
-            replacement[key] = entry
+            history = entry.get('history', [])
+            if args.selected_only and key not in reader_keys:
+                history = [note for note in bootstrap[key]['history'] if note['version'] == entry['version']]
+                assert len(history) == 1, 'Missing current component notes: ' + str(key)
+            versions = {note['version'] for note in history}
+            previous_entry = baseline.get(key, {})
+            if key in reader_keys:
+                previous_entry = previous_entry.get('minimal_reader', previous_entry)
+            replacement[key] = {**entry, 'history': history + [note for note in previous_entry.get('history', [])
+                                                                 if note['version'] not in versions]}
             asset = dict(name=entry['archive'], size=len(data), digest='sha256:' + digest(data),
                          browser_download_url=PREFIX + entry['archive'])
             # Existing identical mirrors need no deletion/re-upload. Preserve
@@ -155,7 +183,7 @@ def main():
                                 archive_sha256=digest(data), managed_files=len(payload_names)))
     assert set(replacement) == expected
     identical_archive_count = len(checked) - len(uploads)
-    if not args.reader_only:
+    if not partial:
         previous_source = old_assets.get(kfx_source.name)
         if previous_source is None:
             uploads.insert(0, dict(path=str(kfx_source), **source_asset))
@@ -183,8 +211,11 @@ def main():
         merged[key] = {**legacy, 'minimal_reader': replacement[key]}
     unchanged = set(baseline) - expected
     for key in unchanged | reader_keys:
-        if key in unchanged and not args.reader_only:
-            assert merged[key] == baseline[key] == bootstrap[key], 'Unchanged component metadata drift: ' + str(key)
+        if key in unchanged and args.selected_only:
+            assert all(baseline[key][field] == bootstrap[key][field] for field in ('id', 'platform', 'version', 'archive')), (
+                'Unchanged component identity drift: ' + str(key))
+        elif key in unchanged and not partial:
+            assert baseline[key] == bootstrap[key], 'Unchanged component metadata drift: ' + str(key)
         entry = baseline[key]
         asset = old_assets[entry['archive']]
         assert asset['browser_download_url'] == PREFIX + entry['archive']
@@ -219,7 +250,7 @@ def main():
                   identical_existing_archives_retained=identical_archive_count,
                   public_feed_size_and_sha256_verified=True, bootstrap_identities_verified=True,
                   exact_manifest_and_payloads_verified=True, feed_sha256=digest(feed))
-    if not args.reader_only:
+    if not partial:
         report['kfx_corresponding_source'] = source_asset
     report['reader_archives_match_current_executables'] = True
     report['legacy_reader_archives_retained'] = [baseline[key]['archive'] for key in sorted(reader_keys)]

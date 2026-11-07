@@ -148,9 +148,13 @@
     {
       "id": "HomeLibReader",
       "platform": "Win32",
-      "version": "3.0.0.6",
-      "archive": "HomeLibRu-HomeLibReader-3.0.0.6-Win32.zip",
+      "version": "3.0.0.7",
+      "archive": "HomeLibRu-HomeLibReader-3.0.0.7-Win32.zip",
       "history": [
+        {
+          "version": "3.0.0.7",
+          "notes": "Чтение архивов коллекций с записями LZMA и точное восстановление PDF, упакованных с JPEG XL. Минимальная поставка читалки."
+        },
         {
           "version": "3.0.0.6",
           "notes": "Добавлены плавная прокрутка колесом и стрелками и настройка цветов текста и фона для каждой темы."
@@ -204,9 +208,13 @@
     {
       "id": "HomeLibReader",
       "platform": "Win64",
-      "version": "3.0.0.6",
-      "archive": "HomeLibRu-HomeLibReader-3.0.0.6-Win64.zip",
+      "version": "3.0.0.7",
+      "archive": "HomeLibRu-HomeLibReader-3.0.0.7-Win64.zip",
       "history": [
+        {
+          "version": "3.0.0.7",
+          "notes": "Чтение архивов коллекций с записями LZMA и точное восстановление PDF, упакованных с JPEG XL. Минимальная поставка читалки."
+        },
         {
           "version": "3.0.0.6",
           "notes": "Добавлены плавная прокрутка колесом и стрелками и настройка цветов текста и фона для каждой темы."
@@ -260,9 +268,13 @@
     {
       "id": "BookProcessing",
       "platform": "Win32",
-      "version": "3.0.0.5",
-      "archive": "HomeLibRu-BookProcessing-3.0.0.5-Win32.zip",
+      "version": "3.0.0.7",
+      "archive": "HomeLibRu-BookProcessing-3.0.0.7-Win32.zip",
       "history": [
+        {
+          "version": "3.0.0.7",
+          "notes": "Упаковка коллекций с JPEG XL для PDF, сжатие фона подходящих DjVu и обратимое сжатие других форматов USR."
+        },
         {
           "version": "3.0.0.5",
           "notes": "Обработка FB2, EPUB и текстов, сжатие копии коллекции и импорт онлайн-каталогов из SQL-дампов."
@@ -380,9 +392,13 @@
     {
       "id": "BookProcessing",
       "platform": "Win64",
-      "version": "3.0.0.5",
-      "archive": "HomeLibRu-BookProcessing-3.0.0.5-Win64.zip",
+      "version": "3.0.0.7",
+      "archive": "HomeLibRu-BookProcessing-3.0.0.7-Win64.zip",
       "history": [
+        {
+          "version": "3.0.0.7",
+          "notes": "Упаковка коллекций с JPEG XL для PDF, сжатие фона подходящих DjVu и обратимое сжатие других форматов USR."
+        },
         {
           "version": "3.0.0.5",
           "notes": "Обработка FB2, EPUB и текстов, сжатие копии коллекции и импорт онлайн-каталогов из SQL-дампов."

@@ -4635,8 +4635,8 @@ begin
   try
     Dialog.Caption:='Сжатие коллекции';
     Dialog.Title:='Как упаковать копию коллекции?';
-    Dialog.Text:='Исходные книги останутся в своих папках. Режимы с уменьшением качества действуют на FB2 и EPUB. '+
-      'Режим JPEG XL восстанавливает исходные PDF побайтово.';
+    Dialog.Text:='Исходные книги останутся в своих папках. Режимы с уменьшением качества действуют на иллюстрации FB2 и EPUB. '+
+      '«Максимальная экономия» также упрощает фон подходящих сканов DjVu.';
     Dialog.Flags:=[tfUseCommandLinks,tfAllowDialogCancellation];
     Dialog.CommonButtons:=[tcbCancel];
     Dialog.VerificationText:='При сжатии иллюстраций переводить JPEG и PNG в оттенки серого';
