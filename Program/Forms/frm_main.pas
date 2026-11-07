@@ -4635,8 +4635,8 @@ begin
   try
     Dialog.Caption:='Сжатие коллекции';
     Dialog.Title:='Как упаковать копию коллекции?';
-    Dialog.Text:='Исходные книги останутся в своих папках. Режимы сжатия иллюстраций действуют на FB2 и EPUB. '+
-      'PDF, DjVu и другие форматы сохранят исходное содержимое.';
+    Dialog.Text:='Исходные книги останутся в своих папках. Режимы с уменьшением качества действуют на FB2 и EPUB. '+
+      'Режим JPEG XL восстанавливает исходные PDF побайтово.';
     Dialog.Flags:=[tfUseCommandLinks,tfAllowDialogCancellation];
     Dialog.CommonButtons:=[tcbCancel];
     Dialog.VerificationText:='При сжатии иллюстраций переводить JPEG и PNG в оттенки серого';
@@ -4651,7 +4651,7 @@ begin
         pipBalanced: Button.CommandLinkHint:='Уменьшить размер крупных иллюстраций с умеренным сжатием.';
         pipEconomy: Button.CommandLinkHint:='Сжать иллюстрации сильнее. Размер и детализация могут уменьшиться.';
         pipMaximum: Button.CommandLinkHint:='Сильнее уменьшить крупные иллюстрации. Мелкие детали могут стать хуже видны.';
-        pipJpegXL: Button.CommandLinkHint:='Вынести часть JPEG в отдельный архив с побайтовым восстановлением. '+
+        pipJpegXL: Button.CommandLinkHint:='Сжать подходящие JPEG в FB2, EPUB и PDF с побайтовым восстановлением. '+
           'Упаковка может занять больше времени.';
       end;
     end;
@@ -4787,7 +4787,7 @@ begin
         begin
           RecordComponentUse(JPEG_XL_ENCODER_COMPONENT);
           RecordComponentUse('JPEG XL');
-          Summary:=Summary+sLineBreak+Format('Книг с вынесенными JPEG: %d.',[Status.ImageBooksOptimized]);
+          Summary:=Summary+sLineBreak+Format('Книг со сжатыми JPEG: %d.',[Status.ImageBooksOptimized]);
         end
         else if PackingReducesImageQuality(Options.ImageProfile) then
         begin

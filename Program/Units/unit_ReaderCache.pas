@@ -746,6 +746,7 @@ begin
     Result := TPath.Combine(Folder, 'homelib-archive-' + Copy(THashSHA2.GetHashString(
       LowerCase(TPath.GetFullPath(Source)) + #1 + Member), 1, 32) + Extension);
     Stamp := SourceStamp(Book, Source, ConvertImages) + '|member:' + Member;
+    if Extension='.pdf' then Stamp:=Stamp+'|pdf-archive-v2';
     Result:=ExistingBookCacheFile(Result);
     StampFile := Result + '.source';
     if FileExists(Result) and FileExists(StampFile) then
@@ -762,7 +763,9 @@ begin
       try
         Archive.ExtractToStream(Entry, Extracted); Extracted.Position := 0;
         if (Extension = FB2_EXTENSION) and ConvertImages then
-          Converted := NormalizeEmbeddedWebPFb2(Extracted);
+          Converted := NormalizeEmbeddedWebPFb2(Extracted)
+        else if Extension='.pdf' then
+          Converted := RestoreFLibraryBook(Source,Member,Extracted);
         if Assigned(Converted) then
         begin Extracted.Size := 0; Extracted.Position := 0; Converted.Position := 0; Extracted.CopyFrom(Converted, 0); end;
       finally Extracted.Free; end;
@@ -816,6 +819,7 @@ begin
   Result:=ExistingBookCacheFile(Result);
   StampFile := Result + '.source';
   Stamp := SourceStamp(Book, Source, ConvertImages);
+  if SameText(Book.FileExt,'.pdf') and (Format=bfRawArchive) then Stamp:=Stamp+'|pdf-archive-v2';
   if not RestoreOriginalImages then Stamp:='conversion-unrestored-v1|'+Stamp;
   if FileExists(Result) and FileExists(StampFile) then
     try

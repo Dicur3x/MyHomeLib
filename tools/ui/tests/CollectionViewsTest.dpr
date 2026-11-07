@@ -51,7 +51,8 @@ uses
   frame_NCWFinish, frame_WizardPageBase, frm_ConverToFBD, unit_FileMutex,
   unit_CollectionPacking in '..\..\..\Program\Units\unit_CollectionPacking.pas',
   frm_CollectionPackingProgress in '..\..\..\Program\Forms\frm_CollectionPackingProgress.pas',
-  unit_CollectionPackingInpx in '..\..\..\Program\Units\unit_CollectionPackingInpx.pas';
+  unit_CollectionPackingInpx in '..\..\..\Program\Units\unit_CollectionPackingInpx.pas',
+  unit_OPDSServer;
 
 type
   TRegressionExceptionHandler = class
@@ -5770,6 +5771,7 @@ begin
       if ParamStr(1)='personal-author-reopen' then begin TestPersonalAuthorReopen; Halt(0); end;
       if ParamStr(1)='distribution-layout' then begin TestDistributionLayout; Flush(Output); Halt(0); end;
       if ParamStr(1)='flibrary-source-preparation' then begin TestFLibrarySourcePreparation; Flush(Output); Halt(0); end;
+      if ParamStr(1)='packed-pdf-preparation' then begin TestPackedPdfPreparation; TestPackedPdfInpx; Flush(Output); Halt(0); end;
       if ParamStr(1) = 'view-session-reopen' then begin ViewSessionChild; Halt(0); end;
       if ParamStr(1) = 'query-batch' then begin TestSQLiteQueryBatch; Halt(0); end;
       if ParamStr(1) = 'display-labels' then begin BenchmarkDisplayLabels; Halt(0); end;

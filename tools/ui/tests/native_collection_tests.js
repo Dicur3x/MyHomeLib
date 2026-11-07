@@ -109,6 +109,7 @@ modes.push('reader-link-feedback');
 modes.push('distribution-layout');
 modes.push('export-path-feedback');
 modes.push('flibrary-source-preparation');
+modes.push('packed-pdf-preparation');
 modes.push('estimate-failure-visibility');
 modes.push('export-cache-lifecycle');
 modes.push('save-settings-sync');
@@ -140,6 +141,7 @@ const requiredViews = {
   'export-cache-lifecycle': ['PASS real archived-book estimate removes work immediately and retains reusable cached sources until exit', 'PASS failed archived-book estimate removes all operation work and preserves original archives', 'PASS in-flight estimate cancellation removes operation work and preserves original archives', 'PASS successful failed and cancelled real exports remove operation work and preserve source files', 'PASS real main-form exit clears archived-book estimate and export caches while preserving every original', 'PASS opt-in detailed diagnostics persist capture real failed cancelled exports with exact paths redact credentials exclude book contents and report local component versions', 'PASS native diagnostic journal option remains visible persists and toggles correctly at 96 144 192 DPI'],
   'estimate-failure-visibility': ['PASS complete estimate report preserves every failed book full reason identity required modules partial known sizes and atomic UTF8 save', 'PASS real batch estimate shows all 22 failures without hovering opens full report resets changed format and remains usable light dark 96 144 192 DPI'],
   'flibrary-source-preparation': ['PASS actual FLibrary source restores one cover and two illustrations with unchanged borrowed bytes', 'PASS repeated FLibrary restoration does not create another cover or illustration', 'PASS repeated native FB2 metadata rewrite preserves every restored image and readable body'],
+  'packed-pdf-preparation': ['PASS JPEG XL PDF restores exact bytes for reading, conversion and saving', 'PASS JPEG XL PDF rejects corruption and requests only its missing decoder', 'PASS JPEG XL PDF INPX retains old payloads and serves updated exact PDF bytes'],
   'export-path-feedback': ['PASS export long Unicode filenames complete deep directories native ZIP exact bytes collisions and same-format copies', 'PASS atomic output race and cancellation preserve existing files sources and caller stream position', 'PASS explicit overwrite replaces only saved copies and rejects original identities including hard links', 'PASS Shell copy keeps numbered duplicates by default and replaces saved copies only when requested', 'PASS batch export failures retain every book reason use one final summary and preserve existing paths', 'PASS restored Save As dialog keeps mixed policy image quality ZIP masks path and scan exclusions', 'PASS save continuation exact Unicode options remaining identities one consumer live owner stale source unrelated update and bounded count', 'PASS default ask per-file choices batch apply-to-all cancellation source content and Shell collisions at 96 and 192 DPI', 'PASS protected source Shell collision reports one failed book continues the batch and preserves original bytes'],
   'distribution-layout': ['PASS distribution layout resolves grouped and legacy resources all genre languages and update metadata without root copies'],
   'reader-link-feedback': ['PASS FB2 EPUB internal chapter links navigate by click preserve footnotes and dragging selection in single and double pages'],
@@ -281,7 +283,7 @@ function filterCaptionPasses(subcase) {
     `PASS annotation caption complete theme=${dark}`];
 }
 function requiredPasses(executable, mode) {
-  if (mode==='flibrary-source-preparation') return requiredViews[mode];
+  if (mode==='flibrary-source-preparation' || mode==='packed-pdf-preparation') return requiredViews[mode];
   if (mode==='distribution-layout') return requiredViews[mode];
   if (mode==='webp-live') return ['PASS live WebP update check'];
   if (mode==='reader-portable') return ['PASS portable catalogue and standalone reader default without marker explicit profile Unicode books sessions and unchanged existing data'];
@@ -556,6 +558,31 @@ function run(executable, mode, subcase = "") {
       if(!fs.existsSync(path.join(source,'557950.fb2'))) throw Error('Missing exact source fixture');
       fs.cpSync(source,path.join(folder,'flibrary-source-fixtures'),{recursive:true});
       fs.cpSync(path.join(runtime,'tools/jpeg-xl'),path.join(folder,'tools/jpeg-xl'),{recursive:true});
+    }
+    if (mode==='packed-pdf-preparation') {
+      const arg=process.argv.find(a=>a.startsWith('--packed-pdf-fixtures='));
+      if(!arg) throw Error('Packed PDF source fixtures are required');
+      const source=fs.realpathSync(arg.slice('--packed-pdf-fixtures='.length));
+      for (const name of ['original.pdf','books.7z','single.7z','djxl.exe','cjxl.exe'])
+        if (!fs.existsSync(path.join(source,name))) throw Error(`Missing packed PDF fixture ${name}`);
+      fs.mkdirSync(path.join(folder,'packed-pdf-fixtures'),{recursive:true});
+      for (const name of ['original.pdf','books.7z','single.7z'])
+        fs.copyFileSync(path.join(source,name),path.join(folder,'packed-pdf-fixtures',name));
+      fs.mkdirSync(path.join(folder,'tools/jpeg-xl'),{recursive:true});
+      for (const name of ['djxl.exe','cjxl.exe']) {
+        if (machine(path.join(source,name))!==architecture) throw Error(`Wrong architecture for ${name}`);
+        fs.copyFileSync(path.join(source,name),path.join(folder,'tools/jpeg-xl',name));
+      }
+      const sevenZip=path.join(runtime,'tools/7zip/7za.exe');
+      const python=path.join(runtime,'tools/kindle/python');
+      if (machine(sevenZip)!==architecture || machine(path.join(python,'python.exe'))!==architecture)
+        throw Error('Packed PDF test requires matching 7-Zip and Python executables');
+      fs.copyFileSync(sevenZip,path.join(folder,'tools/7zip/7za.exe'));
+      fs.cpSync(python,path.join(folder,'tools/kindle/python'),{recursive:true});
+      fs.mkdirSync(path.join(folder,'tools/collectionpack'),{recursive:true});
+      fs.copyFileSync(path.resolve(__dirname,'../../collectionpack/pack_collection.py'),
+        path.join(folder,'tools/collectionpack/pack_collection.py'));
+      fs.copyFileSync(path.resolve(__dirname,'../../../Installer/GenreLists/genres_fb2.glst'),path.join(folder,'genres_fb2.glst'));
     }
     if (['reader-small-fb2','reader-main-filter'].includes(mode)) {
       fs.copyFileSync(executable,path.join(folder,'HomeLibReader.exe'));

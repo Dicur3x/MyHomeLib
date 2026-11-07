@@ -143,13 +143,15 @@ begin
 end;
 
 function ResolvePackingTools(const AppPath: string; var Options: TCollectionPackingOptions): TArray<string>;
-var Comparison: Integer; Version: string;
+var Comparison: Integer; Version, Minimum: string;
 begin
   Result:=nil;
   Options.Script:=TPath.Combine(AppPath,PACKING_WORKER_FILE);
   Options.Python:=TPath.Combine(AppPath,FormatComponentFile('BookProcessing'));
   Version:=InstalledComponentVersion(AppPath,'BookProcessing');
-  if not CompareComponentVersions(Version,PACKING_COMPONENT_VERSION,Comparison) or (Comparison<0) then
+  Minimum:=PACKING_COMPONENT_VERSION;
+  if Options.ImageProfile=pipJpegXL then Minimum:=PACKING_PDF_COMPONENT_VERSION;
+  if not CompareComponentVersions(Version,Minimum,Comparison) or (Comparison<0) then
     Result:=Result+['BookProcessing'];
   Options.SevenZip:=FindFullSevenZip(AppPath);
   if Options.SevenZip='' then Options.SevenZip:=FindExternalTool('7za.exe','7zip');
@@ -843,6 +845,7 @@ begin
     begin
       Job.AddPair('jpeg_xl_encoder',FOptions.JpegXLEncoder);
       Job.AddPair('jpeg_xl_decoder',FOptions.JpegXLDecoder);
+      Job.AddPair('pdf_jpeg_xl',TJSONBool.Create(True));
     end;
     Job.AddPair('plan',FPlanFile); Job.AddPair('output',FOptions.OutputRoot); Job.AddPair('seven_zip',FOptions.SevenZip);
     Job.AddPair('verify_sources',TJSONBool.Create(FOptions.VerifySources));

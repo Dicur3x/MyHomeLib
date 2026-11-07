@@ -2,9 +2,8 @@
   Compatibility with the space-saving FLibrary torrent layout.
 
   The layout stores book texts in 7z archives and keeps covers/illustrations in
-  sibling archives.  This unit reconstructs a conventional FB2 or EPUB stream
-  before MyHomeLib passes it to a reader or exporter.  Ordinary ZIP/INPX
-  collections never enter this code path.
+  sibling archives.  This unit reconstructs conventional FB2 and EPUB streams
+  and PDFs from HomeLibre's own JPEG XL packing mode before reading or export.
 ****************************************************************************** *)
 
 unit unit_FLibraryCompat;
@@ -30,7 +29,9 @@ function FLibraryImageSourceFiles(const ContainerFileName: string): TArray<strin
 implementation
 
 uses
+  Winapi.Windows,
   System.SysUtils,
+  System.Hash,
   System.IOUtils,
   System.StrUtils,
   System.Zip,
@@ -42,6 +43,12 @@ uses
 
 const
   FLIBRARY_IMAGE_INDEX = 'FLibraryImageIndex.json';
+  PACKED_PDF_MAGIC: array[0..7] of AnsiChar = ('H','L','P','D','F','X','L','1');
+  PDF_MAGIC: array[0..4] of AnsiChar = ('%','P','D','F','-');
+  PACKED_PDF_LIMIT = 128 * 1024 * 1024;
+  PDF_JPEG_MIN = 32 * 1024;
+  PDF_JPEG_MAX = 16 * 1024 * 1024;
+  PDF_JPEG_LIMIT = 256;
 
 type
   TExternalBookImage = record
@@ -51,6 +58,29 @@ type
   end;
 
   TExternalBookImages = TList<TExternalBookImage>;
+
+  // Binary layout shared with pack_collection.py. Integer fields are LE.
+  TPackedPdfHeader = packed record
+    Magic: array[0..7] of AnsiChar;
+    OriginalSize: Cardinal;
+    Sha256: array[0..31] of Byte;
+    PartCount: Cardinal;
+  end;
+
+  TPackedPdfPart = packed record
+    LiteralSize, EncodedSize, JpegSize: Cardinal;
+  end;
+
+  TTemporaryPdfStream = class(THandleStream)
+  public
+    destructor Destroy; override;
+  end;
+
+destructor TTemporaryPdfStream.Destroy;
+begin
+  CloseHandle(Handle);
+  inherited;
+end;
 
 function StreamToBytes(const Stream: TStream): TBytes;
 var
@@ -422,6 +452,105 @@ begin
 end;
 
 function ImageMediaType(const Bytes: TBytes): string; forward;
+
+function RestorePackedPdf(const Source: TStream): TStream;
+var
+  Header: TPackedPdfHeader;
+  Part: TPackedPdfPart;
+  Output: TTemporaryPdfStream;
+  OutputHandle: THandle;
+  Chunk: TFileStream;
+  Sink: TMemoryStream;
+  SavedPosition, TailSize: Int64;
+  Started: UInt64;
+  Decoder, EncodedFile, JpegFile: string;
+  Digest: TBytes;
+  Signature: array[0..4] of AnsiChar;
+begin
+  Result := nil;
+  SavedPosition := Source.Position;
+  Output := nil;
+  try
+    Source.Position := 0;
+    if (Source.Read(Header.Magic, SizeOf(Header.Magic)) <> SizeOf(Header.Magic)) or
+      not CompareMem(@Header.Magic[0], @PACKED_PDF_MAGIC[0], SizeOf(Header.Magic)) then Exit;
+    Source.Position := 0;
+    Source.ReadBuffer(Header, SizeOf(Header));
+    if (Header.OriginalSize > PACKED_PDF_LIMIT) or (Header.OriginalSize <= Source.Size) or
+      (Header.PartCount = 0) or (Header.PartCount > PDF_JPEG_LIMIT) then
+      raise EZipException.Create('Некорректный заголовок сжатого PDF.');
+
+    Decoder := FindExternalTool('djxl.exe', 'jpeg-xl');
+    if Decoder = '' then
+      raise EMHLComponentRequired.Create('JPEG XL', 'Для восстановления исходного PDF нужен декодер JPEG XL.');
+
+    OutputHandle := CreateFile(PChar(NewTemporaryFileName('.pdf')), GENERIC_READ or GENERIC_WRITE,
+      0, nil, CREATE_NEW, FILE_ATTRIBUTE_TEMPORARY or FILE_FLAG_DELETE_ON_CLOSE, 0);
+    if OutputHandle = INVALID_HANDLE_VALUE then RaiseLastOSError;
+    try
+      Output := TTemporaryPdfStream.Create(OutputHandle);
+    except
+      CloseHandle(OutputHandle);
+      raise;
+    end;
+    EncodedFile := NewTemporaryFileName('.jxl');
+    JpegFile := ChangeFileExt(EncodedFile, '.jpg');
+    for var Index := 1 to Header.PartCount do
+    begin
+      Source.ReadBuffer(Part, SizeOf(Part));
+      if (Part.JpegSize < PDF_JPEG_MIN) or (Part.JpegSize > PDF_JPEG_MAX) or
+        (Part.EncodedSize = 0) or (Part.EncodedSize >= Part.JpegSize) or
+        (Int64(Part.LiteralSize) + Part.EncodedSize > Source.Size - Source.Position) or
+        (Int64(Part.LiteralSize) + Part.JpegSize > Header.OriginalSize - Output.Position) then
+        raise EZipException.Create('Некорректный блок изображения в сжатом PDF.');
+      if Part.LiteralSize > 0 then Output.CopyFrom(Source, Part.LiteralSize);
+      try
+        Chunk := TFileStream.Create(EncodedFile, fmCreate);
+        try Chunk.CopyFrom(Source, Part.EncodedSize); finally Chunk.Free; end;
+        Sink := TMemoryStream.Create;
+        try
+          Started := GetTickCount64;
+          RunExternalToolToStream(Decoder, [EncodedFile, JpegFile, '--reconstruct_jpeg', '--num_threads=1'],
+            Sink, function: Boolean
+              var Attributes: TWin32FileAttributeData;
+              begin
+                Result := (GetTickCount64 - Started > 60000) or
+                  (GetFileAttributesEx(PChar(JpegFile), GetFileExInfoStandard, @Attributes) and
+                    ((Attributes.nFileSizeHigh <> 0) or (Attributes.nFileSizeLow > Part.JpegSize)));
+              end,
+            0, True, NativeUInt(512) * 1024 * 1024);
+        finally Sink.Free; end;
+        Chunk := TFileStream.Create(JpegFile, fmOpenRead or fmShareDenyWrite);
+        try
+          if Chunk.Size <> Part.JpegSize then
+            raise EZipException.Create('Размер восстановленного JPEG внутри PDF не совпал.');
+          Output.CopyFrom(Chunk, Part.JpegSize);
+        finally Chunk.Free; end;
+      finally
+        DeleteFile(EncodedFile);
+        DeleteFile(JpegFile);
+      end;
+    end;
+    TailSize := Source.Size - Source.Position;
+    if TailSize <> Header.OriginalSize - Output.Position then
+      raise EZipException.Create('Размер восстановленного PDF не совпал.');
+    if TailSize > 0 then Output.CopyFrom(Source, TailSize);
+    Output.Position := 0;
+    Output.ReadBuffer(Signature, SizeOf(Signature));
+    if not CompareMem(@Signature[0], @PDF_MAGIC[0], SizeOf(Signature)) then
+      raise EZipException.Create('Восстановленный файл не содержит заголовка PDF.');
+    Output.Position := 0;
+    Digest := THashSHA2.GetHashBytes(Output);
+    if not CompareMem(@Digest[0], @Header.Sha256[0], SizeOf(Header.Sha256)) then
+      raise EZipException.Create('Контрольная сумма восстановленного PDF не совпала.');
+    Output.Position := 0;
+    Result := Output;
+    Output := nil;
+  finally
+    Output.Free;
+    Source.Position := SavedPosition;
+  end;
+end;
 
 function TryExtractExternalImage(const ArchiveFileName,
   EntryName: string; out Bytes: TBytes): Boolean;
@@ -900,6 +1029,9 @@ begin
   Result := nil;
   if not IsSevenZipArchive(ContainerFileName) then
     Exit;
+
+  if SameText(ExtractFileExt(BookEntryName), '.pdf') then
+    Exit(RestorePackedPdf(Source));
 
   Images := TExternalBookImages.Create;
   try

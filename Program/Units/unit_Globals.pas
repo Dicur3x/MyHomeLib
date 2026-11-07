@@ -1423,7 +1423,10 @@ begin
         end;
       end;
 
-      if Assigned(Result) and RestoreOriginalImages and IsSevenZipArchive(ArchiveFileName) then
+      // Even conversion without illustrations needs the original PDF
+      // container in order to read its text layer and page structure.
+      if Assigned(Result) and (RestoreOriginalImages or SameText(FileExt, '.pdf')) and
+        IsSevenZipArchive(ArchiveFileName) then
       begin
         try
           RestoredStream := RestoreFLibraryBook(ArchiveFileName,

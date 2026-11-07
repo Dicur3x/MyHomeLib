@@ -15,11 +15,13 @@ from dataclasses import asdict, dataclass
 import hashlib
 import importlib.util
 import json
+import mmap
 import os
 from pathlib import Path
 import re
 import shutil
 import sqlite3
+import struct
 import subprocess
 import tempfile
 import time
@@ -43,6 +45,15 @@ XLINK_HREF = 'http://www.w3.org/1999/xlink|href'
 EPUB_IMAGE_INDEX = 'FLibraryImageIndex.json'
 MAX_EPUB_IMAGE_INDEX = 1024 * 1024
 SEVENZIP_MAGIC = b"7z\xbc\xaf'\x1c"
+PACKED_PDF_MAGIC = b'HLPDFXL1'
+PACKED_PDF_HEADER = struct.Struct('<8sI32sI')
+PACKED_PDF_PART = struct.Struct('<III')
+PDF_JPEG_MIN = 32 * 1024
+PDF_JPEG_MAX = 16 * 1024 * 1024
+PDF_JPEG_LIMIT = 256
+PDF_MAP_LIMIT = 128 * 1024 * 1024
+PDF_WHITESPACE = b'\x00\t\n\f\r '
+PDF_JPEG_STREAM = re.compile(rb'(?<=[\x00\t\n\f\r >])stream(?:\r\n|[\r\n])(?=\xff\xd8\xff)')
 
 
 class PackingError(ValueError):
@@ -211,6 +222,32 @@ class SevenZip:
                       '-scsUTF-8', '-y', str(target), '@' + str(listing)], cwd=stage)
 
 
+def pdf_jpeg_ranges(pdf, check):
+    """Find directly stored JPEG streams without interpreting PDF objects."""
+    offset = 0
+    for _ in range(PDF_JPEG_LIMIT):
+        check()
+        match = PDF_JPEG_STREAM.search(pdf, offset)
+        if match is None:
+            break
+        start = offset = match.end()
+        terminator = pdf.find(b'endstream', start, start + PDF_JPEG_MAX + 32)
+        if terminator < 0:
+            continue
+        tail = pdf[max(start, terminator - 32):terminator]
+        trimmed = tail.rstrip(PDF_WHITESPACE)
+        end = terminator - (len(tail) - len(trimmed))
+        if PDF_JPEG_MIN <= end - start <= PDF_JPEG_MAX and trimmed.endswith(b'\xff\xd9'):
+            yield start, end
+            offset = terminator + len(b'endstream')
+
+
+def write_pdf_range(pdf, output, start, end, check):
+    for offset in range(start, end, BLOCK):
+        check()
+        output.write(pdf[offset:min(end, offset + BLOCK)])
+
+
 class JpegXL:
     def __init__(self, encoder, decoder, check):
         self.encoder = Path(encoder).absolute() if encoder else None
@@ -255,6 +292,42 @@ class JpegXL:
         finally:
             for file in (original, encoded, restored):
                 file.unlink(missing_ok=True)
+
+    def pack_pdf(self, source, target, scratch, original_sha256):
+        size = source.stat().st_size
+        if not PDF_JPEG_MIN <= size <= PDF_MAP_LIMIT:
+            return False
+        with source.open('rb') as stream:
+            if stream.read(5) != b'%PDF-':
+                return False
+            # Map rather than copy the complete PDF into the 32-bit worker.
+            try:
+                pdf = mmap.mmap(stream.fileno(), 0, access=mmap.ACCESS_READ)
+            except OSError:
+                return False
+            with pdf:
+                with target.open('xb') as output:
+                    output.write(PACKED_PDF_HEADER.pack(PACKED_PDF_MAGIC, size,
+                                                       bytes.fromhex(original_sha256), 0))
+                    copied, count = 0, 0
+                    for start, end in pdf_jpeg_ranges(pdf, self.check):
+                        encoded = self.encode(pdf[start:end], scratch)
+                        if encoded is None:
+                            continue
+                        output.write(PACKED_PDF_PART.pack(start - copied, len(encoded), end - start))
+                        write_pdf_range(pdf, output, copied, start, self.check)
+                        output.write(encoded)
+                        copied = end
+                        count += 1
+                    if count:
+                        write_pdf_range(pdf, output, copied, size, self.check)
+                        output.seek(0)
+                        output.write(PACKED_PDF_HEADER.pack(PACKED_PDF_MAGIC, size,
+                                                           bytes.fromhex(original_sha256), count))
+        if count and target.stat().st_size < size:
+            return True
+        target.unlink()
+        return False
 
     def separate_fb2(self, source, destination, scratch):
         data = source.read_bytes()
@@ -393,6 +466,7 @@ class Packer:
         self.progress = {}
         self.seven = SevenZip(job['seven_zip'], self.check)
         self.jpeg_xl = JpegXL(job.get('jpeg_xl_encoder'), job.get('jpeg_xl_decoder'), self.check) if self.engine == JPEG_XL_ENGINE else None
+        self.pack_pdf_jpeg_xl = self.jpeg_xl is not None and job.get('pdf_jpeg_xl') is True
         self.converter = None
         self.tools_root = Path(job.get('tools_root') or Path(__file__).resolve().parents[1]).resolve()
 
@@ -719,10 +793,18 @@ class Packer:
                 self.check()
                 name = item['filename'] + item['ext']
                 original, candidate = files / name, transformed / name
-                if item['ext'] in IMAGE_SUFFIXES and original.stat().st_size <= MAX_IMAGE_BOOK:
-                    reserve_space(stage, 3 * original.stat().st_size)
-                images = self.jpeg_xl.separate(original, candidate, scratch)
-                if not images:
+                if item['ext'] == '.pdf' and self.pack_pdf_jpeg_xl:
+                    size = original.stat().st_size
+                    if PDF_JPEG_MIN <= size <= PDF_MAP_LIMIT:
+                        reserve_space(stage, size + 2 * min(size, PDF_JPEG_MAX))
+                    changed = self.jpeg_xl.pack_pdf(original, candidate, scratch, item['payload_sha256'])
+                    images = {}
+                else:
+                    if item['ext'] in IMAGE_SUFFIXES and original.stat().st_size <= MAX_IMAGE_BOOK:
+                        reserve_space(stage, 3 * original.stat().st_size)
+                    images = self.jpeg_xl.separate(original, candidate, scratch)
+                    changed = bool(images)
+                if not changed:
                     candidate.unlink(missing_ok=True)
                     untouched.append(name)
                     continue
@@ -733,7 +815,8 @@ class Packer:
                     entry = item['filename'] + '/' + identity
                     pictures.writestr(entry, encoded)
                     expected_images[entry] = hashlib.sha256(encoded).hexdigest()
-        if not replacements or sidecar.stat().st_size >= maximum_size:
+        sidecar_size = sidecar.stat().st_size if expected_images else 0
+        if not replacements or sidecar_size >= maximum_size:
             return None
 
         # Both candidate archives stay private until they jointly beat the
@@ -743,7 +826,7 @@ class Packer:
         self.seven.pack_separated(files, archive, untouched)
         self.seven.pack_separated(transformed, archive,
             [item['filename'] + item['ext'] for item in replacements.values()])
-        if archive.stat().st_size + sidecar.stat().st_size >= maximum_size:
+        if archive.stat().st_size + sidecar_size >= maximum_size:
             return None
         with zipfile.ZipFile(sidecar) as pictures:
             if set(pictures.namelist()) != set(expected_images):
@@ -754,8 +837,9 @@ class Packer:
                     raise PackingError('Архив иллюстраций не прошёл проверку.')
         destination = package / archive.name
         archive.rename(destination)
-        (package / 'images').mkdir()
-        sidecar.rename(package / 'images' / 'books.zip')
+        if expected_images:
+            (package / 'images').mkdir()
+            sidecar.rename(package / 'images' / 'books.zip')
         mappings.update(replacements)
         return destination
 
@@ -899,6 +983,10 @@ class Packer:
                     if check_flibrary and extension == '.epub' and member:
                         if self.check_flibrary_epub(target, member, source, stage, companion_kinds):
                             keep_source = True
+                    if extension == '.pdf' and member and source.suffix.lower() == '.7z':
+                        with target.open('rb') as document:
+                            if document.read(len(PACKED_PDF_MAGIC)) == PACKED_PDF_MAGIC:
+                                keep_source = True
                     image_result = {} if keep_source else self.optimize_book(target, stage)
                     mappings[locator] = dict(filename=Path(name).stem, ext=extension, inside_no=-1, **image_result,
                                              **book_signature(target, self.check))

@@ -18,7 +18,8 @@ import zipfile
 import zlib
 from xml.etree import ElementTree
 
-from pack_collection import API_VERSION, Canceled, JPEG_XL_ENGINE, JpegXL, Packer, PackingError
+from pack_collection import (API_VERSION, Canceled, JPEG_XL_ENGINE, JpegXL, PACKED_PDF_HEADER,
+                             PACKED_PDF_MAGIC, PACKED_PDF_PART, Packer, PackingError)
 
 SEVEN = Path(os.environ.get('HLRU_PACK_7ZIP', '../../Program/Out/Bin64/tools/7zip/7za.exe')).absolute()
 IMAGE_TOOLS = os.environ.get('HLRU_PACK_IMAGE_TOOLS')
@@ -152,6 +153,54 @@ class PackingTests(unittest.TestCase):
             self.assertEqual(codec.separate(source, destination, self.root), {})
             encode.assert_not_called()
         self.assertFalse(destination.exists())
+
+    def test_packed_pdf_reconstructs_exact_layout_and_can_be_retained(self):
+        first = b'\xff\xd8\xff' + b'a' * 40_000 + b'\xff\xd9'
+        second = b'\xff\xd8\xff' + b'b' * 40_000 + b'\xff\xd9'
+        data = (b'%PDF-1.5\n1 0 obj\n<< /Filter /DCTDecode >>\nstream\r\n' + first +
+                b'\r\nendstream\nendobj\n2 0 obj\n<< /Filter /DCTDecode >>\nstream\n' + second +
+                b'\nendstream\nendobj\n%%EOF\n')
+        source = self.source / 'two-images.pdf'
+        source.write_bytes(data)
+        self.add(1, source, '')
+        images = {b'encoded-first': first, b'encoded-second': second}
+        job = dict(self.job, engine=JPEG_XL_ENGINE, pdf_jpeg_xl=True,
+                   jpeg_xl_encoder=sys.executable, jpeg_xl_decoder=sys.executable)
+        with patch.object(JpegXL, 'encode', side_effect=list(images)) as encode:
+            packed = Packer(job).execute()
+        self.assertEqual([call.args[0] for call in encode.call_args_list], [first, second])
+        self.assertEqual(packed.image_books_optimized, 1)
+        self.assertFalse(list(self.output.rglob('images/books.zip')))
+        envelope = self.packed_book(packed, 1)
+        magic, size, digest, count = PACKED_PDF_HEADER.unpack_from(envelope)
+        self.assertEqual((magic, size, digest, count), (PACKED_PDF_MAGIC, len(data), hashlib.sha256(data).digest(), 2))
+        position = PACKED_PDF_HEADER.size
+        restored = bytearray()
+        for _ in range(count):
+            literal, encoded, jpeg = PACKED_PDF_PART.unpack_from(envelope, position)
+            position += PACKED_PDF_PART.size
+            restored.extend(envelope[position:position + literal]); position += literal
+            image = images[envelope[position:position + encoded]]; position += encoded
+            self.assertEqual(len(image), jpeg)
+            restored.extend(image)
+        restored.extend(envelope[position:])
+        self.assertEqual(restored, data)
+        self.assertEqual(source.read_bytes(), data)
+        self.retain(packed, [1])
+        repeated = Packer(job).execute()
+        self.assertEqual((repeated.reused, self.packed_book(repeated, 1)), (1, envelope))
+
+    def test_packed_pdf_ignores_jpeg_bytes_outside_a_direct_pdf_stream(self):
+        data = b'%PDF-1.4\n% not a stream\n\xff\xd8\xff' + b'a' * 40_000 + b'\xff\xd9\n%%EOF'
+        source = self.source / 'no-direct-jpeg.pdf'
+        source.write_bytes(data)
+        self.add(1, source, '')
+        job = dict(self.job, engine=JPEG_XL_ENGINE, pdf_jpeg_xl=True,
+                   jpeg_xl_encoder=sys.executable, jpeg_xl_decoder=sys.executable)
+        with patch.object(JpegXL, 'encode') as encode:
+            packed = Packer(job).execute()
+        encode.assert_not_called()
+        self.assertEqual((packed.image_books_optimized, self.packed_book(packed, 1)), (0, data))
 
     def test_separated_jpeg_cancel_does_not_publish_partial_package(self):
         source = self.source / 'illustrated.fb2'
