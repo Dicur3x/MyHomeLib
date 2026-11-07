@@ -40,12 +40,15 @@ def main():
     parser.add_argument('--djvu-packages', type=Path, required=True)
     parser.add_argument('--base-feed', type=Path, required=True)
     parser.add_argument('--release-metadata', type=Path, required=True)
+    parser.add_argument('--kfx-source', type=Path, required=True)
     args = parser.parse_args()
     stage = args.stage.resolve()
     publication = args.publication_dir.resolve() if args.publication_dir else stage / 'publication-r1'
     source = ROOT / 'Program/Units/unit_ComponentUpdates.pas'
     component_ids = re.findall(r"\(ID:'([^']+)'", source.read_text(encoding='utf-8-sig'))
-    assert len(component_ids) == len(set(component_ids)) == 20
+    assert component_ids and len(component_ids) == len(set(component_ids))
+    version = json.loads((ROOT / 'Installer/Release.json').read_bytes())['version']
+    bootstrap = json.loads((ROOT / 'Installer/Components.json').read_bytes())['components']
     feed_path = publication / 'HomeLibRu.components.json'
     assets_path = publication / 'assets.json'
     feed = json.loads(feed_path.read_bytes())
@@ -62,7 +65,7 @@ def main():
             assert runtime.name.startswith('HomeLibRu-update-test-feed-') and not runtime.is_symlink()
             for platform in ('Win32', 'Win64'):
                 native = ROOT / 'Program/Tests/Out' / platform / 'ProgramUpdateInstallerTest.exe'
-                command = [native, '--components', feed_path, TAG, assets_path, '2.7.0.1105', '--partial']
+                command = [native, '--components', feed_path, TAG, assets_path, version, '--partial']
                 result = run(command)
                 assert result.returncode == 0, (platform, result.returncode, result.stdout, result.stderr)
                 lines = result.stdout.strip().splitlines()
@@ -72,9 +75,11 @@ def main():
                 actual = {component: (parsed[index * 3], parsed[index * 3 + 1])
                           for index, component in enumerate(component_ids)}
                 expected = [entry for entry in feed['components'] if entry['platform'] == platform]
-                assert len(expected) == 17
+                assert sorted(entry['id'] for entry in expected) == sorted(
+                    entry['id'] for entry in bootstrap if entry['platform'] == platform)
                 for entry in expected:
-                    assert actual[entry['id']] == (entry['version'], PREFIX + entry['archive']), (platform, entry)
+                    selected = entry.get('minimal_reader', entry) if entry['id'] == 'HomeLibReader' else entry
+                    assert actual[entry['id']] == (selected['version'], PREFIX + selected['archive']), (platform, entry)
                 assert actual['AlReader'] == ('', '') and actual['WebP'] == ('', '')
                 # A syntactically invalid digest must not become an install URL.
                 broken_assets = json.loads(assets_path.read_bytes())
@@ -90,11 +95,14 @@ def main():
                     parsed_feed_entries=len(expected), exact_versions_and_urls=True,
                     invalid_asset_digest_rejected=True))
             negative = runtime / 'stale-feed-output'
+            stale_feed = runtime / 'stale-feed.json'
+            stale_feed.write_bytes(args.base_feed.read_bytes() + b'\n')
             result = run([sys.executable, '-B', '-X', 'utf8', ROOT / 'scripts/prepare-component-publication.py',
-                stage, '--base-feed', ROOT / 'tools/ui/tests/Out/pre537-final-20261029-r1/remote/HomeLibRu.components.json',
+                stage, '--base-feed', stale_feed,
                 '--reader-packages', args.reader_packages.resolve(),
                 '--djvu-packages', args.djvu_packages.resolve(),
                 '--release-metadata', args.release_metadata.resolve(),
+                '--kfx-source', args.kfx_source.resolve(),
                 '--output', negative])
             assert result.returncode != 0 and 'Public feed size is stale' in result.stderr
             assert not negative.exists(), 'Stale feed created publication output'
@@ -130,6 +138,7 @@ def main():
                 stage, '--base-feed', args.base_feed.resolve(),
                 '--release-metadata', args.release_metadata.resolve(),
                 '--reader-packages', stale_readers, '--djvu-packages', args.djvu_packages.resolve(),
+                '--kfx-source', args.kfx_source.resolve(),
                 '--output', stale_reader_output])
             assert result.returncode != 0 and 'Reader archive does not match current executable' in result.stderr
             assert not stale_reader_output.exists(), 'Stale Reader created publication output'
