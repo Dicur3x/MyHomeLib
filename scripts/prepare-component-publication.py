@@ -147,7 +147,7 @@ def main():
     identical_archive_count = len(checked) - len(uploads)
     previous_source = old_assets.get(source.name)
     if previous_source is None:
-        uploads.append(dict(path=str(source), **source_asset))
+        uploads.insert(0, dict(path=str(source), **source_asset))
     else:
         assert all(previous_source[key] == value for key, value in source_asset.items()), (
             'Existing corresponding source must remain available unchanged')
