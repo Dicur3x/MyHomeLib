@@ -6014,5 +6014,14 @@
     },
     "limits": "The verified Reader payload was installed in each disposable fixture before launch. This does not cover live module installation, independent reader themes, visual spread details or all DPI levels. The first text-only attempt to invoke Hide interface on x64 had no input geometry; an observed coordinate click passed.",
     "cleanup": "Both exact test processes closed normally and both disposable profiles were removed. Other Reader processes were left alone."
+  },
+  "beta5_repeated_inpx_packing_20261107": {
+    "status": "Both native beta 5 builds passed two consecutive INPX updates on a mixed packed collection.",
+    "scenario": "Six initial real archive members in FB2, EPUB, PDF, DjVu, DOC and RTF. Each INPX update replaced one book and added another, in DOCX then CHM. Both runs verified archive reuse, stable EPUB and PDF IDs, preservation of the earlier catalogues, exact native stream hashes in all three generations and byte-identical original-format export for all eight final books. Additional cases verified FBD descriptors, unavailable books, cancellation, restart and rejection of a legacy full import into a packed target.",
+    "scope": "The ordinary native preparation, progress and export code ran in the current test executable. The packer script and Python executable were byte-identical to the ones inside each exact beta 5 BookProcessing ZIP. The harness stages them at its legacy test paths and exercises the native dialog programmatically. It does not exercise production file and folder pickers or public module delivery.",
+    "logs": {
+      "packing-repeated-inpx-Win32.log and packing-repeated-inpx-Win64.log": "1c849300e5c54f3ad30db1e54143176106a78ef28530283042cf29e589149893"
+    },
+    "cleanup": "Both temporary mixed collections and their output generations were removed by the native runner. The source books were read from existing ZIPs and their archives were not rewritten."
   }
 }
