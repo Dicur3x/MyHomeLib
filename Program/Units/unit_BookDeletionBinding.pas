@@ -29,6 +29,10 @@ type
     property RemoveRecords: Boolean read FRemoveRecords;
   end;
 
+  TDuplicateFileDeletion = record
+    Removed, Retained: TBookDeletionBinding;
+  end;
+
 implementation
 
 uses System.JSON, System.IOUtils, System.Generics.Collections,

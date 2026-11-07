@@ -4546,6 +4546,10 @@ end;
 
 procedure TfrmMain.CheckBookDuplicateApply(Sender: TObject);
 begin
+  if Assigned(FBookDeletionOperation) or FBookDeletionNeedsRecovery then
+  begin
+    MessageDlg('Сначала завершите текущее удаление книг.',mtInformation,[mbOK],0); Abort;
+  end;
   if Assigned(FDMThread) or ReaderPreparationsPending(Self) then
   begin
     MessageDlg('Дождитесь завершения загрузки и подготовки книг перед объединением.',mtInformation,[mbOK],0); Abort;
@@ -4558,7 +4562,7 @@ begin
 end;
 
 procedure TfrmMain.ShowBookDuplicates(Sender: TObject);
-var Dialog: TfrmBookDuplicates; Changed: Boolean;
+var Dialog: TfrmBookDuplicates; Changed: Boolean; FileDeletion: TDuplicateFileDeletion;
 begin
   if not Assigned(FCollection) or FFormBusy or FBookListLoading then Exit;
   if isOnlineCollection(FCollection.CollectionCode) then
@@ -4570,9 +4574,19 @@ begin
     Dialog:=TfrmBookDuplicates.CreateForCollection(Self,FCollection);
     try
       Dialog.OnBeforeApply:=CheckBookDuplicateApply;
-      Dialog.ShowModal; Changed:=Dialog.CatalogChanged;
+      Dialog.ShowModal; Changed:=Dialog.CatalogChanged; FileDeletion:=Dialog.FileDeletion;
     finally Dialog.Free; end;
   finally FFormBusy:=False; end;
+  if FileDeletion.Removed.CollectionID<>0 then
+  begin
+    try
+      StartBookDeletion(TBookDeletionOperation.CreateDuplicateRemoval(FileDeletion,
+        Settings.SystemFileName[sfSystemDB],BookDeletionJournalRoot),True);
+    except
+      on E:Exception do begin LogDiagnosticError('book-delete-duplicates',E); MHLShowWarning(E.Message); end;
+    end;
+    Exit;
+  end;
   if Changed then
   begin
     NotifyFavoriteCatalogChanged(TArray<Integer>.Create(FCollection.CollectionID));

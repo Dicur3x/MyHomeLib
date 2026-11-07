@@ -421,6 +421,214 @@ begin
   Writeln('PASS duplicate apply: preferred ID, raw personal cards, source links, all copies and relations, stale preview, rollback, files and recoverable backup');
 end;
 
+type
+  TDuplicateFilePromptProbe = class
+    Accept: Boolean;
+    Count: Integer;
+    DefaultNo: Boolean;
+    procedure Tick(Sender: TObject);
+  end;
+
+procedure TDuplicateFilePromptProbe.Tick(Sender: TObject);
+begin
+  for var I:=Screen.FormCount-1 downto 0 do
+  begin
+    var Dialog:=Screen.Forms[I];
+    if not Dialog.Visible or (Dialog.ClassName<>'TMessageForm') then Continue;
+    Inc(Count);
+    for var Component in Dialog do
+      if (Component is TButton) and TButton(Component).Default then
+        DefaultNo:=TButton(Component).ModalResult=mrNo;
+    if Accept then Dialog.ModalResult:=mrYes else Dialog.ModalResult:=mrNo;
+    Exit;
+  end;
+end;
+
+procedure TestDuplicateFileRemoval;
+var Root: string;
+  DialogProbe: TDuplicateFilePromptProbe;
+  Timer: TTimer;
+  SavedDialogs: Boolean;
+
+  procedure CaseCheck(const Kind, ExpectedError: string);
+  var Collection, Other: IBookCollection;
+    CID: Integer;
+    Keep, Lose, AliasBook: TBookRecord;
+    Form: TfrmBookDuplicates;
+    Selection: TDuplicateFileDeletion;
+    Operation: TBookDeletionOperation;
+    Target, TargetHash, KeepHash, Stage: string;
+    Zip: TZipFile;
+    Started: UInt64;
+
+    function Add(const C: IBookCollection; const Title, ID, Folder, Stem: string): TBookRecord;
+    var Book: TBookRecord;
+    begin
+      Book.Clear;
+      Book.Title:=Title; Book.LibID:=ID; Book.Folder:=Folder; Book.FileName:=Stem;
+      Book.FileExt:='.fb2'; Book.Size:=42; Book.Lang:='ru';
+      TAuthorsHelper.Add(Book.Authors,'Duplicate test','','');
+      TGenresHelper.Add(Book.Genres,'','','prose_contemporary');
+      Include(Book.BookProps,bpIsLocal);
+      var NewID:=C.InsertBook(Book,False,False);
+      C.GetBookRecord(CreateBookKey(NewID,C.CollectionID),Result,False);
+    end;
+
+    function CountRows(const Book: TBookRecord): Int64;
+    var DB: TSQLiteDatabase;
+    begin
+      DB:=TSQLiteDatabase.CreateReadOnly(SystemDB.GetCollectionInfo(Book.BookKey.DatabaseID).DBFileName);
+      try Result:=DB.QuerySingleInt('SELECT count(*) FROM Books WHERE BookID=?',[Book.BookKey.BookID]);
+      finally DB.Free; end;
+    end;
+
+  begin
+    Stage:=IncludeTrailingPathDelimiter(Root+Kind); ForceDirectories(Stage);
+    CID:=SystemDB.CreateCollection('Duplicate files '+Kind,Stage,Stage+'books.hlc2',
+      CT_EXTERNAL_LOCAL_FB,Settings.SystemFileName[sfGenresFB2]);
+    Collection:=SystemDB.GetCollection(CID);
+    Collection.SetProperty(PROP_SOURCE_LIBRARY,'flibusta');
+    if Kind='archive' then
+    begin
+      Keep:=Add(Collection,'Keep duplicate','flibusta:9001','pair.zip','keep');
+      Lose:=Add(Collection,'Remove duplicate','merged:test:flibusta:9001','pair.zip','lose');
+      Zip:=TZipFile.Create;
+      try
+        Zip.Open(Stage+'pair.zip',zmWrite);
+        for var Member in ['keep.fb2','lose.fb2','neighbour.fb2'] do
+        begin
+          var Text:=TStringStream.Create('Owned '+Member,TEncoding.UTF8);
+          try Zip.Add(Text,Member); finally Text.Free; end;
+        end;
+      finally Zip.Free; end;
+    end
+    else
+    begin
+      Keep:=Add(Collection,'Keep duplicate','flibusta:9001','','keep');
+      if Kind='alias' then
+        Lose:=Add(Collection,'Remove duplicate','merged:test:flibusta:9001','','keep')
+      else Lose:=Add(Collection,'Remove duplicate','merged:test:flibusta:9001','','lose');
+      if Kind<>'missing' then TFile.WriteAllText(Keep.GetBookFileName,'Keep original bytes',TEncoding.UTF8);
+      TFile.WriteAllText(Lose.GetBookFileName,'Selected temporary copy',TEncoding.UTF8);
+    end;
+    Target:=Lose.GetBookFileName;
+    TargetHash:=THashSHA2.GetHashStringFromFile(Target);
+    if FileExists(Keep.GetBookFileName) then KeepHash:=THashSHA2.GetHashStringFromFile(Keep.GetBookFileName);
+    if Kind='shared' then
+    begin
+      var OtherID:=SystemDB.CreateCollection('Shared duplicate reference',Stage,Stage+'other.hlc2',
+        CT_EXTERNAL_LOCAL_FB,Settings.SystemFileName[sfGenresFB2]);
+      Other:=SystemDB.GetCollection(OtherID);
+      AliasBook:=Add(Other,'Unselected shared file','flibusta:9002','','lose');
+    end;
+    if Kind='alternate' then
+    begin
+      AliasBook:=Lose; AliasBook.FileName:='alternate';
+      Collection.SetCatalogBookCopy('duplicate-test-alternate','Alternate source',AliasBook);
+    end;
+    Collection.SetReview(Keep.BookKey,'Keep this note');
+    Form:=TfrmBookDuplicates.CreateForCollection(frmMain,Collection);
+    try
+      Form.Plan.Preview;
+      Require(Form.Plan.GroupCount=1,'Fixture did not find one duplicate group: '+Kind);
+      Form.Plan.Choose(Form.Plan.Groups(0,1)[0].ID,Keep.BookKey.BookID,True);
+      Form.RenderPage;
+      var Button:=TButton(Form.FindComponent('btnDeleteDuplicateFiles'));
+      Require(Assigned(Button) and Button.Enabled,'Duplicate file action is unavailable');
+      if Kind='archive' then
+      begin
+        DialogProbe.Accept:=False; DialogProbe.Count:=0; DialogProbe.DefaultNo:=False;
+        Timer.Enabled:=True;
+        try Button.Click; finally Timer.Enabled:=False; end;
+        Require((DialogProbe.Count=1) and DialogProbe.DefaultNo and
+          (Form.FileDeletion.Removed.CollectionID=0) and (THashSHA2.GetHashStringFromFile(Target)=TargetHash),
+          'Cancelling duplicate file deletion changed a source or accepted a plan');
+      end;
+      if Kind='stale' then Collection.SetReview(Lose.BookKey,'New personal data after preview');
+      DialogProbe.Accept:=True; DialogProbe.Count:=0;
+      Timer.Enabled:=True;
+      try Button.Click; finally Timer.Enabled:=False; end;
+      Require(DialogProbe.Count=1,'Expected one explicit destructive prompt: '+Kind);
+      Selection:=Form.FileDeletion;
+      if (Kind='alternate') or (Kind='stale') then
+      begin
+        var Details:=TMemo(Form.FindComponent('mmDuplicateCopyDetails'));
+        Require((Selection.Removed.CollectionID=0) and (Pos(ExpectedError,Details.Text)>0) and
+          (CountRows(Lose)=1) and (THashSHA2.GetHashStringFromFile(Target)=TargetHash),
+          'Preparation did not protect the changed or multi-source record: '+Kind+' '+Details.Text);
+        Exit;
+      end;
+      Require((Length(Selection.Removed.ExpectedBooks)=1) and
+        (Selection.Removed.ExpectedBooks[0].BookKey.BookID=Lose.BookKey.BookID) and
+        (Length(Selection.Retained.ExpectedBooks)=1) and
+        (Selection.Retained.ExpectedBooks[0].BookKey.BookID=Keep.BookKey.BookID),
+        'Prepared file removal bound the wrong records: '+Kind);
+    finally Form.Free; end;
+    if Kind='personal' then Collection.SetRate(Lose.BookKey,3);
+    Operation:=TBookDeletionOperation.CreateDuplicateRemoval(Selection,Settings.SystemFileName[sfSystemDB],
+      Stage+'deletion-journal');
+    try
+      Operation.Start;
+      Started:=GetTickCount64;
+      while not Operation.Status.Finished do
+      begin
+        Require(GetTickCount64-Started<20000,'Duplicate file removal exceeded deadline: '+Kind);
+        Sleep(5);
+      end;
+      Operation.WaitFor;
+      var State:=Operation.Status;
+      if ExpectedError<>'' then
+      begin
+        Require(State.Error.Contains(ExpectedError) and not State.CatalogueChanged and (CountRows(Lose)=1) and
+          (THashSHA2.GetHashStringFromFile(Target)=TargetHash),
+          'Duplicate file removal did not reject '+Kind+' before mutation: '+State.Error);
+        if FileExists(Keep.GetBookFileName) then
+          Require(THashSHA2.GetHashStringFromFile(Keep.GetBookFileName)=KeepHash,'Rejection changed the retained copy');
+        if Kind='shared' then Require(CountRows(AliasBook)=1,'Rejection removed another collection record');
+        Exit;
+      end;
+      Require((State.Error='') and (State.CompletedBooks=1) and (CountRows(Lose)=0) and (CountRows(Keep)=1) and
+        (Collection.GetReview(Keep.BookKey)='Keep this note') and (State.PendingJournal=''),
+        'Duplicate file deletion failed to finish coherently: '+Kind+' '+State.Error);
+      if Kind='archive' then
+      begin
+        Zip:=TZipFile.Create;
+        try
+          Zip.Open(Target,zmRead);
+          Require((Zip.FileCount=2) and (Zip.FileNames[0]='keep.fb2') and (Zip.FileNames[1]='neighbour.fb2'),
+            'Shared ZIP lost a retained member or kept the selected file');
+          for var Name in Zip.FileNames do
+          begin
+            var Data:TBytes; Zip.Read(Name,Data);
+            Require(TEncoding.UTF8.GetString(Data)='Owned '+Name,'Shared ZIP changed an unselected payload');
+          end;
+        finally Zip.Free; end;
+      end
+      else Require(not FileExists(Target) and (THashSHA2.GetHashStringFromFile(Keep.GetBookFileName)=KeepHash),
+        'Loose deletion removed the wrong file');
+    finally Operation.Free; end;
+  end;
+
+begin
+  RequireIsolatedRegression;
+  Root:=Settings.AppPath+'duplicate-file-removal\'; ForceDirectories(Root);
+  DialogProbe:=TDuplicateFilePromptProbe.Create;
+  Timer:=TTimer.Create(nil); Timer.Enabled:=False; Timer.Interval:=10; Timer.OnTimer:=DialogProbe.Tick;
+  SavedDialogs:=Vcl.Dialogs.UseLatestCommonDialogs;
+  Vcl.Dialogs.UseLatestCommonDialogs:=False;
+  try
+    CaseCheck('archive','');
+    CaseCheck('loose','');
+    CaseCheck('missing','сохраняемой копии недоступен');
+    CaseCheck('alias','указывают на один файл');
+    CaseCheck('shared','Файл нужен другой записи');
+    CaseCheck('personal','появились личные данные');
+    CaseCheck('alternate','связаны дополнительные копии');
+    CaseCheck('stale','Запись книги изменилась');
+    Writeln('PASS duplicate file removal explicit confirmation retains exact books and rejects missing, shared, protected and stale sources');
+  finally Vcl.Dialogs.UseLatestCommonDialogs:=SavedDialogs; Timer.Free; DialogProbe.Free; end;
+end;
+
 // Optional audit of an explicitly supplied catalog. No collection DAO and no
 // Apply call are used: catalog, registration and reader files are read-only.
 procedure TestBookDuplicateReadOnlyCatalog(const CatalogFile: string);

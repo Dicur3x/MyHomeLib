@@ -3,7 +3,7 @@
 interface
 
 uses System.SysUtils, System.Classes, System.Generics.Collections, SQLiteWrap, unit_Globals,
-  unit_CollectionMerge;
+  unit_CollectionMerge, unit_BookDeletionBinding;
 
 type
   TDuplicateBook = record
@@ -23,7 +23,7 @@ type
     FCID, FGroupCount, FScanned: Integer;
     FReady, FCommitted: Boolean;
     FRemoved: Integer;
-    FBaseDigest, FTitle: string;
+    FBaseDigest, FTitle, FCatalogueKey: string;
     FCanceled: TMergeCanceled;
     function QueryCanceled: Boolean;
     procedure LoadPersonalProtection;
@@ -40,6 +40,7 @@ type
     procedure Choose(GroupID, KeepID: Integer; Selected: Boolean);
     procedure Apply(const BackupFolder: string; const Canceled: TMergeCanceled = nil;
       const Progress: TMergeStageProgress = nil);
+    function PrepareFileDeletion(const Info: TCollectionInfo; const Canceled: TMergeCanceled): TDuplicateFileDeletion;
     function SelectedCount: Integer;
     function SelectedRemovedCount: Integer;
     property GroupCount: Integer read FGroupCount;
@@ -55,7 +56,8 @@ implementation
 
 uses System.IniFiles, System.IOUtils, System.StrUtils, System.Hash, System.JSON, Winapi.Windows,
   unit_CollectionSpace, unit_LibrarySourceID,
-  unit_ReaderCache, unit_ReaderNoteBooks, unit_ReaderAnnotations, unit_Consts, unit_CollectionBackup;
+  unit_ReaderCache, unit_ReaderNoteBooks, unit_ReaderAnnotations, unit_Consts, unit_CollectionBackup,
+  unit_ZipMemberDeletion;
 
 function DuplicateCandidateKey(const Book: TBookRecord; const LibraryNamespace: string): string;
 var ID, Namespace, Original: string; Depth, P: Integer; Nonzero: Boolean;
@@ -214,6 +216,7 @@ begin
   Previous:=SQLiteCancelCallback; FCanceled:=Canceled; SQLiteCancelCallback:=QueryCanceled;
   try
    try
+    FCatalogueKey:=Copy(ArchiveDeletionSourceIdentity(FFile),1,25);
     FSource:=TSQLiteDatabase.CreateReadOnly(FFile); FSource.Start;
     // SQLite owns and removes this unnamed temporary database. Memory is
     // bounded on x86; the user's catalog and its indexes remain read-only.
@@ -431,6 +434,89 @@ end;
 function TBookDuplicatePlan.SelectedRemovedCount: Integer;
 begin
   Result:=0; if FReady then Result:=FStage.QuerySingleInt('SELECT coalesce(sum(Count-1),0) FROM DuplicateGroups WHERE Selected<>0');
+end;
+
+function TBookDuplicatePlan.PrepareFileDeletion(const Info: TCollectionInfo;
+  const Canceled: TMergeCanceled): TDuplicateFileDeletion;
+var Current, Personal: TSQLiteDatabase; Selection, Copies: TSQLiteQuery;
+  Removed, Retained: TList<TBookRecord>;
+  Previous: TSQLiteCancelCallback;
+  procedure CheckCanceled;
+  begin if QueryCanceled then Abort; end;
+begin
+  Result:=Default(TDuplicateFileDeletion);
+  if not FReady or (SelectedCount=0) then
+    raise EInvalidOperation.Create('Сначала отметьте группы и выберите копии, которые нужно сохранить.');
+  if (Info.ID<>FCID) or isOnlineCollection(Info.CollectionType) or
+    not SameFileName(FFile,Info.DBFileName) or
+    (Copy(ArchiveDeletionSourceIdentity(FFile),1,25)<>FCatalogueKey) then
+    raise EInvalidOperation.Create('Коллекция изменилась. Повторите поиск дублей.');
+  Previous:=SQLiteCancelCallback; FCanceled:=Canceled; SQLiteCancelCallback:=QueryCanceled;
+  Current:=nil; Personal:=nil; Selection:=nil; Copies:=nil; Removed:=nil; Retained:=nil;
+  try
+    CheckCanceled;
+    LoadPersonalProtection;
+    Personal:=TSQLiteDatabase.CreateReadOnly(FSystemFile);
+    if DuplicateQueryDigest(Personal,'SELECT * FROM Bases WHERE DatabaseID=?',[FCID])<>FBaseDigest then
+      raise EInvalidOperation.Create('Параметры коллекции изменились. Повторите поиск дублей.');
+    Current:=TSQLiteDatabase.CreateReadOnly(FFile);
+    Current.Start;
+    if DuplicateQueryDigest(Current,'SELECT * FROM Settings ORDER BY SettingID',[])<>
+       DuplicateQueryDigest(FSource,'SELECT * FROM Settings ORDER BY SettingID',[]) then
+      raise EInvalidOperation.Create('Настройки коллекции изменились. Повторите поиск дублей.');
+    Removed:=TList<TBookRecord>.Create;
+    Retained:=TList<TBookRecord>.Create;
+    Selection:=FStage.NewQuery('SELECT GroupID,KeepID FROM DuplicateGroups WHERE Selected<>0 ORDER BY GroupID');
+    Copies:=Current.NewQuery('SELECT Root,Folder,FileName,Ext,InsideNo FROM CatalogBookCopies WHERE BookID=?');
+    Selection.Open;
+    while not Selection.Eof do
+    begin
+      CheckCanceled;
+      var KeepID:=Selection.FieldAsInt(1);
+      var Group:=Books(Selection.FieldAsInt(0));
+      for var Item in Group do
+      begin
+        CheckCanceled;
+        var Book:=Item.Book;
+        var ID:=Book.BookKey.BookID;
+        if DuplicateQueryDigest(Current,'SELECT * FROM Books WHERE BookID=?',[ID])<>
+           DuplicateQueryDigest(FSource,'SELECT * FROM Books WHERE BookID=?',[ID]) then
+          raise EInvalidOperation.Create('Запись книги изменилась. Повторите поиск дублей.');
+        if ID=KeepID then
+        begin
+          Retained.Add(Book);
+          Continue;
+        end;
+        if Item.HasPersonalData then
+          raise EInvalidOperation.CreateFmt('У копии «%s» есть личные данные или история чтения. Она защищена от удаления.',[Book.Title]);
+        Copies.Reset; Copies.SetParam(0,ID); Copies.Open;
+        while not Copies.Eof do
+        begin
+          var Linked:=Default(TBookRecord);
+          Linked.CollectionRoot:=Copies.FieldAsString(0);
+          Linked.Folder:=Copies.FieldAsString(1);
+          Linked.FileName:=Copies.FieldAsString(2);
+          Linked.FileExt:=Copies.FieldAsString(3);
+          Linked.InsideNo:=Copies.FieldAsInt(4);
+          if ReaderBookPhysicalIdentity(Linked)<>ReaderBookPhysicalIdentity(Book) then
+            raise EInvalidOperation.CreateFmt('С записью «%s» связаны дополнительные копии. Проверьте их отдельно.',[Book.Title]);
+          Copies.Next;
+        end;
+        Removed.Add(Book);
+      end;
+      Selection.Next;
+    end;
+    CheckCanceled;
+    if (Retained.Count<>SelectedCount) or (Removed.Count<>SelectedRemovedCount) or
+      (Copy(ArchiveDeletionSourceIdentity(FFile),1,25)<>FCatalogueKey) then
+      raise EInvalidOperation.Create('Выбор или каталог изменились. Повторите поиск дублей.');
+    Result.Removed:=TBookDeletionBinding.Capture(Info,Removed.ToArray,True);
+    Result.Retained:=TBookDeletionBinding.Capture(Info,Retained.ToArray,True);
+  finally
+    Copies.Free; Selection.Free; Retained.Free; Removed.Free; Personal.Free; Current.Free;
+    SQLiteCancelCallback:=Previous; FCanceled:=nil;
+    if FStage.InTransaction then FStage.Rollback;
+  end;
 end;
 
 procedure TBookDuplicatePlan.Apply(const BackupFolder: string; const Canceled: TMergeCanceled;

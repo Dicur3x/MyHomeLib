@@ -25,7 +25,7 @@ type
   // Only snapshots cross to the window; no VCL work runs on either thread.
   TBookDeletionOperation = class(TThread)
   private
-    FBinding: TBookDeletionBinding;
+    FBinding, FRetainedDuplicates: TBookDeletionBinding;
     FBatch: TArray<TBookDeletionBatchItem>;
     FJournalRoot, FUserFile: string;
     FRecovery: Boolean;
@@ -39,6 +39,7 @@ type
     procedure RunQueue(Queue: TArchiveDeletionQueue; const User: ISystemData;
       Offset, Count: Integer);
     procedure RunRemoval(const User: ISystemData);
+    procedure CheckDuplicateSources(const User: ISystemData);
     procedure RunBatch(const User: ISystemData);
     procedure RunRecovery(const User: ISystemData);
   protected
@@ -47,6 +48,7 @@ type
     constructor Create(const Binding: TBookDeletionBinding; const UserFile, JournalRoot: string);
     constructor CreateBatch(const Items: TArray<TBookDeletionBatchItem>;
       const UserFile, JournalRoot: string);
+    constructor CreateDuplicateRemoval(const Selection: TDuplicateFileDeletion; const UserFile, JournalRoot: string);
     constructor Recover(const UserFile, JournalRoot: string);
     destructor Destroy; override;
     procedure RequestStop;
@@ -60,7 +62,8 @@ implementation
 
 uses Winapi.Windows, System.IOUtils, System.SyncObjs, System.Generics.Collections,
   unit_SystemDatabase_SQLite, unit_BookDeletionPreparation, unit_ZipMemberDeletion,
-  unit_MHLArchiveHelpers, unit_MHLExternalTools, unit_BookDeletionReferences;
+  unit_MHLArchiveHelpers, unit_MHLExternalTools, unit_BookDeletionReferences,
+  unit_BookDeletionInventory, unit_BookDeletionMembers, unit_ReaderCache, SQLiteWrap;
 
 function IsArchiveBookSource(const Book: TBookRecord): Boolean;
 begin
@@ -153,6 +156,87 @@ begin
       CompleteBinding(FBinding,User);
     end;
   end;
+end;
+
+constructor TBookDeletionOperation.CreateDuplicateRemoval(const Selection: TDuplicateFileDeletion;
+  const UserFile, JournalRoot: string);
+begin
+  Create(Selection.Removed,UserFile,JournalRoot);
+  if (Selection.Retained.CollectionID<>Selection.Removed.CollectionID) or
+    not Selection.Removed.RemoveRecords or (Length(Selection.Retained.ExpectedBooks)=0) then
+    raise EArgumentException.Create('Не выбраны сохраняемые копии дублей.');
+  FRetainedDuplicates:=Selection.Retained;
+end;
+
+procedure TBookDeletionOperation.CheckDuplicateSources(const User: ISystemData);
+var Retained: TDictionary<string,Byte>; Containers: TDictionary<string,Byte>;
+  LastInventory: TArray<string>; LastSource: string;
+  Personal, Catalogue: TSQLiteDatabase;
+  Collection: IBookCollection;
+  procedure Locate(const Book: TBookRecord; Kept: Boolean);
+  var Path, Source, Key: string; Members: TArray<string>;
+  begin
+    if Stopping then Abort;
+    Path:=Book.GetBookFileName;
+    if not FileExists(Path) or (TFile.GetSize(Path)<=0) then
+    begin
+      if Kept then raise EReadError.CreateFmt('Файл сохраняемой копии недоступен: %s. Удаление не началось.',[Path]);
+      raise EReadError.CreateFmt('Файл удаляемой копии недоступен: %s. Удаление не началось.',[Path]);
+    end;
+    if not Kept then
+    begin
+      var ID:=Book.BookKey.BookID;
+      var CID:=Book.BookKey.DatabaseID;
+      if (Personal.QuerySingleInt('SELECT EXISTS(SELECT 1 FROM Books WHERE DatabaseID=? AND BookID=?) OR '+
+        'EXISTS(SELECT 1 FROM BookGroups WHERE DatabaseID=? AND BookID=?)',[CID,ID,CID,ID])<>0) or
+        (Catalogue.QuerySingleInt('SELECT EXISTS(SELECT 1 FROM Books WHERE BookID=? AND '+
+          '(Rate<>0 OR Progress<>0 OR length(CAST(Review AS BLOB))>0))',[ID])<>0) then
+        raise EReadError.Create('У удаляемой копии появились личные данные. Повторите поиск дублей.');
+      for var CopyBook in Collection.GetCatalogBookCopies(Book.BookKey) do
+        if ReaderBookPhysicalIdentity(CopyBook)<>ReaderBookPhysicalIdentity(Book) then
+          raise EReadError.Create('С удаляемой записью связаны дополнительные копии. Повторите поиск дублей.');
+    end;
+    if not Kept and not IsPrivateArchiveDeletionSource(Path) then
+      raise EReadError.CreateFmt('У файла есть ссылка или несколько имён: %s. Удаление не началось.',[Path]);
+    Source:=ArchiveDeletionSourceIdentity(Path);
+    Key:=Copy(Source,1,25);
+    if Kept then Containers.AddOrSetValue(Key,0);
+    if not Kept and not Containers.ContainsKey(Key) then Exit;
+    if IsArchiveBookSource(Book) then
+    begin
+      if Source<>LastSource then
+      begin
+        LastInventory:=ReadBookDeletionInventory(Path,Source,function:Boolean begin Result:=Stopping; end);
+        LastSource:=Source;
+      end;
+      Members:=ExactBookDeletionMembers(Book,LastInventory);
+    end
+    else Members:=TArray<string>.Create('');
+    for var Member in Members do
+    begin
+      var Identity:=Key+'|'+Member.Replace('\','/');
+      if Kept then Retained.AddOrSetValue(Identity,0)
+      else if Retained.ContainsKey(Identity) or Retained.ContainsKey(Key+'|') or
+        (Member='') then
+        raise EReadError.CreateFmt('Сохраняемая и удаляемая записи указывают на один файл: %s.',[Path]);
+    end;
+  end;
+begin
+  if FRetainedDuplicates.CollectionID=0 then Exit;
+  Report('Проверка сохраняемых копий дублей','',0,0);
+  FRetainedDuplicates.CheckBeforePhysicalRemoval(User);
+  Retained:=nil; Containers:=nil; Personal:=nil; Catalogue:=nil;
+  try
+    Personal:=TSQLiteDatabase.CreateReadOnly(FUserFile);
+    Catalogue:=TSQLiteDatabase.CreateReadOnly(User.GetCollectionInfo(FBinding.CollectionID).DBFileName);
+    Collection:=User.GetCollection(FBinding.CollectionID);
+    Retained:=TDictionary<string,Byte>.Create;
+    Containers:=TDictionary<string,Byte>.Create;
+    for var Book in FRetainedDuplicates.ExpectedBooks do Locate(Book,True);
+    for var Book in FBinding.ExpectedBooks do Locate(Book,False);
+    CheckLooseDuplicateReferences(User,FBinding.CollectionID,FBinding.ExpectedBooks,
+      function:Boolean begin Result:=Stopping; end);
+  finally Catalogue.Free; Personal.Free; Containers.Free; Retained.Free; end;
 end;
 
 constructor TBookDeletionOperation.Recover(const UserFile,JournalRoot:string);
@@ -288,6 +372,7 @@ begin
   Report('Проверка выбранных книг','',0,0);
   if Stopping then Exit;
   FBinding.CheckBeforePhysicalRemoval(User);
+  CheckDuplicateSources(User);
   var Books:=FBinding.ExpectedBooks;
   Archives:=TList<Integer>.Create; Loose:=TList<Integer>.Create; Absent:=TList<Integer>.Create;
   try

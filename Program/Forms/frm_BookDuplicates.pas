@@ -3,7 +3,7 @@
 interface
 
 uses System.Classes, Vcl.Forms, Vcl.StdCtrls, Vcl.ComCtrls, unit_Interfaces,
-  unit_BookDuplicates, frm_CatalogSources;
+  unit_BookDuplicates, unit_BookDeletionBinding, unit_Globals, frm_CatalogSources;
 
 type
   TfrmBookDuplicates = class(TSourceDialogForm)
@@ -11,7 +11,9 @@ type
     FPlan: TBookDuplicatePlan;
     FGroups, FCopies: TListView;
     FDetails: TMemo;
-    FSearch, FPrevious, FNext, FKeep, FApply, FSelectSource, FClearSelection: TButton;
+    FSearch, FPrevious, FNext, FKeep, FApply, FDelete, FSelectSource, FClearSelection: TButton;
+    FCollectionInfo: TCollectionInfo;
+    FFileDeletion: TDuplicateFileDeletion;
     FSource: TComboBox;
     FUseGroup: TCheckBox;
     FStatus: TLabel;
@@ -27,6 +29,7 @@ type
     procedure KeepCopy(Sender: TObject);
     procedure MarkGroup(Sender: TObject);
     procedure ApplySelected(Sender: TObject);
+    procedure DeleteSelectedFiles(Sender: TObject);
     procedure UpdateStatus;
     procedure SelectSource(Sender: TObject);
     procedure ClearSelection(Sender: TObject);
@@ -37,6 +40,7 @@ type
     procedure RenderPage;
     property Plan: TBookDuplicatePlan read FPlan;
     property CatalogChanged: Boolean read FChanged;
+    property FileDeletion: TDuplicateFileDeletion read FFileDeletion;
     property OnBeforeApply: TNotifyEvent read FBeforeApply write FBeforeApply;
   end;
 
@@ -44,14 +48,16 @@ implementation
 
 uses System.SysUtils, System.IOUtils, System.Variants, System.StrUtils, System.Math, Vcl.Controls,
   Vcl.ExtCtrls, Vcl.Dialogs, unit_Settings, unit_Consts, unit_CollectionWorkerThread,
-  frm_ImportProgressFormEx, frm_BuiltinReader, dm_user, unit_Globals;
+  frm_ImportProgressFormEx, frm_BuiltinReader, dm_user;
 
 type
   TDuplicateScanWorker = class(TCollectionWorker)
   private
     FPlan: TBookDuplicatePlan;
     FError: string;
-    FApply: Boolean;
+    FApply, FPrepareDeletion: Boolean;
+    FCollectionInfo: TCollectionInfo;
+    FFileDeletion: TDuplicateFileDeletion;
     FBackup: string;
     FSourceName: string;
     FSelected: Integer;
@@ -72,6 +78,11 @@ begin
     begin
       SetComment('Выбор повторов по предпочтительному источнику…');
       FSelected:=FPlan.SelectSource(FSourceName,function: Boolean begin Result:=Canceled; end);
+    end
+    else if FPrepareDeletion then
+    begin
+      SetComment('Проверка выбранных дублей и личных данных…');
+      FFileDeletion:=FPlan.PrepareFileDeletion(FCollectionInfo,function:Boolean begin Result:=Canceled; end);
     end
     else if FApply then
       FPlan.Apply(FBackup,function: Boolean begin Result:=Canceled; end,
@@ -99,6 +110,7 @@ begin
   Position:=poOwnerFormCenter; PixelsPerInch:=96; Font.PixelsPerInch:=96; Font.Name:='Segoe UI'; Font.Size:=9;
   BorderStyle:=bsSizeable; ClientWidth:=1040; ClientHeight:=640;
   Constraints.MinWidth:=900; Constraints.MinHeight:=580;
+  FCollectionInfo:=SystemDB.GetCollectionInfo(Collection.CollectionID);
   FPlan:=TBookDuplicatePlan.Create(Settings.ExpandCollectionFileName(VarToStr(Collection.GetProperty(PROP_DATAFILE))),
     Settings.ExpandCollectionRoot(VarToStr(Collection.GetProperty(PROP_ROOTFOLDER))),
     VarToStr(Collection.GetProperty(PROP_SOURCE_LIBRARY)),Settings.SystemFileName[sfSystemDB],
@@ -106,8 +118,8 @@ begin
   Top:=TPanel.Create(Self); Top.Parent:=Self; Top.Align:=alTop; Top.Height:=198; Top.BevelOuter:=bvNone;
   LabelText:=TLabel.Create(Self); LabelText.Parent:=Top; LabelText.AutoSize:=False;
   LabelText.SetBounds(12,10,1016,54); LabelText.Anchors:=[akLeft,akTop,akRight]; LabelText.WordWrap:=True;
-  LabelText.Caption:='1. Найдите повторы и выберите книгу слева. 2. Справа сравните копии и укажите основную запись. 3. Отметьте книгу для объединения и нажмите кнопку внизу.'+#13#10+
-    'Ищем совпадения ID библиотеки, языка и формата. Это кандидаты: издания могут различаться. Объединяются записи каталога; все файлы книг сохраняются.';
+  LabelText.Caption:='1. Найдите повторы. 2. Сравните копии и выберите основную. 3. Отметьте группы и выберите действие внизу.'+#13#10+
+    'Совпадение ID, языка и формата помогает найти кандидатов. Издания могут различаться.';
   FSearch:=TButton.Create(Self); FSearch.Parent:=Top; FSearch.Name:='btnFindBookDuplicates';
   FSearch.SetBounds(12,76,220,30); FSearch.Caption:='1. Найти повторы'; FSearch.OnClick:=Scan;
   FStatus:=TLabel.Create(Self); FStatus.Parent:=Top; FStatus.AutoSize:=False;
@@ -131,7 +143,9 @@ begin
   FNext:=TButton.Create(Self); FNext.Parent:=Bottom; FNext.Name:='btnNextDuplicatePage';
   FNext.SetBounds(164,10,140,30); FNext.Caption:='Следующие 50'; FNext.OnClick:=ChangePage;
   FApply:=TButton.Create(Self); FApply.Parent:=Bottom; FApply.Name:='btnApplyBookDuplicates';
-  FApply.SetBounds(328,10,350,30); FApply.Caption:='Объединить выбранные группы…'; FApply.OnClick:=ApplySelected;
+  FApply.SetBounds(316,10,211,30); FApply.Caption:='Объединить записи…'; FApply.OnClick:=ApplySelected;
+  FDelete:=TButton.Create(Self); FDelete.Parent:=Bottom; FDelete.Name:='btnDeleteDuplicateFiles';
+  FDelete.SetBounds(539,10,201,30); FDelete.Caption:='Удалить дубли с диска…'; FDelete.OnClick:=DeleteSelectedFiles;
   CloseButton:=TButton.Create(Self); CloseButton.Parent:=Bottom;
   CloseButton.SetBounds(908,10,120,30); CloseButton.Anchors:=[akTop,akRight];
   CloseButton.Caption:='Закрыть'; CloseButton.Cancel:=True; CloseButton.ModalResult:=mrCancel;
@@ -141,7 +155,7 @@ begin
   FGroups.RowSelect:=True; FGroups.HideSelection:=False; FGroups.OnSelectItem:=SelectGroup;
   with FGroups.Columns.Add do begin Caption:='Книга'; Width:=226; end;
   with FGroups.Columns.Add do begin Caption:='Копий'; Width:=52; end;
-  with FGroups.Columns.Add do begin Caption:='Объединить'; Width:=86; end;
+  with FGroups.Columns.Add do begin Caption:='Отмечено'; Width:=86; end;
   Splitter:=TSplitter.Create(Self); Splitter.Parent:=Self; Splitter.Left:=370; Splitter.Align:=alLeft;
   RightPanel:=TPanel.Create(Self); RightPanel.Parent:=Self; RightPanel.Align:=alClient; RightPanel.BevelOuter:=bvNone;
   CopyActions:=TPanel.Create(Self); CopyActions.Parent:=RightPanel; CopyActions.Align:=alBottom;
@@ -150,10 +164,10 @@ begin
   FKeep.SetBounds(12,6,310,30); FKeep.Caption:='2. Оставить выбранную запись основной'; FKeep.OnClick:=KeepCopy;
   LabelText:=TLabel.Create(Self); LabelText.Parent:=CopyActions; LabelText.AutoSize:=False;
   LabelText.SetBounds(12,40,634,42); LabelText.Anchors:=[akLeft,akTop,akRight]; LabelText.WordWrap:=True;
-  LabelText.Caption:='★ — запись, которая останется в каталоге. Все пути к файлам и серии сохранятся. Чтобы включить эту книгу в итоговое объединение, поставьте галочку ниже.';
+  LabelText.Caption:='★ — основная копия, которая останется в каталоге. Поставьте галочку, чтобы включить группу в выбранное действие.';
   FUseGroup:=TCheckBox.Create(Self); FUseGroup.Parent:=CopyActions; FUseGroup.Name:='cbSelectDuplicateGroup';
   FUseGroup.SetBounds(12,88,600,22); FUseGroup.Anchors:=[akLeft,akTop,akRight];
-  FUseGroup.Caption:='3. Объединить записи этой книги (файлы сохранить)'; FUseGroup.OnClick:=MarkGroup;
+  FUseGroup.Caption:='3. Отметить эту группу'; FUseGroup.OnClick:=MarkGroup;
   FDetails:=TMemo.Create(Self); FDetails.Parent:=RightPanel; FDetails.Name:='mmDuplicateCopyDetails';
   FDetails.Align:=alBottom; FDetails.Height:=155; FDetails.ReadOnly:=True; FDetails.WordWrap:=True; FDetails.ScrollBars:=ssVertical;
   FCopies:=TListView.Create(Self); FCopies.Parent:=RightPanel; FCopies.Align:=alClient;
@@ -179,10 +193,11 @@ begin
   FKeep.Enabled:=Assigned(FCopies.Selected) and Assigned(FGroups.Selected);
   FUseGroup.Enabled:=Assigned(FGroups.Selected);
   FApply.Enabled:=FPlan.Ready and (FPlan.SelectedCount>0);
+  FDelete.Enabled:=FApply.Enabled;
   FSource.Enabled:=FPlan.Ready and (FSource.Items.Count>0);
   FSelectSource.Enabled:=FSource.Enabled and (FSource.ItemIndex>=0);
   FClearSelection.Enabled:=FApply.Enabled;
-  if FPlan.Ready then FStatus.Caption:=Format('Найдено книг с повторами: %d · Показаны %d–%d'+#13#10+'Для объединения отмечено: %d. Без галочки книга не изменится.',
+  if FPlan.Ready then FStatus.Caption:=Format('Найдено книг с повторами: %d · Показаны %d–%d'+#13#10+'Отмечено групп: %d.',
     [FPlan.GroupCount,Ord(FPlan.GroupCount>0)*(FOffset+1),FOffset+Length(FPage),FPlan.SelectedCount])
   else FStatus.Caption:='Поиск ещё не выполнен';
 end;
@@ -218,6 +233,36 @@ begin
       if DirectoryExists(BackupFolder) then FDetails.Lines.Add('Папка резервной копии: '+BackupFolder);
     end;
   finally Progress.Free; Worker.Free; UpdateStatus; end;
+end;
+
+procedure TfrmBookDuplicates.DeleteSelectedFiles(Sender: TObject);
+var Worker: TDuplicateScanWorker; Progress: TImportProgressFormEx;
+begin
+  if not FPlan.Ready or (FPlan.SelectedCount=0) then Exit;
+  if Assigned(FBeforeApply) then FBeforeApply(Self);
+  if MessageDlg(Format('Удалить %d повторных копий из %d групп вместе с файлами?'+sLineBreak+sLineBreak+
+    'Основная копия каждой группы останется. Удаляемые записи и их связи с каталогом не переносятся в основную запись.'+sLineBreak+
+    'Перед удалением программа проверит выбранные записи, личные данные и файлы сохраняемых копий.',
+    [FPlan.SelectedRemovedCount,FPlan.SelectedCount]),mtWarning,[mbYes,mbNo],0,mbNo)<>mrYes then Exit;
+  if Assigned(FBeforeApply) then FBeforeApply(Self);
+  Worker:=TDuplicateScanWorker.Create(FPlan);
+  try
+    Worker.FPrepareDeletion:=True; Worker.FCollectionInfo:=FCollectionInfo;
+    Progress:=TImportProgressFormEx.Create(Self);
+    try
+      Progress.Caption:='Проверка перед удалением дублей';
+      Progress.WorkerThread:=Worker;
+      Progress.CloseOnTimer:=True; Progress.Timer.Interval:=1;
+      Progress.PopupMode:=pmExplicit; Progress.PopupParent:=Self;
+      Progress.ShowModal; Worker.WaitFor;
+    finally Progress.Free; end;
+    if Worker.Canceled then Exit;
+    if Assigned(Worker.FatalException) then raise EReadError.Create(Exception(Worker.FatalException).Message);
+    if Worker.FError<>'' then
+    begin FDetails.Lines.Text:=Worker.FError; Exit; end;
+    FFileDeletion:=Worker.FFileDeletion;
+    ModalResult:=mrOk;
+  finally Worker.Free; end;
 end;
 
 procedure TfrmBookDuplicates.Scan(Sender: TObject);

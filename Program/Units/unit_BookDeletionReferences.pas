@@ -2,15 +2,17 @@
 
 interface
 
-uses unit_Interfaces, unit_ArchiveDeletionQueue, System.SysUtils;
+uses unit_Interfaces, unit_ArchiveDeletionQueue, unit_Globals, System.SysUtils;
 
 procedure CheckArchiveDeletionReferences(const User: ISystemData;
   var Tasks: TArray<TArchiveDeletionTask>; const Cancelled: TFunc<Boolean>);
+procedure CheckLooseDuplicateReferences(const User: ISystemData; CollectionID: Integer;
+  const Removed: TArray<TBookRecord>; const Cancelled: TFunc<Boolean>);
 
 implementation
 
 uses Winapi.Windows, System.Classes, System.IOUtils, System.Generics.Collections, SQLiteWrap,
-  unit_Globals, unit_BookDeletionBinding, unit_BookDeletionInventory,
+  unit_BookDeletionBinding, unit_BookDeletionInventory,
   unit_ZipMemberDeletion, unit_MHLArchiveHelpers, unit_FLibraryCompat;
 
 type
@@ -59,20 +61,87 @@ begin
   end;
 end;
 
+function SourceKey(const Path: string): string;
+begin
+  try Result:=Copy(ArchiveDeletionSourceIdentity(Path),1,25);
+  except on E:EOSError do
+    if E.ErrorCode in [ERROR_FILE_NOT_FOUND,ERROR_PATH_NOT_FOUND,ERROR_NOT_READY] then Result:=''
+    else raise;
+  end;
+end;
+
+procedure CheckLooseDuplicateReferences(const User: ISystemData; CollectionID: Integer;
+  const Removed: TArray<TBookRecord>; const Cancelled: TFunc<Boolean>);
+var Names, Sources: TDictionary<string,Byte>; Selected: TDictionary<Integer,Byte>;
+  Collections: ICollectionInfoIterator; Info: TCollectionInfo;
+
+  procedure CheckRows(DB: TSQLiteDatabase; const SQL: string; HasRoot: Boolean);
+  var Query: TSQLiteQuery; Book: TBookRecord;
+  begin
+    Book:=Default(TBookRecord);
+    Query:=DB.NewQuery(SQL);
+    try
+      Query.Open;
+      while not Query.Eof do
+      begin
+        if Assigned(Cancelled) and Cancelled() then Abort;
+        Book.FileName:=Query.FieldAsString(2);
+        Book.FileExt:=Query.FieldAsString(3);
+        // A private loose source cannot have a second filename. Only probe
+        // registered records whose final filename can refer to our file.
+        if Names.ContainsKey(UpperCase(ExtractFileName(Book.FileName+Book.FileExt))) and
+          ((Info.ID<>CollectionID) or not Selected.ContainsKey(Query.FieldAsInt(0))) then
+        begin
+          Book.Folder:=Query.FieldAsString(1);
+          if HasRoot then Book.CollectionRoot:=Query.FieldAsString(4) else Book.CollectionRoot:=Info.GetRootPath;
+          if not IsArchiveExt(Book.GetBookFileName(TPath.Combine(Book.CollectionRoot,Book.Folder))) then
+          begin
+            var Path:=Book.GetBookFileName;
+            if Sources.ContainsKey(SourceKey(Path)) then
+              raise EInOutError.CreateFmt('Файл нужен другой записи: %s. Удаление не началось.',[Path]);
+          end;
+        end;
+        Query.Next;
+      end;
+    finally Query.Free; end;
+  end;
+
+begin
+  Names:=TDictionary<string,Byte>.Create;
+  Sources:=TDictionary<string,Byte>.Create;
+  Selected:=TDictionary<Integer,Byte>.Create;
+  try
+    for var Book in Removed do
+    begin
+      Selected.Add(Book.BookKey.BookID,0);
+      var Path:=Book.GetBookFileName;
+      if IsArchiveExt(Path) then Continue;
+      var Key:=SourceKey(Path);
+      if Key='' then raise EReadError.CreateFmt('Файл удаляемой копии недоступен: %s.',[Path]);
+      Sources.AddOrSetValue(Key,0);
+      Names.AddOrSetValue(UpperCase(ExtractFileName(Path)),0);
+    end;
+    if Names.Count=0 then Exit;
+    Collections:=User.GetCollectionInfoIterator;
+    while Collections.Next(Info) do
+    begin
+      if Assigned(Cancelled) and Cancelled() then Abort;
+      if not FileExists(Info.DBFileName) then Continue;
+      var DB:=TSQLiteDatabase.CreateReadOnly(Info.DBFileName);
+      try
+        CheckRows(DB,'SELECT BookID,Folder,FileName,Ext FROM Books',False);
+        if DB.QuerySingleInt('SELECT COUNT(*) FROM sqlite_master WHERE type=''table'' AND name=''CatalogBookCopies''')>0 then
+          CheckRows(DB,'SELECT BookID,Folder,FileName,Ext,Root FROM CatalogBookCopies',True);
+      finally DB.Free; end;
+    end;
+  finally Selected.Free; Sources.Free; Names.Free; end;
+end;
+
 procedure CheckArchiveDeletionReferences(const User:ISystemData;
   var Tasks:TArray<TArchiveDeletionTask>; const Cancelled:TFunc<Boolean>);
 var Targets:TObjectDictionary<string,TCheckedArchive>; Paths:TDictionary<string,string>;
   ImageOwners:TDictionary<string,string>;
   Collections:ICollectionInfoIterator; Info:TCollectionInfo; InventoryChars:Int64;
-
-  function SourceKey(const Path:string):string;
-  begin
-    try Result:=Copy(ArchiveDeletionSourceIdentity(Path),1,25);
-    except on E:EOSError do
-      if E.ErrorCode in [ERROR_FILE_NOT_FOUND,ERROR_PATH_NOT_FOUND,ERROR_NOT_READY] then Result:=''
-      else raise;
-    end;
-  end;
 
   procedure CheckPictureOwners(const Path,Key:string);
   begin

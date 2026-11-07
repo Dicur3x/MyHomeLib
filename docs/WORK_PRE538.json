@@ -5730,5 +5730,27 @@
     },
     "limits": "These tests exercise the ordinary Main delete command in native fixtures. The separate duplicate merge command still preserves files, and physical deletion there needs its own explicit choice. No actual user catalogue was modified. Final beta 5 package verification remains.",
     "cleanup": "The native runner and the enclosing Python temporary directory removed fresh owned profiles, archive copies and the extracted original member. Previously denied temporary directories were untouched."
+  },
+  "duplicate_file_removal_20261107": {
+    "status": "Native Win32 and Win64 checks passed for the separate duplicate file removal action and the existing merge action.",
+    "behavior": "The duplicates dialog confirms a separate physical deletion request and keeps the selected main copy. The existing merge continues to preserve file links. Physical deletion uses the ordinary deletion queue and recovery journal.",
+    "checks": "The native dialog declined without mutation and accepted an exact selection. The worker removed an exact member of a shared ZIP and a standalone file, retained the main copy and an unrelated archive member, and rejected missing keepers, shared files or registered references, additional linked sources and stale personal data. The ordinary duplicate-source scenarios passed on both architectures.",
+    "builds": {
+      "Win32": {
+        "exe_sha256": "3dbc8376372735644276da58026c2a1e6c53578dcbcd85019539aef5d2bf10e7",
+        "logs": [
+          "duplicate-file-removal-after-file-removal-Win32-20261107.log",
+          "duplicate-source-after-file-removal-Win32-20261107.log"
+        ]
+      },
+      "Win64": {
+        "exe_sha256": "03818e906914f4ec54134b3f78434135ed307e6f4d6fb3e2b7b0fb6986290370",
+        "logs": [
+          "duplicate-file-removal-Win64-20261107.log",
+          "duplicate-source-after-file-removal-Win64-20261107.log"
+        ]
+      }
+    },
+    "limits": "Only temporary native fixtures were used. The final beta 5 applications and distribution archives still need verification."
   }
 }
