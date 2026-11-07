@@ -6023,5 +6023,17 @@
       "packing-repeated-inpx-Win32.log and packing-repeated-inpx-Win64.log": "1c849300e5c54f3ad30db1e54143176106a78ef28530283042cf29e589149893"
     },
     "cleanup": "Both temporary mixed collections and their output generations were removed by the native runner. The source books were read from existing ZIPs and their archives were not rewritten."
+  },
+  "beta5_reader_layout_matrix_20261107": {
+    "status": "Both Win32 and Win64 native reader layout and appearance suites passed.",
+    "checks": "FB2, EPUB, RTF and TXT preserve continuous text through paired and sliding navigation. PDF, CBZ, TIFF and DjVu use both pages, turn by pairs or by one page, and handle the odd final page. FB2 and the fixed-page samples passed separate hide-interface and full-screen checks in a small window, and the six theme checks retained their reading state and the catalogue palette. The appearance suite verified straight front edges at 96, 144 and 192 DPI, selection coordinates and unchanged pagination in both FB2 and PDF, and page-block thickness following reading progress. Repeated opens stayed within the test's original GDI and USER resource budgets.",
+    "scope": "These are native form and paint tests using staged format modules. Opening from the exact catalogue and Reader ZIPs was verified separately in beta5_direct_catalogue_reader_20261107. No screenshots were retained and the tests do not certify a subjective visual match to another reader.",
+    "logs": {
+      "reader-spread-Win32.log": "d0bc8ec833c893bc257d1353802c1aad2dab9d2d4e0b36a4ad0a618bad025abb",
+      "reader-spread-Win64.log": "8decb3e79e19cdf1211bc2fdd52b7150210ebf4ecd31689e496d9c93d0ec34ad",
+      "reader-book-appearance-Win32.log": "63f6df52b0a22f808539486876825354a1411c2ebde30cd3427a24280af17cdc",
+      "reader-book-appearance-Win64.log": "dcb04bebb3c65e536d10f574fb63429ad9ed53c7d0b6d2eb55a83d4554ba403a"
+    },
+    "cleanup": "The test runners removed their fixtures. The two appearance profile paths were checked absent after exit."
   }
 }
