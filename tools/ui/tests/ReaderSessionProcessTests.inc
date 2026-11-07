@@ -44,7 +44,11 @@ begin
   try
     Report.WriteString('Reader','run',GetEnvironmentVariable('HLRU_READER_TEST_RUN'));
     Report.WriteString('Reader','error',Error); Report.WriteString('Reader','hash',TextHash);
-    if Assigned(View) then Report.WriteString('Reader','caption',View.Caption);
+    if Assigned(View) then
+    begin
+      Report.WriteString('Reader','caption',View.Caption);
+      Report.WriteInteger('Reader','pictures',View.PictureCount);
+    end;
     Report.WriteInteger('Reader','pid',GetCurrentProcessId);
     Report.WriteInteger('Reader','pages',Pages); Report.WriteInteger('Reader','position',InitialPosition);
     Report.WriteInteger('Reader','open_ms',OpenMS);

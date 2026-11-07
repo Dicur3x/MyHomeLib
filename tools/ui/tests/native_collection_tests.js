@@ -165,7 +165,7 @@ const requiredViews = {
   "reader-small-fb2": ["PASS actual Main small unchanged FB2 opens and pages through explicit builtin and default reader actions without repeated preparation", "PASS reader return updates the selected catalogue book progress badge"],
   "paged-export-progress": ["PASS paged export actual progress caption, bar, cancel enabled and source preservation cancel=0", "PASS paged export actual progress caption, bar, cancel enabled and source preservation cancel=1", "PASS paged export actual cancellation without a second prompt action=1", "PASS paged export actual cancellation without a second prompt action=2"],
   "minimal-first-install": ["PASS minimal first install verifies actual archive, excludes optional binaries and installs 7-Zip DocSharp DjVuLibre with preserved private files"],
-  "reader-session-context": ["PASS reader session preserves selected archive member history settings progress notes and source leases while rejecting invalid replies"],
+  "reader-session-context": ["PASS exact archive paths distinguish case variants with native ZIP and 7-Zip", "PASS reader session preserves selected archive member history settings progress notes and source leases while rejecting invalid replies"],
   "sqlite-mapping": ["PASS SQLite mapped reads beyond 256 MB preserve concurrent snapshots Unicode rollback backup restore and compaction"],
   "reader-open-choice": ["PASS catalogue open-book choice keeps catalogue colours while reading theme stays independent; accept cancel and remembered choice work"],
   "reader-host-session": ["PASS catalogue reader host opens the selected archive member with existing history notes bookmarks progress and source protection", "PASS Reader help diagnostic menu current log copyable folder ZIP owner palette resize and 96/144/192 DPI"],
@@ -480,6 +480,13 @@ function run(executable, mode, subcase = "") {
   if (!absolute.startsWith(expectedRoot) || !path.basename(absolute).startsWith("HomeLibRu-native-")) throw new Error("Unsafe temporary path.");
   try {
     stage(folder, executable, mode);
+    if (mode === 'reader-session-context') {
+      const seven = path.join(runtime, 'tools/7zip/7za.exe');
+      if (machine(seven) !== architecture) throw Error('Reader archive test requires matching 7-Zip.');
+      const destination = path.join(folder, 'tools/7zip');
+      fs.mkdirSync(destination, {recursive:true});
+      fs.copyFileSync(seven, path.join(destination, '7za.exe'));
+    }
     if (mode === 'sql-catalogue-download') {
       if (!sqlFixturesArg) throw Error('Explicit SQL fixtures are required');
       const source = fs.realpathSync(sqlFixturesArg.slice('--sql-fixtures='.length));
@@ -599,7 +606,7 @@ function run(executable, mode, subcase = "") {
         path.join(folder,'tools/collectionpack/pack_collection.py'));
       fs.copyFileSync(path.resolve(__dirname,'../../../Installer/GenreLists/genres_fb2.glst'),path.join(folder,'genres_fb2.glst'));
     }
-    if (['reader-small-fb2','reader-main-filter'].includes(mode)) {
+    if (['builtin-reader','reader-small-fb2','reader-main-filter'].includes(mode)) {
       fs.copyFileSync(executable,path.join(folder,'HomeLibReader.exe'));
       for (const [source,name] of [
         [path.resolve(__dirname,'../../../LICENSE'),'HomeLibReader-LICENSE.txt'],

@@ -204,7 +204,7 @@ class SevenZip:
 
     def extract(self, archive, member, target, work):
         with target.open('xb') as output:
-            self.run(['x', '-so', '-spd', '-y', str(archive), member], cwd=work, output=output)
+            self.run(['x', '-so', '-spd', '-ssc', '-y', '--', str(archive), member], cwd=work, output=output)
         if target.stat().st_size > MAX_BOOK:
             raise PackingError('Одна книга превышает допустимый размер 512 МБ.')
         if target.stat().st_size == 0:

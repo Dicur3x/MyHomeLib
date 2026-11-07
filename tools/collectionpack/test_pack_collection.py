@@ -19,7 +19,8 @@ import zlib
 from xml.etree import ElementTree
 
 from pack_collection import (API_VERSION, Canceled, JPEG_XL_ENGINE, JpegXL, PACKED_PDF_HEADER,
-                             PACKED_PDF_MAGIC, PACKED_PDF_PART, Packer, PackingError, djvu_refinements)
+                             PACKED_PDF_MAGIC, PACKED_PDF_PART, Packer, PackingError, SevenZip,
+                             djvu_refinements)
 
 SEVEN = Path(os.environ.get('HLRU_PACK_7ZIP', '../../Program/Out/Bin64/tools/7zip/7za.exe')).absolute()
 IMAGE_TOOLS = os.environ.get('HLRU_PACK_IMAGE_TOOLS')
@@ -625,6 +626,18 @@ class PackingTests(unittest.TestCase):
         result = Packer(self.job).execute()
         self.assertLessEqual(result.output_bytes, source.stat().st_size)
         self.assertEqual(self.packed_book(result, 1), body)
+
+    def test_external_extraction_uses_exact_case_and_literal_entry_names(self):
+        source = self.archive('case.zip', {'Novel.txt': b'uppercase book',
+                                          'novel.txt': b'lowercase book',
+                                          '-book.txt': b'hyphenated book'})
+        decoder = SevenZip(SEVEN, lambda: None)
+        for member, expected in (('novel.txt', b'lowercase book'),
+                                 ('-book.txt', b'hyphenated book')):
+            with self.subTest(member=member):
+                target = self.root / member
+                decoder.extract(source, member, target, self.root)
+                self.assertEqual(target.read_bytes(), expected)
 
     def test_small_deflated_book_does_not_become_stored_in_mixed_archive(self):
         book = b'\x89PNG\r\n\x1a\n' + b'0' * 244

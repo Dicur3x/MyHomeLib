@@ -131,6 +131,9 @@ uses
   StrUtils, System.Math, unit_MHLArchiveBusy,
   unit_MHLExternalTools;
 
+const
+  AMBIGUOUS_ARCHIVE_ENTRY = -2;
+
 procedure TMHLZip.EnsureSevenZipTool;
 var RequiresFullDecoder: Boolean;
 begin
@@ -384,14 +387,20 @@ function TMHLZip.FindEntryIndex(const AFileName: string): Integer;
 var I: Integer; Key: string;
 begin
   EnsureFileNames; Result:=-1;
-  // Keep exact names first. The 7-Zip CLI returns Windows separators while
-  // INPX/ZIP usually use '/'; accept that alias only when it is unambiguous.
-  for I:=0 to GetFileCount-1 do if SameText(FFileNames[I],AFileName) then Exit(I);
+  for I:=0 to GetFileCount-1 do
+    if FFileNames[I]=AFileName then
+    begin
+      if Result>=0 then Exit(AMBIGUOUS_ARCHIVE_ENTRY);
+      Result:=I;
+    end;
+  if Result>=0 then Exit;
+  // Names in archives can differ only by case. A normalized path is
+  // compatible with older catalogues only if it identifies one entry.
   Key:=StringReplace(AFileName,'\','/',[rfReplaceAll]);
   for I:=0 to GetFileCount-1 do
     if SameText(StringReplace(FFileNames[I],'\','/',[rfReplaceAll]),Key) then
     begin
-      if Result>=0 then Exit(-1);
+      if Result>=0 then Exit(AMBIGUOUS_ARCHIVE_ENTRY);
       Result:=I;
     end;
 end;
@@ -410,7 +419,7 @@ begin
   begin
     EnsureSevenZipTool;
     RunExternalToolToStream(FSevenZipTool,
-      ['x', '-so', '-y', '-spd', '-sccUTF-8', '--', FArchiveFileName,
+      ['x', '-so', '-y', '-spd', '-ssc', '-sccUTF-8', '--', FArchiveFileName,
        FFileNames[Index]], Destination, FIsCanceled);
     FLastID := Index;
     Exit;
@@ -463,13 +472,13 @@ begin
   if FIsSevenZip and not FFileNamesLoaded then
   begin
     RunExternalToolToStream(FSevenZipTool,
-      ['x', '-so', '-y', '-spd', '-sccUTF-8', '--', FArchiveFileName, AFileName],
+      ['x', '-so', '-y', '-spd', '-ssc', '-sccUTF-8', '--', FArchiveFileName, AFileName],
       Stream, FIsCanceled);
-    if Stream.Size = 0 then
-      raise EZipException.CreateFmt('Archive entry "%s" was not found',
-        [AFileName]);
-    FLastID := -1;
-    Exit;
+    if Stream.Size<>0 then
+    begin
+      FLastID := -1;
+      Exit;
+    end;
   end;
 
   Index := FindEntryIndex(AFileName);
@@ -482,7 +491,9 @@ function TMHLZip.FindBookIndex(const AFileName: string; const LegacyIndex: Integ
 var Method: Word;
 begin
   Result := FindEntryIndex(AFileName);
-  if (Result<0) and not FIsSevenZip and (LegacyIndex>=0) and (LegacyIndex<FZip.FileCount) then
+  if Result=AMBIGUOUS_ARCHIVE_ENTRY then
+    raise EArchiveBookEntryNotFound.CreateFmt('Неоднозначное имя книги «%s» в архиве.',[AFileName]);
+  if (Result=-1) and not FIsSevenZip and (LegacyIndex>=0) and (LegacyIndex<FZip.FileCount) then
   begin
     // Preserve the ordinary ZIP locator contract. Reordered compact archives
     // must resolve by name and never by an obsolete source entry index.
@@ -523,7 +534,7 @@ begin
   begin
     EnsureSevenZipTool;
     RunExternalToolToStream(FSevenZipTool,
-      ['x','-so','-y','-spd','-sccUTF-8','--',FArchiveFileName,FFileNames[Index]],Stream,FIsCanceled,PrefixBytes);
+      ['x','-so','-y','-spd','-ssc','-sccUTF-8','--',FArchiveFileName,FFileNames[Index]],Stream,FIsCanceled,PrefixBytes);
     Exit;
   end;
   Input := OpenEntryStream(Index);

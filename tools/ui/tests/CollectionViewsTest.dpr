@@ -1091,34 +1091,10 @@ begin
 end;
 
 type
-  TBuiltinReadDriver = class
+  TFailedBuiltinReadDriver = class
     Timer: TTimer;
     Started: UInt64;
     Finished: Boolean;
-    procedure Tick(Sender: TObject);
-  end;
-
-procedure TBuiltinReadDriver.Tick(Sender: TObject);
-var I: Integer; Reader: TfrmBuiltinReader;
-begin
-  Require(GetTickCount64-Started<10000,'Main built-in reader did not finish loading');
-  for I:=0 to Screen.FormCount-1 do
-    if Screen.Forms[I] is TfrmBuiltinReader then
-    begin
-      Reader:=TfrmBuiltinReader(Screen.Forms[I]);
-      if not Reader.Ready then Exit;
-      Timer.Enabled:=False;
-      Require(Pos('Исходный текст встроенной читалки',Reader.BookText)>0,'Main reader loaded wrong book');
-      Require(Reader.PictureCount=1,'Main modal reader lost its illustration at first show');
-      Reader.SetBounds(70,80,640,440); Reader.SetTypography('Georgia',110,32);
-      Require(Reader.PictureCount=1,'Main modal reader resize lost its illustration');
-      Reader.NextPage; Require(Reader.TextPosition>0,'Main reader did not turn a page');
-      Reader.AddBookmark; Reader.Close; Finished:=True; Exit;
-    end;
-end;
-
-type
-  TFailedBuiltinReadDriver = class(TBuiltinReadDriver)
     CancelDuringLoad, ObservedFailure, ObservedCancellation, WarmUI: Boolean;
     procedure Tick(Sender: TObject);
   end;
@@ -1406,12 +1382,17 @@ end;
 
 procedure TestBuiltinReaderIntegration(const Collection: IBookCollection);
 var Book: PBookRecord; Updated: TBookRecord; Source, BeforeHash, Body: string;
-  Action: TAction; Driver: TBuiltinReadDriver; I: Integer;
+  Action: TAction; I: Integer;
   Bitmap: TBitmap; Png: TPngImage; Bytes: TBytesStream; Picture: string;
+  BookKey: TBookKey; Deadline: UInt64; Report: TMemIniFile;
+  ReportName, OldMode, OldReport: string;
 begin
   TestReaderDefaultSettings;
+  if ParamStr(1)='reader-resource-idle' then
+  begin TestFailedBuiltinReaderOwner; Exit; end;
   Book:=frmMain.tvBooksA.GetNodeData(frmMain.tvBooksA.FocusedNode);
   Require(Assigned(Book) and (Book.GetBookFormat=bfFb2),'Main built-in fixture is not FB2');
+  BookKey:=Book.BookKey;
   Source:=Book.GetBookFileName; Body:='';
   for I:=1 to 180 do Body:=Body+'<p>Исходный текст встроенной читалки. Проверка чтения из главной формы и сохранения прогресса. '+IntToStr(I)+'</p>';
   Bitmap:=TBitmap.Create; Png:=TPngImage.Create; Bytes:=TBytesStream.Create;
@@ -1428,22 +1409,39 @@ begin
   Require(Assigned(Action),'Main built-in reader action absent');
   Action.Update;
   Require(Action.Enabled and (Action.ShortCut=ShortCut(Ord('R'),[ssCtrl,ssAlt])),'Main reader shortcut or availability incorrect');
-  Driver:=TBuiltinReadDriver.Create;
+  Require(not ComponentNeedsRepair(Settings.AppPath,'HomeLibReader'),'Isolated reader process fixture is missing');
+  ReportName:=TPath.Combine(Settings.AppPath,'reader-main-render.ini');
+  OldMode:=GetEnvironmentVariable('HLRU_SESSION_TEST_MODE');
+  OldReport:=GetEnvironmentVariable('HLRU_READER_TEST_REPORT');
+  SetEnvironmentVariable('HLRU_SESSION_TEST_MODE','render');
+  SetEnvironmentVariable('HLRU_READER_TEST_REPORT',PChar(ReportName));
   try
-    Driver.Timer:=TTimer.Create(nil); Driver.Timer.Interval:=25; Driver.Timer.OnTimer:=Driver.Tick;
-    Driver.Started:=GetTickCount64; Driver.Timer.Enabled:=True;
     frmMain.acBookRead.Execute; // Same automatic opening path as a double click.
-    while not Driver.Finished and (GetTickCount64-Driver.Started<12000) do
-    begin Application.ProcessMessages; CheckSynchronize(0); Sleep(10); end;
-    Require(Driver.Finished,'Main reader did not close through ordinary modal pipeline');
-    Collection.GetBookRecord(Book^.BookKey,Updated,False);
+    Deadline:=GetTickCount64+30000;
+    repeat
+      Application.ProcessMessages; CheckSynchronize(5); Sleep(10);
+      Collection.GetBookRecord(BookKey,Updated,False);
+    until ((Updated.Progress>0) and FileExists(ReportName)) or (GetTickCount64>=Deadline);
     Require((Updated.Progress>0) and (Updated.Progress<100),'Main reader did not persist partial progress');
     Require(Book^.Progress=Updated.Progress,'Main visible book progress was not refreshed');
-    Require(FileExists(TPath.Combine(Settings.DataDir,'reader.ini')),'Main reader settings not saved under data folder');
+    Require(FileExists(ResolveReaderSettingsFile(Settings.DataDir)),'Main reader settings not saved under data folder');
+    Report:=TMemIniFile.Create(ReportName,TEncoding.UTF8);
+    try
+      Require((Report.ReadString('Reader','error','missing')='') and
+        (Report.ReadInteger('Reader','pid',0)>0) and
+        (Cardinal(Report.ReadInteger('Reader','pid',0))<>GetCurrentProcessID) and
+        (Report.ReadInteger('Reader','pictures',0)=1) and
+        (Report.ReadInteger('Reader','pages',0)=5) and
+        Report.ReadString('Reader','caption','').Contains(Book.Title),
+        'Main did not open and page the selected illustrated book in an independent reader');
+    finally Report.Free; end;
     Require(THashSHA2.GetHashStringFromFile(Source)=BeforeHash,'Built-in reading rewrote original FB2 metadata');
     Require(Settings.ConvertWebPToPNG and Settings.OverwriteFB2Info,'Built-in reader changed export settings');
     Writeln('PASS main built-in reader action opens selected book, saves progress and preserves source and external-reader settings');
-  finally Driver.Timer.Free; Driver.Free; end;
+  finally
+    SetEnvironmentVariable('HLRU_SESSION_TEST_MODE',PChar(OldMode));
+    SetEnvironmentVariable('HLRU_READER_TEST_REPORT',PChar(OldReport));
+  end;
   TestFailedBuiltinReaderOwner;
 end;
 

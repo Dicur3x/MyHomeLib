@@ -1,7 +1,7 @@
 ﻿procedure TestReaderSessionContext;
 var Book: TBookRecord; Request, Reloaded: TReaderSessionRequest;
   Reply, ReadReply: TReaderSessionReply; Lease: TReaderSessionLease;
-  Archive: TZipFile; Input: TStream; Data: TBytes;
+  Archive: TZipFile; ArchiveReader: TMHLZip; Input: TStream; Data: TBytes;
   Root: TJSONObject; Original, Response, SourceHash: string;
   Blocked, OtherBlocked: Boolean; Worker: TThread;
   procedure RejectReply(const Contents: string);
@@ -23,6 +23,7 @@ begin
   try
     Archive.Open(Book.GetBookFileName,zmWrite);
     Archive.Add(TEncoding.UTF8.GetBytes('wrong first book'),'first.fb2',zcStored);
+    Archive.Add(TEncoding.UTF8.GetBytes('wrong capitalized book'),'Second.fb2',zcStored);
     Archive.Add(TEncoding.UTF8.GetBytes('selected second book'),'second.fb2',zcStored);
   finally Archive.Free; end;
   Book.Size:=TFile.GetSize(Book.GetBookFileName);
@@ -44,6 +45,26 @@ begin
     Require(TEncoding.UTF8.GetString(Data)='selected second book',
       'Reader session chose the first archive member or a stale entry index');
   finally Input.Free; end;
+  for var ExternalDecoder in [False,True] do
+  begin
+    ArchiveReader:=TMHLZip.Create(Book.GetBookFileName,True,False,nil,ExternalDecoder);
+    Input:=TStringStream.Create('',TEncoding.UTF8);
+    try
+      ArchiveReader.ExtractToStream('second.fb2',Input);
+      Require(TStringStream(Input).DataString='selected second book',
+        'Exact extraction combined or chose the wrong archive entry');
+      ArchiveReader.ExtractBookToStream('Second.fb2',0,Input);
+      Require(TStringStream(Input).DataString='wrong capitalized book',
+        'Selected case variant did not retain its own bytes');
+      Require(ArchiveReader.ResolveBookName('FIRST.FB2',-1)='first.fb2',
+        'A unique case-insensitive alias was lost');
+      Blocked:=False;
+      try ArchiveReader.ResolveBookName('SECOND.fb2',0);
+      except on E:EArchiveBookEntryNotFound do Blocked:=True; end;
+      Require(Blocked,'An ambiguous archive path fell back to the old index');
+    finally Input.Free; ArchiveReader.Free; end;
+  end;
+  Writeln('PASS exact archive paths distinguish case variants with native ZIP and 7-Zip');
   Require(ReaderSessionSourceMatches(Request,Book.GetBookFileName) and
     not ReaderSessionSourceMatches(Request,Settings.AppPath+'other.fb2'),
     'Reader session matched a different physical source');
