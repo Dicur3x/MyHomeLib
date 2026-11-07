@@ -191,15 +191,15 @@ class SevenZip:
             output.seek(0)
             return output.read(MAX_EPUB_IMAGE_INDEX + 1)
 
-    def pack(self, stage, target, text_names, stored_names):
-        for names, method in ((text_names, 'PPMd'), (stored_names, 'Copy')):
+    def pack(self, stage, target, names_by_method):
+        for method, names in names_by_method.items():
             if not names:
                 continue
             listing = stage.parent / 'entries.txt'
             listing.write_text('\n'.join(names) + '\n', encoding='utf-8')
             # Independent ZIP members preserve random access; no solid blocks.
             # Upstream ZIP PPMd defaults keep the decoder's memory modest.
-            options = [] if method == 'PPMd' else ['-mx=0']
+            options = ['-mx=0'] if method == 'Copy' else []
             self.run(['a', '-tzip', '-mm=' + method, '-mmt=2', '-scsUTF-8', '-y',
                       *options, str(target), '@' + str(listing)], cwd=stage)
 
@@ -844,7 +844,7 @@ class Packer:
                 mappings[row['locator']] = item
         else:
             files = stage / 'books'; files.mkdir()
-            text_names, stored_names = [], []
+            names_by_method = {'PPMd': [], 'Deflate': [], 'Copy': []}
             original = None
             keep_source = False
             try:
@@ -869,6 +869,7 @@ class Packer:
                         raise PackingError('Неизвестное расширение файла: ' + extension)
                     name = hashlib.sha256(locator.encode('utf-8')).hexdigest()[:32] + extension
                     target = files / name
+                    entry = None
                     if not member:
                         # A loose original is copied in bounded chunks; its
                         # size is not a decoder/memory limit.
@@ -901,16 +902,26 @@ class Packer:
                     image_result = {} if keep_source else self.optimize_book(target, stage)
                     mappings[locator] = dict(filename=Path(name).stem, ext=extension, inside_no=-1, **image_result,
                                              **book_signature(target, self.check))
-                    (text_names if extension in TEXT_SUFFIXES else stored_names).append(name)
+                    # PDF, DjVu and container formats may still benefit from
+                    # outer ZIP compression. The original ZIP directory tells
+                    # us when it paid off without scanning or decoding again.
+                    if extension in TEXT_SUFFIXES:
+                        method = 'PPMd'
+                    elif entry is not None and entry.compress_size + 256 < entry.file_size:
+                        method = 'Deflate'
+                    else:
+                        method = 'Copy'
+                    names_by_method[method].append(name)
                     self.event('books', source=source.name, current=index + 1, total=len(rows))
                 if not mappings:
                     raise PackingError('В исходном архиве нет выбранных книг.')
                 archive = package / 'books.zip'
                 separated = None
+                packed_names = {name for names in names_by_method.values() for name in names}
                 if not keep_source:
                     self.event('compressing', source=source.name, books=len(mappings))
                     reserve_space(stage, sum(p.stat().st_size for p in files.iterdir()))
-                    self.seven.pack(files, archive, text_names, stored_names)
+                    self.seven.pack(files, archive, names_by_method)
                     if self.jpeg_xl:
                         maximum_size = archive.stat().st_size
                         if source.suffix.lower() in ARCHIVE_SUFFIXES:
@@ -918,7 +929,7 @@ class Packer:
                         separated = self.pack_with_jpeg_xl(files, stage, package, mappings, maximum_size)
                     if separated is None:
                         with zipfile.ZipFile(archive) as verification:
-                            if set(verification.namelist()) != set(text_names + stored_names):
+                            if set(verification.namelist()) != packed_names:
                                 raise PackingError('Не совпадает список книг в созданном архиве.')
                             for item in mappings.values():
                                 info = verification.getinfo(item['filename'] + item['ext'])
@@ -942,12 +953,12 @@ class Packer:
                     self.event('verifying', source=source.name)
                     # Reclaim the original extraction space before decoding the
                     # result. Only these generated names were given to 7-Zip.
-                    for name in text_names + stored_names:
+                    for name in packed_names:
                         self.check()
                         (files / name).unlink()
                     reserve_space(stage, sum(item['payload_size'] for item in mappings.values()))
                     self.seven.run(['x', '-y', '-bb0', '-o' + str(files), '--', str(archive)], cwd=stage)
-                    if {file.name for file in files.iterdir()} != set(text_names + stored_names):
+                    if {file.name for file in files.iterdir()} != packed_names:
                         raise PackingError('Не совпадает список книг в созданном архиве.')
                     for item in mappings.values():
                         decoded = files / (item['filename'] + item['ext'])

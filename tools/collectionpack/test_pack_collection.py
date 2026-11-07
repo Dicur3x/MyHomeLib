@@ -560,9 +560,11 @@ class PackingTests(unittest.TestCase):
         source = self.source / 'book.txt'; source.write_bytes(b'First ' * 3000)
         self.add(1, source, '')
         packer = Packer(self.job)
-        def wrong_pack(stage, target, text, stored):
+        def wrong_pack(stage, target, names_by_method):
             with zipfile.ZipFile(target, 'w') as archive:
-                for name in text + stored: archive.writestr(name, b'Wrong book content')
+                for names in names_by_method.values():
+                    for name in names:
+                        archive.writestr(name, b'Wrong book content')
         packer.seven.pack = wrong_pack
         with self.assertRaisesRegex(PackingError, 'отличается'):
             packer.execute()
@@ -578,9 +580,9 @@ class PackingTests(unittest.TestCase):
         self.add(1, source, '')
         packer = Packer(self.job)
 
-        def wrong_pack(stage, target, text, stored):
+        def wrong_pack(stage, target, names_by_method):
             with zipfile.ZipFile(target, 'w') as archive:
-                archive.writestr(text[0], other)
+                archive.writestr(names_by_method['PPMd'][0], other)
 
         packer.seven.pack = wrong_pack
         with self.assertRaisesRegex(PackingError, 'отличается'):
@@ -608,21 +610,32 @@ class PackingTests(unittest.TestCase):
         self.assertFalse(list(self.output.glob('generations/*')))
         self.assertEqual(companion.read_bytes(), b'original image container')
 
-    def test_mixed_members_use_ppmd_only_for_text(self):
+    def test_mixed_zip_uses_ppmd_for_text_and_preserves_deflate_savings(self):
         source = self.source / 'mixed.zip'
-        body = b'%PDF-' + os.urandom(16000)
+        noise = random.Random(20261107).randbytes(4096)
+        stored_pdf = b'%PDF-' + os.urandom(16000)
+        deflated_pdf = b'%PDF-' + noise * 64
+        deflated_djvu = b'AT&TFORM' + noise * 64
         with zipfile.ZipFile(source, 'w', zipfile.ZIP_STORED) as archive:
             archive.writestr('1.fb2', b'<FictionBook><body>Readable text.</body></FictionBook>' * 1000)
-            archive.writestr('2.pdf', body)
-        self.add(1, source, '1.fb2'); self.add(2, source, '2.pdf')
+            archive.writestr('2.pdf', stored_pdf)
+            archive.writestr('3.pdf', deflated_pdf, compress_type=zipfile.ZIP_DEFLATED)
+            archive.writestr('4.djvu', deflated_djvu, compress_type=zipfile.ZIP_DEFLATED)
+        original_sha256 = sha(source)
+        for identity, member in enumerate(('1.fb2', '2.pdf', '3.pdf', '4.djvu'), 1):
+            self.add(identity, source, member)
         result = Packer(self.job).execute()
+        self.assertLess(result.output_bytes, result.input_bytes)
         with database(self.output / 'generations' / result.generation / 'locations.sqlite') as db:
             rows = db.execute('SELECT folder,filename,ext FROM locations ORDER BY book_id').fetchall()
-        self.assertEqual(rows[0][0], rows[1][0])
+        self.assertEqual({row[0] for row in rows}, {rows[0][0]})
         with zipfile.ZipFile(self.output / rows[0][0]) as archive:
-            self.assertEqual(archive.getinfo(rows[0][1] + rows[0][2]).compress_type, 98)
-            self.assertEqual(archive.getinfo(rows[1][1] + rows[1][2]).compress_type, 0)
-        self.assertEqual(self.packed_book(result, 2), body)
+            self.assertEqual([archive.getinfo(name + ext).compress_type for _, name, ext in rows],
+                             [98, zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED, zipfile.ZIP_DEFLATED])
+        for identity, body in enumerate((stored_pdf, deflated_pdf, deflated_djvu), 2):
+            self.assertEqual(self.packed_book(result, identity), body)
+        self.assertEqual(sha(source), original_sha256)
+        self.assertEqual(Packer(self.job).execute().reused, 1)
 
     def test_full_verification_detects_same_size_and_time_source_change(self):
         self.job['verify_sources'] = True
