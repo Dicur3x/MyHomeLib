@@ -5653,5 +5653,39 @@
     ],
     "limits": "The test command acts in the current collection. It uses isolated catalogues and real Main forms, not published beta 5 binaries or the real FLibrary collection. Verify production sorting and filter retention, stop and close, and FLibrary duplicates in later checks.",
     "cleanup": "Scoped native test runner cleaned its isolated test profiles. Final build logs and test output are retained. Previously denied directories were untouched."
+  },
+  "production_catalogue_deletion_20261107": {
+    "status": "The packaged production catalogue passed isolated UI removal and package layout on x86 and x64. Version resources still identify beta 4.",
+    "fix": "The first production build exposed a missing unit registration hidden by the native test search path. Added BookDeletionSelection to both the main source and the Delphi project. Both subsequent Release builds passed with the expected menu and progress strings.",
+    "results": "Opened the exact verified minimal ZIP applications with isolated catalogues. Win64 confirmed that cancel leaves seven catalogue rows and the original ZIP unchanged. Win32 ascending and Win64 descending title sort retained the active hidden-books filter, moved focus to the next visible book and left the ZIP SHA-256 unchanged after deleting only the middle record. The author command on both selected all three remaining Alpha records including the hidden book. After file removal the ZIP contained exactly the earlier record-only member and two unselected Beta members, all byte-identical. The remaining catalogue contained exactly both Beta books and the unrelated loose Gamma book. Its file hash matched before and after. No real collection was used.",
+    "fixture_correction": "An initial Win64 attempt correctly rejected an outdated Favorites card in the test profile. The fixture edited book paths in its catalogue without updating the matching cards. Confirmed no mutation, closed the test application, synchronised only its isolated cards and ran the successful scenarios.",
+    "packages": {
+      "Win32": {
+        "exe_sha256": "cb5bbd38f13d274be43ee9f87f249e5410cd3ec20240c55e6689828aac59e814",
+        "minimal_zip_sha256": "8373bde7949e24e9d61fe894afee5e81cd9d69f90cb84e8c83a58d879d2fce39",
+        "source_zip_sha256": "bf6b836d6e5b1bdb97da3d83e833eed1a1ed0455ef5f2724b722427b4443ee3e",
+        "package_bytes": 7654841,
+        "version": {
+          "file": "3.0.0.4",
+          "product": "3.0.0_pre1.4"
+        }
+      },
+      "Win64": {
+        "exe_sha256": "e25d3c9c2d4382b1ed65c8f34bdd220aa112be41b3f7146b9f2d4d90c8b27568",
+        "minimal_zip_sha256": "232ce2609e080cf2fff14b8153dc3883e3d47f72e42090fa8fd34496149be32e",
+        "source_zip_sha256": "2301c50f8531d8ba028dd2d1200e3510014c7dde9e83ab11833e684b008a211d",
+        "package_bytes": 9609819,
+        "version": {
+          "file": "3.0.0.4",
+          "product": "3.0.0_pre1.4"
+        }
+      }
+    },
+    "final_source_zip_sha256": {
+      "Win32": "fb09c6522e223c3df22092ebdf56e57c6b2c3f1d44ac711825426dcd8f644632",
+      "Win64": "ad7d46b2b89896e9fa2fe3f451bb5a2d42e0de1d2b925d942d6e183a268ced99"
+    },
+    "remaining": "Check stop or close while deletion is still active and verify the real FLibrary duplicate scenario on owned copies before any user-source mutation. These internal packages do not prove the final public release.",
+    "cleanup": "Both test GUI processes exited normally. The isolated package checker removed its subprobes. Automatic review rejected recursive removal of G:/HomeLibRu-build-cache/homelibre-beta5-delete-w58lbz_f as blocked by policy. This exact directory remains and must not be retried through another tool or parent."
   }
 }

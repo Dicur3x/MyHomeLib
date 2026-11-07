@@ -83,6 +83,7 @@
         <DCCReference Include="Units\unit_BookDeletionMembers.pas"/>
         <DCCReference Include="Units\unit_BookDeletionInventory.pas"/>
         <DCCReference Include="Units\unit_BookDeletionPreparation.pas"/>
+        <DCCReference Include="Units\unit_BookDeletionSelection.pas"/>
         <DCCReference Include="Units\unit_BookDeletionDialog.pas"/>
         <DCCReference Include="Units\unit_BookDeletionReferences.pas"/>
         <DCCReference Include="Units\unit_BookDeletionBinding.pas"/>
