@@ -690,6 +690,30 @@
       ]
     },
     {
+      "id": "KfxExport",
+      "platform": "Win32",
+      "version": "3.0.0.5",
+      "archive": "HomeLibRu-KfxExport-3.0.0.5-Win32.zip",
+      "history": [
+        {
+          "version": "3.0.0.5",
+          "notes": "Boko — прямое сохранение EPUB в KFX и AZW8 с подготовкой иллюстраций через resvg."
+        }
+      ]
+    },
+    {
+      "id": "KfxExport",
+      "platform": "Win64",
+      "version": "3.0.0.5",
+      "archive": "HomeLibRu-KfxExport-3.0.0.5-Win64.zip",
+      "history": [
+        {
+          "version": "3.0.0.5",
+          "notes": "Boko — прямое сохранение EPUB в KFX и AZW8 с подготовкой иллюстраций через resvg."
+        }
+      ]
+    },
+    {
       "id": "OPDSTls",
       "platform": "Win32",
       "version": "3.0.0.5",

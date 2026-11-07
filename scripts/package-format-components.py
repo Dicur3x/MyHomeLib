@@ -45,6 +45,7 @@ DESCRIPTORS = {
     'LegacyOffice': 'tools/office/COMPONENT.json',
     'XPS': 'tools/xps/COMPONENT.json',
     'EpubPdfExport': 'tools/epub-pdf/COMPONENT.json',
+    'KfxExport': 'tools/kfx-export/COMPONENT.json',
     'OPDSTls': 'tools/opds-tls/COMPONENT.json',
     **{component: 'tools/' + writer['directory'] + '/COMPONENT.json' for component, writer in WRITERS.items()},
 }
@@ -59,6 +60,7 @@ NOTES = {
     'FB2Export': 'fb2cng — сохранение FB2 в EPUB 2, EPUB 3, KEPUB, KFX, AZW8, PDF и Markdown.',
     'KoboExport': 'kepubify — прямое сохранение EPUB в KEPUB для Kobo.',
     'EpubPdfExport': 'Vivliostyle — прямая вёрстка EPUB в PDF через Microsoft WebView2 Runtime.',
+    'KfxExport': 'Boko — прямое сохранение EPUB в KFX и AZW8 с подготовкой иллюстраций через resvg.',
     'OPDSTls': 'Каталог OPDS по HTTPS с сертификатом и закрытым ключом пользователя.',
 }
 
@@ -105,6 +107,47 @@ def advanced_writer_payload(platform, component, source):
             'Upstream asset: ' + asset_name + '\nSHA-256: ' + asset_hash + '\n').encode('ascii'),
     }
     return payload, list(payload)
+
+
+def kfx_writer_payload(platform, source):
+    if source is None:
+        raise ValueError('Verified Boko and resvg runtimes are required for KfxExport')
+    prefix = 'tools/kfx-export/'
+    payload = tree(source / ('KfxExport-' + platform), prefix.rstrip('/'))
+    metadata = json.loads(payload[prefix + 'RUNTIME.json'])
+    commit = '9ac23f67a51e6911125a78fc0f876c8367388f3d'
+    if (metadata['format'] != 1 or metadata['platform'] != platform or metadata['boko_commit'] != commit
+            or metadata['target'] != {'Win32': 'i686-pc-windows-gnu', 'Win64': 'x86_64-pc-windows-gnu'}[platform]):
+        raise ValueError('Unexpected KfxExport runtime identity')
+    tools = {record['name']: record for record in metadata['tools']}
+    if len(metadata['tools']) != 2 or set(tools) != {'boko', 'resvg'}:
+        raise ValueError('Unexpected KfxExport runtime inventory')
+    for name, version in (('boko', '0.6.0'), ('resvg', '0.49.0')):
+        binary = payload[prefix + name + '.exe']
+        record = tools[name]
+        if (record['version'] != version or record['bytes'] != len(binary)
+                or record['sha256'] != helper.digest(binary)):
+            raise ValueError('Unexpected KfxExport binary: ' + name)
+        helper.binary_platform(binary, platform)
+    patch = 'boko-epub-navigation.patch'
+    if payload[prefix + patch] != (REPO / 'scripts' / patch).read_bytes():
+        raise ValueError('The verified Boko patch differs from the repository')
+    payload[prefix + 'build-kfx-export.py'] = (REPO / 'scripts/build-kfx-export.py').read_bytes()
+    payload[prefix + 'SOURCE.txt'] = (
+        'Boko 0.6.0, GPL-3.0-or-later, with the accompanying navigation patch.\n'
+        'https://github.com/zacharydenton/boko/tree/' + commit + '\n'
+        'https://github.com/zacharydenton/boko/releases/download/v0.6.0/source.tar.gz\n'
+        'resvg 0.49.0, MIT or Apache-2.0.\n'
+        'https://github.com/linebender/resvg/releases/download/v0.49.0/resvg-0.49.0.tar.xz\n'
+        'The archives contain their Cargo.lock and dependency information.\n'
+        'Run the included build-kfx-export.py with the pinned source archives, Rust 1.99.1 and LLVM dlltool.\n'
+        'See RUNTIME.json for platform, target and binary identities.\n').encode('ascii')
+    required = [prefix + name for name in ('boko.exe', 'resvg.exe', 'RUNTIME.json', 'SOURCE.txt', patch,
+                                            'boko-LICENSE', 'resvg-LICENSE-APACHE', 'resvg-LICENSE-MIT',
+                                            'build-kfx-export.py')]
+    if any(name not in required and not name.startswith(prefix + 'ThirdPartyLicenses/') for name in payload):
+        raise ValueError('Unexpected file in KfxExport runtime')
+    return payload, required
 
 
 def webview_renderer(platform, sdk):
@@ -200,11 +243,14 @@ def opds_tls_payload(platform, go):
     return payload, list(payload)
 
 
-def payload_for(platform, component, kindle_export_root=None, advanced_export_root=None, opds_tls_go=None):
+def payload_for(platform, component, kindle_export_root=None, advanced_export_root=None, opds_tls_go=None,
+                kfx_export_root=None):
     if component == 'OPDSTls':
         return opds_tls_payload(platform, opds_tls_go)
     if component == 'EpubPdfExport':
         return epub_pdf_payload(platform, advanced_export_root)
+    if component == 'KfxExport':
+        return kfx_writer_payload(platform, kfx_export_root)
     if component in WRITERS:
         return advanced_writer_payload(platform, component, advanced_export_root)
     runtime = REPO/'Program/Out'/('Bin' if platform == 'Win32' else 'Bin64')/'tools'
@@ -226,6 +272,7 @@ def payload_for(platform, component, kindle_export_root=None, advanced_export_ro
                     'tools/python/python313.zip', 'tools/python/python313._pth',
                     'tools/bookconvert/ADVANCED_EXPORT_API.txt', 'tools/bookconvert/advanced_output.py',
                     'tools/bookconvert/markdown_output.py', 'tools/bookconvert/epub2_output.py', 'tools/bookconvert/epub3_output.py',
+                    'tools/bookconvert/epub_kfx_output.py', 'tools/bookconvert/kfx_image_input.py',
                     'tools/bookconvert/image_quality.py', worker, *sql_workers]
         helper.binary_platform(payload['tools/python/python.exe'], platform)
     elif component == 'ImageProcessing':
@@ -288,8 +335,10 @@ def payload_for(platform, component, kindle_export_root=None, advanced_export_ro
     return payload, required
 
 
-def package(output, platform, component, version, kindle_export_root=None, advanced_export_root=None, opds_tls_go=None):
-    payload, required = payload_for(platform, component, kindle_export_root, advanced_export_root, opds_tls_go)
+def package(output, platform, component, version, kindle_export_root=None, advanced_export_root=None, opds_tls_go=None,
+            kfx_export_root=None):
+    payload, required = payload_for(platform, component, kindle_export_root, advanced_export_root, opds_tls_go,
+                                    kfx_export_root)
     descriptor = dict(format=1, component=component, platform=platform, version=version,
                       required=required, identities={name:helper.digest(payload[name]) for name in required})
     payload[DESCRIPTORS[component]] = helper.json_bytes(descriptor)
@@ -319,20 +368,22 @@ if __name__ == '__main__':
     parser.add_argument('output', type=Path)
     parser.add_argument('--version', required=True)
     parser.add_argument('--platform', choices=('Win32','Win64'), action='append')
-    parser.add_argument('--component', choices=COMPONENTS + ADVANCED_WRITERS + ('OPDSTls',), action='append')
+    parser.add_argument('--component', choices=COMPONENTS + ADVANCED_WRITERS + ('OPDSTls', 'KfxExport'), action='append')
     parser.add_argument('--kindle-export-root', type=Path, help='Verified CI artifacts containing KindleExport-Win32/Win64')
     parser.add_argument('--advanced-export-root', type=Path, help='Pinned upstream files and licenses for optional writers')
     parser.add_argument('--opds-tls-go', type=Path, help='Verified Go executable for the optional OPDS HTTPS transport')
+    parser.add_argument('--kfx-export-root', type=Path, help='Verified Boko and resvg runtime artifacts')
     options=parser.parse_args()
     import re
     if not re.fullmatch(r'\d+\.\d+(?:\.\d+){0,2}', options.version): parser.error('Invalid component version')
     entries=[]; assets=[]
     components = options.component or COMPONENTS + (ADVANCED_WRITERS if options.advanced_export_root else ()) + (
-        ('OPDSTls',) if options.opds_tls_go else ())
+        ('OPDSTls',) if options.opds_tls_go else ()) + (('KfxExport',) if options.kfx_export_root else ())
     for platform in options.platform or ('Win32','Win64'):
         for component in components:
             entry, asset=package(options.output.resolve(), platform, component, options.version,
-                                 options.kindle_export_root, options.advanced_export_root, options.opds_tls_go)
+                                 options.kindle_export_root, options.advanced_export_root, options.opds_tls_go,
+                                 options.kfx_export_root)
             entries.append(entry); assets.append(asset)
     with (options.output/'format-components.json').open('xb') as stream:
         stream.write(helper.json_bytes(dict(format=1, components=entries)))

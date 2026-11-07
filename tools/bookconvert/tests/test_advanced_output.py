@@ -88,7 +88,8 @@ class AdvancedOutputTest(unittest.TestCase):
         docx(office)
         for source, profile, component in [(self.source, 'epub2', 'FB2Export'), (epub, 'kepub', 'KoboExport'),
                                            (epub, 'pdf', 'EpubPdfExport'), (office, 'kepub', 'KoboExport'),
-                                           (office, 'pdf', 'EpubPdfExport')]:
+                                           (office, 'pdf', 'EpubPdfExport'), (self.source, 'kfx', 'FB2Export'),
+                                           (epub, 'kfx', 'KfxExport'), (office, 'azw8', 'KfxExport')]:
             output = self.work / ('book' + advanced_output.OUTPUT_SUFFIXES[profile])
             with self.assertRaises(conversion.ComponentRequired) as failure:
                 conversion.convert_book(source, output, output_profile=profile, tools_root=self.tools)
@@ -170,12 +171,13 @@ class AdvancedOutputTest(unittest.TestCase):
         self.assertFalse(output.exists())
         self.assertFalse(list(self.work.glob('homelibre-advanced-*')))
 
-    def test_unsupported_route_and_existing_output_are_left_alone(self):
+    def test_missing_kfx_writer_and_existing_output_are_left_alone(self):
         epub = self.work / 'source.epub'
         conversion.convert_book(self.source, epub)
         output = self.work / 'copy.kfx'
-        with self.assertRaises(conversion.ConversionError):
+        with self.assertRaises(conversion.ComponentRequired) as error:
             conversion.convert_book(epub, output, output_profile='kfx', tools_root=self.tools)
+        self.assertEqual(error.exception.component, 'KfxExport')
         self.assertFalse(output.exists())
         output.write_bytes(b'keep this file')
         with self.assertRaises(conversion.ConversionError):

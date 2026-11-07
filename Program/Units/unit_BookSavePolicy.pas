@@ -195,7 +195,7 @@ end;
 
 function BookSaveChoices(const Extensions: TArray<string>; ShowAdvanced: Boolean): TArray<TBookSaveChoice>;
 var AllFB2, AllEPUB, AllTXT, AllMOBI, AllAZW3, HasFB2EPUB, HasOther, CanKepub, CanPDF, AllPDF,
-  AllMarkdown, CanMarkdown, CanEpub2, CanEpub3: Boolean;
+  AllMarkdown, CanMarkdown, CanEpub2, CanEpub3, CanKfx: Boolean;
   procedure Add(const Caption: string; Mode: TExportMode; KeepOriginal, KeepFB2EPUB: Boolean);
   var Choice: TBookSaveChoice;
   begin
@@ -208,6 +208,7 @@ begin
   AllTXT:=AllFB2; AllMOBI:=AllFB2; AllAZW3:=AllFB2;
   HasFB2EPUB:=False; HasOther:=False; CanKepub:=AllFB2; CanPDF:=AllFB2; AllPDF:=AllFB2;
   CanMarkdown:=AllFB2; AllMarkdown:=AllFB2; CanEpub2:=AllFB2; CanEpub3:=AllFB2;
+  CanKfx:=AllFB2;
   for var Extension in Extensions do
   begin
     var Ext:=NormalExtension(Extension);
@@ -219,6 +220,7 @@ begin
     CanEpub2:=CanEpub2 and (AdvancedWriterComponent(Ext,'epub2')<>'');
     CanEpub3:=CanEpub3 and (AdvancedWriterComponent(Ext,'epub3')<>'');
     CanKepub:=CanKepub and (AdvancedWriterComponent(Ext,'kepub')<>'');
+    CanKfx:=CanKfx and (AdvancedWriterComponent(Ext,'kfx')<>'');
     CanPDF:=CanPDF and ((Ext='.pdf') or (AdvancedWriterComponent(Ext,'pdf')<>''));
     AllMOBI:=AllMOBI and (Ext='.mobi'); AllAZW3:=AllAZW3 and (Ext='.azw3');
     if (Ext='.fb2') or (Ext='.epub') then HasFB2EPUB:=True else HasOther:=True;
@@ -251,7 +253,7 @@ begin
   if not AllAZW3 then Add('Преобразовать в AZW3 — для Kindle с KF8',emAZW3,False,False);
   if ShowAdvanced then
   begin
-    if AllFB2 then
+    if CanKfx then
     begin
       Add('Преобразовать в KFX — для Kindle',emKfx,False,False);
       Add('Преобразовать в AZW8 — для Kindle',emAzw8,False,False);

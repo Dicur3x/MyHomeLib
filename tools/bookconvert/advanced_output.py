@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import struct
 import subprocess
+import sys
 import tempfile
 import time
 
@@ -20,19 +21,20 @@ OUTPUT_SUFFIXES = {
 }
 
 
-def run_writer(api, command, work, check):
+def run_writer(api, command, work, check, timeout=300):
     log_path = work / 'writer.log'
     with log_path.open('wb') as log:
         process = subprocess.Popen(command, cwd=work, stdin=subprocess.DEVNULL, stdout=log,
                                    stderr=subprocess.STDOUT,
                                    creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
-        deadline = time.monotonic() + 300
+        deadline = time.monotonic() + timeout
         try:
             while process.poll() is None:
                 if check is not None:
                     check()
                 if time.monotonic() >= deadline:
-                    raise api.ConversionError('Модуль сохранения не завершил работу за пять минут.')
+                    limit = 'пять минут' if timeout == 300 else f'{timeout} с'
+                    raise api.ConversionError('Модуль сохранения не завершил работу за ' + limit + '.')
                 if log_path.stat().st_size > 1024 * 1024:
                     raise api.ConversionError('Слишком большой журнал модуля сохранения.')
                 time.sleep(.05)
@@ -97,7 +99,7 @@ def convert(api, source, destination, source_extension, profile, options):
     if suffix is None or not destination.name.lower().endswith(suffix):
         raise api.ConversionError('Имя файла не соответствует выбранному формату.')
     if source_extension != '.fb2' and (
-            profile not in ('epub2', 'epub3', 'kepub', 'pdf', 'md') or source_extension not in api.BOOK_EPUB_INPUTS or
+            profile not in ('epub2', 'epub3', 'kepub', 'pdf', 'md', 'kfx', 'azw8') or source_extension not in api.BOOK_EPUB_INPUTS or
             (profile == 'pdf' and source_extension == '.pdf')):
         raise api.ConversionError('Выбранный формат недоступен для исходного файла ' +
                                   source_extension.lstrip('.').upper() + '.')
@@ -111,6 +113,7 @@ def convert(api, source, destination, source_extension, profile, options):
     epub_kobo = source_extension != '.fb2' and profile == 'kepub'
     epub_markdown = source_extension != '.fb2' and profile == 'md'
     epub_version = source_extension != '.fb2' and profile in ('epub2', 'epub3')
+    epub_kfx = source_extension != '.fb2' and profile in ('kfx', 'azw8')
     if epub_version:
         writer = Path(__file__).with_name(profile + '_output.py')
         component, name = 'BookProcessing', 'сохранения в EPUB ' + profile[-1]
@@ -121,6 +124,8 @@ def convert(api, source, destination, source_extension, profile, options):
         component, relative, name = 'EpubPdfExport', 'epub-pdf/epub_pdf_output.py', 'вёрстки EPUB в PDF'
     elif epub_kobo:
         component, relative, name = 'KoboExport', 'kobo-export/kepubify.exe', 'kepubify'
+    elif epub_kfx:
+        component, relative, name = 'KfxExport', 'kfx-export/boko.exe', 'сохранения EPUB в KFX и AZW8'
     else:
         component, relative, name = 'FB2Export', 'fb2-export/fbc.exe', 'fb2cng'
     if not (epub_markdown or epub_version):
@@ -133,7 +138,7 @@ def convert(api, source, destination, source_extension, profile, options):
     destination.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='homelibre-advanced-', dir=destination.parent) as folder:
         work = Path(folder)
-        prepared = work / ('source.epub' if epub_pdf or epub_kobo or epub_markdown or epub_version else 'source.fb2')
+        prepared = work / ('source.epub' if source_extension != '.fb2' else 'source.fb2')
         output = work / ('book' + suffix)
         preparation = api.convert_book(source, prepared, **options)
         warnings = set(preparation.get('warnings', ()))
@@ -149,6 +154,14 @@ def convert(api, source, destination, source_extension, profile, options):
         elif epub_kobo:
             command = [str(writer), '--no-add-dummy-titlepage', '--output', str(output), str(prepared)]
             run_writer(api, command, work, check)
+        elif epub_kfx:
+            # The embedded Windows Python excludes the script directory.
+            sys.path.insert(0, str(Path(__file__).resolve().parent))
+            try:
+                from epub_kfx_output import convert as convert_kfx
+                convert_kfx(api, prepared, output, writer, tools, warnings, check, run_writer)
+            finally:
+                sys.path.pop(0)
         else:
             canonical_fb2(api, prepared)
             command = [str(writer)]

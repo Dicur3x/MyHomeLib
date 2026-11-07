@@ -952,6 +952,8 @@ begin
         VerifyUpdateExecutable(ChildPath(Stage,ComponentFileName(Component)),'',Architecture,True);
       if Component='EpubPdfExport' then
         VerifyUpdateExecutable(ChildPath(Stage,'tools/epub-pdf/runtime/WebView2Loader.dll'),'',Architecture,True);
+      if Component='KfxExport' then
+        VerifyUpdateExecutable(ChildPath(Stage,'tools/kfx-export/resvg.exe'),'',Architecture,True);
       if InstalledComponentVersion(Stage,Component)<>Version then
         raise Exception.Create('Версия или контрольная сумма модуля '+Component+' не совпадает с описанием пакета.');
     end
@@ -1623,7 +1625,7 @@ end;
 
 procedure InstallProgramUpdate(const Job, Target: string;
   const Progress: TUpdateProgress; FailAfter: Integer);
-const ComponentNames: array[0..25] of string = ('SQLite', 'AlReader', 'SumatraPDF','DjVuLibre','7-Zip','DocSharp','JPEG XL','WebP','HomeLibReader','PDFium','BookConverter','IBK','MHLMcpServer','Zstandard','BookProcessing','ImageProcessing','Kindle','LegacyBooks','LegacyOffice','XPS','KindleExport','FB2Export','KoboExport','EpubPdfExport','OPDSTls',JPEG_XL_ENCODER_COMPONENT);
+const ComponentNames: array[0..26] of string = ('SQLite', 'AlReader', 'SumatraPDF','DjVuLibre','7-Zip','DocSharp','JPEG XL','WebP','HomeLibReader','PDFium','BookConverter','IBK','MHLMcpServer','Zstandard','BookProcessing','ImageProcessing','Kindle','LegacyBooks','LegacyOffice','XPS','KindleExport','FB2Export','KoboExport','EpubPdfExport','KfxExport','OPDSTls',JPEG_XL_ENCODER_COMPONENT);
 var Manifest, Journal, Entry: TJSONObject; Files: TUpdateFiles; List: TJSONArray;
   Info: TUpdateFile; Source, Destination, Backup, Temporary, State: string;
   Handle: THandle; Existed: Boolean; I, J, Applied, Comparison: Integer;

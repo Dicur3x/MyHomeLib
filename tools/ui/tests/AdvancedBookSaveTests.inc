@@ -63,6 +63,7 @@ begin
         begin
           Require(not Extras.Checked and not string(Formats.Items.Text).Contains('KEPUB'),
             'Additional formats appeared in the ordinary list');
+          Require(not string(Formats.Items.Text).Contains('KFX'),'KFX appeared in the ordinary list');
           Extras.Perform(BM_CLICK,0,0);
           Require(string(Formats.Items.Text).Contains(' PDF'),'Mixed FB2 and EPUB have no PDF choice');
           Require(string(Formats.Items.Text).Contains('Markdown'),'Mixed FB2, EPUB and DOCX have no Markdown choice');
@@ -71,6 +72,8 @@ begin
             if string(Formats.Items[J]).Contains('KEPUB') then begin Index:=J; Break; end;
           Require(Index>=0,'Mixed FB2, EPUB and DOCX have no common KEPUB choice');
           Require(string(Formats.Items.Text).Contains('EPUB 2'),'Mixed FB2, EPUB and DOCX have no EPUB 2 choice');
+          Require(string(Formats.Items.Text).Contains('KFX') and string(Formats.Items.Text).Contains('AZW8'),
+            'Mixed FB2, EPUB and DOCX have no direct Kindle choices');
           Formats.ItemIndex:=Index; Formats.OnChange(Formats);
         end;
         Require(string(Preview.Caption).EndsWith('.kepub.epub'),'Preview did not retain the full Kobo extension');
@@ -133,21 +136,20 @@ var Root, Status: string; Books: TArray<TBookRecord>; Options, Unused: TBookSend
       'Declining WebView2 downloaded a bootstrapper');
     Writeln('PASS missing WebView2 prompt preserves estimate and save settings when declined'); Flush(Output);
   end;
-  procedure InstallEpubPdf;
-  const ID = 'EpubPdfExport';
+  procedure InstallWriter(const ID, TargetExtension, Profile: string);
   var Packages, Metadata, Feed, Archive, Job: string; Info: TProgramRelease;
   begin
     Require(IsOptionalComponent(ID) and not ComponentNotificationEnabled(ID,''),
-      'EPUB PDF is not optional');
+      ID+' is not optional');
     var Missing:=MissingBookConversionComponents(Settings.AppPath,Books[1].GetBookFileName,
-      '.epub',False,nil,'.pdf','pdf');
-    Require(String.Join(',',Missing)=ID,'Installed EPUB prerequisites requested an unrelated module');
+      '.epub',False,nil,TargetExtension,Profile);
+    Require(String.Join(',',Missing)=ID,ID+' requested an unrelated module');
     Packages:=GetEnvironmentVariable('HOMELIB_FORMAT_COMPONENT_PACKAGES');
     Metadata:=TFile.ReadAllText(TPath.Combine(Packages,'local-mirror-release.json'),TEncoding.UTF8);
     Feed:=TFile.ReadAllText(TPath.Combine(Packages,COMPONENT_FEED_NAME),TEncoding.UTF8);
-    Require(ParseComponentMirror(Metadata,Feed,ID,'',Info),'EPUB PDF entry rejected by the native feed parser');
+    Require(ParseComponentMirror(Metadata,Feed,ID,'',Info),ID+' entry rejected by the native feed parser');
     Archive:=TPath.Combine(Packages,ComponentVersionedArchiveName(ID,Info.ComponentVersion,ProgramUpdatePlatform));
-    Job:=TPath.Combine(Settings.AppPath,'HomeLibRu-update-epub-pdf');
+    Job:=TPath.Combine(Settings.AppPath,'HomeLibRu-update-'+LowerCase(ID));
     var MainFile:=TPath.Combine(Settings.AppPath,'HomeLibRu.exe');
     if not FileExists(MainFile) then TFile.Copy(ParamStr(0),MainFile);
     var MainHash:=UpdateSHA256(MainFile);
@@ -156,10 +158,10 @@ var Root, Status: string; Books: TArray<TBookRecord>; Options, Unused: TBookSend
       VerifyPreparedProgramUpdate(Job,Info.Tag,ProgramUpdatePlatform);
       InstallProgramUpdate(Job,Settings.AppPath);
       Require((InstalledComponentVersion(Settings.AppPath,ID)=Info.ComponentVersion) and
-        not ComponentNeedsRepair(Settings.AppPath,ID),'Installed EPUB PDF package failed identity verification');
+        not ComponentNeedsRepair(Settings.AppPath,ID),ID+' package failed identity verification');
       Require((UpdateSHA256(MainFile)=MainHash) and
         not DirectoryExists(TPath.Combine(Settings.AppPath,'tools/pdfium')),
-        'EPUB PDF installation changed the application or installed the PDF reader');
+        ID+' installation changed the application or installed the PDF reader');
     finally CleanProgramUpdate(Job); end;
   end;
   procedure CheckContinuation;
@@ -213,6 +215,12 @@ begin
   Require(String.Join(',',Required)='BookProcessing,EpubPdfExport','EPUB to PDF must use only the EPUB writer');
   Required:=MissingBookConversionComponents(EmptyRuntime,Books[2].GetBookFileName,'.docx',False,nil,'.pdf','pdf');
   Require(String.Join(',',Required)='BookProcessing,EpubPdfExport','DOCX requested an unrelated module');
+  Required:=MissingBookConversionComponents(EmptyRuntime,Books[0].GetBookFileName,'.fb2',False,nil,'.kfx','kfx');
+  Require(String.Join(',',Required)='BookProcessing,FB2Export','FB2 to KFX requested an unrelated module');
+  Required:=MissingBookConversionComponents(EmptyRuntime,Books[1].GetBookFileName,'.epub',False,nil,'.kfx','kfx');
+  Require(String.Join(',',Required)='BookProcessing,KfxExport','EPUB to KFX requested an unrelated module');
+  Required:=MissingBookConversionComponents(EmptyRuntime,Books[2].GetBookFileName,'.docx',False,nil,'.azw8','azw8');
+  Require(String.Join(',',Required)='BookProcessing,KfxExport','DOCX to AZW8 requested an unrelated module');
   for var Index in [1,2] do
   begin
     Required:=MissingBookConversionComponents(EmptyRuntime,Books[Index].GetBookFileName,Books[Index].FileExt,False,nil,'.epub','epub3');
@@ -232,6 +240,9 @@ begin
   var Capability:=TPath.Combine(Settings.AppPath,'tools/bookconvert/ADVANCED_EXPORT_API.txt');
   var CurrentAPI:=TFile.ReadAllBytes(Capability);
   try
+    TFile.WriteAllText(Capability,'5',TEncoding.ASCII);
+    Required:=MissingBookConversionComponents(Settings.AppPath,Books[1].GetBookFileName,'.epub',False,nil,'.kfx','kfx');
+    Require(String.Join(',',Required)='BookProcessing,KfxExport','An old engine was accepted for EPUB to KFX');
     TFile.WriteAllText(Capability,'4',TEncoding.ASCII);
     Required:=MissingBookConversionComponents(Settings.AppPath,Books[1].GetBookFileName,'.epub',False,nil,'.epub','epub2');
     Require(String.Join(',',Required)='BookProcessing','An old engine was accepted for explicit EPUB 2');
@@ -248,7 +259,8 @@ begin
     Require(Length(Required)=0,'An old engine was unnecessarily upgraded for direct EPUB to KEPUB');
   finally TFile.WriteAllBytes(Capability,CurrentAPI); end;
   CheckContinuation;
-  InstallEpubPdf;
+  InstallWriter('EpubPdfExport','.pdf','pdf');
+  InstallWriter('KfxExport','.kfx','kfx');
   CheckWebViewPrompt;
 
   Options:=Default(TBookSendOptions); Options.Mode:=emKepub; Options.ExplicitFormat:=True;
@@ -271,7 +283,7 @@ begin
   var OriginalHashes:=SourceHashes;
   var MarkdownPath:=Root+'source.markdown';
   TFile.WriteAllText(MarkdownPath,'# Markdown input'+sLineBreak+'Keep all bytes.',TEncoding.UTF8);
-  for var Mode in [emKepub,emMarkdown,emAdvancedPDF,emEpub3,emEpub2] do
+  for var Mode in [emKepub,emMarkdown,emAdvancedPDF,emEpub3,emEpub2,emKfx,emAzw8] do
   begin
     Books:=Originals;
     SourceHashes:=OriginalHashes;
@@ -305,7 +317,9 @@ begin
       for var Item in Estimates do
       begin
         Require(Item.Completed and (Item.ErrorText=''),Status+' '+Item.ErrorText);
-        for var Quality:=0 to 3 do Require(Item.Options.OutputBytes[0,Quality]>0,'Advanced estimate missed an image choice');
+        for var Quality:=0 to 2 do Require(Item.Options.OutputBytes[0,Quality]>0,'Advanced estimate missed an image choice');
+        Require((Item.Options.OutputBytes[0,3]>0)=BookSaveSupportsNoImages(Mode),
+          'Advanced estimate disagrees with no-images availability');
       end;
     finally EstimateThread.Free; end;
 
@@ -331,14 +345,15 @@ begin
         var Size:=TFile.GetSize(Results[I].OutputFile);
         Require(Abs(Size-Estimates[I].Options.OutputBytes[0,0])<=512,'Estimate did not measure the written format');
         Require(UpdateSHA256(Books[I].GetBookFileName)=SourceHashes[I],'Advanced save modified a source');
-        if Mode=emAdvancedPDF then
+        if Mode in [emAdvancedPDF,emKfx,emAzw8] then
         begin
           var FileStream:=TFileStream.Create(Results[I].OutputFile,fmOpenRead or fmShareDenyWrite);
           try
             var Signature: AnsiString;
-            SetLength(Signature,5);
+            if Mode=emAdvancedPDF then SetLength(Signature,5) else SetLength(Signature,4);
             FileStream.ReadBuffer(Signature[1],Length(Signature));
-            Require(Signature='%PDF-','Advanced output has no PDF signature');
+            if Mode=emAdvancedPDF then Require(Signature='%PDF-','Advanced output has no PDF signature')
+            else Require(Signature='CONT','Advanced output has no Kindle container signature');
           finally FileStream.Free; end;
         end;
         if (Mode=emMarkdown) and (I<High(Results)) then
@@ -358,4 +373,5 @@ begin
   Writeln('PASS mixed Markdown save estimates modules images and byte-identical source copy'); Flush(Output);
   Writeln('PASS mixed EPUB 3 save estimates modules and original source hashes'); Flush(Output);
   Writeln('PASS mixed EPUB 2 save estimates modules and original source hashes'); Flush(Output);
+  Writeln('PASS mixed KFX and AZW8 save estimates modules and original source hashes'); Flush(Output);
 end;

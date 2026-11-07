@@ -207,6 +207,7 @@ begin
   if AdvancedBookOutputExtension(Profile)='' then Exit;
   if Ext='.fb2' then Exit('FB2Export');
   if not IsBasicConversionSource(Ext) then Exit;
+  if (Profile='kfx') or (Profile='azw8') then Exit('KfxExport');
   if Profile='kepub' then Exit('KoboExport');
   if (Profile='pdf') and (Ext<>'.pdf') then Exit('EpubPdfExport');
   if (Profile='md') or (Profile='epub2') or (Profile='epub3') then Exit('BookProcessing');
@@ -266,8 +267,12 @@ begin
       if Writer='BookProcessing' then RequiredAPI:=3;
       if (Writer='BookProcessing') and (OutputProfile='epub3') then RequiredAPI:=4;
       if (Writer='BookProcessing') and (OutputProfile='epub2') then RequiredAPI:=5;
+      if Writer='KfxExport' then RequiredAPI:=6;
       if FileExists(Capability) and (TFile.GetSize(Capability)<=16) then
         API:=StrToIntDef(Trim(TFile.ReadAllText(Capability,TEncoding.ASCII)),0);
+      if (Writer='KfxExport') and
+        (not FileExists(TPath.Combine(AppPath,'tools/bookconvert/epub_kfx_output.py')) or
+        not FileExists(TPath.Combine(AppPath,'tools/bookconvert/kfx_image_input.py'))) then API:=0;
       if API<RequiredAPI then Result:=TArray<string>.Create('BookProcessing');
     end;
     Need(Writer);

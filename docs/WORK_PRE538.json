@@ -5916,5 +5916,16 @@
       "kfx-svg-adapter-epubcheck-20261107-r3.log": "3669ccc25a7f289e24ce34d794b55a99a0605f1763c6971c71db79b7c7d4a2ee",
       "kfx-resvg-native-x86-20261107.log": "097079767ac227937bc11b4b1a3f447e1137d7a8141d0d463b569e2d7d55c84c"
     }
+  },
+  "beta5_direct_kfx_integration_20261107": {
+    "status": "Direct KFX/AZW8 integration is in the working source. The final native Save As, component delivery and production release gates remain open.",
+    "routing": "Compatible non-FB2 books are prepared as EPUB and exported with the optional KfxExport component. FB2 continues to use fb2cng. Mixed selections use the appropriate path per book. BookProcessing API 6 supplies the new adapter. The component is outside the minimal archives, and the native updater checks both tool executables for the requested architecture.",
+    "images": "Convert supported static SVG and still WebP to PNG in a private copy, retain image links and transparency, and report the rasterization and possible layout changes. Use the existing optional WebP decoder. Fixed-layout EPUB, SVG with text, animated WebP and unsupported active or audiovisual elements return a specific error. The source book is preserved.",
+    "verification": "307 Python tests discovered, 304 passed and three optional packaged-writer tests skipped. Test executables built on x86 and x64. An x64 worker run using the new BookProcessing archive and the real optional WebP DLL passed KFX and AZW8 with SVG, exact decoded WebP RGBA and chapter links. It used official writer binaries and a privately normalized navigation fixture. The optimized Win32 runtime also passed independent native EPUB 2, EPUB 3, DOCX-derived EPUB and SVG round-trip checks.",
+    "remaining": "Finish the optimized Win64 runtime build, verify installation and mixed-book Save As with both exact component archives, repeat the release-candidate update checks, and audit redistribution notices. Rendering on a physical Kindle is unverified. Nothing from this integration has been published.",
+    "logs": {
+      "kfx-direct-bookconvert-20261107.log": "f4ea2c382d0c1dfe63bfc56ea83e837b24db9b166809e449d4b71804b29e901c",
+      "kfx-direct-worker-reference-20261107-r3.log": "e855f84678272a5090a454ec20aeec88af6cfd15e5c844be0b0d2a407a4900b8"
+    }
   }
 }

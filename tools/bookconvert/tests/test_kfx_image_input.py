@@ -70,6 +70,37 @@ class KfxImageInputTest(unittest.TestCase):
                                  lambda *_: self.fail('No SVG needs rendering.')), 0)
         self.assertFalse(self.output.exists())
 
+    def test_webp_requests_its_decoder_and_remaps_the_existing_resource(self):
+        webp = b64decode('UklGRh4AAABXRUJQVlA4TBEAAAAvAQAAEAdQqEYUuYaBiOh/AAA=')
+        with zipfile.ZipFile(self.base) as archive, zipfile.ZipFile(self.source, 'x') as result:
+            for entry in archive.infolist():
+                data = archive.read(entry)
+                if entry.filename == 'OPS/cover.png':
+                    entry.filename = 'OPS/cover.webp'
+                    data = webp
+                elif entry.filename == 'OPS/book.opf':
+                    data = data.replace(b'cover.png', b'cover.webp').replace(b'image/png', b'image/webp')
+                elif entry.filename == 'OPS/text/chapter.xhtml':
+                    data = data.replace(b'cover.png', b'cover.webp')
+                result.writestr(entry, data)
+        original = self.source.read_bytes()
+        def no_svg(*_):
+            self.fail('WebP must use the WebP decoder.')
+        with self.assertRaises(conversion.ComponentRequired) as error:
+            prepare(conversion, self.source, self.output, no_svg)
+        self.assertEqual(error.exception.component, 'WebP')
+        self.assertFalse(self.output.exists())
+        def decode(data):
+            self.assertEqual(data, webp)
+            return b64decode(PNG)
+        self.assertEqual(prepare(conversion, self.source, self.output, no_svg, decode_webp=decode), 1)
+        with zipfile.ZipFile(self.output) as archive:
+            self.assertNotIn('OPS/cover.webp', archive.namelist())
+            chapter = conversion.xhtml(archive.read('OPS/text/chapter.xhtml'))
+            image = next(node for node in chapter.iter() if conversion.tag(node) == 'img')
+            self.assertEqual(archive.read('OPS/' + image.get('src').removeprefix('../')), b64decode(PNG))
+        self.assertEqual(self.source.read_bytes(), original)
+
 
 if __name__ == '__main__':
     unittest.main()
