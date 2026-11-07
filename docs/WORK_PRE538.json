@@ -5865,5 +5865,26 @@
     },
     "cleanup": "Native test profiles and packaged-worker TemporaryDirectory outputs were removed. Automatic approval review rejected recursive cleanup of the six owned fixture and download targets inside G:\\HomeLibRu-build-cache\\homelibre-epub3-check-e6908b412bc0426abf1b3057d8d7ef6c as blocked by policy. They remain and must not be retried or removed through the parent. EPUBCheck unpacked under that same root remains available for the next format checks.",
     "remaining": "Explicit EPUB 2 for compatible non-FB2 sources, quality-preserving EPUB-to-KFX/AZW8 routing, final production rebuild, and final public release checks."
+  },
+  "beta5_direct_epub2_20261107": {
+    "status": "Explicit EPUB 2 export for compatible mixed books passed on x86 and x64.",
+    "routing": "Existing FB2 uses fb2cng. Other compatible books are prepared directly as EPUB. Existing EPUB 2 in original image mode is byte-identical. EPUB 3 to EPUB 2 makes NCX navigation, maps common metadata and XHTML, and preserves CSS, fonts, SVG, images and links where compatible. The OPF is version 2.0. Unsupported book features including fixed layout, scripted chapters, audio synchronization, and incompatible XHTML are rejected with a specific error. Source files are untouched.",
+    "standards": "https://idpf.org/epub/20/spec/OPF_2.0_latest.htm ; https://idpf.org/epub/20/spec/OPS_2.0.1_draft.htm",
+    "native": "Native Save As on x86 and x64 offered EPUB 2 for FB2, EPUB and DOCX and checked required components and stale API rejection. Each profile completed four size estimates, mixed output, collisions and source hashes. EPUB 3, Markdown, Kobo and PDF regressions also passed. These runs used the packaged writer before the final known-element guard.",
+    "final_packages": "The final guarded BookProcessing builds passed separate exact-archive tests on x86 and x64. EPUBCheck 5.4.0 accepted rich EPUB 3 converted to EPUB 2, DOCX converted to EPUB 2, and a byte-identical copy of EPUB 2 on each architecture. Compared hashes of CSS, font, cover and unmodified note XHTML and checked static SVG and retained strikethrough. Both builds rejected unsupported bdi without output. The initial final-package harness decoded Windows console output incorrectly; the successful rerun captured bytes.",
+    "python_suite": "Broad run before the final XHTML guard: 301 discovered, 298 passed, 3 optional packaged-writer cases skipped. All 11 focused EPUB 2/3 worker tests passed after the final guard.",
+    "limits": "No physical reading device was used. The current catalogue/Reader release archive is still to be rebuilt and tested. KFX/AZW8 output from non-FB2 sources and public installation remain open.",
+    "cleanup": "New EPUB 2 validation and final-package directories and owned native fixtures were removed by their runners. The older EPUB 3 cleanup denial was not retried. Small logs and compiler evidence remain. Delphi displayed Runtime error 216 after writing the successful x86 compiler log. Closed its own popup and the runner verified the new EXE.",
+    "package_sha256": {
+      "Win32": "196755066033e6a99b880d925f83c28765fe869e9a7b9db9c5af56346b2f65eb",
+      "Win64": "fba0c67ee94a8d75e34b572b2d08cb0f9f67ec0ccd0ebf39777ddf2418b58048"
+    },
+    "logs": {
+      "epub2-advanced-save-Win32-20261107.log": "a9afc7308c3965f4ea6e6398bf18f0534d61cfda6fec9df164583b811701e552",
+      "epub2-advanced-save-Win64-20261107.log": "a9afc7308c3965f4ea6e6398bf18f0534d61cfda6fec9df164583b811701e552",
+      "epub2-bookconvert-20261107.log": "4437f83314f9c1b0251b5e80a3569d6466f145f4ede442fc5ef8b26b58ea9c3a",
+      "epub2-packaged-epubcheck-20261107.log": "1dbfd2c4c36809b834b6f5f0e49f2cdcb4528ae4bd95950ea170efd563997322",
+      "epub2-final-package-20261107-r2.log": "e8f20e06e8eca99bf3b2fa018313d437e379c2d94b20ddb4a5bddaa8284eda36"
+    }
   }
 }

@@ -195,7 +195,7 @@ end;
 
 function BookSaveChoices(const Extensions: TArray<string>; ShowAdvanced: Boolean): TArray<TBookSaveChoice>;
 var AllFB2, AllEPUB, AllTXT, AllMOBI, AllAZW3, HasFB2EPUB, HasOther, CanKepub, CanPDF, AllPDF,
-  AllMarkdown, CanMarkdown, CanEpub3: Boolean;
+  AllMarkdown, CanMarkdown, CanEpub2, CanEpub3: Boolean;
   procedure Add(const Caption: string; Mode: TExportMode; KeepOriginal, KeepFB2EPUB: Boolean);
   var Choice: TBookSaveChoice;
   begin
@@ -207,7 +207,7 @@ begin
   Result:=nil; AllFB2:=Length(Extensions)>0; AllEPUB:=AllFB2;
   AllTXT:=AllFB2; AllMOBI:=AllFB2; AllAZW3:=AllFB2;
   HasFB2EPUB:=False; HasOther:=False; CanKepub:=AllFB2; CanPDF:=AllFB2; AllPDF:=AllFB2;
-  CanMarkdown:=AllFB2; AllMarkdown:=AllFB2; CanEpub3:=AllFB2;
+  CanMarkdown:=AllFB2; AllMarkdown:=AllFB2; CanEpub2:=AllFB2; CanEpub3:=AllFB2;
   for var Extension in Extensions do
   begin
     var Ext:=NormalExtension(Extension);
@@ -216,6 +216,7 @@ begin
     AllPDF:=AllPDF and (Ext='.pdf');
     AllMarkdown:=AllMarkdown and ((Ext='.md') or (Ext='.markdown'));
     CanMarkdown:=CanMarkdown and (AdvancedWriterComponent(Ext,'md')<>'');
+    CanEpub2:=CanEpub2 and (AdvancedWriterComponent(Ext,'epub2')<>'');
     CanEpub3:=CanEpub3 and (AdvancedWriterComponent(Ext,'epub3')<>'');
     CanKepub:=CanKepub and (AdvancedWriterComponent(Ext,'kepub')<>'');
     CanPDF:=CanPDF and ((Ext='.pdf') or (AdvancedWriterComponent(Ext,'pdf')<>''));
@@ -252,10 +253,10 @@ begin
   begin
     if AllFB2 then
     begin
-      Add('Преобразовать в EPUB 2',emEpub2,False,False);
       Add('Преобразовать в KFX — для Kindle',emKfx,False,False);
       Add('Преобразовать в AZW8 — для Kindle',emAzw8,False,False);
     end;
+    if CanEpub2 then Add('Преобразовать в EPUB 2',emEpub2,False,False);
     if CanEpub3 then Add('Преобразовать в EPUB 3',emEpub3,False,False);
     if CanMarkdown and not AllMarkdown then Add('Преобразовать в Markdown',emMarkdown,False,False);
     if CanKepub then Add('Преобразовать в KEPUB — для Kobo',emKepub,False,False);

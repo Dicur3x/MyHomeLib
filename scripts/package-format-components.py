@@ -225,7 +225,7 @@ def payload_for(platform, component, kindle_export_root=None, advanced_export_ro
                     'tools/bookconvert/MODULAR_API.txt', 'tools/bookconvert/IMAGE_CONTAINER_API.txt', 'tools/python/python313.dll',
                     'tools/python/python313.zip', 'tools/python/python313._pth',
                     'tools/bookconvert/ADVANCED_EXPORT_API.txt', 'tools/bookconvert/advanced_output.py',
-                    'tools/bookconvert/markdown_output.py', 'tools/bookconvert/epub3_output.py',
+                    'tools/bookconvert/markdown_output.py', 'tools/bookconvert/epub2_output.py', 'tools/bookconvert/epub3_output.py',
                     'tools/bookconvert/image_quality.py', worker, *sql_workers]
         helper.binary_platform(payload['tools/python/python.exe'], platform)
     elif component == 'ImageProcessing':

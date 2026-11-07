@@ -20,6 +20,7 @@ import os
 from pathlib import Path
 import posixpath
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -1542,6 +1543,49 @@ def validate_epub_output(path):
                 parser = xhtml if name in xhtml_parts or name.lower().endswith('.xhtml') else xml
                 parser(archive.read(name))
         return versions
+    finally:
+        archive.close()
+
+
+def rewrite_epub_version(source, output, version, transform, warnings, check):
+    if check is not None:
+        check()
+    archive = EpubArchive(source)
+    try:
+        container = xml(archive.read('META-INF/container.xml'))
+        rootfiles = [node for node in container.iter() if tag(node) == 'rootfile']
+        packages = [archive.resolve('container.xml', node.get('full-path', ''))[0] for node in rootfiles]
+        documents = [xml(archive.read(path)) for path in packages if path]
+        versions = [document.get('version', '').split('.')[0] for document in documents]
+        if versions and len(versions) == len(packages) and set(versions) == {version}:
+            shutil.copyfile(source, output)
+            return
+        if len(packages) != 1 or versions not in (['2'], ['3']):
+            raise ConversionError('Для смены версии EPUB нужна книга с одним вариантом оформления.')
+        if 'META-INF/signatures.xml' in archive.names:
+            raise ConversionError('Изменение версии нарушит цифровую подпись EPUB.')
+        if 'META-INF/encryption.xml' in archive.names:
+            encryption = xml(archive.read('META-INF/encryption.xml'))
+            methods = list(encryption.iter('{http://www.w3.org/2001/04/xmlenc#}EncryptionMethod'))
+            font_algorithms = {'http://www.idpf.org/2008/embedding', 'http://ns.adobe.com/pdf/enc#RC'}
+            if not methods or any(method.get('Algorithm') not in font_algorithms for method in methods):
+                raise ConversionError('Для изменения версии EPUB нужен экземпляр книги без защиты.')
+        replacements = transform(archive, packages[0], documents[0], warnings, check)
+        with zipfile.ZipFile(output, 'x', compression=zipfile.ZIP_DEFLATED) as result:
+            result.writestr('mimetype', b'application/epub+zip', compress_type=zipfile.ZIP_STORED)
+            for entry in archive.archive.infolist():
+                if check is not None:
+                    check()
+                name = entry.filename
+                if name == 'mimetype' or entry.is_dir():
+                    continue
+                if name in replacements:
+                    result.writestr(name, replacements.pop(name))
+                else:
+                    with archive.archive.open(entry) as data, result.open(name, 'w') as target:
+                        shutil.copyfileobj(data, target, length=1024 * 1024)
+            for name, data in replacements.items():
+                result.writestr(name, data)
     finally:
         archive.close()
 

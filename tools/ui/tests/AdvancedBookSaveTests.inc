@@ -70,7 +70,7 @@ begin
           for var J:=0 to Formats.Items.Count-1 do
             if string(Formats.Items[J]).Contains('KEPUB') then begin Index:=J; Break; end;
           Require(Index>=0,'Mixed FB2, EPUB and DOCX have no common KEPUB choice');
-          Require(not string(Formats.Items.Text).Contains('EPUB 2'),'FB2-only writer offered for mixed EPUB input');
+          Require(string(Formats.Items.Text).Contains('EPUB 2'),'Mixed FB2, EPUB and DOCX have no EPUB 2 choice');
           Formats.ItemIndex:=Index; Formats.OnChange(Formats);
         end;
         Require(string(Preview.Caption).EndsWith('.kepub.epub'),'Preview did not retain the full Kobo extension');
@@ -217,6 +217,8 @@ begin
   begin
     Required:=MissingBookConversionComponents(EmptyRuntime,Books[Index].GetBookFileName,Books[Index].FileExt,False,nil,'.epub','epub3');
     Require(String.Join(',',Required)='BookProcessing','Direct EPUB 3 requested an unrelated writer');
+    Required:=MissingBookConversionComponents(EmptyRuntime,Books[Index].GetBookFileName,Books[Index].FileExt,False,nil,'.epub','epub2');
+    Require(String.Join(',',Required)='BookProcessing','Direct EPUB 2 requested an unrelated writer');
   end;
   for var Index in [0,1,2] do
   begin
@@ -230,6 +232,9 @@ begin
   var Capability:=TPath.Combine(Settings.AppPath,'tools/bookconvert/ADVANCED_EXPORT_API.txt');
   var CurrentAPI:=TFile.ReadAllBytes(Capability);
   try
+    TFile.WriteAllText(Capability,'4',TEncoding.ASCII);
+    Required:=MissingBookConversionComponents(Settings.AppPath,Books[1].GetBookFileName,'.epub',False,nil,'.epub','epub2');
+    Require(String.Join(',',Required)='BookProcessing','An old engine was accepted for explicit EPUB 2');
     TFile.WriteAllText(Capability,'3',TEncoding.ASCII);
     Required:=MissingBookConversionComponents(Settings.AppPath,Books[1].GetBookFileName,'.epub',False,nil,'.epub','epub3');
     Require(String.Join(',',Required)='BookProcessing','An old engine was accepted for explicit EPUB 3');
@@ -266,7 +271,7 @@ begin
   var OriginalHashes:=SourceHashes;
   var MarkdownPath:=Root+'source.markdown';
   TFile.WriteAllText(MarkdownPath,'# Markdown input'+sLineBreak+'Keep all bytes.',TEncoding.UTF8);
-  for var Mode in [emKepub,emMarkdown,emAdvancedPDF,emEpub3] do
+  for var Mode in [emKepub,emMarkdown,emAdvancedPDF,emEpub3,emEpub2] do
   begin
     Books:=Originals;
     SourceHashes:=OriginalHashes;
@@ -284,6 +289,7 @@ begin
     var Extension:=BookSaveTargetExtension('.epub',Mode,False,False);
     Options.Mode:=Mode;
     Options.Folder:=Root+'copies'+Extension;
+    if Mode=emEpub2 then Options.Folder:=Root+'copies-epub2';
     Choice:=Default(TBookSaveChoice); Choice.Mode:=Mode;
     EstimateThread:=TBookSendEstimateThread.Create(Books,Choice,Settings.AppPath,Settings.TempPath);
     try
@@ -351,4 +357,5 @@ begin
   Writeln('PASS advanced save compact choices restored review mixed Kobo and PDF estimates output collisions and source hashes'); Flush(Output);
   Writeln('PASS mixed Markdown save estimates modules images and byte-identical source copy'); Flush(Output);
   Writeln('PASS mixed EPUB 3 save estimates modules and original source hashes'); Flush(Output);
+  Writeln('PASS mixed EPUB 2 save estimates modules and original source hashes'); Flush(Output);
 end;

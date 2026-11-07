@@ -1,20 +1,15 @@
 """Upgrade the EPUB package and navigation while retaining its reading resources."""
 
-from contextlib import closing
 from datetime import datetime, timezone
 import posixpath
 import re
-import shutil
 from urllib.parse import quote
-import zipfile
 
 
 XML_NS = 'http://www.w3.org/XML/1998/namespace'
 NCX_NS = 'http://www.daisy.org/z3986/2005/ncx/'
 SVG_NS = 'http://www.w3.org/2000/svg'
 MATHML_NS = 'http://www.w3.org/1998/Math/MathML'
-ENC_NS = 'http://www.w3.org/2001/04/xmlenc#'
-FONT_OBFUSCATION = {'http://www.idpf.org/2008/embedding', 'http://ns.adobe.com/pdf/enc#RC'}
 LEGACY_FONT_TYPES = {
     'application/vnd.ms-opentype', 'application/x-font-otf', 'application/x-font-ttf',
     'application/x-font-truetype', 'application/font-sfnt',
@@ -133,14 +128,6 @@ def chapter_properties(api, archive, path, doc):
 
 
 def upgrade_package(api, archive, package_path, package, warnings, check):
-    if 'META-INF/signatures.xml' in archive.names:
-        raise api.ConversionError('Изменение версии нарушит цифровую подпись EPUB.')
-    if 'META-INF/encryption.xml' in archive.names:
-        encryption = api.xml(archive.read('META-INF/encryption.xml'))
-        methods = list(encryption.iter('{' + ENC_NS + '}EncryptionMethod'))
-        if not methods or any(method.get('Algorithm') not in FONT_OBFUSCATION for method in methods):
-            raise api.ConversionError('Для изменения версии EPUB нужен экземпляр книги без защиты.')
-
     metadata, manifest, spine = (api.first(package, key) for key in ('metadata', 'manifest', 'spine'))
     if metadata is None or manifest is None or spine is None:
         raise api.ConversionError('Неполное описание EPUB 2.')
@@ -200,32 +187,7 @@ def upgrade_package(api, archive, package_path, package, warnings, check):
 
 
 def convert(api, source, output, warnings, check):
-    if check is not None:
-        check()
-    with closing(api.EpubArchive(source)) as archive:
-        container = api.xml(archive.read('META-INF/container.xml'))
-        rootfiles = [node for node in container.iter() if api.tag(node) == 'rootfile']
-        packages = [archive.resolve('container.xml', node.get('full-path', ''))[0] for node in rootfiles]
-        documents = [api.xml(archive.read(path)) for path in packages if path]
-        versions = [document.get('version', '').split('.')[0] for document in documents]
-        if versions and len(versions) == len(packages) and set(versions) == {'3'}:
-            shutil.copyfile(source, output)
-            return
-        if versions != ['2'] or len(packages) != 1:
-            raise api.ConversionError('Для перехода на EPUB 3 нужен EPUB 2 с одним вариантом книги.')
-        replacements = upgrade_package(api, archive, packages[0], documents[0], warnings, check)
-        with zipfile.ZipFile(output, 'x', compression=zipfile.ZIP_DEFLATED) as result:
-            result.writestr('mimetype', b'application/epub+zip', compress_type=zipfile.ZIP_STORED)
-            for entry in archive.archive.infolist():
-                if check is not None:
-                    check()
-                name = entry.filename
-                if name == 'mimetype' or entry.is_dir():
-                    continue
-                if name in replacements:
-                    result.writestr(name, replacements.pop(name))
-                else:
-                    with archive.archive.open(entry) as data, result.open(name, 'w') as target:
-                        shutil.copyfileobj(data, target, length=1024 * 1024)
-            for name, data in replacements.items():
-                result.writestr(name, data)
+    def transform(archive, path, package, notes, cancel):
+        return upgrade_package(api, archive, path, package, notes, cancel)
+
+    api.rewrite_epub_version(source, output, '3', transform, warnings, check)
