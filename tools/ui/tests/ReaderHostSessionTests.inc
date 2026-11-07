@@ -13,7 +13,7 @@ type
   end;
 
 procedure TReaderHostSessionDriver.Tick(Sender: TObject);
-var View: TfrmBuiltinReader; Probe: TStream; Blocked: Boolean;
+var View: TfrmBuiltinReader; Probe: TStream; Blocked: Boolean; Key: Word; Deadline: UInt64;
 begin
   View:=nil;
   for var I:=0 to Host.ComponentCount-1 do
@@ -41,8 +41,36 @@ begin
     except on E: Exception do Blocked:=True; end;
     Require(Blocked,'Catalogue reader host did not keep the original archive protected');
     CheckReaderDiagnosticsMenu(View);
-    View.SetTheme(1); CheckReaderDiagnosticsMenu(View); View.SetTheme(4);
-    View.SetTheme(4); View.NextPage; View.AddBookmark('Передача из каталога');
+    View.SetTheme(1);
+    Require((View.PageBackground=RGB(244,231,215)) and (View.Font.Color=RGB(64,35,18)),
+      'Reader did not restore the paper theme overrides');
+    CheckReaderDiagnosticsMenu(View);
+    View.SetThemeColors(clDefault,clDefault);
+    Require((View.PageBackground=ReaderThemeBackground(1)) and
+      (View.Font.Color=ReaderThemeText(1)), 'Reset did not restore the paper theme defaults');
+    View.SetTheme(4);
+    Require(View.PageBackground=ReaderThemeBackground(4), 'The paper palette changed the dark theme');
+    View.SetThemeColors(RGB(23,32,40),RGB(236,234,222));
+    Require((View.PageBackground=RGB(23,32,40)) and (View.Color=RGB(23,32,40)) and
+      (View.Font.Color=RGB(236,234,222)), 'Custom colors did not repaint book and reader controls');
+    Require(View.TextPosition=1200, 'Changing palette moved the reading position');
+    View.SetPageLayout(rplContinuous);
+    Require((View.VisiblePageCount=1) and (View.TextPosition=1200) and
+      (View.PageRasterSize.Y=2*View.ReadingSurface.Height), 'Continuous text did not prepare two vertical tiles');
+    View.ReadingSurface.SetFocus;
+    for var Step:=1 to 3 do
+    begin Key:=VK_DOWN; View.OnKeyDown(View,Key,[]); end;
+    Deadline:=GetTickCount64+1500;
+    repeat Application.ProcessMessages; Sleep(10);
+    until (View.TextPosition>1200) or (GetTickCount64>Deadline);
+    Require((Key=0) and (View.TextPosition>1200),Format(
+      'Down arrow did not advance visible text: key=%d position=%d',[Key,View.TextPosition]));
+    var Scrolled:=View.TextPosition;
+    View.SelectText(Scrolled,12);
+    Require(View.SelectedText<>'', 'Text selection stopped working during continuous reading');
+    View.SetPageLayout(rplSingle);
+    Require(View.TextPosition>=Scrolled, 'Leaving continuous reading jumped backwards');
+    View.NextPage; View.AddBookmark('Передача из каталога');
     SavedPosition:=View.TextPosition; Require(SavedPosition>1200,'Reader did not turn the selected book');
     Completed:=True;
   except on E: Exception do begin Error:=E.Message; Timer.Enabled:=False; end; end;
@@ -82,6 +110,8 @@ begin
   try
     Ini.WriteInteger('Book.'+HistoryKey,'Position',1200);
     Ini.WriteInteger('Reader','Theme',4);
+    Ini.WriteInteger('Reader','ThemeBackground1',RGB(244,231,215));
+    Ini.WriteInteger('Reader','ThemeText1',RGB(64,35,18));
     Ini.WriteBool('Reader','AppThemeDark',not MHLThemeDark);
     SaveMemIniFileAtomically(Ini);
   finally Ini.Free; end;
@@ -113,12 +143,18 @@ begin
     try
       Require(Ini.ReadInteger('Book.'+HistoryKey,'Position',-1)=Driver.SavedPosition,
         'Catalogue reader host wrote a different history identity');
+      Require((Ini.ReadInteger('Reader','ThemeBackground4',clDefault)=RGB(23,32,40)) and
+        (Ini.ReadInteger('Reader','ThemeText4',clDefault)=RGB(236,234,222)) and
+        (Ini.ReadInteger('Reader','ThemeBackground1',0)=clDefault) and
+        (Ini.ReadInteger('Reader','ThemeText1',0)=clDefault), 'Palette overrides or reset were lost');
       Require(Ini.ReadInteger('Bookmarks.'+HistoryKey,'Count',0)=1,
         'Catalogue reader host lost its new bookmark');
     finally Ini.Free; end;
     Require(THashSHA2.GetHashStringFromFile(NotesFile)=NotesHash,'Catalogue reader host changed existing notes');
     Require(THashSHA2.GetHashStringFromFile(Book.GetBookFileName)=SourceHash,'Catalogue reader host changed the source archive');
     Probe:=TFileStream.Create(Request.SourceFile,fmOpenReadWrite or fmShareDenyNone); Probe.Free;
+    Writeln('PASS reader continuous text scroll preserves selection and the visible position');
+    Writeln('PASS reader themes restore, apply and reset per-theme foreground and background');
     Writeln('PASS catalogue reader host opens the selected archive member with existing history notes bookmarks progress and source protection');
   finally
     Driver.Timer.Free; Driver.Free; Host.Free; SetMHLTheme(OldDark);

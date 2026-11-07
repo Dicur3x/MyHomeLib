@@ -9,7 +9,7 @@ uses Winapi.Windows, Winapi.Messages, System.SysUtils, System.Classes, System.Ty
 
 type
   TReaderInitialsMode = (rimNone, rimChapter, rimParagraph);
-  TReaderPageLayout = (rplSingle, rplDouble, rplAutomatic);
+  TReaderPageLayout = (rplSingle, rplDouble, rplAutomatic, rplContinuous);
   TReaderPageTurn = (rptSpread, rptSliding);
   TReaderPageAppearance = (rpaFlat, rpaBook);
   TReaderPDFPageView = record
@@ -114,6 +114,9 @@ type
     FPageSelection: TReaderPageSelection;
     FSecondPageSelection: TReaderPageSelection;
     FPageLayout: TReaderPageLayout;
+    FScrollTimer: TTimer;
+    FScrollOffset, FScrollTarget, FScrollTileHeight: Integer;
+    FScrollBackOffset, FScrollRestore: Integer;
     FPageTurn: TReaderPageTurn;
     FPageAppearance: TReaderPageAppearance;
     FSpreadLoading: Boolean;
@@ -150,6 +153,8 @@ type
     FBookFormatting, FShowFootnotes, FDecorativeInitials, FTypographyDirty: Boolean;
     FInitialsMode: TReaderInitialsMode;
     FHeadingColors: array[0..1,0..1] of TColor;
+    FThemeBackgrounds, FThemeTexts: array[0..5] of TColor;
+    FChangedThemeColors: set of 0..5;
     FFootnotesPanel: TPanel;
     FFootnotesLabel: TLabel;
     FFootnotesMemo: TMemo;
@@ -258,6 +263,8 @@ type
     procedure SearchColorClick(Sender: TObject);
     procedure SearchCloseClick(Sender: TObject);
     procedure ThemeClick(Sender: TObject);
+    procedure ThemeColorsClick(Sender: TObject);
+    function HasCustomThemeColors: Boolean;
     function ThemeBackground: TColor;
     function ThemeText: TColor;
     function VisibleHighlightCount: Integer;
@@ -266,6 +273,7 @@ type
     procedure HighlightTextPage;
     procedure ClampPan;
     procedure StyleClick(Sender: TObject);
+    procedure LayoutChoiceChanged(Sender: TObject);
     procedure ChapterClick(Sender: TObject);
     procedure ContentsClick(Sender: TObject);
     procedure DrawChapterItem(Control: TWinControl; Index: Integer; Rect: TRect; State: TOwnerDrawState);
@@ -304,10 +312,20 @@ type
     procedure UpdateFootnotesPanel;
     procedure ApplyBookStyles(ColorsOnly: Boolean = False; Start: Integer = 0; Finish: Integer = MaxInt);
     procedure EnsureBookStyles(Start, Finish: Integer);
-    function FormatText(Start, Finish: Integer; Draw: Boolean; Target: TBitmap = nil; LayoutWidth: Integer = 0; LayoutHeight: Integer = 0): Integer;
+    function FormatText(Start, Finish: Integer; Draw: Boolean; Target: TBitmap = nil; LayoutWidth: Integer = 0; LayoutHeight: Integer = 0; LookAhead: Boolean = False): Integer;
     function FormatTextColumn(Start, Finish: Integer; Draw: Boolean; Target: TBitmap;
-      LayoutWidth, LayoutHeight, Left: Integer): Integer;
+      LayoutWidth, LayoutHeight, Left: Integer; Top: Integer = 0): Integer;
     function CurrentPosition: Integer;
+    function VisibleReadingPosition: Integer;
+    function VisibleTextEnd: Integer;
+    function ContinuousReading: Boolean;
+    function RasterPageCount: Integer;
+    function RasterScrollLimit: Integer;
+    function RasterOrigin: TPoint;
+    procedure ApplyPageLayout(Value: TReaderPageLayout);
+    procedure ScrollPixels(Pixels: Integer);
+    procedure ScrollFrame(Sender: TObject);
+    procedure ResetScroll;
     procedure NavigateTo(Position: Integer);
   protected
     function OpenLookupTarget(const Target, Parameters, WorkingDirectory: string): Boolean; virtual;
@@ -354,6 +372,8 @@ type
     procedure SetSearchOptions(MatchCase, WholeWord, AllMatches: Boolean);
     procedure SetHighlightColor(Value: TColor);
     procedure SetTheme(Index: Integer);
+    procedure SetThemeColors(Background, Foreground: TColor);
+    procedure AddThemeColorsMenu(Parent: TMenuItem);
     procedure StopSearch;
     procedure SetInspectionPercent(Value: Integer);
     procedure SetInspectionHold(Value: Boolean);
@@ -398,7 +418,7 @@ type
     property LoadFinished: Boolean read FLoadFinished;
     property ReaderStatus: TLabel read FStatus;
     property ReadingSurface: TReaderSurface read FSurface;
-    property TextPosition: Integer read CurrentPosition;
+    property TextPosition: Integer read VisibleReadingPosition;
     property TextLength: Integer read FLength;
     property ReaderFontSize: Integer read FFontSize;
     property ReaderFontName: string read FFontName;
@@ -409,7 +429,7 @@ type
     property HighlightColor: TColor read FHighlightColor;
     property MatchPosition: Integer read FTextMatch;
     property HighlightCount: Integer read VisibleHighlightCount;
-    property PDFPan: TPoint read FPan;
+    property PDFPan: TPoint read RasterOrigin;
     property Inspecting: Boolean read FInspect;
     property InspectionPercent: Integer read FInspectionPercent;
     function VisibleFootnotes: string;
@@ -558,19 +578,25 @@ begin
 end;
 
 function ReadableReaderColor(Color, Background: TColor): TColor;
-var Original: Cardinal; Percent: Integer;
+var Target: TColor; Percent: Integer;
 begin
-  Result:=ColorToRGB(Color); Original:=Result;
-  // Preserve the chosen hue while making dark purple/blue readable on a dark page.
-  // Settings retain the original color. The light theme does not use this adjustment.
+  Result:=ColorToRGB(Color);
   if ReaderColorContrast(Result,Background)>=4.5 then Exit;
+  if ReaderColorContrast(clWhite,Background)>=ReaderColorContrast(clBlack,Background) then
+    Target:=clWhite
+  else Target:=clBlack;
+  // Preserve as much of the chosen hue as possible on this page.
   for Percent:=1 to 100 do
   begin
-    Result:=RGB(GetRValue(Original)+(255-GetRValue(Original))*Percent div 100,
-      GetGValue(Original)+(255-GetGValue(Original))*Percent div 100,
-      GetBValue(Original)+(255-GetBValue(Original))*Percent div 100);
+    Result:=ReaderBlendColor(Color,Target,MulDiv(Percent,255,100));
     if ReaderColorContrast(Result,Background)>=4.5 then Exit;
   end;
+end;
+
+function NormalizeReaderThemeColor(Value: TColor): TColor;
+begin
+  Result:=Value;
+  if Value<>clDefault then Result:=ColorToRGB(Value) and $00FFFFFF;
 end;
 
 function ResolveReaderSettingsFile(const DataDir: string): string;
@@ -627,6 +653,12 @@ begin
     Steps:=FReader.FWheel div WHEEL_DELTA;
     FReader.FWheel:=FReader.FWheel mod WHEEL_DELTA;
     if Steps<>0 then FReader.ChangeSize(Steps);
+    Exit;
+  end;
+  if FReader.ContinuousReading and not FReader.FInspect then
+  begin
+    FReader.FWheel:=0;
+    FReader.ScrollPixels(-MulDiv(WheelDelta,MulDiv(84,FReader.CurrentPPI,96),WHEEL_DELTA));
     Exit;
   end;
   while FReader.FWheel>=WHEEL_DELTA do begin Dec(FReader.FWheel,WHEEL_DELTA); FReader.PreviousPage; end;
@@ -1080,7 +1112,7 @@ begin
       if Hit.Page<0 then
       begin
         FTextMatch:=Hit.Position; FTextMatchLength:=Hit.Count;
-        if Hit.Position=CurrentPosition then RenderPage else NavigateTo(Hit.Position);
+        if (Hit.Position=CurrentPosition) and not ContinuousReading then RenderPage else NavigateTo(Hit.Position);
       end
       else if FPDF.FindOnPage(Hit.Page,FSearchQuery,Hit.Position,Match,FSearchCase.Checked,FSearchWord.Checked) then
       begin
@@ -1120,6 +1152,11 @@ begin
   PrepareReaderFonts;
   FFontSize:=14; FFontName:=AvailableReaderFont('PT Serif'); FLinePercent:=110; FMargin:=32; FMaxTextWidth:=960; FBookFormatting:=True; FShowFootnotes:=True; FInspectionPercent:=150;
   for I:=0 to 1 do for J:=0 to 1 do FHeadingColors[I,J]:=clDefault;
+  for I:=Low(FThemeBackgrounds) to High(FThemeBackgrounds) do
+  begin
+    FThemeBackgrounds[I]:=clDefault;
+    FThemeTexts[I]:=clDefault;
+  end;
   FPDFMatchPage:=-1; FPDFMatchIndex:=-1;
   FTextMatch:=-1; FHighlightColor:=$0080E5FF; FHighlighted:=TList<TPoint>.Create;
   FTypographyDirty:=True; FStyledIntervals:=TList<TPoint>.Create; FChapterOutline:=TStringList.Create;
@@ -1268,6 +1305,8 @@ begin
   FBookSkin:=TReaderBookSkin.Create;
   FSelectionTint:=TBitmap.Create; FSelectionTint.PixelFormat:=pf32bit; FSelectionTint.SetSize(1,1);
   FResizeTimer:=TTimer.Create(Self); FResizeTimer.Enabled:=False; FResizeTimer.Interval:=140; FResizeTimer.OnTimer:=ResizePage;
+  FScrollTimer:=TTimer.Create(Self); FScrollTimer.Enabled:=False;
+  FScrollTimer.Interval:=15; FScrollTimer.OnTimer:=ScrollFrame;
   FPageTimer:=TTimer.Create(Self); FPageTimer.Enabled:=False; FPageTimer.Interval:=30; FPageTimer.OnTimer:=PageLoaded;
   FSearchTimer:=TTimer.Create(Self); FSearchTimer.Enabled:=False; FSearchTimer.Interval:=1; FSearchTimer.OnTimer:=SearchTick;
   FSeekTimer:=TTimer.Create(Self); FSeekTimer.Enabled:=False; FSeekTimer.Interval:=90; FSeekTimer.OnTimer:=SeekTick;
@@ -1445,7 +1484,7 @@ end;
 
 destructor TfrmBuiltinReader.Destroy;
 begin
-  FClosing:=True; FSeekTimer.Enabled:=False; FPaginationTimer.Enabled:=False; FreeAndNil(FLoadStatus);
+  FClosing:=True; FScrollTimer.Enabled:=False; FSeekTimer.Enabled:=False; FPaginationTimer.Enabled:=False; FreeAndNil(FLoadStatus);
   FPageTimer.Enabled:=False;
   if Assigned(FPageWorker) then begin FPageWorker.Terminate; FPageWorker.WaitFor; FreeAndNil(FPageWorker); end;
   FreeAndNil(FPageStatus);
@@ -1538,7 +1577,7 @@ begin
     if SavedPage<>0 then RequestPage(SavedPage,False);
     Exit;
   end;
-  PreviousPosition:=CurrentPosition; PreviousLength:=FLength;
+  PreviousPosition:=VisibleReadingPosition; PreviousLength:=FLength;
   LoadPresentation(FLoader.Document);
   FDocument.Free; FDocument:=FLoader.Document; FLoader.Document:=nil;
   UpdateFootnotesPanel;
@@ -1641,7 +1680,7 @@ procedure TfrmBuiltinReader.RequestPage(Index: Integer; Moved: Boolean);
 begin
   if not FReady or FClosing or (not Assigned(FPDF) or not FPDF.AsyncPages) then Exit;
   FRequestedPage:=EnsureRange(Index,0,FPDF.PageCount-1); FRequestedMoved:=Moved;
-  FPDF.SetVisibleRange(FRequestedPage,Min(TextPageCount,FPDF.PageCount-FRequestedPage));
+  FPDF.SetVisibleRange(FRequestedPage,Min(RasterPageCount,FPDF.PageCount-FRequestedPage));
   if FRequestedPage=FPage then
   begin
     // Returning to the visible page cancels navigation, although the decoder
@@ -1675,16 +1714,31 @@ begin
   if not Preloaded and (Error='') and (Index=FRequestedPage) then
   begin
     FPage:=Index; FReadingMoved:=FReadingMoved or Moved;
-    try RenderPage; except on E: Exception do Error:=E.Message; end;
-  end;
-  if Preloaded and (Error='') and (Index>=FPage) and (Index<FPage+TextPageCount) and (FRequestedPage=FPage) then
-  begin
-    SavedPan:=FPan;
-    try RenderPage; FPan:=SavedPan; ClampPan; FSurface.Invalidate;
+    try
+      RenderPage;
+      if FScrollBackOffset<0 then
+      begin
+        FScrollOffset:=Min(FScrollTileHeight,RasterScrollLimit);
+        FScrollTarget:=FScrollOffset+FScrollBackOffset;
+        FScrollBackOffset:=0;
+        FScrollTimer.Enabled:=True;
+      end;
     except on E: Exception do Error:=E.Message; end;
   end;
-  if Preloaded and (Error<>'') and (Index>=FPage) and (Index<FPage+TextPageCount) then
-  begin FSpreadLoading:=False; FStatus.Caption:='Не удалось открыть страницу: '+Error; end;
+  if Preloaded and (Error='') and (Index>=FPage) and (Index<FPage+RasterPageCount) and (FRequestedPage=FPage) then
+  begin
+    SavedPan:=FPan;
+    try
+      RenderPage; FPan:=SavedPan; ClampPan; FSurface.Invalidate;
+      if ContinuousReading and (Length(FPDFPageViews)>1) then
+        FScrollTimer.Enabled:=FScrollTarget<>FScrollOffset;
+    except on E: Exception do Error:=E.Message; end;
+  end;
+  if Preloaded and (Error<>'') and (Index>=FPage) and (Index<FPage+RasterPageCount) then
+  begin
+    FScrollTarget:=FScrollOffset;
+    FSpreadLoading:=False; FStatus.Caption:='Не удалось открыть страницу: '+Error;
+  end;
   if (FRequestedPage<>FPage) and (Preloaded or (FRequestedPage<>Index)) then
     RequestPage(FRequestedPage,FRequestedMoved)
   else if not Preloaded and (Error<>'') and (Index=FRequestedPage) then
@@ -1820,6 +1874,124 @@ begin
   else if (FPage>=0) and (FPage<FPages.Count) then Result:=FPages[FPage] else Result:=0;
 end;
 
+function TfrmBuiltinReader.ContinuousReading: Boolean;
+begin Result:=FPageLayout=rplContinuous; end;
+
+function TfrmBuiltinReader.RasterPageCount: Integer;
+begin
+  if ContinuousReading then Result:=2 else Result:=TextPageCount;
+end;
+
+function TfrmBuiltinReader.RasterScrollLimit: Integer;
+begin Result:=Max(0,FBitmap.Height-FSurface.ClientHeight); end;
+
+function TfrmBuiltinReader.RasterOrigin: TPoint;
+begin
+  Result:=FPan;
+  Dec(Result.Y,FScrollOffset);
+end;
+
+function TfrmBuiltinReader.VisibleReadingPosition: Integer;
+begin
+  Result:=CurrentPosition;
+  if ContinuousReading and (FScrollOffset>0) and not Assigned(FPDF) then
+    Result:=Max(Result,TextCharacterAt(0,0));
+end;
+
+function TfrmBuiltinReader.VisibleTextEnd: Integer;
+begin
+  Result:=FNext;
+  if not ContinuousReading or Assigned(FPDF) then Exit;
+  Result:=NextTextPosition;
+  if FScrollOffset>0 then
+  begin
+    var Last:=TextCharacterAt(FSurface.ClientWidth-1,FSurface.ClientHeight-1);
+    if Last>=Result then Result:=Min(FNext,Last+1);
+  end;
+end;
+
+procedure TfrmBuiltinReader.ResetScroll;
+begin
+  FScrollTimer.Enabled:=False;
+  FScrollOffset:=0;
+  FScrollTarget:=0;
+  FScrollBackOffset:=0; FScrollRestore:=0;
+end;
+
+procedure TfrmBuiltinReader.ScrollPixels(Pixels: Integer);
+begin
+  if (Pixels=0) or (FScrollTileHeight<=0) or FTextSelecting or FPDFSelecting then Exit;
+  FScrollTarget:=EnsureRange(FScrollTarget+Pixels,-2*FScrollTileHeight,3*FScrollTileHeight);
+  FScrollTimer.Enabled:=FScrollTarget<>FScrollOffset;
+end;
+
+procedure TfrmBuiltinReader.ScrollFrame(Sender: TObject);
+var Difference, Step, Remainder, PreviousPosition, Limit: Integer;
+  HasNext, CanAdvance: Boolean;
+begin
+  if not FReady or FClosing or not ContinuousReading then
+  begin ResetScroll; Exit; end;
+  if FTextSelecting or FPDFSelecting then
+  begin FScrollTarget:=FScrollOffset; FScrollTimer.Enabled:=False; Exit; end;
+  PreviousPosition:=CurrentPosition;
+  if Assigned(FPDF) then
+  begin
+    HasNext:=FPage+1<FPDF.PageCount;
+    CanAdvance:=Length(FPDFPageViews)>1;
+    if CanAdvance then Limit:=FScrollTileHeight
+    else Limit:=Min(FScrollTileHeight,RasterScrollLimit);
+  end
+  else
+  begin
+    HasNext:=(NextTextPosition>PreviousPosition) and (NextTextPosition<FLength);
+    CanAdvance:=HasNext;
+    Limit:=FScrollTileHeight*Ord(HasNext);
+  end;
+  if not HasNext then FScrollTarget:=Min(FScrollTarget,Limit);
+  Difference:=Min(FScrollTarget,Limit)-FScrollOffset;
+  Step:=EnsureRange(Abs(Difference) div 4,1,Max(1,MulDiv(90,CurrentPPI,96)));
+  if Difference>0 then
+  begin
+    if CanAdvance and (FScrollOffset+Step>=FScrollTileHeight) then
+    begin
+      Remainder:=FScrollTarget-FScrollTileHeight;
+      NextPage;
+      if PreviousPosition<>CurrentPosition then FScrollTarget:=Remainder;
+    end
+    else Inc(FScrollOffset,Step);
+  end
+  else if Difference<0 then
+  begin
+    if (FScrollOffset-Step<=0) and (FScrollTarget<0) then
+    begin
+      Remainder:=FScrollTarget;
+      PreviousPage;
+      if PreviousPosition<>CurrentPosition then
+      begin
+        FScrollOffset:=FScrollTileHeight;
+        FScrollTarget:=FScrollOffset+Remainder;
+      end
+      else if Assigned(FPDF) and FPDF.AsyncPages and (FRequestedPage<>FPage) then
+        FScrollBackOffset:=Remainder;
+    end
+    else Dec(FScrollOffset,Step);
+  end;
+  FReadingMoved:=FReadingMoved or (PreviousPosition<>CurrentPosition) or (FScrollOffset<>0);
+  FScrollTimer.Enabled:=FScrollOffset<>Min(FScrollTarget,Limit);
+  if not FScrollTimer.Enabled and not Assigned(FPDF) then
+  begin
+    var Chapter:=ChapterIndexAt(VisibleReadingPosition);
+    if Chapter<>FChapters.ItemIndex then
+    begin
+      FChapters.ItemIndex:=Chapter;
+      if Chapter>=0 then FChapters.Hint:=ChapterTitle(Chapter);
+      UpdateChapterPath;
+    end;
+  end;
+  FProgressLine.Invalidate;
+  FSurface.Invalidate;
+end;
+
 function TfrmBuiltinReader.BookText: string;
 begin Result:=ReaderTextRange(FRichEdit,0,FLength); end;
 
@@ -1842,7 +2014,7 @@ function TfrmBuiltinReader.TextPageCount: Integer;
 var Minimum: Integer;
 begin
   Result:=1;
-  if FPageLayout=rplSingle then Exit;
+  if FPageLayout in [rplSingle,rplContinuous] then Exit;
   Minimum:=2*(MulDiv(200,CurrentPPI,96)+2*MulDiv(FMargin,CurrentPPI,96))+TextPageGap;
   if FPageLayout=rplAutomatic then Minimum:=Max(Minimum,MulDiv(1100,CurrentPPI,96));
   if FSurface.ClientWidth>=Minimum then Result:=2;
@@ -1862,12 +2034,15 @@ end;
 function TfrmBuiltinReader.NextTextPosition: Integer;
 begin
   Result:=FNext;
-  if (TextPageCount=2) and (FPageTurn=rptSliding) and (Length(FSpreadBreaks)>2) then Result:=FSpreadBreaks[1];
+  if (ContinuousReading or ((TextPageCount=2) and (FPageTurn=rptSliding))) and
+    (Length(FSpreadBreaks)>2) then Result:=FSpreadBreaks[1];
 end;
 
 function TfrmBuiltinReader.MeasurePreviousText(Start, Finish: Integer): Integer;
 begin
-  if (TextPageCount=2) and (FPageTurn=rptSliding) then
+  if ContinuousReading then
+    Result:=FormatTextColumn(Start,Finish,False,FBitmap,TextPageWidth,FScrollTileHeight,0)
+  else if (TextPageCount=2) and (FPageTurn=rptSliding) then
     Result:=FormatTextColumn(Start,Finish,False,FBitmap,TextPageWidth,FBitmap.Height,0)
   else Result:=FormatText(Start,Finish,False);
 end;
@@ -1884,10 +2059,24 @@ begin
   FPageAppearance:=Value; FSurface.Invalidate;
 end;
 
+procedure TfrmBuiltinReader.ApplyPageLayout(Value: TReaderPageLayout);
+begin
+  if FPageLayout=Value then Exit;
+  ResetInspection;
+  if ContinuousReading and not Assigned(FPDF) then
+  begin
+    var Position:=VisibleReadingPosition;
+    FPages.Clear; FPages.Add(Position); FPage:=0;
+  end;
+  ResetScroll;
+  FPageLayout:=Value;
+end;
+
 procedure TfrmBuiltinReader.SetPageLayout(Value: TReaderPageLayout);
 begin
   if FPageLayout=Value then Exit;
-  ResetInspection; FPageLayout:=Value; InvalidateLayout;
+  ApplyPageLayout(Value);
+  InvalidateLayout;
 end;
 
 function TfrmBuiltinReader.TextAreaWidth: Integer;
@@ -1902,25 +2091,34 @@ begin
   if FFootnotesPanel.Visible then Inc(Result,FFootnotesPanel.Height);
 end;
 
-function TfrmBuiltinReader.FormatText(Start, Finish: Integer; Draw: Boolean; Target: TBitmap; LayoutWidth, LayoutHeight: Integer): Integer;
-var I, Count, Width: Integer;
+function TfrmBuiltinReader.FormatText(Start, Finish: Integer; Draw: Boolean; Target: TBitmap; LayoutWidth, LayoutHeight: Integer; LookAhead: Boolean): Integer;
+var I, Count, Width, Left, Top, TileEnd: Integer;
 begin
   if not Assigned(Target) then Target:=FBitmap;
   if LayoutWidth<=0 then LayoutWidth:=Target.Width;
   if LayoutHeight<=0 then LayoutHeight:=Target.Height;
   Count:=TextPageCount; Width:=TextPageWidth(LayoutWidth); Result:=Start;
+  if LookAhead then Count:=2;
   if Draw then SetLength(FSpreadBreaks,Count+1);
   for I:=0 to Count-1 do
   begin
     if Draw then FSpreadBreaks[I]:=Result;
-    if (Result<FLength) and ((Finish<0) or (Result<Finish)) then
-      Result:=FormatTextColumn(Result,Finish,Draw,Target,Width,LayoutHeight,I*(Width+TextPageGap));
+    Left:=I*(Width+TextPageGap); Top:=0; TileEnd:=Finish;
+    if LookAhead then
+    begin
+      Left:=0; Top:=I*LayoutHeight;
+      // Keep the same seam when returning to a previously displayed section.
+      if (I=0) and (FPage+1<FPages.Count) then
+        if (TileEnd<0) or (FPages[FPage+1]<TileEnd) then TileEnd:=FPages[FPage+1];
+    end;
+    if (Result<FLength) and ((TileEnd<0) or (Result<TileEnd)) then
+      Result:=FormatTextColumn(Result,TileEnd,Draw,Target,Width,LayoutHeight,Left,Top);
     if Draw then FSpreadBreaks[I+1]:=Result;
   end;
 end;
 
 function TfrmBuiltinReader.FormatTextColumn(Start, Finish: Integer; Draw: Boolean; Target: TBitmap;
-  LayoutWidth, LayoutHeight, Left: Integer): Integer;
+  LayoutWidth, LayoutHeight, Left, Top: Integer): Integer;
 var Range: TFormatRange; DPI, Width, Limit: Integer;
 begin
   if not Assigned(Target) then Target:=FBitmap;
@@ -1936,8 +2134,10 @@ begin
     try
       FillChar(Range,SizeOf(Range),0); DPI:=GetDeviceCaps(Target.Canvas.Handle,LOGPIXELSY);
       Range.hdc:=Target.Canvas.Handle; Range.hdcTarget:=Range.hdc;
-      Range.rcPage:=Rect(MulDiv(Left,1440,DPI),0,MulDiv(Left+LayoutWidth,1440,DPI),MulDiv(LayoutHeight,1440,DPI));
-      Range.rc:=Range.rcPage; InflateRect(Range.rc,-MulDiv(FMargin,1440,96),-MulDiv(20,1440,96));
+      Range.rcPage:=Rect(MulDiv(Left,1440,DPI),MulDiv(Top,1440,DPI),
+        MulDiv(Left+LayoutWidth,1440,DPI),MulDiv(Top+LayoutHeight,1440,DPI));
+      Range.rc:=Range.rcPage;
+      InflateRect(Range.rc,-MulDiv(FMargin,1440,96),-MulDiv(20*Ord(not ContinuousReading),1440,96));
       Width:=Min(Range.rc.Width,MulDiv(TextAreaWidth,1440,DPI));
       Inc(Range.rc.Left,(Range.rc.Width-Width) div 2); Range.rc.Right:=Range.rc.Left+Width;
       Range.chrg.cpMin:=Start; Range.chrg.cpMax:=Finish;
@@ -1992,7 +2192,7 @@ end;
 procedure TfrmBuiltinReader.ToggleInspection(X,Y: Integer);
 begin
   if FInspect then begin EndInspection; Exit; end;
-  if not FReady or not Assigned(FPDF) or PageLoading or (FBitmap.Width=0) or
+  if not FReady or not Assigned(FPDF) or ContinuousReading or PageLoading or (FBitmap.Width=0) or
     not PtInRect(Rect(FPan.X,FPan.Y,FPan.X+FBitmap.Width,FPan.Y+FBitmap.Height),Point(X,Y)) then Exit;
   FInspectZoom:=FZoom; FInspectPan:=FPan; FInspectSize:=Point(FBitmap.Width,FBitmap.Height);
   FZoom:=Min(900,Max(FZoom+1,MulDiv(FZoom,FInspectionPercent,100)));
@@ -2038,7 +2238,8 @@ end;
 
 procedure TfrmBuiltinReader.RenderPDFPages;
 var Views: TArray<TReaderPDFPageView>; Raster, Spread: TBitmap;
-  Count, Gap, TotalWidth, MaximumHeight, Width, Height, Left: Integer; Scale: Double;
+  Count, Gap, TotalWidth, MaximumHeight, Width, Height, Left, PageWidth, PageHeight, TileHeight, Edge: Integer;
+  Scale: Double;
   procedure Mark(Raster: TBitmap; const Size: TPoint; const Rectangles: TArray<TRectF>);
   var Box: TRect; Pixel: PRGBQuad; Color: Cardinal;
   begin
@@ -2063,21 +2264,48 @@ var Views: TArray<TReaderPDFPageView>; Raster, Spread: TBitmap;
   end;
 begin
   FPage:=EnsureRange(FPage,0,FPDF.PageCount-1);
-  Count:=Min(TextPageCount,FPDF.PageCount-FPage); SetLength(Views,Count);
+  Count:=Min(RasterPageCount,FPDF.PageCount-FPage);
+  if ContinuousReading and (Count=2) and FPDF.AsyncPages and
+    not FPDF.IsPageCached(FPage+1) then Count:=1;
+  SetLength(Views,Count);
   TotalWidth:=0; MaximumHeight:=0;
   for var I:=0 to Count-1 do
   begin
     Views[I].Page:=FPage+I; Views[I].Size:=FPDF.PageSize(FPage+I);
     Inc(TotalWidth,Views[I].Size.X); MaximumHeight:=Max(MaximumHeight,Views[I].Size.Y);
   end;
-  Gap:=(Count-1)*TextPageGap;
-  Scale:=Min((FSurface.ClientWidth-24-Gap)/Max(1,TotalWidth),(FSurface.ClientHeight-24)/Max(1,MaximumHeight))*FZoom/100;
-  Scale:=Min(Scale,Sqrt(23000000.0/(Double(TotalWidth)*Max(1,MaximumHeight))));
-  Width:=Gap; Height:=0;
-  for var I:=0 to Count-1 do
+  Width:=0; Height:=0;
+  if ContinuousReading then
   begin
-    Inc(Width,Max(1,Round(Views[I].Size.X*Scale)));
-    Height:=Max(Height,Max(1,Round(Views[I].Size.Y*Scale)));
+    Gap:=MulDiv(12,CurrentPPI,96);
+    // Fit each page independently so its scale is unchanged when it moves
+    // from the look-ahead slot to the top of the viewport.
+    Edge:=Min(3200,11500000 div Max(3200+Gap,FSurface.ClientHeight));
+    for var I:=0 to Count-1 do
+    begin
+      Scale:=Min((FSurface.ClientWidth-24)/Max(1,Views[I].Size.X),
+        (FSurface.ClientHeight-24)/Max(1,Views[I].Size.Y))*FZoom/100;
+      Scale:=Min(Scale,Edge/Max(1,Max(Views[I].Size.X,Views[I].Size.Y)));
+      PageWidth:=Max(1,Round(Views[I].Size.X*Scale)); PageHeight:=Max(1,Round(Views[I].Size.Y*Scale));
+      TileHeight:=Max(FSurface.ClientHeight,PageHeight+Gap);
+      Views[I].Bounds:=Rect(0,Height+(TileHeight-PageHeight) div 2,PageWidth,
+        Height+(TileHeight-PageHeight) div 2+PageHeight);
+      if I=0 then FScrollTileHeight:=TileHeight;
+      Width:=Max(Width,PageWidth); Inc(Height,TileHeight);
+    end;
+    for var I:=0 to Count-1 do OffsetRect(Views[I].Bounds,(Width-Views[I].Bounds.Width) div 2,0);
+  end
+  else
+  begin
+    Gap:=(Count-1)*TextPageGap;
+    Scale:=Min((FSurface.ClientWidth-24-Gap)/Max(1,TotalWidth),(FSurface.ClientHeight-24)/Max(1,MaximumHeight))*FZoom/100;
+    Scale:=Min(Scale,Sqrt(23000000.0/(Double(TotalWidth)*Max(1,MaximumHeight))));
+    Width:=Gap;
+    for var I:=0 to Count-1 do
+    begin
+      Inc(Width,Max(1,Round(Views[I].Size.X*Scale)));
+      Height:=Max(Height,Max(1,Round(Views[I].Size.Y*Scale)));
+    end;
   end;
   Spread:=TBitmap.Create;
   try
@@ -2086,8 +2314,11 @@ begin
     Left:=0; FPDFPageHasText:=False;
     for var I:=0 to Count-1 do
     begin
-      Views[I].Bounds:=Rect(Left,0,Left+Max(1,Round(Views[I].Size.X*Scale)),Max(1,Round(Views[I].Size.Y*Scale)));
-      OffsetRect(Views[I].Bounds,0,(Height-Views[I].Bounds.Height) div 2);
+      if not ContinuousReading then
+      begin
+        Views[I].Bounds:=Rect(Left,0,Left+Max(1,Round(Views[I].Size.X*Scale)),Max(1,Round(Views[I].Size.Y*Scale)));
+        OffsetRect(Views[I].Bounds,0,(Height-Views[I].Bounds.Height) div 2);
+      end;
       Raster:=FPDF.Render(Views[I].Page,Views[I].Bounds.Width,Views[I].Bounds.Height,FNight);
       try
         if FSearchAll.Checked and (FPDFQuery<>'') then
@@ -2102,6 +2333,15 @@ begin
   finally Spread.Free; end;
   FLoadFinished:=True; FSpreadLoading:=False;
   FPan:=Point(Max(0,(FSurface.ClientWidth-Width) div 2),Max(0,(FSurface.ClientHeight-Height) div 2));
+  if ContinuousReading then
+  begin
+    if (FScrollRestore>0) and ((Count=2) or (FPage+1>=FPDF.PageCount)) then
+    begin
+      FScrollOffset:=MulDiv(FScrollRestore,FScrollTileHeight,10000);
+      FScrollTarget:=FScrollOffset; FScrollRestore:=0;
+    end;
+    FScrollOffset:=EnsureRange(FScrollOffset,0,RasterScrollLimit);
+  end;
   if not FFitButton.Visible then begin FFitButton.Visible:=True; ArrangeToolbar(nil); end;
   if FPDFPageHasText and FSelectionEnabled then FSurface.Cursor:=crIBeam else FSurface.Cursor:=crDefault;
   if Count=1 then FStatus.Caption:=Format('%s · Страница %d из %d · Масштаб %d%%',[FPDF.DisplayName,FPage+1,FPDF.PageCount,FZoom])
@@ -2109,6 +2349,9 @@ begin
   if FPDFPageHasText and FSelectionEnabled then FStatus.Caption:=FStatus.Caption+' · Выделение мышью · Ctrl+C — копировать'
   else if FInspectionHold then FStatus.Caption:=FStatus.Caption+' · Держите кнопку — приблизить; отпустите — вернуть'
   else FStatus.Caption:=FStatus.Caption+' · Щелчок — приблизить; Esc — вернуть';
+  if ContinuousReading then
+    FStatus.Caption:=Format('%s · Страница %d из %d · Прокрутка · Ctrl+колесо — масштаб',
+      [FPDF.DisplayName,FPage+1,FPDF.PageCount]);
 end;
 
 procedure TfrmBuiltinReader.RenderPage;
@@ -2119,7 +2362,7 @@ begin
   if not FReady or FClosing or (Assigned(FPageWorker) and not FPageWorker.Prefetch) or (FSurface.ClientWidth<100) or (FSurface.ClientHeight<100) then Exit;
   if Assigned(FPDF) then
   begin
-    FPDF.SetVisibleRange(FPage,Min(TextPageCount,FPDF.PageCount-FPage));
+    FPDF.SetVisibleRange(FPage,Min(RasterPageCount,FPDF.PageCount-FPage));
     if FPDF.AsyncPages then
       for I:=FPage to Min(FPDF.PageCount-1,FPage+TextPageCount-1) do
         if not FPDF.IsPageCached(I) then
@@ -2144,7 +2387,8 @@ begin
     FBitmap.SetSize(FSurface.ClientWidth,FullHeight);
     ClearTextHighlights;
     FNext:=FormatText(CurrentPosition,-1,False); Notes:=''; NotesHeight:=0;
-    if FShowFootnotes and Assigned(FDocument) then Notes:=FDocument.FootnotesForRange(CurrentPosition,FNext);
+    if not ContinuousReading and FShowFootnotes and Assigned(FDocument) then
+      Notes:=FDocument.FootnotesForRange(CurrentPosition,FNext);
     if Notes<>'' then
     begin
       FBitmap.Canvas.Font.Assign(FFootnotesMemo.Font);
@@ -2165,22 +2409,33 @@ begin
       FFootnotesPanel.Color:=ThemeBackground; FFootnotesLabel.Font.Color:=HeadingColor;
       FFootnotesMemo.Text:=Notes; FFootnotesLabel.Caption:='Сноски на этой странице';
     finally EnableAlign; end;
+    if ContinuousReading then
+    begin
+      FScrollTileHeight:=FSurface.ClientHeight;
+      FBitmap.SetSize(FSurface.ClientWidth,2*FScrollTileHeight);
+      FNext:=FormatText(CurrentPosition,-1,False,FBitmap,FSurface.ClientWidth,FScrollTileHeight,True);
+    end;
     FBitmap.Canvas.Brush.Color:=ThemeBackground;
     FBitmap.Canvas.FillRect(Rect(0,0,FBitmap.Width,FBitmap.Height));
     if FSearchQuery<>'' then HighlightTextPage;
     PrepareVisiblePictures(CurrentPosition,FNext);
-    FNext:=FormatText(CurrentPosition,FNext,True);
+    if ContinuousReading then
+      FNext:=FormatText(CurrentPosition,FNext,True,FBitmap,FSurface.ClientWidth,FScrollTileHeight,True)
+    else FNext:=FormatText(CurrentPosition,FNext,True);
     if TextPageCount=2 then
     begin
       FBitmap.Canvas.Pen.Color:=$00D8D8D8; if FNight then FBitmap.Canvas.Pen.Color:=$00404040;
       FBitmap.Canvas.MoveTo(FBitmap.Width div 2,20);
       FBitmap.Canvas.LineTo(FBitmap.Width div 2,FBitmap.Height-20);
     end;
-    FStatus.Caption:=Format('%d%% · Шрифт %d · Колесо — страницы · Ctrl+колесо — размер',[Min(100,Round(ReadingProgress*100)),FFontSize]);
+    if ContinuousReading then
+      FStatus.Caption:=Format('Плавная прокрутка · Шрифт %d · Ctrl+колесо — размер',[FFontSize])
+    else FStatus.Caption:=Format('%d%% · Шрифт %d · Колесо — страницы · Ctrl+колесо — размер',[Min(100,Round(ReadingProgress*100)),FFontSize]);
     if TextPageCount=2 then FStatus.Caption:=FStatus.Caption+' · Две страницы';
     if Assigned(FDocument) and (FDocument.SkippedImages>0) then FStatus.Caption:=FStatus.Caption+' · Изображений пропущено: '+IntToStr(FDocument.SkippedImages);
   end;
-  if Assigned(FPDF) then I:=ChapterIndexAt(CurrentPosition) else I:=ChapterIndexAt(Max(CurrentPosition,FNext-1));
+  if Assigned(FPDF) or ContinuousReading then I:=ChapterIndexAt(VisibleReadingPosition)
+  else I:=ChapterIndexAt(Max(CurrentPosition,FNext-1));
   FChapters.ItemIndex:=I;
   if I>=0 then FChapters.Hint:=ChapterTitle(I) else FChapters.Hint:='Оглавление (Ctrl+T)';
   UpdateChapterPath; RebuildAnnotationMarkers;
@@ -2199,7 +2454,7 @@ var Pages: TArray<TRect>; Count, Width, Inset, Middle: Integer; Reflow: Boolean;
   function Px(Value: Integer): Integer;
   begin Result:=Max(1,MulDiv(Value,CurrentPPI,96)); end;
 begin
-  if (FPageAppearance<>rpaBook) or FBitmap.Empty then Exit;
+  if ContinuousReading or (FPageAppearance<>rpaBook) or FBitmap.Empty then Exit;
   Reflow:=not Assigned(FPDF); Width:=TextPageWidth;
   if Reflow then Count:=TextPageCount else Count:=Min(2,Length(FPDFPageViews));
   if Count=0 then Exit;
@@ -2230,18 +2485,19 @@ begin
     begin
       if Assigned(FPDF) then
       begin
-        Canvas.Draw(FPan.X,FPan.Y,FBitmap); PaintPageDecoration(Canvas); PaintAnnotations(Canvas);
+        var Origin:=RasterOrigin;
+        Canvas.Draw(Origin.X,Origin.Y,FBitmap); PaintPageDecoration(Canvas); PaintAnnotations(Canvas);
         if Length(FPDFSelectionRects)>0 then
         begin
           Boxes:=TList<TRect>.Create;
           try
             Boxes.AddRange(PDFViewRectangles(FPDFSelectionPage,FPDFSelectionRects));
             var ScreenBoxes:=Boxes.ToArray;
-            for var J:=0 to High(ScreenBoxes) do OffsetRect(ScreenBoxes[J],FPan.X,FPan.Y);
+            for var J:=0 to High(ScreenBoxes) do OffsetRect(ScreenBoxes[J],Origin.X,Origin.Y);
             PaintSelection(Canvas,ScreenBoxes);
           finally Boxes.Free; end;
         end;
-      end else begin Canvas.Draw(0,0,FBitmap); PaintPageDecoration(Canvas); PaintAnnotations(Canvas); PaintSelection(Canvas,FTextSelectionRects); end;
+      end else begin Canvas.Draw(0,-FScrollOffset,FBitmap); PaintPageDecoration(Canvas); PaintAnnotations(Canvas); PaintSelection(Canvas,FTextSelectionRects); end;
       PaintBookmarkMarker(Canvas);
     end
   else
@@ -2272,6 +2528,8 @@ begin
       if FNight then Color:=RGB(132,180,242) else Color:=RGB(34,94,164)
     else if Range.Kind in [rbEpigraph,rbCite,rbAuthor] then
       if FNight then Color:=RGB(178,193,184) else Color:=RGB(65,94,82);
+    if HasCustomThemeColors and (Range.Kind in [rbFootnote,rbLink,rbEpigraph,rbCite,rbAuthor]) then
+      Color:=ReadableReaderColor(Color,ThemeBackground);
     if (Range.Kind=rbRelativeSize) and ColorsOnly then Continue;
     FillChar(Characters,SizeOf(Characters),0); Characters.cbSize:=SizeOf(Characters);
     if Range.Kind=rbRelativeSize then
@@ -2371,7 +2629,7 @@ begin
   Result:=FHeadingColors[Ord(FNight),Ord(Subtitle)];
   if Result=clDefault then
     if FNight then Result:=RGB(164,190,225) else Result:=RGB(53,83,121);
-  if FNight then Result:=ReadableReaderColor(Result,ThemeBackground);
+  if FNight or HasCustomThemeColors then Result:=ReadableReaderColor(Result,ThemeBackground);
 end;
 
 procedure TfrmBuiltinReader.SetHeadingColor(Value: TColor; Subtitle: Boolean);
@@ -2392,10 +2650,13 @@ begin
 end;
 
 procedure TfrmBuiltinReader.InvalidateLayout;
-var Position: Integer;
+var Position, RasterOffset: Integer;
 begin
   if not FReady then Exit;
-  FResizeTimer.Enabled:=False; Position:=CurrentPosition; ResetPagination;
+  FResizeTimer.Enabled:=False; Position:=VisibleReadingPosition; RasterOffset:=FScrollRestore;
+  if (RasterOffset=0) and ContinuousReading and Assigned(FPDF) and (FScrollTileHeight>0) then
+    RasterOffset:=MulDiv(FScrollOffset,10000,FScrollTileHeight);
+  ResetScroll; FScrollRestore:=RasterOffset; ResetPagination;
   if not Assigned(FPDF) then
   begin
     if Assigned(FDocument) and (FDocument.ImageCount>0) and
@@ -2417,7 +2678,8 @@ begin
   if not FReady then Exit;
   if Assigned(FPDF) and FPDF.AsyncPages then
   begin
-    if FRequestedPage+PageTurnStep<FPDF.PageCount then RequestPage(FRequestedPage+PageTurnStep);
+    if FRequestedPage+PageTurnStep<FPDF.PageCount then
+    begin ResetScroll; RequestPage(FRequestedPage+PageTurnStep); end;
     Exit;
   end;
   ResetInspection;
@@ -2433,6 +2695,7 @@ begin
       var NextPosition:=NextTextPosition; Inc(FPage); FPages.Add(NextPosition);
     end;
   end;
+  ResetScroll;
   FSearchStatus:=''; FReadingMoved:=True; RenderPage;
 end;
 
@@ -2440,6 +2703,7 @@ procedure TfrmBuiltinReader.PreviousPage;
 var L,H,M,Target,Start,Index: Integer; S: string;
 begin
   if not FReady then Exit;
+  ResetScroll;
   if Assigned(FPDF) and FPDF.AsyncPages then
   begin
     RequestPage(FRequestedPage-PageTurnStep);
@@ -2450,7 +2714,8 @@ begin
   else if FPage>0 then Dec(FPage)
   else
   begin
-    Target:=CurrentPosition; if Target=0 then Exit;
+    Target:=CurrentPosition;
+    if Target=0 then begin FSurface.Invalidate; Exit; end;
     L:=Max(0,Target-100000); H:=Target;
     while L<H do
     begin M:=L+(H-L) div 2; if MeasurePreviousText(M,Target)>=Target then H:=M else L:=M+1; end;
@@ -2470,11 +2735,13 @@ end;
 procedure TfrmBuiltinReader.NavigateTo(Position: Integer);
 begin
   if not FReady then Exit;
-  if Assigned(FPDF) and FPDF.AsyncPages then begin RequestPage(Position); Exit; end;
+  if Assigned(FPDF) and FPDF.AsyncPages then
+  begin ResetScroll; RequestPage(Position); Exit; end;
   ResetInspection;
   if Assigned(FPDF) then Position:=EnsureRange(Position,0,FPDF.PageCount-1)
   else Position:=EnsureRange(Position,0,Max(0,FLength-1));
-  if Position=CurrentPosition then Exit;
+  if (Position=CurrentPosition) and (FScrollOffset=0) then Exit;
+  ResetScroll;
   if Assigned(FPDF) then FPage:=Position
   else begin FPages.Clear; FPages.Add(Position); FPage:=0; end;
   FSearchStatus:=''; FReadingMoved:=True; RenderPage;
@@ -2508,22 +2775,26 @@ procedure TfrmBuiltinReader.FitPageClick(Sender: TObject);
 begin if not FReady or not Assigned(FPDF) then Exit; ResetInspection; FZoom:=100; RenderPage; end;
 
 procedure TfrmBuiltinReader.PreparePageSelection;
-var Content: TRect; DPI, Width, Margin, PageWidth, FirstEnd: Integer;
+var Content: TRect; DPI, Width, Margin, PageWidth, PageHeight, TopMargin, FirstEnd: Integer;
 begin
   if not FReady or Assigned(FPDF) or (FNext<=CurrentPosition) then Exit;
   if not FPageSelection.Ready then
   begin
     DPI:=GetDeviceCaps(FBitmap.Canvas.Handle,LOGPIXELSX); Margin:=MulDiv(FMargin,DPI,96);
     PageWidth:=TextPageWidth; Width:=Min(PageWidth-2*Margin,TextAreaWidth);
-    Content:=Rect((PageWidth-Width) div 2,MulDiv(20,DPI,96),
-      (PageWidth+Width) div 2,FBitmap.Height-MulDiv(20,DPI,96));
+    PageHeight:=FBitmap.Height; TopMargin:=MulDiv(20,DPI,96);
+    if ContinuousReading then begin PageHeight:=FScrollTileHeight; TopMargin:=0; end;
+    Content:=Rect((PageWidth-Width) div 2,TopMargin,
+      (PageWidth+Width) div 2,PageHeight-TopMargin);
     FirstEnd:=FNext;
     if Length(FSpreadBreaks)>2 then FirstEnd:=FSpreadBreaks[1];
-    FPageSelection.Prepare(FRichEdit,CurrentPosition,FirstEnd-CurrentPosition,PageWidth,FBitmap.Height,DPI,Content);
+    FPageSelection.Prepare(FRichEdit,CurrentPosition,FirstEnd-CurrentPosition,PageWidth,PageHeight,DPI,Content);
     if (Length(FSpreadBreaks)>2) and (FNext>FirstEnd) then
     begin
       if not Assigned(FSecondPageSelection) then FSecondPageSelection:=TReaderPageSelection.Create(Self,FFormattingHost);
-      FSecondPageSelection.Prepare(FRichEdit,FirstEnd,FNext-FirstEnd,PageWidth,FBitmap.Height,DPI,Content,PageWidth+TextPageGap);
+      if ContinuousReading then
+        FSecondPageSelection.Prepare(FRichEdit,FirstEnd,FNext-FirstEnd,PageWidth,PageHeight,DPI,Content,0,PageHeight)
+      else FSecondPageSelection.Prepare(FRichEdit,FirstEnd,FNext-FirstEnd,PageWidth,PageHeight,DPI,Content,PageWidth+TextPageGap);
     end;
   end;
 end;
@@ -2544,7 +2815,9 @@ function TfrmBuiltinReader.TextCharacterAt(X,Y: Integer): Integer;
 begin
   Result:=-1; if not FReady or Assigned(FPDF) or (FNext<=CurrentPosition) then Exit;
   PreparePageSelection;
-  if (TextPageCount=2) and (X>=TextPageWidth+TextPageGap div 2) then
+  Inc(Y,FScrollOffset);
+  if (ContinuousReading and (Y>=FScrollTileHeight)) or
+    ((TextPageCount=2) and (X>=TextPageWidth+TextPageGap div 2)) then
   begin
     if Assigned(FSecondPageSelection) then Result:=FSecondPageSelection.CharacterAt(X,Y);
   end
@@ -2568,7 +2841,7 @@ begin
     Candidate:=ReaderCharacterStart(FRichEdit,Index-Offset);
     if not FDocument.LinkTargetAt(Candidate,Target) then Continue;
     for var Box in TextSelectionRectangles(Candidate,Candidate+1) do
-      if PtInRect(Box,Point(X,Y)) then Exit(Target);
+      if PtInRect(AnnotationRectangle(Box),Point(X,Y)) then Exit(Target);
   end;
 end;
 
@@ -2594,7 +2867,7 @@ begin
     Candidate:=ReaderCharacterStart(FRichEdit,Index-Offset); if Candidate>=FNext then Continue;
     Next:=ReaderCharacterStart(FRichEdit,Candidate+1); if Next<=Candidate then Next:=Candidate+2;
     for var Box in TextSelectionRectangles(Candidate,Next) do
-      if PtInRect(Box,Point(X,Y)) then
+      if PtInRect(AnnotationRectangle(Box),Point(X,Y)) then
       begin
         if ReaderWordRange(FRichEdit,Candidate,Start,Count) then
           SelectText(Max(CurrentPosition,Start),Min(FNext,Start+Count)-Max(CurrentPosition,Start));
@@ -2629,9 +2902,13 @@ begin
   FillChar(Blend,SizeOf(Blend),0); Blend.BlendOp:=AC_SRC_OVER; Blend.SourceConstantAlpha:=72;
   if FNight then Blend.SourceConstantAlpha:=56;
   for Box in Boxes do
-    if IntersectRect(Clip,Box,FSurface.ClientRect) and not IsRectEmpty(Clip) then
+  begin
+    var Positioned:=Box;
+    if not Assigned(FPDF) then OffsetRect(Positioned,0,-FScrollOffset);
+    if IntersectRect(Clip,Positioned,FSurface.ClientRect) and not IsRectEmpty(Clip) then
       Winapi.Windows.AlphaBlend(Canvas.Handle,Clip.Left,Clip.Top,Clip.Width,Clip.Height,
         FSelectionTint.Canvas.Handle,0,0,1,1,Blend);
+  end;
 end;
 
 function TfrmBuiltinReader.PDFCharacterAt(X,Y: Integer): Integer;
@@ -2639,7 +2916,8 @@ var Point: TPoint;
 begin
   Result:=-1;
   if not FPDFPageHasText or PageLoading or not Assigned(FPDF) then Exit;
-  Point:=System.Types.Point(X-FPan.X,Y-FPan.Y);
+  var Origin:=RasterOrigin;
+  Point:=System.Types.Point(X-Origin.X,Y-Origin.Y);
   for var View in FPDFPageViews do
     if PtInRect(View.Bounds,Point) then
     begin
@@ -2684,6 +2962,7 @@ begin
 end;
 
 function TfrmBuiltinReader.PageText: string;
+var Clip: TRect;
 begin
   Result:=''; if not FReady then Exit;
   if Assigned(FPDF) then
@@ -2691,13 +2970,16 @@ begin
     if FPDFPageHasText and not PageLoading then
       for var View in FPDFPageViews do
       begin
+        if ContinuousReading and
+          not IntersectRect(Clip,AnnotationRectangle(View.Bounds),FSurface.ClientRect) then Continue;
         if Result<>'' then Result:=Result+#13#10+#13#10;
         Result:=Result+FPDF.TextRange(View.Page,0,MaxInt);
       end;
   end
   else
   begin
-    Result:=ReaderTextRange(FRichEdit,CurrentPosition,Max(0,FNext-CurrentPosition));
+    var Start:=VisibleReadingPosition;
+    Result:=ReaderTextRange(FRichEdit,Start,Max(0,VisibleTextEnd-Start));
     if VisibleFootnotes<>'' then Result:=Result+#13#10+#13#10+VisibleFootnotes;
   end;
   Result:=Result.Replace(#$FFFC,'').Replace(#13#10,#10).Replace(#13,#10).Replace(#10,#13#10).Trim;
@@ -2904,10 +3186,44 @@ begin if FNight then SetTheme(0) else SetTheme(5); end;
 procedure TfrmBuiltinReader.NightClick(Sender: TObject); begin ToggleNight; end;
 
 function TfrmBuiltinReader.ThemeBackground: TColor;
-begin Result:=ReaderThemeBackground(FTheme); end;
+begin
+  Result:=FThemeBackgrounds[FTheme];
+  if Result=clDefault then Result:=ReaderThemeBackground(FTheme);
+end;
 
 function TfrmBuiltinReader.ThemeText: TColor;
-begin Result:=ReaderThemeText(FTheme); end;
+begin
+  Result:=FThemeTexts[FTheme];
+  if Result=clDefault then
+  begin
+    Result:=ReaderThemeText(FTheme);
+    if FThemeBackgrounds[FTheme]<>clDefault then
+      Result:=ReadableReaderColor(Result,ThemeBackground);
+  end;
+end;
+
+function TfrmBuiltinReader.HasCustomThemeColors: Boolean;
+begin Result:=(FThemeBackgrounds[FTheme]<>clDefault) or (FThemeTexts[FTheme]<>clDefault); end;
+
+procedure TfrmBuiltinReader.SetThemeColors(Background, Foreground: TColor);
+begin
+  Background:=NormalizeReaderThemeColor(Background);
+  Foreground:=NormalizeReaderThemeColor(Foreground);
+  if (FThemeBackgrounds[FTheme]=Background) and (FThemeTexts[FTheme]=Foreground) then Exit;
+  FThemeBackgrounds[FTheme]:=Background;
+  FThemeTexts[FTheme]:=Foreground;
+  Include(FChangedThemeColors,FTheme);
+  RefreshWindowTheme;
+  FTypographyDirty:=True;
+  InvalidateLayout;
+end;
+
+procedure TfrmBuiltinReader.AddThemeColorsMenu(Parent: TMenuItem);
+var Item: TMenuItem;
+begin
+  Item:=TMenuItem.Create(Parent); Item.Name:='ReaderThemeColors'; Item.Caption:='Цвета темы…';
+  Item.OnClick:=ThemeColorsClick; Parent.Add(Item);
+end;
 
 procedure TfrmBuiltinReader.SetTheme(Index: Integer);
 begin
@@ -2924,7 +3240,8 @@ end;
 
 procedure TfrmBuiltinReader.ApplyWindowPalette(Form: TCustomForm);
 begin
-  ApplyReaderPalette(Form,ThemeBackground,ThemeText,FNight);
+  ApplyReaderPalette(Form,ThemeBackground,ThemeText,
+    ReaderColorContrast(clWhite,ThemeBackground)>=ReaderColorContrast(clBlack,ThemeBackground));
 end;
 
 procedure TfrmBuiltinReader.ThemeClick(Sender: TObject);
@@ -2934,7 +3251,8 @@ procedure TfrmBuiltinReader.ClampPan;
 begin
   if FBitmap.Width<=FSurface.ClientWidth then FPan.X:=(FSurface.ClientWidth-FBitmap.Width) div 2
   else FPan.X:=EnsureRange(FPan.X,FSurface.ClientWidth-FBitmap.Width,0);
-  if FBitmap.Height<=FSurface.ClientHeight then FPan.Y:=(FSurface.ClientHeight-FBitmap.Height) div 2
+  if ContinuousReading then FPan.Y:=0
+  else if FBitmap.Height<=FSurface.ClientHeight then FPan.Y:=(FSurface.ClientHeight-FBitmap.Height) div 2
   else FPan.Y:=EnsureRange(FPan.Y,FSurface.ClientHeight-FBitmap.Height,0);
 end;
 
@@ -3790,7 +4108,12 @@ end;
 function TfrmBuiltinReader.AnnotationRectangle(const Box: TRect): TRect;
 begin
   Result:=Box;
-  if Assigned(FPDF) then OffsetRect(Result,FPan.X,FPan.Y);
+  if Assigned(FPDF) then
+  begin
+    var Origin:=RasterOrigin;
+    OffsetRect(Result,Origin.X,Origin.Y);
+  end
+  else OffsetRect(Result,0,-FScrollOffset);
 end;
 
 function TfrmBuiltinReader.AnnotationAtPoint(X,Y: Integer): Integer;
@@ -3924,7 +4247,7 @@ function TfrmBuiltinReader.AnnotationDraft(const Quote: string): TReaderAnnotati
 var Page, First, Last: Integer;
 begin
   Result:=Default(TReaderAnnotation); Result.BookID:=FIdentity; Result.BookTitle:=FBookTitle;
-  Result.Position:=CurrentPosition; Result.Quote:=Quote;
+  Result.Position:=VisibleReadingPosition; Result.Quote:=Quote;
   if (Quote<>'') and (SelectedText=Quote) then
   begin
     if Assigned(FPDF) then
@@ -3943,7 +4266,7 @@ begin
   begin
     if Assigned(FPDF) then
     begin if Length(FPDFPageViews)=1 then begin Result.RangeIsPageText:=True; Result.RangeStart:=0; Result.RangeEnd:=Length(Quote); end; end
-    else begin Result.RangeStart:=CurrentPosition; Result.RangeEnd:=FNext; end;
+    else begin Result.RangeStart:=VisibleReadingPosition; Result.RangeEnd:=VisibleTextEnd; end;
   end;
   Page:=GlobalPageAt(Result.Position);
   Result.Place:=IntToStr(Round(ReadingProgress*100))+'%';
@@ -4119,22 +4442,23 @@ var Ini: TMemIniFile; Section, Title, Text: string; I, Count: Integer;
 begin
   if not FReady or (FSettingsFile='') then Exit;
   Section:='Bookmarks.'+FIdentity;
+  var Position:=VisibleReadingPosition;
   Ini:=TMemIniFile.Create(FSettingsFile,TEncoding.UTF8);
   try
     Count:=EnsureRange(Ini.ReadInteger(Section,'Count',0),0,100);
     for I:=0 to Count-1 do
-      if Ini.ReadInteger(Section,'Position'+IntToStr(I),-1)=CurrentPosition then
+      if Ini.ReadInteger(Section,'Position'+IntToStr(I),-1)=Position then
       begin FStatus.Caption:='На этой странице уже есть закладка.'; Exit; end;
     if Count>=100 then begin FStatus.Caption:='В этой книге уже сохранено 100 закладок.'; Exit; end;
     if Assigned(FPDF) then Title:='Страница '+IntToStr(FPage+1)
     else
     begin
-      Text:=ReaderTextRange(FRichEdit,CurrentPosition,65);
-      Title:=IntToStr(Round(CurrentPosition*100/Max(1,FLength)))+'% · '+Text.Replace(#13,' ').Trim;
+      Text:=ReaderTextRange(FRichEdit,Position,65);
+      Title:=IntToStr(Round(Position*100/Max(1,FLength)))+'% · '+Text.Replace(#13,' ').Trim;
     end;
     if CustomTitle.Trim<>'' then Title:=Copy(CustomTitle.Trim,1,256);
-    Ini.WriteInteger(Section,'Position'+IntToStr(Count),CurrentPosition);
-    if not Assigned(FPDF) then Ini.WriteInteger(Section,'EndPosition'+IntToStr(Count),FNext);
+    Ini.WriteInteger(Section,'Position'+IntToStr(Count),Position);
+    if not Assigned(FPDF) then Ini.WriteInteger(Section,'EndPosition'+IntToStr(Count),VisibleTextEnd);
     // INI values remain single-line; preserve the whole rendered page verbatim.
     Ini.WriteString(Section,'PageQuote'+IntToStr(Count),TNetEncoding.Base64.EncodeBytesToString(TEncoding.UTF8.GetBytes(PageText)).Replace(#13,'').Replace(#10,''));
     Ini.WriteString(Section,'Title'+IntToStr(Count),Title.Replace('&','&&'));
@@ -4279,7 +4603,7 @@ begin
     if P>=0 then
     begin
       FTextMatchLength:=Length(FSearchQuery);
-      if (P>=CurrentPosition) and (P<FNext) then RenderPage else NavigateTo(P);
+      if not ContinuousReading and (P>=CurrentPosition) and (P<FNext) then RenderPage else NavigateTo(P);
       ShowSearchStatus('Найдено · Enter / F3 — следующий результат · Shift+F3 — предыдущий');
     end
     else begin RenderPage; ShowSearchStatus('Текст не найден.'); end;
@@ -4342,7 +4666,8 @@ begin
       StopSearch; FPDFQuery:=FSearchQuery; FPDFMatchPage:=FSearchPage;
       FPDFMatchIndex:=Match.Index; FPDFRects:=Match.Rects;
       // A new match on the current page must repaint without counting a page move.
-      if (FSearchPage>=FPage) and (FSearchPage<FPage+Length(FPDFPageViews)) then RenderPage else NavigateTo(FSearchPage);
+      if not ContinuousReading and (FSearchPage>=FPage) and
+        (FSearchPage<FPage+Length(FPDFPageViews)) then RenderPage else NavigateTo(FSearchPage);
       ShowSearchStatus('Найдено на странице '+IntToStr(FSearchPage+1)+' · Enter — следующее');
       Exit;
     end;
@@ -4415,6 +4740,54 @@ begin
   Box.ItemIndex:=SelectedIndex;
 end;
 
+procedure TfrmBuiltinReader.ThemeColorsClick(Sender: TObject);
+var Dialog: TForm; BackgroundBox, TextBox: TColorBox; Info: TLabel;
+  function ColorChoice(const Caption: string; Top: Integer; Selected: TColor): TColorBox;
+  var LabelText: TLabel;
+  begin
+    LabelText:=TLabel.Create(Dialog); LabelText.Parent:=Dialog;
+    LabelText.SetBounds(16,Top+4,98,22); LabelText.Caption:=Caption;
+    Result:=TReaderPaletteColorBox.Create(Dialog); Result.Parent:=Dialog;
+    Result.SetBounds(116,Top,218,26);
+    ConfigureReaderColorBox(Result,Selected);
+    LabelText.FocusControl:=Result;
+  end;
+  procedure AddButton(const Caption: string; Left, ModalResult: Integer);
+  var Button: TButton;
+  begin
+    Button:=TReaderPaletteButton.Create(Dialog); Button.Parent:=Dialog;
+    Button.SetBounds(Left,128,86,26); Button.Caption:=Caption; Button.ModalResult:=ModalResult;
+    Button.Default:=ModalResult=mrOk; Button.Cancel:=ModalResult=mrCancel;
+  end;
+begin
+  Dialog:=TForm.CreateNew(Self);
+  try
+    Dialog.Caption:='Цвета темы «'+FThemes.Text+'»';
+    Dialog.BorderStyle:=bsDialog; Dialog.Position:=poOwnerFormCenter;
+    Dialog.ClientWidth:=350; Dialog.ClientHeight:=169; Dialog.Font.Assign(Font);
+    BackgroundBox:=ColorChoice('&Фон',16,FThemeBackgrounds[FTheme]);
+    TextBox:=ColorChoice('&Текст',50,FThemeTexts[FTheme]);
+    Info:=TLabel.Create(Dialog); Info.Parent:=Dialog; Info.AutoSize:=False; Info.WordWrap:=True;
+    Info.SetBounds(16,87,318,35);
+    Info.Caption:='Цвета сохраняются для выбранной темы. Выберите «Автоматически», чтобы вернуть цвет темы.';
+    AddButton('Применить',156,mrOk); AddButton('Отмена',248,mrCancel);
+    ApplyWindowPalette(Dialog);
+    if Dialog.ShowModal=mrOk then SetThemeColors(BackgroundBox.Selected,TextBox.Selected);
+  finally Dialog.Free; end;
+end;
+
+procedure TfrmBuiltinReader.LayoutChoiceChanged(Sender: TObject);
+var Choice: TComboBox; Item: TComponent; Pages: Boolean;
+begin
+  Choice:=TComboBox(Sender);
+  Pages:=Choice.ItemIndex<>Ord(rplContinuous);
+  for var Name in TArray<string>.Create('cbReaderPageTurn','cbReaderPageAppearance','ReaderShowFootnotes') do
+  begin
+    Item:=Choice.Owner.FindComponent(Name);
+    if Item is TControl then TControl(Item).Enabled:=Pages;
+  end;
+end;
+
 procedure TfrmBuiltinReader.StyleClick(Sender: TObject);
 var Dialog: TForm; FontBox, SizeBox, SpacingBox, MarginBox, WidthBox, ZoomBox, InitialBox, LayoutBox, TurnBox, AppearanceBox: TComboBox; FontNames: TStringList; LabelText: TLabel; Button: TButton; FormattingBox, NotesBox, InitialCheck, HoldCheck, SelectionCheck: TCheckBox; TitleBox, SubtitleBox: TColorBox; I: Integer;
   ChapterTicksBox, FullScreenProgressBox: TCheckBox;
@@ -4457,8 +4830,8 @@ begin
       AddLabel('Приближение, %',20); ZoomBox:=Choice(16);
       for I:=12 to 30 do ZoomBox.Items.Add(IntToStr(I*10));
       ZoomBox.ItemIndex:=ZoomBox.Items.IndexOf(IntToStr(FInspectionPercent));
-      AddLabel('Страниц',58); LayoutBox:=Choice(54); LayoutBox.Name:='cbReaderPageLayout';
-      LayoutBox.Items.Text:='Одна страница'+#13+'Две страницы'+#13+'Автоматически по ширине';
+      AddLabel('Режим чтения',58); LayoutBox:=Choice(54); LayoutBox.Name:='cbReaderPageLayout';
+      LayoutBox.Items.Text:='Одна страница'+#13+'Две страницы'+#13+'Автоматически по ширине'+#13+'Плавная прокрутка';
       LayoutBox.ItemIndex:=Ord(FPageLayout);
       AddLabel('Перелистывать',96); TurnBox:=Choice(92); TurnBox.Name:='cbReaderPageTurn';
       TurnBox.Items.Text:='Парами страниц'+#13+'Со сдвигом на одну'; TurnBox.ItemIndex:=Ord(FPageTurn);
@@ -4474,7 +4847,8 @@ begin
       AddProgressChecks(261);
       Button:=TReaderPaletteButton.Create(Dialog); Button.Parent:=Dialog; Button.SetBounds(156,288,86,26); Button.Caption:='Применить'; Button.Default:=True; Button.ModalResult:=mrOk;
       Button:=TReaderPaletteButton.Create(Dialog); Button.Parent:=Dialog; Button.SetBounds(248,288,86,26); Button.Caption:='Отмена'; Button.Cancel:=True; Button.ModalResult:=mrCancel;
-      ApplyReaderPalette(Dialog,ThemeBackground,ThemeText,FNight);
+      LayoutBox.OnChange:=LayoutChoiceChanged; LayoutChoiceChanged(LayoutBox);
+      ApplyWindowPalette(Dialog);
       if Dialog.ShowModal=mrOk then
       begin
         ApplyProgressChecks;
@@ -4482,7 +4856,7 @@ begin
         SetInspectionHold(HoldCheck.Checked);
         SetSelectionEnabled(SelectionCheck.Checked);
         SetPageAppearance(TReaderPageAppearance(EnsureRange(AppearanceBox.ItemIndex,0,1)));
-        var Layout:=TReaderPageLayout(EnsureRange(LayoutBox.ItemIndex,0,2));
+        var Layout:=TReaderPageLayout(EnsureRange(LayoutBox.ItemIndex,0,Ord(High(TReaderPageLayout))));
         var Turn:=TReaderPageTurn(EnsureRange(TurnBox.ItemIndex,0,1));
         if FPageLayout=Layout then SetPageTurn(Turn)
         else
@@ -4492,6 +4866,7 @@ begin
         end;
       end;
     finally Dialog.Free; end;
+    if FSurface.CanFocus then FSurface.SetFocus;
     Exit;
   end;
   Dialog:=TForm.CreateNew(Self); FontNames:=TStringList.Create;
@@ -4516,8 +4891,8 @@ begin
       if WidthBox.Items.IndexOf(IntToStr(FMaxTextWidth))<0 then WidthBox.Items.Add(IntToStr(FMaxTextWidth));
       WidthBox.ItemIndex:=WidthBox.Items.IndexOf(IntToStr(FMaxTextWidth));
     end;
-    AddLabel('Страниц',172); LayoutBox:=Choice(168); LayoutBox.Name:='cbReaderPageLayout';
-    LayoutBox.Items.Text:='Одна страница'+#13+'Две страницы'+#13+'Автоматически по ширине';
+    AddLabel('Режим чтения',172); LayoutBox:=Choice(168); LayoutBox.Name:='cbReaderPageLayout';
+    LayoutBox.Items.Text:='Одна страница'+#13+'Две страницы'+#13+'Автоматически по ширине'+#13+'Плавная прокрутка';
     LayoutBox.ItemIndex:=Ord(FPageLayout);
     LayoutBox.ShowHint:=True; LayoutBox.Hint:='Одна или две страницы. В узком окне остаётся одна страница; ширина выше задаёт предел для каждой страницы.';
     AddLabel('Перелистывать',210); TurnBox:=Choice(206); TurnBox.Name:='cbReaderPageTurn';
@@ -4525,7 +4900,8 @@ begin
     FormattingBox:=TReaderPaletteCheckBox.Create(Dialog); FormattingBox.Parent:=Dialog; FormattingBox.SetBounds(16,242,320,26);
     FormattingBox.Caption:='Оформление книги: заголовки, стихи, цитаты'; FormattingBox.Checked:=FBookFormatting;
     NotesBox:=TReaderPaletteCheckBox.Create(Dialog); NotesBox.Parent:=Dialog; NotesBox.SetBounds(16,272,320,26);
-    NotesBox.Caption:='Показывать сноски этой страницы внизу'; NotesBox.Checked:=FShowFootnotes;
+    NotesBox.Name:='ReaderShowFootnotes';
+    NotesBox.Caption:='Сноски внизу при перелистывании'; NotesBox.Checked:=FShowFootnotes;
     InitialCheck:=TReaderPaletteCheckBox.Create(Dialog); InitialCheck.Parent:=Dialog; InitialCheck.SetBounds(16,302,320,26);
     InitialCheck.Caption:='Выделять первые буквы абзацев'; InitialCheck.Checked:=FInitialsMode<>rimNone;
     AddLabel('Где выделять',336); InitialBox:=Choice(332);
@@ -4546,13 +4922,14 @@ begin
     AddProgressChecks(496);
     Button:=TReaderPaletteButton.Create(Dialog); Button.Parent:=Dialog; Button.SetBounds(156,523,86,26); Button.Caption:='Применить'; Button.Default:=True; Button.ModalResult:=mrOk;
     Button:=TReaderPaletteButton.Create(Dialog); Button.Parent:=Dialog; Button.SetBounds(248,523,86,26); Button.Caption:='Отмена'; Button.Cancel:=True; Button.ModalResult:=mrCancel;
-    ApplyReaderPalette(Dialog,ThemeBackground,ThemeText,FNight);
+    LayoutBox.OnChange:=LayoutChoiceChanged; LayoutChoiceChanged(LayoutBox);
+    ApplyWindowPalette(Dialog);
     if Dialog.ShowModal=mrOk then
     begin
       ApplyProgressChecks;
       SetPageAppearance(TReaderPageAppearance(EnsureRange(AppearanceBox.ItemIndex,0,1)));
       SetSelectionEnabled(SelectionCheck.Checked);
-      var Layout:=TReaderPageLayout(EnsureRange(LayoutBox.ItemIndex,0,2));
+      var Layout:=TReaderPageLayout(EnsureRange(LayoutBox.ItemIndex,0,Ord(High(TReaderPageLayout))));
       var Turn:=TReaderPageTurn(EnsureRange(TurnBox.ItemIndex,0,1));
       var Initials:=rimNone;
       if InitialCheck.Checked then Initials:=TReaderInitialsMode(EnsureRange(InitialBox.ItemIndex+1,1,2));
@@ -4568,7 +4945,7 @@ begin
          (FHeadingColors[Ord(FNight),1]=SubtitleBox.Selected) and (FMaxTextWidth=TextWidth) and
          (FFontSize=FontSize) and (FFontName=FontName) and (FLinePercent=LinePercent) and (FMargin=Margin) then Exit;
 
-      FPageLayout:=Layout;
+      ApplyPageLayout(Layout);
       FPageTurn:=Turn;
       FInitialsMode:=Initials;
       FDecorativeInitials:=Initials<>rimNone;
@@ -4582,6 +4959,7 @@ begin
       SetTypography(FontName,LinePercent,Margin);
     end;
   finally FontNames.Free; Dialog.Free; end;
+  if FSurface.CanFocus then FSurface.SetFocus;
 end;
 
 procedure TfrmBuiltinReader.AddChapter(const Title: string; Position, Depth: Integer);
@@ -4662,7 +5040,9 @@ function TfrmBuiltinReader.ReadingProgress: Double;
 begin
   Result:=0; if not FReady or (FLength=0) then Exit;
   if Assigned(FPDF) then Result:=(CurrentPosition+1)/FLength
-  else if FNext>=FLength then Result:=1 else Result:=CurrentPosition/FLength;
+  else if (ContinuousReading and (NextTextPosition>=FLength)) or
+    (not ContinuousReading and (FNext>=FLength)) then Result:=1
+  else Result:=VisibleReadingPosition/FLength;
 end;
 
 procedure TfrmBuiltinReader.SeekProgress(Value: Double);
@@ -4919,6 +5299,11 @@ begin
   if (Key=VK_ESCAPE) and SearchRunning then begin StopSearch; RenderPage; Key:=0; Exit; end;
   if (Key=VK_ESCAPE) and FInspect then begin EndInspection; Key:=0; Exit; end;
   if (ssCtrl in Shift) and (Key=Ord('F')) then begin SearchClick(nil); Key:=0; Exit; end;
+  if ContinuousReading and (Shift=[]) and (Key in [VK_UP,VK_DOWN]) then
+  begin
+    ScrollPixels(MulDiv(30,CurrentPPI,96)*(2*Ord(Key=VK_DOWN)-1));
+    Key:=0; Exit;
+  end;
   case Key of
     VK_NEXT,VK_RIGHT,VK_DOWN,VK_SPACE: NextPage;
     VK_PRIOR,VK_LEFT,VK_UP: PreviousPage;
@@ -4961,7 +5346,7 @@ begin
       FDictionaryExecutable:=Ini.ReadString('Reader','DictionaryExecutable','');
       FLinePercent:=EnsureRange(Ini.ReadInteger('Reader','LinePercent',110),100,180);
       FMargin:=EnsureRange(Ini.ReadInteger('Reader','Margin',32),12,80);
-      FPageLayout:=TReaderPageLayout(EnsureRange(Ini.ReadInteger('Reader','PageLayout',0),0,2));
+      FPageLayout:=TReaderPageLayout(EnsureRange(Ini.ReadInteger('Reader','PageLayout',0),0,Ord(High(TReaderPageLayout))));
       FPageTurn:=TReaderPageTurn(EnsureRange(Ini.ReadInteger('Reader','PageTurn',0),0,1));
       FPageAppearance:=TReaderPageAppearance(EnsureRange(Ini.ReadInteger('Reader','PageAppearance',0),0,1));
       FMaxTextWidth:=Ini.ReadInteger('Reader','MaxTextWidth',960);
@@ -4978,6 +5363,11 @@ begin
       begin
         FHeadingColors[I,J]:=Ini.ReadInteger('Reader',Format('HeadingColor%d_%d',[I,J]),clDefault);
         if FHeadingColors[I,J]<>clDefault then FHeadingColors[I,J]:=FHeadingColors[I,J] and $00FFFFFF;
+      end;
+      for I:=Low(FThemeBackgrounds) to High(FThemeBackgrounds) do
+      begin
+        FThemeBackgrounds[I]:=NormalizeReaderThemeColor(Ini.ReadInteger('Reader','ThemeBackground'+IntToStr(I),clDefault));
+        FThemeTexts[I]:=NormalizeReaderThemeColor(Ini.ReadInteger('Reader','ThemeText'+IntToStr(I),clDefault));
       end;
       FInspectionPercent:=EnsureRange(Ini.ReadInteger('Reader','InspectionPercent',150),120,300);
       FInspectionHold:=Ini.ReadBool('Reader','InspectionHold',True);
@@ -5006,7 +5396,12 @@ begin
     else
     begin
       Position:=Ini.ReadInteger('Book.'+FIdentity,'Position',0);
-      if Assigned(FPDF) then FPage:=EnsureRange(Position,0,FPDF.PageCount-1)
+      if Assigned(FPDF) then
+      begin
+        FPage:=EnsureRange(Position,0,FPDF.PageCount-1);
+        if ContinuousReading then
+          FScrollRestore:=EnsureRange(Ini.ReadInteger('Book.'+FIdentity,'ScrollFraction',0),0,10000);
+      end
       else begin FPages.Clear; FPages.Add(EnsureRange(Position,0,Max(0,FLength-1))); FPage:=0; end;
     end;
   finally Ini.Free; end;
@@ -5036,6 +5431,12 @@ begin
     Ini.WriteBool('Reader','DecorativeInitials',FDecorativeInitials);
     Ini.WriteInteger('Reader','InitialsMode',Ord(FInitialsMode));
     for I:=0 to 1 do for J:=0 to 1 do Ini.WriteInteger('Reader',Format('HeadingColor%d_%d',[I,J]),FHeadingColors[I,J]);
+    // Another open book may have edited a different theme in this profile.
+    for I in FChangedThemeColors do
+    begin
+      Ini.WriteInteger('Reader','ThemeBackground'+IntToStr(I),FThemeBackgrounds[I]);
+      Ini.WriteInteger('Reader','ThemeText'+IntToStr(I),FThemeTexts[I]);
+    end;
     Ini.WriteInteger('Reader','PageLayout',Ord(FPageLayout));
     Ini.WriteInteger('Reader','PageTurn',Ord(FPageTurn));
     Ini.WriteInteger('Reader','PageAppearance',Ord(FPageAppearance));
@@ -5053,14 +5454,19 @@ begin
     if FReady then
     begin
       Ini.WriteString('Book.'+FIdentity,'Title',FBookTitle);
-      Ini.WriteInteger('Book.'+FIdentity,'Position',CurrentPosition);
+      Ini.WriteInteger('Book.'+FIdentity,'Position',VisibleReadingPosition);
+      if Assigned(FPDF) and ContinuousReading and (FScrollRestore>0) then
+        Ini.WriteInteger('Book.'+FIdentity,'ScrollFraction',FScrollRestore)
+      else if Assigned(FPDF) and ContinuousReading and (FScrollTileHeight>0) then
+        Ini.WriteInteger('Book.'+FIdentity,'ScrollFraction',MulDiv(FScrollOffset,10000,FScrollTileHeight))
+      else Ini.DeleteKey('Book.'+FIdentity,'ScrollFraction');
       if FInspect then Ini.WriteInteger('Book.'+FIdentity,'Zoom',FInspectZoom) else Ini.WriteInteger('Book.'+FIdentity,'Zoom',FZoom);
     end;
     SaveMemIniFileAtomically(Ini);
+    FChangedThemeColors:=[];
   finally Ini.Free; end;
   if FReady and FReadingMoved and Assigned(FOnProgress) then
-    if not Assigned(FPDF) and (FNext>=FLength) then FOnProgress(100)
-    else FOnProgress(EnsureRange(Round((CurrentPosition+Ord(Assigned(FPDF)))*100/Max(1,FLength)),0,100));
+    FOnProgress(EnsureRange(Round(ReadingProgress*100),0,100));
 end;
 
 procedure TfrmBuiltinReader.CloseReader(Sender: TObject; var Action: TCloseAction);

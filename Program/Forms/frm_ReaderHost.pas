@@ -203,7 +203,11 @@ begin
   SettingsMenu.Add(Item);
   Item:=TMenuItem.Create(Menu); Item.Name:='ReaderFormatsHelp'; Item.Caption:='Форматы чтения…'; Item.OnClick:=FormatsClick;
   SettingsMenu.Add(Item);
-  if Form is TfrmBuiltinReader then TfrmBuiltinReader(Form).AddTextEncodingMenu(SettingsMenu);
+  if Form is TfrmBuiltinReader then
+  begin
+    TfrmBuiltinReader(Form).AddThemeColorsMenu(SettingsMenu);
+    TfrmBuiltinReader(Form).AddTextEncodingMenu(SettingsMenu);
+  end;
   Item:=TMenuItem.Create(Menu); Item.Caption:='Компоненты…'; Item.OnClick:=ComponentsClick;
   Menu.Items.Add(Item);
   HelpMenu:=TMenuItem.Create(Menu); HelpMenu.Caption:='Помощь'; Menu.Items.Add(HelpMenu);

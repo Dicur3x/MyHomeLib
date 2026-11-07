@@ -402,3 +402,105 @@ begin
   Writeln('PASS repeated two-page readers retain the original +4 GDI/USER resource budgets');
   Writeln('PASS reader spread draws both pages, preserves continuous text, right-page selection, navigation, adaptive resize, footnotes, bookmarks and saved mode');
 end;
+
+type
+  TContinuousScrollSurface = class(TReaderSurface);
+
+procedure TestReaderContinuousScrolling;
+var Reader: TfrmBuiltinReader; FileName, Extension, Original: string;
+  Watch: TStopwatch; Position, Frames, LastTop, Steps, I: Integer;
+  Key: Word; Raster: Boolean;
+  procedure Pump(Milliseconds: Integer);
+  var Wait: TStopwatch;
+  begin
+    Wait:=TStopwatch.StartNew;
+    repeat
+      Application.ProcessMessages;
+      CheckSynchronize(5);
+      Sleep(8);
+    until Wait.ElapsedMilliseconds>=Milliseconds;
+  end;
+  procedure PressArrow(Direction: Word; Count: Integer);
+  var Index: Integer;
+  begin
+    for Index:=1 to Count do
+    begin
+      Key:=Direction;
+      Reader.OnKeyDown(Reader,Key,[]);
+      Require(Key=0,'The reader did not handle the scroll key');
+    end;
+  end;
+begin
+  RequireIsolatedRegression;
+  for Extension in TArray<string>.Create('pdf','djvu','cbz','tiff','epub','txt','rtf') do
+  begin
+    FileName:=Settings.AppPath+'reader-spread.'+Extension;
+    Original:=THashSHA2.GetHashStringFromFile(FileName);
+    Raster:=(Extension='pdf') or (Extension='djvu') or (Extension='cbz') or (Extension='tiff');
+    Reader:=TfrmBuiltinReader.Create(nil);
+    try
+      Reader.OpenBook(FileName,Extension,Extension,Settings.AppPath+'scroll-'+Extension+'.ini',
+        Settings.AppPath+'tools\pdfium\pdfium.dll');
+      Reader.Show;
+      Watch:=TStopwatch.StartNew;
+      while (not Reader.Ready or Reader.PageLoading) and (Watch.ElapsedMilliseconds<20000) do Pump(30);
+      Require(Reader.Ready and not Reader.PageLoading,Extension+' did not open');
+      Reader.ReadingSurface.SetFocus;
+      Reader.SetPageLayout(rplSingle);
+      TContinuousScrollSurface(Reader.ReadingSurface).DoMouseWheel([],-WHEEL_DELTA,Point(0,0));
+      Watch:=TStopwatch.StartNew;
+      while (Reader.TextPosition=0) and (Watch.ElapsedMilliseconds<10000) do Pump(30);
+      Position:=Reader.TextPosition;
+      Require(Position>0,Extension+' wheel did not turn the page in paged mode');
+      Reader.SetPageLayout(rplContinuous);
+      Reader.GoToPosition(0);
+      Watch:=TStopwatch.StartNew;
+      while ((Reader.TextPosition<>0) or (Reader.PageRasterSize.Y<2*Reader.ReadingSurface.ClientHeight)) and
+        (Watch.ElapsedMilliseconds<15000) do Pump(30);
+      Require((Reader.TextPosition=0) and (Reader.PageRasterSize.Y>=2*Reader.ReadingSurface.ClientHeight),
+        Extension+' did not prepare the adjacent content');
+      Pump(180);
+      TContinuousScrollSurface(Reader.ReadingSurface).DoMouseWheel([],-WHEEL_DELTA,Point(0,0));
+      if Raster then
+      begin
+        Frames:=0;
+        LastTop:=0;
+        for I:=1 to 40 do
+        begin
+          Pump(18);
+          if Reader.PDFPan.Y<LastTop then
+          begin
+            LastTop:=Reader.PDFPan.Y;
+            Inc(Frames);
+          end;
+          if (I>24) and (Frames>=3) then Break;
+        end;
+        Require((Reader.TextPosition=0) and (Frames>=3),
+          Format('%s wheel drew %d intermediate frames before turning', [Extension,Frames]));
+        Steps:=Reader.ReadingSurface.ClientHeight div Max(1,MulDiv(30,Reader.CurrentPPI,96))+4;
+        PressArrow(VK_DOWN,Steps);
+        Watch:=TStopwatch.StartNew;
+        while ((Reader.TextPosition=0) or (Reader.PDFPan.Y=0)) and (Watch.ElapsedMilliseconds<5000) do Pump(30);
+        Require((Reader.TextPosition=1) and (Reader.PDFPan.Y<0),Format(
+          '%s boundary failed: page=%d top=%d strip=%d viewport=%d (%s)',
+          [Extension,Reader.TextPosition,Reader.PDFPan.Y,Reader.PageRasterSize.Y,
+           Reader.ReadingSurface.ClientHeight,Reader.ReaderStatus.Caption]));
+        PressArrow(VK_UP,Steps);
+        Watch:=TStopwatch.StartNew;
+        while (Reader.TextPosition>0) and (Watch.ElapsedMilliseconds<5000) do Pump(30);
+        Require(Reader.TextPosition=0,Extension+' could not scroll backwards');
+        Writeln('PASS smooth fixed-layout wheel and arrows: ',Extension,', intermediate frames=',Frames);
+      end
+      else
+      begin
+        Pump(500);
+        Require((Reader.TextPosition>0) and (Reader.TextPosition<Position),
+          Extension+' wheel jumped a page or did not scroll');
+        Writeln('PASS smooth flowing-text wheel: ',Extension);
+      end;
+      Reader.Close;
+    finally Reader.Free; end;
+    Require(THashSHA2.GetHashStringFromFile(FileName)=Original,Extension+' source changed');
+  end;
+  Writeln('PASS continuous scrolling preserves ordinary wheel paging and advances in intermediate frames');
+end;
