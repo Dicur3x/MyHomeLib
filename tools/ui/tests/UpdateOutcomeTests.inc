@@ -173,7 +173,7 @@ begin if CancelOnProgress and (Percent>0) then Worker.Cancel; end;
 procedure TOOEvents.Warning(const Text: string; Severity: TTeletypeSeverity);
 begin Messages.Add(Text); end;
 
-procedure TOORun(Worker: TCollectionWorker; CancelDuring: Boolean = False);
+procedure TOORun(Worker: TCollectionWorker; CancelDuring: Boolean = False; Messages: TStrings = nil);
 var Events: TOOEvents;
 begin
   Events:=TOOEvents.Create;
@@ -182,6 +182,7 @@ begin
     Worker.OnShowMessage:=Events.Message; Worker.OnTeletype:=Events.Warning;
     Worker.OnProgress:=Events.Progress;
     Worker.Start; Worker.WaitFor;
+    if Assigned(Messages) then Messages.Assign(Events.Messages);
     Require(Worker.Finished,'Outcome worker failed to publish completion');
     if Assigned(Worker.FatalException) then
       raise Exception.Create('Outcome worker fatal: '+Exception(Worker.FatalException).Message);

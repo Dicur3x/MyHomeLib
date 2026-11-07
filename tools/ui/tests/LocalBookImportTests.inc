@@ -475,4 +475,47 @@ begin
   Require(MixedCount=2,'Both same-name books must be readable from the original ZIP');
   Require(THashSHA2.GetHashStringFromFile(Mixed)=MixedHash,'The folder scanner changed the ZIP');
   Writeln('PASS local batch, mixed folder import, member readback and local identity across INPX updates');
+
+  // Optional exact reporter samples. Add each through the same worker that
+  // handles the menu and Explorer, into a separate temporary collection.
+  var ReportSamples:=GetEnvironmentVariable('HOMELIB_TEST_IMPORT_FIXTURES');
+  if ReportSamples<>'' then
+  begin
+    var ReportRoot:=Root+'report-imports\'; ForceDirectories(ReportRoot);
+    var ReportCID:=SystemData.CreateCollection('Reported book imports',ReportRoot,Root+'report-imports.hlc2',
+      CT_EXTERNAL_LOCAL_FB,Settings.SystemFileName[sfGenresFB2]);
+    var Samples:=TDirectory.GetFiles(ReportSamples,'*.zip');
+    Require(Length(Samples)=8,'Reporter sample set is incomplete');
+    for var Sample in Samples do
+    begin
+      var Hash:=THashSHA2.GetHashStringFromFile(Sample);
+      var Worker:=TLocalImportProbe.Create(ReportCID,[Sample]);
+      var Messages:=TStringList.Create;
+      Worker.Profile:=Profile;
+      try
+        TOORun(Worker,False,Messages);
+        Require(THashSHA2.GetHashStringFromFile(Sample)=Hash,'Import changed an attached archive');
+        Writeln('REPORT import ',ExtractFileName(Sample),' committed=',Ord(Worker.CommittedChanges),
+          ' messages=',Messages.Text.Trim.Replace(#13,' ').Replace(#10,' ')); Flush(Output);
+        if ExtractFileName(Sample).StartsWith('ВАЛЬДИРА+') then
+          Require(Worker.CommittedChanges,'An EPUB with a false FB2 member name was rejected');
+      finally Messages.Free; Worker.Free; end;
+    end;
+    Catalog:=SystemData.GetCollection(ReportCID,True);
+    Cursor:=Catalog.GetBookIterator(bmAll,False);
+    var RecognizedEPUB:=0;
+    while Cursor.Next(Book) do
+    begin
+      var Prepared:=PrepareReaderFile(Book,True);
+      if not SameText(ExtractFileExt(Prepared),'.epub') then Continue;
+      TestReader:=TReaderDocument.Create;
+      try
+        TestReader.Load(Prepared);
+        Require((TestReader.PlainText.Length>500) and (TestReader.ImageCount>0),
+          'The imported EPUB lost text or its illustration');
+      finally TestReader.Free; end;
+      Inc(RecognizedEPUB);
+    end;
+    Require(RecognizedEPUB=2,'The two mislabeled reporter EPUBs did not both reopen');
+  end;
 end;

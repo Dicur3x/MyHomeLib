@@ -186,13 +186,33 @@ function IsLocalImportFormat(const Extension: string): Boolean; forward;
 procedure TImportFB2Thread.ReadImportedMetadata(Input: TStream; var Book: TBookRecord);
 var
   Metadata: TFB2CatalogMetadata;
-  Details, Author: string;
+  Details, Author, MetadataFormat: string;
+  Signature: Cardinal;
+  Status: TFB2MetadataStatus;
 begin
-  if Book.FileExt = FB2_EXTENSION then
-    GetBookInfo(LoadFictionBook(Input), Book)
-  else if IsMetadataPackage(Book.FileExt) and
-    (ReadPackageMetadata(Input, Book.FileExt, Metadata, Details, True,
-      function: Boolean begin Result := Canceled; end) = fmsComplete) then
+  MetadataFormat := Book.FileExt;
+  if MetadataFormat = FB2_EXTENSION then
+  begin
+    Input.Position := 0;
+    Signature := 0;
+    Input.Read(Signature,SizeOf(Signature));
+    Input.Position := 0;
+    if Signature <> $04034B50 then
+    begin
+      GetBookInfo(LoadFictionBook(Input),Book);
+      Exit;
+    end;
+    // A few publishers distribute EPUB bytes under a .fb2 member name.
+    // Keep the original member name so the collection can reopen exact bytes.
+    MetadataFormat := '.epub';
+  end;
+  if not IsMetadataPackage(MetadataFormat) then Exit;
+  Status := ReadPackageMetadata(Input,MetadataFormat,Metadata,Details,True,
+    function: Boolean begin Result := Canceled; end);
+  if Status=fmsCanceled then Abort;
+  if (Status<>fmsComplete) and (Book.FileExt=FB2_EXTENSION) then
+    raise EReadError.Create('Вместо FB2 внутри найден архив без читаемого описания EPUB. '+Details);
+  if Status=fmsComplete then
   begin
     if Metadata.Title <> '' then Book.Title := Metadata.Title;
     Book.Lang := Copy(Metadata.Language, 1, 2);
