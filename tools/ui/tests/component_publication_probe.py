@@ -45,7 +45,11 @@ def main():
     stage = args.stage.resolve()
     publication = args.publication_dir.resolve() if args.publication_dir else stage / 'publication-r1'
     source = ROOT / 'Program/Units/unit_ComponentUpdates.pas'
-    component_ids = re.findall(r"\(ID:'([^']+)'", source.read_text(encoding='utf-8-sig'))
+    installer = ROOT / 'Program/Units/unit_ProgramUpdateInstaller.pas'
+    constants = dict(re.findall(r"(?m)^\s*([A-Z][A-Z0-9_]+)\s*=\s*'([^']+)';",
+                                installer.read_text(encoding='utf-8-sig')))
+    component_ids = [literal or constants[constant] for literal, constant in re.findall(
+        r"\(ID:(?:'([^']+)'|([A-Z][A-Z0-9_]+));", source.read_text(encoding='utf-8-sig'))]
     assert component_ids and len(component_ids) == len(set(component_ids))
     version = json.loads((ROOT / 'Installer/Release.json').read_bytes())['version']
     bootstrap = json.loads((ROOT / 'Installer/Components.json').read_bytes())['components']

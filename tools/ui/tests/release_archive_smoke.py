@@ -36,8 +36,19 @@ def main():
         (root/'native-regression.marker').write_text('HomeLib Ru isolated native regression v1')
         (root/'myhomelib2.ini').write_text('[SYSTEM]\nCheckUpdates=0\nCheckLibrusecUpdates=0\nProgramCheckMinutes=0\n'
             '[INTERFACE]\nLocale=ru\n[BEHAVIOR]\nCoverPanel=0\nShowCover=0\nShowAnnotation=0\nAutoLoadReview=0\nIgnoreAbsentArchives=1\n',encoding='utf-8')
-        fixture=subprocess.run([str(root/'CollectionViewsTest.exe'),'publisher-selection'],cwd=root,
-                               capture_output=True,timeout=60,creationflags=0x08000000,env=environment)
+        # The older fixture expects the genre list beside its own executable.
+        # The production application must start with the archive's actual layout.
+        genre=root/'genres_fb2.glst'
+        fixture_genre=not genre.exists()
+        if fixture_genre:
+            shutil.copyfile(root/'tools/genres/genres_fb2.glst',genre)
+        try:
+            fixture=subprocess.run([str(root/'CollectionViewsTest.exe'),'publisher-selection'],cwd=root,
+                                   capture_output=True,timeout=60,creationflags=0x08000000,env=environment)
+        finally:
+            if fixture_genre:
+                genre.unlink()
+        (root/'CollectionViewsTest.exe').unlink()
         if fixture.returncode: raise RuntimeError(fixture.stdout.decode('utf-8',errors='replace'))
         ini=root/'myhomelib2.ini'; text=ini.read_text(encoding='utf-8-sig')
         for name,value in {'ActivePage':'0','FormWidth':'1173','FormHeight':'900','WindowState':'0'}.items():
