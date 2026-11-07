@@ -30,7 +30,8 @@ function BookSaveKeepsSource(const SourceExtension: string;
   Mode: TExportMode; KeepOriginal, KeepFB2EPUB: Boolean): Boolean;
 function BookSaveKnownExtension(const Book: TBookRecord): string;
 function BookSaveFileExtension(const FileName, DeclaredExtension: string): string;
-function OpenArchivedBookSaveSource(const Book: TBookRecord; out Extension: string): TStream;
+function OpenArchivedBookSaveSource(const Book: TBookRecord; out Extension: string;
+  const IsCanceled: TFunc<Boolean> = nil): TStream;
 function BookSaveIsScanSource(const Extension: string): Boolean;
 function IsValidBookSaveFolderTemplate(const Value: string): Boolean;
 function BookSaveRelativeFolder(const Expanded: string): string;
@@ -53,10 +54,11 @@ begin
     Result:=LowerCase(DeclaredExtension);
 end;
 
-function OpenArchivedBookSaveSource(const Book: TBookRecord; out Extension: string): TStream;
+function OpenArchivedBookSaveSource(const Book: TBookRecord; out Extension: string;
+  const IsCanceled: TFunc<Boolean>): TStream;
 begin
   Extension:=LowerCase(Book.FileExt);
-  Result:=OpenRawBookSource(Book);
+  Result:=OpenRawBookSource(Book,nil,IsCanceled);
   try
     if not Assigned(Result) then raise EFileNotFoundException.Create('Исходный файл книги не найден.');
     if Result is TFileStream then
@@ -66,7 +68,7 @@ begin
     if IsSevenZipArchive(Book.GetBookFileName) then
     begin
       FreeAndNil(Result);
-      Result:=Book.GetBookStream(True);
+      Result:=Book.GetBookStream(True,True,IsCanceled);
     end;
   except Result.Free; raise; end;
 end;

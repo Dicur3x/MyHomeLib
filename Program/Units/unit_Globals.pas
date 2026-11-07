@@ -277,7 +277,7 @@ type
     function GetBookFileName(const ResolvedContainer: string): string; overload;
     function GetBookContainer: string;
     function GetBookStream(const PreserveWebP: Boolean = False;
-      const RestoreOriginalImages: Boolean = True): TStream;
+      const RestoreOriginalImages: Boolean = True; const IsCanceled: TFunc<Boolean> = nil): TStream;
     function GetBookDescriptorStream(const RestoreImages: Boolean = True): TStream;
     function GetBookPreviewCoverStream: TStream;
     procedure SaveBookToFile(const DestFileName: String);
@@ -1379,7 +1379,8 @@ begin
   end;
 end;
 
-function TBookRecord.GetBookStream(const PreserveWebP, RestoreOriginalImages: Boolean): TStream;
+function TBookRecord.GetBookStream(const PreserveWebP, RestoreOriginalImages: Boolean;
+  const IsCanceled: TFunc<Boolean>): TStream;
 var
   ArchiveFileName: string;
   ArchiveEntryName: string;
@@ -1388,6 +1389,7 @@ var
   archiver: TMHLZip;
   RestoredStream: TStream;
 begin
+  if Assigned(IsCanceled) and IsCanceled() then Abort;
   Result := nil;
   archiver := nil;
   BookFileName := GetBookFileName;
@@ -1398,13 +1400,18 @@ begin
     try
       try
         ArchiveFileName := TPath.Combine(Settings.ReadPath, BookFileName);
-        archiver := TMHLZip.Create(ArchiveFileName, True);
+        archiver := TMHLZip.Create(ArchiveFileName, True, False, IsCanceled);
         ArchiveEntryName := FileName + FileExt;
         // The INPX locator is the file name, not a source archive index. A
         // compact distribution can remove books or reorder its ZIP entries.
         Result := TMemoryStream.Create;
         archiver.ExtractBookToStream(ArchiveEntryName, InsideNo, Result);
       except
+        on E: EAbort do
+        begin
+          FreeAndNil(Result);
+          raise;
+        end;
         on E: EMHLExternalToolError do
         begin
           FreeAndNil(Result);
@@ -1429,6 +1436,7 @@ begin
         IsSevenZipArchive(ArchiveFileName) then
       begin
         try
+          if Assigned(IsCanceled) and IsCanceled() then Abort;
           RestoredStream := RestoreFLibraryBook(ArchiveFileName,
             ArchiveEntryName, Result);
           if Assigned(RestoredStream) then

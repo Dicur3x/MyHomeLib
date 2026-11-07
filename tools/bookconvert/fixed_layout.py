@@ -220,6 +220,49 @@ class PDF:
         for name, (result, args) in signatures.items():
             function = getattr(self.dll, name); function.restype = result; function.argtypes = args; setattr(self, name, function)
 
+    def scan_sample_groups(self, document, count, check):
+        """Sample homogeneous raster PDFs by the sizes of their source images."""
+        if count <= 20:
+            return []
+        try:
+            object_count = self.dll.FPDFPage_CountObjects
+            page_object = self.dll.FPDFPage_GetObject
+            object_type = self.dll.FPDFPageObj_GetType
+            image_size = self.dll.FPDFImageObj_GetImageDataRaw
+        except AttributeError:
+            return []
+        pointer = C.c_void_p
+        object_count.argtypes, object_count.restype = [pointer], C.c_int
+        page_object.argtypes, page_object.restype = [pointer, C.c_int], pointer
+        object_type.argtypes, object_type.restype = [pointer], C.c_int
+        image_size.argtypes, image_size.restype = [pointer, pointer, C.c_ulong], C.c_ulong
+        ranked = []
+        dimensions = None
+        for index in range(count):
+            if check is not None: check()
+            page = self.FPDF_LoadPage(document, index)
+            if not page: return []
+            try:
+                shape = self.FPDF_GetPageWidth(page), self.FPDF_GetPageHeight(page)
+                if dimensions is None: dimensions = shape
+                if shape != dimensions or object_count(page) != 1: return []
+                image = page_object(page, 0)
+                if not image or object_type(image) != 3: return []  # FPDF_PAGEOBJ_IMAGE
+                size = image_size(image, None, 0)
+                if not size: return []
+                ranked.append((size, index+1))
+            finally:
+                self.FPDF_ClosePage(page)
+        ranked.sort()
+        # Two size bands cover the book, including its cover and final pages.
+        # Scale each middle page by the original bytes in its own band.
+        middle = len(ranked)//2
+        groups = []
+        for band in (ranked[:middle], ranked[middle:]):
+            size, page = band[len(band)//2]
+            groups.append((page, sum(value for value, _index in band)/size))
+        return groups
+
     @contextmanager
     def open_document(self, source, fail):
         # PDFium may request blocks lazily while loading individual pages.
@@ -309,19 +352,39 @@ def read_pdf(book, tools):
             if not 0 < count <= 5000: book.fail('Недопустимое число страниц PDF (предел 5000).')
             book.page_count=count
             book.progress('pages', 0, count)
-            letters = 0
-            for i in range(count):
+            def convert_page(i):
                 page = api.FPDF_LoadPage(document, i)
                 if not page: book.fail(f'Не удалось открыть страницу PDF {i + 1}.')
                 try:
                     lines, rgb, w, h, pw, ph, hidden = api.page(
                         page, book.fail, bool(book.image_export), render=not book.omit_images)
-                    letters += emit_page(book, i + 1, lines, rgb, w, h, pw, ph)
+                    letters = emit_page(book, i + 1, lines, rgb, w, h, pw, ph)
                     if any('\ufffd' in line['text'] for line in lines):
                         book.warnings.add('В PDF встречаются символы без пригодного Unicode-соответствия; они отмечены знаком �. Проверьте эти места в оригинале.')
                     book.warnings.add('Текстовый слой PDF может содержать результат OCR. Возможны ошибки распознавания; сверьте важные цитаты с оригиналом.')
                 finally: api.FPDF_ClosePage(page)
-                book.progress('pages', i + 1, count)
+                return letters
+            groups = []
+            if book.image_export and book.image_export.get('measure_scans'):
+                groups = api.scan_sample_groups(document, count, book.image_export.get('check'))
+            sampled = sorted(number-1 for number, _weight in groups)
+            letters = 0
+            if groups:
+                book.image_export['sample_groups'] = groups
+                for position, i in enumerate(sampled, 1):
+                    letters += convert_page(i)
+                    book.progress('pages', position, count)
+                if book.scan_export is not None and book.scan_export.can_use_samples():
+                    book.progress('pages', count, count)
+                    return
+                book.image_export.pop('sample_groups')
+            sampled = set(sampled)
+            completed = len(sampled)
+            for i in range(count):
+                if i in sampled: continue
+                letters += convert_page(i)
+                completed += 1
+                book.progress('pages', completed, count)
             check_content(book, letters, 'PDF')
     finally: api.FPDF_DestroyLibrary()
 

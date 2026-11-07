@@ -21,9 +21,10 @@ type
     AutoHighBytes, AutoBalancedBytes, AutoEconomyBytes: Int64;
     ImageCount, SampleCount: Integer;
     TargetFormat: string;
-    ScanPages, FirstSamples: Boolean;
+    ScanPages, FirstSamples, AllScanPages, DistributedSamples: Boolean;
     // Layout: keep / split / auto. Columns follow BOOK_IMAGE_PROFILES.
     OutputBytes, ZipOutputBytes: array[0..2,0..BOOK_QUALITY_NONE] of Int64;
+    MarginBytes, ZipMarginBytes: array[0..2,0..BOOK_QUALITY_NONE] of Int64;
   end;
   TBookImageQualityChooser = reference to function(const Options: TBookImageQualityOptions): string;
 
@@ -42,7 +43,8 @@ procedure ConvertBasicBook(const AppPath, TempRoot, SourceFile, SourceExtension,
   const ImageQuality: string = 'original'; const ChooseImageQuality: TBookImageQualityChooser = nil;
   const OverwriteExisting: Boolean = False; const ProtectedSourceFile: string = '';
   const PackedOutput: Boolean = False; const OutputProfile: string = '';
-  const ExtractTextLayer: Boolean = False; const Grayscale: Boolean = False);
+  const ExtractTextLayer: Boolean = False; const Grayscale: Boolean = False;
+  const MeasureScans: Boolean = False);
 
 implementation
 
@@ -131,6 +133,7 @@ end;
 // A complete but invalid snapshot raises; retries never extend the idle limit.
 function TryReadBookImageQualityOptions(const FileName: string; out Options: TBookImageQualityOptions): Boolean;
 const LayoutKeys: array[0..2] of string = ('sizes','split_sizes','auto_sizes');
+  MarginKeys: array[0..2] of string = ('keep','split','auto');
 var Handle: THandle; Size: Int64; Data: TBytes; ReadCount, ErrorCode: DWORD;
   Choices: TJSONValue; Text: string;
 begin
@@ -170,12 +173,19 @@ begin
       not Choices.TryGetValue<string>('format',Options.TargetFormat) or
       (Options.HighBytes<=0) or (Options.BalancedBytes<=0) or (Options.EconomyBytes<=0) or
       (Options.ImageCount<=0) or (Options.ImageCount>5000) or
-      (Options.SampleCount<0) or (Options.SampleCount>9) then
+      (Options.SampleCount<0) or (Options.SampleCount>Options.ImageCount) then
       raise Exception.Create('Некорректная оценка размера книги.');
     Choices.TryGetValue<Int64>('sizes.none',Options.NoImagesBytes);
     if Options.NoImagesBytes<0 then raise Exception.Create('Некорректная оценка размера без изображений.');
     Choices.TryGetValue<Boolean>('scan_pages',Options.ScanPages);
     Choices.TryGetValue<Boolean>('first_samples',Options.FirstSamples);
+    Choices.TryGetValue<Boolean>('all_scan_pages',Options.AllScanPages);
+    Choices.TryGetValue<Boolean>('distributed_samples',Options.DistributedSamples);
+    if (Options.AllScanPages and (not Options.ScanPages or (Options.SampleCount<>Options.ImageCount))) or
+      (Options.DistributedSamples and (not Options.ScanPages or Options.AllScanPages or Options.FirstSamples or
+        (Options.SampleCount<=0) or (Options.SampleCount>=Options.ImageCount) or (Options.SampleCount>18))) or
+      (not (Options.AllScanPages or Options.DistributedSamples) and (Options.SampleCount>9)) then
+      raise Exception.Create('Некорректное число проверенных страниц.');
     if Options.ScanPages and
       (not Choices.TryGetValue<Int64>('split_sizes.high',Options.SplitHighBytes) or
        not Choices.TryGetValue<Int64>('split_sizes.balanced',Options.SplitBalancedBytes) or
@@ -194,6 +204,14 @@ begin
       Choices.TryGetValue<Int64>('zip_'+LayoutKeys[Layout]+'.'+BOOK_IMAGE_PROFILES[Quality],Options.ZipOutputBytes[Layout,Quality]);
       if (Options.OutputBytes[Layout,Quality]<0) or (Options.ZipOutputBytes[Layout,Quality]<0) then
         raise Exception.Create('Некорректная оценка размера копии книги.');
+      if Options.DistributedSamples then
+      begin
+        Choices.TryGetValue<Int64>('margins.'+MarginKeys[Layout]+'.'+BOOK_IMAGE_PROFILES[Quality],Options.MarginBytes[Layout,Quality]);
+        Choices.TryGetValue<Int64>('zip_margins.'+MarginKeys[Layout]+'.'+BOOK_IMAGE_PROFILES[Quality],Options.ZipMarginBytes[Layout,Quality]);
+        if (Options.MarginBytes[Layout,Quality]<0) or (Options.MarginBytes[Layout,Quality]>Options.OutputBytes[Layout,Quality]) or
+          (Options.ZipMarginBytes[Layout,Quality]<0) or (Options.ZipMarginBytes[Layout,Quality]>Options.ZipOutputBytes[Layout,Quality]) then
+          raise Exception.Create('Некорректный диапазон размера копии книги.');
+      end;
     end;
     Result:=True;
   finally Choices.Free; end;
@@ -205,7 +223,7 @@ procedure ConvertBasicBook(const AppPath, TempRoot, SourceFile, SourceExtension,
   const OnProgress: TBookConversionProgress; const ImageQuality: string;
   const ChooseImageQuality: TBookImageQualityChooser;
   const OverwriteExisting: Boolean; const ProtectedSourceFile: string; const PackedOutput: Boolean;
-  const OutputProfile: string; const ExtractTextLayer, Grayscale: Boolean);
+  const OutputProfile: string; const ExtractTextLayer, Grayscale, MeasureScans: Boolean);
 var Work, InputName, OutputName, ReportName, ProgressName, Tool, Script, TargetTemporary, LastDiagnosticStage: string;
   Input, Writer: TStream; SavedPosition: Int64; Log: TStringStream;
   Started, DOCStarted, LastAdvance, LastPoll: UInt64; Report: TJSONValue; ArrayValue: TJSONValue; I: Integer;
@@ -276,6 +294,7 @@ begin
   begin
     var RequiredAPI:=1+Ord(TextLayerOnly);
     if Grayscale or (QualityProfile='maximum') then RequiredAPI:=3;
+    if MeasureScans then RequiredAPI:=5;
     if SaveOptionsAPI(AppPath)<RequiredAPI then
       if (Length(Missing)=0) or (Missing[0]<>'BookProcessing') then
         Missing:=TArray<string>.Create('BookProcessing')+Missing;
@@ -414,9 +433,12 @@ begin
   end;
   Check:=procedure
     var Options: TBookImageQualityOptions; Choice: string; SelectedAt: UInt64;
+      Canceled: Boolean;
     begin
-      if Assigned(IsCanceled) and IsCanceled() then raise EAbort.Create('Конвертация отменена.');
-      ReadProgress;
+      Canceled:=Assigned(IsCanceled) and IsCanceled();
+      if Canceled and not (MeasureScans and not ImageChoiceHandled and FileExists(ImageOptionsName)) then
+        raise EAbort.Create('Конвертация отменена.');
+      if not Canceled then ReadProgress;
       if not ForReading and (QualityProfile='ask') and not ImageChoiceHandled and FileExists(ImageOptionsName) then
       begin
         if not Assigned(ChooseImageQuality) then raise Exception.Create('Не задан выбор качества изображений.');
@@ -443,6 +465,7 @@ begin
           ImageChoiceHandled:=True;
         end;
       end;
+      if Canceled then Abort;
       if KindleWriting then
       begin
         if GetTickCount64-LastAdvance>310000 then
@@ -483,7 +506,22 @@ begin
       SavedPosition:=Input.Position;
       try
         Input.Position:=0; Writer:=TFileStream.Create(InputName,fmCreate);
-        try Writer.CopyFrom(Input,Input.Size); finally Writer.Free; end;
+        try
+          if not Assigned(IsCanceled) then Writer.CopyFrom(Input,Input.Size)
+          else
+          begin
+            var Remaining:=Input.Size;
+            var Buffer: TBytes; SetLength(Buffer,256*1024);
+            while Remaining>0 do
+            begin
+              if IsCanceled() then Abort;
+              var Bytes:=Length(Buffer);
+              if Remaining<Bytes then Bytes:=Integer(Remaining);
+              Input.ReadBuffer(Buffer[0],Bytes); Writer.WriteBuffer(Buffer[0],Bytes);
+              Dec(Remaining,Bytes);
+            end;
+          end;
+        finally Writer.Free; end;
       finally Input.Position:=SavedPosition; end;
     finally if not Assigned(Source) then Input.Free; end;
     Check;
@@ -544,6 +582,7 @@ begin
             ((QualityProfile='balanced') or (QualityProfile='economy') or (QualityProfile='maximum') or (QualityProfile='ask') or Grayscale) then
             Arguments:=Arguments+TArray<string>.Create('--image-container','fb2-zip');
           if ScanExclude<>'' then Arguments:=Arguments+TArray<string>.Create('--scan-exclude',ScanExclude);
+          if MeasureScans then Arguments:=Arguments+TArray<string>.Create('--measure-scans');
           if QualityProfile='ask' then Arguments:=Arguments+TArray<string>.Create(
             '--image-options',ImageOptionsName,'--image-choice',ImageChoiceName);
         end;

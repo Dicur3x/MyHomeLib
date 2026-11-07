@@ -18,19 +18,24 @@ type
   private
     FBooks: TArray<TBookRecord>;
     FPlan: TBookSaveChoice;
-    FAppPath, FTempRoot, FStage: string;
+    FAppPath, FTempRoot, FStage, FStagePrefix: string;
     FTXTEncoding: TTXTEncoding;
     FItems: TBookSaveEstimateItems;
     FLock: TCriticalSection;
     FRevision: Integer;
+    FBookBudget: Cardinal;
+    FDeadline: UInt64;
     FComplete, FGrayscale: Boolean;
+    function TimeLimitReached: Boolean;
+    function ShouldStop: Boolean;
     procedure Stage(const Text: string);
     function Estimate(const Book: TBookRecord): TBookSaveEstimateItem;
   protected
     procedure Execute; override;
   public
     constructor Create(const Books: TArray<TBookRecord>; const Plan: TBookSaveChoice;
-      const AppPath, TempRoot: string; Grayscale: Boolean = False);
+      const AppPath, TempRoot: string; Grayscale: Boolean = False; BudgetMilliseconds: Cardinal = 0;
+      const InitialItems: TBookSaveEstimateItems = nil);
     destructor Destroy; override;
     function Poll(var Revision: Integer; out Items: TBookSaveEstimateItems;
       out Status: string; out Complete: Boolean): Boolean;
@@ -43,7 +48,7 @@ function KnownBookSaveEstimates(const Books: TArray<TBookRecord>;
 
 implementation
 
-uses System.IOUtils, System.StrUtils, System.ZLib, unit_ReaderCache, unit_BookCache,
+uses Winapi.Windows, System.IOUtils, System.StrUtils, System.ZLib, unit_ReaderCache, unit_BookCache,
   unit_ComponentUpdates, unit_MHLExternalTools, unit_ReaderFormats, unit_Diagnostics, unit_Settings, dm_user,
   unit_BookConversionRequirements, System.Generics.Collections;
 
@@ -132,25 +137,36 @@ begin
 end;
 
 constructor TBookSendEstimateThread.Create(const Books: TArray<TBookRecord>;
-  const Plan: TBookSaveChoice; const AppPath, TempRoot: string; Grayscale: Boolean);
+  const Plan: TBookSaveChoice; const AppPath, TempRoot: string; Grayscale: Boolean; BudgetMilliseconds: Cardinal;
+  const InitialItems: TBookSaveEstimateItems);
 begin
   inherited Create(True); FreeOnTerminate:=False;
+  FBookBudget:=BudgetMilliseconds;
   FBooks:=Copy(Books); FPlan:=Plan; FAppPath:=AppPath; FTempRoot:=TPath.GetFullPath(TempRoot);
   FTXTEncoding:=Settings.TXTEncoding; FGrayscale:=Grayscale;
-  FLock:=TCriticalSection.Create; FItems:=KnownBookSaveEstimates(Books,Plan,Grayscale);
+  FLock:=TCriticalSection.Create;
+  if Length(InitialItems)=Length(Books) then FItems:=Copy(InitialItems)
+  else FItems:=KnownBookSaveEstimates(Books,Plan,Grayscale);
   FRevision:=1; FStage:='Оценка размера…';
 end;
 
 destructor TBookSendEstimateThread.Destroy;
 begin Terminate; WaitFor; FLock.Free; inherited; end;
 
+function TBookSendEstimateThread.TimeLimitReached: Boolean;
+begin Result:=(FDeadline<>0) and (GetTickCount64>=FDeadline); end;
+
+function TBookSendEstimateThread.ShouldStop: Boolean;
+begin Result:=Terminated or TimeLimitReached; end;
+
 procedure TBookSendEstimateThread.Stage(const Text: string);
-var Changed: Boolean;
+var Changed: Boolean; Progress: string;
 begin
-  if Terminated then Abort;
+  if ShouldStop then Abort;
+  Progress:=FStagePrefix+Text;
   FLock.Enter;
-  try Changed:=FStage<>Text; FStage:=Text; Inc(FRevision); finally FLock.Leave; end;
-  if Changed then LogDiagnosticTrace('save-estimate-stage',Text);
+  try Changed:=FStage<>Progress; FStage:=Progress; Inc(FRevision); finally FLock.Leave; end;
+  if Changed then LogDiagnosticTrace('save-estimate-stage',Progress);
 end;
 
 function TBookSendEstimateThread.Poll(var Revision: Integer; out Items: TBookSaveEstimateItems;
@@ -171,6 +187,7 @@ function TBookSendEstimateThread.Estimate(const Book: TBookRecord): TBookSaveEst
 const Layouts: array[0..2] of string = ('keep','split','auto');
 var Prepared, Work, Candidate, Token, OutputProfile: string; Pin: TStream; Warnings: TStringList;
   Captured: Boolean; Item: TBookSaveEstimateItem;
+  IsCanceled: TFunc<Boolean>;
   function PackedBytes(Input: TStream): Int64;
   var Counter: TSizeCounter; Compressor: TZCompressionStream; Buffer: TBytes; Count: Integer; Saved: Int64;
   begin
@@ -180,7 +197,7 @@ var Prepared, Work, Candidate, Token, OutputProfile: string; Pin: TStream; Warni
       try
         SetLength(Buffer,256*1024);
         repeat
-          if Terminated then Abort;
+          if ShouldStop then Abort;
           Count:=Input.Read(Buffer[0],Length(Buffer)); if Count=0 then Break;
           Compressor.WriteBuffer(Buffer[0],Count);
         until False;
@@ -189,7 +206,8 @@ var Prepared, Work, Candidate, Token, OutputProfile: string; Pin: TStream; Warni
     finally Input.Position:=Saved; Counter.Free; end;
   end;
 begin
-  Item:=Default(TBookSaveEstimateItem); Prepared:=''; Work:=''; Pin:=nil; Warnings:=nil;
+  Item:=Default(TBookSaveEstimateItem); Prepared:=''; Work:=''; Pin:=nil; Warnings:=nil; Captured:=False;
+  IsCanceled:=function: Boolean begin Result:=ShouldStop; end;
   OutputProfile:=BookSaveAdvancedProfile(FPlan.Mode);
   if DetailedDiagnosticLogging then
     LogDiagnosticTrace('save-estimate-start',Format('Книга: %s'+sLineBreak+
@@ -203,22 +221,25 @@ begin
       Item.TargetExtension:=BookSaveTargetExtension(Item.SourceExtension,FPlan.Mode,FPlan.KeepOriginal,FPlan.KeepFB2EPUB);
       if Book.FileName='' then raise Exception.Create('Книга недоступна: исходный файл не определён.');
       if Book.GetBookFormat in [bfFb2Archive,bfRawArchive] then
-        Pin:=OpenArchivedBookSaveSource(Book,Item.SourceExtension);
+        Pin:=OpenArchivedBookSaveSource(Book,Item.SourceExtension,IsCanceled);
       Item.TargetExtension:=BookSaveTargetExtension(Item.SourceExtension,FPlan.Mode,FPlan.KeepOriginal,FPlan.KeepFB2EPUB);
       if BookSaveKeepsSource(Item.SourceExtension,FPlan.Mode,FPlan.KeepOriginal,FPlan.KeepFB2EPUB) and
         not ((Item.SourceExtension='.fb2') or (Item.SourceExtension='.epub')) then
       begin
-        if not Assigned(Pin) then Pin:=Book.GetBookStream(True);
+        if not Assigned(Pin) then Pin:=Book.GetBookStream(True,True,IsCanceled);
         if not Assigned(Pin) then raise Exception.Create('Исходный файл книги не найден.');
-        var Bytes:=Pin.Size; var ArchiveBytes:=PackedBytes(Pin);
+        var Bytes:=Pin.Size;
         Item.ImagesUnchanged:=True;
         for var L:=0 to 2 do for var Q:=0 to High(BOOK_IMAGE_PROFILES) do
-        begin Item.Options.OutputBytes[L,Q]:=Bytes; Item.Options.ZipOutputBytes[L,Q]:=ArchiveBytes; end;
+          Item.Options.OutputBytes[L,Q]:=Bytes;
+        var ArchiveBytes:=PackedBytes(Pin);
+        for var L:=0 to 2 do for var Q:=0 to High(BOOK_IMAGE_PROFILES) do
+          Item.Options.ZipOutputBytes[L,Q]:=ArchiveBytes;
       end
       else
       begin
         Prepared:=PrepareConversionSource(Book,
-          procedure(Text: string) begin Stage(Text); end,Item.TargetExtension,Item.TargetExtension<>'.txt');
+          procedure(Text: string) begin Stage(Text); end,Item.TargetExtension,Item.TargetExtension<>'.txt',FBookBudget=0,IsCanceled);
         if Prepared='' then Abort;
         FreeAndNil(Pin);
         Pin:=OpenCachedBookFile(Prepared);
@@ -232,14 +253,14 @@ begin
         Token:=TGUID.NewGuid.ToString; Work:=TPath.Combine(FTempRoot,'homelib-save-estimate-'+Token);
         if DirectoryExists(Work) then raise Exception.Create('Временная папка оценки уже существует.');
         ForceDirectories(Work); TFile.WriteAllText(TPath.Combine(Work,'owned-save-estimate.marker'),Token,TEncoding.UTF8);
-        Candidate:=TPath.Combine(Work,'estimate'+Item.TargetExtension); Captured:=False;
+        Candidate:=TPath.Combine(Work,'estimate'+Item.TargetExtension);
         Warnings:=TStringList.Create;
         if (OutputProfile<>'') or (Item.TargetExtension='.mobi') or (Item.TargetExtension='.azw3') then
         begin
           // Measure the selected writer's actual output for each image mode.
           // The EPUB intermediary is not a size estimate for other formats.
           var Missing:=MissingBookConversionComponents(FAppPath,Prepared,Item.SourceExtension,True,
-            function: Boolean begin Result:=Terminated; end,Item.TargetExtension,OutputProfile);
+            IsCanceled,Item.TargetExtension,OutputProfile);
           if Length(Missing)>0 then
             raise EMHLComponentRequired.Create(Missing,'Для оценки выбранной книги нужны дополнительные компоненты.');
           var LayoutCount:=1;
@@ -254,7 +275,7 @@ begin
             var ProfileName:=BOOK_IMAGE_PROFILES[Q];
             var Quality:=ProfileName; if L>0 then Quality:=Quality+'|'+Layouts[L];
             ConvertBasicBook(FAppPath,FTempRoot,Prepared,Item.SourceExtension,Candidate,Pin,Warnings,
-              function: Boolean begin Result:=Terminated; end,Book.Title,'',Book.Lang,False,
+              IsCanceled,Book.Title,'',Book.Lang,False,
               procedure(Percent, Completed, Total: Integer; const Text: string)
               begin Stage(Format('Оценка %s · %s · %d%%',[UpperCase(Item.TargetExtension.TrimLeft(['.'])),ProfileName,Percent])); end,
               Quality,nil,False,'',False,OutputProfile,False,FGrayscale);
@@ -271,22 +292,22 @@ begin
           begin
             var TextFB2:=TPath.Combine(Work,'text-source.fb2');
             ConvertBasicBook(FAppPath,FTempRoot,Prepared,Item.SourceExtension,TextFB2,Pin,Warnings,
-              function: Boolean begin Result:=Terminated; end,Book.Title,'',Book.Lang,False,
+              IsCanceled,Book.Title,'',Book.Lang,False,
               procedure(Percent, Completed, Total: Integer; const Text: string)
               begin Stage(Format('Оценка TXT · %d%%',[Percent])); end,
               'none',nil,False,'',False,'',True);
             TextSource:=TFileStream.Create(TextFB2,fmOpenRead or fmShareDenyWrite);
           end;
           try
-            if Terminated then Abort;
+            if ShouldStop then Abort;
             ConvertToTxt(Candidate,FTXTEncoding,TextSource);
-            if Terminated then Abort;
+            if ShouldStop then Abort;
           finally if TextSource<>Pin then TextSource.Free; end;
         end
         else
         try
           ConvertBasicBook(FAppPath,FTempRoot,Prepared,Item.SourceExtension,Candidate,Pin,Warnings,
-            function: Boolean begin Result:=Terminated; end,Book.Title,'',Book.Lang,False,
+            IsCanceled,Book.Title,'',Book.Lang,False,
             procedure(Percent, Completed, Total: Integer; const Text: string)
             begin Stage('Оценка изображений: '+IntToStr(Percent)+'%'); end,'ask',
             function(const Options: TBookImageQualityOptions): string
@@ -300,7 +321,7 @@ begin
               // The chooser runs on this worker. Returning cancel terminates
               // the sample conversion, without creating the full output.
               Result:='';
-            end,False,'',FPlan.Mode=emFB2Zip,'',False,FGrayscale);
+            end,False,'',FPlan.Mode=emFB2Zip,'',False,FGrayscale,BookSaveIsScanSource(Item.SourceExtension));
         except on E: EAbort do if not Captured then raise; end;
         if not Captured then
         begin
@@ -318,11 +339,11 @@ begin
         end;
       end;
     except
-      on E: EAbort do if not Terminated then Item.ErrorText:='Оценка книги отменена.';
+      on E: EAbort do if not ShouldStop then Item.ErrorText:='Оценка книги отменена.';
       on E: EMHLComponentRequired do begin Item.RequiredComponent:=E.ComponentID; Item.RequiredComponents:=Copy(E.ComponentIDs); Item.ErrorText:=E.Message; end;
       on E: EReaderComponentRequired do begin Item.RequiredComponent:=E.ComponentID; Item.ErrorText:=E.Message; end;
       on E: Exception do
-      begin Item.ErrorText:=E.Message; LogDiagnosticError('save-size-estimate',E,Item.SourceExtension); end;
+        begin Item.ErrorText:=E.Message; LogDiagnosticError('save-size-estimate',E,Item.SourceExtension); end;
     end;
   finally
     Warnings.Free; Pin.Free;
@@ -339,11 +360,11 @@ begin
       end;
     end;
   end;
-  Item.Completed:=not Terminated;
+  Item.Completed:=not Terminated and (not TimeLimitReached or Captured);
   if DetailedDiagnosticLogging then
   begin
     var Outcome: string;
-    if Terminated then Outcome:='отменено' else if Item.ErrorText<>'' then Outcome:='ошибка' else Outcome:='готово';
+    if ShouldStop then Outcome:='остановлено' else if Item.ErrorText<>'' then Outcome:='ошибка' else Outcome:='готово';
     LogDiagnosticTrace('save-estimate-result',Format('Книга: %s; коллекция: %d; запись: %d'+sLineBreak+
       'Форматы: %s → %s'+sLineBreak+'Результат: %s'+sLineBreak+
       'Нужные компоненты: %s'+sLineBreak+'Причина: %s',
@@ -359,8 +380,12 @@ begin
     for var I:=0 to High(FBooks) do
     begin
       if Terminated then Break;
-      Stage(Format('Книга %d из %d: %s',[I+1,Length(FBooks),FBooks[I].Title]));
+      FStagePrefix:=Format('Книга %d из %d · ',[I+1,Length(FBooks)]);
+      try Stage(FBooks[I].Title);
+      except on E: EAbort do Break; end;
+      if FBookBudget>0 then FDeadline:=GetTickCount64+FBookBudget;
       var Item:=Estimate(FBooks[I]);
+      FDeadline:=0;
       FLock.Enter;
       try FItems[I]:=Item; Inc(FRevision); finally FLock.Leave; end;
     end;

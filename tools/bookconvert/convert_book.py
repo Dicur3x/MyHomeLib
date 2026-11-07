@@ -1602,6 +1602,7 @@ def convert_book(source, destination, **metadata):
     cancel_check = metadata.pop('cancel_check', None)
     image_options = metadata.pop('image_options', None)
     image_choice = metadata.pop('image_choice', None)
+    measure_scans = metadata.pop('measure_scans', False) and image_quality == 'ask'
     packing_grayscale = metadata.pop('packing_grayscale', False)
     grayscale = metadata.pop('grayscale', False) and image_quality != 'none'
     scan_layout = metadata.pop('scan_layout', 'keep')
@@ -1669,7 +1670,8 @@ def convert_book(source, destination, **metadata):
         metadata['progress'] = checked_progress
     if not text_layer_only and not metadata.get('reading') and (image_quality!='original' or grayscale or scan_layout!='keep' or scanned_document) and extension in {'.pdf','.djvu','.djv','.dju','.djm','.djvm','.tif','.tiff','.cbz','.cbr','.cb7','.jpg','.jpeg','.png','.gif','.bmp','.webp','.xps'}:
         image_export={'profile':image_quality,'layout':scan_layout,'exclude':scan_exclude,'target':target_extension,'container':image_container,
-                      'options':image_options,'choice':image_choice,'handled':False,'grayscale':grayscale,'check':cancel_check}
+                      'options':image_options,'choice':image_choice,'handled':False,'grayscale':grayscale,'check':cancel_check,
+                      'measure_scans':measure_scans}
         metadata['image_export']=image_export
     large_images = extension in {'.tif','.tiff','.cbz','.cbr','.cb7'} or (extension=='.fb2' and metadata.get('reading'))
     large_images = large_images or (extension in {'.fb2','.epub'} and (image_quality!='original' or grayscale))
@@ -1807,6 +1809,7 @@ def main():
     parser.add_argument('--scan-exclude', default='')
     parser.add_argument('--image-options', help='Internal image size estimate channel')
     parser.add_argument('--image-choice', help='Internal export quality choice channel')
+    parser.add_argument('--measure-scans', action='store_true', help='Measure all scan pages for size estimates')
     parser.add_argument('--progress-file', help='Internal bounded page-progress channel')
     parser.add_argument('--reading', action='store_true', help='Internal reading view with visible placeholders for unsupported office objects')
     options = parser.parse_args()
@@ -1851,6 +1854,7 @@ def main():
                               language=options.language, resource_root=options.resource_root, tools_root=options.tools_root,
                               reading=options.reading, progress=progress, image_quality=options.image_quality, scan_layout=options.scan_layout, scan_exclude=options.scan_exclude,
                               image_options=options.image_options, image_choice=options.image_choice,image_container=options.image_container,
+                              measure_scans=options.measure_scans,
                               output_profile=options.output_profile, text_layer_only=options.text_layer_only, grayscale=options.grayscale)
         result['used_tools'] = sorted(used_tools)
         text = json.dumps(result, ensure_ascii=False)

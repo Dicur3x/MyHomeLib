@@ -17,7 +17,7 @@ procedure PrepareReaderFileInBackground(Owner: TComponent; const Book: TBookReco
 function IsReaderContainer(const FileName: string): Boolean;
 // False is an intermediate source for explicit text-only export; never a reading copy.
 function PrepareConversionSource(const Book: TBookRecord; const OnStage: TProc<string> = nil;
-  const TargetExtension: string = ''; RestoreOriginalImages: Boolean = True): string;
+  const TargetExtension: string = ''; RestoreOriginalImages: Boolean = True; AllowArchiveChoice: Boolean = True; const IsCanceled: TFunc<Boolean> = nil): string;
 function IsReaderArchive(const FileName: string): Boolean;
 procedure CancelReaderPreparations(Owner: TComponent);
 function ReaderPreparationsPending(Owner: TComponent): Boolean;
@@ -606,7 +606,7 @@ begin
     '|' + FileStamp(Settings.AppPath + 'tools\webp\libwebp.dll', False);
 end;
 
-function PrepareLooseArchive(const Book: TBookRecord; const Source: string; const ConvertImages: Boolean; const OnStage: TProc<string>; ConversionOnly: Boolean; const TargetExtension: string): string;
+function PrepareLooseArchive(const Book: TBookRecord; const Source: string; const ConvertImages: Boolean; const OnStage: TProc<string>; ConversionOnly: Boolean; const TargetExtension: string; AllowArchiveChoice: Boolean; const IsCanceled: TFunc<Boolean>): string;
 var Archive: TMHLZip; Candidates, Nested, Unknown: TList<Integer>; I, Entry, ImagePages: Integer;
   Member, Extension, Folder, Stamp, StampFile, Temporary: string;
   Preferred, PreferredScore, Score: Integer;
@@ -618,13 +618,18 @@ begin
   if Assigned(OnStage) then OnStage('Просмотр содержимого архива…');
   Result := '';
   Archive := TMHLZip.Create(Source, True, False,
-    function: Boolean begin Result:=(GetCurrentThreadID<>MainThreadID) and TThread.CheckTerminated; end,
+    function: Boolean
+    begin
+      Result:=((GetCurrentThreadID<>MainThreadID) and TThread.CheckTerminated) or
+        (Assigned(IsCanceled) and IsCanceled());
+    end,
     not SameText(ExtractFileExt(Source),'.zip'));
   Candidates := TList<Integer>.Create; Nested:=TList<Integer>.Create; Unknown:=TList<Integer>.Create;
   try
     ImagePages:=0; OnlyImages:=True;
     for I := 0 to Archive.FileCount - 1 do
     begin
+      if Assigned(IsCanceled) and IsCanceled() then Abort;
       Extension := LowerCase(ExtractFileExt(Archive.FileNames[I]));
       if Archive.FileSizes[I]>0 then
         if Pos('|'+Extension+'|','|.jpg|.jpeg|.png|.gif|.bmp|.tif|.tiff|.webp|')>0 then Inc(ImagePages)
@@ -702,6 +707,8 @@ begin
     Entry := Candidates[Preferred];
     if Candidates.Count > 1 then
     begin
+      if not AllowArchiveChoice then
+        raise EReadError.Create('В архиве несколько книг. Размер зависит от файла, выбранного при сохранении.');
       Entry := -1;
       TThread.Synchronize(nil,
       procedure
@@ -778,7 +785,7 @@ begin
   finally Unknown.Free; Nested.Free; Candidates.Free; Archive.Free; end;
 end;
 
-function PrepareReaderFileCore(const Book: TBookRecord; const PreserveImages: Boolean; const OnStage: TProc<string>; OpenArchive: Boolean; ConversionOnly: Boolean = False; const TargetExtension: string = ''; RestoreOriginalImages: Boolean = True): string;
+function PrepareReaderFileCore(const Book: TBookRecord; const PreserveImages: Boolean; const OnStage: TProc<string>; OpenArchive: Boolean; ConversionOnly: Boolean = False; const TargetExtension: string = ''; RestoreOriginalImages: Boolean = True; AllowArchiveChoice: Boolean = True; const IsCanceled: TFunc<Boolean> = nil): string;
 var Source, Folder, Stamp, StampFile, Temporary, TemporaryStamp: string;
   Format: TBookFormat; Stream, Converted: TStream; Target: TFileStream; ConvertImages: Boolean;
   Corrected: TBookRecord; Writer: TBookCacheWrite; Actual: string;
@@ -791,7 +798,7 @@ begin
   ConvertImages := Settings.ConvertWebPToPNG and not PreserveImages;
   Corrected:=ResolveArchivedBook(Book);
   if (Corrected.FileName<>Book.FileName) or (Corrected.FileExt<>Book.FileExt) then
-    Exit(PrepareReaderFileCore(Corrected,PreserveImages,OnStage,OpenArchive,ConversionOnly,TargetExtension,RestoreOriginalImages));
+    Exit(PrepareReaderFileCore(Corrected,PreserveImages,OnStage,OpenArchive,ConversionOnly,TargetExtension,RestoreOriginalImages,AllowArchiveChoice,IsCanceled));
   // An already validated FB2 compatibility copy is checked below before
   // reopening source bytes. Raw/unconverted sources still need detection here.
   if not OpenArchive and (Format in [bfRaw,bfFb2]) and
@@ -801,12 +808,12 @@ begin
     if (Actual<>'') and not SameText(Actual,ExtractFileExt(Source)) then
     begin
       Source:=PrepareDetectedReaderFile(Source,Book.GetBookFileName);
-      if IsReaderContainer(Source) then Exit(PrepareLooseArchive(Book,Source,ConvertImages,OnStage,ConversionOnly,TargetExtension));
+      if IsReaderContainer(Source) then Exit(PrepareLooseArchive(Book,Source,ConvertImages,OnStage,ConversionOnly,TargetExtension,AllowArchiveChoice,IsCanceled));
       Exit(Source);
     end;
   end;
   if OpenArchive and not IsReaderArchive(Book.FileName+Book.FileExt) then Exit(Source);
-  if not OpenArchive and (Format in [bfRaw,bfFbd]) and IsReaderContainer(Source) then Exit(PrepareLooseArchive(Book, Source, ConvertImages,OnStage,ConversionOnly,TargetExtension));
+  if not OpenArchive and (Format in [bfRaw,bfFbd]) and IsReaderContainer(Source) then Exit(PrepareLooseArchive(Book, Source, ConvertImages,OnStage,ConversionOnly,TargetExtension,AllowArchiveChoice,IsCanceled));
   if not (Format in [bfFb2Archive, bfFbd, bfRawArchive]) and
     not ((Format = bfFb2) and ConvertImages) then Exit(Source);
 
@@ -828,7 +835,7 @@ begin
       begin
         RegisterBookCacheFile(Result,Source);
         if Assigned(OnStage) then OnStage('Открытие книги из кэша…');
-        if not OpenArchive and IsReaderContainer(Result) then Result := PrepareLooseArchive(Book,Result,ConvertImages,OnStage,ConversionOnly,TargetExtension);
+        if not OpenArchive and IsReaderContainer(Result) then Result := PrepareLooseArchive(Book,Result,ConvertImages,OnStage,ConversionOnly,TargetExtension,AllowArchiveChoice,IsCanceled);
         Exit;
       end;
     except
@@ -843,7 +850,7 @@ begin
     if (Actual<>'') and not SameText(Actual,ExtractFileExt(Source)) then
     begin
       Source:=PrepareDetectedReaderFile(Source,Book.GetBookFileName);
-      if IsReaderContainer(Source) then Exit(PrepareLooseArchive(Book,Source,ConvertImages,OnStage,ConversionOnly,TargetExtension));
+      if IsReaderContainer(Source) then Exit(PrepareLooseArchive(Book,Source,ConvertImages,OnStage,ConversionOnly,TargetExtension,AllowArchiveChoice,IsCanceled));
       Exit(Source);
     end;
   end;
@@ -859,7 +866,7 @@ begin
     begin
       // Share original bytes with the gallery and metadata reader. Conversion
       // belongs only to the external-reader copy, never the original cache.
-      Stream := OpenRawBookSource(Book,Writer);
+      Stream := OpenRawBookSource(Book,Writer,IsCanceled);
       if (Format=bfFb2Archive) and ConvertImages then
       begin
         if Assigned(OnStage) then OnStage('Подготовка изображений для читалки…');
@@ -868,7 +875,7 @@ begin
       end;
       Stream.Position := 0;
     end
-    else Stream := Book.GetBookStream(PreserveImages,RestoreOriginalImages);
+    else Stream := Book.GetBookStream(PreserveImages,RestoreOriginalImages,IsCanceled);
     // Ordinary FB2 keeps its original path and external reader history.
     if (Format = bfFb2) and (Stream is TFileStream) then Exit(Source);
     if not Assigned(Stream) then raise Exception.Create('Не удалось подготовить книгу для чтения.');
@@ -880,11 +887,11 @@ begin
     Stream.Free;
     Writer.Free;
   end;
-  if not OpenArchive and IsReaderContainer(Result) then Result := PrepareLooseArchive(Book,Result,ConvertImages,OnStage,ConversionOnly,TargetExtension);
+  if not OpenArchive and IsReaderContainer(Result) then Result := PrepareLooseArchive(Book,Result,ConvertImages,OnStage,ConversionOnly,TargetExtension,AllowArchiveChoice,IsCanceled);
 end;
 
 function ResolvePreparedPayload(const Book: TBookRecord; const FileName: string;
-  ConvertImages, ConversionOnly: Boolean; const OnStage: TProc<string>; const TargetExtension: string): string;
+  ConvertImages, ConversionOnly: Boolean; const OnStage: TProc<string>; const TargetExtension: string; AllowArchiveChoice: Boolean = True; const IsCanceled: TFunc<Boolean> = nil): string;
 begin
   Result:=FileName;
   for var Depth:=0 to 7 do
@@ -898,7 +905,7 @@ begin
       Result:=PrepareDetectedReaderFile(Result,Book.GetBookFileName);
     end;
     if not IsReaderContainer(Result) then Exit;
-    Result:=PrepareLooseArchive(Book,Result,ConvertImages,OnStage,ConversionOnly,TargetExtension);
+    Result:=PrepareLooseArchive(Book,Result,ConvertImages,OnStage,ConversionOnly,TargetExtension,AllowArchiveChoice,IsCanceled);
   end;
   raise Exception.Create('Слишком много вложенных архивов книги (более восьми).');
 end;
@@ -928,20 +935,20 @@ begin
   end;
 end;
 
-function PrepareConversionSource(const Book: TBookRecord; const OnStage: TProc<string>; const TargetExtension: string; RestoreOriginalImages: Boolean): string;
+function PrepareConversionSource(const Book: TBookRecord; const OnStage: TProc<string>; const TargetExtension: string; RestoreOriginalImages, AllowArchiveChoice: Boolean; const IsCanceled: TFunc<Boolean>): string;
 var Actual: string;
 begin
   if not (Book.GetBookFormat in [bfFb2Archive,bfRawArchive,bfFbd]) then
   begin
     Actual:=DetectReaderExtension(Book.GetBookFileName);
-    if (Actual='.epub') or (Actual='.fb2') then
+    if (Actual='.epub') or (Actual='.fb2') or (Actual='.pdf') then
       Exit(PrepareDetectedReaderFile(Book.GetBookFileName,Book.GetBookFileName));
   end;
   // Reuse exact-entry extraction, cache identity and the archive chooser, but
   // never prepare Office/Kindle. PDF/DjVu need a readable text layer, checked by
   // the converter after exact extraction; filename extensions are not proof.
-  Result:=PrepareReaderFileCore(Book,True,OnStage,False,True,TargetExtension,RestoreOriginalImages);
-  if Result<>'' then Result:=ResolvePreparedPayload(Book,Result,False,True,OnStage,TargetExtension);
+  Result:=PrepareReaderFileCore(Book,True,OnStage,False,True,TargetExtension,RestoreOriginalImages,AllowArchiveChoice,IsCanceled);
+  if Result<>'' then Result:=ResolvePreparedPayload(Book,Result,False,True,OnStage,TargetExtension,AllowArchiveChoice,IsCanceled);
 end;
 
 type

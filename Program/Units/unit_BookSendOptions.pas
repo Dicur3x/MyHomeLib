@@ -37,10 +37,10 @@ type
     FTimer: TTimer;
     FBooks: TArray<TBookRecord>;
     FChoices: TArray<TBookSaveChoice>;
-    FItems: TBookSaveEstimateItems;
+    FItems, FInitialItems: TBookSaveEstimateItems;
     FEstimate: TBookSendEstimateThread;
     FRevision, FPreviewIndex, FPrimaryChoiceCount: Integer;
-    FRequiredComponent: string;
+    FRequiredComponent, FEstimateTime: string;
     FClosing, FReflowing, FInitializing, FHasEstimateAttempt, FShowMaskHelp: Boolean;
     procedure Browse(Sender: TObject);
     procedure DestinationChanged(Sender: TObject);
@@ -62,10 +62,11 @@ type
     procedure UpdateSummary;
     procedure UpdatePreview;
     procedure SetBooks(const Books: TArray<TBookRecord>);
+    procedure ResetEstimates;
     procedure RefreshFormats(Sender: TObject);
     function ShellDestination: Boolean;
     function Choice: TBookSaveChoice;
-    function EstimateBytes(const Item: TBookSaveEstimateItem; Quality: Integer): Int64;
+    procedure EstimateSize(const Item: TBookSaveEstimateItem; Quality: Integer; out Bytes, Margin: Int64);
     function HasScanConversion: Boolean;
     function CheckOutputRuntime: Boolean;
   public
@@ -128,13 +129,6 @@ begin
   if VertScrollBar.Range>ClientHeight then
   begin VertScrollBar.Position:=VertScrollBar.Position-WheelDelta div WHEEL_DELTA*MulDiv(48,CurrentPPI,96); Result:=True; end
   else Result:=inherited;
-end;
-
-function SizeText(Bytes: Int64): string;
-begin
-  if Bytes>=1024*1024*1024 then Result:=FormatFloat('0.00',Bytes/1024/1024/1024)+' ГБ'
-  else if Bytes>=1024*1024 then Result:=FormatFloat('0.0',Bytes/1024/1024)+' МБ'
-  else Result:=FormatFloat('0.0',Bytes/1024)+' КБ';
 end;
 
 function IsBookSaveDestination(const Folder: string): Boolean;
@@ -284,6 +278,13 @@ procedure TBookSendOptionsForm.SetBooks(const Books: TArray<TBookRecord>);
 var Extensions: TArray<string>; PendingSources: TArray<Boolean>;
 begin
   FBooks:=Copy(Books); FPreviewIndex:=0; SetLength(Extensions,Length(Books));
+  var Seconds:=Int64(Length(Books))*10;
+  if Seconds<60 then FEstimateTime:=Format('до %d с',[Seconds])
+  else if Seconds mod 60=0 then FEstimateTime:=Format('до %d мин',[Seconds div 60])
+  else FEstimateTime:=Format('до %d мин %d с',[Seconds div 60,Seconds mod 60]);
+  FCalculate.Hint:='Оценка может занять '+FEstimateTime;
+  if Length(Books)>1 then FCalculate.Hint:=FCalculate.Hint+' · до 10 с на книгу';
+  FCalculate.ShowHint:=Length(Books)>0;
   SetLength(PendingSources,Length(Books));
   for var I:=0 to High(Books) do
   begin
@@ -300,6 +301,12 @@ begin
   for var I:=0 to High(FChoices) do if FChoices[I].Mode in BOOK_SAVE_ADVANCED_MODES then
   begin FPrimaryChoiceCount:=I; Break; end;
   FList.Items.Count:=Length(FBooks); RefreshFormats(nil);
+end;
+
+procedure TBookSendOptionsForm.ResetEstimates;
+begin
+  FInitialItems:=KnownBookSaveEstimates(FBooks,Choice,FGrayscale.Checked);
+  FItems:=FInitialItems;
 end;
 
 procedure TBookSendOptionsForm.RefreshFormats(Sender: TObject);
@@ -393,35 +400,38 @@ begin
        (Choice.Mode in BOOK_SAVE_ADVANCED_MODES)) then Exit(True);
 end;
 
-function TBookSendOptionsForm.EstimateBytes(const Item: TBookSaveEstimateItem; Quality: Integer): Int64;
+procedure TBookSendOptionsForm.EstimateSize(const Item: TBookSaveEstimateItem; Quality: Integer; out Bytes, Margin: Int64);
 var Layout: Integer;
 begin
   Layout:=0;
   if Item.Options.ScanPages and FScans.Enabled then
     case FScans.ItemIndex of 1: Layout:=2; 2: Layout:=1; end;
-  if BookSaveZipsTarget(Item.TargetExtension,Choice.Mode) then Result:=Item.Options.ZipOutputBytes[Layout,Quality]
-  else Result:=Item.Options.OutputBytes[Layout,Quality];
+  if BookSaveZipsTarget(Item.TargetExtension,Choice.Mode) then
+  begin Bytes:=Item.Options.ZipOutputBytes[Layout,Quality]; Margin:=Item.Options.ZipMarginBytes[Layout,Quality]; end
+  else begin Bytes:=Item.Options.OutputBytes[Layout,Quality]; Margin:=Item.Options.MarginBytes[Layout,Quality]; end;
 end;
 
 procedure TBookSendOptionsForm.UpdateSummary;
-var Text, Selected: string; Total: Int64; Unknown, Large: Integer;
+var Text, Selected: string; Total, TotalMargin, Bytes, Margin: Int64; Unknown, Large: Integer;
 begin
   Text:=''; Selected:='';
   for var Q:=0 to High(BOOK_IMAGE_PROFILES) do
   begin
     if (Q=BOOK_QUALITY_NONE) and not BookSaveSupportsNoImages(Choice.Mode) then Continue;
-    Total:=0; Unknown:=0; Large:=0;
+    Total:=0; TotalMargin:=0; Unknown:=0; Large:=0;
     for var Item in FItems do
     begin
-      var Bytes:=EstimateBytes(Item,Q);
-      if Bytes>0 then begin Inc(Total,Bytes); if Bytes>20*1024*1024 then Inc(Large); end else Inc(Unknown);
+      EstimateSize(Item,Q,Bytes,Margin);
+      if Bytes>0 then
+      begin Inc(Total,Bytes); Inc(TotalMargin,Margin); if Bytes>20*1024*1024 then Inc(Large); end
+      else Inc(Unknown);
     end;
     var Start:=Length(Text)+1;
     if Q>0 then begin Text:=Text+sLineBreak; Start:=Length(Text)+1; end;
     Text:=Text+BOOK_IMAGE_PROFILE_CAPTIONS[Q]+': ';
     if Length(FItems)=0 then Text:=Text+'нет оценки'
     else if Unknown=Length(FItems) then Text:=Text+'не рассчитано'
-    else begin Text:=Text+'≈ '+SizeText(Total); if Unknown>0 then Text:=Text+Format(' + ещё %d без оценки',[Unknown]); end;
+    else begin Text:=Text+BookEstimateValueText(Total,TotalMargin); if Unknown>0 then Text:=Text+Format(' + ещё %d без оценки',[Unknown]); end;
     if Large>0 then Text:=Text+Format(' · крупнее 20 МБ: %d',[Large]);
     if Q=Max(0,FImages.ItemIndex) then Selected:=Copy(Text,Start,MaxInt);
   end;
@@ -474,12 +484,12 @@ begin
 end;
 
 procedure TBookSendOptionsForm.Changed(Sender: TObject);
-var CanProcess, Opaque: Boolean;
+var CanProcess, Opaque: Boolean; Bytes, Margin: Int64;
 begin
   if FInitializing then Exit;
   if (Sender=FFormat) or (Sender=FGrayscale) then
   begin
-    FItems:=KnownBookSaveEstimates(FBooks,Choice,FGrayscale.Checked); FRequiredComponent:='';
+    ResetEstimates; FRequiredComponent:='';
     FCalculate.Caption:='Оценить размер'; FHasEstimateAttempt:=False;
     FStatus.Caption:='';
   end;
@@ -513,7 +523,11 @@ begin
   if FExcept.Enabled and (Trim(FExcept.Text)<>'') then
     FNote.Caption:=FNote.Caption+' Оценка размера не учитывает исключения разворотов.';
   var Large:=0;
-  for var Item in FItems do if EstimateBytes(Item,Max(0,FImages.ItemIndex))>20*1024*1024 then Inc(Large);
+  for var Item in FItems do
+  begin
+    EstimateSize(Item,Max(0,FImages.ItemIndex),Bytes,Margin);
+    if Bytes>20*1024*1024 then Inc(Large);
+  end;
   if Large>0 then FNote.Caption:=FNote.Caption+' Крупные файлы можно уменьшить выбором другого режима изображений.';
   FFolderMask.Enabled:=FSubfolders.Checked;
   FFolderMask.Visible:=FSubfolders.Checked;
@@ -523,13 +537,14 @@ begin
 end;
 
 procedure TBookSendOptionsForm.ListData(Sender: TObject; Item: TListItem);
+var Bytes, Margin: Int64;
 begin
   if (Item.Index<0) or (Item.Index>=Length(FItems)) then Exit;
   var Entry:=FItems[Item.Index]; Item.Caption:=FBooks[Item.Index].Title; Item.SubItems.Clear;
   var Ext:=BookSaveTargetLabel(Entry.TargetExtension,Choice.Mode);
   Item.SubItems.Add(Ext);
-  var Bytes:=EstimateBytes(Entry,Max(0,FImages.ItemIndex));
-  if Bytes>0 then Item.SubItems.Add('≈ '+SizeText(Bytes))
+  EstimateSize(Entry,Max(0,FImages.ItemIndex),Bytes,Margin);
+  if Bytes>0 then Item.SubItems.Add(BookEstimateValueText(Bytes,Margin))
   else if Entry.ErrorText<>'' then Item.SubItems.Add('Нет оценки')
   else Item.SubItems.Add('Не рассчитано');
   Item.SubItems.Add(BookEstimateResultText(Entry,Bytes).Replace(#13,' ').Replace(#10,' '));
@@ -567,11 +582,12 @@ begin
   if Length(FBooks)=0 then
   begin FStatus.Caption:='Список книг для оценки не передан.'; FStatus.Visible:=True; Reflow(nil); Exit; end;
   if not CheckOutputRuntime then Exit;
-  FRevision:=-1; FEstimate:=TBookSendEstimateThread.Create(FBooks,Choice,Settings.AppPath,Settings.TempPath,FGrayscale.Checked);
+  FRevision:=-1;
+  FEstimate:=TBookSendEstimateThread.Create(FBooks,Choice,Settings.AppPath,Settings.TempPath,
+    FGrayscale.Checked,9500,FInitialItems);
   FHasEstimateAttempt:=True;
   FFormat.Enabled:=False; FMoreFormats.Enabled:=False; FGrayscale.Enabled:=False; FSend.Enabled:=False; FCalculate.Caption:='Остановить';
-  FStatus.Caption:='Оценка по образцам изображений. Для длинных сканов потребуется время…';
-  if Choice.Mode in BOOK_SAVE_ADVANCED_MODES then FStatus.Caption:='Проверяем размер в выбранном формате…';
+  FStatus.Caption:='Рассчитываем размер · '+FEstimateTime;
   FTimer.Enabled:=True; FEstimate.Start; UpdateSummary; Reflow(nil);
 end;
 
@@ -580,25 +596,34 @@ var Items: TBookSaveEstimateItems; Status: string; Complete: Boolean; ChangedSna
 begin
   if not Assigned(FEstimate) then Exit;
   ChangedSnapshot:=FEstimate.Poll(FRevision,Items,Status,Complete);
-  if ChangedSnapshot then begin FItems:=Items; FStatus.Caption:=Status; UpdateSummary; Reflow(nil); end;
+  if ChangedSnapshot then
+  begin
+    FItems:=Items; FStatus.Caption:=Status;
+    if not Complete then FStatus.Caption:=Status+' · '+FEstimateTime+' на весь расчёт';
+    UpdateSummary; Reflow(nil);
+  end;
   if not Complete then Exit;
   FTimer.Enabled:=False;
   if FEstimate.FatalException is Exception then FStatus.Caption:='Оценка остановлена: '+Exception(FEstimate.FatalException).Message
   else if Status.StartsWith('Оценка остановлена') then FStatus.Caption:=Status
   else
   begin
-    var Errors:=0; var Limited:=False;
+    var Errors:=0; var Limited:=False; var MeasuredScans:=False; var Distributed:=False;
     for var Item in FItems do
     begin
       if Item.ErrorText<>'' then Inc(Errors);
       if (FRequiredComponent='') and (Item.RequiredComponent<>'') then FRequiredComponent:=Item.RequiredComponent;
       Limited:=Limited or Item.Options.FirstSamples;
+      MeasuredScans:=MeasuredScans or Item.Options.AllScanPages;
+      Distributed:=Distributed or Item.Options.DistributedSamples;
     end;
     if Errors>0 then FStatus.Caption:=Format('Ошибки оценки: %d из %d книг. Причины указаны в таблице и в результатах оценки.',[Errors,Length(FBooks)])
     else if Limited then FStatus.Caption:='Размер ориентировочный: для длинных сканов проверены первые страницы. Результат может отличаться.'
     else if Choice.Mode in BOOK_SAVE_ADVANCED_MODES then
       FStatus.Caption:='Пробные копии проверены. Итоговый размер может немного отличаться.'
-    else FStatus.Caption:='Оценка по образцам готова. Итоговый размер может немного отличаться.';
+    else if Distributed then FStatus.Caption:='Диапазон рассчитан по разным страницам книги. Итоговый размер может отличаться.'
+    else if MeasuredScans then FStatus.Caption:='Размер сканов оценён по всем страницам. Итоговый размер может немного отличаться.'
+    else FStatus.Caption:='Оценка размера готова. Итоговый размер может отличаться.';
   end;
   FreeAndNil(FEstimate); FFormat.Enabled:=True; FMoreFormats.Enabled:=True;
   FSend.Enabled:=True; FCalculate.Caption:='Оценить размер';
@@ -832,7 +857,7 @@ begin
     begin
       Dialog.FFormat.ItemIndex:=BookSaveDefaultChoiceIndex(Dialog.FChoices,
         DefaultMode,Settings.SaveAsKeepSourceFormat);
-      Dialog.FItems:=KnownBookSaveEstimates(Dialog.FBooks,Dialog.Choice,Dialog.FGrayscale.Checked);
+      Dialog.ResetEstimates;
     end;
     var Folder:=Settings.SyncExportDir; if Folder='' then Folder:=InitialFolder;
     Dialog.FDestination.Text:=Folder; Dialog.FDestination.Hint:=Folder;
@@ -873,7 +898,7 @@ begin
         if Parts[1]='auto' then Dialog.FScans.ItemIndex:=1
         else if Parts[1]='split' then Dialog.FScans.ItemIndex:=2;
       if (Length(Parts)>2) and Parts[2].StartsWith('except=') then Dialog.FExcept.Text:=Parts[2].Substring(7);
-      Dialog.FItems:=KnownBookSaveEstimates(Dialog.FBooks,Dialog.Choice,Dialog.FGrayscale.Checked);
+      Dialog.ResetEstimates;
       finally Dialog.FInitializing:=False; end;
     end;
     Dialog.Changed(nil);

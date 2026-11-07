@@ -268,6 +268,42 @@ class ImageQuality(unittest.TestCase):
         self.assertLess(abs(output.stat().st_size-captured[0]['sizes']['original']),max(8192,output.stat().st_size*.10))
         self.assertEqual(source.read_bytes(),data); self.assert_clean()
 
+    @unittest.skipUnless(os.name=='nt' and (TOOLS/'pdfium/pdfium.dll').is_file(), 'Windows PDFium')
+    def test_scan_estimate_measures_beyond_first_batch_without_publishing(self):
+        from test_legacy_fixed import pdf_fixture
+
+        source = self.root/'ten-scans.pdf'
+        data = pdf_fixture(text=False, pages=10)
+        source.write_bytes(data)
+        options = self.root/'estimate.json'
+        choice = self.root/'choice.txt'
+        output = self.root/'estimate.epub'
+        with subprocess.Popen([str(TOOLS/'kindle/python/python.exe'), '-I', '-B', '-X', 'utf8',
+                str(Path(c.__file__)), str(source), str(output), '--tools-root', str(TOOLS),
+                '--image-quality', 'ask', '--grayscale', '--measure-scans',
+                '--image-options', str(options), '--image-choice', str(choice)],
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)) as process:
+            try:
+                estimate = wait_options(options, 90, 'No full scan estimate')
+                choice.write_text('cancel', encoding='utf-8')
+                log = process.communicate(timeout=10)[0].decode('utf-8')
+                self.assertIn('отменён', log)
+            finally:
+                if process.poll() is None:
+                    process.kill()
+                    process.wait()
+        self.assertEqual(estimate['sampled'], 10)
+        self.assertTrue(estimate['all_scan_pages'])
+        self.assertFalse(output.exists())
+        actual = self.root/'actual.epub'
+        c.convert_book(source, actual, tools_root=TOOLS, image_quality='maximum', grayscale=True)
+        self.assertLess(abs(actual.stat().st_size-estimate['sizes']['maximum']), 1024)
+        with zipfile.ZipFile(actual) as archive:
+            self.assertEqual(len([name for name in archive.namelist() if '/images/' in name]), 1)
+        self.assertEqual(source.read_bytes(), data)
+        self.assert_clean()
+
     def test_illustrated_fb2_and_epub_offer_quality_preserve_text_cover_and_gif(self):
         # A flowing book, not a scan: two illustrations, a separate GIF,
         # cover metadata and paragraphs around the images must all survive.

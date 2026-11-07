@@ -436,7 +436,17 @@ begin
     Source.Position := 0;
     Destination.Position := 0;
     Destination.Size := 0;
-    Destination.CopyFrom(Source, 0);
+    if not Assigned(FIsCanceled) then Destination.CopyFrom(Source, 0)
+    else
+    begin
+      var Buffer: TBytes; SetLength(Buffer,256*1024);
+      repeat
+        if FIsCanceled() then Abort;
+        var Count:=Source.Read(Buffer[0],Length(Buffer));
+        if Count=0 then Break;
+        Destination.WriteBuffer(Buffer[0],Count);
+      until False;
+    end;
     Destination.Position := 0;
     FLastID := Index;
   finally

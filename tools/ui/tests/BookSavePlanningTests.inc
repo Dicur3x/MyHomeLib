@@ -482,9 +482,9 @@ var Root, Required, Status: string; Books: TArray<TBookRecord>; Hashes: TArray<s
     end;
     Writeln('PASS real mixed save ',Name,' book_count=',Length(Books)); Flush(Output);
   end;
-  procedure RunEstimate(const Sources: TArray<TBookRecord>);
+  procedure RunEstimate(const Sources: TArray<TBookRecord>; BudgetMilliseconds: Cardinal = 0; Grayscale: Boolean = False);
   begin
-    Thread:=TBookSendEstimateThread.Create(Sources,Choice,Settings.AppPath,Settings.TempPath);
+    Thread:=TBookSendEstimateThread.Create(Sources,Choice,Settings.AppPath,Settings.TempPath,Grayscale,BudgetMilliseconds);
     try
       Revision:=-1; Complete:=False; Deadline:=GetTickCount64+120000; Thread.Start;
       repeat
@@ -595,6 +595,35 @@ begin
         Names[I]+': size was not estimated for an image mode');
     if I<2 then Require(Items[I].Options.OutputBytes[0,BOOK_QUALITY_NONE]>0,'Illustrated text has no no-images estimate');
     Require(UpdateSHA256(Books[I].GetBookFileName)=Hashes[I],'Mixed estimate changed its source');
+  end;
+  var RealScan:=GetEnvironmentVariable('HOMELIB_TEST_REAL_SCAN_ESTIMATE');
+  if RealScan<>'' then
+  begin
+    var Before:=UpdateSHA256(RealScan);
+    Choice:=Default(TBookSaveChoice); Choice.Mode:=emEpub;
+    var Started:=GetTickCount64;
+    RunEstimate([FileBook(RealScan)],9500,True);
+    var Elapsed:=GetTickCount64-Started;
+    var Estimate:=Items[0].Options;
+    Require(Items[0].Completed and (Items[0].ErrorText='') and Estimate.DistributedSamples and
+      (Estimate.ImageCount=84) and (Estimate.SampleCount=2) and
+      (Estimate.MarginBytes[0,BOOK_QUALITY_MAXIMUM]>0) and (Elapsed<=10000),
+      'Native scan estimate lost its sample, range or deadline: '+Status+' '+Items[0].ErrorText);
+    Writeln('PASS native real scan range uses 2 of 84 pages in ',Elapsed,' ms'); Flush(Output);
+    Started:=GetTickCount64;
+    RunEstimate([FileBook(RealScan),Default(TBookRecord)],1,True);
+    Require((GetTickCount64-Started<=1000) and not Items[0].Completed and
+      Items[1].ErrorText.Contains('исходный файл не определён'),
+      'One limited calculation stopped the following book or published an unfinished result');
+    Started:=GetTickCount64;
+    RunEstimate([FileBook(RealScan),Books[1],FileBook(RealScan)],9500,True);
+    Elapsed:=GetTickCount64-Started;
+    Require((Elapsed<=30000) and Items[0].Completed and Items[1].Completed and Items[2].Completed and
+      (Items[2].Options.OutputBytes[0,BOOK_QUALITY_MAXIMUM]>0),
+      'A mixed batch did not give later books their own calculation time: '+Status);
+    Writeln('PASS native mixed batch estimates all three books with separate limits in ',Elapsed,' ms'); Flush(Output);
+    Require(UpdateSHA256(RealScan)=Before,'Native distributed estimate changed its source');
+    Writeln('PASS native estimate deadline preserves the source and withholds uncalculated sizes'); Flush(Output);
   end;
   Writeln('PASS real illustrated and scan size estimates include all image modes and ZIP without source changes'); Flush(Output);
 end;

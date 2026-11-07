@@ -1,14 +1,15 @@
 ﻿unit unit_BookMetadataCache;
 
 interface
-uses System.Classes, unit_Globals, unit_BookCache;
+uses System.Classes, System.SysUtils, unit_Globals, unit_BookCache;
 function ResolveArchivedBook(const Book: TBookRecord): TBookRecord;
 function OpenBookMetadataSource(const Book: TBookRecord): TStream;
 function OpenBookImageSource(const Book: TBookRecord): TStream;
-function OpenRawBookSource(const Book: TBookRecord; const Writer: TBookCacheWrite = nil): TStream;
+function OpenRawBookSource(const Book: TBookRecord; const Writer: TBookCacheWrite = nil;
+  const IsCanceled: TFunc<Boolean> = nil): TStream;
 
 implementation
-uses System.SysUtils, System.IOUtils, System.Hash, Winapi.Windows,
+uses System.IOUtils, System.Hash, Winapi.Windows,
   unit_Settings, dm_user, unit_MHLArchiveHelpers, unit_Consts, unit_Errors, unit_FB2Utils, FictionBook_21;
 
 var CacheLock, PrefixLock: TObject;
@@ -28,7 +29,8 @@ begin
   Result := ExistingBookCacheFile(TPath.Combine(BookCachePath,'homelib-metadata-'+Copy(THashSHA2.GetHashString(Key),1,40)+Ext));
 end;
 
-function CachedSource(const Book: TBookRecord; Writer: TBookCacheWrite = nil): string;
+function CachedSource(const Book: TBookRecord; Writer: TBookCacheWrite = nil;
+  const IsCanceled: TFunc<Boolean> = nil): string;
 var Pending: string; Input: TStream; Output: TFileStream; OwnWriter: Boolean;
 begin
   Result := CacheName(Book);
@@ -40,7 +42,7 @@ begin
     Input:=nil;
     try
       ForceDirectories(BookCachePath); Pending:=Writer.TemporaryName(Result);
-      Input := Book.GetBookStream(True,False);
+      Input := Book.GetBookStream(True,False,IsCanceled);
       if not Assigned(Input) then raise EFileNotFoundException.Create('Файл книги недоступен.');
       Output := TFileStream.Create(Pending,fmCreate);
       try Input.Position := 0; Output.CopyFrom(Input,0); finally Output.Free; end;
@@ -203,9 +205,10 @@ begin
   else Result := OpenBookMetadataSource(Book);
 end;
 
-function OpenRawBookSource(const Book: TBookRecord; const Writer: TBookCacheWrite): TStream;
+function OpenRawBookSource(const Book: TBookRecord; const Writer: TBookCacheWrite;
+  const IsCanceled: TFunc<Boolean>): TStream;
 begin
-  Result := OpenCachedBookFile(CachedSource(Book,Writer));
+  Result := OpenCachedBookFile(CachedSource(Book,Writer,IsCanceled));
   if Result.Size=0 then
   begin
     FreeAndNil(Result);
