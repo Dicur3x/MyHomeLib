@@ -145,6 +145,17 @@ class PackingTests(unittest.TestCase):
             Packer(dict(self.job, engine=JPEG_XL_ENGINE, images='economy')).execute()
         self.assertFalse(self.output.exists())
 
+    def test_old_converter_reports_the_module_to_update(self):
+        tools_root = self.root / 'tools'
+        converter = tools_root / 'bookconvert'
+        converter.mkdir(parents=True)
+        (converter / 'convert_book.py').write_text('PACKING_IMAGE_API = 0', encoding='utf-8')
+        (converter / 'image_quality.py').touch()
+        job = dict(self.job, engine='illustrations-ppmd', images='balanced', tools_root=str(tools_root))
+        with self.assertRaisesRegex(PackingError, 'обновите.*BookProcessing'):
+            Packer(job).execute()
+        self.assertFalse(self.output.exists())
+
     def test_separated_jpeg_fb2_keeps_cover_duplicate_ids_and_other_xml_bytes(self):
         jpeg = b'\xff\xd8\xff test image'
         binary = b'<binary id="%s" content-type="image/jpeg">' + base64.b64encode(jpeg) + b'</binary>'
@@ -614,6 +625,54 @@ class PackingTests(unittest.TestCase):
         result = Packer(self.job).execute()
         self.assertLessEqual(result.output_bytes, source.stat().st_size)
         self.assertEqual(self.packed_book(result, 1), body)
+
+    def test_small_deflated_book_does_not_become_stored_in_mixed_archive(self):
+        book = b'\x89PNG\r\n\x1a\n' + b'0' * 244
+        text = b'Long book\n' * 3000
+        source = self.source / 'mixed.zip'
+        with zipfile.ZipFile(source, 'w') as archive:
+            archive.writestr('image.png', book, zipfile.ZIP_DEFLATED)
+            archive.writestr('readme.txt', text)
+        self.add(1, source, 'image.png')
+        self.add(2, source, 'readme.txt')
+        result = Packer(self.job).execute()
+        with database(self.output / 'generations' / result.generation / 'locations.sqlite') as db:
+            folder, filename, extension = db.execute(
+                'SELECT folder,filename,ext FROM locations WHERE book_id=1').fetchone()
+        self.assertEqual(Path(folder).name, 'books.zip')
+        with zipfile.ZipFile(self.output / folder) as archive:
+            entry = archive.getinfo(filename + extension)
+            self.assertEqual(entry.compress_type, zipfile.ZIP_DEFLATED)
+            self.assertLess(entry.compress_size, len(book))
+        self.assertEqual(self.packed_book(result, 1), book)
+        self.assertEqual(self.packed_book(result, 2), text)
+
+    def test_loose_file_never_grows_and_retains_its_location(self):
+        source = self.source / 'Короткая книга.txt'
+        body = 'Тест'.encode('utf-8')
+        source.write_bytes(body)
+        self.add(1, source, '')
+        legacy = Packer(self.job).execute()
+        self.assertGreater(legacy.output_bytes, len(body))
+        job = dict(self.job, keep_loose=True)
+        result = Packer(job).execute()
+        self.assertEqual((result.reused, result.input_bytes, result.output_bytes), (0, len(body), len(body)))
+        self.assertEqual(self.packed_book(result, 1), body)
+        self.assertEqual(self.packed_book(legacy, 1), body)
+        self.assertEqual(Packer(job).execute().reused, 1)
+        with database(self.output / 'generations' / result.generation / 'locations.sqlite') as db:
+            row = db.execute('SELECT * FROM locations').fetchone()
+        self.assertTrue(row[1].endswith(os.sep))
+        self.assertEqual((row[2], row[3]), (source.stem, source.suffix))
+        with database(self.plan) as db:
+            db.execute('CREATE TABLE retained(book_id,folder,filename,ext,inside_no,payload)')
+            db.execute('INSERT INTO retained VALUES(?,?,?,?,?,?)', (*row, row[1] + row[2] + row[3]))
+            db.execute('DELETE FROM books')
+        self.assertEqual(source.read_bytes(), body)
+        source.rename(source.with_suffix('.held'))
+        retained = Packer(job).execute()
+        self.assertEqual((retained.reused, retained.output_bytes), (1, len(body)))
+        self.assertEqual(self.packed_book(retained, 1), body)
 
     def test_unusual_extensions_keep_exact_books_and_reuse(self):
         source = self.source / 'usr.zip'

@@ -9,10 +9,10 @@ const
   Description = '<FictionBook><description>Описание ё.</description></FictionBook>';
 var
   Source, PackedCollection: IBookCollection;
-  SourceID, BookID, ArchivedID, PackedID: Integer;
+  SourceID, BookID, ArchivedID, LooseID, PackedID: Integer;
   Book: TBookRecord;
   Options: TCollectionPackingOptions;
-  SourceDir, Original, SourceHash: string;
+  SourceDir, Original, LooseOriginal, SourceHash: string;
   Zip: TZipFile;
 
   procedure VerifyStream(Stream: TStream; const Expected: string);
@@ -35,7 +35,7 @@ var
     try
       Snapshot.Prepare;
       Snapshot.Pack;
-      Require((Snapshot.Status.SourcesDone=1) and (Snapshot.Status.BooksDone=2) and
+      Require((Snapshot.Status.SourcesDone=2) and (Snapshot.Status.BooksDone=3) and
         (Snapshot.Status.Reused=ExpectedReused), 'A shared FBD container was omitted or counted twice');
       Snapshot.ApplyPrepared;
       Result:=Snapshot.RegisterNew(SystemDB);
@@ -45,7 +45,7 @@ var
   end;
 
   procedure VerifyCopy(ID: Integer);
-  var Fbd, Archived: TBookRecord;
+  var Fbd, Archived, Loose: TBookRecord;
   begin
     PackedCollection:=SystemDB.GetCollection(ID);
     PackedCollection.GetBookRecord(CreateBookKey(BookID,ID),Fbd,True);
@@ -57,6 +57,11 @@ var
     VerifyStream(Fbd.GetBookStream(True,False),BookText);
     VerifyStream(Fbd.GetBookDescriptorStream(True),Description);
     VerifyStream(Archived.GetBookStream(True,False),BookText);
+    PackedCollection.GetBookRecord(CreateBookKey(LooseID,ID),Loose,True);
+    Require(Loose.GetBookFormat=bfRaw,'Small loose file was replaced by a larger archive');
+    Require(TFile.GetSize(Loose.GetBookFileName)=Length(TEncoding.UTF8.GetBytes(BookText)),
+      'Loose copy grew beyond the original bytes');
+    VerifyStream(Loose.GetBookStream(True,False),BookText);
   end;
 
 begin
@@ -83,6 +88,12 @@ begin
   Source.GetBookRecord(CreateBookKey(ArchivedID,SourceID),Book,True);
   Book.Folder:=ArchiveName; Book.FileName:='chapter'; Book.FileExt:='.txt'; Book.InsideNo:=0;
   Source.UpdateBook(Book);
+  LooseID:=AddBook(Source,'Loose book','Автор Ё','ru','','prose_contemporary');
+  Source.GetBookRecord(CreateBookKey(LooseID,SourceID),Book,True);
+  Book.Folder:=''; Book.FileName:='Короткая книга'; Book.FileExt:='.txt'; Book.InsideNo:=-1;
+  Source.UpdateBook(Book);
+  LooseOriginal:=SourceDir+Book.FileName+Book.FileExt;
+  TFile.WriteAllBytes(LooseOriginal,TEncoding.UTF8.GetBytes(BookText));
 
   Options:=Default(TCollectionPackingOptions);
   Options.CatalogFile:=Source.GetProperty(PROP_DATAFILE);
@@ -103,11 +114,14 @@ begin
   Options.DisplayName:='FBD resumed copy';
   Require(RenameFile(Original,Original+'.held'), 'Cannot hide the owned original for the retention check');
   try
-    VerifyCopy(CreateCopy(Options,1));
+    Require(RenameFile(LooseOriginal,LooseOriginal+'.held'), 'Cannot hide the owned loose fixture');
+    try VerifyCopy(CreateCopy(Options,2));
+    finally Require(RenameFile(LooseOriginal+'.held',LooseOriginal), 'Cannot restore the owned loose fixture'); end;
   finally
     Require(RenameFile(Original+'.held',Original), 'Cannot restore the owned original fixture');
   end;
   Writeln('PASS original FBD container, both native locator forms, exact book and descriptor, reuse without originals');
+  Writeln('PASS loose book does not grow and remains readable after retention without its original');
   TestPackingUnavailable;
   TestPackingInpx;
   if DirectoryExists(Settings.AppPath+'packing-real-input') then TestPackingReal;

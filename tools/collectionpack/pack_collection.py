@@ -135,7 +135,7 @@ def checked_relative(root, name):
 
 
 def book_location(archive, item):
-    folder = str(Path(archive).parent) + os.sep if item.get('fbd') else archive
+    folder = str(Path(archive).parent) + os.sep if item.get('fbd') or item.get('loose') else archive
     return folder, item['filename'], item['ext'], item['inside_no']
 
 
@@ -591,6 +591,7 @@ class Packer:
         if self.engine in IMAGE_ENGINES and self.images not in ('balanced', 'economy', 'maximum'):
             raise PackingError('Выберите качество иллюстраций для сжатой копии.')
         self.grayscale = self.engine == 'illustrations-gray-ppmd'
+        self.keep_loose = job.get('keep_loose') is True
         self.job, self.notify, self.canceled = job, notify, canceled
         self.root = Path(job['output']).absolute()
         self.plan = Path(job['plan']).absolute()
@@ -616,7 +617,10 @@ class Packer:
         spec = importlib.util.spec_from_file_location('homelibre_pack_book_converter', script)
         converter = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(converter)
-        tool = converter.image_processor_path(self.tools_root)
+        image_processor_path = getattr(converter, 'image_processor_path', None)
+        if image_processor_path is None:
+            raise PackingError('Для сжатия иллюстраций обновите модуль подготовки книг HomeLibre BookProcessing.')
+        tool = image_processor_path(self.tools_root)
         if not tool.is_file():
             raise PackingError('Для сжатия иллюстраций нужен модуль HomeLibre Images.')
         if self.images == 'maximum' or self.grayscale:
@@ -1042,6 +1046,21 @@ class Packer:
             raise PackingError(f'Для книги {member} отсутствует архив иллюстраций рядом с {source.name}: {names}.')
         return nested
 
+    def original_book_item(self, source, row):
+        filename, extension, inside = row['filename'], row['ext'], row['inside_no']
+        if row['fbd']:
+            return dict(filename=source.name, ext=extension, inside_no=inside, fbd=True)
+        if self.keep_loose and not row['member']:
+            if not extension:
+                filename = source.name
+            elif source.name[-len(extension):].lower() == extension.lower():
+                filename = source.name[:-len(extension)]
+                extension = source.name[-len(extension):]
+            else:
+                filename, extension = os.path.splitext(source.name)
+            return dict(filename=filename, ext=extension, inside_no=-1, loose=True)
+        return dict(filename=filename, ext=extension, inside_no=inside)
+
     def process(self, source, rows, stage, identity, stamp, companions):
         artifacts, mappings, copied_hashes = [], {}, {}
         # Generation files are immutable. A changed source cannot replace an
@@ -1055,6 +1074,7 @@ class Packer:
             publish = checked_relative(self.root, str(relative))
         package = stage / 'package'; package.mkdir()
         input_bytes = source.stat().st_size + sum(p.stat().st_size for _, p in companions)
+        compare_original = source.suffix.lower() in ARCHIVE_SUFFIXES or self.keep_loose
         fbd_rows = [row for row in rows if row['fbd']]
         if fbd_rows:
             if source.suffix.lower() != '.zip' or not zipfile.is_zipfile(source):
@@ -1067,14 +1087,14 @@ class Packer:
         companion_kinds = {name.split('/', 1)[0] for name, _ in companions}
         check_flibrary = source.suffix.lower() == '.7z' and companion_kinds != {'covers', 'images'}
         unsafe_extension = next((row['ext'] for row in rows if not can_stage_extension(row['ext'].lower())), None)
-        if unsafe_extension is not None and any(not row['member'] for row in rows):
+        if unsafe_extension is not None and not self.keep_loose and any(not row['member'] for row in rows):
             raise PackingError('Нельзя подготовить отдельный файл с таким расширением: ' + unsafe_extension)
         preserve_container = bool(companions) or bool(fbd_rows) or unsafe_extension is not None
-        if unsafe_extension is not None and zipfile.is_zipfile(source):
+        if unsafe_extension is not None and any(row['member'] for row in rows) and zipfile.is_zipfile(source):
             with zipfile.ZipFile(source) as directory:
                 entries = set(directory.namelist())
                 for row in rows:
-                    if row['member'] not in entries:
+                    if row['member'] and row['member'] not in entries:
                         raise PackingError('Книга отсутствует в архиве: ' + row['member'])
         if not preserve_container and any(row['member'] for row in rows) and zipfile.is_zipfile(source):
             with zipfile.ZipFile(source) as directory:
@@ -1095,11 +1115,7 @@ class Packer:
             for name, file in companions:
                 destination = package / name; destination.parent.mkdir(exist_ok=True)
                 copied_hashes[destination] = copy_exact(file, destination, self.check)
-            for row in rows:
-                item = dict(filename=row['filename'], ext=row['ext'], inside_no=row['inside_no'])
-                if row['fbd']:
-                    item.update(filename=source.name, fbd=True)
-                mappings[row['locator']] = item
+            mappings = {row['locator']: self.original_book_item(source, row) for row in rows}
         else:
             files = stage / 'books'; files.mkdir()
             names_by_method = {'PPMd': [], 'LZMA': [], 'Deflate': [], 'Copy': []}
@@ -1165,7 +1181,7 @@ class Packer:
                     mappings[locator] = dict(filename=stem, ext=extension, inside_no=-1, **image_result,
                                              **book_signature(target, self.check))
                     if ((extension in DJVU_SUFFIXES and image_result.get('image_result') == 'optimized') or
-                        (entry is not None and entry.compress_size + 256 < entry.file_size)):
+                        (entry is not None and entry.compress_size < entry.file_size)):
                         method = 'Deflate'
                     else:
                         method = 'Copy'
@@ -1203,8 +1219,8 @@ class Packer:
                         self.seven.pack(files, archive, fallback)
                     if self.jpeg_xl:
                         maximum_size = archive.stat().st_size
-                        if source.suffix.lower() in ARCHIVE_SUFFIXES:
-                            maximum_size = min(maximum_size, source.stat().st_size)
+                        if compare_original:
+                            maximum_size = min(maximum_size, input_bytes)
                         separated = self.pack_with_jpeg_xl(files, stage, package, mappings, maximum_size)
                     if separated is None:
                         with zipfile.ZipFile(archive) as verification:
@@ -1218,16 +1234,17 @@ class Packer:
                         archive.unlink()
                         archive = separated
                 folder = str(relative / archive.name)
-                # Already compressed sources must not grow merely because
-                # the new member names or ZIP headers have different lengths.
-                if keep_source or (separated is None and source.suffix.lower() in ARCHIVE_SUFFIXES and
-                                   archive.stat().st_size >= source.stat().st_size):
+                # Keep the original if the container overhead costs more
+                # than the compression saves. Legacy clients expect an archive.
+                if keep_source or (separated is None and compare_original and
+                                   archive.stat().st_size >= input_bytes):
                     archive.unlink(missing_ok=True)
                     destination = package / source.name
+                    reserve_space(stage, input_bytes)
                     copied_hashes[destination] = copy_exact(source, destination, self.check)
                     folder = str(relative / source.name)
                     preserve_container = True
-                    mappings = {row['locator']: dict(filename=row['filename'], ext=row['ext'], inside_no=row['inside_no']) for row in rows}
+                    mappings = {row['locator']: self.original_book_item(source, row) for row in rows}
                 else:
                     self.event('verifying', source=source.name)
                     # Reclaim the original extraction space before decoding the
@@ -1335,6 +1352,12 @@ class Packer:
                         stamp = self.stamp(source, companions)
                         self.event('source', current=number+retained_sources, total=total, source=source.name)
                         packed = self.cached(identity, stamp, source, companions)
+                        if packed is not None and not any(row['member'] for row in rows):
+                            copied_loose = any(item.get('loose') for item in packed[1].values())
+                            if (copied_loose and not self.keep_loose or
+                                self.keep_loose and not copied_loose and
+                                    sum(item['size'] for item in packed[2]) >= packed[3]):
+                                packed = None
                         # New catalogue rows may reference more members from an
                         # otherwise unchanged source. Reuse requires all locators.
                         if packed is not None and all(row['locator'] in packed[1] and

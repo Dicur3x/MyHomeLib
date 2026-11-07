@@ -14,6 +14,7 @@
     "jpeg_xl_decoder": "absolute djxl executable path, required by jpeg-xl-7z",
     "verify_sources": false,
     "verify_outputs": false,
+    "keep_loose": false,
     "allow_copy_inputs": false
   },
   "plan_schema": [
@@ -49,7 +50,7 @@
     "progress": "UTF-8 JSON lines: source, books, compressing, verifying, prepared, canceled or error. Events carry sources_done/sources_total, books_done/books_total (plan locations), input_bytes/output_bytes for completed sources, reused and elapsed_seconds. current/total describe the current stage only; absence means indeterminate. Long operations send a heartbeat at least once per second while their bounded cancellation check runs. Fast member updates are throttled to 150ms, preserving first/final updates. UI ETA is explicitly approximate and is shown only after at least two completed sources and five seconds.",
     "prepared": "generations/<generation>/prepared.json plus locations.sqlite; this is not a registered collection.",
     "locations_schema": "locations(book_id INTEGER PRIMARY KEY,folder TEXT,filename TEXT,ext TEXT,inside_no INTEGER)",
-    "folder": "Relative to output. An ordinary locator points to a ZIP or 7z; an FBD locator points to the directory containing the named original ZIP. Existing FLibrary containers retain their archive extension and side archives.",
+    "folder": "Relative to output. An ordinary locator points to a ZIP or 7z; an FBD locator points to the directory containing the named original ZIP. With keep_loose, when a separate file would grow in an archive, the original file is copied and its locator points to the containing directory with a trailing separator. Existing FLibrary containers retain their archive extension and side archives.",
     "native_publication_required": [
       "Create consistent catalogue and personal-data snapshots without changing the source collection.",
       "Remap every planned BookID in those snapshots using the returned locations. Preserve titles, authors, every series, source identities, groups, personal cards and reading state.",

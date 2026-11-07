@@ -653,7 +653,8 @@ var Catalog, Personal: TSQLiteDatabase;
           Retained.SetParam(2,Book.FileName); Retained.SetParam(3,Book.FileExt); Retained.SetParam(4,Book.InsideNo);
           Fbd:=Book.GetBookFormat=bfFbd;
           Payload:=Book.Folder;
-          if Fbd then Payload:=Payload+Book.FileName;
+          if Fbd then Payload:=Payload+Book.FileName
+          else if Payload.EndsWith(PathDelim) then Payload:=Payload+Book.FileName+Book.FileExt;
           Retained.SetParam(5,Payload);
           Retained.ExecSQL;
         end
@@ -839,6 +840,7 @@ begin
     Job.AddPair('version',TJSONNumber.Create(1)); Job.AddPair('dataset',FOptions.Dataset);
     Job.AddPair('engine',PackingEngine(FOptions.ImageProfile,FOptions.ImageGrayscale));
     Job.AddPair('images',PACKING_PROFILES[FOptions.ImageProfile]);
+    Job.AddPair('keep_loose',TJSONBool.Create(True));
     if FOptions.ImageProfile=pipJpegXL then
     begin
       Job.AddPair('jpeg_xl_encoder',FOptions.JpegXLEncoder);
@@ -920,6 +922,13 @@ begin
             not SameText(ExtractFileExt(Filename),'.zip') then
             raise Exception.Create('Модуль вернул неверное расположение книги с описанием FBD.');
           CheckedOutputFile(Folder+Filename);
+        end
+        else if Folder.EndsWith(PathDelim) then
+        begin
+          if (Target.FieldAsString(4)<>'') or (Filename='') or
+            (ExtractFileName(Filename+Ext)<>Filename+Ext) then
+            raise Exception.Create('Модуль вернул неверное расположение отдельного файла книги.');
+          CheckedOutputFile(Folder+Filename+Ext);
         end
         else CheckedOutputFile(Folder);
         Kind:=Target.FieldAsInt(0); BookID:=Target.FieldAsInt(1); SourceKey:=Target.FieldAsString(2);
