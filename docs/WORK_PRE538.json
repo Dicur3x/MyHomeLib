@@ -6004,5 +6004,15 @@
     },
     "cleanup": "Both successful delivery probes verified cleanup of their download and preparation fixtures. Candidate packages, publication inputs and compact reports were retained.",
     "remaining": "Verify the ordinary update and first-use flows through the public beta 5 channel during release. Repeat representative final catalogue and reader checks. No comparable performance measurement was taken in this pass: host CPU samples were 94 to 99 percent and the working catalogue had open SQLite sidecars with an empty WAL."
+  },
+  "beta5_direct_catalogue_reader_20261107": {
+    "status": "Both exact beta 5 catalogue and Reader archive pairs passed ordinary catalogue-to-Reader opening.",
+    "scenario": "A normal double-click on a selected FB2 in each isolated production catalogue created a new Reader request for the correct source and opened the book window directly. The Reader reported displaying and showed the expected chapter. F11 entered and left full screen, and Hide interface and Show interface worked separately in the normal window. After Page Down and ordinary close, the catalogue persisted progress at 1 percent, removed the completed session and retained the exact source bytes.",
+    "reports": {
+      "catalogue-reader-direct-Win32.json": "1b46adc8ac1e9ec5a786951c006480c8e67a1576d8ec6199d1543e027aab7b59",
+      "catalogue-reader-direct-Win64.json": "972068dfa57b56097d8efe72cabfa22e3f8de9e5f0c5c511b511ce8bdb9e7d51"
+    },
+    "limits": "The verified Reader payload was installed in each disposable fixture before launch. This does not cover live module installation, independent reader themes, visual spread details or all DPI levels. The first text-only attempt to invoke Hide interface on x64 had no input geometry; an observed coordinate click passed.",
+    "cleanup": "Both exact test processes closed normally and both disposable profiles were removed. Other Reader processes were left alone."
   }
 }

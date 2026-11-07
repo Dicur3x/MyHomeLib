@@ -44,6 +44,8 @@ def main():
     parser.add_argument('--report', type=Path, required=True)
     parser.add_argument('--catalogue-archive', type=Path)
     parser.add_argument('--fixture', type=Path)
+    parser.add_argument('--installed-reader', action='store_true',
+                        help='Open a book normally with the Reader payload already present')
     parser.add_argument('--timeout', type=float, default=600,
                         help='Maximum seconds for each Computer Use phase')
     args = parser.parse_args()
@@ -58,9 +60,11 @@ def main():
     assert digest(package) == package_info['sha256']
     with zipfile.ZipFile(package) as archive:
         package_info['exe_sha256'] = hashlib.sha256(archive.read('HomeLibReader.exe')).hexdigest()
+    scenario = ('Ordinary book opening with the verified Reader payload already installed. '
+                if args.installed_reader else
+                'Missing-core offer and saved-session resume after verified payload installation. ')
     info = {'architecture': args.architecture, 'scope': 'Ordinary production EXEs, owned tiny catalogue. '
-            'Missing-core offer and saved-session resume after verified payload installation. '
-            'Does not exercise a GitHub download or the updater restart helper.'}
+            + scenario + 'Does not exercise a GitHub download or the updater restart helper.'}
     processes = []
     temp = tempfile.TemporaryDirectory(prefix='HomeLibRu-native-reader-main-')
     folder = Path(temp.name).resolve()
@@ -144,24 +148,25 @@ def main():
             processes.append(app)
             return app
 
-        app = launch()
-        print(json.dumps(dict(info, stage='missing-reader-offer', pid=app.pid)), flush=True)
-        started = time.monotonic()
-        saved = None
         request_path = None
-        while app.poll() is None and time.monotonic() - started < args.timeout:
-            for path in folder.rglob('request.json'):
-                if path.parent.name.startswith('HomeLibReader-session-'):
-                    value = json.loads(path.read_text('utf-8-sig'))
-                    if value.get('kind') == 'HomeLibReader-session':
-                        saved, request_path = value, path
-            time.sleep(.1)
-        assert app.poll() == 0 and saved is not None, 'Close the missing-reader offer and Main after opening Alpha ru'
-        assert saved['book']['title'] == 'Alpha ru' and saved['source'] == str(source)
-        info['missing_core_session_created'] = True
-        assert digest(source) == source_hash
-        # Main correctly removes an uninstalled, unsaved pending request.
-        assert not request_path.exists()
+        if not args.installed_reader:
+            app = launch()
+            print(json.dumps(dict(info, stage='missing-reader-offer', pid=app.pid)), flush=True)
+            started = time.monotonic()
+            saved = None
+            while app.poll() is None and time.monotonic() - started < args.timeout:
+                for path in folder.rglob('request.json'):
+                    if path.parent.name.startswith('HomeLibReader-session-'):
+                        value = json.loads(path.read_text('utf-8-sig'))
+                        if value.get('kind') == 'HomeLibReader-session':
+                            saved, request_path = value, path
+                time.sleep(.1)
+            assert app.poll() == 0 and saved is not None, 'Close the missing-reader offer and Main after opening Alpha ru'
+            assert saved['book']['title'] == 'Alpha ru' and saved['source'] == str(source)
+            info['missing_core_session_created'] = True
+            assert digest(source) == source_hash
+            # Main removes an uninstalled, unsaved pending request.
+            assert not request_path.exists()
         with zipfile.ZipFile(package) as archive:
             for entry in archive.infolist():
                 if entry.filename == 'HomeLibRu.update.json':
@@ -171,19 +176,35 @@ def main():
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(archive.read(entry))
         assert digest(folder / 'HomeLibReader.exe') == info['reader_sha256']
-        request_path.parent.mkdir(parents=True)
-        request_path.write_text(json.dumps(saved, ensure_ascii=False), encoding='utf8')
-        options = read_ini(ini)
-        if not options.has_section('ReaderSession'):
-            options.add_section('ReaderSession')
-        options['ReaderSession']['PendingCatalogueRequest'] = str(request_path)
-        save_ini(ini, options)
+        if request_path is not None:
+            request_path.parent.mkdir(parents=True)
+            request_path.write_text(json.dumps(saved, ensure_ascii=False), encoding='utf8')
+            options = read_ini(ini)
+            if not options.has_section('ReaderSession'):
+                options.add_section('ReaderSession')
+            options['ReaderSession']['PendingCatalogueRequest'] = str(request_path)
+            save_ini(ini, options)
         app = launch()
-        print(json.dumps(dict(info, stage='resume-installed-reader', pid=app.pid,
-                              request=str(request_path))), flush=True)
+        print(json.dumps(dict(info, stage='open-installed-reader' if args.installed_reader else
+                              'resume-installed-reader', pid=app.pid)), flush=True)
         started = time.monotonic()
         displaying = False
         while app.poll() is None and time.monotonic() - started < args.timeout:
+            if request_path is None:
+                try:
+                    for path in folder.rglob('request.json'):
+                        if not path.parent.name.startswith('HomeLibReader-session-'):
+                            continue
+                        value = json.loads(path.read_text('utf-8-sig'))
+                        if value.get('kind') == 'HomeLibReader-session':
+                            assert value['book']['title'] == 'Alpha ru' and value['source'] == str(source)
+                            request_path = path
+                            break
+                except (OSError, json.JSONDecodeError):
+                    pass
+                if request_path is None:
+                    time.sleep(.1)
+                    continue
             response = request_path.with_name('response.json')
             if response.exists():
                 try:
@@ -202,8 +223,10 @@ def main():
         assert not options.has_option('ReaderSession', 'PendingCatalogueRequest')
         progress = book_progress()
         assert progress > 0, progress
-        info.update(status='PASS', resumed_book_progress=progress, source_preserved=True,
+        info.update(status='PASS', book_progress=progress, source_preserved=True,
                     completed_session_removed=True, pending_key_consumed=True)
+        if not args.installed_reader:
+            info['resumed_book_progress'] = progress
     except BaseException as error:
         info.update(status='FAIL', error=repr(error))
         raise
