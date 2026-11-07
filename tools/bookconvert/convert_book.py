@@ -40,6 +40,7 @@ CN = 'urn:oasis:names:tc:opendocument:xmlns:container'
 MHL = 'https://github.com/Dicur3x/MyHomeLib/conversion/'
 MAX_FILE = 64 * 1024 * 1024
 MAX_TOTAL = 256 * 1024 * 1024
+MAX_PDF_SOURCE = 512 * 1024 * 1024
 MAX_ENTRIES = 20000
 
 BOOK_TEXT_INPUTS = {'.txt', '.text', '.faq', '.html', '.htm', '.xhtml', '.shtml', '.rtf', '.docx', '.odt', '.fb3', '.md', '.markdown', '.abw', '.sxw',
@@ -1614,9 +1615,12 @@ def convert_book(source, destination, **metadata):
     source, destination = Path(source).resolve(), Path(destination).absolute()
     if source == destination.resolve(): raise ConversionError('Исходная книга и результат должны быть разными файлами.')
     if destination.exists(): raise ConversionError('Файл результата уже существует. Выберите другое имя.')
-    if source.stat().st_size > MAX_TOTAL:
-        raise ConversionError('Книга превышает предел конвертации (256 МБ).')
+    source_size = source.stat().st_size
+    if source_size > MAX_PDF_SOURCE:
+        raise ConversionError('Книга превышает предел конвертации (512 МБ).')
     extension, target_extension = detect_input(source), destination.suffix.lower()
+    if extension != '.pdf' and source_size > MAX_TOTAL:
+        raise ConversionError('Книга превышает предел конвертации (256 МБ).')
     if packing_grayscale and (metadata.get('reading') or output_profile or extension != target_extension or
                               extension not in {'.fb2', '.epub'} or image_quality not in {'balanced', 'economy', 'maximum'}):
         raise ConversionError('Чёрно-белый режим предназначен для сжатых копий FB2 и EPUB.')
@@ -1669,8 +1673,8 @@ def convert_book(source, destination, **metadata):
         metadata['image_export']=image_export
     large_images = extension in {'.tif','.tiff','.cbz','.cbr','.cb7'} or (extension=='.fb2' and metadata.get('reading'))
     large_images = large_images or (extension in {'.fb2','.epub'} and (image_quality!='original' or grayscale))
-    limit = MAX_TOTAL if large_images else MAX_FILE
-    if source.stat().st_size > limit: raise ConversionError('Книга превышает предел конвертации ('+str(limit//1024//1024)+' МБ).')
+    limit = MAX_PDF_SOURCE if extension == '.pdf' else (MAX_TOTAL if large_images else MAX_FILE)
+    if source_size > limit: raise ConversionError('Книга превышает предел конвертации ('+str(limit//1024//1024)+' МБ).')
     conversion = {('.fb2', '.epub'): fb2_to_epub, ('.epub', '.fb2'): epub_to_fb2}.get((extension, target_extension))
     text_input = extension in BOOK_TEXT_INPUTS and target_extension in {'.epub', '.fb2'}
     kindle_input = extension in BOOK_KINDLE_INPUTS and target_extension in {'.epub', '.fb2'}

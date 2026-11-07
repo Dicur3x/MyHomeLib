@@ -7,6 +7,7 @@ uses System.SysUtils, System.Classes;
 const
   BOOK_QUALITY_MAXIMUM = 3;
   BOOK_QUALITY_NONE = 4;
+  MAX_PDF_CONVERSION_SOURCE = 512*1024*1024;
   BOOK_IMAGE_PROFILES: array[0..BOOK_QUALITY_NONE] of string =
     ('original','balanced','economy','maximum','none');
   BOOK_IMAGE_PROFILE_CAPTIONS: array[0..BOOK_QUALITY_NONE] of string =
@@ -95,6 +96,14 @@ begin
   end;
 end;
 
+
+function SaveOptionsAPI(const AppPath: string): Integer;
+begin
+  var Capability:=TPath.Combine(AppPath,'tools/bookconvert/SAVE_OPTIONS_API.txt');
+  Result:=0;
+  if FileExists(Capability) and (TFile.GetSize(Capability)<=16) then
+    Result:=StrToIntDef(Trim(TFile.ReadAllText(Capability,TEncoding.UTF8)),0);
+end;
 
 function IsValidScanPageExclusions(const Value: string): Boolean;
 var Parts: TArray<string>; First, Last: Integer;
@@ -265,13 +274,9 @@ begin
   end;
   if not ForReading and ((QualityProfile<>'original') or (ScanLayout<>'keep') or Grayscale) then
   begin
-    var Capability:=TPath.Combine(AppPath,'tools\bookconvert\SAVE_OPTIONS_API.txt');
-    var API:='';
-    if FileExists(Capability) and (TFile.GetSize(Capability)<=16) then
-      API:=Trim(TFile.ReadAllText(Capability,TEncoding.UTF8));
     var RequiredAPI:=1+Ord(TextLayerOnly);
     if Grayscale or (QualityProfile='maximum') then RequiredAPI:=3;
-    if StrToIntDef(API,0)<RequiredAPI then
+    if SaveOptionsAPI(AppPath)<RequiredAPI then
       if (Length(Missing)=0) or (Missing[0]<>'BookProcessing') then
         Missing:=TArray<string>.Create('BookProcessing')+Missing;
   end;
@@ -461,12 +466,13 @@ begin
     try
       MaximumInput:=64*1024*1024;
       if ImageProcessing or (ForReading and SameText(Extension,'.fb2')) then MaximumInput:=256*1024*1024;
-      if Input.Size>MaximumInput then
+      if Input.Size>64*1024*1024 then
       begin
         SavedPosition:=Input.Position;
         try
-          Input.Position:=0; SetLength(Header,8); Input.ReadBuffer(Header[0],8);
-          if ((Header[0]=$49) and (Header[1]=$49) and (Header[2]=$2A) and (Header[3]=0)) or
+          Input.Position:=0; SetLength(Header,1024); Input.ReadBuffer(Header[0],Length(Header));
+          if TEncoding.ASCII.GetString(Header).Contains('%PDF-') then MaximumInput:=MAX_PDF_CONVERSION_SOURCE
+          else if ((Header[0]=$49) and (Header[1]=$49) and (Header[2]=$2A) and (Header[3]=0)) or
              ((Header[0]=$4D) and (Header[1]=$4D) and (Header[2]=0) and (Header[3]=$2A)) or
              ((Header[0]=$50) and (Header[1]=$4B)) or
              ((Header[0]=$52) and (Header[1]=$61) and (Header[2]=$72) and (Header[3]=$21)) or
@@ -482,8 +488,11 @@ begin
     finally if not Assigned(Source) then Input.Free; end;
     Check;
     Actual:=DetectReaderExtension(InputName);
-    if (TFile.GetSize(InputName)>64*1024*1024) and
-      (Pos('|'+Actual+'|','|.tif|.tiff|.cbz|.cbr|.cb7|')=0) and
+    var IsLargeInput:=TFile.GetSize(InputName)>64*1024*1024;
+    if IsLargeInput and (Actual='.pdf') and (SaveOptionsAPI(AppPath)<4) then
+      raise EMHLComponentRequired.Create('BookProcessing','Для конвертации больших PDF обновите модуль подготовки книг.');
+    if IsLargeInput and
+      (Pos('|'+Actual+'|','|.pdf|.tif|.tiff|.cbz|.cbr|.cb7|')=0) and
       not ((ForReading and SameText(Actual,'.fb2')) or
         (ImageProcessing and ((Actual='.fb2') or (Actual='.epub')))) then
       raise Exception.Create('Для этого формата предел конвертации — 64 МБ.');

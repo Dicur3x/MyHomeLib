@@ -14,6 +14,7 @@ procedure PrepareExternalReaderFileInBackground(Owner: TComponent; const Book: T
 function PrepareReaderFile(const Book: TBookRecord; const PreserveImages: Boolean = False; const OnStage: TProc<string> = nil; OpenArchive: Boolean = False; ConvertKindle: Boolean = False; ConvertOffice: Boolean = False): string;
 procedure PrepareReaderFileInBackground(Owner: TComponent; const Book: TBookRecord;
   PreserveImages: Boolean; const OnReady: TProc<string>; OpenArchive: Boolean = False; ConvertKindle: Boolean = False; ConvertOffice: Boolean = False; const OnMissingComponent: TProc<string> = nil; const OnMissingComponents: TProc<TArray<string>> = nil);
+function IsReaderContainer(const FileName: string): Boolean;
 // False is an intermediate source for explicit text-only export; never a reading copy.
 function PrepareConversionSource(const Book: TBookRecord; const OnStage: TProc<string> = nil;
   const TargetExtension: string = ''; RestoreOriginalImages: Boolean = True): string;
@@ -633,7 +634,7 @@ begin
       // Archive entry paths are never used as output paths. Container layers
       // and ambiguous names are resolved after extracting one chosen member.
       if IsReaderContainer(Archive.FileNames[I]) then begin Nested.Add(I); Continue; end;
-      if (Archive.FileSizes[I]>0) and (Archive.FileSizes[I]<=64*1024*1024) and
+      if (Archive.FileSizes[I]>0) and (Archive.FileSizes[I]<=MAX_PDF_CONVERSION_SOURCE) and
         (Pos('|'+Extension+'|','|.fbd|.exe|.com|.dll|.msi|.bat|.cmd|.ps1|.js|.css|.ttf|.otf|.woff|.woff2|.mp3|.wav|.ogg|.m4b|.mp4|.torrent|.apk|')=0) and
         (not ConversionOnly or not SameText(Extension,TargetExtension)) then Unknown.Add(I);
       if ConversionOnly then
@@ -736,8 +737,8 @@ begin
       end);
       if Entry < 0 then Exit;
     end;
-    if ConversionOnly and ((Archive.FileSizes[Entry]<0) or (Archive.FileSizes[Entry]>256*1024*1024)) then
-      raise EReadError.Create('Книга в архиве превышает предел конвертации (256 МБ).');
+    if ConversionOnly and ((Archive.FileSizes[Entry]<0) or (Archive.FileSizes[Entry]>MAX_PDF_CONVERSION_SOURCE)) then
+      raise EReadError.Create('Книга в архиве превышает предел конвертации (512 МБ).');
     Member := Archive.FileNames[Entry]; Extension := LowerCase(ExtractFileExt(Member));
     Folder:=BookCachePath;
     if (Extension = FB2_EXTENSION) and ConvertImages then

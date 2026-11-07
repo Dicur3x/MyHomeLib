@@ -3,7 +3,9 @@
 MIT. Uses only the PDFium and DjVuLibre already shipped with HomeLib Ru.
 No OCR, network requests, source edits or new third-party runtime.
 """
+from contextlib import contextmanager
 import ctypes as C
+import os
 from pathlib import Path
 import re
 import statistics
@@ -187,6 +189,13 @@ def check_content(book, text_count, format_name):
         book.fail(f'В {format_name} нет текста или изображений для конвертации.')
 
 
+PDFGetBlock = C.CFUNCTYPE(C.c_int, C.c_void_p, C.c_ulong, C.c_void_p, C.c_ulong)
+
+
+class PDFFileAccess(C.Structure):
+    _fields_ = [('length', C.c_ulong), ('get_block', PDFGetBlock), ('parameter', C.c_void_p)]
+
+
 class PDF:
     def __init__(self, tools, fail):
         path = tools / 'pdfium' / 'pdfium.dll'
@@ -196,7 +205,7 @@ class PDF:
         P, I, D, F = C.c_void_p, C.c_int, C.c_double, C.c_float
         signatures = {
             'FPDF_InitLibrary': (None, []), 'FPDF_DestroyLibrary': (None, []),
-            'FPDF_LoadMemDocument64': (P, [P, C.c_size_t, C.c_char_p]), 'FPDF_CloseDocument': (None, [P]),
+            'FPDF_LoadCustomDocument': (P, [C.POINTER(PDFFileAccess), C.c_char_p]), 'FPDF_CloseDocument': (None, [P]),
             'FPDF_GetPageCount': (I, [P]), 'FPDF_LoadPage': (P, [P, I]), 'FPDF_ClosePage': (None, [P]),
             'FPDF_GetPageWidth': (D, [P]), 'FPDF_GetPageHeight': (D, [P]),
             'FPDFText_LoadPage': (P, [P]), 'FPDFText_ClosePage': (None, [P]),
@@ -210,6 +219,34 @@ class PDF:
         }
         for name, (result, args) in signatures.items():
             function = getattr(self.dll, name); function.restype = result; function.argtypes = args; setattr(self, name, function)
+
+    @contextmanager
+    def open_document(self, source, fail):
+        # PDFium may request blocks lazily while loading individual pages.
+        # Keep the stream and its C callback alive until CloseDocument.
+        with source.open('rb') as stream:
+            length = os.fstat(stream.fileno()).st_size
+
+            @PDFGetBlock
+            def read_block(_parameter, position, buffer, size):
+                if position + size > length or (size and not buffer):
+                    return 0
+                if not size:
+                    return 1
+                try:
+                    stream.seek(position)
+                    return int(stream.readinto((C.c_ubyte * size).from_address(buffer)) == size)
+                except (OSError, ValueError, OverflowError):
+                    return 0
+
+            access = PDFFileAccess(length, read_block, None)
+            document = self.FPDF_LoadCustomDocument(C.byref(access), None)
+            if not document:
+                fail('PDF повреждён или защищён паролем. Текст не прочитан.')
+            try:
+                yield document
+            finally:
+                self.FPDF_CloseDocument(document)
 
     def page(self, page, fail, spread_detail=False, render=True):
         width, height = self.FPDF_GetPageWidth(page), self.FPDF_GetPageHeight(page)
@@ -267,10 +304,7 @@ def read_pdf(book, tools):
         book.require('PDFium', 'Для этой книги нужен модуль чтения PDF.')
     api = PDF(tools, book.fail); api.FPDF_InitLibrary()
     try:
-        data = book.source.read_bytes(); buffer = C.create_string_buffer(data)
-        document = api.FPDF_LoadMemDocument64(buffer, len(data), None)
-        if not document: book.fail('PDF повреждён или защищён паролем. Текст не прочитан.')
-        try:
+        with api.open_document(book.source, book.fail) as document:
             count = api.FPDF_GetPageCount(document)
             if not 0 < count <= 5000: book.fail('Недопустимое число страниц PDF (предел 5000).')
             book.page_count=count
@@ -289,7 +323,6 @@ def read_pdf(book, tools):
                 finally: api.FPDF_ClosePage(page)
                 book.progress('pages', i + 1, count)
             check_content(book, letters, 'PDF')
-        finally: api.FPDF_CloseDocument(document)
     finally: api.FPDF_DestroyLibrary()
 
 

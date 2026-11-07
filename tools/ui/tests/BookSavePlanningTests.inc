@@ -548,6 +548,23 @@ var Root, Required, Status: string; Books: TArray<TBookRecord>; Hashes: TArray<s
 begin
   Root:=Settings.AppPath+'mixed-save-inputs';
   Require(DirectoryExists(Root),'Real mixed conversion fixtures were not prepared');
+  var LargeSource:=TPath.Combine(Root,'large.3-pdf');
+  if FileExists(LargeSource) then
+  begin
+    var BeforeHash:=UpdateSHA256(LargeSource);
+    var LargeOutput:=TPath.Combine(Root,'large.epub');
+    ConvertBasicBook(Settings.AppPath,Settings.TempPath,LargeSource,'.3-pdf',LargeOutput,nil,nil,
+      nil,'','','',False,nil,'maximum',nil,False,'',False,'',False,True);
+    var LargeBook:=TReaderDocument.Create;
+    try
+      LargeBook.Load(LargeOutput);
+      Require(LargeBook.PlainText.Contains('First readable paragraph') and
+        LargeBook.PlainText.Contains('Last paragraph preserves') and (LargeBook.ImageCount>0),
+        'Large misnamed PDF did not preserve its text and illustrations');
+      Require(UpdateSHA256(LargeSource)=BeforeHash,'Large PDF conversion modified the source');
+    finally LargeBook.Free; TFile.Delete(LargeOutput); end;
+    Writeln('PASS native Save As converter accepts a PDF over 64 MiB with a false extension'); Flush(Output);
+  end;
   var Names:TArray<string>:=TArray<string>.Create('source.fb2','source.epub','source.pdf','source.djvu','scan.pdf','scan.djvu');
   if FileExists(TPath.Combine(Root,'source.doc')) then Names:=Names+TArray<string>.Create('source.doc');
   SetLength(Books,Length(Names)); SetLength(Hashes,Length(Names));
@@ -573,9 +590,9 @@ begin
   for var I:=0 to High(Items) do
   begin
     Require(Items[I].Completed and (Items[I].ErrorText=''),Names[I]+': '+Items[I].ErrorText);
-    for var Q:=0 to 2 do
+    for var Q:=0 to BOOK_QUALITY_MAXIMUM do
       Require((Items[I].Options.OutputBytes[0,Q]>0) and (Items[I].Options.ZipOutputBytes[0,Q]>0),
-        Names[I]+': original/balanced/economy size was not estimated');
+        Names[I]+': size was not estimated for an image mode');
     if I<2 then Require(Items[I].Options.OutputBytes[0,BOOK_QUALITY_NONE]>0,'Illustrated text has no no-images estimate');
     Require(UpdateSHA256(Books[I].GetBookFileName)=Hashes[I],'Mixed estimate changed its source');
   end;

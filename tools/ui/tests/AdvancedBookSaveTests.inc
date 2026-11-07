@@ -199,6 +199,10 @@ begin
   for var Item in BookSaveChoices(['.fb2','.epub','.docx'],True) do
     if Item.Mode=emEpub3 then HasEpub3:=True;
   Require(HasEpub3,'Mixed FB2, EPUB and DOCX cannot choose EPUB 3');
+  HasEpub3:=False;
+  for var Item in BookSaveChoices(['.3-pdf','.epub'],True,[True,False]) do
+    if Item.Mode=emEpub3 then HasEpub3:=True;
+  Require(HasEpub3,'Unknown archived book was rejected before inspecting its bytes');
   var MarkdownChoices:=BookSaveChoices(['.md','.markdown'],True);
   Require(MarkdownChoices[0].KeepOriginal and MarkdownChoices[0].Caption.Contains('Markdown'),
     'Markdown source copy is not labeled');

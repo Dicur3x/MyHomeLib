@@ -58,6 +58,14 @@ def pdf_fixture(text=True, ocr=False, pages=1, image_only_last=False):
     result.extend(f'trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF'.encode()); return bytes(result)
 
 
+def write_large_pdf_fixture(source):
+    body, footer = pdf_fixture(pages=2).rsplit(b'startxref', 1)
+    with source.open('wb') as stream:
+        stream.write(body)
+        stream.seek(68 * 1024 * 1024)
+        stream.write(b'\nstartxref' + footer)
+
+
 def pdb_fixture(text, compressed=False, kind=b'TEXtREAd'):
     record = b'\x00\x02\x00\x00' if compressed else b'\x00\x01\x00\x00'
     record += struct.pack('>IHHI', len(text), 1, 4096, 0)
@@ -248,6 +256,23 @@ class LegacyFixed(unittest.TestCase):
         report, text, images = self.convert('.123456', pdf_fixture(), '.fb2')
         self.assertIn('First readable paragraph', text); self.assertIn('Last paragraph preserves', text); self.assertGreaterEqual(len(images), 1)
         self.assertTrue(any('OCR' in w for w in report['warnings']))
+
+    @unittest.skipUnless(os.name == 'nt' and (TOOLS/'pdfium/pdfium.dll').is_file(), 'bundled Windows PDFium')
+    def test_large_pdf_with_wrong_suffix_preserves_text_and_images(self):
+        source = self.root / 'large.3-pdf'
+        write_large_pdf_fixture(source)
+        with source.open('rb') as stream:
+            expected = hashlib.file_digest(stream, 'sha256').hexdigest()
+        output = self.root / 'large.epub'
+        c.convert_book(source, output, tools_root=TOOLS, image_quality='maximum', grayscale=True)
+        with zipfile.ZipFile(output) as archive:
+            self.assertIsNone(archive.testzip())
+            text = archive.read('OEBPS/book.xhtml')
+            self.assertEqual(text.count(b'First readable paragraph'), 2)
+            self.assertIn(b'Last paragraph preserves', text)
+            self.assertTrue(any('/images/' in name for name in archive.namelist()))
+        with source.open('rb') as stream:
+            self.assertEqual(hashlib.file_digest(stream, 'sha256').hexdigest(), expected)
 
     @unittest.skipUnless(os.name == 'nt' and (TOOLS/'pdfium/pdfium.dll').is_file(), 'bundled Windows PDFium')
     def test_actual_pdf_page_progress_and_atomic_cli_record(self):

@@ -4,6 +4,7 @@ import base64
 import importlib.util
 import io
 import json
+import os
 import shutil
 import subprocess
 import tarfile
@@ -52,6 +53,8 @@ def prepare(profile, runtime, doc_payload=None):
     spec.loader.exec_module(helpers)
     (target / 'source.pdf').write_bytes(helpers.pdf_fixture())
     (target / 'scan.pdf').write_bytes(helpers.pdf_fixture(text=False))
+    if os.environ.get('HOMELIB_TEST_LARGE_PDF') == '1':
+        helpers.write_large_pdf_fixture(target / 'large.3-pdf')
     source = target / 'djvu-original.djvu'
     try:
         with tarfile.open(runtime / 'tools/djvu/djvulibre-3.5.29.tar.gz') as archive:

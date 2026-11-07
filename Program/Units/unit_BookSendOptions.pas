@@ -83,7 +83,7 @@ implementation
 
 uses System.SysUtils, System.StrUtils, System.IOUtils, System.Math, System.Types, Winapi.Windows, Winapi.Messages, Winapi.ActiveX,
   Vcl.Controls, Vcl.Dialogs, Vcl.Graphics, unit_Helpers, unit_MHLTheme, dm_user,
-  unit_Templater, unit_BookConversion, unit_BookEstimateReport, unit_EpubPdfRuntime, unit_BookConversionRequirements;
+  unit_Templater, unit_BookConversion, unit_BookEstimateReport, unit_EpubPdfRuntime, unit_BookConversionRequirements, unit_ReaderCache;
 
 const
   SaveLayoutCaptions: array[0..2] of string = ('Список и настройки','Большой список','Два раздела');
@@ -281,13 +281,21 @@ begin
 end;
 
 procedure TBookSendOptionsForm.SetBooks(const Books: TArray<TBookRecord>);
-var Extensions: TArray<string>;
+var Extensions: TArray<string>; PendingSources: TArray<Boolean>;
 begin
   FBooks:=Copy(Books); FPreviewIndex:=0; SetLength(Extensions,Length(Books));
+  SetLength(PendingSources,Length(Books));
   for var I:=0 to High(Books) do
-    try Extensions[I]:=BookSaveKnownExtension(Books[I]); except Extensions[I]:=LowerCase(Books[I].FileExt); end;
+  begin
+    try
+      Extensions[I]:=BookSaveKnownExtension(Books[I]);
+      if (Books[I].FileName<>'') and not IsBasicConversionSource(Extensions[I]) then
+        PendingSources[I]:=(Books[I].GetBookFormat in [bfFb2Archive,bfRawArchive,bfFbd]) or
+          IsReaderContainer('book'+Extensions[I]);
+    except Extensions[I]:=LowerCase(Books[I].FileExt); end;
+  end;
   FFormat.ItemIndex:=-1;
-  FChoices:=BookSaveChoices(Extensions,True);
+  FChoices:=BookSaveChoices(Extensions,True,PendingSources);
   FPrimaryChoiceCount:=Length(FChoices);
   for var I:=0 to High(FChoices) do if FChoices[I].Mode in BOOK_SAVE_ADVANCED_MODES then
   begin FPrimaryChoiceCount:=I; Break; end;

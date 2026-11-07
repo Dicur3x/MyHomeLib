@@ -15,7 +15,8 @@ const BOOK_SAVE_DEVICE_MODES: array[0..5] of TExportMode =
   (emFB2,emFB2Zip,emEpub,emTxt,emMobi,emAZW3);
   BOOK_SAVE_ADVANCED_MODES = [emEpub2,emEpub3,emKepub,emKfx,emAzw8,emAdvancedPDF,emMarkdown];
 
-function BookSaveChoices(const Extensions: TArray<string>; ShowAdvanced: Boolean = False): TArray<TBookSaveChoice>;
+function BookSaveChoices(const Extensions: TArray<string>; ShowAdvanced: Boolean = False;
+  const PendingSources: TArray<Boolean> = nil): TArray<TBookSaveChoice>;
 function BookSaveAdvancedProfile(Mode: TExportMode): string;
 function BookSaveSupportsNoImages(Mode: TExportMode): Boolean;
 function BookSaveTargetLabel(const Extension: string; Mode: TExportMode): string;
@@ -193,7 +194,8 @@ begin
     if (Choices[I].Mode=Mode) and not Choices[I].KeepFB2EPUB then Exit(I);
 end;
 
-function BookSaveChoices(const Extensions: TArray<string>; ShowAdvanced: Boolean): TArray<TBookSaveChoice>;
+function BookSaveChoices(const Extensions: TArray<string>; ShowAdvanced: Boolean;
+  const PendingSources: TArray<Boolean>): TArray<TBookSaveChoice>;
 var AllFB2, AllEPUB, AllTXT, AllMOBI, AllAZW3, HasFB2EPUB, HasOther, CanKepub, CanPDF, AllPDF,
   AllMarkdown, CanMarkdown, CanEpub2, CanEpub3, CanKfx: Boolean;
   procedure Add(const Caption: string; Mode: TExportMode; KeepOriginal, KeepFB2EPUB: Boolean);
@@ -209,19 +211,22 @@ begin
   HasFB2EPUB:=False; HasOther:=False; CanKepub:=AllFB2; CanPDF:=AllFB2; AllPDF:=AllFB2;
   CanMarkdown:=AllFB2; AllMarkdown:=AllFB2; CanEpub2:=AllFB2; CanEpub3:=AllFB2;
   CanKfx:=AllFB2;
-  for var Extension in Extensions do
+  for var I:=0 to High(Extensions) do
   begin
-    var Ext:=NormalExtension(Extension);
+    var Ext:=NormalExtension(Extensions[I]);
+    // Archive entries may carry legacy names or be nested. The export
+    // worker checks the actual payload before choosing or running a writer.
+    var Pending:=(I<Length(PendingSources)) and PendingSources[I];
     AllFB2:=AllFB2 and (Ext='.fb2'); AllEPUB:=AllEPUB and (Ext='.epub');
     AllTXT:=AllTXT and (Ext='.txt');
     AllPDF:=AllPDF and (Ext='.pdf');
     AllMarkdown:=AllMarkdown and ((Ext='.md') or (Ext='.markdown'));
-    CanMarkdown:=CanMarkdown and (AdvancedWriterComponent(Ext,'md')<>'');
-    CanEpub2:=CanEpub2 and (AdvancedWriterComponent(Ext,'epub2')<>'');
-    CanEpub3:=CanEpub3 and (AdvancedWriterComponent(Ext,'epub3')<>'');
-    CanKepub:=CanKepub and (AdvancedWriterComponent(Ext,'kepub')<>'');
-    CanKfx:=CanKfx and (AdvancedWriterComponent(Ext,'kfx')<>'');
-    CanPDF:=CanPDF and ((Ext='.pdf') or (AdvancedWriterComponent(Ext,'pdf')<>''));
+    CanMarkdown:=CanMarkdown and (Pending or (AdvancedWriterComponent(Ext,'md')<>''));
+    CanEpub2:=CanEpub2 and (Pending or (AdvancedWriterComponent(Ext,'epub2')<>''));
+    CanEpub3:=CanEpub3 and (Pending or (AdvancedWriterComponent(Ext,'epub3')<>''));
+    CanKepub:=CanKepub and (Pending or (AdvancedWriterComponent(Ext,'kepub')<>''));
+    CanKfx:=CanKfx and (Pending or (AdvancedWriterComponent(Ext,'kfx')<>''));
+    CanPDF:=CanPDF and (Pending or (Ext='.pdf') or (AdvancedWriterComponent(Ext,'pdf')<>''));
     AllMOBI:=AllMOBI and (Ext='.mobi'); AllAZW3:=AllAZW3 and (Ext='.azw3');
     if (Ext='.fb2') or (Ext='.epub') then HasFB2EPUB:=True else HasOther:=True;
   end;
