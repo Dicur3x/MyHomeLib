@@ -46,6 +46,7 @@ begin
   begin
     if Item.Options.FirstSamples then Result:='Приблизительно, по первым страницам'
     else if Item.Completed then Result:='Рассчитано'
+    else if Item.CatalogueSize then Result:='Размер из каталога, без распаковки'
     else Result:='Известен размер исходной копии';
   end
   else if not Item.Completed then Result:='Расчёт не завершён'

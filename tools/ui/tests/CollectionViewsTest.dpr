@@ -6140,6 +6140,7 @@ begin
       else if ParamStr(1) = 'minimum-save' then TestMinimumBookSaving
       else if ParamStr(1) = 'kindle-save' then TestKindleBookSaving
       else if ParamStr(1) = 'advanced-save' then TestAdvancedBookSaving
+      else if ParamStr(1) = 'known-copy-estimates' then TestArchivedKnownBookSaveEstimates
       else if ParamStr(1) = 'save-planning' then TestBookSavePlanning
       else if ParamStr(1) = 'reader-portable' then TestReaderPortableStartup
       else if ParamStr(1) = 'save-module-restart' then TestSaveModuleRestart

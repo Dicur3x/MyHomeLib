@@ -10,7 +10,7 @@ type
     SourceExtension, TargetExtension, ErrorText, RequiredComponent: string;
     RequiredComponents: TArray<string>;
     Options: TBookImageQualityOptions;
-    Completed, ImagesUnchanged: Boolean;
+    Completed, ImagesUnchanged, CatalogueSize: Boolean;
   end;
   TBookSaveEstimateItems = TArray<TBookSaveEstimateItem>;
 
@@ -45,7 +45,7 @@ implementation
 
 uses System.IOUtils, System.StrUtils, System.ZLib, unit_ReaderCache, unit_BookCache,
   unit_ComponentUpdates, unit_MHLExternalTools, unit_ReaderFormats, unit_Diagnostics, unit_Settings, dm_user,
-  unit_BookConversionRequirements;
+  unit_BookConversionRequirements, System.Generics.Collections;
 
 type
   TSizeCounter = class(TStream)
@@ -80,8 +80,11 @@ end;
 
 function KnownBookSaveEstimates(const Books: TArray<TBookRecord>;
   const Plan: TBookSaveChoice): TBookSaveEstimateItems;
+var ArchiveAvailability: TDictionary<string,Boolean>;
 begin
   SetLength(Result,Length(Books));
+  ArchiveAvailability:=TDictionary<string,Boolean>.Create;
+  try
   for var I:=0 to High(Books) do
   begin
     Result[I]:=Default(TBookSaveEstimateItem);
@@ -94,17 +97,38 @@ begin
         (not KeepSource and ((Result[I].TargetExtension='.mobi') or (Result[I].TargetExtension='.azw3') or
         (Plan.Mode in BOOK_SAVE_ADVANCED_MODES))));
       if (KeepSource or not (Plan.Mode in BOOK_SAVE_ADVANCED_MODES)) and
-        (Books[I].FileName<>'') and SameText(Result[I].SourceExtension,Result[I].TargetExtension) and
-        not (Books[I].GetBookFormat in [bfFb2Archive,bfRawArchive,bfFbd]) and FileExists(Books[I].GetBookFileName) then
+        (Books[I].FileName<>'') and SameText(Result[I].SourceExtension,Result[I].TargetExtension) then
       begin
-        var Bytes:=TFile.GetSize(Books[I].GetBookFileName);
-        Result[I].Options.OutputBytes[0,0]:=Bytes;
-        if Result[I].ImagesUnchanged then for var Q:=1 to 3 do Result[I].Options.OutputBytes[0,Q]:=Bytes;
+        var Bytes: Int64:=0;
+        var Source:=Books[I].GetBookFileName;
+        var BookFormat:=Books[I].GetBookFormat;
+        if BookFormat in [bfFb2Archive,bfRawArchive] then
+        begin
+          // The index already carries a ZIP member's uncompressed size. Do
+          // not unpack books or read every central directory on the UI thread.
+          // FLibrary 7z can restore separate images, so its index size is not
+          // the size of the saved book and still needs the explicit estimate.
+          if (Books[I].Size>0) and SameText(ExtractFileExt(Source),'.zip') then
+          begin
+            var Available: Boolean;
+            if not ArchiveAvailability.TryGetValue(Source,Available) then
+            begin Available:=FileExists(Source); ArchiveAvailability.Add(Source,Available); end;
+            if Available then
+            begin Bytes:=Books[I].Size; Result[I].CatalogueSize:=True; end;
+          end;
+        end
+        else if (BookFormat<>bfFbd) and FileExists(Source) then Bytes:=TFile.GetSize(Source);
+        if Bytes>0 then
+        begin
+          Result[I].Options.OutputBytes[0,0]:=Bytes;
+          if Result[I].ImagesUnchanged then for var Q:=1 to 3 do Result[I].Options.OutputBytes[0,Q]:=Bytes;
+        end;
       end;
     except
       on E: Exception do Result[I].ErrorText:=E.Message;
     end;
   end;
+  finally ArchiveAvailability.Free; end;
 end;
 
 constructor TBookSendEstimateThread.Create(const Books: TArray<TBookRecord>;

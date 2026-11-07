@@ -6,6 +6,7 @@ type
     CancelOptions, CancelQuality, ShellSurrogate: Boolean;
     VerifyInitial, ViewsVerified: Boolean;
     Initial: TBookSendOptions;
+    ExpectedKnownSizes: TArray<Int64>;
     Destination, Failure, FolderMask: string;
     Deadline: UInt64;
     SavedModal, SavedShow: TNotifyEvent;
@@ -144,6 +145,20 @@ begin
       Inc(Dialogs);
       var Formats:=TComboBox(Dialog.FindComponent('SendFormat'));
       var Images:=TComboBox(Dialog.FindComponent('SendImages'));
+      if Length(ExpectedKnownSizes)>0 then
+      begin
+        var KnownFiles:=TListView(Dialog.FindComponent('SaveBookSizes'));
+        Require(KnownFiles.Items.Count=Length(ExpectedKnownSizes),'Known ZIP sizes lost selected books');
+        for var J:=0 to High(ExpectedKnownSizes) do
+        begin
+          var Entry:=KnownFiles.Items[J]; KnownFiles.OnData(KnownFiles,Entry);
+          Require((Entry.SubItems[1]='≈ '+BookEstimateSizeText(ExpectedKnownSizes[J])) and
+            Entry.SubItems[2].Contains('каталога'),'Normal Save As does not display the known ZIP member size');
+        end;
+        Require(string(TLabel(Dialog.FindComponent('SaveSizeSummary')).Caption).Contains('≈ '),
+          'Normal Save As does not display the known batch total');
+        Dialog.ModalResult:=mrCancel; Exit;
+      end;
       if VerifyInitial then
       begin
         Require(TComboBox(Dialog.FindComponent('SaveNameCollision')).ItemIndex=Ord(Initial.NameCollision),

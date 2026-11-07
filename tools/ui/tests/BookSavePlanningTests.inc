@@ -221,6 +221,62 @@ begin
   Writeln('PASS save continuation exact Unicode options remaining identities one consumer live owner stale source unrelated update and bounded count');
 end;
 
+procedure TestArchivedKnownBookSaveEstimates;
+var ArchiveName: string; Archive: TZipFile; Books: TArray<TBookRecord>;
+  Choice: TBookSaveChoice; Items: TBookSaveEstimateItems; Probe: TUnifiedSendProbe;
+  Options, Initial: TBookSendOptions;
+begin
+  RequireIsolatedRegression;
+  ArchiveName:=Settings.AppPath+'known-copy-size.zip';
+  TFile.WriteAllText(Settings.AppPath+'known-size.fb2',StringOfChar('F',2048),TEncoding.UTF8);
+  TFile.WriteAllText(Settings.AppPath+'known-size.pdf','%PDF-1.4 '+StringOfChar('P',4096),TEncoding.ASCII);
+  Archive:=TZipFile.Create;
+  try
+    Archive.Open(ArchiveName,zmWrite);
+    Archive.Add(Settings.AppPath+'known-size.fb2','nested/book.fb2');
+    Archive.Add(Settings.AppPath+'known-size.pdf','nested/book.pdf');
+  finally Archive.Free; end;
+  Books:=[FileBook(Settings.AppPath+'known-size.fb2'),FileBook(Settings.AppPath+'known-size.pdf')];
+  for var I:=0 to High(Books) do
+  begin
+    Books[I].CollectionRoot:=Settings.AppPath; Books[I].Folder:='known-copy-size.zip';
+    Books[I].FileName:='nested/book'; Books[I].Size:=TFile.GetSize(Settings.AppPath+'known-size'+Books[I].FileExt);
+  end;
+  Choice:=BookSaveChoices(['fb2','pdf'])[0]; Items:=KnownBookSaveEstimates(Books,Choice);
+  Require((Items[0].Options.OutputBytes[0,0]=Books[0].Size) and Items[0].CatalogueSize and
+    (Items[0].Options.OutputBytes[0,1]=0),'ZIP copy size missing or image optimization size invented');
+  Require((Items[1].Options.OutputBytes[0,3]=Books[1].Size) and Items[1].CatalogueSize,
+    'Unchanged archived PDF does not retain its known size for all image choices');
+  var Hash:=UpdateSHA256(ArchiveName);
+  Probe:=TUnifiedSendProbe.Create;
+  try
+    Probe.ExpectedKnownSizes:=[Books[0].Size,Books[1].Size]; Probe.Deadline:=GetTickCount64+10000;
+    Probe.Timer:=TTimer.Create(nil); Probe.Timer.Interval:=50; Probe.Timer.OnTimer:=Probe.Tick;
+    Initial:=Default(TBookSendOptions); Initial.KeepSourceFormat:=True; Initial.Mode:=emFB2;
+    Initial.Folder:=Settings.AppPath; Initial.FileNameTemplate:='%t'; Initial.ImageQuality:='original';
+    Require(not ChooseBookSendOptions(2,Settings.AppPath,emFB2,Options,True,Books,@Initial),
+      'Known-size dialog cancellation started a save');
+    Require((Probe.Dialogs=1) and (Probe.Failure=''),'Known-size dialog was not checked');
+  finally Probe.Timer.Free; Probe.Free; end;
+  var Original:=Books[0]; Books[0].Size:=0; Items:=KnownBookSaveEstimates(Books,Choice);
+  Require(Items[0].Options.OutputBytes[0,0]=0,'Missing catalogue size was invented');
+  Books[0]:=Original; Books[0].Folder:='missing-known-copy-size.zip';
+  Items:=KnownBookSaveEstimates(Books,Choice);
+  Require(Items[0].Options.OutputBytes[0,0]=0,'Missing ZIP archive reported a locally available copy size');
+  TFile.Copy(ArchiveName,ChangeFileExt(ArchiveName,'.7z'));
+  Books[0]:=Original; Books[0].Folder:='known-copy-size.7z';
+  Items:=KnownBookSaveEstimates(Books,Choice);
+  Require(Items[0].Options.OutputBytes[0,0]=0,'FLibrary reconstruction was estimated from the index alone');
+  Choice.KeepOriginal:=False; Choice.KeepFB2EPUB:=False; Choice.Mode:=emEpub;
+  Books[0]:=Original; Items:=KnownBookSaveEstimates(Books,Choice);
+  Require(Items[0].Options.OutputBytes[0,0]=0,'Conversion incorrectly reused original ZIP member size');
+  Choice.Mode:=emFB2Zip; Items:=KnownBookSaveEstimates(Books,Choice);
+  Require((Items[0].Options.OutputBytes[0,0]=Books[0].Size) and
+    (Items[0].Options.ZipOutputBytes[0,0]=0),'ZIP wrapping size was invented before compression');
+  Require(UpdateSHA256(ArchiveName)=Hash,'Known-size dialog changed the source archive');
+  Writeln('PASS known ZIP copy sizes appear in the normal Save As dialog without extraction or guessed conversion output');
+end;
+
 procedure TestBookSaveEstimates;
 const XML='<?xml version="1.0" encoding="utf-8"?><FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0">'+
   '<description><title-info><book-title>Оценка Ё</book-title><lang>ru</lang></title-info></description>'+

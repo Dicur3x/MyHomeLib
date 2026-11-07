@@ -5567,5 +5567,33 @@
     "report": "tools/ui/tests/Out/packing-menu-minimum-Win64-20261107.json",
     "temporary_root": "G:/HomeLibRu-build-cache/HomeLibre-beta5-packing-ui-26oui3pb",
     "cleanup": "The GUI test application was closed normally. The owned fixture is retained for x86 and size-label follow-up and is not claimed cleaned. All paths are on G:. Previously denied directories were untouched."
+  },
+  "collection_packing_minimal_menu_both_architectures_20261107": {
+    "status": "Normal production menu, actual folder/profile choices and original-format export passed in both minimal test packages. Beta 5 numeric resources and public package delivery remain release gates.",
+    "Win32": "Reversible packing offered only BookProcessing. After canceling the public offer, the exact local 3.0.0.5 component was installed by the native installer. A normal new catalogue process packed six books from two ZIP files and registered a distinct active collection. All six original-format exports matched the expected source hashes.",
+    "Win64": "The earlier recorded maximum-plus-grayscale run required only BookProcessing and ImageProcessing, retained profile after canceled review and registered a separate catalogue. The same six source-format exports matched exact source hashes.",
+    "limits": "Both are current production source builds using beta 4 numeric resources for internal testing. Existing external 7-Zip was available. The small test payloads did not compress further; original ZIPs were retained. Local native component installation does not prove public beta 5 download.",
+    "reports": [
+      "tools/ui/tests/Out/packing-menu-minimum-Win32-20261107.json",
+      "tools/ui/tests/Out/packing-menu-minimum-Win64-20261107.json"
+    ],
+    "follow_up": "Both normal Save As windows omitted already known sizes for unchanged ZIP member copies. A focused repair and native dialog regression are in progress.",
+    "cleanup": "Both owned GUI processes closed normally, confirmed by process enumeration. The exact isolated G: fixture remains for size-label follow-up; no cleanup claim is made. Previously denied directories were not retried."
+  },
+  "known_zip_source_copy_sizes_20261107": {
+    "status": "Implemented and passed native modal-dialog and ordinary production GUI checks on x86 and x64. Final beta 5 archives/public update gate remain open.",
+    "change": "Unchanged ordinary ZIP members now show their existing catalogue size immediately. Archive availability is cached for the selected batch, with no extraction or central-directory scan on the UI thread. The detailed reason explicitly identifies catalogue metadata. Converted output, new ZIP compressed output, absent/zero-size sources and FLibrary 7z image reconstruction remain unestimated until the explicit calculation.",
+    "native": "The dedicated known-copy-estimates mode passed on both architectures. It invokes the actual Save As modal dialog, checks member rows and aggregate, cancels and verifies the source ZIP hash. The initial test build caught an inaccessible local formatting helper in the test; that harness issue was corrected before the successful builds. The initial run against a minimal runtime was refused by the harness because its usual WebP test dependency was absent; rerunning with the standard test runtime passed.",
+    "production": "Both rebuilt catalogue EXEs replaced only their respective owned minimal-fixture EXE. Ordinary Ctrl+A then Ctrl+D showed six unchanged source formats and 41.1 KB immediately, with no Estimate click. Cancel left exactly six earlier source-identical outputs and no extra file. These fixtures still use beta 4 numeric resources, so no final beta 5 package claim is made.",
+    "catalogue_sha256": {
+      "Win32": "b185b47c33d4affb0f7e81717f2c107a21976688d80c4b15d5bd7e0415c60c48",
+      "Win64": "700163657291ba27812816c3b43329ecf7e4514a625e7e49ab0bc299ec261e2a"
+    },
+    "test_sha256": {
+      "Win32": "2b74699cc88134da9d01714a995788519e7e9716a5f74c0aa93cf944811eb754",
+      "Win64": "724ffc8505fc111bc7eaff72f50f4deee2030ba7401a097bdfc0f0bb9562cd2c"
+    },
+    "report": "tools/ui/tests/Out/known-copy-estimates-production-20261107.json",
+    "cleanup": "Both GUI applications closed normally and process enumeration found no remaining owned application. The automatic approval policy rejected recursive deletion of G:/HomeLibRu-build-cache/HomeLibre-beta5-packing-ui-26oui3pb with reason blocked by policy. This directory remains and must not be retried through a different tool or parent path. Build logs were copied into tools/ui/tests/Out. No Android emulator is running."
   }
 }
