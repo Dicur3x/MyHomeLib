@@ -1,4 +1,151 @@
 ﻿type
+  TFileDropPromptProbe = class
+  public
+    ExpectedPrompt: string;
+    Reply: Integer;
+    PromptSeen: Boolean;
+    procedure Poll(Sender: TObject);
+  end;
+
+procedure TFileDropPromptProbe.Poll(Sender: TObject);
+var Active: TCustomForm;
+begin
+  Active := Screen.ActiveForm;
+  if Active is TImportProgressFormEx then
+  begin
+    if TImportProgressFormEx(Active).btnCancel.Caption = 'Закрыть' then
+      Active.ModalResult := mrOk;
+    Exit;
+  end;
+  if not Assigned(Active) or (Active = frmMain) then Exit;
+  for var Index := 0 to Active.ComponentCount - 1 do
+  begin
+    var Item := Active.Components[Index];
+    if (Item is TLabel) and (TLabel(Item).Caption = ExpectedPrompt) then
+    begin
+      PromptSeen := True;
+      Active.ModalResult := Reply;
+      Exit;
+    end;
+  end;
+end;
+
+procedure TestExplorerFileDrop(const Catalog, OtherCatalog: IBookCollection);
+var
+  Folder, First, Second, FirstHash, SecondHash, Name: string;
+  Watch: TTimer;
+  Probe: TFileDropPromptProbe;
+  SavedDialogs: Boolean;
+
+  procedure DropOnBookList(const Paths: TArray<string>);
+  var
+    Items: TArray<PItemIDList>;
+    ShellItems: IShellItemArray;
+    Data: IDataObject;
+    Target: IDropTarget;
+    Attributes: DWORD;
+    Effect: Longint;
+    DropPoint: TPoint;
+  begin
+    SetLength(Items, Length(Paths));
+    try
+      for var Index := 0 to High(Paths) do
+      begin
+        Attributes := 0;
+        Require(Succeeded(SHParseDisplayName(PChar(Paths[Index]), nil, Items[Index], 0, Attributes)),
+          'The Shell could not resolve a drop fixture');
+      end;
+      Require(Succeeded(SHCreateShellItemArrayFromIDLists(Length(Items), @Items[0], ShellItems)),
+        'The Shell could not group the dropped books');
+      Require(Succeeded(ShellItems.BindToHandler(nil, BHID_DataObject, IDataObject, Data)),
+        'The Shell could not make file drop data');
+      Target := frmMain.tvBooksA.DragManager as IDropTarget;
+      DropPoint := frmMain.tvBooksA.ClientToScreen(Point(30, 40));
+      Effect := DROPEFFECT_COPY or DROPEFFECT_MOVE;
+      Require(Succeeded(Target.DragEnter(Data, MK_LBUTTON, DropPoint, Effect)) and
+        (Effect = DROPEFFECT_COPY), 'The book list did not offer to copy Shell files');
+      Require(Succeeded(Target.Drop(Data, 0, DropPoint, Effect)) and
+        (Effect = DROPEFFECT_COPY), 'The book list did not accept the Shell file drop');
+    finally
+      for var Item in Items do CoTaskMemFree(Item);
+    end;
+  end;
+
+  procedure DropFiles(const Paths: TArray<string>; const Prompt: string; Reply: Integer;
+    OnBookList: Boolean = False);
+  var
+    Header: PDropFiles;
+    Drop: HGLOBAL;
+    Files: string;
+    Deadline: UInt64;
+  begin
+    Probe.ExpectedPrompt := Prompt;
+    Probe.Reply := Reply;
+    Probe.PromptSeen := False;
+    if OnBookList then DropOnBookList(Paths)
+    else
+    begin
+      Files := string.Join(#0, Paths) + #0#0;
+      Drop := GlobalAlloc(GHND, SizeOf(TDropFiles) + Length(Files) * SizeOf(Char));
+      Require(Drop <> 0, 'Could not allocate a shell file-drop fixture');
+      Header := GlobalLock(Drop);
+      if not Assigned(Header) then
+      begin
+        GlobalFree(Drop);
+        Require(False, 'Could not lock the shell file-drop fixture');
+      end;
+      Header.pFiles := SizeOf(TDropFiles);
+      Header.fWide := True;
+      Move(PChar(Files)^, (PByte(Header) + Header.pFiles)^, Length(Files) * SizeOf(Char));
+      GlobalUnlock(Drop);
+      frmMain.Perform(WM_DROPFILES, WPARAM(Drop), 0);
+    end;
+    Deadline := GetTickCount64 + 3000;
+    repeat
+      Application.ProcessMessages;
+      Sleep(10);
+    until Probe.PromptSeen or (GetTickCount64 >= Deadline);
+    Require(Probe.PromptSeen, 'File drop did not ask to import into the selected collection');
+  end;
+
+begin
+  RequireIsolatedRegression;
+  Require((GetWindowLongPtr(frmMain.Handle, GWL_EXSTYLE) and WS_EX_ACCEPTFILES) <> 0,
+    'The catalogue window is not registered for Windows file drops');
+  Folder := TPath.Combine(Settings.AppPath, 'file-drop');
+  ForceDirectories(Folder);
+  First := TPath.Combine(Folder, 'Книга с пробелами.txt');
+  Second := TPath.Combine(Folder, 'Вторая книга.txt');
+  TFile.WriteAllText(First, 'Первая тестовая книга.', TEncoding.UTF8);
+  TFile.WriteAllText(Second, 'Вторая тестовая книга.', TEncoding.UTF8);
+  FirstHash := THashSHA2.GetHashStringFromFile(First);
+  SecondHash := THashSHA2.GetHashStringFromFile(Second);
+  Name := VarToStr(Catalog.GetProperty(PROP_DISPLAYNAME));
+  Probe := TFileDropPromptProbe.Create;
+  Watch := TTimer.Create(nil);
+  SavedDialogs := UseLatestCommonDialogs;
+  try
+    UseLatestCommonDialogs := False;
+    Watch.Interval := 30;
+    Watch.OnTimer := Probe.Poll;
+    DropFiles(TArray<string>.Create(First),
+      Format('Добавить файл «%s» в коллекцию «%s»?', [ExtractFileName(First), Name]), mrNo);
+    Require(Length(Catalog.CaptureLocalBooks) = 0, 'A declined drop changed the catalogue');
+    DropFiles(TArray<string>.Create(First, Second),
+      Format('Добавить выбранные файлы (2) в коллекцию «%s»?', [Name]), mrYes, True);
+    Require(Length(Catalog.CaptureLocalBooks) = 2, 'The accepted drop did not import both books');
+    Require(Length(OtherCatalog.CaptureLocalBooks) = 0, 'The drop changed a different collection');
+    Require((THashSHA2.GetHashStringFromFile(First) = FirstHash) and
+      (THashSHA2.GetHashStringFromFile(Second) = SecondHash), 'A drop changed its source books');
+  finally
+    UseLatestCommonDialogs := SavedDialogs;
+    Watch.Free;
+    Probe.Free;
+  end;
+  Writeln('PASS Windows file-drop message and book list confirm the destination, support cancellation and import multiple books');
+end;
+
+type
   TLocalImportProbe = class(TImportLocalBookThread)
   private
     FCOM: Boolean;

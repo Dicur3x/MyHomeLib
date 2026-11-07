@@ -716,7 +716,9 @@ type
     procedure OnSetSerieFilter(Sender: TObject);
 
   protected
+    procedure CreateParams(var Params: TCreateParams); override;
     procedure DoCreate; override;
+    procedure WMDropFiles(var Message: TWMDropFiles); message WM_DROPFILES;
     procedure WMGetSysCommand(var Message: TMessage); message WM_SYSCOMMAND;
     procedure OnChangeLocalStatus(var Message: TLocalStatusChangedMessage); message WM_MHL_CHANGELOCALSTATUS;
 
@@ -812,6 +814,10 @@ type
     procedure StartBookDeletion(Operation: TBookDeletionOperation; ShowProgress: Boolean);
     procedure BookDeletionTick(Sender: TObject);
     procedure ExplorerImportTick(Sender: TObject);
+    procedure ExplorerFilesDragOver(Sender: TBaseVirtualTree; Source: TObject; Shift: TShiftState;
+      State: TDragState; Pt: TPoint; Mode: TDropMode; var Effect: Integer; var Accept: Boolean);
+    procedure ExplorerFilesDragDrop(Sender: TBaseVirtualTree; Source: TObject; DataObject: TVTDragDataObject;
+      Formats: TFormatArray; Shift: TShiftState; Pt: TPoint; var Effect: Integer; Mode: TDropMode);
     procedure ImportBooksFromFiles(const FileNames: TArray<string>; CollectionID: Integer);
     procedure StopBookDeletion(Sender: TObject);
     procedure RefreshAfterBookDeletion(const CollectionID: Integer; RemoveRecords: Boolean);
@@ -5268,6 +5274,12 @@ begin
   miUpdateFromFile.Parent.Insert(miUpdateFromFile.MenuIndex+1,FilterMenu);
 
   CreatePublisherSeriesView;
+  for var Tree in TArray<TBookTree>.Create(tvBooksA, tvBooksS, tvBooksG, tvBooksF, tvBooksSR, FPublisher.Books) do
+  begin
+    Tree.TreeOptions.MiscOptions := Tree.TreeOptions.MiscOptions + [toAcceptOLEDrop];
+    Tree.OnDragOver := ExplorerFilesDragOver;
+    Tree.OnDragDrop := ExplorerFilesDragDrop;
+  end;
   FilterMenu := TMenuItem.Create(Self);
   FilterMenu.Name := 'miAutoFitInfoPanel';
   FilterMenu.Caption := 'Подбирать высоту сведений о книге автоматически';
@@ -6256,7 +6268,11 @@ var
   end;
 
 begin
-
+  if Source <> tvBooksF then
+  begin
+    ExplorerFilesDragDrop(Sender, Source, DataObject, Formats, Shift, Pt, Effect, Mode);
+    Exit;
+  end;
   SourceGroupID := FLastGroupID;
 
   GroupData := tvGroups.GetNodeData(tvGroups.DropTargetNode);
@@ -6286,7 +6302,11 @@ procedure TfrmMain.tvGroupsDragOver(Sender: TBaseVirtualTree; Source: TObject; S
 var
  Data: PGroupData;
 begin
-
+  if Source <> tvBooksF then
+  begin
+    ExplorerFilesDragOver(Sender, Source, Shift, State, Pt, Mode, Effect, Accept);
+    Exit;
+  end;
   Data := tvGroups.GetNodeData(tvGroups.DropTargetNode);
   if Assigned(Data) then
     if Data^.GroupID <> FLastGroupID then
@@ -10164,6 +10184,40 @@ begin
   end;
 end;
 
+procedure TfrmMain.CreateParams(var Params: TCreateParams);
+begin
+  inherited;
+  Params.ExStyle := Params.ExStyle or WS_EX_ACCEPTFILES;
+end;
+
+procedure TfrmMain.WMDropFiles(var Message: TWMDropFiles);
+begin
+  Message.Result := 0;
+  try
+    QueueExplorerImport(ReadDroppedImportFiles(Message.Drop));
+  finally
+    DragFinish(Message.Drop);
+  end;
+end;
+
+procedure TfrmMain.ExplorerFilesDragOver(Sender: TBaseVirtualTree; Source: TObject; Shift: TShiftState;
+  State: TDragState; Pt: TPoint; Mode: TDropMode; var Effect: Integer; var Accept: Boolean);
+begin
+  if Assigned(Source) or (State = dsDragLeave) then Exit;
+  Accept := ExplorerDropHasFiles(Sender.DragManager.DataObject);
+  if Accept then Effect := DROPEFFECT_COPY;
+end;
+
+procedure TfrmMain.ExplorerFilesDragDrop(Sender: TBaseVirtualTree; Source: TObject; DataObject: TVTDragDataObject;
+  Formats: TFormatArray; Shift: TShiftState; Pt: TPoint; var Effect: Integer; Mode: TDropMode);
+begin
+  if Assigned(Source) then Exit;
+  if QueueExplorerImport(ReadExplorerDropData(DataObject)) then
+    Effect := DROPEFFECT_COPY
+  else
+    Effect := DROPEFFECT_NONE;
+end;
+
 function TfrmMain.QueueExplorerImport(const FileNames: TArray<string>): Boolean;
 begin
   Result := not (csDestroying in ComponentState) and (Length(FExplorerImportFiles) = 0) and
@@ -10205,7 +10259,7 @@ begin
   if not Assigned(FCollection) or not isLocalCollection(FCollection.CollectionCode) or
     IsPackedCollectionCatalog(FCollection.GetProperty(PROP_DATAFILE)) then
   begin
-    MHLShowWarning('Откройте обычную локальную коллекцию и повторите отправку из Проводника.');
+    MHLShowWarning('Чтобы добавить файлы из Проводника, откройте обычную локальную коллекцию и повторите действие.');
     Exit;
   end;
   CollectionID := FCollection.CollectionID;

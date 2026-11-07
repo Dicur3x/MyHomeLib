@@ -89,6 +89,7 @@ modes.push('component-removal','component-usage','component-maintenance');
 modes.push('component-inventory-ui');
 // Interactive foreground/idle lifecycle check, opt in through its explicit mode.
 if (viewsMode==='component-monthly-lifecycle') modes.push('component-monthly-lifecycle');
+modes.push('explorer-file-drop');
 if (process.env.HOMELIB_FORMAT_COMPONENT_PACKAGES || viewsMode === 'component-receipts') modes.push('component-receipts');
 modes.push('ibk-components');
 modes.push('ibk-download-live');
@@ -124,6 +125,7 @@ const requiredViews = {
   'book-deletion-preparation': ['PASS background deletion preparation groups hard-link aliases exact members and FBD pairs without source writes or partial tasks', 'PASS prepared archive tasks complete filesystem and exact catalogue phases while preserving neighbours notes and unrelated FBD members'],
   'fb2-encoding': ['PASS FB2 encoding across metadata import and reader'],
   'local-book-import': ['PASS local batch, mixed folder import, member readback and local identity across INPX updates'],
+  'explorer-file-drop': ['PASS Windows file-drop message and book list confirm the destination, support cancellation and import multiple books'],
   'flibrary-real-deletion': ['PASS real FLibrary duplicate deletes only the selected book cover and images and preserves the second copy'],
   'flibrary-deletion': ['PASS FLibrary deletion cleans private covers and images and preserves shared stems archives and unrelated members', 'PASS FLibrary companion plans resume before catalogue commit and during picture cleanup'],
   'script-export-paths': ['PASS script export path preference requests both script destinations without starting workers'],

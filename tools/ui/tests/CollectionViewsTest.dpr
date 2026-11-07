@@ -2660,14 +2660,16 @@ begin
     if ReleaseFixture<>'' then
     begin
       Require(ParseProgramReleases(TFile.ReadAllText(ReleaseFixture,TEncoding.UTF8),Info),
-        'Could not parse public beta 4 release metadata');
+        'Could not parse the release metadata fixture');
       Popup.SetCurrent(Info);
       Require((View.SectionCount=1) and View.IsExpanded(0) and
-        (Pos('Сохранение книг',View.PrimaryNotes.Text)>0) and
-        (Pos('Удаление книг',View.PrimaryNotes.Text)>0) and
         (Pos('Автор не опубликовал описание',View.PrimaryNotes.Text)=0),
-        'Public beta 4 release notes are not visible in the updater');
-      Writeln('PASS public beta 4 changelog renders both saving and deletion in the first expanded section');
+        'The release notes are not visible in the updater');
+      var RequiredText:=GetEnvironmentVariable('HOMELIB_TEST_LIVE_RELEASE_TEXT');
+      if RequiredText='' then RequiredText:='Сохранение книг|Удаление книг';
+      for var Phrase in RequiredText.Split(['|']) do
+        Require(Pos(Phrase,View.PrimaryNotes.Text)>0,'The updater omitted release text: '+Phrase);
+      Writeln('PASS the changelog renders the expected release text in the first expanded section');
     end;
     Flush(Output);
   finally Popup.Free; SetMHLTheme(SavedDark); end;
@@ -5979,6 +5981,7 @@ begin
       else if ParamStr(1) = 'flibrary-real-deletion' then TestBookDeletionSafety(bdsFLibraryReal)
       else if ParamStr(1) = 'fb2-encoding' then TestFB2Encoding
       else if ParamStr(1) = 'local-book-import' then TestLocalBookImport
+      else if ParamStr(1) = 'explorer-file-drop' then TestExplorerFileDrop(One, Two)
       else if ParamStr(1) = 'book-deletion-identity' then TestBookDeletionIdentity
       else if ParamStr(1) = 'book-deletion-preparation' then TestBookDeletionPreparation
       else if ParamStr(1) = 'book-deletion-batch' then TestBookDeletionBatch

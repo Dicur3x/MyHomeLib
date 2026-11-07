@@ -1,9 +1,9 @@
-unit unit_ExplorerImport;
+﻿unit unit_ExplorerImport;
 
 interface
 
 uses
-  Winapi.Windows, Winapi.Messages;
+  Winapi.Windows, Winapi.Messages, Winapi.ShellAPI, Winapi.ActiveX;
 
 const
   EXPLORER_IMPORT_SWITCH = '--import';
@@ -12,18 +12,24 @@ const
 function ReadExplorerImportArguments(out Paths: TArray<string>): Boolean;
 function DeliverExplorerImport(Target: HWND; const Paths: TArray<string>): Boolean;
 function ReadExplorerImport(const Message: TMessage; out Paths: TArray<string>): Boolean;
+function ReadDroppedImportFiles(Drop: HDROP): TArray<string>;
+function ExplorerDropHasFiles(const Data: IDataObject): Boolean;
+function ReadExplorerDropData(const Data: IDataObject): TArray<string>;
 function ToggleExplorerImportShortcut: Boolean;
 
 implementation
 
 uses
-  Winapi.ActiveX, Winapi.ShlObj, System.SysUtils, System.IOUtils,
+  Winapi.ShlObj, System.SysUtils, System.IOUtils,
   System.Win.ComObj, Vcl.Forms;
 
 const
   MAX_IMPORT_PATH = 32767;
   PROCESS_QUERY_LIMITED_INFORMATION = $1000;
   SHORTCUT_MARKER = 'HomeLibre portable book import';
+  SHORTCUT_NAME = 'Добавить в HomeLibre.lnk';
+  FILE_DROP_FORMAT: TFormatEtc = (cfFormat: CF_HDROP; ptd: nil;
+    dwAspect: DVASPECT_CONTENT; lindex: -1; tymed: TYMED_HGLOBAL);
 
 function ProcessImageName(Process: THandle; Flags: DWORD; Buffer: PWideChar;
   var Length: DWORD): BOOL; stdcall;
@@ -114,6 +120,45 @@ begin
   Result := Length(Paths) > 0;
 end;
 
+function ReadDroppedImportFiles(Drop: HDROP): TArray<string>;
+var
+  Files: TArray<string>;
+  Path: string;
+  PathLength: UINT;
+begin
+  Result := nil;
+  if Drop = 0 then Exit;
+  SetLength(Files, DragQueryFileW(Drop, High(UINT), nil, 0));
+  for var Index := 0 to High(Files) do
+  begin
+    PathLength := DragQueryFileW(Drop, Index, nil, 0);
+    if (PathLength = 0) or (PathLength > MAX_IMPORT_PATH) then Exit;
+    SetLength(Path, PathLength + 1);
+    if DragQueryFileW(Drop, Index, PChar(Path), PathLength + 1) <> PathLength then Exit;
+    SetLength(Path, PathLength);
+    if not IsExplorerImportPath(Path) then Exit;
+    Files[Index] := Path;
+  end;
+  Result := Files;
+end;
+
+function ExplorerDropHasFiles(const Data: IDataObject): Boolean;
+begin
+  Result := Assigned(Data) and (Data.QueryGetData(FILE_DROP_FORMAT) = S_OK);
+end;
+
+function ReadExplorerDropData(const Data: IDataObject): TArray<string>;
+var Medium: TStgMedium;
+begin
+  Result := nil;
+  if not Assigned(Data) or (Data.GetData(FILE_DROP_FORMAT, Medium) <> S_OK) then Exit;
+  try
+    if Medium.tymed = TYMED_HGLOBAL then Result := ReadDroppedImportFiles(Medium.hGlobal);
+  finally
+    ReleaseStgMedium(Medium);
+  end;
+end;
+
 function ToggleExplorerImportShortcut: Boolean;
 var
   Path: string;
@@ -123,12 +168,44 @@ var
   Link: IShellLinkW;
   LinkFile: IPersistFile;
   Initialized: HRESULT;
+
+  function RepairLegacyShortcut(const Directory: string): Boolean;
+  var
+    LegacyEncoding: TEncoding;
+    LegacyPath: string;
+    LegacyLink: IShellLinkW;
+    LegacyFile: IPersistFile;
+  begin
+    // Beta 5 compiled the UTF-8 name as Windows-1251. Repair only a link
+    // owned by this installation and only when the user enables the command.
+    LegacyEncoding := TEncoding.GetEncoding(1251);
+    try
+      LegacyPath := TPath.Combine(Directory,
+        LegacyEncoding.GetString(TEncoding.UTF8.GetBytes(SHORTCUT_NAME)));
+    finally
+      LegacyEncoding.Free;
+    end;
+    Result := False;
+    if not FileExists(LegacyPath) then Exit;
+    LegacyLink := CreateComObject(CLSID_ShellLink) as IShellLinkW;
+    LegacyFile := LegacyLink as IPersistFile;
+    if Failed(LegacyFile.Load(PChar(LegacyPath), STGM_READ)) then Exit;
+    if Failed(LegacyLink.GetDescription(Buffer, Length(Buffer))) or
+      (string(PChar(@Buffer[0])) <> SHORTCUT_MARKER) then Exit;
+    if Failed(LegacyLink.GetPath(Buffer, Length(Buffer), FindData, SLGP_RAWPATH)) or
+      not SameFileName(string(PChar(@Buffer[0])), Application.ExeName) then Exit;
+    if Failed(LegacyLink.GetArguments(Buffer, Length(Buffer))) or
+      (string(PChar(@Buffer[0])) <> EXPLORER_IMPORT_SWITCH) then Exit;
+    if not MoveFile(PChar(LegacyPath), PChar(Path)) then RaiseLastOSError;
+    Result := True;
+  end;
+
 begin
   Initialized := CoInitialize(nil);
   OleCheck(Initialized);
   try
     OleCheck(SHGetFolderPath(0, CSIDL_SENDTO, 0, SHGFP_TYPE_CURRENT, SendTo));
-    Path := TPath.Combine(string(PChar(@SendTo[0])), 'Добавить в HomeLibre.lnk');
+    Path := TPath.Combine(string(PChar(@SendTo[0])), SHORTCUT_NAME);
     Link := CreateComObject(CLSID_ShellLink) as IShellLinkW;
     LinkFile := Link as IPersistFile;
     if FileExists(Path) then
@@ -143,7 +220,9 @@ begin
         if not Winapi.Windows.DeleteFile(PChar(Path)) then RaiseLastOSError;
         Exit(False);
       end;
-    end;
+    end
+    else if RepairLegacyShortcut(string(PChar(@SendTo[0]))) then
+      Exit(True);
     OleCheck(Link.SetPath(PChar(Application.ExeName)));
     OleCheck(Link.SetArguments(PChar(EXPLORER_IMPORT_SWITCH)));
     OleCheck(Link.SetWorkingDirectory(PChar(ExtractFilePath(Application.ExeName))));
