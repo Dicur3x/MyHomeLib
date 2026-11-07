@@ -12,8 +12,8 @@
         <VerInfo_MajorVer>3</VerInfo_MajorVer>
         <VerInfo_MinorVer>0</VerInfo_MinorVer>
         <VerInfo_Release>0</VerInfo_Release>
-        <VerInfo_Build>4</VerInfo_Build>
-        <VerInfo_Keys>FileDescription=HomeLibre update helper;ProductName=HomeLibre;ProductVersion=3.0.0_pre1.4;FileVersion=3.0.0.4;InternalName=HomeLibRuUpdater;OriginalFilename=HomeLibRuUpdater.exe</VerInfo_Keys>
+        <VerInfo_Build>5</VerInfo_Build>
+        <VerInfo_Keys>FileDescription=HomeLibre update helper;ProductName=HomeLibre;ProductVersion=3.0.0_pre1.5;FileVersion=3.0.0.5;InternalName=HomeLibRuUpdater;OriginalFilename=HomeLibRuUpdater.exe</VerInfo_Keys>
         <Base>True</Base>
         <Config Condition="'$(Config)'==''">Release</Config>
         <Platform Condition="'$(Platform)'==''">Win32</Platform>

@@ -5752,5 +5752,88 @@
       }
     },
     "limits": "Only temporary native fixtures were used. The final beta 5 applications and distribution archives still need verification."
+  },
+  "beta5_local_identity_and_package_baseline_20261107": {
+    "status": "Local beta 5 identity and package baseline verified on x86 and x64. Nothing published.",
+    "identity": {
+      "display": "3.0 beta 5",
+      "tag": "3.0.0_pre1.5",
+      "windows_file_version": "3.0.0.5"
+    },
+    "builds": {
+      "Win32": {
+        "HomeLibReader.exe": {
+          "sha256": "0907a6d8b4b8112b66f5576e28353d9c3ff73c98686191042b2483324dca6eb1",
+          "log": "HomeLibReader-Win32-0b95b9a7ed04.err"
+        },
+        "HomeLibRuUpdater.exe": {
+          "sha256": "50da0ffbdb2884f8f38c72b4f9af933219dd1094e8deade881fafb672f497ecd",
+          "log": "HomeLibRuUpdater-Win32-7ee75a95ad1f.err"
+        },
+        "MHLMcpServer.exe": {
+          "sha256": "8a7c1759a629a1d3adde1b9a1478916832a4b930bb26c1fd4d3b42309679438c",
+          "log": "MHLMcpServer-Win32-dccc3bdb5037.err"
+        },
+        "HomeLibRu.exe": {
+          "sha256": "c961092805d96801d1e2d10e5d470e664d26c5e72394e272465894e3f8ed844a",
+          "log": "MyhomeLib-Win32-dcf4d37cc432.err"
+        }
+      },
+      "Win64": {
+        "HomeLibReader.exe": {
+          "sha256": "eccfbfab40e870ead7f368a643a38be5d32d37401cdc3120536cb89a4e6522d6",
+          "log": "HomeLibReader-Win64-286a882a10e9.err"
+        },
+        "HomeLibRuUpdater.exe": {
+          "sha256": "29ee86202f041bc4da35b397fb62157a1d9ec4f980ef923ec72726fa41c0af6f",
+          "log": "HomeLibRuUpdater-Win64-dcf1992947d6.err"
+        },
+        "MHLMcpServer.exe": {
+          "sha256": "17d1823bf3d2744b63dd135c6e0899933b108e3978be7e73a24e2e90420323e9",
+          "log": "MHLMcpServer-Win64-65a28118b076.err"
+        },
+        "HomeLibRu.exe": {
+          "sha256": "0adf890c9b9725a6b567a388ac1e4b94473a4fb440240c41e51e058a82f05c90",
+          "log": "MyhomeLib-Win64-f60205976918.err"
+        }
+      }
+    },
+    "catalogue_archives": {
+      "Win32": {
+        "archive": "HomeLibre.zip",
+        "sha256": "80cec3eb208c74558dc9e176417c4c71777099e7fd197833be253a3768f6c47a",
+        "manifest_files": 240,
+        "bytes": 7661124,
+        "native_helper_gate": true
+      },
+      "Win64": {
+        "archive": "HomeLibre_x64.zip",
+        "sha256": "f681be281d274162869a6990bd4cc66c7ac76b09e2eaab910eebe8abc7dae385",
+        "manifest_files": 240,
+        "bytes": 9617527,
+        "native_helper_gate": true
+      }
+    },
+    "optional_archives": {
+      "HomeLibRu-HomeLibReader-3.0.0.5-Win32.zip": {
+        "sha256": "489f759ecee0f6604430860a65d40b39602456e68e01f1dfc275e8042c1790b4",
+        "bytes": 5251786
+      },
+      "HomeLibRu-MHLMcpServer-3.0.0.5-Win32.zip": {
+        "sha256": "4740001763e6462576fb2bf7cfa44b83f196062cf51250e19a4397e6d18205f6",
+        "bytes": 2485754
+      },
+      "HomeLibRu-HomeLibReader-3.0.0.5-Win64.zip": {
+        "sha256": "a381798c81fa4938b56298eb9bba9c37f72639afc9a212c0f51852f729ff8ff4",
+        "bytes": 6663385
+      },
+      "HomeLibRu-MHLMcpServer-3.0.0.5-Win64.zip": {
+        "sha256": "58e697851f0b1937e33816fe26d278912459b73ff0d4a02ece163bdcbb9b258f",
+        "bytes": 3181227
+      }
+    },
+    "source_checks": "Native constants, four Delphi projects, version resources and 26 first-party bootstrap entries agree. Binary resource comparison found only RT_VERSION payload changes. The standard history packager emitted exactly one beta 5 title followed by beta 4 and seven older releases. All 140 direct native collection-test includes are tracked.",
+    "limits": "This is a local packaging baseline. The native updater prepared both ZIPs and passed helper identity checks in an isolated console test. No full installed application restart, final component delivery or public download was exercised. The wider export matrix still needs work, including rich EPUB to explicitly selected EPUB 2/3 and Kindle KFX/AZW8 where viable.",
+    "cleanup": "Archive packaging and console probes removed their staging payloads. Kept this baseline ZIP set and its small evidence logs on G: for subsequent candidate tests. No user installation was updated."
   }
 }

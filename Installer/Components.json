@@ -148,9 +148,13 @@
     {
       "id": "HomeLibReader",
       "platform": "Win32",
-      "version": "3.0.0.4",
-      "archive": "HomeLibRu-HomeLibReader-3.0.0.4-Win32.zip",
+      "version": "3.0.0.5",
+      "archive": "HomeLibRu-HomeLibReader-3.0.0.5-Win32.zip",
       "history": [
+        {
+          "version": "3.0.0.5",
+          "notes": "Выбор кодировки текста, отметки глав и настройка полосы чтения на полном экране."
+        },
         {
           "version": "3.0.0.4",
           "notes": "Минимальная автономная читалка. Исправлена установка дополнительных компонентов с длинными путями."
@@ -196,9 +200,13 @@
     {
       "id": "HomeLibReader",
       "platform": "Win64",
-      "version": "3.0.0.4",
-      "archive": "HomeLibRu-HomeLibReader-3.0.0.4-Win64.zip",
+      "version": "3.0.0.5",
+      "archive": "HomeLibRu-HomeLibReader-3.0.0.5-Win64.zip",
       "history": [
+        {
+          "version": "3.0.0.5",
+          "notes": "Выбор кодировки текста, отметки глав и настройка полосы чтения на полном экране."
+        },
         {
           "version": "3.0.0.4",
           "notes": "Минимальная автономная читалка. Исправлена установка дополнительных компонентов с длинными путями."
@@ -244,9 +252,13 @@
     {
       "id": "BookProcessing",
       "platform": "Win32",
-      "version": "3.0.0.4",
-      "archive": "HomeLibRu-BookProcessing-3.0.0.4-Win32.zip",
+      "version": "3.0.0.5",
+      "archive": "HomeLibRu-BookProcessing-3.0.0.5-Win32.zip",
       "history": [
+        {
+          "version": "3.0.0.5",
+          "notes": "Обработка FB2, EPUB и текстов, сжатие копии коллекции и импорт онлайн-каталогов из SQL-дампов."
+        },
         {
           "version": "3.0.0.4",
           "notes": "Обработка FB2, EPUB и текстов. Поддерживает отмену при сжатии иллюстраций в копии коллекции."
@@ -260,9 +272,13 @@
     {
       "id": "ImageProcessing",
       "platform": "Win32",
-      "version": "3.0.0.4",
-      "archive": "HomeLibRu-ImageProcessing-3.0.0.4-Win32.zip",
+      "version": "3.0.0.5",
+      "archive": "HomeLibRu-ImageProcessing-3.0.0.5-Win32.zip",
       "history": [
+        {
+          "version": "3.0.0.5",
+          "notes": "Сжатие иллюстраций и сканов с сохранением тонких деталей. Чёрно-белый режим включается отдельно."
+        },
         {
           "version": "3.0.0.4",
           "notes": "Сжатие иллюстраций и сканированных страниц. Без чтения документов XPS."
@@ -276,9 +292,13 @@
     {
       "id": "Kindle",
       "platform": "Win32",
-      "version": "3.0.0.4",
-      "archive": "HomeLibRu-Kindle-3.0.0.4-Win32.zip",
+      "version": "3.0.0.5",
+      "archive": "HomeLibRu-Kindle-3.0.0.5-Win32.zip",
       "history": [
+        {
+          "version": "3.0.0.5",
+          "notes": "Чтение MOBI/AZW/KF8 через KindleUnpack. Общая среда обработки устанавливается отдельно при необходимости."
+        },
         {
           "version": "3.0.0.4",
           "notes": "Чтение MOBI/AZW/KF8 через KindleUnpack. Общая среда обработки устанавливается отдельно при необходимости."
@@ -292,9 +312,13 @@
     {
       "id": "LegacyBooks",
       "platform": "Win32",
-      "version": "3.0.0.4",
-      "archive": "HomeLibRu-LegacyBooks-3.0.0.4-Win32.zip",
+      "version": "3.0.0.5",
+      "archive": "HomeLibRu-LegacyBooks-3.0.0.5-Win32.zip",
       "history": [
+        {
+          "version": "3.0.0.5",
+          "notes": "Дополнительные кодеки старых LIT/LRF и отдельных вариантов Mobipocket."
+        },
         {
           "version": "3.0.0.4",
           "notes": "Дополнительные кодеки старых LIT/LRF и отдельных вариантов Mobipocket."
@@ -308,9 +332,13 @@
     {
       "id": "LegacyOffice",
       "platform": "Win32",
-      "version": "3.0.0.4",
-      "archive": "HomeLibRu-LegacyOffice-3.0.0.4-Win32.zip",
+      "version": "3.0.0.5",
+      "archive": "HomeLibRu-LegacyOffice-3.0.0.5-Win32.zip",
       "history": [
+        {
+          "version": "3.0.0.5",
+          "notes": "Чтение WPS/WPD через libwps/libwpd. Для этих инструментов требуется 64-разрядная Windows."
+        },
         {
           "version": "3.0.0.4",
           "notes": "Чтение WPS/WPD через libwps/libwpd. Для этих инструментов требуется 64-разрядная Windows."
@@ -324,9 +352,13 @@
     {
       "id": "XPS",
       "platform": "Win32",
-      "version": "3.0.0.4",
-      "archive": "HomeLibRu-XPS-3.0.0.4-Win32.zip",
+      "version": "3.0.0.5",
+      "archive": "HomeLibRu-XPS-3.0.0.5-Win32.zip",
       "history": [
+        {
+          "version": "3.0.0.5",
+          "notes": "Чтение документов XPS. Для обычных FB2/EPUB этот компонент не нужен."
+        },
         {
           "version": "3.0.0.4",
           "notes": "Чтение документов XPS. Для обычных FB2/EPUB этот компонент не нужен."
@@ -340,9 +372,13 @@
     {
       "id": "BookProcessing",
       "platform": "Win64",
-      "version": "3.0.0.4",
-      "archive": "HomeLibRu-BookProcessing-3.0.0.4-Win64.zip",
+      "version": "3.0.0.5",
+      "archive": "HomeLibRu-BookProcessing-3.0.0.5-Win64.zip",
       "history": [
+        {
+          "version": "3.0.0.5",
+          "notes": "Обработка FB2, EPUB и текстов, сжатие копии коллекции и импорт онлайн-каталогов из SQL-дампов."
+        },
         {
           "version": "3.0.0.4",
           "notes": "Обработка FB2, EPUB и текстов. Поддерживает отмену при сжатии иллюстраций в копии коллекции."
@@ -356,9 +392,13 @@
     {
       "id": "ImageProcessing",
       "platform": "Win64",
-      "version": "3.0.0.4",
-      "archive": "HomeLibRu-ImageProcessing-3.0.0.4-Win64.zip",
+      "version": "3.0.0.5",
+      "archive": "HomeLibRu-ImageProcessing-3.0.0.5-Win64.zip",
       "history": [
+        {
+          "version": "3.0.0.5",
+          "notes": "Сжатие иллюстраций и сканов с сохранением тонких деталей. Чёрно-белый режим включается отдельно."
+        },
         {
           "version": "3.0.0.4",
           "notes": "Сжатие иллюстраций и сканированных страниц. Без чтения документов XPS."
@@ -372,9 +412,13 @@
     {
       "id": "Kindle",
       "platform": "Win64",
-      "version": "3.0.0.4",
-      "archive": "HomeLibRu-Kindle-3.0.0.4-Win64.zip",
+      "version": "3.0.0.5",
+      "archive": "HomeLibRu-Kindle-3.0.0.5-Win64.zip",
       "history": [
+        {
+          "version": "3.0.0.5",
+          "notes": "Чтение MOBI/AZW/KF8 через KindleUnpack. Общая среда обработки устанавливается отдельно при необходимости."
+        },
         {
           "version": "3.0.0.4",
           "notes": "Чтение MOBI/AZW/KF8 через KindleUnpack. Общая среда обработки устанавливается отдельно при необходимости."
@@ -388,9 +432,13 @@
     {
       "id": "LegacyBooks",
       "platform": "Win64",
-      "version": "3.0.0.4",
-      "archive": "HomeLibRu-LegacyBooks-3.0.0.4-Win64.zip",
+      "version": "3.0.0.5",
+      "archive": "HomeLibRu-LegacyBooks-3.0.0.5-Win64.zip",
       "history": [
+        {
+          "version": "3.0.0.5",
+          "notes": "Дополнительные кодеки старых LIT/LRF и отдельных вариантов Mobipocket."
+        },
         {
           "version": "3.0.0.4",
           "notes": "Дополнительные кодеки старых LIT/LRF и отдельных вариантов Mobipocket."
@@ -404,9 +452,13 @@
     {
       "id": "LegacyOffice",
       "platform": "Win64",
-      "version": "3.0.0.4",
-      "archive": "HomeLibRu-LegacyOffice-3.0.0.4-Win64.zip",
+      "version": "3.0.0.5",
+      "archive": "HomeLibRu-LegacyOffice-3.0.0.5-Win64.zip",
       "history": [
+        {
+          "version": "3.0.0.5",
+          "notes": "Чтение WPS/WPD через libwps/libwpd. Для этих инструментов требуется 64-разрядная Windows."
+        },
         {
           "version": "3.0.0.4",
           "notes": "Чтение WPS/WPD через libwps/libwpd. Для этих инструментов требуется 64-разрядная Windows."
@@ -420,9 +472,13 @@
     {
       "id": "XPS",
       "platform": "Win64",
-      "version": "3.0.0.4",
-      "archive": "HomeLibRu-XPS-3.0.0.4-Win64.zip",
+      "version": "3.0.0.5",
+      "archive": "HomeLibRu-XPS-3.0.0.5-Win64.zip",
       "history": [
+        {
+          "version": "3.0.0.5",
+          "notes": "Чтение документов XPS. Для обычных FB2/EPUB этот компонент не нужен."
+        },
         {
           "version": "3.0.0.4",
           "notes": "Чтение документов XPS. Для обычных FB2/EPUB этот компонент не нужен."
@@ -436,9 +492,13 @@
     {
       "id": "MHLMcpServer",
       "platform": "Win32",
-      "version": "3.0.0.4",
-      "archive": "HomeLibRu-MHLMcpServer-3.0.0.4-Win32.zip",
+      "version": "3.0.0.5",
+      "archive": "HomeLibRu-MHLMcpServer-3.0.0.5-Win32.zip",
       "history": [
+        {
+          "version": "3.0.0.5",
+          "notes": "Отдельный модуль подключения AI-ассистента к коллекциям. Устанавливается только по запросу."
+        },
         {
           "version": "3.0.0.4",
           "notes": "Отдельный модуль подключения AI-ассистента к коллекциям. Устанавливается только по запросу."
@@ -452,9 +512,13 @@
     {
       "id": "MHLMcpServer",
       "platform": "Win64",
-      "version": "3.0.0.4",
-      "archive": "HomeLibRu-MHLMcpServer-3.0.0.4-Win64.zip",
+      "version": "3.0.0.5",
+      "archive": "HomeLibRu-MHLMcpServer-3.0.0.5-Win64.zip",
       "history": [
+        {
+          "version": "3.0.0.5",
+          "notes": "Отдельный модуль подключения AI-ассистента к коллекциям. Устанавливается только по запросу."
+        },
         {
           "version": "3.0.0.4",
           "notes": "Отдельный модуль подключения AI-ассистента к коллекциям. Устанавливается только по запросу."
@@ -492,9 +556,13 @@
     {
       "id": "KindleExport",
       "platform": "Win32",
-      "version": "3.0.0.4",
-      "archive": "HomeLibRu-KindleExport-3.0.0.4-Win32.zip",
+      "version": "3.0.0.5",
+      "archive": "HomeLibRu-KindleExport-3.0.0.5-Win32.zip",
       "history": [
+        {
+          "version": "3.0.0.5",
+          "notes": "Запись MOBI и AZW3. Исправлена подготовка обложек и ссылок на отсутствующие шрифты в EPUB."
+        },
         {
           "version": "3.0.0.4",
           "notes": "Сохранение MOBI7/KF8 и AZW3 через Kindling. Устанавливается только для записи Kindle; без декодеров других форматов."
@@ -508,9 +576,13 @@
     {
       "id": "KindleExport",
       "platform": "Win64",
-      "version": "3.0.0.4",
-      "archive": "HomeLibRu-KindleExport-3.0.0.4-Win64.zip",
+      "version": "3.0.0.5",
+      "archive": "HomeLibRu-KindleExport-3.0.0.5-Win64.zip",
       "history": [
+        {
+          "version": "3.0.0.5",
+          "notes": "Запись MOBI и AZW3. Исправлена подготовка обложек и ссылок на отсутствующие шрифты в EPUB."
+        },
         {
           "version": "3.0.0.4",
           "notes": "Сохранение MOBI7/KF8 и AZW3 через Kindling. Устанавливается только для записи Kindle; без декодеров других форматов."
@@ -524,9 +596,13 @@
     {
       "id": "FB2Export",
       "platform": "Win32",
-      "version": "3.0.0.4",
-      "archive": "HomeLibRu-FB2Export-3.0.0.4-Win32.zip",
+      "version": "3.0.0.5",
+      "archive": "HomeLibRu-FB2Export-3.0.0.5-Win32.zip",
       "history": [
+        {
+          "version": "3.0.0.5",
+          "notes": "fb2cng — сохранение FB2 в EPUB 2, EPUB 3, KEPUB, KFX, AZW8, PDF и Markdown."
+        },
         {
           "version": "3.0.0.4",
           "notes": "fb2cng — сохранение FB2 в EPUB 2, EPUB 3, KEPUB, KFX, AZW8, PDF и Markdown."
@@ -536,9 +612,13 @@
     {
       "id": "FB2Export",
       "platform": "Win64",
-      "version": "3.0.0.4",
-      "archive": "HomeLibRu-FB2Export-3.0.0.4-Win64.zip",
+      "version": "3.0.0.5",
+      "archive": "HomeLibRu-FB2Export-3.0.0.5-Win64.zip",
       "history": [
+        {
+          "version": "3.0.0.5",
+          "notes": "fb2cng — сохранение FB2 в EPUB 2, EPUB 3, KEPUB, KFX, AZW8, PDF и Markdown."
+        },
         {
           "version": "3.0.0.4",
           "notes": "fb2cng — сохранение FB2 в EPUB 2, EPUB 3, KEPUB, KFX, AZW8, PDF и Markdown."
@@ -548,9 +628,13 @@
     {
       "id": "KoboExport",
       "platform": "Win32",
-      "version": "3.0.0.4",
-      "archive": "HomeLibRu-KoboExport-3.0.0.4-Win32.zip",
+      "version": "3.0.0.5",
+      "archive": "HomeLibRu-KoboExport-3.0.0.5-Win32.zip",
       "history": [
+        {
+          "version": "3.0.0.5",
+          "notes": "kepubify — прямое сохранение EPUB в KEPUB для Kobo."
+        },
         {
           "version": "3.0.0.4",
           "notes": "kepubify — прямое сохранение EPUB в KEPUB для Kobo."
@@ -560,9 +644,13 @@
     {
       "id": "KoboExport",
       "platform": "Win64",
-      "version": "3.0.0.4",
-      "archive": "HomeLibRu-KoboExport-3.0.0.4-Win64.zip",
+      "version": "3.0.0.5",
+      "archive": "HomeLibRu-KoboExport-3.0.0.5-Win64.zip",
       "history": [
+        {
+          "version": "3.0.0.5",
+          "notes": "kepubify — прямое сохранение EPUB в KEPUB для Kobo."
+        },
         {
           "version": "3.0.0.4",
           "notes": "kepubify — прямое сохранение EPUB в KEPUB для Kobo."
@@ -572,9 +660,13 @@
     {
       "id": "EpubPdfExport",
       "platform": "Win32",
-      "version": "3.0.0.4",
-      "archive": "HomeLibRu-EpubPdfExport-3.0.0.4-Win32.zip",
+      "version": "3.0.0.5",
+      "archive": "HomeLibRu-EpubPdfExport-3.0.0.5-Win32.zip",
       "history": [
+        {
+          "version": "3.0.0.5",
+          "notes": "Vivliostyle — прямая вёрстка EPUB в PDF через Microsoft WebView2 Runtime."
+        },
         {
           "version": "3.0.0.4",
           "notes": "Vivliostyle — прямая вёрстка EPUB в PDF через Microsoft WebView2 Runtime."
@@ -584,9 +676,13 @@
     {
       "id": "EpubPdfExport",
       "platform": "Win64",
-      "version": "3.0.0.4",
-      "archive": "HomeLibRu-EpubPdfExport-3.0.0.4-Win64.zip",
+      "version": "3.0.0.5",
+      "archive": "HomeLibRu-EpubPdfExport-3.0.0.5-Win64.zip",
       "history": [
+        {
+          "version": "3.0.0.5",
+          "notes": "Vivliostyle — прямая вёрстка EPUB в PDF через Microsoft WebView2 Runtime."
+        },
         {
           "version": "3.0.0.4",
           "notes": "Vivliostyle — прямая вёрстка EPUB в PDF через Microsoft WebView2 Runtime."
@@ -596,9 +692,13 @@
     {
       "id": "OPDSTls",
       "platform": "Win32",
-      "version": "3.0.0.4",
-      "archive": "HomeLibRu-OPDSTls-3.0.0.4-Win32.zip",
+      "version": "3.0.0.5",
+      "archive": "HomeLibRu-OPDSTls-3.0.0.5-Win32.zip",
       "history": [
+        {
+          "version": "3.0.0.5",
+          "notes": "Каталог OPDS по HTTPS с сертификатом и закрытым ключом пользователя."
+        },
         {
           "version": "3.0.0.4",
           "notes": "Каталог OPDS по HTTPS с сертификатом и закрытым ключом пользователя."
@@ -608,9 +708,13 @@
     {
       "id": "OPDSTls",
       "platform": "Win64",
-      "version": "3.0.0.4",
-      "archive": "HomeLibRu-OPDSTls-3.0.0.4-Win64.zip",
+      "version": "3.0.0.5",
+      "archive": "HomeLibRu-OPDSTls-3.0.0.5-Win64.zip",
       "history": [
+        {
+          "version": "3.0.0.5",
+          "notes": "Каталог OPDS по HTTPS с сертификатом и закрытым ключом пользователя."
+        },
         {
           "version": "3.0.0.4",
           "notes": "Каталог OPDS по HTTPS с сертификатом и закрытым ключом пользователя."
