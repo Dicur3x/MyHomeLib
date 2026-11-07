@@ -5633,5 +5633,25 @@
     "limits": "These are freshly compiled native Main forms, not the final published beta 5 EXEs. Author/series bulk commands, sorted/filtered selection retention, production close/stop, shared physical sources across different selected collections and real FLibrary duplicate checks remain. No real user collection was changed.",
     "build_notes": "The first build caught the test component-name alias requiring an explicit string cast; the fixed test then compiled and passed. One later patch used an incorrect field anchor and changed no file; its following build was redundant and is not counted as a separate test. An IDE Runtime error 216 at 103191CA appeared after a successful compile and was closed through Computer Use; its corresponding fresh binary subsequently passed. No recurring IDE fix is claimed.",
     "cleanup": "All fresh native fixture profiles were removed by the scoped runner. No test GUI, IDE process or emulator remains. Compiler logs were copied into tools/ui/tests/Out and retained on G:. Previously denied directories were not retried."
+  },
+  "author_and_series_book_deletion_20261107": {
+    "status": "Implemented and verified in native x86 and x64 Main menu tests. Production-package checks remain open.",
+    "implementation": "Author, ordinary series and publisher series context menus prepare exact matching books in a cancellable read worker. Local scope includes hidden and other-language books and coauthors. The online scope includes only downloaded books and preserves catalogue records and notes. One confirmation names the scope and collection and offers an explicit file choice for local books. One existing background deletion worker applies the confirmed plan.",
+    "safety": "A separate read-only SQLite connection observes committed catalogue changes before and after preparation and confirmation. Temporary book-list tables cannot trigger a false stale warning. Selector identity and source catalogue are checked before the plan is produced. The existing coordinator checks source bindings and archive neighbours before writing.",
+    "native_checks": "Actual menu actions passed on both architectures: preparation cancel, confirmation cancel, stale author name, all-language/hidden author records with source files retained, unrelated catalogue with same ID, abort after an edit during confirmation, exact ZIP member deletion preserving neighbour bytes and review, same-name publisher versus ordinary series, genre menu exclusion, online file-only removal. Ordinary list and Groups/Favorites regressions passed on both architectures, including protection of a shared archive alias across collections.",
+    "test_sha256": {
+      "Win32": "6b21c7a801220548df563e065026769fc334d96a09c60fb5f02a3ff7d5a4a47c",
+      "Win64": "507db4f8b8ef358903cf277f12093e36d317c7e27d86f3c3a2da90d8529c49e4"
+    },
+    "logs": [
+      "tools/ui/tests/Out/selector-book-deletion-Win32-20261107.log",
+      "tools/ui/tests/Out/selector-book-deletion-Win64-20261107.log",
+      "tools/ui/tests/Out/book-deletion-Win32-20261107.log",
+      "tools/ui/tests/Out/book-deletion-Win64-20261107.log",
+      "tools/ui/tests/Out/grouped-book-deletion-Win32-20261107.log",
+      "tools/ui/tests/Out/grouped-book-deletion-Win64-20261107.log"
+    ],
+    "limits": "The test command acts in the current collection. It uses isolated catalogues and real Main forms, not published beta 5 binaries or the real FLibrary collection. Verify production sorting and filter retention, stop and close, and FLibrary duplicates in later checks.",
+    "cleanup": "Scoped native test runner cleaned its isolated test profiles. Final build logs and test output are retained. Previously denied directories were untouched."
   }
 }

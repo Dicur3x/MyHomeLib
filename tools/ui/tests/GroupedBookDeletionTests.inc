@@ -3,7 +3,7 @@
     Timer:TTimer;
     Accept:Boolean;
     FileChoice,ExpectedCount,ExpectedCollections,Confirmations,Warnings:Integer;
-    Failure:string;
+    Failure,LastConfirmation:string;
     BeforeAccept:TProc;
     procedure Tick(Sender:TObject);
   end;
@@ -18,7 +18,7 @@ begin
     begin
       try
         Inc(Confirmations);
-        var Text:=GBIComponentText(Dialog);
+        var Text:=GBIComponentText(Dialog); LastConfirmation:=Text;
         Require(Text.Contains('Выбрано книг: '+IntToStr(ExpectedCount)),
           'Group deletion omitted its exact unique book count');
         if ExpectedCollections>1 then

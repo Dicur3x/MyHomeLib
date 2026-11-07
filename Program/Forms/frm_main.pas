@@ -48,7 +48,7 @@ uses
   frm_MCPSetup,
   frm_OPDS,
   unit_Interfaces, unit_StartupCatalog, unit_BookViewSessions,
-  unit_BookDeletionOperation, unit_BookDeletionDialog,
+  unit_BookDeletionOperation, unit_BookDeletionDialog, unit_BookDeletionSelection,
   XMLIntf,
   XMLDoc,
   pngimage,
@@ -806,6 +806,8 @@ type
     function IsSelectedBookNode(Node: PVirtualNode; Data: PBookRecord): Boolean;
     procedure RemoveSelectedBooks(const OnlyFiles: Boolean);
     procedure RemoveGroupedBooks(const OnlyFiles: Boolean);
+    procedure DeleteSelectorBooksClick(Sender:TObject);
+    function SelectedDeletionSelectors(out Mode:TBookIteratorMode):TArray<TBookDeletionSelector>;
     function BookDeletionJournalRoot: string;
     procedure StartBookDeletion(Operation: TBookDeletionOperation; ShowProgress: Boolean);
     procedure BookDeletionTick(Sender: TObject);
@@ -989,6 +991,7 @@ type
     FExplorerImportFiles: TArray<string>;
     FCloseAfterBookDeletion, FBookDeletionNeedsRecovery: Boolean;
     FBookDeleteCaption, FBookDeleteHint: string;
+    FSelectorDeleteMenu, FSelectorDeleteSeparator: TMenuItem;
 
     FFileOpMode: (fmFb2Zip, fmFb2);
 
@@ -5282,6 +5285,11 @@ begin
   {$IFDEF MHL_SQL_PROFILE}ProfileMark('alphabet + initial controls');{$ENDIF}
   CreatePublisherSearchField;
   CreateFavoriteAuthorControls;
+  FSelectorDeleteSeparator:=TMenuItem.Create(Self); FSelectorDeleteSeparator.Caption:='-';
+  pmAuthor.Items.Add(FSelectorDeleteSeparator);
+  FSelectorDeleteMenu:=TMenuItem.Create(Self); FSelectorDeleteMenu.Name:='miDeleteSelectorBooks';
+  FSelectorDeleteMenu.Visible:=False; FSelectorDeleteMenu.OnClick:=DeleteSelectorBooksClick;
+  pmAuthor.Items.Add(FSelectorDeleteMenu);
   CreateSearchPanelAdapter;
   {$IFDEF MHL_SQL_PROFILE}ProfileMark('search controls');{$ENDIF}
   cbDeleted.OnClick := SearchDeletedClick;
@@ -8746,6 +8754,97 @@ begin
   Result := True;
 end;
 
+function TfrmMain.SelectedDeletionSelectors(out Mode:TBookIteratorMode):TArray<TBookDeletionSelector>;
+var Tree:TBaseVirtualTree; Node:PVirtualNode; Selection:TList<TBookDeletionSelector>;
+  Item:TBookDeletionSelector;
+begin
+  Result:=nil; Mode:=bmAll;
+  case ActiveView of
+    AuthorsView: begin Tree:=tvAuthors; Mode:=bmByAuthor; end;
+    SeriesView: begin Tree:=tvSeries; Mode:=bmBySeries; end;
+    PublisherSeriesView: begin Tree:=FPublisher.SeriesTree; Mode:=bmByPublisherSeries; end;
+  else Exit; end;
+  Selection:=TList<TBookDeletionSelector>.Create;
+  try
+    Node:=Tree.GetFirstSelected;
+    while Assigned(Node) do
+    begin
+      var Data:=Tree.GetNodeData(Node);
+      if Assigned(Data) and not Tree.IsEffectivelyFiltered[Node] then
+      begin
+        if Mode=bmByAuthor then
+        begin Item.ID:=PAuthorData(Data)^.AuthorID; Item.Name:=PAuthorData(Data)^.GetFullName; end
+        else
+        begin Item.ID:=PSeriesData(Data)^.SeriesID; Item.Name:=PSeriesData(Data)^.SeriesTitle; end;
+        if (Item.ID>0) and (Item.Name<>'') then Selection.Add(Item);
+      end;
+      Node:=Tree.GetNextSelected(Node);
+    end;
+    Result:=Selection.ToArray;
+  finally Selection.Free; end;
+end;
+
+procedure TfrmMain.DeleteSelectorBooksClick(Sender:TObject);
+var Mode:TBookIteratorMode; Binding:TBookDeletionBinding; Scope,Names:string;
+  Observer:TSQLiteDatabase; Revision:Int64;
+  RemoveRecords,RemoveFiles,Prepared:Boolean; Archives:Integer;
+begin
+  if Assigned(FBookDeletionOperation) then
+  begin if Assigned(FBookDeletionProgress) then FBookDeletionProgress.Show; Exit; end;
+  if not Assigned(FCollection) or not (IsLocal or IsOnline) or FFormBusy or FBookListLoading then Exit;
+  if FBookDeletionNeedsRecovery then
+  begin MHLShowWarning('Осталось незавершённое удаление. Перезапустите HomeLibre, чтобы его завершить.'); Exit; end;
+  var Selectors:=SelectedDeletionSelectors(Mode);
+  if Length(Selectors)=0 then Exit;
+  var CID:=FCollection.CollectionID;
+  Observer:=nil;
+  try
+    try
+      var Info:=FSystemData.GetCollectionInfo(CID);
+      if Info.ID<>CID then raise EReadError.Create('Исходная коллекция недоступна.');
+      RemoveRecords:=not isOnlineCollection(Info.CollectionType); RemoveFiles:=not RemoveRecords or Settings.DeleteFiles;
+      Observer:=TSQLiteDatabase.CreateReadOnly(Info.DBFileName);
+      Revision:=Observer.QuerySingleInt('PRAGMA main.data_version');
+      FFormBusy:=True;
+      try Prepared:=PrepareSelectorBookDeletion(Self,Info,Mode,Selectors,RemoveRecords,Binding);
+      finally FFormBusy:=False; end;
+      if not Prepared then Exit;
+      if not Assigned(FCollection) or (FCollection.CollectionID<>CID) or
+        (Observer.QuerySingleInt('PRAGMA main.data_version')<>Revision) then
+        raise EReadError.Create('Каталог изменился во время подготовки списка. Повторите выбор.');
+      var Books:=Binding.ExpectedBooks;
+      if Length(Books)=0 then begin StatusMessage:='Книг для удаления нет.'; Exit; end;
+      Archives:=0; for var Book in Books do if IsArchiveBookSource(Book) then Inc(Archives);
+      Names:=Copy(Selectors[0].Name,1,100);
+      if Length(Selectors[0].Name)>100 then Names:=Names+'…';
+      if Length(Selectors)>1 then Names:=Names+Format(' и ещё %d',[Length(Selectors)-1]);
+      case Mode of
+        bmByAuthor: Scope:='Авторы: '+Names;
+        bmBySeries: Scope:='Серии: '+Names;
+        else Scope:='Книжные серии: '+Names;
+      end;
+      Scope:=Scope+sLineBreak;
+      if RemoveRecords then
+      begin
+        if Mode=bmByAuthor then Scope:=Scope+'Все их книги в этой коллекции, включая соавторство. '
+        else Scope:=Scope+'Все книги этих серий в этой коллекции. ';
+        Scope:=Scope+'Фильтры списка не ограничивают выбор.';
+      end
+      else Scope:=Scope+'Только загруженные книги на всех языках. Записи онлайн-каталога сохраняются.';
+      if not ConfirmBookDeletion(Info.DisplayName,Length(Books),Archives,RemoveRecords,RemoveFiles,Scope) then Exit;
+      if not Assigned(FCollection) or (FCollection.CollectionID<>CID) or
+        (Observer.QuerySingleInt('PRAGMA main.data_version')<>Revision) then
+        raise EReadError.Create('Каталог изменился во время подтверждения. Повторите выбор.');
+      var Item:TBookDeletionBatchItem;
+      Item.Binding:=Binding; Item.CollectionName:=Info.DisplayName; Item.RemoveFiles:=RemoveFiles;
+      StartBookDeletion(TBookDeletionOperation.CreateBatch([Item],Settings.SystemFileName[sfSystemDB],
+        BookDeletionJournalRoot),True);
+    except
+      on E:Exception do begin LogDiagnosticError('book-delete-selector',E); MHLShowWarning(E.Message); end;
+    end;
+  finally Observer.Free; end;
+end;
+
 procedure TfrmMain.RemoveGroupedBooks(const OnlyFiles:Boolean);
 var Tree:TBookTree; Node:PVirtualNode; Data:PBookRecord;
   Groups:TObjectDictionary<Integer,TList<TBookRecord>>; Order:TList<Integer>;
@@ -11752,6 +11851,20 @@ begin
     else FPersonalHideMenu.Caption:='Скрыть автора';
   end;
   miAddToSearch.Visible := not (ActiveView in [GenresView, PublisherSeriesView]);
+  FSelectorDeleteMenu.Visible:=Assigned(FCollection) and (IsLocal or IsOnline) and
+    (ActiveView in [AuthorsView,SeriesView,PublisherSeriesView]);
+  FSelectorDeleteSeparator.Visible:=FSelectorDeleteMenu.Visible;
+  if FSelectorDeleteMenu.Visible then
+  begin
+    var Mode:TBookIteratorMode;
+    FSelectorDeleteMenu.Enabled:=(Length(SelectedDeletionSelectors(Mode))>0) and
+      not FFormBusy and not FBookListLoading;
+    case Mode of
+      bmByAuthor: FSelectorDeleteMenu.Caption:='Удалить книги выбранных авторов…';
+      bmBySeries: FSelectorDeleteMenu.Caption:='Удалить книги выбранных серий…';
+      bmByPublisherSeries: FSelectorDeleteMenu.Caption:='Удалить книги выбранных книжных серий…';
+    end;
+  end;
 end;
 
 procedure TfrmMain.pmiDeselectAllClick(Sender: TObject);

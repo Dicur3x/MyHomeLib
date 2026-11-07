@@ -5669,6 +5669,7 @@ end;
 {$I BookDeletionPreparationTests.inc}
 {$I BookDeletionBatchTests.inc}
 {$I GroupedBookDeletionTests.inc}
+{$I SelectorBookDeletionTests.inc}
 {$I SevenZipDeletionPlanTests.inc}
 {$I ArchiveDeletionQueueTests.inc}
 {$I ZipMemberDeletionTests.inc}
@@ -5980,6 +5981,7 @@ begin
       else if ParamStr(1) = 'book-deletion-preparation' then TestBookDeletionPreparation
       else if ParamStr(1) = 'book-deletion-batch' then TestBookDeletionBatch
       else if ParamStr(1) = 'grouped-book-deletion' then TestGroupedBookDeletion
+      else if ParamStr(1) = 'selector-book-deletion' then TestSelectorBookDeletion
       else if ParamStr(1) = 'zip-member-deletion' then begin TestZipMemberDeletion; TestArchiveDeletionQueue; TestSevenZipDeletionPlan; TestSevenZipDeletionRecovery; end
       else if ParamStr(1) = 'archive-member-engines' then begin TestZipMemberDeletion; TestSevenZipDeletionPlan; TestSevenZipDeletionRecovery; end
       else if ParamStr(1) = 'archive-deletion-owner' then TestArchiveDeletionQueue

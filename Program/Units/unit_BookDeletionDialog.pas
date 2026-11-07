@@ -2,7 +2,8 @@
 
 interface
 
-uses System.Classes, Vcl.Forms, Vcl.StdCtrls, Vcl.ComCtrls, unit_BookDeletionOperation;
+uses System.Classes, Vcl.Forms, Vcl.StdCtrls, Vcl.ComCtrls, unit_BookDeletionOperation,
+  unit_Globals, unit_BookDeletionBinding, unit_BookDeletionSelection;
 
 type
   TBookDeletionProgress = class(TForm)
@@ -17,13 +18,51 @@ type
   end;
 
 function ConfirmBookDeletion(const CollectionName: string; BookCount, ArchiveCount: Integer;
-  RemoveRecords: Boolean; var RemoveFiles: Boolean): Boolean;
+  RemoveRecords: Boolean; var RemoveFiles: Boolean; const Scope: string = ''): Boolean;
 
 function ConfirmBookDeletionBatch(var Items: TArray<TBookDeletionBatchItem>): Boolean;
+function PrepareSelectorBookDeletion(Owner:TForm; const Info:TCollectionInfo; Mode:TBookIteratorMode;
+  const Selectors:TArray<TBookDeletionSelector>; RemoveRecords:Boolean; out Binding:TBookDeletionBinding):Boolean;
 
 implementation
 
-uses System.SysUtils, System.Math, Vcl.Controls, Vcl.ExtCtrls, unit_MHLTheme;
+uses System.SysUtils, System.Math, Vcl.Controls, Vcl.ExtCtrls, unit_MHLTheme, frm_ImportProgressForm;
+
+type
+  TSelectorDeletionProgress = class(TImportProgressForm)
+    procedure CancelDirect(Sender:TObject);
+    procedure StopOnClose(Sender:TObject; var CanClose:Boolean);
+  end;
+
+procedure TSelectorDeletionProgress.CancelDirect(Sender:TObject);
+begin WorkerThread.Cancel; btnCancel.Enabled:=False; end;
+
+procedure TSelectorDeletionProgress.StopOnClose(Sender:TObject; var CanClose:Boolean);
+begin
+  CanClose:=WorkerThread.Finished;
+  if not CanClose then CancelDirect(Sender);
+end;
+
+function PrepareSelectorBookDeletion(Owner:TForm; const Info:TCollectionInfo; Mode:TBookIteratorMode;
+  const Selectors:TArray<TBookDeletionSelector>; RemoveRecords:Boolean; out Binding:TBookDeletionBinding):Boolean;
+var Worker:TBookDeletionSelection; Progress:TSelectorDeletionProgress;
+begin
+  Result:=False; Binding:=Default(TBookDeletionBinding);
+  Worker:=TBookDeletionSelection.Create(Info,Mode,Selectors,RemoveRecords);
+  try
+    Progress:=TSelectorDeletionProgress.Create(Owner);
+    try
+      Progress.Name:='BookDeletionSelection'; Progress.Caption:='Подготовка списка книг для удаления';
+      Progress.WorkerThread:=Worker; Progress.btnCancel.OnClick:=Progress.CancelDirect;
+      Progress.OnCloseQuery:=Progress.StopOnClose; Progress.ShowModal;
+    finally Progress.Free; end;
+    Worker.WaitFor;
+    if Worker.Canceled then Exit;
+    if Assigned(Worker.FatalException) then raise EReadError.Create(Exception(Worker.FatalException).Message);
+    Result:=Worker.Success;
+    if Result then Binding:=Worker.Binding;
+  finally Worker.Free; end;
+end;
 
 constructor TBookDeletionProgress.CreateProgress(AOwner:TForm; Stop:TNotifyEvent);
   function Line(const Text:string; Y,Height:Integer):TLabel;
@@ -78,7 +117,7 @@ begin
 end;
 
 function ConfirmBookDeletion(const CollectionName: string; BookCount, ArchiveCount: Integer;
-  RemoveRecords: Boolean; var RemoveFiles: Boolean): Boolean;
+  RemoveRecords: Boolean; var RemoveFiles: Boolean; const Scope:string): Boolean;
 var Dialog, Owner: TForm; Summary, Details: TLabel; Files: TCheckBox;
   Footer: TPanel; Button: TButton;
 begin
@@ -118,6 +157,11 @@ begin
     Button:=TButton.Create(Dialog); Button.Parent:=Footer; Button.Name:='CancelBookDeletion';
     Button.Caption:='Отмена'; Button.ModalResult:=mrNo; Button.Cancel:=True; Button.Default:=True;
     Button.SetBounds(444,10,126,30); Button.Anchors:=[akTop,akRight];
+    if Scope<>'' then
+    begin
+      Dialog.ClientHeight:=Dialog.ClientHeight+86; Dialog.Constraints.MinHeight:=376;
+      Details.Caption:=Scope+sLineBreak+sLineBreak+Details.Caption;
+    end;
     ApplyMHLControlTheme(Dialog);
     Result:=Dialog.ShowModal=mrYes;
     // Cancelling must not change the caller's pending choice or its settings.
