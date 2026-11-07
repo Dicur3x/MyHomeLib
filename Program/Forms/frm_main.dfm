@@ -3633,6 +3633,10 @@
         object miImportSelectedBook: TMenuItem
           Action = acImportSelectedBook
         end
+        object miImportSqlCatalogue: TMenuItem
+          Caption = #1054#1085#1083#1072#1081#1085#45#1082#1072#1090#1072#1083#1086#1075#32#1080#1079#32#83#81#76#45#1076#1072#1084#1087#1086#1074#8230
+          OnClick = ImportSqlCatalogueClick
+        end
         object miExplorerImportShortcut: TMenuItem
           Caption = #1071#1088#1083#1099#1082#32#1080#1084#1087#1086#1088#1090#1072#32#1074#32#1084#1077#1085#1102#32#171#1054#1090#1087#1088#1072#1074#1080#1090#1100#187#8230
           OnClick = ExplorerImportShortcutClick

@@ -542,7 +542,8 @@ begin
 
               if 0 = (CONTENT_NONFB and collectionCode) then
                 R.Folder := R.GenerateLocation + FB2ZIP_EXTENSION;  // И\Иванов Иван\1234 Просто книга.fb2.zip
-              if FileExists(TPath.Combine(CollectionRoot, R.Folder)) then
+              R.CollectionRoot := CollectionRoot;
+              if FileExists(R.GetBookFileName) then
                 Include(R.BookProps, bpIsLocal)
               else
                 Exclude(R.BookProps, bpIsLocal);

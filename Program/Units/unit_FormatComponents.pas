@@ -9,6 +9,8 @@ const
   // needs the current worker; keep its path in the existing module namespace.
   PACKING_COMPONENT_VERSION = '3.0.0.5';
   PACKING_WORKER_FILE = 'tools/bookconvert/pack_collection.py';
+  SQL_CATALOGUE_WORKER = 'tools/bookconvert/catalogdump/build_index.py';
+  SQL_DUMP_PARSER = 'tools/bookconvert/catalogdump/mysql_dump.py';
 
 function IsFormatComponent(const ID: string): Boolean;
 function FormatComponentFile(const ID: string): string;
@@ -73,7 +75,8 @@ begin
       'tools/python/python313.dll','tools/python/python313.zip','tools/python/python313._pth',
       'tools/bookconvert/convert_book.py','tools/bookconvert/MODULAR_API.txt');
     if CompareComponentVersions(Version,PACKING_COMPONENT_VERSION,Comparison) and (Comparison>=0) then
-      Result:=Result+[PACKING_WORKER_FILE,'tools/bookconvert/image_quality.py'];
+      Result:=Result+[PACKING_WORKER_FILE,'tools/bookconvert/image_quality.py',
+        SQL_CATALOGUE_WORKER,SQL_DUMP_PARSER];
   end;
   if ID='ImageProcessing' then Result:=TArray<string>.Create('tools/images/HomeLibImages.exe',
     'tools/images/RUNTIME.json','tools/images/HomeLibImages-MIT.txt');

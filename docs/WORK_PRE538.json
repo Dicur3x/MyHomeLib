@@ -5510,5 +5510,12 @@
       "Win32": "bb1089dbaf0120faa62d9667d3fbdc8219aeece52f5df72ee6f8230130a24979",
       "Win64": "757846ff32db4fcb14427d297eb39d8efb4aa2e516f4ab1528568fee5394ca88"
     }
+  },
+  "sql_dump_catalogues_20261107": {
+    "status": "Implemented. Working catalogue and BookProcessing packages built for both architectures. The beta 5 publication gate remains open.",
+    "implementation": "Import SQL dumps from the publisher or a local folder through the Collection menu. Read only data rows with a bounded parser, merge relations in an isolated SQLite database and stream the resulting index. Source IDs are retained and downloads use the existing online catalogue. When the active collection came from the same source, ask before a full update.",
+    "verification": "The full Flibusta dump dated 2026-11-07 produced 876605 books in 88 INP members. Win32 processed the saved snapshot in 121 seconds and Win64 downloaded and processed it in 116 seconds. Both embedded runtimes passed the two-layout fixtures, ID preservation, invalid SQL rollback and rejection of mixed snapshot dates. The actual catalogue menu on Win32 and Win64 created and updated an isolated online catalogue. The second import retained three LibIDs and the downloaded flags for an FB2 ZIP and a raw EPUB.",
+    "limits": "The production UI tests used local small dumps. The packaged x64 Python runtime also downloaded the complete public Librusec snapshot and wrote 789629 records, then removed its test folder. Ordinary live book downloading from a generated collection remains to be verified. The component was supplied from local staging and the first public download is still to be tested.",
+    "cleanup": "Both full Flibusta worker runs and the x86 GUI test removed their profiles. The x64 GUI verification passed by a separate read-only database check. The first harness used the wrong column name and kept a database handle open during cleanup. Automatic policy rejected later removal of G:/HomeLibRu-build-cache/homelibre-sql-gui-win64-ea_xtsxr. Do not retry it."
   }
 }

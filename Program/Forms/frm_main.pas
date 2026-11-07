@@ -122,6 +122,7 @@ type
     miCopyToCollection: TMenuItem;
     miImportSelectedBook: TMenuItem;
     miExplorerImportShortcut: TMenuItem;
+    miImportSqlCatalogue: TMenuItem;
     miFb2Import: TMenuItem;
     miAbout: TMenuItem;
     miCheckUpdates: TMenuItem;
@@ -562,6 +563,7 @@ type
     procedure ImportSelectedBookExecute(Sender: TObject);
     procedure ImportSelectedBookUpdate(Sender: TObject);
     procedure ExplorerImportShortcutClick(Sender: TObject);
+    procedure ImportSqlCatalogueClick(Sender: TObject);
     procedure ImportFb2Execute(Sender: TObject);
     procedure ImportFb2Update(Sender: TObject);
     procedure ImportNonFB2Execute(Sender: TObject);
@@ -1188,7 +1190,7 @@ type
 
     procedure UpdatePositions;
 
-    function ShowNCWizard: Boolean;
+    function ShowNCWizard(const PreparedIndex: string = ''): Boolean;
     function LoadLastCollection: boolean;
     procedure SetShowStatusProgress(const Value: Boolean);
     procedure CancelBookList(Sender: TObject);
@@ -1302,7 +1304,7 @@ uses
   unit_Lib_Updates,
   frm_EditGroup,
   unit_SystemDatabase_Abstract,
-  unit_MHLArchiveHelpers, unit_MHLExternalTools,
+  unit_MHLArchiveHelpers, unit_MHLExternalTools, unit_FormatComponents,
   unit_BookCache, unit_MHLOperationStatus, frm_DeleteCollection, unit_ImportOldUserData, unit_BookColumnFilters, frm_CatalogSources, frm_CollectionBackup, frm_BookDuplicates, unit_ComponentUpdates, unit_ProgramUpdateInstaller, unit_Diagnostics, unit_ComponentUsage, unit_ComponentRemoval, frm_ComponentMaintenance,
   frm_CollectionPackingProgress;
 
@@ -3208,7 +3210,7 @@ begin
   UpdateItems(pmiScripts,True); UpdateItems(mmiScripts,True); UpdateItems(pmScripts.Items,False);
 end;
 
-function TfrmMain.ShowNCWizard: Boolean;
+function TfrmMain.ShowNCWizard(const PreparedIndex: string): Boolean;
 var
   frmNCWizard: TNewCollectionWizard;
   WizardResult, CreatedCollectionID: Integer;
@@ -3219,6 +3221,7 @@ begin
   Result := False;
   frmNCWizard := TNewCollectionWizard.Create(Application);
   try
+    if (PreparedIndex<>'') and not frmNCWizard.UsePreparedIndex(PreparedIndex) then Exit;
     WizardResult := frmNCWizard.ShowModal;
     CreatedCollectionID := frmNCWizard.NewCollectionID;
     MetadataRequested := frmNCWizard.RequestedMetadataFill;
@@ -3272,6 +3275,116 @@ end;
 procedure TfrmMain.ShowNewCollectionWizard(Sender: TObject);
 begin
   ShowNCWizard;
+end;
+
+procedure TfrmMain.ImportSqlCatalogueClick(Sender: TObject);
+const
+  DownloadAction = 100;
+  LocalAction = 101;
+  FlibustaSource = 110;
+  LibrusecSource = 111;
+  SqlCatalogueNote = 'Онлайн-каталог из SQL-дампов';
+var
+  Choice: TTaskDialog; Button: TTaskDialogButtonItem; Radio: TTaskDialogRadioButtonItem;
+  Picker: TFileOpenDialog; FromDisk, UpdateExisting, Updated, Committed: Boolean;
+  Source, URL, Folder, Version, WorkDir, IndexFile: string;
+  ActiveID: Integer; Id: TGUID;
+begin
+  if FFormBusy or FStartupLoading or FBookListLoading then Exit;
+  if not FileExists(TPath.Combine(Settings.AppPath,FormatComponentFile('BookProcessing'))) or
+     not FileExists(TPath.Combine(Settings.AppPath,SQL_CATALOGUE_WORKER)) or
+     not FileExists(TPath.Combine(Settings.AppPath,SQL_DUMP_PARSER)) then
+  begin
+    RequestOptionalComponent('BookProcessing');
+    Exit;
+  end;
+
+  Choice:=TTaskDialog.Create(Self);
+  try
+    Choice.Caption:='Импорт SQL-дампов';
+    Choice.Title:='Откуда взять онлайн-каталог?';
+    Choice.Text:='Из дампов импортируются сведения о книгах. Сами книги скачиваются при открытии.';
+    Choice.CommonButtons:=[tcbCancel];
+    Choice.Flags:=[tfUseCommandLinks,tfAllowDialogCancellation];
+    Radio:=TTaskDialogRadioButtonItem(Choice.RadioButtons.Add);
+    Radio.Caption:='Флибуста'; Radio.ModalResult:=FlibustaSource; Radio.Default:=True;
+    Radio:=TTaskDialogRadioButtonItem(Choice.RadioButtons.Add);
+    Radio.Caption:='Либрусек'; Radio.ModalResult:=LibrusecSource;
+    Button:=TTaskDialogButtonItem(Choice.Buttons.Add);
+    Button.Caption:='Скачать дампы с сайта'; Button.ModalResult:=DownloadAction; Button.Default:=True;
+    Button:=TTaskDialogButtonItem(Choice.Buttons.Add);
+    Button.Caption:='Выбрать папку с дампами'; Button.ModalResult:=LocalAction;
+    if not Choice.Execute(Handle) or not Assigned(Choice.RadioButton) or
+      not (Choice.ModalResult in [DownloadAction,LocalAction]) then Exit;
+    FromDisk:=Choice.ModalResult=LocalAction;
+    if Choice.RadioButton.ModalResult=FlibustaSource then
+    begin Source:='flibusta'; URL:='https://flibusta.is/'; end
+    else
+    begin Source:='librusec'; URL:='https://lib.rus.ec/'; end;
+  finally Choice.Free; end;
+
+  Folder:=''; Version:='';
+  if FromDisk then
+  begin
+    Picker:=TFileOpenDialog.Create(Self);
+    try
+      Picker.Title:='Папка с полным комплектом SQL-дампов';
+      Picker.Options:=[fdoPickFolders,fdoForceFileSystem,fdoPathMustExist];
+      if not Picker.Execute(Handle) then Exit;
+      Folder:=Picker.FileName;
+    finally Picker.Free; end;
+    Version:=FormatDateTime('yyyymmdd',Date);
+    if not InputQuery('Дата SQL-дампов','Дата комплекта (ГГГГММДД)',Version) then Exit;
+  end;
+
+  ActiveID:=0;
+  UpdateExisting:=Assigned(FCollection) and isOnlineCollection(FCollection.CollectionCode) and
+    SameText(VarToStr(FCollection.GetProperty(PROP_URL)),URL) and
+    SameText(VarToStr(FCollection.GetProperty(PROP_NOTES)),SqlCatalogueNote);
+  if UpdateExisting then
+  begin
+    ActiveID:=FCollection.CollectionID;
+    if MessageDlg('Обновить текущий онлайн-каталог «'+
+      VarToStr(FCollection.GetProperty(PROP_DISPLAYNAME))+'» из дампов?',
+      mtConfirmation,[mbYes,mbNo],0)<>mrYes then Exit;
+  end;
+
+  FFormBusy:=True;
+  WorkDir:='';
+  try
+    try
+      CreateGUID(Id);
+      WorkDir:=TPath.Combine(Settings.TempPath,'homelibre-sql-'+GUIDToString(Id));
+      if not CreateDirectory(PChar(WorkDir),nil) then
+      begin
+        WorkDir:='';
+        RaiseLastOSError;
+      end;
+      IndexFile:=TPath.Combine(WorkDir,Source+'.inpx');
+      if not PrepareSqlCatalogue(Source,Folder,Version.Trim,IndexFile) then Exit;
+      if not UpdateExisting then ShowNCWizard(IndexFile)
+      else
+      begin
+        if Assigned(FOPDSForm) then FOPDSForm.StopServer;
+        UpdatePositions;
+        Updated:=ApplyPreparedCollectionUpdate(ActiveID,IndexFile,Settings.SystemFileName[sfUpdateLog],
+          True,Committed);
+        if Committed then NotifyFavoriteCatalogChanged(TArray<Integer>.Create(ActiveID));
+        if Updated or Committed then InitCollection;
+      end;
+    except
+      on E:Exception do
+      begin
+        LogDiagnosticError('sql-catalogue',E);
+        MessageDlg('Не удалось импортировать SQL-дампы.'+sLineBreak+E.Message,mtError,[mbOK],0);
+      end;
+    end;
+  finally
+    FFormBusy:=False;
+    if WorkDir<>'' then
+      try TDirectory.Delete(WorkDir,True);
+      except on E:Exception do LogDiagnosticError('sql-catalogue-cleanup',E); end;
+  end;
 end;
 
 procedure TfrmMain.SetFormState;

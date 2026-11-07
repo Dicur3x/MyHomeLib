@@ -75,6 +75,7 @@ type
     FOperationSucceeded: Boolean;
     FCollectionCommittedChanges: Boolean;
     FRequestedMetadataFill: Boolean;
+    FPreparedIndex: Boolean;
 
     function CanRequestMetadataFill: Boolean;
     procedure RequestMetadataFill(Sender: TObject);
@@ -99,6 +100,7 @@ type
   public
     destructor Destroy; override;
 
+    function UsePreparedIndex(const FileName: string): Boolean;
     function NewCollectionID: Integer; inline;
     property AutoImport:boolean  read FAutoImport;
     property OperationSucceeded: Boolean read FOperationSucceeded;
@@ -139,6 +141,19 @@ begin
   inherited;
 end;
 
+function TNewCollectionWizard.UsePreparedIndex(const FileName: string): Boolean;
+begin
+  FParams.Operation:=otInpx;
+  FParams.INPXFile:=FileName;
+  FPreparedIndex:=True;
+  Result:=FNameAndLocationPage.Activate(True);
+  if Result then
+  begin
+    ShowPage(NAMEANDLOCATION_PAGE_ID);
+    btnBackward.Enabled:=False;
+  end;
+end;
+
 function TNewCollectionWizard.NewCollectionID: Integer;
 begin
   Result := FParams.CollectionID;
@@ -172,6 +187,7 @@ end;
 
 function TNewCollectionWizard.IsPageVisible(PageIndex: Integer): Boolean;
 begin
+  if FPreparedIndex and (PageIndex<NAMEANDLOCATION_PAGE_ID) then Exit(False);
   case PageIndex of
     WELCOM_PAGE_ID:
       Result := True;
