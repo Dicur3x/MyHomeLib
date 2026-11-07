@@ -409,7 +409,7 @@ type
 procedure TestReaderContinuousScrolling;
 var Reader: TfrmBuiltinReader; FileName, Extension, Original: string;
   Watch: TStopwatch; Position, Frames, LastTop, Steps, I: Integer;
-  Key: Word; Raster: Boolean;
+  Raster: Boolean;
   procedure Pump(Milliseconds: Integer);
   var Wait: TStopwatch;
   begin
@@ -421,14 +421,15 @@ var Reader: TfrmBuiltinReader; FileName, Extension, Original: string;
     until Wait.ElapsedMilliseconds>=Milliseconds;
   end;
   procedure PressArrow(Direction: Word; Count: Integer);
-  var Index: Integer;
   begin
-    for Index:=1 to Count do
+    Require(Reader.ReadingSurface.Focused,'The reading surface did not receive focus');
+    for var Index:=1 to Count do
     begin
-      Key:=Direction;
-      Reader.OnKeyDown(Reader,Key,[]);
-      Require(Key=0,'The reader did not handle the scroll key');
+      Win32Check(PostMessage(Reader.ReadingSurface.Handle,WM_KEYDOWN,Direction,1));
+      Win32Check(PostMessage(Reader.ReadingSurface.Handle,WM_KEYUP,Direction,-1073741823));
     end;
+    Application.ProcessMessages;
+    Require(Reader.ReadingSurface.Focused,'Reader navigation moved focus away from the book');
   end;
 begin
   RequireIsolatedRegression;
@@ -452,6 +453,22 @@ begin
       while (Reader.TextPosition=0) and (Watch.ElapsedMilliseconds<10000) do Pump(30);
       Position:=Reader.TextPosition;
       Require(Position>0,Extension+' wheel did not turn the page in paged mode');
+      PressArrow(VK_LEFT,1);
+      Watch:=TStopwatch.StartNew;
+      while (Reader.TextPosition<>0) and (Watch.ElapsedMilliseconds<5000) do Pump(20);
+      Require(Reader.TextPosition=0,Extension+' Left key did not turn a page back');
+      PressArrow(VK_RIGHT,1);
+      Watch:=TStopwatch.StartNew;
+      while (Reader.TextPosition=0) and (Watch.ElapsedMilliseconds<5000) do Pump(20);
+      Require(Reader.TextPosition=Position,Extension+' Right key did not turn a page forward');
+      PressArrow(VK_PRIOR,1);
+      Watch:=TStopwatch.StartNew;
+      while (Reader.TextPosition<>0) and (Watch.ElapsedMilliseconds<5000) do Pump(20);
+      Require(Reader.TextPosition=0,Extension+' Page Up stopped working');
+      PressArrow(VK_NEXT,1);
+      Watch:=TStopwatch.StartNew;
+      while (Reader.TextPosition=0) and (Watch.ElapsedMilliseconds<5000) do Pump(20);
+      Require(Reader.TextPosition=Position,Extension+' Page Down stopped working');
       Reader.SetPageLayout(rplContinuous);
       Reader.GoToPosition(0);
       Watch:=TStopwatch.StartNew;

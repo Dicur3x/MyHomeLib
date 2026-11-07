@@ -33,6 +33,7 @@ type
     procedure MouseMove(Shift: TShiftState; X,Y: Integer); override;
     procedure MouseUp(Button: TMouseButton; Shift: TShiftState; X,Y: Integer); override;
     procedure WMCaptureChanged(var Message: TMessage); message WM_CAPTURECHANGED;
+    procedure WMGetDlgCode(var Message: TMessage); message WM_GETDLGCODE;
   end;
 
   TReaderLoadThread = class(TThread)
@@ -637,6 +638,12 @@ begin raise EStreamError.Create('Поток книги доступен толь
 
 procedure TReaderSurface.Paint;
 begin if Assigned(FReader) then FReader.PaintPage(Canvas); end;
+
+procedure TReaderSurface.WMGetDlgCode(var Message: TMessage);
+begin
+  inherited;
+  Message.Result:=Message.Result or DLGC_WANTARROWS;
+end;
 
 function TReaderSurface.DoMouseWheel(Shift: TShiftState; WheelDelta: Integer; MousePos: TPoint): Boolean;
 var Steps: Integer;
@@ -1926,7 +1933,7 @@ begin
 end;
 
 procedure TfrmBuiltinReader.ScrollFrame(Sender: TObject);
-var Difference, Step, Remainder, PreviousPosition, Limit: Integer;
+var Difference, Step, Remainder, Overshoot, PreviousPosition, Limit: Integer;
   HasNext, CanAdvance: Boolean;
 begin
   if not FReady or FClosing or not ContinuousReading then
@@ -1948,15 +1955,25 @@ begin
     Limit:=FScrollTileHeight*Ord(HasNext);
   end;
   if not HasNext then FScrollTarget:=Min(FScrollTarget,Limit);
-  Difference:=Min(FScrollTarget,Limit)-FScrollOffset;
+  // A loaded next tile is not a destination. Easing towards its edge would
+  // slow down to one pixel per frame even when the wheel keeps moving down.
+  if CanAdvance then Difference:=FScrollTarget-FScrollOffset
+  else Difference:=Min(FScrollTarget,Limit)-FScrollOffset;
   Step:=EnsureRange(Abs(Difference) div 4,1,Max(1,MulDiv(90,CurrentPPI,96)));
   if Difference>0 then
   begin
     if CanAdvance and (FScrollOffset+Step>=FScrollTileHeight) then
     begin
       Remainder:=FScrollTarget-FScrollTileHeight;
+      Overshoot:=FScrollOffset+Step-FScrollTileHeight;
       NextPage;
-      if PreviousPosition<>CurrentPosition then FScrollTarget:=Remainder;
+      if PreviousPosition<>CurrentPosition then
+      begin
+        FScrollTarget:=Remainder;
+        if Assigned(FPDF) then FScrollOffset:=Min(Overshoot,RasterScrollLimit)
+        else if (NextTextPosition>CurrentPosition) and (NextTextPosition<FLength) then
+          FScrollOffset:=Overshoot;
+      end;
     end
     else Inc(FScrollOffset,Step);
   end
@@ -1965,11 +1982,12 @@ begin
     if (FScrollOffset-Step<=0) and (FScrollTarget<0) then
     begin
       Remainder:=FScrollTarget;
+      Overshoot:=Step-FScrollOffset;
       PreviousPage;
       if PreviousPosition<>CurrentPosition then
       begin
-        FScrollOffset:=FScrollTileHeight;
-        FScrollTarget:=FScrollOffset+Remainder;
+        FScrollOffset:=Max(0,FScrollTileHeight-Overshoot);
+        FScrollTarget:=FScrollTileHeight+Remainder;
       end
       else if Assigned(FPDF) and FPDF.AsyncPages and (FRequestedPage<>FPage) then
         FScrollBackOffset:=Remainder;
@@ -2384,11 +2402,15 @@ begin
     FPageSelection.Clear; if Assigned(FSecondPageSelection) then FSecondPageSelection.Clear; FTextSelecting:=False; FTextSelectionStart:=-1; FTextSelectionEnd:=-1; FTextSelectionRects:=nil;
     if FSelectionEnabled then FSurface.Cursor:=crIBeam else FSurface.Cursor:=crDefault;
     FullHeight:=FullTextHeight;
-    FBitmap.SetSize(FSurface.ClientWidth,FullHeight);
     ClearTextHighlights;
-    FNext:=FormatText(CurrentPosition,-1,False); Notes:=''; NotesHeight:=0;
-    if not ContinuousReading and FShowFootnotes and Assigned(FDocument) then
-      Notes:=FDocument.FootnotesForRange(CurrentPosition,FNext);
+    Notes:=''; NotesHeight:=0;
+    if not ContinuousReading then
+    begin
+      FBitmap.SetSize(FSurface.ClientWidth,FullHeight);
+      FNext:=FormatText(CurrentPosition,-1,False);
+      if FShowFootnotes and Assigned(FDocument) then
+        Notes:=FDocument.FootnotesForRange(CurrentPosition,FNext);
+    end;
     if Notes<>'' then
     begin
       FBitmap.Canvas.Font.Assign(FFootnotesMemo.Font);
