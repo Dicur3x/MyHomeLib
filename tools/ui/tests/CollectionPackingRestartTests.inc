@@ -28,7 +28,7 @@ var Root: TJSONObject; Entry: TJSONValue; Releases: TComponentReleases; Info: TP
   Collection: IBookCollection; Book: TBookRecord; SourceID, BookID: Integer;
   Dialog: TfrmCollectionPackingProgress; Probe: TPackingStartupReviewProbe;
   Timer: TTimer; Snapshot: TCollectionPackingSnapshot; Started: UInt64;
-  Folder, Report, Version, Source, SourceRoot, Destination: string;
+  Folder, Report, ComponentID, Source, SourceRoot, Destination: string;
   Required: TArray<string>; PackedCollection: IBookCollection; PackedStream: TStream;
 
   procedure WaitForPrimary(const Caption: string);
@@ -52,7 +52,6 @@ begin
   Root:=TJSONObject.ParseJSONValue(TFile.ReadAllText(Folder+'save-module-fixture/fixture.json',TEncoding.UTF8)) as TJSONObject;
   try
   try
-    Version:=Root.GetValue<string>('version');
     Application.Initialize;
     ExceptionHandler:=TSaveModuleExceptionHandler.Create;
     ExceptionHandler.Report:=Report;
@@ -61,9 +60,13 @@ begin
     try
       if ParamCount>2 then
       begin
-        Require(not ComponentNeedsRepair(Folder,'BookProcessing') and not ComponentNeedsRepair(Folder,'ImageProcessing') and
-          (InstalledComponentVersion(Folder,'BookProcessing')=Version) and
-          (InstalledComponentVersion(Folder,'ImageProcessing')=Version),'Restart lost either packing dependency');
+        for Entry in Root.GetValue<TJSONArray>('components') do
+        begin
+          ComponentID:=Entry.GetValue<string>('id');
+          Require(not ComponentNeedsRepair(Folder,ComponentID) and
+            (InstalledComponentVersion(Folder,ComponentID)=Entry.GetValue<string>('version')),
+            'Restart lost the expected version of '+ComponentID);
+        end;
         for var Unrelated in ['kindle','office','xps','doc','djvu','pdfium','jpeg-xl'] do
           Require(not DirectoryExists(TPath.Combine(Folder,'tools/'+Unrelated)),'Packing installed an unrelated component');
         SourceID:=Settings.ActiveCollection;
@@ -184,7 +187,8 @@ begin
         for Entry in Root.GetValue<TJSONArray>('components') do
         begin
           Info:=Default(TProgramRelease);
-          Info.ComponentID:=Entry.GetValue<string>('id'); Info.ComponentVersion:=Version; Info.Tag:=ALREADER_FIXED_TAG;
+          Info.ComponentID:=Entry.GetValue<string>('id');
+          Info.ComponentVersion:=Entry.GetValue<string>('version'); Info.Tag:=ALREADER_FIXED_TAG;
           Info.DownloadURL:=Entry.GetValue<string>('url'); Info.SHA256:=Entry.GetValue<string>('sha256');
           Info.Size:=Entry.GetValue<Int64>('size');
           Server.URLs.Add(Info.DownloadURL);

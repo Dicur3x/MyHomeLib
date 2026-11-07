@@ -75,8 +75,8 @@ def prepare_operation_components(runtime, profile, operation):
                 if entry['platform'] == platform and entry['id'] in required]
     if len(selected) != len(required) or {entry['id'] for entry in selected} != required:
         raise ValueError('The exact distinct component packages are required')
-    versions = {entry['version'] for entry in selected}
-    if len(versions) != 1:
+    versions = {entry['id']: entry['version'] for entry in selected}
+    if operation != 'packing' and len(set(versions.values())) != 1:
         raise ValueError('First-use fixture needs matching candidate versions')
     target = profile / 'save-module-fixture'
     target.mkdir()
@@ -91,9 +91,9 @@ def prepare_operation_components(runtime, profile, operation):
         if asset['digest'] != 'sha256:' + digest or source.stat().st_size != asset['size']:
             raise ValueError('Component differs from tested asset metadata')
         shutil.copyfile(source, target / name)
-        entries.append(dict(id=entry['id'], name=name, sha256=digest,
+        entries.append(dict(id=entry['id'], version=entry['version'], name=name, sha256=digest,
                             size=asset['size'], url=asset['browser_download_url']))
-    (target / 'fixture.json').write_text(json.dumps(dict(version=versions.pop(), components=entries)), encoding='utf-8')
+    (target / 'fixture.json').write_text(json.dumps(dict(version=versions['BookProcessing'], components=entries)), encoding='utf-8')
     (profile / 'module-source.fb2').write_text('''<?xml version="1.0" encoding="utf-8"?>
 <FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0"><description><title-info>
 <genre>prose</genre><author><first-name>Тест</first-name><last-name>Автор</last-name></author>
