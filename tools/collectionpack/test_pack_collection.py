@@ -615,6 +615,44 @@ class PackingTests(unittest.TestCase):
         self.assertLessEqual(result.output_bytes, source.stat().st_size)
         self.assertEqual(self.packed_book(result, 1), body)
 
+    def test_unusual_extensions_keep_exact_books_and_reuse(self):
+        source = self.source / 'usr.zip'
+        suffixes = ('.3-pdf', '.original_fb2', '.pdf[1]', '.metadata.pdf', '.с пробелом', '', 'PDF', '.txt')
+        with zipfile.ZipFile(source, 'w') as archive:
+            for identity, suffix in enumerate(suffixes, 1):
+                member = f'book{identity}' + suffix
+                archive.writestr(member, bytes([identity]) * 4096)
+                self.add(identity, source, member, suffix)
+        original = sha(source)
+        result = Packer(self.job).execute()
+        self.assertEqual((result.books, result.opaque_sources), (len(suffixes), 0))
+        with database(self.output / 'generations' / result.generation / 'locations.sqlite') as db:
+            self.assertEqual([row[0] for row in db.execute('SELECT ext FROM locations ORDER BY book_id')],
+                             [suffix.lower() for suffix in suffixes])
+        for identity in range(1, len(suffixes) + 1):
+            self.assertEqual(self.packed_book(result, identity), bytes([identity]) * 4096)
+        self.assertEqual(Packer(self.job).execute().reused, 1)
+        self.assertEqual(sha(source), original)
+
+    def test_unsafe_staging_name_preserves_original_zip_and_members(self):
+        source = self.archive('usr.zip', {'book.pdf/part': b'nested name', 'other.txt': b'other book'})
+        self.add(1, source, 'book.pdf/part', '.pdf/part')
+        with database(self.plan) as db:
+            db.execute("UPDATE books SET filename='book' WHERE book_id=1")
+        self.add(2, source, 'other.txt')
+        original = sha(source)
+        result = Packer(self.job).execute()
+        self.assertEqual((result.books, result.opaque_sources, result.output_bytes), (2, 1, source.stat().st_size))
+        self.assertEqual(self.packed_book(result, 1), b'nested name')
+        self.assertEqual(self.packed_book(result, 2), b'other book')
+        self.assertEqual(Packer(self.job).execute().reused, 1)
+        self.assertEqual(sha(source), original)
+
+        with database(self.plan) as db:
+            db.execute("UPDATE books SET member='missing.pdf/part',locator='missing' WHERE book_id=1")
+        with self.assertRaisesRegex(PackingError, 'Книга отсутствует в архиве'):
+            Packer(self.job).execute()
+
     def test_same_destination_cannot_be_packed_concurrently(self):
         source = self.source / 'book.txt'; source.write_bytes(b'First ' * 3000)
         self.add(1, source, '')

@@ -31,9 +31,12 @@ def prepare(profile, inventory):
     examples = {item['id']: item
                 for group in json.loads(inventory.read_bytes())['formats']
                 for item in group['examples']}
+    documents = [(103, '.pdf', 840861), (104, '.djvu', 808806), (105, '.doc', 812349)]
+    if 742276 in examples:
+        documents.append((109, '.3-pdf', 742276))
     stages = [
         [('text', [(101, '.fb2', 513904), (102, '.epub', 810690), (106, '.rtf', 807675)]),
-         ('documents', [(103, '.pdf', 840861), (104, '.djvu', 808806), (105, '.doc', 812349)])],
+         ('documents', documents)],
         [('update', [(103, '.pdf', 709156), (107, '.docx', 790607)])],
         [('update', [(102, '.epub', 732671), (108, '.chm', 809048)])],
     ]
@@ -55,6 +58,9 @@ def prepare(profile, inventory):
                             'Sample series', '1', stem, str(len(data)), str(identity), '0',
                             ext[1:], '2026-11-01', 'en')))
                         expected[str(identity)] = {'ext': ext, 'sha256': hashlib.sha256(data).hexdigest()}
+                        if ext == '.3-pdf':
+                            assert data.startswith(b'%PDF-'), 'The malformed-extension fixture must contain a PDF'
+                            expected[str(identity)]['export_ext'] = '.pdf'
                 index.writestr(name + '.inp', '\n'.join(rows) + '\n')
         (folder / 'expected.json').write_text(json.dumps(expected), encoding='ascii')
 

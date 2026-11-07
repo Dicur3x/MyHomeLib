@@ -139,6 +139,14 @@ def book_location(archive, item):
     return folder, item['filename'], item['ext'], item['inside_no']
 
 
+def can_stage_extension(extension):
+    # The generated member starts with 32 ASCII characters. Allow unusual
+    # catalogue extensions as long as the resulting Windows filename is safe.
+    return (len(extension.encode('utf-16-le')) <= 2 * (255 - 32) and
+            not extension.endswith(('.', ' ')) and
+            not any(ord(char) < 32 or char in '<>:"/\\|?*' for char in extension))
+
+
 def copy_exact(source, target, check):
     digest = hashlib.sha256()
     with Path(source).open('rb') as reader, Path(target).open('xb') as writer:
@@ -1058,7 +1066,16 @@ class Packer:
                         raise PackingError('Книга с описанием FBD отсутствует в архиве: ' + row['member'])
         companion_kinds = {name.split('/', 1)[0] for name, _ in companions}
         check_flibrary = source.suffix.lower() == '.7z' and companion_kinds != {'covers', 'images'}
-        preserve_container = bool(companions) or bool(fbd_rows)
+        unsafe_extension = next((row['ext'] for row in rows if not can_stage_extension(row['ext'].lower())), None)
+        if unsafe_extension is not None and any(not row['member'] for row in rows):
+            raise PackingError('Нельзя подготовить отдельный файл с таким расширением: ' + unsafe_extension)
+        preserve_container = bool(companions) or bool(fbd_rows) or unsafe_extension is not None
+        if unsafe_extension is not None and zipfile.is_zipfile(source):
+            with zipfile.ZipFile(source) as directory:
+                entries = set(directory.namelist())
+                for row in rows:
+                    if row['member'] not in entries:
+                        raise PackingError('Книга отсутствует в архиве: ' + row['member'])
         if not preserve_container and any(row['member'] for row in rows) and zipfile.is_zipfile(source):
             with zipfile.ZipFile(source) as directory:
                 preserve_container = any(entry.file_size > MAX_BOOK for entry in directory.infolist() if not entry.is_dir())
@@ -1107,9 +1124,8 @@ class Packer:
                     if locator in mappings:
                         continue
                     extension = row['ext'].lower()
-                    if not extension.startswith('.') or len(extension) > 16 or not extension[1:].isalnum():
-                        raise PackingError('Неизвестное расширение файла: ' + extension)
-                    name = hashlib.sha256(locator.encode('utf-8')).hexdigest()[:32] + extension
+                    stem = hashlib.sha256(locator.encode('utf-8')).hexdigest()[:32]
+                    name = stem + extension
                     target = files / name
                     entry = None
                     if not member:
@@ -1146,7 +1162,7 @@ class Packer:
                             if document.read(len(PACKED_PDF_MAGIC)) == PACKED_PDF_MAGIC:
                                 keep_source = True
                     image_result = {} if keep_source else self.optimize_book(target, stage, entry)
-                    mappings[locator] = dict(filename=Path(name).stem, ext=extension, inside_no=-1, **image_result,
+                    mappings[locator] = dict(filename=stem, ext=extension, inside_no=-1, **image_result,
                                              **book_signature(target, self.check))
                     if ((extension in DJVU_SUFFIXES and image_result.get('image_result') == 'optimized') or
                         (entry is not None and entry.compress_size + 256 < entry.file_size)):

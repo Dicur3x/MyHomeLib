@@ -45,7 +45,8 @@ var Root, PackedRoot: string; Options: TCollectionPackingOptions;
         Require(SuccessfulBookExportCount(Results)=Expected.Count,'Some packed originals were not exported');
         for Item in Expected do
         begin
-          Original:='book-'+Item.JsonString.Value+Item.JsonValue.GetValue<string>('ext');
+          Original:='book-'+Item.JsonString.Value+Item.JsonValue.GetValue<string>('export_ext',
+            Item.JsonValue.GetValue<string>('ext'));
           Hash:=Item.JsonValue.GetValue<string>('sha256');
           Require(SameText(THashSHA2.GetHashStringFromFile(TPath.Combine(OutputFolder,Original)),Hash),
             'Packed original export changed bytes: '+Original);
