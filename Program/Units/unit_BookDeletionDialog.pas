@@ -19,6 +19,8 @@ type
 function ConfirmBookDeletion(const CollectionName: string; BookCount, ArchiveCount: Integer;
   RemoveRecords: Boolean; var RemoveFiles: Boolean): Boolean;
 
+function ConfirmBookDeletionBatch(var Items: TArray<TBookDeletionBatchItem>): Boolean;
+
 implementation
 
 uses System.SysUtils, System.Math, Vcl.Controls, Vcl.ExtCtrls, unit_MHLTheme;
@@ -33,7 +35,7 @@ constructor TBookDeletionProgress.CreateProgress(AOwner:TForm; Stop:TNotifyEvent
   end;
 begin
   inherited CreateNew(AOwner);
-  Name:='BookDeletionProgress'; Caption:='Удаление файлов книг';
+  Name:='BookDeletionProgress'; Caption:='Удаление книг';
   PopupMode:=pmExplicit; PopupParent:=AOwner; Position:=poOwnerFormCenter;
   BorderStyle:=bsSizeable; BorderIcons:=[biSystemMenu];
   Font.Name:='Segoe UI'; Font.Size:=9; ClientWidth:=560; ClientHeight:=194;
@@ -120,6 +122,81 @@ begin
     Result:=Dialog.ShowModal=mrYes;
     // Cancelling must not change the caller's pending choice or its settings.
     if Result then RemoveFiles:=Files.Checked;
+  finally Dialog.Free; end;
+end;
+
+
+function ConfirmBookDeletionBatch(var Items:TArray<TBookDeletionBatchItem>):Boolean;
+var Dialog,Owner:TForm; Summary:TLabel; Rows:TScrollBox; Footer,Row:TPanel;
+  Checks:TArray<TCheckBox>; Button:TButton; Books,Archives,Total:Integer;
+begin
+  Result:=False;
+  if Length(Items)=0 then Exit;
+  if Length(Items)=1 then
+  begin
+    Books:=Length(Items[0].Binding.ExpectedBooks); Archives:=0;
+    for var Book in Items[0].Binding.ExpectedBooks do if IsArchiveBookSource(Book) then Inc(Archives);
+    Exit(ConfirmBookDeletion(Items[0].CollectionName,Books,Archives,
+      Items[0].Binding.RemoveRecords,Items[0].RemoveFiles));
+  end;
+  Owner:=Screen.ActiveForm; if not Assigned(Owner) then Owner:=Application.MainForm;
+  Dialog:=TForm.CreateNew(Owner);
+  try
+    Dialog.Name:='BookDeletionConfirmation'; Dialog.Caption:='Удаление книг из коллекций';
+    Dialog.PopupMode:=pmExplicit; Dialog.PopupParent:=Owner; Dialog.Position:=poOwnerFormCenter;
+    Dialog.BorderStyle:=bsSizeable; Dialog.BorderIcons:=[biSystemMenu];
+    Dialog.Font.Name:='Segoe UI'; Dialog.Font.Size:=9;
+    Dialog.ClientWidth:=640; Dialog.ClientHeight:=Min(520,180+Length(Items)*76);
+    Dialog.Constraints.MinWidth:=560; Dialog.Constraints.MinHeight:=300;
+    Total:=0; for var Item in Items do Inc(Total,Length(Item.Binding.ExpectedBooks));
+    Summary:=TLabel.Create(Dialog); Summary.Parent:=Dialog; Summary.Align:=alTop;
+    Summary.AutoSize:=False; Summary.Height:=64; Summary.WordWrap:=True; Summary.ShowAccelChar:=False;
+    Summary.Margins.SetBounds(18,14,18,6); Summary.AlignWithMargins:=True;
+    Summary.Caption:=Format('Выбрано книг: %d · коллекций: %d'+sLineBreak+
+      'В общих архивах удаляются только выбранные книги.',[Total,Length(Items)]);
+    Footer:=TPanel.Create(Dialog); Footer.Parent:=Dialog; Footer.Align:=alBottom;
+    Footer.Height:=54; Footer.BevelOuter:=bvNone;
+    Button:=TButton.Create(Dialog); Button.Parent:=Footer; Button.Name:='ConfirmBookDeletion';
+    Button.Caption:='Удалить'; Button.ModalResult:=mrYes;
+    Button.SetBounds(362,10,120,30); Button.Anchors:=[akTop,akRight];
+    Button:=TButton.Create(Dialog); Button.Parent:=Footer; Button.Name:='CancelBookDeletion';
+    Button.Caption:='Отмена'; Button.ModalResult:=mrNo; Button.Cancel:=True; Button.Default:=True;
+    Button.SetBounds(494,10,126,30); Button.Anchors:=[akTop,akRight];
+    Rows:=TScrollBox.Create(Dialog); Rows.Parent:=Dialog; Rows.Align:=alClient;
+    Rows.BorderStyle:=bsNone; Rows.HorzScrollBar.Visible:=False;
+    SetLength(Checks,Length(Items));
+    for var I:=High(Items) downto 0 do
+    begin
+      Row:=TPanel.Create(Dialog); Row.Parent:=Rows; Row.Align:=alTop; Row.Height:=76;
+      Row.BevelOuter:=bvNone;
+      var Title:=TLabel.Create(Dialog); Title.Parent:=Row; Title.Name:='DeleteCollectionTitle'+IntToStr(I);
+      Title.SetBounds(18,4,580,23); Title.Anchors:=[akLeft,akTop,akRight];
+      Title.AutoSize:=False; Title.EllipsisPosition:=epEndEllipsis; Title.ShowAccelChar:=False;
+      Title.Caption:=Format('%s · книг: %d',[Items[I].CollectionName,Length(Items[I].Binding.ExpectedBooks)]);
+      Title.Hint:=Items[I].CollectionName; Title.ShowHint:=True;
+      if Items[I].Binding.RemoveRecords then
+      begin
+        var Detail:=TLabel.Create(Dialog); Detail.Parent:=Row;
+        Detail.SetBounds(18,26,580,18); Detail.Anchors:=[akLeft,akTop,akRight];
+        Detail.Caption:='Удалить выбранные записи из этой коллекции.';
+        Checks[I]:=TCheckBox.Create(Dialog); Checks[I].Parent:=Row;
+        Checks[I].Name:='DeleteBookSourceFiles'+IntToStr(I);
+        Checks[I].SetBounds(18,46,580,23); Checks[I].Anchors:=[akLeft,akTop,akRight];
+        Checks[I].Caption:='Также удалить файлы этих книг с диска'; Checks[I].Checked:=Items[I].RemoveFiles;
+      end
+      else
+      begin
+        var Detail:=TLabel.Create(Dialog); Detail.Parent:=Row;
+        Detail.SetBounds(18,28,580,40); Detail.Anchors:=[akLeft,akTop,akRight];
+        Detail.AutoSize:=False; Detail.WordWrap:=True;
+        Detail.Caption:='Удалить только загруженные файлы. Записи в каталоге, оценки и заметки сохранятся.';
+      end;
+    end;
+    ApplyMHLControlTheme(Dialog);
+    Result:=Dialog.ShowModal=mrYes;
+    if Result then for var I:=0 to High(Items) do
+      if Assigned(Checks[I]) then Items[I].RemoveFiles:=Checks[I].Checked
+      else Items[I].RemoveFiles:=True;
   finally Dialog.Free; end;
 end;
 

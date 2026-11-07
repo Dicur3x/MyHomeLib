@@ -805,6 +805,7 @@ type
 
     function IsSelectedBookNode(Node: PVirtualNode; Data: PBookRecord): Boolean;
     procedure RemoveSelectedBooks(const OnlyFiles: Boolean);
+    procedure RemoveGroupedBooks(const OnlyFiles: Boolean);
     function BookDeletionJournalRoot: string;
     procedure StartBookDeletion(Operation: TBookDeletionOperation; ShowProgress: Boolean);
     procedure BookDeletionTick(Sender: TObject);
@@ -987,6 +988,7 @@ type
     FExplorerImportTimer: TTimer;
     FExplorerImportFiles: TArray<string>;
     FCloseAfterBookDeletion, FBookDeletionNeedsRecovery: Boolean;
+    FBookDeleteCaption, FBookDeleteHint: string;
 
     FFileOpMode: (fmFb2Zip, fmFb2);
 
@@ -7588,7 +7590,17 @@ end;
 
 procedure TfrmMain.ShowBookDelete(Sender: TObject);
 begin
-  acBookDelete.Visible := Assigned(FCollection) and (IsLocal or IsOnline);
+  if FBookDeleteCaption='' then
+  begin FBookDeleteCaption:=acBookDelete.Caption; FBookDeleteHint:=acBookDelete.Hint; end;
+  acBookDelete.OnUpdate:=ShowBookDelete;
+  if ActiveView=FavoritesView then
+  begin
+    acBookDelete.Caption:='Удалить из исходных коллекций…';
+    acBookDelete.Hint:='Проверить действие для каждой исходной коллекции перед удалением.';
+  end
+  else
+  begin acBookDelete.Caption:=FBookDeleteCaption; acBookDelete.Hint:=FBookDeleteHint; end;
+  acBookDelete.Visible := (ActiveView=FavoritesView) or (Assigned(FCollection) and (IsLocal or IsOnline));
   acCollectionSyncFiles.Visible := IsPrivate or IsOnline;
 end;
 
@@ -8734,6 +8746,73 @@ begin
   Result := True;
 end;
 
+procedure TfrmMain.RemoveGroupedBooks(const OnlyFiles:Boolean);
+var Tree:TBookTree; Node:PVirtualNode; Data:PBookRecord;
+  Groups:TObjectDictionary<Integer,TList<TBookRecord>>; Order:TList<Integer>;
+  Seen:TDictionary<UInt64,Byte>; Items:TArray<TBookDeletionBatchItem>;
+  procedure AddBook(const Book:TBookRecord);
+  var Key:UInt64; List:TList<TBookRecord>;
+  begin
+    if (Book.BookKey.DatabaseID<=0) or (Book.BookKey.BookID<=0) then
+      raise EInvalidOperation.Create('У книги нет доступной исходной коллекции. Можно убрать её из группы отдельной командой.');
+    Key:=(UInt64(Cardinal(Book.BookKey.DatabaseID)) shl 32) or Cardinal(Book.BookKey.BookID);
+    if Seen.ContainsKey(Key) then Exit;
+    if (Seen.Count>=100000) or (not Groups.ContainsKey(Book.BookKey.DatabaseID) and (Order.Count>=128)) then
+      raise EArgumentException.Create('Выберите не более 100000 книг из 128 коллекций за одну операцию.');
+    Seen.Add(Key,0);
+    if not Groups.TryGetValue(Book.BookKey.DatabaseID,List) then
+    begin List:=TList<TBookRecord>.Create; Groups.Add(Book.BookKey.DatabaseID,List); Order.Add(Book.BookKey.DatabaseID); end;
+    List.Add(Book);
+  end;
+begin
+  if FFormBusy or FBookListLoading then Exit;
+  if FBookDeletionNeedsRecovery then
+  begin MHLShowWarning('Осталось незавершённое удаление. Перезапустите HomeLibre, чтобы его завершить.'); Exit; end;
+  GetActiveTree(Tree); if not Assigned(Tree) then Exit;
+  Groups:=TObjectDictionary<Integer,TList<TBookRecord>>.Create([doOwnsValues]);
+  Order:=TList<Integer>.Create; Seen:=TDictionary<UInt64,Byte>.Create;
+  try
+    try
+      Node:=Tree.GetFirst;
+      while Assigned(Node) do
+      begin
+        Data:=Tree.GetNodeData(Node);
+        if Assigned(Data) and (Data^.nodeType=ntBookInfo) and not Tree.IsEffectivelyFiltered[Node] then
+          if (OnlyFiles and (Node^.CheckState=csCheckedNormal)) or
+            (not OnlyFiles and IsSelectedBookNode(Node,Data)) then AddBook(Data^);
+        Node:=Tree.GetNext(Node);
+      end;
+      if OnlyFiles and (Seen.Count=0) then
+      begin
+        Node:=Tree.FocusedNode;
+        if Assigned(Node) and not Tree.IsEffectivelyFiltered[Node] then
+        begin
+          Data:=Tree.GetNodeData(Node);
+          if Assigned(Data) and (Data^.nodeType=ntBookInfo) then AddBook(Data^);
+        end;
+      end;
+      if Order.Count=0 then Exit;
+      SetLength(Items,Order.Count);
+      for var I:=0 to Order.Count-1 do
+      begin
+        var Info:=FSystemData.GetCollectionInfo(Order[I]);
+        if (Info.ID<>Order[I]) or not (isLocalCollection(Info.CollectionType) or isOnlineCollection(Info.CollectionType)) then
+          raise EInvalidOperation.Create('Исходная коллекция недоступна. Повторите выбор книг.');
+        var RemoveRecords:=not OnlyFiles and not isOnlineCollection(Info.CollectionType);
+        Items[I].Binding:=TBookDeletionBinding.Capture(Info,Groups[Order[I]].ToArray,RemoveRecords);
+        Items[I].CollectionName:=Info.DisplayName;
+        Items[I].RemoveFiles:=not RemoveRecords or Settings.DeleteFiles;
+      end;
+      if not ConfirmBookDeletionBatch(Items) then Exit;
+      StartBookDeletion(TBookDeletionOperation.CreateBatch(Items,Settings.SystemFileName[sfSystemDB],
+        BookDeletionJournalRoot),True);
+    except
+      on E:Exception do
+      begin LogDiagnosticError('book-delete-groups',E); MHLShowWarning(E.Message); end;
+    end;
+  finally Seen.Free; Order.Free; Groups.Free; end;
+end;
+
 procedure TfrmMain.RemoveSelectedBooks(const OnlyFiles: Boolean);
 var Tree: TBookTree; Node: PVirtualNode; Data: PBookRecord;
   Books: TList<TBookRecord>; Seen: TDictionary<UInt64, Byte>;
@@ -8747,9 +8826,10 @@ begin
     if Assigned(FBookDeletionProgress) then FBookDeletionProgress.Show;
     Exit;
   end;
-  if not Assigned(FCollection) or FFormBusy or FBookListLoading then Exit;
-  if ActiveView = FavoritesView then
-  begin MHLShowWarning(rstrChangeCollectionToRemoveABook); Exit; end;
+  if FFormBusy or FBookListLoading then Exit;
+  if ActiveView=FavoritesView then
+  begin RemoveGroupedBooks(OnlyFiles); Exit; end;
+  if not Assigned(FCollection) then Exit;
   GetActiveTree(Tree); if not Assigned(Tree) then Exit;
   CollectionID := FCollection.CollectionID;
   RemoveRecords := not IsOnline and not OnlyFiles;

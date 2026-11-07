@@ -5614,5 +5614,24 @@
     "corrections": "The first native run used GetBookRecord(false) to inspect a note that is deliberately fetched through GetReview. The test was corrected to use GetReview; source and database mutation checks were not relaxed. Later review added policy-conflict rejection and physical-before-catalogue ordering, then final batch tests passed on both architectures.",
     "IDE": "An Error dialog reported Runtime error 216 at 263091CA after a successful Win32 compile. It was closed through Computer Use. Compiler report and fresh test binary were verified; no IDE process remained at the end. This does not claim the recurring RAD Studio problem is fixed.",
     "cleanup": "Fresh native profiles were removed by their scoped runner. No emulator or test GUI process remains. Compiler logs are retained on G: and copied into tools/ui/tests/Out. Previously denied deletion scopes, including HomeLibre-beta5-packing-ui-26oui3pb, were untouched."
+  },
+  "group_and_favorites_source_deletion_20261107": {
+    "status": "Connected ordinary Main deletion to Groups/Favorites and verified native x86/x64. Final production EXE/package window checks remain open.",
+    "implementation": "The Groups view gathers unique marked/selected books by original collection and binds each catalogue independently. One confirmation identifies the collections and offers each local records/files choice. Online sources and the files-only action keep records, ratings and notes. One background coordinator applies the accepted plan. With checked files, an unmarked focused neighbour is not implicitly included. The built-in Favorites uses the same path. Invalid or replaced identities fail before any collection mutation. The operation does not alter the global DeleteFiles setting.",
+    "labels": "Groups now says Delete from source collections rather than the generic Delete. Its original localized caption/hint are retained and restored when leaving Groups. The action updates visibility/caption with the active view. The distinct Remove from group action is unchanged. Progress uses the general Deleting books title for both record-only and physical work.",
+    "native_checks": "Both grouped-book-deletion scenarios invoke the real visible menu item for ordinary group and built-in Favorites deletion. Cases cover cancellation, two local collections with files retained, selected members removed from two shared ZIPs, direct public files-only handler with records retained, mixed local/online sources, an unmarked focused neighbour, stale second-source identity and global preference preservation. All phases keep one progress instance and the enabled Main window. Final ordinary book-deletion regressions passed on both architectures, covering the five pre-existing views, online cases, checkbox overrides, identity failures and neighbouring files.",
+    "test_sha256": {
+      "Win32": "110fa6951c54f9178f72627f591a32a40e46a53fa8c1988ae2eccede2cd85f3c",
+      "Win64": "9eb852080e655b578f887cafec58de82f1aae30bce01a147f2d4965ffec67e7e"
+    },
+    "logs": [
+      "tools/ui/tests/Out/grouped-book-deletion-Win32-20261107.log",
+      "tools/ui/tests/Out/grouped-book-deletion-Win64-20261107.log",
+      "tools/ui/tests/Out/grouped-deletion-legacy-Win32-20261107.log",
+      "tools/ui/tests/Out/grouped-deletion-legacy-Win64-20261107.log"
+    ],
+    "limits": "These are freshly compiled native Main forms, not the final published beta 5 EXEs. Author/series bulk commands, sorted/filtered selection retention, production close/stop, shared physical sources across different selected collections and real FLibrary duplicate checks remain. No real user collection was changed.",
+    "build_notes": "The first build caught the test component-name alias requiring an explicit string cast; the fixed test then compiled and passed. One later patch used an incorrect field anchor and changed no file; its following build was redundant and is not counted as a separate test. An IDE Runtime error 216 at 103191CA appeared after a successful compile and was closed through Computer Use; its corresponding fresh binary subsequently passed. No recurring IDE fix is claimed.",
+    "cleanup": "All fresh native fixture profiles were removed by the scoped runner. No test GUI, IDE process or emulator remains. Compiler logs were copied into tools/ui/tests/Out and retained on G:. Previously denied directories were not retried."
   }
 }
