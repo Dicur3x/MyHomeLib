@@ -1313,46 +1313,46 @@
     ]
   },
   "current_release": {
-    "display": "HomeLibre 3.0 beta 1",
-    "tag": "3.0.0_pre1.1",
-    "source_commit": "b9b72122c98d15217e8b0e91c5d74dbc970718e1",
-    "url": "https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.1",
+    "display": "HomeLibre 3.0 beta 5",
+    "tag": "3.0.0_pre1.5",
+    "source_commit": "d042135f69f584bd26affaa90617a14e2b177ef1",
+    "url": "https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.5",
     "published": true,
     "catalogue_assets": [
       {
-        "name": "HomeLibRu.zip",
-        "sha256": "sha256:44e410917e0a8eea7be8b9ef86c0daeff056ddf78e17dbe3f9f63b7246ea28c0",
-        "size": 7291868
+        "name": "HomeLibre.zip",
+        "sha256": "sha256:4af26536923de2aca2830735a7267e54e8acc909f7e17a2a3d519b13aabdd430",
+        "size": 7663266
       },
       {
-        "name": "HomeLibRu_x64.zip",
-        "sha256": "sha256:b40372fae02bdc008477e1ee3193e8a7e5510256999a2deb3774a2dfb5987160",
-        "size": 9155265
+        "name": "HomeLibre_x64.zip",
+        "sha256": "sha256:43745fcc1ce5bd2cbeb3d12e8e1d5aa53182aae8f21bccc6da9521d57226000d",
+        "size": 9619145
       },
       {
         "name": "SHA256SUMS.txt",
-        "sha256": "sha256:83be2c261bc3c2686d0a468c14b8a295dc651febc9cd88179a47f979cdc33286",
-        "size": 166
+        "sha256": "sha256:81f704075900e1cfa3b5f2f48509179fcd37c65cf66733be8b5d0ad8e168deb4",
+        "size": 164
       }
     ],
     "component_release": "https://github.com/Dicur3x/MyHomeLib/releases/tag/optional-alreader-2.5.1009.25",
-    "component_feed_sha256": "ea1feed41dd7c3650d03c23826376e78776fdfd4d7368f84bbb2d91cfdd7c00f",
+    "component_feed_sha256": "1b7d3f9cec6e2a846b803c43dba5a5e615f6265a4d64dda0bff510e6cab86901",
     "public_verification_reports": [
-      "tools/ui/tests/Out/homelibre-three-views-public-components-20261031-r2.json",
-      "tools/ui/tests/Out/homelibre-three-views-public-core-20261031-r1.json"
+      "public-beta5-active-feed-downloads.json",
+      "public-beta5-core-downloads.json"
     ],
-    "obsolete_owned_component_archives_removed": 16,
+    "obsolete_owned_component_archives_removed": 26,
     "full_goal_complete": false,
     "default_branch_verified": true,
     "readme_verified_current": true,
-    "final_publication_report": "tools/ui/tests/Out/homelibre-beta-publication-final-20261031-r1.json",
+    "final_publication_report": "core-published-beta5.json",
     "github_draft": false,
     "github_prerelease": false,
     "github_latest": true,
-    "public_visibility_reverified_utc": "2026-10-31T11:39:12.339832+00:00",
+    "public_visibility_reverified_utc": "2026-11-07T10:40:13+00:00",
     "publication_assets_unchanged": true
   },
-  "historical_snapshot_note": "Dated earlier sections preserve verification scope at that time; current publication state is current_release and fresh_three_layout_release_20261031. Unreleased/pending wording inside older snapshots is not the current release status.",
+  "historical_snapshot_note": "Dated earlier sections preserve verification scope at that time. Current publication state is recorded in current_release and beta5_publication_20261107.",
   "reader_first_use_20261031": {
     "status": "real standalone PDF first-use passed Win32 and Win64 after owned-window fix; source not yet released",
     "published": false,
@@ -6057,5 +6057,17 @@
       "large-catalogue-exact-startup-paired-r2.json": "299ae9f268a75f3735aa2baacef79855637abdb47a06cf755694b9a6e0f11ea9"
     },
     "cleanup": "The native snapshots, older source export and all four ordinary launch profiles are gone. Fresh benchmark executables, compiler scratch outputs and reports remain in the candidate stage on G:. The attempted compiler scratch cleanup did not remove its targets and was not repeated."
+  },
+  "beta5_publication_20261107": {
+    "status": "HomeLibre 3.0 beta 5 is the published GitHub latest release. The minimum x86 and x64 archives and the checksum file match the verified candidate. The default branch points to the published source and all four READMEs link to beta 5.",
+    "verification": "The production download threads retrieved the two main archives from GitHub and native preparation passed. Before and after activating the component feed, the public verifier downloaded and verified 28 native packages plus the corresponding KFX source archive. Both production feed parsers accepted the active feed. The previous 26 replaced packages and its obsolete feed were removed from the permanent component release; remaining packages and the canonical feed were checked unchanged.",
+    "reports": {
+      "core-published-beta5.json": "59db0c2305aa3afb9ffc8411d860c7b9b729b4f3281938dbeecae9f701d29850",
+      "public-beta5-core-downloads.json": "b394b1dd8ff2dc5aea08d5a54115321479ac4a4455a86f5455a4b92f9ead8411",
+      "public-beta5-active-feed-downloads.json": "c2b0eefdac5977687dade21c7ba10cba4efec70a777ad205cfa5aa8235b0147c",
+      "mirror-retention-beta5.json": "84d12dbad5bc3fb5dbf10c49dbdc06c1992a1eb42cf50ae06abcf3ac4aef9cce"
+    },
+    "remaining": "Separate full first-use window run from public download through restart and resumed operation, cold Send To shortcut smoke, and matched old/current large-query timing. Physical Kindle and Kobo and clean Windows WebView2 runtime installation were not checked. The beta 5 release and public bytes are verified separately from those follow-ups.",
+    "cleanup": "Public download fixtures and staged feed copy were removed. Earlier denied cleanup scopes were not retried."
   }
 }
