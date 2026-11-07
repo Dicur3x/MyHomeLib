@@ -8,9 +8,17 @@ uses System.Classes, System.SysUtils, unit_Interfaces, unit_Globals,
 type
   TBookDeletionOperationStatus = record
     Stage, Archive, Error, RequiredComponent, PendingJournal, CleanupWarning: string;
+    CollectionName: string;
+    CollectionIndex, CollectionCount: Integer;
     Done, Total: Int64;
     ArchiveIndex, ArchiveCount, CompletedBooks: Integer;
     Stopping, Finished, CatalogueChanged: Boolean;
+  end;
+
+  TBookDeletionBatchItem = record
+    Binding: TBookDeletionBinding;
+    CollectionName: string;
+    RemoveFiles: Boolean;
   end;
 
   // Owns the catalogue connection and drives the existing archive worker.
@@ -18,6 +26,7 @@ type
   TBookDeletionOperation = class(TThread)
   private
     FBinding: TBookDeletionBinding;
+    FBatch: TArray<TBookDeletionBatchItem>;
     FJournalRoot, FUserFile: string;
     FRecovery: Boolean;
     FLock: TObject;
@@ -30,11 +39,14 @@ type
     procedure RunQueue(Queue: TArchiveDeletionQueue; const User: ISystemData;
       Offset, Count: Integer);
     procedure RunRemoval(const User: ISystemData);
+    procedure RunBatch(const User: ISystemData);
     procedure RunRecovery(const User: ISystemData);
   protected
     procedure Execute; override;
   public
     constructor Create(const Binding: TBookDeletionBinding; const UserFile, JournalRoot: string);
+    constructor CreateBatch(const Items: TArray<TBookDeletionBatchItem>;
+      const UserFile, JournalRoot: string);
     constructor Recover(const UserFile, JournalRoot: string);
     destructor Destroy; override;
     procedure RequestStop;
@@ -63,6 +75,84 @@ begin
   FLock:=TObject.Create; FreeOnTerminate:=False;
   FBinding:=Binding; FUserFile:=UserFile; FJournalRoot:=ExpandFileName(JournalRoot);
   Priority:=tpLower;
+end;
+
+constructor TBookDeletionOperation.CreateBatch(const Items:TArray<TBookDeletionBatchItem>;
+  const UserFile,JournalRoot:string);
+var Seen:TDictionary<Integer,Byte>; Sources:TDictionary<string,Boolean>; BookCount:Integer;
+begin
+  Create(Default(TBookDeletionBinding),UserFile,JournalRoot);
+  if (Length(Items)=0) or (Length(Items)>128) then
+    raise EArgumentException.Create('Выберите книги из 1–128 коллекций.');
+  Seen:=TDictionary<Integer,Byte>.Create; Sources:=TDictionary<string,Boolean>.Create;
+  try
+    BookCount:=0; SetLength(FBatch,Length(Items));
+    for var I:=0 to High(Items) do
+    begin
+      // Capture private managed arrays; the selection window may close or
+      // change while this one background operation is running.
+      FBatch[I].Binding:=TBookDeletionBinding.Parse(Items[I].Binding.ToJSON);
+      FBatch[I].CollectionName:=Items[I].CollectionName;
+      FBatch[I].RemoveFiles:=Items[I].RemoveFiles;
+      var ID:=FBatch[I].Binding.CollectionID;
+      if Seen.ContainsKey(ID) then
+        raise EArgumentException.Create('Одна коллекция повторяется в плане удаления.');
+      Seen.Add(ID,0);
+      Inc(BookCount,Length(FBatch[I].Binding.ExpectedBooks));
+      if BookCount>100000 then
+        raise EArgumentException.Create('Выберите не более 100000 книг за одну операцию.');
+      for var Book in FBatch[I].Binding.ExpectedBooks do
+      begin
+        var SourceKey:=LowerCase(ExpandFileName(Book.GetBookFileName(
+          TPath.Combine(Book.CollectionRoot,Book.Folder))));
+        if IsArchiveBookSource(Book) then
+          SourceKey:=SourceKey+'|'+LowerCase(Book.FileName+Book.FileExt);
+        var RemoveSource:Boolean;
+        if Sources.TryGetValue(SourceKey,RemoveSource) then
+        begin
+          if RemoveSource<>FBatch[I].RemoveFiles then
+            raise EArgumentException.Create('Один файл выбран и для сохранения, и для удаления. Измените выбор книг.');
+        end
+        else Sources.Add(SourceKey,FBatch[I].RemoveFiles);
+      end;
+      if not FBatch[I].RemoveFiles and not FBatch[I].Binding.RemoveRecords then
+        raise EArgumentException.Create('В плане не выбрано удаление записей или файлов.');
+    end;
+  finally Sources.Free; Seen.Free; end;
+end;
+
+procedure TBookDeletionOperation.RunBatch(const User:ISystemData);
+var Step:Integer;
+begin
+  // Validate every selected catalogue before the first change. Each existing
+  // worker still rechecks its own bound identities immediately before writing.
+  for var Item in FBatch do
+  begin
+    if Stopping then Exit;
+    Item.Binding.CheckBeforePhysicalRemoval(User);
+  end;
+  // Keep catalogue-only source references alive until every physical phase
+  // has checked for shared archive members and companion images.
+  Step:=0;
+  for var PhysicalPass in TArray<Boolean>.Create(True,False) do
+  for var I:=0 to High(FBatch) do
+  begin
+    if FBatch[I].RemoveFiles<>PhysicalPass then Continue;
+    if Stopping then Exit;
+    Inc(Step);
+    FBinding:=FBatch[I].Binding;
+    TMonitor.Enter(FLock);
+    try
+      FState.CollectionIndex:=Step; FState.CollectionCount:=Length(FBatch);
+      FState.CollectionName:=FBatch[I].CollectionName;
+    finally TMonitor.Exit(FLock); end;
+    if FBatch[I].RemoveFiles then RunRemoval(User)
+    else
+    begin
+      Report('Удаление записей из коллекции','',0,0);
+      CompleteBinding(FBinding,User);
+    end;
+  end;
 end;
 
 constructor TBookDeletionOperation.Recover(const UserFile,JournalRoot:string);
@@ -346,7 +436,9 @@ begin
       if Stopping then Exit;
       if not FileExists(FUserFile) then raise EReadError.Create('База коллекций не найдена.');
       User:=TSystemData_SQLite.Create(FUserFile);
-      if FRecovery then RunRecovery(User) else RunRemoval(User);
+      if FRecovery then RunRecovery(User)
+      else if Length(FBatch)>0 then RunBatch(User)
+      else RunRemoval(User);
     except
       on E:EAbort do RequestStop;
       on E:Exception do

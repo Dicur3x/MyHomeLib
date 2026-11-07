@@ -60,6 +60,9 @@ begin
   FArchive.Caption:=ExtractFileName(State.Archive);
   if (State.ArchiveIndex>0) and (State.ArchiveCount>0) then
     FArchive.Caption:=Format('Архив %d из %d · %s',[State.ArchiveIndex,State.ArchiveCount,FArchive.Caption]);
+  if State.CollectionCount>1 then
+    FArchive.Caption:=Format('Коллекция %d из %d · %s',[State.CollectionIndex,
+      State.CollectionCount,State.CollectionName])+sLineBreak+FArchive.Caption;
   if State.Total>0 then
   begin
     if FProgress.Style<>pbstNormal then FProgress.Style:=pbstNormal;

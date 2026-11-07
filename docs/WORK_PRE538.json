@@ -5595,5 +5595,24 @@
     },
     "report": "tools/ui/tests/Out/known-copy-estimates-production-20261107.json",
     "cleanup": "Both GUI applications closed normally and process enumeration found no remaining owned application. The automatic approval policy rejected recursive deletion of G:/HomeLibRu-build-cache/HomeLibre-beta5-packing-ui-26oui3pb with reason blocked by policy. This directory remains and must not be retried through a different tool or parent path. Build logs were copied into tools/ui/tests/Out. No Android emulator is running."
+  },
+  "multi_collection_deletion_worker_20261107": {
+    "status": "Worker foundation implemented and verified in isolated native x86/x64 tests. Groups/Favorites and author/series UI integration remain open.",
+    "implementation": "CreateBatch owns a privately validated array of independently bound collection selections and runs through one worker and one progress state. It checks every catalogue identity before first modification. Each phase retains its own records/files choice and the existing archive receipt and recovery path. Physical phases precede catalogue-only phases so shared archive/companion references remain visible during their checks. Conflicting retain/delete choices for an exact source and duplicate collection phases are rejected. Constructor source keys use only metadata paths; no book drive probe is added to window setup.",
+    "tests": "Both native book-deletion-batch scenarios passed with equal BookIDs in two catalogues, cancellation before execution, a stale second-collection identity leaving the first untouched, conflicting source choices, catalogue-only source retention and physical ZIP member removal preserving the other exact member and its note. Previous book-deletion scenarios passed on both architectures, including per-operation choice, ordinary menu/toolbar availability, five existing views, online cases, failures and source identity.",
+    "test_sha256": {
+      "Win32": "f93f9bf340b5c7f2b22801d16e30c10f1fc944b3bfd5cae445e0454771335240",
+      "Win64": "9246e6b12b076ee5e3f0450fc99e5e56c97e08b2a612438611a2dbc6b76aaba5"
+    },
+    "logs": [
+      "tools/ui/tests/Out/book-deletion-batch-Win32-20261107.log",
+      "tools/ui/tests/Out/book-deletion-batch-Win64-20261107.log",
+      "tools/ui/tests/Out/book-deletion-existing-Win32-20261107.log",
+      "tools/ui/tests/Out/book-deletion-existing-Win64-20261107.log"
+    ],
+    "limits": "This does not expose new deletion commands yet. The ordinary Main Groups/Favorites handler still rejects deletion and must next be connected to the coordinator with a collection-aware confirmation. Author/series commands, sorted/filtered refresh, production-window close/stop and real FLibrary duplicate tests remain. Shared physical sources across different collection selections retain the current reference protection; no new cross-collection archive override is claimed. Production archives have not been rebuilt or published for this worker-only step.",
+    "corrections": "The first native run used GetBookRecord(false) to inspect a note that is deliberately fetched through GetReview. The test was corrected to use GetReview; source and database mutation checks were not relaxed. Later review added policy-conflict rejection and physical-before-catalogue ordering, then final batch tests passed on both architectures.",
+    "IDE": "An Error dialog reported Runtime error 216 at 263091CA after a successful Win32 compile. It was closed through Computer Use. Compiler report and fresh test binary were verified; no IDE process remained at the end. This does not claim the recurring RAD Studio problem is fixed.",
+    "cleanup": "Fresh native profiles were removed by their scoped runner. No emulator or test GUI process remains. Compiler logs are retained on G: and copied into tools/ui/tests/Out. Previously denied deletion scopes, including HomeLibre-beta5-packing-ui-26oui3pb, were untouched."
   }
 }
