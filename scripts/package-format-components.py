@@ -136,11 +136,10 @@ def kfx_writer_payload(platform, source):
     payload[prefix + 'SOURCE.txt'] = (
         'Boko 0.6.0, GPL-3.0-or-later, with the accompanying navigation patch.\n'
         'https://github.com/zacharydenton/boko/tree/' + commit + '\n'
-        'https://github.com/zacharydenton/boko/releases/download/v0.6.0/source.tar.gz\n'
         'resvg 0.49.0, MIT or Apache-2.0.\n'
-        'https://github.com/linebender/resvg/releases/download/v0.49.0/resvg-0.49.0.tar.xz\n'
-        'The archives contain their Cargo.lock and dependency information.\n'
-        'Run the included build-kfx-export.py with the pinned source archives, Rust 1.99.1 and LLVM dlltool.\n'
+        'Corresponding source, dependencies and offline build instructions:\n'
+        'https://github.com/Dicur3x/MyHomeLib/releases/download/' + helper.COMPONENT_RELEASE_TAG +
+        '/Boko-0.6.0-HomeLibre-source.zip\n'
         'See RUNTIME.json for platform, target and binary identities.\n').encode('ascii')
     required = [prefix + name for name in ('boko.exe', 'resvg.exe', 'RUNTIME.json', 'SOURCE.txt', patch,
                                             'boko-LICENSE', 'resvg-LICENSE-APACHE', 'resvg-LICENSE-MIT',

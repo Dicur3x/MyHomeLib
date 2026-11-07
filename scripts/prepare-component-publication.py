@@ -10,6 +10,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import runpy
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -55,6 +56,8 @@ def main():
                         help='Separate verified KindleExport archives, unless included with formats')
     parser.add_argument('--djvu-packages', type=Path, required=True,
                         help='Repaired mirror with the required reader bridge and matching source')
+    parser.add_argument('--kfx-source', type=Path, required=True,
+                        help='Corresponding source ZIP for both KfxExport archives')
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
     stage, output = args.stage.resolve(), args.output.resolve()
@@ -70,6 +73,12 @@ def main():
     baseline = entries(json.loads(base_bytes))
     bootstrap = entries(json.loads((ROOT / 'Installer/Components.json').read_bytes()))
     identity = json.loads((ROOT / 'Installer/Release.json').read_bytes())
+    source_verifier = runpy.run_path(str(ROOT / 'scripts/package-kfx-export-source.py'))
+    source = args.kfx_source.resolve(strict=True)
+    assert source.name == source_verifier['ARCHIVE'], 'Unexpected KFX source archive name'
+    source_verifier['verify'](source)
+    source_asset = dict(name=source.name, size=source.stat().st_size,
+                        digest='sha256:' + digest(source.read_bytes()), browser_download_url=PREFIX + source.name)
     expected = {(component, platform) for component in OWNED | {'DjVuLibre'} for platform in ('Win32', 'Win64')}
     replacement, uploads, checked = {}, [], []
     new_names = set()
@@ -119,6 +128,11 @@ def main():
                             'Rebuild current Reader after source changes: ' + str(source))
                     assert archive.read('HomeLibReader.exe') == current.read_bytes(), (
                         'Reader archive does not match current executable: ' + str(path))
+                if key[0] == 'KfxExport':
+                    prefix = 'tools/kfx-export/'
+                    assert source_asset['browser_download_url'].encode('ascii') in archive.read(prefix + 'SOURCE.txt')
+                    for file in (source_verifier['BUILDER'], source_verifier['PATCH']):
+                        assert archive.read(prefix + file) == (ROOT / 'scripts' / file).read_bytes()
             replacement[key] = entry
             asset = dict(name=entry['archive'], size=len(data), digest='sha256:' + digest(data),
                          browser_download_url=PREFIX + entry['archive'])
@@ -130,6 +144,13 @@ def main():
             checked.append(dict(component=key[0], platform=key[1], version=entry['version'],
                                 archive_sha256=digest(data), managed_files=len(payload_names)))
     assert set(replacement) == expected
+    identical_archive_count = len(checked) - len(uploads)
+    previous_source = old_assets.get(source.name)
+    if previous_source is None:
+        uploads.append(dict(path=str(source), **source_asset))
+    else:
+        assert all(previous_source[key] == value for key, value in source_asset.items()), (
+            'Existing corresponding source must remain available unchanged')
     assert not set(baseline) - set(bootstrap), 'Public components would be dropped'
     # A newly introduced component needs both validated architectures.
     added = set(bootstrap) - set(baseline)
@@ -180,9 +201,10 @@ def main():
                 retained_non_owned_entries=len(unchanged), preserved_external_assets=len(retained_assets))
     report = dict(status='PASS', published=False, components=checked,
                   merged_entries=len(merged), unchanged_entries_preserved=len(unchanged),
-                  identical_existing_archives_retained=len(checked)-len(uploads),
+                  identical_existing_archives_retained=identical_archive_count,
                   public_feed_size_and_sha256_verified=True, bootstrap_identities_verified=True,
                   exact_manifest_and_payloads_verified=True, feed_sha256=digest(feed))
+    report['kfx_corresponding_source'] = source_asset
     report['reader_archives_match_current_executables'] = True
     report['legacy_reader_archives_retained'] = [baseline[key]['archive'] for key in sorted(reader_keys)]
     report['reader_packages_directory'] = str(args.reader_packages.resolve())

@@ -19,6 +19,7 @@ SOURCES = (
     ('resvg', '0.49.0', 'a1b167d575d0be44e303c76b46fe0aefc5c5748a46979ebae6a7dc3276c2ce8c'),
 )
 TARGETS = {'Win32': ('i686-pc-windows-gnu', 0x14c), 'Win64': ('x86_64-pc-windows-gnu', 0x8664)}
+SOURCE_ARCHIVE = 'Boko-0.6.0-HomeLibre-source.zip'
 
 
 def digest(data):
@@ -47,7 +48,17 @@ def collect_notices(cargo, source, target, destination, env):
                 shutil.copyfile(path, folder / path.name)
 
 
-def build(boko, resvg, platform, output, dlltool):
+def configure_vendor(source, vendor):
+    if not vendor.is_dir():
+        raise FileNotFoundError(vendor)
+    config = source / '.cargo/config.toml'
+    config.parent.mkdir(exist_ok=True)
+    with config.open('x', encoding='utf-8') as stream:
+        stream.write('[source.crates-io]\nreplace-with = "vendored-sources"\n\n'
+                     '[source.vendored-sources]\ndirectory = ' + json.dumps(str(vendor)) + '\n')
+
+
+def build(boko, resvg, platform, output, dlltool, boko_vendor=None):
     cargo, rustc = 'cargo', 'rustc'
     if command(rustc, '--version', cwd=output.parent).split()[1] != RUST_VERSION:
         raise ValueError('Use Rust ' + RUST_VERSION)
@@ -69,6 +80,8 @@ def build(boko, resvg, platform, output, dlltool):
                    CARGO_ENCODED_RUSTFLAGS='\x1f'.join(('-Clink-self-contained=yes', '-Clinker-flavor=ld.lld',
                                                        '-Ctarget-feature=+crt-static', '-Cdlltool=' + str(dlltool))))
         env['CARGO_TARGET_' + target.upper().replace('-', '_') + '_LINKER'] = str(lld)
+        if boko_vendor is not None:
+            env['CARGO_NET_OFFLINE'] = 'true'
         records = []
         for (name, version, expected), source_file in zip(SOURCES, (boko, resvg)):
             if digest(source_file.read_bytes()) != expected:
@@ -77,6 +90,8 @@ def build(boko, resvg, platform, output, dlltool):
                 archive.extractall(work, filter='data')
             source = work / (name + '-' + version)
             if name == 'boko':
+                if boko_vendor is not None:
+                    configure_vendor(source, boko_vendor)
                 subprocess.run(['git', 'apply', '--check', str(patch)], cwd=source, check=True)
                 subprocess.run(['git', 'apply', str(patch)], cwd=source, check=True)
             args = [cargo, 'build', '--locked', '--release', '--target', target, '--bin', name]
@@ -111,5 +126,7 @@ if __name__ == '__main__':
     parser.add_argument('--platform', choices=TARGETS, required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--dlltool', type=Path, required=True)
+    parser.add_argument('--boko-vendor', type=Path, help='Use the vendor folder from the corresponding-source ZIP offline')
     args = parser.parse_args()
-    build(args.boko.resolve(), args.resvg.resolve(), args.platform, args.output.resolve(), args.dlltool.resolve())
+    build(args.boko.resolve(), args.resvg.resolve(), args.platform, args.output.resolve(), args.dlltool.resolve(),
+          args.boko_vendor.resolve() if args.boko_vendor else None)
