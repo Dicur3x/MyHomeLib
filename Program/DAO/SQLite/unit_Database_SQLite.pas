@@ -68,7 +68,7 @@ type
       FQueryBatchStarted: Boolean;
       FExpandSearchSeries: Boolean;
       FMatchedViewID: string;
-      FDirectVisibleSearch: Boolean;
+      FDirectSearch: Boolean;
       FLastStreamBook: TBookRecord;
       FSelectedSeriesID: Integer;
       FSelectedSeriesTitle: string;
@@ -753,7 +753,7 @@ begin
   begin
     FStreamAuthors := TDictionary<Integer, TStreamAuthor>.Create;
     SetLength(FStreamAuthorNullNames, 8);
-    if ((Mode = bmAll) or FDirectVisibleSearch) and not FBooks.Eof and TryLoadAllAuthors then
+    if ((Mode = bmAll) or FDirectSearch) and not FBooks.Eof and TryLoadAllAuthors then
     begin
       // The full list reuses author names across millions of relationships.
       // Read each bounded name once and scan only the covering link index.
@@ -1377,7 +1377,7 @@ var
   SQLRows: string;
   SQLCount: string;
   MatchedBooksSQL: string;
-  MemoFields: string;
+  MemoFields, VisibilityWhere: string;
   MatchID: TGUID;
   MatchQuery: TSQLiteQuery;
   LookupValue, LookupSQL: string;
@@ -1542,10 +1542,9 @@ begin
       2: AddToFilter('b.IsLocal ', '= 0', False, FilterString);
     end;
 
-    // The ordinary "all non-deleted books" view does not need a second copy
-    // of every matching ID. Keep more selective/compound searches materialized.
-    FDirectVisibleSearch:=SearchCriteria.Deleted and (SQLRows='') and
-      (FilterString='') and not SearchCriteria.Readed;
+    // An unfiltered search streams the catalogue with the chosen visibility.
+    // Keep more selective or compound searches materialized.
+    FDirectSearch := (SQLRows = '') and (FilterString = '') and not SearchCriteria.Readed;
     if SearchCriteria.Deleted then
       AddToFilter('b.IsDeleted ', '= 0', False, FilterString);
 
@@ -1569,8 +1568,8 @@ begin
       raise Exception.Create(rstrFilterParamError);
   end;
 
-  if SQLRows = '' then
-    raise Exception.Create(rstrCheckFilterParams);
+  VisibilityWhere := '';
+  if SearchCriteria.Deleted then VisibilityWhere := 'WHERE b.IsDeleted=0 ';
 
   // The current compact mode returns one row per physical book. The optional
   // classic mode expands those matched IDs back through Series_List so a book
@@ -1580,7 +1579,7 @@ begin
     // An unrestricted search can return the whole library. Read its metadata
     // in ordered streams instead of opening several new queries for every book.
     MatchedBooksSQL:='';
-    if not FDirectVisibleSearch then
+    if not FDirectSearch then
     begin
       CreateGUID(MatchID);
       FMatchedViewID := GUIDToString(MatchID);
@@ -1601,13 +1600,13 @@ begin
       'LEFT JOIN Series primaryseries ON primaryseries.SeriesID=b.SeriesID ';
     if FExpandSearchSeries then
       SQLRows := SQLRows + 'LEFT JOIN Series_List sl ON sl.BookID=b.BookID LEFT JOIN Series s ON s.SeriesID=sl.SeriesID ';
-    if FDirectVisibleSearch then SQLRows:=SQLRows+'WHERE b.IsDeleted=0 '
+    if FDirectSearch then SQLRows := SQLRows + VisibilityWhere
     else SQLRows := SQLRows + 'WHERE b.BookID IN (' + MatchedBooksSQL + ') ';
     if FExpandSearchSeries and (SeriesFilterString <> '') then
       SQLRows := SQLRows + 'AND (' + SeriesFilterString + ') ';
     SQLRows := SQLRows + 'ORDER BY b.BookID';
     if FExpandSearchSeries then SQLRows := SQLRows + ',sl.IsPrimary DESC,sl.OrdNum,sl.SeriesID';
-    if FDirectVisibleSearch then
+    if FDirectSearch then
     begin
       // Books already determines visibility. Scan the ordered relationship
       // indexes once, skipping omitted IDs in Next rather than joining Books
@@ -1631,11 +1630,11 @@ begin
 
   // Counts do not need full book metadata or an ordered result set.
   SQLCount := 'SELECT COUNT(*) FROM temp.MHLGenreMatches WHERE ViewID=' + QuotedStr(FMatchedViewID);
-  if FDirectVisibleSearch then
+  if FDirectSearch then
   begin
     SQLCount:='SELECT COUNT(*) FROM Books b ';
     if FExpandSearchSeries then SQLCount:=SQLCount+'LEFT JOIN Series_List sl ON sl.BookID=b.BookID ';
-    SQLCount:=SQLCount+'WHERE b.IsDeleted=0';
+    SQLCount := SQLCount + VisibilityWhere;
   end
   else if FExpandSearchSeries then
   begin

@@ -1,5 +1,5 @@
 ﻿// DPR uses: unit_SearchQueryModeControl. Run after the ordinary tiny fixture setup.
-procedure TestCatalogSearchModes(const One: IBookCollection);
+procedure TestCatalogSearchModes(const One: IBookCollection; FirstBook: Integer);
 var
   Criteria: TBookSearchCriteria;
   Iterator: IBookIterator;
@@ -56,6 +56,32 @@ begin
   AddModeBook('Proposal ordinary title', 2023);
   AddModeBook('Proposal ёлка', 0);
   AddModeBook('Proposal елка', 0);
+  One.AddBookSeries(FirstBook, 'Extra series in unfiltered search', 2);
+  for var Mode := Low(TSearchQueryMode) to High(TSearchQueryMode) do
+    for var HideDeleted := False to True do
+      for var Collapse := False to True do
+      begin
+        Criteria := Default(TBookSearchCriteria);
+        Criteria.DateIdx := -1;
+        Criteria.QueryMode := Mode;
+        Criteria.Deleted := HideDeleted;
+        Criteria.CollapseMultiSeriesResults := Collapse;
+        Iterator := One.Search(Criteria, False);
+        var Expected := CountBefore + 4 - Ord(HideDeleted) + Ord(not Collapse);
+        Require(Iterator.RecordCount = Expected, 'Unfiltered search reported a wrong count');
+        var Rows := 0;
+        var DeletedRows := 0;
+        while Iterator.Next(Book) do
+        begin
+          Inc(Rows);
+          if bpIsDeleted in Book.BookProps then Inc(DeletedRows);
+          Require(Book.BookKey.DatabaseID = One.CollectionID, 'Unfiltered search crossed collections');
+        end;
+        Require((Rows = Expected) and (DeletedRows = Ord(not HideDeleted)),
+          'Unfiltered search returned wrong books or ignored deleted visibility');
+        Iterator := nil;
+      end;
+  Writeln('PASS empty search streams all books with or without deleted rows in every query mode');
   Require(Count('I LIKE SQL', sqmText) = 1, 'Ordinary LIKE text became syntax');
   Require(Count('%', sqmText) = 1, 'Ordinary percent became a wildcard');
   Require(Count('_', sqmText) = 1, 'Ordinary underscore became a wildcard');

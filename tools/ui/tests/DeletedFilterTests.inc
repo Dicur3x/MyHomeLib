@@ -192,6 +192,24 @@ begin
   Writeln('PASS fresh search and tree-mode changes never load the whole catalog');
 
   CheckboxMode(False);
+  frmMain.cbCollapseMultiSeriesResults.Checked := True;
+  var AllBooks := One.GetBookIterator(bmAll, False);
+  var AllCount := AllBooks.RecordCount;
+  var VisibleCount := 0;
+  var Book: TBookRecord;
+  while AllBooks.Next(Book) do
+    if not (bpIsDeleted in Book.BookProps) then Inc(VisibleCount);
+  AllBooks := nil;
+  frmMain.DoApplyFilter(nil);
+  ExpectCount(frmMain.tvBooksSR, AllCount);
+  CheckboxMode(True);
+  ExpectCount(frmMain.tvBooksSR, VisibleCount);
+  CheckboxMode(False);
+  ExpectCount(frmMain.tvBooksSR, AllCount);
+  frmMain.DoClearFilter(False);
+  Writeln('PASS empty Apply shows the current catalog and honors the deleted-books checkbox');
+
+  CheckboxMode(False);
   frmMain.edFTitle.Text := 'Delta oracle';
   frmMain.DoApplyFilter(nil);
   ExpectCount(frmMain.tvBooksSR, 20);

@@ -6030,7 +6030,7 @@ begin
       else if ParamStr(1) = 'reader-notes-visual' then TestReaderNotesVisual('G:\HomeLibRu-proposals-2026-10-16\reader-notes')
       else if ParamStr(1) = 'update-proposals-visual' then TestUpdateProposalsVisual
       else if ParamStr(1) = 'export-results-audit' then TestExportResultsAudit
-      else if ParamStr(1) = 'search-query-modes' then TestCatalogSearchModes(One)
+      else if ParamStr(1) = 'search-query-modes' then TestCatalogSearchModes(One, FirstBook)
       else if ParamStr(1) = 'author-display-setting' then TestAuthorDisplaySetting
       else if ParamStr(1) = 'metadata-book-columns' then TestMetadataBookColumns(One)
       else if ParamStr(1) = 'metadata-book-columns-visual' then TestMetadataBookColumnsVisual(One)
