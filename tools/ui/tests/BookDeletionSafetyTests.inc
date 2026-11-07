@@ -55,7 +55,9 @@ begin
   end;
 end;
 
-procedure TestBookDeletionSafety(FLibraryOnly:Boolean=False);
+type TBookDeletionSafetyScenario = (bdsGeneral, bdsFLibrary, bdsLifecycle, bdsFLibraryReal);
+
+procedure TestBookDeletionSafety(Scenario: TBookDeletionSafetyScenario = bdsGeneral);
 var PrivateID, OnlineID, ExternalID, RawID, ArchiveID, OtherID, PrivateFBD, FailID, GoodID,
   SevenID, LegacyID, NeighbourID, Count: Integer;
   Collection: IBookCollection; Probe: TBookDeletionDialogProbe;
@@ -82,10 +84,12 @@ var PrivateID, OnlineID, ExternalID, RawID, ArchiveID, OtherID, PrivateFBD, Fail
     finally Zip.Free; end;
   end;
 
-  function Insert(const Title, Folder, FileName, Ext: string): Integer;
+  function Insert(const Title, Folder, FileName, Ext: string; const LibraryID: string = ''): Integer;
   begin
     Book.Clear; Book.Title := Title; Book.Folder := Folder; Book.FileName := FileName;
-    Book.FileExt := Ext; Book.LibID := Title; Book.Lang := 'ru'; Book.Size := 100;
+    Book.FileExt := Ext; Book.LibID := Title;
+    if LibraryID <> '' then Book.LibID := LibraryID;
+    Book.Lang := 'ru'; Book.Size := 100;
     Book.Series := 'Delete series'; Book.Publisher := 'Delete publisher';
     Include(Book.BookProps,bpIsLocal); TAuthorsHelper.Add(Book.Authors,'Delete author','Alex','');
     TGenresHelper.Add(Book.Genres,'','','prose_contemporary');
@@ -132,7 +136,8 @@ var PrivateID, OnlineID, ExternalID, RawID, ArchiveID, OtherID, PrivateFBD, Fail
     Tree.FocusedNode := nil;
   end;
 
-  procedure Execute(Accept, OnlyFiles: Boolean; Count, Archives: Integer; ExpectedWarnings: Integer = 0);
+  procedure Execute(Accept, OnlyFiles: Boolean; Count, Archives: Integer; ExpectedWarnings: Integer = 0;
+    const DuringProgress: TProc<TForm> = nil; Timeout: Cardinal = 20000);
   begin
     // Main initialization restores native common dialogs. Select the VCL
     // message form only after constructing Main so its real text is inspectable.
@@ -155,11 +160,12 @@ var PrivateID, OnlineID, ExternalID, RawID, ArchiveID, OtherID, PrivateFBD, Fail
         Require(frmMain.Enabled,'Background deletion disabled the main window');
         var Started:=GetTickCount64;
         repeat
+          if Assigned(DuringProgress) then DuringProgress(TForm(ProgressForm));
           Application.ProcessMessages;
           var CurrentProgress:=frmMain.FindComponent('BookDeletionProgress');
           Require((CurrentProgress=nil) or (CurrentProgress=ProgressForm),
             'One deletion batch opened a new progress window');
-          if GetTickCount64-Started>20000 then raise Exception.Create('Main archive deletion exceeded guard');
+          if GetTickCount64-Started>Timeout then raise Exception.Create('Main archive deletion exceeded guard');
           Sleep(5);
         until not Assigned(frmMain.FindComponent('BookDeletionProgress'));
       end;
@@ -402,6 +408,183 @@ var PrivateID, OnlineID, ExternalID, RawID, ArchiveID, OtherID, PrivateFBD, Fail
       'Timed deletion changed an unselected ZIP');
   end;
 
+  procedure DeleteRealFLibraryDuplicate;
+  const ArchiveStem = 'f.fb2-556318-558302';
+    SelectedID = '557950';
+    NeighbourID = '557949';
+    Title = 'Ярлинги поневоле';
+  var Archive, Covers, Images, Original, OriginalHash: string;
+    OriginalCollection: IBookCollection;
+    OriginalBook: TBookRecord;
+    Selected, Neighbour, Duplicate: Integer;
+
+    function Inventory(const FileName: string): TArray<string>;
+    begin
+      Result := ReadBookDeletionInventory(FileName, ArchiveDeletionSourceIdentity(FileName));
+    end;
+
+    function MemberHash(const FileName, Member: string): string;
+    var Reader: TMHLZip; Content: TMemoryStream;
+    begin
+      Reader := TMHLZip.Create(FileName,True);
+      try
+        Content := TMemoryStream.Create;
+        try
+          Reader.ExtractToStream(Member,Content);
+          Require(Content.Size>0,'Empty retained member: '+Member);
+          Content.Position := 0;
+          Result := THashSHA2.GetHashString(Content);
+        finally Content.Free; end;
+      finally Reader.Free; end;
+    end;
+
+    procedure CheckRemaining(const FileName: string; const Before: TArray<string>;
+      const Removed: array of string);
+    var After: TArray<string>; Index: Integer;
+    begin
+      After := Inventory(FileName);
+      Require(Length(After)=Length(Before)-Length(Removed),'Incorrect member count: '+FileName);
+      Index := 0;
+      for var Member in Before do
+      begin
+        if MatchStr(StringReplace(Member,'\','/',[rfReplaceAll]),Removed) then Continue;
+        Require((Index<Length(After)) and (After[Index]=Member),
+          'An unselected member was renamed, removed or moved: '+Member);
+        Inc(Index);
+      end;
+      Require(Index=Length(After),'Removed members did not match the exact expected paths');
+    end;
+
+  begin
+    Archive := Root+'real-flibrary\'+ArchiveStem+'.7z';
+    Covers := Root+'real-flibrary\covers\'+ArchiveStem+'.zip';
+    Images := Root+'real-flibrary\images\'+ArchiveStem+'.zip';
+    Original := Root+'real-original\'+SelectedID+'.fb2';
+    OriginalHash := THashSHA2.GetHashStringFromFile(Original);
+    var BeforeArchive := Inventory(Archive);
+    var BeforeCovers := Inventory(Covers);
+    var BeforeImages := Inventory(Images);
+    var BookHash := MemberHash(Archive,NeighbourID+'.fb2');
+    var CoverHash := MemberHash(Covers,NeighbourID);
+    var ImageHash := MemberHash(Images,NeighbourID+'/1');
+    Require(MemberHash(Archive,SelectedID+'.fb2')<>OriginalHash,
+      'Expected real ordinary and compact copies of the same book');
+    OriginalCollection := SystemDB.GetCollection(ExternalID);
+    var CompactCollection := Collection;
+    Collection := OriginalCollection;
+    try
+      Duplicate := Insert(Title,'real-original',SelectedID,'.fb2',SelectedID);
+    finally Collection := CompactCollection; end;
+    Selected := Insert(Title,'real-flibrary\'+ArchiveStem+'.7z',SelectedID,'.fb2',SelectedID);
+    Neighbour := Insert('Neighbour '+NeighbourID,'real-flibrary\'+ArchiveStem+'.7z',NeighbourID,'.fb2',NeighbourID);
+    Collection.SetReview(CreateBookKey(Neighbour,Collection.CollectionID),'Retained FLibrary neighbour');
+    Settings.DeleteFiles := True;
+    Rows([Selected]);
+    Execute(True,False,1,1,0,nil,150000);
+    Require(not Exists(Selected) and Exists(Neighbour) and
+      (Collection.GetReview(CreateBookKey(Neighbour,Collection.CollectionID))='Retained FLibrary neighbour'),
+      'FLibrary deletion changed the neighbour record or note');
+    OriginalCollection.GetBookRecord(CreateBookKey(Duplicate,ExternalID),OriginalBook,False);
+    Require((OriginalBook.BookKey.BookID=Duplicate) and (OriginalBook.LibID=SelectedID) and
+      SameFileName(OriginalBook.GetBookFileName,Original) and
+      (THashSHA2.GetHashStringFromFile(Original)=OriginalHash), 'The second copy did not survive');
+    CheckRemaining(Archive,BeforeArchive,[SelectedID+'.fb2']);
+    CheckRemaining(Covers,BeforeCovers,[SelectedID]);
+    CheckRemaining(Images,BeforeImages,[SelectedID+'/1',SelectedID+'/2']);
+    Require((MemberHash(Archive,NeighbourID+'.fb2')=BookHash) and
+      (MemberHash(Covers,NeighbourID)=CoverHash) and (MemberHash(Images,NeighbourID+'/1')=ImageHash),
+      'The retained FLibrary book, cover or illustration changed');
+    Writeln(Format('PASS real FLibrary duplicate deletes only the selected book cover and images and preserves the second copy (%d/%d/%d archive entries checked)',
+      [Length(BeforeArchive),Length(BeforeCovers),Length(BeforeImages)]));
+    Flush(Output);
+  end;
+
+  procedure StopOrCloseDeletion(CloseMain: Boolean);
+  var FirstZip, SecondZip, SecondHash, JournalRoot, LabelText: string;
+    FirstBook, SecondBook, KeepFirst, KeepSecond: Integer;
+    KeptBytes, ReadBytes: TBytes;
+    Zip: TZipFile;
+    KeptStream: TBytesStream;
+    Requested: Boolean;
+    ClosedAt: UInt64;
+  begin
+    LabelText := 'stop';
+    if CloseMain then LabelText := 'close';
+    FirstZip := Root + LabelText + '-first.zip';
+    SecondZip := Root + LabelText + '-second.zip';
+    JournalRoot := TPath.Combine(Settings.DataPath, 'BookDeletion');
+    SetLength(KeptBytes, 32 * 1024 * 1024);
+    for var Index := 0 to High(KeptBytes) do
+      KeptBytes[Index] := Byte((Index * 13 + 17) mod 251);
+    Zip := TZipFile.Create;
+    try
+      Zip.Open(FirstZip, zmWrite);
+      KeptStream := TBytesStream.Create(TEncoding.UTF8.GetBytes(XML('first selected')));
+      try Zip.Add(KeptStream, 'chosen.fb2'); finally KeptStream.Free; end;
+      KeptStream := TBytesStream.Create(KeptBytes);
+      try Zip.Add(KeptStream, 'keep.fb2', zcStored); finally KeptStream.Free; end;
+    finally Zip.Free; end;
+    WriteZip(SecondZip, ['chosen.fb2', 'keep.fb2']);
+    SecondHash := THashSHA2.GetHashStringFromFile(SecondZip);
+    FirstBook := Insert(LabelText+' first', ExtractFileName(FirstZip), 'chosen', '.fb2');
+    KeepFirst := Insert(LabelText+' first neighbour', ExtractFileName(FirstZip), 'keep', '.fb2');
+    SecondBook := Insert(LabelText+' second', ExtractFileName(SecondZip), 'chosen', '.fb2');
+    KeepSecond := Insert(LabelText+' second neighbour', ExtractFileName(SecondZip), 'keep', '.fb2');
+    Settings.DeleteFiles := True;
+    frmMain.Show;
+    Application.ProcessMessages;
+    Rows([FirstBook, SecondBook]);
+    Requested := False;
+    Execute(True, False, 2, 2, 0,
+      procedure(Progress: TForm)
+      begin
+        if Requested or not DirectoryExists(JournalRoot) then Exit;
+        // A live pending block marks the archive write boundary. Stop then
+        // must finish this archive and its catalogue phase before leaving.
+        if Length(TDirectory.GetFiles(JournalRoot,'pending.bin',TSearchOption.soAllDirectories))=0 then Exit;
+        var StopButton := TButton(Progress.FindComponent('StopBookDeletion'));
+        Require(Assigned(StopButton) and StopButton.Enabled and frmMain.Visible,
+          'Archive work did not expose the live Stop button');
+        if CloseMain then
+        begin
+          frmMain.Close;
+          Require(frmMain.Visible and not Application.Terminated,
+            'Closing Main abandoned an active archive');
+        end
+        else StopButton.Click;
+        Requested := True;
+        Require(not StopButton.Enabled, 'Stop was not delivered to the live deletion operation');
+      end);
+    Require(Requested, 'Test did not observe the archive write boundary');
+    if CloseMain then
+    begin
+      ClosedAt := GetTickCount64;
+      while frmMain.Visible and not Application.Terminated do
+      begin
+        Application.ProcessMessages;
+        Require(GetTickCount64-ClosedAt<5000, 'Main did not close after deletion completed');
+        Sleep(5);
+      end;
+    end
+    else Require(frmMain.Visible and frmMain.Enabled and not Application.Terminated,
+      'Stopping deletion disabled or closed Main');
+    Require(not Exists(FirstBook) and Exists(KeepFirst) and Exists(SecondBook) and Exists(KeepSecond),
+      'Stopping at the current archive removed the wrong catalogue records');
+    Require(THashSHA2.GetHashStringFromFile(SecondZip)=SecondHash, 'Stop modified the queued archive');
+    Zip := TZipFile.Create;
+    try
+      Zip.Open(FirstZip,zmRead);
+      Require((Zip.FileCount=1) and (Zip.FileNames[0]='keep.fb2'), 'Active archive did not finish its update');
+      Zip.Read('keep.fb2',ReadBytes);
+      Require((Length(ReadBytes)=Length(KeptBytes)) and CompareMem(@ReadBytes[0],@KeptBytes[0],Length(KeptBytes)),
+        'Active archive lost its retained payload');
+    finally Zip.Free; end;
+    Require(not DirectoryExists(JournalRoot) or TDirectory.IsEmpty(JournalRoot),
+      'Acknowledged deletion kept a recovery journal');
+    Writeln('PASS Main '+LabelText+' finishes current archive and catalogue records and leaves the queued archive intact');
+    Flush(Output);
+  end;
+
 begin
   RequireIsolatedRegression;
   Trace('delete safety create private fixtures');
@@ -421,10 +604,10 @@ begin
     Trace('delete safety replace isolated Main');
     FreeAndNil(frmMain); Settings.ActiveCollection := PrivateID; Settings.ActivePage := PAGE_SEARCH;
     Application.CreateForm(TfrmMain,frmMain); Collection := SystemDB.GetCollection(PrivateID);
-    if FLibraryOnly then
-    begin
-      FLibraryPictureDeletion;
-      Exit;
+    case Scenario of
+      bdsFLibrary: begin FLibraryPictureDeletion; Exit; end;
+      bdsFLibraryReal: begin DeleteRealFLibraryDuplicate; Exit; end;
+      bdsLifecycle: begin StopOrCloseDeletion(False); StopOrCloseDeletion(True); Exit; end;
     end;
 
     Trace('delete safety cancellation');

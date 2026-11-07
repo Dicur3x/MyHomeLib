@@ -5974,7 +5974,9 @@ begin
       else if ParamStr(1) = 'reader-open-choice' then TestReaderOpenChoice
       else if ParamStr(1) = 'reader-host-session' then TestReaderHostSession
       else if ParamStr(1) = 'book-deletion' then TestBookDeletionSafety
-      else if ParamStr(1) = 'flibrary-deletion' then TestBookDeletionSafety(True)
+      else if ParamStr(1) = 'book-deletion-lifecycle' then TestBookDeletionSafety(bdsLifecycle)
+      else if ParamStr(1) = 'flibrary-deletion' then TestBookDeletionSafety(bdsFLibrary)
+      else if ParamStr(1) = 'flibrary-real-deletion' then TestBookDeletionSafety(bdsFLibraryReal)
       else if ParamStr(1) = 'fb2-encoding' then TestFB2Encoding
       else if ParamStr(1) = 'local-book-import' then TestLocalBookImport
       else if ParamStr(1) = 'book-deletion-identity' then TestBookDeletionIdentity

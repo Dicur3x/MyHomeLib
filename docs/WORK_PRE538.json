@@ -5687,5 +5687,48 @@
     },
     "remaining": "Check stop or close while deletion is still active and verify the real FLibrary duplicate scenario on owned copies before any user-source mutation. These internal packages do not prove the final public release.",
     "cleanup": "Both test GUI processes exited normally. The isolated package checker removed its subprobes. Automatic review rejected recursive removal of G:/HomeLibRu-build-cache/homelibre-beta5-delete-w58lbz_f as blocked by policy. This exact directory remains and must not be retried through another tool or parent."
+  },
+  "archive_deletion_lifecycle_and_real_flibrary_20261107": {
+    "status": "Native x86 and x64 Main passed Stop, close, companion recovery and deletion of a real FLibrary duplicate on archive copies.",
+    "lifecycle": "The regression invokes the normal book deletion action on two owned archives. Once the current ZIP starts its durable pending-block journal, the real Stop button or Main Close requests cancellation. The active archive finishes; its catalogue record is removed, the retained member is byte-identical and the next archive and both of its records are unchanged. Stop leaves Main enabled; Close defers shutdown until the operation finishes. No recovery journal remains after acknowledgement.",
+    "real_copies": "Read source ID 557950 from its ordinary public-library ZIP and copy three FLibrary archives into each native isolated profile. The compressed PPMd 7z has 1266 books, cover ZIP 1124 entries and illustration ZIP 14297 entries. Main removed exactly the selected FB2, one cover and two illustrations. Compared every remaining name and its order, hashed book 557949, its cover and its illustration, and retained its catalogue row and note. The second version from the ordinary ZIP remains readable as an unchanged owned FB2 with the same library ID in another collection.",
+    "source_originals": "No original source paths were passed to the deletion operation. Original archive sizes and nanosecond modification timestamps matched before and after both runs. The original read-only extraction matched the pinned SHA256.",
+    "timing": "The Win32 native probe took 79.39 seconds including staging roughly 635 MB, the complete operation, checks and cleanup. This is not a throughput comparison.",
+    "executables": {
+      "Win32": "ee70dc343f962ecfe6f6fbfa76a1120a91221c0226608099ddd59b79b7073f5e",
+      "Win64": "5b60d9a8e6fc03a8f61afa996946f03edc8f1de3500751ec93456ec0ff32eb81"
+    },
+    "evidence": {
+      "Win32": {
+        "book-deletion-lifecycle": {
+          "log": "tools/ui/tests/Out/book-deletion-lifecycle-Win32-20261107-r2.log",
+          "sha256": "a5ec2a05eb14c9ee15cfa086b449eed0f7fa39c809028821dd5bd9cf34f6291a"
+        },
+        "flibrary-deletion": {
+          "log": "tools/ui/tests/Out/flibrary-deletion-Win32-20261107-r2.log",
+          "sha256": "2960c591fae82199c5b92eccf2a506275273bc0e7c0c6b04cc4dbec57048749f"
+        },
+        "flibrary-real-deletion": {
+          "log": "tools/ui/tests/Out/flibrary-real-deletion-Win32-20261107.log",
+          "sha256": "923545d1151fbff81751afc5a1a77591e11f7022adc8278f1c55a8583224e91e"
+        }
+      },
+      "Win64": {
+        "book-deletion-lifecycle": {
+          "log": "tools/ui/tests/Out/book-deletion-lifecycle-Win64-20261107-r2.log",
+          "sha256": "a5ec2a05eb14c9ee15cfa086b449eed0f7fa39c809028821dd5bd9cf34f6291a"
+        },
+        "flibrary-deletion": {
+          "log": "tools/ui/tests/Out/flibrary-deletion-Win64-20261107-r2.log",
+          "sha256": "2960c591fae82199c5b92eccf2a506275273bc0e7c0c6b04cc4dbec57048749f"
+        },
+        "flibrary-real-deletion": {
+          "log": "tools/ui/tests/Out/flibrary-real-deletion-Win64-20261107.log",
+          "sha256": "923545d1151fbff81751afc5a1a77591e11f7022adc8278f1c55a8583224e91e"
+        }
+      }
+    },
+    "limits": "These tests exercise the ordinary Main delete command in native fixtures. The separate duplicate merge command still preserves files, and physical deletion there needs its own explicit choice. No actual user catalogue was modified. Final beta 5 package verification remains.",
+    "cleanup": "The native runner and the enclosing Python temporary directory removed fresh owned profiles, archive copies and the extracted original member. Previously denied temporary directories were untouched."
   }
 }
