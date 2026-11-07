@@ -81,7 +81,8 @@ type
         const LegacyIndex: Integer; const Stream: TStream);
       procedure ExtractBookPrefix(const AFileName: string; const LegacyIndex,
         PrefixBytes: Integer; const Stream: TStream);
-      function ResolveBookName(const AFileName: string; const LegacyIndex: Integer): string;
+      function ResolveBookName(const AFileName: string; const LegacyIndex: Integer;
+        RequireContents: Boolean = False): string;
       function GetIdxByExt(const Ext: string):Integer;
       function FileNameAt(const Index: Integer): string;
       function ExtractToString(AFileName: string):string;
@@ -491,9 +492,18 @@ begin
   if Result<0 then raise EArchiveBookEntryNotFound.CreateFmt('Archive entry "%s" was not found',[AFileName]);
 end;
 
-function TMHLZip.ResolveBookName(const AFileName: string; const LegacyIndex: Integer): string;
+function TMHLZip.ResolveBookName(const AFileName: string; const LegacyIndex: Integer;
+  RequireContents: Boolean): string;
+var Index: Integer; Empty: Boolean;
 begin
-  Result := FileNames[FindBookIndex(AFileName,LegacyIndex)];
+  Index:=FindBookIndex(AFileName,LegacyIndex);
+  Result:=FileNames[Index];
+  if RequireContents then
+  begin
+    if FIsSevenZip then Empty:=FSevenZipSizes[Index]=0
+    else Empty:=FZip.FileInfos[Index].UncompressedSize=0;
+    if Empty then raise EArchiveBookEntryNotFound.CreateFmt('Файл книги «%s» в архиве пуст.',[Result]);
+  end;
 end;
 
 procedure TMHLZip.ExtractBookToStream(const AFileName: string;

@@ -9,7 +9,7 @@ function OpenRawBookSource(const Book: TBookRecord; const Writer: TBookCacheWrit
 
 implementation
 uses System.SysUtils, System.IOUtils, System.Hash, Winapi.Windows,
-  unit_Settings, dm_user, unit_MHLArchiveHelpers, unit_Consts, unit_FB2Utils, FictionBook_21;
+  unit_Settings, dm_user, unit_MHLArchiveHelpers, unit_Consts, unit_Errors, unit_FB2Utils, FictionBook_21;
 
 var CacheLock, PrefixLock: TObject;
 
@@ -206,6 +206,11 @@ end;
 function OpenRawBookSource(const Book: TBookRecord; const Writer: TBookCacheWrite): TStream;
 begin
   Result := OpenCachedBookFile(CachedSource(Book,Writer));
+  if Result.Size=0 then
+  begin
+    FreeAndNil(Result);
+    raise EBookNotFound.CreateFmt('Файл книги «%s» пуст.',[Book.FileName+Book.FileExt]);
+  end;
 end;
 
 initialization

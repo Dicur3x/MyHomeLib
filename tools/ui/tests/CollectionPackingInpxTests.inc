@@ -177,6 +177,9 @@ begin
     if FileExists(ImageFixture) then Archive.Add(TFile.ReadAllBytes(ImageFixture),'new.fb2')
     else AddZipText('new.txt','New bytes from INPX');
     AddZipText('changed.txt','Changed bytes from INPX');
+    Archive.Close;
+    Archive.Open(TPath.Combine(UpdateRoot,'absent.zip'),zmWrite);
+    AddZipText('untouched.txt','');
   finally Archive.Free; end;
   IndexFile:=TPath.Combine(UpdateRoot,'selected.inpx');
   Archive:=TZipFile.Create;
@@ -310,5 +313,6 @@ begin
   Require((THashSHA2.GetHashStringFromFile(BeforeCatalog)=BeforeHash) and
     (ReadText(PackedSource,ChangedID)='Earlier bytes'),'INPX modified a registered previous catalogue or its books');
   Writeln('PASS selected INPX adds and replaces exact books, retains prior archives and IDs, and publishes a separate generation');
+  Writeln('PASS an empty INPX replacement retains the previously readable book');
   Writeln('PASS selected INPX estimate cancels and continues, and legacy full import refuses a packed catalogue');
 end;

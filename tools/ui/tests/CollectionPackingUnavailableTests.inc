@@ -53,7 +53,11 @@ var
   SourceID, CopyID, LocalID, DownloadID, MissingID: Integer;
   Options: TCollectionPackingOptions;
   Book, MissingBook: TBookRecord;
-  SourceDir, SourceMissing, CopiedDownload, CatalogHash, ResponseHash, OriginalCatalog: string;
+  SourceDir, SourceMissing, CopiedDownload, CatalogHash, ResponseHash, OriginalCatalog,
+    EmptyHash, SourceExtension: string;
+  Zip: TZipFile;
+  Stream: TStream;
+  EmptyRejected: Boolean;
   Server: TIdHTTPServer;
   Fixture: TPackingDownloadFixture;
   Downloader: TDownloader;
@@ -198,6 +202,21 @@ begin
     Options.DisplayName:='Corrupt packing must fail';
     RejectPlan('');
     TFile.Delete(SourceMissing);
+    Zip:=TZipFile.Create;
+    try
+      Zip.Open(SourceMissing,zmWrite);
+      Zip.Add(TEncoding.UTF8.GetBytes(''),MissingBook.FileName+MissingBook.FileExt);
+      Zip.Close;
+    finally Zip.Free; end;
+    EmptyHash:=THashSHA2.GetHashStringFromFile(SourceMissing);
+    EmptyRejected:=False;
+    try
+      Stream:=OpenArchivedBookSaveSource(MissingBook,SourceExtension);
+      Stream.Free;
+    except
+      on E:Exception do EmptyRejected:=E.Message.Contains('пуст');
+    end;
+    Require(EmptyRejected,'An empty archive member was accepted for export');
     CatalogHash:=THashSHA2.GetHashStringFromFile(OriginalCatalog);
 
     Options.OutputRoot:=Settings.AppPath+'packing-mixed-copy';
@@ -232,6 +251,9 @@ begin
       (THashSHA2.GetHashStringFromFile(OriginalCatalog)=CatalogHash),
       'Downloading into the copy changed the source catalogue or its books');
 
+    Require(THashSHA2.GetHashStringFromFile(SourceMissing)=EmptyHash,
+      'Packing modified the original archive containing an empty member');
+    TFile.Delete(SourceMissing);
     WriteFixture(MissingID);
     Options.CatalogFile:=CopyCollection.GetProperty(PROP_DATAFILE);
     Options.SourceID:=CopyID; Options.SourceRoot:=Options.OutputRoot;
@@ -247,4 +269,5 @@ begin
     Fixture.Free;
   end;
   Writeln('PASS unavailable books remain in the catalogue, download into the copy, and become packable later');
+  Writeln('PASS empty archived book cannot be exported and becomes packable when the source is restored');
 end;

@@ -614,7 +614,7 @@ var Catalog, Personal: TSQLiteDatabase;
         CurrentArchive:=TMHLZip.Create(Source,True); CurrentFile:=Source;
       end;
       try
-        Member:=CurrentArchive.ResolveBookName(Book.FileName+Book.FileExt,Book.InsideNo);
+        Member:=CurrentArchive.ResolveBookName(Book.FileName+Book.FileExt,Book.InsideNo,True);
       except
         on E:EArchiveBookEntryNotFound do Exit(False);
       end;

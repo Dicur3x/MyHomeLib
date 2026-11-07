@@ -1460,6 +1460,12 @@ begin
     end;
   end;
 
+  if Assigned(Result) and (Result.Size=0) then
+  begin
+    FreeAndNil(Result);
+    raise EBookNotFound.CreateFmt('Файл книги «%s» пуст.',[FileName+FileExt]);
+  end;
+
   if Assigned(Result) and SameText(FileExt, FB2_EXTENSION) and
     Settings.ConvertWebPToPNG and not PreserveWebP then
   begin

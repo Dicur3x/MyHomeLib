@@ -195,7 +195,7 @@ begin
       FArchiveName:=Physical;
     end;
     try
-      FArchive.ResolveBookName(Book.FileName+Book.FileExt,Book.InsideNo);
+      FArchive.ResolveBookName(Book.FileName+Book.FileExt,Book.InsideNo,True);
     except
       on E:EArchiveBookEntryNotFound do Exit(False);
     end;
