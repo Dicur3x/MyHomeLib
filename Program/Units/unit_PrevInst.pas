@@ -36,7 +36,7 @@ const
   MemFileSize = 127;
 
 var
-  MemHnd: HWND;
+  MemHnd: THandle;
   MemFileName: string;
   lpBaseAddress: ^HWND;
 
@@ -54,7 +54,7 @@ begin
     Exit;
   end;
 
-  MemHnd := CreateFileMapping(HWND($FFFFFFFF), nil, PAGE_READWRITE, 0, MemFileSize, PChar(MemFileName));
+  MemHnd := CreateFileMapping(INVALID_HANDLE_VALUE, nil, PAGE_READWRITE, 0, MemFileSize, PChar(MemFileName));
   if GetLastError <> ERROR_ALREADY_EXISTS then
   begin
     if MemHnd <> 0 then

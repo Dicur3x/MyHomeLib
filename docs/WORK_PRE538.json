@@ -5491,10 +5491,15 @@
     "cleanup": "The local BookProcessing packages and all extracted or converted copies were removed from the isolated proof directory."
   },
   "mixed_archive_folder_and_explorer_import_20261107": {
-    "status": "Implemented and passed the local import scenario in native Win32 and Win64 test executables. Production executable smoke test remains in progress.",
+    "status": "Passed isolated native and production checks on Win32 and Win64. Not yet part of a public release.",
     "folder_import": "The usual FB2 folder action and wizard use the same scanner. New ZIP and 7z containers are examined for supported book entries. Exact inner names and file extensions are retained. The existing single-FB2 ZIP sorting rule is retained, and repeating the scan does not duplicate imported archives.",
     "selected_files": "One worker accepts multiple files from the catalogue dialog. The optional Send To shortcut passes the selected list to a new or already running copy, and asks before writing to the active local catalogue. A failed file is reported by name; earlier successful imports are kept.",
     "native_checks": "Both architectures passed mixed selection with a rejected file between valid sources, preservation of source bytes and local UUID on INPX update, an ordinary FB2 ZIP, a windows-1251 HTML ZIP, nested same-stem FB2 and HTML entries, exact member readback, and a second folder scan.",
-    "limits": "The real Atlant source ZIP passed CRC and was unchanged. The regular UI smoke test of this archive, 7z, and the shell handoff remains separate from the test executable checks. An earlier visible build reported the missing Delphi SDK process access constant, fixed before the successful native test builds. One production AutoBuild invocation timed out without an error report."
+    "limits": "The test invoked the same arguments as the Send To shortcut; it did not install a shortcut in the real Windows profile. The regular folder command is available for private FB2 collections, while the file chooser also works for eligible external local collections. An early smoke test caught the old 32-bit invalid-handle constant causing two Win64 instances; the revised production binary reused a single window. A Delphi reminder held earlier builds, then both regular builds reported success.",
+    "production_checks": "Both current production executables imported a copy of the real 1197686-byte Atlant ZIP using the ordinary private FB2 folder menu. The exact CP866 member name, HTML type and 3213246-byte member length were checked in the catalogue. Win64 also catalogued the ordinary FB2.ZIP and a valid 7z in the same operation and reported a corrupt 7z without losing the other records. The launch argument copied two files at once on Win64 and delivered a second pair to the existing window. Win32 accepted cold and warm launches and queued the latter while the first report was open. Managed copies matched input bytes and original hashes were unchanged.",
+    "production_hashes": {
+      "Win32": "2d12ff068c8ea38a808c23084d0fc1628a701c906f43e685404ae90dcdbd6202",
+      "Win64": "41ffaedb038922588c7f73436e6b11520253f610b0a798798d13507180d64f49"
+    }
   }
 }
