@@ -5977,5 +5977,19 @@
       "save-kindle-restart-Win64.log": "fc3ad65c5f7383b4b17e7eca78798490ad442e87b8bb2c0c844796a1eff2794b"
     },
     "cleanup": "The native runner removed the four new owned temporary profiles and retained only the compact evidence logs. Previously denied paths were untouched."
+  },
+  "beta5_save_matrix_and_minimal_reader_20261107": {
+    "status": "Six native Save As scenarios and two ordinary minimal Reader launches passed across Win32 and Win64.",
+    "save": "Both architectures exercised minimum-save, known-copy-estimates and save-planning with candidate packages. The minimum runtime copied all five original formats and wrote native ZIPs with no converter or 7-Zip. Known ZIP member sizes appeared without extraction. The expanded seven-file matrix included FB2, EPUB, PDF, DjVu, scans and a real binary Word DOC. It checked original copies and mixed FB2/EPUB policies, all four image modes, output sizes, cancellation, exact source hashes, persisted masks and destinations, and PDF/DjVu text-layer extraction with scan rejection. These are native regressions using the production forms and workers, not a claim of performing the whole matrix in the separately packaged Main window.",
+    "reader": "Both exact minimal 3.0.0.5 Reader ZIPs opened a Unicode-named FB2 inside a ZIP using the real standalone EXEs. Both windows closed normally, saved book history and created their local book cache. The isolated prior AppData history and input hashes were unchanged. This standalone smoke does not cover catalogue-to-Reader activation or the visual full-screen and spread matrix.",
+    "logs": {
+      "minimum-save-Win32.log and minimum-save-Win64.log": "4ad728375cbd4402bdf9fc1cbb72c0a7a5e7d042fcfc3e2d42796b096d7c072c",
+      "known-copy-estimates-Win32.log and known-copy-estimates-Win64.log": "4a4452eef4d6e80eb7212ac3f7d4643de02985c8882a523d884efdc507b29fa0",
+      "save-planning-Win32.log": "de2f0a13942ce6a33b760dea919853779fa23655660da7dd14344a766d06994d",
+      "save-planning-Win64.log": "0d72f237441b092bab43ff786ca23daf8e131db0e3800faf1be0da4f9663a30a",
+      "beta5-reader-portable-state.json": "287bded50b2b85ac90584434c3265dfb574e306fc81b026de1443f82df312f2c"
+    },
+    "cleanup": "The six native profiles were removed by their runners. The Reader smoke removed 32,106,703 bytes from its own disposable root and retained its compact beta5-reader-portable-state.json report. No screenshots were taken.",
+    "remaining": "Complete production end-to-end and public delivery gates. A host CPU sample showed 100 percent during this turn; it is not valid evidence of candidate performance. No release or component was uploaded."
   }
 }
