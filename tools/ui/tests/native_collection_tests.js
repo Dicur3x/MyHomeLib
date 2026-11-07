@@ -110,6 +110,7 @@ modes.push('distribution-layout');
 modes.push('export-path-feedback');
 modes.push('flibrary-source-preparation');
 modes.push('packed-pdf-preparation');
+modes.push('packed-usr-zip');
 modes.push('estimate-failure-visibility');
 modes.push('export-cache-lifecycle');
 modes.push('save-settings-sync');
@@ -142,6 +143,7 @@ const requiredViews = {
   'estimate-failure-visibility': ['PASS complete estimate report preserves every failed book full reason identity required modules partial known sizes and atomic UTF8 save', 'PASS real batch estimate shows all 22 failures without hovering opens full report resets changed format and remains usable light dark 96 144 192 DPI'],
   'flibrary-source-preparation': ['PASS actual FLibrary source restores one cover and two illustrations with unchanged borrowed bytes', 'PASS repeated FLibrary restoration does not create another cover or illustration', 'PASS repeated native FB2 metadata rewrite preserves every restored image and readable body'],
   'packed-pdf-preparation': ['PASS JPEG XL PDF restores exact bytes for reading, conversion and saving', 'PASS JPEG XL PDF rejects corruption and requests only its missing decoder', 'PASS JPEG XL PDF INPX retains old payloads and serves updated exact PDF bytes'],
+  'packed-usr-zip': ['PASS catalogue, reader preparation and Save original restore exact LZMA and PPMd ZIP entries'],
   'export-path-feedback': ['PASS export long Unicode filenames complete deep directories native ZIP exact bytes collisions and same-format copies', 'PASS atomic output race and cancellation preserve existing files sources and caller stream position', 'PASS explicit overwrite replaces only saved copies and rejects original identities including hard links', 'PASS Shell copy keeps numbered duplicates by default and replaces saved copies only when requested', 'PASS batch export failures retain every book reason use one final summary and preserve existing paths', 'PASS restored Save As dialog keeps mixed policy image quality ZIP masks path and scan exclusions', 'PASS save continuation exact Unicode options remaining identities one consumer live owner stale source unrelated update and bounded count', 'PASS default ask per-file choices batch apply-to-all cancellation source content and Shell collisions at 96 and 192 DPI', 'PASS protected source Shell collision reports one failed book continues the batch and preserves original bytes'],
   'distribution-layout': ['PASS distribution layout resolves grouped and legacy resources all genre languages and update metadata without root copies'],
   'reader-link-feedback': ['PASS FB2 EPUB internal chapter links navigate by click preserve footnotes and dragging selection in single and double pages'],
@@ -283,7 +285,7 @@ function filterCaptionPasses(subcase) {
     `PASS annotation caption complete theme=${dark}`];
 }
 function requiredPasses(executable, mode) {
-  if (mode==='flibrary-source-preparation' || mode==='packed-pdf-preparation') return requiredViews[mode];
+  if (mode==='flibrary-source-preparation' || mode==='packed-pdf-preparation' || mode==='packed-usr-zip') return requiredViews[mode];
   if (mode==='distribution-layout') return requiredViews[mode];
   if (mode==='webp-live') return ['PASS live WebP update check'];
   if (mode==='reader-portable') return ['PASS portable catalogue and standalone reader default without marker explicit profile Unicode books sessions and unchanged existing data'];
@@ -558,6 +560,19 @@ function run(executable, mode, subcase = "") {
       if(!fs.existsSync(path.join(source,'557950.fb2'))) throw Error('Missing exact source fixture');
       fs.cpSync(source,path.join(folder,'flibrary-source-fixtures'),{recursive:true});
       fs.cpSync(path.join(runtime,'tools/jpeg-xl'),path.join(folder,'tools/jpeg-xl'),{recursive:true});
+    }
+    if (mode==='packed-usr-zip') {
+      const prefix='--packed-usr-fixtures=';
+      const arg=process.argv.find(a=>a.startsWith(prefix));
+      if (!arg) throw Error('Packed USR source fixtures are required');
+      const source=fs.realpathSync(arg.slice(prefix.length));
+      const fixture=path.join(folder,'packed-usr-fixtures');
+      fs.mkdirSync(fixture);
+      for (const name of ['word.doc','slides.ppt','kindle.mobi','books.zip'])
+        fs.copyFileSync(path.join(source,name),path.join(fixture,name));
+      const sevenZip=path.join(runtime,'tools/7zip/7za.exe');
+      if (machine(sevenZip)!==architecture) throw Error('Packed USR test requires a matching 7-Zip executable');
+      fs.copyFileSync(sevenZip,path.join(folder,'tools/7zip/7za.exe'));
     }
     if (mode==='packed-pdf-preparation') {
       const arg=process.argv.find(a=>a.startsWith('--packed-pdf-fixtures='));

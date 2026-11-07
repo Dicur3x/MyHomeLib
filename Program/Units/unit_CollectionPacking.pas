@@ -143,15 +143,13 @@ begin
 end;
 
 function ResolvePackingTools(const AppPath: string; var Options: TCollectionPackingOptions): TArray<string>;
-var Comparison: Integer; Version, Minimum: string;
+var Comparison: Integer; Version: string;
 begin
   Result:=nil;
   Options.Script:=TPath.Combine(AppPath,PACKING_WORKER_FILE);
   Options.Python:=TPath.Combine(AppPath,FormatComponentFile('BookProcessing'));
   Version:=InstalledComponentVersion(AppPath,'BookProcessing');
-  Minimum:=PACKING_COMPONENT_VERSION;
-  if Options.ImageProfile in [pipJpegXL,pipMaximum] then Minimum:=PACKING_USR_COMPONENT_VERSION;
-  if not CompareComponentVersions(Version,Minimum,Comparison) or (Comparison<0) then
+  if not CompareComponentVersions(Version,PACKING_USR_COMPONENT_VERSION,Comparison) or (Comparison<0) then
     Result:=Result+['BookProcessing'];
   Options.SevenZip:=FindFullSevenZip(AppPath);
   if Options.SevenZip='' then Options.SevenZip:=FindExternalTool('7za.exe','7zip');

@@ -155,11 +155,11 @@ end;
 
 function TMHLZip.EntryNeedsExternalDecoder(const Index: Integer): Boolean;
 begin
-  // ZIP method 98 is PPMd. Delphi reads its central-directory metadata but
-  // cannot decompress it; ordinary Stored/Deflate ZIP stays on the fast path.
+  // Delphi can list ZIP entries compressed with LZMA (14) or PPMd (98).
+  // Use the installed archive module to decode these methods.
   if FIsSevenZip then
     Exit(True);
-  Result := FZip.FileInfos[Index].CompressionMethod = 98;
+  Result := FZip.FileInfos[Index].CompressionMethod in [14,98];
 end;
 
 function IsSevenZipArchive(const FileName: string): Boolean;

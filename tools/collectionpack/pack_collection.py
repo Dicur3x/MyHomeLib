@@ -37,6 +37,9 @@ MAX_SOURCE_BOOKS = 100000
 BLOCK = 256 * 1024
 ARCHIVE_SUFFIXES = {'.zip', '.7z', '.rar', '.tar', '.gz', '.bz2', '.xz'}
 TEXT_SUFFIXES = {'.fb2', '.txt', '.rtf', '.html', '.htm', '.xml', '.md', '.csv'}
+ADAPTIVE_PPMD_SUFFIXES = {'.xhtml', '.shtml', '.mht', '.mhtml', '.markdown', '.mobi', '.azw3', '.pdb'}
+ADAPTIVE_LZMA_SUFFIXES = {'.doc', '.dot', '.ppt', '.pps', '.pot', '.xls', '.xlt', '.rgo', '.tif', '.tiff'}
+ADAPTIVE_COMPRESSION_LIMIT = 64 * 1024 * 1024
 IMAGE_SUFFIXES = {'.fb2', '.epub'}
 DJVU_SUFFIXES = {'.djvu', '.djv', '.dju', '.djm', '.djvm'}
 IMAGE_ENGINES = ('illustrations-ppmd', 'illustrations-gray-ppmd')
@@ -1082,7 +1085,8 @@ class Packer:
                 mappings[row['locator']] = item
         else:
             files = stage / 'books'; files.mkdir()
-            names_by_method = {'PPMd': [], 'Deflate': [], 'Copy': []}
+            names_by_method = {'PPMd': [], 'LZMA': [], 'Deflate': [], 'Copy': []}
+            adaptive = {}
             original = None
             keep_source = False
             try:
@@ -1144,16 +1148,19 @@ class Packer:
                     image_result = {} if keep_source else self.optimize_book(target, stage, entry)
                     mappings[locator] = dict(filename=Path(name).stem, ext=extension, inside_no=-1, **image_result,
                                              **book_signature(target, self.check))
-                    # A reduced DjVu needs Deflate to compress its padding.
-                    # For other binary books, reuse the original ZIP's size
-                    # information without scanning or decoding again.
-                    if extension in TEXT_SUFFIXES:
-                        method = 'PPMd'
-                    elif ((extension in DJVU_SUFFIXES and image_result.get('image_result') == 'optimized') or
-                          (entry is not None and entry.compress_size + 256 < entry.file_size)):
+                    if ((extension in DJVU_SUFFIXES and image_result.get('image_result') == 'optimized') or
+                        (entry is not None and entry.compress_size + 256 < entry.file_size)):
                         method = 'Deflate'
                     else:
                         method = 'Copy'
+                    size = mappings[locator]['payload_size']
+                    if extension in TEXT_SUFFIXES:
+                        method = 'PPMd'
+                    elif (16 * 1024 <= size <= ADAPTIVE_COMPRESSION_LIMIT and
+                          (extension in ADAPTIVE_PPMD_SUFFIXES or extension in ADAPTIVE_LZMA_SUFFIXES)):
+                        baseline = min(entry.compress_size, size) if entry is not None else size
+                        adaptive[name] = baseline, method
+                        method = 'PPMd' if extension in ADAPTIVE_PPMD_SUFFIXES else 'LZMA'
                     names_by_method[method].append(name)
                     self.event('books', source=source.name, current=index + 1, total=len(rows))
                 if not mappings:
@@ -1165,6 +1172,19 @@ class Packer:
                     self.event('compressing', source=source.name, books=len(mappings))
                     reserve_space(stage, sum(p.stat().st_size for p in files.iterdir()))
                     self.seven.pack(files, archive, names_by_method)
+                    if adaptive:
+                        # 7-Zip's add command rewrites just the listed members
+                        # and retains the other members' compressed streams.
+                        fallback = {'Deflate': [], 'Copy': []}
+                        fallback_code = {'Deflate': zipfile.ZIP_DEFLATED, 'Copy': zipfile.ZIP_STORED}
+                        with zipfile.ZipFile(archive) as directory:
+                            for name, (baseline, method) in adaptive.items():
+                                self.check()
+                                entry = directory.getinfo(name)
+                                gain = baseline - entry.compress_size
+                                if entry.compress_type != fallback_code[method] and gain < max(256, baseline // 100):
+                                    fallback[method].append(name)
+                        self.seven.pack(files, archive, fallback)
                     if self.jpeg_xl:
                         maximum_size = archive.stat().st_size
                         if source.suffix.lower() in ARCHIVE_SUFFIXES:

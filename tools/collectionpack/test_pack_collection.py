@@ -719,6 +719,30 @@ class PackingTests(unittest.TestCase):
         with self.assertRaises(Canceled):
             djvu_refinements(original, cancel)
 
+    def test_usr_zip_prefers_lzma_or_ppmd_only_when_the_member_shrinks(self):
+        noise = random.Random(10).randbytes(20000)
+        books = {
+            'text.doc': b'\xd0\xcf\x11\xe0' + b'Word paragraph and formatting data. ' * 4000,
+            'text.mht': b'MIME-Version: 1.0\r\n' + b'<p>Repeated words in a MIME body.</p>' * 4500,
+            'compact.doc': noise * 2,
+            'image.cbz': noise[::-1],
+        }
+        source = self.archive('usr.zip', books)
+        original = sha(source)
+        for identity, name in enumerate(books, 1):
+            self.add(identity, source, name)
+        result = Packer(self.job).execute()
+        self.assertLess(result.output_bytes, result.input_bytes)
+        locations = self.output / 'generations' / result.generation / 'locations.sqlite'
+        with database(locations) as db:
+            rows = db.execute('SELECT folder,filename,ext FROM locations ORDER BY book_id').fetchall()
+        with zipfile.ZipFile(self.output / rows[0][0]) as archive:
+            self.assertEqual([archive.getinfo(name + ext).compress_type for _, name, ext in rows],
+                             [14, 98, zipfile.ZIP_DEFLATED, zipfile.ZIP_STORED])
+        for identity, book in enumerate(books.values(), 1):
+            self.assertEqual(self.packed_book(result, identity), book)
+        self.assertEqual(sha(source), original)
+
     @unittest.skipUnless(IMAGE_TOOLS, 'Native HomeLibre Images runtime not supplied')
     def test_maximum_djvu_preserves_other_chunks_and_skips_unprofitable_copies(self):
         original = layered_djvu()

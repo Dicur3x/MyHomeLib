@@ -79,6 +79,38 @@ begin
   finally Settings.BookHeaderTemplate:=SavedTemplate; Restored.Free; Source.Free; end;
 end;
 
+procedure TestPackedUsrZip;
+const Members: array[0..2] of string = ('word.doc','slides.ppt','kindle.mobi');
+var Folder, Member, Expected, Extension, Prepared: string; Book: TBookRecord; Stream: TStream;
+begin
+  RequireIsolatedRegression;
+  Folder:=Settings.AppPath+'packed-usr-fixtures\';
+  Book.Clear;
+  Book.CollectionRoot:=Settings.AppPath;
+  Book.Folder:='packed-usr-fixtures\books.zip';
+  Book.InsideNo:=-1;
+  for Member in Members do
+  begin
+    Book.Title:=Member;
+    Book.FileName:=TPath.GetFileNameWithoutExtension(Member);
+    Book.FileExt:=ExtractFileExt(Member);
+    Expected:=UpdateSHA256(Folder+Member);
+    Stream:=Book.GetBookStream;
+    try Require(Assigned(Stream) and SameText(THashSHA2.GetHashString(Stream),Expected),
+      'Catalogue stream differs for '+Member);
+    finally Stream.Free; end;
+    if SameText(Book.FileExt,'.mobi') then
+      Prepared:=PrepareConversionSource(Book,nil,'.epub')
+    else Prepared:=PrepareReaderFile(Book,True);
+    Require(SameText(UpdateSHA256(Prepared),Expected),'Reader preparation differs for '+Member);
+    Stream:=OpenArchivedBookSaveSource(Book,Extension);
+    try Require(SameText(Extension,Book.FileExt) and Assigned(Stream) and
+      SameText(THashSHA2.GetHashString(Stream),Expected),'Save original differs for '+Member);
+    finally Stream.Free; end;
+  end;
+  Writeln('PASS catalogue, reader preparation and Save original restore exact LZMA and PPMd ZIP entries');
+end;
+
 procedure TestPackedPdfPreparation;
 var Folder, Expected, SavedName, Extension, Prepared, Decoder, SavedPath: string;
   Book, Standalone: TBookRecord; Stream: TStream; Failed: Boolean;
