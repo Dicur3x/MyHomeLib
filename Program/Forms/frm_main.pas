@@ -121,6 +121,7 @@ type
     miCollsettings: TMenuItem;
     miCopyToCollection: TMenuItem;
     miImportSelectedBook: TMenuItem;
+    miExplorerImportShortcut: TMenuItem;
     miFb2Import: TMenuItem;
     miAbout: TMenuItem;
     miCheckUpdates: TMenuItem;
@@ -560,6 +561,7 @@ type
     procedure ShowCollectionStatisticsExecute(Sender: TObject);
     procedure ImportSelectedBookExecute(Sender: TObject);
     procedure ImportSelectedBookUpdate(Sender: TObject);
+    procedure ExplorerImportShortcutClick(Sender: TObject);
     procedure ImportFb2Execute(Sender: TObject);
     procedure ImportFb2Update(Sender: TObject);
     procedure ImportNonFB2Execute(Sender: TObject);
@@ -800,6 +802,8 @@ type
     function BookDeletionJournalRoot: string;
     procedure StartBookDeletion(Operation: TBookDeletionOperation; ShowProgress: Boolean);
     procedure BookDeletionTick(Sender: TObject);
+    procedure ExplorerImportTick(Sender: TObject);
+    procedure ImportBooksFromFiles(const FileNames: TArray<string>; CollectionID: Integer);
     procedure StopBookDeletion(Sender: TObject);
     procedure RefreshAfterBookDeletion(const CollectionID: Integer; RemoveRecords: Boolean);
 
@@ -973,6 +977,8 @@ type
     FBookDeletionOperation: TBookDeletionOperation;
     FBookDeletionProgress: TBookDeletionProgress;
     FBookDeletionTimer: TTimer;
+    FExplorerImportTimer: TTimer;
+    FExplorerImportFiles: TArray<string>;
     FCloseAfterBookDeletion, FBookDeletionNeedsRecovery: Boolean;
 
     FFileOpMode: (fmFb2Zip, fmFb2);
@@ -1224,6 +1230,8 @@ type
     class var CopyBookRecordsForProfile: Boolean;
     {$ENDIF}
     procedure StartInitialCollectionLoad;
+    function QueueExplorerImport(const FileNames: TArray<string>): Boolean;
+    function ReceiveExplorerImport(var Message: TMessage): Boolean;
     property StartupLoading: Boolean read FStartupLoading;
     property ShowStatusProgress: Boolean read GetShowStatusProgress write SetShowStatusProgress;
     property StatusMessage: string read GetStatusMessage write SetStatusMessage;
@@ -1272,6 +1280,7 @@ uses
   frm_BuiltinReader, frm_StoryReader, frm_AuthorFavorites,
   dm_user,
   unit_Import,
+  unit_ExplorerImport,
   unit_IndexPublisherSeriesThread, frm_BookMetadataFill,
   frm_ImportProgressFormEx,
   unit_Consts,
@@ -5450,6 +5459,8 @@ procedure TfrmMain.FormDestroy(Sender: TObject);
 var I: Integer; Message: TMsg;
 begin
   FreeAndNil(FBookDeletionTimer);
+  Application.UnhookMainWindow(ReceiveExplorerImport);
+  FreeAndNil(FExplorerImportTimer);
   FreeAndNil(FBookDeletionOperation);
   FreeAndNil(FBookDeletionProgress);
   CancelReaderSessionRunners(Self);
@@ -9788,8 +9799,6 @@ end;
 procedure TfrmMain.ImportSelectedBookExecute(Sender: TObject);
 var
   Dialog: TOpenDialog;
-  Committed: Boolean;
-  CID: Integer;
 begin
   ImportSelectedBookUpdate(acImportSelectedBook);
   if not acImportSelectedBook.Enabled then Exit;
@@ -9801,25 +9810,99 @@ begin
 
   Dialog := TOpenDialog.Create(Self);
   try
-    Dialog.Title := 'Выберите файл для добавления в коллекцию';
+    Dialog.Title := 'Выберите файлы для добавления в коллекцию';
     Dialog.Filter := 'Книги и документы|*.fb2;*.fb2.zip;*.epub;*.pdf;*.djvu;*.doc;*.docx;*.txt;*.htm;*.html;*.xhtml;*.zip;*.7z|Все файлы|*.*';
-    Dialog.Options := [ofFileMustExist,ofPathMustExist,ofNoChangeDir,ofEnableSizing];
+    Dialog.Options := [ofFileMustExist,ofPathMustExist,ofNoChangeDir,ofEnableSizing,ofAllowMultiSelect];
     if not Dialog.Execute(Handle) then Exit;
-    CID := FCollection.CollectionID;
-    FFormBusy := True;
-    try
-      UpdatePositions;
-      unit_Import.ImportSelectedBook(CID,Dialog.FileName,Committed);
-    finally
-      FFormBusy := False;
-    end;
-    if Committed then
-    begin
-      NotifyFavoriteCatalogChanged(TArray<Integer>.Create(CID));
-      InitCollection;
-    end;
+    ImportBooksFromFiles(Dialog.Files.ToStringArray, FCollection.CollectionID);
   finally
     Dialog.Free;
+  end;
+end;
+
+procedure TfrmMain.ImportBooksFromFiles(const FileNames: TArray<string>; CollectionID: Integer);
+var Committed: Boolean;
+begin
+  FFormBusy := True;
+  try
+    UpdatePositions;
+    unit_Import.ImportSelectedBooks(CollectionID, FileNames, Committed);
+  finally
+    FFormBusy := False;
+  end;
+  if Committed then
+  begin
+    NotifyFavoriteCatalogChanged(TArray<Integer>.Create(CollectionID));
+    InitCollection;
+  end;
+end;
+
+function TfrmMain.QueueExplorerImport(const FileNames: TArray<string>): Boolean;
+begin
+  Result := not (csDestroying in ComponentState) and (Length(FExplorerImportFiles) = 0) and
+    (Length(FileNames) > 0);
+  if not Result then Exit;
+  if not Assigned(FExplorerImportTimer) then
+  begin
+    FExplorerImportTimer := TTimer.Create(Self);
+    FExplorerImportTimer.Enabled := False;
+    FExplorerImportTimer.Interval := 150;
+    FExplorerImportTimer.OnTimer := ExplorerImportTick;
+  end;
+  FExplorerImportFiles := Copy(FileNames);
+  FExplorerImportTimer.Enabled := True;
+end;
+
+function TfrmMain.ReceiveExplorerImport(var Message: TMessage): Boolean;
+var FileNames: TArray<string>;
+begin
+  Result := ReadExplorerImport(Message, FileNames);
+  if not Result then Exit;
+  Message.Result := 0;
+  if QueueExplorerImport(FileNames) then Message.Result := EXPLORER_IMPORT_ACK;
+end;
+
+procedure TfrmMain.ExplorerImportTick(Sender: TObject);
+var
+  FileNames: TArray<string>;
+  DisplayName, Prompt: string;
+  CollectionID: Integer;
+begin
+  if FStartupLoading or FFormBusy or FBookListLoading or
+    (Application.ModalLevel > 0) or not Enabled then Exit;
+  FExplorerImportTimer.Enabled := False;
+  FileNames := FExplorerImportFiles;
+  FExplorerImportFiles := nil;
+  Application.Restore;
+  BringToFront;
+  if not Assigned(FCollection) or not isLocalCollection(FCollection.CollectionCode) or
+    IsPackedCollectionCatalog(FCollection.GetProperty(PROP_DATAFILE)) then
+  begin
+    MHLShowWarning('Откройте обычную локальную коллекцию и повторите отправку из Проводника.');
+    Exit;
+  end;
+  CollectionID := FCollection.CollectionID;
+  DisplayName := VarToStr(FCollection.GetProperty(PROP_DISPLAYNAME));
+  if Length(FileNames) = 1 then
+    Prompt := Format('Добавить файл «%s» в коллекцию «%s»?',
+      [ExtractFileName(FileNames[0]), DisplayName])
+  else
+    Prompt := Format('Добавить выбранные файлы (%d) в коллекцию «%s»?',
+      [Length(FileNames), DisplayName]);
+  if MHLShowInfo(Prompt, mbYesNo) = mrYes then
+    ImportBooksFromFiles(FileNames, CollectionID);
+end;
+
+procedure TfrmMain.ExplorerImportShortcutClick(Sender: TObject);
+begin
+  try
+    if ToggleExplorerImportShortcut then
+      MHLShowInfo('В Проводнике откройте «Отправить → Добавить в HomeLibre». '+
+        'Повторное нажатие этой команды в HomeLibre уберёт ярлык.')
+    else
+      MHLShowInfo('Ярлык «Добавить в HomeLibre» убран из меню «Отправить».');
+  except
+    on E: Exception do MHLShowError('Не удалось изменить ярлык Проводника. '+E.Message);
   end;
 end;
 

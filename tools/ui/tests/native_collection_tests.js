@@ -116,7 +116,7 @@ const requiredViews = {
   'book-deletion-identity': ['PASS conditional deletion rejects reused IDs foreign cards and outer transactions while preserving catalogue and groups', 'PASS conditional deletion rolls back failures and replays split commits without touching physical sources or other collections'],
   'book-deletion-preparation': ['PASS background deletion preparation groups hard-link aliases exact members and FBD pairs without source writes or partial tasks', 'PASS prepared archive tasks complete filesystem and exact catalogue phases while preserving neighbours notes and unrelated FBD members'],
   'fb2-encoding': ['PASS FB2 encoding across metadata import and reader'],
-  'local-book-import': ['PASS single-file import preserves managed bytes and local identity across INPX updates'],
+  'local-book-import': ['PASS local batch, mixed folder import, member readback and local identity across INPX updates'],
   'flibrary-deletion': ['PASS FLibrary deletion cleans private covers and images and preserves shared stems archives and unrelated members', 'PASS FLibrary companion plans resume before catalogue commit and during picture cleanup'],
   'script-export-paths': ['PASS script export path preference requests both script destinations without starting workers'],
   'save-settings-sync': ['PASS save settings migration preserves legacy choices', 'PASS save settings actual form applies seven defaults', 'PASS save settings defaults reach single and mixed Save As', 'PASS save settings restored operation retains explicit format', 'PASS save settings accepted Save As path and masks survive reopen', 'PASS save settings original mixed copy preserves exact bytes', 'PASS save settings device parsing names survive shared destination persistence'],

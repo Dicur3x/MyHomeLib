@@ -25,11 +25,13 @@ uses
   StrUtils,
   SysUtils;
 
-function FirstHinstanceRunning(RunMode: Integer = 0; const InstanceName: string = ''): boolean;
+function FirstHinstanceRunning(RunMode: Integer; const InstanceName: string;
+  out FirstAppHandle: HWND): Boolean;
 
 implementation
 
-function FirstHinstanceRunning(RunMode: Integer; const InstanceName: string): boolean;
+function FirstHinstanceRunning(RunMode: Integer; const InstanceName: string;
+  out FirstAppHandle: HWND): Boolean;
 const
   MemFileSize = 127;
 
@@ -37,10 +39,10 @@ var
   MemHnd: HWND;
   MemFileName: string;
   lpBaseAddress: ^HWND;
-  FirstAppHandle: HWND;
 
 begin
   Result := False;
+  FirstAppHandle := 0;
   lpBaseAddress := nil;
   MemFileName := Application.ExeName;
   if InstanceName <> '' then

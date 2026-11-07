@@ -361,6 +361,7 @@ uses
   System.JSON,
   IOUtils,
   unit_Consts,
+  unit_MHLArchiveHelpers,
   unit_Logger,
   unit_LibrarySourceID,
   unit_SearchUtils,
@@ -2429,16 +2430,24 @@ end;
 
 function TBookCollection_SQLite.IsFileNameConflict(const BookRecord: TBookRecord; const IncludeFolder: Boolean): Boolean;
 const
+  SQL_SELECT_BY_MEMBER = 'SELECT 1 FROM Books b WHERE b.FileName = ? AND b.Folder = ? AND b.Ext = ?';
   SQL_SELECT_BY_FOLDER_AND_FILENAME = 'SELECT 1 FROM Books b WHERE b.FileName = ? AND b.Folder = ?';
   SQL_SELECT_BY_FILENAME = 'SELECT 1 FROM Books b WHERE b.FileName = ?';
 var
   query: TSQLiteQuery;
+  CheckMember: Boolean;
 begin
-  query := FDatabase.NewQuery(IfThen(IncludeFolder, SQL_SELECT_BY_FOLDER_AND_FILENAME, SQL_SELECT_BY_FILENAME));
+  CheckMember := IncludeFolder and IsArchiveExt(BookRecord.Folder);
+  if CheckMember then
+    query := FDatabase.NewQuery(SQL_SELECT_BY_MEMBER)
+  else
+    query := FDatabase.NewQuery(IfThen(IncludeFolder, SQL_SELECT_BY_FOLDER_AND_FILENAME, SQL_SELECT_BY_FILENAME));
   try
     query.SetParam(0, BookRecord.FileName);
     if IncludeFolder then
       query.SetParam(1, BookRecord.Folder);
+    if CheckMember then
+      query.SetParam(2, BookRecord.FileExt);
 
     query.Open;
 

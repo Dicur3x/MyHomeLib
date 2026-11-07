@@ -166,6 +166,7 @@
             <Form>frmStat</Form>
         </DCCReference>
         <DCCReference Include="Units\unit_PrevInst.pas"/>
+        <DCCReference Include="Units\unit_ExplorerImport.pas"/>
         <DCCReference Include="Forms\frm_bases.pas">
             <Form>frmBases</Form>
         </DCCReference>

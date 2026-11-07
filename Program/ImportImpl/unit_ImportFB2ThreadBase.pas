@@ -424,12 +424,14 @@ end;
 
 procedure TImportFB2ThreadBase.AddFile2List(Sender: TObject; const F: TSearchRec);
 var
-  FileName: string;
+  FileName, Extension: string;
 begin
   if (F.Attr and faDirectory) <> 0 then
     Exit;
 
-  if LowerCase(ExtractFileExt(F.Name)) = FTargetExt then
+  Extension := LowerCase(ExtractFileExt(F.Name));
+  if (Extension = FTargetExt) or
+    (FZipFolder and (FTargetExt = ZIP_EXTENSION) and (Extension = SEVENZIP_ARCHIVE_EXTENSION)) then
   begin
     if Settings.EnableSort then
       FileName := FFilesList.LastDir + F.Name

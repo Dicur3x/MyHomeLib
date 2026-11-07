@@ -31,7 +31,7 @@ var
   Book, Favorite: TBookRecord;
   BookSeries: TBookSeries;
   Snapshot: TArray<TLocalCatalogBook>;
-  CID, OldID, RemoteID, FileCount: Integer;
+  CID, FolderCID, OldID, RemoteID, FileCount: Integer;
   SourceZip: TZipFile;
   Member, HtmlOutput: TStream;
   HtmlEncoding: TEncoding;
@@ -44,7 +44,8 @@ var
   procedure AddFile(const Path: string; ExpectSuccess: Boolean = True; Cancel: Boolean = False);
   var Worker: TLocalImportProbe;
   begin
-    Worker:=TLocalImportProbe.Create(CID,Path); Worker.Profile:=Profile; Worker.Canceled:=Cancel;
+    Worker:=TLocalImportProbe.Create(CID,TArray<string>.Create(Path));
+    Worker.Profile:=Profile; Worker.Canceled:=Cancel;
     try
       TOORun(Worker);
       Require((Worker.Success=ExpectSuccess) and (Worker.CommittedChanges=ExpectSuccess),
@@ -127,7 +128,7 @@ begin
   frmMain.ImportSelectedBookUpdate(frmMain.acImportSelectedBook);
   Require((frmMain.miImportSelectedBook.Parent=frmMain.N39) and
     (frmMain.miImportSelectedBook.Action=frmMain.acImportSelectedBook) and
-    frmMain.acImportSelectedBook.Enabled,'The main menu does not expose single-file import');
+    frmMain.acImportSelectedBook.Enabled,'The main menu does not expose local file import');
   Root:=IncludeTrailingPathDelimiter(TPath.Combine(Settings.AppPath,'local-book-import-'+TGUID.NewGuid.ToString));
   Files:=Root+'arbitrary source\'; ForceDirectories(Files);
   Profile:=Root+'system.sqlite';
@@ -175,17 +176,14 @@ begin
       '<spine><itemref idref="text"/></spine></package>'),'book.opf');
     SourceZip.Add(TEncoding.UTF8.GetBytes('<html xmlns="http://www.w3.org/1999/xhtml"><body><p>Текст EPUB.</p></body></html>'),'book.xhtml');
   finally SourceZip.Free; end;
-  AddFile(EPUB);
 
   PDF:=Files+'Мой PDF.pdf'; TFile.WriteAllText(PDF,'%PDF-1.4'+#10+'%%EOF',TEncoding.ASCII);
-  AddFile(PDF);
   ZipName:=Files+'archived books.zip';
   SourceZip:=TZipFile.Create;
   try
     SourceZip.Open(ZipName,zmWrite);
     SourceZip.Add(TEncoding.UTF8.GetBytes(FB2.Replace('Моя книга','Книга из архива')),'inner/Книга.fb2');
   finally SourceZip.Free; end;
-  AddFile(ZipName);
 
   HtmlZip:=Files+'Архив с HTML.zip';
   SourceZip:=TZipFile.Create;
@@ -198,12 +196,20 @@ begin
         '<body><p>Текст из старого HTML.</p></body></html>'),'Книга.html');
     finally HtmlEncoding.Free; end;
   finally SourceZip.Free; end;
-  AddFile(HtmlZip);
+  Invalid:=Files+'invalid.exe';
+  TFile.WriteAllText(Invalid,'MZ is an executable signature',TEncoding.ASCII);
+  var Batch:=TLocalImportProbe.Create(CID,TArray<string>.Create(EPUB,Invalid,PDF,ZipName,HtmlZip));
+  Batch.Profile:=Profile;
+  try
+    TOORun(Batch);
+    Require(Batch.Success and Batch.CommittedChanges,'A failed file stopped the selected batch');
+  finally Batch.Free; end;
 
   Catalog:=SystemData.GetCollection(CID,True);
   Snapshot:=Catalog.CaptureLocalBooks;
   Require(Length(Snapshot)=5,'Multiple chosen formats did not create separate local keys');
   FileCount:=Length(TDirectory.GetFiles(ExtractFilePath(Managed)));
+  Require(FileCount=5,'The selected batch left an unexpected managed copy');
   FoundHtml:=False;
   for var Entry in Snapshot do
   begin
@@ -243,7 +249,6 @@ begin
   Require(FoundHtml,'A ZIP containing only HTML was not catalogued');
   Catalog:=nil;
 
-  Invalid:=Files+'invalid.exe'; TFile.WriteAllText(Invalid,'MZ is an executable signature',TEncoding.ASCII);
   AddFile(Invalid,False);
   Invalid:=Files+'incomplete.fb2';
   TFile.WriteAllText(Invalid,'<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0"><description>',TEncoding.UTF8);
@@ -269,5 +274,58 @@ begin
     Require(TestReader.PlainText.Contains('Свой текст.'),'The local book cannot be read after the update');
   finally TestReader.Free; end;
   Require(THashSHA2.GetHashStringFromFile(Original)=OriginalHash,'Catalogue changes modified the selected file');
-  Writeln('PASS single-file import preserves managed bytes and local identity across INPX updates');
+
+  // Use the same folder worker as the menu and the new-collection wizard.
+  var FolderRoot:=Root+'folder scan\';
+  ForceDirectories(FolderRoot);
+  FolderCID:=SystemData.CreateCollection('Folder import',FolderRoot,Root+'folder-scan.hlc2',
+    CT_EXTERNAL_LOCAL_FB,Settings.SystemFileName[sfGenresFB2]);
+  TFile.Copy(ZipName,FolderRoot+'ordinary.fb2.zip');
+  TFile.Copy(HtmlZip,FolderRoot+'html-only.zip');
+  var Mixed:=FolderRoot+'mixed.zip';
+  SourceZip:=TZipFile.Create;
+  try
+    SourceZip.Open(Mixed,zmWrite);
+    SourceZip.Add(TEncoding.UTF8.GetBytes(FB2),'inner/book.fb2');
+    SourceZip.Add(TEncoding.UTF8.GetBytes('<html><body>Другой формат.</body></html>'),'inner/book.html');
+    SourceZip.Add(TEncoding.ASCII.GetBytes('MZ'),'inner/ignore.exe');
+  finally SourceZip.Free; end;
+  var MixedHash:=THashSHA2.GetHashStringFromFile(Mixed);
+  var SavedSort:=Settings.EnableSort;
+  Settings.EnableSort:=False;
+  try
+    for var Scan:=1 to 2 do
+    begin
+      var FolderWorker:=TOOFB2Worker.Create(FolderCID,afZip);
+      FolderWorker.FixtureProfile:=Profile;
+      try
+        TOORun(FolderWorker);
+        Require(FolderWorker.Success,'The folder scanner did not complete');
+      finally FolderWorker.Free; end;
+      Require(TOOBookCount(SystemData,FolderCID)=4,'The folder scanner lost or duplicated an archive member');
+    end;
+  finally Settings.EnableSort:=SavedSort; end;
+  Catalog:=SystemData.GetCollection(FolderCID,True);
+  Cursor:=Catalog.GetBookIterator(bmAll,False);
+  var MixedCount:=0;
+  while Cursor.Next(Book) do
+    if SameFileName(Book.GetBookFileName,Mixed) then
+    begin
+      Inc(MixedCount);
+      Member:=Book.GetBookStream(False,False);
+      try
+        Require(Assigned(Member),'The mixed archive member could not be opened');
+        var Bytes: TBytes;
+        SetLength(Bytes,Member.Size);
+        Member.ReadBuffer(Bytes[0],Length(Bytes));
+        if Book.FileExt='.fb2' then
+          Require(TEncoding.UTF8.GetString(Bytes)=FB2,'FB2 resolved to a different archive member')
+        else
+          Require((Book.FileExt='.html') and TEncoding.UTF8.GetString(Bytes).Contains('Другой формат.'),
+            'HTML resolved to a different archive member');
+      finally Member.Free; end;
+    end;
+  Require(MixedCount=2,'Both same-name books must be readable from the original ZIP');
+  Require(THashSHA2.GetHashStringFromFile(Mixed)=MixedHash,'The folder scanner changed the ZIP');
+  Writeln('PASS local batch, mixed folder import, member readback and local identity across INPX updates');
 end;

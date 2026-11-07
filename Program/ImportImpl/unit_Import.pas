@@ -30,7 +30,7 @@ procedure ImportFB2(const CollectionID: Integer; const ArchiveFormat: TArchiveFo
 procedure ImportFB2(const CollectionID: Integer; const ArchiveFormat: TArchiveFormat;
   out CommittedChanges: Boolean); overload;
 
-procedure ImportSelectedBook(const CollectionID: Integer; const FileName: string;
+procedure ImportSelectedBooks(const CollectionID: Integer; const FileNames: TArray<string>;
   out CommittedChanges: Boolean);
 procedure ImportFBD(const CollectionID: Integer); overload;
 procedure ImportFBD(const CollectionID: Integer; out CommittedChanges: Boolean); overload;
@@ -67,10 +67,10 @@ begin
   end;
 end;
 
-procedure ImportSelectedBook(const CollectionID: Integer; const FileName: string;
+procedure ImportSelectedBooks(const CollectionID: Integer; const FileNames: TArray<string>;
   out CommittedChanges: Boolean);
 begin
-  RunImport(TImportLocalBookThread.Create(CollectionID,FileName),CommittedChanges);
+  RunImport(TImportLocalBookThread.Create(CollectionID,FileNames),CommittedChanges);
 end;
 
 procedure ImportFB2(const CollectionID: Integer; const ArchiveFormat: TArchiveFormat);

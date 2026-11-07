@@ -5489,5 +5489,12 @@
     "external_reader_alert": "Downloaded the public AlReader mirror archive in memory. Its SHA-256 and the SHA-256 of AlReader2.exe matched the pinned published values. The executable has no Authenticode certificate table. The report does not identify the detection name or the quarantined file.",
     "follow_up": "A Windows file action would need explicit import intent, an eligible collection, confirmation and delivery to an already open instance. For title browsing, first make the existing sorted search and collapsed series results easy to find. The reader currently shows its progress strip in full screen when the interface is visible. Optional chapter ticks and a separate full-screen progress preference are useful additions.",
     "cleanup": "The local BookProcessing packages and all extracted or converted copies were removed from the isolated proof directory."
+  },
+  "mixed_archive_folder_and_explorer_import_20261107": {
+    "status": "Implemented and passed the local import scenario in native Win32 and Win64 test executables. Production executable smoke test remains in progress.",
+    "folder_import": "The usual FB2 folder action and wizard use the same scanner. New ZIP and 7z containers are examined for supported book entries. Exact inner names and file extensions are retained. The existing single-FB2 ZIP sorting rule is retained, and repeating the scan does not duplicate imported archives.",
+    "selected_files": "One worker accepts multiple files from the catalogue dialog. The optional Send To shortcut passes the selected list to a new or already running copy, and asks before writing to the active local catalogue. A failed file is reported by name; earlier successful imports are kept.",
+    "native_checks": "Both architectures passed mixed selection with a rejected file between valid sources, preservation of source bytes and local UUID on INPX update, an ordinary FB2 ZIP, a windows-1251 HTML ZIP, nested same-stem FB2 and HTML entries, exact member readback, and a second folder scan.",
+    "limits": "The real Atlant source ZIP passed CRC and was unchanged. The regular UI smoke test of this archive, 7z, and the shell handoff remains separate from the test executable checks. An earlier visible build reported the missing Delphi SDK process access constant, fixed before the successful native test builds. One production AutoBuild invocation timed out without an error report."
   }
 }

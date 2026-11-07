@@ -44,7 +44,7 @@ uses
 {$IFDEF USE_FASTMM5}
   FastMM5,
 {$ENDIF}
-  Forms, System.SysUtils,
+  Forms, System.SysUtils, Winapi.Windows,
   unit_FormatComponents in 'Units\unit_FormatComponents.pas',
   unit_ZstdRuntime in 'Units\unit_ZstdRuntime.pas',
   unit_CatalogComponents in 'Units\unit_CatalogComponents.pas',
@@ -183,6 +183,7 @@ uses
   frm_about in 'Forms\frm_about.pas' {frmAbout},
   frm_statistic in 'Forms\frm_statistic.pas' {frmStat},
   unit_PrevInst in 'Units\unit_PrevInst.pas',
+  unit_ExplorerImport in 'Units\unit_ExplorerImport.pas',
   frm_bases in 'Forms\frm_bases.pas' {frmBases},
   frm_book_info in 'Forms\frm_book_info.pas' {frmBookDetails},
   frm_splash in 'Forms\frm_splash.pas' {frmSplash},
@@ -305,6 +306,10 @@ uses
 // docs/superpowers/specs/2026-08-11-signed-lang-catalogs-design.md.
 {$R lang.res}
 
+var
+  FirstAppHandle: HWND;
+  ExplorerFiles: TArray<string>;
+
 begin
   Application.Initialize;
   InitializeDiagnostics;
@@ -316,9 +321,19 @@ begin
   // instead of Settings() because DMUser does not exist yet.
   InitLocalization;
 
-  // Keep the original instance key while existing installations share the same data.
-  if FirstHinstanceRunning(1, 'MyHomeLib.exe') then
+  if SameText(ParamStr(1), EXPLORER_IMPORT_SWITCH) and
+    not ReadExplorerImportArguments(ExplorerFiles) then
   begin
+    MessageBox(0, 'Не удалось получить список файлов из Проводника.', 'HomeLibre', MB_OK or MB_ICONWARNING);
+    Exit;
+  end;
+
+  // Keep the original instance key while existing installations share the same data.
+  if FirstHinstanceRunning(1, 'MyHomeLib.exe', FirstAppHandle) then
+  begin
+    if (Length(ExplorerFiles) > 0) and not DeliverExplorerImport(FirstAppHandle, ExplorerFiles) then
+      MessageBox(0, 'Не удалось передать файлы. Дождитесь запуска этой копии HomeLibre и попробуйте снова.',
+        'HomeLibre', MB_OK or MB_ICONWARNING);
     Exit;
   end;
 
@@ -341,6 +356,7 @@ begin
 
     TfrmMain.DeferInitialCollection := True;
     Application.CreateForm(TfrmMain, frmMain);
+    Application.HookMainWindow(frmMain.ReceiveExplorerImport);
     LogCatalogueStartupPhase('window-created');
 
     frmSplash.Hide;
@@ -349,6 +365,7 @@ begin
   end;
 
   frmMain.StartInitialCollectionLoad;
+  if Length(ExplorerFiles) > 0 then frmMain.QueueExplorerImport(ExplorerFiles);
   Application.Run;
   except
     on E: Exception do begin LogDiagnosticError('startup-or-main-loop',E); raise; end;

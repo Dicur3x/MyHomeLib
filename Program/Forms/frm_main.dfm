@@ -3633,9 +3633,13 @@
         object miImportSelectedBook: TMenuItem
           Action = acImportSelectedBook
         end
+        object miExplorerImportShortcut: TMenuItem
+          Caption = #1071#1088#1083#1099#1082#32#1080#1084#1087#1086#1088#1090#1072#32#1074#32#1084#1077#1085#1102#32#171#1054#1090#1087#1088#1072#1074#1080#1090#1100#187#8230
+          OnClick = ExplorerImportShortcutClick
+        end
         object miFb2Import: TMenuItem
           Action = acImportFb2
-          Caption = 'fb2 '#1080' fb2.zip'
+          Caption = #1048#1079#32#1087#1072#1087#1082#1080#58#32#70#66#50#44#32#90#73#80#32#1080#32#55#122#8230
           ImageIndex = 18
         end
         object miPdfdjvu: TMenuItem
@@ -5090,7 +5094,7 @@
     end
     object acImportSelectedBook: TAction
       Category = 'Collection'
-      Caption = #1044#1086#1073#1072#1074#1080#1090#1100#32#1092#1072#1081#1083#8230
+      Caption = #1044#1086#1073#1072#1074#1080#1090#1100#32#1092#1072#1081#1083#1099#8230
       OnExecute = ImportSelectedBookExecute
       OnUpdate = ImportSelectedBookUpdate
     end
