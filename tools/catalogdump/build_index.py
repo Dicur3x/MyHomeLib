@@ -73,13 +73,12 @@ def clean(value):
     return FIELD_BREAKS.sub(' ', value or '').strip()
 
 
-def dump_file(folder, prefix, table, version):
-    for stem in (prefix + table, f'{version}.{table}'):
-        for suffix in ('.sql.gz', '.sql'):
-            path = folder / (stem + suffix)
-            if path.is_file():
-                return path
-    raise DumpError(f'В папке нет файла {prefix}{table}.sql или {prefix}{table}.sql.gz.')
+def dump_file(folder, prefix, table):
+    for suffix in ('.sql.gz', '.sql'):
+        path = folder / (prefix + table + suffix)
+        if path.is_file():
+            return path
+    return None
 
 
 def staging_rows(rows, target, source):
@@ -104,9 +103,15 @@ def staging_rows(rows, target, source):
 
 def load_tables(db, source, folder, version, report):
     db.executescript(STAGING_SCHEMA)
+    schema = SOURCE_SCHEMAS[source]
     prefix = LIBRARIES[source][2]
-    for target, table, required, optional in SOURCE_SCHEMAS[source]:
-        path = dump_file(folder, prefix, table, version)
+    dated = version + '.'
+    if any(dump_file(folder, dated, table) for _, table, _, _ in schema):
+        prefix = dated
+    for target, table, required, optional in schema:
+        path = dump_file(folder, prefix, table)
+        if path is None:
+            raise DumpError(f'В папке нет файла {prefix}{table}.sql или {prefix}{table}.sql.gz.')
         report(f'Чтение {path.name}')
         required, optional = required.split(), optional.split()
         values = ','.join('?' for _ in (*required, *optional))

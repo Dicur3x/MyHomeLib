@@ -84,6 +84,18 @@ class CatalogDumpTests(TestCase):
                 self.assertEqual(output.read_bytes(), before)
                 self.assertFalse(list(folder.glob('catalogdump-*')))
 
+    def test_dated_local_snapshot_does_not_use_undated_tables(self):
+        with TemporaryDirectory() as temp:
+            folder = Path(temp)
+            dumps = dict(fixture('librusec'))
+            for table, payload in dumps.items():
+                (folder / f'{table}.sql').write_bytes(payload)
+            (folder / '20261019.libbook.sql').write_bytes(dumps['libbook'])
+            output = folder / 'catalog.inpx'
+            with self.assertRaisesRegex(DumpError, '20261019.libavtors'):
+                build_index('librusec', folder, output, '20261019')
+            self.assertFalse(output.exists())
+
     def test_downloads_are_one_snapshot(self):
         class Response(io.BytesIO):
             status = 200
