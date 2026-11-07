@@ -3,6 +3,7 @@ from contextlib import closing
 import os
 from pathlib import Path
 import re
+import struct
 import sys
 import tempfile
 import unittest
@@ -180,6 +181,21 @@ class AdvancedOutputTest(unittest.TestCase):
         with self.assertRaises(conversion.ConversionError):
             conversion.convert_book(self.source, output, output_profile='kfx', tools_root=self.tools)
         self.assertEqual(output.read_bytes(), b'keep this file')
+
+    def test_kindle_container_requires_bounded_descriptor_and_payload(self):
+        descriptor = b'\xe0\x01\x00\xea'
+        head = b'CONT\x02\x00' + struct.pack('<III', 22, 18, 4)
+        for profile in ('kfx', 'azw8'):
+            output = self.work / ('book.' + profile)
+            output.write_bytes(head + descriptor + b'ENTY\x01\x00')
+            advanced_output.validate_output(conversion, output, profile)
+            for broken in (head[:16], head + descriptor, head + b'junkENTY',
+                           head[:10] + struct.pack('<I', 0xffffffff) + head[14:] + descriptor + b'ENTY',
+                           head + descriptor + b'junk'):
+                with self.subTest(profile=profile, broken=broken):
+                    output.write_bytes(broken)
+                    with self.assertRaisesRegex(conversion.ConversionError, 'повреждённую книгу Kindle'):
+                        advanced_output.validate_output(conversion, output, profile)
 
     def test_epub_pdf_server_only_serves_known_resources_with_private_prefix(self):
         epub = self.work / 'source.epub'

@@ -3,6 +3,7 @@
 import importlib.util
 import os
 from pathlib import Path
+import struct
 import subprocess
 import tempfile
 import time
@@ -56,13 +57,28 @@ def validate_output(api, output, profile):
             raise api.ConversionError('Версия EPUB не совпадает с выбранным форматом.')
         return
     with output.open('rb') as stream:
-        head = stream.read(16)
         if profile == 'pdf':
+            head = stream.read(16)
             stream.seek(max(0, output.stat().st_size - 1024))
             if not head.startswith(b'%PDF-') or not stream.read().rstrip().endswith(b'%%EOF'):
                 raise api.ConversionError('Модуль создал повреждённый PDF.')
-        elif profile in ('kfx', 'azw8') and (len(head) != 16 or not head.startswith(b'CONT')):
-            raise api.ConversionError('Модуль создал повреждённую книгу Kindle.')
+        elif profile in ('kfx', 'azw8'):
+            head = stream.read(18)
+            error = 'Модуль создал повреждённую книгу Kindle.'
+            if len(head) != 18 or not head.startswith(b'CONT'):
+                raise api.ConversionError(error)
+            header_size, info_offset, info_size = struct.unpack_from('<III', head, 6)
+            # Standalone KFX stores the descriptor inside the header,
+            # followed by the entity data.
+            if not (len(head) <= info_offset and 4 <= info_size
+                    and info_offset + info_size <= header_size < output.stat().st_size):
+                raise api.ConversionError(error)
+            stream.seek(info_offset)
+            if stream.read(4) != b'\xe0\x01\x00\xea':
+                raise api.ConversionError(error)
+            stream.seek(header_size)
+            if stream.read(4) != b'ENTY':
+                raise api.ConversionError(error)
     if profile == 'md' and not output.read_text(encoding='utf-8-sig').strip():
         raise api.ConversionError('Модуль создал пустой Markdown.')
 
