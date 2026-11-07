@@ -5886,5 +5886,30 @@
       "epub2-packaged-epubcheck-20261107.log": "1dbfd2c4c36809b834b6f5f0e49f2cdcb4528ae4bd95950ea170efd563997322",
       "epub2-final-package-20261107-r2.log": "e8f20e06e8eca99bf3b2fa018313d437e379c2d94b20ddb4a5bddaa8284eda36"
     }
+  },
+  "beta5_direct_kfx_boko_20261107": {
+    "candidate": "Boko v0.6.0, pinned to 9ac23f67a51e6911125a78fc0f876c8367388f3d. The official Windows binary is x64. Its ZIP and corresponding source archive were verified against pinned SHA256 values.",
+    "sources": [
+      "https://github.com/zacharydenton/boko/releases/tag/v0.6.0",
+      "https://github.com/zacharydenton/boko/blob/v0.6.0/src/import/epub.rs",
+      "https://github.com/zacharydenton/boko/blob/v0.6.0/src/epub/parser.rs",
+      "https://doc.rust-lang.org/rustc/platform-support/windows-gnu.html"
+    ],
+    "official_x64_probe": "With private test copies that normalize the EPUB package namespace and paths, direct EPUB to KFX retained nested table-of-contents entries, working chapter and footnote links, an embedded font, PNG, an external SVG referenced by the chapter, native table cells, emphasis and selected CSS properties. The round trip also recovered Cyrillic text and nested headings from a DOCX prepared as EPUB. The test never rewrote its input file.",
+    "azw8": "Explicitly selecting KFX produces a CONT container with an .azw8 filename. The same binary parses it as KFX when the test gives it a .kfx filename. It also reads both FB2 outputs from fb2cng this way. Physical Kindle compatibility has not been checked.",
+    "patch": "scripts/boko-epub-navigation.patch applies to the pinned source. It accepts a prefixed OCF rootfile and resolves the NCX, EPUB 3 navigation and landmark targets from their own documents. scripts/probe-boko-export.py exercises unmodified fixtures with nested navigation and the prefixed container from DOCX.",
+    "existing_fb2_route": "Commit 4b7e3bab rejects truncated KFX/AZW8 containers by checking the descriptor bounds, Ion version marker and the first entity signature. Four saved outputs from the two fb2cng architectures passed. The broader regression suite ran 303 cases, with 300 passing and three optional writer tests skipped. The repeat used the verified Kindling runtimes after the initial run reported their missing fixture path.",
+    "local_build": "Portable Rust 1.99.1 built a Windows x64 candidate, but the resulting EXE failed to start in the test harness. The next build tries static linking and uses the existing Delphi LLVM tool to generate import libraries. It checks the Win32 binary first. Earlier probe and build directories were removed by their runners.",
+    "svg_limit": "Inline SVG and SVG wrappers for raster images are silently omitted by the official engine. A standalone SVG survives its own KFX to EPUB round trip, but the engine marks the original SVG bytes as JPEG inside KFX. The same placeholder is used for WebP. This is not evidence that Kindle can render those images.",
+    "remaining": "Test an explicit compatibility preparation or a renderer that writes correct Kindle image resources before using the candidate. Confirm architecture, licensing and packaging before any user-facing integration. No change to supported HomeLibre export routes or published downloads.",
+    "logs": {
+      "kfx-boko-v060-probe-20261107.log": "2c2e6dc83fe8d0cf5c6ce2f02af89480186914d39dd87355f21b1da5fa2f6700",
+      "kfx-boko-v060-normalized-20261107.log": "1dc5bf9ac5b2d8e12bd7d1f120a7a90ff867a1f60c023b7969706bdd95af420c",
+      "kfx-boko-v060-roundtrip-20261107.log": "38169af0c85a250749968b05701eb5954444b8dc77dd0401e783c782e72b2a43",
+      "kfx-boko-inline-svg-20261107.log": "cdd10c5e78a0dfe75b23e46bdcba40803146c17af062faa0bd1be4c6e93c2461",
+      "kfx-boko-acceptance-harness-20261107.log": "bce109d3afe6a0d3d217cb1e992cd6da542c8977687ef6089a77aba64b482ab7",
+      "kfx-boko-native-build-20261107-r4.log": "293e8fe0b20e5c4a50dd9f715d06393f4ae9f64fe3db0fb8b3da9eafbc86140c",
+      "kfx-bookconvert-20261107-r2.log": "6de30318965056185b6586593ec40e4d26ae495c2e3a14c3d3f0b2a70c59e9e8"
+    }
   }
 }

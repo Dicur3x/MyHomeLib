@@ -1,0 +1,101 @@
+diff --git a/src/epub/parser.rs b/src/epub/parser.rs
+--- a/src/epub/parser.rs
++++ b/src/epub/parser.rs
+@@ -30,7 +30,7 @@
+     loop {
+         match reader.read_event() {
+             Ok(Event::Empty(e)) | Ok(Event::Start(e))
+-                if e.name().as_ref().as_bytes() == b"rootfile" =>
++                if e.name().local_name().as_ref().as_bytes() == b"rootfile" =>
+             {
+                 for attr in e.attributes().flatten() {
+                     if attr.key.as_ref().as_bytes() == b"full-path" {
+@@ -1320,6 +1320,14 @@
+     }
+ 
+     #[test]
++    fn test_parse_container_xml_with_namespace_prefix() {
++        let container = br#"<ocf:container xmlns:ocf="urn:oasis:names:tc:opendocument:xmlns:container" version="1.0">
++  <ocf:rootfiles><ocf:rootfile full-path="OEBPS/package.opf" media-type="application/oebps-package+xml"/></ocf:rootfiles>
++</ocf:container>"#;
++        assert_eq!(parse_container_xml(container).unwrap(), "OEBPS/package.opf");
++    }
++
++    #[test]
+     fn test_parse_container_xml_with_bom() {
+         let mut container = vec![0xEF, 0xBB, 0xBF]; // BOM
+         container.extend_from_slice(
+diff --git a/src/import/epub.rs b/src/import/epub.rs
+--- a/src/import/epub.rs
++++ b/src/import/epub.rs
+@@ -251,13 +251,14 @@
+ 
+         // Load the EPUB 3 nav document once, if declared: it serves both the
+         // TOC fallback (step 5) and landmarks (step 6).
+-        let nav_str: Option<String> = opf.nav_href.as_ref().and_then(|nav_href| {
++        let nav_document = opf.nav_href.as_ref().and_then(|nav_href| {
+             let nav_path = crate::import::resolve_relative_path(&opf_path, nav_href);
+             read_entry(&source, &zip_index, &nav_path)
+                 .ok()
+                 .map(|nav_bytes| {
+                     let hint_encoding = crate::util::extract_xml_encoding(&nav_bytes);
+-                    crate::util::decode_text(&nav_bytes, hint_encoding).into_owned()
++                    let nav_str = crate::util::decode_text(&nav_bytes, hint_encoding).into_owned();
++                    (nav_path, nav_str)
+                 })
+         });
+ 
+@@ -273,8 +274,8 @@
+                 // Navigation is auxiliary: a malformed NCX degrades to an
+                 // empty TOC (like a missing one) instead of failing the open.
+                 let toc_entries = parse_ncx(&ncx_str).unwrap_or_default();
+-                // Prepend base path to hrefs (NCX uses relative paths)
+-                prepend_base_to_toc(&toc_entries, &opf_base)
++                // NCX links are relative to the NCX document itself.
++                prepend_base_to_toc(&toc_entries, &ncx_path)
+             } else {
+                 Vec::new()
+             }
+@@ -282,21 +283,21 @@
+             Vec::new()
+         };
+         if toc.is_empty()
+-            && let Some(nav_str) = &nav_str
++            && let Some((nav_path, nav_str)) = &nav_document
+         {
+             // Same leniency as the NCX: a malformed nav document must not
+             // fail the whole book.
+             let toc_entries = parse_nav_toc(nav_str).unwrap_or_default();
+-            toc = prepend_base_to_toc(&toc_entries, &opf_base);
++            toc = prepend_base_to_toc(&toc_entries, nav_path);
+         }
+ 
+         // 6. Parse landmarks from EPUB 3 nav document
+-        let landmarks = if let Some(nav_str) = &nav_str {
++        let landmarks = if let Some((nav_path, nav_str)) = &nav_document {
+             let mut parsed = parse_nav_landmarks(nav_str).unwrap_or_default();
+-            // Prepend base path to hrefs (nav uses relative, URL-encoded paths)
++            // Resolve landmark links relative to the navigation document.
+             for landmark in &mut parsed {
+                 if !landmark.href.starts_with('#') && !landmark.href.is_empty() {
+-                    landmark.href = crate::import::resolve_relative_path(&opf_path, &landmark.href);
++                    landmark.href = crate::import::resolve_relative_path(nav_path, &landmark.href);
+                 }
+             }
+             parsed
+@@ -641,6 +642,15 @@
+     }
+ 
+     #[test]
++    fn test_toc_links_relative_to_navigation_document() {
++        let mut chapter = TocEntry::new("Chapter", "../text/My%20chapter.xhtml#start");
++        chapter.children.push(TocEntry::new("Note", "../text/notes.xhtml#n1"));
++        let result = prepend_base_to_toc(&[chapter], "OPS/navigation/toc.ncx");
++        assert_eq!(result[0].href, "OPS/text/My chapter.xhtml#start");
++        assert_eq!(result[0].children[0].href, "OPS/text/notes.xhtml#n1");
++    }
++
++    #[test]
+     fn test_prepend_base_to_toc_with_fragments() {
+         let entries = vec![
+             TocEntry::new("Section 1", "text/ch1.xhtml#section1"),
