@@ -6035,5 +6035,27 @@
       "reader-book-appearance-Win64.log": "dcb04bebb3c65e536d10f574fb63429ad9ed53c7d0b6d2eb55a83d4554ba403a"
     },
     "cleanup": "The test runners removed their fixtures. The two appearance profile paths were checked absent after exit."
+  },
+  "beta5_large_catalogue_performance_20261107": {
+    "status": "Current optimized native catalogue trials and paired ordinary startup of the exact beta 4 and beta 5 packages passed on Win32 and Win64. Comparative query timing remains open.",
+    "source": "Read-only copy of the 4333084672-byte working catalogue, SHA-256 7bc741c477f75c928618d1e50c0ef68da38ac52a3f6ac765692bee4c9f6bbe34, identical to the preceding historical benchmark. The original main-file identity, size and timestamp and the empty WAL stayed unchanged.",
+    "native_queries": {
+      "scope": "Three trials for each query on both architectures. Results matched separate SQL counts: all non-deleted 1700620, title 528, author 6073, series 4980 and publisher 2104. The native test also rejected blank, grouped and deleted rows.",
+      "Win32_median_ms": { "all": 17438, "all_cpu": 16390, "title": 812, "author": 422, "series": 296, "publisher": 172 },
+      "Win64_median_ms": { "all": 15328, "all_cpu": 14640, "title": 438, "author": 203, "series": 157, "publisher": 109 }
+    },
+    "exact_startup_ms": {
+      "Win32_beta4": { "first_paint": 2652, "ready": 3587 },
+      "Win32_beta5": { "first_paint": 2904, "ready": 3886 },
+      "Win64_beta4": { "first_paint": 3663, "ready": 4971 },
+      "Win64_beta5": { "first_paint": 2951, "ready": 3833 }
+    },
+    "limits": "Shared CPU load sampled at 93 to 100 percent. Both native test processes were below normal priority. The exact packages ran once per version and architecture with reversed version order on x64. All four exited normally. These are warm launches and the timings do not establish a speed improvement or regression. The first setup attempt was rejected by the test fixture's private-folder guard and cleaned up. The isolated beta 4 reference compile expired after 180 seconds without a build log and was not used for query timing.",
+    "reports": {
+      "large-catalogue-performance.json": "988dd7c3faf229828ddab59d685ecfd02f1d22a0f1fe5e72754f9a7f6a1de9de",
+      "large-catalogue-beta4-comparison.json (incomplete)": "118670ff1ba4216d1319fedcdd2d4bd7e583ec41da80a42a081ba3676dca64c4",
+      "large-catalogue-exact-startup-paired-r2.json": "299ae9f268a75f3735aa2baacef79855637abdb47a06cf755694b9a6e0f11ea9"
+    },
+    "cleanup": "The native snapshots, older source export and all four ordinary launch profiles are gone. Fresh benchmark executables, compiler scratch outputs and reports remain in the candidate stage on G:. The attempted compiler scratch cleanup did not remove its targets and was not repeated."
   }
 }
