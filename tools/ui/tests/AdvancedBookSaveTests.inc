@@ -299,6 +299,7 @@ begin
       SourceHashes:=SourceHashes+[UpdateSHA256(OriginalPDF.GetBookFileName)];
     end;
     var Extension:=BookSaveTargetExtension('.epub',Mode,False,False);
+    Writeln('TRACE advanced save format: ',Extension,' (',Ord(Mode),')'); Flush(Output);
     Options.Mode:=Mode;
     Options.Folder:=Root+'copies'+Extension;
     if Mode=emEpub2 then Options.Folder:=Root+'copies-epub2';

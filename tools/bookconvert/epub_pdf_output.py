@@ -137,7 +137,7 @@ def remove_profile(profile, work):
         raise ValueError('Папка вёрстки PDF находится вне рабочей папки.')
     # Chromium helpers can release their Windows file handles just after
     # the main browser process exits.
-    deadline = time.monotonic() + 4
+    deadline = time.monotonic() + 10
     while True:
         try:
             shutil.rmtree(profile)
@@ -155,22 +155,26 @@ def remove_profile(profile, work):
 def render_pdf(api, renderer, work, url, allowed, checkpoint):
     profile = work / 'browser-profile'
     cancel = work / 'cancel-epub-pdf'
+    temporary = profile / 'scratch'
     env = {key: value for key, value in os.environ.items() if not key.upper().startswith('WEBVIEW2_')}
-    env.update(TEMP=str(work), TMP=str(work))
+    env.update(TEMP=str(temporary), TMP=str(temporary))
     checkpoint()
-    process = subprocess.Popen([str(renderer), url, allowed, str(api.MAX_TOTAL)], cwd=work,
-                               stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
-                               env=env, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+    # Chromium also creates temporary files outside its own profile. Keep
+    # them within the directory that waits for all browser handles to close.
+    temporary.mkdir(parents=True)
     try:
-        while True:
-            checkpoint()
-            try:
-                _, stderr = process.communicate(timeout=.1)
-                break
-            except subprocess.TimeoutExpired:
-                continue
-    finally:
+        process = subprocess.Popen([str(renderer), url, allowed, str(api.MAX_TOTAL)], cwd=work,
+                                   stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                                   env=env, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
         try:
+            while True:
+                checkpoint()
+                try:
+                    _, stderr = process.communicate(timeout=.1)
+                    break
+                except subprocess.TimeoutExpired:
+                    continue
+        finally:
             if process.poll() is None:
                 cancel.touch()
                 try:
@@ -178,8 +182,8 @@ def render_pdf(api, renderer, work, url, allowed, checkpoint):
                 except subprocess.TimeoutExpired:
                     process.kill()
                     process.communicate()
-        finally:
-            remove_profile(profile, work)
+    finally:
+        remove_profile(profile, work)
     if process.returncode == 3:
         raise api.ConversionError('Для сохранения EPUB в PDF нужна среда Microsoft WebView2 Runtime.')
     if process.returncode:

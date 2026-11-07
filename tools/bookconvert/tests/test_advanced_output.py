@@ -222,6 +222,23 @@ class AdvancedOutputTest(unittest.TestCase):
                     self.assertEqual(error.exception.code, 404)
                     error.exception.close()
 
+    def test_epub_pdf_browser_scratch_is_removed_with_profile(self):
+        with patch.object(epub_pdf_output.subprocess, 'Popen') as popen:
+            def launch(*_args, env, **_kwargs):
+                scratch = Path(env['TEMP'])
+                self.assertEqual(env['TMP'], str(scratch))
+                self.assertTrue(scratch.is_relative_to(self.work / 'browser-profile'))
+                (scratch / 'browser-file.tmp').write_bytes(b'private browser data')
+                process = popen.return_value
+                process.poll.return_value = process.returncode = 0
+                process.communicate.return_value = (None, b'')
+                return process
+
+            popen.side_effect = launch
+            epub_pdf_output.render_pdf(conversion, self.work / 'renderer', self.work, 'url', 'prefix', lambda: None)
+        self.assertFalse((self.work / 'browser-profile').exists())
+        self.assertFalse(list(self.work.glob('*.tmp')))
+
     @unittest.skipUnless(os.environ.get('HOMELIBRE_EPUB_PDF_TOOLS'), 'needs the packaged WebView2 writer and Runtime')
     def test_epub_pdf_preserves_text_and_leaves_no_runtime_profile(self):
         tools = Path(os.environ['HOMELIBRE_EPUB_PDF_TOOLS'])
