@@ -130,7 +130,7 @@ class ImageQuality(unittest.TestCase):
     def test_all_profiles_both_targets_keep_pages_and_estimates_match(self):
         for extension in ('.fb2','.epub'):
             sizes = []; estimates = []
-            for profile in ('high','balanced','economy'):
+            for profile in ('high','balanced','economy','maximum'):
                 options = self.root/'options.json'; choice = self.root/'choice.txt'
                 failure = []
                 def choose():
@@ -140,6 +140,7 @@ class ImageQuality(unittest.TestCase):
                         self.assertEqual(value['format'],extension[1:].upper())
                         self.assertEqual(value['sizes'],value['split_sizes'])
                         self.assertEqual(value['sizes'],value['auto_sizes'])
+                        self.assertLessEqual(value['sizes']['maximum'],value['sizes']['economy'])
                         self.assertLessEqual(value['sizes']['economy'],value['sizes']['balanced'])
                         self.assertLessEqual(value['sizes']['balanced'],value['sizes']['high'])
                         estimates.append(value['sizes'][profile])
@@ -164,6 +165,36 @@ class ImageQuality(unittest.TestCase):
             for actual,estimate in zip(sizes,estimates):
                 self.assertLess(abs(actual-estimate),max(4096,actual*.05))
 
+    def test_grayscale_with_and_without_compression_for_scans_and_flowing_books(self):
+        rgb = (224, 45, 18)
+        picture = fixed.png(bytes(rgb) * (180 * 240), 180, 240)
+        scan = self.root / 'misnamed-scan.3-pdf'
+        scan.write_bytes(picture)
+        book = self.root / 'illustrated.fb2'
+        binary = base64.b64encode(picture).decode('ascii')
+        book.write_text(
+            f'<FictionBook xmlns="{c.FB}" xmlns:l="{c.XL}">'
+            '<description><title-info><book-title>Illustrated</book-title><lang>en</lang>'
+            '</title-info></description><body><section><p>Read this text.</p>'
+            '<image l:href="#illustration"/></section></body>'
+            f'<binary id="illustration" content-type="image/png">{binary}</binary></FictionBook>',
+            encoding='utf-8')
+        original = book.read_bytes()
+        expected = (rgb[0]*77 + rgb[1]*150 + rgb[2]*29 + 128) >> 8
+        for source in (scan, book):
+            for quality in ('original', 'balanced', 'economy', 'maximum'):
+                with self.subTest(source=source.name, quality=quality):
+                    output = self.root / f'{source.stem}-{quality}.epub'
+                    c.convert_book(source, output, tools_root=TOOLS, image_quality=quality, grayscale=True)
+                    self.assertEqual(middle_pixel(self.pictures(output)[0]), (expected,)*3)
+                    if source == book:
+                        with zipfile.ZipFile(output) as archive:
+                            self.assertTrue(any(b'Read this text.' in archive.read(name)
+                                                for name in archive.namelist() if name.endswith('.xhtml')))
+        self.assertEqual(scan.read_bytes(), picture)
+        self.assertEqual(book.read_bytes(), original)
+        self.assert_clean()
+
     def test_reading_and_default_conversion_keep_original_images(self):
         for metadata in ({},{'reading':True,'image_quality':'economy'}):
             output = self.root/('read'+str(len(list(self.root.iterdir())))+'.epub')
@@ -186,7 +217,7 @@ class ImageQuality(unittest.TestCase):
                 try:
                     value=wait_options(options,30,'No original/ZIP estimate')
                     self.assertIn('original',value['sizes'])
-                    self.assertEqual(set(value['zip_sizes']),{'original','high','balanced','economy','none'})
+                    self.assertEqual(set(value['zip_sizes']),{'original','high','balanced','economy','maximum','none'})
                     self.assertEqual(value['zip_sizes']['none'],0)  # This source is a scan.
                     self.assertGreater(value['sizes']['original'],0)
                     self.assertGreater(value['zip_sizes']['original'],0)
@@ -403,7 +434,7 @@ class ImageQuality(unittest.TestCase):
                 value=wait_options(options,30,'No early scan choice')
                 self.assertTrue(value['scan_pages']);self.assertEqual(value['images'],40)
                 self.assertEqual(value['sampled'],9);self.assertLess(max(pages,default=0),10)
-                self.assertEqual(set(value['split_sizes']),{'original','high','balanced','economy','none'})
+                self.assertEqual(set(value['split_sizes']),{'original','high','balanced','economy','maximum','none'})
                 self.assertEqual(value['sizes']['none'],0)  # Scans are the book's pages, not optional artwork.
                 choice.write_text('economy|split|except=1,40',encoding='utf-8')
             except BaseException as error:
@@ -482,6 +513,14 @@ class ImageQuality(unittest.TestCase):
             output=self.root/f'keep-{orientation}.epub'
             c.convert_book(source,output,tools_root=TOOLS,image_quality='economy')
             self.assertEqual(self.ordered_pictures(output),[data])
+            output=self.root/f'gray-{orientation}.epub'
+            c.convert_book(source,output,tools_root=TOOLS,image_quality='original',grayscale=True)
+            picture,=self.ordered_pictures(output)
+            self.assertEqual((int.from_bytes(picture[16:20],'big'),int.from_bytes(picture[20:24],'big')),(96,64))
+            r,g,b=middle_pixel(picture)
+            self.assertEqual(r,g)
+            self.assertEqual(g,b)
+            self.assertNotEqual(picture,data)
         profile=base64.b64decode('AAACTGxjbXMEQAAAbW50clJHQiBYWVogB+oACgAXAA8AMQANYWNzcE1TRlQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPbWAAEAAAAA0y1sY21zAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAALZGVzYwAAAQgAAAA2Y3BydAAAAUAAAABMd3RwdAAAAYwAAAAUY2hhZAAAAaAAAAAsclhZWgAAAcwAAAAUYlhZWgAAAeAAAAAUZ1hZWgAAAfQAAAAUclRSQwAAAggAAAAgZ1RSQwAAAggAAAAgYlRSQwAAAggAAAAgY2hybQAAAigAAAAkbWx1YwAAAAAAAAABAAAADGVuVVMAAAAaAAAAHABzAFIARwBCACAAYgB1AGkAbAB0AC0AaQBuAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAADAAAAAcAE4AbwAgAGMAbwBwAHkAcgBpAGcAaAB0ACwAIAB1AHMAZQAgAGYAcgBlAGUAbAB5WFlaIAAAAAAAAPbWAAEAAAAA0y1zZjMyAAAAAAABDEIAAAXe///zJQAAB5MAAP2Q///7of///aIAAAPcAADAblhZWiAAAAAAAABvoAAAOPUAAAOQWFlaIAAAAAAAACSfAAAPhAAAtsNYWVogAAAAAAAAYpcAALeHAAAY2XBhcmEAAAAAAAMAAAACZmYAAPKnAAANWQAAE9AAAApbY2hybQAAAAAAAwAAAACj1wAAVHsAAEzNAACZmgAAJmYAAA9c')
         data=fixed.png((bytes([180,40,20])*600+bytes([20,60,180])*600)*700,1200,700)
         payload=b'Book profile\0\0'+zlib.compress(profile);kind=b'iCCP'

@@ -80,7 +80,7 @@ type
     FRequiredComponents: TArray<string>;
     FConverterExitCode: Cardinal;
     FCurrentBookIndex: Integer;
-    FShowImageQualityChoice: Boolean;
+    FShowImageQualityChoice, FGrayscale: Boolean;
     FImageQuality: string;
 
     FMaxTempPathLength: Integer;
@@ -133,6 +133,7 @@ type
     property ZipEachBook: Boolean read FZipEachBook write FZipEachBook;
     property NameCollision: TBookNameCollision read FNameCollision write FNameCollision;
     property OnNameCollision: TBookCollisionPrompt read FOnNameCollision write FOnNameCollision;
+    property Grayscale: Boolean read FGrayscale write FGrayscale;
     property ImageQuality: string read FImageQuality write FImageQuality;
     property FileNameTemplate: string read FFileNameTemplate write FFileNameTemplate;
     property FolderTemplate: string read FFolderTemplate write FFolderTemplate;
@@ -353,7 +354,7 @@ begin
       SourceExtension:=BookSaveFileExtension(R.GetBookFileName,R.FileExt);
     FCurrentKeepSource:=BookSaveKeepsSource(SourceExtension,FExportMode,FKeepSourceFormat,FKeepFB2EPUB);
     if FCurrentKeepSource then FExplicitFormat:=False;
-    ProcessSourceImages:=FCurrentKeepSource and (FImageQuality<>'original') and
+    ProcessSourceImages:=FCurrentKeepSource and ((FImageQuality<>'original') or FGrayscale) and
       ((SourceExtension='.fb2') or (SourceExtension='.epub'));
     if (FExplicitFormat or ProcessSourceImages or
       (not FCurrentKeepSource and (FExportMode in ([emMobi,emAZW3]+BOOK_SAVE_ADVANCED_MODES)))) and not FExtractOnly then
@@ -369,7 +370,7 @@ begin
       // be wrong. A previous book's effective format never affects this one.
       FCurrentKeepSource:=BookSaveKeepsSource(SourceExtension,FExportMode,FKeepSourceFormat,FKeepFB2EPUB);
       FExplicitFormat:=FRequestedExplicitFormat and not FCurrentKeepSource;
-      ProcessSourceImages:=FCurrentKeepSource and (FImageQuality<>'original') and
+      ProcessSourceImages:=FCurrentKeepSource and ((FImageQuality<>'original') or FGrayscale) and
         ((SourceExtension='.fb2') or (SourceExtension='.epub'));
       if FCurrentKeepSource then
       begin
@@ -407,7 +408,7 @@ begin
       FreeAndNil(FFileOprecord.Stream);
     FNativeZipCopy:=FCurrentKeepSource and not ProcessSourceImages and
       BookSaveZipsTarget(SourceExtension,FRequestedExportMode,FZipEachBook);
-    if FCurrentKeepSource and (FImageQuality<>'original') and not ProcessSourceImages then
+    if FCurrentKeepSource and ((FImageQuality<>'original') or FGrayscale) and not ProcessSourceImages then
       FLastWarnings:='Для '+UpperCase(SourceExtension.TrimLeft(['.']))+
         ' сохранён исходный файл; настройка изображений применяется только к FB2 и EPUB.';
     FBookFormat := R.GetBookFormat;
@@ -804,7 +805,7 @@ begin
           Result:=Selected;
         end,FOverwriteExisting,FFileOprecord.OriginalSourceFile,
         (FExportMode=emFB2Zip) or (FZipEachBook and SameText(ExtractFileExt(ConversionTarget),'.fb2')),
-        BookSaveAdvancedProfile(FExportMode),FExportMode=emTxt);
+        BookSaveAdvancedProfile(FExportMode),FExportMode=emTxt,FGrayscale and (FExportMode<>emTxt));
       FLastWarnings := Warnings.Text;
       Result := True;
       if not (FExportMode in ([emFB2,emEpub,emMobi,emAZW3]+BOOK_SAVE_ADVANCED_MODES)) then

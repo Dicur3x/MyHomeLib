@@ -319,7 +319,7 @@ begin
       begin
         Require(Item.Completed and (Item.ErrorText=''),Status+' '+Item.ErrorText);
         for var Quality:=0 to 2 do Require(Item.Options.OutputBytes[0,Quality]>0,'Advanced estimate missed an image choice');
-        Require((Item.Options.OutputBytes[0,3]>0)=BookSaveSupportsNoImages(Mode),
+        Require((Item.Options.OutputBytes[0,BOOK_QUALITY_NONE]>0)=BookSaveSupportsNoImages(Mode),
           'Advanced estimate disagrees with no-images availability');
       end;
     finally EstimateThread.Free; end;

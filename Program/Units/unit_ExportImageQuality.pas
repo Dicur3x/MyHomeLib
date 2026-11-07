@@ -20,7 +20,7 @@ type
   end;
   TScanLayoutController = class
     Options: TBookImageQualityOptions;
-    Choices: array[0..3] of TRadioButton;
+    Choices: array[0..BOOK_QUALITY_NONE] of TRadioButton;
     Layout: TComboBox;
     Exclusions: TEdit;
     Dialog: TForm;
@@ -54,20 +54,26 @@ begin
 end;
 
 procedure TScanLayoutController.Change(Sender: TObject);
-var High, Balanced, Economy: Int64;
+var High, Balanced, Economy, Maximum: Int64; LayoutIndex: Integer;
 begin
+  LayoutIndex:=0;
   High:=Options.HighBytes; Balanced:=Options.BalancedBytes; Economy:=Options.EconomyBytes;
   if Assigned(Layout) and (Layout.ItemIndex=1) then
-  begin High:=Options.AutoHighBytes; Balanced:=Options.AutoBalancedBytes; Economy:=Options.AutoEconomyBytes; end;
+  begin LayoutIndex:=2; High:=Options.AutoHighBytes; Balanced:=Options.AutoBalancedBytes; Economy:=Options.AutoEconomyBytes; end;
   if Assigned(Layout) and (Layout.ItemIndex=2) then
-  begin High:=Options.SplitHighBytes; Balanced:=Options.SplitBalancedBytes; Economy:=Options.SplitEconomyBytes; end;
+  begin LayoutIndex:=1; High:=Options.SplitHighBytes; Balanced:=Options.SplitBalancedBytes; Economy:=Options.SplitEconomyBytes; end;
   Choices[0].Caption:='Высокое качество · ≈ '+QualitySizeCaption(High);
   Choices[1].Caption:='Сбалансированный · ≈ '+QualitySizeCaption(Balanced);
   Choices[2].Caption:='Экономный · ≈ '+QualitySizeCaption(Economy);
-  Choices[3].Enabled:=(Options.NoImagesBytes>0) and not Options.ScanPages;
-  if Choices[3].Enabled then Choices[3].Caption:='Без изображений · ≈ '+QualitySizeCaption(Options.NoImagesBytes)
-  else Choices[3].Caption:='Без изображений — недоступно для сканов';
-  if Assigned(Layout) then Layout.Enabled:=not Choices[3].Checked;
+  Maximum:=Options.OutputBytes[LayoutIndex,BOOK_QUALITY_MAXIMUM];
+  Choices[BOOK_QUALITY_MAXIMUM].Enabled:=Maximum>0;
+  Choices[BOOK_QUALITY_MAXIMUM].Caption:=BOOK_IMAGE_PROFILE_CAPTIONS[BOOK_QUALITY_MAXIMUM];
+  if Maximum>0 then Choices[BOOK_QUALITY_MAXIMUM].Caption:=
+    Choices[BOOK_QUALITY_MAXIMUM].Caption+' · ≈ '+QualitySizeCaption(Maximum);
+  Choices[BOOK_QUALITY_NONE].Enabled:=(Options.NoImagesBytes>0) and not Options.ScanPages;
+  if Choices[BOOK_QUALITY_NONE].Enabled then Choices[BOOK_QUALITY_NONE].Caption:='Без изображений · ≈ '+QualitySizeCaption(Options.NoImagesBytes)
+  else Choices[BOOK_QUALITY_NONE].Caption:='Без изображений — недоступно для сканов';
+  if Assigned(Layout) then Layout.Enabled:=not Choices[BOOK_QUALITY_NONE].Checked;
   if Assigned(Exclusions) then Exclusions.Enabled:=Assigned(Layout) and Layout.Enabled and (Layout.ItemIndex>0);
 end;
 
@@ -121,7 +127,7 @@ end;
 
 function ChooseExportImageQuality(const Title: string; const Options: TBookImageQualityOptions;
   MultipleBooks: Boolean; out ApplyToAll: Boolean): string;
-var Dialog: TForm; Heading, NoteText, Detail: TLabel; Choices: array[0..3] of TRadioButton;
+var Dialog: TForm; Heading, NoteText, Detail: TLabel; Choices: array[0..BOOK_QUALITY_NONE] of TRadioButton;
   AllBooks: TCheckBox; SaveButton, CancelButton: TButton; I: Integer;
   Layout: TComboBox; Controller: TScanLayoutController; Offset, Gap, BottomOffset: Integer;
   Content: TQualityScrollBox; Footer: TPanel;
@@ -166,7 +172,7 @@ begin
       Detail.Caption:='Автоматический режим ищет границу на каждом развороте. Если уверенной границы нет, скан остаётся целым. Вертикальные страницы не разделяются.';
       Controller.Layout:=Layout; Layout.OnChange:=Controller.Change;
     end;
-    for I:=0 to 3 do
+    for I:=0 to High(Choices) do
     begin
       Choices[I]:=TRadioButton.Create(Dialog); Choices[I].Parent:=Content;
       Choices[I].SetBounds(20,75+Offset+I*Gap,580,25); Choices[I].TabOrder:=I+2*Ord(Options.ScanPages);
@@ -180,7 +186,8 @@ begin
           Detail.Caption:='Чёткие изображения с умеренным сжатием. Рекомендуется.'; end;
         2: begin
           Detail.Caption:='Компактные сканы для чтения. Текстовые страницы и цветные иллюстрации сжимаются по-разному.'; end;
-        3: begin
+        BOOK_QUALITY_MAXIMUM: Detail.Caption:='Самые компактные изображения. Мелкие детали могут стать менее чёткими.';
+        BOOK_QUALITY_NONE: begin
           if Options.ScanPages or (Options.NoImagesBytes<=0) then
             Detail.Caption:='Изображения содержат сами страницы. Без них книга станет пустой; сначала нужно распознать текст.'
           else Detail.Caption:='Только текст, без обложки и иллюстраций. Подходит для слабых читалок.'; end;
@@ -215,7 +222,8 @@ begin
     ApplyMHLControlTheme(Dialog);
     Controller.Reflow(nil);
     if Dialog.ShowModal<>mrOk then Exit;
-    if Choices[3].Checked then Result:='none'
+    if Choices[BOOK_QUALITY_NONE].Checked then Result:='none'
+    else if Choices[BOOK_QUALITY_MAXIMUM].Checked then Result:='maximum'
     else if Choices[0].Checked then Result:='high'
     else if Choices[2].Checked then Result:='economy' else Result:='balanced';
     if (Result<>'none') and Assigned(Layout) and (Layout.ItemIndex>0) then

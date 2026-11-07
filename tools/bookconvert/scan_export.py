@@ -29,6 +29,8 @@ class ScanExport:
         self.storage = self.codec.image_storage(context['target'],context.get('container'))
         self.pending = []; self.done = 0; self.total = 0; self.chosen = False
         self.unsplit = set()
+        self.grayscale = context.get('grayscale', False)
+        self.check = context.get('check')
         self.profile = context['profile']; self.layout = context.get('layout', 'keep')
         try: self.excluded=excluded_pages(context.get('exclude',''))
         except ValueError as error: book.fail(str(error))
@@ -41,7 +43,7 @@ class ScanExport:
         section.append(self.book.el('h2', 'Страница '+str(number)))
         self.pending.append((data, section, number)); self.total = max(self.total, total or number)
         # The first sample and each later batch fit within a small memory budget.
-        maximum = 9 if not self.chosen or (self.storage != 'raw' and self.profile in ('balanced','economy')) else 12
+        maximum = 9 if not self.chosen or (self.storage != 'raw' and self.profile in ('balanced','economy','maximum')) else 12
         if len(self.pending) >= maximum or sum(len(item[0]) for item in self.pending) >= 32*1024*1024:
             self.flush()
 
@@ -51,7 +53,7 @@ class ScanExport:
             self.chosen = True; return None
         if not self.context.get('options') or not self.context.get('choice'):
             self.book.fail('Не указан канал выбора качества.')
-        kept = self.codec.run(self.book.c,self.tool,pictures,directory,'estimate',self.book.progress,'keep',self.storage)
+        kept = self.codec.run(self.book.c,self.tool,pictures,directory,'estimate-maximum',self.book.progress,'keep',self.storage,check=self.check,grayscale=self.grayscale)
         # The decoder has validated these PNGs. Portrait/square pages cannot
         # split in either mode, and PNG has no JPEG EXIF orientation here.
         # Reuse their exact results rather than encoding every profile thrice.
@@ -61,7 +63,7 @@ class ScanExport:
         estimates = {'keep': kept}
         for layout in ('split','auto'):
             estimates[layout] = kept if unchanged else self.codec.run(
-                self.book.c,self.tool,pictures,directory,'estimate',self.book.progress,layout,self.storage)
+                self.book.c,self.tool,pictures,directory,'estimate-maximum',self.book.progress,layout,self.storage,check=self.check,grayscale=self.grayscale)
         total = len(pictures) if complete else max(len(pictures),self.total)
         target = self.context['target']
         def size(pages):
@@ -111,7 +113,7 @@ class ScanExport:
                     indices=[i for i,(_,_,number) in enumerate(self.pending) if ('keep' if number in self.excluded else self.layout)==layout]
                     if not indices: continue
                     result=self.codec.run(self.book.c,self.tool,[self.pending[i][0] for i in indices],directory,
-                                          self.profile,lambda *_: None,layout,self.storage)
+                                          self.profile,lambda *_: None,layout,self.storage,check=self.check,grayscale=self.grayscale)
                     self.unsplit.update(self.pending[indices[i]][2] for i in result['_unsplit'])
                     for i,pages in zip(indices,result[self.profile]): encoded[i]=pages
             for (_data,section,number),pages in zip(self.pending,encoded):
@@ -125,7 +127,7 @@ class ScanExport:
 
     def finish(self):
         self.flush(True)
-        self.book.warnings.add('Сканы обработаны небольшими порциями: '+{'original':'исходное разрешение изображений','high':'высокое качество','balanced':'сбалансированный режим','economy':'экономный режим'}[self.profile]+'. Исходная книга сохранена.')
+        self.book.warnings.add('Сканы обработаны небольшими порциями: '+{'original':'исходное разрешение изображений','high':'высокое качество','balanced':'сбалансированный режим','economy':'экономный режим','maximum':'максимальная экономия'}[self.profile]+'. Исходная книга сохранена.')
         if self.layout=='split':
             self.book.warnings.add('Горизонтальные сканы разворотов разделены по центру: сначала левая, затем правая страница. Вертикальные страницы сохранены целиком.')
         elif self.layout=='auto':

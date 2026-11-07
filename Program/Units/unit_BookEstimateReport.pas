@@ -2,7 +2,7 @@
 
 interface
 
-uses System.Classes, Vcl.Forms, unit_Globals, unit_BookSavePolicy, unit_BookSendEstimates;
+uses System.Classes, Vcl.Forms, unit_Globals, unit_BookSavePolicy, unit_BookSendEstimates, unit_BookConversion;
 
 function BookEstimateSizeText(Bytes: Int64): string;
 function BookEstimateResultText(const Item: TBookSaveEstimateItem; Bytes: Int64): string;
@@ -24,8 +24,6 @@ implementation
 
 uses System.SysUtils, System.Math, System.IOUtils, System.StrUtils, Vcl.StdCtrls,
   Vcl.ExtCtrls, Vcl.Controls, Vcl.Dialogs, Vcl.Clipbrd, unit_MHLTheme, unit_BookOutput;
-
-const QualityNames: array[0..3] of string = ('Как есть','Сбалансированный','Экономный','Без изображений');
 
 function BookEstimateSizeText(Bytes: Int64): string;
 begin
@@ -63,7 +61,7 @@ begin
     Text.AppendLine('HomeLibre — оценка размера книг');
     Text.AppendLine(FormatDateTime('dd.mm.yyyy hh:nn:ss',Now));
     Text.AppendLine('Это оценка размера, а не результат сохранения. Неудачная оценка не означает, что сохранить книгу невозможно.');
-    Text.AppendLine('Выбрано: '+QualityNames[EnsureRange(Quality,0,3)]);
+    Text.AppendLine('Выбрано: '+BOOK_IMAGE_PROFILE_CAPTIONS[EnsureRange(Quality,0,BOOK_QUALITY_NONE)]);
     Text.AppendLine(Status); Text.AppendLine; Errors:=0;
     for var I:=0 to High(Books) do
     begin
@@ -75,17 +73,17 @@ begin
       var Target:=BookSaveTargetLabel(Entry.TargetExtension,Plan.Mode);
       Text.AppendLine('Формат: '+UpperCase(Entry.SourceExtension.TrimLeft(['.']))+' → '+Target);
       Layout:=0; if Entry.Options.ScanPages then Layout:=EnsureRange(ScanLayout,0,2);
-      for var Q:=0 to 3 do
+      for var Q:=0 to High(BOOK_IMAGE_PROFILES) do
       begin
         var Bytes:=Entry.Options.OutputBytes[Layout,Q];
         if BookSaveZipsTarget(Entry.TargetExtension,Plan.Mode) then Bytes:=Entry.Options.ZipOutputBytes[Layout,Q];
         var Value:='не рассчитано';
-        if (Q=3) and not BookSaveSupportsNoImages(Plan.Mode) then Value:='для формата нужна обложка'
+        if (Q=BOOK_QUALITY_NONE) and not BookSaveSupportsNoImages(Plan.Mode) then Value:='для формата нужна обложка'
         else if Bytes>0 then Value:='≈ '+BookEstimateSizeText(Bytes)
-        else if Entry.Completed and (Entry.ErrorText='') and Entry.Options.ScanPages and (Q=3) then
+        else if Entry.Completed and (Entry.ErrorText='') and Entry.Options.ScanPages and (Q=BOOK_QUALITY_NONE) then
           Value:='недоступно для страниц-сканов';
         if Bytes>20*1024*1024 then Value:=Value+' — крупнее 20 МБ';
-        Text.AppendLine('  '+QualityNames[Q]+': '+Value);
+        Text.AppendLine('  '+BOOK_IMAGE_PROFILE_CAPTIONS[Q]+': '+Value);
       end;
       if Entry.ErrorText<>'' then Text.AppendLine('Причина: '+Entry.ErrorText)
       else if not Entry.Completed then Text.AppendLine('Расчёт этой книги не завершён.');

@@ -282,7 +282,7 @@ begin
     Dialog.Left:=Screen.WorkAreaLeft+(Screen.WorkAreaWidth-Dialog.Width) div 2;
     Dialog.Top:=Screen.WorkAreaTop+(Screen.WorkAreaHeight-Dialog.Height) div 2;
     Content:=nil; SaveButton:=nil; NoImages:=nil; RadioCount:=0; Inspect(Dialog);
-    Require(RadioCount=4,'Quality dialog lost a profile');
+    Require(RadioCount=Length(BOOK_IMAGE_PROFILES),'Quality dialog lost a profile');
     Require(Assigned(NoImages) and (NoImages.Enabled=(DesiredPPI=96)),'Text-only choice was unavailable for prose or enabled for scans');
     Require(Dialog.BorderStyle=bsSizeable,'Quality dialog cannot be resized');
     Require(MulDiv(Abs(Dialog.Font.Height),96,Dialog.PixelsPerInch)<=14,'Quality font exceeds the standard interface size');

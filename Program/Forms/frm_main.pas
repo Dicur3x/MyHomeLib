@@ -6794,7 +6794,7 @@ begin
   UnifiedSave:=(ScriptID=0) or (ScriptID=795) or (ScriptID=799);
   Required:='';
   ExplicitFormat := (ScriptID = 850) or (ScriptID = 854);
-  ImageQuality:='ask'; KeepSourceFormat:=False; KeepFB2EPUB:=False; ZipEachBook:=False; NameCollision:=bncKeepBoth;
+  ImageQuality:='ask'; KeepSourceFormat:=False; KeepFB2EPUB:=False; ZipEachBook:=False; NameCollision:=bncKeepBoth; SendOptions:=Default(TBookSendOptions);
 
   ExportMode := ResolveBookExportMode(ScriptID, Settings.ExportMode,
     isFB2Collection(FCollection.CollectionCode) or Settings.AllowMixed);
@@ -6912,7 +6912,7 @@ begin
         Files, Results, DeviceShellItem, UseMTP, ExplicitFormat,
         procedure(ID: string) begin Required:=ID; end, ImageQuality,
         KeepSourceFormat, KeepFB2EPUB, ZipEachBook,
-        procedure(IDs:TArray<string>) begin RequiredIDs:=IDs; if Length(IDs)>0 then Required:=IDs[0]; end,NameCollision);
+        procedure(IDs:TArray<string>) begin RequiredIDs:=IDs; if Length(IDs)>0 then Required:=IDs[0]; end,NameCollision,SendOptions.Grayscale);
       StatusMessage := Format('Экспортировано книг: %d из %d. Остальные отметки сохранены.',
         [SuccessfulBookExportCount(Results), Length(BookIDList)]);
     end;

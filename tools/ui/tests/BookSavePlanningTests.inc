@@ -6,7 +6,7 @@ begin
   Options.Mode:=emEpub; Options.KeepFB2EPUB:=ParamStr(4)<>'host'; Options.ExplicitFormat:=True;
   Options.ZipEachBook:=True; Options.FileNameTemplate:='[%s - ][%n - ]%t';
   Options.NameCollision:=bncReplace;
-  Options.FolderTemplate:='%f\[%s]'; Options.ImageQuality:='economy|auto|except=1,9-10';
+  Options.FolderTemplate:='%f\[%s]'; Options.ImageQuality:='maximum|auto|except=1,9-10'; Options.Grayscale:=True;
   ComponentID:='BookConverter'; SourceFile:=ParamStr(3);
   if SourceFile.StartsWith('--target=') then
   begin
@@ -113,7 +113,7 @@ begin
     Driver.Probe.Initial.Folder:=ExtractFilePath(Settings.SettingsFileName)+'saved';
     Driver.Probe.Initial.FileNameTemplate:='[%s - ][%n - ]%t';
     Driver.Probe.Initial.FolderTemplate:='%f\[%s]';
-    Driver.Probe.Initial.ImageQuality:='economy|auto|except=1,9-10';
+    Driver.Probe.Initial.ImageQuality:='maximum|auto|except=1,9-10'; Driver.Probe.Initial.Grayscale:=True;
     Driver.Probe.VerifyInitial:=True; Driver.Probe.Deadline:=GetTickCount64+20000;
     Driver.Timer:=TTimer.Create(nil); Driver.Timer.Interval:=50; Driver.Timer.OnTimer:=Driver.Tick;
     Host.OpenInitialFile(Source); Host.Show; Started:=GetTickCount64;
@@ -179,7 +179,7 @@ begin
     'Save restart lost the remaining books or their identities');
   Require(Plan.Options.KeepFB2EPUB and Plan.Options.ZipEachBook and (Plan.Options.NameCollision=bncReplace) and
     (Plan.Options.Mode=emEpub) and (Plan.Options.FolderTemplate='%f\[%s]') and
-    (Plan.Options.ImageQuality='economy|auto|except=1,9-10'),'Save restart lost source policy, ZIP, folders or image layout');
+    (Plan.Options.ImageQuality='maximum|auto|except=1,9-10') and Plan.Options.Grayscale,'Save restart lost source policy, ZIP, folders or image layout');
   Require(not TakeBookSaveContinuation(Name,Plan),'Save restart can be consumed twice');
   ClearBookSaveContinuation(Name,'wrong-token');
   Require(FileExists(BookSaveContinuationFile(Name)),'Old dialog removed a newer save plan');
@@ -192,7 +192,7 @@ begin
     Require((Plan.Options.Mode=Mode) and not Plan.Options.KeepFB2EPUB and not Plan.Options.ZipEachBook and
       (Length(Plan.Books)=2) and (Plan.Books[1].ExpectedLibID='lib-Ё-1') and
       (Plan.Options.FileNameTemplate='[%s - ][%n - ]%t') and
-      (Plan.Options.ImageQuality='economy|auto|except=1,9-10'),
+      (Plan.Options.ImageQuality='maximum|auto|except=1,9-10') and Plan.Options.Grayscale,
       'New-target continuation lost format, source identities, masks or image controls');
     if Mode=emTxt then Require(Plan.RequiredComponent='BookProcessing','TXT continuation requested unrelated module')
     else Require(Plan.RequiredComponent='KindleExport','Kindle continuation lost the required writer');
@@ -245,7 +245,7 @@ begin
   Choice:=BookSaveChoices(['fb2','pdf'])[0]; Items:=KnownBookSaveEstimates(Books,Choice);
   Require((Items[0].Options.OutputBytes[0,0]=Books[0].Size) and Items[0].CatalogueSize and
     (Items[0].Options.OutputBytes[0,1]=0),'ZIP copy size missing or image optimization size invented');
-  Require((Items[1].Options.OutputBytes[0,3]=Books[1].Size) and Items[1].CatalogueSize,
+  Require((Items[1].Options.OutputBytes[0,BOOK_QUALITY_NONE]=Books[1].Size) and Items[1].CatalogueSize,
     'Unchanged archived PDF does not retain its known size for all image choices');
   var Hash:=UpdateSHA256(ArchiveName);
   Probe:=TUnifiedSendProbe.Create;
@@ -301,14 +301,14 @@ begin
   Items:=KnownBookSaveEstimates(Books,Choice);
   Require((Items[0].Options.OutputBytes[0,0]=TFile.GetSize(Source)) and
     (Items[0].Options.OutputBytes[0,1]=0),'Initial FB2 estimate invents compressed output size');
-  Require(Items[1].Options.OutputBytes[0,3]=TFile.GetSize(Opaque),'Opaque original does not show its known copy size');
+  Require(Items[1].Options.OutputBytes[0,BOOK_QUALITY_NONE]=TFile.GetSize(Opaque),'Opaque original does not show its known copy size');
   var Hash:=UpdateSHA256(Source);
   Thread:=TBookSendEstimateThread.Create(Books,Choice,Settings.AppPath,Settings.TempPath);
   try
     WaitForEstimate;
     Require((Length(Items)=2) and Items[0].Completed and (Items[0].ErrorText=''),Status+' '+Items[0].ErrorText);
     Require(Items[0].Options.OutputBytes[0,0]=TFile.GetSize(Source),'Estimate lost exact original FB2 size');
-    for var Quality:=0 to 3 do
+    for var Quality:=0 to High(BOOK_IMAGE_PROFILES) do
     begin
       Require(Items[0].Options.OutputBytes[0,Quality]>0,'A no-image text book has no mode estimate');
       Require(Items[0].Options.ZipOutputBytes[0,Quality]>0,'ZIP output is not estimated');
@@ -576,7 +576,7 @@ begin
     for var Q:=0 to 2 do
       Require((Items[I].Options.OutputBytes[0,Q]>0) and (Items[I].Options.ZipOutputBytes[0,Q]>0),
         Names[I]+': original/balanced/economy size was not estimated');
-    if I<2 then Require(Items[I].Options.OutputBytes[0,3]>0,'Illustrated text has no no-images estimate');
+    if I<2 then Require(Items[I].Options.OutputBytes[0,BOOK_QUALITY_NONE]>0,'Illustrated text has no no-images estimate');
     Require(UpdateSHA256(Books[I].GetBookFileName)=Hashes[I],'Mixed estimate changed its source');
   end;
   Writeln('PASS real illustrated and scan size estimates include all image modes and ZIP without source changes'); Flush(Output);

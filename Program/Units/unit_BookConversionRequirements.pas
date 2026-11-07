@@ -9,6 +9,7 @@ uses System.SysUtils;
 function MissingBookConversionComponents(const AppPath, SourceFile, Extension: string;
   InspectImages: Boolean; const IsCanceled: TFunc<Boolean> = nil;
   const TargetExtension: string = ''; const OutputProfile: string = ''): TArray<string>;
+procedure RequireValidFB2Copy(const FileName: string; const IsCanceled: TFunc<Boolean>);
 function AdvancedBookOutputExtension(const Profile: string): string;
 function AdvancedWriterComponent(const Ext, Profile: string): string;
 procedure RecordBookConversionUse(const ResolvedExtension: string;
@@ -26,12 +27,14 @@ type
   private
     FReferences, FBinaries: TDictionary<string,Boolean>;
     FCancel: TFunc<Boolean>;
+    FValidateStructure, FRootFound, FBodyFound: Boolean;
+    FDepth: Integer;
     function ContinueReading: HResult;
     function Attribute(const Values: ISAXAttributes; const Name: string;
       XLink: Boolean = False): string;
   public
     Found, Canceled: Boolean;
-    constructor Create(const IsCanceled: TFunc<Boolean>);
+    constructor Create(const IsCanceled: TFunc<Boolean>; ValidateStructure: Boolean);
     destructor Destroy; override;
     function putDocumentLocator(const pLocator: ISAXLocator): HResult; stdcall;
     function startDocument: HResult; stdcall;
@@ -52,10 +55,11 @@ type
     function skippedEntity(var pwchName: Word; cchName: Integer): HResult; stdcall;
   end;
 
-constructor TFB2ImageProbe.Create(const IsCanceled: TFunc<Boolean>);
+constructor TFB2ImageProbe.Create(const IsCanceled: TFunc<Boolean>; ValidateStructure: Boolean);
 begin
-  inherited Create; FCancel:=IsCanceled;
-  FReferences:=TDictionary<string,Boolean>.Create; FBinaries:=TDictionary<string,Boolean>.Create;
+  inherited Create; FCancel:=IsCanceled; FValidateStructure:=ValidateStructure;
+  if not FValidateStructure then
+  begin FReferences:=TDictionary<string,Boolean>.Create; FBinaries:=TDictionary<string,Boolean>.Create; end;
 end;
 destructor TFB2ImageProbe.Destroy;
 begin FReferences.Free; FBinaries.Free; inherited; end;
@@ -67,7 +71,7 @@ begin
     if Assigned(FCancel) and FCancel() then begin Canceled:=True; Exit(E_ABORT); end;
     if Found then Exit(E_ABORT);
     // A hint must not build an unbounded index for a malformed input.
-    if FReferences.Count+FBinaries.Count>32768 then Result:=E_ABORT;
+    if not FValidateStructure and (FReferences.Count+FBinaries.Count>32768) then Result:=E_ABORT;
   except Canceled:=True; Result:=E_ABORT; end;
 end;
 
@@ -94,12 +98,19 @@ var Namespace, Name, ID, MIME: string;
 begin
   Result:=ContinueReading; if Failed(Result) then Exit;
   try
+    Inc(FDepth);
     SetString(Namespace,PWideChar(@pwchNamespaceUri),cchNamespaceUri);
     if (Namespace<>'') and (Namespace<>'http://www.gribuser.ru/xml/fictionbook/2.0') and
       (Namespace<>'http://www.gribuser.ru/xml/fictionbook/2.1') and
       (Namespace<>'http://www.gribuser.ru/xml/fictionbook/2.2') and
       (Namespace<>'http://www.gribuser.ru/xml/fictionbook/2.01') then Exit;
     SetString(Name,PWideChar(@pwchLocalName),cchLocalName);
+    if FValidateStructure then
+    begin
+      if FDepth=1 then FRootFound:=Name='FictionBook'
+      else if (FDepth=2) and (Name='body') then FBodyFound:=FRootFound;
+      Exit;
+    end;
     if Name='image' then
     begin
       ID:=Attribute(pAttributes,'href',True);
@@ -130,7 +141,7 @@ function TFB2ImageProbe.endPrefixMapping(var pwchPrefix: Word; cchPrefix: Intege
 begin Result:=ContinueReading; end;
 function TFB2ImageProbe.endElement(var pwchNamespaceUri: Word; cchNamespaceUri: Integer;
   var pwchLocalName: Word; cchLocalName: Integer; var pwchQName: Word; cchQName: Integer): HResult;
-begin Result:=ContinueReading; end;
+begin Dec(FDepth); Result:=ContinueReading; end;
 function TFB2ImageProbe.characters(var pwchChars: Word; cchChars: Integer): HResult;
 begin Result:=ContinueReading; end;
 function TFB2ImageProbe.ignorableWhitespace(var pwchChars: Word; cchChars: Integer): HResult;
@@ -141,9 +152,9 @@ begin Result:=ContinueReading; end;
 function TFB2ImageProbe.skippedEntity(var pwchName: Word; cchName: Integer): HResult;
 begin Result:=ContinueReading; end;
 
-function FB2HasRasterImages(const FileName: string; const IsCanceled: TFunc<Boolean>): Boolean;
+function InspectFB2(const FileName: string; const IsCanceled: TFunc<Boolean>; ValidateStructure: Boolean): Boolean;
 var Reader: ISAXXMLReader; Handler: ISAXContentHandler; Probe: TFB2ImageProbe;
-  Input: IStream; Stream: TFileStream; Value: OleVariant; COMStatus: HResult;
+  Input: IStream; Stream: TFileStream; Value: OleVariant; COMStatus, ParseStatus: HResult;
   procedure Feature(const Name: string; Enabled: Boolean);
   begin OleCheck(Reader.putFeature(PWord(PWideChar(Name))^,Enabled)); end;
 begin
@@ -159,17 +170,24 @@ begin
       Feature('http://xml.org/sax/features/external-general-entities',False);
       Feature('http://xml.org/sax/features/external-parameter-entities',False);
       OleCheck(Reader.putProperty(PWord(PWideChar('max-element-depth'))^,256));
-      Probe:=TFB2ImageProbe.Create(IsCanceled); Handler:=Probe; OleCheck(Reader.putContentHandler(Handler));
+      Probe:=TFB2ImageProbe.Create(IsCanceled,ValidateStructure); Handler:=Probe; OleCheck(Reader.putContentHandler(Handler));
       Stream:=TFileStream.Create(FileName,fmOpenRead or fmShareDenyWrite);
       Input:=TStreamAdapter.Create(Stream,soReference); Value:=IUnknown(Input);
-      Reader.parse(Value); // E_ABORT is the intentional early result after a match.
+      ParseStatus:=Reader.parse(Value);
       if Probe.Canceled then Abort;
-      Result:=Probe.Found;
+      if ValidateStructure then Result:=(ParseStatus=S_OK) and Probe.FBodyFound
+      else Result:=Probe.Found; // A match deliberately stops the image probe early.
     except on E:EAbort do raise; on E:Exception do Result:=False; end;
   finally
     VarClear(Value); Reader:=nil; Handler:=nil; Input:=nil; Stream.Free;
     if Succeeded(COMStatus) then CoUninitialize;
   end;
+end;
+
+procedure RequireValidFB2Copy(const FileName: string; const IsCanceled: TFunc<Boolean>);
+begin
+  if not InspectFB2(FileName,IsCanceled,True) then
+    raise Exception.Create('Исходный FB2 повреждён или не содержит тела книги.');
 end;
 
 function PackageHasRasterImages(const FileName: string; const IsCanceled: TFunc<Boolean>): Boolean;
@@ -285,7 +303,7 @@ begin
       '.jpg','.jpeg','.png','.gif','.bmp','.tif','.tiff','.webp'])>=0;
     if FileExists(SourceFile) then
     begin
-      if Ext='.fb2' then Images:=FB2HasRasterImages(SourceFile,IsCanceled)
+      if Ext='.fb2' then Images:=InspectFB2(SourceFile,IsCanceled,False)
       else if IndexText(Ext,['.epub','.docx','.odt','.fb3'])>=0 then Images:=PackageHasRasterImages(SourceFile,IsCanceled);
     end;
     if Images then Need('ImageProcessing');

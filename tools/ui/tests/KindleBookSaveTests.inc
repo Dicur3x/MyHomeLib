@@ -23,13 +23,12 @@ begin
 end;
 
 procedure TestKindleBookSaving;
-const Profiles: array[0..3] of string = ('original','balanced','economy','none');
 var Root, Required, Status: string; SavedEncoding: TTXTEncoding; Books: TArray<TBookRecord>;
   Hashes: TArray<string>; Options: TBookSendOptions; Results: TBookExportResults;
   Probe: TUnifiedSendProbe; Choice: TBookSaveChoice; Thread: TBookSendEstimateThread;
   Items: TBookSaveEstimateItems; Revision: Integer; Complete: Boolean; Deadline: UInt64;
   SavedShowMain: Boolean; Copies: TArray<TBookRecord>; CopyHashes: TArray<string>;
-  ActualSizes: array[0..1,0..3] of Int64;
+  ActualSizes: array[0..1,0..BOOK_QUALITY_NONE] of Int64;
   procedure Run(Mode: TExportMode; const Quality, Name: string; Keep: Boolean = False;
     Collision: TBookNameCollision = bncKeepBoth);
   begin
@@ -191,7 +190,7 @@ var Root, Required, Status: string; SavedEncoding: TTXTEncoding; Books: TArray<T
       for var Mode in [emMobi,emAZW3] do
         for var Quality:=0 to 2 do
         begin
-          Run(Mode,Profiles[Quality],'raster-'+IntToStr(Ord(Mode))+'-'+Profiles[Quality]);
+          Run(Mode,BOOK_IMAGE_PROFILES[Quality],'raster-'+IntToStr(Ord(Mode))+'-'+BOOK_IMAGE_PROFILES[Quality]);
           for var I:=0 to High(Results) do CheckKindle(Results[I].OutputFile,Mode);
         end;
       Choice:=Default(TBookSaveChoice); Choice.Mode:=emAZW3;
@@ -210,7 +209,7 @@ var Root, Required, Status: string; SavedEncoding: TTXTEncoding; Books: TArray<T
           for var Layout:=0 to 2 do
             for var Quality:=0 to 2 do
               Require(Items[I].Options.OutputBytes[Layout,Quality]>0,'A scan layout/image mode has no Kindle estimate');
-          Require(Items[I].Options.OutputBytes[0,3]=0,'Image-only scans invent a readable no-images export');
+          Require(Items[I].Options.OutputBytes[0,BOOK_QUALITY_NONE]=0,'Image-only scans invent a readable no-images export');
           Require(UpdateSHA256(Books[I].GetBookFileName)=RasterHashes[I],'Raster Kindle export changed its source');
         end;
       finally Thread.Free; end;
@@ -251,9 +250,9 @@ begin
     Writeln('PASS native mixed FB2 EPUB to Unicode TXT without unrelated readers'); Flush(Output);
     for var Mode in [emMobi,emAZW3] do
     begin
-      for var Quality:=0 to 3 do
+      for var Quality:=0 to High(BOOK_IMAGE_PROFILES) do
       begin
-        Run(Mode,Profiles[Quality],IntToStr(Ord(Mode))+'-'+Profiles[Quality]);
+        Run(Mode,BOOK_IMAGE_PROFILES[Quality],IntToStr(Ord(Mode))+'-'+BOOK_IMAGE_PROFILES[Quality]);
         for var I:=0 to High(Results) do
         begin
           CheckKindle(Results[I].OutputFile,Mode);
@@ -279,7 +278,7 @@ begin
         for var I:=0 to High(Items) do
         begin
           Require(Items[I].Completed and (Items[I].ErrorText=''),Status+' '+Items[I].ErrorText);
-          for var Quality:=0 to 3 do
+          for var Quality:=0 to High(BOOK_IMAGE_PROFILES) do
             Require((Items[I].Options.OutputBytes[0,Quality]>0) and
               (Abs(Items[I].Options.OutputBytes[0,Quality]-ActualSizes[I,Quality])<=2048),
               'Kindle size estimate differs from actual output by more than metadata tolerance');

@@ -4,6 +4,14 @@ interface
 
 uses System.SysUtils, System.Classes;
 
+const
+  BOOK_QUALITY_MAXIMUM = 3;
+  BOOK_QUALITY_NONE = 4;
+  BOOK_IMAGE_PROFILES: array[0..BOOK_QUALITY_NONE] of string =
+    ('original','balanced','economy','maximum','none');
+  BOOK_IMAGE_PROFILE_CAPTIONS: array[0..BOOK_QUALITY_NONE] of string =
+    ('Как есть','Сбалансированный','Экономный','Максимальная экономия','Без изображений');
+
 type
   TBookConversionProgress = reference to procedure(Percent, Completed, Total: Integer; const Stage: string);
   TBookImageQualityOptions = record
@@ -13,8 +21,8 @@ type
     ImageCount, SampleCount: Integer;
     TargetFormat: string;
     ScanPages, FirstSamples: Boolean;
-    // Layout: keep / split / auto. Quality: original / balanced / economy / none.
-    OutputBytes, ZipOutputBytes: array[0..2,0..3] of Int64;
+    // Layout: keep / split / auto. Columns follow BOOK_IMAGE_PROFILES.
+    OutputBytes, ZipOutputBytes: array[0..2,0..BOOK_QUALITY_NONE] of Int64;
   end;
   TBookImageQualityChooser = reference to function(const Options: TBookImageQualityOptions): string;
 
@@ -33,7 +41,7 @@ procedure ConvertBasicBook(const AppPath, TempRoot, SourceFile, SourceExtension,
   const ImageQuality: string = 'original'; const ChooseImageQuality: TBookImageQualityChooser = nil;
   const OverwriteExisting: Boolean = False; const ProtectedSourceFile: string = '';
   const PackedOutput: Boolean = False; const OutputProfile: string = '';
-  const ExtractTextLayer: Boolean = False);
+  const ExtractTextLayer: Boolean = False; const Grayscale: Boolean = False);
 
 implementation
 
@@ -77,6 +85,7 @@ begin
       if Writer.Size=0 then raise EReadError.Create('Исходная книга пуста.');
       if not FlushFileBuffers(Writer.Handle) then RaiseLastOSError;
     finally Writer.Free; end;
+    if SourceExtension='.fb2' then RequireValidFB2Copy(Temporary,IsCanceled);
     if Assigned(IsCanceled) and IsCanceled() then Abort;
     PublishBookOutput(Temporary,TargetFile,OverwriteExisting,ProtectedSourceFile);
     Temporary:=''; Result:=True;
@@ -113,7 +122,6 @@ end;
 // A complete but invalid snapshot raises; retries never extend the idle limit.
 function TryReadBookImageQualityOptions(const FileName: string; out Options: TBookImageQualityOptions): Boolean;
 const LayoutKeys: array[0..2] of string = ('sizes','split_sizes','auto_sizes');
-  QualityKeys: array[0..3] of string = ('original','balanced','economy','none');
 var Handle: THandle; Size: Int64; Data: TBytes; ReadCount, ErrorCode: DWORD;
   Choices: TJSONValue; Text: string;
 begin
@@ -171,10 +179,10 @@ begin
        not Choices.TryGetValue<Int64>('auto_sizes.economy',Options.AutoEconomyBytes) or
        (Options.AutoHighBytes<=0) or (Options.AutoBalancedBytes<=0) or (Options.AutoEconomyBytes<=0)) then
       raise Exception.Create('Некорректная оценка автоматического разделения разворотов.');
-    for var Layout:=0 to 2 do for var Quality:=0 to 3 do
+    for var Layout:=0 to 2 do for var Quality:=0 to High(BOOK_IMAGE_PROFILES) do
     begin
-      Choices.TryGetValue<Int64>(LayoutKeys[Layout]+'.'+QualityKeys[Quality],Options.OutputBytes[Layout,Quality]);
-      Choices.TryGetValue<Int64>('zip_'+LayoutKeys[Layout]+'.'+QualityKeys[Quality],Options.ZipOutputBytes[Layout,Quality]);
+      Choices.TryGetValue<Int64>(LayoutKeys[Layout]+'.'+BOOK_IMAGE_PROFILES[Quality],Options.OutputBytes[Layout,Quality]);
+      Choices.TryGetValue<Int64>('zip_'+LayoutKeys[Layout]+'.'+BOOK_IMAGE_PROFILES[Quality],Options.ZipOutputBytes[Layout,Quality]);
       if (Options.OutputBytes[Layout,Quality]<0) or (Options.ZipOutputBytes[Layout,Quality]<0) then
         raise Exception.Create('Некорректная оценка размера копии книги.');
     end;
@@ -188,7 +196,7 @@ procedure ConvertBasicBook(const AppPath, TempRoot, SourceFile, SourceExtension,
   const OnProgress: TBookConversionProgress; const ImageQuality: string;
   const ChooseImageQuality: TBookImageQualityChooser;
   const OverwriteExisting: Boolean; const ProtectedSourceFile: string; const PackedOutput: Boolean;
-  const OutputProfile: string; const ExtractTextLayer: Boolean);
+  const OutputProfile: string; const ExtractTextLayer, Grayscale: Boolean);
 var Work, InputName, OutputName, ReportName, ProgressName, Tool, Script, TargetTemporary, LastDiagnosticStage: string;
   Input, Writer: TStream; SavedPosition: Int64; Log: TStringStream;
   Started, DOCStarted, LastAdvance, LastPoll: UInt64; Report: TJSONValue; ArrayValue: TJSONValue; I: Integer;
@@ -222,7 +230,7 @@ begin
   if OverwriteExisting and (SameBookOutputFile(TargetFile,SourceFile) or SameBookOutputFile(TargetFile,ProtectedSource)) then
     raise Exception.Create('Папка и имя результата совпадают с исходной книгой. Выберите другую папку или маску имени.');
   if Assigned(Warnings) then Warnings.Clear;
-  if (OutputProfile='') and not ForReading and (QualityProfile='original') and (ScanLayout='keep') and
+  if (OutputProfile='') and not ForReading and not Grayscale and (QualityProfile='original') and (ScanLayout='keep') and
     CopyUnchangedBook(SourceFile,Extension,TargetFile,Source,IsCanceled,OverwriteExisting,ProtectedSource) then
   begin
     if Assigned(OnProgress) then OnProgress(100,0,0,'complete');
@@ -245,7 +253,7 @@ begin
         'Для режима без изображений сначала нужно распознать текст.');
   end;
   var Missing:=MissingBookConversionComponents(AppPath,SourceFile,Extension,
-    not ForReading and (QualityProfile<>'none') and ((QualityProfile<>'original') or (ScanLayout<>'keep')),
+    not ForReading and (QualityProfile<>'none') and ((QualityProfile<>'original') or (ScanLayout<>'keep') or Grayscale),
     IsCanceled,TargetExtension,OutputProfile);
   if (TargetExtension='.mobi') or (TargetExtension='.azw3') then
   begin
@@ -255,17 +263,19 @@ begin
       if (Length(Missing)=0) or (Missing[0]<>'BookProcessing') then
         Missing:=TArray<string>.Create('BookProcessing')+Missing;
   end;
-  if not ForReading and ((QualityProfile<>'original') or (ScanLayout<>'keep')) then
+  if not ForReading and ((QualityProfile<>'original') or (ScanLayout<>'keep') or Grayscale) then
   begin
     var Capability:=TPath.Combine(AppPath,'tools\bookconvert\SAVE_OPTIONS_API.txt');
     var API:='';
     if FileExists(Capability) and (TFile.GetSize(Capability)<=16) then
       API:=Trim(TFile.ReadAllText(Capability,TEncoding.UTF8));
-    if (API<>'2') and ((API<>'1') or TextLayerOnly) then
+    var RequiredAPI:=1+Ord(TextLayerOnly);
+    if Grayscale or (QualityProfile='maximum') then RequiredAPI:=3;
+    if StrToIntDef(API,0)<RequiredAPI then
       if (Length(Missing)=0) or (Missing[0]<>'BookProcessing') then
         Missing:=TArray<string>.Create('BookProcessing')+Missing;
   end;
-  if not ForReading and ((QualityProfile='balanced') or (QualityProfile='economy') or (QualityProfile='ask')) then
+  if not ForReading and ((QualityProfile='balanced') or (QualityProfile='economy') or (QualityProfile='maximum') or (QualityProfile='ask') or Grayscale) then
   begin
     var Capability:=TPath.Combine(AppPath,'tools/bookconvert/IMAGE_CONTAINER_API.txt');
     if not FileExists(Capability) or (TFile.GetSize(Capability)>16) or
@@ -294,7 +304,7 @@ begin
   ImageOptionsName:=TPath.Combine(Work,'image-options.json');
   ImageChoiceName:=TPath.Combine(Work,'image-choice.txt'); ImageChoiceHandled:=False;
   EstimateCompleted:=0; OptimizedCompleted:=0;
-  ImageProcessing:=not ForReading and (ImageQuality<>'original');
+  ImageProcessing:=not ForReading and ((ImageQuality<>'original') or Grayscale);
   StreamingScans:=False;
   TargetTemporary:=''; Log:=TStringStream.Create('',TEncoding.UTF8);
   Started:=GetTickCount64; LastAdvance:=Started; LastPoll:=0;
@@ -421,7 +431,7 @@ begin
             raise Exception.Create('Некорректные параметры разделения сканов.');
           if (CheckedChoice='none') and ((Options.NoImagesBytes<=0) or (Length(ChoiceParts)<>1)) then
             raise Exception.Create('В этой книге изображения содержат сами страницы; сначала нужно распознать текст.');
-          if (CheckedChoice<>'original') and (CheckedChoice<>'high') and (CheckedChoice<>'balanced') and (CheckedChoice<>'economy') and (CheckedChoice<>'none') then
+          if (CheckedChoice<>'original') and (CheckedChoice<>'high') and (CheckedChoice<>'balanced') and (CheckedChoice<>'economy') and (CheckedChoice<>'maximum') and (CheckedChoice<>'none') then
             raise Exception.Create('Неизвестное качество изображений.');
           TFile.WriteAllText(ImageChoiceName+'.new',Choice,TEncoding.UTF8);
           TFile.Move(ImageChoiceName+'.new',ImageChoiceName);
@@ -518,10 +528,11 @@ begin
         if not ForReading then
         begin
           Arguments:=Arguments+TArray<string>.Create('--image-quality',QualityProfile,'--scan-layout',ScanLayout);
+          if Grayscale and (QualityProfile<>'none') then Arguments:=Arguments+TArray<string>.Create('--grayscale');
           if OutputProfile<>'' then Arguments:=Arguments+TArray<string>.Create('--output-profile',OutputProfile);
           if TextLayerOnly then Arguments:=Arguments+TArray<string>.Create('--text-layer-only');
           if PackedOutput and (TargetExtension='.fb2') and
-            ((QualityProfile='balanced') or (QualityProfile='economy') or (QualityProfile='ask')) then
+            ((QualityProfile='balanced') or (QualityProfile='economy') or (QualityProfile='maximum') or (QualityProfile='ask') or Grayscale) then
             Arguments:=Arguments+TArray<string>.Create('--image-container','fb2-zip');
           if ScanExclude<>'' then Arguments:=Arguments+TArray<string>.Create('--scan-exclude',ScanExclude);
           if QualityProfile='ask' then Arguments:=Arguments+TArray<string>.Create(

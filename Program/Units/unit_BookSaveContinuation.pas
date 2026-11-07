@@ -125,7 +125,7 @@ begin
   Parts:=Options.ImageQuality.Split(['|']);
   if (Length(Parts)<1) or (Length(Parts)>3) or
     ((Options.Mode in BOOK_SAVE_ADVANCED_MODES) and (Length(Parts)<>1)) or
-    ((Parts[0]<>'original') and (Parts[0]<>'balanced') and (Parts[0]<>'economy') and (Parts[0]<>'none')) or
+    ((Parts[0]<>'original') and (Parts[0]<>'balanced') and (Parts[0]<>'economy') and (Parts[0]<>'maximum') and (Parts[0]<>'none')) or
     ((Parts[0]='none') and not BookSaveSupportsNoImages(Options.Mode)) or
     ((Length(Parts)>1) and ((Parts[0]='none') or ((Parts[1]<>'split') and (Parts[1]<>'auto')))) or
     ((Length(Parts)>2) and (not Parts[2].StartsWith('except=') or
@@ -172,7 +172,7 @@ begin
       Root.AddPair('mode',TJSONNumber.Create(Ord(Options.Mode))); Root.AddPair('keep',TJSONBool.Create(Options.KeepSourceFormat));
       Root.AddPair('keep_readable',TJSONBool.Create(Options.KeepFB2EPUB)); Root.AddPair('zip',TJSONBool.Create(Options.ZipEachBook));
       Root.AddPair('name_collision',TJSONNumber.Create(Ord(Options.NameCollision)));
-      Root.AddPair('images',Options.ImageQuality); Root.AddPair('mask',Options.FileNameTemplate);
+      Root.AddPair('images',Options.ImageQuality); Root.AddPair('grayscale',TJSONBool.Create(Options.Grayscale)); Root.AddPair('mask',Options.FileNameTemplate);
       Root.AddPair('subfolders',Options.FolderTemplate);
       WriteLine(Root);
     finally Root.Free; end;
@@ -251,6 +251,7 @@ begin
         Value.Options.Mode:=TExportMode(Number(Root,'mode',Ord(Low(TExportMode)),Ord(High(TExportMode))));
         Value.Options.KeepSourceFormat:=Flag(Root,'keep'); Value.Options.KeepFB2EPUB:=Flag(Root,'keep_readable');
         Value.Options.ZipEachBook:=Flag(Root,'zip'); Value.Options.ImageQuality:=Text(Root,'images',1024);
+        if Root.GetValue('grayscale')<>nil then Value.Options.Grayscale:=Flag(Root,'grayscale');
         if Root.GetValue('name_collision')<>nil then
           Value.Options.NameCollision:=TBookNameCollision(Number(Root,'name_collision',Ord(bncAsk),Ord(bncKeepBoth)))
         else if (Root.GetValue('overwrite')<>nil) and Flag(Root,'overwrite') then

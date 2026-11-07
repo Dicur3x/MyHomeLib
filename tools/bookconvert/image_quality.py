@@ -13,7 +13,7 @@ import zlib
 
 PROFILES = ('high', 'balanced', 'economy')
 PACKING_PROFILES = (*PROFILES, 'maximum')
-SCAN_PROFILES = ('original', *PROFILES)
+SCAN_PROFILES = ('original', *PACKING_PROFILES)
 OMITTED_IMAGE = '[Изображение не включено в эту копию]'
 
 
@@ -273,7 +273,7 @@ def select_container_profiles(result, profile, storage, layout=False):
             chosen[name] = [min((source[i] for source in predecessors), key=cost)
                             for i in range(len(result[name]))]
     # min() keeps the earlier, clearer profile when compressed costs tie.
-    if profile != 'estimate': chosen = {profile: chosen[profile]}
+    if profile not in ('estimate', 'estimate-maximum'): chosen = {profile: chosen[profile]}
     if '_unsplit' in result: chosen['_unsplit'] = result['_unsplit']
     return chosen
 
@@ -308,7 +308,7 @@ def run(api, tool, pictures, directory, profile, progress, layout=None, storage=
                 if lines and len(lines[-1]) == 3:
                     completed, total = map(int, lines[-1][1:])
                     if completed > last:
-                        stage = ('scan-estimates' if layout else 'image-estimates') if profile=='estimate' else 'optimizing-images'
+                        stage = ('scan-estimates' if layout else 'image-estimates') if profile in ('estimate', 'estimate-maximum') else 'optimizing-images'
                         progress(stage, completed, total); last = completed
                 time.sleep(.05)
         finally:
@@ -316,11 +316,14 @@ def run(api, tool, pictures, directory, profile, progress, layout=None, storage=
             process.wait()
     if process.returncode or not output.is_file():
         detail = '\n'.join(s for s in log.read_bytes()[-1800:].decode('utf-8', errors='replace').splitlines() if not s.startswith('IMAGE '))
+        if layout and ((native_profile in ('maximum', 'estimate-maximum') and 'Unknown scan quality.' in detail)
+                       or (grayscale and 'Expected image processing command.' in detail)):
+            raise api.ComponentRequired('ImageProcessing', 'Для выбранной обработки сканов обновите модуль HomeLibre Images.')
         raise api.ConversionError('Не удалось подготовить изображения для экспорта. '+detail)
     if native_profile == 'estimate':
-        profiles = SCAN_PROFILES if layout else PROFILES
+        profiles = SCAN_PROFILES[:-1] if layout else PROFILES
     elif native_profile == 'estimate-maximum':
-        profiles = PACKING_PROFILES
+        profiles = SCAN_PROFILES if layout else PACKING_PROFILES
     else:
         profiles = (profile,)
     with zipfile.ZipFile(output) as archive:
@@ -381,7 +384,9 @@ def run(api, tool, pictures, directory, profile, progress, layout=None, storage=
 
 def apply(api, book, target_extension, profile, tools_root, progress, options_file=None, choice_file=None, warnings=None, container=None, check=None, grayscale=False):
     storage = image_storage(target_extension,container)
-    if profile == 'original': return
+    if profile == 'original':
+        if not grayscale: return
+        profile = 'high'
     if profile not in (*PACKING_PROFILES, 'ask', 'none'): raise api.ConversionError('Неизвестное качество изображений.')
     if profile == 'none':
         with tempfile.TemporaryDirectory(prefix='homelib-image-quality-', dir=book.parent) as temporary:
@@ -444,8 +449,8 @@ def apply(api, book, target_extension, profile, tools_root, progress, options_fi
             ordered = sorted(range(len(pictures)), key=lambda i: len(pictures[i]))
             count = min(9, len(ordered))
             sample_indices = sorted({ordered[round(i*(len(ordered)-1)/max(1,count-1))] for i in range(count)})
-            samples = ({p:[pictures[i] for i in sample_indices] for p in PROFILES} if small else
-                       run(api, tool, [pictures[i] for i in sample_indices], directory, 'estimate', progress, storage=storage))
+            samples = ({p:[pictures[i] for i in sample_indices] for p in PACKING_PROFILES} if small else
+                       run(api, tool, [pictures[i] for i in sample_indices], directory, 'estimate-maximum', progress, storage=storage, check=check, grayscale=grayscale))
             # Stratify by source resource size, rather than multiplying one cover
             # by the page count. EPUB compression and FB2 base64 have different costs.
             weights = [0]*len(sample_indices)
@@ -456,9 +461,10 @@ def apply(api, book, target_extension, profile, tools_root, progress, options_fi
             # Includes a small allowance for UTF-8 member names and ZIP headers.
             # All are estimates, not a promise of byte-identical final lengths.
             zip_sizes = {'original': 512 + deflated_size(book)}
-            for p in PROFILES:
+            for p in PACKING_PROFILES:
                 costs = [4*((len(data)+2)//3) if target_extension == '.fb2' else len(zlib.compress(data)) for data in samples[p]]
                 sizes[p] = book.stat().st_size if small else max(1, overhead + sum(a*b for a,b in zip(costs,weights)))
+                if p == 'high' and grayscale: sizes['original'] = sizes[p]
                 if small:
                     zip_sizes[p] = zip_sizes['original']
                 elif target_extension == '.fb2':
@@ -469,6 +475,7 @@ def apply(api, book, target_extension, profile, tools_root, progress, options_fi
                     # usually has little additional image compression to do.
                     zip_sizes[p] = max(1,512+round(sizes[p]*
                         max(.5,min(1.05,zip_sizes['original']/max(1,sizes['original'])))))
+            if grayscale: zip_sizes['original'] = zip_sizes['high']
             sizes['none'] = text_only_size
             zip_sizes['none'] = 512+deflated_size(candidate) if text_only_size else 0
             options = Path(options_file); choice = Path(choice_file)
@@ -483,17 +490,19 @@ def apply(api, book, target_extension, profile, tools_root, progress, options_fi
             if choice.stat().st_size > 32: raise api.ConversionError('Некорректный выбор качества.')
             profile = choice.read_text(encoding='utf-8-sig').strip()
             if profile == 'cancel': raise api.ConversionError('Экспорт отменён.')
-            if profile == 'original': return
+            if profile == 'original':
+                if not grayscale: return
+                profile = 'high'
             if profile == 'none':
                 if not text_only_size: raise api.ConversionError('Нельзя удалить изображения: в книге нет отдельного текста.')
                 candidate.replace(book)
                 if warnings is not None: warnings.add('Книга сохранена без изображений и обложки. Исходная книга сохранена.')
                 return
-            if profile not in PROFILES: raise api.ConversionError('Неизвестное качество изображений.')
+            if profile not in PACKING_PROFILES: raise api.ConversionError('Неизвестное качество изображений.')
         if small: return
         # Reuse already encoded samples; do not decode them a second time.
         encoded = [None]*len(pictures)
-        if profile == 'high': encoded = list(pictures)
+        if profile == 'high' and not grayscale: encoded = list(pictures)
         if samples is not None:
             for index, data in zip(sample_indices, samples[profile]): encoded[index] = data
         remaining = [i for i,data in enumerate(encoded) if data is None]

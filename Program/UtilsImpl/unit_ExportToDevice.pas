@@ -37,7 +37,8 @@ procedure ExportToDevice(
   const KeepFB2EPUB: Boolean = False;
   const ZipEachBook: Boolean = False;
   const OnMissingComponents: TProc<TArray<string>> = nil;
-  const NameCollision: TBookNameCollision = bncKeepBoth
+  const NameCollision: TBookNameCollision = bncKeepBoth;
+  const Grayscale: Boolean = False
   ); overload;
 
 procedure ExportToDevice(
@@ -56,7 +57,8 @@ procedure ExportToDevice(
   const KeepFB2EPUB: Boolean = False;
   const ZipEachBook: Boolean = False;
   const OnMissingComponents: TProc<TArray<string>> = nil;
-  const NameCollision: TBookNameCollision = bncKeepBoth
+  const NameCollision: TBookNameCollision = bncKeepBoth;
+  const Grayscale: Boolean = False
   ); overload;
 
 procedure DownloadBooks(const IdList: TBookIdList);
@@ -98,13 +100,14 @@ procedure ExportToDevice(
   const KeepFB2EPUB: Boolean;
   const ZipEachBook: Boolean;
   const OnMissingComponents: TProc<TArray<string>>;
-  const NameCollision: TBookNameCollision
+  const NameCollision: TBookNameCollision;
+  const Grayscale: Boolean
   );
 var Ignored: TBookExportResults;
 begin
   ExportToDevice(DeviceDir, IdList, Mode, ExtractOnly, ProcessedFiles, Ignored,
     ADeviceShellItem, AUseMTP, ExplicitFormat, OnMissingComponent, ImageQuality,
-    KeepSourceFormat, KeepFB2EPUB, ZipEachBook, OnMissingComponents, NameCollision);
+    KeepSourceFormat, KeepFB2EPUB, ZipEachBook, OnMissingComponents, NameCollision, Grayscale);
 end;
 
 procedure ExportToDevice(
@@ -123,7 +126,8 @@ procedure ExportToDevice(
   const KeepFB2EPUB: Boolean;
   const ZipEachBook: Boolean;
   const OnMissingComponents: TProc<TArray<string>>;
-  const NameCollision: TBookNameCollision
+  const NameCollision: TBookNameCollision;
+  const Grayscale: Boolean
   );
 var
   worker: TExportToDeviceThread;
@@ -154,10 +158,11 @@ begin
     worker.ExtractOnly := ExtractOnly;
     worker.UseMTP := AUseMTP;
     worker.ExplicitFormat := ExplicitFormat;
-    worker.ShowImageQualityChoice := not ExtractOnly and (Mode in [emFB2, emFB2Zip, emEpub, emEpubZip]);
+    worker.ShowImageQualityChoice := not ExtractOnly and
+      ((ImageQuality<>'ask') or (Mode in [emFB2, emFB2Zip, emEpub, emEpubZip]));
     worker.ImageQuality:=ImageQuality; worker.KeepSourceFormat:=KeepSourceFormat;
     worker.KeepFB2EPUB:=KeepFB2EPUB; worker.ZipEachBook:=ZipEachBook;
-    worker.NameCollision:=NameCollision;
+    worker.NameCollision:=NameCollision; worker.Grayscale:=Grayscale;
 
     if AUseMTP and Assigned(ADeviceShellItem) then
     begin

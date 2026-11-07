@@ -63,6 +63,8 @@ internal static class HomeLibXps
             if (args.Length == 5 && args[0] == "--export-images" && args[4] == "--grayscale")
                 return ExportImages(args[1], args[2], args[3], true);
             if (args.Length == 5 && args[0] == "--scan-images") return ScanImages(args[1], args[2], args[3], args[4]);
+            if (args.Length == 6 && args[0] == "--scan-images" && args[5] == "--grayscale")
+                return ScanImages(args[1], args[2], args[3], args[4], true);
 #if HOMELIB_IMAGES_ONLY
             throw new ArgumentException("Expected image processing command. XPS reading is a separate component.");
 #else
@@ -148,7 +150,7 @@ internal static class HomeLibXps
     }
 
     // Encode local book pictures in one bounded process. Never upscale a page.
-    private static byte[] ExportImage(byte[] original, BitmapSource decoded, string profile, bool grayscale = false)
+    private static byte[] ExportImage(byte[] original, BitmapSource decoded, string profile, bool grayscale = false, bool retainOriginal = true)
     {
         if (profile == "high" && !grayscale) return original;
         {
@@ -193,7 +195,7 @@ internal static class HomeLibXps
                 encoded = BitmapSource.Create(width, height, 96, 96, PixelFormats.Bgra32, null, pixels, width*4);
             if (!alpha) encoded = new FormatConvertedBitmap(encoded, gray || grayscale ? PixelFormats.Gray8 : PixelFormats.Bgr24, null, 0);
             // A color original must never win the grayscale size comparison.
-            byte[] best = grayscale && (!gray || scale < 1) ? null : original;
+            byte[] best = !retainOriginal || (grayscale && (!gray || scale < 1)) ? null : original;
             bool[] textRows=null;
             bool textScanProfile = (profile == "economy" || maximum) && !alpha && colored == 0 && (!grayscale || gray);
             bool paletteScan = paperOrInk >= width * height * .90;
@@ -316,11 +318,11 @@ internal static class HomeLibXps
                         if (frame.PixelWidth <= 0 || frame.PixelHeight <= 0 || frame.PixelWidth > 16384 || frame.PixelHeight > 16384 ||
                             (long)frame.PixelWidth * frame.PixelHeight > 16777216) throw new IOException("Invalid export image dimensions.");
                         bool keepMetadata = PreserveExportMetadata(frame, data);
-                        if (grayscale && keepMetadata)
-                            throw new IOException("Grayscale cannot safely preserve the original colour profile or orientation.");
+                        BitmapSource image = grayscale && keepMetadata ? OrientedScan(frame, data) : frame;
                         foreach (string choice in profiles)
                         {
-                            byte[] encoded = keepMetadata ? data : ExportImage(data, frame, choice, grayscale);
+                            byte[] encoded = keepMetadata && !grayscale ? data :
+                                ExportImage(data, image, choice, grayscale, !keepMetadata);
                             if (previous != null && previous.Length < encoded.Length) encoded = previous;
                             previous = encoded;
                             if (estimate || choice == profile)
@@ -342,8 +344,9 @@ internal static class HomeLibXps
 
     private static int ScanOrientation(BitmapFrame frame, byte[] data)
     {
+        if(data.Length<2 || data[0]!=255 || data[1]!=216) return 1;
         var metadata=frame.Metadata as BitmapMetadata;
-        if(metadata==null || data.Length<2 || data[0]!=255 || data[1]!=216) return 1;
+        if(metadata==null) return 1;
         object orientation=metadata.GetQuery("/app1/ifd/{ushort=274}");
         int value=orientation==null ? 1 : Convert.ToInt32(orientation);
         if(value<1 || value>8) throw new IOException("Invalid scan EXIF orientation.");
@@ -456,10 +459,15 @@ internal static class HomeLibXps
         return 0;
     }
 
-    private static int ScanImages(string source, string destination, string profile, string layout)
+    private static int ScanImages(string source, string destination, string profile, string layout, bool grayscale = false)
     {
-        if(profile!="original" && profile!="high" && profile!="balanced" && profile!="economy" && profile!="estimate")
+        bool estimate = profile == "estimate" || profile == "estimate-maximum";
+        bool maximum = profile == "maximum" || profile == "estimate-maximum";
+        if (!estimate && !maximum && profile != "original" && profile != "high" && profile != "balanced" && profile != "economy")
             throw new ArgumentException("Unknown scan quality.");
+        string[] profiles = maximum
+            ? new string[] { "original", "high", "balanced", "economy", "maximum" }
+            : new string[] { "original", "high", "balanced", "economy" };
         if(layout!="keep" && layout!="split" && layout!="auto") throw new ArgumentException("Unknown scan layout.");
         string input=Path.GetFullPath(source),output=Path.GetFullPath(destination); bool owns=false;
         if(String.Equals(input,output,StringComparison.OrdinalIgnoreCase) || File.Exists(output)) throw new IOException("Output must be new.");
@@ -482,7 +490,7 @@ internal static class HomeLibXps
                         var decoder=BitmapDecoder.Create(stream,BitmapCreateOptions.PreservePixelFormat,BitmapCacheOption.None);
                         if(decoder.Frames.Count!=1) throw new IOException("Expected a single scan page.");
                         BitmapFrame originalFrame=decoder.Frames[0];
-                        BitmapSource frame=layout!="keep" ? OrientedScan(originalFrame,original) : originalFrame;
+                        BitmapSource frame=layout!="keep" || grayscale ? OrientedScan(originalFrame,original) : originalFrame;
                         bool keepMetadata=PreserveExportMetadata(originalFrame,original);
                         int width=frame.PixelWidth,height=frame.PixelHeight;
                         if(width<1 || height<1 || width>16384 || height>16384 || (long)width*height>16777216)
@@ -503,14 +511,21 @@ internal static class HomeLibXps
                                 int left=part==0 ? 0 : cut, size=part==0 ? cut : width-cut;
                                 page=new CroppedBitmap(frame,new Int32Rect(left,0,size,height)); data=ScanPng(page,originalFrame);
                             }
-                            byte[] previous=data;
-                            foreach(string choice in new string[]{"original","high","balanced","economy"})
+                            byte[] previous=grayscale ? null : data;
+                            foreach(string choice in profiles)
                             {
-                                byte[] encoded=(choice=="original" || keepMetadata) ? data : ExportImage(data,page,choice);
-                                if(previous.Length<encoded.Length) encoded=previous;
+                                byte[] encoded;
+                                if (choice == "original")
+                                    encoded = grayscale ? ExportImage(data, page, "high", true, !keepMetadata) : data;
+                                else if (choice == "high" && grayscale)
+                                    encoded = previous;
+                                else
+                                    encoded = keepMetadata && !grayscale ? data :
+                                        ExportImage(data, page, choice, grayscale, !keepMetadata);
+                                if(previous != null && previous.Length<encoded.Length) encoded=previous;
                                 previous=encoded;
                                 if(encoded.Length>16*1024*1024) throw new IOException("Encoded scan page exceeds 16 MB.");
-                                if(profile=="estimate" || choice==profile)
+                                if(estimate || choice==profile)
                                     using(var target=result.CreateEntry(choice+"/"+entry.FullName+"-"+part,CompressionLevel.NoCompression).Open())
                                         target.Write(encoded,0,encoded.Length);
                                 if(choice==profile) break;

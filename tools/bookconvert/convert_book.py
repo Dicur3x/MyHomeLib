@@ -1602,11 +1602,13 @@ def convert_book(source, destination, **metadata):
     image_options = metadata.pop('image_options', None)
     image_choice = metadata.pop('image_choice', None)
     packing_grayscale = metadata.pop('packing_grayscale', False)
+    grayscale = metadata.pop('grayscale', False) and image_quality != 'none'
     scan_layout = metadata.pop('scan_layout', 'keep')
     scan_exclude = metadata.pop('scan_exclude', '')
     if scan_layout not in {'keep','split','auto'}: raise ConversionError('Неизвестный режим страниц сканов.')
     if metadata.get('reading'):
         image_quality = 'original'
+        grayscale = False
         scan_layout = 'keep'
         scan_exclude = ''
     source, destination = Path(source).resolve(), Path(destination).absolute()
@@ -1618,6 +1620,7 @@ def convert_book(source, destination, **metadata):
     if packing_grayscale and (metadata.get('reading') or output_profile or extension != target_extension or
                               extension not in {'.fb2', '.epub'} or image_quality not in {'balanced', 'economy', 'maximum'}):
         raise ConversionError('Чёрно-белый режим предназначен для сжатых копий FB2 и EPUB.')
+    grayscale = grayscale or packing_grayscale
     if image_container not in (None,'raw','fb2-zip') or (image_container == 'fb2-zip' and target_extension != '.fb2'):
         raise ConversionError('Неверный контейнер обработки изображений.')
     scanned_document = extension in {'.pdf','.djvu','.djv','.dju','.djm','.djvm'}
@@ -1634,7 +1637,7 @@ def convert_book(source, destination, **metadata):
         api = type('ConversionAPI', (), {name: value for name, value in globals().items() if not name.startswith('__')})
         options = dict(metadata, image_quality=image_quality, image_container=image_container,
                        cancel_check=cancel_check, image_options=image_options, image_choice=image_choice,
-                       scan_layout=scan_layout, scan_exclude=scan_exclude)
+                       scan_layout=scan_layout, scan_exclude=scan_exclude, grayscale=grayscale)
         return module.convert(api, source, destination, extension, output_profile, options)
     if target_extension in {'.mobi', '.azw3'}:
         script = Path(__file__).with_name('kindle_output.py')
@@ -1645,7 +1648,7 @@ def convert_book(source, destination, **metadata):
         module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
         api = type('ConversionAPI', (), {name: value for name, value in globals().items() if not name.startswith('__')})
         options = dict(metadata, image_quality=image_quality, image_options=image_options, image_choice=image_choice,
-                       scan_layout=scan_layout, scan_exclude=scan_exclude)
+                       scan_layout=scan_layout, scan_exclude=scan_exclude, grayscale=grayscale)
         return module.convert(api, source, destination, options)
     if image_quality == 'none' and not text_layer_only and (scanned_document or extension in {
             '.tif','.tiff','.cbz','.cbr','.cb7','.jpg','.jpeg','.png','.gif','.bmp','.webp','.xps'}):
@@ -1660,12 +1663,12 @@ def convert_book(source, destination, **metadata):
             if progress is not None:
                 progress(*values)
         metadata['progress'] = checked_progress
-    if not text_layer_only and not metadata.get('reading') and (image_quality!='original' or scan_layout!='keep' or scanned_document) and extension in {'.pdf','.djvu','.djv','.dju','.djm','.djvm','.tif','.tiff','.cbz','.cbr','.cb7','.jpg','.jpeg','.png','.gif','.bmp','.webp','.xps'}:
+    if not text_layer_only and not metadata.get('reading') and (image_quality!='original' or grayscale or scan_layout!='keep' or scanned_document) and extension in {'.pdf','.djvu','.djv','.dju','.djm','.djvm','.tif','.tiff','.cbz','.cbr','.cb7','.jpg','.jpeg','.png','.gif','.bmp','.webp','.xps'}:
         image_export={'profile':image_quality,'layout':scan_layout,'exclude':scan_exclude,'target':target_extension,'container':image_container,
-                      'options':image_options,'choice':image_choice,'handled':False}
+                      'options':image_options,'choice':image_choice,'handled':False,'grayscale':grayscale,'check':cancel_check}
         metadata['image_export']=image_export
     large_images = extension in {'.tif','.tiff','.cbz','.cbr','.cb7'} or (extension=='.fb2' and metadata.get('reading'))
-    large_images = large_images or (extension in {'.fb2','.epub'} and image_quality!='original')
+    large_images = large_images or (extension in {'.fb2','.epub'} and (image_quality!='original' or grayscale))
     limit = MAX_TOTAL if large_images else MAX_FILE
     if source.stat().st_size > limit: raise ConversionError('Книга превышает предел конвертации ('+str(limit//1024//1024)+' МБ).')
     conversion = {('.fb2', '.epub'): fb2_to_epub, ('.epub', '.fb2'): epub_to_fb2}.get((extension, target_extension))
@@ -1723,7 +1726,7 @@ def convert_book(source, destination, **metadata):
             module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
             api=type('ConversionAPI',(),{name:value for name,value in globals().items() if not name.startswith('__')})
             options=dict(metadata,image_quality=image_quality,image_options=image_options,image_choice=image_choice,image_container=image_container,
-                         scan_layout=scan_layout,scan_exclude=scan_exclude)
+                         scan_layout=scan_layout,scan_exclude=scan_exclude,grayscale=grayscale,cancel_check=cancel_check)
             module.convert(api,source,temporary,target_extension,warnings,options)
         elif cr3_input:
             spec=importlib.util.spec_from_file_location('homelib_cr3',Path(__file__).with_name('cr3_input.py'))
@@ -1740,14 +1743,14 @@ def convert_book(source, destination, **metadata):
         elif conversion is fb2_to_epub:
             fb2_to_epub(source,temporary,warnings,maximum=limit)
         else: conversion(source, temporary, warnings)
-        if (image_quality != 'original' and not text_layer_only and text_only_source is None
+        if ((image_quality != 'original' or grayscale) and not text_layer_only and text_only_source is None
                 and not b1_input and not (image_export and image_export['handled'])):
             spec = importlib.util.spec_from_file_location('homelib_image_quality', Path(__file__).with_name('image_quality.py'))
             module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
             api = type('ConversionAPI', (), {name: value for name, value in globals().items() if not name.startswith('__')})
             module.apply(api, temporary, target_extension, image_quality, metadata.get('tools_root'),
                          metadata.get('progress') or (lambda *_: None), image_options, image_choice,
-                         warnings, image_container, check=cancel_check, grayscale=packing_grayscale)
+                         warnings, image_container, check=cancel_check, grayscale=grayscale)
         # Ensure the generated artifact is readable before publishing its name.
         if destination.suffix.lower() == '.epub':
             validate_epub_output(temporary)
@@ -1793,8 +1796,9 @@ def main():
     parser.add_argument('--tools-root')
     parser.add_argument('--output-profile', choices=['epub2','epub3','kepub','kfx','azw8','pdf','md'])
     parser.add_argument('--text-layer-only', action='store_true', help='Prepare a text layer for TXT export')
-    parser.add_argument('--image-quality', choices=['original','high','balanced','economy','none','ask'], default='original')
+    parser.add_argument('--image-quality', choices=['original','high','balanced','economy','maximum','none','ask'], default='original')
     parser.add_argument('--image-container', choices=['raw','fb2-zip'], help='Internal final image container; EPUB is inferred by default')
+    parser.add_argument('--grayscale', action='store_true')
     parser.add_argument('--scan-layout', choices=['keep','split','auto'], default='keep')
     parser.add_argument('--scan-exclude', default='')
     parser.add_argument('--image-options', help='Internal image size estimate channel')
@@ -1843,7 +1847,7 @@ def main():
                               language=options.language, resource_root=options.resource_root, tools_root=options.tools_root,
                               reading=options.reading, progress=progress, image_quality=options.image_quality, scan_layout=options.scan_layout, scan_exclude=options.scan_exclude,
                               image_options=options.image_options, image_choice=options.image_choice,image_container=options.image_container,
-                              output_profile=options.output_profile, text_layer_only=options.text_layer_only)
+                              output_profile=options.output_profile, text_layer_only=options.text_layer_only, grayscale=options.grayscale)
         result['used_tools'] = sorted(used_tools)
         text = json.dumps(result, ensure_ascii=False)
         publish_report(text)

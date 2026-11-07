@@ -55,7 +55,8 @@ class Book:
 
     def scan_page(self, data, number, total=0):
         if self.image_export:
-            if self.image_export['profile'] in {'original','high'} and self.image_export.get('layout','keep')=='keep':
+            if (self.image_export['profile'] in {'original','high'} and self.image_export.get('layout','keep')=='keep'
+                    and not self.image_export.get('grayscale', False)):
                 # The PDF/DjVu renderer has already produced the page image.
                 # Keeping it untouched requires no separate image processor.
                 self.image_export['handled']=True
