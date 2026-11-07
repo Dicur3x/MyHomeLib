@@ -209,7 +209,7 @@ begin
   if not IsBasicConversionSource(Ext) then Exit;
   if Profile='kepub' then Exit('KoboExport');
   if (Profile='pdf') and (Ext<>'.pdf') then Exit('EpubPdfExport');
-  if Profile='md' then Exit('BookProcessing');
+  if (Profile='md') or (Profile='epub3') then Exit('BookProcessing');
 end;
 
 procedure RecordBookConversionUse(const ResolvedExtension, TargetExtension, OutputProfile: string);
@@ -264,6 +264,7 @@ begin
       var RequiredAPI:=1;
       if (Ext<>'.fb2') and (Ext<>'.epub') then RequiredAPI:=2;
       if Writer='BookProcessing' then RequiredAPI:=3;
+      if (Writer='BookProcessing') and (OutputProfile='epub3') then RequiredAPI:=4;
       if FileExists(Capability) and (TFile.GetSize(Capability)<=16) then
         API:=StrToIntDef(Trim(TFile.ReadAllText(Capability,TEncoding.ASCII)),0);
       if API<RequiredAPI then Result:=TArray<string>.Create('BookProcessing');

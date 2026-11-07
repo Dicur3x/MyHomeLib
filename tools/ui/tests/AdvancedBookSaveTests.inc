@@ -193,6 +193,10 @@ begin
     Require(not (Item.Mode in BOOK_SAVE_ADVANCED_MODES),'Unsupported source can reach an advanced writer');
   for var Item in BookSaveChoices(['.pdf'],True) do
     Require(Item.Mode<>emAdvancedPDF,'An all-PDF selection offers duplicate output');
+  var HasEpub3:=False;
+  for var Item in BookSaveChoices(['.fb2','.epub','.docx'],True) do
+    if Item.Mode=emEpub3 then HasEpub3:=True;
+  Require(HasEpub3,'Mixed FB2, EPUB and DOCX cannot choose EPUB 3');
   var MarkdownChoices:=BookSaveChoices(['.md','.markdown'],True);
   Require(MarkdownChoices[0].KeepOriginal and MarkdownChoices[0].Caption.Contains('Markdown'),
     'Markdown source copy is not labeled');
@@ -209,6 +213,11 @@ begin
   Require(String.Join(',',Required)='BookProcessing,EpubPdfExport','EPUB to PDF must use only the EPUB writer');
   Required:=MissingBookConversionComponents(EmptyRuntime,Books[2].GetBookFileName,'.docx',False,nil,'.pdf','pdf');
   Require(String.Join(',',Required)='BookProcessing,EpubPdfExport','DOCX requested an unrelated module');
+  for var Index in [1,2] do
+  begin
+    Required:=MissingBookConversionComponents(EmptyRuntime,Books[Index].GetBookFileName,Books[Index].FileExt,False,nil,'.epub','epub3');
+    Require(String.Join(',',Required)='BookProcessing','Direct EPUB 3 requested an unrelated writer');
+  end;
   for var Index in [0,1,2] do
   begin
     Required:=MissingBookConversionComponents(EmptyRuntime,Books[Index].GetBookFileName,Books[Index].FileExt,False,nil,'.md','md');
@@ -221,6 +230,9 @@ begin
   var Capability:=TPath.Combine(Settings.AppPath,'tools/bookconvert/ADVANCED_EXPORT_API.txt');
   var CurrentAPI:=TFile.ReadAllBytes(Capability);
   try
+    TFile.WriteAllText(Capability,'3',TEncoding.ASCII);
+    Required:=MissingBookConversionComponents(Settings.AppPath,Books[1].GetBookFileName,'.epub',False,nil,'.epub','epub3');
+    Require(String.Join(',',Required)='BookProcessing','An old engine was accepted for explicit EPUB 3');
     TFile.WriteAllText(Capability,'2',TEncoding.ASCII);
     Required:=MissingBookConversionComponents(Settings.AppPath,Books[1].GetBookFileName,'.epub',False,nil,'.md','md');
     Require(String.Join(',',Required)='BookProcessing','An old engine was accepted for EPUB to Markdown');
@@ -254,7 +266,7 @@ begin
   var OriginalHashes:=SourceHashes;
   var MarkdownPath:=Root+'source.markdown';
   TFile.WriteAllText(MarkdownPath,'# Markdown input'+sLineBreak+'Keep all bytes.',TEncoding.UTF8);
-  for var Mode in [emKepub,emMarkdown,emAdvancedPDF] do
+  for var Mode in [emKepub,emMarkdown,emAdvancedPDF,emEpub3] do
   begin
     Books:=Originals;
     SourceHashes:=OriginalHashes;
@@ -338,4 +350,5 @@ begin
   end;
   Writeln('PASS advanced save compact choices restored review mixed Kobo and PDF estimates output collisions and source hashes'); Flush(Output);
   Writeln('PASS mixed Markdown save estimates modules images and byte-identical source copy'); Flush(Output);
+  Writeln('PASS mixed EPUB 3 save estimates modules and original source hashes'); Flush(Output);
 end;

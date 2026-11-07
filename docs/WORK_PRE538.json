@@ -5835,5 +5835,35 @@
     "source_checks": "Native constants, four Delphi projects, version resources and 26 first-party bootstrap entries agree. Binary resource comparison found only RT_VERSION payload changes. The standard history packager emitted exactly one beta 5 title followed by beta 4 and seven older releases. All 140 direct native collection-test includes are tracked.",
     "limits": "This is a local packaging baseline. The native updater prepared both ZIPs and passed helper identity checks in an isolated console test. No full installed application restart, final component delivery or public download was exercised. The wider export matrix still needs work, including rich EPUB to explicitly selected EPUB 2/3 and Kindle KFX/AZW8 where viable.",
     "cleanup": "Archive packaging and console probes removed their staging payloads. Kept this baseline ZIP set and its small evidence logs on G: for subsequent candidate tests. No user installation was updated."
+  },
+  "beta5_direct_epub3_20261107": {
+    "status": "Direct EPUB 3 export for compatible mixed selections passed on x86 and x64.",
+    "routing": "FB2 uses the existing fb2cng writer. EPUB and all compatible sources go through normal EPUB preparation. An existing EPUB 3 is copied byte for byte in original image mode. The EPUB 2 upgrade converts OPF metadata and makes EPUB 3 navigation from NCX without passing through FB2. The NCX and compatible original chapters, fonts, CSS, images, anchors and reading order are preserved. XHTML with a legacy DTD is parsed through the local entity table. Files requiring a signature change, non-font DRM, or a multi-rendition EPUB 2 upgrade are rejected.",
+    "standards": "https://www.w3.org/TR/epub-33/ ; https://idpf.org/epub/20/spec/OPF_2.0_latest.htm",
+    "worker": {
+      "epubcheck_version": "5.4.0",
+      "verified_checker_sha256": "33350c61038e71dfb3d45a76aed04bf5481e6d5500cb780f6e98db8bbd15a28c",
+      "checked_outputs": "Packaged x86 and x64 BookProcessing workers generated EPUB 3 from a conforming EPUB 2 with embedded font and from DOCX. All four generated publications passed EPUBCheck. Source hashes and all unchanged EPUB 2 resources were verified, including NCX, CSS, font, PNG, chapters and container.",
+      "python_suite": "296 discovered, 293 passed, 3 optional packaged-writer cases skipped in the broad run. A first run lacked the configured KindleExport fixtures; repeated with pinned runtimes. The targeted EPUB 3 tests included a same-version byte-identical copy, cancellation, and signature protection."
+    },
+    "native": "The real Save As dialog and worker passed mixed FB2, EPUB and DOCX, all four estimates, filename collisions, source hashes, correct dependencies and API fallback on x86/x64. Kobo, PDF, Markdown, and declining a missing WebView2 dependency passed in the same scenarios. These test profiles used local packages, not public downloads.",
+    "packages": {
+      "Win32": {
+        "name": "HomeLibRu-BookProcessing-3.0.0.5-Win32.zip",
+        "sha256": "63014e0a183aeccc18fe1fb2d88012702344f223b629f770379aafb281adae58"
+      },
+      "Win64": {
+        "name": "HomeLibRu-BookProcessing-3.0.0.5-Win64.zip",
+        "sha256": "c57e39c07d60f304701cd9e7666692f38341c9a9c537e948713d6bb3378bf3e6"
+      }
+    },
+    "evidence": {
+      "epub3-advanced-save-Win32-20261107.log": "262e4eb7ef23b27d9f7b53a7f40cc918d233ba7e86ffc156cbb4ed71ffa84bbc",
+      "epub3-advanced-save-Win64-20261107.log": "262e4eb7ef23b27d9f7b53a7f40cc918d233ba7e86ffc156cbb4ed71ffa84bbc",
+      "epub3-bookconvert-20261107.log": "d823d9ca8b94d8fc73048b8ea8846983b740b58787c184c4b0ca4d8cdbf472d4",
+      "epub3-packaged-epubcheck-20261107.log": "d17399bdd5a417ba814158f8cc98eff4c362db564c3bb89045ef57fa3646b713"
+    },
+    "cleanup": "Native test profiles and packaged-worker TemporaryDirectory outputs were removed. Automatic approval review rejected recursive cleanup of the six owned fixture and download targets inside G:\\HomeLibRu-build-cache\\homelibre-epub3-check-e6908b412bc0426abf1b3057d8d7ef6c as blocked by policy. They remain and must not be retried or removed through the parent. EPUBCheck unpacked under that same root remains available for the next format checks.",
+    "remaining": "Explicit EPUB 2 for compatible non-FB2 sources, quality-preserving EPUB-to-KFX/AZW8 routing, final production rebuild, and final public release checks."
   }
 }
