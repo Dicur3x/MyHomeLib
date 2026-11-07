@@ -5555,5 +5555,17 @@
     },
     "limits": "The network transport was the existing local test server and 7-Zip was already present in the isolated fixture. The successor uses the production main form and startup handler inside the native regression EXE. The final minimal archive menu, real public module feed, fully missing archive-tool choice, and the first physical source-folder/profile pickers still need release-candidate verification.",
     "cleanup": "Both fresh package staging directories and native profiles were removed by their runners. No test processes or Android emulators remain. Previously denied directories were not retried."
+  },
+  "collection_packing_minimal_menu_win64_20261107": {
+    "status": "Current production x64 catalogue passed the packing menu in a clean minimal package. x86 and public candidate component delivery remain open.",
+    "packaging": "The current source is packaged with the still-current beta 4 numeric resources for internal testing only. No beta 5 release was published. The archive contains 241 files, every manifest hash matched, and its only initial tool folders are genres and updates.",
+    "fix": "The release-history builder previously rejected the beta 4 notes because their duplicate H1 was intentionally removed for GitHub. It now adds the version heading only to assembled local history when the body has none. Conflicting explicit headings remain an error, and existing headings are preserved once. The untouched beta 4 body was included exactly in the successful minimal archive.",
+    "gui": "Used the normal first-run wizard to import six real sample books (FB2, EPUB, PDF, DjVu, DOC, RTF) from two isolated ZIPs. Collection menu, destination folder, maximum mode and grayscale all worked. The clean operation requested only BookProcessing and ImageProcessing. Canceling the offer installed no tools and left the output empty. After locally installing exact 3.0.0.5 packages with the native installer, canceling the place review wrote no book archive. Retrying the same folder restored the selected profile and registered a separate six-book catalogue.",
+    "export": "Selected all six books in the normal catalogue and saved each original format through Save As. Every output hash matched the source payload and all six isolated input payloads stayed identical. These small books produced no size reduction and the packer retained their original ZIPs.",
+    "component_scope": "BookProcessing installed 159 manifest entries and ImageProcessing four, each accepted as complete by the native installer. No Kindle, Office, XPS, DOC, PDFium, DjVu or JPEG XL add-on appeared. This machine already has an external 7-Zip, so the offer did not require a second archive-tool installation.",
+    "new_finding": "The normal Save As window showed Not calculated for every unchanged source copy from the packed collection. Sizes are available in the catalogue. Investigate after this packing verification step, then cover the actual GUI path rather than only an estimate helper.",
+    "report": "tools/ui/tests/Out/packing-menu-minimum-Win64-20261107.json",
+    "temporary_root": "G:/HomeLibRu-build-cache/HomeLibre-beta5-packing-ui-26oui3pb",
+    "cleanup": "The GUI test application was closed normally. The owned fixture is retained for x86 and size-label follow-up and is not claimed cleaned. All paths are on G:. Previously denied directories were untouched."
   }
 }

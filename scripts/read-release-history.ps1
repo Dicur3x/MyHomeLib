@@ -42,7 +42,13 @@ foreach ($entry in $entries | Sort-Object Base, Stage, Number -Descending | Sele
     $notes = Get-Content -LiteralPath $entry.Path -Raw -Encoding UTF8
     if ($entry.Base.Major -ge 3) {
         $heading = '# HomeLibre ' + $entry.Display
-        if (($notes -split '\r?\n', 2)[0] -cne $heading) { throw "Release notes heading disagrees with its tag: $($entry.Path)" }
+        $firstLine = ($notes -split '\r?\n', 2)[0]
+        if ($firstLine -cmatch '^#\s') {
+            if ($firstLine -cne $heading) { throw "Release notes heading disagrees with its tag: $($entry.Path)" }
+        } else {
+            # GitHub bodies can omit the title already displayed by the release page.
+            $notes = $heading + "`r`n`r`n" + $notes
+        }
     } else {
         if ($notes -notmatch '\A# HomeLib Ru[^\r\n]*') { throw "Unsupported legacy release notes heading: $($entry.Path)" }
         # Old documents sometimes use a build number; the history viewer needs the full tag.
