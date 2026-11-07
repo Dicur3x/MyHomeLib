@@ -5953,6 +5953,29 @@
     "archive_proof": "Each minimal ZIP verified 240 manifest files, PE architecture, correct beta 5 identity and history, absence of optional payloads and native preparation/helper identity. Both exact production executables started with a disposable fixture catalogue and closed normally with exit code zero. The earlier smoke fixture assumed a root genre file; the fixture now borrows the packaged list for setup and removes it before starting production. This was a fresh isolated catalogue smoke, not a benchmark or upgrade from beta 4.",
     "component_proof": "24 format archives plus two Reader and two MCP ZIPs were built or copied with exact verified hashes. The six previously tested BookProcessing, EPUB PDF and KFX ZIPs were reused byte for byte. The public base feed and both unchanged DjVu packages matched GitHub asset digests. The local plan schedules the separate KFX source bundle first, retains legacy Reader archives, and contains 46 platform entries. Both freshly built native parsers accepted all 23 versions and download URLs per architecture, selected the nested minimal Reader entry, and rejected an invalid digest, a stale feed and a substituted Reader executable. Feed SHA-256 1b7d3f9cec6e2a846b803c43dba5a5e615f6265a4d64dda0bff510e6cab86901.",
     "cleanup": "Packaging scratch payloads, the downloaded Go toolchain, both test profiles and native feed verification fixtures were removed by their runners. Candidate packages, mirrored inputs and verification reports remain on G:. Previously denied cleanup paths were untouched.",
-    "remaining": "Upgrade from the original published beta 4 on x86 and x64 and verify retained catalogue/settings. Test clean on-demand component installation and resumed operations with this exact candidate. Complete remaining functional and performance checks, then publish and verify downloads. The console validation gate and fresh launches alone do not prove these scenarios."
+    "remaining": "The two beta 4 helper upgrades and the exact candidate component restart checks are recorded below. Complete remaining production end-to-end and performance checks, then publish and verify real downloads."
+  },
+  "beta5_upgrade_from_public_beta4_20261107": {
+    "status": "The exact published beta 4 helpers installed and restarted the exact beta 5 catalogue on x86 and x64. Both isolated runs preserved the catalogue and settings.",
+    "evidence": "The beta 4 inputs matched the current GitHub asset SHA-256 values. Each original helper installed all 240 managed files and opened a responding production process at 3.0.0.5. After normal shutdown, the harness verified every installed file, all seven catalogue records, a separate personal file and the INI value. The exact candidate hashes are in beta5_release_candidate_packages_20261107.",
+    "reports": {
+      "beta4-helper-upgrade-Win32.json": "42dfc3cb89a683072f6b3349babd90c99671fe08e1258bb35bea4fa92c361a23",
+      "beta4-helper-upgrade-Win64.json": "45009d1a25a7c22dc30a2a2405905d989bed98e7bc5ed8cd6ab8ea6b2788319c"
+    },
+    "limits": "The attempts used locally prepared exact packages. The Win32 attempt through the original Main window did not trigger installation because the menu did not expose usable controls in text-only Windows automation. It was closed normally and recorded as an incomplete test. The successful helper cases do not exercise the original network worker or its manual install button. The test used seven fixture books, not the working collection.",
+    "cleanup": "All three isolated beta 4 profiles, copied ZIPs and updater jobs were removed by their runners. No screenshots were taken. Reports remain in the candidate stage on G:."
+  },
+  "beta5_exact_component_restart_20261107": {
+    "status": "Four exact-candidate native first-use scenarios passed, two on x86 and two on x64.",
+    "save": "The compact prompt waited for an explicit download action and requested only BookProcessing and KindleExport. The production update helper installed both exact candidate archives, started a fresh Reader test process, and restored the MOBI format, original image mode, folder and filename/folder masks. Canceling the restored review produced no output and left the source hash unchanged. The continuation could be consumed once.",
+    "packing": "A clean catalogue test requested only BookProcessing and ImageProcessing. After installation and restart, the normal catalogue startup restored maximum savings and grayscale. Canceling the restored space review left output empty. The accepted retry registered a separate packed catalogue; the unchanged text-only book was recovered byte for byte.",
+    "limits": "The package bytes and helper match the beta 5 candidate, and the native scenarios exercise the compact form, installer and restart. Download responses came from the controlled test transport. The real GitHub worker, public beta 5 delivery and ordinary production window interactions remain separate gates.",
+    "logs": {
+      "packing-module-restart-Win32.log": "9455f7b9369f2e478b34535524455e6c38ac8f82a91a5eacf6f0cec973ed2c7d",
+      "packing-module-restart-Win64.log": "46c935d4b204f901fc68ba18ea191e3031205aa22b58c642180f5cd489258f07",
+      "save-kindle-restart-Win32.log": "d8dbc59da3292ed5c7563b1a6f1f3b508f2a1caadc67a8e6b854ef0c8407948b",
+      "save-kindle-restart-Win64.log": "fc3ad65c5f7383b4b17e7eca78798490ad442e87b8bb2c0c844796a1eff2794b"
+    },
+    "cleanup": "The native runner removed the four new owned temporary profiles and retained only the compact evidence logs. Previously denied paths were untouched."
   }
 }
