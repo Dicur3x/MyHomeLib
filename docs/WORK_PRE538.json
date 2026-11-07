@@ -5501,5 +5501,14 @@
       "Win32": "2d12ff068c8ea38a808c23084d0fc1628a701c906f43e685404ae90dcdbd6202",
       "Win64": "41ffaedb038922588c7f73436e6b11520253f610b0a798798d13507180d64f49"
     }
+  },
+  "reader_progress_options_20261107": {
+    "status": "Verified in native Win32 and Win64 reader tests. Public release pending.",
+    "implementation": "The View dialog has separate preferences for chapter ticks and showing the progress strip in full screen. The compact top-level chapter marks follow real book positions. F11 controls full screen and Hide Interface still hides the whole footer. Applying a change limited to the strip does not rebuild text pagination.",
+    "verification": "Both reader-additions runs captured the strip through the normal WM_PAINT path and verified the chapter ticks in FB2 and PDF, both visibility switches, return from F11 and retention after reopening. Existing contents, search, page navigation, notes and drag tests passed. Test profiles were cleaned by the runner.",
+    "log_hashes": {
+      "Win32": "bb1089dbaf0120faa62d9667d3fbdc8219aeece52f5df72ee6f8230130a24979",
+      "Win64": "757846ff32db4fcb14427d297eb39d8efb4aa2e516f4ab1528568fee5394ca88"
+    }
   }
 }

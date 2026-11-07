@@ -103,6 +103,7 @@ type
     FChapterNumbers: array[0..15] of Integer;
     FChapterParents: array[0..15] of string;
     FProgressLine: TPaintBox;
+    FShowChapterTicks, FShowFullScreenProgress: Boolean;
     FProgressDragging, FGlobalPagesDone, FGlobalPagesFailed: Boolean;
     FProgressTarget: Double;
     FSeekTimer, FPaginationTimer: TTimer;
@@ -270,6 +271,7 @@ type
     procedure DrawChapterItem(Control: TWinControl; Index: Integer; Rect: TRect; State: TOwnerDrawState);
     procedure AddChapter(const Title: string; Position, Depth: Integer);
     procedure PaintProgress(Sender: TObject);
+    procedure UpdateProgressVisibility;
     procedure ProgressMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X,Y: Integer);
     procedure ProgressMouseMove(Sender: TObject; Shift: TShiftState; X,Y: Integer);
     procedure ProgressMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X,Y: Integer);
@@ -1181,7 +1183,9 @@ begin
   FStatus:=TLabel.Create(Self); FStatus.Parent:=FBottom; FStatus.Align:=alClient; FStatus.Layout:=tlCenter; FStatus.Alignment:=taCenter;
   FStatus.Caption:='Колесо — страницы · Ctrl+колесо — размер · F11 — полный экран · Ctrl+F — поиск';
   FProgressLine:=TReaderProgress.Create(Self); FProgressLine.Parent:=FBottom; FProgressLine.Align:=alBottom;
+  FProgressLine.Name:='ReaderProgressLine';
   FProgressLine.Height:=14; FProgressLine.OnPaint:=PaintProgress; FProgressLine.Cursor:=crHandPoint;
+  FShowChapterTicks:=True; FShowFullScreenProgress:=True;
   FProgressLine.Hint:='Щёлкните или перетащите, чтобы перейти к нужному месту книги'; FProgressLine.ShowHint:=True;
   FProgressLine.OnMouseDown:=ProgressMouseDown; FProgressLine.OnMouseMove:=ProgressMouseMove; FProgressLine.OnMouseUp:=ProgressMouseUp;
   FFootnotesPanel:=TPanel.Create(Self); FFootnotesPanel.Parent:=Self;
@@ -4413,17 +4417,43 @@ end;
 
 procedure TfrmBuiltinReader.StyleClick(Sender: TObject);
 var Dialog: TForm; FontBox, SizeBox, SpacingBox, MarginBox, WidthBox, ZoomBox, InitialBox, LayoutBox, TurnBox, AppearanceBox: TComboBox; FontNames: TStringList; LabelText: TLabel; Button: TButton; FormattingBox, NotesBox, InitialCheck, HoldCheck, SelectionCheck: TCheckBox; TitleBox, SubtitleBox: TColorBox; I: Integer;
+  ChapterTicksBox, FullScreenProgressBox: TCheckBox;
   procedure AddLabel(const Text: string; Top: Integer);
   begin LabelText:=TLabel.Create(Dialog); LabelText.Parent:=Dialog; LabelText.SetBounds(16,Top,100,22); LabelText.Caption:=Text; end;
   function Choice(Top: Integer): TComboBox;
   begin Result:=TReaderPaletteCombo.Create(Dialog); Result.Parent:=Dialog; Result.SetBounds(118,Top,216,26); Result.Style:=csOwnerDrawFixed; end;
+  procedure AddProgressChecks(Top: Integer);
+  begin
+    ChapterTicksBox:=TReaderPaletteCheckBox.Create(Dialog);
+    ChapterTicksBox.Name:='ReaderShowChapterTicks';
+    ChapterTicksBox.Parent:=Dialog;
+    ChapterTicksBox.SetBounds(16,Top,136,22);
+    ChapterTicksBox.Caption:='Засечки глав';
+    ChapterTicksBox.Hint:='Отмечать начало глав на полосе чтения';
+    ChapterTicksBox.ShowHint:=True;
+    ChapterTicksBox.Checked:=FShowChapterTicks;
+
+    FullScreenProgressBox:=TReaderPaletteCheckBox.Create(Dialog);
+    FullScreenProgressBox.Name:='ReaderShowFullScreenProgress';
+    FullScreenProgressBox.Parent:=Dialog;
+    FullScreenProgressBox.SetBounds(154,Top,180,22);
+    FullScreenProgressBox.Caption:='Полоса в полном экране';
+    FullScreenProgressBox.Checked:=FShowFullScreenProgress;
+  end;
+  procedure ApplyProgressChecks;
+  begin
+    FShowChapterTicks:=ChapterTicksBox.Checked;
+    FShowFullScreenProgress:=FullScreenProgressBox.Checked;
+    UpdateProgressVisibility;
+    FProgressLine.Invalidate;
+  end;
 begin
   if Assigned(FPDF) then
   begin
     Dialog:=TForm.CreateNew(Self);
     try
       Dialog.Caption:='Вид страниц'; Dialog.BorderStyle:=bsDialog; Dialog.Position:=poOwnerFormCenter;
-      Dialog.ClientWidth:=350; Dialog.ClientHeight:=316; Dialog.Font.Assign(Font);
+      Dialog.ClientWidth:=350; Dialog.ClientHeight:=326; Dialog.Font.Assign(Font);
       AddLabel('Приближение, %',20); ZoomBox:=Choice(16);
       for I:=12 to 30 do ZoomBox.Items.Add(IntToStr(I*10));
       ZoomBox.ItemIndex:=ZoomBox.Items.IndexOf(IntToStr(FInspectionPercent));
@@ -4441,17 +4471,33 @@ begin
       HoldCheck.ShowHint:=True; HoldCheck.Hint:='Отпускание кнопки возвращает прежний масштаб. Без галочки возвращает повторный щелчок.';
       SelectionCheck:=TReaderPaletteCheckBox.Create(Dialog); SelectionCheck.Parent:=Dialog; SelectionCheck.SetBounds(16,232,320,28);
       SelectionCheck.Caption:='Выделять текст мышью'; SelectionCheck.Checked:=FSelectionEnabled;
-      Button:=TReaderPaletteButton.Create(Dialog); Button.Parent:=Dialog; Button.SetBounds(156,278,86,26); Button.Caption:='Применить'; Button.Default:=True; Button.ModalResult:=mrOk;
-      Button:=TReaderPaletteButton.Create(Dialog); Button.Parent:=Dialog; Button.SetBounds(248,278,86,26); Button.Caption:='Отмена'; Button.Cancel:=True; Button.ModalResult:=mrCancel;
+      AddProgressChecks(261);
+      Button:=TReaderPaletteButton.Create(Dialog); Button.Parent:=Dialog; Button.SetBounds(156,288,86,26); Button.Caption:='Применить'; Button.Default:=True; Button.ModalResult:=mrOk;
+      Button:=TReaderPaletteButton.Create(Dialog); Button.Parent:=Dialog; Button.SetBounds(248,288,86,26); Button.Caption:='Отмена'; Button.Cancel:=True; Button.ModalResult:=mrCancel;
       ApplyReaderPalette(Dialog,ThemeBackground,ThemeText,FNight);
-      if Dialog.ShowModal=mrOk then begin SetInspectionPercent(StrToIntDef(ZoomBox.Text,150)); SetInspectionHold(HoldCheck.Checked); SetSelectionEnabled(SelectionCheck.Checked); SetPageAppearance(TReaderPageAppearance(EnsureRange(AppearanceBox.ItemIndex,0,1))); FPageTurn:=TReaderPageTurn(EnsureRange(TurnBox.ItemIndex,0,1)); SetPageLayout(TReaderPageLayout(EnsureRange(LayoutBox.ItemIndex,0,2))); InvalidateLayout; end;
+      if Dialog.ShowModal=mrOk then
+      begin
+        ApplyProgressChecks;
+        SetInspectionPercent(StrToIntDef(ZoomBox.Text,150));
+        SetInspectionHold(HoldCheck.Checked);
+        SetSelectionEnabled(SelectionCheck.Checked);
+        SetPageAppearance(TReaderPageAppearance(EnsureRange(AppearanceBox.ItemIndex,0,1)));
+        var Layout:=TReaderPageLayout(EnsureRange(LayoutBox.ItemIndex,0,2));
+        var Turn:=TReaderPageTurn(EnsureRange(TurnBox.ItemIndex,0,1));
+        if FPageLayout=Layout then SetPageTurn(Turn)
+        else
+        begin
+          FPageTurn:=Turn;
+          SetPageLayout(Layout);
+        end;
+      end;
     finally Dialog.Free; end;
     Exit;
   end;
   Dialog:=TForm.CreateNew(Self); FontNames:=TStringList.Create;
   try
     Dialog.Caption:='Текст и оформление'; Dialog.BorderStyle:=bsDialog; Dialog.Position:=poOwnerFormCenter;
-    Dialog.ClientWidth:=350; Dialog.ClientHeight:=543; Dialog.Font.Assign(Font);
+    Dialog.ClientWidth:=350; Dialog.ClientHeight:=555; Dialog.Font.Assign(Font);
     AddLabel('Шрифт / размер',20); FontBox:=Choice(16); FontBox.Width:=160;
     ReaderFontChoices(FontNames,FontBox.Items,FFontName); FontBox.ItemIndex:=FontNames.IndexOf(FFontName);
     SizeBox:=TReaderPaletteCombo.Create(Dialog); SizeBox.Parent:=Dialog; SizeBox.SetBounds(286,16,48,26); SizeBox.Style:=csOwnerDrawFixed;
@@ -4497,21 +4543,43 @@ begin
     SelectionCheck.Caption:='Выделять текст мышью'; SelectionCheck.Checked:=FSelectionEnabled;
     TitleBox.ShowHint:=True; TitleBox.Hint:='Цвета сохраняются для каждой темы. В тёмной теме слишком тёмные оттенки подсветляются.';
     SubtitleBox.ShowHint:=True; SubtitleBox.Hint:=TitleBox.Hint;
-    Button:=TReaderPaletteButton.Create(Dialog); Button.Parent:=Dialog; Button.SetBounds(156,511,86,26); Button.Caption:='Применить'; Button.Default:=True; Button.ModalResult:=mrOk;
-    Button:=TReaderPaletteButton.Create(Dialog); Button.Parent:=Dialog; Button.SetBounds(248,511,86,26); Button.Caption:='Отмена'; Button.Cancel:=True; Button.ModalResult:=mrCancel;
+    AddProgressChecks(496);
+    Button:=TReaderPaletteButton.Create(Dialog); Button.Parent:=Dialog; Button.SetBounds(156,523,86,26); Button.Caption:='Применить'; Button.Default:=True; Button.ModalResult:=mrOk;
+    Button:=TReaderPaletteButton.Create(Dialog); Button.Parent:=Dialog; Button.SetBounds(248,523,86,26); Button.Caption:='Отмена'; Button.Cancel:=True; Button.ModalResult:=mrCancel;
     ApplyReaderPalette(Dialog,ThemeBackground,ThemeText,FNight);
     if Dialog.ShowModal=mrOk then
     begin
+      ApplyProgressChecks;
       SetPageAppearance(TReaderPageAppearance(EnsureRange(AppearanceBox.ItemIndex,0,1)));
-      FPageLayout:=TReaderPageLayout(EnsureRange(LayoutBox.ItemIndex,0,2));
-      FPageTurn:=TReaderPageTurn(EnsureRange(TurnBox.ItemIndex,0,1));
-      FBookFormatting:=FormattingBox.Checked; FShowFootnotes:=NotesBox.Checked; SetSelectionEnabled(SelectionCheck.Checked);
-      if InitialCheck.Checked then FInitialsMode:=TReaderInitialsMode(EnsureRange(InitialBox.ItemIndex+1,1,2)) else FInitialsMode:=rimNone;
-      FDecorativeInitials:=FInitialsMode<>rimNone; FTypographyDirty:=True;
-      FHeadingColors[Ord(FNight),0]:=TitleBox.Selected; FHeadingColors[Ord(FNight),1]:=SubtitleBox.Selected;
-      if WidthBox.ItemIndex=0 then FMaxTextWidth:=0 else FMaxTextWidth:=EnsureRange(StrToIntDef(WidthBox.Text,960),320,1600);
-      FFontSize:=EnsureRange(StrToIntDef(SizeBox.Text,FFontSize),8,48);
-      UpdateFootnotesPanel; SetTypography(FontNames[FontBox.ItemIndex],StrToIntDef(SpacingBox.Text,110),StrToIntDef(MarginBox.Text,32));
+      SetSelectionEnabled(SelectionCheck.Checked);
+      var Layout:=TReaderPageLayout(EnsureRange(LayoutBox.ItemIndex,0,2));
+      var Turn:=TReaderPageTurn(EnsureRange(TurnBox.ItemIndex,0,1));
+      var Initials:=rimNone;
+      if InitialCheck.Checked then Initials:=TReaderInitialsMode(EnsureRange(InitialBox.ItemIndex+1,1,2));
+      var TextWidth:=0;
+      if WidthBox.ItemIndex<>0 then TextWidth:=EnsureRange(StrToIntDef(WidthBox.Text,960),320,1600);
+      var FontSize:=EnsureRange(StrToIntDef(SizeBox.Text,FFontSize),8,48);
+      var FontName:=FontNames[FontBox.ItemIndex];
+      var LinePercent:=StrToIntDef(SpacingBox.Text,110);
+      var Margin:=StrToIntDef(MarginBox.Text,32);
+      if (FPageLayout=Layout) and (FPageTurn=Turn) and (FInitialsMode=Initials) and
+         (FBookFormatting=FormattingBox.Checked) and (FShowFootnotes=NotesBox.Checked) and
+         (FHeadingColors[Ord(FNight),0]=TitleBox.Selected) and
+         (FHeadingColors[Ord(FNight),1]=SubtitleBox.Selected) and (FMaxTextWidth=TextWidth) and
+         (FFontSize=FontSize) and (FFontName=FontName) and (FLinePercent=LinePercent) and (FMargin=Margin) then Exit;
+
+      FPageLayout:=Layout;
+      FPageTurn:=Turn;
+      FInitialsMode:=Initials;
+      FDecorativeInitials:=Initials<>rimNone;
+      FBookFormatting:=FormattingBox.Checked;
+      FShowFootnotes:=NotesBox.Checked;
+      FHeadingColors[Ord(FNight),0]:=TitleBox.Selected;
+      FHeadingColors[Ord(FNight),1]:=SubtitleBox.Selected;
+      FMaxTextWidth:=TextWidth;
+      FFontSize:=FontSize;
+      UpdateFootnotesPanel;
+      SetTypography(FontName,LinePercent,Margin);
     end;
   finally FontNames.Free; Dialog.Free; end;
 end;
@@ -4697,11 +4765,64 @@ function TfrmBuiltinReader.GlobalPaginationReady: Boolean;
 begin Result:=Assigned(FPDF) or FGlobalPagesDone; end;
 
 procedure TfrmBuiltinReader.PaintProgress(Sender: TObject);
+var
+  DC: HDC;
+  Brush: HBRUSH;
+  OldBrushColor: COLORREF;
+  TrackColor, FillColor, TrackTick, FillTick: TColor;
+  Filled, I, X, LastX, Position, TickWidth, TickHeight: Integer;
+  procedure FillArea(const Area: TRect; Color: TColor);
+  begin
+    SetDCBrushColor(DC,ColorToRGB(Color));
+    Winapi.Windows.FillRect(DC,Area,Brush);
+  end;
 begin
-  FProgressLine.Canvas.Brush.Color:=ReaderBlendColor(ThemeBackground,ThemeText,28);
-  FProgressLine.Canvas.FillRect(FProgressLine.ClientRect);
-  if FNight then FProgressLine.Canvas.Brush.Color:=RGB(114,159,213) else FProgressLine.Canvas.Brush.Color:=RGB(67,117,174);
-  FProgressLine.Canvas.FillRect(Rect(0,0,Round(FProgressLine.Width*IfThen(FProgressDragging,FProgressTarget,ReadingProgress)),FProgressLine.Height));
+  // Keep every layer on the same device context, including off-screen paints.
+  DC:=FProgressLine.Canvas.Handle;
+  Brush:=GetStockObject(DC_BRUSH);
+  OldBrushColor:=GetDCBrushColor(DC);
+  try
+    TrackColor:=ReaderBlendColor(ThemeBackground,ThemeText,28);
+    if FNight then FillColor:=RGB(114,159,213) else FillColor:=RGB(67,117,174);
+    Filled:=Round(FProgressLine.Width*IfThen(FProgressDragging,FProgressTarget,ReadingProgress));
+    FillArea(FProgressLine.ClientRect,TrackColor);
+    FillArea(Rect(0,0,Filled,FProgressLine.Height),FillColor);
+
+    if not FReady or not FShowChapterTicks or (FLength<=0) or (FProgressLine.Width<2) then Exit;
+    TickWidth:=Max(1,MulDiv(1,CurrentPPI,96));
+    TickHeight:=Max(3,FProgressLine.Height div 3);
+    TrackTick:=ReaderBlendColor(TrackColor,ThemeText,115);
+    FillTick:=ReaderBlendColor(FillColor,ThemeText,115);
+    LastX:=-3*TickWidth;
+    for I:=0 to Min(FChapters.Items.Count,FChapterDepths.Count)-1 do
+    begin
+      if FChapterDepths[I]>0 then Continue;
+      Position:=NativeInt(FChapters.Items.Objects[I]);
+      if (Position<=0) or (Position>=FLength) then Continue;
+      X:=MulDiv(FProgressLine.Width-1,Position,FLength);
+      if (X<=0) or (Abs(X-LastX)<3*TickWidth) then Continue;
+      var Area:=Rect(X,0,Min(X+TickWidth,FProgressLine.Width),TickHeight);
+      if X<Filled then FillArea(Area,FillTick) else FillArea(Area,TrackTick);
+      LastX:=X;
+    end;
+  finally
+    SetDCBrushColor(DC,OldBrushColor);
+  end;
+end;
+
+procedure TfrmBuiltinReader.UpdateProgressVisibility;
+var ShowLine: Boolean;
+begin
+  ShowLine:=not FFullScreen or FShowFullScreenProgress;
+  if FProgressLine.Visible=ShowLine then Exit;
+  if not ShowLine and FProgressDragging then
+  begin
+    FProgressDragging:=False;
+    TReaderProgress(FProgressLine).MouseCapture:=False;
+    FSeekTimer.Enabled:=False;
+  end;
+  FProgressLine.Visible:=ShowLine;
+  FBottom.Height:=MulDiv(26,CurrentPPI,96)+Ord(ShowLine)*FProgressLine.Height;
 end;
 
 procedure TfrmBuiltinReader.ChapterClick(Sender: TObject);
@@ -4768,6 +4889,7 @@ begin
     end;
     FFullScreen:=False; FFullScreenButton.Hint:='На весь экран (F11)';
   end;
+  UpdateProgressVisibility;
   if Assigned(FOnFullScreenModeChanged) then FOnFullScreenModeChanged(Self);
   RefreshWindowTheme; FSurface.SetFocus;
 end;
@@ -4846,6 +4968,9 @@ begin
       if FMaxTextWidth<>0 then FMaxTextWidth:=EnsureRange(FMaxTextWidth,320,1600);
       FBookFormatting:=Ini.ReadBool('Reader','BookFormatting',True);
       FShowFootnotes:=Ini.ReadBool('Reader','ShowFootnotes',True); FNumberChapters:=Ini.ReadBool('Reader','NumberChapters',True);
+      FShowChapterTicks:=Ini.ReadBool('Reader','ShowChapterTicks',True);
+      FShowFullScreenProgress:=Ini.ReadBool('Reader','ShowFullScreenProgress',True);
+      UpdateProgressVisibility;
       FDecorativeInitials:=Ini.ReadBool('Reader','DecorativeInitials',False);
       FInitialsMode:=TReaderInitialsMode(EnsureRange(Ini.ReadInteger('Reader','InitialsMode',Ord(FDecorativeInitials)),0,2));
       FDecorativeInitials:=FInitialsMode<>rimNone;
@@ -4906,6 +5031,8 @@ begin
     Ini.WriteString('Reader','DictionaryExecutable',FDictionaryExecutable);
     Ini.WriteBool('Reader','BookFormatting',FBookFormatting);
     Ini.WriteBool('Reader','ShowFootnotes',FShowFootnotes); Ini.WriteBool('Reader','NumberChapters',FNumberChapters);
+    Ini.WriteBool('Reader','ShowChapterTicks',FShowChapterTicks);
+    Ini.WriteBool('Reader','ShowFullScreenProgress',FShowFullScreenProgress);
     Ini.WriteBool('Reader','DecorativeInitials',FDecorativeInitials);
     Ini.WriteInteger('Reader','InitialsMode',Ord(FInitialsMode));
     for I:=0 to 1 do for J:=0 to 1 do Ini.WriteInteger('Reader',Format('HeadingColor%d_%d',[I,J]),FHeadingColors[I,J]);

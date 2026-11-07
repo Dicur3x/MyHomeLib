@@ -1356,10 +1356,52 @@ end;
 
 procedure AuditContentsAndProgress;
 var Reader: TfrmBuiltinReader; Key: Word; XML: string; Before: Cardinal;
+  Bar: TPaintBox;
+  Footer: TWinControl;
+  Ini: TMemIniFile;
+  procedure SetProgressOptions(Marks, FullScreen: Boolean);
+  begin
+    TThread.ForceQueue(nil,
+      procedure
+      var Dialog: TForm; MarksBox, FullScreenBox: TCheckBox;
+      begin
+        Dialog:=Screen.ActiveForm;
+        MarksBox:=Dialog.FindComponent('ReaderShowChapterTicks') as TCheckBox;
+        FullScreenBox:=Dialog.FindComponent('ReaderShowFullScreenProgress') as TCheckBox;
+        Require(Assigned(MarksBox) and Assigned(FullScreenBox),'Reader progress options are absent');
+        Require((MarksBox.Left+MarksBox.Width<=FullScreenBox.Left) and
+          (FullScreenBox.Left+FullScreenBox.Width<=Dialog.ClientWidth),'Reader progress options overlap or clip');
+        MarksBox.Checked:=Marks; FullScreenBox.Checked:=FullScreen;
+        Dialog.ModalResult:=mrOk;
+      end);
+    (Reader.FindComponent('ReaderAppearance') as TButton).Click;
+  end;
+  function HasChapterTicks: Boolean;
+  var Paint: TBitmap; DC: HDC; OldBitmap: HGDIOBJ; X: Integer;
+  begin
+    Paint:=TBitmap.Create;
+    try
+      Paint.PixelFormat:=pf32bit;
+      Paint.SetSize(Bar.Width,Bar.Height);
+      DC:=CreateCompatibleDC(0);
+      Require(DC<>0,'Cannot create the progress strip capture');
+      try
+        OldBitmap:=SelectObject(DC,Paint.Handle);
+        Require(OldBitmap<>0,'Cannot select the progress strip bitmap');
+        try
+          Bar.Perform(WM_PAINT,WPARAM(DC),0);
+          for X:=0 to Bar.Width-1 do
+            if GetPixel(DC,X,1)<>GetPixel(DC,X,Bar.Height-2) then Exit(True);
+          Result:=False;
+        finally SelectObject(DC,OldBitmap); end;
+      finally DeleteDC(DC); end;
+    finally Paint.Free; end;
+  end;
 begin
   XML:='<FictionBook><body><title><p>Книга</p></title><section><title><p>Самолёт и лесной сурок</p></title>'+
     '<p>'+StringOfChar('А',6000)+'</p><section><title><p>Барби</p></title><p>Подраздел</p></section></section>'+
-    '<section><title><p>2. Уже с номером</p></title><p>Конец книги.</p></section></body></FictionBook>';
+    '<section><title><p>2. Уже с номером</p></title><p>Конец книги.</p><p>'+StringOfChar('Б',3000)+
+    '</p></section></body></FictionBook>';
   TFile.WriteAllText('contents-progress.fb2',XML,TEncoding.UTF8);
   Reader:=TfrmBuiltinReader.Create(nil);
   try
@@ -1371,6 +1413,25 @@ begin
     Reader.SetNumberChapters(False); Require(Reader.ChapterTitle(2).Contains(' › Барби'),'Disabling generated numbers changed author title');
     Reader.SetNumberChapters(True);
     Require(Reader.ReadingProgress=0,'Progress starts after the beginning of the book');
+    Bar:=Reader.FindComponent('ReaderProgressLine') as TPaintBox;
+    Require(Assigned(Bar) and Bar.Visible,'The progress strip is missing');
+    Footer:=Bar.Parent;
+    Require(HasChapterTicks,'Chapter marks were not drawn');
+    SetProgressOptions(False,True);
+    Require(not HasChapterTicks,'Disabling chapter marks did not clear them');
+    Reader.ToggleFullScreen;
+    Require(Bar.Visible,'F11 lost the progress strip with the option on');
+    Reader.ToggleFullScreen;
+    SetProgressOptions(True,False);
+    Require(HasChapterTicks,'Chapter marks and full-screen visibility are not independent');
+    Reader.ToggleFullScreen;
+    Require(not Bar.Visible and Footer.Visible,'F11 did not hide only the progress strip');
+    Reader.ToggleInterface;
+    Require(not Footer.Visible,'Hide Interface left the reader footer visible');
+    Reader.ToggleFullScreen;
+    Require(not Footer.Visible,'Exiting F11 restored the hidden interface');
+    Reader.ToggleInterface;
+    Require(Bar.Visible and Footer.Visible,'Returning to the normal window lost the progress strip');
     Before:=GetGuiResources(GetCurrentProcess,GR_GDIOBJECTS);
     TThread.ForceQueue(nil,
       procedure
@@ -1426,7 +1487,27 @@ begin
     Reader.GoToPosition(0); Require(Reader.ReadingProgress=0,'Returning to the beginning leaves stale progress');
     Require(GetGuiResources(GetCurrentProcess,GR_GDIOBJECTS)<=Before+12,'Contents/progress leaks drawing resources');
     Writeln('PASS spacious resizable contents, chapter ordinals and hierarchy, Cyrillic search, accurate navigation and lightweight progress');
+    Reader.Close;
+    Ini:=TMemIniFile.Create('contents.ini',TEncoding.UTF8);
+    try
+      Require(Ini.ReadBool('Reader','ShowChapterTicks',False) and
+        not Ini.ReadBool('Reader','ShowFullScreenProgress',True),'Progress preferences were not saved independently');
+    finally Ini.Free; end;
   finally Reader.Free; end;
+
+  Reader:=TfrmBuiltinReader.Create(nil);
+  try
+    Reader.Show; Reader.OpenBook('sample.pdf','PDF','contents-pdf','contents.ini','pdfium.dll');
+    WaitReady(Reader); WaitPage(Reader);
+    Bar:=Reader.FindComponent('ReaderProgressLine') as TPaintBox;
+    Require((Reader.ChapterCount>1) and HasChapterTicks,'PDF chapter marks did not restore from settings');
+    Reader.ToggleFullScreen;
+    Require(not Bar.Visible,'PDF lost the saved full-screen progress setting');
+    SetProgressOptions(False,True);
+    Require(Bar.Visible and not HasChapterTicks,'PDF view options did not update both preferences');
+    Reader.ToggleFullScreen;
+  finally Reader.Free; end;
+  Writeln('PASS chapter ticks are painted, optional and independent of F11 and Hide Interface in FB2 and PDF');
 end;
 
   function NoteDialogButton(Form: TForm; const Caption: string): TButton;

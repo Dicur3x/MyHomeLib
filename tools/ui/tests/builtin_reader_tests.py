@@ -436,6 +436,7 @@ try:
     if a.case in ('reader-additions','oct11-reader'):
         assert 'PASS Unicode notes durable atomic backup' in r.stdout, 'Stale binary did not run new notes/navigation regression'
         assert 'PASS chapter header mouse arrow and F4' in r.stdout, 'Stale binary omitted unified contents control'
+        assert 'PASS chapter ticks are painted, optional and independent' in r.stdout, 'Stale binary omitted progress options'
     if a.case=='multilingual-fonts':
         assert 'PASS four bundled reading choices, 21 language samples, native glyphs' in r.stdout
     if a.case=='word-selection':
