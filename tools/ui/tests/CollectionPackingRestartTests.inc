@@ -1,12 +1,32 @@
 ﻿// The public updater receives real module ZIPs over the existing loopback
 // fixture and launches a new catalogue process with the one-time argument.
+type
+  TPackingStartupReviewProbe = class(TPackingReviewProbe)
+    Main: TfrmMain;
+    procedure Tick(Sender: TObject); reintroduce;
+  end;
+
+procedure TPackingStartupReviewProbe.Tick(Sender: TObject);
+var StartButton: TButton;
+begin
+  if Main=nil then Exit;
+  Dialog:=Main.FindComponent('CollectionPackingProgress') as TfrmCollectionPackingProgress;
+  if Dialog=nil then Exit;
+  StartButton:=Dialog.FindComponent('btnContinuePacking') as TButton;
+  if StartButton.Visible and not SawEstimate then
+    Require(Pos(PackingImageProfileCaption(pipMaximum,True),
+      (Dialog.FindComponent('lblPackingStage') as TLabel).Caption)>0,
+      'Normal startup changed the restored maximum grayscale profile');
+  inherited Tick(Sender);
+end;
+
 procedure RunPackingModuleRestartChild;
 var Root: TJSONObject; Entry: TJSONValue; Releases: TComponentReleases; Info: TProgramRelease;
   Head: TUpdateProposalServer; Server: TRepairServer; Updater: TSaveModuleUpdateForm;
-  ExceptionHandler: TSaveModuleExceptionHandler; ReviewParent, Prompt: TForm; Primary: TButton;
+  ExceptionHandler: TSaveModuleExceptionHandler; Prompt: TForm; Primary: TButton;
   Request: TCollectionPackingRequest; Options: TCollectionPackingOptions;
   Collection: IBookCollection; Book: TBookRecord; SourceID, BookID: Integer;
-  Dialog: TfrmCollectionPackingProgress; Probe: TPackingReviewProbe;
+  Dialog: TfrmCollectionPackingProgress; Probe: TPackingStartupReviewProbe;
   Timer: TTimer; Snapshot: TCollectionPackingSnapshot; Started: UInt64;
   Folder, Report, Version, Source, SourceRoot, Destination: string;
   Required: TArray<string>; PackedCollection: IBookCollection; PackedStream: TStream;
@@ -46,36 +66,54 @@ begin
           (InstalledComponentVersion(Folder,'ImageProcessing')=Version),'Restart lost either packing dependency');
         for var Unrelated in ['kindle','office','xps','doc','djvu','pdfium','jpeg-xl'] do
           Require(not DirectoryExists(TPath.Combine(Folder,'tools/'+Unrelated)),'Packing installed an unrelated component');
-        Require(TakePackingContinuation(Settings.SettingsFileName,ParamStr(3),Request),
-          'The real updater did not pass the pending packing request to the successor');
-        Collection:=SystemDB.GetCollection(Request.SourceID);
-        Request.CheckIdentity(Collection.GetProperty(PROP_DATAFILE),Collection.CollectionRoot,Collection.CollectionID);
-        Require(SameFileName(Request.OutputRoot,Destination) and (Request.Inpx='') and
-          (Request.ImageProfile=pipMaximum) and Request.ImageGrayscale,'Restart changed destination or image profile');
-        Application.CreateForm(TForm,ReviewParent);
+        SourceID:=Settings.ActiveCollection;
+        Collection:=SystemDB.GetCollection(SourceID);
+        Require(Collection.CollectionDisplayName='Packing restart source',
+          'Restart lost the active source collection');
         Options:=Default(TCollectionPackingOptions);
-        Options.CatalogFile:=Request.CatalogFile; Options.SourceRoot:=Request.SourceRoot;
-        Options.SourceID:=Request.SourceID; Options.OutputRoot:=Request.OutputRoot;
+        Options.CatalogFile:=Collection.GetProperty(PROP_DATAFILE);
+        Options.SourceRoot:=Collection.CollectionRoot;
+        Options.SourceID:=SourceID;
+        Options.OutputRoot:=Destination;
         Options.PersonalFile:=Settings.SystemFileName[sfSystemDB];
         Options.DisplayName:='Packed after component restart';
-        Options.ImageProfile:=Request.ImageProfile; Options.ImageGrayscale:=Request.ImageGrayscale;
+        Options.ImageProfile:=pipMaximum;
+        Options.ImageGrayscale:=True;
         Require((Length(ResolvePackingTools(Folder,Options))=0) and FileExists(Options.Script) and
           SameFileName(Options.Script,TPath.Combine(Folder,PACKING_WORKER_FILE)),
           'Packing worker was not installed as part of BookProcessing');
-        Dialog:=TfrmCollectionPackingProgress.Create(ReviewParent);
-        Probe:=TPackingReviewProbe.Create;
+        InitLocalization;
+        TfrmMain.DeferInitialCollection:=True;
+        Application.CreateForm(TdmImages,dmImages);
+        dmImages.ApplyThemeIcons;
+        frmSplash:=TfrmSplash.Create(Application);
+        Probe:=TPackingStartupReviewProbe.Create;
         Timer:=TTimer.Create(nil);
         try
-          Probe.Dialog:=Dialog; Probe.Cancel:=True; Probe.CheckFreshOutput:=True;
+          Probe.Cancel:=True; Probe.CheckFreshOutput:=True;
           Probe.OutputRoot:=Destination; Probe.ExpectedBooks:=1;
           Timer.Interval:=20; Timer.OnTimer:=Probe.Tick;
-          try
-            Snapshot:=Dialog.Execute(Options,True);
-            Snapshot.Free;
-            Require(False,'Packing ran without accepting the restored review');
-          except on E:EAbort do ; end;
+          Application.CreateForm(TfrmMain,frmMain);
+          Probe.Main:=frmMain;
+          Require(Assigned(frmMain.FindComponent('miPackCollection')),
+            'Normal catalogue menu has no packing command');
+          frmSplash.Hide;
+          frmMain.Show;
+          frmMain.Update;
+          frmMain.StartInitialCollectionLoad;
+          Started:=GetTickCount64;
+          while not Probe.SawEstimate or frmMain.StartupLoading or
+            Assigned(frmMain.FindComponent('CollectionPackingProgress')) do
+          begin
+            Application.ProcessMessages; CheckSynchronize(2); Sleep(5);
+            Require(GetTickCount64-Started<60000,
+              'Normal startup did not restore and cancel the packing review');
+          end;
           Require(Probe.SawEstimate,'Restored packing review was not shown');
-        finally Timer.Free; Probe.Free; Dialog.Free; ReviewParent.Free; end;
+        finally
+          Timer.Free; Probe.Free;
+          FreeAndNil(frmMain); FreeAndNil(frmSplash); FreeAndNil(dmImages);
+        end;
         Require(not TakePackingContinuation(Settings.SettingsFileName,ParamStr(3),Request) and
           not DirectoryExists(TPath.Combine(Destination,'archives')) and
           (UpdateSHA256(Source)=UpdateSHA256(Folder+'module-source.fb2')),
@@ -103,7 +141,7 @@ begin
         Required:=ResolvePackingTools(Folder,Options);
         Require((Length(Required)=1) and (Required[0]='BookProcessing') and ComponentNeedsRepair(Folder,'BookProcessing'),
           'A corrupt installed worker must offer same-version BookProcessing repair');
-        TFile.WriteAllText(Report,'PASS compact packing download actual installer restart restores selected profile and canceled review'+
+        TFile.WriteAllText(Report,'PASS compact packing download actual installer restart restores selected profile and canceled review through normal catalogue startup'+
           sLineBreak+IntToStr(GetCurrentProcessId),TEncoding.UTF8);
         Exit;
       end;
@@ -128,6 +166,9 @@ begin
       BookID:=AddBook(Collection,'Packing restart book','Fixture author','ru','','prose_contemporary');
       Collection.GetBookRecord(CreateBookKey(BookID,SourceID),Book,True);
       Book.FileName:='sample'; Book.FileExt:='.fb2'; Collection.UpdateBook(Book);
+      Settings.ActiveCollection:=SourceID;
+      Settings.ActivePage:=PAGE_AUTHORS;
+      Settings.SaveSettings;
       Request:=Default(TCollectionPackingRequest);
       Request.SourceID:=SourceID; Request.CatalogFile:=Collection.GetProperty(PROP_DATAFILE);
       Request.SourceRoot:=Collection.CollectionRoot; Request.OutputRoot:=Destination;

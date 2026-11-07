@@ -5540,5 +5540,20 @@
     "limits": "Anonymous Librusec book requests currently return an HTML page with a login form. The native downloader withheld it and left the record unavailable locally. Importing the public catalogue is verified. Access to actual books remains dependent on the publisher/session and existing connection settings.",
     "cleanup": "Every new live-download, first-use, regression and generated-package fixture from this completion pass was removed by its own runner. No Android emulators or test application processes remain. Previously denied directories from older passes have not been retried.",
     "test_harness_corrections": "Early first-use attempts failed because the new include had no UTF8 BOM, the assertion expected a plural component button for a single component, and the successor fixture omitted the production startup call. Those fixture errors were corrected before the final x86/x64 passes. They are not successful installation evidence."
+  },
+  "collection_packing_normal_startup_20261107": {
+    "status": "Actual native component installation, catalogue startup dispatch, restored review cancellation and subsequent packing passed on x86 and x64. Final public release-package verification remains open.",
+    "change": "Strengthened the existing packing restart regression. The successor no longer consumes the continuation and manually opens a packing form. It starts the ordinary deferred main catalogue form, checks that the packing menu exists, and allows the production startup handler to restore the request. The owned probe waits for the real place estimate and cancels it.",
+    "proof": "Both architectures installed freshly built BookProcessing and ImageProcessing 3.0.0.5 through the compact prompt and the actual update helper. The restored review showed maximum savings and grayscale. No archive was published before approval. The request could not be consumed a second time. The following accepted packing operation used the installed worker, registered a distinct collection and returned exact text-only FB2 bytes. Corrupting the installed worker required repair of only BookProcessing. No Kindle, Office, PDF, DjVu or JPEG XL module was installed.",
+    "logs": [
+      "tools/ui/tests/Out/packing-firstuse-Win32.log",
+      "tools/ui/tests/Out/packing-firstuse-Win64.log"
+    ],
+    "test_binary_sha256": {
+      "Win32": "594d3a054190dd208f277de9c892a61f7ee8cefd9ae2924d41d1934b2b406ebe",
+      "Win64": "83ceb106360487c1dd53d9f2088fb8a25bb1efea5c9b7f256a5d95da86fbb49a"
+    },
+    "limits": "The network transport was the existing local test server and 7-Zip was already present in the isolated fixture. The successor uses the production main form and startup handler inside the native regression EXE. The final minimal archive menu, real public module feed, fully missing archive-tool choice, and the first physical source-folder/profile pickers still need release-candidate verification.",
+    "cleanup": "Both fresh package staging directories and native profiles were removed by their runners. No test processes or Android emulators remain. Previously denied directories were not retried."
   }
 }
