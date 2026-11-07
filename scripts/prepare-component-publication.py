@@ -74,11 +74,12 @@ def main():
     bootstrap = entries(json.loads((ROOT / 'Installer/Components.json').read_bytes()))
     identity = json.loads((ROOT / 'Installer/Release.json').read_bytes())
     source_verifier = runpy.run_path(str(ROOT / 'scripts/package-kfx-export-source.py'))
-    source = args.kfx_source.resolve(strict=True)
-    assert source.name == source_verifier['ARCHIVE'], 'Unexpected KFX source archive name'
-    source_verifier['verify'](source)
-    source_asset = dict(name=source.name, size=source.stat().st_size,
-                        digest='sha256:' + digest(source.read_bytes()), browser_download_url=PREFIX + source.name)
+    kfx_source = args.kfx_source.resolve(strict=True)
+    assert kfx_source.name == source_verifier['ARCHIVE'], 'Unexpected KFX source archive name'
+    source_verifier['verify'](kfx_source)
+    source_asset = dict(name=kfx_source.name, size=kfx_source.stat().st_size,
+                        digest='sha256:' + digest(kfx_source.read_bytes()),
+                        browser_download_url=PREFIX + kfx_source.name)
     expected = {(component, platform) for component in OWNED | {'DjVuLibre'} for platform in ('Win32', 'Win64')}
     replacement, uploads, checked = {}, [], []
     new_names = set()
@@ -120,12 +121,12 @@ def main():
                 if key[0] == 'HomeLibReader':
                     assert 'libzstd.dll' not in payload_names, 'Reader package must not bundle Zstandard'
                     current = ROOT / 'Utils/HomeLibReader/Out' / key[1] / 'HomeLibReader.exe'
-                    for source in (ROOT / 'Program/Units/unit_BookSendOptions.pas',
-                                   ROOT / 'Program/Units/unit_Settings.pas',
-                                   ROOT / 'Program/Forms/frm_ReaderHost.pas',
-                                   ROOT / 'Program/Forms/frm_BuiltinReader.pas'):
-                        assert current.stat().st_mtime_ns >= source.stat().st_mtime_ns, (
-                            'Rebuild current Reader after source changes: ' + str(source))
+                    for reader_source in (ROOT / 'Program/Units/unit_BookSendOptions.pas',
+                                          ROOT / 'Program/Units/unit_Settings.pas',
+                                          ROOT / 'Program/Forms/frm_ReaderHost.pas',
+                                          ROOT / 'Program/Forms/frm_BuiltinReader.pas'):
+                        assert current.stat().st_mtime_ns >= reader_source.stat().st_mtime_ns, (
+                            'Rebuild current Reader after source changes: ' + str(reader_source))
                     assert archive.read('HomeLibReader.exe') == current.read_bytes(), (
                         'Reader archive does not match current executable: ' + str(path))
                 if key[0] == 'KfxExport':
@@ -145,9 +146,9 @@ def main():
                                 archive_sha256=digest(data), managed_files=len(payload_names)))
     assert set(replacement) == expected
     identical_archive_count = len(checked) - len(uploads)
-    previous_source = old_assets.get(source.name)
+    previous_source = old_assets.get(kfx_source.name)
     if previous_source is None:
-        uploads.insert(0, dict(path=str(source), **source_asset))
+        uploads.insert(0, dict(path=str(kfx_source), **source_asset))
     else:
         assert all(previous_source[key] == value for key, value in source_asset.items()), (
             'Existing corresponding source must remain available unchanged')

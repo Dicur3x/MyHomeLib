@@ -5991,5 +5991,18 @@
     },
     "cleanup": "The six native profiles were removed by their runners. The Reader smoke removed 32,106,703 bytes from its own disposable root and retained its compact beta5-reader-portable-state.json report. No screenshots were taken.",
     "remaining": "Complete production end-to-end and public delivery gates. A host CPU sample showed 100 percent during this turn; it is not valid evidence of candidate performance. No release or component was uploaded."
+  },
+  "beta5_publication_rehearsal_20261107": {
+    "status": "Local publication rehearsal passed for the exact beta 5 candidate. No files were uploaded. Beta 4 is still the public release.",
+    "plan": "Use publication-r4 under the beta 5 candidate stage. The first rehearsal exposed a reused path variable that selected a Delphi source file for the KFX source archive. The corrected plan selects the actual source ZIP. The probe now verifies the name, byte count and SHA-256 of each planned upload, and rejects the original plan before any upload.",
+    "checks": "The current native updater downloaded and verified both published beta 4 catalogue ZIPs over HTTPS. In the beta 5 rehearsal, the GitHub responses were simulated with the exact candidate bytes. The two native parsers each accepted 23 applicable feed entries. The probe verified and prepared 28 optional packages with the appropriate native installer, plus independently verified the matching KFX source archive.",
+    "reports": {
+      "public-beta4-core-rehearsal.json": "1356dc816f38875b90fff241efe40aeb131ab969929185ff412b4cc63a02cccd",
+      "native-feed-verification-r4.json": "aa7c2dc92b8cedb70799c6dfb4d5e859afd862af6338bb72485d22b4d0bb11f7",
+      "local-candidate-public-probe-r4.json": "0e7349a2a437bf8e31c19e87705de9c811f646e0eaa840eb8c16ca149d5e7e0c",
+      "rejected-old-upload-path.json": "c68240330be492595e7dcc3ee0d53b15560bbf7cd83df4e668f2329559053448"
+    },
+    "cleanup": "Both successful delivery probes verified cleanup of their download and preparation fixtures. Candidate packages, publication inputs and compact reports were retained.",
+    "remaining": "Verify the ordinary update and first-use flows through the public beta 5 channel during release. Repeat representative final catalogue and reader checks. No comparable performance measurement was taken in this pass: host CPU samples were 94 to 99 percent and the working catalogue had open SQLite sidecars with an empty WAL."
   }
 }

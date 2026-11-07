@@ -9,11 +9,13 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import re
+import runpy
 import subprocess
 import tempfile
 import urllib.request
 import zipfile
+
+from component_publication_probe import component_ids
 
 
 def check_core(args, repo, cache, get):
@@ -138,9 +140,8 @@ def main():
                 if entry['id'] == 'HomeLibReader':
                     entry = entry.get('minimal_reader', entry)
                 entries[entry['archive']] = entry
-            component_ids = re.findall(r"\(ID:'([^']+)'", (repo /
-                'Program/Units/unit_ComponentUpdates.pas').read_text(encoding='utf-8-sig'))
-            assert component_ids and len(component_ids) == len(set(component_ids))
+            ids = component_ids(repo)
+            version = json.loads((repo / 'Installer/Release.json').read_bytes())['version']
 
             def run(platform, *parameters):
                 native = repo / f'Program/Tests/Out/{platform}/ProgramUpdateInstallerTest.exe'
@@ -151,11 +152,11 @@ def main():
                 return completed.stdout.strip()
 
             for platform in ('Win32', 'Win64'):
-                result = run(platform, '--components', feed, plan['release_tag'], remote, '2.7.0.1105', '--partial')
+                result = run(platform, '--components', feed, plan['release_tag'], remote, version, '--partial')
                 values = json.loads(result.removesuffix('PASS').strip())
-                assert len(values) == len(component_ids) * 3
+                assert len(values) == len(ids) * 3
                 parsed = {component: (values[index * 3], values[index * 3 + 1])
-                          for index, component in enumerate(component_ids)}
+                          for index, component in enumerate(ids)}
                 expected = [entry for entry in entries.values() if entry['platform'] == platform]
                 assert expected and len(expected) == len({entry['id'] for entry in expected})
                 prefix = f"https://github.com/Dicur3x/MyHomeLib/releases/download/{plan['release_tag']}/"
@@ -170,13 +171,19 @@ def main():
                 assert len(data) == item['size'] and 'sha256:' + digest(data) == item['digest']
                 archive = root / item['name']
                 archive.write_bytes(data)
-                with zipfile.ZipFile(archive) as package:
-                    assert package.testzip() is None
-                entry = entries[item['name']]
-                result = run(entry['platform'], '--prepare-component', archive, digest(data),
-                    plan['release_tag'], root / ('job-' + archive.stem), entry['id'], entry['version'])
-                report['archives'].append(dict(name=item['name'], asset_id=asset['id'],
-                    size=len(data), sha256=digest(data), native_prepare=result))
+                verification = dict(name=item['name'], asset_id=asset['id'], size=len(data), sha256=digest(data))
+                if archive.name in entries:
+                    with zipfile.ZipFile(archive) as package:
+                        assert package.testzip() is None
+                    entry = entries[archive.name]
+                    verification['native_prepare'] = run(entry['platform'], '--prepare-component', archive, digest(data),
+                        plan['release_tag'], root / ('job-' + archive.stem), entry['id'], entry['version'])
+                else:
+                    verifier = runpy.run_path(str(repo / 'scripts/package-kfx-export-source.py'))
+                    assert archive.name == verifier['ARCHIVE'], 'Unexpected archive outside the component feed'
+                    verifier['verify'](archive)
+                    verification['corresponding_source_verified'] = True
+                report['archives'].append(verification)
                 print('PASS', item['name'], flush=True)
             assert len(report['archives']) == len(plan['upload_before_feed'])
         report.update(status='PASS', temporary_downloads_removed=not root.exists())

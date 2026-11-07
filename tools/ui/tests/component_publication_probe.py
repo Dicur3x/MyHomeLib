@@ -30,6 +30,17 @@ def run(command):
                           creationflags=subprocess.CREATE_NO_WINDOW)
 
 
+def component_ids(root):
+    source = root / 'Program/Units/unit_ComponentUpdates.pas'
+    installer = root / 'Program/Units/unit_ProgramUpdateInstaller.pas'
+    constants = dict(re.findall(r"(?m)^\s*([A-Z][A-Z0-9_]+)\s*=\s*'([^']+)';",
+                                installer.read_text(encoding='utf-8-sig')))
+    ids = [literal or constants[constant] for literal, constant in re.findall(
+        r"\(ID:(?:'([^']+)'|([A-Z][A-Z0-9_]+));", source.read_text(encoding='utf-8-sig'))]
+    assert ids and len(ids) == len(set(ids))
+    return ids
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('stage', type=Path)
@@ -45,12 +56,7 @@ def main():
     stage = args.stage.resolve()
     publication = args.publication_dir.resolve() if args.publication_dir else stage / 'publication-r1'
     source = ROOT / 'Program/Units/unit_ComponentUpdates.pas'
-    installer = ROOT / 'Program/Units/unit_ProgramUpdateInstaller.pas'
-    constants = dict(re.findall(r"(?m)^\s*([A-Z][A-Z0-9_]+)\s*=\s*'([^']+)';",
-                                installer.read_text(encoding='utf-8-sig')))
-    component_ids = [literal or constants[constant] for literal, constant in re.findall(
-        r"\(ID:(?:'([^']+)'|([A-Z][A-Z0-9_]+));", source.read_text(encoding='utf-8-sig'))]
-    assert component_ids and len(component_ids) == len(set(component_ids))
+    ids = component_ids(ROOT)
     version = json.loads((ROOT / 'Installer/Release.json').read_bytes())['version']
     bootstrap = json.loads((ROOT / 'Installer/Components.json').read_bytes())['components']
     feed_path = publication / 'HomeLibRu.components.json'
@@ -63,6 +69,14 @@ def main():
                   test_source_sha256=sha(ROOT / 'Program/Tests/ProgramUpdateInstallerTest.dpr'),
                   native_checks=[], temporary_payloads_removed=False)
     try:
+        plan_path = publication / 'publication-plan.json'
+        plan = json.loads(plan_path.read_bytes())
+        for upload in plan['upload_before_feed']:
+            payload = Path(upload['path'])
+            assert payload.name == upload['name'], 'Upload path points to a different file: ' + upload['name']
+            assert payload.stat().st_size == upload['size'] and 'sha256:' + sha(payload) == upload['digest'], (
+                'Upload path bytes differ from the verified archive: ' + upload['name'])
+        report['upload_paths_and_hashes_verified'] = True
         with tempfile.TemporaryDirectory(prefix='HomeLibRu-update-test-feed-') as temporary:
             runtime = Path(temporary).resolve()
             assert runtime.parent == Path(os.environ['TEMP']).resolve()
@@ -75,9 +89,9 @@ def main():
                 lines = result.stdout.strip().splitlines()
                 assert lines[-1] == 'PASS'
                 parsed = json.loads(lines[0])
-                assert len(parsed) == len(component_ids) * 3
+                assert len(parsed) == len(ids) * 3
                 actual = {component: (parsed[index * 3], parsed[index * 3 + 1])
-                          for index, component in enumerate(component_ids)}
+                          for index, component in enumerate(ids)}
                 expected = [entry for entry in feed['components'] if entry['platform'] == platform]
                 assert sorted(entry['id'] for entry in expected) == sorted(
                     entry['id'] for entry in bootstrap if entry['platform'] == platform)
