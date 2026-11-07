@@ -69,7 +69,10 @@ def main():
     parser.add_argument('--state', type=Path, required=True)
     parser.add_argument('--platform', choices=('Win32', 'Win64'))
     parser.add_argument('--package', type=Path)
-    parser.add_argument('--expected-module-version', help='Require this version of both downloaded modules')
+    versions = parser.add_mutually_exclusive_group()
+    versions.add_argument('--expected-module-version', help='Require this version of both downloaded modules')
+    versions.add_argument('--expected-module-versions', nargs=2, metavar=('BOOK_PROCESSING', 'IMAGE_PROCESSING'),
+                          help='Require independent versions for the two downloaded modules')
     parser.add_argument('--candidate-exe', type=Path, required=False,
                         help='Development override, explicitly recorded; not a published-archive claim')
     args = parser.parse_args()
@@ -119,7 +122,7 @@ def main():
         state['runs'].append(dict(platform=args.platform, app=str(app), original_pid=process.pid,
             package_sha256=sha(args.package), reader_exe_sha256=sha(app / 'HomeLibReader.exe'),
             candidate_exe=str(candidate) if candidate else None, before=before, checked=False,
-            expected_module_version=args.expected_module_version))
+            expected_module_version=args.expected_module_version, expected_module_versions=args.expected_module_versions))
         state['stage'] = 'waiting-for-real-Save-As-GUI'
     elif args.action == 'inspect':
         print(json.dumps(dict(active=active, runtime_files=[str(file.relative_to(root)) for file in root.rglob('*')
@@ -143,6 +146,9 @@ def main():
         if expected_version := run.get('expected_module_version'):
             actual_versions = {part['version'] for part in manifest['bundle']}
             assert actual_versions == {expected_version}, (expected_version, actual_versions)
+        if expected_versions := run.get('expected_module_versions'):
+            actual_versions = {part['component']: part['version'] for part in manifest['bundle']}
+            assert actual_versions == dict(zip(('BookProcessing', 'ImageProcessing'), expected_versions)), actual_versions
         assert sha(job / 'release.zip') == ready['sha256']
         assert all(not (app / 'tools' / folder).exists() for folder in ('bookconvert', 'images'))
         plan = json.loads((app / 'HomeLibReader.ini.pending-save.jsonl').read_text(encoding='utf-8-sig').splitlines()[0])
