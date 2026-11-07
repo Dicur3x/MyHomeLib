@@ -5901,7 +5901,9 @@
     "existing_fb2_route": "Commit 4b7e3bab rejects truncated KFX/AZW8 containers by checking the descriptor bounds, Ion version marker and the first entity signature. Four saved outputs from the two fb2cng architectures passed. The broader regression suite ran 303 cases, with 300 passing and three optional writer tests skipped. The repeat used the verified Kindling runtimes after the initial run reported their missing fixture path.",
     "local_build": "Portable Rust 1.99.1 built a Windows x64 candidate, but the resulting EXE failed to start in the test harness. The next build tries static linking and uses the existing Delphi LLVM tool to generate import libraries. It checks the Win32 binary first. Earlier probe and build directories were removed by their runners.",
     "svg_limit": "Inline SVG and SVG wrappers for raster images are silently omitted by the official engine. A standalone SVG survives its own KFX to EPUB round trip, but the engine marks the original SVG bytes as JPEG inside KFX. The same placeholder is used for WebP. This is not evidence that Kindle can render those images.",
-    "remaining": "Test an explicit compatibility preparation or a renderer that writes correct Kindle image resources before using the candidate. Confirm architecture, licensing and packaging before any user-facing integration. No change to supported HomeLibre export routes or published downloads.",
+    "native_followup": "Both patched Boko binaries built with Rust 1.99.1, rust-lld in GNU mode, the bundled target libraries and LLVM dlltool. The real Windows EXEs passed EPUB 2 NCX, EPUB 3 nav and DOCX-derived EPUB with a prefixed container. Nested contents, chapter anchors, notes, table cells, styled text, PNG and embedded font passed. Explicit AZW8 opened as KFX in the test parser. Win32 was run on the same Windows x64 host. The working binary SHA256 was e8081eea1d64df3c35fb2bef4db2b691dbcbe6eb25322e7295c2bc5332f97faf for x86 and f1e5743b5fc101d98cd9f88f4738ca99c4c228874ab595d2cd5de975dcde803b for x64.",
+    "image_followup": "The private EPUB preparation turns supported static standalone SVG, inline SVG and SVG wrappers for local PNG/JPEG into PNG without modifying the source book. Tests verify stored resource types, chapter references, colors, transparency, retained links and exact output image bytes. EPUBCheck 5.4.0 accepted the prepared EPUB with zero errors or warnings. A dedicated local resvg 0.49.0 build and the patched Boko completed the full graphics check as Win32 EXEs. The renderer SHA256 was eafb00ead5f728355a44d8fee921013abd91490e26e04aa39caed9f10a8a092c. The Win64 graphics check used official resvg and official Boko with a normalized private EPUB. Three Python tests cover file and network reference rejection, signatures, adjacent text and unchanged source. Temporary build and test directories were removed.",
+    "remaining": "Wire and package the optional direct KFX/AZW8 route in HomeLibre. Add bounded rendering and clear output notices. Handle WebP and decide how to handle SVG text, advanced styling and unsupported fixed layout before advertising compatibility. Test exact x86 and x64 production components through Save As. Physical Kindle rendering is unverified. No supported HomeLibre export routes or published downloads changed.",
     "logs": {
       "kfx-boko-v060-probe-20261107.log": "2c2e6dc83fe8d0cf5c6ce2f02af89480186914d39dd87355f21b1da5fa2f6700",
       "kfx-boko-v060-normalized-20261107.log": "1dc5bf9ac5b2d8e12bd7d1f120a7a90ff867a1f60c023b7969706bdd95af420c",
@@ -5909,7 +5911,10 @@
       "kfx-boko-inline-svg-20261107.log": "cdd10c5e78a0dfe75b23e46bdcba40803146c17af062faa0bd1be4c6e93c2461",
       "kfx-boko-acceptance-harness-20261107.log": "bce109d3afe6a0d3d217cb1e992cd6da542c8977687ef6089a77aba64b482ab7",
       "kfx-boko-native-build-20261107-r4.log": "293e8fe0b20e5c4a50dd9f715d06393f4ae9f64fe3db0fb8b3da9eafbc86140c",
-      "kfx-bookconvert-20261107-r2.log": "6de30318965056185b6586593ec40e4d26ae495c2e3a14c3d3f0b2a70c59e9e8"
+      "kfx-bookconvert-20261107-r2.log": "6de30318965056185b6586593ec40e4d26ae495c2e3a14c3d3f0b2a70c59e9e8",
+      "kfx-boko-native-build-20261107-r7.log": "0f942b4e4efa9b86381b13e6f85663f07276bad066f6bd23073aa33d80e6f0ce",
+      "kfx-svg-adapter-epubcheck-20261107-r3.log": "3669ccc25a7f289e24ce34d794b55a99a0605f1763c6971c71db79b7c7d4a2ee",
+      "kfx-resvg-native-x86-20261107.log": "097079767ac227937bc11b4b1a3f447e1137d7a8141d0d463b569e2d7d55c84c"
     }
   }
 }
