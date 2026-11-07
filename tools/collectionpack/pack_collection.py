@@ -2,7 +2,7 @@
 
 The application supplies an immutable SQLite plan, never a live user database.
 The default preserves book bytes. Optional illustration profiles use the
-HomeLibre export processor before packaging eligible FB2 and EPUB copies.
+HomeLibre export processor for FB2 and EPUB and can reduce layered DjVu scans.
 """
 from __future__ import annotations
 
@@ -38,6 +38,7 @@ BLOCK = 256 * 1024
 ARCHIVE_SUFFIXES = {'.zip', '.7z', '.rar', '.tar', '.gz', '.bz2', '.xz'}
 TEXT_SUFFIXES = {'.fb2', '.txt', '.rtf', '.html', '.htm', '.xml', '.md', '.csv'}
 IMAGE_SUFFIXES = {'.fb2', '.epub'}
+DJVU_SUFFIXES = {'.djvu', '.djv', '.dju', '.djm', '.djvm'}
 IMAGE_ENGINES = ('illustrations-ppmd', 'illustrations-gray-ppmd')
 JPEG_XL_ENGINE = 'jpeg-xl-7z'
 FB2_NAMESPACE = 'http://www.gribuser.ru/xml/fictionbook/2.0|'
@@ -54,6 +55,9 @@ PDF_JPEG_LIMIT = 256
 PDF_MAP_LIMIT = 128 * 1024 * 1024
 PDF_WHITESPACE = b'\x00\t\n\f\r '
 PDF_JPEG_STREAM = re.compile(rb'(?<=[\x00\t\n\f\r >])stream(?:\r\n|[\r\n])(?=\xff\xd8\xff)')
+DJVU_LIMIT = 128 * 1024 * 1024
+DJVU_MIN_SAVINGS = 16 * 1024
+DJVU_MIN_BACKGROUND_SLICES = 87
 
 
 class PackingError(ValueError):
@@ -240,6 +244,130 @@ def pdf_jpeg_ranges(pdf, check):
         if PDF_JPEG_MIN <= end - start <= PDF_JPEG_MAX and trimmed.endswith(b'\xff\xd9'):
             yield start, end
             offset = terminator + len(b'endstream')
+
+
+def iff_chunks(data, start, end, check):
+    while start < end:
+        check()
+        if end - start < 8:
+            raise ValueError('truncated IFF header')
+        size = struct.unpack_from('>I', data, start + 4)[0]
+        payload = start + 8
+        limit = payload + size
+        if limit > end:
+            raise ValueError('truncated IFF payload')
+        yield data[start:start + 4], payload, limit
+        start = limit + (size & 1)
+
+
+def djvu_page_refinement(data, start, end, check):
+    chunks = iff_chunks(data, start, end, check)
+    info = next(chunks, None)
+    if info is None or info[0] != b'INFO' or info[2] - info[1] < 10:
+        return None
+    width, height = struct.unpack_from('>HH', data, info[1])
+    wavelets = []
+    has_mask = False
+    for kind, payload, limit in chunks:
+        if kind == b'Sjbz':
+            if has_mask or limit == payload:
+                return None
+            has_mask = True
+        elif kind == b'BG44':
+            if len(wavelets) == 256:
+                return None
+            wavelets.append((payload, limit))
+        elif kind in (b'BGjp', b'BG2k', b'HLbg'):
+            # Another background representation, or an already optimized page.
+            return None
+    if not has_mask or len(wavelets) < 2:
+        return None
+    first, limit = wavelets[0]
+    if limit - first < 9 or data[first + 2] & 0x7f != 1:
+        return None
+    bg_width, bg_height = struct.unpack_from('>HH', data, first + 4)
+    if not (0 < bg_width <= (width + 1) // 2 and 0 < bg_height <= (height + 1) // 2):
+        return None
+    slices = 0
+    for serial, (payload, limit) in enumerate(wavelets):
+        if limit - payload < 3 or data[payload] != serial or not data[payload + 1]:
+            return None
+        slices += data[payload + 1]
+    payload, limit = wavelets[-1]
+    if slices - data[payload + 1] < DJVU_MIN_BACKGROUND_SLICES:
+        return None
+    return payload - 8, payload, limit
+
+
+def djvu_refinements(data, check):
+    if data[:8] != b'AT&TFORM' or len(data) < 16:
+        return []
+    try:
+        form, = iff_chunks(data, 4, len(data), check)
+        _, payload, limit = form
+        kind = data[payload:payload + 4]
+        if kind == b'DJVU':
+            region = djvu_page_refinement(data, payload + 4, limit, check)
+            return [region] if region else []
+        if kind != b'DJVM':
+            return []
+        components = iff_chunks(data, payload + 4, limit, check)
+        directory = next(components, None)
+        if not directory or directory[0] != b'DIRM' or directory[2] - directory[1] < 3:
+            return []
+        start, end = directory[1:]
+        if data[start] != 0x81:  # Bundled DjVu 3, directory version 1.
+            return []
+        count = struct.unpack_from('>H', data, start + 1)[0]
+        if count == 0 or start + 3 + count * 4 >= end:
+            return []
+        offsets = {struct.unpack_from('>I', data, offset)[0]
+                   for offset in range(start + 3, start + 3 + count * 4, 4)}
+        if len(offsets) != count:
+            return []
+        ranges = []
+        for chunk, start, end in components:
+            if chunk == b'FORM':
+                offsets.remove(start - 8)
+                if data[start:start + 4] == b'DJVU':
+                    region = djvu_page_refinement(data, start + 4, end, check)
+                    if region:
+                        ranges.append(region)
+        return [] if offsets else ranges
+    except Canceled:
+        raise
+    except (KeyError, struct.error, ValueError):
+        return []
+
+
+def djvu_blocks(data, start, end):
+    for offset in range(start, end, BLOCK):
+        yield data[offset:min(offset + BLOCK, end)]
+
+
+def djvu_candidate_blocks(data, ranges):
+    start = 0
+    zeroes = bytes(BLOCK)
+    for header, payload, end in ranges:
+        yield from djvu_blocks(data, start, header)
+        # IFF permits readers to skip unrecognized chunks. Retaining the
+        # length keeps DIRM offsets, page metadata and other chunks intact.
+        yield b'HLbg' + data[header + 4:payload]
+        for offset in range(payload, end, BLOCK):
+            yield zeroes[:min(BLOCK, end - offset)]
+        start = end
+    yield from djvu_blocks(data, start, len(data))
+
+
+def deflate_size(blocks, check, output=None):
+    encoder = zlib.compressobj(wbits=-15)
+    size = 0
+    for block in blocks:
+        check()
+        size += len(encoder.compress(block))
+        if output is not None:
+            output.write(block)
+    return size + len(encoder.flush())
 
 
 def write_pdf_range(pdf, output, start, end, check):
@@ -497,7 +625,33 @@ class Packer:
             self.check()
         self.converter = converter
 
-    def optimize_book(self, target, stage):
+    def optimize_djvu(self, target, stage, entry):
+        size = target.stat().st_size
+        if not 0 < size <= DJVU_LIMIT:
+            return dict(image_result='skipped')
+        candidate = stage / 'image-candidate.djvu'
+        try:
+            with target.open('rb') as stream, mmap.mmap(stream.fileno(), 0, access=mmap.ACCESS_READ) as data:
+                ranges = djvu_refinements(data, self.check)
+                if sum(end - payload for _, payload, end in ranges) < DJVU_MIN_SAVINGS:
+                    return {}
+                reserve_space(stage, size)
+                baseline = min(size, deflate_size(djvu_blocks(data, 0, size), self.check))
+                if entry is not None:
+                    baseline = min(baseline, entry.compress_size)
+                with candidate.open('xb') as output:
+                    packed = deflate_size(djvu_candidate_blocks(data, ranges), self.check, output)
+                if baseline - packed < max(DJVU_MIN_SAVINGS, baseline // 100):
+                    return {}
+                original_sha256 = digest_file(target, self.check)
+            candidate.replace(target)
+            return dict(image_result='optimized', original_sha256=original_sha256)
+        finally:
+            candidate.unlink(missing_ok=True)
+
+    def optimize_book(self, target, stage, entry=None):
+        if self.images == 'maximum' and target.suffix in DJVU_SUFFIXES:
+            return self.optimize_djvu(target, stage, entry)
         if self.converter is None or target.suffix not in IMAGE_SUFFIXES:
             return {}
         size = target.stat().st_size
@@ -987,15 +1141,16 @@ class Packer:
                         with target.open('rb') as document:
                             if document.read(len(PACKED_PDF_MAGIC)) == PACKED_PDF_MAGIC:
                                 keep_source = True
-                    image_result = {} if keep_source else self.optimize_book(target, stage)
+                    image_result = {} if keep_source else self.optimize_book(target, stage, entry)
                     mappings[locator] = dict(filename=Path(name).stem, ext=extension, inside_no=-1, **image_result,
                                              **book_signature(target, self.check))
-                    # PDF, DjVu and container formats may still benefit from
-                    # outer ZIP compression. The original ZIP directory tells
-                    # us when it paid off without scanning or decoding again.
+                    # A reduced DjVu needs Deflate to compress its padding.
+                    # For other binary books, reuse the original ZIP's size
+                    # information without scanning or decoding again.
                     if extension in TEXT_SUFFIXES:
                         method = 'PPMd'
-                    elif entry is not None and entry.compress_size + 256 < entry.file_size:
+                    elif ((extension in DJVU_SUFFIXES and image_result.get('image_result') == 'optimized') or
+                          (entry is not None and entry.compress_size + 256 < entry.file_size)):
                         method = 'Deflate'
                     else:
                         method = 'Copy'

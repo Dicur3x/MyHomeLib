@@ -8,7 +8,7 @@ const
   // Older BookProcessing remains valid for ordinary conversion. Packing
   // needs the current worker; keep its path in the existing module namespace.
   PACKING_COMPONENT_VERSION = '3.0.0.5';
-  PACKING_PDF_COMPONENT_VERSION = '3.0.0.7';
+  PACKING_USR_COMPONENT_VERSION = '3.0.0.7';
   PACKING_WORKER_FILE = 'tools/bookconvert/pack_collection.py';
   SQL_CATALOGUE_WORKER = 'tools/bookconvert/catalogdump/build_index.py';
   SQL_DUMP_PARSER = 'tools/bookconvert/catalogdump/mysql_dump.py';

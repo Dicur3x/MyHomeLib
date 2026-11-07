@@ -4650,7 +4650,8 @@ begin
         pipOriginal: Button.CommandLinkHint:='Сохранить содержимое книг и качество изображений.';
         pipBalanced: Button.CommandLinkHint:='Уменьшить размер крупных иллюстраций с умеренным сжатием.';
         pipEconomy: Button.CommandLinkHint:='Сжать иллюстрации сильнее. Размер и детализация могут уменьшиться.';
-        pipMaximum: Button.CommandLinkHint:='Сильнее уменьшить крупные иллюстрации. Мелкие детали могут стать хуже видны.';
+        pipMaximum: Button.CommandLinkHint:='Сильнее уменьшить крупные иллюстрации и детализацию фона '+
+          'подходящих сканов DjVu. Мелкие детали могут стать хуже видны.';
         pipJpegXL: Button.CommandLinkHint:='Сжать подходящие JPEG в FB2, EPUB и PDF с побайтовым восстановлением. '+
           'Упаковка может занять больше времени.';
       end;

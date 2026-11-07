@@ -19,7 +19,7 @@ import zlib
 from xml.etree import ElementTree
 
 from pack_collection import (API_VERSION, Canceled, JPEG_XL_ENGINE, JpegXL, PACKED_PDF_HEADER,
-                             PACKED_PDF_MAGIC, PACKED_PDF_PART, Packer, PackingError)
+                             PACKED_PDF_MAGIC, PACKED_PDF_PART, Packer, PackingError, djvu_refinements)
 
 SEVEN = Path(os.environ.get('HLRU_PACK_7ZIP', '../../Program/Out/Bin64/tools/7zip/7za.exe')).absolute()
 IMAGE_TOOLS = os.environ.get('HLRU_PACK_IMAGE_TOOLS')
@@ -51,6 +51,24 @@ def illustrated_fb2(picture):
 
 def sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def layered_djvu(mask=True, bundled=True, refinement=None):
+    def chunk(name, payload):
+        return name + struct.pack('>I', len(payload)) + payload + bytes(len(payload) % 2)
+
+    if refinement is None:
+        refinement = random.Random(537).randbytes(65537)
+    contents = chunk(b'INFO', struct.pack('>HH', 1200, 1800) + bytes(6))
+    if mask:
+        contents += chunk(b'Sjbz', b'foreground')
+    contents += chunk(b'BG44', b'\x00\x57\x01\x02' + struct.pack('>HH', 400, 600) + b'\x00base')
+    contents += chunk(b'BG44', b'\x01\x0a' + refinement) + chunk(b'TXTz', b'preserve hidden text')
+    page = chunk(b'FORM', b'DJVU' + contents)
+    if not bundled:
+        return b'AT&T' + page
+    directory = chunk(b'DIRM', struct.pack('>BHI', 0x81, 1, 32) + b'\x01')
+    return b'AT&T' + chunk(b'FORM', b'DJVM' + directory + page)
 
 
 @contextmanager
@@ -685,6 +703,47 @@ class PackingTests(unittest.TestCase):
             self.assertEqual(self.packed_book(result, identity), body)
         self.assertEqual(sha(source), original_sha256)
         self.assertEqual(Packer(self.job).execute().reused, 1)
+
+    def test_djvu_refinement_requires_a_mask_and_valid_offsets(self):
+        check = lambda: None
+        original = layered_djvu()
+        self.assertEqual(len(djvu_refinements(original, check)), 1)
+        self.assertEqual(len(djvu_refinements(layered_djvu(bundled=False), check)), 1)
+        self.assertEqual(djvu_refinements(layered_djvu(mask=False), check), [])
+        self.assertEqual(djvu_refinements(original[:-10], check), [])
+        wrong_offset = original[:27] + b'\x21' + original[28:]
+        self.assertEqual(djvu_refinements(wrong_offset, check), [])
+        def cancel():
+            raise Canceled('test cancellation')
+
+        with self.assertRaises(Canceled):
+            djvu_refinements(original, cancel)
+
+    @unittest.skipUnless(IMAGE_TOOLS, 'Native HomeLibre Images runtime not supplied')
+    def test_maximum_djvu_preserves_other_chunks_and_skips_unprofitable_copies(self):
+        original = layered_djvu()
+        plain = layered_djvu(mask=False)
+        already_small = layered_djvu(refinement=bytes(65537))
+        source = self.archive('djvu.zip', {'book.djv': original, 'photo.djvu': plain, 'small.djvu': already_small})
+        source_hash = sha(source)
+        for identity, member in enumerate(('book.djv', 'photo.djvu', 'small.djvu'), 1):
+            self.add(identity, source, member)
+        reversible = Packer(self.job).execute()
+        self.assertEqual(self.packed_book(reversible, 1), original)
+        output = self.root / 'maximum'
+        job = dict(self.job, output=str(output), engine='illustrations-ppmd', images='maximum', tools_root=IMAGE_TOOLS)
+        result = Packer(job).execute()
+        self.assertEqual(result.image_books_optimized, 1)
+        self.assertLess(result.output_bytes, reversible.output_bytes)
+        with patch.object(self, 'output', output):
+            copy = self.packed_book(result, 1)
+            self.assertEqual(self.packed_book(result, 2), plain)
+            self.assertEqual(self.packed_book(result, 3), already_small)
+        header, payload, end = djvu_refinements(original, lambda: None)[0]
+        self.assertEqual(copy, original[:header] + b'HLbg' + original[header+4:payload] + bytes(end-payload) + original[end:])
+        self.assertEqual(djvu_refinements(copy, lambda: None), [])
+        self.assertEqual(sha(source), source_hash)
+        self.assertEqual(Packer(job).execute().reused, 1)
 
     def test_full_verification_detects_same_size_and_time_source_change(self):
         self.job['verify_sources'] = True

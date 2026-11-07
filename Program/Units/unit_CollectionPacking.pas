@@ -150,7 +150,7 @@ begin
   Options.Python:=TPath.Combine(AppPath,FormatComponentFile('BookProcessing'));
   Version:=InstalledComponentVersion(AppPath,'BookProcessing');
   Minimum:=PACKING_COMPONENT_VERSION;
-  if Options.ImageProfile=pipJpegXL then Minimum:=PACKING_PDF_COMPONENT_VERSION;
+  if Options.ImageProfile in [pipJpegXL,pipMaximum] then Minimum:=PACKING_USR_COMPONENT_VERSION;
   if not CompareComponentVersions(Version,Minimum,Comparison) or (Comparison<0) then
     Result:=Result+['BookProcessing'];
   Options.SevenZip:=FindFullSevenZip(AppPath);
