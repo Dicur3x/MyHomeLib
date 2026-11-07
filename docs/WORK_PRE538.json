@@ -5517,5 +5517,28 @@
     "verification": "The full Flibusta dump dated 2026-11-07 produced 876605 books in 88 INP members. Win32 processed the saved snapshot in 121 seconds and Win64 downloaded and processed it in 116 seconds. Both embedded runtimes passed the two-layout fixtures, ID preservation, invalid SQL rollback and rejection of mixed snapshot dates. The actual catalogue menu on Win32 and Win64 created and updated an isolated online catalogue. The second import retained three LibIDs and the downloaded flags for an FB2 ZIP and a raw EPUB.",
     "limits": "The production UI tests used local small dumps. The packaged x64 Python runtime also downloaded the complete public Librusec snapshot and wrote 789629 records, then removed its test folder. Ordinary live book downloading from a generated collection remains to be verified. The component was supplied from local staging and the first public download is still to be tested.",
     "cleanup": "Both full Flibusta worker runs and the x86 GUI test removed their profiles. The x64 GUI verification passed by a separate read-only database check. The first harness used the wrong column name and kept a database handle open during cleanup. Automatic policy rejected later removal of G:/HomeLibRu-build-cache/homelibre-sql-gui-win64-ea_xtsxr. Do not retry it."
+  },
+  "sql_catalogue_native_completion_20261107": {
+    "status": "Implemented and verified on x86 and x64. Public beta 5 package publication and post-publication download remain part of the release gate.",
+    "changes": "Local snapshots accept YYYYMMDD and YYYY-MM-DD filenames and dates without mixing different snapshots. Generated INPX now carries source genre names/categories and its library namespace. The ordinary INPX importer registers those genres through EnsureGenre and rejects a different library before commit. Missing BookProcessing uses the compact component prompt and a restart argument that returns to source selection once.",
+    "native_downloads": "Both architectures imported generated indexes with only SQLite and the built-in FB2/EPUB reader. The ordinary downloader fetched Flibusta 56324 as FB2 ZIP and 881796 as EPUB. Reader preparation found 3059 and 309625 text characters. Reopening retained exact downloaded hashes. Full snapshot refresh retained genre codes/names and local files. A foreign-source update rolled back. Logs are sql-catalogue-download-Win32.log and sql-catalogue-download-Win64.log under tools/ui/tests/Out.",
+    "first_use": "Both architectures began without BookProcessing. The compact updater waited for approval, requested exactly one fresh locally packaged component, used the real installation helper and restarted. The successor checked receipt version and required worker files, excluded unrelated decoder folders and ran normal deferred main-form startup. SQL source selection appeared once and was cancelled by the bounded test probe. Package download transport used the local test server fixture, so this is not a claim about public beta 5 distribution. Logs are sql-catalogue-firstuse-Win32.log and sql-catalogue-firstuse-Win64.log.",
+    "regressions": "The ordinary streaming INPX tests passed on x86/x64, including nonadjacent series, cancellation rollback, invalid CRC and UTF8/UTF16 line handling. Source genre names survived locale synchronization on both. Both embedded Python runtimes passed three local snapshot tests. Python AST, JavaScript syntax and whitespace checks passed.",
+    "genre_source_check": "The current public Flibusta genre dump contains 275 named genres and Librusec 316, with unique nonempty codes. Only these small tables were downloaded to validate the added description columns. Their temporary directory was removed.",
+    "builds": {
+      "Win32": {
+        "catalogue_sha256": "528767fc92144119b62f07edf0977e23f3525a56f4617499a735d6563e01e57f",
+        "test_sha256": "307c3f86d2b05d0483044dc392b8b545b49abc2cc5750580e00e4c0b79f95836",
+        "catalogue_build_log": "MyhomeLib-Win32-70df8361cf6a.err"
+      },
+      "Win64": {
+        "catalogue_sha256": "9a38e98a84068a36b0afa0262bbf78abc7e9eb330d5745dafaae4d1c9172827b",
+        "test_sha256": "a8ca748c7e20392a303d03d6fa8ef1410e7749832e533a4a6ed295eeceefcc3c",
+        "catalogue_build_log": "MyhomeLib-Win64-3ac32c1bad1f.err"
+      }
+    },
+    "limits": "Anonymous Librusec book requests currently return an HTML page with a login form. The native downloader withheld it and left the record unavailable locally. Importing the public catalogue is verified. Access to actual books remains dependent on the publisher/session and existing connection settings.",
+    "cleanup": "Every new live-download, first-use, regression and generated-package fixture from this completion pass was removed by its own runner. No Android emulators or test application processes remain. Previously denied directories from older passes have not been retried.",
+    "test_harness_corrections": "Early first-use attempts failed because the new include had no UTF8 BOM, the assertion expected a plural component button for a single component, and the successor fixture omitted the production startup call. Those fixture errors were corrected before the final x86/x64 passes. They are not successful installation evidence."
   }
 }

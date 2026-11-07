@@ -23,6 +23,9 @@ uses
   Dialogs,
   unit_UserData;
 
+const
+  SQL_CATALOGUE_RESUME_SWITCH = '--import-sql-catalogue';
+
 procedure SyncOnLineFiles(const CollectionID: Integer);
 
 procedure SyncFolders(const CollectionID: Integer);

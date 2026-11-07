@@ -61,18 +61,20 @@ def prepare(runtime, profile, old):
     print('PASS real published converter 1102 and independent processing 1105 staged:', platform)
 
 
-def prepare_two_components(runtime, profile, operation):
+def prepare_operation_components(runtime, profile, operation):
     if not (profile / 'native-regression.marker').is_file():
         raise ValueError('Owned native profile required')
     platform = 'Win64' if runtime.name == 'Bin64' else 'Win32'
     packages = Path(os.environ['HOMELIB_FORMAT_COMPONENT_PACKAGES']).resolve(strict=True)
     feed = json.loads((packages / 'format-components.json').read_text(encoding='utf-8'))
     assets = json.loads((packages / 'format-component-assets.json').read_text(encoding='utf-8'))
-    required = {'BookProcessing', 'ImageProcessing' if operation == 'packing' else 'KindleExport'}
+    required = {'BookProcessing'}
+    if operation != 'sql':
+        required.add('ImageProcessing' if operation == 'packing' else 'KindleExport')
     selected = [entry for entry in feed['components']
                 if entry['platform'] == platform and entry['id'] in required]
-    if len(selected) != 2 or {entry['id'] for entry in selected} != required:
-        raise ValueError('Two distinct actual component packages are required')
+    if len(selected) != len(required) or {entry['id'] for entry in selected} != required:
+        raise ValueError('The exact distinct component packages are required')
     versions = {entry['version'] for entry in selected}
     if len(versions) != 1:
         raise ValueError('First-use fixture needs matching candidate versions')
@@ -97,11 +99,11 @@ def prepare_two_components(runtime, profile, operation):
 <genre>prose</genre><author><first-name>Тест</first-name><last-name>Автор</last-name></author>
 <book-title>Возврат к сохранению</book-title><lang>ru</lang></title-info></description>
 <body><section><title><p>Глава</p></title><p>Исходная книга не должна измениться при установке модулей.</p></section></body></FictionBook>''', encoding='utf-8')
-    print('PASS two real independent packages staged without installing:', operation, platform)
+    print('PASS real independent packages staged without installing:', operation, platform)
 
 
 if __name__ == '__main__':
-    if len(sys.argv) == 4 and sys.argv[3] in ('kindle', 'packing'):
-        prepare_two_components(*(Path(p).resolve() for p in sys.argv[1:3]), sys.argv[3])
+    if len(sys.argv) == 4 and sys.argv[3] in ('kindle', 'packing', 'sql'):
+        prepare_operation_components(*(Path(p).resolve() for p in sys.argv[1:3]), sys.argv[3])
     else:
         prepare(*(Path(p).resolve() for p in sys.argv[1:]))

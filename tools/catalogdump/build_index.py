@@ -4,6 +4,7 @@ from contextlib import closing
 from datetime import date, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
+import json
 import re
 import sqlite3
 import sys
@@ -27,7 +28,7 @@ SOURCE_SCHEMAS = {
     'flibusta': (
         ('authors', 'libavtorname', 'avtorid lastname firstname middlename', ''),
         ('by_author', 'libavtor', 'bookid avtorid', 'pos'),
-        ('genres', 'libgenrelist', 'genreid genrecode', ''),
+        ('genres', 'libgenrelist', 'genreid genrecode', 'genredesc genremeta'),
         ('by_genre', 'libgenre', 'bookid genreid', ''),
         ('series', 'libseqname', 'seqid seqname', ''),
         ('by_series', 'libseq', 'bookid seqid seqnumb', ''),
@@ -36,7 +37,7 @@ SOURCE_SCHEMAS = {
     'librusec': (
         ('authors', 'libavtors', 'aid lastname firstname middlename', ''),
         ('by_author', 'libavtor', 'bid aid', 'role'),
-        ('genres', 'libgenres', 'gid code', ''),
+        ('genres', 'libgenres', 'gid code', 'gdesc'),
         ('by_genre', 'libgenre', 'bid gid', ''),
         ('series', 'libseqs', 'sid seqname', ''),
         ('by_series', 'libseq', 'bid sid sn', ''),
@@ -47,7 +48,7 @@ STAGING_SCHEMA = """
 CREATE TABLE authors(id INTEGER PRIMARY KEY, last TEXT, first TEXT, middle TEXT);
 CREATE TABLE by_author(book INTEGER, author INTEGER, seq INTEGER,
     PRIMARY KEY(book, author)) WITHOUT ROWID;
-CREATE TABLE genres(id INTEGER PRIMARY KEY, code TEXT);
+CREATE TABLE genres(id INTEGER PRIMARY KEY, code TEXT, name TEXT, category TEXT);
 CREATE TABLE by_genre(book INTEGER, genre INTEGER, PRIMARY KEY(book, genre)) WITHOUT ROWID;
 CREATE TABLE series(id INTEGER PRIMARY KEY, name TEXT);
 CREATE TABLE by_series(book INTEGER, series INTEGER, number INTEGER,
@@ -91,6 +92,9 @@ def staging_rows(rows, target, source):
                     continue
                 pos = 0
             yield book, author, pos
+        elif target == 'genres':
+            ident, code, name, *category = row
+            yield ident, code, clean(name) or code, clean(category[0] if category else '') or LIBRARIES[source][0]
         elif target == 'by_series':
             book, series, number = row
             # INPX can carry integer series numbers. Preserve the membership
@@ -104,17 +108,24 @@ def staging_rows(rows, target, source):
 def load_tables(db, source, folder, version, report):
     db.executescript(STAGING_SCHEMA)
     schema = SOURCE_SCHEMAS[source]
-    prefix = LIBRARIES[source][2]
-    dated = version + '.'
-    if any(dump_file(folder, dated, table) for _, table, _, _ in schema):
-        prefix = dated
+    undated = LIBRARIES[source][2]
+    prefix = undated
+    # Librusec publishes YYYY-MM-DD, while older local bundles often use YYYYMMDD.
+    for dated in (date.fromisoformat(version).isoformat() + '.', version + '.'):
+        files = [dump_file(folder, dated, table) for _, table, _, _ in schema]
+        if all(files):
+            prefix = dated
+            break
+        if prefix == undated and any(files):
+            prefix = dated
     for target, table, required, optional in schema:
         path = dump_file(folder, prefix, table)
         if path is None:
             raise DumpError(f'В папке нет файла {prefix}{table}.sql или {prefix}{table}.sql.gz.')
         report(f'Чтение {path.name}')
         required, optional = required.split(), optional.split()
-        values = ','.join('?' for _ in (*required, *optional))
+        value_count = 4 if target == 'genres' else len(required) + len(optional)
+        values = ','.join('?' for _ in range(value_count))
         # Duplicate relationship rows do not create duplicate book metadata.
         # Duplicate primary catalogue IDs are a damaged snapshot.
         conflict = ' ON CONFLICT DO NOTHING' if target.startswith('by_') else ''
@@ -175,6 +186,11 @@ def write_index(db, path, source, version, report):
         archive.writestr('collection.info', header.encode('utf-8-sig'))
         archive.writestr('structure.info', FIELDS)
         archive.writestr('version.info', version)
+        source_info = {'format': 1, 'source': source, 'genres': [
+            {'code': clean(code).replace(':', ' '), 'name': name, 'category': category}
+            for code, name, category in db.execute('SELECT code,name,category FROM genres ORDER BY id')
+        ]}
+        archive.writestr('homelibre-sql.json', json.dumps(source_info, ensure_ascii=False).encode('utf-8'))
         book_rows = iter(db.execute('SELECT * FROM books ORDER BY id'))
         for start in range(0, count, BOOKS_PER_MEMBER):
             report(f'Запись каталога {start} / {count}')
@@ -188,10 +204,10 @@ def write_index(db, path, source, version, report):
 
 
 def build_index(source, folder, output, version, report=lambda _: None):
-    if len(version) != 8 or not version.isascii() or not version.isdecimal():
-        raise DumpError('Укажите дату комплекта дампов в формате ГГГГММДД.')
+    if not re.fullmatch(r'(?:[0-9]{8}|[0-9]{4}-[0-9]{2}-[0-9]{2})', version):
+        raise DumpError('Укажите дату комплекта дампов в формате ГГГГММДД или ГГГГ-ММ-ДД.')
     try:
-        date.fromisoformat(version)
+        version = date.fromisoformat(version).strftime('%Y%m%d')
     except ValueError as error:
         raise DumpError('Некорректная дата комплекта дампов.') from error
     if output.suffix.lower() != '.inpx':

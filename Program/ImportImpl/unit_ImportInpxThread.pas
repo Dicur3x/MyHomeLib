@@ -99,6 +99,7 @@ uses
   IOUtils,
   ComCtrls,
   Generics.Collections,
+  System.JSON,
   unit_InpLineReader,
   unit_LibrarySourceID,
   unit_MHLArchiveHelpers,
@@ -382,6 +383,51 @@ begin
   end;
 end;
 
+function ReadSqlSourceGenres(const Zip: TMHLZip; const Collection: IBookCollection;
+  const Genres: TDictionary<string, TGenreData>): string;
+var
+  Metadata: TJSONValue;
+  Items: TJSONArray;
+  Item: TJSONValue;
+  Code, Alias, Category, ExistingSource: string;
+begin
+  Result := '';
+  if not Zip.Find('homelibre-sql.json') then
+    Exit;
+  if (Zip.LastSize <= 0) or (Zip.LastSize > 2 * 1024 * 1024) then
+    raise EDBError.Create('Неверный размер сведений о жанрах SQL-каталога.');
+  Metadata := TJSONObject.ParseJSONValue(Zip.ExtractToString(Zip.LastName));
+  try
+    if not (Metadata is TJSONObject) then
+      raise EDBError.Create('Неверные сведения о SQL-каталоге.');
+    if Metadata.GetValue<Integer>('format', 0) <> 1 then
+      raise EDBError.Create('Неизвестный формат сведений о SQL-каталоге.');
+    Result := Metadata.GetValue<string>('source', '');
+    if (Result <> 'flibusta') and (Result <> 'librusec') then
+      raise EDBError.Create('Неизвестный источник SQL-каталога.');
+    ExistingSource := VarToStr(Collection.GetProperty(PROP_SOURCE_LIBRARY));
+    if (ExistingSource <> '') and not SameText(ExistingSource, Result) then
+      raise EDBError.Create('SQL-каталог относится к другой библиотеке.');
+    Items := Metadata.GetValue<TJSONArray>('genres');
+    if (Items = nil) or (Items.Count > 4096) then
+      raise EDBError.Create('Неверный список жанров SQL-каталога.');
+    for Item in Items do
+    begin
+      if not (Item is TJSONObject) then
+        raise EDBError.Create('Неверная запись жанра SQL-каталога.');
+      Code := Item.GetValue<string>('code', '');
+      Alias := Item.GetValue<string>('name', '');
+      Category := Item.GetValue<string>('category', '');
+      if (Code = '') or (Length(Code) > 256) or (Alias = '') or
+        (Length(Alias) > 512) or (Length(Category) > 512) or Genres.ContainsKey(Code) then
+        raise EDBError.Create('Неверный код или название жанра SQL-каталога.');
+      Genres.Add(Code, Collection.EnsureGenre(Code, Alias, Category));
+    end;
+  finally
+    Metadata.Free;
+  end;
+end;
+
 procedure TImportInpxThreadBase.Import(const INPXFileName: string; CheckFiles: Boolean; BookCollection: IBookCollection);
 type
   TInpEntry = record
@@ -413,6 +459,10 @@ var
   Cache: TImportCache;
   ImportedBooks: TDictionary<string, Integer>;
   ArchiveEntries: TDictionary<string, Integer>;
+  SqlGenres: TDictionary<string, TGenreData>;
+  SqlSource, GenreKey: string;
+  SqlGenre: TGenreData;
+  GenreIndex: Integer;
   BookIdentity: string;
   ArchiveEntryKey: string;
   ExistingBookID: Integer;
@@ -443,6 +493,7 @@ begin
   Cache := nil;
   ImportedBooks := nil;
   ArchiveEntries := nil;
+  SqlGenres := nil;
 
   BookCollection.StartBatchUpdate;
   try
@@ -452,6 +503,8 @@ begin
     ArchiveEntries := TDictionary<string, Integer>.Create;
     Zip := TMHLZip.Create(INPXFileName, True, False,
       function: Boolean begin Result := Canceled; end);
+    SqlGenres := TDictionary<string, TGenreData>.Create;
+    SqlSource := ReadSqlSourceGenres(Zip, BookCollection, SqlGenres);
     SetLength(IndexNames, Zip.FileCount);
     for i := 0 to Zip.FileCount - 1 do
       IndexNames[i] := Zip.FileNames[i];
@@ -530,6 +583,19 @@ begin
           j := Reader.LineNumber;
           try
             ParseData(InputLine, IsOnline, R, Params);
+            if SqlSource <> '' then
+              for GenreIndex := 0 to High(R.Genres) do
+              begin
+                GenreKey := R.Genres[GenreIndex].FB2GenreCode;
+                if GenreKey = '' then
+                  GenreKey := R.Genres[GenreIndex].GenreCode;
+                if not SqlGenres.TryGetValue(GenreKey, SqlGenre) then
+                begin
+                  SqlGenre := BookCollection.EnsureGenre(GenreKey, GenreKey, SqlSource);
+                  SqlGenres.Add(GenreKey, SqlGenre);
+                end;
+                R.Genres[GenreIndex] := SqlGenre;
+              end;
             if IsLocalBookID(R.LibID) then
               raise EConvertError.Create('INPX содержит зарезервированный идентификатор локальной книги.');
             // Numeric source IDs collide in combined Librusec/Flibusta INPX.
@@ -682,6 +748,8 @@ begin
           StrToIntDef(strVersion, UNVERSIONED_COLLECTION));
       end;
 
+      if SqlSource <> '' then
+        BookCollection.SetProperty(PROP_SOURCE_LIBRARY, SqlSource);
       BookCollection.AfterBatchUpdate;
     finally
       FProgressEngine.EndOperation;
@@ -689,6 +757,7 @@ begin
   finally
     FreeAndNil(Zip);
     FreeAndNil(Reader);
+    FreeAndNil(SqlGenres);
     FreeAndNil(ArchiveEntries);
     FreeAndNil(ImportedBooks);
     FreeAndNil(Cache);

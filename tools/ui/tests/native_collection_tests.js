@@ -38,6 +38,9 @@ if (packingJpegXL && (viewsMode!=='packing-fbd' || !packingImagesArg || process.
   throw Error('JPEG XL packing requires its own packing-fbd image fixture.');
 if (packingMenuReaderArg && (viewsMode !== 'packing-fbd' || !packingInventoryArg))
   throw Error('The packing menu review requires a real packing inventory and the packing-fbd scenario.');
+const sqlFixturesArg = process.argv.find(arg => arg.startsWith('--sql-fixtures='));
+if (sqlFixturesArg && viewsMode !== 'sql-catalogue-download')
+  throw Error('SQL fixtures require the explicit download scenario');
 const catalogueLabelArg=process.argv.find(a=>a.startsWith('--catalogue-label='));
 const catalogueLabel=catalogueLabelArg ? catalogueLabelArg.slice('--catalogue-label='.length) : '';
 if(catalogueLabel && !/^[a-z0-9-]{1,40}$/.test(catalogueLabel))throw Error('Invalid catalogue audit label');
@@ -109,7 +112,7 @@ modes.push('estimate-failure-visibility');
 modes.push('export-cache-lifecycle');
 modes.push('save-settings-sync');
 modes.push('script-export-paths');
-if (viewsMode !== null && !modes.includes(viewsMode) && !proposalVisualModes.includes(viewsMode) && !['reader-story','save-host-resume','save-module-restart','save-planning','kindle-save','advanced-save','minimum-save','unified-send','diagnostics-cache-age','paged-export-progress','image-components','catalogue-formats','catalogue-performance','personal-authors','book-output-reset','display-labels','flibrary-quality','first-book-list','first-book-list-large','image-quality-dialog','refactor-audit','native-folder-picker','cancel-interactive','export-cancel-interactive','legacy-import-interactive','reader-filter','reader-main-filter','reader-chapters','packing-fbd'].includes(viewsMode)) throw new Error(`Unknown view scenario: ${viewsMode}`);
+if (viewsMode !== null && !modes.includes(viewsMode) && !proposalVisualModes.includes(viewsMode) && !['reader-story','save-host-resume','save-module-restart','save-planning','kindle-save','advanced-save','minimum-save','unified-send','diagnostics-cache-age','paged-export-progress','image-components','catalogue-formats','catalogue-performance','personal-authors','book-output-reset','display-labels','flibrary-quality','first-book-list','first-book-list-large','image-quality-dialog','refactor-audit','native-folder-picker','cancel-interactive','export-cancel-interactive','legacy-import-interactive','reader-filter','reader-main-filter','reader-chapters','packing-fbd','sql-catalogue-download'].includes(viewsMode)) throw new Error(`Unknown view scenario: ${viewsMode}`);
 const requiredViews = {
   'archive-member-engines': ['PASS exact ZIP member deletion preserves bytes names comments and bounded workspace', 'PASS interrupted ZIP block and metadata writes recover without an archive clone', 'PASS killed own ZIP worker recovers partial payload and metadata writes', 'PASS ZIP64 offsets above 4 GiB recover with sub-128-KiB journal', 'PASS ZIP recovery rejects replaced files and ambiguous exact paths', 'PASS read-only 7z deletion planner retains original compressed blocks and metadata with bounded virtual output', 'PASS partial solid 7z removal is rejected before any source mutation', 'PASS in-place PPMd and LZMA2 removal recovers ten interruption phases and killed workers without an archive clone', 'PASS background 7z queue removes multiple exact members from one and different archives'],
   'archive-deletion-owner': ['PASS archive change guard follows physical aliases and blocks current source readers without blocking other archives', 'PASS archive queue batches exact members across archives while UI timers continue and catalogue receipts remain durable', 'PASS archive queue stop finishes current archive preserves queued sources and rejects missing members without mutation', 'PASS owner-coordinated archive queue waits for catalogue commit off the UI thread and stops before queued sources', 'PASS rejected or abandoned owner retains recoverable journals and fresh owner completes them safely'],
@@ -275,6 +278,8 @@ function requiredPasses(executable, mode) {
   if (mode==='reader-portable') return ['PASS portable catalogue and standalone reader default without marker explicit profile Unicode books sessions and unchanged existing data'];
   if (mode==='book-output-reset') return ['PASS diagnostic out reset preserves every established field and retained nested arrays','RESETBENCH trial=6','PASS diagnostic managed out record reset comparison completed'];
   if (mode==='display-labels') return ['PASS book display labels preserve established Unicode whitespace initials nicknames empty single multiple authors genres cases=2058','iterations=2000000 trials=7','before_cycles=','LABELBENCH phase=2 trial=6','PASS diagnostic display labels same-process alternating comparison preserves all values'];
+  if (mode==='save-module-restart' && process.argv.includes('--sql-module-restart'))
+    return ['PASS compact SQL module download actual installer restart returns to source choice once'];
   if (mode==='save-module-restart' && process.argv.includes('--packing-module-restart'))
     return ['PASS compact packing download actual installer restart restores selected profile and canceled review'];
   if (mode==='save-module-restart') return [process.argv.includes('--save-kindle-restart')
@@ -325,6 +330,7 @@ function requiredPasses(executable, mode) {
   ];
   if (mode==='catalogue-formats') return ['PASS catalogue-formats audit completed'];
   if (mode==='image-components') return ['PASS image-components WebP requested','PASS image-components WebP package native verification','PASS image-components official JPEG XL ZIP','PASS image-components JPEG XL keeps alpha'];
+  if (mode==='sql-catalogue-download') return ['PASS generated SQL indexes use native downloads and reader preparation without extra format modules'];
   if (mode==='download-scenarios') return Array.from({length:9},(_,i)=>'PASS download-scenarios case='+(i+1)+' result=');
   if (mode === 'view-sessions') return ['PASS view sessions isolate all six tabs and collections', 'PASS actual process restart restores automatically, asks yes/no after paint, disables restore and persists reset', 'PASS malformed view configuration is ignored without eager book loading', 'PASS view session settings persist all choices and reject invalid preference', 'PASS restore prompt remembers affirmative and negative choices across another process restart', 'TRACE main cleanup complete'];
   if (mode === 'startup-deferred-close') return ['PASS actual Main closes during background startup'];
@@ -366,17 +372,18 @@ function copyDllTree(source, target) {
 function stage(folder, executable, mode = '') {
   fs.copyFileSync(executable, path.join(folder, path.basename(executable)));
   for (const name of ["sqlite3.dll", "libzstd.dll", "libeay32.dll", "ssleay32.dll", "homelib_webp.dll"]) {
+    if (mode === 'sql-catalogue-download' && name !== 'sqlite3.dll') continue;
     if (['optional-zstd','reader-components'].includes(mode) && name==='libzstd.dll') continue;
     const src = path.join(runtime, name);
     if (fs.existsSync(src)) fs.copyFileSync(src, path.join(folder, name));
   }
   const archiveDll = path.join(runtime,'tools/7zip/7z.dll');
-  if (!['minimum-save','kindle-save','save-module-restart','save-settings-sync'].includes(mode) && fs.existsSync(archiveDll)) {
+  if (!['minimum-save','kindle-save','save-module-restart','save-settings-sync','sql-catalogue-download'].includes(mode) && fs.existsSync(archiveDll)) {
     fs.mkdirSync(path.join(folder,'tools/7zip'),{recursive:true});
     fs.copyFileSync(archiveDll,path.join(folder,'tools/7zip/7z.dll'));
   }
   const decoder = path.join(runtime, "tools", "webp", "libwebp.dll");
-  if (!['minimum-save','kindle-save','save-module-restart','save-settings-sync'].includes(mode)) {
+  if (!['minimum-save','kindle-save','save-module-restart','save-settings-sync','sql-catalogue-download'].includes(mode)) {
     if (!fs.existsSync(decoder) || machine(decoder) !== architecture) throw new Error("WebP decoder is absent or has the wrong architecture.");
     const decoderDir = path.join(folder, "tools", "webp");
     fs.mkdirSync(decoderDir, { recursive: true });
@@ -386,7 +393,7 @@ function stage(folder, executable, mode = '') {
   if (fs.existsSync(path.join(runtime, "Icons"))) copyDllTree(path.join(runtime, "Icons"), path.join(folder, "Icons"));
   for (const name of fs.readdirSync(runtime)) if (/^genres[^\\/]*\.glst$/i.test(name)) fs.copyFileSync(path.join(runtime, name), path.join(folder, name));
   // The DOC component uses managed AnyCPU assemblies, all bundled and isolated.
-  if (!['minimum-save','kindle-save','save-module-restart','save-settings-sync'].includes(mode) && fs.existsSync(path.join(runtime, 'tools', 'doc'))) fs.cpSync(path.join(runtime, 'tools', 'doc'), path.join(folder, 'tools', 'doc'), {recursive:true});
+  if (!['minimum-save','kindle-save','save-module-restart','save-settings-sync','sql-catalogue-download'].includes(mode) && fs.existsSync(path.join(runtime, 'tools', 'doc'))) fs.cpSync(path.join(runtime, 'tools', 'doc'), path.join(folder, 'tools', 'doc'), {recursive:true});
   fs.writeFileSync(path.join(folder, "uselocaldata"), "");
   fs.copyFileSync(path.resolve(__dirname, '../../../Installer/Components.json'), path.join(folder, 'COMPONENTS.json'));
   fs.writeFileSync(path.join(folder, "uselocaltemp"), "");
@@ -459,6 +466,14 @@ function run(executable, mode, subcase = "") {
   if (!absolute.startsWith(expectedRoot) || !path.basename(absolute).startsWith("HomeLibRu-native-")) throw new Error("Unsafe temporary path.");
   try {
     stage(folder, executable, mode);
+    if (mode === 'sql-catalogue-download') {
+      if (!sqlFixturesArg) throw Error('Explicit SQL fixtures are required');
+      const source = fs.realpathSync(sqlFixturesArg.slice('--sql-fixtures='.length));
+      for (const library of ['flibusta', 'librusec']) {
+        const filename = path.join(source, library + '.inpx');
+        fs.copyFileSync(filename, path.join(folder, library + '.inpx'));
+      }
+    }
     if (mode==='zip-member-deletion' || mode==='archive-member-engines') {
       const prepared=cp.spawnSync(process.env.HLRU_PYTHON,['-B','-X','utf8',
         path.join(__dirname,'zip_member_deletion_fixture.py'),'prepare',folder],
@@ -599,9 +614,10 @@ function run(executable, mode, subcase = "") {
       const old=process.argv.find(a=>a.startsWith('--save-old-converter='));
       const kindle=process.argv.includes('--save-kindle-restart');
       const packing=process.argv.includes('--packing-module-restart');
-      if(!old&&!kindle&&!packing) throw Error('save-module-restart requires --save-old-converter=verified-old-archive');
+      const sql=process.argv.includes('--sql-module-restart');
+      if(!old&&!kindle&&!packing&&!sql) throw Error('save-module-restart requires --save-old-converter=verified-old-archive');
       const python=process.env.HLRU_PYTHON; if(!python) throw Error('HLRU_PYTHON is required to prepare the private candidate');
-      const prep=cp.spawnSync(python,['-B','-X','utf8',path.join(__dirname,'prepare_save_module_fixture.py'),runtime,folder,packing?'packing':kindle?'kindle':path.resolve(old.slice('--save-old-converter='.length))],{encoding:'utf8',windowsHide:true,env:{...process.env,PYTHONDONTWRITEBYTECODE:'1'},timeout:120000});
+      const prep=cp.spawnSync(python,['-B','-X','utf8',path.join(__dirname,'prepare_save_module_fixture.py'),runtime,folder,sql?'sql':packing?'packing':kindle?'kindle':path.resolve(old.slice('--save-old-converter='.length))],{encoding:'utf8',windowsHide:true,env:{...process.env,PYTHONDONTWRITEBYTECODE:'1'},timeout:120000});
       if(prep.status!==0) throw Error('Save module fixture preparation failed: '+prep.stdout+prep.stderr);
       fs.copyFileSync(path.join(runtime,'HomeLibRuUpdater.exe'),path.join(folder,'HomeLibRuUpdater.exe'));
       if (packing) {
@@ -1041,6 +1057,7 @@ with zipfile.ZipFile(sys.argv[2]+'/reader-spread.epub','w') as z:
 // No subcase marker is optional: all fourteen are required by the default suite.
 function runView(mode) {
   if (mode==='save-module-restart') {
+    if(process.argv.includes('--sql-module-restart')) return run(tests[2],mode,'sql');
     if(process.argv.includes('--save-kindle-restart')) return run(tests[2],mode,'kindle');
     if(process.argv.includes('--packing-module-restart')) return run(tests[2],mode,'packing');
     for (const application of ['HomeLibReader.exe','HOMELIBREADER.EXE','homelibru.exe','legacy-request']) run(tests[2],mode,application);

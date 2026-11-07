@@ -82,6 +82,9 @@ uses
   unit_AuthorFavorites, unit_AuthorFavoriteRefresh, unit_ReaderAnnotations, unit_ReaderSession,
   unit_BookSaveContinuation, unit_BookReviewPreview, unit_CollectionPacking;
 
+const
+  WM_RESUME_SQL_CATALOGUE = $8000+372;
+
 type
   TfrmMain = class(TForm, IDownloadView)
     MainMenu: TMainMenu;
@@ -740,6 +743,7 @@ type
     FReadBuiltinAction, FReadExternalAction, FOpenArchiveAction, FLocationAction, FChooseReaderAction: TAction;
     FMetadataFillAction: TAction;
     FStartupLoading, FStartupWindowPainted: Boolean;
+    FSqlCatalogueResumed: Boolean;
     FStartupStep: Integer;
     FStartupTimer: TTimer;
     FStartupCatalog: TStartupCatalogLoader;
@@ -940,6 +944,7 @@ type
     procedure PackCurrentCollection(Sender: TObject);
     procedure PackCollection(UpdateFromInpx: Boolean; Resume: PCollectionPackingRequest = nil);
     procedure ResumePacking(var Message: TMessage); message WM_RESUME_COLLECTION_PACKING;
+    procedure ResumeSqlCatalogue(var Message: TMessage); message WM_RESUME_SQL_CATALOGUE;
     procedure ShowBookDuplicates(Sender: TObject);
     procedure CheckBookDuplicateApply(Sender: TObject);
     procedure ApplyBookColumnFilters(Tree: TBookTree);
@@ -3295,7 +3300,11 @@ begin
      not FileExists(TPath.Combine(Settings.AppPath,SQL_CATALOGUE_WORKER)) or
      not FileExists(TPath.Combine(Settings.AppPath,SQL_DUMP_PARSER)) then
   begin
-    RequestOptionalComponent('BookProcessing');
+    EnsureProgramUpdateForm;
+    FProgramUpdateForm.RequestComponents(TArray<string>.Create('BookProcessing'),
+      'Для создания онлайн-каталога из SQL-дампов нужен модуль подготовки книг.'+sLineBreak+
+      'После установки снова откроется выбор источника каталога.',True,
+      function: string begin Result:=SQL_CATALOGUE_RESUME_SWITCH; end);
     Exit;
   end;
 
@@ -3303,7 +3312,8 @@ begin
   try
     Choice.Caption:='Импорт SQL-дампов';
     Choice.Title:='Откуда взять онлайн-каталог?';
-    Choice.Text:='Из дампов импортируются сведения о книгах. Сами книги скачиваются при открытии.';
+    Choice.Text:='Из дампов импортируются сведения о книгах. Сами книги скачиваются при открытии.'+
+      sLineBreak+'Доступ к скачиванию зависит от сайта. Либрусек может потребовать вход.';
     Choice.CommonButtons:=[tcbCancel];
     Choice.Flags:=[tfUseCommandLinks,tfAllowDialogCancellation];
     Radio:=TTaskDialogRadioButtonItem(Choice.RadioButtons.Add);
@@ -4801,6 +4811,13 @@ begin
   end;
 end;
 
+procedure TfrmMain.ResumeSqlCatalogue(var Message: TMessage);
+begin
+  if FSqlCatalogueResumed or Application.Terminated or (csDestroying in ComponentState) then Exit;
+  FSqlCatalogueResumed:=True;
+  ImportSqlCatalogueClick(nil);
+end;
+
 procedure TfrmMain.ShowCatalogSources(Sender: TObject);
 var Dialog: TfrmCatalogSources; Changed, MetadataChanged, DuplicatesRequested: Boolean; CollectionID: Integer;
   Required: string;
@@ -5419,6 +5436,10 @@ begin
   for var I:=1 to ParamCount do
     if ParamStr(I).StartsWith(PACKING_RESUME_SWITCH) then
     begin PostMessage(Handle,WM_RESUME_COLLECTION_PACKING,0,0); Break; end;
+  if not FSqlCatalogueResumed then
+    for var I:=1 to ParamCount do
+      if SameText(ParamStr(I),SQL_CATALOGUE_RESUME_SWITCH) then
+      begin PostMessage(Handle,WM_RESUME_SQL_CATALOGUE,0,0); Break; end;
   if Failed then LogCatalogueStartupPhase('collection-failed')
   else if Assigned(FCollection) then LogCatalogueStartupPhase('collection-ready')
   else LogCatalogueStartupPhase('no-collection');

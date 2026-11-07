@@ -1,5 +1,6 @@
 import gzip
 import io
+import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase, main
@@ -28,7 +29,9 @@ def fixture(source):
     authors = [(1, "О’Брайен", 'Анна', ''), (2, 'Другой', 'Автор', ''), (3, 'Переводчик', 'Иван', '')]
     by_author = ([(1002, 1, 2), (1002, 2, 1)] if source == 'flibusta'
                  else [(1002, 1, 'a'), (1002, 2, '\0'), (1002, 3, 't')])
-    genres = [(1, 'sf'), (2, 'child_prose')]
+    genres = [(1, 'sf', 'Фантастика'), (2, 'child_prose', 'Детская проза')]
+    if source == 'flibusta':
+        genres = [(*genre, 'Жанры источника') for genre in genres]
     by_genre = [(1002, 1), (1002, 2), (1002, 1)]
     series = [(1, 'Первая'), (2, 'Вторая')]
     by_series = [(1002, 1, '1.00'), (1002, 2, '2.50')]
@@ -53,8 +56,9 @@ def read_entries(index):
 
 class CatalogDumpTests(TestCase):
     def test_local_snapshots(self):
-        for source, prefix in (('flibusta', 'lib.'), ('librusec', '20261019.')):
-            with self.subTest(source=source), TemporaryDirectory() as temp:
+        for source, prefix in (('flibusta', 'lib.'), ('librusec', '20261019.'),
+                               ('librusec', '2026-10-19.')):
+            with self.subTest(source=source, prefix=prefix), TemporaryDirectory() as temp:
                 folder = Path(temp)
                 for i, (table, payload) in enumerate(fixture(source)):
                     name = folder / (prefix + table + '.sql')
@@ -64,8 +68,13 @@ class CatalogDumpTests(TestCase):
                     else:
                         name.write_bytes(payload)
                 output = folder / 'online.inpx'
-                build_index(source, folder, output, '20261019')
+                build_index(source, folder, output, '2026-10-19')
                 header, version, records = read_entries(output)
+                with zipfile.ZipFile(output) as archive:
+                    metadata = json.loads(archive.read('homelibre-sql.json'))
+                self.assertEqual(metadata['source'], source)
+                self.assertEqual(metadata['genres'][0]['code'], 'sf')
+                self.assertEqual(metadata['genres'][0]['name'], 'Фантастика')
                 self.assertEqual(header[5:], ['GET %URL%b/%LIBID%/get', 'CHECK'])
                 self.assertEqual(version, '20261019')
                 self.assertEqual([r[7] for r in records], ['1002', '1003', '1004'])
@@ -90,9 +99,12 @@ class CatalogDumpTests(TestCase):
             dumps = dict(fixture('librusec'))
             for table, payload in dumps.items():
                 (folder / f'{table}.sql').write_bytes(payload)
-            (folder / '20261019.libbook.sql').write_bytes(dumps['libbook'])
+            (folder / '2026-10-19.libbook.sql').write_bytes(dumps['libbook'])
+            for table, payload in dumps.items():
+                if table != 'libbook':
+                    (folder / f'20261019.{table}.sql').write_bytes(payload)
             output = folder / 'catalog.inpx'
-            with self.assertRaisesRegex(DumpError, '20261019.libavtors'):
+            with self.assertRaisesRegex(DumpError, '2026-10-19.libavtors'):
                 build_index('librusec', folder, output, '20261019')
             self.assertFalse(output.exists())
 
