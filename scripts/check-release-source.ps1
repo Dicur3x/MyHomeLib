@@ -28,9 +28,35 @@ foreach ($pair in @(@('PROGRAM_RELEASE_VERSION', $tag), @('PROGRAM_FILE_VERSION'
         throw ('Native release constant disagrees: ' + $pair[0])
     }
 }
-$expected = @{VerInfo_MajorVer=$parts[0]; VerInfo_MinorVer=$parts[1]; VerInfo_Release=$parts[2]; VerInfo_Build=$parts[3]}
-foreach ($project in @('Program/MyhomeLib.dproj', 'Utils/HomeLibReader/HomeLibReader.dproj',
-    'Utils/HomeLibRuUpdater/HomeLibRuUpdater.dproj', 'Utils/MHLMcpServer/MHLMcpServer.dproj')) {
+# Unchanged modules can keep their published version when the catalogue and Reader are updated.
+$componentsVersion = $identity.version
+if ($identity.PSObject.Properties['components_version']) {
+    $componentsVersion = $identity.components_version
+}
+if ($componentsVersion -cnotmatch '^([0-9]+)\.([0-9]+)\.([0-9]+)\.([1-9][0-9]*)$' -or
+    [version]$componentsVersion -gt [version]$identity.version) {
+    throw 'Invalid published component set version.'
+}
+$componentParts = @($Matches[1], $Matches[2], $Matches[3], $Matches[4])
+foreach ($part in $componentParts) { if ([int]$part -gt 65535) { throw 'Component version exceeds the Windows version range.' } }
+$componentTag = $componentParts[0..2] -join '.'
+if ([int]$componentParts[3] -lt 65535) { $componentTag += '_pre1.' + $componentParts[3] }
+$projects = @{
+    'Program/MyhomeLib.dproj' = $false
+    'Utils/HomeLibRuUpdater/HomeLibRuUpdater.dproj' = $false
+    'Utils/HomeLibReader/HomeLibReader.dproj' = $false
+    'Utils/MHLMcpServer/MHLMcpServer.dproj' = $true
+}
+foreach ($project in $projects.Keys) {
+    $projectParts = $parts
+    $projectVersion = $identity.version
+    $projectTag = $tag
+    if ($projects[$project]) {
+        $projectParts = $componentParts
+        $projectVersion = $componentsVersion
+        $projectTag = $componentTag
+    }
+    $expected = @{VerInfo_MajorVer=$projectParts[0]; VerInfo_MinorVer=$projectParts[1]; VerInfo_Release=$projectParts[2]; VerInfo_Build=$projectParts[3]}
     [xml]$xml = Get-Content -LiteralPath (Join-Path $repositoryRoot $project) -Raw -Encoding UTF8
     foreach ($name in $expected.Keys) {
         $nodes = @($xml.SelectNodes("//*[local-name()='$name']"))
@@ -45,7 +71,7 @@ foreach ($project in @('Program/MyhomeLib.dproj', 'Utils/HomeLibReader/HomeLibRe
             $pair = $entry.Split('=', 2)
             if ($pair.Count -eq 2) { $values[$pair[0]] = $pair[1] }
         }
-        if ($values.FileVersion -cne $identity.version -or $values.ProductVersion -cne $tag) {
+        if ($values.FileVersion -cne $projectVersion -or $values.ProductVersion -cne $projectTag) {
             throw "Conflicting string version in $project"
         }
     }
@@ -53,16 +79,17 @@ foreach ($project in @('Program/MyhomeLib.dproj', 'Utils/HomeLibReader/HomeLibRe
 $feed = Get-Content -LiteralPath (Join-Path $repositoryRoot 'Installer/Components.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 $own = @('HomeLibReader','MHLMcpServer','BookProcessing','ImageProcessing','Kindle','LegacyBooks','LegacyOffice','XPS','KindleExport','FB2Export','KoboExport','EpubPdfExport','OPDSTls')
 foreach ($component in $own) {
+    $packageVersion = if ($component -ceq 'HomeLibReader') { $identity.version } else { $componentsVersion }
     foreach ($platform in @('Win32','Win64')) {
         $rows = @($feed.components | Where-Object { $_.id -ceq $component -and $_.platform -ceq $platform })
-        if ($rows.Count -ne 1 -or $rows[0].version -cne $identity.version) {
+        if ($rows.Count -ne 1 -or $rows[0].version -cne $packageVersion) {
             throw "First-party package version disagrees: $component / $platform"
         }
-        $expectedArchive = "HomeLibRu-$component-$($identity.version)-$platform.zip"
+        $expectedArchive = "HomeLibRu-$component-$packageVersion-$platform.zip"
         if ($rows[0].archive -cne $expectedArchive) {
             throw "First-party archive identity disagrees: $component / $platform"
         }
-        if (-not @($rows[0].history | Where-Object { $_.version -ceq $identity.version }).Count) {
+        if (-not @($rows[0].history | Where-Object { $_.version -ceq $packageVersion }).Count) {
             throw "First-party package history lacks the current version: $component / $platform"
         }
     }

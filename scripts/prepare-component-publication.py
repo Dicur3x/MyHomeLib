@@ -48,18 +48,22 @@ def main():
     parser.add_argument('stage', type=Path)
     parser.add_argument('--base-feed', type=Path, required=True)
     parser.add_argument('--release-metadata', type=Path, required=True)
+    parser.add_argument('--reader-only', action='store_true',
+                        help='Replace just the two minimal Reader archives in the existing feed')
     parser.add_argument('--reader-packages', type=Path, required=True,
                         help='Explicit directory of current Reader ZIPs; never infer a numbered build directory')
     parser.add_argument('--format-packages', type=Path,
                         help='Verified unchanged format archives, without copying them into stage')
     parser.add_argument('--kindle-packages', type=Path,
                         help='Separate verified KindleExport archives, unless included with formats')
-    parser.add_argument('--djvu-packages', type=Path, required=True,
+    parser.add_argument('--djvu-packages', type=Path,
                         help='Repaired mirror with the required reader bridge and matching source')
-    parser.add_argument('--kfx-source', type=Path, required=True,
+    parser.add_argument('--kfx-source', type=Path,
                         help='Corresponding source ZIP for both KfxExport archives')
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
+    if not args.reader_only and (args.djvu_packages is None or args.kfx_source is None):
+        parser.error('Full publication requires --djvu-packages and --kfx-source')
     stage, output = args.stage.resolve(), args.output.resolve()
     assert not output.exists(), 'Use a new publication output directory'
     metadata = json.loads(args.release_metadata.read_bytes())
@@ -73,22 +77,27 @@ def main():
     baseline = entries(json.loads(base_bytes))
     bootstrap = entries(json.loads((ROOT / 'Installer/Components.json').read_bytes()))
     identity = json.loads((ROOT / 'Installer/Release.json').read_bytes())
-    source_verifier = runpy.run_path(str(ROOT / 'scripts/package-kfx-export-source.py'))
-    kfx_source = args.kfx_source.resolve(strict=True)
-    assert kfx_source.name == source_verifier['ARCHIVE'], 'Unexpected KFX source archive name'
-    source_verifier['verify'](kfx_source)
-    source_asset = dict(name=kfx_source.name, size=kfx_source.stat().st_size,
-                        digest='sha256:' + digest(kfx_source.read_bytes()),
-                        browser_download_url=PREFIX + kfx_source.name)
-    expected = {(component, platform) for component in OWNED | {'DjVuLibre'} for platform in ('Win32', 'Win64')}
+    reader_keys = {('HomeLibReader', platform) for platform in ('Win32', 'Win64')}
+    directories = [args.reader_packages.resolve()]
+    if args.reader_only:
+        expected = reader_keys
+    else:
+        expected = {(component, platform) for component in OWNED | {'DjVuLibre'} for platform in ('Win32', 'Win64')}
+        source_verifier = runpy.run_path(str(ROOT / 'scripts/package-kfx-export-source.py'))
+        kfx_source = args.kfx_source.resolve(strict=True)
+        assert kfx_source.name == source_verifier['ARCHIVE'], 'Unexpected KFX source archive name'
+        source_verifier['verify'](kfx_source)
+        source_asset = dict(name=kfx_source.name, size=kfx_source.stat().st_size,
+                            digest='sha256:' + digest(kfx_source.read_bytes()),
+                            browser_download_url=PREFIX + kfx_source.name)
+        directories.extend([(args.format_packages or stage / 'formats').resolve(),
+                            stage / 'mcp', args.djvu_packages.resolve()])
+        if args.kindle_packages:
+            directories.append(args.kindle_packages.resolve())
+        if (stage / 'opds-tls').is_dir():
+            directories.append(stage / 'opds-tls')
     replacement, uploads, checked = {}, [], []
     new_names = set()
-    directories = [args.reader_packages.resolve(), (args.format_packages or stage / 'formats').resolve(),
-                   stage / 'mcp', args.djvu_packages.resolve()]
-    if args.kindle_packages:
-        directories.append(args.kindle_packages.resolve())
-    if (stage / 'opds-tls').is_dir():
-        directories.append(stage / 'opds-tls')
     for directory in directories:
         for key, entry in entries(json.loads((directory / 'HomeLibRu.components.json').read_bytes())).items():
             assert key in expected and key not in replacement, 'Unexpected/duplicate replacement'
@@ -146,12 +155,13 @@ def main():
                                 archive_sha256=digest(data), managed_files=len(payload_names)))
     assert set(replacement) == expected
     identical_archive_count = len(checked) - len(uploads)
-    previous_source = old_assets.get(kfx_source.name)
-    if previous_source is None:
-        uploads.insert(0, dict(path=str(kfx_source), **source_asset))
-    else:
-        assert all(previous_source[key] == value for key, value in source_asset.items()), (
-            'Existing corresponding source must remain available unchanged')
+    if not args.reader_only:
+        previous_source = old_assets.get(kfx_source.name)
+        if previous_source is None:
+            uploads.insert(0, dict(path=str(kfx_source), **source_asset))
+        else:
+            assert all(previous_source[key] == value for key, value in source_asset.items()), (
+                'Existing corresponding source must remain available unchanged')
     assert not set(baseline) - set(bootstrap), 'Public components would be dropped'
     # A newly introduced component needs both validated architectures.
     added = set(bootstrap) - set(baseline)
@@ -161,23 +171,27 @@ def main():
         assert {(component, 'Win32'), (component, 'Win64')} <= added, 'Incomplete new component: ' + component
     assert added <= set(replacement)
     merged = {**baseline, **replacement}
-    reader_keys = {('HomeLibReader', platform) for platform in ('Win32', 'Win64')}
     # Older clients keep their verified legacy archive. New clients choose the
     # nested minimal archive using the same component ID and release metadata.
     for key in reader_keys:
         legacy = baseline[key]
         assert legacy['archive'] != replacement[key]['archive']
+        if 'minimal_reader' in legacy:
+            previous = tuple(map(int, legacy['minimal_reader']['version'].split('.')))
+            current = tuple(map(int, replacement[key]['version'].split('.')))
+            assert current > previous, 'Reader version must advance'
         merged[key] = {**legacy, 'minimal_reader': replacement[key]}
     unchanged = set(baseline) - expected
     for key in unchanged | reader_keys:
-        if key in unchanged:
+        if key in unchanged and not args.reader_only:
             assert merged[key] == baseline[key] == bootstrap[key], 'Unchanged component metadata drift: ' + str(key)
         entry = baseline[key]
         asset = old_assets[entry['archive']]
         assert asset['browser_download_url'] == PREFIX + entry['archive']
         assert asset['size'] > 0 and re.fullmatch(r'sha256:[0-9a-f]{64}', asset['digest'])
     replacing_existing = [old_assets[item['name']] for item in uploads if item['name'] in old_assets]
-    previous_owned = {key for key in baseline if key[0] in OWNED and key not in reader_keys}
+    previous_owned = set(baseline) & (expected - reader_keys)
+    previous_owned = {key for key in previous_owned if key[0] in OWNED}
     obsolete = [old_assets[baseline[key]['archive']] for key in sorted(previous_owned)]
     obsolete.extend(old_assets[baseline[key]['minimal_reader']['archive']]
                     for key in sorted(reader_keys) if 'minimal_reader' in baseline[key])
@@ -205,7 +219,8 @@ def main():
                   identical_existing_archives_retained=identical_archive_count,
                   public_feed_size_and_sha256_verified=True, bootstrap_identities_verified=True,
                   exact_manifest_and_payloads_verified=True, feed_sha256=digest(feed))
-    report['kfx_corresponding_source'] = source_asset
+    if not args.reader_only:
+        report['kfx_corresponding_source'] = source_asset
     report['reader_archives_match_current_executables'] = True
     report['legacy_reader_archives_retained'] = [baseline[key]['archive'] for key in sorted(reader_keys)]
     report['reader_packages_directory'] = str(args.reader_packages.resolve())

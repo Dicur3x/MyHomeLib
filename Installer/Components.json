@@ -148,9 +148,13 @@
     {
       "id": "HomeLibReader",
       "platform": "Win32",
-      "version": "3.0.0.5",
-      "archive": "HomeLibRu-HomeLibReader-3.0.0.5-Win32.zip",
+      "version": "3.0.0.6",
+      "archive": "HomeLibRu-HomeLibReader-3.0.0.6-Win32.zip",
       "history": [
+        {
+          "version": "3.0.0.6",
+          "notes": "Добавлены плавная прокрутка колесом и стрелками и настройка цветов текста и фона для каждой темы."
+        },
         {
           "version": "3.0.0.5",
           "notes": "Выбор кодировки текста, отметки глав и настройка полосы чтения на полном экране."
@@ -200,9 +204,13 @@
     {
       "id": "HomeLibReader",
       "platform": "Win64",
-      "version": "3.0.0.5",
-      "archive": "HomeLibRu-HomeLibReader-3.0.0.5-Win64.zip",
+      "version": "3.0.0.6",
+      "archive": "HomeLibRu-HomeLibReader-3.0.0.6-Win64.zip",
       "history": [
+        {
+          "version": "3.0.0.6",
+          "notes": "Добавлены плавная прокрутка колесом и стрелками и настройка цветов текста и фона для каждой темы."
+        },
         {
           "version": "3.0.0.5",
           "notes": "Выбор кодировки текста, отметки глав и настройка полосы чтения на полном экране."

@@ -131,7 +131,12 @@ def package(repo, platform, component, tag, converter_version, output):
             raise ValueError("Rebuild Reader and updater with the current release version before packaging")
         for name in ("HomeLibReader.exe", "HomeLibRuUpdater.exe", "sqlite3.dll"):
             binary_platform(payload[name], platform)
-        notes = "Автономная читалка. FB2, EPUB и текст доступны сразу; дополнительные модули предлагаются при открытии книги."
+        components = json.loads((repo / "Installer/Components.json").read_bytes())["components"]
+        reader_entry = next(entry for entry in components if entry["id"] == component
+                            and entry["platform"] == platform and entry["version"] == version)
+        history = reader_entry["history"]
+        if not history or history[0]["version"] != version:
+            raise ValueError("Reader history must start with the current version")
     elif component == "PDFium":
         root = runtime / "tools/pdfium"
         names = ("pdfium.dll", "HomeLibPDF.exe", "RUNTIME.json", "WORKER_RUNTIME.json",
@@ -184,8 +189,13 @@ def package(repo, platform, component, tag, converter_version, output):
     with zipfile.ZipFile(destination) as archive:
         if archive.testzip() is not None:
             raise ValueError("Component ZIP failed CRC verification")
+    date = datetime.now(timezone.utc).date().isoformat()
+    if component == "HomeLibReader":
+        history = [{"date": date, **history[0]}, *history[1:]]
+    else:
+        history = [{"version": version, "date": date, "notes": notes}]
     return {"id": component, "platform": platform, "version": version, "archive": destination.name,
-            "history": [{"version": version, "date": datetime.now(timezone.utc).date().isoformat(), "notes": notes}]}, {
+            "history": history}, {
             "component": component, "platform": platform, "version": version, "archive": str(destination),
             "size": destination.stat().st_size, "sha256": digest(destination.read_bytes()), "files": len(manifest["files"])}
 
