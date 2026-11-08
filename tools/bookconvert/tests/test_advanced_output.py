@@ -223,21 +223,25 @@ class AdvancedOutputTest(unittest.TestCase):
                     error.exception.close()
 
     def test_epub_pdf_browser_scratch_is_removed_with_profile(self):
+        work = self.work / 'render'
+        work.mkdir()
         with patch.object(epub_pdf_output.subprocess, 'Popen') as popen:
             def launch(*_args, env, **_kwargs):
                 scratch = Path(env['TEMP'])
                 self.assertEqual(env['TMP'], str(scratch))
-                self.assertTrue(scratch.is_relative_to(self.work / 'browser-profile'))
+                self.assertEqual(scratch.parent, work.parent)
+                self.assertNotEqual(scratch, work)
                 (scratch / 'browser-file.tmp').write_bytes(b'private browser data')
+                (work / 'browser-profile').mkdir()
                 process = popen.return_value
                 process.poll.return_value = process.returncode = 0
                 process.communicate.return_value = (None, b'')
                 return process
 
             popen.side_effect = launch
-            epub_pdf_output.render_pdf(conversion, self.work / 'renderer', self.work, 'url', 'prefix', lambda: None)
-        self.assertFalse((self.work / 'browser-profile').exists())
-        self.assertFalse(list(self.work.glob('*.tmp')))
+            epub_pdf_output.render_pdf(conversion, self.work / 'renderer', work, 'url', 'prefix', lambda: None)
+        self.assertFalse((work / 'browser-profile').exists())
+        self.assertFalse(list(self.work.glob('w2-*')))
 
     @unittest.skipUnless(os.environ.get('HOMELIBRE_EPUB_PDF_TOOLS'), 'needs the packaged WebView2 writer and Runtime')
     def test_epub_pdf_preserves_text_and_leaves_no_runtime_profile(self):
@@ -254,7 +258,11 @@ class AdvancedOutputTest(unittest.TestCase):
                     data = data.replace(b'<html:h2 ', b'<html:p ').replace(b'</html:h2>', b'</html:p>')
                 changed.writestr(member, data)
         original = epub.read_bytes()
-        output = self.work / 'book.pdf'
+        # Exercise a temporary path long enough to reproduce WebView2 startup
+        # failures when its scratch directory is nested under the browser profile.
+        work = self.work / ('pdf-' + 'x' * max(0, 168 - len(str(self.work / 'pdf-'))))
+        work.mkdir()
+        output = work / 'book.pdf'
         with patch.dict(os.environ, {
             'WEBVIEW2_BROWSER_EXECUTABLE_FOLDER': str(self.work / 'missing-browser'),
             'WEBVIEW2_USER_DATA_FOLDER': str(self.work / 'outside-profile'),
@@ -272,7 +280,7 @@ class AdvancedOutputTest(unittest.TestCase):
         self.assertEqual(output.stat().st_size, result['size'])
         self.assertEqual(epub.read_bytes(), original)
         self.assertFalse((self.work / 'outside-profile').exists())
-        self.assertFalse(list(self.work.glob('homelibre-advanced-*')))
+        self.assertEqual(list(work.iterdir()), [output])
 
     @unittest.skipUnless(os.environ.get('HOMELIBRE_ADVANCED_WRITERS'), 'needs pinned installed writers')
     def test_real_writers_preserve_content_and_use_separate_modules(self):
