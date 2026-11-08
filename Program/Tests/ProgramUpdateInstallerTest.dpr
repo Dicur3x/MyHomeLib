@@ -317,6 +317,21 @@ begin
       Guard(ParamStr(2)); Guard(ParamStr(3));
       InstallWithLateLock(ParamStr(2),ParamStr(3),ParamStr(4),StrToInt(ParamStr(5)));
     end
+    else if Mode = '--pause-install' then
+    begin
+      Job := ParamStr(2); Target := ParamStr(3); Guard(Job); Guard(Target);
+      InstallProgramUpdate(Job, Target,
+        procedure(const Text: string; Position, Total: Integer)
+        var Deadline: UInt64;
+        begin
+          if Position <> 1 then Exit;
+          TFile.WriteAllText(TPath.Combine(Job,'pause-ready.txt'),'ready');
+          Deadline:=GetTickCount64+20000;
+          while not FileExists(TPath.Combine(Job,'pause-release.txt')) and
+            (GetTickCount64<Deadline) do Sleep(25);
+          raise Exception.Create('Fixture stops after its first replacement');
+        end);
+    end
     else if Mode = '--install' then
     begin
       Job := ParamStr(2); Target := ParamStr(3); Guard(Job); Guard(Target);

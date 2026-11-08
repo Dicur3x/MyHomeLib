@@ -61,7 +61,7 @@ function PreparedIncludesComponent(const Job, Component: string): Boolean;
 
 implementation
 
-uses System.IOUtils, System.Hash, System.Zip, System.DateUtils, unit_ProgramUpdatePaths,
+uses System.IOUtils, System.Hash, System.Zip, System.DateUtils, System.SyncObjs, unit_ProgramUpdatePaths,
   System.Generics.Collections, Winapi.Windows, System.RegularExpressions, unit_UpdateAuthenticity, unit_MHLExternalTools,
   unit_IBKRuntime, unit_ReaderAdapters, unit_ZstdRuntime, unit_FormatComponents, unit_ComponentUsage;
 
@@ -1599,12 +1599,37 @@ begin
   Result:=ChildPath(Directory,'.homelibre-update-'+ID.ToString+'.tmp');
 end;
 
+function AcquireUpdateTarget(const Target: string): TMutex;
+var Directory: THandle; Info: TByHandleFileInformation; Identity: string;
+begin
+  AssertUpdatePath(Target);
+  // Directory identity also covers short paths, aliases and mounted drives.
+  Directory:=CreateFile(PChar(UpdateIOPath(ExcludeTrailingPathDelimiter(UpdateFullPath(Target)))),
+    FILE_READ_ATTRIBUTES, FILE_SHARE_READ or FILE_SHARE_WRITE or FILE_SHARE_DELETE,
+    nil, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, 0);
+  if Directory=INVALID_HANDLE_VALUE then RaiseLastOSError;
+  try
+    if not GetFileInformationByHandle(Directory,Info) then RaiseLastOSError;
+  finally CloseHandle(Directory); end;
+  Identity:=IntToHex(Info.dwVolumeSerialNumber,8)+IntToHex(Info.nFileIndexHigh,8)+
+    IntToHex(Info.nFileIndexLow,8);
+  // The installing thread can reenter when rolling back its own writes.
+  Result:=TMutex.Create(nil,False,'Global\HomeLibre.Update.'+Identity);
+  if not (Result.WaitFor(0) in [wrSignaled,wrAbandoned]) then
+  begin
+    Result.Free;
+    raise Exception.Create('Для этой папки уже выполняется другое обновление или восстановление.');
+  end;
+end;
+
 procedure RollbackProgramUpdate(const Job, Target: string);
-var Journal: TJSONObject; Files: TJSONArray; Value: TJSONValue;
+var Journal: TJSONObject; Files: TJSONArray; Value: TJSONValue; TargetLock: TMutex;
   Name, OriginalTarget, Destination, Backup, State, StageID, Temporary: string; Existed: Boolean; I: Integer;
 begin
-  Journal := ReadJSON(ChildPath(Job, 'journal.json'));
+  TargetLock:=AcquireUpdateTarget(Target);
+  Journal:=nil;
   try
+    Journal := ReadJSON(ChildPath(Job, 'journal.json'));
     if not Journal.TryGetValue<string>('target', OriginalTarget) or
        not SameText(UpdateFullPath(Target), OriginalTarget) or
        not Journal.TryGetValue<TJSONArray>('files', Files) then
@@ -1642,13 +1667,17 @@ begin
     end;
     Journal.RemovePair('state').Free; Journal.AddPair('state', 'rolled-back');
     WriteJSON(ChildPath(Job, 'journal.json'), Journal);
-  finally Journal.Free; end;
+  finally
+    Journal.Free;
+    TargetLock.Release;
+    TargetLock.Free;
+  end;
 end;
 
 procedure InstallProgramUpdate(const Job, Target: string;
   const Progress: TUpdateProgress; FailAfter: Integer);
 const ComponentNames: array[0..26] of string = ('SQLite', 'AlReader', 'SumatraPDF','DjVuLibre','7-Zip','DocSharp','JPEG XL','WebP','HomeLibReader','PDFium','BookConverter','IBK','MHLMcpServer','Zstandard','BookProcessing','ImageProcessing','Kindle','LegacyBooks','LegacyOffice','XPS','KindleExport','FB2Export','KoboExport','EpubPdfExport','KfxExport','OPDSTls',JPEG_XL_ENCODER_COMPONENT);
-var Manifest, Journal, Entry: TJSONObject; Files: TUpdateFiles; List: TJSONArray;
+var Manifest, Journal, Entry: TJSONObject; Files: TUpdateFiles; List: TJSONArray; TargetLock: TMutex;
   Info: TUpdateFile; Source, Destination, Backup, Temporary, StageID, State: string;
   Handle: THandle; Existed: Boolean; I, J, Applied, Comparison: Integer;
   ComponentID, ComponentPath, Folder: string;
@@ -1673,6 +1702,8 @@ begin
   AssertUpdatePath(Target); AssertUpdatePath(Job);
   if not FileExists(ChildPath(Target,'HomeLibRu.exe')) and not FileExists(ChildPath(Target,'HomeLibReader.exe')) then
     raise Exception.Create('В выбранной папке нет HomeLibre или HomeLibre Reader.');
+  TargetLock:=AcquireUpdateTarget(Target);
+  try
   if FileExists(ChildPath(Job, 'journal.json')) then
   begin
     Journal := ReadJSON(ChildPath(Job, 'journal.json'));
@@ -1794,6 +1825,10 @@ begin
       raise;
     end;
   finally Journal.Free; end;
+  finally
+    TargetLock.Release;
+    TargetLock.Free;
+  end;
 end;
 
 procedure CleanProgramUpdate(const Job: string);

@@ -149,7 +149,47 @@ function interruptedStagingTests() {
   assert(freshStage && !fs.existsSync(path.join(destination,'.homelibre-update-'+freshStage+'.tmp')));
   pass('fresh installation ignores old staging files and a completed rollback cannot overwrite it');
 }
+async function concurrentInstallationTests() {
+  const destination = target(), first = prepare(archive());
+  const second = prepare(archive({mutate: (manifest, entries) => {
+    const bytes = Buffer.from('second job license');
+    entries.find(([name]) => name === 'LICENSE')[1] = bytes;
+    Object.assign(manifest.files.find(file => file.path === 'LICENSE'), {size:bytes.length, sha256:sha(bytes)});
+  }}));
+  const independent = target(), independentJob = prepare(archive());
+  const old = snapshot(destination, ['HomeLibRu.exe','LICENSE','NOTICE','sqlite3.dll',...personal]);
+  const firstProcess = asyncRun(['--pause-install', first, destination], 1);
+  const release = path.join(first, 'pause-release.txt');
+  let concurrent, rollback;
+  try {
+    await until(path.join(first, 'pause-ready.txt'));
+    const targetAlias = path.join(path.dirname(destination), path.basename(destination).toUpperCase());
+    concurrent = cp.spawnSync(tester, ['--install',second,targetAlias + path.sep],
+      {encoding:'utf8', windowsHide:true, timeout:15000});
+    assert.ifError(concurrent.error);
+    rollback = cp.spawnSync(tester, ['--rollback',first,targetAlias],
+      {encoding:'utf8', windowsHide:true, timeout:15000});
+    assert.ifError(rollback.error);
+    run(['--install',independentJob,independent]);
+    assert.equal(read(path.join(independent,'LICENSE')).toString(),'new license');
+  } finally {
+    fs.writeFileSync(release, 'release');
+    await firstProcess;
+  }
+  assert.equal(concurrent.status, 1, 'Competing installation completed while the first job was active');
+  assert.equal(rollback.status, 1, 'Competing recovery entered an active installation');
+  for (const result of [concurrent,rollback])
+    assert.match(result.stderr, /Для этой папки уже выполняется другое обновление/);
+  assert(!fs.existsSync(path.join(second,'journal.json')), 'Rejected update changed its journal');
+  assert.equal(json(path.join(first,'journal.json')).state, 'rolled-back');
+  assert.deepEqual(snapshot(destination,['HomeLibRu.exe','LICENSE','NOTICE','sqlite3.dll',...personal]),old);
+  run(['--install',second,destination]);
+  assert.equal(read(path.join(destination,'LICENSE')).toString(),'second job license');
+  assert.deepEqual(snapshot(destination,personal),old.slice(4));
+  pass('competing install and recovery cannot overwrite an active transaction, independent folders and retry work');
+}
 async function main() {
+  if(process.argv.includes('--concurrency-only')) { await concurrentInstallationTests();return; }
   if(process.argv.includes('--locks-only')) { lateLockTests();console.log('PASS 3 late lock tests');return; }
   if(process.argv.includes('--recovery-only')) { interruptedStagingTests();return; }
   run(['--metadata']); pass('schedule, never, custom interval, backward clock and safe names');
@@ -283,6 +323,7 @@ async function main() {
   await new Promise(r=>locker.on('exit',r));run(['--install',locked,busy]);pass('busy DLL fails before replacement and can retry after reader exits');
   lateLockTests();
   interruptedStagingTests();
+  await concurrentInstallationTests();
   const outside=folder('outside'), linked=target();fs.symlinkSync(outside,path.join(linked,'Help'),'junction');
   run(['--install',prepare(zip),linked],1);assert.equal(fs.readdirSync(outside).length,0);pass('junction target is never written');
   // The real test application now imports SQLite through the converter/cache.
