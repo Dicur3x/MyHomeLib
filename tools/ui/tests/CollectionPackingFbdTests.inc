@@ -13,6 +13,9 @@ var
   Book: TBookRecord;
   Options: TCollectionPackingOptions;
   SourceDir, Original, LooseOriginal, SourceHash: string;
+  AlternateRoot, AlternateLoose, AlternateHash, AlternateFixture: string;
+  AlternateBytes: TBytes;
+  DB: TSQLiteDatabase;
   Zip: TZipFile;
 
   procedure VerifyStream(Stream: TStream; const Expected: string);
@@ -34,8 +37,9 @@ var
     Snapshot:=TCollectionPackingSnapshot.Create(CopyOptions);
     try
       Snapshot.Prepare;
+      Require(Snapshot.PlannedLocations=5,'Packing omitted an alternate copy without an extension');
       Snapshot.Pack;
-      Require((Snapshot.Status.SourcesDone=2) and (Snapshot.Status.BooksDone=3) and
+      Require((Snapshot.Status.SourcesDone=3) and (Snapshot.Status.BooksDone=5) and
         (Snapshot.Status.Reused=ExpectedReused), 'A shared FBD container was omitted or counted twice');
       Snapshot.ApplyPrepared;
       Result:=Snapshot.RegisterNew(SystemDB);
@@ -45,7 +49,7 @@ var
   end;
 
   procedure VerifyCopy(ID: Integer);
-  var Fbd, Archived, Loose: TBookRecord;
+  var Fbd, Archived, Loose: TBookRecord; Copies: TArray<TBookRecord>; Stream: TStream;
   begin
     PackedCollection:=SystemDB.GetCollection(ID);
     PackedCollection.GetBookRecord(CreateBookKey(BookID,ID),Fbd,True);
@@ -62,17 +66,35 @@ var
     Require(TFile.GetSize(Loose.GetBookFileName)=Length(TEncoding.UTF8.GetBytes(BookText)),
       'Loose copy grew beyond the original bytes');
     VerifyStream(Loose.GetBookStream(True,False),BookText);
+    Copies:=PackedCollection.GetCatalogBookCopies(CreateBookKey(BookID,ID));
+    Require((Length(Copies)=2) and (Copies[0].LibID='archive-copy') and (Copies[1].LibID='loose-copy'),
+      'Packing changed alternate copy identities');
+    for var Copy in Copies do
+      Require(SameFileName(Copy.CollectionRoot,Options.OutputRoot) and (Copy.FileExt=''),
+        'An extensionless alternate copy still points outside the packed collection');
+    Stream:=Copies[0].GetBookStream(True,False);
+    try
+      Require(Assigned(Stream) and SameText(THashSHA2.GetHashString(Stream),AlternateHash),
+        'Packing changed the extensionless archived copy');
+    finally Stream.Free; end;
+    VerifyStream(Copies[1].GetBookStream(True,False),BookText);
   end;
 
 begin
   SourceDir:=IncludeTrailingPathDelimiter(Settings.AppPath+'packing-fbd-source');
   ForceDirectories(SourceDir);
   Original:=SourceDir+ArchiveName;
+  AlternateBytes:=TEncoding.UTF8.GetBytes('Другой экземпляр книги.');
+  AlternateFixture:=GetEnvironmentVariable('HOMELIB_PACKING_ALTERNATE_PAYLOAD');
+  if AlternateFixture<>'' then AlternateBytes:=TFile.ReadAllBytes(AlternateFixture);
+  var HashStream:=TBytesStream.Create(AlternateBytes);
+  try AlternateHash:=THashSHA2.GetHashString(HashStream); finally HashStream.Free; end;
   Zip:=TZipFile.Create;
   try
     Zip.Open(Original,zmWrite);
     Zip.Add(TEncoding.UTF8.GetBytes(BookText),'chapter.txt');
     Zip.Add(TEncoding.UTF8.GetBytes(Description),'chapter.fbd');
+    Zip.Add(AlternateBytes,'nested book.');
   finally
     Zip.Free;
   end;
@@ -95,6 +117,21 @@ begin
   LooseOriginal:=SourceDir+Book.FileName+Book.FileExt;
   TFile.WriteAllBytes(LooseOriginal,TEncoding.UTF8.GetBytes(BookText));
 
+  Source.GetBookRecord(CreateBookKey(BookID,SourceID),Book,True);
+  Book.Folder:=ArchiveName; Book.FileName:='nested book'; Book.FileExt:=''; Book.InsideNo:=2;
+  Book.LibID:='archive-copy';
+  Source.SetCatalogBookCopy('alternate-archive','Other archive',Book);
+  AlternateRoot:=IncludeTrailingPathDelimiter(Settings.AppPath+'packing-fbd-alternate');
+  ForceDirectories(AlternateRoot);
+  Book.CollectionRoot:=AlternateRoot; Book.Folder:=''; Book.FileName:='Other book.txt'; Book.InsideNo:=-1;
+  Book.LibID:='loose-copy';
+  AlternateLoose:=AlternateRoot+Book.FileName;
+  TFile.WriteAllBytes(AlternateLoose,TEncoding.UTF8.GetBytes(BookText));
+  Source.SetCatalogBookCopy('alternate-loose','Other source',Book);
+  DB:=TSQLiteDatabase.Create(Source.GetProperty(PROP_DATAFILE));
+  try DB.ExecSQL('UPDATE CatalogBookCopies SET Ext=NULL WHERE SourceKey=''alternate-loose''');
+  finally DB.Free; end;
+
   Options:=Default(TCollectionPackingOptions);
   Options.CatalogFile:=Source.GetProperty(PROP_DATAFILE);
   Options.PersonalFile:=Settings.SystemFileName[sfSystemDB];
@@ -115,13 +152,17 @@ begin
   Require(RenameFile(Original,Original+'.held'), 'Cannot hide the owned original for the retention check');
   try
     Require(RenameFile(LooseOriginal,LooseOriginal+'.held'), 'Cannot hide the owned loose fixture');
-    try VerifyCopy(CreateCopy(Options,2));
+    try
+      Require(RenameFile(AlternateLoose,AlternateLoose+'.held'),'Cannot hide the owned alternate copy');
+      try VerifyCopy(CreateCopy(Options,3));
+      finally Require(RenameFile(AlternateLoose+'.held',AlternateLoose),'Cannot restore the owned alternate copy'); end;
     finally Require(RenameFile(LooseOriginal+'.held',LooseOriginal), 'Cannot restore the owned loose fixture'); end;
   finally
     Require(RenameFile(Original+'.held',Original), 'Cannot restore the owned original fixture');
   end;
   Writeln('PASS original FBD container, both native locator forms, exact book and descriptor, reuse without originals');
   Writeln('PASS loose book does not grow and remains readable after retention without its original');
+  Writeln('PASS alternate copies with empty and NULL extensions survive packing and reuse without originals');
   TestPackingUnavailable;
   TestPackingInpx;
   if DirectoryExists(Settings.AppPath+'packing-real-input') then TestPackingReal;

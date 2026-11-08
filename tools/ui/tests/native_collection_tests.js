@@ -358,7 +358,7 @@ function requiredPasses(executable, mode) {
   if (mode === "search-startup-layout") return ["PASS header menu keeps column IDs", ...requiredViews[mode], "TRACE main cleanup complete"];
   if (mode === "series-stream") return ["PASS sequential series stream matches ordinary lookup"];
   if (mode === "fbd-editor-save") return ["PASS FBD editor preserves unsaved metadata"];
-  if (mode === "packing-fbd") return ["PASS original FBD container", "PASS packing estimate review", "PASS unavailable books remain in the catalogue", "PASS selected INPX adds and replaces exact books", "PASS selected INPX estimate cancels and continues",
+  if (mode === "packing-fbd") return ["PASS original FBD container", "PASS alternate copies with empty and NULL extensions survive packing and reuse without originals", "PASS packing estimate review", "PASS unavailable books remain in the catalogue", "PASS selected INPX adds and replaces exact books", "PASS selected INPX estimate cancels and continues",
       "PASS packing restart restores selected INPX and profile once and rejects changed inputs",
     ...(packingInventoryArg ? ["PASS real mixed packed books survive two INPX updates and export with exact original bytes"] : []),
     ...(packingFlibraryArg ? ["PASS real FLibrary EPUB restores every expected image path"] : [])];

@@ -591,12 +591,15 @@ begin
 end;
 
 procedure TCollectionPackingSnapshot.BuildPlan;
+const
+  // A named copy can resolve to a physical book even without an extension.
+  NamedCopies = ' FROM CatalogBookCopies WHERE FileName<>''''';
 var Catalog, Personal: TSQLiteDatabase;
   Query, Insert, Target, Retained, Origin, Deferred, PreviousDeferred: TSQLiteQuery;
   Book: TBookRecord; CurrentArchive: TMHLZip; CurrentFile, Source, Member, Locator, Key, Root: string;
   OriginalName, Payload, Container, DeferredRoot: string;
   OriginalInside, NativeID: Integer; ID, Done, Total: Int64;
-  Keep, Fbd, Missing: Boolean; BookFormat: TBookFormat;
+  Keep, Fbd, Missing, HasCopies: Boolean; BookFormat: TBookFormat;
   function ResolveSource(const SourceRoot: string): Boolean;
   begin
     if Book.FileName='' then Exit(False);
@@ -726,8 +729,8 @@ begin
     Personal:=TSQLiteDatabase.CreateReadOnly(FPersonalFile);
     Total:=Catalog.QuerySingleInt('SELECT count(*) FROM Books')+
       Personal.QuerySingleInt('SELECT count(*) FROM Books WHERE DatabaseID=?',[FOptions.SourceID]);
-    if Catalog.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE name=''CatalogBookCopies''')<>0 then
-      Inc(Total,Catalog.QuerySingleInt('SELECT count(*) FROM CatalogBookCopies WHERE FileName<>'''' AND Ext<>'''''));
+    HasCopies:=Catalog.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE name=''CatalogBookCopies''')<>0;
+    if HasCopies then Inc(Total,Catalog.QuerySingleInt('SELECT count(*)'+NamedCopies));
     if (Catalog.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE name=''HomeLibPackingState''')<>0) and
       (Catalog.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE name=''HomeLibPackingOrigins''')<>0) then
       if Catalog.QuerySingleString('SELECT Value FROM HomeLibPackingState WHERE Key=''dataset''')=FOptions.Dataset then
@@ -746,9 +749,9 @@ begin
       ReadRows(Catalog,'SELECT BookID,Folder,FileName,Ext,InsideNo FROM Books ORDER BY Folder,BookID',0);
       ReadRows(Personal,'SELECT BookID,Folder,FileName,Ext,InsideNo FROM Books WHERE DatabaseID='+IntToStr(FOptions.SourceID)+
         ' ORDER BY Folder,BookID',1);
-      if Catalog.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE name=''CatalogBookCopies''')<>0 then
-        ReadRows(Catalog,'SELECT BookID,Folder,FileName,Ext,InsideNo,Root,SourceKey FROM CatalogBookCopies '+
-          'WHERE FileName<>'''' AND Ext<>'''' ORDER BY Root,Folder,BookID',2);
+      if HasCopies then
+        ReadRows(Catalog,'SELECT BookID,Folder,FileName,Ext,InsideNo,Root,SourceKey'+NamedCopies+
+          ' ORDER BY Root,Folder,BookID',2);
       FPlan.ExecSQL('CREATE INDEX source_books ON books(source)');
       FPlan.ExecSQL('CREATE INDEX retained_payload ON retained(payload)');
       FCount:=Done-FStatus.Unavailable;
