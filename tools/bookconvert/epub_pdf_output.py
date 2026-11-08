@@ -154,15 +154,14 @@ def remove_profile(profile, work):
 
 
 def render_pdf(api, renderer, work, url, allowed, checkpoint):
-    profile = work / 'browser-profile'
     cancel = work / 'cancel-epub-pdf'
     env = {key: value for key, value in os.environ.items() if not key.upper().startswith('WEBVIEW2_')}
     checkpoint()
-    # WebView2 creates more paths below TEMP. Keep this path short and inside
-    # the conversion directory, so cancellation can still clean up both folders.
-    temporary = Path(tempfile.mkdtemp(prefix='w2-', dir=work.parent))
+    # WebView2 creates deeper paths below both directories. Use a short, private
+    # location inside the conversion directory so it can also be removed on cancellation.
+    profile = Path(tempfile.mkdtemp(prefix='w2-', dir=work.parent))
     try:
-        env.update(TEMP=str(temporary), TMP=str(temporary))
+        env.update(TEMP=str(profile), TMP=str(profile), WEBVIEW2_USER_DATA_FOLDER=str(profile / 'b'))
         process = subprocess.Popen([str(renderer), url, allowed, str(api.MAX_TOTAL)], cwd=work,
                                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
                                    env=env, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
@@ -183,10 +182,7 @@ def render_pdf(api, renderer, work, url, allowed, checkpoint):
                     process.kill()
                     process.communicate()
     finally:
-        try:
-            remove_profile(profile, work)
-        finally:
-            remove_profile(temporary, work.parent)
+        remove_profile(profile, work.parent)
     if process.returncode == 3:
         raise api.ConversionError('Для сохранения EPUB в PDF нужна среда Microsoft WebView2 Runtime.')
     if process.returncode:

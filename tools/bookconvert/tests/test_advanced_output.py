@@ -232,7 +232,9 @@ class AdvancedOutputTest(unittest.TestCase):
                 self.assertEqual(scratch.parent, work.parent)
                 self.assertNotEqual(scratch, work)
                 (scratch / 'browser-file.tmp').write_bytes(b'private browser data')
-                (work / 'browser-profile').mkdir()
+                profile = Path(env['WEBVIEW2_USER_DATA_FOLDER'])
+                self.assertEqual(profile.parent, scratch)
+                profile.mkdir()
                 process = popen.return_value
                 process.poll.return_value = process.returncode = 0
                 process.communicate.return_value = (None, b'')
@@ -240,7 +242,6 @@ class AdvancedOutputTest(unittest.TestCase):
 
             popen.side_effect = launch
             epub_pdf_output.render_pdf(conversion, self.work / 'renderer', work, 'url', 'prefix', lambda: None)
-        self.assertFalse((work / 'browser-profile').exists())
         self.assertFalse(list(self.work.glob('w2-*')))
 
     @unittest.skipUnless(os.environ.get('HOMELIBRE_EPUB_PDF_TOOLS'), 'needs the packaged WebView2 writer and Runtime')
