@@ -88,14 +88,14 @@ var Input: TStream; Writer: TBookCacheWrite; Zip: TZipFile;
   Canceled: TFunc<Boolean>; Archive: TMHLZip; HasTIFF: Boolean; Extension: string; MaxInput: Int64;
 begin
   Result:=SourceFile;
-  if not IsLegacyReaderFormat(ExtractFileExt(SourceFile)) then Exit;
+  Extension:=LowerCase(ExtractFileExt(SourceFile));
+  if (Extension<>'.rtf') and not IsLegacyReaderFormat(Extension) then Exit;
   Canceled:=function: Boolean
     begin
       Result:=(Assigned(IsCanceled) and IsCanceled()) or
         ((GetCurrentThreadID<>MainThreadID) and TThread.CheckTerminated);
     end;
   if Canceled() then Abort;
-  Extension:=LowerCase(ExtractFileExt(SourceFile));
   // The native reader loads TIFF frames on demand. Retain the preparation
   // path for files the system decoder cannot read in full.
   if ((Extension='.tif') or (Extension='.tiff')) and CanReadTiffDirectly(SourceFile) then Exit;
@@ -107,6 +107,9 @@ begin
     // base64 blocks out of the native XML DOM.
     if (Attributes.nFileSizeHigh=0) and (Attributes.nFileSizeLow<=64*1024*1024) then Exit;
   end;
+  // A large RTF can carry both a JPEG and a legacy metafile for each figure.
+  // Prepare it outside RichEdit and let the EPUB reader load figures on demand.
+  if (Extension='.rtf') and (TFile.GetSize(SourceFile)<=MAX_NATIVE_RTF_SOURCE) then Exit;
   if (Extension='.cbz') or (Extension='.cbr') or (Extension='.cb7') then
   begin
     // Ordinary comics retain the native path. Only TIFF needs frame expansion.
@@ -127,6 +130,7 @@ begin
   try
     MaxInput:=64*1024*1024;
     if (Extension='.fb2') or (Extension='.tif') or (Extension='.tiff') or (Extension='.cbz') or (Extension='.cbr') or (Extension='.cb7') then MaxInput:=256*1024*1024;
+    if Extension='.rtf' then MaxInput:=MAX_RTF_CONVERSION_SOURCE;
     if Input.Size>MaxInput then raise Exception.Create('Книга превышает предел читалки ('+IntToStr(MaxInput div 1024 div 1024)+' МБ).');
     Stamp:='legacy-reflow-v3|'+BookCacheInputStamp(SourceFile,OriginalSource);
     Dependencies:=TStringList.Create;

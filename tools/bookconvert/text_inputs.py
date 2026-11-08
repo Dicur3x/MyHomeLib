@@ -752,6 +752,8 @@ def read_rtf(book, data):
     run_parts = []
     formatting = [('b', 'strong'), ('i', 'em'), ('s', 's'), ('u', 'u'), ('sup', 'sup'), ('sub', 'sub')]
     token = re.compile(r'([a-zA-Z]+)(-?\d+)? ?')
+    picture_literal = re.compile(r'[^{}\\]{1,262144}')
+    shape_picture = re.compile(r'\\shppict(?![a-zA-Z])')
     destinations = {'fonttbl', 'colortbl', 'stylesheet', 'info', 'filetbl', 'listtable', 'listoverridetable', 'revtbl', 'rsidtbl', 'generator', 'header', 'headerl', 'headerr', 'footer', 'footerl', 'footerr', 'annotation', 'datastore', 'themedata', 'colorschememapping', 'fldinst', 'objdata', 'nonshppict'}
     def finish_run():
         if run_parts:
@@ -780,9 +782,18 @@ def read_rtf(book, data):
     def char(value):
         nonlocal fallback
         if fallback: fallback -= 1
-        elif state['pict'] is not None: state['pict']['hex'].append(value)
+        elif state['skip']: return
+        elif state['pict'] is not None:
+            state['pict']['hex'].append(value)
         else: buffer.extend(value.encode('latin1'))
     while at < len(text):
+        if state['pict'] is not None and not fallback:
+            literal = picture_literal.match(text, at)
+            if literal:
+                if not state['skip']:
+                    state['pict']['hex'].append(literal[0].replace('\r', '').replace('\n', ''))
+                at = literal.end()
+                continue
         ch = text[at]; at += 1
         if ch == '{':
             flush(); fallback = 0; stack.append(state.copy())
@@ -817,7 +828,11 @@ def read_rtf(book, data):
             if not match:
                 at += 1
                 if fallback: fallback -= 1; continue
-                if symbol == '*': flush(); state['skip'] = True
+                if symbol == '*':
+                    flush()
+                    # Word stores the primary picture in a starred destination
+                    # and may also store a duplicate WMF fallback in nonshppict.
+                    if not shape_picture.match(text, at): state['skip'] = True
                 elif symbol in {'~', '_', '-'}:
                     flush(); emit({'~': '\u00a0', '_': '\u2011', '-': '\u00ad'}[symbol])
                 continue
@@ -825,7 +840,7 @@ def read_rtf(book, data):
             if word == 'bin':
                 if arg is None or arg < 0 or at + arg > len(text): book.fail('Оборванный двоичный блок RTF.')
                 if fallback: fallback -= 1
-                elif state['pict'] is not None: state['pict']['bin'] = text[at:at+arg].encode('latin1')
+                elif state['pict'] is not None and not state['skip']: state['pict']['bin'] = text[at:at+arg].encode('latin1')
                 at += arg; continue
             # A fallback control word counts as one character, including its
             # delimiter. It must neither render nor consume the following text.

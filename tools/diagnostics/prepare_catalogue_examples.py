@@ -22,13 +22,16 @@ def prepare(inventory, profile, selection=""):
     for kind in report["formats"]:
         extension = kind["extension"]
         explicit_ids = {'id:' + str(e['id']) for e in kind['examples']} & selected
-        limit = 256 * 1024 * 1024 if extension in {'.tif', '.tiff'} else 16 * 1024 * 1024
         if selected and extension not in selected and not any('id:'+str(e['id']) in selected for e in kind['examples']):
             continue
         count = 0
         for candidate in kind["examples"]:
             if selected and extension not in selected and 'id:' + str(candidate['id']) not in selected:
                 continue
+            # Large examples require an explicit book ID so a broad audit does
+            # not unexpectedly stage hundreds of megabytes per format.
+            large = extension in {'.tif', '.tiff'} or 'id:' + str(candidate['id']) in explicit_ids
+            limit = (256 if large else 16) * 1024 * 1024
             # Some INPX rows have an unknown (zero) recorded size. The archive
             # member size below is authoritative and still enforces our bound.
             for location in candidate["available"]:

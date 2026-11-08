@@ -522,7 +522,7 @@ implementation
 {$R '..\Resources\reader-icon.res'}
 
 uses Winapi.ActiveX, Winapi.RichEdit, Winapi.CommDlg, Winapi.CommCtrl, Winapi.ShellAPI, System.Math, System.DateUtils, System.IOUtils, System.RegularExpressions,
-  System.IniFiles, System.Hash, System.NetEncoding, Vcl.Dialogs, Vcl.Clipbrd, unit_ReaderRichEdit, unit_ReaderLookup, unit_MHLTheme, unit_AtomicIniFile, Vcl.Themes, unit_MHLExternalTools, unit_ReaderPalette, unit_Diagnostics;
+  System.IniFiles, System.Hash, System.NetEncoding, Vcl.Dialogs, Vcl.Clipbrd, unit_ReaderRichEdit, unit_ReaderLookup, unit_MHLTheme, unit_AtomicIniFile, Vcl.Themes, unit_MHLExternalTools, unit_ReaderPalette, unit_Diagnostics, unit_ReaderFormats;
 
 type
   TReaderChapterSelector = class(TReaderPaletteCombo)
@@ -1527,7 +1527,7 @@ begin
   begin
     Stream:=TFileStream.Create(FileName,fmOpenRead or fmShareDenyNone);
     try
-      if Stream.Size>64*1024*1024 then raise Exception.Create('RTF слишком велик.');
+      if Stream.Size>MAX_NATIVE_RTF_SOURCE then raise Exception.Create('RTF слишком велик.');
       FOleCallback:=AttachReaderPictures(FRichEdit);
       ReaderLoadRTF(FRichEdit,Stream);
     finally Stream.Free; end;

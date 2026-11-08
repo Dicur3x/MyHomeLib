@@ -8,6 +8,7 @@ const
   BOOK_QUALITY_MAXIMUM = 3;
   BOOK_QUALITY_NONE = 4;
   MAX_PDF_CONVERSION_SOURCE = 512*1024*1024;
+  MAX_RTF_CONVERSION_SOURCE = 256*1024*1024;
   BOOK_IMAGE_PROFILES: array[0..BOOK_QUALITY_NONE] of string =
     ('original','balanced','economy','maximum','none');
   BOOK_IMAGE_PROFILE_CAPTIONS: array[0..BOOK_QUALITY_NONE] of string =
@@ -499,7 +500,8 @@ begin
         SavedPosition:=Input.Position;
         try
           Input.Position:=0; SetLength(Header,1024); Input.ReadBuffer(Header[0],Length(Header));
-          if TEncoding.ASCII.GetString(Header).Contains('%PDF-') then MaximumInput:=MAX_PDF_CONVERSION_SOURCE
+          if TEncoding.ASCII.GetString(Header,0,5)='{\rtf' then MaximumInput:=MAX_RTF_CONVERSION_SOURCE
+          else if TEncoding.ASCII.GetString(Header).Contains('%PDF-') then MaximumInput:=MAX_PDF_CONVERSION_SOURCE
           else if ((Header[0]=$49) and (Header[1]=$49) and (Header[2]=$2A) and (Header[3]=0)) or
              ((Header[0]=$4D) and (Header[1]=$4D) and (Header[2]=0) and (Header[3]=$2A)) or
              ((Header[0]=$50) and (Header[1]=$4B)) or
@@ -536,8 +538,10 @@ begin
     var IsLargeInput:=TFile.GetSize(InputName)>64*1024*1024;
     if IsLargeInput and (Actual='.pdf') and (SaveOptionsAPI(AppPath)<4) then
       raise EMHLComponentRequired.Create('BookProcessing','Для конвертации больших PDF обновите модуль подготовки книг.');
+    if IsLargeInput and (Actual='.rtf') and (SaveOptionsAPI(AppPath)<7) then
+      raise EMHLComponentRequired.Create('BookProcessing','Для обработки больших RTF обновите модуль подготовки книг.');
     if IsLargeInput and
-      (Pos('|'+Actual+'|','|.pdf|.tif|.tiff|.cbz|.cbr|.cb7|')=0) and
+      (Pos('|'+Actual+'|','|.pdf|.rtf|.tif|.tiff|.cbz|.cbr|.cb7|')=0) and
       not ((ForReading and SameText(Actual,'.fb2')) or
         (ImageProcessing and ((Actual='.fb2') or (Actual='.epub')))) then
       raise Exception.Create('Для этого формата предел конвертации — 64 МБ.');

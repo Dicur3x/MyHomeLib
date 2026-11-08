@@ -2,6 +2,8 @@
 
 interface
 
+const MAX_NATIVE_RTF_SOURCE = 64*1024*1024;
+
 // Content inspection uses a bounded prefix and never changes source files.
 function DetectReaderExtension(const FileName: string): string;
 function PrepareDetectedReaderFile(const FileName, Source: string): string;

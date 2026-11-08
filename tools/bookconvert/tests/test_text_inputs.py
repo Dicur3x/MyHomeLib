@@ -183,6 +183,20 @@ class TextInputs(unittest.TestCase):
         def rtf_unicode(text): return ''.join('\\u' + str(int.from_bytes(text.encode('utf-16-le')[i:i+2], 'little', signed=True)) + '?' for i in range(0, len(text.encode('utf-16-le')), 2))
         source.write_bytes(('{\\rtf1\\ansi\\ansicpg1251\\uc1 {\\fonttbl{\\f0 Times;}}\\outlinelevel0 Глава один\\par '+rtf_unicode(TEXT)+' {\\b\\i Жирный курсив} \\{скобки\\}\\par {\\pict\\pngblip '+PNG.hex()+'}\\par Конец}').encode('cp1251'))
         self.outputs(source, [TEXT, 'Жирный курсив', '{скобки}', 'Конец'], True, True)
+
+    def test_word_rtf_preserves_primary_picture_and_ignores_its_fallback(self):
+        source = self.root / 'word-picture.rtf'
+        hex_picture = PNG.hex().encode('ascii')
+        source.write_bytes(
+            br'{\rtf1\ansi\ansicpg1251{\stylesheet{\s1\ansicpg949 ' + b"\\'e5\\'ea;}}"
+            br'Before{\*\shppict{\pict{\*\picprop 1234}\pngblip ' +
+            hex_picture[:17] + b'\r\n' + hex_picture[17:] +
+            br'}}{\nonshppict{\pict\wmetafile8 unreadable}}After}')
+        self.outputs(source, ['Before', 'After'], image=True)
+        with zipfile.ZipFile(self.root / 'word-picture.rtf.epub') as archive:
+            body = c.xml(archive.read('OEBPS/book.xhtml'))
+            self.assertEqual(sum(c.tag(node) == 'img' for node in body.iter()), 1)
+
     def test_bad_inputs_publish_nothing(self):
         for ext, content in [('.rtf', b'{\\rtf1 {broken'), ('.docx', b'PK\x03\x04\x00broken'), ('.odt', b'PK\x03\x04\x00broken'), ('.html', b'<p><img src="../secret.png">')]:
             source = self.root/('bad' + ext); source.write_bytes(content); output = self.root/('bad' + ext + '.fb2')

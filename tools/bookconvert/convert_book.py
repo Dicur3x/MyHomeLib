@@ -1818,7 +1818,7 @@ def _convert_book(source, destination, **metadata):
                       'options':image_options,'choice':image_choice,'handled':False,'grayscale':grayscale,'check':cancel_check,
                       'measure_scans':measure_scans}
         metadata['image_export']=image_export
-    large_images = extension in {'.tif','.tiff','.cbz','.cbr','.cb7'} or (extension=='.fb2' and metadata.get('reading'))
+    large_images = extension in {'.tif','.tiff','.cbz','.cbr','.cb7','.rtf'} or (extension=='.fb2' and metadata.get('reading'))
     large_images = large_images or (extension in {'.fb2','.epub'} and (image_quality!='original' or grayscale))
     limit = MAX_PDF_SOURCE if extension == '.pdf' else (MAX_TOTAL if large_images else MAX_FILE)
     if source_size > limit: raise ConversionError('Книга превышает предел конвертации ('+str(limit//1024//1024)+' МБ).')
