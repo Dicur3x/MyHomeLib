@@ -122,10 +122,16 @@ begin
   Sample.Completed:=True; Sample.Options.ScanPages:=True; Sample.Options.DistributedSamples:=True;
   Sample.Options.SampleCount:=4; Sample.Options.ImageCount:=822; Sample.TargetExtension:='.fb2';
   Sample.Options.ZipOutputBytes[0,0]:=10*1024; Sample.Options.ZipMarginBytes[0,0]:=1024;
+  Sample.Options.ZipOutputBytes[0,BOOK_QUALITY_MAXIMUM]:=8*1024;
+  Sample.Options.ZipMarginBytes[0,BOOK_QUALITY_MAXIMUM]:=1024;
   var SampleReport:=BookEstimateReport([Books[0]],[Sample],Plan,0,0,'Оценка завершена');
   Require(SampleReport.Contains('4 из 822') and SampleReport.Contains('±10%') and
+    SampleReport.Contains('±'+FormatFloat('0.0',12.5)+'%') and
+    SampleReport.Contains('Итоговый размер может выйти за него') and
     SampleReport.Contains(BookEstimateValueText(10*1024,1024)),
-    'Report omits the sample coverage, range or approximate margin');
+    'Report omits the sample coverage, per-mode margin or uncertainty note');
+  Require(BookEstimateValueText(1024*1024,100,True).Contains('<'+FormatFloat('0.0',0.1)+'%'),
+    'Small batch uncertainty is presented as zero');
   Name:=Settings.AppPath+'estimate-errors.txt'; TFile.WriteAllText(Name,'Previous report',TEncoding.UTF8);
   BeforeHash:=UpdateSHA256(Name); Failed:=False;
   try SaveBookEstimateReport(Name,Report); except on E: Exception do Failed:=True; end;

@@ -5,7 +5,7 @@ interface
 uses System.Classes, Vcl.Forms, unit_Globals, unit_BookSavePolicy, unit_BookSendEstimates, unit_BookConversion;
 
 function BookEstimateSizeText(Bytes: Int64): string;
-function BookEstimateValueText(Bytes, Margin: Int64): string;
+function BookEstimateValueText(Bytes, Margin: Int64; ShowPercent: Boolean=False): string;
 function BookEstimateResultText(const Item: TBookSaveEstimateItem; Bytes: Int64): string;
 function BookEstimateReport(const Books: TArray<TBookRecord>; const Items: TBookSaveEstimateItems;
   const Plan: TBookSaveChoice; Quality, ScanLayout: Integer; const Status: string): string;
@@ -34,7 +34,7 @@ begin
   else Result:=IntToStr(Bytes)+' Б';
 end;
 
-function BookEstimateValueText(Bytes, Margin: Int64): string;
+function BookEstimateValueText(Bytes, Margin: Int64; ShowPercent: Boolean): string;
 begin
   Result:='≈ '+BookEstimateSizeText(Bytes);
   if Margin>0 then
@@ -42,6 +42,12 @@ begin
     var LowText:=BookEstimateSizeText(Max(Int64(0),Bytes-Margin));
     var HighText:=BookEstimateSizeText(Bytes+Margin);
     if LowText<>HighText then Result:=LowText+' – '+HighText;
+    if ShowPercent and (Bytes>0) then
+    begin
+      var Percent:=100.0*Margin/Bytes;
+      if Percent<0.1 then Result:=Result+' (<'+FormatFloat('0.0',0.1)+'%)'
+      else Result:=Result+' (±'+FormatFloat('0.#',Percent)+'%)';
+    end;
   end;
 end;
 
@@ -96,7 +102,7 @@ begin
         begin Bytes:=Entry.Options.ZipOutputBytes[Layout,Q]; Margin:=Entry.Options.ZipMarginBytes[Layout,Q]; end;
         var Value:='не рассчитано';
         if (Q=BOOK_QUALITY_NONE) and not BookSaveSupportsNoImages(Plan.Mode) then Value:='для формата нужна обложка'
-        else if Bytes>0 then Value:=BookEstimateValueText(Bytes,Margin)
+        else if Bytes>0 then Value:=BookEstimateValueText(Bytes,Margin,True)
         else if Entry.Completed and (Entry.ErrorText='') and Entry.Options.ScanPages and (Q=BOOK_QUALITY_NONE) then
           Value:='недоступно для страниц-сканов';
         if Bytes>20*1024*1024 then Value:=Value+' — крупнее 20 МБ';
@@ -108,9 +114,9 @@ begin
       if (Length(Needed)=0) and (Entry.RequiredComponent<>'') then Needed:=TArray<string>.Create(Entry.RequiredComponent);
       if Length(Needed)>0 then Text.AppendLine('Нужны компоненты: '+string.Join(', ',Needed));
       if Entry.ImagesUnchanged then Text.AppendLine('Исходный формат копируется без изменения изображений.');
-      if Entry.Options.FirstSamples then Text.AppendLine('Для длинных сканов проверены первые страницы; итоговый размер может отличаться.');
+      if Entry.Options.FirstSamples then Text.AppendLine('Для длинных сканов проверены первые страницы. Предел погрешности неизвестен.');
       if Entry.Options.DistributedSamples then Text.AppendLine(Format(
-        'Проверены %d из %d страниц. Диапазон оценки начинается с ±10%% и шире, если страницы различаются по размеру. Итог может выйти за диапазон.',
+        'Проверены %d из %d страниц. Диапазон показывает возможный разброс по выборке. Итоговый размер может выйти за него.',
         [Entry.Options.SampleCount,Entry.Options.ImageCount]));
       if Entry.Options.AllScanPages then Text.AppendLine('Проверены все страницы сканов. Размер служебных данных рассчитан приблизительно.');
       Text.AppendLine;

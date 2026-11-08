@@ -413,8 +413,9 @@ end;
 
 procedure TBookSendOptionsForm.UpdateSummary;
 var Text, Selected: string; Total, TotalMargin, Bytes, Margin: Int64; Unknown, Large: Integer;
+  HasRange: Boolean;
 begin
-  Text:=''; Selected:='';
+  Text:=''; Selected:=''; HasRange:=False;
   for var Q:=0 to High(BOOK_IMAGE_PROFILES) do
   begin
     if (Q=BOOK_QUALITY_NONE) and not BookSaveSupportsNoImages(Choice.Mode) then Continue;
@@ -431,10 +432,17 @@ begin
     Text:=Text+BOOK_IMAGE_PROFILE_CAPTIONS[Q]+': ';
     if Length(FItems)=0 then Text:=Text+'нет оценки'
     else if Unknown=Length(FItems) then Text:=Text+'не рассчитано'
-    else begin Text:=Text+BookEstimateValueText(Total,TotalMargin); if Unknown>0 then Text:=Text+Format(' + ещё %d без оценки',[Unknown]); end;
+    else
+    begin
+      Text:=Text+BookEstimateValueText(Total,TotalMargin,True);
+      if Unknown>0 then Text:=Text+Format(' + ещё %d без оценки',[Unknown]);
+      HasRange:=HasRange or (TotalMargin>0);
+    end;
     if Large>0 then Text:=Text+Format(' · крупнее 20 МБ: %d',[Large]);
     if Q=Max(0,FImages.ItemIndex) then Selected:=Copy(Text,Start,MaxInt);
   end;
+  if HasRange then
+    Text:=Text+sLineBreak+'Диапазон по выборке сканов. Итоговый размер может выйти за него.';
   // Show all modes after estimation and the selected mode before it.
   FSummary.Hint:=Text; FSummary.ShowHint:=True;
   if FHasEstimateAttempt then FSummary.Caption:=Text else FSummary.Caption:=Selected;
@@ -551,9 +559,15 @@ begin
 end;
 
 procedure TBookSendOptionsForm.ListInfoTip(Sender: TObject; Item: TListItem; var InfoTip: string);
+var Bytes, Margin: Int64;
 begin
-  if (Item.Index>=0) and (Item.Index<Length(FItems)) then
-    InfoTip:=FBooks[Item.Index].Title+sLineBreak+FItems[Item.Index].ErrorText;
+  if (Item.Index<0) or (Item.Index>=Length(FItems)) then Exit;
+  var Entry:=FItems[Item.Index];
+  InfoTip:=FBooks[Item.Index].Title;
+  EstimateSize(Entry,Max(0,FImages.ItemIndex),Bytes,Margin);
+  if (Bytes>0) and (Margin>0) then
+    InfoTip:=InfoTip+sLineBreak+BookEstimateValueText(Bytes,Margin,True);
+  if Entry.ErrorText<>'' then InfoTip:=InfoTip+sLineBreak+Entry.ErrorText;
 end;
 
 procedure TBookSendOptionsForm.SelectPreviewBook(Sender: TObject; Item: TListItem; Selected: Boolean);
@@ -618,10 +632,10 @@ begin
       Distributed:=Distributed or Item.Options.DistributedSamples;
     end;
     if Errors>0 then FStatus.Caption:=Format('Ошибки оценки: %d из %d книг. Причины указаны в таблице и в результатах оценки.',[Errors,Length(FBooks)])
-    else if Limited then FStatus.Caption:='Размер ориентировочный: для длинных сканов проверены первые страницы. Результат может отличаться.'
+    else if Limited then FStatus.Caption:='Для длинных сканов проверены первые страницы. Предел погрешности неизвестен.'
     else if Choice.Mode in BOOK_SAVE_ADVANCED_MODES then
       FStatus.Caption:='Пробные копии проверены. Итоговый размер может немного отличаться.'
-    else if Distributed then FStatus.Caption:='Диапазон по выборке от ±10%. Итоговый размер может выйти за него.'
+    else if Distributed then FStatus.Caption:='Размер сканов оценён по выборке страниц.'
     else if MeasuredScans then FStatus.Caption:='Размер сканов оценён по всем страницам. Итоговый размер может немного отличаться.'
     else FStatus.Caption:='Оценка размера готова. Итоговый размер может отличаться.';
   end;
