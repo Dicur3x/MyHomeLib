@@ -1,4 +1,4 @@
-type
+﻿type
   TAdvancedSaveDialogProbe = class
     Timer: TTimer;
     Checked, Restored, TestRuntime, WaitingForRuntime, RuntimePromptSeen: Boolean;
