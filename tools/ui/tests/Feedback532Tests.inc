@@ -404,7 +404,8 @@ begin
       Row.AddPair('id',TJSONNumber.Create(Item.GetValue<Integer>('id')));
       FileName:=TPath.Combine(Settings.AppPath,'catalogue-examples\'+Item.GetValue<string>('name'));
       Hash:=UpdateSHA256(FileName); Require(SameText(Hash,Item.GetValue<string>('sha256')),'Audit example changed before reading');
-      if (Extension='.cbz') or (Extension='.cbr') or (Extension='.pages') or (Extension='.cr3') or (Extension='.b1') then
+      if (Extension='.cbz') or (Extension='.cbr') or (Extension='.pages') or (Extension='.cr3') or
+        (Extension='.b1') or (Item.GetValue<Integer>('id')=741313) then
       begin
         // A false extension must retain the complete book through ordinary preparation.
         TFile.Copy(FileName,FileName+'.wrong.pdf',False);FileName:=FileName+'.wrong.pdf';
@@ -457,6 +458,18 @@ begin
                 not string(Reader.ReaderStatus.Caption).Contains('Не удалось'),
                 'Reader did not render the first page: '+Reader.ReaderStatus.Caption);
               Row.AddPair('first_page_raster',Format('%dx%d',[Raster.X,Raster.Y]));
+              Row.AddPair('first_page_ms',TJSONNumber.Create(GetTickCount64-Started));
+            end;
+            if Item.GetValue<Integer>('id')=741313 then
+            begin
+              Require(SameText(ExtractFileExt(Prepared),'.tif') and (Reader.TextLength=98) and
+                SameText(UpdateSHA256(Prepared),Hash),'Large TIFF did not open directly with all 98 pages and exact bytes');
+              Reader.GoToPosition(97); LoadDeadline:=GetTickCount64+30000;
+              while Reader.PageLoading and (GetTickCount64<LoadDeadline) do
+              begin Application.ProcessMessages; CheckSynchronize(5); Sleep(5); end;
+              Require(not Reader.PageLoading and (Reader.TextPosition=97) and (Reader.PageRasterSize.X>0) and
+                not string(Reader.ReaderStatus.Caption).Contains('Не удалось'),'Large TIFF last page did not render');
+              Row.AddPair('last_page_raster',Format('%dx%d',[Reader.PageRasterSize.X,Reader.PageRasterSize.Y]));
             end;
             Row.AddPair('read','ok'); Row.AddPair('read_length',TJSONNumber.Create(Reader.TextLength));
             Row.AddPair('pictures',TJSONNumber.Create(Reader.PictureCount));

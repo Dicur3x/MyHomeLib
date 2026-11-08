@@ -13,7 +13,8 @@ function PrepareLegacyReaderFile(const SourceFile, OriginalSource: string;
 implementation
 
 uses System.Classes, System.IOUtils, System.Hash, System.Zip, Winapi.Windows,
-  unit_BookCache, unit_BookConversion, unit_ReaderFormats, unit_MHLArchiveHelpers, unit_MHLExternalTools, unit_FormatComponents, unit_BookConversionRequirements, dm_user;
+  unit_BookCache, unit_BookConversion, unit_ReaderFormats, unit_ReaderRaster,
+  unit_MHLArchiveHelpers, unit_MHLExternalTools, unit_FormatComponents, unit_BookConversionRequirements, dm_user;
 
 function PrepareB1ReaderFile(const SourceFile, OriginalSource: string;
   const OnStage: TProc<string>; const IsCanceled: TFunc<Boolean>): string;
@@ -95,6 +96,9 @@ begin
     end;
   if Canceled() then Abort;
   Extension:=LowerCase(ExtractFileExt(SourceFile));
+  // The native reader loads TIFF frames on demand. Retain the preparation
+  // path for files the system decoder cannot read in full.
+  if ((Extension='.tif') or (Extension='.tiff')) and CanReadTiffDirectly(SourceFile) then Exit;
   if Extension='.fb2' then
   begin
     if not GetFileAttributesEx(PChar(SourceFile),GetFileExInfoStandard,@Attributes) then RaiseLastOSError;

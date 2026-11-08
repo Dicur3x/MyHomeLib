@@ -105,7 +105,8 @@ var OriginalTemp, OriginalTmp, Root, OldLog, RecentLog, Foreign, Report, Text,
     Writeln('PASS native quality snapshot tolerates exclusive and shared readers, recovers after lock release and rejects invalid complete records'); Flush(Output);
   end;
   procedure TestNativeTiffFrames;
-  var Book: TBookRecord; Source,Prepared,Hash: string; Document: TReaderDocument;
+  var Book: TBookRecord; Source,Prepared,Hash,Marker: string; Document: TReaderDocument;
+    Raster: TReaderRaster; COMStatus: HRESULT;
   begin
     RequireIsolatedRegression;
     for var Extension in ['.tiff','.cbz'] do
@@ -114,13 +115,37 @@ var OriginalTemp, OriginalTmp, Root, OldLog, RecentLog, Foreign, Report, Text,
       Book.Clear; Book.NodeType:=ntBookInfo; Book.BookKey:=CreateBookKey(534,900534);
       Book.CollectionRoot:=ExtractFilePath(Source); Book.FileName:=TPath.GetFileNameWithoutExtension(Source);
       Book.FileExt:=Extension; Book.Title:='TIFF frames';
-      Prepared:=PrepareReaderFile(Book,True,nil,False,True,True);
-      Require(SameText(ExtractFileExt(Prepared),'.epub'),'Multi-frame TIFF did not use complete reader preparation');
-      Document:=TReaderDocument.Create;
-      try
-        Document.Load(Prepared);
-        Require((Document.ImageCount=2) and Document.PlainText.Contains('Страница 2'),'Native reader lost later TIFF frames');
-      finally Document.Free; end;
+      if Extension='.tiff' then
+      begin
+        Marker:=Settings.AppPath+'tools/bookconvert/MODULAR_API.txt';
+        TFile.Move(Marker,Marker+'.tiff-audit-held');
+        try
+          Require(not ModularBookProcessingAvailable(Settings.AppPath),'TIFF clean-path fixture still has BookProcessing');
+          Require(not CanReadTiffDirectly(Settings.AppPath+'quality-scan.png'),'Non-TIFF passed the TIFF decoder probe');
+          Prepared:=PrepareReaderFile(Book,True,nil,False,True,True);
+        finally TFile.Move(Marker+'.tiff-audit-held',Marker); end;
+        Require(SameText(ExtractFileExt(Prepared),'.tif') and SameText(UpdateSHA256(Prepared),Hash),
+          'Standalone TIFF did not take the direct native path with exact bytes');
+        COMStatus:=CoInitializeEx(nil,COINIT_APARTMENTTHREADED);
+        try
+          Raster:=TReaderRaster.Create(Prepared);
+          try
+            Require(Raster.PageCount=2,'Direct TIFF reader lost the second frame');
+            Raster.PreparePage(1);
+            Require(Raster.PageSize(1).X>0,'Direct TIFF reader did not decode the second frame');
+          finally Raster.Free; end;
+        finally if Succeeded(COMStatus) then CoUninitialize; end;
+      end
+      else
+      begin
+        Prepared:=PrepareReaderFile(Book,True,nil,False,True,True);
+        Require(SameText(ExtractFileExt(Prepared),'.epub'),'TIFF comic did not expand its frames');
+        Document:=TReaderDocument.Create;
+        try
+          Document.Load(Prepared);
+          Require((Document.ImageCount=2) and Document.PlainText.Contains('Страница 2'),'TIFF comic lost later frames');
+        finally Document.Free; end;
+      end;
       Require(SameText(UpdateSHA256(Source),Hash),'Native TIFF preparation changed the source');
     end;
     Writeln('PASS native TIFF and TIFF comic keep every frame through ordinary reader preparation without changing source files'); Flush(Output);

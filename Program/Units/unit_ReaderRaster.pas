@@ -6,6 +6,7 @@ uses System.SysUtils, System.Classes, System.Types, System.Generics.Collections,
   unit_ReaderPDF, unit_MHLArchiveHelpers, unit_ReaderDjvuNative;
 
 function IsRasterReaderFormat(const Extension: string): Boolean;
+function CanReadTiffDirectly(const FileName: string): Boolean;
 
 type
   TReaderRasterPage = record
@@ -83,6 +84,27 @@ begin
   end;
   Result:=(Length(A)-I)-(Length(B)-J);
   if Result=0 then Result:=CompareStr(A,B);
+end;
+
+function CanReadTiffDirectly(const FileName: string): Boolean;
+var Factory: IWICImagingFactory; Decoder: IWICBitmapDecoder; Stream: IWICStream;
+  Capabilities: DWORD; COMStatus: HRESULT;
+begin
+  Result:=False;
+  COMStatus:=CoInitializeEx(nil,COINIT_APARTMENTTHREADED);
+  if Failed(COMStatus) and (COMStatus<>RPC_E_CHANGED_MODE) then Exit;
+  try
+    if Failed(CoCreateInstance(CLSID_WICImagingFactory,nil,CLSCTX_INPROC_SERVER,IWICImagingFactory,Factory)) then Exit;
+    if Failed(Factory.CreateStream(Stream)) then Exit;
+    if Failed(Stream.InitializeFromFilename(PWideChar(FileName),GENERIC_READ)) then Exit;
+    if Failed(CoCreateInstance(CLSID_WICTiffDecoder,nil,CLSCTX_INPROC_SERVER,IWICBitmapDecoder,Decoder)) then Exit;
+    Capabilities:=0;
+    Result:=Succeeded(Decoder.QueryCapability(Stream,Capabilities)) and
+      ((Capabilities and WICBitmapDecoderCapabilityCanDecodeAllImages)<>0);
+  finally
+    Decoder:=nil; Stream:=nil; Factory:=nil;
+    if Succeeded(COMStatus) then CoUninitialize;
+  end;
 end;
 
 procedure TiffDecoder(const FileName: string; out Factory: IWICImagingFactory;
