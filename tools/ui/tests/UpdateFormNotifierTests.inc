@@ -356,14 +356,14 @@ var Dialog: TUFNForm; Server: TUFNServer; Probe: TUFNProbe;
     end;
   end;
 
-  procedure PumpCheck;
+  procedure PumpCheck(ExpectRecreation: Boolean);
   begin
     while not CheckButton.Enabled do
     begin
       Application.ProcessMessages; CheckSynchronize(0); TThread.Sleep(1);
       Require(GetTickCount64-Started<10000,'Actual updater component completion was lost');
     end;
-    Require((Probe.Checked=1) and (Probe.Destroyed>0) and (Server.CreatedWorkers=Server.FreedWorkers) and
+    Require((Probe.Checked=1) and (not ExpectRecreation or (Probe.Destroyed>0)) and (Server.CreatedWorkers=Server.FreedWorkers) and
       (Server.Failure=''),'Actual component worker did not finish through its surviving notifier: '+Server.Failure);
   end;
 
@@ -449,7 +449,7 @@ begin
     NewForm;
     Dialog.CheckComponents(False); Require(not CheckButton.Enabled,'Actual component worker did not start');
     Attach; PumpUntilRequested; Dialog.RecreateActualWindow;
-    Server.Released.SetEvent; PumpCheck; TraceComponentResult;
+    Server.Released.SetEvent; PumpCheck(True); TraceComponentResult;
     Require((View.Items.Count=10) and (ComponentRow('DocSharp').SubItems[1]='0.99.0') and
       (ComponentRow('DocSharp').SubItems[2]<>'Не удалось проверить'),
       'Actual successful DocSharp metadata check did not reach its form');
@@ -458,12 +458,33 @@ begin
 
     NewForm; Server.FailChecks:=True;
     Dialog.CheckComponents(False); Attach; PumpUntilRequested; Dialog.RecreateActualWindow;
-    Server.Released.SetEvent; PumpCheck;
+    Server.Released.SetEvent; PumpCheck(True);
     for var I in CheckedComponentIndices do
       if (I<8) and (UPDATE_COMPONENTS[I].ID<>'AlReader') then
       Require(ComponentRow(UPDATE_COMPONENTS[I].ID).SubItems[2]='Не удалось проверить','Unavailable author response falsely marked its component checked');
     Writeln('PASS updater component check actual failures release checking state after form HWND recreation'); Flush(Output);
     CloseForm;
+
+    for var FailedCheck in [False,True] do
+    begin
+      NewForm; Server.FailChecks:=FailedCheck;
+      Dialog.UseReaderComponents; View.Selected:=ComponentRow('DocSharp');
+      Dialog.CheckComponents(False); Attach; PumpUntilRequested;
+      if FailedCheck then Later.Click else SendMessage(Dialog.Handle,WM_CLOSE,0,0);
+      Require(not Dialog.Visible,'Closing the Reader component check did not hide it');
+      Server.Released.SetEvent; PumpCheck(False); Application.ProcessMessages;
+      Require(not Dialog.Visible and not IsWindowVisible(Dialog.Handle),
+        'Completed Reader component check reopened the window');
+      Dialog.ShowFullWindow;
+      Require(Dialog.Visible and CheckButton.Enabled,
+        'Manual reopening lost the completed Reader component check');
+      if FailedCheck then
+        Require(ComponentRow('DocSharp').SubItems[2]='Не удалось проверить','Reopened window lost the check failure')
+      else
+        Require(ComponentRow('DocSharp').SubItems[1]='0.99.0','Reopened window lost the available version');
+      CloseForm;
+    end;
+    Writeln('PASS reader component check stays closed on success and failure and keeps results on manual reopen'); Flush(Output);
 
     NewForm;
     Prestart:=TUFNPrestartProbe.Create;

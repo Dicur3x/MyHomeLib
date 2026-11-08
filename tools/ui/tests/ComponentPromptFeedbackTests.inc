@@ -84,6 +84,10 @@ begin
   SavedDark:=MHLThemeDark;
   try
     Timer.Enabled:=False; Timer.Interval:=80; Timer.OnTimer:=Probe.Tick;
+    var Components:=TMenuItem(Host.Menu.FindComponent('ReaderComponentsMenu'));
+    Require(Assigned(Components) and Assigned(Components.OnClick) and
+      Assigned(Components.Parent) and (Components.Parent.Caption='Настройки'),
+      'Reader component menu is outside Settings');
     var Item:=TMenuItem(Host.Menu.FindComponent('ReaderFormatsHelp'));
     Require(Assigned(Item) and Assigned(Item.OnClick),'Reader lacks discoverable formats help');
     for var Dark in [False,True] do

@@ -1564,8 +1564,12 @@ end;
 procedure TfrmProgramUpdate.ComponentsReceived(const Releases: TComponentReleases;
   Successful: Boolean; const Error: string; const CheckedIDs: TArray<string>);
 const FailureText = 'Проверка компонентов не завершена. Повторите проверку.';
-var I, J, Errors: Integer; Updated: TComponentReleases;
+var I, J, Errors: Integer; Updated: TComponentReleases; ShowManualResult: Boolean;
 begin
+  // A reader check may finish after its window was closed. Keep the result
+  // available for the next visit without reopening a dismissed window.
+  ShowManualResult:=not FReaderOnly or Visible or
+    (Assigned(FCompactForm) and FCompactForm.Visible);
   BeginUIUpdate;
   try
   if Successful then
@@ -1602,7 +1606,9 @@ begin
   begin
     for I:=Low(UPDATE_COMPONENTS) to High(UPDATE_COMPONENTS) do
       if UPDATE_COMPONENTS[I].ID=FRequestedComponent then begin SelectRow(I+1); Break; end;
-    ComponentSelected(nil); Present; FComponentExplicit:=False; Exit;
+    ComponentSelected(nil);
+    if ShowManualResult then Present;
+    FComponentExplicit:=False; Exit;
   end;
   if FComponentExplicit and not FComponentAutomatic and (FSelectedRow = 0) then
   begin
@@ -1612,11 +1618,11 @@ begin
       FStatus.Caption := ComponentCheckSummary
     else if Successful then FStatus.Caption := 'Компоненты проверены. Выберите компонент в списке, чтобы увидеть версию и изменения.'
     else FStatus.Caption:=FailureText;
-    Present;
+    if ShowManualResult then Present;
   end;
   FComponentExplicit := False;
   if (FSelectedRow > 0) and not FComponentAutomatic then
-  begin ComponentSelected(nil); if not FComponentAutomatic then Present; end
+  begin ComponentSelected(nil); if ShowManualResult then Present; end
   else if Successful and FComponentAutomatic and (FApplicationRelease.Tag = '') then
     for J := 0 to High(CheckedComponentIndices) do
     begin

@@ -208,8 +208,8 @@ begin
     TfrmBuiltinReader(Form).AddThemeColorsMenu(SettingsMenu);
     TfrmBuiltinReader(Form).AddTextEncodingMenu(SettingsMenu);
   end;
-  Item:=TMenuItem.Create(Menu); Item.Caption:='Компоненты…'; Item.OnClick:=ComponentsClick;
-  Menu.Items.Add(Item);
+  Item:=TMenuItem.Create(Menu); Item.Name:='ReaderComponentsMenu'; Item.Caption:='Компоненты…';
+  Item.OnClick:=ComponentsClick; SettingsMenu.Add(Item);
   HelpMenu:=TMenuItem.Create(Menu); HelpMenu.Caption:='Помощь'; Menu.Items.Add(HelpMenu);
   Item:=TMenuItem.Create(Menu); Item.Name:='ReaderDiagnostics'; Item.Caption:='Журнал ошибок…';
   Item.OnClick:=DiagnosticsClick; HelpMenu.Add(Item);
