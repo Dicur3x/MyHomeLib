@@ -250,12 +250,17 @@ begin
   Folder:=Settings.AppPath+'content-driven-names';ForceDirectories(Folder);
   Book.Clear;Book.NodeType:=ntBookInfo;Book.BookKey:=CreateBookKey(533,900533);
   Book.CollectionRoot:=IncludeTrailingPathDelimiter(Folder);Book.Title:='Wrong filename audit';
-  for var Kind in ['text','html','fb2'] do
+  Source:=TPath.Combine(Folder,'markup.txt');
+  TFile.WriteAllText(Source,'<?xml version="1.0"?><catalogue/>',TEncoding.UTF8);
+  Require(DetectReaderExtension(Source)='.xml','XML declaration lost to plain text fallback');
+  TFile.Delete(Source);
+  for var Kind in ['text','angle-text','html','fb2'] do
   begin
     Expected:=Text;
-    if Kind='html' then Expected:='<p>'+Text+'</p>'
+    if Kind='angle-text' then Expected:='<|title|>'+sLineBreak+Text
+    else if Kind='html' then Expected:='<p>'+Text+'</p>'
     else if Kind='fb2' then Expected:='<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0"><body><section><p>'+Text+'</p></section></body></FictionBook>';
-    for var Extension in ['.unknown','.dic','.317294','.pdf','.zip','.docx','.prc','.fb2','.приключение',''] do
+    for var Extension in ['.txt','.unknown','.dic','.317294','.pdf','.zip','.docx','.prc','.fb2','.приключение',''] do
     begin
       Book.FileName:=Kind+'-wrong';Book.FileExt:=Extension;
       Source:=Book.GetBookFileName;TFile.WriteAllText(Source,Expected,TEncoding.UTF8);
@@ -266,6 +271,8 @@ begin
       try
         Document.Load(Prepared);
         Require(Document.PlainText.Contains(Text),'Wrong filename lost actual book text: '+Kind+Extension);
+        if Kind='angle-text' then Require(Document.PlainText.Contains('<|title|>'),
+          'Plain text marker was consumed as markup: '+Extension);
       finally Document.Free;end;
       Require(UpdateSHA256(Source)=OriginalHash,'Content detection changed the original file');
       Inc(Count);TFile.Delete(Source);

@@ -614,7 +614,7 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
     finally CurrentPath:=SavedPath; Seen.Free; Entries.Free; end;
   end;
   procedure LoadCSS(const N: IXMLDOMNode; Depth: Integer = 0);
-  var J, Index: Integer; Name, Path, Text: string; Bytes: TBytes;
+  var Index: Integer; Name, Path, Text: string; Bytes: TBytes; Child: IXMLDOMNode;
   begin
     Check; if (N=nil) or (Depth>32) then Exit;
     Name:=LocalName(N);
@@ -636,7 +636,12 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
         on Error: Exception do if Warnings.Count<20 then Warnings.Add('Оформление EPUB: '+Error.Message);
       end;
     end;
-    for J:=0 to N.childNodes.length-1 do LoadCSS(N.childNodes.item[J],Depth+1);
+    Child:=N.firstChild;
+    while Assigned(Child) do
+    begin
+      LoadCSS(Child,Depth+1);
+      Child:=Child.nextSibling;
+    end;
   end;
   function NoteText(const N: IXMLDOMNode; Depth: Integer = 0): string;
   var J: Integer; Name: string;
@@ -660,7 +665,7 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
     FNoteBodies.Add(Key,Text); Inc(NoteCharacters,Length(Text));
   end;
   procedure CollectNotes(const N: IXMLDOMNode; const Prefix: string; FB2Notes: Boolean; Depth: Integer = 0);
-  var J: Integer; Name,Key,Kind,Text: string;
+  var Child: IXMLDOMNode; Name,Key,Kind,Text: string;
   begin
     Check; if (N=nil) or (Depth>256) then Exit;
     Name:=LocalName(N); Key:=Attribute(N,'id'); Kind:=LowerCase(Attribute(N,'type')+' '+Attribute(N,'role'));
@@ -669,7 +674,12 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
       Text:=Trim(NoteText(N));
       StoreNote(Prefix+Key,Text);
     end;
-    for J:=0 to N.childNodes.length-1 do CollectNotes(N.childNodes.item[J],Prefix,FB2Notes,Depth+1);
+    Child:=N.firstChild;
+    while Assigned(Child) do
+    begin
+      CollectNotes(Child,Prefix,FB2Notes,Depth+1);
+      Child:=Child.nextSibling;
+    end;
   end;
   function NodeWithID(const N: IXMLDOMNode; const ID: string; Depth: Integer = 0): IXMLDOMNode;
   var J: Integer;
@@ -718,7 +728,7 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
   end;
   procedure Walk(const N: IXMLDOMNode; Depth: Integer; InsideTitle: Boolean = False; StyledContainer: Boolean = False; InheritedFontPercent: Integer = 100);
   var J, Spaces, StyleIndex, NoteStart, InitialStart, HeadingLevel, FontPercent, FontStyleIndex, LinkStart: Integer; Name, Ref, Binary, Style, NoteTarget, CSSStyle, LinkTarget, Anchor: string; Link: TReaderFootnoteLink; TextLink: TReaderTextLink;
-    StyleNode, StyleValue, Ancestor, Previous: IXMLDOMNode; Bytes: TBytes;
+    StyleNode, StyleValue, Ancestor, Previous, Child: IXMLDOMNode; Bytes: TBytes;
     IsParagraph, IsTitle, IsBlock, ChapterInitial, InferredHeading: Boolean; Range: TReaderStyledRange;
   begin
     Check; if Depth>256 then raise Exception.Create('Слишком глубокая разметка книги.');
@@ -885,8 +895,15 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
     end;
     if IsParagraph and (Name='p') and not IsTitle and not InferredHeading and not InsideTitle and not StyledContainer then
     begin InitialStart:=FText.Length; ChapterInitial:=PendingInitial; PendingInitial:=False; end;
-    for J:=0 to N.childNodes.length-1 do Walk(N.childNodes.item[J],Depth+1,InsideTitle or IsTitle,
-      StyledContainer or IsTitle or MatchText(Name,['epigraph','cite','blockquote','poem','stanza','text-author','code']),FontPercent);
+    // Walk the siblings in order. Indexed access through a fresh DOM node
+    // list for every paragraph grows quadratically in long chapters.
+    Child:=N.firstChild;
+    while Assigned(Child) do
+    begin
+      Walk(Child,Depth+1,InsideTitle or IsTitle,
+        StyledContainer or IsTitle or MatchText(Name,['epigraph','cite','blockquote','poem','stanza','text-author','code']),FontPercent);
+      Child:=Child.nextSibling;
+    end;
     if InitialStart>=0 then
     begin
       for J:=InitialStart to FText.Length-1 do

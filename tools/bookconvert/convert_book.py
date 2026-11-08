@@ -1739,9 +1739,11 @@ def detect_input(source):
     if re.search(br'<(?:\w+:)?abiword\b',probe,re.I):return '.abw'
     if re.search(br'^MIME-Version:', probe, re.M | re.I) and re.search(br'multipart/|text/html', probe, re.I): return '.mht'
     if re.search(br'<html\b|<!DOCTYPE\s+html|<(?:body|p|div|section|h[1-6])(?:\s|>)', probe, re.I): return '.html'
-    if source.suffix.lower() in {'.html','.htm','.xhtml','.shtml'} and probe.lstrip().startswith(b'<'):
-        return '.html'
-    if probe.lstrip().startswith(b'<'):return '.xml'
+    # Plain text markers such as <|title|> are not XML tags.
+    if re.match(br'<(?:[A-Za-z_:\x80-\xff][\w.:\x80-\xff-]*(?=[\s/>])|\?xml(?=[\s?])|!--|!DOCTYPE(?=[\s>]))',
+                probe.lstrip(), re.I):
+        if source.suffix.lower() in {'.html','.htm','.xhtml','.shtml'}: return '.html'
+        return '.xml'
     extension = source.suffix.lower()
     if extension == '.md5' and re.match(br'[0-9a-fA-F]{32} [ *][^\r\n]+(?:\r|\n|\Z)', probe):
         return '.md5'

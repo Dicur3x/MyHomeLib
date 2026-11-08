@@ -77,6 +77,29 @@ class ConversionTests(unittest.TestCase):
     def tearDown(self):
         self.assertEqual(digest(self.source), self.original)
         self.assertFalse(list(self.root.glob('.homelib-convert-*')))
+    def test_plain_text_starting_with_angle_marker_is_not_xml(self):
+        text = '<|title|>\nVisible text.'
+        for encoding in ('utf-8', 'utf-8-sig', 'utf-16'):
+            for suffix in ('.txt', '.unknown'):
+                source = self.root / f'angle-{encoding}{suffix}'
+                source.write_text(text, encoding=encoding)
+                self.assertEqual(c.detect_input(source), '.txt')
+                for target in ('.fb2', '.epub'):
+                    output = source.with_suffix(target)
+                    c.convert_book(source, output)
+                    if target == '.fb2':
+                        body = c.xml(output.read_bytes())
+                    else:
+                        with zipfile.ZipFile(output) as archive:
+                            name = next(name for name in archive.namelist() if name.endswith('.xhtml') and not name.endswith('/nav.xhtml'))
+                            body = c.xml(archive.read(name))
+                    self.assertIn('<|title|>', c.plain(body))
+                    self.assertIn('Visible text.', c.plain(body))
+                    output.unlink()
+        source = self.root / 'markup.txt'
+        source.write_text('<?xml version="1.0"?><catalogue/>', encoding='utf-8-sig')
+        self.assertEqual(c.detect_input(source), '.xml')
+
     def test_fb2_declared_windows_1251_preserves_real_encoding(self):
         text = ('<?xml version="1.0" encoding="windows-1251"?>'
                 '<FictionBook xmlns="'+c.FB+'"><description><title-info><author><last-name>Сорокин</last-name>'

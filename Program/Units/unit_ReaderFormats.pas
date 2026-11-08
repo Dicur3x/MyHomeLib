@@ -315,7 +315,9 @@ begin
   if ContainsText(Prefix,'MIME-Version:') and (ContainsText(Prefix,'multipart/') or ContainsText(Prefix,'text/html')) then Exit('.mht');
   if ContainsText(Prefix,'<html') or ContainsText(Prefix,'<!DOCTYPE html') or
     TRegEx.IsMatch(Prefix,'<(body|p|div|section|h[1-6])(\s|>)',[roIgnoreCase]) then Exit('.html');
-  if Prefix.TrimLeft.StartsWith('<') then
+  // A leading angle bracket also occurs in plain text, for example <|title|>.
+  // Require the start of an XML tag or declaration before relabelling a file.
+  if TRegEx.IsMatch(Prefix,'\A(?:\xEF\xBB\xBF)?\s*<(?:[\p{L}_:][\w.:-]*(?=[\s/>])|\?xml(?=[\s?])|!--|!DOCTYPE(?=[\s>]))',[roIgnoreCase]) then
   begin
     if InList(ExtractFileExt(FileName),'|html|htm|xhtml|shtml|') then Exit('.html');
     Exit('.xml');
