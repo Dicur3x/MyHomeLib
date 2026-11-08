@@ -1043,7 +1043,7 @@ var
   I: Integer;
   ColumnHandler: TMethod;
 begin
-  Require(frmMain.pmHeaders.Items.Count = Length(Expected) + 12,
+  Require(frmMain.pmHeaders.Items.Count = Length(Expected) + 13,
     'Wrong header menu structure');
   ColumnHandler := TMethod(frmMain.pmHeaders.Items[0].OnClick);
   for I := Low(Expected) to High(Expected) do
@@ -6037,6 +6037,7 @@ begin
       else if ParamStr(1) = 'search-query-modes' then TestCatalogSearchModes(One, FirstBook)
       else if ParamStr(1) = 'author-display-setting' then TestAuthorDisplaySetting
       else if ParamStr(1) = 'metadata-book-columns' then TestMetadataBookColumns(One)
+      else if ParamStr(1) = 'reading-progress-column' then TestReadingProgressColumn(One)
       else if ParamStr(1) = 'metadata-book-columns-visual' then TestMetadataBookColumnsVisual(One)
       else if ParamStr(1) = 'legacy-import-preview' then TestLegacyImportPreviewProposals
       else if ParamStr(1) = 'inp-streaming' then TestInpStreamingProposals

@@ -325,6 +325,9 @@ begin
       Result := IfThen(Data^.PubYear = 0, '', IntToStr(Data^.PubYear));
     COL_ISBN:
       Result := Data^.ISBN;
+    COL_PROGRESS:
+      if Data^.Progress > 0 then Result := IntToStr(Min(Data^.Progress, 100)) + '%'
+      else Result := '—';
     COL_NO:
       Result := IfThen(Data^.SeqNumber = 0, '', IntToStr(Data^.SeqNumber));
     COL_SIZE:
@@ -573,6 +576,8 @@ var
       COL_CITY: Result := CompareStr(Data1^.City, Data2^.City);
       COL_PUBYEAR: Result := CompareInt(Data1^.PubYear, Data2^.PubYear);
       COL_ISBN: Result := CompareStr(Data1^.ISBN, Data2^.ISBN);
+      COL_PROGRESS: Result := CompareInt(EnsureRange(Data1^.Progress, 0, 100),
+        EnsureRange(Data2^.Progress, 0, 100));
       COL_SERIES:  Result := CompareStr(Data1^.Series, Data2^.Series);
       COL_NO:      Result := CompareSeqNumber(Number1, Number2);
       COL_SIZE:    Result := CompareInt(Data1^.Size, Data2^.Size);

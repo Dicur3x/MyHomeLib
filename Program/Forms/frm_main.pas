@@ -5250,6 +5250,10 @@ begin
   FilterMenu.Name := 'miColumnISBN'; FilterMenu.Caption := 'ISBN';
   FilterMenu.Tag := COL_ISBN; FilterMenu.OnClick := HeaderPopupItemClick;
   pmHeaders.Items.Add(FilterMenu);
+  FilterMenu := TMenuItem.Create(Self);
+  FilterMenu.Name := 'miColumnProgress'; FilterMenu.Caption := 'Прочитано';
+  FilterMenu.Tag := COL_PROGRESS; FilterMenu.OnClick := HeaderPopupItemClick;
+  pmHeaders.Items.Add(FilterMenu);
 
   FilterMenu := TMenuItem.Create(Self);
   FilterMenu.Caption := 'Источники и объединение коллекции...';
@@ -5941,7 +5945,7 @@ begin
   Tree.Header.Columns.GetColumnBounds(HitInfo.Column, LeftEdge, RightEdge);
   if not (coFixed in Tree.Header.Columns[HitInfo.Column].Options) then
     Dec(RightEdge, TBookTreeAccess(Tree).EffectiveOffsetX);
-  if (ColumnTag <> COL_STATE) and
+  if (TArray.IndexOf<Integer>(Tree.HeaderFilterTags, ColumnTag) >= 0) and
     ((HitInfo.Button = mbLeft) and
      (HitInfo.X >= RightEdge - MulDiv(28, Tree.CurrentPPI, 96)) and
      (HitInfo.X < RightEdge - MulDiv(8, Tree.CurrentPPI, 96))) then
@@ -12616,7 +12620,7 @@ begin
   end;
   for i := 0 to pmHeaders.Items.Count-1 do
     if pmHeaders.Items[i].Tag in [COL_PUBLISHER_SERIES, COL_PUBLISHER,
-      COL_TRANSLATORS, COL_CITY, COL_PUBYEAR, COL_ISBN] then
+      COL_TRANSLATORS, COL_CITY, COL_PUBYEAR, COL_ISBN, COL_PROGRESS] then
       for var J := 0 to Tree.Header.Columns.Count-1 do
         if Tree.Header.Columns[J].Tag = pmHeaders.Items[i].Tag then pmHeaders.Items[i].Checked := True;
   pmHeaders.Items[9].Visible := True;

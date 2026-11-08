@@ -136,6 +136,7 @@ const
   COL_CITY = 27;
   COL_PUBYEAR = 28;
   COL_ISBN = 29;
+  COL_PROGRESS = 30;
 
   COL_STATE = 99;
 

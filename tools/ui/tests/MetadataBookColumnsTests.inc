@@ -572,6 +572,71 @@ begin Close; end;
 procedure TMetadataColumnsVisualControl.Closing(Sender: TObject; var Action: TCloseAction);
 begin Finished:=True; Action:=caHide; end;
 
+procedure TestReadingProgressColumn(const Collection: IBookCollection);
+const Progresses: array[0..3] of Integer = (42, 0, 100, 9);
+  Captions: array[0..3] of string = ('42%', '—', '100%', '9%');
+var IDs: TArray<Integer>; GroupID: Integer; Tree: TBookTree; Item: TMenuItem;
+  Layout: TColumns; Column: Integer; CellText: string;
+  Hit: TVTHeaderHitInfo; LeftEdge, RightEdge: TDimension;
+
+  procedure RequireOrder(const Expected: array of Integer);
+  var Node: PVirtualNode; Book: PBookRecord;
+  begin
+    Node:=Tree.GetFirst;
+    for var Index in Expected do
+    begin
+      Require(Assigned(Node), 'Progress sorting lost a row');
+      Book:=Tree.GetNodeData(Node);
+      Require(Book^.BookKey.BookID=IDs[Index], 'Progress order is incorrect');
+      Node:=Tree.GetNext(Node);
+    end;
+    Require(not Assigned(Node), 'Progress sorting added a row');
+  end;
+
+begin
+  RequireIsolatedRegression;
+  Settings.CheckUpdate:=False; Settings.CheckExternalLibUpdate:=False;
+  MBCFixtures(Collection, IDs, GroupID);
+  for var I:=0 to High(IDs) do
+    Collection.SetProgress(CreateBookKey(IDs[I], Collection.CollectionID), Progresses[I]);
+  for Tree in TArray<TBookTree>.Create(frmMain.tvBooksSR, frmMain.tvBooksF) do
+  begin
+    Settings.TreeModes[Tree.Tag]:=tmFlat;
+    MBCActivate(Tree); MBCFill(Tree, Collection, IDs, GroupID); MBCRefreshMenu;
+    Item:=MBCMenu(COL_PROGRESS);
+    Require((Item.Caption='Прочитано') and not Item.Checked and (MBCColumn(Tree,COL_PROGRESS)<0),
+      'Reading progress changed the default layout or is absent from the column menu');
+    Item.OnClick(Item);
+    Column:=MBCColumn(Tree,COL_PROGRESS);
+    Require(Item.Checked and (Column>=0), 'Progress column could not be shown');
+    for var I:=0 to High(IDs) do
+    begin
+      CellText:='';
+      Tree.OnGetText(Tree,MBCNode(Tree,IDs[I]),Column,ttNormal,CellText);
+      Require(CellText=Captions[I], 'Saved reading progress is displayed incorrectly');
+    end;
+    Hit:=Default(TVTHeaderHitInfo); Hit.Column:=Column; Hit.Button:=mbLeft;
+    Tree.Header.Columns.GetColumnBounds(Column,LeftEdge,RightEdge);
+    Hit.X:=RightEdge-MulDiv(16,Tree.CurrentPPI,96);
+    frmMain.tvBooksTreeHeaderClick(Tree.Header,Hit);
+    RequireOrder([1,3,0,2]);
+    frmMain.tvBooksTreeHeaderClick(Tree.Header,Hit);
+    RequireOrder([2,0,3,1]);
+  end;
+  Tree:=frmMain.tvBooksSR; MBCActivate(Tree); MBCRefreshMenu;
+  Layout:=TColumns.Create(Settings.SystemFileName[sfColumnsStore]);
+  try
+    Layout.Load(SECTION_SR_FLAT,tmFlat);
+    Layout.SetColumns(Tree.Header.Columns);
+    MBCRefreshMenu;
+    Item:=MBCMenu(COL_PROGRESS);
+    Require(Item.Checked and (MBCColumn(Tree,COL_PROGRESS)>=0), 'Saved layout lost the progress column');
+    Item.OnClick(Item);
+    Require(not Item.Checked and (MBCColumn(Tree,COL_PROGRESS)<0), 'Progress column could not be hidden');
+  finally Layout.Free; end;
+  Writeln('PASS reading progress from catalogue and group sorts numerically and restores optional column'); Flush(Output);
+end;
+
 procedure TestMetadataBookColumnsVisual(const Collection: IBookCollection);
 var Tree: TBookTree; IDs: TArray<Integer>; GroupID: Integer; Control: TMetadataColumnsVisualControl;
   LabelControl: TLabel; Button: TButton; SavedTheme, SavedApp, SavedCatalog: Boolean; SavedCaption: string;

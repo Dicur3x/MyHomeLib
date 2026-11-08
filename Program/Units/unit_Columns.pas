@@ -112,6 +112,7 @@ rstrAuthor = 'Автор';
    rstrCity = 'Город издания';
    rstrPubYear = 'Год издания';
    rstrISBN = 'ISBN';
+   rstrProgress = 'Прочитано';
    rstrNO = '№';
    rstrSize = 'Размер';
    rstrRate = 'Моя оценка';
@@ -228,6 +229,15 @@ begin
         Caption := rstrRate;
         MaxWidth := S(100);
         MinWidth := S(70);
+        Alignment := taCenter;
+        Options := Rez;
+      end;
+
+    COL_PROGRESS:
+      begin
+        Caption := rstrProgress;
+        MaxWidth := S(200);
+        MinWidth := S(86);
         Alignment := taCenter;
         Options := Rez;
       end;
@@ -406,7 +416,7 @@ begin
               not TryStrToInt(slHelper[0], Tag) or
               not TryStrToInt(slHelper[1], Width) or
               not TryStrToInt(slHelper[2], Position) then Continue;
-            if not (((Tag >= COL_TITLE) and (Tag <= COL_ISBN)) or
+            if not (((Tag >= COL_TITLE) and (Tag <= COL_PROGRESS)) or
               (Tag = COL_STATE)) or (Width < 0) or (Width > 65535) or
               (Position < 0) or (Position >= sl.Count) then Continue;
             Duplicate := False;
