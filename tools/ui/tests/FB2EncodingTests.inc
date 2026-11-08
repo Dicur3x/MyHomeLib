@@ -73,6 +73,21 @@ begin
     Reader.Load(ReadFile);
     Require(Reader.PlainText.Contains(CyrillicBody),'UTF-16 reader changed the text');
 
+    var RepairSource:=Sample.Replace('windows-1251','UTF-8').Replace(
+      '<p>'+CyrillicBody+'</p>','<p>'+CyrillicBody+' & текст</p></title>');
+    TFile.WriteAllText(ReadFile,RepairSource,TEncoding.UTF8);
+    Require(LoadFictionBook(ReadFile).Description.Titleinfo.Booktitle.Text=UTF8Title,
+      'An unambiguous FB2 markup error blocked the catalogue metadata');
+    Reader.Load(ReadFile);
+    Require(Reader.PlainText.Contains(CyrillicBody+' & текст') and
+      Reader.Warnings.Text.Contains('Исправлена разметка FB2'),
+      'FB2 markup recovery lost its literal text or warning');
+    Member:=TFileStream.Create(ReadFile,fmOpenRead or fmShareDenyWrite);
+    try ConvertToTxt(Folder+'repaired.txt',enUTF8,Member); finally Member.Free; end;
+    Require(TFile.ReadAllText(Folder+'repaired.txt',TEncoding.UTF8).Contains(CyrillicBody+' & текст'),
+      'TXT export lost the repaired FB2 text');
+    Require(TFile.ReadAllText(ReadFile,TEncoding.UTF8)=RepairSource,'FB2 markup recovery changed its source');
+
     Mixed:=Copy(Bytes);
     Mixed[High(Mixed)]:=$FF;
     Require(not unit_FB2Encoding.RepairFB2UTF8Declaration(Mixed),

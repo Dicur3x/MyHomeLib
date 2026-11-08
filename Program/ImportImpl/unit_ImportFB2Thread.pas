@@ -78,7 +78,7 @@ uses
   unit_LibrarySourceID, unit_PackageBookMetadata, unit_FB2PublisherMetadataReader;
 
 resourcestring
-  rstrStructureError         = 'Ошибка структуры fb2: %s.zip -> %s';
+  rstrStructureError         = 'Ошибка структуры FB2 «%s»: %s';
   rstrProcessedFiles         = 'Обработаны файлы: %u из %u';
   rstrAddedFiles             = 'Добавлены файлы: %u из %u';
   rstrErrorUnpackingWithCode = 'Ошибка распаковки архива %s, Код: %d';
@@ -161,7 +161,7 @@ begin
         on E: Exception do
         begin
           ForgetCreatedFile(CreatedFileName, True);
-          Teletype(Format(rstrStructureError, [R.Folder, R.FileName + FB2_EXTENSION]), tsError);
+          Teletype(Format(rstrStructureError, [FileName, E.Message]), tsError);
           LogWarning('ProcessFileList: failed to import "%s" — %s', [FFiles[i], E.Message]);
           Inc(Defective);
         end;

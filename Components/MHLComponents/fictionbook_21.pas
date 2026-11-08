@@ -1693,7 +1693,8 @@ var
   Doc: IXMLDocument;
   Probe, Bytes: TBytes;
   Patched: TBytesStream;
-  Input: TStream;
+  Input, Repaired: TStream;
+  Failure: string;
 begin
   Patched := nil;
   Input := Stream;
@@ -1717,7 +1718,23 @@ begin
       if Assigned(Patched) then Input := Patched;
     end;
     Doc := TXMLDocument.Create(nil);
-    Doc.LoadFromStream(Input);
+    try
+      Doc.LoadFromStream(Input);
+    except
+      on E: EDOMParseError do
+      begin
+        Repaired := RepairedFB2Stream(Input,Failure);
+        if not Assigned(Repaired) then
+        begin
+          if Failure<>'' then raise EReadError.Create(Failure);
+          raise;
+        end;
+        try
+          Doc := TXMLDocument.Create(nil);
+          Doc.LoadFromStream(Repaired);
+        finally Repaired.Free; end;
+      end;
+    end;
     Result := GetFictionBook(Doc);
   finally
     Patched.Free;

@@ -28,6 +28,7 @@ import time
 from urllib.parse import unquote, urlsplit
 import uuid
 import xml.etree.ElementTree as ET
+from xml.parsers import expat
 import zipfile
 
 FB = 'http://www.gribuser.ru/xml/fictionbook/2.0'
@@ -149,6 +150,53 @@ def xml(data, maximum=MAX_FILE):
         return root
     except (ET.ParseError, LookupError) as error:
         raise ConversionError('Некорректная структура XML: ' + str(error)) from error
+
+
+def read_fb2(data, maximum, warnings):
+    """Repair local FB2 syntax errors in a working copy after strict parsing fails."""
+    try:
+        return xml(data, maximum), None
+    except ConversionError as original:
+        if not isinstance(original.__cause__, ET.ParseError) or len(data)>16*1024*1024:
+            raise
+        # These repairs address ASCII syntax in UTF-8 and single-byte encodings.
+        if b'\x00' in data[:4] or data.startswith((b'\xff\xfe', b'\xfe\xff')):
+            raise
+        if b'\x00' in data:
+            raise ConversionError('FB2 повреждён: внутри файла найдены нулевые байты.') from original
+        candidate = repair_fb2_encoding(data)
+        for _ in range(4):
+            parser = expat.ParserCreate(namespace_separator='}')
+            try:
+                parser.Parse(candidate, True)
+            except expat.ExpatError as error:
+                offset = parser.ErrorByteIndex
+                if error.code == expat.errors.codes[expat.errors.XML_ERROR_NO_ELEMENTS]:
+                    raise ConversionError('FB2 обрывается до конца документа.') from original
+                if (error.code == expat.errors.codes[expat.errors.XML_ERROR_INVALID_TOKEN] and
+                        offset > 0 and candidate[offset-1:offset] == b'&' and
+                        candidate[offset:offset+1] in (b' ',b'\r',b'\n',b'\t')):
+                    candidate = candidate[:offset] + b'amp;' + candidate[offset:]
+                elif error.code == expat.errors.codes[expat.errors.XML_ERROR_TAG_MISMATCH] and offset >= 2 and candidate[offset-2:offset+6] == b'</title>':
+                    candidate = candidate[:offset-2] + candidate[offset+6:]
+                elif (error.code == expat.errors.codes[expat.errors.XML_ERROR_UNBOUND_PREFIX] and
+                        re.match(br'<[^<>]*\s+xlink:(?:href|type)\s*=', candidate[offset:offset+2048])):
+                    root = re.match(br'^(?:\xef\xbb\xbf)?\s*(?:<\?xml[^?]*\?>\s*)?<FictionBook(?=[\s>])', candidate[:8192])
+                    if root is None:
+                        raise original
+                    at = root.end()
+                    candidate = candidate[:at] + b' xmlns:xlink="http://www.w3.org/1999/xlink"' + candidate[at:]
+                else:
+                    raise original
+            try:
+                book = xml(candidate, maximum)
+            except ConversionError:
+                continue
+            if book.tag != '{'+FB+'}FictionBook':
+                raise original
+            warnings.add('Исправлена разметка FB2 в сохранённой копии. Исходный файл сохранён.')
+            return book, candidate
+        raise original
 
 
 def xhtml(data):
@@ -533,7 +581,7 @@ def fb2_image_type(data, declared):
 
 
 def fb2_to_epub(source, output, warnings, maximum=MAX_FILE):
-    book = xml(Path(source).read_bytes(),maximum)
+    book, _ = read_fb2(Path(source).read_bytes(),maximum,warnings)
     if book.tag != '{' + FB + '}FictionBook':
         raise ConversionError('Файл не является книгой FB2.')
     description = first(book, 'description')
@@ -1697,9 +1745,10 @@ def convert_book(source, destination, **metadata):
     handle, temporary_name = tempfile.mkstemp(prefix='.homelib-convert-', suffix='.tmp', dir=destination.parent)
     os.close(handle); temporary = Path(temporary_name); warnings = set(); text_only_source = None
     inherited_fb2_issues = Counter()
+    repaired_fb2 = None
     try:
         if same_format and extension == '.fb2':
-            source_book = xml(source.read_bytes(), limit)
+            source_book, repaired_fb2 = read_fb2(source.read_bytes(), limit, warnings)
             if source_book.tag != '{'+FB+'}FictionBook' or first(source_book, 'body') is None:
                 raise ConversionError('В исходном FB2 отсутствует читаемая книга.')
             inherited_fb2_issues = Counter(key for key, _ in fb2_output_issues(source_book))
@@ -1712,9 +1761,10 @@ def convert_book(source, destination, **metadata):
             api = type('ConversionAPI', (), {name: value for name, value in globals().items() if not name.startswith('__')})
             text_only_source = tempfile.TemporaryDirectory(prefix='homelib-text-source-',dir=destination.parent)
             prepared = Path(text_only_source.name)/('source'+extension)
-            try: removed = module.without_images(api,source,prepared,extension)
+            try: removed = module.without_images(api,source,prepared,extension,warnings)
             except module.NoTextContent as error: raise ConversionError(str(error)) from error
             source = prepared
+            repaired_fb2 = None
             if removed: warnings.add('Книга сохранена без изображений и обложки. Исходная книга сохранена.')
         if same_format:
             if extension=='.epub':
@@ -1726,7 +1776,7 @@ def convert_book(source, destination, **metadata):
                     container=xml(archive.read('META-INF/container.xml'))
                     if tag(container)!='container':raise ConversionError('Некорректный контейнер EPUB.')
             # A correctly detected target format needs no lossy round trip.
-            temporary.write_bytes(source.read_bytes())
+            temporary.write_bytes(repaired_fb2 if repaired_fb2 is not None else source.read_bytes())
         elif b1_input:
             spec=importlib.util.spec_from_file_location('homelib_b1',Path(__file__).with_name('b1_input.py'))
             module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)

@@ -68,6 +68,23 @@ class NoImages(unittest.TestCase):
                     self.assertEqual(hashlib.sha256(source.read_bytes()).digest(),original)
         self.assertFalse(list(self.root.glob('homelib-*'))+list(self.root.glob('.homelib-*')))
 
+    def test_repairable_fb2_markup_keeps_literal_text_and_image_links(self):
+        before = self.source.read_bytes().replace(b'xmlns:l=', b'xmlns:other=').replace(b'l:href=', b'xlink:href=')
+        before = before.replace(b'</section>', b'</title></section>', 1).replace(b' &amp; ', b' & ', 1)
+        self.source.write_bytes(before)
+        epub = self.root/'repaired.epub'
+        report = c.convert_book(self.source,epub)
+        self.assertTrue(any('Исправлена разметка FB2' in warning for warning in report['warnings']))
+        with zipfile.ZipFile(epub) as archive:
+            self.assertIsNone(archive.testzip())
+            text = ''.join(c.xml(archive.read('OEBPS/body-1.xhtml')).itertext())
+            self.assertIn('Подпись', text)
+            self.assertTrue(any('/images/' in name for name in archive.namelist()))
+        repaired = self.root/'repaired.fb2'
+        c.convert_book(self.source,repaired)
+        self.assertIn('Сноска & текст.', ''.join(c.xml(repaired.read_bytes()).itertext()))
+        self.assertEqual(self.source.read_bytes(),before)
+
     def test_unrestored_external_pictures_need_no_decoder_for_explicit_text_only(self):
         # FLibrary's intermediate source has image references but keeps their
         # actual bytes in companion archives. Explicit omission can remove the

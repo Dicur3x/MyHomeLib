@@ -124,11 +124,14 @@ def strip_fb2(api, root):
     return count
 
 
-def without_images(api, book, destination, target_extension):
+def without_images(api, book, destination, target_extension, warnings=None):
     """Write a complete text-only candidate; caller publishes it atomically."""
     if target_extension == '.fb2':
         original = book.read_bytes()
-        root = api.xml(original, api.MAX_TOTAL)
+        if warnings is None:
+            root = api.xml(original, api.MAX_TOTAL)
+        else:
+            root, _ = api.read_fb2(original, api.MAX_TOTAL, warnings)
         has_text = readable_text(api,root,True)
         count = strip_fb2(api, root)
         if count and not has_text:

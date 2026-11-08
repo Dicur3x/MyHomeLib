@@ -497,25 +497,40 @@ begin
         Require(THashSHA2.GetHashStringFromFile(Sample)=Hash,'Import changed an attached archive');
         Writeln('REPORT import ',ExtractFileName(Sample),' committed=',Ord(Worker.CommittedChanges),
           ' messages=',Messages.Text.Trim.Replace(#13,' ').Replace(#10,' ')); Flush(Output);
-        if ExtractFileName(Sample).StartsWith('ВАЛЬДИРА+') then
-          Require(Worker.CommittedChanges,'An EPUB with a false FB2 member name was rejected');
+        var SampleName:=ExtractFileName(Sample);
+        var Expected:=SampleName.StartsWith('ВАЛЬДИРА+') or SampleName.StartsWith('2002+') or
+          SampleName.StartsWith('Рев+') or SampleName.StartsWith('Максим+');
+        Require(Worker.CommittedChanges=Expected,'Unexpected import result: '+SampleName);
+        if not Expected then
+          if SampleName.StartsWith('Орловский+') then
+            Require(Messages.Text.Contains('нулевые байты'),'The zeroed book lacks a damage diagnosis')
+          else Require(Messages.Text.Contains('обрывается'),'The truncated book lacks a damage diagnosis');
       finally Messages.Free; Worker.Free; end;
     end;
     Catalog:=SystemData.GetCollection(ReportCID,True);
     Cursor:=Catalog.GetBookIterator(bmAll,False);
-    var RecognizedEPUB:=0;
+    var RecognizedEPUB:=0; var RepairedFB2:=0;
     while Cursor.Next(Book) do
     begin
       var Prepared:=PrepareReaderFile(Book,True);
-      if not SameText(ExtractFileExt(Prepared),'.epub') then Continue;
       TestReader:=TReaderDocument.Create;
       try
         TestReader.Load(Prepared);
-        Require((TestReader.PlainText.Length>500) and (TestReader.ImageCount>0),
-          'The imported EPUB lost text or its illustration');
+        Require(TestReader.PlainText.Length>500,'The imported book lost its text');
+        if SameText(ExtractFileExt(Prepared),'.epub') then
+        begin
+          Require(TestReader.ImageCount>0,'The imported EPUB lost its illustration');
+          Inc(RecognizedEPUB);
+        end
+        else
+        begin
+          Require(TestReader.Warnings.Text.Contains('Исправлена разметка FB2'),
+            'The imported FB2 did not report its reading repair');
+          Inc(RepairedFB2);
+        end;
       finally TestReader.Free; end;
-      Inc(RecognizedEPUB);
     end;
     Require(RecognizedEPUB=2,'The two mislabeled reporter EPUBs did not both reopen');
+    Require(RepairedFB2=3,'The three recoverable reporter FB2 files did not all reopen');
   end;
 end;

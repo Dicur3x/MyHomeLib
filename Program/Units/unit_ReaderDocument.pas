@@ -296,8 +296,9 @@ begin
   finally B.Free; end;
 end;
 
-function XMLDocument(const Bytes: TBytes; TextEncoding: TReaderTextEncoding = rteAutomatic): IXMLDOMDocument3;
-var S: string; M: TMatch; Enc: TEncoding;
+function XMLDocument(const Bytes: TBytes; TextEncoding: TReaderTextEncoding = rteAutomatic;
+  FB2Warnings: TStrings = nil): IXMLDOMDocument3;
+var S, Failure: string; M: TMatch; Enc: TEncoding;
 begin
   if Length(Bytes)>MAX_DOCUMENT_BYTES then raise Exception.Create('Документ превышает предел встроенной читалки (64 МБ).');
   S := DecodeSelectedEncoding(Bytes,TextEncoding);
@@ -322,7 +323,18 @@ begin
   Result.async := False; Result.resolveExternals := False; Result.validateOnParse := False;
   Result.preserveWhiteSpace := True;
   Result.setProperty('ProhibitDTD',True);
-  if not Result.loadXML(S) then raise Exception.Create('Не удалось прочитать XML: '+Result.parseError.reason);
+  if Result.loadXML(S) then Exit;
+  if Assigned(FB2Warnings) then
+  begin
+    Failure:=FB2MarkupFailure(Result.parseError,S);
+    if TryRepairFB2Markup(Result,S) then
+    begin
+      FB2Warnings.Add('Исправлена разметка FB2 для чтения. Исходный файл сохранён.');
+      Exit;
+    end;
+    if Failure<>'' then raise EReadError.Create(Failure);
+  end;
+  raise Exception.Create('Не удалось прочитать XML: '+Result.parseError.reason);
 end;
 
 function LocalName(const Node: IXMLDOMNode): string;
@@ -1108,11 +1120,18 @@ begin
     begin
       ReadDocument(Data);
       if (E='.fb2') and (TextEncoding=rteAutomatic) then RepairFB2UTF8Declaration(Data);
-      try Document:=XMLDocument(Data,TextEncoding);
+      try
+        if E='.fb2' then Document:=XMLDocument(Data,TextEncoding,Warnings)
+        else Document:=XMLDocument(Data,TextEncoding);
       except
         on Error: EMHLComponentRequired do raise;
         on Error: Exception do
         begin
+          if E='.fb2' then
+          begin
+            var Failure:=FB2BinaryFailure(Data);
+            if Failure<>'' then raise EReadError.Create(Failure);
+          end;
           if not IsReaderHTML(E) then raise;
           if TextEncoding=rteAutomatic then HTML:=DecodeReaderHTML(Data)
           else HTML:=DecodeSelectedEncoding(Data,TextEncoding);

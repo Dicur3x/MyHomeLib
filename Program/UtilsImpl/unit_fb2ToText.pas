@@ -27,11 +27,11 @@ type
 
 implementation
 
-uses Winapi.ActiveX, Winapi.MSXML, System.Win.ComObj;
+uses Winapi.ActiveX, Winapi.MSXML, System.Win.ComObj, unit_FB2Encoding;
 
 procedure TFb2ToText.Convert(const FileOut: string; ResEncoding: TTXTEncoding; Stream: TStream);
 var Document: IXMLDOMDocument3; Bodies: IXMLDOMNodeList; Input: IStream; Lines: TStringList;
-  SavedPosition: Int64; Temporary: string; COMInitialized: Boolean;
+  SavedPosition: Int64; Temporary, Failure: string; COMInitialized: Boolean; Repaired: TStream;
   procedure Visit(const Node: IXMLDOMNode);
   var Child: IXMLDOMNode; Name: string;
   begin
@@ -47,7 +47,7 @@ var Document: IXMLDOMDocument3; Bodies: IXMLDOMNodeList; Input: IStream; Lines: 
 begin
   if not Assigned(Stream) then raise EArgumentNilException.Create('Stream');
   if FileExists(FileOut) then raise EInOutError.Create('Файл результата уже существует: '+FileOut);
-  SavedPosition:=Stream.Position; Lines:=TStringList.Create; Temporary:='';
+  SavedPosition:=Stream.Position; Lines:=TStringList.Create; Temporary:=''; Repaired:=nil;
   COMInitialized:=Succeeded(CoInitializeEx(nil,COINIT_APARTMENTTHREADED));
   try
     Stream.Position:=0;
@@ -57,7 +57,18 @@ begin
     // MSXML reads the declared XML encoding directly from the byte stream.
     // Paragraphs and inline text do not depend on physical source line breaks.
     Input:=TStreamAdapter.Create(Stream,soReference) as IStream;
-    if not Document.load(Input) then raise EReadError.Create('Не удалось прочитать FB2: '+Trim(Document.parseError.reason));
+    if not Document.load(Input) then
+    begin
+      Input:=nil;
+      Repaired:=RepairedFB2Stream(Stream,Failure);
+      if not Assigned(Repaired) then
+      begin
+        if Failure='' then Failure:=Trim(Document.parseError.reason);
+        raise EReadError.Create('Не удалось прочитать FB2: '+Failure);
+      end;
+      Input:=TStreamAdapter.Create(Repaired,soReference) as IStream;
+      if not Document.load(Input) then raise EReadError.Create('Не удалось прочитать FB2: '+Trim(Document.parseError.reason));
+    end;
     Bodies:=Document.selectNodes('/*[local-name()="FictionBook"]/*[local-name()="body"]');
     for var I:=0 to Bodies.length-1 do Visit(Bodies.item[I]);
     if Trim(Lines.Text)='' then raise EReadError.Create('В книге нет распознанного текста для TXT. Для сканов сначала нужно распознавание текста.');
@@ -66,7 +77,7 @@ begin
     if not MoveFile(PChar(Temporary),PChar(FileOut)) then RaiseLastOSError;
     Temporary:='';
   finally
-    Bodies:=nil; Input:=nil; Document:=nil;
+    Bodies:=nil; Input:=nil; Document:=nil; Repaired.Free;
     if COMInitialized then CoUninitialize;
     if (Temporary<>'') and FileExists(Temporary) then SysUtils.DeleteFile(Temporary);
     Stream.Position:=SavedPosition; Lines.Free;
