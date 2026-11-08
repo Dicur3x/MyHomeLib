@@ -377,6 +377,34 @@ var Root: TJSONValue; Items, Results: TJSONArray; Item: TJSONValue; Row: TJSONOb
   LastProgress, Updates, TotalPages: Integer; CancelConversion, WasCanceled, IdentityCopy: Boolean;
   ProgressRows: TJSONArray;
   TrackUsage: Boolean; ExpectedModule: string; UsageModules: TArray<string>;
+  procedure RunCatalogueWork(const Work: TProc);
+  var Worker: TThread; Failure: string; Canceled: Boolean;
+  begin
+    // Like the real reader and export actions, keep the main thread available
+    // for the archive chooser, status updates and ordinary window messages.
+    Failure:=''; Canceled:=False;
+    Worker:=TThread.CreateAnonymousThread(procedure
+      var Status: HRESULT;
+      begin
+        try
+          Status:=CoInitializeEx(nil,COINIT_APARTMENTTHREADED);
+          if Status<0 then raise Exception.CreateFmt('Catalogue worker could not initialize COM ($%.8x)',[Cardinal(Status)]);
+          try Work(); finally CoUninitialize; end;
+        except
+          on E: EAbort do Canceled:=True;
+          on E: Exception do Failure:=E.Message;
+        end;
+      end);
+    Worker.FreeOnTerminate:=False;
+    try
+      Worker.Start;
+      while not Worker.Finished do
+      begin Application.ProcessMessages; CheckSynchronize(10); end;
+      Worker.WaitFor;
+    finally Worker.Free; end;
+    if Canceled then Abort;
+    if Failure<>'' then raise Exception.Create(Failure);
+  end;
   procedure CheckUsage(const Stage: string; Converted: Boolean);
   var Used: TJSONArray; Last: TDateTime;
   begin
@@ -459,7 +487,7 @@ begin
       Book.FileExt:=ExtractFileExt(FileName); Book.Title:='Catalogue format audit';
       Prepared:=''; Started:=GetTickCount64; ErrorText:='';
       try
-        Prepared:=PrepareReaderFile(Book,True,nil,False,True,True);
+        RunCatalogueWork(procedure begin Prepared:=PrepareReaderFile(Book,True,nil,False,True,True); end);
         OriginalPrepared:=Prepared;
         if Member<>'' then
         begin
@@ -526,7 +554,7 @@ begin
       begin
         Started:=GetTickCount64; OutputName:=Settings.AppPath+'catalogue-result-'+IntToStr(Count)+Target;
         try
-          Source:=PrepareConversionSource(Book,nil,Target);
+          RunCatalogueWork(procedure begin Source:=PrepareConversionSource(Book,nil,Target); end);
           IdentityCopy:=SameText(ExtractFileExt(Source),Target);
           Require(Chooser.SelectionError='',Chooser.SelectionError);
           if Member<>'' then
@@ -538,10 +566,12 @@ begin
             begin
               CancelConversion:=False; WasCanceled:=False;
               try
+                RunCatalogueWork(procedure begin
                 ConvertBasicBook(Settings.AppPath,Settings.TempDir,Source,ExtractFileExt(Source),OutputName,nil,Warnings,
                   function: Boolean begin Result:=CancelConversion; end,'','','',False,
                   procedure(Percent, Completed, Total: Integer; const Stage: string)
                   begin if (Stage='pages') and (Completed>=2) then CancelConversion:=True; end);
+                end);
               except on E: EAbort do WasCanceled:=True; end;
               Require(WasCanceled and not FileExists(OutputName),'Page cancellation published a partial book');
               Row.AddPair('page_cancel','ok');
@@ -549,6 +579,7 @@ begin
             end;
             LastProgress:=-1; Updates:=0; TotalPages:=0;
             ProgressRows:=TJSONArray.Create; Row.AddPair(Target+'_progress',ProgressRows);
+            RunCatalogueWork(procedure begin
             ConvertBasicBook(Settings.AppPath,Settings.TempDir,Source,ExtractFileExt(Source),OutputName,nil,Warnings,
               nil,'','','',False,
               procedure(Percent, Completed, Total: Integer; const Stage: string)
@@ -566,6 +597,7 @@ begin
                   Writeln('PROFILE conversion ',Target,' progress=',Percent,' page=',Completed,'/',Total,' stage=',Stage); Flush(Output);
                 end;
               end);
+            end);
             Require((LastProgress=100) and (Updates>=1+Ord(not IdentityCopy)),'Conversion did not finish its progress lifecycle');
             Row.AddPair(Target+'_identity_copy',TJSONBool.Create(IdentityCopy));
             if IdentityCopy then Require(UpdateSHA256(Source)=UpdateSHA256(OutputName),'Unchanged book copy lost source bytes');
@@ -580,8 +612,11 @@ begin
               ConvertedBook.CollectionRoot:=ExtractFilePath(OutputName);
               ConvertedBook.FileName:=TPath.GetFileNameWithoutExtension(OutputName);
               ConvertedBook.FileExt:=ExtractFileExt(OutputName); ConvertedBook.Title:='Converted audit';
-              Prepared:=PrepareReaderFile(ConvertedBook,True,nil,False,True,True);
-              Document.Load(Prepared); Require(Document.PlainText.Trim<>'','Conversion produced no readable text');
+              RunCatalogueWork(procedure begin
+                Prepared:=PrepareReaderFile(ConvertedBook,True,nil,False,True,True);
+                Document.Load(Prepared);
+              end);
+              Require(Document.PlainText.Trim<>'','Conversion produced no readable text');
               Row.AddPair(Target,'ok'); Row.AddPair(Target+'_length',TJSONNumber.Create(Length(Document.PlainText)));
               Row.AddPair(Target+'_pictures',TJSONNumber.Create(Document.ImageCount));
             finally Document.Free; end;

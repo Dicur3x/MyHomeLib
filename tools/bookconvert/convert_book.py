@@ -1371,7 +1371,7 @@ def epub_to_fb2(source, output, warnings, *, use_navigation=True):
         # style element outside a link (namedStyleType).
         for link in book.iter('{' + FB + '}a'):
             for node in link.iter('{' + FB + '}style'): node.attrib.pop('name', None)
-        output.write_bytes(serialized(book))
+        ET.ElementTree(book).write(output, encoding='utf-8', xml_declaration=True)
     finally:
         archive.close()
 
@@ -1908,7 +1908,10 @@ def _convert_book(source, destination, **metadata):
         # Ensure the generated artifact is readable before publishing its name.
         if destination.suffix.lower() == '.epub':
             validate_epub_output(temporary)
-        else: validate_fb2_output(xml(temporary.read_bytes(),MAX_TOTAL), inherited_fb2_issues)
+        else:
+            if temporary.stat().st_size > MAX_TOTAL:
+                raise ConversionError('FB2 превышает предел конвертации (256 МБ). Для книги со сканами выберите меньший размер изображений.')
+            validate_fb2_output(xml(temporary.read_bytes(),MAX_TOTAL), inherited_fb2_issues)
         with temporary.open('r+b') as stream: stream.flush(); os.fsync(stream.fileno())
         if os.name == 'nt': os.rename(temporary, destination)  # Windows never replaces an existing name.
         else: os.link(temporary, destination); temporary.unlink()

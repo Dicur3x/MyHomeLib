@@ -174,6 +174,21 @@ class LegacyFixed(unittest.TestCase):
         self.assertEqual(fixed.ppm(b'P6\n# comment\n2 1\n255\n'+pixels, self.fail), (pixels,2,1))
         with self.assertRaises(AssertionError): fixed.ppm(b'P6\n2 1\n255\n'+pixels[:-1], self.fail)
 
+    def test_grayscale_scan_png_preserves_every_pixel(self):
+        expected = [bytes(range(256)), bytes(reversed(range(256))), bytes([127, 128]) * 128]
+        rgb = b''.join(bytes([v]) * 3 for row in expected for v in row)
+        image = fixed.png(rgb, 256, len(expected))
+        self.assertEqual(struct.unpack_from('>IIBBBBB', image, 16), (256, 3, 8, 0, 0, 0, 0))
+        size = struct.unpack_from('>I', image, 33)[0]
+        self.assertEqual(image[37:41], b'IDAT')
+        rows = zlib.decompress(image[41:41 + size])
+        previous = bytes(256)
+        for i, reference in enumerate(expected):
+            start = i * 257
+            self.assertEqual(rows[start], 2)
+            previous = bytes((a + b) % 256 for a, b in zip(rows[start + 1:start + 257], previous))
+            self.assertEqual(previous, reference)
+
     def test_multicolumn_order_and_quality(self):
         lines = [{'text': 'Header', 'box': (0, 0, 300, 10)}]
         lines += [{'text': f'{side}{n}', 'box': (x, 40+n*13, x+110, 50+n*13)} for side,x in [('L',0),('R',180)] for n in range(5)]
