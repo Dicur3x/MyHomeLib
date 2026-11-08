@@ -189,6 +189,26 @@ class LegacyFixed(unittest.TestCase):
             previous = bytes((a + b) % 256 for a, b in zip(rows[start + 1:start + 257], previous))
             self.assertEqual(previous, reference)
 
+    def test_fb2_chunk_parser_can_validate_without_loading_images(self):
+        source = self.root / 'scans.fb2'
+        image = 'AQID' * 80_000
+        content = (f'<FictionBook xmlns="{c.FB}" xmlns:l="{c.XL}"><body><section><p>Text</p>'
+                   '<image l:href="#scan"/></section></body>'
+                   f'<binary id="scan" content-type="image/png">{image}</binary></FictionBook>').encode()
+        source.write_bytes(content)
+        structural = c.parse_fb2_file(source, len(content), keep_binary_data=False)
+        c.validate_fb2_output(structural)
+        self.assertIsNone(c.first(structural, 'binary').text)
+        complete = c.parse_fb2_file(source, len(content), keep_binary_data=True)
+        self.assertEqual(c.first(complete, 'binary').text, image)
+        with self.assertRaisesRegex(c.ConversionError, 'предел'):
+            c.parse_fb2_file(source, len(content) - 1, keep_binary_data=False)
+        source.write_bytes(b'<!DOCTYPE FictionBook SYSTEM "missing.dtd">' + content)
+        c.validate_fb2_output(c.parse_fb2_file(source, c.MAX_TOTAL, keep_binary_data=False))
+        source.write_bytes(b'<!DOCTYPE FictionBook [<!ENTITY ext "payload">]>' + content)
+        with self.assertRaisesRegex(c.ConversionError, 'DTD'):
+            c.parse_fb2_file(source, c.MAX_TOTAL, keep_binary_data=False)
+
     def test_multicolumn_order_and_quality(self):
         lines = [{'text': 'Header', 'box': (0, 0, 300, 10)}]
         lines += [{'text': f'{side}{n}', 'box': (x, 40+n*13, x+110, 50+n*13)} for side,x in [('L',0),('R',180)] for n in range(5)]

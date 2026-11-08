@@ -119,12 +119,14 @@ def tag(node):
     return node.tag.rsplit('}', 1)[-1] if isinstance(node.tag, str) else ''
 
 
+FB2_WINDOWS1251_DECLARATION = re.compile(
+    br"""^(?:\xef\xbb\xbf)?<\?xml\s+[^?]*\bencoding\s*=\s*(["'])(windows-1251|cp1251)\1""", re.I)
+
+
 def repair_fb2_encoding(data):
     """Match the native FB2 reader's conservative repair for mislabeled UTF-8."""
     prefix = data[:8192]
-    declaration = re.match(
-        br"""^(?:\xef\xbb\xbf)?<\?xml\s+[^?]*\bencoding\s*=\s*(["'])(windows-1251|cp1251)\1""",
-        prefix[:512], re.I)
+    declaration = FB2_WINDOWS1251_DECLARATION.match(prefix[:512])
     if not declaration or not re.search(br'<(?:[A-Za-z_][\w.-]*:)?FictionBook(?=[\s>/])', prefix):
         return data
     if not (prefix.startswith(b'\xef\xbb\xbf') or
@@ -157,6 +159,59 @@ def xml(data, maximum=MAX_FILE):
         return root
     except (ET.ParseError, LookupError) as error:
         raise ConversionError('Некорректная структура XML: ' + str(error)) from error
+
+
+def parse_fb2_file(path, maximum, *, keep_binary_data):
+    """Parse large FB2 in chunks, retaining image data only when it will be used."""
+    class Structure(ET.TreeBuilder):
+        depth = nodes = 0
+        skip_data = False
+
+        def start(self, name, attrs):
+            self.depth += 1
+            self.nodes += 1
+            if self.depth > 129 or self.nodes > 500000:
+                raise ConversionError('XML книги слишком сложен для конвертации.')
+            if self.depth == 2:
+                self.skip_data = not keep_binary_data and name == '{' + FB + '}binary'
+            return super().start(name, attrs)
+
+        def end(self, name):
+            if self.depth == 2:
+                self.skip_data = False
+            self.depth -= 1
+            return super().end(name)
+
+        def data(self, value):
+            if not self.skip_data:
+                super().data(value)
+
+    def reject_internal_dtd(_name, _system_id, _public_id, has_internal_subset):
+        if has_internal_subset:
+            raise ConversionError('Документ с внутренними сущностями DTD нельзя безопасно преобразовать.')
+
+    def expanded(name):
+        return '{' + name if '}' in name else name
+
+    tree = Structure()
+    parser = expat.ParserCreate(namespace_separator='}')
+    parser.SetParamEntityParsing(expat.XML_PARAM_ENTITY_PARSING_NEVER)
+    parser.StartDoctypeDeclHandler = reject_internal_dtd
+    parser.StartElementHandler = lambda name, attrs: tree.start(expanded(name), {expanded(k): v for k, v in attrs.items()})
+    parser.EndElementHandler = lambda name: tree.end(expanded(name))
+    parser.CharacterDataHandler = tree.data
+    with Path(path).open('rb') as stream:
+        try:
+            remaining = maximum
+            while chunk := stream.read(min(256 * 1024, remaining + 1)):
+                remaining -= len(chunk)
+                if remaining < 0:
+                    raise ConversionError('Файл превышает предел конвертации (' + str(maximum // 1024 // 1024) + ' МБ).')
+                parser.Parse(chunk, False)
+            parser.Parse(b'', True)
+            return tree.close()
+        except (expat.ExpatError, LookupError) as error:
+            raise ConversionError('Некорректная структура XML: ' + str(error)) from error
 
 
 def truncated_fb2_image(data, maximum):
@@ -649,7 +704,17 @@ def fb2_image_type(data, declared):
 
 
 def fb2_to_epub(source, output, warnings, maximum=MAX_FILE):
-    book, _ = read_fb2(Path(source).read_bytes(),maximum,warnings)
+    source = Path(source)
+    large = source.stat().st_size > MAX_FILE
+    legacy_declaration = False
+    if large:
+        with source.open('rb') as stream:
+            legacy_declaration = FB2_WINDOWS1251_DECLARATION.match(stream.read(512)) is not None
+    # Keep the existing repair for books that incorrectly declare Windows-1251.
+    if large and not legacy_declaration:
+        book = parse_fb2_file(source, maximum, keep_binary_data=True)
+    else:
+        book, _ = read_fb2(source.read_bytes(), maximum, warnings)
     if book.tag != '{' + FB + '}FictionBook':
         raise ConversionError('Файл не является книгой FB2.')
     description = first(book, 'description')
@@ -679,6 +744,7 @@ def fb2_to_epub(source, output, warnings, maximum=MAX_FILE):
             data = base64.b64decode(re.sub(r'\s+', '', plain(binary)), validate=True)
         except ValueError as error:
             raise ConversionError('Повреждено изображение FB2: ' + identity) from error
+        binary.text = None
         mime, extension = fb2_image_type(data, binary.get('content-type', 'application/octet-stream'))
         original_identity = identity
         previous = image_files.get(image_aliases.get(identity, identity)) if identity else None
@@ -1911,7 +1977,10 @@ def _convert_book(source, destination, **metadata):
         else:
             if temporary.stat().st_size > MAX_TOTAL:
                 raise ConversionError('FB2 превышает предел конвертации (256 МБ). Для книги со сканами выберите меньший размер изображений.')
-            validate_fb2_output(xml(temporary.read_bytes(),MAX_TOTAL), inherited_fb2_issues)
+            if scanned_document:
+                validate_fb2_output(parse_fb2_file(temporary, MAX_TOTAL, keep_binary_data=False))
+            else:
+                validate_fb2_output(xml(temporary.read_bytes(),MAX_TOTAL), inherited_fb2_issues)
         with temporary.open('r+b') as stream: stream.flush(); os.fsync(stream.fileno())
         if os.name == 'nt': os.rename(temporary, destination)  # Windows never replaces an existing name.
         else: os.link(temporary, destination); temporary.unlink()
@@ -2014,8 +2083,9 @@ def main():
         publish_report(text)
         print(text)
         return 0
-    except (ConversionError, OSError, UnicodeError, LookupError, zipfile.BadZipFile, RecursionError, ValueError) as error:
-        details = {'error': str(error), 'used_tools': sorted(used_tools)}
+    except (ConversionError, OSError, UnicodeError, LookupError, zipfile.BadZipFile, RecursionError, ValueError, MemoryError) as error:
+        message = 'Не хватило памяти для преобразования книги. Попробуйте уменьшить размер изображений.' if isinstance(error, MemoryError) else str(error)
+        details = {'error': message, 'used_tools': sorted(used_tools)}
         if isinstance(error, ComponentRequired): details['required_component'] = error.component
         if isinstance(error, FB2ImageRecoveryRequired): details['recoverable_fb2_image'] = True
         text = json.dumps(details, ensure_ascii=False)
