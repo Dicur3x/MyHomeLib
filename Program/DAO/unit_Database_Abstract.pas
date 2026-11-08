@@ -55,6 +55,7 @@ type
       FLastChildNumber: TDictionary<string, Int64>;
       function GetByFB2Code(const FB2Code: string): TGenreData;
       function GetItems(const Code: string): TGenreData; inline;
+      procedure ResolveRootGenre(var Genre: TGenreData);
 
     public
       constructor Create;
@@ -380,20 +381,35 @@ begin
     Result.Clear;
 end;
 
+procedure TBookCollection.TGenreCache.ResolveRootGenre(var Genre: TGenreData);
+var
+  ParentCode: string;
+  Remaining: Integer;
+begin
+  Remaining := Count;
+  while (Genre.GenreCode <> UNKNOWN_GENRE_CODE) and (Genre.ParentCode <> '0') do
+  begin
+    ParentCode := Genre.ParentCode;
+    // A valid ancestry cannot contain more entries than the cache.
+    if (Remaining = 0) or not TryGetValue(ParentCode, Genre) then
+    begin
+      Genre.Clear;
+      Exit;
+    end;
+    Dec(Remaining);
+  end;
+end;
+
 function TBookCollection.TGenreCache.GetRootGenre(const Code: string): TGenreData;
 begin
   Result := Items[Code];
-  if Result.GenreCode <> '0.0' then
-    while Result.ParentCode <> '0' do
-      Result := Items[Result.ParentCode];
+  ResolveRootGenre(Result);
 end;
 
 function TBookCollection.TGenreCache.GetRootGenreByFB2Code(const FB2Code: string): TGenreData;
 begin
   Result := ByFB2Code[FB2Code];
-  if Result.GenreCode <> '0.0' then
-    while Result.ParentCode <> '0' do
-      Result := Items[Result.ParentCode];
+  ResolveRootGenre(Result);
 end;
 
 procedure TBookCollection.SetHideDeleted(const HideDeleted: Boolean);

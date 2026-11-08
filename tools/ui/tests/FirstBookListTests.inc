@@ -375,6 +375,86 @@ begin
   finally DB.Free; end;
 end;
 
+procedure TestBrokenGenreParents;
+const
+  Codes: array[1..4] of string = ('audit.orphan', 'audit.cycle1', 'audit.self', 'audit.leaf');
+  FB2Codes: array[1..4] of string = ('audit_orphan', 'audit_cycle1', 'audit_self', 'audit_leaf');
+var
+  Collection: IBookCollection;
+  DB: TSQLiteDatabase;
+  CID, Seen: Integer;
+  IDs: array[1..4] of Integer;
+  Book: TBookRecord;
+  Criteria: TBookSearchCriteria;
+  Iterator: IBookIterator;
+  FileName, BeforeHash: string;
+
+  procedure CheckBook(const Book: TBookRecord; Index: Integer);
+  begin
+    Require(Book.BookKey.BookID=IDs[Index], 'Broken genre parents changed book identity or order');
+    Require((Length(Book.Genres)=1) and (Book.Genres[0].GenreCode=Codes[Index]),
+      'A broken parent removed the original book genre');
+    if Index=High(Codes) then
+      Require(Book.RootGenre.GenreCode='audit.root', 'A valid nested genre lost its root')
+    else
+      Require(Book.RootGenre.GenreCode='0.0', 'A broken genre parent acquired an unrelated root');
+  end;
+
+begin
+  CID := SystemDB.CreateCollection('Broken genre parents', Settings.AppPath,
+    'broken-genre-parents.hlc2', CT_EXTERNAL_LOCAL_FB, Settings.AppPath+'genres_fb2.glst');
+  Collection := SystemDB.GetCollection(CID);
+  for var I:=Low(IDs) to High(IDs) do
+    IDs[I]:=AddBook(Collection,'Genre parent '+IntToStr(I),'Genre author','ru','','0.1');
+  Collection:=nil;
+  FileName:=SystemDB.GetCollectionInfo(CID).DBFileName;
+  DB:=TSQLiteDatabase.Create(FileName);
+  try
+    DB.AddFunction('MHL_TRIGGERS_ON',0,EnableScaleFixtureTriggers);
+    DB.ExecSQL('INSERT INTO Genres(GenreCode,ParentCode,FB2Code,GenreAlias) VALUES ' +
+      '(''audit.orphan'',''audit.missing'',''audit_orphan'',''Orphan''),' +
+      '(''audit.cycle1'',''audit.cycle2'',''audit_cycle1'',''Cycle one''),' +
+      '(''audit.cycle2'',''audit.cycle1'',''audit_cycle2'',''Cycle two''),' +
+      '(''audit.self'',''audit.self'',''audit_self'',''Self''),' +
+      '(''audit.root'',''0'',NULL,''Audit root''),' +
+      '(''audit.mid'',''audit.root'',NULL,''Middle''),' +
+      '(''audit.leaf'',''audit.mid'',''audit_leaf'',''Leaf'')');
+    for var I:=Low(IDs) to High(IDs) do
+    begin
+      DB.ExecSQL('DELETE FROM Genre_List WHERE BookID=?',[IDs[I]]);
+      DB.ExecSQL('INSERT INTO Genre_List(BookID,GenreCode) VALUES(?,?)',[IDs[I],Codes[I]]);
+    end;
+  finally DB.Free; end;
+  Collection:=TBookCollection_SQLite.Create(SystemDB.GetCollectionInfo(CID),SystemDB);
+  BeforeHash:=THashSHA2.GetHashStringFromFile(FileName);
+  Criteria:=Default(TBookSearchCriteria); Criteria.DateIdx:=-1;
+  Criteria.Deleted:=True; Criteria.CollapseMultiSeriesResults:=True;
+  Iterator:=Collection.Search(Criteria,False);
+  Require(Iterator.RecordCount=Length(IDs),'Broken genre parents changed search result count');
+  Seen:=0;
+  Writeln('TRACE reading search rows with malformed genre parents'); Flush(Output);
+  while Iterator.Next(Book) do
+  begin
+    Inc(Seen);
+    Require(Seen<=High(IDs),'Broken genre parents added a search result');
+    CheckBook(Book,Seen);
+  end;
+  Require(Seen=Length(IDs),'Broken genre parents dropped a search result');
+  Iterator:=nil;
+  for var I:=Low(IDs) to High(IDs) do
+  begin
+    Collection.GetBookRecord(CreateBookKey(IDs[I],CID),Book,False);
+    CheckBook(Book,I);
+    if I=High(IDs) then
+      Require(Collection.GetTopGenreAlias(FB2Codes[I])='Audit root','FB2 genre alias lost a valid root')
+    else
+      Require(Collection.GetTopGenreAlias(FB2Codes[I])='','FB2 genre alias followed a malformed parent');
+  end;
+  Collection:=nil;
+  Require(THashSHA2.GetHashStringFromFile(FileName)=BeforeHash,'Genre reads changed the catalogue');
+  Writeln('PASS search book details and FB2 genre aliases tolerate missing and circular genre parents');
+end;
+
 // A disposable catalogue exercises the actual first query, not an in-memory iterator.
 procedure TestFirstBookList(const LargeOnly: Boolean = False);
 var
@@ -436,7 +516,10 @@ var
   end;
 begin
   if not LargeOnly then
-  begin TestBookDisplayNames; TestSQLiteDateDecoding; TestStreamAuthorOrder; TestVisibleMetadataStreams; TestAuthorStreamBounds; end;
+  begin
+    TestBrokenGenreParents;
+    TestBookDisplayNames; TestSQLiteDateDecoding; TestStreamAuthorOrder; TestVisibleMetadataStreams; TestAuthorStreamBounds;
+  end;
   Total:=60000;
   if LargeOnly then Total:=1500000;
   DB := TSQLiteDatabase.Create(':memory:');
