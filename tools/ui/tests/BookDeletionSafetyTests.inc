@@ -55,6 +55,15 @@ begin
   end;
 end;
 
+function ReviewDeletionArchive(Progress:TComponent; const BeforeAccept:TProc<TForm> = nil): Boolean;
+begin
+  var Confirm:=TButton(Progress.FindComponent('ConfirmArchiveDeletion'));
+  Result:=Assigned(Confirm) and Confirm.Visible and Confirm.Enabled;
+  if not Result then Exit;
+  if Assigned(BeforeAccept) then BeforeAccept(TForm(Progress));
+  if Confirm.Visible then Confirm.Click;
+end;
+
 type TBookDeletionSafetyScenario = (bdsGeneral, bdsFLibrary, bdsLifecycle, bdsFLibraryReal);
 
 procedure TestBookDeletionSafety(Scenario: TBookDeletionSafetyScenario = bdsGeneral);
@@ -137,13 +146,16 @@ var PrivateID, OnlineID, ExternalID, RawID, ArchiveID, OtherID, PrivateFBD, Fail
   end;
 
   procedure Execute(Accept, OnlyFiles: Boolean; Count, Archives: Integer; ExpectedWarnings: Integer = 0;
-    const DuringProgress: TProc<TForm> = nil; Timeout: Cardinal = 20000);
+    const DuringProgress: TProc<TForm> = nil; Timeout: Cardinal = 20000;
+    const BeforeArchiveConfirm: TProc<TForm> = nil; ExpectedReviews: Integer = -1);
+  var Reviews:Integer;
   begin
     // Main initialization restores native common dialogs. Select the VCL
     // message form only after constructing Main so its real text is inspectable.
     Vcl.Dialogs.UseLatestCommonDialogs := False;
     Probe.Accept := Accept; Probe.ExpectedCount := Count; Probe.ExpectedArchives := Archives;
     Probe.Confirmations := 0; Probe.Warnings := 0; Probe.Failure := '';
+    Reviews:=0;
     Probe.Timer.Enabled := True;
     Trace('delete safety invoking Main action');
     try
@@ -161,6 +173,7 @@ var PrivateID, OnlineID, ExternalID, RawID, ArchiveID, OtherID, PrivateFBD, Fail
         var Started:=GetTickCount64;
         repeat
           if Assigned(DuringProgress) then DuringProgress(TForm(ProgressForm));
+          if ReviewDeletionArchive(ProgressForm,BeforeArchiveConfirm) then Inc(Reviews);
           Application.ProcessMessages;
           var CurrentProgress:=frmMain.FindComponent('BookDeletionProgress');
           Require((CurrentProgress=nil) or (CurrentProgress=ProgressForm),
@@ -173,6 +186,7 @@ var PrivateID, OnlineID, ExternalID, RawID, ArchiveID, OtherID, PrivateFBD, Fail
     Require(Probe.Failure='',Probe.Failure);
     Require(Probe.Confirmations=1,'Deletion did not ask exactly once per batch');
     Require(Probe.Warnings=ExpectedWarnings,'Deletion did not aggregate failures into one warning');
+    if ExpectedReviews>=0 then Require(Reviews=ExpectedReviews,'Unexpected number of shared archive reviews');
   end;
 
   procedure Sources(const Tag: string);
@@ -657,7 +671,7 @@ begin
     ArchivePath:=Root+'last-book.zip';
     WriteZip(ArchivePath,['only.fb2']);
     ArchiveID:=Insert('last ZIP book','last-book.zip','only','.fb2');
-    Rows([ArchiveID]); Execute(True,False,1,1);
+    Rows([ArchiveID]); Execute(True,False,1,1,0,nil,20000,nil,0);
     Require(not Exists(ArchiveID) and not FileExists(ArchivePath),
       'The last book and its empty ZIP must both disappear');
 
@@ -693,6 +707,42 @@ begin
     end;
 
     Trace('delete safety references across collections');
+    Sources('archive-review-cancel'); Rows([ArchiveID]);
+    Execute(True,False,1,1,0,nil,20000,
+      procedure(Progress:TForm)
+      begin
+        var Details:=TLabel(Progress.FindComponent('BookDeletionDetails'));
+        Require(Assigned(Details) and string(Details.Caption).Contains('Перемещение данных в архиве книг: ') and
+          string(Details.Caption).Contains('Оценка места для журнала: '), 'Shared archive review omitted the cost');
+        var Catalogue:=TSQLiteDatabase.CreateReadOnly(SystemDB.GetCollectionInfo(PrivateID).DBFileName);
+        try
+          Require(Catalogue.QuerySingleInt('SELECT COUNT(*) FROM Books WHERE BookID=?',[ArchiveID])=1,
+            'The catalogue changed before archive review');
+        finally Catalogue.Free; end;
+        var JournalRoot:=TPath.Combine(Settings.DataPath,'BookDeletion');
+        Require(Length(TDirectory.GetDirectories(JournalRoot,'zip-delete-*',TSearchOption.soAllDirectories))=0,
+          'The archive began writing before confirmation');
+        TButton(Progress.FindComponent('StopBookDeletion')).Click;
+      end,1);
+    Require(Exists(ArchiveID),'Stopping at archive review removed the catalogue row');
+    ProtectedArchive;
+
+    Sources('archive-review-changed'); Rows([ArchiveID]);
+    Execute(True,False,1,1,1,nil,20000,
+      procedure(Progress:TForm)
+      begin
+        var Reference:TBookRecord;
+        Collection.GetBookRecord(CreateBookKey(ArchiveID,PrivateID),Reference,False);
+        Reference.Title:='Reference added during review';
+        Reference.LibID:=Reference.Title;
+        var OtherCollection:=SystemDB.GetCollection(ExternalID);
+        Require(OtherCollection.InsertBook(Reference,False,False)>0,'Could not add a new archive reference');
+      end,1);
+    Require(Exists(ArchiveID),'Changed catalogue review removed the original row');
+    ProtectedArchive;
+    Writeln('PASS Main reviews archive move and journal size before writing and stops on cancel or changed references');
+    Flush(Output);
+
     Sources('shared-reference');
     Win32Check(CreateHardLink(PChar(Root+'shared-reference-alias.zip'),PChar(ArchivePath),nil));
     var MainCollection:=Collection;

@@ -11,8 +11,10 @@ type
     CollectionName: string;
     CollectionIndex, CollectionCount: Integer;
     Done, Total: Int64;
+    MoveBytes, JournalBytes: Int64;
+    CompanionCount: Integer;
     ArchiveIndex, ArchiveCount, CompletedBooks: Integer;
-    Stopping, Finished, CatalogueChanged: Boolean;
+    Stopping, Finished, CatalogueChanged, AwaitingArchiveConfirmation: Boolean;
   end;
 
   TBookDeletionBatchItem = record
@@ -28,13 +30,15 @@ type
     FBinding, FRetainedDuplicates: TBookDeletionBinding;
     FBatch: TArray<TBookDeletionBatchItem>;
     FJournalRoot, FUserFile: string;
-    FRecovery: Boolean;
+    FReviewFiles: TArray<string>;
+    FRecovery, FReviewArchives: Boolean;
     FLock: TObject;
     FStop: Integer;
     FState: TBookDeletionOperationStatus;
     function Stopping: Boolean;
     procedure Report(const Stage, Archive: string; Index, Count: Integer;
       Done: Int64 = 0; Total: Int64 = 0);
+    procedure WaitForArchiveConfirmation(MoveBytes, JournalBytes: Int64; CompanionCount: Integer);
     procedure CompleteBinding(const Binding: TBookDeletionBinding; const User: ISystemData);
     procedure RunQueue(Queue: TArchiveDeletionQueue; const User: ISystemData;
       Offset, Count: Integer);
@@ -52,7 +56,9 @@ type
     constructor Recover(const UserFile, JournalRoot: string);
     destructor Destroy; override;
     procedure RequestStop;
+    procedure ConfirmArchive;
     function Status: TBookDeletionOperationStatus;
+    property ReviewArchives: Boolean write FReviewArchives;
   end;
 
 function IsArchiveBookSource(const Book: TBookRecord): Boolean;
@@ -256,7 +262,65 @@ function TBookDeletionOperation.Stopping:Boolean;
 begin Result:=TInterlocked.CompareExchange(FStop,0,0)<>0; end;
 
 procedure TBookDeletionOperation.RequestStop;
-begin TInterlocked.Exchange(FStop,1); end;
+begin
+  TInterlocked.Exchange(FStop,1);
+  if not Assigned(FLock) then Exit;
+  TMonitor.Enter(FLock);
+  try TMonitor.PulseAll(FLock); finally TMonitor.Exit(FLock); end;
+end;
+
+procedure TBookDeletionOperation.ConfirmArchive;
+begin
+  TMonitor.Enter(FLock);
+  try
+    FState.AwaitingArchiveConfirmation:=False;
+    TMonitor.PulseAll(FLock);
+  finally TMonitor.Exit(FLock); end;
+end;
+
+procedure TBookDeletionOperation.WaitForArchiveConfirmation(MoveBytes, JournalBytes: Int64;
+  CompanionCount: Integer);
+var Observers:TObjectList<TSQLiteDatabase>; Revisions:TArray<Int64>; Identities:TArray<string>;
+begin
+  // The catalogue remains usable while the archive is locked for review.
+  // An edit to any catalogue may add a reference to the member being removed.
+  Observers:=TObjectList<TSQLiteDatabase>.Create;
+  try
+    SetLength(Revisions,Length(FReviewFiles)); SetLength(Identities,Length(FReviewFiles));
+    for var I:=0 to High(FReviewFiles) do
+    begin
+      if Stopping then Abort;
+      if FileExists(FReviewFiles[I]) then
+      begin
+        Identities[I]:=Copy(ArchiveDeletionSourceIdentity(FReviewFiles[I]),1,25);
+        Observers.Add(TSQLiteDatabase.CreateReadOnly(FReviewFiles[I]));
+        Revisions[I]:=Observers[I].QuerySingleInt('PRAGMA main.data_version');
+      end
+      else Observers.Add(nil);
+    end;
+    TMonitor.Enter(FLock);
+    try
+      if Stopping then Abort;
+      FState.MoveBytes:=MoveBytes;
+      FState.JournalBytes:=JournalBytes;
+      FState.CompanionCount:=CompanionCount;
+      FState.AwaitingArchiveConfirmation:=True;
+      try
+        while FState.AwaitingArchiveConfirmation and not Stopping do TMonitor.Wait(FLock,INFINITE);
+        if Stopping then Abort;
+      finally FState.AwaitingArchiveConfirmation:=False; end;
+    finally TMonitor.Exit(FLock); end;
+    for var I:=0 to High(FReviewFiles) do
+    begin
+      if Stopping then Abort;
+      var DB:=Observers[I];
+      if (FileExists(FReviewFiles[I])<>Assigned(DB)) or (Assigned(DB) and
+        ((Copy(ArchiveDeletionSourceIdentity(FReviewFiles[I]),1,25)<>Identities[I]) or
+        (DB.QuerySingleInt('PRAGMA main.data_version')<>Revisions[I]))) then
+        raise EReadError.Create('Коллекция изменилась во время подтверждения. Архив не изменён. Повторите выбор книг.');
+    end;
+  finally Observers.Free; end;
+end;
 
 function TBookDeletionOperation.Status:TBookDeletionOperationStatus;
 begin
@@ -367,7 +431,8 @@ end;
 procedure TBookDeletionOperation.RunRemoval(const User:ISystemData);
 var Archives,Loose,Absent:TList<Integer>; Preparation:TBookDeletionPreparation;
   Progress:TBookDeletionPreparationStatus; Tasks:TArray<TArchiveDeletionTask>;
-  Queue:TArchiveDeletionQueue;
+  Queue:TArchiveDeletionQueue; Review:TArchiveDeletionReview;
+  Info:TCollectionInfo;
 begin
   Report('Проверка выбранных книг','',0,0);
   if Stopping then Exit;
@@ -417,11 +482,20 @@ begin
 
       Report('Проверка других записей в этих архивах','',0,Length(Tasks));
       CheckArchiveDeletionReferences(User,Tasks,function:Boolean begin Result:=Stopping; end);
+      Review:=nil;
+      if FReviewArchives then
+      begin
+        FReviewFiles:=[FUserFile];
+        var Collections:=User.GetCollectionInfoIterator;
+        while Collections.Next(Info) do FReviewFiles:=FReviewFiles+[Info.DBFileName];
+        Review:=WaitForArchiveConfirmation;
+      end;
       for var I:=0 to High(Tasks) do
       begin
         if Stopping then Exit;
         TBookDeletionBinding.Parse(Tasks[I].CatalogueBinding).CheckBeforePhysicalRemoval(User);
-        Queue:=TArchiveDeletionQueue.Create([Tasks[I]],FJournalRoot,True);
+        Report('Проверка архива',Tasks[I].Archive,I+1,Length(Tasks));
+        Queue:=TArchiveDeletionQueue.Create([Tasks[I]],FJournalRoot,True,Review);
         try
           if Stopping then Queue.StopAfterCurrentArchive;
           RunQueue(Queue,User,I,Length(Tasks));

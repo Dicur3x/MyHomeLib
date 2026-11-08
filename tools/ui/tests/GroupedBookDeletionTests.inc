@@ -139,6 +139,7 @@ var Root:string; IDs:array[0..2] of Integer; Collections:array[0..2] of IBookCol
       begin
         Require(frmMain.Enabled,'Grouped deletion disabled the catalogue');
         Require(frmMain.FindComponent('BookDeletionProgress')=Progress,'One grouped operation replaced its progress window');
+        ReviewDeletionArchive(Progress);
         Application.ProcessMessages;
         if GetTickCount64-Started>30000 then raise Exception.Create('Grouped Main deletion exceeded deadline');
         Sleep(5);

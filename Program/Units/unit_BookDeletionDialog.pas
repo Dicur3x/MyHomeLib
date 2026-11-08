@@ -10,10 +10,12 @@ type
   private
     FStage, FArchive, FDetail: TLabel;
     FProgress: TProgressBar;
-    FStop: TButton;
+    FStop, FConfirm: TButton;
+    FWriteStarted: UInt64;
+    FWriteStartBytes: Int64;
     procedure HideWhenClosed(Sender: TObject; var Action: TCloseAction);
   public
-    constructor CreateProgress(AOwner: TForm; Stop: TNotifyEvent);
+    constructor CreateProgress(AOwner: TForm; Stop, Confirm: TNotifyEvent);
     procedure UpdateProgress(const State: TBookDeletionOperationStatus);
   end;
 
@@ -26,7 +28,8 @@ function PrepareSelectorBookDeletion(Owner:TForm; const Info:TCollectionInfo; Mo
 
 implementation
 
-uses System.SysUtils, System.Math, Vcl.Controls, Vcl.ExtCtrls, unit_MHLTheme, frm_ImportProgressForm;
+uses Winapi.Windows, System.SysUtils, System.Math, Vcl.Controls, Vcl.ExtCtrls, unit_MHLTheme,
+  frm_ImportProgressForm, unit_BookEstimateReport, unit_ZipMemberDeletion;
 
 type
   TSelectorDeletionProgress = class(TImportProgressForm)
@@ -64,7 +67,7 @@ begin
   finally Worker.Free; end;
 end;
 
-constructor TBookDeletionProgress.CreateProgress(AOwner:TForm; Stop:TNotifyEvent);
+constructor TBookDeletionProgress.CreateProgress(AOwner:TForm; Stop,Confirm:TNotifyEvent);
   function Line(const Text:string; Y,Height:Integer):TLabel;
   begin
     Result:=TLabel.Create(Self); Result.Parent:=Self;
@@ -77,25 +80,33 @@ begin
   Name:='BookDeletionProgress'; Caption:='Удаление книг';
   PopupMode:=pmExplicit; PopupParent:=AOwner; Position:=poOwnerFormCenter;
   BorderStyle:=bsSizeable; BorderIcons:=[biSystemMenu];
-  Font.Name:='Segoe UI'; Font.Size:=9; ClientWidth:=560; ClientHeight:=194;
-  Constraints.MinWidth:=510; Constraints.MinHeight:=230;
+  Font.Name:='Segoe UI'; Font.Size:=9; ClientWidth:=560; ClientHeight:=222;
+  Constraints.MinWidth:=510; Constraints.MinHeight:=260;
   FStage:=Line('Подготовка удаления…',14,25);
   FArchive:=Line('',45,34);
   FProgress:=TProgressBar.Create(Self); FProgress.Parent:=Self;
   FProgress.Name:='BookDeletionProgressBar'; FProgress.Max:=1000;
   FProgress.Anchors:=[akLeft,akTop,akRight]; FProgress.SetBounds(16,86,528,15);
-  FDetail:=Line('Можно продолжать работать с другими книгами.',110,36);
+  FDetail:=Line('Можно продолжать работать с другими книгами.',110,65);
+  FDetail.Name:='BookDeletionDetails';
+  FConfirm:=TButton.Create(Self); FConfirm.Parent:=Self; FConfirm.Name:='ConfirmArchiveDeletion';
+  FConfirm.Caption:='Удалить из архива'; FConfirm.Anchors:=[akRight,akBottom];
+  FConfirm.SetBounds(254,178,148,30); FConfirm.OnClick:=Confirm; FConfirm.Visible:=False;
   FStop:=TButton.Create(Self); FStop.Parent:=Self; FStop.Name:='StopBookDeletion';
   FStop.Caption:='Остановить'; FStop.Anchors:=[akRight,akBottom];
-  FStop.SetBounds(414,150,130,30); FStop.OnClick:=Stop;
+  FStop.SetBounds(414,178,130,30); FStop.OnClick:=Stop;
   OnClose:=HideWhenClosed;
   ApplyMHLControlTheme(Self);
 end;
 
 procedure TBookDeletionProgress.HideWhenClosed(Sender:TObject; var Action:TCloseAction);
-begin Action:=caHide; end;
+begin
+  if FConfirm.Visible and FStop.Enabled then FStop.Click;
+  Action:=caHide;
+end;
 
 procedure TBookDeletionProgress.UpdateProgress(const State:TBookDeletionOperationStatus);
+var Detail: string;
 begin
   if State.Stage<>'' then FStage.Caption:=State.Stage;
   FArchive.Caption:=ExtractFileName(State.Archive);
@@ -104,16 +115,47 @@ begin
   if State.CollectionCount>1 then
     FArchive.Caption:=Format('Коллекция %d из %d · %s',[State.CollectionIndex,
       State.CollectionCount,State.CollectionName])+sLineBreak+FArchive.Caption;
+  FConfirm.Visible:=State.AwaitingArchiveConfirmation and not State.Stopping;
+  FStop.Enabled:=not State.Stopping;
+  if FConfirm.Visible then
+  begin
+    FWriteStarted:=0;
+    FStage.Caption:='Подтвердите удаление из общего архива';
+    FProgress.Style:=pbstNormal;
+    FProgress.Position:=0;
+    Detail:='Перемещение данных в архиве книг: '+BookEstimateSizeText(State.MoveBytes)+sLineBreak+
+      'Оценка места для журнала: '+BookEstimateSizeText(State.JournalBytes)+'.';
+    if State.CompanionCount>0 then
+      Detail:=Detail+sLineBreak+Format('Отдельно будут обработаны архивы изображений: %d.',[State.CompanionCount]);
+    FDetail.Caption:=Detail;
+    Exit;
+  end;
   if State.Total>0 then
   begin
     if FProgress.Style<>pbstNormal then FProgress.Style:=pbstNormal;
     FProgress.Position:=EnsureRange(Trunc(1000.0*State.Done/State.Total),0,1000);
   end
   else if FProgress.Style<>pbstMarquee then FProgress.Style:=pbstMarquee;
-  FStop.Enabled:=not State.Stopping;
+  if (State.Stage<>ArchiveDeletionWriteStage) or (State.Done<FWriteStartBytes) then FWriteStarted:=0;
   if State.Stopping then FDetail.Caption:='Останавливаемся. Если архив уже меняется, сначала закончим его.'
-  else FDetail.Caption:=Format('Готово книг: %d. Можно продолжать работать с другими книгами.',
-    [State.CompletedBooks]);
+  else
+  begin
+    Detail:=Format('Готово книг: %d. Можно продолжать работать с другими книгами.',[State.CompletedBooks]);
+    if (State.Stage=ArchiveDeletionWriteStage) and (State.Done>0) then
+    begin
+      var NowTick:=GetTickCount64;
+      if FWriteStarted=0 then
+      begin
+        FWriteStarted:=NowTick;
+        FWriteStartBytes:=State.Done;
+      end
+      else if (NowTick-FWriteStarted>=1000) and (State.Done>FWriteStartBytes) and (State.Done<State.Total) then
+        Detail:=Detail+sLineBreak+Format('Перемещение данных займёт ещё около %d с.',
+          [Max(Int64(1),Round((State.Total-State.Done)/(State.Done-FWriteStartBytes)*
+            ((NowTick-FWriteStarted)/1000.0)))]);
+    end;
+    FDetail.Caption:=Detail;
+  end;
 end;
 
 function ConfirmBookDeletion(const CollectionName: string; BookCount, ArchiveCount: Integer;
@@ -148,7 +190,7 @@ begin
     else Details.Caption:='Будут удалены загруженные файлы. Записи в каталоге, оценки и заметки сохранятся.';
     if ArchiveCount>0 then
       Details.Caption:=Details.Caption+sLineBreak+sLineBreak+Format(
-        'Книг в архивах: %d. При удалении файлов программа уберёт только выбранные книги. Пустой архив тоже может быть удалён.',[ArchiveCount]);
+        'Книг в архивах: %d. В общем архиве программа уберёт только выбранные книги и покажет объём работ до записи. Пустой архив тоже может быть удалён.',[ArchiveCount]);
     Footer:=TPanel.Create(Dialog); Footer.Parent:=Dialog; Footer.Align:=alBottom;
     Footer.Height:=54; Footer.BevelOuter:=bvNone;
     Button:=TButton.Create(Dialog); Button.Parent:=Footer; Button.Name:='ConfirmBookDeletion';

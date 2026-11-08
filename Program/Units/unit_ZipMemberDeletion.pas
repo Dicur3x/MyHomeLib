@@ -4,6 +4,8 @@ interface
 
 uses System.Classes, System.SysUtils, System.JSON;
 
+const ArchiveDeletionWriteStage = 'Удаление из архива';
+
 type
   TZipDeleteProgress = reference to procedure(const Stage: string; Done, Total: Int64);
   TZipDeleteFault = reference to procedure(const Stage: string; Chunk: Integer);
@@ -740,7 +742,7 @@ begin
       if Digest(Actual)<>ChunkHash(FNext) then raise EWriteError.Create('Записанный блок ZIP повреждён. Журнал сохранён.');
     end;
     Inc(Done,Count); Inc(FNext); FPending := False; SaveCheckpoint; Signal('checkpoint');
-    if Assigned(Progress) then Progress('Удаление из архива',Done,BytesToProcess);
+    if Assigned(Progress) then Progress(ArchiveDeletionWriteStage,Done,BytesToProcess);
   end;
   if Assigned(Fault) and (Length(FMetadata)>0) then
   begin

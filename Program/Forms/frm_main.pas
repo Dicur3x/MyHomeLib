@@ -820,6 +820,7 @@ type
       Formats: TFormatArray; Shift: TShiftState; Pt: TPoint; var Effect: Integer; Mode: TDropMode);
     procedure ImportBooksFromFiles(const FileNames: TArray<string>; CollectionID: Integer);
     procedure StopBookDeletion(Sender: TObject);
+    procedure ConfirmArchiveDeletion(Sender: TObject);
     procedure RefreshAfterBookDeletion(const CollectionID: Integer; RemoveRecords: Boolean);
 
 
@@ -8627,6 +8628,7 @@ procedure TfrmMain.StartBookDeletion(Operation: TBookDeletionOperation; ShowProg
 begin
   FBookDeletionOperation:=Operation;
   try
+    FBookDeletionOperation.ReviewArchives:=ShowProgress;
     if not Assigned(FBookDeletionTimer) then
     begin
       FBookDeletionTimer:=TTimer.Create(Self); FBookDeletionTimer.Enabled:=False;
@@ -8634,7 +8636,7 @@ begin
     end;
     if ShowProgress then
     begin
-      FBookDeletionProgress:=TBookDeletionProgress.CreateProgress(Self,StopBookDeletion);
+      FBookDeletionProgress:=TBookDeletionProgress.CreateProgress(Self,StopBookDeletion,ConfirmArchiveDeletion);
       FBookDeletionProgress.Show;
     end;
     FBookDeletionOperation.Start;
@@ -8654,6 +8656,14 @@ begin
     FBookDeletionProgress.UpdateProgress(FBookDeletionOperation.Status);
 end;
 
+procedure TfrmMain.ConfirmArchiveDeletion(Sender: TObject);
+begin
+  if not Assigned(FBookDeletionOperation) then Exit;
+  FBookDeletionOperation.ConfirmArchive;
+  if Assigned(FBookDeletionProgress) then
+    FBookDeletionProgress.UpdateProgress(FBookDeletionOperation.Status);
+end;
+
 procedure TfrmMain.BookDeletionTick(Sender: TObject);
 begin
   if not Assigned(FBookDeletionOperation) then Exit;
@@ -8662,10 +8672,15 @@ begin
   begin
     if not Assigned(FBookDeletionProgress) and (State.ArchiveCount>0) then
     begin
-      FBookDeletionProgress:=TBookDeletionProgress.CreateProgress(Self,StopBookDeletion);
+      FBookDeletionProgress:=TBookDeletionProgress.CreateProgress(Self,StopBookDeletion,ConfirmArchiveDeletion);
       FBookDeletionProgress.Show;
     end;
-    if Assigned(FBookDeletionProgress) then FBookDeletionProgress.UpdateProgress(State);
+    if Assigned(FBookDeletionProgress) then
+    begin
+      FBookDeletionProgress.UpdateProgress(State);
+      if State.AwaitingArchiveConfirmation and not State.Stopping and not FBookDeletionProgress.Visible then
+        FBookDeletionProgress.Show;
+    end;
     Exit;
   end;
   // Keep the progress form available until a view load that may be pumping

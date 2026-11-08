@@ -35,6 +35,8 @@ type
     Stopping, Finished: Boolean;
   end;
 
+  TArchiveDeletionReview = procedure(MoveBytes, JournalBytes: Int64; CompanionCount: Integer) of object;
+
   // A queue owns only filesystem work. Results and their durable receipts
   // remain until the catalogue owner explicitly acknowledges its own commit.
   TArchiveDeletionQueue = class(TThread)
@@ -48,6 +50,7 @@ type
     FStop: Integer;
     FPublished: Integer;
     FWaitForCatalogue: Boolean;
+    FReview: TArchiveDeletionReview;
     FOwnerEvent, FResultEvent: TEvent;
     FCommittedIndex, FRejectedIndex, FAbandonOwner: Integer;
     function WaitForCatalogue(var Item: TArchiveDeletionResult): Boolean;
@@ -56,7 +59,7 @@ type
     procedure Execute; override;
   public
     constructor Create(const Tasks: TArray<TArchiveDeletionTask>; const JournalParent: string;
-      WaitForOwner: Boolean = False);
+      WaitForOwner: Boolean = False; Review: TArchiveDeletionReview = nil);
     constructor Recover(const TaskDirectories: TArray<string>; WaitForOwner: Boolean = False);
     // Reads an existing receipt; its context must match the durable engine
     // plan. This does not finish a pending write or commit catalogue rows.
@@ -127,13 +130,14 @@ begin
 end;
 
 constructor TArchiveDeletionQueue.Create(const Tasks: TArray<TArchiveDeletionTask>;
-  const JournalParent: string; WaitForOwner: Boolean);
+  const JournalParent: string; WaitForOwner: Boolean; Review: TArchiveDeletionReview);
 var Seen: TDictionary<string,Byte>;
 begin
   inherited Create(True); FreeOnTerminate:=False;
   FLock:=TObject.Create; FOwnerEvent:=TEvent.Create(nil,False,False,'');
   FResultEvent:=TEvent.Create(nil,False,False,'');
   FWaitForCatalogue:=WaitForOwner; FCommittedIndex:=-1; FRejectedIndex:=-1;
+  FReview:=Review;
   if (Length(Tasks)=0) or (Length(Tasks)>10000) then
     raise EArgumentException.Create('Не выбраны архивы для удаления книг.');
   Seen:=TDictionary<string,Byte>.Create;
@@ -532,6 +536,8 @@ begin
             FTasks[I].SourceIdentity);
           Deletion.BindContext(BindingHash(Item.WorkDirectory));
           if FWaitForCatalogue then Deletion.EnableWholeRemoval;
+          if Assigned(FReview) and (Deletion.WholeSourceIdentity='') then
+            FReview(Deletion.BytesToProcess,Deletion.JournalBytes,Length(Item.Companions));
           // Cancellation is safe before the first write. After that, finish the
           // current archive; never abandon it with half-shifted compressed data.
           if TInterlocked.CompareExchange(FStop,0,0)<>0 then Abort;

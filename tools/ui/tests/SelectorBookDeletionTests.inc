@@ -94,6 +94,7 @@ var Root:string; CID,OtherID,OnlineID:Integer; C,Other,Online:IBookCollection;
       begin
         Require(frmMain.Enabled and (frmMain.FindComponent('BookDeletionProgress')=Progress),
           'Selector deletion did not use one non-blocking progress window');
+        ReviewDeletionArchive(Progress);
         Application.ProcessMessages;
         if GetTickCount64-Started>30000 then raise Exception.Create('Selector deletion exceeded deadline');
         Sleep(5);
