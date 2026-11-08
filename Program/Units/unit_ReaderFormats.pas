@@ -37,6 +37,7 @@ begin
   if InList(Extension,'|doc|dot|') then Exit('Можно читать во встроенной читалке');
   if IsOfficeReaderFormat(Extension) then Exit('Можно читать во встроенной читалке (адаптация документа)');
   if InList(Extension,'|sqlite|db|') then Exit('База данных каталога: тексты книг хранятся отдельно');
+  if InList(Extension,'|md5|') then Exit('Файл контрольных сумм MD5: для чтения нужен указанный в нём файл книги');
   if InList(Extension,'|jap|') then Exit('Набор рамок JAP: нужны связанные изображения или исходная книга');
   if InList(Extension,'|zip|rar|7z|7zip|cab|tar|gz|gzip|bz2|xz|tgz|') then Exit('Архив: книга выбирается после распаковки');
   if InList(Extension,'|mp3|wav|ogg|m4b|') then Exit('Аудиофайл: открыть аудиоплеером');
@@ -317,6 +318,8 @@ begin
     if InList(ExtractFileExt(FileName),'|html|htm|xhtml|shtml|') then Exit('.html');
     Exit('.xml');
   end;
+  if SameText(ExtractFileExt(FileName),'.md5') and
+    TRegEx.IsMatch(Prefix,'\A(?:\xEF\xBB\xBF)?[0-9A-Fa-f]{32} [ *][^\r\n]+(?:\r|\n|\z)') then Exit('.md5');
   Result:=TextFormat;
 end;
 

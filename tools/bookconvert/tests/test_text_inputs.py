@@ -61,6 +61,19 @@ class TextInputs(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='HomeLibRu-text-test-'); self.root = Path(self.temp.name)
     def tearDown(self): self.temp.cleanup()
+
+    def test_md5_checksums_are_not_books(self):
+        source = self.root / 'checksums.md5'
+        output = self.root / 'copy.epub'
+        source.write_text('1303695e4372a76fdb2d605daae1b3e6 *Книга.pdf\n', encoding='utf-8-sig')
+        self.assertEqual(c.detect_input(source), '.md5')
+        with self.assertRaisesRegex(c.ConversionError, 'контрольных сумм MD5'):
+            c.convert_book(source, output)
+        self.assertFalse(output.exists())
+        source.write_text(TEXT, encoding='utf-8')
+        self.assertEqual(c.detect_input(source), '.txt')
+        self.outputs(source, TEXT)
+
     def outputs(self, source, required, image=False, rich=False, chapters=False):
         before = hashlib.sha256(source.read_bytes()).digest()
         for target in ['.epub', '.fb2']:

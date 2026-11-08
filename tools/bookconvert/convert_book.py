@@ -1636,14 +1636,16 @@ def detect_input(source):
     if source.suffix.lower() in {'.html','.htm','.xhtml','.shtml'} and probe.lstrip().startswith(b'<'):
         return '.html'
     if probe.lstrip().startswith(b'<'):return '.xml'
+    extension = source.suffix.lower()
+    if extension == '.md5' and re.match(br'[0-9a-fA-F]{32} [ *][^\r\n]+(?:\r|\n|\Z)', probe):
+        return '.md5'
     if prefix[:2] in (b'\xff\xfe',b'\xfe\xff'):
         try:text=prefix[:len(prefix)&~1].decode('utf-16')
         except UnicodeError:text=''
     else:text=prefix.decode('utf-8-sig',errors='replace')
     if text.strip() and not any(ord(char)<32 and char not in '\t\r\n\f' or ord(char)==127 for char in text):
-        extension=source.suffix.lower()
         return extension if extension in {'.txt','.text','.faq','.md','.markdown','.html','.htm','.xhtml','.shtml'} else '.txt'
-    return source.suffix.lower()
+    return extension
 
 
 def validate_epub_output(path):
@@ -1830,6 +1832,7 @@ def _convert_book(source, destination, **metadata):
     if conversion is None and not text_input and not kindle_input and not same_format and not ha_input and not cr3_input and not b1_input:
         explanation = {
             '.sqlite': 'Это база данных или проект редактора. Для книги нужен исходный текст либо экспорт из создавшей её программы.',
+            '.md5': 'Это файл контрольных сумм MD5. Для конвертации нужен указанный в нём файл книги.',
             '.jap': 'Набор рамок JAP требует связанных изображений или исходной книги.',
             '.sm': 'Это интерактивная книга: текст зависит от выбранных ответов. Откройте её во встроенной читалке и нажмите «Сохранить пройденную ветку…», чтобы получить FB2 или EPUB с показанным текстом и ответами. Другие ветки остаются в исходной книге.',
             '.rgo': 'Для старого формата RepliGo пока требуется его просмотрщик или экспорт в PDF.',

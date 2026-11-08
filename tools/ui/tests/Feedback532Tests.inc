@@ -167,6 +167,12 @@ begin
   ProjectDB:=TSQLiteDatabase.Create(Name);
   try ProjectDB.ExecSQL('CREATE TABLE Books(Id INTEGER)'); finally ProjectDB.Free; end;
   Require(DetectReaderExtension(Name)='.sqlite','An ordinary catalogue with a Jutoh suffix was accepted as a book');
+  Name:=Settings.AppPath+'checksums.md5';
+  TFile.WriteAllText(Name,'1303695e4372a76fdb2d605daae1b3e6 *Книга.pdf'+sLineBreak,TEncoding.UTF8);
+  Require(DetectReaderExtension(Name)='.md5','An MD5 checksum was accepted as a book');
+  Name:=Settings.AppPath+'misnamed-book.md5';
+  TFile.WriteAllText(Name,'Обычный текст книги.',TEncoding.UTF8);
+  Require(DetectReaderExtension(Name)='.txt','An incorrect MD5 suffix hid a readable text');
   Writeln('PASS special container and project signatures ignore misleading filenames');Flush(Output);
 end;
 
@@ -325,6 +331,42 @@ begin
   Writeln('PASS monochrome reader DIB preserves every pixel and palette at one bit per pixel'); Flush(Output);
 end;
 
+procedure TestCatalogueArchiveProbes(const Manifest: string);
+var Root: TJSONValue; Entries: TJSONArray; Item: TJSONValue; Book, Resolved: TBookRecord;
+  Archive: TMHLZip; Prefix: TMemoryStream; Path, ID: string; Expected: TBytes;
+begin
+  Root:=TJSONObject.ParseJSONValue(TFile.ReadAllText(Manifest,TEncoding.UTF8));
+  try
+    Entries:=Root.GetValue<TJSONArray>('entries');
+    Require(Entries.Count>0,'Archive audit has no catalogue records');
+    for Item in Entries do
+    begin
+      ID:=IntToStr(Item.GetValue<Integer>('id'));
+      Path:=Item.GetValue<string>('archive');
+      Book.Clear;
+      Book.CollectionRoot:=ExtractFilePath(Path);
+      Book.Folder:=ExtractFileName(Path);
+      Book.FileName:=Item.GetValue<string>('name');
+      Book.FileExt:=Item.GetValue<string>('extension');
+      Book.InsideNo:=Item.GetValue<Integer>('position');
+      Require(SameText(Book.GetBookFileName,Path),'Wrong catalogue container for '+ID);
+      Resolved:=ResolveArchivedBook(Book);
+      Expected:=TNetEncoding.Base64.DecodeStringToBytes(Item.GetValue<string>('prefix'));
+      Archive:=TMHLZip.Create(Path,True);
+      try
+        Prefix:=TMemoryStream.Create;
+        try
+          Archive.ExtractBookPrefix(Resolved.FileName+Resolved.FileExt,Resolved.InsideNo,Max(1,Length(Expected)),Prefix);
+          Require(Prefix.Size=Length(Expected),'Wrong archive member size prefix for '+ID);
+          if Length(Expected)>0 then
+            Require(CompareMem(Prefix.Memory,@Expected[0],Length(Expected)),'Wrong archive member bytes for '+ID);
+        finally Prefix.Free; end;
+      finally Archive.Free; end;
+    end;
+    Writeln('PASS archive locator against original catalogue entries=',Entries.Count);Flush(Output);
+  finally Root.Free; end;
+end;
+
 procedure TestCatalogueFormats;
 var Root: TJSONValue; Items, Results: TJSONArray; Item: TJSONValue; Row: TJSONObject;
   FileName, Extension, Prepared, OriginalPrepared, Source, OutputName, Hash, ErrorText, Member: string;
@@ -353,6 +395,8 @@ var Root: TJSONValue; Items, Results: TJSONArray; Item: TJSONValue; Row: TJSONOb
   end;
 begin
   RequireIsolatedRegression;
+  Source:=GetEnvironmentVariable('HOMELIB_TEST_CATALOGUE_ARCHIVE_PROBES');
+  if Source<>'' then TestCatalogueArchiveProbes(Source);
   TrackUsage:=GetEnvironmentVariable('HOMELIB_TEST_FORMAT_USAGE')='1';
   if TrackUsage then
   begin
