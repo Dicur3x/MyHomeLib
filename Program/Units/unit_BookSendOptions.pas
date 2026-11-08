@@ -442,7 +442,7 @@ begin
     if Q=Max(0,FImages.ItemIndex) then Selected:=Copy(Text,Start,MaxInt);
   end;
   if HasRange then
-    Text:=Text+sLineBreak+'Диапазон по выборке сканов. Итоговый размер может выйти за него.';
+    Text:=Text+sLineBreak+'Проценты показывают расчётный разброс по выборке сканов. Итоговый размер может выйти за диапазон.';
   // Show all modes after estimation and the selected mode before it.
   FSummary.Hint:=Text; FSummary.ShowHint:=True;
   if FHasEstimateAttempt then FSummary.Caption:=Text else FSummary.Caption:=Selected;

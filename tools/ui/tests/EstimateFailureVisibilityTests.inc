@@ -127,7 +127,8 @@ begin
   var SampleReport:=BookEstimateReport([Books[0]],[Sample],Plan,0,0,'Оценка завершена');
   Require(SampleReport.Contains('4 из 822') and SampleReport.Contains('±10%') and
     SampleReport.Contains('±'+FormatFloat('0.0',12.5)+'%') and
-    SampleReport.Contains('Итоговый размер может выйти за него') and
+    SampleReport.Contains('Проценты показывают расчётный разброс по выборке') and
+    SampleReport.Contains('Итоговый размер может выйти за диапазон') and
     SampleReport.Contains(BookEstimateValueText(10*1024,1024)),
     'Report omits the sample coverage, per-mode margin or uncertainty note');
   Require(BookEstimateValueText(1024*1024,100,True).Contains('<'+FormatFloat('0.0',0.1)+'%'),

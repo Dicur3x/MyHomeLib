@@ -116,7 +116,7 @@ begin
       if Entry.ImagesUnchanged then Text.AppendLine('Исходный формат копируется без изменения изображений.');
       if Entry.Options.FirstSamples then Text.AppendLine('Для длинных сканов проверены первые страницы. Предел погрешности неизвестен.');
       if Entry.Options.DistributedSamples then Text.AppendLine(Format(
-        'Проверены %d из %d страниц. Диапазон показывает возможный разброс по выборке. Итоговый размер может выйти за него.',
+        'Проверены %d из %d страниц. Проценты показывают расчётный разброс по выборке. Итоговый размер может выйти за диапазон.',
         [Entry.Options.SampleCount,Entry.Options.ImageCount]));
       if Entry.Options.AllScanPages then Text.AppendLine('Проверены все страницы сканов. Размер служебных данных рассчитан приблизительно.');
       Text.AppendLine;
