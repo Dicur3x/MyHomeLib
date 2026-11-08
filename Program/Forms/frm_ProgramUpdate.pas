@@ -133,6 +133,7 @@ type
     function CreateDownloadWorker(Window: HWND; const ReleaseInfo: TProgramRelease;
       const Job: string): TProgramDownloadThread; virtual;
     procedure OpenReleasePage(const URL: string); virtual;
+    procedure CopyUpdateText(const Text: string); virtual;
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
@@ -141,7 +142,7 @@ type
     procedure SetCurrent(const ReleaseInfo: TProgramRelease);
     procedure CheckFailed(const Error: string);
     procedure RememberHistory(const ReleaseInfo: TProgramRelease);
-    procedure CheckComponents(Automatic: Boolean);
+    procedure CheckComponents(Automatic: Boolean; const RetryID: string='');
     procedure UseReaderComponents;
     procedure RequestComponent(const ID, Reason: string; Compact: Boolean = False);
     procedure RequestComponents(const IDs: TArray<string>; const Reason: string; Compact: Boolean = True;
@@ -151,7 +152,8 @@ type
     procedure ShowFullWindow;
     function StartCheckCycle(Automatic: Boolean): Boolean;
     procedure ApplicationChecked(const ReleaseInfo: TProgramRelease; Successful: Boolean; const Error: string);
-    procedure ComponentsReceived(const Releases: TComponentReleases; Successful: Boolean; const Error: string);
+    procedure ComponentsReceived(const Releases: TComponentReleases; Successful: Boolean; const Error: string;
+      const CheckedIDs: TArray<string> = nil);
     function RestoreReady: Boolean;
     function LaunchInstallation: Boolean;
     function WillInstallComponent(const ID: string): Boolean;
@@ -932,7 +934,7 @@ begin
 end;
 
 procedure TfrmProgramUpdate.CopyComponents(Sender: TObject);
-var Text: string; I, First, Last, Attempt: Integer;
+var Text: string; I, First, Last: Integer;
 begin
   Text:=''; First:=ViewIndex(FSelectedRow); Last:=First;
   if (Sender is TMenuItem) and (TMenuItem(Sender).Tag=2) then
@@ -961,9 +963,14 @@ begin
       FComponentsView.Items[I].SubItems[0]+#9+FComponentsView.Items[I].SubItems[1]+#9+
       FComponentsView.Items[I].SubItems[2];
   end;
+  CopyUpdateText(Text);
+end;
+
+procedure TfrmProgramUpdate.CopyUpdateText(const Text: string);
+begin
   // Clipboard managers sometimes hold the Windows clipboard briefly. A copy
   // command must not leave the form through an unhandled access-denied error.
-  for Attempt:=0 to 9 do
+  for var Attempt:=0 to 9 do
     try Clipboard.AsText:=Text; Exit;
     except
       on E: EClipboardException do
@@ -1483,7 +1490,7 @@ begin
   FStatus.Caption:=FRequestReason+sLineBreak+'Проверяем доступность и размер загрузки…'; LayoutWindow; Present;
 end;
 
-procedure TfrmProgramUpdate.CheckComponents(Automatic: Boolean);
+procedure TfrmProgramUpdate.CheckComponents(Automatic: Boolean; const RetryID: string);
 var IDs: TArray<string>;
 begin
   if Assigned(FComponentThread) then Exit;
@@ -1496,6 +1503,7 @@ begin
   EnsureMessageWindow;
   FComponentThread := CreateComponentWorker(FMessageWindow);
   if FRequestedComponent<>'' then FComponentThread.OnlyIDs:=Copy(FRequestedComponents)
+  else if RetryID<>'' then FComponentThread.OnlyIDs:=TArray<string>.Create(RetryID)
   else
   begin
     IDs:=nil;
@@ -1536,6 +1544,7 @@ end;
 
 procedure TfrmProgramUpdate.ComponentsChecked(var Message: TMessage);
 var Successful: Boolean; Releases: TComponentReleases; Error: string; Info: TProgramRelease;
+  CheckedIDs: TArray<string>;
 begin
   Message.Result:=0;
   if not Assigned(FComponentThread) or (Message.WParam<>WPARAM(FComponentThread)) then Exit;
@@ -1547,12 +1556,14 @@ begin
     FComponentWaiting[I]:=False;
   end;
   Error:=FComponentThread.ErrorText;
+  CheckedIDs:=FComponentThread.OnlyIDs;
   FreeAndNil(FComponentThread);
-  ComponentsReceived(Releases,Successful,Error);
+  ComponentsReceived(Releases,Successful,Error,CheckedIDs);
 end;
 
 procedure TfrmProgramUpdate.ComponentsReceived(const Releases: TComponentReleases;
-  Successful: Boolean; const Error: string);
+  Successful: Boolean; const Error: string; const CheckedIDs: TArray<string>);
+const FailureText = 'Проверка компонентов не завершена. Повторите проверку.';
 var I, J, Errors: Integer; Updated: TComponentReleases;
 begin
   BeginUIUpdate;
@@ -1567,16 +1578,19 @@ begin
   end
   else
   begin
-    FComponentError := 'Проверка компонентов не завершена. Повторите проверку.';
-    FComponentErrorDetails := Copy(Error,1,4096);
-  end;
-  if not Successful then
-    for I in CheckedComponentIndices do
+    if Length(CheckedIDs)=0 then
     begin
-      FComponents[I].DownloadURL:=''; FComponents[I].ComponentWarning:='';
-      FComponents[I].ComponentError:=FComponentError;
-      FComponents[I].ComponentErrorDetails:=FComponentErrorDetails;
+      FComponentError:=FailureText;
+      FComponentErrorDetails:=Copy(Error,1,4096);
     end;
+    for I in CheckedComponentIndices do
+      if (Length(CheckedIDs)=0) or (IndexText(UPDATE_COMPONENTS[I].ID,CheckedIDs)>=0) then
+      begin
+        FComponents[I].DownloadURL:=''; FComponents[I].ComponentWarning:='';
+        FComponents[I].ComponentError:=FailureText;
+        FComponents[I].ComponentErrorDetails:=Copy(Error,1,4096);
+      end;
+  end;
   FComponentCheck.Enabled := True; UpdateComponentList;
   if FRequestedCheckPending and not FCheckingCycle then
   begin FRequestedCheckPending:=False; CheckComponents(False); Exit; end;
@@ -1597,7 +1611,7 @@ begin
     if Successful and (Errors > 0) then
       FStatus.Caption := ComponentCheckSummary
     else if Successful then FStatus.Caption := 'Компоненты проверены. Выберите компонент в списке, чтобы увидеть версию и изменения.'
-    else FStatus.Caption := FComponentError;
+    else FStatus.Caption:=FailureText;
     Present;
   end;
   FComponentExplicit := False;
@@ -1729,7 +1743,17 @@ begin
   if Assigned(FThread) then Exit;
   if FCheckingCycle and ((FSelectedRow=0) or FNeedsCheck or
     FComponentWaiting[FSelectedRow-1]) then Exit;
-  if FNeedsCheck then begin ComponentCheckClick(nil); Exit; end;
+  if FNeedsCheck then
+  begin
+    if (FRequestedComponent='') and (FSelectedRow>0) and
+      (FComponents[FSelectedRow-1].ComponentError<>'') then
+    begin
+      FComponentExplicit:=True;
+      CheckComponents(False,UPDATE_COMPONENTS[FSelectedRow-1].ID);
+    end
+    else ComponentCheckClick(nil);
+    Exit;
+  end;
   if FRelease.CheckOnly and not FNeedsCheck then begin ComponentCheckClick(nil); Exit; end;
   PreviousRepair:=FRepairComponents; RefreshInstalledComponents;
   if (FRepairComponents<>'') and (FRepairComponents<>PreviousRepair) and

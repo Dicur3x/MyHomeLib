@@ -106,7 +106,7 @@ begin
     for var Control in Dialog do
       if (Control is TButton) and TButton(Control).Default then Primary:=TButton(Control);
     Require(Assigned(Primary),'Missing archive test has no primary action');
-    App:=Default(TProgramRelease); App.Tag:='2.7.0_pre5.999';
+    App:=Default(TProgramRelease); App.Tag:='99.0.0';
     App.URL:='https://github.com/Dicur3x/MyHomeLib/releases/tag/'+App.Tag;
     Releases:=Default(TComponentReleases);
     Require(Dialog.StartCheckCycle(False),'Web-only app check did not start');
@@ -314,9 +314,12 @@ begin
     Releases[1].ComponentErrorDetails:='Owned author HTTP 503 fixture';
     Require(Dialog.StartCheckCycle(False),'Second repair check did not refresh its local inventory');
     Dialog.ApplicationChecked(Current,True,''); Dialog.ComponentsReceived(Releases,True,'');
+    var ReaderRow: TListItem:=nil;
     for var Item in View.Items do
-      Require(not Item.Caption.Contains('AlReader'),
-        'Missing unrequested optional reader was shown after its author check failed');
+      if Item.Caption.EndsWith(' · AlReader') then ReaderRow:=Item;
+    Require(Assigned(ReaderRow) and (ReaderRow.SubItems[0]='не установлен') and
+      (ReaderRow.SubItems[2]='Не удалось проверить'),
+      'Unavailable optional reader is hidden or shown as installed');
     View.Items[0].Selected:=True; View.OnSelectItem(View,View.Items[0],True);
     Require(Primary.Caption='Скачать и восстановить','Required runtime repair disappeared from the application row');
     Primary.Click; Deadline:=GetTickCount64+120000;

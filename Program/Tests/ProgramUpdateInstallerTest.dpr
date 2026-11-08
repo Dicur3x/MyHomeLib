@@ -228,6 +228,7 @@ begin
       begin
         FixtureWorker:=TComponentCheckFixtureWorker.Create(0,ParamStr(2),ParamStr(3));
         ComponentThread:=FixtureWorker;
+        FixtureWorker.OnlyIDs:=TArray<string>.Create('SQLite','AlReader','SumatraPDF','DjVuLibre','7-Zip','DocSharp');
       end
       else
       begin
@@ -243,6 +244,7 @@ begin
         try
           for I := 0 to High(Components) do
           begin
+            if (Mode='--component-check-fixture') and not ComponentThread.TryGetRelease(I,Info) then Continue;
             if Mode='--official-check' then
             begin
               Params.Add(Components[I].ComponentID); Params.Add(Components[I].ComponentVersion);
@@ -255,6 +257,8 @@ begin
               Detail.AddPair('id',Components[I].ComponentID); Detail.AddPair('version',Components[I].ComponentVersion);
               Detail.AddPair('url',Components[I].DownloadURL); Detail.AddPair('secondary',Components[I].SecondaryURL);
               Detail.AddPair('size',TJSONNumber.Create(Components[I].Size));
+              Detail.AddPair('adapterSize',TJSONNumber.Create(Components[I].ReaderAdapterSize));
+              Detail.AddPair('sha256',Components[I].SHA256);
               Detail.AddPair('error',Components[I].ComponentError); Detail.AddPair('warning',Components[I].ComponentWarning);
               Detail.AddPair('details',Components[I].ComponentErrorDetails);
               Detail.AddPair('official',TJSONBool.Create(Components[I].OfficialComponent));

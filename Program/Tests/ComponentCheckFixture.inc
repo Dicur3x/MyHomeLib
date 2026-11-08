@@ -56,7 +56,6 @@ begin
   System.TMonitor.Enter(FRequests);
   try FRequests.Add(URL); finally System.TMonitor.Exit(FRequests); end;
   if URL.Contains('sqlite.org/') then ID:='SQLite'
-  else if URL.Contains('alreader.com/') then ID:='AlReader'
   else if URL.Contains('sumatrapdf') then ID:='SumatraPDF'
   else if URL.Contains('sourceforge.net/') then ID:='DjVuLibre'
   else if URL.Contains('ip7z/7zip/') then ID:='7-Zip'
@@ -81,7 +80,6 @@ begin
     Exit('PRODUCT,3.99.0,2026/sqlite-dll-win-'+Arch+'-3990000.zip,128,'+StringOfChar('a',64));
   if URL='https://www.sqlite.org/changes.html' then
     Exit('<h3>2026-10-16 (3.99.0)</h3><p>Owned SQLite changes.</p>');
-  if URL='https://www.alreader.com/' then Exit('<a>AlReader2.Win32</a>');
   if URL='https://api.github.com/repos/sumatrapdfreader/sumatrapdf/releases?per_page=30' then
     Exit('[{"tag_name":"99.0.0rel","body":"Owned Sumatra changes.","draft":false,"prerelease":false}]');
   if URL='https://sourceforge.net/projects/djvu/files/DjVuLibre_Windows/' then

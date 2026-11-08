@@ -25,11 +25,12 @@ type
     FHeadURL: string;
     procedure CheckRequested(Sender: TObject);
   protected
+    procedure CopyUpdateText(const Text: string); override;
     function CreateComponentWorker(Window: HWND): TComponentUpdateThread; override;
     function CreateDownloadWorker(Window: HWND; const ReleaseInfo: TProgramRelease;
       const Job: string): TProgramDownloadThread; override;
   public
-    FailureID: string;
+    FailureID, CopiedDiagnostic: string;
     WorkerCalls: Integer;
     constructor CreateForHead(const HeadURL: string);
   end;
@@ -97,6 +98,9 @@ begin
   Current:=Default(TProgramRelease); Current.Tag:=PROGRAM_RELEASE_VERSION;
   ApplicationChecked(Current,True,''); CheckComponents(False);
 end;
+
+procedure TUpdateProposalForm.CopyUpdateText(const Text: string);
+begin CopiedDiagnostic:=Text; end;
 
 function TUpdateProposalForm.CreateComponentWorker(Window: HWND): TComponentUpdateThread;
 begin
@@ -578,6 +582,8 @@ begin
         RestorePage(Info.URL,Info.URL,'Выпуски HomeLibre')
       else if Info.ID='IBK' then
         RestorePage(Info.URL,Info.URL,'Источник исходного пакета ICE Reader')
+      else if Info.ID=JPEG_XL_ENCODER_COMPONENT then
+        RestorePage(Info.URL,Info.URL,'Сайт автора: JPEG XL')
       else RestorePage(Info.URL,Info.URL,'Сайт автора: '+Info.ID);
     end;
     RestorePage(ReleasesPage+'/tag/2.7.0_pre5.99',ReleasesPage+'/tag/2.7.0_pre5.99','Выпуски HomeLibre');
@@ -617,17 +623,7 @@ var Dialog: TUpdateProposalForm; Server: TUpdateProposalServer;
   CheckButton, Primary: TButton; View: TListView; Status: TLabel; Notes: TUpdateNotesView;
   Deadline: UInt64; Current: TProgramRelease; CacheRoot, SavedLocal: string;
   HadLocal, Restored, SavedAppCheck, SavedCatalogCheck: Boolean; EmptyValue: Char; LengthBefore: DWORD;
-  SourceHash, CopiedDiagnostic: string; OriginalForms, Calls: Integer;
-
-  function ReadDiagnosticClipboard: string;
-  var Attempt: Integer;
-  begin
-    for Attempt:=0 to 49 do
-      try Result:=Clipboard.AsText; Exit;
-      except on E: EClipboardException do
-        if Attempt=49 then raise else Sleep(10);
-      end;
-  end;
+  SourceHash: string; OriginalForms, Calls: Integer;
 
   procedure Controls;
   begin
@@ -704,21 +700,21 @@ begin
     Require((ComponentRow('SQLite').SubItems[2]='Есть обновление') and
       (ComponentRow('SumatraPDF').SubItems[2]='Не удалось проверить') and
       string(Status.Caption).Contains('SumatraPDF'),
-      'Partial source failure hid independent updates or misreported unverified AlReader');
+      'Partial source failure hid independent updates or misreported the failing component');
     SafeStatus; SelectComponent('SumatraPDF');
     Require((Primary.Caption='Повторить проверку') and string(Status.Caption).Contains('SumatraPDF'),
       'Selecting a failed source lost its explanation or its Retry action');
     View.PopupMenu.OnPopup(View.PopupMenu);
     Require(View.PopupMenu.Items[2].Enabled,'Failed source has no explicit diagnostic copy action');
     View.PopupMenu.Items[2].Click;
-    CopiedDiagnostic:=ReadDiagnosticClipboard;
-    Require(CopiedDiagnostic.Contains('Fixture HTTP 503') and (Length(CopiedDiagnostic)<4600),
+    Require(Dialog.CopiedDiagnostic.Contains('Fixture HTTP 503') and (Length(Dialog.CopiedDiagnostic)<4600),
       'Explicit Copy error omitted bounded diagnostics');
     Writeln('PASS update sources partial failure retains independent direct updates and selected error diagnostics without changing installed files');
 
-    Calls:=Dialog.WorkerCalls; Dialog.FailureID:=''; Primary.Click; WaitCheck;
+    Calls:=Dialog.WorkerCalls; Dialog.FailureID:='SQLite'; Primary.Click; WaitCheck;
     Require((Dialog.WorkerCalls=Calls+1) and (ComponentRow('SumatraPDF').SubItems[2]='Есть обновление') and
-      not Dialog.PendingInstall,'Retry downloaded stale packages instead of rechecking the selected source');
+      (ComponentRow('SQLite').SubItems[2]='Есть обновление') and not Dialog.PendingInstall,
+      'Retry did not recover only the selected source or changed an independent update');
     SelectComponent('SumatraPDF');
     Require(string(Status.Caption).Contains('SumatraPDF') and not string(Status.Caption).Contains('Не удалось проверить'),
       'Recovered source retained the preceding error');

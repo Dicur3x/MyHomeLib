@@ -76,16 +76,22 @@ function fixture(failure){return new Promise((resolve,reject)=>{
  child.stdout.on('data',b=>out+=b.toString('utf8'));child.stderr.on('data',b=>err+=b.toString('utf8'));
  child.on('error',reject);child.on('close',code=>{clearTimeout(timeout);try{assert.equal(code,0,out+err);resolve({rows:JSON.parse(out.split(/\r?\n/)[0]),out});}catch(e){reject(e);}});
 });}
+function assertFixedAlReader(row){
+ assert.equal(row.version,'2.5.1009.25');
+ assert.equal(row.url,'https://github.com/Dicur3x/MyHomeLib/releases/download/optional-alreader-2.5.1009.25/AlReader-2.5.1009.25.zip');
+ assert.equal(row.size,4739366);
+ assert.equal(row.sha256,'20b3563c3af8e26f7cedb1d20106fe570cb4e169ab121e467b71b3541dfb88ab');
+ assert.equal(row.error,'');assert.equal(row.warning,'');
+ assert.equal(row.official,false);assert.equal(row.checkOnly,false);
+}
 function healthy(rows,failed=''){
  assert.deepEqual(rows.map(r=>r.id),ids);
  for(const row of rows){
+  if(row.id==='AlReader'){assertFixedAlReader(row);continue;}
   if(row.id===failed || failed==='all'){
    assert(row.error,row.id);assert.equal(row.url,'');assert.equal(row.warning,'');
    assert(row.details.length<=4096);assert(row.details.includes('Fixture HTTP 503'));
    assert(!row.error.includes('<html>')&&!row.error.includes('secret'),row.error);continue;
-  }
-  if(row.id==='AlReader'){
-   assert.equal(row.url,'');assert.equal(row.error,'');assert(row.warning);assert.equal(row.size,0);continue;
   }
   assert.equal(row.error,'',row.id+': '+row.error);assert.equal(row.warning,'');
   assert.equal(row.official,true,row.id);assert.equal(row.checkOnly,false,row.id);assert(row.size>0,row.id);
@@ -100,11 +106,14 @@ try{
   headURL.replace('127.0.0.1','127.0.0.1.evil.example')])run(['--component-check-fixture',forbidden,''],1);
  pass('fixture transport rejects foreign hosts, credentials, alternate schemes and paths before making requests');
  const success=await fixture('');healthy(success.rows);
- assert(success.out.includes('https://www.alreader.com/'),'AlReader was silently skipped');
- assert.equal(success.rows[3].size,256);assert.equal(success.rows[5].size,512);
- pass('controlled official checks include AlReader and offer architecture-matched direct DjVu, 7-Zip and all four DocSharp packages');
+ assert(!success.out.includes('alreader.com/'),'Pinned AlReader unexpectedly checked its old author site');
+ for(const [id,size] of [['DjVuLibre',256],['DocSharp',512]]){
+  const row=success.rows.find(row=>row.id===id);
+  assert.equal(row.size-row.adapterSize,size,id);
+ }
+ pass('controlled checks retain pinned AlReader and offer architecture-matched direct DjVu, 7-Zip and all four DocSharp packages');
  const unavailable=await fixture('all');healthy(unavailable.rows,'all');
- pass('unavailable author sources retain six bounded errors without stale install URLs or raw server details in messages');
+ pass('five unavailable author sources show bounded errors without stale install URLs while pinned AlReader remains available');
  const partial=await fixture('SumatraPDF');healthy(partial.rows,'SumatraPDF');
  pass('one unavailable author does not remove independent verified component updates');
  const incomplete=await fixture('DocSharp-head');healthy(incomplete.rows,'DocSharp');
@@ -119,10 +128,12 @@ try{
  pass('direct loopback fixture refuses HEAD redirects and never requests any other host, port or path');
 }finally{await new Promise(resolve=>server.close(resolve));}
 if(live){
- const rows=first(['--official-check-details']);assert.deepEqual(rows.map(r=>r.id),ids);
+ const rows=first(['--official-check-details']).filter(row=>ids.includes(row.id));
+ assert.deepEqual(rows.map(r=>r.id),ids);
  for(const row of rows){
+  if(row.id==='AlReader'){assertFixedAlReader(row);continue;}
   if(row.error){assert.equal(row.url,'');console.log('LIVE unavailable '+row.id+': '+row.error);continue;}
-  if(row.warning){assert.equal(row.id,'AlReader');assert.equal(row.url,'');console.log('LIVE unverified AlReader: '+row.warning);continue;}
+  if(row.warning){assert(!row.official && row.size>0 && /^[0-9a-f]{64}$/i.test(row.sha256),row.id);continue;}
   assert(row.official&&!row.checkOnly&&row.size>0,row.id);run(['--official-url',row.id,row.version,row.url]);
   if(row.secondary)run(['--official-url',row.id,row.version,row.secondary,'secondary']);
  }
