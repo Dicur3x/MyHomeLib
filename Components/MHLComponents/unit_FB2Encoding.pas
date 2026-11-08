@@ -104,20 +104,23 @@ const
 var
   Stack: array[0..128] of string;
   Depth, LastEnd: Integer;
-  Closing, Candidate, Name: string;
+  Closing, Candidate, Name, Tail: string;
   Match: TMatch;
   Bodies: IXMLDOMNodeList;
-  HasText: Boolean;
+  Node: IXMLDOMNode;
+  HasText, OpenFinalParagraph: Boolean;
 begin
   Result := False;
   Depth := 0;
   LastEnd := 0;
+  OpenFinalParagraph := False;
   Match := TRegEx.Match(XML,TokenPattern);
   while Match.Success do
   begin
     Name := '';
     if Match.Groups.Count>1 then Name := Match.Groups[1].Value;
     LastEnd := 0;
+    OpenFinalParagraph := False;
     if Name<>'' then
       if Match.Value.StartsWith('</') then
       begin
@@ -130,10 +133,23 @@ begin
         if Depth=Length(Stack) then Exit;
         Stack[Depth] := Name;
         Inc(Depth);
+        if (Depth>=4) and (Copy(Name,Pos(':',Name)+1,MaxInt)='p') then
+        begin
+          OpenFinalParagraph := True;
+          LastEnd := Match.Index+Match.Length;
+        end;
       end;
     Match := Match.NextMatch;
   end;
-  if (Depth=0) or (LastEnd=0) or (Trim(Copy(XML,LastEnd,MaxInt))<>'') then Exit;
+  if (Depth=0) or (LastEnd=0) then Exit;
+  Tail := Trim(Copy(XML,LastEnd,MaxInt));
+  if OpenFinalParagraph then
+  begin
+    // Preserve character data already present. A partial tag or entity must
+    // still fail the strict parse, and the caller warns about missing text.
+    if (Tail='') or (Pos('<',Tail)>0) then Exit;
+  end
+  else if Tail<>'' then Exit;
   for var I := 0 to Depth-1 do
   begin
     Name := Copy(Stack[I],Pos(':',Stack[I])+1,MaxInt);
@@ -141,7 +157,7 @@ begin
       0: if Name<>'FictionBook' then Exit;
       1: if Name<>'body' then Exit;
     else
-      if Name<>'section' then Exit;
+      if (Name<>'section') and not (OpenFinalParagraph and (I=Depth-1)) then Exit;
     end;
   end;
   Closing := '';
@@ -150,6 +166,13 @@ begin
   if not Document.loadXML(Candidate) then Exit;
   if (Document.documentElement.baseName<>'FictionBook') or
     (Document.documentElement.namespaceURI<>FB2Namespace) then Exit;
+  Node := Document.documentElement;
+  for var I := 1 to Depth-1 do
+  begin
+    Node := Node.selectSingleNode('*[last()]');
+    if (Node=nil) or (Node.namespaceURI<>FB2Namespace) or
+      (Node.nodeName<>Stack[I]) then Exit;
+  end;
   Bodies := Document.documentElement.selectNodes(
     '*[local-name()="body" and namespace-uri()="'+FB2Namespace+'"]');
   HasText := False;

@@ -215,7 +215,7 @@ def parse_fb2_file(path, maximum, *, keep_binary_data):
 
 
 def truncated_fb2_recovery(data, maximum):
-    """Recognize EOF after a closed element or inside a root-level image."""
+    """Recognize EOF after a closed element, in plain paragraph text or in an image."""
     parser = expat.ParserCreate(namespace_separator='}')
     stack = []
     nested_binary = False
@@ -247,9 +247,18 @@ def truncated_fb2_recovery(data, maximum):
     root = FB + '}FictionBook'
     section = FB + '}section'
     if names[:1] == [root]:
-        remaining = names[1:]
+        open_final_paragraph = len(names) >= 4 and names[-1] == FB + '}p'
+        remaining = names[1:-1] if open_final_paragraph else names[1:]
         if not remaining or remaining[0] == FB + '}body' and all(name == section for name in remaining[1:]):
-            if last_end >= 0 and re.fullmatch(br'</[^<>\x00- ]+\s*>\s*', data[last_end:]):
+            if open_final_paragraph:
+                paragraph_start = stack[-1][2]
+                paragraph_tag = re.compile(br'''<[^<>\x00- /]+(?:[^"'<>]++|"[^"]*"|'[^']*')*>''')
+                opening = paragraph_tag.match(data, paragraph_start)
+                plain_tail = data[opening.end():] if opening else b''
+                can_close = bool(plain_tail.strip()) and b'<' not in plain_tail
+            else:
+                can_close = last_end >= 0 and re.fullmatch(br'</[^<>\x00- ]+\s*>\s*', data[last_end:])
+            if can_close:
                 tags = [re.match(br'<([^<>\x00- />]+)(?=[\s/>])', data[offset:offset+512])
                         for _, _, offset in stack]
                 if all(tags):

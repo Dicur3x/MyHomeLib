@@ -102,14 +102,30 @@ begin
       'TXT export lost the FB2 text after closing outer tags');
     Require(TFile.ReadAllText(ReadFile,TEncoding.UTF8)=TailSource,'Outer tags recovery changed its source');
 
-    for var Broken in [TailSource.Replace('</p>',''), TailSource+'</sect', TailSource+'Оборванный текст'] do
+    var OpenParagraph:=TailSource+'<p id="last">Последние &amp; доступные слова';
+    TFile.WriteAllText(ReadFile,OpenParagraph,TEncoding.UTF8);
+    Require(LoadFictionBook(ReadFile).Description.Titleinfo.Booktitle.Text=UTF8Title,
+      'An open final paragraph blocked FB2 import');
+    Reader.Load(ReadFile);
+    Require(Reader.PlainText.Contains('Последние & доступные слова') and
+      Reader.Warnings.Text.Contains('Полноту текста подтвердить нельзя'),
+      'Final paragraph recovery lost text or its warning');
+    Member:=TFileStream.Create(ReadFile,fmOpenRead or fmShareDenyWrite);
+    try ConvertToTxt(Folder+'repaired-paragraph.txt',enUTF8,Member); finally Member.Free; end;
+    Require(TFile.ReadAllText(Folder+'repaired-paragraph.txt',TEncoding.UTF8).Contains('Последние & доступные слова'),
+      'TXT export lost the open final paragraph');
+    Require(TFile.ReadAllText(ReadFile,TEncoding.UTF8)=OpenParagraph,'Final paragraph recovery changed its source');
+
+    for var Broken in [OpenParagraph+' &amp', OpenParagraph+'</pa', TailSource+'</sect',
+      TailSource+'Оборванный текст', TailSource+'<p><strong>Оборванный тег'] do
     begin
       TFile.WriteAllText(ReadFile,Broken,TEncoding.UTF8);
       var Rejected:=False;
       try Reader.Load(ReadFile); except on E:Exception do Rejected:=True; end;
-      Require(Rejected,'Incomplete FB2 content was silently completed');
+      Require(Rejected,'Invalid FB2 markup was silently completed');
     end;
     Writeln('PASS FB2 closes outer tags for import, reading with a warning and TXT export');
+    Writeln('PASS FB2 retains text from an open final paragraph');
 
     Mixed:=Copy(Bytes);
     Mixed[High(Mixed)]:=$FF;

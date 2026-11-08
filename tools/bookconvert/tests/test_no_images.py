@@ -85,7 +85,7 @@ class NoImages(unittest.TestCase):
         self.assertIn('Сноска & текст.', ''.join(c.xml(repaired.read_bytes()).itertext()))
         self.assertEqual(self.source.read_bytes(),before)
 
-    def test_fb2_with_complete_final_paragraph_recovers_only_outer_tags(self):
+    def test_fb2_recovers_missing_closing_tags_and_retains_final_text(self):
         prefix = (f'<f:FictionBook xmlns:f="{c.FB}" xmlns:l="{c.XL}">'
                   '<f:description><f:title-info><f:book-title>Глава</f:book-title>'
                   '<f:coverpage><f:image l:href="#cover.jpg"/></f:coverpage>'
@@ -93,24 +93,27 @@ class NoImages(unittest.TestCase):
                   '<f:body><f:section><f:section><!-- </f:section> -->')
         completed = '<f:p><![CDATA[Текст </p> цел.]]></f:p>'
         source = self.root/'outer-tags.fb2'
-        original = (prefix + completed + '\r\n').encode()
-        source.write_bytes(original)
-        for suffix in ('.fb2', '.epub'):
-            with self.subTest(suffix=suffix):
-                target = self.root/('repaired-tail'+suffix)
-                report = c.convert_book(source,target)
-                self.assertTrue(any('Полноту текста подтвердить нельзя' in w for w in report['warnings']))
-                self.assertTrue(any('отсутствуют данные обложки' in w for w in report['warnings']))
-                if suffix=='.fb2':
-                    document = c.xml(target.read_bytes())
-                else:
-                    with zipfile.ZipFile(target) as archive:
-                        document = c.xml(archive.read('OEBPS/body-1.xhtml'))
-                self.assertIn('Текст </p> цел.', ''.join(document.itertext()))
-                self.assertEqual(source.read_bytes(), original)
-        for tail in ('<f:p>оборванный текст', '<f:p>цел</f:p> но ещё текст',
+        examples = (('', 'Текст </p> цел.'),
+                    ('<f:p id="last">Последние &amp; доступные слова', 'Последние & доступные слова'))
+        for index, (tail, expected) in enumerate(examples):
+            original = (prefix + completed + tail + '\r\n').encode()
+            source.write_bytes(original)
+            for suffix in ('.fb2', '.epub'):
+                with self.subTest(tail=tail, suffix=suffix):
+                    target = self.root/(f'repaired-tail-{index}'+suffix)
+                    report = c.convert_book(source,target)
+                    self.assertTrue(any('Полноту текста подтвердить нельзя' in w for w in report['warnings']))
+                    self.assertTrue(any('отсутствуют данные обложки' in w for w in report['warnings']))
+                    if suffix=='.fb2':
+                        document = c.xml(target.read_bytes())
+                    else:
+                        with zipfile.ZipFile(target) as archive:
+                            document = c.xml(archive.read('OEBPS/body-1.xhtml'))
+                    self.assertIn(expected, ''.join(document.itertext()))
+                    self.assertEqual(source.read_bytes(), original)
+        for tail in ('<f:p>оборванный &amp', '<f:p>цел</f:p> но ещё текст',
                      '<f:p>цел</f:p></f:sect', '<f:p>битые\x00данные</f:p>',
-                     '<f:p><f:strong>неполный абзац</f:strong>'):
+                     '<f:p><f:strong>неполный абзац</f:strong>', '<f:p><f:strong>незакрытый тег'):
             with self.subTest(tail=tail):
                 source.write_bytes((prefix+tail).encode())
                 target = self.root/'unrecoverable.epub'
