@@ -6,6 +6,43 @@ type
     Done: Boolean;
     procedure Tick(Sender: TObject);
   end;
+  TDescriptionDialogProbe = class
+    Timer: TTimer;
+    Collection: IBookCollection;
+    Book: TBookRecord;
+    Done: Boolean;
+    Failure: string;
+    procedure Tick(Sender: TObject);
+  end;
+
+procedure TDescriptionDialogProbe.Tick(Sender: TObject);
+var Details: TfrmBookDetails; KeywordsVisible: Boolean;
+begin
+  for var I:=0 to Screen.FormCount-1 do
+    if (Screen.Forms[I] is TfrmBookDetails) and Screen.Forms[I].Visible then
+    begin
+      Details:=TfrmBookDetails(Screen.Forms[I]);
+      Timer.Enabled:=False;
+      try
+        Require((Details.Annotation.Trim=Book.Annotation) and not Details.ReviewChanged,
+          'Opening a stored description changed or hid it');
+        KeywordsVisible:=False;
+        for var Item in Details.lvFileInfo.Items do
+          if (Item.Caption='Ключевые слова') and (Item.SubItems[0]=Book.KeyWords) then KeywordsVisible:=True;
+        Require(KeywordsVisible,'Catalogue keywords were not shown when the book file is absent');
+        Require(not Details.btnAnnotationFile.Enabled and not Details.mmoAnnotation.ReadOnly,
+          'Wrong source availability or edit access for a missing local file');
+        Collection.SetReview(Book.BookKey,'Другой отзыв, сохранённый параллельно');
+        Details.mmoAnnotation.Text:='Моё новое описание — ё 😀';
+        Done:=True;
+      except
+        on E: Exception do Failure:=E.Message;
+      end;
+      Details.Close;
+      Exit;
+    end;
+end;
+
 procedure TFeedback20NoteOpenProbe.Tick(Sender: TObject);
 begin
   for var I:=0 to Screen.FormCount-1 do
@@ -38,6 +75,8 @@ begin
   for var I:=0 to Control.ControlCount-1 do
     if (Control.Controls[I] is TWinControl) and Feedback20HasAnnotation(TWinControl(Control.Controls[I]),Text) then Exit(True);
 end;
+
+procedure TestCatalogueDescription(const One: IBookCollection; OneID: Integer); forward;
 
 procedure TestFeedback20(const One, Two: IBookCollection; OneID, TwoID: Integer);
 var A,B,C,Remapped: Integer; Book,Original,Found: TBookRecord;
@@ -190,8 +229,20 @@ begin
   finally Stale.Free; Store.Free; end;
   Store:=TReaderAnnotations.Create(Profile); try Require(Length(Store.Items)=0,'Bulk deletion did not persist'); finally Store.Free; end;
   Writeln('PASS feedback20 local export timestamps, scoped/all deletion, stale-writer rejection and atomic reopen');
+  TestCatalogueDescription(One,OneID);
+end;
+
+procedure TestCatalogueDescription(const One: IBookCollection; OneID: Integer);
+var Found: TBookRecord;
+begin
+  RequireIsolatedRegression;
   var AnnotationID:=AddBook(One,'catalog-only-annotation-missing','Описание','ru','Проверка описания','prose_contemporary');
-  One.SetAnnotation(CreateBookKey(AnnotationID,OneID),'Каталожное описание — ё, ї, ў. Исходный файл недоступен.');
+  var DescriptionKey:=CreateBookKey(AnnotationID,OneID);
+  One.GetBookRecord(DescriptionKey,Found,True);
+  Found.KeyWords:='Личные ключевые слова ё';
+  One.UpdateBook(Found);
+  One.SetAnnotation(DescriptionKey,'Каталожное описание — ё, ї, ў. Исходный файл недоступен.');
+  One.SetReview(DescriptionKey,'Прежний отзыв');
   var WasInfo:=Settings.ShowInfoPanel; var WasCover:=Settings.ShowBookCover;
   var WasAnnotation:=Settings.ShowBookAnnotation; var WasPriority:=Settings.Fb2InfoPriority;
   try
@@ -213,8 +264,65 @@ begin
     Require(Found.Annotation='Каталожное описание — ё, ї, ў. Исходный файл недоступен.',
       'Read-only card preview changed stored annotation');
     Writeln('PASS feedback20 actual information card shows catalog annotation from a lean row without source files or writes');
+    Row.KeyWords:='';
+    frmMain.tvBooksSR.FocusedNode:=frmMain.tvBooksSR.GetFirstSelected;
+    var Probe:=TDescriptionDialogProbe.Create;
+    try
+      Probe.Collection:=One; Probe.Book:=Found;
+      Probe.Timer:=TTimer.Create(nil);
+      Probe.Timer.Interval:=20; Probe.Timer.OnTimer:=Probe.Tick;
+      Probe.Timer.Enabled:=True;
+      frmMain.ipnlSearch.DetailsButton.Click;
+      Require(Probe.Done,'The catalogue details did not open or could not be inspected. '+Probe.Failure);
+    finally
+      Probe.Timer.Free;
+      Probe.Free;
+    end;
+    One.GetBookRecord(Key,Found,True);
+    Require((Found.Annotation.Trim='Моё новое описание — ё 😀') and
+      (Found.Review='Другой отзыв, сохранённый параллельно') and
+      (Found.KeyWords='Личные ключевые слова ё'),'Editing a description changed other catalogue fields');
+    Deadline:=GetTickCount64+5000;
+    while not Feedback20HasAnnotation(frmMain.ipnlSearch,'Моё новое описание') and (GetTickCount64<Deadline) do
+    begin Application.ProcessMessages; CheckSynchronize(5); end;
+    Require(Feedback20HasAnnotation(frmMain.ipnlSearch,'Моё новое описание'),
+      'The description did not refresh in the lower card');
+    Writeln('PASS catalogue description and keywords in actual details and refreshed lower card');
   finally
     Settings.ShowInfoPanel:=WasInfo; Settings.ShowBookCover:=WasCover;
     Settings.ShowBookAnnotation:=WasAnnotation; Settings.Fb2InfoPriority:=WasPriority;
   end;
+
+  var FileBook:=Default(TBookRecord);
+  FileBook.CollectionRoot:=Settings.AppPath;
+  FileBook.FileName:='description-source'; FileBook.FileExt:='.epub';
+  var FilePath:=FileBook.GetBookFileName;
+  var Zip:=TZipFile.Create;
+  try
+    Zip.Open(FilePath,zmWrite);
+    Zip.Add(TEncoding.UTF8.GetBytes(
+      '<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles>'+
+      '<rootfile full-path="book.opf" media-type="application/oebps-package+xml"/></rootfiles></container>'),
+      'META-INF/container.xml');
+    Zip.Add(TEncoding.UTF8.GetBytes(
+      '<package xmlns="http://www.idpf.org/2007/opf" version="3.0"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/">'+
+      '<dc:title>Проверка</dc:title><dc:description>Описание из EPUB — ё, ї.</dc:description></metadata></package>'),
+      'book.opf');
+  finally Zip.Free; end;
+  var SourceHash:=UpdateSHA256(FilePath);
+  var Details:=TfrmBookDetails.Create(nil);
+  try
+    Details.ConfigureDescription(FileBook,True,True);
+    Details.Annotation:='Старый текст';
+    Details.Review:='Сохранённый отзыв';
+    Details.btnAnnotationFile.Click;
+    var Deadline:=GetTickCount64+10000;
+    while Assigned(Details.Downloading) and (GetTickCount64<Deadline) do
+    begin Application.ProcessMessages; CheckSynchronize(5); end;
+    Require(not Assigned(Details.Downloading),'File description worker did not finish');
+    Require((Details.Annotation.Trim='Описание из EPUB — ё, ї.') and
+      (Details.Review.Trim='Сохранённый отзыв') and Details.ReviewChanged and
+      (UpdateSHA256(FilePath)=SourceHash),'Importing an embedded EPUB description changed its source or the review');
+  finally Details.Free; end;
+  Writeln('PASS explicit local EPUB description preserves source and review');
 end;

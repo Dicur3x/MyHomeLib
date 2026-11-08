@@ -159,7 +159,7 @@ object frmBookDetails: TfrmBookDetails
       end
     end
     object tsAnnotation: TTabSheet
-      Caption = #1040#1085#1085#1086#1090#1072#1094#1080#1103' '#1089' '#1089#1072#1081#1090#1072
+      Caption = #1054#1087#1080#1089#1072#1085#1080#1077
       ImageIndex = 3
       object mmoAnnotation: TMemo
         AlignWithMargins = True
@@ -171,6 +171,45 @@ object frmBookDetails: TfrmBookDetails
         ScrollBars = ssVertical
         TabOrder = 0
         OnChange = mmReviewChange
+      end
+      object pnAnnotationSources: TPanel
+        Left = 0
+        Top = 283
+        Width = 614
+        Height = 77
+        Align = alBottom
+        BevelOuter = bvNone
+        TabOrder = 1
+        object lblAnnotationState: TLabel
+          Left = 8
+          Top = 35
+          Width = 594
+          Height = 38
+          Anchors = [akLeft, akTop, akRight]
+          AutoSize = False
+          WordWrap = True
+          Caption = #1048#1079#1084#1077#1085#1077#1085#1080#1103#32#1089#1086#1093#1088#1072#1085#1103#1102#1090#1089#1103#32#1087#1088#1080#32#1079#1072#1082#1088#1099#1090#1080#1080#32#1086#1082#1085#1072#46
+        end
+        object btnAnnotationFile: TButton
+          Left = 8
+          Top = 4
+          Width = 112
+          Height = 25
+          Caption = #1048#1079#32#1092#1072#1081#1083#1072
+          Enabled = False
+          TabOrder = 0
+          OnClick = btnAnnotationFileClick
+        end
+        object btnAnnotationSite: TButton
+          Left = 128
+          Top = 4
+          Width = 112
+          Height = 25
+          Caption = #1057#32#1089#1072#1081#1090#1072
+          Enabled = False
+          TabOrder = 1
+          OnClick = btnAnnotationSiteClick
+        end
       end
     end
   end

@@ -10,7 +10,7 @@ begin Inc(Ticks); end;
 procedure TestReviewHTTP;
 var Details: TfrmBookDetails; URL: string; Started: UInt64; Clock: TReviewHTTPClock;
   Timer: TTimer; BeforeTicks: Integer;
-  procedure WaitDownload(Limit: Cardinal = 20000);
+  procedure WaitDownload(Limit: Cardinal = 20000; ReviewReadOnly: Boolean = False);
   var WaitingSince: UInt64;
   begin
     WaitingSince := GetTickCount64;
@@ -19,7 +19,7 @@ var Details: TfrmBookDetails; URL: string; Started: UInt64; Clock: TReviewHTTPCl
       Application.ProcessMessages; CheckSynchronize(10);
       Require(GetTickCount64 - WaitingSince < Limit, 'Review request hung: '+Details.URL+'; '+Details.ReviewStatus.Caption);
     end;
-    Require(not Details.mmReview.ReadOnly and not Details.mmoAnnotation.ReadOnly,
+    Require((Details.mmReview.ReadOnly=ReviewReadOnly) and not Details.mmoAnnotation.ReadOnly,
       'Review completion did not restore editor state');
   end;
   procedure SavedText;
@@ -78,10 +78,16 @@ begin
     StartBook('9'); WaitDownload; RequirePreserved;
     Require(Pos('HTTP 403',Details.ReviewStatus.Caption)>0,'HTTP access error hidden');
     StartBook('10'); WaitDownload; RequirePreserved;
-    StartBook('11'); WaitDownload;
+    StartBook('11'); WaitDownload; RequirePreserved;
+    Require(Details.btnAnnotationSite.Enabled,'The description has no site source action');
+    Details.btnAnnotationSite.Click; WaitDownload;
     Require((Details.Review.Trim='Не терять этот отзыв') and Details.ReviewChanged and
-      (Details.Annotation.Trim='Только новая аннотация'), 'Annotation-only success not marked for persistence');
+      (Details.Annotation.Trim='Только новая аннотация'), 'Explicit site description changed the review or did not apply');
     SavedText; StartBook('12'); WaitDownload; RequirePreserved;
+    Details.mmReview.ReadOnly:=True;
+    StartBook('1'); WaitDownload(20000,True);
+    Require(Details.Review.Contains('Очень хорошая книга') and not Details.ReviewChanged and
+      (Details.Annotation.Trim='Не терять эту аннотацию'),'Read-only reviews were hidden or treated as a saved edit');
   finally Details.Free; Timer.Free; Clock.Free; end;
 
   Details := TfrmBookDetails.Create(nil);

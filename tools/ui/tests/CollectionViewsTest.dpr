@@ -6057,6 +6057,7 @@ begin
       else if ParamStr(1) = 'native-folder-picker' then TestNativeFolderPicker
       else if ParamStr(1) = 'feedback22' then TestFeedback22(One, OneID)
       else if ParamStr(1) = 'feedback21' then TestFeedback21
+      else if ParamStr(1) = 'catalogue-description' then TestCatalogueDescription(One,OneID)
       else if ParamStr(1) = 'feedback20-main' then
         TestFeedback20(One,Two,OneID,TwoID)
       else if ParamStr(1) = 'compact-search-filters' then TestCompactSearchFilters

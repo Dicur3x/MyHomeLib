@@ -905,7 +905,7 @@ type
     procedure ProcessNodes(ProcessProc: TNodeProcessProc);
 
     // Обновления не должны менять положение ноды в дереве.
-    function ReadSavedBookReview(const Saved: TBookRecord; const BookCollection: IBookCollection;
+    function ReadSavedBookText(const Saved: TBookRecord; const BookCollection: IBookCollection;
       PersonalOnly: Boolean): TBookRecord;
     function StorePreviewReview(const Saved: TBookRecord; PersonalOnly: Boolean;
       const Namespace, URL, Previous, Review: string; out Failure: string): Boolean;
@@ -6443,7 +6443,7 @@ begin
       begin
         ReviewCollection := nil;
         try ReviewCollection := FSystemData.GetCollection(ReviewBook.BookKey.DatabaseID); except end;
-        StoredReview := ReadSavedBookReview(ReviewBook, ReviewCollection, ReviewPersonalOnly);
+        StoredReview := ReadSavedBookText(ReviewBook, ReviewCollection, ReviewPersonalOnly);
         Result := StoredReview.Review;
       end,
       function(const Previous, Review: string; out Failure: string): Boolean
@@ -11653,7 +11653,7 @@ begin
   InitCollection;
 end;
 
-function TfrmMain.ReadSavedBookReview(const Saved: TBookRecord;
+function TfrmMain.ReadSavedBookText(const Saved: TBookRecord;
   const BookCollection: IBookCollection; PersonalOnly: Boolean): TBookRecord;
 var Stored: TBookRecord; Namespace: string;
 begin
@@ -11674,9 +11674,13 @@ begin
     end;
     if (Stored.NodeType = ntBookInfo) and Stored.BookKey.IsSameAs(Saved.BookKey) and
       ReaderBookMatchesExpectedIdentity(Saved.LibID, ReaderBookPhysicalIdentity(Saved), Stored, Namespace) then
-      Result.Review := Stored.Review
-    else if ReaderTryGetPersonalBook(FSystemData, BookCollection, Saved, Stored) then
+    begin
       Result.Review := Stored.Review;
+      Result.Annotation := Stored.Annotation;
+      Result.KeyWords := Stored.KeyWords;
+    end
+    else if ReaderTryGetPersonalBook(FSystemData, BookCollection, Saved, Stored) then
+      Result := Stored;
   except
     // Keep the list's saved text if the collection becomes unavailable.
   end;
@@ -11694,7 +11698,7 @@ begin
   if not Assigned(Collection) or Collection.InBulkOperation or
     (VarToStr(Collection.GetProperty(PROP_SOURCE_LIBRARY)) <> Namespace) or
     (Collection.GetViewURL(Saved.LibID) <> URL) then Exit;
-  Stored := ReadSavedBookReview(Saved, Collection, PersonalOnly);
+  Stored := ReadSavedBookText(Saved, Collection, PersonalOnly);
   if Stored.Review <> Previous then
   begin Failure := 'Отзывы уже изменены в другом окне. Новая загрузка их не заменила.'; Exit; end;
   Changed := Saved; Changed.Review := Review;
@@ -11733,14 +11737,15 @@ var
   frmBookDetails: TfrmBookDetails;
 
   bookStream: TStream;
-  ReviewEditable: Boolean;
+  ReviewEditable, LocalReadable: Boolean;
   BookCollection: IBookCollection;
   AuthorNames: TArray<string>; I: Integer;
 
   URL: string;
 
-  strReview, strAnnotation: string;
-  Saved, Stored, Changed: TBookRecord;
+  strReview, strAnnotation, PreviousReview, PreviousAnnotation: string;
+  ChangedFields: TBookPersonalFields;
+  Saved, Stored, DetailsBook, Changed: TBookRecord;
   PersonalOnly, RetrySave: Boolean;
   Outcome: TReaderPersonalWriteResult;
   DraftPath, DraftText, Namespace: string;
@@ -11769,13 +11774,18 @@ begin
 
     frmBookDetails := TfrmBookDetails.Create(Application);
     try
-      // сейчас мы грузим только fb2 или fbd, т к больше ничего разбирать не умеем
-      if (bpIsLocal in Data^.BookProps) and CatalogBookAvailable(Data^, False) then
+      Stored := ReadSavedBookText(Saved, BookCollection, PersonalOnly);
+      DetailsBook := Saved;
+      DetailsBook.KeyWords := Stored.KeyWords;
+      LocalReadable := (bpIsLocal in Saved.BookProps) and CatalogBookAvailable(Saved, False) and
+        FileExists(Saved.GetBookFileName);
+      frmBookDetails.ConfigureDescription(Saved, ReviewEditable, LocalReadable);
+      if LocalReadable then
       begin
         try
           bookStream := Data^.GetBookDescriptorStream(False);
           try
-            frmBookDetails.FillBookInfo(Data^, bookStream)
+            frmBookDetails.FillBookInfo(DetailsBook, bookStream)
           finally
             FreeAndNil(bookStream);
           end;
@@ -11784,14 +11794,16 @@ begin
           // или при парсинге книги (загрузили какую-то ерунду).
           on e: Exception do
           begin
-            if not (e is ENotSupportedException) then
-              MHLShowError(e.Message);
-            frmBookDetails.FillBookInfo(Data^, nil);
+            if not (e is ENotSupportedException) and FileExists(Saved.GetBookFileName) then
+              MHLShowError(e.Message)
+            else if not FileExists(Saved.GetBookFileName) then
+              frmBookDetails.ConfigureDescription(Saved, ReviewEditable, False);
+            frmBookDetails.FillBookInfo(DetailsBook, nil);
           end;
         end;
       end
       else
-        frmBookDetails.FillBookInfo(Data^, nil);
+        frmBookDetails.FillBookInfo(DetailsBook, nil);
 
       frmBookDetails.mmReview.ReadOnly := not ReviewEditable;
       SetLength(AuthorNames, Length(Data^.Authors));
@@ -11810,13 +11822,11 @@ begin
         frmBookDetails.AllowOnlineReview(URL);
       end;
 
-      if PersonalOnly or (bpHasReview in Saved.BookProps) then
-      begin
-        Stored := ReadSavedBookReview(Saved, BookCollection, PersonalOnly);
-        frmBookDetails.Review := Stored.Review;
-        if PersonalOnly then frmBookDetails.Annotation := Stored.Annotation;
-      end
-      else if IsOnline and ReviewEditable and Settings.AutoLoadReview then
+      frmBookDetails.Review := Stored.Review;
+      frmBookDetails.Annotation := Stored.Annotation;
+      PreviousReview := frmBookDetails.Review;
+      PreviousAnnotation := frmBookDetails.Annotation;
+      if not PersonalOnly and (Stored.Review = '') and IsOnline and ReviewEditable and Settings.AutoLoadReview then
         DownloadReview(frmBookDetails, URL);
       if Assigned(PreviewPanel) and PreviewPanel.ReviewsVisible then
         frmBookDetails.pcBookInfo.ActivePage := frmBookDetails.tsReview;
@@ -11831,11 +11841,15 @@ begin
           else Continue;
         if not frmBookDetails.ReviewChanged then Exit;
         strReview := frmBookDetails.Review; strAnnotation := frmBookDetails.Annotation;
+        ChangedFields := [];
+        if strReview <> PreviousReview then Include(ChangedFields, bpfReview);
+        if strAnnotation <> PreviousAnnotation then Include(ChangedFields, bpfAnnotation);
+        if ChangedFields = [] then Exit;
         Changed := Saved; Changed.Review := strReview; Changed.Annotation := strAnnotation;
         Outcome := rpwRejected;
-        if ReviewEditable and not frmBookDetails.mmReview.ReadOnly then
+        if ReviewEditable then
           Outcome := TryStoreReaderBookPersonal(BookCollection, FSystemData, Changed,
-            [bpfReview,bpfAnnotation], PersonalOnly);
+            ChangedFields, PersonalOnly);
         if Outcome <> rpwRejected then
         begin
           if Outcome = rpwCatalog then
@@ -11845,8 +11859,13 @@ begin
                 if Assigned(BookData) and ReaderBookMatchesExpectedIdentity(Saved.LibID,
                   ReaderBookPhysicalIdentity(Saved), BookData^, Namespace) then
                 begin
-                  BookData^.Review := strReview; BookData^.Annotation := strAnnotation;
-                  if strReview <> '' then Include(BookData^.BookProps,bpHasReview) else Exclude(BookData^.BookProps,bpHasReview);
+                  if bpfAnnotation in ChangedFields then BookData^.Annotation := strAnnotation;
+                  if bpfReview in ChangedFields then
+                  begin
+                    BookData^.Review := strReview;
+                    if strReview <> '' then Include(BookData^.BookProps,bpHasReview)
+                    else Exclude(BookData^.BookProps,bpHasReview);
+                  end;
                 end;
               end)
           else
@@ -11858,15 +11877,21 @@ begin
               if Assigned(GroupData) and GroupData^.BookKey.IsSameAs(Saved.BookKey) and
                 ReaderBookMatchesExpectedIdentity(Saved.LibID, ReaderBookPhysicalIdentity(Saved), GroupData^, Namespace) then
               begin
-                GroupData^.Review := strReview; GroupData^.Annotation := strAnnotation;
-                if strReview <> '' then Include(GroupData^.BookProps,bpHasReview) else Exclude(GroupData^.BookProps,bpHasReview);
+                if bpfAnnotation in ChangedFields then GroupData^.Annotation := strAnnotation;
+                if bpfReview in ChangedFields then
+                begin
+                  GroupData^.Review := strReview;
+                  if strReview <> '' then Include(GroupData^.BookProps,bpHasReview)
+                  else Exclude(GroupData^.BookProps,bpHasReview);
+                end;
                 tvBooksF.InvalidateNode(GroupNode);
               end;
               GroupNode := tvBooksF.GetNext(GroupNode);
             end;
-            StatusMessage := 'Отзыв сохранён в личной карточке. Каталог книги не обновлён.';
+            StatusMessage := 'Изменения сохранены в личной карточке.';
           end;
-          if Assigned(PreviewPanel) then PreviewPanel.SetSavedReview(strReview);
+          if Assigned(PreviewPanel) and (bpfReview in ChangedFields) then PreviewPanel.SetSavedReview(strReview);
+          if bpfAnnotation in ChangedFields then RefreshBookInfo(Tree);
           Exit;
         end;
         // Publish a fresh, durable draft without replacing an existing file.

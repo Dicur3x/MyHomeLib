@@ -44,6 +44,7 @@ uses
 
 type
   TReviewDownloadThread = class;
+  TBookTextSource = (btsReviews, btsSiteAnnotation, btsFileAnnotation);
 
   TfrmBookDetails = class(TForm)
     pcBookInfo: TPageControl;
@@ -69,11 +70,17 @@ type
     miCopyValue: TMenuItem;
     tsAnnotation: TTabSheet;
     mmoAnnotation: TMemo;
+    pnAnnotationSources: TPanel;
+    lblAnnotationState: TLabel;
+    btnAnnotationFile: TButton;
+    btnAnnotationSite: TButton;
     procedure FormCreate(Sender: TObject);
     procedure FormShow(Sender: TObject);
     procedure mmReviewChange(Sender: TObject);
     procedure btnLoadReviewClick(Sender: TObject);
     procedure btnClearReviewClick(Sender: TObject);
+    procedure btnAnnotationFileClick(Sender: TObject);
+    procedure btnAnnotationSiteClick(Sender: TObject);
     procedure acCopyValueExecute(Sender: TObject);
     procedure acCopyValueUpdate(Sender: TObject);
 
@@ -85,8 +92,13 @@ type
     FReviewTimer: TTimer;
     FAuthorTab: TTabSheet;
     FAuthorInformation: TAuthorInformationPanel;
-    FReviewReadOnly, FAnnotationReadOnly: Boolean;
+    FReviewReadOnly, FAnnotationReadOnly, FHasFileSource: Boolean;
+    FAnnotationBook: TBookRecord;
+    FFileAnnotation: string;
     FInfoNotify, FFileNotify: TWndMethod;
+    procedure StartBookTextRequest(Source: TBookTextSource);
+    function RequestStatus: TLabel;
+    procedure RefreshAnnotationButtons;
     procedure FinishDownload(Sender: TObject);
     procedure ReviewProgress(Sender: TObject);
     procedure PageChanged(Sender: TObject);
@@ -109,6 +121,7 @@ type
     property Downloading: TReviewDownloadThread read FWorker;
     procedure AllowOnlineReview(const URL: string);
     procedure Download;
+    procedure ConfigureDescription(const Book: TBookRecord; Editable, HasLocalSource: Boolean);
 
     procedure FillBookInfo(bookInfo: TBookRecord; bookStream: TStream);
 
@@ -122,15 +135,21 @@ type
   private
     FUrl: string;
     FParser: TReviewParser;
+    FBook: TBookRecord;
+    FSource: TBookTextSource;
+    procedure ReadFileAnnotation;
   protected
     procedure Execute; override;
   public
     Review, Annotation: TStringList;
     ErrorText: string;
-    constructor Create(const URL: string);
+    constructor Create(const URL: string; Source: TBookTextSource = btsReviews);
+    constructor CreateFromFile(const Book: TBookRecord);
     destructor Destroy; override;
     procedure Cancel;
     property Parser: TReviewParser read FParser;
+    property Source: TBookTextSource read FSource;
+    function Cancelled: Boolean;
   end;
 
 procedure DownloadReview(Form: TfrmBookDetails; const URL: string);
@@ -147,7 +166,8 @@ uses
   StrUtils,
   unit_MHLHelpers,
   unit_FB2Utils,
-  unit_Localization, Winapi.CommCtrl, unit_MHLTheme;
+  unit_Localization, Winapi.CommCtrl, unit_MHLTheme, Winapi.ActiveX, System.Win.ComObj,
+  unit_PublisherSeriesSource, unit_PackageBookMetadata, unit_FB2PublisherMetadataReader;
 
 
 {$R *.dfm}
@@ -237,58 +257,132 @@ begin
   FUrl := URL;
   pnReviewButtons.Visible := True;
   btnLoadReview.Enabled := IsLibraryReviewURL(URL);
+  RefreshAnnotationButtons;
   if not btnLoadReview.Enabled then
     FReviewStatus.Caption := 'Для этой книги нет адреса отзывов на сайте источника.';
 end;
 
+procedure TfrmBookDetails.ConfigureDescription(const Book: TBookRecord; Editable, HasLocalSource: Boolean);
+begin
+  FAnnotationBook := Book;
+  FHasFileSource := HasLocalSource;
+  mmoAnnotation.ReadOnly := not Editable;
+  if not Editable then lblAnnotationState.Caption := 'Описание доступно только для чтения.';
+  RefreshAnnotationButtons;
+end;
+
+procedure TfrmBookDetails.RefreshAnnotationButtons;
+begin
+  btnAnnotationFile.Enabled := not mmoAnnotation.ReadOnly and FHasFileSource;
+  btnAnnotationSite.Enabled := not mmoAnnotation.ReadOnly and IsLibraryReviewURL(FUrl);
+  btnAnnotationFile.Caption := 'Из файла';
+  btnAnnotationSite.Caption := 'С сайта';
+  if Assigned(FWorker) and (FWorker.Source <> btsReviews) then
+    if FWorker.Source = btsFileAnnotation then
+    begin btnAnnotationFile.Enabled := True; btnAnnotationFile.Caption := 'Отменить'; end
+    else
+    begin btnAnnotationSite.Enabled := True; btnAnnotationSite.Caption := 'Отменить'; end;
+end;
+
+function TfrmBookDetails.RequestStatus: TLabel;
+begin
+  if Assigned(FWorker) and (FWorker.Source <> btsReviews) then Result := lblAnnotationState
+  else Result := FReviewStatus;
+end;
+
 procedure TfrmBookDetails.Download;
 begin
-  if Assigned(FWorker) or not IsLibraryReviewURL(FUrl) then Exit;
-  btnLoadReview.Caption := 'Отменить'; btnClearReview.Enabled := False;
+  StartBookTextRequest(btsReviews);
+end;
+
+procedure TfrmBookDetails.StartBookTextRequest(Source: TBookTextSource);
+begin
+  if Assigned(FWorker) then Exit;
+  if Source = btsFileAnnotation then
+  begin
+    if mmoAnnotation.ReadOnly or not FHasFileSource then Exit;
+    if FFileAnnotation <> '' then
+    begin
+      mmoAnnotation.Lines.Text := FFileAnnotation;
+      lblAnnotationState.Caption := 'Описание взято из файла. Его можно отредактировать.';
+      Exit;
+    end;
+    FWorker := TReviewDownloadThread.CreateFromFile(FAnnotationBook);
+  end
+  else
+  begin
+    if not IsLibraryReviewURL(FUrl) or ((Source=btsSiteAnnotation) and mmoAnnotation.ReadOnly) then Exit;
+    FWorker := TReviewDownloadThread.Create(FUrl, Source);
+  end;
   FReviewReadOnly := mmReview.ReadOnly; FAnnotationReadOnly := mmoAnnotation.ReadOnly;
   mmReview.ReadOnly := True; mmoAnnotation.ReadOnly := True;
-  FReviewStatus.Caption := 'Загрузка отзывов с сайта коллекции...';
-  FWorker := TReviewDownloadThread.Create(FUrl);
+  btnLoadReview.Caption := 'Отменить'; btnClearReview.Enabled := False;
+  case Source of
+    btsReviews: FReviewStatus.Caption := 'Загрузка отзывов с сайта коллекции…';
+    btsSiteAnnotation: lblAnnotationState.Caption := 'Загрузка описания с сайта…';
+    btsFileAnnotation: lblAnnotationState.Caption := 'Чтение описания из файла…';
+  end;
+  RefreshAnnotationButtons;
   FReviewTimer.Enabled := True;
   FWorker.OnTerminate := FinishDownload; FWorker.Start;
 end;
 
 procedure TfrmBookDetails.ReviewProgress(Sender: TObject);
 begin
-  if not Assigned(FWorker) then Exit;
+  if not Assigned(FWorker) or not Assigned(FWorker.Parser) then Exit;
   FWorker.Parser.CheckDeadline;
   if FWorker.Parser.Cancelled then Exit;
   case FWorker.Parser.Phase of
-    2: FReviewStatus.Caption := 'Повторный запрос к сайту (2 из 2). Сохранённый текст пока не меняется.';
-    3: FReviewStatus.Caption := 'Сайт временно не ответил. Через секунду повторим запрос один раз.';
+    2: RequestStatus.Caption := 'Повторный запрос к сайту (2 из 2). Сохранённый текст пока не меняется.';
+    3: RequestStatus.Caption := 'Сайт временно не ответил. Через секунду повторим запрос один раз.';
   end;
 end;
 
 procedure TfrmBookDetails.FinishDownload(Sender: TObject);
-var Worker: TReviewDownloadThread;
+var Worker: TReviewDownloadThread; Status: TLabel;
 begin
   FReviewTimer.Enabled := False;
+  Status := RequestStatus;
   Worker := FWorker; FWorker := nil;
-  if Worker.Parser.Cancelled then
+  if Worker.Cancelled then
   begin
-    if Worker.Parser.Expired <> 0 then
-      FReviewStatus.Caption := 'Сайт не ответил вовремя. Сохранённый текст оставлен. Попробуйте позже.'
-    else FReviewStatus.Caption := 'Загрузка отменена. Сохранённый текст оставлен.';
+    if Assigned(Worker.Parser) and (Worker.Parser.Expired <> 0) then
+      Status.Caption := 'Сайт не ответил вовремя. Сохранённый текст оставлен. Попробуйте позже.'
+    else Status.Caption := 'Загрузка отменена. Сохранённый текст оставлен.';
   end
   else if Worker.ErrorText <> '' then
-    FReviewStatus.Caption := 'Не удалось загрузить отзывы: ' + Worker.ErrorText + ' Сохранённый текст оставлен.'
+  begin
+    if Worker.Source = btsReviews then Status.Caption := 'Не удалось загрузить отзывы. '
+    else Status.Caption := 'Не удалось получить описание. ';
+    Status.Caption := Status.Caption + Worker.ErrorText + ' Сохранённый текст оставлен.';
+  end
+  else if Worker.Source = btsReviews then
+  begin
+    if Worker.Review.Count > 0 then
+      if FReviewReadOnly then Review := Worker.Review.Text
+      else mmReview.Lines := Worker.Review;
+    if not FAnnotationReadOnly and (Annotation.Trim = '') and (Worker.Annotation.Count > 0) then
+      mmoAnnotation.Lines := Worker.Annotation;
+    if Worker.Review.Count = 0 then
+      Status.Caption := 'На странице книги нет отзывов. Сохранённый текст оставлен.'
+    else Status.Caption := 'Отзывы загружены с сайта коллекции.';
+  end
+  else if Worker.Annotation.Count = 0 then
+  begin
+    if Worker.Source = btsFileAnnotation then Status.Caption := 'В файле нет описания.'
+    else Status.Caption := 'На сайте нет описания этой книги.';
+  end
   else
   begin
-    if Worker.Review.Count > 0 then mmReview.Lines := Worker.Review;
-    if (Worker.Annotation.Count > 0) and (mmoAnnotation.Lines.Text <> Worker.Annotation.Text) then
-    begin mmoAnnotation.Lines := Worker.Annotation; FReviewChanged := True; end;
-    if Worker.Review.Count = 0 then
-      FReviewStatus.Caption := 'На странице книги нет отзывов. Сохранённый текст оставлен.'
-    else FReviewStatus.Caption := 'Отзывы загружены с сайта коллекции.';
+    mmoAnnotation.Lines := Worker.Annotation;
+    if Worker.Source = btsFileAnnotation then
+      Status.Caption := 'Описание взято из файла. Его можно отредактировать.'
+    else Status.Caption := 'Описание взято с сайта. Его можно отредактировать.';
   end;
   mmReview.ReadOnly := FReviewReadOnly; mmoAnnotation.ReadOnly := FAnnotationReadOnly;
-  btnLoadReview.Enabled := True; btnClearReview.Enabled := True;
+  btnLoadReview.Enabled := IsLibraryReviewURL(FUrl); btnClearReview.Enabled := True;
   btnLoadReview.Caption := 'Повторить';
+  RefreshAnnotationButtons;
 end;
 
 function TfrmBookDetails.DrawInfoGroup(var Message: TMessage; List: TListView): Boolean;
@@ -377,14 +471,30 @@ begin
   begin
     FWorker.Cancel;
     btnLoadReview.Enabled := False;
-    FReviewStatus.Caption := 'Отмена запроса... Сохранённый текст не меняется.';
+    RequestStatus.Caption := 'Отмена запроса… Сохранённый текст не меняется.';
   end
   else Download;
 end;
 
+procedure TfrmBookDetails.btnAnnotationFileClick(Sender: TObject);
+begin
+  if Assigned(FWorker) then
+  begin btnAnnotationFile.Enabled := False; btnLoadReviewClick(Sender); end
+  else StartBookTextRequest(btsFileAnnotation);
+end;
+
+procedure TfrmBookDetails.btnAnnotationSiteClick(Sender: TObject);
+begin
+  if Assigned(FWorker) then
+  begin btnAnnotationSite.Enabled := False; btnLoadReviewClick(Sender); end
+  else StartBookTextRequest(btsSiteAnnotation);
+end;
+
 procedure TfrmBookDetails.SetAnnotation(const Value: string);
 begin
-  mmoAnnotation.Lines.Text := Value;
+  mmoAnnotation.OnChange := nil;
+  try mmoAnnotation.Lines.Text := Value;
+  finally mmoAnnotation.OnChange := mmReviewChange; end;
 end;
 
 procedure TfrmBookDetails.SetReview(const Value: string);
@@ -418,6 +528,7 @@ var
 begin
   lblTitle.Caption := bookInfo.Title;
   lblAuthors.Caption := bookInfo.Authors[0].GetFullName;
+  lvFileInfo.Items.Clear; lvFileInfo.Groups.Clear;
 
   with lvFileInfo.Groups.Add do
   begin
@@ -427,6 +538,13 @@ begin
     AddItem(lvFileInfo, rstrSize, GetFormattedSize(bookInfo.Size, True), GroupID);
     AddItem(lvFileInfo, rstrAdded, DateToStr(bookInfo.Date), GroupID);
   end;
+
+  if Trim(bookInfo.KeyWords) <> '' then
+    with lvFileInfo.Groups.Add do
+    begin
+      Header := 'Каталог';
+      AddItem(lvFileInfo, rstrKeywords, bookInfo.KeyWords, GroupID);
+    end;
 
   // Метаданные из каталога metabib показываем только при их наличии, чтобы книги
   // из INPX/FB2 не получали пустую группу.
@@ -454,6 +572,7 @@ begin
 
   try
     book := LoadFB2Description(bookStream);
+    FFileAnnotation := GetBookAnnotation(book);
 
     imgBookCover := GetBookCover(book);
     if Assigned(imgBookCover) then
@@ -557,11 +676,18 @@ begin
   end;
 end;
 
-constructor TReviewDownloadThread.Create(const URL: string);
+constructor TReviewDownloadThread.Create(const URL: string; Source: TBookTextSource);
 begin
-  inherited Create(True); FreeOnTerminate := True; FUrl := URL;
+  inherited Create(True); FreeOnTerminate := True; FUrl := URL; FSource := Source;
   FParser := TReviewParser.Create;
   Review := TStringList.Create; Annotation := TStringList.Create;
+end;
+
+constructor TReviewDownloadThread.CreateFromFile(const Book: TBookRecord);
+begin
+  inherited Create(True); FreeOnTerminate := True;
+  FBook := Book; FSource := btsFileAnnotation;
+  Annotation := TStringList.Create;
 end;
 
 destructor TReviewDownloadThread.Destroy;
@@ -572,13 +698,48 @@ end;
 procedure TReviewDownloadThread.Cancel;
 begin
   Terminate;
-  FParser.Cancel;
+  if Assigned(FParser) then FParser.Cancel;
+end;
+
+function TReviewDownloadThread.Cancelled: Boolean;
+begin
+  Result := Terminated or (Assigned(FParser) and FParser.Cancelled);
+end;
+
+procedure TReviewDownloadThread.ReadFileAnnotation;
+var Source: TPublisherSeriesSource; Reader: TFB2PublisherMetadataReader;
+  Stream: TStream; Extension, Details: string; Metadata: TFB2CatalogMetadata;
+  Status: TFB2MetadataStatus; HR: HRESULT; Stop: TFunc<Boolean>;
+begin
+  HR := CoInitializeEx(nil, COINIT_APARTMENTTHREADED);
+  OleCheck(HR);
+  try
+    Stop := function: Boolean begin Result := Terminated; end;
+    Source := TPublisherSeriesSource.Create(Stop);
+    try
+      Stream := Source.OpenCatalogMetadata(FBook, Extension);
+      if not Assigned(Stream) then Exit;
+      try
+        if IsMetadataPackage(Extension) then
+          Status := ReadPackageMetadata(Stream, Extension, Metadata, Details, True, Stop)
+        else
+        begin
+          Reader := TFB2PublisherMetadataReader.Create;
+          try Status := Reader.ReadCatalogMetadata(Stream, Metadata, Details, True, Stop);
+          finally Reader.Free; end;
+        end;
+        if Status = fmsComplete then Annotation.Text := Metadata.Annotation
+        else if Status <> fmsCanceled then raise EReadError.Create(Details);
+      finally Stream.Free; end;
+    finally Source.Free; end;
+  finally CoUninitialize; end;
 end;
 
 procedure TReviewDownloadThread.Execute;
 begin
   try
-    FParser.Parse(FUrl, Review, Annotation);
+    if FSource = btsFileAnnotation then ReadFileAnnotation
+    else FParser.Parse(FUrl, Review, Annotation);
   except on E: Exception do ErrorText := E.Message; end;
 end;
 
