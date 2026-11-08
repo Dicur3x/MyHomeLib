@@ -618,6 +618,9 @@ begin
     Started:=GetTickCount64;
     RunEstimate([FileBook(RealScan),Books[1],FileBook(RealScan)],9500,True);
     Elapsed:=GetTickCount64-Started;
+    for var I:=0 to High(Items) do
+      Writeln('TRACE batch estimate ',I+1,' completed=',Ord(Items[I].Completed),' ',
+        Items[I].Options.OutputBytes[0,BOOK_QUALITY_MAXIMUM],' ',Items[I].ErrorText);
     Require((Elapsed<=30000) and Items[0].Completed and Items[1].Completed and Items[2].Completed and
       (Items[2].Options.OutputBytes[0,BOOK_QUALITY_MAXIMUM]>0),
       'A mixed batch did not give later books their own calculation time: '+Status);

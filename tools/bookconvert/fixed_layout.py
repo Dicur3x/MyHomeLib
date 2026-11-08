@@ -221,7 +221,7 @@ class PDF:
             function = getattr(self.dll, name); function.restype = result; function.argtypes = args; setattr(self, name, function)
 
     def scan_sample_groups(self, document, count, check):
-        """Sample homogeneous raster PDFs by the sizes of their source images."""
+        """Pick typical raster pages from separate parts of the PDF."""
         if count <= 20:
             return []
         try:
@@ -236,31 +236,49 @@ class PDF:
         page_object.argtypes, page_object.restype = [pointer, C.c_int], pointer
         object_type.argtypes, object_type.restype = [pointer], C.c_int
         image_size.argtypes, image_size.restype = [pointer, pointer, C.c_ulong], C.c_ulong
-        ranked = []
+        page_sizes = []
+        uniform_short_scan = count <= 128
         dimensions = None
         for index in range(count):
             if check is not None: check()
             page = self.FPDF_LoadPage(document, index)
             if not page: return []
             try:
-                shape = self.FPDF_GetPageWidth(page), self.FPDF_GetPageHeight(page)
-                if dimensions is None: dimensions = shape
-                if shape != dimensions or object_count(page) != 1: return []
-                image = page_object(page, 0)
-                if not image or object_type(image) != 3: return []  # FPDF_PAGEOBJ_IMAGE
-                size = image_size(image, None, 0)
+                objects = object_count(page)
+                if not 0 < objects <= 64: return []
+                if uniform_short_scan:
+                    shape = self.FPDF_GetPageWidth(page), self.FPDF_GetPageHeight(page)
+                    if dimensions is None: dimensions = shape
+                    uniform_short_scan = objects == 1 and shape == dimensions
+                size = 0
+                for position in range(objects):
+                    image = page_object(page, position)
+                    if not image or object_type(image) != 3: return []  # FPDF_PAGEOBJ_IMAGE
+                    size += image_size(image, None, 0)
                 if not size: return []
-                ranked.append((size, index+1))
+                page_sizes.append((size, index+1))
             finally:
                 self.FPDF_ClosePage(page)
-        ranked.sort()
-        # Two size bands cover the book, including its cover and final pages.
-        # Scale each middle page by the original bytes in its own band.
-        middle = len(ranked)//2
         groups = []
-        for band in (ranked[:middle], ranked[middle:]):
-            size, page = band[len(band)//2]
-            groups.append((page, sum(value for value, _index in band)/size))
+        if uniform_short_scan:
+            # Keep the fast two-band estimate for small, uniform scans.
+            ranked = sorted(page_sizes)
+            middle = count//2
+            for band in (ranked[:middle], ranked[middle:]):
+                size, page = band[len(band)//2]
+                groups.append((page, sum(value for value, _ in band)/size))
+            return groups
+        # Two samples keep smaller books fast, including costly high-DPI scans.
+        parts = 2 if count <= 128 else 4
+        for part in range(parts):
+            start = part*count//parts
+            end = (part+1)*count//parts
+            middle = (start+end+1)//2
+            band = sorted(page_sizes[start:end], key=lambda item: (item[0], abs(item[1]-middle)))
+            _, page = band[len(band)//2]
+            # Source compression helps choose a typical page, but its byte
+            # count is not proportional to the size after re-encoding.
+            groups.append((page, end-start))
         return groups
 
     @contextmanager

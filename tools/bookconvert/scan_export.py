@@ -168,9 +168,14 @@ class ScanExport:
         return False
 
     def sample_size(self, costs, column, overhead):
-        total = overhead+round(sum(costs[page][column]*weight for page, weight in self.context['sample_groups']))
-        # The observations give a rough range for the size shown in the UI.
-        return total, (total+9)//10
+        groups = self.context['sample_groups']
+        pages = sum(weight for _, weight in groups)
+        content = sum(costs[page][column]*weight for page, weight in groups)
+        total = overhead+round(content)
+        average = content/pages
+        # Widen the provisional range when sampled pages differ in cost.
+        variation = round(sum(abs(costs[page][column]-average)*weight for page, weight in groups))
+        return total, max((total+9)//10, variation)
 
     def finish_measurement(self):
         # Text pages may also contain illustrations. The scan writer keeps

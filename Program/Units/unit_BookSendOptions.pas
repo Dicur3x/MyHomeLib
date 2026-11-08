@@ -621,7 +621,7 @@ begin
     else if Limited then FStatus.Caption:='Размер ориентировочный: для длинных сканов проверены первые страницы. Результат может отличаться.'
     else if Choice.Mode in BOOK_SAVE_ADVANCED_MODES then
       FStatus.Caption:='Пробные копии проверены. Итоговый размер может немного отличаться.'
-    else if Distributed then FStatus.Caption:='Диапазон рассчитан по разным страницам книги. Итоговый размер может отличаться.'
+    else if Distributed then FStatus.Caption:='Диапазон по выборке от ±10%. Итоговый размер может выйти за него.'
     else if MeasuredScans then FStatus.Caption:='Размер сканов оценён по всем страницам. Итоговый размер может немного отличаться.'
     else FStatus.Caption:='Оценка размера готова. Итоговый размер может отличаться.';
   end;

@@ -48,6 +48,8 @@ begin
       if Stage=0 then
       begin
         Require(not ReportButton.Visible,'Unrequested estimates created a report action');
+        Require(Calculate.Hint.Contains('до 3 мин 40 с') and Calculate.Hint.Contains('до 10 с на книгу'),
+          'The batch estimate does not explain its time allowance');
         Stage:=1; Calculate.Click; Exit;
       end;
       if Stage=1 then
@@ -116,6 +118,14 @@ begin
   Require(Report.Contains('BookID: 8000') and Report.Contains('source-21') and
     Report.Contains('BookProcessing, ImageProcessing') and Report.Contains('Как есть: ≈ '+BookEstimateSizeText(1024)),
     'Report omits identity, required components or selected ZIP size');
+  var Sample:=Default(TBookSaveEstimateItem);
+  Sample.Completed:=True; Sample.Options.ScanPages:=True; Sample.Options.DistributedSamples:=True;
+  Sample.Options.SampleCount:=4; Sample.Options.ImageCount:=822; Sample.TargetExtension:='.fb2';
+  Sample.Options.ZipOutputBytes[0,0]:=10*1024; Sample.Options.ZipMarginBytes[0,0]:=1024;
+  var SampleReport:=BookEstimateReport([Books[0]],[Sample],Plan,0,0,'Оценка завершена');
+  Require(SampleReport.Contains('4 из 822') and SampleReport.Contains('±10%') and
+    SampleReport.Contains(BookEstimateValueText(10*1024,1024)),
+    'Report omits the sample coverage, range or approximate margin');
   Name:=Settings.AppPath+'estimate-errors.txt'; TFile.WriteAllText(Name,'Previous report',TEncoding.UTF8);
   BeforeHash:=UpdateSHA256(Name); Failed:=False;
   try SaveBookEstimateReport(Name,Report); except on E: Exception do Failed:=True; end;

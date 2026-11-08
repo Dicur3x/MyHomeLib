@@ -27,9 +27,11 @@ text_inputs = module('text_inputs')
 TOOLS = Path(os.environ.get('HOMELIB_TEST_TOOLS', ROOT.parents[1] / 'Program/Out/Bin64/tools'))
 
 
-def pdf_fixture(text=True, ocr=False, pages=1, image_only_last=False):
+def pdf_fixture(text=True, ocr=False, pages=1, image_only_last=False, tiled_scan=False):
     # Tiny independent PDF writer for a deterministic text/illustration fixture.
     content = b'q 90 0 0 65 40 170 cm /Im Do Q\n'
+    if tiled_scan:
+        content += b'q 90 0 0 65 130 170 cm /Im Do Q\n'
     if text:
         content += b'BT /F1 12 Tf ' + (b'3 Tr ' if ocr else b'')
         content += b'40 260 Td (First readable paragraph with an illustration below.) Tj 0 -150 Td (Last paragraph preserves the final sentence.) Tj ET\n'
@@ -39,8 +41,12 @@ def pdf_fixture(text=True, ocr=False, pages=1, image_only_last=False):
                b'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
                b'<< /Length ' + str(len(content)).encode() + b' >>\nstream\n' + content + b'endstream',
                b'<< /Type /XObject /Subtype /Image /Width 20 /Height 20 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode /Length ' + str(len(zlib.compress(rgb))).encode() + b' >>\nstream\n' + zlib.compress(rgb) + b'\nendstream']
-    if not 1 <= pages <= 20: raise ValueError('Fixture page count')
-    for _ in range(pages - 1): objects.append(objects[2])
+    if not 1 <= pages <= 132: raise ValueError('Fixture page count')
+    for index in range(pages - 1):
+        page = objects[2]
+        if tiled_scan and index % 2 == 0:
+            page = page.replace(b'/MediaBox [0 0 300 300]', b'/MediaBox [0 0 300 400]')
+        objects.append(page)
     kids = [3] + list(range(7, len(objects) + 1))
     if image_only_last:
         assert pages >= 2
@@ -76,6 +82,23 @@ def pdb_fixture(text, compressed=False, kind=b'TEXtREAd'):
 class LegacyFixed(unittest.TestCase):
     def setUp(self): self.temp = tempfile.TemporaryDirectory(); self.root = Path(self.temp.name)
     def tearDown(self): self.temp.cleanup()
+
+    @unittest.skipUnless(os.name=='nt' and (TOOLS/'pdfium/pdfium.dll').is_file(), 'Windows PDFium')
+    def test_scan_selector_samples_tiled_pages_with_different_sizes(self):
+        api = fixed.PDF(TOOLS, self.fail)
+        api.FPDF_InitLibrary()
+        try:
+            for with_text, pages, parts in [(False, 24, 2), (False, 132, 4), (True, 24, 0)]:
+                path = self.root / f'tiled-{with_text}-{pages}.pdf'
+                path.write_bytes(pdf_fixture(text=with_text, pages=pages, tiled_scan=True))
+                with api.open_document(path, self.fail) as document:
+                    groups = api.scan_sample_groups(document, pages, None)
+                self.assertEqual(len(groups), parts)
+                for index, (number, weight) in enumerate(groups):
+                    self.assertEqual(weight, pages//parts)
+                    self.assertIn(number, range(index*weight+1, (index+1)*weight+1))
+        finally:
+            api.FPDF_DestroyLibrary()
     def convert(self, extension, data, target='.epub'):
         source = self.root / ('source' + extension); source.write_bytes(data); before = hashlib.sha256(data).hexdigest()
         output = self.root / ('output' + target)
