@@ -1438,7 +1438,7 @@ begin
         try
           if Assigned(IsCanceled) and IsCanceled() then Abort;
           RestoredStream := RestoreFLibraryBook(ArchiveFileName,
-            ArchiveEntryName, Result);
+            archiver.LastName, Result);
           if Assigned(RestoredStream) then
           begin
             FreeAndNil(Result);

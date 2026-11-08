@@ -498,7 +498,15 @@ begin
 end;
 
 function TMHLZip.FindBookIndex(const AFileName: string; const LegacyIndex: Integer): Integer;
-var Method: Word;
+var Method: Word; Key: string;
+  function MatchesTrimmedName(const Name: string): Boolean;
+  var Ext, Stem: string;
+  begin
+    Ext:=ExtractFileExt(Name);
+    if Ext='' then Exit(False);
+    Stem:=Copy(Name,1,Length(Name)-Length(Ext));
+    Result:=SameText(Stem.TrimRight([' ','.']).Replace('\','/')+Ext,Key);
+  end;
 begin
   Result := FindEntryIndex(AFileName);
   if Result=AMBIGUOUS_ARCHIVE_ENTRY then
@@ -509,6 +517,19 @@ begin
     // must resolve by name and never by an obsolete source entry index.
     Method := FZip.FileInfos[LegacyIndex].CompressionMethod;
     if (Method=0) or (Method=8) then Result := LegacyIndex;
+  end;
+  if (Result=-1) and FIsSevenZip and (LegacyIndex>=0) and (LegacyIndex<GetFileCount) then
+  begin
+    // Older INPX imports trimmed spaces and dots from the book stem.
+    // Require both the original position and a unique matching name.
+    Key:=AFileName.Replace('\','/');
+    if MatchesTrimmedName(FFileNames[LegacyIndex]) then
+    begin
+      for var I:=0 to GetFileCount-1 do
+        if (I<>LegacyIndex) and MatchesTrimmedName(FFileNames[I]) then
+          raise EArchiveBookEntryNotFound.CreateFmt('Неоднозначное имя книги «%s» в архиве.',[AFileName]);
+      Result:=LegacyIndex;
+    end;
   end;
   if Result<0 then raise EArchiveBookEntryNotFound.CreateFmt('Archive entry "%s" was not found',[AFileName]);
 end;

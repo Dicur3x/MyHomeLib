@@ -65,6 +65,47 @@ begin
     finally Input.Free; ArchiveReader.Free; end;
   end;
   Writeln('PASS exact archive paths distinguish case variants with native ZIP and 7-Zip');
+  var AliasArchive:=Settings.AppPath+'trimmed-books.7z';
+  var AliasFiles:=TArray<string>.Create(Settings.AppPath+'selected ..epub',
+    Settings.AppPath+'collision .epub',Settings.AppPath+'collision..epub');
+  for var FileName in AliasFiles do TFile.WriteAllText(FileName,ExtractFileName(FileName),TEncoding.UTF8);
+  Input:=TMemoryStream.Create;
+  try
+    RunExternalToolToStream(FindExternalTool('7za.exe','7zip'),
+      ['a','-t7z','-spd','--',AliasArchive,AliasFiles[0],AliasFiles[1],AliasFiles[2]],Input);
+  finally Input.Free; end;
+  ArchiveReader:=TMHLZip.Create(AliasArchive,True);
+  try
+    var Match, Collision: Integer;
+    Match:=-1; Collision:=-1;
+    for var Index:=0 to ArchiveReader.FileCount-1 do
+    begin
+      if ArchiveReader.FileNames[Index]='selected ..epub' then Match:=Index;
+      if ArchiveReader.FileNames[Index]='collision .epub' then Collision:=Index;
+    end;
+    Require((Match>=0) and (Collision>=0),'Missing real 7z alias test entries');
+    Require(ArchiveReader.ResolveBookName('selected.epub',Match,True)='selected ..epub',
+      'An old 7z catalogue lost a book because its name was trimmed');
+    for var Index in TArray<Integer>.Create(-1,Collision) do
+    begin
+      Blocked:=False;
+      try ArchiveReader.ResolveBookName('selected.epub',Index);
+      except on E:EArchiveBookEntryNotFound do Blocked:=True; end;
+      Require(Blocked,'A missing or stale 7z index was accepted');
+    end;
+    Blocked:=False;
+    try ArchiveReader.ResolveBookName('collision.epub',Collision);
+    except on E:EArchiveBookEntryNotFound do Blocked:=True; end;
+    Require(Blocked,'An ambiguous trimmed 7z name was accepted');
+    var AliasBook:=Book;
+    AliasBook.Folder:='trimmed-books.7z'; AliasBook.FileName:='selected';
+    AliasBook.FileExt:='.epub'; AliasBook.InsideNo:=Match;
+    Input:=AliasBook.GetBookStream(True,False);
+    try Require(THashSHA2.GetHashString(Input)=THashSHA2.GetHashStringFromFile(AliasFiles[0]),
+      '7z alias resolution extracted different bytes');
+    finally Input.Free; end;
+  finally ArchiveReader.Free; end;
+  Writeln('PASS legacy 7z locators recover exact trimmed-stem bytes and reject stale indexes and ambiguous names');
   Require(ReaderSessionSourceMatches(Request,Book.GetBookFileName) and
     not ReaderSessionSourceMatches(Request,Settings.AppPath+'other.fb2'),
     'Reader session matched a different physical source');
