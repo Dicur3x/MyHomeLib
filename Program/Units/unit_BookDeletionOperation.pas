@@ -74,7 +74,8 @@ uses Winapi.Windows, System.IOUtils, System.SyncObjs, System.Generics.Collection
 function IsArchiveBookSource(const Book: TBookRecord): Boolean;
 begin
   // A catalogue-only confirmation never probes the source drive.
-  Result:=IsArchiveExt(Book.GetBookFileName(TPath.Combine(Book.CollectionRoot,Book.Folder)));
+  Result:=not Book.IsLinkedSource and
+    IsArchiveExt(Book.GetBookFileName(TPath.Combine(Book.CollectionRoot,Book.Folder)));
 end;
 
 constructor TBookDeletionOperation.Create(const Binding:TBookDeletionBinding;
@@ -117,12 +118,13 @@ begin
         if IsArchiveBookSource(Book) then
           SourceKey:=SourceKey+'|'+LowerCase(Book.FileName+Book.FileExt);
         var RemoveSource:Boolean;
+        var WantsPhysical:=FBatch[I].RemoveFiles and not Book.IsLinkedSource;
         if Sources.TryGetValue(SourceKey,RemoveSource) then
         begin
-          if RemoveSource<>FBatch[I].RemoveFiles then
+          if RemoveSource<>WantsPhysical then
             raise EArgumentException.Create('Один файл выбран и для сохранения, и для удаления. Измените выбор книг.');
         end
-        else Sources.Add(SourceKey,FBatch[I].RemoveFiles);
+        else Sources.Add(SourceKey,WantsPhysical);
       end;
       if not FBatch[I].RemoveFiles and not FBatch[I].Binding.RemoveRecords then
         raise EArgumentException.Create('В плане не выбрано удаление записей или файлов.');
@@ -191,6 +193,8 @@ var Retained: TDictionary<string,Byte>; Containers: TDictionary<string,Byte>;
     end;
     if not Kept then
     begin
+      if Book.IsLinkedSource then
+        raise EReadError.Create('Эта книга добавлена ссылкой. Удалите её запись из каталога, чтобы сохранить исходный файл.');
       var ID:=Book.BookKey.BookID;
       var CID:=Book.BookKey.DatabaseID;
       if (Personal.QuerySingleInt('SELECT EXISTS(SELECT 1 FROM Books WHERE DatabaseID=? AND BookID=?) OR '+
@@ -429,7 +433,7 @@ begin
 end;
 
 procedure TBookDeletionOperation.RunRemoval(const User:ISystemData);
-var Archives,Loose,Absent:TList<Integer>; Preparation:TBookDeletionPreparation;
+var Archives,Loose,Absent,Linked:TList<Integer>; Preparation:TBookDeletionPreparation;
   Progress:TBookDeletionPreparationStatus; Tasks:TArray<TArchiveDeletionTask>;
   Queue:TArchiveDeletionQueue; Review:TArchiveDeletionReview;
   Info:TCollectionInfo;
@@ -440,10 +444,16 @@ begin
   CheckDuplicateSources(User);
   var Books:=FBinding.ExpectedBooks;
   Archives:=TList<Integer>.Create; Loose:=TList<Integer>.Create; Absent:=TList<Integer>.Create;
+  Linked:=TList<Integer>.Create;
   try
     for var I:=0 to High(Books) do
     begin
       if Stopping then Exit;
+      if Books[I].IsLinkedSource then
+      begin
+        if FBinding.RemoveRecords then Linked.Add(I);
+        Continue;
+      end;
       if not IsArchiveBookSource(Books[I]) then
       begin Loose.Add(I); Continue; end;
       var Path:=DeletionNativePath(Books[I].GetBookFileName);
@@ -525,7 +535,12 @@ begin
       begin CompleteBinding(Binding,User); DeleteLooseBook(Books[I]); end
       else begin DeleteLooseBook(Books[I]); CompleteBinding(Binding,User); end;
     end;
-  finally Absent.Free; Loose.Free; Archives.Free; end;
+    if (Linked.Count>0) and not Stopping then
+    begin
+      Report('Удаление ссылок из коллекции','',0,0);
+      CompleteBinding(FBinding.Slice(Linked.ToArray),User);
+    end;
+  finally Linked.Free; Absent.Free; Loose.Free; Archives.Free; end;
 end;
 
 function OrdinaryDirectory(const Path:string):Boolean;

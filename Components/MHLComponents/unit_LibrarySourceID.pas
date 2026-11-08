@@ -6,9 +6,11 @@ uses
   System.SysUtils;
 
 const LOCAL_BOOK_ID_PREFIX = 'local:';
+  LINKED_BOOK_ID_PREFIX = LOCAL_BOOK_ID_PREFIX + 'link:';
 
-function NewLocalBookID: string;
+function NewLocalBookID(const KeepSource: Boolean = False): string;
 function IsLocalBookID(const Value: string): Boolean;
+function IsLinkedLocalBookID(const Value: string): Boolean;
 function IsMixedLibraryIndex(const MemberNames: TArray<string>): Boolean;
 function ScopedLibraryID(const MemberName, LibID: string): string;
 function TryParseLibrarySourceID(const LibID: string;
@@ -19,20 +21,21 @@ implementation
 uses
   System.StrUtils;
 
-function NewLocalBookID: string;
+function NewLocalBookID(const KeepSource: Boolean): string;
 begin
-  Result := LOCAL_BOOK_ID_PREFIX + LowerCase(Copy(TGUID.NewGuid.ToString,2,36));
+  Result := LowerCase(Copy(TGUID.NewGuid.ToString,2,36));
+  if KeepSource then Result := LINKED_BOOK_ID_PREFIX + Result
+  else Result := LOCAL_BOOK_ID_PREFIX + Result;
 end;
 
-function IsLocalBookID(const Value: string): Boolean;
+function HasLocalIDPrefix(const Value, Prefix: string): Boolean;
 var I: Integer; C: Char;
 begin
   Result := False;
-  if (Length(Value)<>Length(LOCAL_BOOK_ID_PREFIX)+36) or
-    not StartsText(LOCAL_BOOK_ID_PREFIX,Value) then Exit;
+  if (Length(Value)<>Length(Prefix)+36) or not StartsText(Prefix,Value) then Exit;
   for I:=1 to 36 do
   begin
-    C := Value[Length(LOCAL_BOOK_ID_PREFIX)+I];
+    C := Value[Length(Prefix)+I];
     if I in [9,14,19,24] then
     begin
       if C<>'-' then Exit;
@@ -40,6 +43,21 @@ begin
     else if not CharInSet(C,['0'..'9','a'..'f','A'..'F']) then Exit;
   end;
   Result := True;
+end;
+
+function IsLocalBookID(const Value: string): Boolean;
+begin
+  Result := HasLocalIDPrefix(Value,LOCAL_BOOK_ID_PREFIX) or HasLocalIDPrefix(Value,LINKED_BOOK_ID_PREFIX);
+end;
+
+function IsLinkedLocalBookID(const Value: string): Boolean;
+var Start: Integer;
+begin
+  Result := False;
+  Start := Length(Value)-Length(LINKED_BOOK_ID_PREFIX)-36+1;
+  if Start<1 then Exit;
+  if (Start>1) and ((Value[Start-1]<>':') or not StartsText('merged:',Value)) then Exit;
+  Result := HasLocalIDPrefix(Copy(Value,Start,MaxInt),LINKED_BOOK_ID_PREFIX);
 end;
 
 function MemberBaseName(const Name: string): string;

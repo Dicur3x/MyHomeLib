@@ -705,6 +705,26 @@ begin
     Writeln('PASS Main removes whole ZIP and 7z books without damaging retained references');
     Flush(Output);
 
+    Trace('delete safety links keep original files');
+    RawPath:=Root+'linked-source.txt';
+    TFile.WriteAllText(RawPath,'Original linked file',TEncoding.UTF8);
+    ArchivePath:=Root+'linked-source.zip';
+    WriteZip(ArchivePath,['linked.fb2']);
+    BeforeRaw:=THashSHA2.GetHashStringFromFile(RawPath);
+    BeforeArchive:=THashSHA2.GetHashStringFromFile(ArchivePath);
+    RawID:=Insert('Linked loose source',Root,'linked-source','.txt',NewLocalBookID(True));
+    ArchiveID:=Insert('Linked archived source',ArchivePath,'linked','.fb2',NewLocalBookID(True));
+    var OwnedPath:=Root+'owned-next-to-links.fb2';
+    TFile.WriteAllText(OwnedPath,XML('Owned copy'),TEncoding.UTF8);
+    var OwnedID:=Insert('Owned copy','','owned-next-to-links','.fb2');
+    Rows([RawID,ArchiveID,OwnedID]); Execute(True,False,3,0);
+    Require(not Exists(RawID) and not Exists(ArchiveID) and not Exists(OwnedID) and
+      not FileExists(OwnedPath) and (THashSHA2.GetHashStringFromFile(RawPath)=BeforeRaw) and
+      (THashSHA2.GetHashStringFromFile(ArchivePath)=BeforeArchive),
+      'Deleting linked rows with the file option changed an original or kept the owned copy');
+    Writeln('PASS Main removes linked catalogue rows and preserves both loose and archived originals');
+    Flush(Output);
+
     Trace('delete safety remove empty containers');
     ArchivePath:=Root+'last-book.zip';
     WriteZip(ArchivePath,['only.fb2']);

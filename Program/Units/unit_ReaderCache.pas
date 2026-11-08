@@ -790,8 +790,15 @@ begin
   Source := Book.GetBookFileName;
   Format := Book.GetBookFormat;
   if not FileExists(Source) then
+  begin
+    if Book.IsLinkedSource then
+      raise EFileNotFoundException.Create('Не найден исходный файл книги: '+Source+sLineBreak+
+        'Подключите диск или верните файл на прежнее место.');
     raise EFileNotFoundException.Create('Не найден файл или архив коллекции: '+Source+#13#10+
       'Книга: '+Book.FileName+Book.FileExt+#13#10+'Проверьте папку книг и наличие архива, указанного в INPX.');
+  end;
+  if Book.IsLinkedSource and (Format=bfFb2) and (DetectReaderExtension(Source)<>'.fb2') then
+    Format:=bfRaw;
   ConvertImages := Settings.ConvertWebPToPNG and not PreserveImages;
   Corrected:=ResolveArchivedBook(Book);
   if (Corrected.FileName<>Book.FileName) or (Corrected.FileExt<>Book.FileExt) then

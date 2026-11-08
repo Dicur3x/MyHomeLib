@@ -8794,6 +8794,7 @@ function RemoveIndividualBookSource(const Book: TBookRecord): Boolean;
 var FileName: string; Attributes, Error: Cardinal;
 begin
   Result := False;
+  if Book.IsLinkedSource then Exit;
   FileName := Book.GetBookFileName;
   Attributes := GetFileAttributes(PChar(FileName));
   if Attributes = INVALID_FILE_ATTRIBUTES then
@@ -8869,7 +8870,11 @@ begin
         raise EReadError.Create('Каталог изменился во время подготовки списка. Повторите выбор.');
       var Books:=Binding.ExpectedBooks;
       if Length(Books)=0 then begin StatusMessage:='Книг для удаления нет.'; Exit; end;
-      Archives:=0; for var Book in Books do if IsArchiveBookSource(Book) then Inc(Archives);
+      Archives:=0;
+      var Linked:=0;
+      for var Book in Books do
+        if Book.IsLinkedSource then Inc(Linked)
+        else if IsArchiveBookSource(Book) then Inc(Archives);
       Names:=Copy(Selectors[0].Name,1,100);
       if Length(Selectors[0].Name)>100 then Names:=Names+'…';
       if Length(Selectors)>1 then Names:=Names+Format(' и ещё %d',[Length(Selectors)-1]);
@@ -8886,7 +8891,7 @@ begin
         Scope:=Scope+'Фильтры списка не ограничивают выбор.';
       end
       else Scope:=Scope+'Только загруженные книги на всех языках. Записи онлайн-каталога сохраняются.';
-      if not ConfirmBookDeletion(Info.DisplayName,Length(Books),Archives,RemoveRecords,RemoveFiles,Scope) then Exit;
+      if not ConfirmBookDeletion(Info.DisplayName,Length(Books),Archives,RemoveRecords,RemoveFiles,Scope,Linked) then Exit;
       if not Assigned(FCollection) or (FCollection.CollectionID<>CID) or
         (Observer.QuerySingleInt('PRAGMA main.data_version')<>Revision) then
         raise EReadError.Create('Каталог изменился во время подтверждения. Повторите выбор.');
@@ -8970,7 +8975,7 @@ end;
 procedure TfrmMain.RemoveSelectedBooks(const OnlyFiles: Boolean);
 var Tree: TBookTree; Node: PVirtualNode; Data: PBookRecord;
   Books: TList<TBookRecord>; Seen: TDictionary<UInt64, Byte>;
-  Book, Current: TBookRecord; CollectionID, ArchiveCount, Failures: Integer;
+  Book, Current: TBookRecord; CollectionID, ArchiveCount, LinkedCount, Failures: Integer;
   Key: UInt64; RemoveRecords, RemoveFiles, Wanted, Changed, AttemptedRecords: Boolean;
   SavedCursor: TCursor; CollectionName: string;
   Writer: IBookIdentityDeletionWriter; Match: TBookIdentityPredicate;
@@ -8990,7 +8995,7 @@ begin
   RemoveFiles := IsOnline or OnlyFiles or Settings.DeleteFiles;
   Books := TList<TBookRecord>.Create; Seen := TDictionary<UInt64, Byte>.Create;
   try
-    ArchiveCount := 0; Node := Tree.GetFirst;
+    ArchiveCount := 0; LinkedCount := 0; Node := Tree.GetFirst;
     while Assigned(Node) do
     begin
       Data := Tree.GetNodeData(Node);
@@ -9005,7 +9010,8 @@ begin
         if not Seen.ContainsKey(Key) then
         begin
           Seen.Add(Key, 0); Books.Add(Data^);
-          if IsArchiveBookSource(Data^) then Inc(ArchiveCount);
+          if Data^.IsLinkedSource then Inc(LinkedCount)
+          else if IsArchiveBookSource(Data^) then Inc(ArchiveCount);
         end;
       end;
       Node := Tree.GetNext(Node);
@@ -9013,7 +9019,7 @@ begin
     if Books.Count = 0 then Exit;
     CollectionName := FSystemData.GetCollectionInfo(CollectionID).DisplayName;
     if not ConfirmBookDeletion(CollectionName, Books.Count, ArchiveCount,
-      RemoveRecords, RemoveFiles) then Exit;
+      RemoveRecords, RemoveFiles, '', LinkedCount) then Exit;
     if not Assigned(FCollection) or (FCollection.CollectionID <> CollectionID) then
     begin MHLShowWarning('Коллекция изменилась. Повторите выбор книг.'); Exit; end;
 
@@ -10189,12 +10195,52 @@ begin
 end;
 
 procedure TfrmMain.ImportBooksFromFiles(const FileNames: TArray<string>; CollectionID: Integer);
-var Committed: Boolean;
+var Committed, KeepSource: Boolean;
+  Dialog: TForm;
+  KeepFile: TCheckBox;
+  Prompt, DisplayName: string;
+  ExtraHeight: Integer;
 begin
+  if Length(FileNames)=0 then Exit;
+  DisplayName := FSystemData.GetCollectionInfo(CollectionID).DisplayName;
+  if Length(FileNames)=1 then
+    Prompt := Format('Добавить файл «%s» в коллекцию «%s»?',
+      [ExtractFileName(FileNames[0]), DisplayName])
+  else
+    Prompt := Format('Добавить выбранные файлы (%d) в коллекцию «%s»?',
+      [Length(FileNames), DisplayName]);
+  Dialog := CreateMessageDialog(Prompt, mtConfirmation, [mbYes, mbNo]);
+  try
+    Dialog.Caption := 'Добавление книг';
+    Dialog.Position := poMainFormCenter;
+    ExtraHeight := MulDiv(34, Dialog.CurrentPPI, 96);
+    Dialog.ClientWidth := Max(Dialog.ClientWidth, MulDiv(360, Dialog.CurrentPPI, 96));
+    Dialog.ClientHeight := Dialog.ClientHeight+ExtraHeight;
+    KeepFile := TCheckBox.Create(Dialog);
+    KeepFile.Name := 'ImportKeepSource';
+    KeepFile.Parent := Dialog;
+    for var Control in Dialog do
+      if Control is TButton then
+      begin
+        KeepFile.Top := TButton(Control).Top;
+        TButton(Control).Top := TButton(Control).Top+ExtraHeight;
+      end;
+    KeepFile.SetBounds(MulDiv(16, Dialog.CurrentPPI, 96), KeepFile.Top,
+      Dialog.ClientWidth-MulDiv(32, Dialog.CurrentPPI, 96), ExtraHeight);
+    KeepFile.Caption := 'Оставить файлы на месте';
+    KeepFile.Hint := 'В каталоге сохранятся ссылки на исходные файлы.';
+    KeepFile.ShowHint := True;
+    ApplyMHLControlTheme(Dialog);
+    if Dialog.ShowModal<>mrYes then Exit;
+    KeepSource := KeepFile.Checked;
+  finally
+    Dialog.Free;
+  end;
+
   FFormBusy := True;
   try
     UpdatePositions;
-    unit_Import.ImportSelectedBooks(CollectionID, FileNames, Committed);
+    unit_Import.ImportSelectedBooks(CollectionID, FileNames, Committed, KeepSource);
   finally
     FFormBusy := False;
   end;
@@ -10267,8 +10313,6 @@ end;
 procedure TfrmMain.ExplorerImportTick(Sender: TObject);
 var
   FileNames: TArray<string>;
-  DisplayName, Prompt: string;
-  CollectionID: Integer;
 begin
   if FStartupLoading or FFormBusy or FBookListLoading or
     (Application.ModalLevel > 0) or not Enabled then Exit;
@@ -10283,16 +10327,7 @@ begin
     MHLShowWarning('Чтобы добавить файлы из Проводника, откройте обычную локальную коллекцию и повторите действие.');
     Exit;
   end;
-  CollectionID := FCollection.CollectionID;
-  DisplayName := VarToStr(FCollection.GetProperty(PROP_DISPLAYNAME));
-  if Length(FileNames) = 1 then
-    Prompt := Format('Добавить файл «%s» в коллекцию «%s»?',
-      [ExtractFileName(FileNames[0]), DisplayName])
-  else
-    Prompt := Format('Добавить выбранные файлы (%d) в коллекцию «%s»?',
-      [Length(FileNames), DisplayName]);
-  if MHLShowInfo(Prompt, mbYesNo) = mrYes then
-    ImportBooksFromFiles(FileNames, CollectionID);
+  ImportBooksFromFiles(FileNames, FCollection.CollectionID);
 end;
 
 procedure TfrmMain.ExplorerImportShortcutClick(Sender: TObject);

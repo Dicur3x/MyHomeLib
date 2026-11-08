@@ -20,7 +20,8 @@ type
   end;
 
 function ConfirmBookDeletion(const CollectionName: string; BookCount, ArchiveCount: Integer;
-  RemoveRecords: Boolean; var RemoveFiles: Boolean; const Scope: string = ''): Boolean;
+  RemoveRecords: Boolean; var RemoveFiles: Boolean; const Scope: string = '';
+  LinkedCount: Integer = 0): Boolean;
 
 function ConfirmBookDeletionBatch(var Items: TArray<TBookDeletionBatchItem>): Boolean;
 function PrepareSelectorBookDeletion(Owner:TForm; const Info:TCollectionInfo; Mode:TBookIteratorMode;
@@ -29,7 +30,7 @@ function PrepareSelectorBookDeletion(Owner:TForm; const Info:TCollectionInfo; Mo
 implementation
 
 uses Winapi.Windows, System.SysUtils, System.Math, Vcl.Controls, Vcl.ExtCtrls, unit_MHLTheme,
-  frm_ImportProgressForm, unit_BookEstimateReport, unit_ZipMemberDeletion;
+  frm_ImportProgressForm, unit_BookEstimateReport, unit_ZipMemberDeletion, unit_Errors;
 
 type
   TSelectorDeletionProgress = class(TImportProgressForm)
@@ -159,11 +160,16 @@ begin
 end;
 
 function ConfirmBookDeletion(const CollectionName: string; BookCount, ArchiveCount: Integer;
-  RemoveRecords: Boolean; var RemoveFiles: Boolean; const Scope:string): Boolean;
+  RemoveRecords: Boolean; var RemoveFiles: Boolean; const Scope:string; LinkedCount:Integer): Boolean;
 var Dialog, Owner: TForm; Summary, Details: TLabel; Files: TCheckBox;
   Footer: TPanel; Button: TButton;
 begin
   Result:=False;
+  if (LinkedCount=BookCount) and not RemoveRecords then
+  begin
+    MHLShowInfo('Выбранные книги добавлены ссылками. Исходные файлы останутся на месте.');
+    Exit;
+  end;
   Owner:=Screen.ActiveForm; if not Assigned(Owner) then Owner:=Application.MainForm;
   Dialog:=TForm.CreateNew(Owner);
   try
@@ -180,14 +186,21 @@ begin
     Files:=TCheckBox.Create(Dialog); Files.Parent:=Dialog; Files.Name:='DeleteBookSourceFiles';
     Files.SetBounds(20,80,550,26); Files.Anchors:=[akLeft,akTop,akRight];
     Files.Caption:='Удалить файлы книг с диска'; Files.Checked:=RemoveFiles;
-    Files.Enabled:=RemoveRecords;
-    if not RemoveRecords then Files.Checked:=True;
+    Files.Enabled:=RemoveRecords and (LinkedCount<BookCount);
+    if not RemoveRecords then Files.Checked:=True
+    else if LinkedCount=BookCount then Files.Checked:=False;
     Details:=TLabel.Create(Dialog); Details.Parent:=Dialog;
     Details.SetBounds(20,116,550,86); Details.Anchors:=[akLeft,akTop,akRight,akBottom];
     Details.AutoSize:=False; Details.WordWrap:=True; Details.ShowAccelChar:=False;
     if RemoveRecords then
       Details.Caption:='Без галочки удаляются только записи из коллекции. Файлы книг остаются на диске.'
     else Details.Caption:='Будут удалены загруженные файлы. Записи в каталоге, оценки и заметки сохранятся.';
+    if LinkedCount>0 then
+    begin
+      Details.Caption:=Details.Caption+sLineBreak+Format(
+        'У книг, добавленных ссылками (%d), исходные файлы останутся на месте.',[LinkedCount]);
+      Dialog.ClientHeight:=Dialog.ClientHeight+40;
+    end;
     if ArchiveCount>0 then
       Details.Caption:=Details.Caption+sLineBreak+sLineBreak+Format(
         'Книг в архивах: %d. В общем архиве программа уберёт только выбранные книги и покажет объём работ до записи. Пустой архив тоже может быть удалён.',[ArchiveCount]);
@@ -214,16 +227,18 @@ end;
 
 function ConfirmBookDeletionBatch(var Items:TArray<TBookDeletionBatchItem>):Boolean;
 var Dialog,Owner:TForm; Summary:TLabel; Rows:TScrollBox; Footer,Row:TPanel;
-  Checks:TArray<TCheckBox>; Button:TButton; Books,Archives,Total:Integer;
+  Checks:TArray<TCheckBox>; Button:TButton; Books,Archives,Total,Linked:Integer;
 begin
   Result:=False;
   if Length(Items)=0 then Exit;
   if Length(Items)=1 then
   begin
-    Books:=Length(Items[0].Binding.ExpectedBooks); Archives:=0;
-    for var Book in Items[0].Binding.ExpectedBooks do if IsArchiveBookSource(Book) then Inc(Archives);
+    Books:=Length(Items[0].Binding.ExpectedBooks); Archives:=0; Linked:=0;
+    for var Book in Items[0].Binding.ExpectedBooks do
+      if Book.IsLinkedSource then Inc(Linked)
+      else if IsArchiveBookSource(Book) then Inc(Archives);
     Exit(ConfirmBookDeletion(Items[0].CollectionName,Books,Archives,
-      Items[0].Binding.RemoveRecords,Items[0].RemoveFiles));
+      Items[0].Binding.RemoveRecords,Items[0].RemoveFiles,'',Linked));
   end;
   Owner:=Screen.ActiveForm; if not Assigned(Owner) then Owner:=Application.MainForm;
   Dialog:=TForm.CreateNew(Owner);
@@ -239,7 +254,8 @@ begin
     Summary.AutoSize:=False; Summary.Height:=64; Summary.WordWrap:=True; Summary.ShowAccelChar:=False;
     Summary.Margins.SetBounds(18,14,18,6); Summary.AlignWithMargins:=True;
     Summary.Caption:=Format('Выбрано книг: %d · коллекций: %d'+sLineBreak+
-      'В общих архивах удаляются только выбранные книги.',[Total,Length(Items)]);
+      'В общих архивах удаляются только выбранные книги. Файлы, добавленные ссылками, сохраняются.',
+      [Total,Length(Items)]);
     Footer:=TPanel.Create(Dialog); Footer.Parent:=Dialog; Footer.Align:=alBottom;
     Footer.Height:=54; Footer.BevelOuter:=bvNone;
     Button:=TButton.Create(Dialog); Button.Parent:=Footer; Button.Name:='ConfirmBookDeletion';

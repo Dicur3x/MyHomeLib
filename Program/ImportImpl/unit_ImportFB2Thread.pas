@@ -53,13 +53,15 @@ type
   TImportLocalBookThread = class(TImportFB2Thread)
   private
     FSources: TArray<string>;
+    FKeepSource: Boolean;
     function ImportSource(const Source: string): Integer;
     procedure AddSelectedBook(const DisplayName, RelativeFolder, Name, Extension, LocalID: string;
-      const Size, ArchiveIndex: Integer; Input: TStream);
+      const Size, ArchiveIndex: Integer; Input: TStream; const MetadataExtension: string = '');
   protected
     procedure WorkFunction; override;
   public
-    constructor Create(const CollectionID: Integer; const Sources: TArray<string>);
+    constructor Create(const CollectionID: Integer; const Sources: TArray<string>;
+      const KeepSource: Boolean = False);
   end;
 
 implementation
@@ -621,10 +623,12 @@ begin
   Teletype(Format(rstrAddedBooksTotal, [FAddCount, FDefectCount]), tsInfo);
 end;
 
-constructor TImportLocalBookThread.Create(const CollectionID: Integer; const Sources: TArray<string>);
+constructor TImportLocalBookThread.Create(const CollectionID: Integer; const Sources: TArray<string>;
+  const KeepSource: Boolean);
 begin
   inherited Create(CollectionID,afZip);
   FSources := Copy(Sources);
+  FKeepSource := KeepSource;
 end;
 
 function IsLocalImportFormat(const Extension: string): Boolean;
@@ -636,7 +640,8 @@ begin
 end;
 
 procedure TImportLocalBookThread.AddSelectedBook(const DisplayName, RelativeFolder,
-  Name, Extension, LocalID: string; const Size, ArchiveIndex: Integer; Input: TStream);
+  Name, Extension, LocalID: string; const Size, ArchiveIndex: Integer; Input: TStream;
+  const MetadataExtension: string);
 var
   Book: TBookRecord;
 begin
@@ -651,7 +656,12 @@ begin
   Book.Date := Now;
   Include(Book.BookProps,bpIsLocal);
 
-  ReadImportedMetadata(Input, Book);
+  if Assigned(Input) then
+  begin
+    if MetadataExtension<>'' then Book.FileExt := MetadataExtension;
+    ReadImportedMetadata(Input, Book);
+    Book.FileExt := Extension;
+  end;
 
   if Canceled then Abort;
   if FCollection.InsertBook(Book,False,False,FImportCache)=0 then
@@ -664,6 +674,7 @@ const
   MaxMetadataMember = 256*1024*1024;
 var
   Extension, Detected, Folder, Path, RelativePath, Name, LocalID, Member, MemberExt, ID: string;
+  BookFolder, StoredExtension: string;
   Attr: DWORD;
   Archive: TMHLZip;
   Input: TStream;
@@ -684,32 +695,50 @@ begin
   if not IsLocalImportFormat(Extension) then
     raise ENotSupportedException.Create('Этот файл не распознан как книга или документ.');
 
-  LocalID := NewLocalBookID;
-  Name := Copy(LocalID,Length(LOCAL_BOOK_ID_PREFIX)+1,MaxInt);
-  Folder := TPath.Combine(FCollectionRoot,LocalFolder);
-  if not DirectoryExists(Folder) and not CreateDir(ExcludeTrailingPathDelimiter(Folder)) then
-    RaiseLastOSError;
-  Attr := GetFileAttributes(PChar(ExcludeTrailingPathDelimiter(Folder)));
-  if (Attr=INVALID_FILE_ATTRIBUTES) or ((Attr and FILE_ATTRIBUTE_REPARSE_POINT)<>0) then
-    raise EInOutError.Create('Папка для своих книг недоступна или является ссылкой.');
-  RelativePath := LocalFolder+Name+Extension;
-  Path := TPath.Combine(FCollectionRoot,RelativePath);
-  SetComment('Копируем книгу в папку коллекции…');
-  if not CopyForImport(Source,Path) then
-    raise EInOutError.Create('Не удалось создать отдельную копию файла.');
+  LocalID := NewLocalBookID(FKeepSource);
+  if FKeepSource then
+  begin
+    Path := Source;
+    RelativePath := Source;
+    BookFolder := ExtractFilePath(Source);
+    StoredExtension := ExtractFileExt(Source);
+    Name := ChangeFileExt(ExtractFileName(Source),'');
+  end
+  else
+  begin
+    Name := Copy(LocalID,Length(LOCAL_BOOK_ID_PREFIX)+1,MaxInt);
+    BookFolder := LocalFolder;
+    StoredExtension := Extension;
+    Folder := TPath.Combine(FCollectionRoot,LocalFolder);
+    if not DirectoryExists(Folder) and not CreateDir(ExcludeTrailingPathDelimiter(Folder)) then
+      RaiseLastOSError;
+    Attr := GetFileAttributes(PChar(ExcludeTrailingPathDelimiter(Folder)));
+    if (Attr=INVALID_FILE_ATTRIBUTES) or ((Attr and FILE_ATTRIBUTE_REPARSE_POINT)<>0) then
+      raise EInOutError.Create('Папка для своих книг недоступна или является ссылкой.');
+    RelativePath := LocalFolder+Name+Extension;
+    Path := TPath.Combine(FCollectionRoot,RelativePath);
+    SetComment('Копируем книгу в папку коллекции…');
+    if not CopyForImport(Source,Path) then
+      raise EInOutError.Create('Не удалось создать отдельную копию файла.');
+  end;
 
   try
-    Attr := GetFileAttributes(PChar(Path));
-    if (Attr=INVALID_FILE_ATTRIBUTES) or
-      (((Attr and FILE_ATTRIBUTE_READONLY)<>0) and
-      not SetFileAttributes(PChar(Path),Attr and not FILE_ATTRIBUTE_READONLY)) then
-      RaiseLastOSError;
+    if not FKeepSource then
+    begin
+      Attr := GetFileAttributes(PChar(Path));
+      if (Attr=INVALID_FILE_ATTRIBUTES) or
+        (((Attr and FILE_ATTRIBUTE_READONLY)<>0) and
+        not SetFileAttributes(PChar(Path),Attr and not FILE_ATTRIBUTE_READONLY)) then
+        RaiseLastOSError;
+    end;
     if Canceled then Abort;
     FCollection.BeginBulkOperation;
     try
       Added := 0;
       SetComment('Добавляем книгу в каталог…');
-      if IsArchiveExt(Path) then
+      // Index members only when the archive can be reopened at its original
+      // name. A renamed archive is opened by signature from its single entry.
+      if IsArchiveExt(Path) and SameText(StoredExtension,Extension) then
       begin
         Archive := TMHLZip.Create(Path,True,False,function: Boolean begin Result:=Canceled; end);
         try
@@ -717,7 +746,7 @@ begin
           begin
             var ArchiveSize := TFile.GetSize(Path);
             if ArchiveSize>MaxInt then raise EReadError.Create('Файл слишком велик для каталога.');
-            AddSelectedBook(Source,LocalFolder,Name,Extension,LocalID,Integer(ArchiveSize),0,nil);
+            AddSelectedBook(Source,BookFolder,Name,StoredExtension,LocalID,Integer(ArchiveSize),0,nil);
             Added := 1;
           end
           else
@@ -730,7 +759,7 @@ begin
               var MemberSize := Archive.FileSizes[I];
               if MemberSize=0 then
                 raise EReadError.CreateFmt('Файл «%s» пуст или слишком велик для каталога.',[Member]);
-              if Added=0 then ID := LocalID else ID := NewLocalBookID;
+              if Added=0 then ID := LocalID else ID := NewLocalBookID(FKeepSource);
               Input := nil;
               try
                 if (MemberExt=FB2_EXTENSION) or IsMetadataPackage(MemberExt) then
@@ -756,7 +785,8 @@ begin
         try
           if Input.Size=0 then raise EReadError.Create('Выбранный файл пуст.');
           if Input.Size>MaxInt then raise EReadError.Create('Файл слишком велик для каталога.');
-          AddSelectedBook(Source,LocalFolder,Name,Extension,LocalID,Integer(Input.Size),0,Input);
+          AddSelectedBook(Source,BookFolder,Name,StoredExtension,LocalID,Integer(Input.Size),0,Input,
+            Extension);
           Added := 1;
         finally
           Input.Free;
@@ -770,12 +800,12 @@ begin
       else if FCollection.ResolveBookID(LocalID,0)<>0 then
       begin
         // A failure after committing must not remove a catalogued file.
-        ForgetCreatedFile(Path,False);
+        if not FKeepSource then ForgetCreatedFile(Path,False);
         CollectionCommitted(FCollectionID);
       end;
       raise;
     end;
-    ForgetCreatedFile(Path,False);
+    if not FKeepSource then ForgetCreatedFile(Path,False);
     CollectionCommitted(FCollectionID);
     Result := Added;
   finally

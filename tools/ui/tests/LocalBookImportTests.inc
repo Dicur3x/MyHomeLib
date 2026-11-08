@@ -3,7 +3,7 @@
   public
     ExpectedPrompt: string;
     Reply: Integer;
-    PromptSeen: Boolean;
+    PromptSeen, KeepSource: Boolean;
     procedure Poll(Sender: TObject);
   end;
 
@@ -23,6 +23,9 @@ begin
     var Item := Active.Components[Index];
     if (Item is TLabel) and (TLabel(Item).Caption = ExpectedPrompt) then
     begin
+      var KeepFile := Active.FindComponent('ImportKeepSource') as TCheckBox;
+      Require(Assigned(KeepFile) and not KeepFile.Checked, 'The import dialog must default to making a copy');
+      KeepFile.Checked := KeepSource;
       PromptSeen := True;
       Active.ModalResult := Reply;
       Exit;
@@ -32,7 +35,7 @@ end;
 
 procedure TestExplorerFileDrop(const Catalog, OtherCatalog: IBookCollection);
 var
-  Folder, First, Second, FirstHash, SecondHash, Name, SavedDirectory, LaunchDirectory: string;
+  Folder, First, Second, FirstHash, SecondHash, Name, SavedDirectory, LaunchDirectory, LinkedArchive: string;
   Watch: TTimer;
   Probe: TFileDropPromptProbe;
   SavedDialogs: Boolean;
@@ -146,6 +149,48 @@ begin
       'Imported copies were written relative to the process launch directory');
     Require((THashSHA2.GetHashStringFromFile(First) = FirstHash) and
       (THashSHA2.GetHashStringFromFile(Second) = SecondHash), 'A drop changed its source books');
+    LinkedArchive := TPath.Combine(Folder,'Сборник.zip');
+    var Zip := TZipFile.Create;
+    try
+      Zip.Open(LinkedArchive,zmWrite);
+      Zip.Add(Second,'Тексты/Вторая книга.txt');
+    finally Zip.Free; end;
+    var ArchiveHash := THashSHA2.GetHashStringFromFile(LinkedArchive);
+    Probe.KeepSource := True;
+    DropFiles([First, LinkedArchive],
+      Format('Добавить выбранные файлы (2) в коллекцию «%s»?', [Name]), mrYes, True);
+    var LinkedCount := 0;
+    for var Entry in Catalog.CaptureLocalBooks do
+      if Entry.Book.IsLinkedSource then
+      begin
+        Inc(LinkedCount);
+        var Source := Entry.Book.GetBookFileName;
+        var Expected := FirstHash;
+        if SameFileName(Source,LinkedArchive) then Expected := SecondHash
+        else Require(SameFileName(Source,First),'Linked book did not retain its absolute source path');
+        var Prepared := PrepareReaderFile(Entry.Book,True);
+        Require(THashSHA2.GetHashStringFromFile(Prepared)=Expected,'Reader changed the linked payload');
+        Prepared := PrepareConversionSource(Entry.Book,nil,'.epub',True,False,nil);
+        Require(THashSHA2.GetHashStringFromFile(Prepared)=Expected,'Export preparation changed the linked payload');
+        if SameFileName(Source,First) then
+        begin
+          TFile.Move(First,First+'.moved');
+          try
+            var Rejected := False;
+            try PrepareReaderFile(Entry.Book,True);
+            except on E: EFileNotFoundException do
+              Rejected := E.Message.Contains('Не найден исходный файл') and E.Message.Contains(First);
+            end;
+            Require(Rejected,'A missing linked source was resolved silently or had the wrong error');
+          finally TFile.Move(First+'.moved',First); end;
+        end;
+      end;
+    Require((LinkedCount=2) and (Length(Catalog.CaptureLocalBooks)=4),
+      'The import did not store separate stable identities for linked and copied books');
+    Require(Length(TDirectory.GetFiles(ImportedFolder))=2,'Linked import wrote unnecessary copies');
+    Require((THashSHA2.GetHashStringFromFile(First)=FirstHash) and
+      (THashSHA2.GetHashStringFromFile(LinkedArchive)=ArchiveHash),'Linked import changed the original files');
+    Writeln('PASS Explorer links loose and archived books without copying and reports the unavailable original');
   finally
     SetCurrentDir(SavedDirectory);
     UseLatestCommonDialogs := SavedDialogs;

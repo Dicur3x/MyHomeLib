@@ -276,6 +276,7 @@ type
     function GetBookFileName: string; overload;
     function GetBookFileName(const ResolvedContainer: string): string; overload;
     function GetBookContainer: string;
+    function IsLinkedSource: Boolean;
     function GetBookStream(const PreserveWebP: Boolean = False;
       const RestoreOriginalImages: Boolean = True; const IsCanceled: TFunc<Boolean> = nil): TStream;
     function GetBookDescriptorStream(const RestoreImages: Boolean = True): TStream;
@@ -479,6 +480,7 @@ uses
   unit_FLibraryCompat,
   unit_WebPCompat,
   unit_BookMetadataCache,
+  unit_LibrarySourceID,
   unit_Errors,
   unit_Settings;
 
@@ -1308,7 +1310,7 @@ begin
   begin
     LongFileName := TPath.Combine(BookContainer, FileName);
 
-    if AnsiLowercase(ExtractFileExt(LongFileName)) = ZIP_EXTENSION then
+    if (AnsiLowercase(ExtractFileExt(LongFileName)) = ZIP_EXTENSION) and not IsLinkedSource then
       Result := bfFbd
     else if SameText(FileExt, FB2_EXTENSION) then
       Result := bfFb2
@@ -1347,11 +1349,18 @@ begin
     Result := TPath.Combine(BookContainer, FileName) + FileExt;
 end;
 
+function TBookRecord.IsLinkedSource: Boolean;
+begin
+  // Packing gives the materialized copy its own relative storage path.
+  Result := IsLinkedLocalBookID(LibID) and TPath.IsPathRooted(Folder);
+end;
+
 function TBookRecord.GetBookContainer: string;
 var
   SevenZipFallback: string;
 begin
   Result := TPath.Combine(CollectionRoot, Folder);
+  if IsLinkedSource then Exit;
   // Collections imported by older MyHomeLib builds assumed that every INPX
   // member referred to a ZIP.  FLibrary keeps the same base name in 7z.  Make
   // an already-created collection usable without rewriting its database.
