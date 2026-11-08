@@ -120,15 +120,22 @@ class KindleOutputTests(unittest.TestCase):
         chapter, cover, ncx = ('OPS/chapter.xml', 'OPS/cover.xhtml', 'OPS/toc.ncx')
         files[cover] = b'<html xmlns="http://www.w3.org/1999/xhtml"><body><div><img src="image.jpg"/></div></body></html>'
         files[ncx] = b'<ncx><navMap><navPoint><content src="chapter.xml#anchor"/></navPoint></navMap></ncx>'
-        for keep_cover in ('no', 'caption', 'chapter-link', 'toc-link'):
+        for keep_cover in ('no', 'caption', 'chapter-link', 'toc-link', 'startup',
+                           'startup-chapter-link', 'startup-fragment', 'guide-link'):
             with self.subTest(keep_cover=keep_cover):
                 payloads = dict(files)
                 if keep_cover == 'caption':
                     payloads[cover] = files[cover].replace(b'</div>', b'<p>Edition detail</p></div>')
-                elif keep_cover == 'chapter-link':
+                elif keep_cover in ('chapter-link', 'startup-chapter-link'):
                     payloads[chapter] = files[chapter].replace(b'href="#note"', b'href="cover.xhtml"')
                 elif keep_cover == 'toc-link':
                     payloads[ncx] = files[ncx].replace(b'chapter.xml#anchor', b'cover.xhtml')
+                if keep_cover.startswith('startup') or keep_cover == 'guide-link':
+                    kind = b'toc' if keep_cover == 'guide-link' else b'text'
+                    link = b'cover.xhtml#top' if keep_cover == 'startup-fragment' else b'cover.xhtml'
+                    guide = b'<guide><reference type="' + kind + b'" href="' + link + b'"/></guide>'
+                    payloads['OPS/package.opf'] = (files['OPS/package.opf']
+                        .replace(b' linear="no"', b'').replace(b'</package>', guide + b'</package>'))
                 source, output = self.root / (keep_cover + '.epub'), self.root / (keep_cover + '-out.epub')
                 with zipfile.ZipFile(source, 'w') as archive:
                     for name, data in payloads.items():
@@ -149,8 +156,13 @@ class KindleOutputTests(unittest.TestCase):
                     self.assertEqual(archive.read(ncx), payloads[ncx])
                     spine = c.first(package, 'spine')
                     self.assertEqual(spine.get('toc'), 'ncx')
-                    self.assertEqual([item.get('idref') for item in spine],
-                                     ['chapter'] if keep_cover == 'no' else ['cover', 'chapter'])
+                    removed = keep_cover in ('no', 'startup')
+                    self.assertEqual([item.get('idref') for item in spine], ['chapter'] if removed else ['cover', 'chapter'])
+                    guide = c.first(package, 'guide')
+                    if guide is not None:
+                        expected = 'chapter.xml' if removed else link.decode('ascii')
+                        self.assertEqual(guide[0].get('href'), expected)
+                    self.assertIn(cover, archive.namelist())
                 self.assertEqual(hashlib.sha256(source.read_bytes()).digest(), source_hash)
 
     def test_jpeg_record_padding_preserves_codestream_and_unknown_tails(self):
@@ -227,6 +239,17 @@ class KindleOutputTests(unittest.TestCase):
             with self.assertRaisesRegex(c.ConversionError, 'native writer failed'):
                 c.convert_book(self.source, self.root / 'out.mobi', tools_root=self.root / 'tools')
         self.assertFalse((self.root / 'out.mobi').exists())
+        self.assert_clean()
+
+    def test_long_validation_report_keeps_the_error_before_the_warnings(self):
+        self.writer()
+        failure = SimpleNamespace(returncode=1, stdout='[error R4.2.4] Duplicate cover.\n' +
+            '[warning R10.4.5] Image name does not match its format.\n' * 100,
+            stderr='Build aborted: 1 validation errors.')
+        with mock.patch.object(subprocess, 'run', return_value=failure):
+            with self.assertRaisesRegex(c.ConversionError, 'R4.2.4.*Duplicate cover'):
+                c.convert_book(self.source, self.root / 'out.azw3', tools_root=self.root / 'tools')
+        self.assertFalse((self.root / 'out.azw3').exists())
         self.assert_clean()
 
     def test_timeout_is_reported_and_removes_private_intermediates(self):

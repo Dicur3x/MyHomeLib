@@ -10,6 +10,7 @@ import struct
 import subprocess
 import tempfile
 import time
+from urllib.parse import urlsplit
 import xml.etree.ElementTree as ET
 import zipfile
 
@@ -188,8 +189,9 @@ def canonical_input(api, source, destination, warnings=None):
             for item in (node for node in package.iter() if api.tag(node) == 'item'):
                 kind = item.get('media-type', '')
                 identity = item.get('id')
-                member = archive.resolve(name, item.get('href', ''))[0]
-                items[identity] = member
+                href = item.get('href', '')
+                member = archive.resolve(name, href)[0]
+                items[identity] = member, href
                 if 'cover-image' in item.get('properties', '').split():
                     cover_ids.add(identity)
                 if identity in cover_ids and kind.startswith('image/') and member in archive.names:
@@ -206,15 +208,19 @@ def canonical_input(api, source, destination, warnings=None):
                     navigation.add(member)
             cover_declared = cover_declared or bool(cover_ids)
             spine = next((node for node in package if api.tag(node) == 'spine'), None)
-            if spine is not None and len(spine) > 1 and spine[0].get('linear') == 'no':
-                page = items.get(spine[0].get('idref'))
+            if spine is not None and len(spine) > 1:
+                page, _ = items.get(spine[0].get('idref'), (None, ''))
                 if cover_images and page in documents and redundant_cover(api, archive, page, cover_images):
-                    duplicate_covers[name] = (spine, spine[0], page)
+                    for following in spine[1:]:
+                        target, href = items.get(following.get('idref'), (None, ''))
+                        if target != page and target in documents and following.get('linear') != 'no':
+                            duplicate_covers[name] = (spine, spine[0], page, href)
+                            break
         if not packages or not documents:
             raise api.ConversionError('В EPUB отсутствует текст книги.')
         ET.register_namespace('', api.XH)
         ET.register_namespace('epub', api.EP)
-        cover_pages = {page for _, _, page in duplicate_covers.values()}
+        cover_pages = {page for _, _, page, _ in duplicate_covers.values()}
         linked_covers = set()
 
         def keep_linked_covers(name, nodes):
@@ -277,14 +283,33 @@ def canonical_input(api, source, destination, warnings=None):
                     else:
                         keep_linked_covers(name, nav.iter())
                 target.writestr(member, data)
+            startup_references = {}
             for name, package in packages.items():
                 if cover_pages:
-                    keep_linked_covers(name, (node for node in package.iter() if api.tag(node) == 'reference'))
+                    redirects = []
+                    guide = api.first(package, 'guide')
+                    if name in duplicate_covers and guide is not None:
+                        page = duplicate_covers[name][2]
+                        for node in guide:
+                            if api.tag(node) != 'reference' or node.get('type') != 'text':
+                                continue
+                            href = node.get('href', '')
+                            try:
+                                path, fragment = archive.resolve(name, href)
+                                if path == page and not fragment and not urlsplit(href).query:
+                                    redirects.append(node)
+                            except (api.ConversionError, ValueError):
+                                continue
+                    startup_references[name] = redirects
+                    keep_linked_covers(name, (node for node in package.iter()
+                        if api.tag(node) == 'reference' and node not in redirects))
             for name, package in packages.items():
                 if name in duplicate_covers:
-                    spine, reference, page = duplicate_covers[name]
+                    spine, reference, page, start_href = duplicate_covers[name]
                     if page not in linked_covers:
                         spine.remove(reference)
+                        for node in startup_references[name]:
+                            node.set('href', start_href)
                 for metadata in (node for node in package if api.tag(node) == 'metadata'):
                     for item in list(metadata):
                         if item.get('property', '').startswith('mhl:fb2-'):
@@ -391,7 +416,10 @@ def convert(api, source, destination, options):
         except subprocess.TimeoutExpired as error:
             raise api.ConversionError('Модуль записи Kindle не завершил работу за 5 минут.') from error
         if completed.returncode or not output.is_file():
-            detail = '\n'.join(part.strip() for part in (completed.stdout, completed.stderr) if part).strip()[-4500:]
+            detail = '\n'.join(part.strip() for part in (completed.stdout, completed.stderr) if part).strip()
+            if len(detail) > 4500:
+                errors = [line for line in detail.splitlines() if line.startswith('[error ')]
+                detail = '\n'.join(errors)[:4500] if errors else detail[-4500:]
             raise api.ConversionError('Не удалось сохранить книгу Kindle.' + (' ' + detail if detail else ''))
         validate_output(api, output, extension)
         # Publication and cleanup follow the shared converter's no-replace
