@@ -25,28 +25,44 @@ The current public beta is **[HomeLibre 3.0 beta 8](https://github.com/Dicur3x/M
 | [HomeLibre — 32-bit](https://github.com/Dicur3x/MyHomeLib/releases/download/3.0.0_pre1.8/HomeLibre.zip) | 32-bit Windows; also runs on 64-bit Windows |
 | [SHA256SUMS.txt](https://github.com/Dicur3x/MyHomeLib/releases/download/3.0.0_pre1.8/SHA256SUMS.txt) | Archive checksums |
 
-The archives are named `HomeLibre.zip` and `HomeLibre_x64.zip`. The beta 2
-updater supports these names. The executable remains `HomeLibRu.exe` for
-compatibility with existing installations.
+Requires **Windows 10 or later**. The archive contains the catalogue app.
+Books are obtained separately.
 
-Requires **Windows 10 or later**. Books are obtained separately and are not bundled.
-The minimal archive contains the cataloguer. HomeLibre Reader and the modules
-required by a particular book are offered for download when needed. The reader
-is also available separately in the [components release](https://github.com/Dicur3x/MyHomeLib/releases/tag/optional-alreader-2.5.1009.25). You do not need to install Delphi,
-Python or a separate SQLite library.
-
-1. Extract the entire archive to a folder you can write to.
+1. Extract the archive to a folder you can write to.
 2. Run **HomeLibRu.exe**.
-3. Open the collection creation wizard from the **Collection** menu. Create
-   an empty collection, import INPX, or connect an existing `.hlc2` catalogue.
-4. Choose your books folder. For an ordinary local collection, add files
-   through the **Book** menu.
-5. Find a book in the author, series, genre or search tabs and open it.
+3. Use the **Collection** menu to create an empty collection, import INPX or
+   open an existing `.hlc2` catalogue.
+4. Choose your books folder. Use **Collection → Import → Add file…** or drag
+   files in from File Explorer. For a local collection, you can leave the files
+   where they are and let HomeLibre store links to them.
+5. Find a book by author, series, genre or search and open it.
 
 **F1** opens help for the current window.
 [Create a collection](Program/Help/en/new_collection.html) ·
-[Add books](Program/Help/en/add_books.html) ·
-[Read books](Program/Help/en/reading.html).
+[Add books](Program/Help/en/add_books.html).
+
+## HomeLibre Reader
+
+[Download Reader for Windows x64](https://github.com/Dicur3x/MyHomeLib/releases/download/optional-alreader-2.5.1009.25/HomeLibRu-HomeLibReader-3.0.0.8-Win64.zip) · [Download Reader for Windows x86](https://github.com/Dicur3x/MyHomeLib/releases/download/optional-alreader-2.5.1009.25/HomeLibRu-HomeLibReader-3.0.0.8-Win32.zip) ·
+[All components and external readers](https://github.com/Dicur3x/MyHomeLib/releases/tag/optional-alreader-2.5.1009.25)
+
+To read files without the catalogue app, extract the Reader archive, run
+**HomeLibReader.exe** and press **Ctrl+O**. If you open a book from the catalogue,
+HomeLibre offers to install the reader the first time you need it.
+
+- **Ready to open:** FB2, FB3, EPUB, TXT, RTF, HTML/MHTML, Markdown, DOCX, ODT,
+  common image formats and CBZ comics with those images.
+- **Modules on demand:** PDF, DjVu, XPS, Kindle (MOBI, AZW, AZW3, PRC), older
+  Office documents including DOC, and additional image and comic formats.
+  Presentations and spreadsheets can be opened without installing Office.
+- **Less common formats:** CHM, LIT, LRF, RB, ABW, SXW, WRI, TCR, RGO, IBK and
+  supported PDB variants. The reader can also open supported books in ZIP,
+  7z and RAR archives and lets you choose when an archive contains several.
+
+Adjust colours, fonts, two-page spreads and smooth scrolling. The reader has
+text search, a table of contents, bookmarks, notes and saved reading positions.
+Use **File → Save as…** to save or convert the open book. Complex Office or EPUB
+layouts may be simplified when preparing the book. [Reading help](Program/Help/en/reading.html).
 
 ## Features
 
@@ -88,52 +104,27 @@ Python or a separate SQLite library.
 [Personal information](Program/Help/en/user_data.html) ·
 [FB2/INPX metadata and review sources](docs/METADATA_AND_REVIEWS_RESEARCH_2026-10-15.md) (in Russian).
 
-### Reading
+### External readers
 
-**HomeLibre Reader** is installed on demand. It opens FB2, FB3, EPUB, TXT, RTF,
-HTML/MHTML, Markdown, DOC/DOT/DOCX, ODT, PDF, DjVu, CBZ/CBR/CB7 comics and images.
-DOC/DOT use DocSharp, installed on demand, to produce a cached DOCX, without LibreOffice.
-DOCX and ODT are read directly from XML. Unencrypted MOBI/AZW/AZW3/PRC support
-is limited to KF8 (format version 8); older variants may need an external reader.
-PPT/PPTX/ODP presentations, XLS/XLSX/ODS spreadsheets, their templates and WPS/WPD
-are adapted into a cached EPUB with text, tables and images. No installed office
-suite is required. WPS/WPD need 64-bit Windows in either HomeLibre build.
-
-- Light and dark themes; adjustable fonts, text width, colours and appearance.
-- A tree table of contents, in-book search, footnotes, bookmarks and saved reading position.
-- Select and copy FB2/EPUB/TXT text, and text from PDFs with a text layer.
-- Navigate with the progress bar; zoom PDFs and images by holding the mouse
-  button or clicking again, with an adjustable zoom level.
-- Named bookmarks with timestamps, notes with quotations and positions;
-  export records for one book or all books
-  to TXT, HTML or DOCX, with a choice of styles.
-- A cache of prepared books: choose its folder and size limit, reuse files,
-  clear it manually or on exit.
-- Four available font families: PT Serif, PT Sans, Noto Serif, Noto Sans.
-  Missing fonts for other scripts are offered with a download size and
-  downloaded only when you choose to do so.
-
-**AlReader** and **SumatraPDF** can be installed separately into `Readers`.
-Choose an external reader from a book's context menu and configure it per file
-type. Existing reader assignments are preserved.
-
-Complex EPUB/CSS layouts may differ
-from the original. Protected books are not decrypted; scans do not receive OCR.
-[Reader settings](Program/Help/en/set_readers.html).
+The catalogue app can also open books in **AlReader** or **SumatraPDF**.
+Choose an external reader from the book's context menu or assign one to a
+file type in settings. [Reader settings](Program/Help/en/set_readers.html).
 
 ### Export and sharing
 
-- **Save as…** saves one or several books in their original formats or converts
-  them to FB2, FB2 in ZIP, EPUB, TXT, MOBI or AZW3. For a mixed selection, keep
-  each book’s format or choose a common output format. A book already in the
-  chosen format does not need another conversion.
-- MOBI and AZW3 use a separate Kindle writer module, offered when needed.
-  Source EPUB files are converted without an intermediate FB2. Handlers for
-  other input formats are downloaded separately when required.
-- PDF/DjVu text is preserved when a usable text layer exists; remaining pages
-  are saved as images. OCR is not included. Output-size estimates and image
-  options are available where supported by the output format. Complex CSS
-  layouts may be simplified; conversion notes are included in the report.
+- **Save as…** keeps the original format or converts to FB2, FB2.ZIP, EPUB,
+  TXT, MOBI or AZW3. For several books, keep each format or choose a common one.
+  **More formats** shows EPUB 2, EPUB 3, KEPUB for Kobo, KFX and AZW8 for Kindle,
+  PDF and Markdown when available for the selected books. Modules are offered
+  when needed. Exporting EPUB to PDF uses Microsoft WebView2 Runtime.
+- **Grayscale** removes colour from illustrations and scans in the saved copy.
+  This can reduce its file size when colour is optional. Use it with any
+  available compression setting, including **Maximum savings**. Select
+  **Estimate size** to compare the results. Run the estimate again after
+  changing the checkbox.
+- When a PDF or DjVu has a text layer, conversion can carry over its text.
+  Scanned pages are kept as images. For large scanned PDFs, the estimate
+  samples pages and shows a range of likely file sizes.
 - Originals stay unchanged. If a name already exists, replace the file, keep
   both or cancel. The destination and filename/subfolder templates are shared
   with Folder/Device settings. Custom export scripts remain separate commands.
