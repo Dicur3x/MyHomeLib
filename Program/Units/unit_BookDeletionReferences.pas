@@ -8,6 +8,8 @@ procedure CheckArchiveDeletionReferences(const User: ISystemData;
   var Tasks: TArray<TArchiveDeletionTask>; const Cancelled: TFunc<Boolean>);
 procedure CheckLooseDuplicateReferences(const User: ISystemData; CollectionID: Integer;
   const Removed: TArray<TBookRecord>; const Cancelled: TFunc<Boolean>);
+procedure CheckLinkedLooseReferences(const User: ISystemData; const Removed: TArray<TBookRecord>;
+  const Cancelled: TFunc<Boolean> = nil);
 
 implementation
 
@@ -68,6 +70,76 @@ begin
     if E.ErrorCode in [ERROR_FILE_NOT_FOUND,ERROR_PATH_NOT_FOUND,ERROR_NOT_READY] then Result:=''
     else raise;
   end;
+end;
+
+procedure CheckLinkedLooseReferences(const User: ISystemData; const Removed: TArray<TBookRecord>;
+  const Cancelled: TFunc<Boolean>);
+const LinkFilter = ' WHERE (LibID>=''local:link:'' AND LibID<''local:link;'') OR '+
+    '(LibID>=''merged:'' AND LibID<''merged;'' AND LibID GLOB ''merged:*:local:link:*'')';
+var Paths: TDictionary<string, string>; Sources: TDictionary<string, Byte>;
+  Collections: ICollectionInfoIterator;
+  Info: TCollectionInfo; LoadedSources: Boolean;
+
+  procedure CheckRows(Database: TSQLiteDatabase; const TableName: string);
+  var Query: TSQLiteQuery; Book: TBookRecord; Path, Identity: string;
+  begin
+    Query:=Database.NewQuery('SELECT LibID,Folder,FileName,Ext FROM '+TableName+LinkFilter);
+    try
+      Query.Open;
+      while not Query.Eof do
+      begin
+        if Assigned(Cancelled) and Cancelled() then Abort;
+        Book:=Default(TBookRecord);
+        Book.LibID:=Query.FieldAsString(0); Book.Folder:=Query.FieldAsString(1);
+        Book.FileName:=Query.FieldAsString(2); Book.FileExt:=Query.FieldAsString(3);
+        if Book.IsLinkedSource then
+        begin
+          Path:=ExpandFileName(Book.GetBookFileName);
+          if Paths.ContainsKey(LowerCase(Path)) then
+            raise EInOutError.CreateFmt('Исходный файл используется записью-ссылкой: %s. Удаление не началось.',[Path]);
+          if not LoadedSources then
+          begin
+            for var Candidate in Paths.Values do
+            begin
+              if Assigned(Cancelled) and Cancelled() then Abort;
+              Identity:=SourceKey(Candidate);
+              if Identity<>'' then Sources.AddOrSetValue(Identity,0);
+            end;
+            LoadedSources:=True;
+          end;
+          if (Sources.Count>0) and Sources.ContainsKey(SourceKey(Path)) then
+            raise EInOutError.CreateFmt('На тот же файл указывает запись-ссылка: %s. Удаление не началось.',[Path]);
+        end;
+        Query.Next;
+      end;
+    finally Query.Free; end;
+  end;
+
+begin
+  Paths:=TDictionary<string,string>.Create;
+  Sources:=TDictionary<string,Byte>.Create;
+  try
+    for var Book in Removed do
+      if not Book.IsLinkedSource then
+      begin
+        var Path:=ExpandFileName(Book.GetBookFileName);
+        if not IsArchiveExt(Path) then Paths.AddOrSetValue(LowerCase(Path),Path);
+      end;
+    if Paths.Count=0 then Exit;
+    LoadedSources:=False;
+    Collections:=User.GetCollectionInfoIterator;
+    while Collections.Next(Info) do
+    begin
+      if Assigned(Cancelled) and Cancelled() then Abort;
+      if not FileExists(Info.DBFileName) then Continue;
+      var DB:=TSQLiteDatabase.CreateReadOnly(Info.DBFileName);
+      try
+        CheckRows(DB,'Books');
+        if DB.QuerySingleInt('SELECT COUNT(*) FROM sqlite_master WHERE type=''table'' AND name=''CatalogBookCopies''')>0 then
+          CheckRows(DB,'CatalogBookCopies');
+      finally DB.Free; end;
+    end;
+  finally Sources.Free; Paths.Free; end;
 end;
 
 procedure CheckLooseDuplicateReferences(const User: ISystemData; CollectionID: Integer;
@@ -180,12 +252,14 @@ var Targets:TObjectDictionary<string,TCheckedArchive>; Paths:TDictionary<string,
         if Assigned(Cancelled) and Cancelled() then Abort;
         Book.BookKey.BookID:=Query.FieldAsInt(0);
         Book.Folder:=Query.FieldAsString(1);
-        if HasRoot then Book.CollectionRoot:=Query.FieldAsString(4)
+        Book.LibID:=Query.FieldAsString(4);
+        if HasRoot then Book.CollectionRoot:=Query.FieldAsString(5)
         else Book.CollectionRoot:=DefaultRoot;
         Book.FileName:=Query.FieldAsString(2); Book.FileExt:=Query.FieldAsString(3);
         var Container:=TPath.Combine(Book.CollectionRoot,Book.Folder);
         Format:=Book.GetBookFormat(Container);
-        WholeSource:=(Format=bfRaw) and IsArchiveExt(Book.FileExt);
+        WholeSource:=((Format=bfRaw) and IsArchiveExt(Book.FileExt)) or
+          ((Format in [bfRaw,bfFb2]) and Book.IsLinkedSource);
         if WholeSource or (Format in [bfFb2Archive,bfRawArchive,bfFbd]) then
         begin
           if not WholeSource and (Format<>bfFbd) and CachedFolder and (LastFolder=Book.Folder) and
@@ -206,8 +280,8 @@ var Targets:TObjectDictionary<string,TCheckedArchive>; Paths:TDictionary<string,
               LastRoot:=Book.CollectionRoot; LastKey:=Key;
             end;
           end;
-          if Targets.TryGetValue(Key,Target) and not
-            ((CID=Target.Binding.CollectionID) and Target.SelectedIDs.ContainsKey(Book.BookKey.BookID)) then
+          if Targets.TryGetValue(Key,Target) and (Book.IsLinkedSource or not
+            ((CID=Target.Binding.CollectionID) and Target.SelectedIDs.ContainsKey(Book.BookKey.BookID))) then
           begin
             if not WholeSource and not Target.Task.WholeSource then
               Target.LoadInventory(Cancelled,InventoryChars);
@@ -250,10 +324,10 @@ begin
       // collection's schema or read any book payload while finding references.
       var DB:=TSQLiteDatabase.CreateReadOnly(Info.DBFileName);
       try
-        CheckRows(DB,'SELECT BookID,Folder,FileName,Ext FROM Books ORDER BY Folder',
+        CheckRows(DB,'SELECT BookID,Folder,FileName,Ext,LibID FROM Books ORDER BY Folder',
           Info.GetRootPath,Info.ID,False);
         if DB.QuerySingleInt('SELECT COUNT(*) FROM sqlite_master WHERE type=''table'' AND name=''CatalogBookCopies''')>0 then
-          CheckRows(DB,'SELECT BookID,Folder,FileName,Ext,Root FROM CatalogBookCopies',
+          CheckRows(DB,'SELECT BookID,Folder,FileName,Ext,LibID,Root FROM CatalogBookCopies',
             '',Info.ID,True);
       finally DB.Free; end;
     end;

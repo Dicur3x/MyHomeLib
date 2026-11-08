@@ -217,6 +217,7 @@ type
     procedure GetBookRecord(const BookKey: TBookKey; var BookRecord: TBookRecord);
     procedure DeleteBook(const BookKey: TBookKey);
     procedure UpdateBook(const BookRecord: TBookRecord);
+    procedure RelinkLocalBookSource(const Expected: TBookRecord; const NewFileName: string);
 
     procedure SetExtra(const BookKey: TBookKey; extra: TBookExtra);
     procedure SetRate(const BookKey: TBookKey; Rate: Integer);

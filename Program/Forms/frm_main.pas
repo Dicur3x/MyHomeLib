@@ -49,6 +49,7 @@ uses
   frm_OPDS,
   unit_Interfaces, unit_StartupCatalog, unit_BookViewSessions,
   unit_BookDeletionOperation, unit_BookDeletionDialog, unit_BookDeletionSelection,
+  unit_LibrarySourceID, unit_BookDeletionReferences,
   XMLIntf,
   XMLDoc,
   pngimage,
@@ -9045,6 +9046,16 @@ begin
     SavedCursor := Screen.Cursor; Screen.Cursor := crHourGlass; FFormBusy := True;
     Failures := 0; Changed := False; AttemptedRecords := False;
     try
+      if RemoveFiles then
+        try CheckLinkedLooseReferences(FSystemData,Books.ToArray);
+        except
+          on E: Exception do
+          begin
+            LogDiagnosticError('book-delete-shared-source',E);
+            MHLShowWarning(E.Message);
+            Exit;
+          end;
+        end;
       for Book in Books do
         try
           FCollection.GetBookRecord(Book.BookKey, Current, False);
@@ -11785,7 +11796,7 @@ var
   strReview, strAnnotation, PreviousReview, PreviousAnnotation: string;
   ChangedFields: TBookPersonalFields;
   Saved, Stored, DetailsBook, Changed: TBookRecord;
-  PersonalOnly, RetrySave: Boolean;
+  PersonalOnly, RetrySave, Relinked: Boolean;
   Outcome: TReaderPersonalWriteResult;
   DraftPath, DraftText, Namespace: string;
   DraftHandle: THandle; DraftStream: THandleStream; DraftBytes: TBytes;
@@ -11806,6 +11817,7 @@ begin
     PreviewPanel := TInfoPanel(TButton(Sender).Parent);
   BookCollection := nil;
   try BookCollection := FSystemData.GetCollection(Saved.BookKey.DatabaseID); except end;
+  Relinked := False;
   FFormBusy := True;
   try
     ReviewEditable := (Saved.BookKey.BookID <= 0) or
@@ -11843,6 +11855,33 @@ begin
       end
       else
         frmBookDetails.FillBookInfo(DetailsBook, nil);
+
+      if Assigned(BookCollection) and Saved.IsLinkedSource and IsLocalBookID(Saved.LibID) and
+        isLocalCollection(BookCollection.CollectionCode) and not FileExists(Saved.GetBookFileName) then
+        frmBookDetails.ConfigureRelink(
+          procedure
+          var Dialog: TOpenDialog; Current: TBookRecord;
+          begin
+            Dialog:=TOpenDialog.Create(frmBookDetails);
+            try
+              Dialog.Title:='Укажите новое расположение исходного файла';
+              Dialog.FileName:=ExtractFileName(Saved.GetBookFileName);
+              Dialog.Options:=[ofFileMustExist,ofPathMustExist,ofNoChangeDir,ofEnableSizing];
+              if not Dialog.Execute(frmBookDetails.Handle) then Exit;
+              try
+                FSystemData.RelinkLocalBookSource(Saved,Dialog.FileName);
+                Relinked:=True;
+                BookCollection.GetBookRecord(Saved.BookKey,Current,False);
+                Saved:=Current;
+                frmBookDetails.ConfigureRelink(nil);
+                frmBookDetails.ConfigureDescription(Saved,ReviewEditable,True);
+                DetailsBook.Folder:=Saved.Folder; DetailsBook.FileName:=Saved.FileName;
+                DetailsBook.FileExt:=Saved.FileExt; DetailsBook.Size:=Saved.Size;
+                frmBookDetails.FillBookInfo(DetailsBook,nil);
+                StatusMessage:='Путь к исходному файлу обновлён.';
+              except on E: Exception do MHLShowWarning(E.Message); end;
+            finally Dialog.Free; end;
+          end);
 
       frmBookDetails.mmReview.ReadOnly := not ReviewEditable;
       SetLength(AuthorNames, Length(Data^.Authors));
@@ -11967,6 +12006,11 @@ begin
     finally FreeAndNil(frmBookDetails); end;
   finally
     FFormBusy := False;
+    if Relinked then
+    begin
+      NotifyFavoriteCatalogChanged([Saved.BookKey.DatabaseID]);
+      InitCollection;
+    end;
   end;
 end;
 

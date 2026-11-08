@@ -95,7 +95,10 @@ type
     FReviewReadOnly, FAnnotationReadOnly, FHasFileSource: Boolean;
     FAnnotationBook: TBookRecord;
     FFileAnnotation: string;
+    FRelinkButton: TButton;
+    FRelinkAction: TProc;
     FInfoNotify, FFileNotify: TWndMethod;
+    procedure RelinkClick(Sender: TObject);
     procedure StartBookTextRequest(Source: TBookTextSource);
     function RequestStatus: TLabel;
     procedure RefreshAnnotationButtons;
@@ -122,6 +125,7 @@ type
     procedure AllowOnlineReview(const URL: string);
     procedure Download;
     procedure ConfigureDescription(const Book: TBookRecord; Editable, HasLocalSource: Boolean);
+    procedure ConfigureRelink(const Action: TProc);
 
     procedure FillBookInfo(bookInfo: TBookRecord; bookStream: TStream);
 
@@ -503,6 +507,32 @@ begin
   mmReview.OnChange := nil;
   try mmReview.Lines.Text := Value;
   finally mmReview.OnChange := mmReviewChange; end;
+end;
+
+procedure TfrmBookDetails.ConfigureRelink(const Action: TProc);
+begin
+  FRelinkAction:=Action;
+  if not Assigned(FRelinkButton) and Assigned(Action) then
+  begin
+    FRelinkButton:=TButton.Create(Self);
+    FRelinkButton.Name:='RelinkBookSource';
+    FRelinkButton.Parent:=tsFileInfo;
+    FRelinkButton.AlignWithMargins:=True;
+    FRelinkButton.Margins.SetBounds(8,4,8,8);
+    FRelinkButton.Align:=alBottom;
+    FRelinkButton.Height:=MulDiv(30,CurrentPPI,96);
+    FRelinkButton.Caption:='Указать новый путь…';
+    FRelinkButton.OnClick:=RelinkClick;
+    ApplyMHLControlTheme(FRelinkButton);
+  end;
+  if Assigned(FRelinkButton) then FRelinkButton.Visible:=Assigned(Action);
+end;
+
+procedure TfrmBookDetails.RelinkClick(Sender: TObject);
+var Action: TProc;
+begin
+  Action:=FRelinkAction;
+  if Assigned(Action) then Action();
 end;
 
 procedure TfrmBookDetails.FillBookInfo(bookInfo: TBookRecord; bookStream: TStream);

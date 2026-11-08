@@ -39,6 +39,11 @@ var
   Watch: TTimer;
   Probe: TFileDropPromptProbe;
   SavedDialogs: Boolean;
+  LooseBook, ArchiveBook, Current: TBookRecord;
+  MovedFile, MovedArchive, WrongArchive: string;
+  GroupID: Integer;
+  Group: TGroupData;
+  Groups: IGroupIterator;
 
   procedure DropOnBookList(const Paths: TArray<string>);
   var
@@ -154,6 +159,7 @@ begin
     try
       Zip.Open(LinkedArchive,zmWrite);
       Zip.Add(Second,'Тексты/Вторая книга.txt');
+      Zip.Add(Second,'Тексты/Третья книга.txt');
     finally Zip.Free; end;
     var ArchiveHash := THashSHA2.GetHashStringFromFile(LinkedArchive);
     Probe.KeepSource := True;
@@ -166,8 +172,16 @@ begin
         Inc(LinkedCount);
         var Source := Entry.Book.GetBookFileName;
         var Expected := FirstHash;
-        if SameFileName(Source,LinkedArchive) then Expected := SecondHash
-        else Require(SameFileName(Source,First),'Linked book did not retain its absolute source path');
+        if SameFileName(Source,LinkedArchive) then
+        begin
+          Expected := SecondHash;
+          if Entry.Book.FileName.Contains('Третья книга') then ArchiveBook := Entry.Book;
+        end
+        else
+        begin
+          Require(SameFileName(Source,First),'Linked book did not retain its absolute source path');
+          LooseBook := Entry.Book;
+        end;
         var Prepared := PrepareReaderFile(Entry.Book,True);
         Require(THashSHA2.GetHashStringFromFile(Prepared)=Expected,'Reader changed the linked payload');
         Prepared := PrepareConversionSource(Entry.Book,nil,'.epub',True,False,nil);
@@ -185,12 +199,73 @@ begin
           finally TFile.Move(First+'.moved',First); end;
         end;
       end;
-    Require((LinkedCount=2) and (Length(Catalog.CaptureLocalBooks)=4),
+    Require((LinkedCount=3) and (Length(Catalog.CaptureLocalBooks)=5),
       'The import did not store separate stable identities for linked and copied books');
     Require(Length(TDirectory.GetFiles(ImportedFolder))=2,'Linked import wrote unnecessary copies');
     Require((THashSHA2.GetHashStringFromFile(First)=FirstHash) and
       (THashSHA2.GetHashStringFromFile(LinkedArchive)=ArchiveHash),'Linked import changed the original files');
     Writeln('PASS Explorer links loose and archived books without copying and reports the unavailable original');
+
+    Require(SystemDB.AddGroup('Linked book relocation'),'Could not create the linked book group');
+    GroupID:=MHL_INVALID_ID;
+    Groups:=SystemDB.GetGroupIterator;
+    while Groups.Next(Group) do if Group.Text='Linked book relocation' then GroupID:=Group.GroupID;
+    Groups:=nil;
+    Require(GroupID<>MHL_INVALID_ID,'The linked book group is missing');
+    Catalog.SetProgress(LooseBook.BookKey,42);
+    Catalog.SetAnnotation(LooseBook.BookKey,'Saved annotation');
+    Catalog.AddBookToGroup(LooseBook.BookKey,GroupID);
+    MovedFile:=TPath.Combine(LaunchDirectory,'Перенесённая книга.txt');
+    TFile.Move(First,MovedFile);
+    SystemDB.RelinkLocalBookSource(LooseBook,MovedFile);
+    Catalog.GetBookRecord(LooseBook.BookKey,Current,True);
+    Require((Current.LibID=LooseBook.LibID) and Current.IsLinkedSource and
+      SameFileName(Current.GetBookFileName,MovedFile) and (Current.Progress=42) and
+      (Current.Annotation='Saved annotation') and
+      (ReaderHistoryName(Current,'')=ReaderHistoryName(LooseBook,'')) and
+      (THashSHA2.GetHashStringFromFile(PrepareReaderFile(Current,True))=FirstHash),
+      'Relinking a moved loose file changed its identity, progress, annotation, or text');
+    var CatalogDB:=TSQLiteDatabase.CreateReadOnly(SystemDB.GetCollectionInfo(Catalog.CollectionID).DBFileName);
+    try
+      Require(CatalogDB.QuerySingleInt('SELECT COUNT(*) FROM Books WHERE BookID=? AND SearchFolder=MHL_UPPER(?)',
+        [LooseBook.BookKey.BookID,ExtractFilePath(MovedFile)])=1,'Relinking left the search path index stale');
+    finally CatalogDB.Free; end;
+    SystemDB.GetBookRecord(LooseBook.BookKey,Current);
+    Require((Current.LibID=LooseBook.LibID) and SameFileName(Current.GetBookFileName,MovedFile) and
+      (Current.Progress=42) and (Current.Annotation='Saved annotation'),
+      'The group card did not retain its personal data and update its locator');
+    var Rejected:=False;
+    try SystemDB.RelinkLocalBookSource(LooseBook,MovedFile);
+    except on E: EInvalidOperation do Rejected:=E.Message.Contains('изменилась'); end;
+    Require(Rejected,'A stale catalogue card changed the already moved link');
+
+    MovedArchive:=TPath.Combine(LaunchDirectory,'Перенесённый сборник.zip');
+    WrongArchive:=TPath.Combine(LaunchDirectory,'Неполный сборник.zip');
+    TFile.Move(LinkedArchive,MovedArchive);
+    Zip:=TZipFile.Create;
+    try
+      Zip.Open(WrongArchive,zmWrite);
+      Zip.Add(Second,'Тексты/Третья книга.txt');
+    finally Zip.Free; end;
+    Rejected:=False;
+    try SystemDB.RelinkLocalBookSource(ArchiveBook,WrongArchive);
+    except on E: EReadError do Rejected:=E.Message.Contains('нет файла'); end;
+    Require(Rejected,'A replacement archive without all linked entries was accepted');
+    Catalog.GetBookRecord(ArchiveBook.BookKey,Current,False);
+    Require(SameFileName(Current.GetBookFileName,LinkedArchive),'Invalid archive changed the catalogue locator');
+    SystemDB.RelinkLocalBookSource(ArchiveBook,MovedArchive);
+    var MemberCount:=0;
+    for var Entry in Catalog.CaptureLocalBooks do
+      if Entry.Book.IsLinkedSource and (Entry.Book.BookKey.BookID<>LooseBook.BookKey.BookID) then
+      begin
+        Inc(MemberCount);
+        Require(SameFileName(Entry.Book.GetBookFileName,MovedArchive) and (Entry.Book.InsideNo=-1) and
+          (THashSHA2.GetHashStringFromFile(PrepareReaderFile(Entry.Book,True))=SecondHash),
+          'Relinking an archive did not restore a sibling by its exact member path');
+      end;
+    Require((MemberCount=2) and (THashSHA2.GetHashStringFromFile(MovedArchive)=ArchiveHash),
+      'Relinking changed the original archive or lost a record');
+    Writeln('PASS linked book relocation preserves progress and group data and validates all archive members');
   finally
     SetCurrentDir(SavedDirectory);
     UseLatestCommonDialogs := SavedDialogs;

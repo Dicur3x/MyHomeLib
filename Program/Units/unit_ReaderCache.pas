@@ -793,7 +793,7 @@ begin
   begin
     if Book.IsLinkedSource then
       raise EFileNotFoundException.Create('Не найден исходный файл книги: '+Source+sLineBreak+
-        'Подключите диск или верните файл на прежнее место.');
+        'Подключите диск. Если книгу перенесли, откройте «Информация о книге → Файл» в исходной коллекции и укажите новый путь.');
     raise EFileNotFoundException.Create('Не найден файл или архив коллекции: '+Source+#13#10+
       'Книга: '+Book.FileName+Book.FileExt+#13#10+'Проверьте папку книг и наличие архива, указанного в INPX.');
   end;

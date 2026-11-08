@@ -134,6 +134,7 @@ type
       const Matches: TBookIdentityPredicate;
       CheckOnly: Boolean = False): TBookDeletionWriteResult;
     procedure UpdateBook(const BookRecord: TBookRecord);
+    procedure RelinkLocalBookSource(const Expected: TBookRecord; const NewFileName: string);
 
     procedure SetExtra(const BookKey: TBookKey; extra: TBookExtra);
     procedure SetRate(const BookKey: TBookKey; Rate: Integer);
@@ -204,7 +205,9 @@ uses
   unit_Database_SQLite,
   dm_user,
   unit_Helpers,
-  unit_Errors;
+  unit_Errors,
+  unit_LibrarySourceID, unit_CollectionPacking, unit_ReaderFormats, unit_MHLArchiveBusy,
+  unit_BookDeletionInventory, unit_ZipMemberDeletion;
 
 resourcestring
   rstrInvalidCollection = 'Файл %s не является коллекцией.';
@@ -516,12 +519,20 @@ begin
 end;
 
 
+procedure EnableAttachedCatalogTriggers(Context: TSQLite3Context; Count: Integer; Args: TSQLite3Value); cdecl;
+begin
+  SQLite3_Result_Int(Context,1);
+end;
+
 constructor TSystemData_SQLite.Create(const DBUserFile: string);
 begin
   inherited Create;
 
   Assert(FileExists(DBUserFile));
   FDatabase := TSQLiteDatabase.Create(DBUserFile);
+  // This connection can update an attached catalogue. Keep its search
+  // triggers active just as they are on the ordinary catalogue connection.
+  FDatabase.AddFunction('MHL_TRIGGERS_ON',0,EnableAttachedCatalogTriggers);
 end;
 
 destructor TSystemData_SQLite.Destroy;
@@ -1043,6 +1054,120 @@ begin
       FDatabase.Rollback;
     raise;
   end;
+end;
+
+procedure TSystemData_SQLite.RelinkLocalBookSource(const Expected: TBookRecord; const NewFileName: string);
+var Info: TCollectionInfo; OldPath, NewPath: string; IsMember: Boolean;
+  Source: TFileStream; Names: TDictionary<string, Byte>; Rows: TList<TBookRecord>;
+  Query: TSQLiteQuery; Row: TBookRecord; Format: TBookFormat;
+begin
+  if not Expected.IsLinkedSource or not IsLocalBookID(Expected.LibID) or
+    (Expected.BookKey.BookID<=0) then
+    raise EInvalidOperation.Create('Новый путь можно указать в исходной коллекции для книги, добавленной ссылкой.');
+  Info:=GetCollectionInfo(Expected.BookKey.DatabaseID);
+  if not isLocalCollection(Info.CollectionType) or not FileExists(Info.DBFileName) or
+    IsPackedCollectionCatalog(Info.DBFileName) then
+    raise EInvalidOperation.Create('Исходная локальная коллекция недоступна для изменения.');
+  OldPath:=Expected.GetBookFileName;
+  NewPath:=TPath.GetFullPath(NewFileName);
+  if FileExists(OldPath) then
+    raise EInvalidOperation.Create('Исходный файл снова доступен. Замена пути не требуется.');
+  if not SameText(ExtractFileExt(OldPath),ExtractFileExt(NewPath)) then
+    raise EArgumentException.Create('Укажите исходный файл с тем же расширением.');
+  if FDatabase.InTransaction then
+    raise EInvalidOperation.Create('Коллекция занята другой операцией.');
+
+  Format:=Expected.GetBookFormat;
+  IsMember:=Format in [bfFb2Archive,bfRawArchive];
+  CheckArchiveReadable(NewPath);
+  Source:=TFileStream.Create(NewPath,fmOpenRead or fmShareDenyWrite);
+  Names:=nil;
+  Rows:=nil;
+  try
+    if Source.Size<=0 then raise EReadError.Create('Выбранный файл пуст.');
+    if not IsMember and (Source.Size>MaxInt) then
+      raise EReadError.Create('Выбранный файл слишком велик для каталога.');
+    if IsMember then
+    begin
+      if not SameText(DetectReaderExtension(NewPath),ExtractFileExt(NewPath)) then
+        raise EReadError.Create('Выбранный файл не является архивом нужного формата.');
+      Names:=TDictionary<string,Byte>.Create;
+      for var Name in ReadBookDeletionInventory(NewPath,ArchiveDeletionSourceIdentity(NewPath)) do
+      begin
+        var Key:=Name.Replace('\','/');
+        if Names.ContainsKey(Key) then
+          raise EReadError.Create('В выбранном архиве есть повторяющиеся пути.');
+        Names.Add(Key,0);
+      end;
+    end;
+    Rows:=TList<TBookRecord>.Create;
+    FDatabase.ExecSQL('ATTACH DATABASE ? AS RelinkCatalog',[Info.DBFileName]);
+    try
+      FDatabase.Start('','IMMEDIATE');
+      try
+        if FDatabase.QuerySingleInt('SELECT COUNT(*) FROM RelinkCatalog.Books WHERE BookID=? '+
+          'AND LibID=? COLLATE BINARY AND Folder=? COLLATE BINARY AND FileName=? COLLATE BINARY '+
+          'AND Ext=? COLLATE BINARY AND InsideNo=?',
+          [Expected.BookKey.BookID,Expected.LibID,Expected.Folder,Expected.FileName,Expected.FileExt,Expected.InsideNo])<>1 then
+          raise EInvalidOperation.Create('Ссылка уже изменилась. Откройте информацию о книге заново.');
+        if FileExists(OldPath) then
+          raise EInvalidOperation.Create('Исходный файл снова доступен. Замена пути не требуется.');
+
+        if IsMember then
+        begin
+          Query:=FDatabase.NewQuery('SELECT BookID,LibID,FileName,Ext FROM RelinkCatalog.Books '+
+            'WHERE Folder=? COLLATE BINARY',[Expected.Folder]);
+          try
+            Query.Open;
+            while not Query.Eof do
+            begin
+              Row:=Default(TBookRecord);
+              Row.LibID:=Query.FieldAsString(1);
+              if IsLocalBookID(Row.LibID) and IsLinkedLocalBookID(Row.LibID) then
+              begin
+                Row.BookKey:=CreateBookKey(Query.FieldAsInt(0),Info.ID);
+                Row.FileName:=Query.FieldAsString(2);
+                Row.FileExt:=Query.FieldAsString(3);
+                if not Names.ContainsKey((Row.FileName+Row.FileExt).Replace('\','/')) then
+                  raise EReadError.CreateFmt('В выбранном архиве нет файла «%s». Пути книг не изменены.',
+                    [Row.FileName+Row.FileExt]);
+                Rows.Add(Row);
+              end;
+              Query.Next;
+            end;
+          finally Query.Free; end;
+        end
+        else Rows.Add(Expected);
+
+        for Row in Rows do
+        begin
+          if IsMember then
+          begin
+            FDatabase.ExecSQL('UPDATE RelinkCatalog.Books SET Folder=?,InsideNo=-1,IsLocal=1 WHERE BookID=?',
+              [NewPath,Row.BookKey.BookID]);
+            FDatabase.ExecSQL('UPDATE main.Books SET Folder=?,InsideNo=-1,IsLocal=1 '+
+              'WHERE DatabaseID=? AND BookID=? AND LibID=? COLLATE BINARY',
+              [NewPath,Info.ID,Row.BookKey.BookID,Row.LibID]);
+          end
+          else
+          begin
+            var Folder:=ExtractFilePath(NewPath);
+            var Name:=ChangeFileExt(ExtractFileName(NewPath),'');
+            var Ext:=ExtractFileExt(NewPath);
+            FDatabase.ExecSQL('UPDATE RelinkCatalog.Books SET Folder=?,FileName=?,Ext=?,BookSize=?,IsLocal=1 WHERE BookID=?',
+              [Folder,Name,Ext,Source.Size,Row.BookKey.BookID]);
+            FDatabase.ExecSQL('UPDATE main.Books SET Folder=?,FileName=?,Ext=?,BookSize=?,IsLocal=1 '+
+              'WHERE DatabaseID=? AND BookID=? AND LibID=? COLLATE BINARY',
+              [Folder,Name,Ext,Source.Size,Info.ID,Row.BookKey.BookID,Row.LibID]);
+          end;
+        end;
+        FDatabase.Commit;
+      except
+        if FDatabase.InTransaction then FDatabase.Rollback;
+        raise;
+      end;
+    finally FDatabase.ExecSQL('DETACH DATABASE RelinkCatalog'); end;
+  finally Rows.Free; Names.Free; Source.Free; end;
 end;
 
 procedure TSystemData_SQLite.UpdateBook(const BookRecord: TBookRecord);

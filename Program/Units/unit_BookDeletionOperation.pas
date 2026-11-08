@@ -466,6 +466,8 @@ begin
       end;
       Archives.Add(I);
     end;
+    if Loose.Count>0 then
+      CheckLinkedLooseReferences(User,Books,function:Boolean begin Result:=Stopping; end);
     if Archives.Count>0 then
     begin
       Preparation:=TBookDeletionPreparation.Create(FBinding.Slice(Archives.ToArray));

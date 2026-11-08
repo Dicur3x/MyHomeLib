@@ -45,7 +45,8 @@ begin
         if Accept and Assigned(BeforeAccept) then begin BeforeAccept(); BeforeAccept := nil; end;
         if Accept then Form.ModalResult := mrYes else Form.ModalResult := mrNo;
       end
-      else if Text.Contains('Не удалось полностью обработать книг:') or Text.Contains('Не удалось завершить удаление.') then
+      else if Text.Contains('Не удалось полностью обработать книг:') or Text.Contains('Не удалось завершить удаление.') or
+        (Text.Contains('запись-ссылка') and Text.Contains('Удаление не началось.')) then
       begin Inc(Warnings); Form.ModalResult := mrOk; end
       else raise Exception.Create('Unexpected deletion dialog: '+Text);
     except
@@ -723,6 +724,32 @@ begin
       (THashSHA2.GetHashStringFromFile(ArchivePath)=BeforeArchive),
       'Deleting linked rows with the file option changed an original or kept the owned copy');
     Writeln('PASS Main removes linked catalogue rows and preserves both loose and archived originals');
+    Flush(Output);
+
+    RawPath:=Root+'loose-with-linked-reference.fb2';
+    TFile.WriteAllText(RawPath,XML('Linked reference'),TEncoding.UTF8);
+    var AliasPath:=Root+'loose-with-different-name.fb2';
+    Win32Check(CreateHardLink(PChar(AliasPath),PChar(RawPath),nil));
+    BeforeRaw:=THashSHA2.GetHashStringFromFile(RawPath);
+    RawID:=Insert('Managed loose source','','loose-with-linked-reference','.fb2');
+    var PrimaryCollection:=Collection;
+    Collection:=SystemDB.GetCollection(ExternalID);
+    var LinkedID:=Insert('Linked loose alias',Root,'loose-with-different-name','.fb2',NewLocalBookID(True));
+    Collection:=PrimaryCollection;
+    Rows([RawID]); Execute(True,False,1,0,1);
+    Require(Exists(RawID) and (THashSHA2.GetHashStringFromFile(RawPath)=BeforeRaw) and
+      (THashSHA2.GetHashStringFromFile(AliasPath)=BeforeRaw),'A physical delete ignored a linked alias in another catalogue');
+    SystemDB.GetCollection(ExternalID).DeleteBook(CreateBookKey(LinkedID,ExternalID));
+
+    ArchivePath:=Root+'archive-with-linked-reference.zip';
+    WriteZip(ArchivePath,['chosen.fb2','unselected.fb2']);
+    BeforeArchive:=THashSHA2.GetHashStringFromFile(ArchivePath);
+    ArchiveID:=Insert('Managed archive member','archive-with-linked-reference.zip','chosen','.fb2');
+    LinkedID:=Insert('Linked archive member',ArchivePath,'chosen','.fb2',NewLocalBookID(True));
+    Rows([ArchiveID,LinkedID]); Execute(True,False,2,1,1);
+    Require(Exists(ArchiveID) and Exists(LinkedID) and (THashSHA2.GetHashStringFromFile(ArchivePath)=BeforeArchive),
+      'Selecting a link and its managed record did not preserve their common archive');
+    Writeln('PASS linked references block physical deletion through another row or filename');
     Flush(Output);
 
     Trace('delete safety remove empty containers');
