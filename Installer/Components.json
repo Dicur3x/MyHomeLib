@@ -148,9 +148,13 @@
     {
       "id": "HomeLibReader",
       "platform": "Win32",
-      "version": "3.0.0.7",
-      "archive": "HomeLibRu-HomeLibReader-3.0.0.7-Win32.zip",
+      "version": "3.0.0.8",
+      "archive": "HomeLibRu-HomeLibReader-3.0.0.8-Win32.zip",
       "history": [
+        {
+          "version": "3.0.0.8",
+          "notes": "Плавная прокрутка и длинные страницы комиксов. Исправлены открытие книг и поведение окна компонентов."
+        },
         {
           "version": "3.0.0.7",
           "notes": "Чтение архивов коллекций с записями LZMA и точное восстановление PDF, упакованных с JPEG XL. Минимальная поставка читалки."
@@ -208,9 +212,13 @@
     {
       "id": "HomeLibReader",
       "platform": "Win64",
-      "version": "3.0.0.7",
-      "archive": "HomeLibRu-HomeLibReader-3.0.0.7-Win64.zip",
+      "version": "3.0.0.8",
+      "archive": "HomeLibRu-HomeLibReader-3.0.0.8-Win64.zip",
       "history": [
+        {
+          "version": "3.0.0.8",
+          "notes": "Плавная прокрутка и длинные страницы комиксов. Исправлены открытие книг и поведение окна компонентов."
+        },
         {
           "version": "3.0.0.7",
           "notes": "Чтение архивов коллекций с записями LZMA и точное восстановление PDF, упакованных с JPEG XL. Минимальная поставка читалки."
@@ -268,9 +276,13 @@
     {
       "id": "BookProcessing",
       "platform": "Win32",
-      "version": "3.0.0.7",
-      "archive": "HomeLibRu-BookProcessing-3.0.0.7-Win32.zip",
+      "version": "3.0.0.8",
+      "archive": "HomeLibRu-BookProcessing-3.0.0.8-Win32.zip",
       "history": [
+        {
+          "version": "3.0.0.8",
+          "notes": "Чтение больших RTF, восстановление FB2, точнее оценка сканов и упаковка коллекций с необычными именами и дополнительными копиями."
+        },
         {
           "version": "3.0.0.7",
           "notes": "Упаковка коллекций с JPEG XL для PDF, сжатие фона подходящих DjVu и обратимое сжатие других форматов USR."
@@ -292,9 +304,13 @@
     {
       "id": "ImageProcessing",
       "platform": "Win32",
-      "version": "3.0.0.5",
-      "archive": "HomeLibRu-ImageProcessing-3.0.0.5-Win32.zip",
+      "version": "3.0.0.8",
+      "archive": "HomeLibRu-ImageProcessing-3.0.0.8-Win32.zip",
       "history": [
+        {
+          "version": "3.0.0.8",
+          "notes": "Максимальная экономия и оттенки серого для растровых страниц, обработка ориентации изображений."
+        },
         {
           "version": "3.0.0.5",
           "notes": "Сжатие иллюстраций и сканов с сохранением тонких деталей. Чёрно-белый режим включается отдельно."
@@ -392,9 +408,13 @@
     {
       "id": "BookProcessing",
       "platform": "Win64",
-      "version": "3.0.0.7",
-      "archive": "HomeLibRu-BookProcessing-3.0.0.7-Win64.zip",
+      "version": "3.0.0.8",
+      "archive": "HomeLibRu-BookProcessing-3.0.0.8-Win64.zip",
       "history": [
+        {
+          "version": "3.0.0.8",
+          "notes": "Чтение больших RTF, восстановление FB2, точнее оценка сканов и упаковка коллекций с необычными именами и дополнительными копиями."
+        },
         {
           "version": "3.0.0.7",
           "notes": "Упаковка коллекций с JPEG XL для PDF, сжатие фона подходящих DjVu и обратимое сжатие других форматов USR."
@@ -416,9 +436,13 @@
     {
       "id": "ImageProcessing",
       "platform": "Win64",
-      "version": "3.0.0.5",
-      "archive": "HomeLibRu-ImageProcessing-3.0.0.5-Win64.zip",
+      "version": "3.0.0.8",
+      "archive": "HomeLibRu-ImageProcessing-3.0.0.8-Win64.zip",
       "history": [
+        {
+          "version": "3.0.0.8",
+          "notes": "Максимальная экономия и оттенки серого для растровых страниц, обработка ориентации изображений."
+        },
         {
           "version": "3.0.0.5",
           "notes": "Сжатие иллюстраций и сканов с сохранением тонких деталей. Чёрно-белый режим включается отдельно."
@@ -580,9 +604,13 @@
     {
       "id": "KindleExport",
       "platform": "Win32",
-      "version": "3.0.0.5",
-      "archive": "HomeLibRu-KindleExport-3.0.0.5-Win32.zip",
+      "version": "3.0.0.8",
+      "archive": "HomeLibRu-KindleExport-3.0.0.8-Win32.zip",
       "history": [
+        {
+          "version": "3.0.0.8",
+          "notes": "Исправлены повторяющиеся обложки EPUB при сохранении в MOBI и AZW3. Точная причина ошибки показывается даже в длинном отчёте."
+        },
         {
           "version": "3.0.0.5",
           "notes": "Запись MOBI и AZW3. Исправлена подготовка обложек и ссылок на отсутствующие шрифты в EPUB."
@@ -600,9 +628,13 @@
     {
       "id": "KindleExport",
       "platform": "Win64",
-      "version": "3.0.0.5",
-      "archive": "HomeLibRu-KindleExport-3.0.0.5-Win64.zip",
+      "version": "3.0.0.8",
+      "archive": "HomeLibRu-KindleExport-3.0.0.8-Win64.zip",
       "history": [
+        {
+          "version": "3.0.0.8",
+          "notes": "Исправлены повторяющиеся обложки EPUB при сохранении в MOBI и AZW3. Точная причина ошибки показывается даже в длинном отчёте."
+        },
         {
           "version": "3.0.0.5",
           "notes": "Запись MOBI и AZW3. Исправлена подготовка обложек и ссылок на отсутствующие шрифты в EPUB."
@@ -684,9 +716,13 @@
     {
       "id": "EpubPdfExport",
       "platform": "Win32",
-      "version": "3.0.0.5",
-      "archive": "HomeLibRu-EpubPdfExport-3.0.0.5-Win32.zip",
+      "version": "3.0.0.8",
+      "archive": "HomeLibRu-EpubPdfExport-3.0.0.8-Win32.zip",
       "history": [
+        {
+          "version": "3.0.0.8",
+          "notes": "Исправлен запуск WebView2 из глубоко вложенных папок. Временный профиль удаляется после завершения."
+        },
         {
           "version": "3.0.0.5",
           "notes": "Vivliostyle — прямая вёрстка EPUB в PDF через Microsoft WebView2 Runtime."
@@ -700,9 +736,13 @@
     {
       "id": "EpubPdfExport",
       "platform": "Win64",
-      "version": "3.0.0.5",
-      "archive": "HomeLibRu-EpubPdfExport-3.0.0.5-Win64.zip",
+      "version": "3.0.0.8",
+      "archive": "HomeLibRu-EpubPdfExport-3.0.0.8-Win64.zip",
       "history": [
+        {
+          "version": "3.0.0.8",
+          "notes": "Исправлен запуск WebView2 из глубоко вложенных папок. Временный профиль удаляется после завершения."
+        },
         {
           "version": "3.0.0.5",
           "notes": "Vivliostyle — прямая вёрстка EPUB в PDF через Microsoft WebView2 Runtime."
