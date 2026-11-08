@@ -100,12 +100,39 @@ class TextInputs(unittest.TestCase):
         source.write_bytes(('<html lang="ru"><head><meta charset="windows-1251"><title>HTML книга</title><script>NOT BOOK</script></head><body><h1>Глава один</h1><p>Ё &amp; текст <b><i>Жирный курсив</i></b><img src="image.png"><h2>Подглава</h2><p id="end">Конец<br>Новая строка</p><h1>Глава два</h1><a href="#end">Ссылка</a></body></html>').encode('cp1251'))
         self.outputs(source, ['Ё & текст', 'Жирный курсив', 'Новая строка'], True, True, True)
         with zipfile.ZipFile(self.root/'book.html.epub') as z: self.assertNotIn('NOT BOOK', z.read('OEBPS/book.xhtml').decode())
+    def test_html_optional_description_list_end_tags(self):
+        source = self.root/'book.shtml'
+        entries = ''.join(f'<dt>Term {i}<dd><em>Definition {i}' for i in range(180))
+        source.write_text(f'<html><body><dl>{entries}</dl><p>After the list</p></body></html>', encoding='utf-8')
+        self.outputs(source, ['Term 0', 'Definition 0', 'Term 179', 'Definition 179', 'After the list'])
+        with zipfile.ZipFile(self.root/'book.shtml.epub') as archive:
+            body = c.xml(archive.read('OEBPS/book.xhtml'))
+            listing = next(node for node in body.iter() if c.tag(node) == 'dl')
+            self.assertEqual([c.tag(node) for node in listing], ['dt', 'dd'] * 180)
+            self.assertEqual(c.plain(listing[-1]), 'Definition 179')
+    def test_html_external_counter_does_not_block_offline_conversion(self):
+        source = self.root/'book.shtml'
+        source.write_text('<html><body><p>Chapter text<img width="1" height="1" alt="" src="https://example.invalid/counter"></p></body></html>', encoding='utf-8')
+        self.outputs(source, ['Chapter text'])
+        with zipfile.ZipFile(self.root/'book.shtml.epub') as archive:
+            body = c.xml(archive.read('OEBPS/book.xhtml'))
+            self.assertFalse(any(c.tag(node) == 'img' for node in body.iter()))
     def test_docx(self):
         source = self.root/'book.docx'; docx(source); self.outputs(source, [TEXT, 'Точная сноска', 'Ячейка'], True, True, True)
     def test_odt(self):
         source = self.root/'book.odt'; odt(source); self.outputs(source, [TEXT, 'Точная сноска'], True, True, True)
     def test_fb3(self):
         source = self.root/'book.fb3'; fb3(source); self.outputs(source, [TEXT, 'Точная сноска', 'Подглавный текст.'], True, True, True)
+    def test_fb3_block_and_inline_line_breaks(self):
+        source = self.root/'breaks.fb3'
+        with zipfile.ZipFile(source, 'w') as archive:
+            archive.writestr('fb3/body.xml', '<fb3-body xmlns="http://www.fictionbook.org/FictionBook3/body"><section><p>First line<br/>Second line</p><br/><p>Next paragraph</p></section></fb3-body>')
+        self.outputs(source, ['First line', 'Second line', 'Next paragraph'])
+        with zipfile.ZipFile(self.root/'breaks.fb3.epub') as archive:
+            body = c.xml(archive.read('OEBPS/book.xhtml'))
+            self.assertEqual(sum(c.tag(node) == 'br' for node in body.iter()), 2)
+        book = c.xml((self.root/'breaks.fb3.fb2').read_bytes())
+        self.assertTrue(any(c.tag(node) == 'empty-line' for node in book.iter()))
     def test_rtf_formatted_supplementary_unicode(self):
         source = self.root/'жирный emoji.rtf'
         source.write_bytes(br'{\rtf1\ansi\uc1 before {\b\i\u-10179?\u-8704?}\line after}')

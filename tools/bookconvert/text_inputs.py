@@ -220,7 +220,7 @@ class Book:
 
 class HTMLInput(HTMLParser):
     VOID = {'br', 'hr', 'img', 'meta', 'link', 'input', 'source', 'wbr', 'area', 'base', 'embed', 'param', 'col'}
-    BLOCK = {'p', 'div', 'section', 'article', 'blockquote', 'ul', 'ol', 'li', 'table', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th', 'pre', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr'}
+    BLOCK = {'p', 'div', 'section', 'article', 'blockquote', 'ul', 'ol', 'li', 'dl', 'dt', 'dd', 'table', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th', 'pre', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr'}
     def __init__(self, book):
         super().__init__(convert_charrefs=True)
         self.b = book; self.stack = [('root', book.body)]; self.hidden = []; self.in_head = False; self.title = []; self.in_title = False; self.nodes = 0
@@ -239,13 +239,26 @@ class HTMLInput(HTMLParser):
         if name == 'html':
             self.b.language = attrs.get('lang') or attrs.get('xml:lang') or self.b.language; return
         if name in {'body', 'meta', 'link', 'base'} or self.in_head: return
+        if name in {'dt', 'dd'}:
+            for at in range(len(self.stack) - 1, 0, -1):
+                opened = self.stack[at][0]
+                if opened in {'dt', 'dd'}:
+                    del self.stack[at:]
+                    break
+                if opened in self.BLOCK and opened != 'p': break
         if len(self.stack) > 128 or self.nodes > 500000: self.b.fail('HTML слишком сложен для конвертации.')
         self.nodes += 1
         if name in self.BLOCK and self.stack[-1][0] == 'p': self.stack.pop()
         if name == 'li' and self.stack[-1][0] == 'li': self.stack.pop()
         mapped = {'b': 'strong', 'i': 'em', 'strike': 's', 'font': 'span', 'center': 'div'}.get(name, name)
-        allowed = self.BLOCK | {'a', 'strong', 'em', 's', 'u', 'span', 'sub', 'sup', 'code', 'br', 'img', 'caption', 'dl', 'dt', 'dd', 'aside', 'header', 'footer', 'figure', 'figcaption'}
+        allowed = self.BLOCK | {'a', 'strong', 'em', 's', 'u', 'span', 'sub', 'sup', 'code', 'br', 'img', 'caption', 'aside', 'header', 'footer', 'figure', 'figcaption'}
         if mapped not in allowed: mapped = 'span'
+        if mapped == 'img':
+            image_url = attrs.get('src') or ''
+            if (attrs.get('width') == attrs.get('height') == '1' and not (attrs.get('alt') or '').strip()
+                    and (image_url.startswith('//') or urlsplit(image_url).scheme.lower() in {'http', 'https'})):
+                self.b.warnings.add('Внешнее изображение размером 1 × 1 пропущено.')
+                return
         node = self.b.local_image(attrs.get('src', '')) if mapped == 'img' else self.b.el(mapped)
         keys = ['id', 'class']
         if mapped in {'td', 'th'}: keys += ['colspan', 'rowspan']
@@ -358,7 +371,9 @@ def read_fb3(book):
             if not node.tag.startswith('{' + namespace + '}'):
                 if name in {'fb3-relations', 'fb3-classification'}: return None
                 book.fail('Неподдерживаемое пространство имён FB3: ' + name)
-            if name in {'clipped', 'paper-page-break'}:
+            if name in {'br', 'clipped', 'paper-page-break'}:
+                if name == 'br' and (len(node) or (node.text or '').strip()):
+                    book.fail('В FB3 внутри переноса строки обнаружено содержимое.')
                 if name == 'clipped': book.warnings.add('Исходный FB3 содержит сокращённый фрагмент книги.')
                 return book.el('br')
             if name == 'img':
