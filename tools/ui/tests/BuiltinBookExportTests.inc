@@ -378,7 +378,7 @@ type
   TFileSnapshot = record FileName, Hash: string; end;
 var
   FixtureRoot, ArtifactRoot, TempRoot, ExistingTemp, ZipName, PdfName,
-    CancelName, Target, PreviousHash, SavedFileTemplate, SavedFolderTemplate,
+    CancelName, BrokenImageName, Target, PreviousHash, SavedFileTemplate, SavedFolderTemplate,
     SavedTempDir, SavedReadDir, ReaderSentinel, NotesSentinel, HistorySentinel, InitialGroups: string;
   SavedOverwrite, SavedWebP: Boolean;
   SavedMode: TExportMode;
@@ -388,7 +388,7 @@ var
   Zip: TZipFile;
   Builder: TStringBuilder;
   InitialAuthors, InitialBooks, InitialSeries, Authors, Count, Series: Integer;
-  DirectFB2, DirectEpub, ZipFB2, ZipEpub, RawPDF, WarningEpub, CancelFB2,
+  DirectFB2, DirectEpub, ZipFB2, ZipEpub, RawPDF, WarningEpub, CancelFB2, BrokenImageFB2,
     MtpFB2, MtpEpub: Integer;
   HR: HRESULT;
 
@@ -429,7 +429,7 @@ var
 
   procedure RunExport(BookID: Integer; Mode: TExportMode; ExplicitMode: Boolean;
     const Folder: string; UseShell: Boolean = False; CancelDuring: Boolean = False;
-    CancelBefore: Boolean = False; ReplaceExisting: Boolean = False);
+    CancelBefore: Boolean = False; ReplaceExisting: Boolean = False; SkipDamagedFB2Image: Boolean = False);
   var
     Worker: TExportToDeviceThread;
     Keys: TBookIdList;
@@ -445,6 +445,7 @@ var
       Worker.BookIdList := Keys; Worker.DeviceDir := Folder;
       Worker.ExportMode := Mode; Worker.ExplicitFormat := ExplicitMode;
       Worker.ExtractOnly := False; Worker.UseMTP := UseShell;
+      Worker.SkipDamagedFB2Image:=SkipDamagedFB2Image;
       if ReplaceExisting then Worker.NameCollision:=bncReplace;
       Worker.OnShowMessage := Capture.Message; Worker.OnTeletype := Capture.Warning;
       if UseShell then
@@ -604,6 +605,15 @@ begin
       TFile.WriteAllText(CancelName, Builder.ToString, TEncoding.UTF8);
     finally Builder.Free; end;
     Snapshot(CancelName);
+    BrokenImageName:=TPath.Combine(FixtureRoot,'broken-image.fb2');
+    TFile.WriteAllText(BrokenImageName,
+      '<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:l="http://www.w3.org/1999/xlink">'+
+      '<description><title-info><genre>unrecognised</genre><author><nickname>Fixture</nickname></author>'+
+      '<book-title>Broken image</book-title><lang>ru</lang></title-info><document-info><author><nickname>Fixture</nickname></author>'+
+      '<date>2026-11-08</date><id>broken-image</id><version>1.0</version></document-info></description>'+
+      '<body><section><p>До иллюстрации.</p><image l:href="#broken"/><p>После иллюстрации.</p></section></body>'+
+      '<binary id="broken" content-type="image/png">YQ',TEncoding.UTF8);
+    Snapshot(BrokenImageName);
 
     DirectFB2 := RegisterBook('DirectFB2', 'conversion-fixtures', 'source', '.fb2');
     DirectEpub := RegisterBook('DirectEPUB', 'conversion-fixtures', 'source', '.epub');
@@ -612,6 +622,7 @@ begin
     RawPDF := RegisterBook('RawPDF', 'conversion-fixtures', 'native-copy', '.pdf');
     WarningEpub := RegisterBook('WarningEPUB', 'conversion-fixtures', 'warning', '.epub');
     CancelFB2 := RegisterBook('CancelFB2', 'conversion-fixtures', 'native-cancel', '.fb2');
+    BrokenImageFB2:=RegisterBook('BrokenImageFB2','conversion-fixtures','broken-image','.fb2');
     MtpFB2 := RegisterBook('ShellFB2', 'conversion-fixtures', 'source', '.fb2');
     MtpEpub := RegisterBook('ShellEPUB', 'conversion-fixtures', 'source', '.epub');
     Collection.GetStatistics(InitialAuthors, InitialBooks, InitialSeries);
@@ -724,6 +735,30 @@ begin
     finally WarningLines.Free; end;
     RequireSourcesAndData;
     Writeln('PASS native conversion warnings use the progress journal, complete saved report and one final summary');
+
+    Target:=OutputFolder('damaged-image-strict');
+    RunExport(BrokenImageFB2,emEpub,True,Target);
+    Require((Length(TDirectory.GetFiles(Target))=0) and Capture.Messages.Text.Contains('Пропускать повреждённые изображения'),
+      'Strict export lost the actionable recovery explanation or published a file');
+    for var Mode in [emFB2,emEpub] do
+    begin
+      Target:=OutputFolder('damaged-image-'+IntToStr(Ord(Mode)));
+      RunExport(BrokenImageFB2,Mode,True,Target,False,False,False,False,True);
+      var Files:=TDirectory.GetFiles(Target);
+      Require((Length(Files)=1) and Capture.Messages.Text.Contains('Повреждённая иллюстрация пропущена.'),
+        'Recovery did not save one book with an informational result');
+      var RestoredBook:=TReaderDocument.Create;
+      try
+        RestoredBook.Load(Files[0]);
+        Require(RestoredBook.PlainText.Contains('До иллюстрации.') and
+          RestoredBook.PlainText.Contains('[Повреждённое изображение пропущено]') and
+          RestoredBook.PlainText.Contains('После иллюстрации.'),'Recovered book lost its text or placeholder');
+      finally RestoredBook.Free; end;
+    end;
+    Require(TFile.ReadAllText(Settings.SystemFileName[sfExportErrorLog],TEncoding.UTF8).Contains('Повреждённая иллюстрация пропущена.'),
+      'Recovery note is absent from export_report.log');
+    RequireSourcesAndData;
+    Writeln('PASS native FB2 image recovery requires consent, saves FB2 and EPUB and reports the missing image');
 
     Target := OutputFolder('shell-filesystem');
     RunExport(MtpFB2, emEpub, True, Target, True);

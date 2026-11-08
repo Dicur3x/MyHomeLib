@@ -60,6 +60,13 @@ class ComponentRequired(ConversionError):
         self.component = component
 
 
+class FB2ImageRecoveryRequired(ConversionError):
+    def __init__(self, book, cover):
+        super().__init__('Текст FB2 цел. В конце файла обрывается ' + ('обложка.' if cover else 'иллюстрация.'))
+        self.book = book
+        self.warning = ('Повреждённая обложка пропущена.' if cover else 'Повреждённая иллюстрация пропущена.')
+
+
 def optional_component_id(component, tools_root=None):
     """Keep old full-converter clients compatible; new packages name dependencies."""
     root = Path(tools_root or Path(__file__).resolve().parent.parent)
@@ -152,6 +159,64 @@ def xml(data, maximum=MAX_FILE):
         raise ConversionError('Некорректная структура XML: ' + str(error)) from error
 
 
+def truncated_fb2_image(data, maximum):
+    """Accept EOF only inside a root-level image after a complete FB2 body."""
+    parser = expat.ParserCreate(namespace_separator='}')
+    stack = []
+    nested_binary = False
+
+    def start(name, attributes):
+        nonlocal nested_binary
+        if len(stack) > 128:
+            raise ConversionError('XML книги слишком сложен для конвертации.')
+        if len(stack) == 2 and stack[-1][0] == FB + '}binary':
+            nested_binary = True
+        elif len(stack) == 1:
+            nested_binary = False
+        stack.append((name, attributes, parser.CurrentByteIndex))
+
+    parser.StartElementHandler = start
+    parser.EndElementHandler = lambda name: stack.pop()
+    try:
+        parser.Parse(data, True)
+    except expat.ExpatError as error:
+        if error.code != expat.errors.codes[expat.errors.XML_ERROR_NO_ELEMENTS]:
+            return None
+    if nested_binary or [frame[0] for frame in stack] != [FB + '}FictionBook', FB + '}binary']:
+        return None
+    _, attrs, image_at = stack[1]
+    identity = attrs.get('id')
+    if not identity or not attrs.get('content-type', '').lower().startswith('image/'):
+        return None
+    root_at = stack[0][2]
+    root_name = re.match(br'<([^\x00-\x20/>]{1,256})(?=[\s/>])', data[root_at:root_at + 258])
+    if root_name is None:
+        return None
+    book = xml(data[:image_at] + b'</' + root_name[1] + b'>', maximum)
+    if any(node.get('id') == identity for node in book.iter()):
+        return None
+    image = '{' + FB + '}image'
+    href = '{' + XL + '}href'
+    cover = any(node.get(href) == '#' + identity for page in book.iter('{' + FB + '}coverpage')
+                for node in page.iter(image))
+    # This helper uses only the shared FB2 markup routines, with no image codecs.
+    spec = importlib.util.spec_from_file_location('homelib_image_quality', Path(__file__).with_name('image_quality.py'))
+    image_quality = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(image_quality)
+    api = type('ConversionAPI', (), {'FB': FB, 'XL': XL, 'tag': tag, 'element': element})
+    if not image_quality.readable_text(api, book, True):
+        return None
+    image_quality.strip_fb2(api, book, only=identity, note='[Повреждённое изображение пропущено]')
+    complete_ids = {node.get('id') for node in children(book, 'binary')}
+    if any((node.get(href) or '').removeprefix('#') not in complete_ids for node in book.iter(image)):
+        return None
+    if cover:
+        body = first(book, 'body')
+        at = next((i for i, node in enumerate(body) if tag(node) == 'section'), len(body))
+        body.insert(at, image_quality.image_note(api, body, True, '[Повреждённая обложка пропущена]'))
+    return FB2ImageRecoveryRequired(serialized(book), cover)
+
+
 def read_fb2(data, maximum, warnings):
     """Repair local FB2 syntax errors in a working copy after strict parsing fails."""
     try:
@@ -172,6 +237,9 @@ def read_fb2(data, maximum, warnings):
             except expat.ExpatError as error:
                 offset = parser.ErrorByteIndex
                 if error.code == expat.errors.codes[expat.errors.XML_ERROR_NO_ELEMENTS]:
+                    recovery = truncated_fb2_image(candidate, maximum)
+                    if recovery is not None:
+                        raise recovery from original
                     raise ConversionError('FB2 обрывается до конца документа.') from original
                 if (error.code == expat.errors.codes[expat.errors.XML_ERROR_INVALID_TOKEN] and
                         offset > 0 and candidate[offset-1:offset] == b'&' and
@@ -1653,6 +1721,23 @@ PACKING_IMAGE_API = 2
 
 
 def convert_book(source, destination, **metadata):
+    skip_damaged_image = metadata.pop('skip_damaged_fb2_image', False)
+    try:
+        return _convert_book(source, destination, **metadata)
+    except FB2ImageRecoveryRequired as error:
+        if metadata.get('reading') or detect_input(Path(source)) != '.fb2':
+            raise ConversionError(str(error)) from error
+        if not skip_damaged_image:
+            raise
+        with tempfile.TemporaryDirectory(prefix='homelib-fb2-image-recovery-', dir=Path(destination).absolute().parent) as folder:
+            recovered = Path(folder) / Path(source).name
+            recovered.write_bytes(error.book)
+            report = _convert_book(recovered, destination, **metadata)
+        report['warnings'].insert(0, error.warning)
+        return report
+
+
+def _convert_book(source, destination, **metadata):
     output_profile = metadata.pop('output_profile', None)
     text_layer_only = metadata.pop('text_layer_only', False)
     image_quality = metadata.pop('image_quality', 'original')
@@ -1865,6 +1950,7 @@ def main():
     parser.add_argument('--image-quality', choices=['original','high','balanced','economy','maximum','none','ask'], default='original')
     parser.add_argument('--image-container', choices=['raw','fb2-zip'], help='Internal final image container; EPUB is inferred by default')
     parser.add_argument('--grayscale', action='store_true')
+    parser.add_argument('--skip-damaged-fb2-image', action='store_true')
     parser.add_argument('--scan-layout', choices=['keep','split','auto'], default='keep')
     parser.add_argument('--scan-exclude', default='')
     parser.add_argument('--image-options', help='Internal image size estimate channel')
@@ -1915,7 +2001,8 @@ def main():
                               reading=options.reading, progress=progress, image_quality=options.image_quality, scan_layout=options.scan_layout, scan_exclude=options.scan_exclude,
                               image_options=options.image_options, image_choice=options.image_choice,image_container=options.image_container,
                               measure_scans=options.measure_scans,
-                              output_profile=options.output_profile, text_layer_only=options.text_layer_only, grayscale=options.grayscale)
+                              output_profile=options.output_profile, text_layer_only=options.text_layer_only, grayscale=options.grayscale,
+                              skip_damaged_fb2_image=options.skip_damaged_fb2_image)
         result['used_tools'] = sorted(used_tools)
         text = json.dumps(result, ensure_ascii=False)
         publish_report(text)
@@ -1924,6 +2011,7 @@ def main():
     except (ConversionError, OSError, UnicodeError, LookupError, zipfile.BadZipFile, RecursionError, ValueError) as error:
         details = {'error': str(error), 'used_tools': sorted(used_tools)}
         if isinstance(error, ComponentRequired): details['required_component'] = error.component
+        if isinstance(error, FB2ImageRecoveryRequired): details['recoverable_fb2_image'] = True
         text = json.dumps(details, ensure_ascii=False)
         try: publish_report(text)
         except OSError: pass

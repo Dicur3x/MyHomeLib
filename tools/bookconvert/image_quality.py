@@ -57,12 +57,12 @@ def remove_nodes(root, predicate, replacement=None):
     return removed
 
 
-def image_note(api, parent, fb2):
+def image_note(api, parent, fb2, text=OMITTED_IMAGE):
     if fb2 and api.tag(parent) == 'coverpage': return None
     namespace = api.FB if fb2 else api.XH
     inline = {'p','strong','emphasis','style','a','strikethrough','sub','sup','code','v','text-author',
               'subtitle','td','th','span','em','b','i','small','label'}
-    note = api.element(namespace,'emphasis' if fb2 else 'em',OMITTED_IMAGE)
+    note = api.element(namespace,'emphasis' if fb2 else 'em',text)
     if api.tag(parent) in inline: return note
     paragraph = api.element(namespace,'p'); paragraph.append(note)
     if fb2 and api.tag(parent) == 'body':
@@ -89,28 +89,32 @@ def fb2_encoding(data):
     return declaration[1].decode('ascii') if declaration else 'utf-8'
 
 
-def strip_fb2(api, root):
-    references = {n.get('{'+api.XL+'}href', '').lstrip('#')
-                  for n in root.iter() if api.tag(n) == 'image'}
-    references.update(n.get('id','') for n in root.iter() if api.tag(n) == 'binary' and
-                      n.get('content-type','').lower().startswith('image/'))
-    references.discard('')
-    count = remove_nodes(root, lambda n: api.tag(n) == 'image',
-                         lambda parent,_: image_note(api,parent,True))
+def strip_fb2(api, root, only=None, note=OMITTED_IMAGE):
+    href = '{'+api.XL+'}href'
+    if only is None:
+        references = {n.get(href, '').lstrip('#') for n in root.iter() if api.tag(n) == 'image'}
+        references.update(n.get('id','') for n in root.iter() if api.tag(n) == 'binary' and
+                          n.get('content-type','').lower().startswith('image/'))
+        references.discard('')
+    else:
+        references = {only}
+    count = remove_nodes(root, lambda n: api.tag(n) == 'image' and (only is None or n.get(href) == '#'+only),
+                         lambda parent,_: image_note(api,parent,True,note))
     binaries = remove_nodes(root, lambda n: api.tag(n) == 'binary' and
-                            (n.get('content-type','').lower().startswith('image/') or n.get('id') in references))
+                            (n.get('id') in references or (only is None and n.get('content-type','').lower().startswith('image/'))))
     count = max(count,binaries)
     remove_nodes(root, lambda n: api.tag(n) == 'coverpage' and not len(n))
     for node in root.iter():
         if api.tag(node) == 'stylesheet' and node.text:
             node.text = re.sub(r'url\(\s*([^)]*?)\s*\)',
                 lambda m: 'none' if m[1].strip().strip('\"\'').lstrip('#') in references or
-                          m[1].strip().strip('\"\'').lower().startswith('data:image/') else m[0],node.text,flags=re.I)
+                          (only is None and m[1].strip().strip('\"\'').lower().startswith('data:image/')) else m[0],node.text,flags=re.I)
     # Links to illustrations may still have useful captions. Keep that text,
     # while removing only their now missing image target. Footnotes stay links.
     for parent in list(root.iter()):
         for node in list(parent):
-            if node.get('{'+api.XL+'}href','').lstrip('#') not in references: continue
+            target = node.get(href,'')
+            if target.lstrip('#') not in references or (only is not None and target != '#'+only): continue
             at = list(parent).index(node)
             if node.text:
                 if at: parent[at-1].tail = (parent[at-1].tail or '') + node.text

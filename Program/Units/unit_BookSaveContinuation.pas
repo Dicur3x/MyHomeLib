@@ -173,6 +173,7 @@ begin
       Root.AddPair('keep_readable',TJSONBool.Create(Options.KeepFB2EPUB)); Root.AddPair('zip',TJSONBool.Create(Options.ZipEachBook));
       Root.AddPair('name_collision',TJSONNumber.Create(Ord(Options.NameCollision)));
       Root.AddPair('images',Options.ImageQuality); Root.AddPair('grayscale',TJSONBool.Create(Options.Grayscale)); Root.AddPair('mask',Options.FileNameTemplate);
+      if Options.SkipDamagedFB2Image then Root.AddPair('skipDamagedFB2Image',TJSONBool.Create(True));
       Root.AddPair('subfolders',Options.FolderTemplate);
       WriteLine(Root);
     finally Root.Free; end;
@@ -252,6 +253,7 @@ begin
         Value.Options.KeepSourceFormat:=Flag(Root,'keep'); Value.Options.KeepFB2EPUB:=Flag(Root,'keep_readable');
         Value.Options.ZipEachBook:=Flag(Root,'zip'); Value.Options.ImageQuality:=Text(Root,'images',1024);
         if Root.GetValue('grayscale')<>nil then Value.Options.Grayscale:=Flag(Root,'grayscale');
+        if Root.GetValue('skipDamagedFB2Image')<>nil then Value.Options.SkipDamagedFB2Image:=Flag(Root,'skipDamagedFB2Image');
         if Root.GetValue('name_collision')<>nil then
           Value.Options.NameCollision:=TBookNameCollision(Number(Root,'name_collision',Ord(bncAsk),Ord(bncKeepBoth)))
         else if (Root.GetValue('overwrite')<>nil) and Flag(Root,'overwrite') then

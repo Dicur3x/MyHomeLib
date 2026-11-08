@@ -9,7 +9,7 @@ uses System.SysUtils;
 function MissingBookConversionComponents(const AppPath, SourceFile, Extension: string;
   InspectImages: Boolean; const IsCanceled: TFunc<Boolean> = nil;
   const TargetExtension: string = ''; const OutputProfile: string = ''): TArray<string>;
-procedure RequireValidFB2Copy(const FileName: string; const IsCanceled: TFunc<Boolean>);
+function ValidFB2Copy(const FileName: string; const IsCanceled: TFunc<Boolean>): Boolean;
 function AdvancedBookOutputExtension(const Profile: string): string;
 function AdvancedWriterComponent(const Ext, Profile: string): string;
 procedure RecordBookConversionUse(const ResolvedExtension: string;
@@ -184,10 +184,9 @@ begin
   end;
 end;
 
-procedure RequireValidFB2Copy(const FileName: string; const IsCanceled: TFunc<Boolean>);
+function ValidFB2Copy(const FileName: string; const IsCanceled: TFunc<Boolean>): Boolean;
 begin
-  if not InspectFB2(FileName,IsCanceled,True) then
-    raise Exception.Create('Исходный FB2 повреждён или не содержит тела книги.');
+  Result:=InspectFB2(FileName,IsCanceled,True);
 end;
 
 function PackageHasRasterImages(const FileName: string; const IsCanceled: TFunc<Boolean>): Boolean;

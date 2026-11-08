@@ -25,7 +25,7 @@ type
     FRevision: Integer;
     FBookBudget: Cardinal;
     FDeadline: UInt64;
-    FComplete, FGrayscale: Boolean;
+    FComplete, FGrayscale, FSkipDamagedFB2Image: Boolean;
     function TimeLimitReached: Boolean;
     function ShouldStop: Boolean;
     procedure Stage(const Text: string);
@@ -35,7 +35,7 @@ type
   public
     constructor Create(const Books: TArray<TBookRecord>; const Plan: TBookSaveChoice;
       const AppPath, TempRoot: string; Grayscale: Boolean = False; BudgetMilliseconds: Cardinal = 0;
-      const InitialItems: TBookSaveEstimateItems = nil);
+      const InitialItems: TBookSaveEstimateItems = nil; SkipDamagedFB2Image: Boolean = False);
     destructor Destroy; override;
     function Poll(var Revision: Integer; out Items: TBookSaveEstimateItems;
       out Status: string; out Complete: Boolean): Boolean;
@@ -44,7 +44,8 @@ type
 function BookSaveMissingComponents(const Items: TBookSaveEstimateItems): TArray<string>;
 
 function KnownBookSaveEstimates(const Books: TArray<TBookRecord>;
-  const Plan: TBookSaveChoice; Grayscale: Boolean = False): TBookSaveEstimateItems;
+  const Plan: TBookSaveChoice; Grayscale: Boolean = False;
+  SkipDamagedFB2Image: Boolean = False): TBookSaveEstimateItems;
 
 implementation
 
@@ -84,7 +85,7 @@ begin
 end;
 
 function KnownBookSaveEstimates(const Books: TArray<TBookRecord>;
-  const Plan: TBookSaveChoice; Grayscale: Boolean): TBookSaveEstimateItems;
+  const Plan: TBookSaveChoice; Grayscale, SkipDamagedFB2Image: Boolean): TBookSaveEstimateItems;
 var ArchiveAvailability: TDictionary<string,Boolean>;
 begin
   SetLength(Result,Length(Books));
@@ -125,7 +126,9 @@ begin
         else if (BookFormat<>bfFbd) and FileExists(Source) then Bytes:=TFile.GetSize(Source);
         if Bytes>0 then
         begin
-          if not Grayscale or Result[I].ImagesUnchanged then Result[I].Options.OutputBytes[0,0]:=Bytes;
+          if (not Grayscale or Result[I].ImagesUnchanged) and
+            not (SkipDamagedFB2Image and (Result[I].SourceExtension='.fb2')) then
+            Result[I].Options.OutputBytes[0,0]:=Bytes;
           if Result[I].ImagesUnchanged then for var Q:=1 to High(BOOK_IMAGE_PROFILES) do Result[I].Options.OutputBytes[0,Q]:=Bytes;
         end;
       end;
@@ -138,15 +141,16 @@ end;
 
 constructor TBookSendEstimateThread.Create(const Books: TArray<TBookRecord>;
   const Plan: TBookSaveChoice; const AppPath, TempRoot: string; Grayscale: Boolean; BudgetMilliseconds: Cardinal;
-  const InitialItems: TBookSaveEstimateItems);
+  const InitialItems: TBookSaveEstimateItems; SkipDamagedFB2Image: Boolean);
 begin
   inherited Create(True); FreeOnTerminate:=False;
   FBookBudget:=BudgetMilliseconds;
   FBooks:=Copy(Books); FPlan:=Plan; FAppPath:=AppPath; FTempRoot:=TPath.GetFullPath(TempRoot);
   FTXTEncoding:=Settings.TXTEncoding; FGrayscale:=Grayscale;
+  FSkipDamagedFB2Image:=SkipDamagedFB2Image;
   FLock:=TCriticalSection.Create;
   if Length(InitialItems)=Length(Books) then FItems:=Copy(InitialItems)
-  else FItems:=KnownBookSaveEstimates(Books,Plan,Grayscale);
+  else FItems:=KnownBookSaveEstimates(Books,Plan,Grayscale,SkipDamagedFB2Image);
   FRevision:=1; FStage:='Оценка размера…';
 end;
 
@@ -245,7 +249,8 @@ begin
         Pin:=OpenCachedBookFile(Prepared);
         Item.SourceExtension:=BookSaveFileExtension(Prepared,Item.SourceExtension);
         Item.TargetExtension:=BookSaveTargetExtension(Item.SourceExtension,FPlan.Mode,FPlan.KeepOriginal,FPlan.KeepFB2EPUB);
-        if (OutputProfile='') and not FGrayscale and SameText(Item.SourceExtension,Item.TargetExtension) then
+        var RecoverImage:=FSkipDamagedFB2Image and (Item.SourceExtension='.fb2');
+        if (OutputProfile='') and not FGrayscale and not RecoverImage and SameText(Item.SourceExtension,Item.TargetExtension) then
         begin
           Item.Options.OutputBytes[0,0]:=Pin.Size;
           Item.Options.ZipOutputBytes[0,0]:=PackedBytes(Pin);
@@ -278,7 +283,7 @@ begin
               IsCanceled,Book.Title,'',Book.Lang,False,
               procedure(Percent, Completed, Total: Integer; const Text: string)
               begin Stage(Format('Оценка %s · %s · %d%%',[UpperCase(Item.TargetExtension.TrimLeft(['.'])),ProfileName,Percent])); end,
-              Quality,nil,False,'',False,OutputProfile,False,FGrayscale);
+              Quality,nil,False,'',False,OutputProfile,False,FGrayscale,False,RecoverImage);
             Item.Options.OutputBytes[L,Q]:=TFile.GetSize(Candidate);
             TFile.Delete(Candidate);
           end;
@@ -321,7 +326,7 @@ begin
               // The chooser runs on this worker. Returning cancel terminates
               // the sample conversion, without creating the full output.
               Result:='';
-            end,False,'',FPlan.Mode=emFB2Zip,'',False,FGrayscale,BookSaveIsScanSource(Item.SourceExtension));
+            end,False,'',FPlan.Mode=emFB2Zip,'',False,FGrayscale,BookSaveIsScanSource(Item.SourceExtension),RecoverImage);
         except on E: EAbort do if not Captured then raise; end;
         if not Captured then
         begin

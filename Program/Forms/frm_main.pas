@@ -6912,7 +6912,8 @@ begin
         Files, Results, DeviceShellItem, UseMTP, ExplicitFormat,
         procedure(ID: string) begin Required:=ID; end, ImageQuality,
         KeepSourceFormat, KeepFB2EPUB, ZipEachBook,
-        procedure(IDs:TArray<string>) begin RequiredIDs:=IDs; if Length(IDs)>0 then Required:=IDs[0]; end,NameCollision,SendOptions.Grayscale);
+        procedure(IDs:TArray<string>) begin RequiredIDs:=IDs; if Length(IDs)>0 then Required:=IDs[0]; end,
+        NameCollision,SendOptions.Grayscale,SendOptions.SkipDamagedFB2Image);
       StatusMessage := Format('Экспортировано книг: %d из %d. Остальные отметки сохранены.',
         [SuccessfulBookExportCount(Results), Length(BookIDList)]);
     end;

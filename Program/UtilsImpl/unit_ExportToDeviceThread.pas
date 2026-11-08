@@ -80,7 +80,7 @@ type
     FRequiredComponents: TArray<string>;
     FConverterExitCode: Cardinal;
     FCurrentBookIndex: Integer;
-    FShowImageQualityChoice, FGrayscale: Boolean;
+    FShowImageQualityChoice, FGrayscale, FSkipDamagedFB2Image: Boolean;
     FImageQuality: string;
 
     FMaxTempPathLength: Integer;
@@ -134,6 +134,7 @@ type
     property NameCollision: TBookNameCollision read FNameCollision write FNameCollision;
     property OnNameCollision: TBookCollisionPrompt read FOnNameCollision write FOnNameCollision;
     property Grayscale: Boolean read FGrayscale write FGrayscale;
+    property SkipDamagedFB2Image: Boolean read FSkipDamagedFB2Image write FSkipDamagedFB2Image;
     property ImageQuality: string read FImageQuality write FImageQuality;
     property FileNameTemplate: string read FFileNameTemplate write FFileNameTemplate;
     property FolderTemplate: string read FFolderTemplate write FFolderTemplate;
@@ -171,10 +172,10 @@ resourcestring
   rstrExportErrors = 'Во время экспорта возникли ошибки: не удалось экспортировать файлов — %d из %d.' + CR +
     'Подробности записаны в файл: %s';
   rstrExportWarnings = 'Копии сохранены: %d из %d. Ошибок сохранения нет.' + CR +
-    'При преобразовании изменилось оформление. Книг с примечаниями: %d.' + CR +
+    'Книг с примечаниями: %d.' + CR +
     'Подробности: %s';
   rstrPreparedWarnings = 'Файлы подготовлены: %d из %d. Ошибок подготовки нет.' + CR +
-    'При преобразовании изменилось оформление. Книг с примечаниями: %d.' + CR +
+    'Книг с примечаниями: %d.' + CR +
     'Подробности: %s';
   rstrBasicFormatUnsupported = 'Экспорт в %s поддерживает FB2, FB3, EPUB, TXT, HTML, Markdown, RTF, DOC/DOCX, ODT и Kindle без DRM. ' +
     'Книга «%s» имеет формат %s; её исходный файл сохранён.';
@@ -354,8 +355,9 @@ begin
       SourceExtension:=BookSaveFileExtension(R.GetBookFileName,R.FileExt);
     FCurrentKeepSource:=BookSaveKeepsSource(SourceExtension,FExportMode,FKeepSourceFormat,FKeepFB2EPUB);
     if FCurrentKeepSource then FExplicitFormat:=False;
-    ProcessSourceImages:=FCurrentKeepSource and ((FImageQuality<>'original') or FGrayscale) and
-      ((SourceExtension='.fb2') or (SourceExtension='.epub'));
+    ProcessSourceImages:=FCurrentKeepSource and
+      ((((FImageQuality<>'original') or FGrayscale) and ((SourceExtension='.fb2') or (SourceExtension='.epub'))) or
+       (FSkipDamagedFB2Image and (SourceExtension='.fb2')));
     if (FExplicitFormat or ProcessSourceImages or
       (not FCurrentKeepSource and (FExportMode in ([emMobi,emAZW3]+BOOK_SAVE_ADVANCED_MODES)))) and not FExtractOnly then
     begin
@@ -370,8 +372,9 @@ begin
       // be wrong. A previous book's effective format never affects this one.
       FCurrentKeepSource:=BookSaveKeepsSource(SourceExtension,FExportMode,FKeepSourceFormat,FKeepFB2EPUB);
       FExplicitFormat:=FRequestedExplicitFormat and not FCurrentKeepSource;
-      ProcessSourceImages:=FCurrentKeepSource and ((FImageQuality<>'original') or FGrayscale) and
-        ((SourceExtension='.fb2') or (SourceExtension='.epub'));
+      ProcessSourceImages:=FCurrentKeepSource and
+        ((((FImageQuality<>'original') or FGrayscale) and ((SourceExtension='.fb2') or (SourceExtension='.epub'))) or
+         (FSkipDamagedFB2Image and (SourceExtension='.fb2')));
       if FCurrentKeepSource then
       begin
         if SourceExtension='.epub' then
@@ -805,7 +808,8 @@ begin
           Result:=Selected;
         end,FOverwriteExisting,FFileOprecord.OriginalSourceFile,
         (FExportMode=emFB2Zip) or (FZipEachBook and SameText(ExtractFileExt(ConversionTarget),'.fb2')),
-        BookSaveAdvancedProfile(FExportMode),FExportMode=emTxt,FGrayscale and (FExportMode<>emTxt));
+        BookSaveAdvancedProfile(FExportMode),FExportMode=emTxt,FGrayscale and (FExportMode<>emTxt),
+        False,FSkipDamagedFB2Image);
       FLastWarnings := Warnings.Text;
       Result := True;
       if not (FExportMode in ([emFB2,emEpub,emMobi,emAZW3]+BOOK_SAVE_ADVANCED_MODES)) then
@@ -1236,7 +1240,7 @@ var
   FailedCount: Integer;
   WarningCount: Integer;
   CompletedCount: Integer;
-  FirstError, ResultLabel, Summary: string;
+  FirstError, FirstWarning, ResultLabel, Summary: string;
   function BookLabel: string;
   begin
     Result:=FFileOprecord.BookTitle;
@@ -1255,6 +1259,7 @@ begin
   FailedCount := 0;
   WarningCount := 0;
   FirstError := '';
+  FirstWarning := '';
   ErrorLog := TStringList.Create;
   try
     FProgressEngine.BeginOperation(Length(FBookIdList), rstrFilesProcessed, rstrFilesProcessed);
@@ -1366,6 +1371,8 @@ begin
         if FLastWarnings <> '' then
         begin
           Inc(WarningCount);
+          if Res and (FirstWarning='') then
+            FirstWarning:=BookLabel+CR+Copy(FLastWarnings.Split([CR])[0],1,350);
           if Res then
           begin
             if FExtractOnly then ResultLabel:='Подготовлено с примечаниями'
@@ -1418,7 +1425,8 @@ begin
         for var Item in FResults do
           if Item.State in [besSucceeded,besPrepared] then Inc(CompletedCount);
         if FExtractOnly then Summary:=rstrPreparedWarnings else Summary:=rstrExportWarnings;
-        ShowMessage(Format(Summary, [CompletedCount,totalBooks,WarningCount,LogFileName]), MB_ICONINFORMATION or MB_OK);
+        ShowMessage(Format(Summary, [CompletedCount,totalBooks,WarningCount,LogFileName])+CR+CR+FirstWarning,
+          MB_ICONINFORMATION or MB_OK);
       end;
     end;
   finally

@@ -241,6 +241,40 @@ class ConversionTests(unittest.TestCase):
         output=self.root/'corrupt.epub'
         with self.assertRaises(c.ConversionError):c.convert_book(source,output)
         self.assertFalse(output.exists());self.assertEqual(digest(source),before)
+    def test_truncated_fb2_image_requires_consent_and_keeps_other_images(self):
+        book = ET.parse(self.source).getroot()
+        picture_link = '{'+c.XL+'}href'
+        cover = next(book.iter('{'+c.FB+'}coverpage'))
+        cover[0].set(picture_link, '#broken')
+        section = next(n for n in c.first(book, 'body').iter('{'+c.FB+'}section') if n.get('id') == 'one-prose')
+        section.append(c.element(c.FB, 'image', **{picture_link: '#broken'}))
+        section.append(c.element(c.FB, 'p', 'Text after the broken illustration.'))
+        book.append(c.element(c.FB, 'binary', 'YQ', id='broken', **{'content-type': 'image/png'}))
+        source = self.root/'truncated.fb2'
+        source.write_bytes(c.serialized(book).rsplit(b'</', 2)[0])
+        before = digest(source)
+        for extension in ('.fb2', '.epub'):
+            with self.subTest(extension=extension):
+                result = self.root/('recovered'+extension)
+                with self.assertRaises(c.FB2ImageRecoveryRequired):
+                    c.convert_book(source, result)
+                self.assertFalse(result.exists())
+                report = c.convert_book(source, result, skip_damaged_fb2_image=True)
+                self.assertIn('Повреждённая обложка пропущена.', report['warnings'])
+                if extension == '.fb2':
+                    output = c.xml(result.read_bytes())
+                    c.validate_fb2_output(output)
+                    images = [base64.b64decode(c.plain(n)) for n in c.children(output, 'binary')]
+                else:
+                    with zipfile.ZipFile(result) as archive:
+                        output = c.xml(archive.read('OEBPS/body-1.xhtml'))
+                        images = [archive.read(n) for n in archive.namelist() if n.startswith('OEBPS/images/')]
+                self.assertEqual(images, [PNG, PNG])
+                text = c.plain(output)
+                self.assertIn('[Повреждённая обложка пропущена]', text)
+                self.assertIn('[Повреждённое изображение пропущено]Text after the broken illustration.', text)
+        self.assertEqual(digest(source), before)
+        self.assertFalse(list(self.root.glob('homelib-fb2-image-recovery-*')))
     def test_source_title_mixed_text_gets_paragraphs_without_losing_inline_content(self):
         book=ET.parse(self.source).getroot(); title=next(book.iter('{'+c.FB+'}title'))
         title.text='Before '; emphasis=c.element(c.FB,'emphasis','Italic');emphasis.tail=' between '

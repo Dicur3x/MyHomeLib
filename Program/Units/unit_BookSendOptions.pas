@@ -9,7 +9,7 @@ type
   TBookSendOptions = record
     Folder: string;
     ShellItem: IShellItem;
-    UseMTP, ExplicitFormat, KeepSourceFormat, KeepFB2EPUB, ZipEachBook, Grayscale: Boolean;
+    UseMTP, ExplicitFormat, KeepSourceFormat, KeepFB2EPUB, ZipEachBook, Grayscale, SkipDamagedFB2Image: Boolean;
     NameCollision: TBookNameCollision;
     Mode: TExportMode;
     ImageQuality, FileNameTemplate, FolderTemplate, RequiredComponent: string;
@@ -23,7 +23,7 @@ type
     FShellItem: IShellItem;
     FDestination, FNameMask, FFolderMask, FExcept: TEdit;
     FFormat, FImages, FScans, FCollision: TComboBox;
-    FSubfolders, FMoreFormats, FGrayscale: TCheckBox;
+    FSubfolders, FMoreFormats, FGrayscale, FSkipDamagedFB2Image: TCheckBox;
     FContent: TScrollBox;
     FIntro, FFormatLabel, FImagesLabel, FSummary, FNote, FScanLabel,
       FExceptLabel, FMaskLabel, FMaskHelp, FFolderHelp, FCollisionLabel, FPreview, FStatus: TLabel;
@@ -192,6 +192,11 @@ begin
   FGrayscale.Parent:=FContent; FGrayscale.Caption:='Оттенки серого';
   FGrayscale.Hint:='Убрать цвет из растровых изображений. Размер может измениться.';
   FGrayscale.ShowHint:=True; FGrayscale.OnClick:=Changed;
+  FSkipDamagedFB2Image:=TCheckBox.Create(Self); FSkipDamagedFB2Image.Parent:=FContent;
+  FSkipDamagedFB2Image.Name:='SkipDamagedFB2Image';
+  FSkipDamagedFB2Image.Caption:='Пропускать повреждённые изображения';
+  FSkipDamagedFB2Image.Hint:='Для FB2 с целым текстом. На месте изображения появится пометка.';
+  FSkipDamagedFB2Image.ShowHint:=True; FSkipDamagedFB2Image.OnClick:=Changed;
   FImages.ItemIndex:=0;
   FCalculate:=TButton.Create(Self); FCalculate.Parent:=FContent; FCalculate.Name:='EstimateSaveSize';
   FCalculate.Caption:='Оценить размер'; FCalculate.OnClick:=Calculate;
@@ -305,7 +310,8 @@ end;
 
 procedure TBookSendOptionsForm.ResetEstimates;
 begin
-  FInitialItems:=KnownBookSaveEstimates(FBooks,Choice,FGrayscale.Checked);
+  FInitialItems:=KnownBookSaveEstimates(FBooks,Choice,FGrayscale.Checked,
+    (Choice.Mode<>emTxt) and FSkipDamagedFB2Image.Checked);
   FItems:=FInitialItems;
 end;
 
@@ -495,7 +501,7 @@ procedure TBookSendOptionsForm.Changed(Sender: TObject);
 var CanProcess, Opaque: Boolean; Bytes, Margin: Int64;
 begin
   if FInitializing then Exit;
-  if (Sender=FFormat) or (Sender=FGrayscale) then
+  if (Sender=FFormat) or (Sender=FGrayscale) or (Sender=FSkipDamagedFB2Image) then
   begin
     ResetEstimates; FRequiredComponent:='';
     FCalculate.Caption:='Оценить размер'; FHasEstimateAttempt:=False;
@@ -516,6 +522,7 @@ begin
   FImages.Enabled:=CanProcess;
   if not CanProcess then FImages.ItemIndex:=0;
   FGrayscale.Enabled:=CanProcess and (FImages.ItemIndex<>BOOK_QUALITY_NONE) and not Assigned(FEstimate);
+  FSkipDamagedFB2Image.Enabled:=CanProcess and (Choice.Mode<>emTxt) and not Assigned(FEstimate);
   FScans.Enabled:=HasScanConversion;
   FScanLabel.Visible:=FScans.Enabled; FScans.Visible:=FScans.Enabled;
   FExcept.Enabled:=FScans.Enabled and (FScans.ItemIndex>0);
@@ -598,9 +605,10 @@ begin
   if not CheckOutputRuntime then Exit;
   FRevision:=-1;
   FEstimate:=TBookSendEstimateThread.Create(FBooks,Choice,Settings.AppPath,Settings.TempPath,
-    FGrayscale.Checked,9500,FInitialItems);
+    FGrayscale.Checked,9500,FInitialItems,FSkipDamagedFB2Image.Enabled and FSkipDamagedFB2Image.Checked);
   FHasEstimateAttempt:=True;
   FFormat.Enabled:=False; FMoreFormats.Enabled:=False; FGrayscale.Enabled:=False; FSend.Enabled:=False; FCalculate.Caption:='Остановить';
+  FSkipDamagedFB2Image.Enabled:=False;
   FStatus.Caption:='Рассчитываем размер · '+FEstimateTime;
   FTimer.Enabled:=True; FEstimate.Start; UpdateSummary; Reflow(nil);
 end;
@@ -734,6 +742,7 @@ begin
       FFormatLabel.Visible:=ShowSettings; FFormat.Visible:=ShowSettings;
       FMoreFormats.Visible:=ShowSettings and (FPrimaryChoiceCount<Length(FChoices));
       FImagesLabel.Visible:=ShowSettings; FImages.Visible:=ShowSettings; FGrayscale.Visible:=ShowSettings;
+      FSkipDamagedFB2Image.Visible:=ShowSettings and FImages.Enabled and (Choice.Mode<>emTxt);
       FNamesToggle.Visible:=ShowSettings and (FLayout<>2);
       FMaskLabel.Visible:=ShowNames; FMaskHelpToggle.Visible:=ShowNames; FNameMask.Visible:=ShowNames;
       FSubfolders.Visible:=ShowNames;
@@ -774,6 +783,7 @@ begin
           FCalculate.SetBounds(X+W-S(150),Y,S(150),RowHeight); Inc(Y,RowHeight+Gap);
         end;
         Dropdown(FFormat); Dropdown(FImages); Dropdown(FScans);
+        Place(FSkipDamagedFB2Image,S(24));
         Text(FScanLabel); Place(FScans,RowHeight); Text(FExceptLabel); Place(FExcept,RowHeight);
         if Columns or not ShowResults then
         begin Names; Text(FNote); end;
@@ -905,6 +915,7 @@ begin
         Exit;
       end;
       Dialog.FGrayscale.Checked:=InitialOptions.Grayscale;
+      Dialog.FSkipDamagedFB2Image.Checked:=InitialOptions.SkipDamagedFB2Image;
       var Parts:=InitialOptions.ImageQuality.Split(['|']);
       if Length(Parts)>0 then for var I:=0 to High(BOOK_IMAGE_PROFILES) do
         if Parts[0]=BOOK_IMAGE_PROFILES[I] then Dialog.FImages.ItemIndex:=I;
@@ -934,6 +945,7 @@ begin
     Options.ImageQuality:='original';
     if Dialog.FImages.Enabled then Options.ImageQuality:=BOOK_IMAGE_PROFILES[Dialog.FImages.ItemIndex];
     Options.Grayscale:=Dialog.FGrayscale.Enabled and Dialog.FGrayscale.Checked;
+    Options.SkipDamagedFB2Image:=Dialog.FSkipDamagedFB2Image.Enabled and Dialog.FSkipDamagedFB2Image.Checked;
     if Dialog.FScans.Enabled and (Dialog.FScans.ItemIndex>0) and (Dialog.FImages.ItemIndex<>BOOK_QUALITY_NONE) then
     begin
       if Dialog.FScans.ItemIndex=1 then Options.ImageQuality:=Options.ImageQuality+'|auto'

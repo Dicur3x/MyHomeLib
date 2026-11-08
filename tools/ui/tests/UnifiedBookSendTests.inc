@@ -172,6 +172,8 @@ begin
           'Obsolete ZIP checkbox returned or restored image choice was lost');
         Require(TCheckBox(Dialog.FindComponent('SendGrayscale')).Checked=Initial.Grayscale,
           'Restored grayscale setting was lost');
+        Require(TCheckBox(Dialog.FindComponent('SkipDamagedFB2Image')).Checked=Initial.SkipDamagedFB2Image,
+          'Restored damaged image setting was lost');
         Require((TComboBox(Dialog.FindComponent('SaveScanLayout')).ItemIndex=1) and
           (TEdit(Dialog.FindComponent('SaveScanExceptions')).Text='1,9-10'),'Restored scan layout or exclusions were lost');
         if Initial.Mode=emFB2Zip then
@@ -186,6 +188,8 @@ begin
         Dialog.ModalResult:=mrCancel; Exit;
       end;
       Require(Assigned(Formats) and Assigned(Images),'Unified send controls are missing');
+      Require(not TCheckBox(Dialog.FindComponent('SkipDamagedFB2Image')).Checked,
+        'Damaged image recovery must default to off');
       if not ViewsVerified and (TListView(Dialog.FindComponent('SaveBookSizes')).Items.Count>1) then
       begin CheckUnifiedSaveViews(TBookSendOptionsForm(Dialog)); ViewsVerified:=True; end;
       Require(Images.Items.Count=Length(BOOK_IMAGE_PROFILES),'Save As lost an image mode');

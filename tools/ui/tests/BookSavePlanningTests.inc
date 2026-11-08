@@ -7,6 +7,7 @@ begin
   Options.ZipEachBook:=True; Options.FileNameTemplate:='[%s - ][%n - ]%t';
   Options.NameCollision:=bncReplace;
   Options.FolderTemplate:='%f\[%s]'; Options.ImageQuality:='maximum|auto|except=1,9-10'; Options.Grayscale:=True;
+  Options.SkipDamagedFB2Image:=True;
   ComponentID:='BookConverter'; SourceFile:=ParamStr(3);
   if SourceFile.StartsWith('--target=') then
   begin
@@ -114,6 +115,7 @@ begin
     Driver.Probe.Initial.FileNameTemplate:='[%s - ][%n - ]%t';
     Driver.Probe.Initial.FolderTemplate:='%f\[%s]';
     Driver.Probe.Initial.ImageQuality:='maximum|auto|except=1,9-10'; Driver.Probe.Initial.Grayscale:=True;
+    Driver.Probe.Initial.SkipDamagedFB2Image:=True;
     Driver.Probe.VerifyInitial:=True; Driver.Probe.Deadline:=GetTickCount64+20000;
     Driver.Timer:=TTimer.Create(nil); Driver.Timer.Interval:=50; Driver.Timer.OnTimer:=Driver.Tick;
     Host.OpenInitialFile(Source); Host.Show; Started:=GetTickCount64;
@@ -179,7 +181,8 @@ begin
     'Save restart lost the remaining books or their identities');
   Require(Plan.Options.KeepFB2EPUB and Plan.Options.ZipEachBook and (Plan.Options.NameCollision=bncReplace) and
     (Plan.Options.Mode=emEpub) and (Plan.Options.FolderTemplate='%f\[%s]') and
-    (Plan.Options.ImageQuality='maximum|auto|except=1,9-10') and Plan.Options.Grayscale,'Save restart lost source policy, ZIP, folders or image layout');
+    (Plan.Options.ImageQuality='maximum|auto|except=1,9-10') and Plan.Options.Grayscale and
+    Plan.Options.SkipDamagedFB2Image,'Save restart lost source policy, ZIP, folders or image controls');
   Require(not TakeBookSaveContinuation(Name,Plan),'Save restart can be consumed twice');
   ClearBookSaveContinuation(Name,'wrong-token');
   Require(FileExists(BookSaveContinuationFile(Name)),'Old dialog removed a newer save plan');

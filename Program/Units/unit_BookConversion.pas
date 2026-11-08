@@ -44,7 +44,7 @@ procedure ConvertBasicBook(const AppPath, TempRoot, SourceFile, SourceExtension,
   const OverwriteExisting: Boolean = False; const ProtectedSourceFile: string = '';
   const PackedOutput: Boolean = False; const OutputProfile: string = '';
   const ExtractTextLayer: Boolean = False; const Grayscale: Boolean = False;
-  const MeasureScans: Boolean = False);
+  const MeasureScans: Boolean = False; const SkipDamagedFB2Image: Boolean = False);
 
 implementation
 
@@ -62,7 +62,7 @@ end;
 
 function CopyUnchangedBook(const SourceFile, SourceExtension, TargetFile: string;
   Source: TStream; const IsCanceled: TFunc<Boolean>; OverwriteExisting: Boolean;
-  const ProtectedSourceFile: string): Boolean;
+  const ProtectedSourceFile: string; SkipDamagedFB2Image: Boolean): Boolean;
 var Input: TStream; Writer: TFileStream; SavedPosition: Int64;
   Temporary: string; Buffer: TBytes; Count: Integer;
 begin
@@ -88,7 +88,11 @@ begin
       if Writer.Size=0 then raise EReadError.Create('Исходная книга пуста.');
       if not FlushFileBuffers(Writer.Handle) then RaiseLastOSError;
     finally Writer.Free; end;
-    if SourceExtension='.fb2' then RequireValidFB2Copy(Temporary,IsCanceled);
+    if (SourceExtension='.fb2') and not ValidFB2Copy(Temporary,IsCanceled) then
+    begin
+      if SkipDamagedFB2Image then Exit;
+      raise Exception.Create('Исходный FB2 повреждён или не содержит тела книги.');
+    end;
     if Assigned(IsCanceled) and IsCanceled() then Abort;
     PublishBookOutput(Temporary,TargetFile,OverwriteExisting,ProtectedSourceFile);
     Temporary:=''; Result:=True;
@@ -223,7 +227,7 @@ procedure ConvertBasicBook(const AppPath, TempRoot, SourceFile, SourceExtension,
   const OnProgress: TBookConversionProgress; const ImageQuality: string;
   const ChooseImageQuality: TBookImageQualityChooser;
   const OverwriteExisting: Boolean; const ProtectedSourceFile: string; const PackedOutput: Boolean;
-  const OutputProfile: string; const ExtractTextLayer, Grayscale, MeasureScans: Boolean);
+  const OutputProfile: string; const ExtractTextLayer, Grayscale, MeasureScans, SkipDamagedFB2Image: Boolean);
 var Work, InputName, OutputName, ReportName, ProgressName, Tool, Script, TargetTemporary, LastDiagnosticStage: string;
   Input, Writer: TStream; SavedPosition: Int64; Log: TStringStream;
   Started, DOCStarted, LastAdvance, LastPoll: UInt64; Report: TJSONValue; ArrayValue: TJSONValue; I: Integer;
@@ -258,7 +262,8 @@ begin
     raise Exception.Create('Папка и имя результата совпадают с исходной книгой. Выберите другую папку или маску имени.');
   if Assigned(Warnings) then Warnings.Clear;
   if (OutputProfile='') and not ForReading and not Grayscale and (QualityProfile='original') and (ScanLayout='keep') and
-    CopyUnchangedBook(SourceFile,Extension,TargetFile,Source,IsCanceled,OverwriteExisting,ProtectedSource) then
+    CopyUnchangedBook(SourceFile,Extension,TargetFile,Source,IsCanceled,OverwriteExisting,ProtectedSource,
+      SkipDamagedFB2Image) then
   begin
     if Assigned(OnProgress) then OnProgress(100,0,0,'complete');
     Exit;
@@ -526,6 +531,8 @@ begin
     finally if not Assigned(Source) then Input.Free; end;
     Check;
     Actual:=DetectReaderExtension(InputName);
+    if not ForReading and SkipDamagedFB2Image and (Actual='.fb2') and (SaveOptionsAPI(AppPath)<6) then
+      raise EMHLComponentRequired.Create('BookProcessing','Для пропуска повреждённых изображений FB2 обновите модуль подготовки книг.');
     var IsLargeInput:=TFile.GetSize(InputName)>64*1024*1024;
     if IsLargeInput and (Actual='.pdf') and (SaveOptionsAPI(AppPath)<4) then
       raise EMHLComponentRequired.Create('BookProcessing','Для конвертации больших PDF обновите модуль подготовки книг.');
@@ -576,6 +583,8 @@ begin
         begin
           Arguments:=Arguments+TArray<string>.Create('--image-quality',QualityProfile,'--scan-layout',ScanLayout);
           if Grayscale and (QualityProfile<>'none') then Arguments:=Arguments+TArray<string>.Create('--grayscale');
+          if SkipDamagedFB2Image and (Actual='.fb2') then
+            Arguments:=Arguments+TArray<string>.Create('--skip-damaged-fb2-image');
           if OutputProfile<>'' then Arguments:=Arguments+TArray<string>.Create('--output-profile',OutputProfile);
           if TextLayerOnly then Arguments:=Arguments+TArray<string>.Create('--text-layer-only');
           if PackedOutput and (TargetExtension='.fb2') and
@@ -612,7 +621,13 @@ begin
                     'Для этой книги нужен компонент '+Required+'.'));
               end;
               if (Report is TJSONObject) and (TJSONObject(Report).GetValue('error')<>nil) then
-                raise Exception.Create(TJSONObject(Report).GetValue('error').Value);
+              begin
+                var ErrorText:=TJSONObject(Report).GetValue('error').Value;
+                if not ForReading and not SkipDamagedFB2Image and
+                  TJSONObject(Report).GetValue<Boolean>('recoverable_fb2_image',False) then
+                  ErrorText:=ErrorText+' Чтобы сохранить копию, включите «Пропускать повреждённые изображения».';
+                raise Exception.Create(ErrorText);
+              end;
             finally Report.Free; end;
           end;
           raise;

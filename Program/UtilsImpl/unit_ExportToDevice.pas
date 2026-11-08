@@ -38,7 +38,8 @@ procedure ExportToDevice(
   const ZipEachBook: Boolean = False;
   const OnMissingComponents: TProc<TArray<string>> = nil;
   const NameCollision: TBookNameCollision = bncKeepBoth;
-  const Grayscale: Boolean = False
+  const Grayscale: Boolean = False;
+  const SkipDamagedFB2Image: Boolean = False
   ); overload;
 
 procedure ExportToDevice(
@@ -58,7 +59,8 @@ procedure ExportToDevice(
   const ZipEachBook: Boolean = False;
   const OnMissingComponents: TProc<TArray<string>> = nil;
   const NameCollision: TBookNameCollision = bncKeepBoth;
-  const Grayscale: Boolean = False
+  const Grayscale: Boolean = False;
+  const SkipDamagedFB2Image: Boolean = False
   ); overload;
 
 procedure DownloadBooks(const IdList: TBookIdList);
@@ -101,13 +103,13 @@ procedure ExportToDevice(
   const ZipEachBook: Boolean;
   const OnMissingComponents: TProc<TArray<string>>;
   const NameCollision: TBookNameCollision;
-  const Grayscale: Boolean
+  const Grayscale, SkipDamagedFB2Image: Boolean
   );
 var Ignored: TBookExportResults;
 begin
   ExportToDevice(DeviceDir, IdList, Mode, ExtractOnly, ProcessedFiles, Ignored,
     ADeviceShellItem, AUseMTP, ExplicitFormat, OnMissingComponent, ImageQuality,
-    KeepSourceFormat, KeepFB2EPUB, ZipEachBook, OnMissingComponents, NameCollision, Grayscale);
+    KeepSourceFormat, KeepFB2EPUB, ZipEachBook, OnMissingComponents, NameCollision, Grayscale, SkipDamagedFB2Image);
 end;
 
 procedure ExportToDevice(
@@ -127,7 +129,7 @@ procedure ExportToDevice(
   const ZipEachBook: Boolean;
   const OnMissingComponents: TProc<TArray<string>>;
   const NameCollision: TBookNameCollision;
-  const Grayscale: Boolean
+  const Grayscale, SkipDamagedFB2Image: Boolean
   );
 var
   worker: TExportToDeviceThread;
@@ -163,6 +165,7 @@ begin
     worker.ImageQuality:=ImageQuality; worker.KeepSourceFormat:=KeepSourceFormat;
     worker.KeepFB2EPUB:=KeepFB2EPUB; worker.ZipEachBook:=ZipEachBook;
     worker.NameCollision:=NameCollision; worker.Grayscale:=Grayscale;
+    worker.SkipDamagedFB2Image:=SkipDamagedFB2Image;
 
     if AUseMTP and Assigned(ADeviceShellItem) then
     begin

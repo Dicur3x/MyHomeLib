@@ -74,6 +74,7 @@ begin
     if Options.FileNameTemplate<>'' then Worker.FileNameTemplate:=Options.FileNameTemplate;
     Worker.FolderTemplate:=Options.FolderTemplate;
     Worker.ImageQuality:=Options.ImageQuality; Worker.Grayscale:=Options.Grayscale; Worker.ShowImageQualityChoice:=True;
+    Worker.SkipDamagedFB2Image:=Options.SkipDamagedFB2Image;
     Worker.UseMTP:=Options.UseMTP;
     if Options.UseMTP and Assigned(Options.ShellItem) then
     begin
