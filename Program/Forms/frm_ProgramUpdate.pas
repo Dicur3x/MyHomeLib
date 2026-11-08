@@ -71,7 +71,7 @@ type
     FRepairComponents: string;
     FApplicationStatus, FApplicationHistory: string;
     FApplicationVerified, FApplicationFailed: Boolean;
-    FCheckingCycle, FAppPending, FComponentsPending, FCycleAutomatic: Boolean;
+    FCheckingCycle, FAppPending, FComponentsPending, FCycleAutomatic, FCycleWasShown: Boolean;
     FQueue: TArray<TProgramRelease>;
     FQueueJobs: TArray<string>;
     FQueueIndex: Integer;
@@ -109,6 +109,7 @@ type
     procedure BeginUIUpdate;
     procedure EndUIUpdate;
     procedure Present;
+    function UpdateWindowVisible: Boolean;
     procedure LayoutWindow;
     procedure LayoutShown(Sender: TObject);
     procedure ZoomClick(Sender: TObject);
@@ -419,12 +420,18 @@ begin
   if FPresentPending then begin FPresentPending := False; Present; end;
 end;
 
+function TfrmProgramUpdate.UpdateWindowVisible: Boolean;
+begin
+  Result:=Visible or (Assigned(FCompactForm) and FCompactForm.Visible);
+end;
+
 procedure TfrmProgramUpdate.Present;
 begin
   // Row selection already belongs to this window. Repeated activation can
   // wait on foreground restrictions and disrupt a newly focused child.
   if FSelectionDepth>0 then Exit;
   if FUIUpdateCount > 0 then begin FPresentPending := True; Exit; end;
+  if FCheckingCycle then FCycleWasShown:=True;
   if Assigned(FCompactForm) then
   begin
     SyncCompactPrompt;
@@ -1171,7 +1178,8 @@ begin
   if FReady then begin if not Automatic then Present; Exit; end;
   FRequestedComponent:=''; FRequestedComponents:=nil; FRequestReason:=''; FComponentRestartArgument:=nil;
   RefreshInstalledComponents;
-  FCycleAutomatic := Automatic; FCheckingCycle := True; FAppPending := True; FComponentsPending := True;
+  FCycleAutomatic := Automatic; FCycleWasShown:=UpdateWindowVisible;
+  FCheckingCycle := True; FAppPending := True; FComponentsPending := True;
   FApplicationRelease := Default(TProgramRelease);
   FApplicationVerified:=False; FApplicationFailed:=False;
   for I in CheckedComponentIndices do FComponents[I].DownloadURL := '';
@@ -1202,7 +1210,7 @@ begin
 end;
 
 procedure TfrmProgramUpdate.FinishCheckCycle;
-var J: Integer; HasComponentUpdate: Boolean;
+var J: Integer; HasComponentUpdate, ShowResult: Boolean;
 begin
   if not FCheckingCycle or FAppPending or FComponentsPending then Exit;
   FCheckingCycle := False;
@@ -1211,6 +1219,7 @@ begin
   begin FRequestedCheckPending:=False; CheckComponents(False); Exit; end;
   if Assigned(FThread) or FReady then begin UpdateComponentList; Exit; end;
   UpdateComponentList;
+  ShowResult:=UpdateWindowVisible or (FCycleAutomatic and not FCycleWasShown);
   HasComponentUpdate := False;
   for J in CheckedComponentIndices do
     if (not FCycleAutomatic or MayNotifyComponent(J)) and
@@ -1227,7 +1236,8 @@ begin
           ComponentNewer(FComponents[CheckedComponentIndices[J]],
           InstalledVersion(ComponentIDs[CheckedComponentIndices[J]])) then
         begin SelectRow(CheckedComponentIndices[J] + 1); Break; end;
-    ComponentSelected(nil); UpdateSummary; Present;
+    ComponentSelected(nil); UpdateSummary;
+    if ShowResult then Present;
   end
   else
   begin
@@ -1240,7 +1250,7 @@ begin
       FPrimary.Caption := 'Проверить ещё раз';
     end;
     FPrimary.Enabled := True; LayoutWindow;
-    if not FCycleAutomatic then Present;
+    if not FCycleAutomatic and ShowResult then Present;
   end;
 end;
 
@@ -1566,10 +1576,8 @@ procedure TfrmProgramUpdate.ComponentsReceived(const Releases: TComponentRelease
 const FailureText = 'Проверка компонентов не завершена. Повторите проверку.';
 var I, J, Errors: Integer; Updated: TComponentReleases; ShowManualResult: Boolean;
 begin
-  // A reader check may finish after its window was closed. Keep the result
-  // available for the next visit without reopening a dismissed window.
-  ShowManualResult:=not FReaderOnly or Visible or
-    (Assigned(FCompactForm) and FCompactForm.Visible);
+  // Keep the result for the next visit if the user closed the window.
+  ShowManualResult:=UpdateWindowVisible;
   BeginUIUpdate;
   try
   if Successful then

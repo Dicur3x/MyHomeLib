@@ -366,7 +366,7 @@ var Cycle: TfrmProgramUpdate; Current: TProgramRelease; Components: TComponentRe
 begin
   Cycle:=CreateTestProgramUpdate;
   try
-    Current:=Default(TProgramRelease); Current.Tag:=PROGRAM_RELEASE_VERSION;
+    Current:=Default(TProgramRelease); Current.Tag:='99.0.0';
     Components:=Default(TComponentReleases);
     Require(Cycle.StartCheckCycle(True),'Background check did not start');
     Require(not Cycle.Visible,'Background check unexpectedly opened its window');
@@ -378,6 +378,10 @@ begin
     Require(not Cycle.Visible,'Repeated background request opened a hidden window');
     Cycle.ApplicationChecked(Current,True,'');
     Cycle.ComponentsReceived(Components,True,'');
+    Require(not Cycle.Visible and not IsWindowVisible(Cycle.Handle),
+      'A newer release reopened a dismissed background check');
+    Cycle.ShowFullWindow;
+    RequireNativeVisibility;
     Writeln('PASS manual update request presents an existing background cycle without duplicate checks');
     Require(Cycle.StartCheckCycle(False),'Finished cycle prevented a fresh manual check');
     Require(Cycle.Visible,'Fresh manual check did not open updates');
@@ -388,8 +392,15 @@ begin
     Cycle.ShowFullWindow;
     Require(Cycle.Visible,'Explicit update command did not present its current window');
     RequireNativeVisibility;
+    Cycle.Close;
+    Cycle.ApplicationChecked(Current,False,'Controlled application check failure');
+    Cycle.ComponentsReceived(Components,False,'Controlled component check failure');
+    Require(not Cycle.Visible and not IsWindowVisible(Cycle.Handle),
+      'A failed manual check reopened its closed window');
+    Require(Cycle.StartCheckCycle(True),'A closed manual check prevented a new automatic check');
     Cycle.ApplicationChecked(Current,True,'');
     Cycle.ComponentsReceived(Components,True,'');
+    RequireNativeVisibility;
     Writeln('PASS hidden in-progress manual update window reopens without losing its cycle');
     Writeln('PASS manual update window has a visible native window inside the working screen');
   finally Cycle.Free; end;
