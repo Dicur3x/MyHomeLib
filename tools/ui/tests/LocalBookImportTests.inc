@@ -32,7 +32,7 @@ end;
 
 procedure TestExplorerFileDrop(const Catalog, OtherCatalog: IBookCollection);
 var
-  Folder, First, Second, FirstHash, SecondHash, Name: string;
+  Folder, First, Second, FirstHash, SecondHash, Name, SavedDirectory, LaunchDirectory: string;
   Watch: TTimer;
   Probe: TFileDropPromptProbe;
   SavedDialogs: Boolean;
@@ -124,7 +124,11 @@ begin
   Probe := TFileDropPromptProbe.Create;
   Watch := TTimer.Create(nil);
   SavedDialogs := UseLatestCommonDialogs;
+  SavedDirectory := GetCurrentDir;
+  LaunchDirectory := TPath.Combine(Folder,'outside-profile');
+  ForceDirectories(LaunchDirectory);
   try
+    Require(SetCurrentDir(LaunchDirectory),'Could not simulate an Explorer launch directory');
     UseLatestCommonDialogs := False;
     Watch.Interval := 30;
     Watch.OnTimer := Probe.Poll;
@@ -135,9 +139,15 @@ begin
       Format('Добавить выбранные файлы (2) в коллекцию «%s»?', [Name]), mrYes, True);
     Require(Length(Catalog.CaptureLocalBooks) = 2, 'The accepted drop did not import both books');
     Require(Length(OtherCatalog.CaptureLocalBooks) = 0, 'The drop changed a different collection');
+    var ImportedFolder := TPath.Combine(Catalog.CollectionRoot,'HomeLibre-local-books');
+    Require(Length(TDirectory.GetFiles(ImportedFolder,'*.txt')) = 2,
+      'Imported copies were not written to the collection root');
+    Require(not DirectoryExists(TPath.Combine(LaunchDirectory,'HomeLibre-local-books')),
+      'Imported copies were written relative to the process launch directory');
     Require((THashSHA2.GetHashStringFromFile(First) = FirstHash) and
       (THashSHA2.GetHashStringFromFile(Second) = SecondHash), 'A drop changed its source books');
   finally
+    SetCurrentDir(SavedDirectory);
     UseLatestCommonDialogs := SavedDialogs;
     Watch.Free;
     Probe.Free;

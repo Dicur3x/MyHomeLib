@@ -85,7 +85,8 @@ begin
     try
       FCollection := FSystemData.GetCollection(FCollectionID);
       Assert(Assigned(FCollection));
-      FCollectionRoot := FCollection.GetProperty(PROP_ROOTFOLDER);
+      // The stored root can be relative to the portable profile.
+      FCollectionRoot := FCollection.CollectionRoot;
     except
       FCollection  := nil;
       FSystemData  := nil;
