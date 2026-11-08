@@ -210,6 +210,25 @@ var
     finally Worker.Free; end;
   end;
 
+  procedure CheckComic(const Record_: TBookRecord; const OriginalArchive: string);
+  var Prepared, ExpectedExtension: string; Comic: TReaderRaster;
+  begin
+    Require(Record_.GetBookFormat=bfRaw,'A comic must point to the whole archive');
+    Require(THashSHA2.GetHashStringFromFile(Record_.GetBookFileName)=
+      THashSHA2.GetHashStringFromFile(OriginalArchive),'Comic archive contents changed');
+    Prepared:=PrepareReaderFile(Record_,True);
+    ExpectedExtension:='.cbz';
+    if SameText(ExtractFileExt(OriginalArchive),'.7z') then ExpectedExtension:='.cb7';
+    Require(SameText(ExtractFileExt(Prepared),ExpectedExtension),'The reader did not recognize the comic');
+    Comic:=TReaderRaster.Create(Prepared,640);
+    try
+      Require(Comic.PageCount=25,'The comic lost pages');
+      Comic.PreparePage(24,False,640);
+      Require((Comic.PageSize(0).X>0) and (Comic.PageSize(24).Y>0),
+        'The first or last comic page could not be read');
+    finally Comic.Free; end;
+  end;
+
   procedure AddReservedSourceRow(const FileName: string);
   var Zip: TZipFile; Lines: TBytes;
   begin
@@ -448,6 +467,15 @@ begin
     SourceZip.Add(TEncoding.ASCII.GetBytes('MZ'),'inner/ignore.exe');
   finally SourceZip.Free; end;
   var MixedHash:=THashSHA2.GetHashStringFromFile(Mixed);
+  var MangaSources:=TArray<string>.Create(GetEnvironmentVariable('HOMELIB_TEST_MANGA_ARCHIVE'),
+    GetEnvironmentVariable('HOMELIB_TEST_MANGA_7Z'));
+  var ExpectedFolderBooks:=4;
+  for var Source in MangaSources do
+  begin
+    if Source='' then Continue;
+    TFile.Copy(Source,FolderRoot+ExtractFileName(Source));
+    Inc(ExpectedFolderBooks);
+  end;
   var SavedSort:=Settings.EnableSort;
   Settings.EnableSort:=False;
   try
@@ -455,11 +483,16 @@ begin
     begin
       var FolderWorker:=TOOFB2Worker.Create(FolderCID,afZip);
       FolderWorker.FixtureProfile:=Profile;
+      var Messages:=TStringList.Create;
       try
-        TOORun(FolderWorker);
+        TOORun(FolderWorker,False,Messages);
         Require(FolderWorker.Success,'The folder scanner did not complete');
-      finally FolderWorker.Free; end;
-      Require(TOOBookCount(SystemData,FolderCID)=4,'The folder scanner lost or duplicated an archive member');
+        Require(TOOBookCount(SystemData,FolderCID)=ExpectedFolderBooks,
+          'The folder scanner lost or duplicated an archive member: '+Messages.Text);
+      finally
+        Messages.Free;
+        FolderWorker.Free;
+      end;
     end;
   finally Settings.EnableSort:=SavedSort; end;
   Catalog:=SystemData.GetCollection(FolderCID,True);
@@ -484,6 +517,40 @@ begin
     end;
   Require(MixedCount=2,'Both same-name books must be readable from the original ZIP');
   Require(THashSHA2.GetHashStringFromFile(Mixed)=MixedHash,'The folder scanner changed the ZIP');
+  for var Source in MangaSources do
+  begin
+    if Source='' then Continue;
+    var OriginalArchiveHash:=THashSHA2.GetHashStringFromFile(Source);
+    var ScannedPath:=FolderRoot+ExtractFileName(Source);
+    Cursor:=Catalog.GetBookIterator(bmAll,False);
+    var FoundComic:=False;
+    while Cursor.Next(Book) do
+      if SameFileName(Book.GetBookFileName,ScannedPath) then
+      begin
+        Require(not FoundComic,'The folder scanner split the comic into multiple books');
+        CheckComic(Book,Source);
+        FoundComic:=True;
+      end;
+    Require(FoundComic,'The folder scanner did not add the comic');
+    Cursor:=nil;
+
+    var BeforeImport:=TOOBookCount(SystemData,CID);
+    AddFile(Source);
+    var SelectedCatalog:=SystemData.GetCollection(CID,True);
+    Require(TOOBookCount(SystemData,CID)=BeforeImport+1,
+      'Selected-file import did not add exactly one comic');
+    FoundComic:=False;
+    for var Entry in SelectedCatalog.CaptureLocalBooks do
+      if (Entry.Book.Title=ChangeFileExt(ExtractFileName(Source),'')) and
+        SameText(Entry.Book.FileExt,ExtractFileExt(Source)) then
+      begin
+        CheckComic(Entry.Book,Source);
+        FoundComic:=True;
+      end;
+    Require(FoundComic,'Selected-file import did not preserve the archive');
+    Require(THashSHA2.GetHashStringFromFile(Source)=OriginalArchiveHash,'Import modified the original archive');
+    Writeln('PASS 25-page comic from selected file and repeated folder scan: '+ExtractFileExt(Source));
+  end;
   Writeln('PASS local batch, mixed folder import, member readback and local identity across INPX updates');
 
   // Optional exact reporter samples. Add each through the same worker that

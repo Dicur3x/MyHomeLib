@@ -611,12 +611,11 @@ begin
 end;
 
 function PrepareLooseArchive(const Book: TBookRecord; const Source: string; const ConvertImages: Boolean; const OnStage: TProc<string>; ConversionOnly: Boolean; const TargetExtension: string; AllowArchiveChoice: Boolean; const IsCanceled: TFunc<Boolean>): string;
-var Archive: TMHLZip; Candidates, Nested, Unknown: TList<Integer>; I, Entry, ImagePages: Integer;
+var Archive: TMHLZip; Candidates, Nested, Unknown: TList<Integer>; I, Entry: Integer;
   Member, Extension, Folder, Stamp, StampFile, Temporary: string;
   Preferred, PreferredScore, Score: Integer;
   Dialog: TForm; Names: TListBox; OpenButton, CancelButton: TButton; LabelControl: TLabel;
   Extracted: TFileStream; Converted: TStream; Writer: TBookCacheWrite; RequestingThread: TThread;
-  OnlyImages: Boolean;
 begin
   RequestingThread := TThread.CurrentThread;
   if Assigned(OnStage) then OnStage('Просмотр содержимого архива…');
@@ -630,16 +629,33 @@ begin
     not SameText(ExtractFileExt(Source),'.zip'));
   Candidates := TList<Integer>.Create; Nested:=TList<Integer>.Create; Unknown:=TList<Integer>.Create;
   try
-    ImagePages:=0; OnlyImages:=True;
+    // An image-only archive is one book. Keep every page instead of asking
+    // the reader to choose a single image and silently omitting the others.
+    if Archive.IsImageOnlyComic then
+    begin
+      Extension:=DetectReaderExtension(Source);
+      if Extension='.zip' then Extension:='.cbz'
+      else if Extension='.rar' then Extension:='.cbr'
+      else if Extension='.7z' then Extension:='.cb7' else Extension:='';
+      if Extension<>'' then
+      begin
+        Stamp:='comic-v1|'+SourceStamp(Book,Source,False);
+        Result:=ExistingBookCacheFile(TPath.Combine(BookCachePath,'homelib-comic-'+Copy(THashSHA2.GetHashString(Stamp),1,32)+Extension));
+        if FileExists(Result) and FileExists(Result+'.source') and (TFile.ReadAllText(Result+'.source',TEncoding.UTF8)=Stamp) then
+        begin RegisterBookCacheFile(Result,Book.GetBookFileName);Exit;end;
+        ForceDirectories(ExtractFileDir(Result)); Writer:=TBookCacheWrite.Create(Book.GetBookFileName);
+        try
+          Temporary:=Writer.TemporaryName(Result);StampFile:=Writer.TemporaryName(Result+'.source');
+          TFile.Copy(Source,Temporary,True);TFile.WriteAllText(StampFile,Stamp,TEncoding.UTF8);
+          Writer.Publish(Temporary,Result,StampFile);
+        finally Writer.Free;end;
+        Exit;
+      end;
+    end;
     for I := 0 to Archive.FileCount - 1 do
     begin
       if Assigned(IsCanceled) and IsCanceled() then Abort;
       Extension := LowerCase(ExtractFileExt(Archive.FileNames[I]));
-      if Archive.FileSizes[I]>0 then
-        if Pos('|'+Extension+'|','|.jpg|.jpeg|.png|.gif|.bmp|.tif|.tiff|.webp|')>0 then Inc(ImagePages)
-        else if not SameText(ExtractFileName(Archive.FileNames[I]),'ComicInfo.xml') and
-          not SameText(ExtractFileName(Archive.FileNames[I]),'.DS_Store') and
-          not SameText(ExtractFileName(Archive.FileNames[I]),'Thumbs.db') then OnlyImages:=False;
       // Archive entry paths are never used as output paths. Container layers
       // and ambiguous names are resolved after extracting one chosen member.
       if IsReaderContainer(Archive.FileNames[I]) then begin Nested.Add(I); Continue; end;
@@ -664,29 +680,6 @@ begin
         (Extension = '.mhtml') or (Extension = '.wri') or (Extension = '.ppt') or
         (Extension = '.pptx') or (Extension = '.md') or (Extension = '.fb3') or
         IsLegacyReaderFormat(Extension) or (Extension='.prc') or IsOfficeReaderFormat(Extension) then Candidates.Add(I);
-    end;
-    // An image-only archive is one book. Keep every page instead of asking
-    // the reader to choose a single image and silently omitting the others.
-    if OnlyImages and (ImagePages>0) then
-    begin
-      Extension:=DetectReaderExtension(Source);
-      if Extension='.zip' then Extension:='.cbz'
-      else if Extension='.rar' then Extension:='.cbr'
-      else if Extension='.7z' then Extension:='.cb7' else Extension:='';
-      if Extension<>'' then
-      begin
-        Stamp:='comic-v1|'+SourceStamp(Book,Source,False);
-        Result:=ExistingBookCacheFile(TPath.Combine(BookCachePath,'homelib-comic-'+Copy(THashSHA2.GetHashString(Stamp),1,32)+Extension));
-        if FileExists(Result) and FileExists(Result+'.source') and (TFile.ReadAllText(Result+'.source',TEncoding.UTF8)=Stamp) then
-        begin RegisterBookCacheFile(Result,Book.GetBookFileName);Exit;end;
-        ForceDirectories(ExtractFileDir(Result)); Writer:=TBookCacheWrite.Create(Book.GetBookFileName);
-        try
-          Temporary:=Writer.TemporaryName(Result);StampFile:=Writer.TemporaryName(Result+'.source');
-          TFile.Copy(Source,Temporary,True);TFile.WriteAllText(StampFile,Stamp,TEncoding.UTF8);
-          Writer.Publish(Temporary,Result,StampFile);
-        finally Writer.Free;end;
-        Exit;
-      end;
     end;
     if Candidates.Count=0 then
       for I in Nested do Candidates.Add(I);

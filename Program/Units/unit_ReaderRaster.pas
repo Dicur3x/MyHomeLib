@@ -147,9 +147,8 @@ begin
     try
       for I:=0 to FArchive.FileCount-1 do
       begin
-        Name:=FArchive.FileNames[I];
-        if ImageExtension(ExtractFileExt(Name)) and not Name.StartsWith('__MACOSX/',True) and
-          not ExtractFileName(Name).StartsWith('._') then Names.Add(I);
+        Name:=FArchive.FileNames[I].Replace('\','/');
+        if IsComicPageName(Name) and (FArchive.FileSizes[I]>0) then Names.Add(I);
       end;
       Names.Sort(TComparer<Integer>.Construct(
         function(const A,B: Integer): Integer

@@ -577,6 +577,12 @@ function run(executable, mode, subcase = "") {
       fs.cpSync(source,path.join(folder,'flibrary-source-fixtures'),{recursive:true});
       fs.cpSync(path.join(runtime,'tools/jpeg-xl'),path.join(folder,'tools/jpeg-xl'),{recursive:true});
     }
+    if (mode==='local-book-import' && process.env.HOMELIB_TEST_MANGA_7Z) {
+      const sevenZip=path.join(runtime,'tools/7zip/7za.exe');
+      if (machine(sevenZip)!==architecture) throw Error('Comic import test requires a matching 7-Zip executable');
+      fs.mkdirSync(path.join(folder,'tools/7zip'),{recursive:true});
+      fs.copyFileSync(sevenZip,path.join(folder,'tools/7zip/7za.exe'));
+    }
     if (mode==='packed-usr-zip') {
       const prefix='--packed-usr-fixtures=';
       const arg=process.argv.find(a=>a.startsWith(prefix));

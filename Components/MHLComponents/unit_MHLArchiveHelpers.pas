@@ -95,6 +95,8 @@ type
       // Metadata callers can reject PPMd/7z without launching a helper.
       function EntryUsesExternalDecoder(const Index: Integer): Boolean;
 
+      function IsImageOnlyComic: Boolean;
+
       function Find(AFileName: string): Boolean;
       function FindNext: Boolean;
       function Test(const AFileName: string): Boolean;
@@ -118,6 +120,7 @@ type
     afZip
   );
 
+function IsComicPageName(const Name: string): Boolean;
 function IsArchiveExt(const FileName: string): Boolean;
 function IsSevenZipArchive(const FileName: string): Boolean;
 
@@ -817,6 +820,32 @@ begin
   Result := FLastID;
 end;
 
+function IsComicPageName(const Name: string): Boolean;
+begin
+  Result := not Name.StartsWith('__MACOSX/',True) and not ExtractFileName(Name).StartsWith('._') and
+    (Pos('|'+LowerCase(ExtractFileExt(Name))+'|','|.jpg|.jpeg|.png|.gif|.bmp|.webp|.tif|.tiff|')>0);
+end;
+
+function TMHLZip.IsImageOnlyComic: Boolean;
+var
+  Name, Leaf: string;
+  HasPages: Boolean;
+begin
+  HasPages := False;
+  for var I:=0 to FileCount-1 do
+  begin
+    if Assigned(FIsCanceled) and FIsCanceled() then Abort;
+    Name := FileNames[I].Replace('\','/');
+    Leaf := ExtractFileName(Name);
+    if Name.StartsWith('__MACOSX/',True) or Leaf.StartsWith('._') or
+      SameText(Leaf,'ComicInfo.xml') or SameText(Leaf,'.DS_Store') or SameText(Leaf,'Thumbs.db') then Continue;
+    if FileSizes[I]=0 then Continue;
+    if not IsComicPageName(Name) then Exit(False);
+    HasPages := True;
+  end;
+  Result := HasPages;
+end;
+
 function TMHLZip.GetLastSize: Integer;
 begin
   EnsureFileNames;
@@ -916,7 +945,8 @@ begin
   CheckArchiveReadable(AFileName);
 
   FZip := nil;
-  FArchiveFileName := AFileName;
+  // External decoders run from their own directory.
+  FArchiveFileName := ExpandFileName(AFileName);
   FSevenZipTool := '';
   SetLength(FSevenZipSizes, 0);
   FIsSevenZip := IsSevenZipArchive(AFileName) or ForceExternalDecoder;

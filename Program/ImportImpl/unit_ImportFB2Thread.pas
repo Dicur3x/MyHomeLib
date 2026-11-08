@@ -237,7 +237,8 @@ var
   R: TBookRecord;
   AFileName, Extension: string;
   FS: TMemoryStream;
-  NoErrors: Boolean;
+  NoErrors, Comic: Boolean;
+  ArchiveSize: Int64;
   MatchedEntryCount: Integer;
   Zip: TMHLZip;
   Records: TBookRecordArray;
@@ -273,6 +274,12 @@ begin
         try
           Zip := TMHLZip.Create(FFiles[i], True, False,
             function: Boolean begin Result := Canceled; end);
+          Comic := Zip.IsImageOnlyComic;
+          if Comic then
+          begin
+            ArchiveSize := TFile.GetSize(FFiles[i]);
+            if ArchiveSize>MaxInt then raise EReadError.Create('Файл слишком велик для каталога.');
+          end;
           EntryCount := Zip.FileCount;
         except
           on E: Exception do
@@ -289,56 +296,72 @@ begin
 
         MatchedEntryCount := 0;
 
-        for EntryIndex := 0 to EntryCount - 1 do
+        if Comic then
         begin
-          if Canceled then Break;
-          AFileName := Zip.FileNames[EntryIndex];
-          Extension := LowerCase(ExtractFileExt(AFileName));
-          if not IsLocalImportFormat(Extension) or IsMetadataContainer(Extension) then Continue;
+          ArchiveName := ExtractFileName(FFiles[i]);
           R.Clear;
-          Inc(MatchedEntryCount);
+          R.FileExt := LowerCase(ExtractFileExt(ArchiveName));
+          R.FileName := ChangeFileExt(ArchiveName,'');
+          R.Title := R.FileName;
+          R.LibID := NewLocalBookID;
+          R.Size := Integer(ArchiveSize);
+          R.Date := Now;
+          Include(R.BookProps,bpIsLocal);
+          Records := TBookRecordArray.Create(R);
+          EntryNames := TStringArray.Create(ArchiveName);
+          MatchedEntryCount := 1;
+        end
+        else
+          for EntryIndex := 0 to EntryCount - 1 do
+          begin
+            if Canceled then Break;
+            AFileName := Zip.FileNames[EntryIndex];
+            Extension := LowerCase(ExtractFileExt(AFileName));
+            if not IsLocalImportFormat(Extension) or IsMetadataContainer(Extension) then Continue;
+            R.Clear;
+            Inc(MatchedEntryCount);
 
-          R.FileExt := Extension;
-          R.FileName := ChangeFileExt(AFileName, '');
-          R.Title := ChangeFileExt(ExtractFileName(AFileName), '');
-          R.InsideNo := EntryIndex;
-          R.Date     := Now;
-          Include(R.BookProps, bpIsLocal);
-          if Extension <> FB2_EXTENSION then R.LibID := NewLocalBookID;
+            R.FileExt := Extension;
+            R.FileName := ChangeFileExt(AFileName, '');
+            R.Title := ChangeFileExt(ExtractFileName(AFileName), '');
+            R.InsideNo := EntryIndex;
+            R.Date     := Now;
+            Include(R.BookProps, bpIsLocal);
+            if Extension <> FB2_EXTENSION then R.LibID := NewLocalBookID;
 
-          FS := nil;
-          try
+            FS := nil;
             try
-              R.Size := Zip.FileSizes[EntryIndex];
-              if R.Size = 0 then raise EReadError.Create('Файл пуст.');
-              if (Extension = FB2_EXTENSION) or IsMetadataPackage(Extension) then
-              begin
-                if R.Size > MaxMetadataMember then
-                  raise EReadError.Create('Файл слишком велик для чтения описания.');
-                FS := Zip.ExtractToStream(EntryIndex);
-                ReadImportedMetadata(FS, R);
-              end;
+              try
+                R.Size := Zip.FileSizes[EntryIndex];
+                if R.Size = 0 then raise EReadError.Create('Файл пуст.');
+                if (Extension = FB2_EXTENSION) or IsMetadataPackage(Extension) then
+                begin
+                  if R.Size > MaxMetadataMember then
+                    raise EReadError.Create('Файл слишком велик для чтения описания.');
+                  FS := Zip.ExtractToStream(EntryIndex);
+                  ReadImportedMetadata(FS, R);
+                end;
 
-              j := Length(Records);
-              SetLength(Records, j + 1);
-              SetLength(EntryNames, j + 1);
-              Records[j] := R;
-              EntryNames[j] := AFileName;
-            except
-              on E: Exception do
-              begin
-                NoErrors := False;
-                Teletype(Format(rstrArchiveBookError,
-                  [AFileName, ExtractFileName(FFiles[i]), E.Message]), tsError);
-                LogWarning('ProcessFileListArchive: failed to parse "%s" in "%s" — %s',
-                  [AFileName, FFiles[i], E.Message]);
-                Inc(Defective);
+                j := Length(Records);
+                SetLength(Records, j + 1);
+                SetLength(EntryNames, j + 1);
+                Records[j] := R;
+                EntryNames[j] := AFileName;
+              except
+                on E: Exception do
+                begin
+                  NoErrors := False;
+                  Teletype(Format(rstrArchiveBookError,
+                    [AFileName, ExtractFileName(FFiles[i]), E.Message]), tsError);
+                  LogWarning('ProcessFileListArchive: failed to parse "%s" in "%s" — %s',
+                    [AFileName, FFiles[i], E.Message]);
+                  Inc(Defective);
+                end;
               end;
+            finally
+              FreeAndNil(FS);
             end;
-          finally
-            FreeAndNil(FS);
           end;
-        end;
 
         if Canceled then Break;
 
@@ -384,7 +407,10 @@ begin
                 StoredArchiveName := ExtractRelativePath(FCollectionRoot, FFiles[i]);
 
               for k := 0 to High(Records) do
-                Records[k].Folder := StoredArchiveName;
+                if Comic then
+                  Records[k].Folder := ExtractFilePath(StoredArchiveName)
+                else
+                  Records[k].Folder := StoredArchiveName;
             end;
 
             for k := 0 to High(Records) do
@@ -687,31 +713,39 @@ begin
       begin
         Archive := TMHLZip.Create(Path,True,False,function: Boolean begin Result:=Canceled; end);
         try
-          for var I:=0 to Archive.FileCount-1 do
+          if Archive.IsImageOnlyComic then
           begin
-            if Canceled then Abort;
-            Member := Archive.FileNames[I];
-            MemberExt := LowerCase(ExtractFileExt(Member));
-            if not IsLocalImportFormat(MemberExt) or IsMetadataContainer(MemberExt) then Continue;
-            var MemberSize := Archive.FileSizes[I];
-            if MemberSize=0 then
-              raise EReadError.CreateFmt('Файл «%s» пуст или слишком велик для каталога.',[Member]);
-            if Added=0 then ID := LocalID else ID := NewLocalBookID;
-            Input := nil;
-            try
-              if (MemberExt=FB2_EXTENSION) or IsMetadataPackage(MemberExt) then
-              begin
-                if MemberSize>MaxMetadataMember then
-                  raise EReadError.CreateFmt('Файл «%s» слишком велик для чтения описания.',[Member]);
-                Input := Archive.ExtractToStream(I);
+            var ArchiveSize := TFile.GetSize(Path);
+            if ArchiveSize>MaxInt then raise EReadError.Create('Файл слишком велик для каталога.');
+            AddSelectedBook(Source,LocalFolder,Name,Extension,LocalID,Integer(ArchiveSize),0,nil);
+            Added := 1;
+          end
+          else
+            for var I:=0 to Archive.FileCount-1 do
+            begin
+              if Canceled then Abort;
+              Member := Archive.FileNames[I];
+              MemberExt := LowerCase(ExtractFileExt(Member));
+              if not IsLocalImportFormat(MemberExt) or IsMetadataContainer(MemberExt) then Continue;
+              var MemberSize := Archive.FileSizes[I];
+              if MemberSize=0 then
+                raise EReadError.CreateFmt('Файл «%s» пуст или слишком велик для каталога.',[Member]);
+              if Added=0 then ID := LocalID else ID := NewLocalBookID;
+              Input := nil;
+              try
+                if (MemberExt=FB2_EXTENSION) or IsMetadataPackage(MemberExt) then
+                begin
+                  if MemberSize>MaxMetadataMember then
+                    raise EReadError.CreateFmt('Файл «%s» слишком велик для чтения описания.',[Member]);
+                  Input := Archive.ExtractToStream(I);
+                end;
+                AddSelectedBook(Member,RelativePath,Copy(Member,1,Length(Member)-Length(MemberExt)),
+                  MemberExt,ID,MemberSize,I,Input);
+              finally
+                Input.Free;
               end;
-              AddSelectedBook(Member,RelativePath,Copy(Member,1,Length(Member)-Length(MemberExt)),
-                MemberExt,ID,MemberSize,I,Input);
-            finally
-              Input.Free;
+              Inc(Added);
             end;
-            Inc(Added);
-          end;
         finally
           Archive.Free;
         end;
