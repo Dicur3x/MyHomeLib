@@ -15,15 +15,15 @@ originally created by **Олексій Пеньков (Oleksiy Penkov)**.
 
 ## Download and run
 
-The current public beta is **[HomeLibre 3.0 beta 7](https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.7)**.
-[Release notes](https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.7) · [Release history](docs/releases/README.md) ·
-[Validation and limitations](docs/RELEASE_VALIDATION_3.0.0_pre1.7.md) (in Russian).
+The current public beta is **[HomeLibre 3.0 beta 8](https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.8)**.
+[Release notes](https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.8) · [Release history](docs/releases/README.md) ·
+[Validation and limitations](docs/RELEASE_VALIDATION_3.0.0_pre1.8.md) (in Russian).
 
 | Archive | System |
 | --- | --- |
-| [HomeLibre — 64-bit](https://github.com/Dicur3x/MyHomeLib/releases/download/3.0.0_pre1.7/HomeLibre_x64.zip) | 64-bit Windows |
-| [HomeLibre — 32-bit](https://github.com/Dicur3x/MyHomeLib/releases/download/3.0.0_pre1.7/HomeLibre.zip) | 32-bit Windows; also runs on 64-bit Windows |
-| [SHA256SUMS.txt](https://github.com/Dicur3x/MyHomeLib/releases/download/3.0.0_pre1.7/SHA256SUMS.txt) | Archive checksums |
+| [HomeLibre — 64-bit](https://github.com/Dicur3x/MyHomeLib/releases/download/3.0.0_pre1.8/HomeLibre_x64.zip) | 64-bit Windows |
+| [HomeLibre — 32-bit](https://github.com/Dicur3x/MyHomeLib/releases/download/3.0.0_pre1.8/HomeLibre.zip) | 32-bit Windows; also runs on 64-bit Windows |
+| [SHA256SUMS.txt](https://github.com/Dicur3x/MyHomeLib/releases/download/3.0.0_pre1.8/SHA256SUMS.txt) | Archive checksums |
 
 The archives are named `HomeLibre.zip` and `HomeLibre_x64.zip`. The beta 2
 updater supports these names. The executable remains `HomeLibRu.exe` for
