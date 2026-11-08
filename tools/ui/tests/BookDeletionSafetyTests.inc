@@ -667,6 +667,44 @@ begin
     Require(not Exists(SevenID) and not Exists(LegacyID) and Exists(NeighbourID) and Local(NeighbourID) and
       (THashSHA2.GetHashStringFromFile(Root+'fallback.7z')=BeforeRaw),'Deletion removed a 7z or its legacy ZIP fallback neighbour');
 
+    Trace('delete safety whole books stored in archives');
+    RawPath:=Root+'comic.zip';
+    PairZip:=TZipFile.Create;
+    var Image:=TBitmap.Create;
+    var PageBytes:=TMemoryStream.Create;
+    try
+      PairZip.Open(RawPath,zmWrite);
+      Image.SetSize(24,24);
+      Image.SaveToStream(PageBytes);
+      PageBytes.Position:=0;
+      PairZip.Add(PageBytes,'pages/01.bmp');
+      PageBytes.Position:=0;
+      PairZip.Add(PageBytes,'pages/02.bmp');
+    finally PageBytes.Free; Image.Free; PairZip.Free; end;
+    BeforeRaw:=THashSHA2.GetHashStringFromFile(RawPath);
+    RawID:=Insert('Whole comic','','comic','.zip');
+    ArchiveID:=Insert('Independent page','comic.zip','pages/01','.bmp');
+    Rows([RawID]); Execute(True,False,1,1,1);
+    Require(Exists(RawID) and Exists(ArchiveID) and
+      (THashSHA2.GetHashStringFromFile(RawPath)=BeforeRaw),
+      'Deleting the whole comic removed a page still used by another row');
+    Rows([ArchiveID]); Execute(True,False,1,1,1);
+    Require(Exists(RawID) and Exists(ArchiveID) and
+      (THashSHA2.GetHashStringFromFile(RawPath)=BeforeRaw),
+      'Deleting an archive member damaged the whole comic in another row');
+    Rows([RawID,ArchiveID]); Execute(True,False,2,2,0,nil,20000,nil,0);
+    Require(not Exists(RawID) and not Exists(ArchiveID) and not FileExists(RawPath),
+      'The selected comic and page did not remove their complete source');
+
+    RawPath:=Root+'whole-book.7z';
+    TFile.Copy(Root+'fallback.7z',RawPath);
+    RawID:=Insert('Whole 7z book','','whole-book','.7z');
+    Rows([RawID]); Execute(True,True,1,1,0,nil,20000,nil,0);
+    Require(Exists(RawID) and not Local(RawID) and not FileExists(RawPath),
+      'Files-only deletion did not remove the complete 7z and keep its row');
+    Writeln('PASS Main removes whole ZIP and 7z books without damaging retained references');
+    Flush(Output);
+
     Trace('delete safety remove empty containers');
     ArchivePath:=Root+'last-book.zip';
     WriteZip(ArchivePath,['only.fb2']);
@@ -861,17 +899,28 @@ begin
     ProtectedArchive(True);
     Writeln('PASS Main startup completes a bound archive deletion receipt and clears its private journals'); Flush(Output);
 
+    for var WholeSource in [False,True] do
     for var AfterUnlink in [False,True] do
     begin
-      var Name:='whole-recovery-'+BoolToStr(AfterUnlink,True)+'.zip';
+      var Stem:='whole-recovery-'+BoolToStr(WholeSource,True)+'-'+BoolToStr(AfterUnlink,True);
+      var Name:=Stem+'.zip';
       var Path:=Root+Name;
       WriteZip(Path,['one.fb2','two.fb2']);
-      var One:=Insert(Name+' one',Name,'one','.fb2');
-      var Two:=Insert(Name+' two',Name,'two','.fb2');
-      Collection.GetBookRecord(CreateBookKey(One,PrivateID),Book,False);
-      Collection.GetBookRecord(CreateBookKey(Two,PrivateID),Other,False);
-      Binding:=TBookDeletionBinding.Capture(SystemDB.GetCollectionInfo(PrivateID),[Book,Other],True);
-      Task.Archive:=Path; Task.Members:=TArray<string>.Create('one.fb2','two.fb2');
+      Task:=Default(TArchiveDeletionTask);
+      Task.WholeSource:=WholeSource;
+      var IDs:TArray<Integer>;
+      if WholeSource then IDs:=[Insert(Name,'',Stem,'.zip')]
+      else
+      begin
+        IDs:=[Insert(Name+' one',Name,'one','.fb2'),Insert(Name+' two',Name,'two','.fb2')];
+        Task.Members:=TArray<string>.Create('one.fb2','two.fb2');
+      end;
+      var Selected:TArray<TBookRecord>;
+      SetLength(Selected,Length(IDs));
+      for var I:=0 to High(IDs) do
+        Collection.GetBookRecord(CreateBookKey(IDs[I],PrivateID),Selected[I],False);
+      Binding:=TBookDeletionBinding.Capture(SystemDB.GetCollectionInfo(PrivateID),Selected,True);
+      Task.Archive:=Path;
       Task.SourceIdentity:=ArchiveDeletionSourceIdentity(Path); Task.CatalogueBinding:=Binding.ToJSON;
       var Hash:=THashSHA2.GetHashStringFromFile(Path);
       Interrupted:=TArchiveDeletionQueue.Create([Task],JournalRoot,True);
@@ -884,11 +933,12 @@ begin
         end;
         Require(Interrupted.Results[0].FilesVerified,'Direct removal did not prepare the verified archive');
       finally Interrupted.Free; end;
-      Require((THashSHA2.GetHashStringFromFile(Path)=Hash) and Exists(One) and Exists(Two),
-        'Stopping before catalogue acknowledgement modified the whole archive or its rows');
+      Require(THashSHA2.GetHashStringFromFile(Path)=Hash,
+        'Stopping before catalogue acknowledgement modified the whole archive');
+      for var ID in IDs do Require(Exists(ID),'Stopping before acknowledgement removed a row');
       if AfterUnlink then
       begin
-        Require(Binding.CommitRecords(SystemDB)=2,'Could not simulate a committed catalogue after direct removal');
+        Require(Binding.CommitRecords(SystemDB)=Length(IDs),'Could not simulate a committed catalogue after direct removal');
         TFile.Delete(Path);
       end;
       var Recovery:=TBookDeletionOperation.Recover(Settings.SystemFileName[sfSystemDB],JournalRoot);
@@ -900,13 +950,14 @@ begin
           Sleep(5);
         end;
         Recovery.WaitFor;
-        Require((Recovery.Status.Error='') and (Recovery.Status.CompletedBooks=2),
+        Require((Recovery.Status.Error='') and (Recovery.Status.CompletedBooks=Length(IDs)),
           'Whole archive recovery did not finish both rows: '+Recovery.Status.Error);
       finally Recovery.Free; end;
-      Require(not FileExists(Path) and not Exists(One) and not Exists(Two) and not DirectoryExists(JournalRoot),
-        'Whole archive recovery kept an archive, catalogue row or journal');
+      Require(not FileExists(Path) and not DirectoryExists(JournalRoot),
+        'Whole archive recovery kept an archive or journal');
+      for var ID in IDs do Require(not Exists(ID),'Whole archive recovery kept a catalogue row');
     end;
-    Writeln('PASS whole archive catalogue recovery before commit and after final unlink'); Flush(Output);
+    Writeln('PASS whole archive and complete book recovery before commit and after final unlink'); Flush(Output);
 
     Trace('delete safety external local FB2 loose files');
     FreeAndNil(frmMain); Settings.ActiveCollection := ExternalID; Settings.ActivePage := PAGE_SEARCH;

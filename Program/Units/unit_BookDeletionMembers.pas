@@ -4,6 +4,8 @@ interface
 
 uses System.SysUtils, unit_Globals;
 
+function IsWholeBookArchive(const Book: TBookRecord): Boolean;
+
 // Resolves only a proved full internal path. Unlike read-time compatibility
 // fallback this must never choose a basename, wildcard or legacy ordinal.
 // FBD containers require exactly one matching descriptor/payload pair.
@@ -12,7 +14,13 @@ function ExactBookDeletionMembers(const Book: TBookRecord;
 
 implementation
 
-uses System.Classes, System.IOUtils, System.Generics.Collections;
+uses System.Classes, System.IOUtils, System.Generics.Collections, unit_MHLArchiveHelpers;
+
+function IsWholeBookArchive(const Book: TBookRecord): Boolean;
+begin
+  Result := IsArchiveExt(Book.FileExt) and
+    (Book.GetBookFormat(TPath.Combine(Book.CollectionRoot, Book.Folder)) = bfRaw);
+end;
 
 function ExactBookDeletionMembers(const Book:TBookRecord;
   const Inventory:TArray<string>):TArray<string>;

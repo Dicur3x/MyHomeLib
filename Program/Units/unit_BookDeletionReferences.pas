@@ -168,7 +168,7 @@ var Targets:TObjectDictionary<string,TCheckedArchive>; Paths:TDictionary<string,
 
   procedure CheckRows(Database:TSQLiteDatabase; const SQL,DefaultRoot:string; CID:Integer; HasRoot:Boolean);
   var Query:TSQLiteQuery; Book:TBookRecord; Path,Key,LastFolder,LastRoot,LastKey:string;
-    Format:TBookFormat; Target:TCheckedArchive; CachedFolder:Boolean;
+    Format:TBookFormat; Target:TCheckedArchive; CachedFolder,WholeSource:Boolean;
   begin
     Book:=Default(TBookRecord); Book.BookKey.DatabaseID:=CID;
     CachedFolder:=False; LastKey:='';
@@ -185,9 +185,10 @@ var Targets:TObjectDictionary<string,TCheckedArchive>; Paths:TDictionary<string,
         Book.FileName:=Query.FieldAsString(2); Book.FileExt:=Query.FieldAsString(3);
         var Container:=TPath.Combine(Book.CollectionRoot,Book.Folder);
         Format:=Book.GetBookFormat(Container);
-        if Format in [bfFb2Archive,bfRawArchive,bfFbd] then
+        WholeSource:=(Format=bfRaw) and IsArchiveExt(Book.FileExt);
+        if WholeSource or (Format in [bfFb2Archive,bfRawArchive,bfFbd]) then
         begin
-          if (Format<>bfFbd) and CachedFolder and (LastFolder=Book.Folder) and
+          if not WholeSource and (Format<>bfFbd) and CachedFolder and (LastFolder=Book.Folder) and
             (LastRoot=Book.CollectionRoot) then Key:=LastKey
           else
           begin
@@ -199,7 +200,7 @@ var Targets:TObjectDictionary<string,TCheckedArchive>; Paths:TDictionary<string,
               // Cache each distinct source, not each row in a large catalogue.
               if Paths.Count<65536 then Paths.Add(Path,Key);
             end;
-            if Format<>bfFbd then
+            if not WholeSource and (Format<>bfFbd) then
             begin
               CachedFolder:=True; LastFolder:=Book.Folder;
               LastRoot:=Book.CollectionRoot; LastKey:=Key;
@@ -208,8 +209,9 @@ var Targets:TObjectDictionary<string,TCheckedArchive>; Paths:TDictionary<string,
           if Targets.TryGetValue(Key,Target) and not
             ((CID=Target.Binding.CollectionID) and Target.SelectedIDs.ContainsKey(Book.BookKey.BookID)) then
           begin
-            Target.LoadInventory(Cancelled,InventoryChars);
-            if (Format=bfFbd) or
+            if not WholeSource and not Target.Task.WholeSource then
+              Target.LoadInventory(Cancelled,InventoryChars);
+            if WholeSource or Target.Task.WholeSource or (Format=bfFbd) or
               not Target.RetainedNames.ContainsKey(NormalName(Book.FileName+Book.FileExt)) then
               raise EInOutError.CreateFmt('Книга из этого архива ещё нужна другой записи или её файл нельзя определить точно: %s. Архив не изменён.',
                 [ExtractFileName(Target.Task.Archive)]);

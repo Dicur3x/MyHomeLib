@@ -40,6 +40,7 @@ type
     constructor Prepare(const Archive: string; const Names: TArray<string>;
       const Progress: TZipDeleteProgress = nil; const Cancelled: TFunc<Boolean> = nil;
       const ExpectedSourceIdentity: string = '');
+    constructor PrepareWholeArchive(const Archive, ExpectedSourceIdentity: string);
     constructor Recover(const Archive, Job: string);
     destructor Destroy; override;
     procedure Execute(const JournalParent: string; const Progress: TZipDeleteProgress = nil;
@@ -379,7 +380,9 @@ begin
     FHeader:=TNetEncoding.Base64.DecodeStringToBytes(TextField(FPlan,'header'));
     if Length(FHeader)<>32 then raise EReadError.Create('Повреждён заголовок плана 7z.');
   end;
-  if ((Length(FMetadata)=0) and (Length(FHeader)=0)) or (Length(FMetadata) > MaxMetadataBytes) or
+  if ((Length(FMetadata)=0) and (Length(FHeader)=0) and
+      ((FWholeIdentity='') or not CanRemoveWhole or (FieldNumber(FPlan,'finalSize')<>0))) or
+    (Length(FMetadata) > MaxMetadataBytes) or
     (FieldNumber(FPlan,'originalSize') < FieldNumber(FPlan,'finalSize')) or
     (FieldNumber(FPlan,'metadataOffset') < 0) or
     (FieldNumber(FPlan,'finalSize')-Length(FMetadata) <> FieldNumber(FPlan,'metadataOffset')) then
@@ -582,6 +585,33 @@ begin
     Virtual.Capturing := False; Virtual.Simulating := True;
     Zip.Free; Virtual.Free;
   end;
+end;
+
+constructor TZipMemberDeletion.PrepareWholeArchive(const Archive, ExpectedSourceIdentity: string);
+var Size: Int64;
+begin
+  inherited Create;
+  if Length(ExpectedSourceIdentity)<>59 then
+    raise EArgumentException.Create('Не определён исходный файл для удаления целого архива.');
+  FArchive:=ExpandFileName(Archive);
+  FWholeIdentity:=ExpectedSourceIdentity;
+  OpenWholeSource(False);
+  if not GetFileSizeEx(FWholeHandle,Size) then RaiseLastOSError;
+  // The archive is itself the book. The receipt holds only its identity.
+  // The existing whole-source path unlinks it after the catalogue commits.
+  FPlan:=TJSONObject.Create;
+  FPlan.AddPair('schema',TJSONNumber.Create(1));
+  FPlan.AddPair('archive',FArchive);
+  FPlan.AddPair('fileId',Copy(FWholeIdentity,1,25));
+  FPlan.AddPair('wholeIdentity',FWholeIdentity);
+  FPlan.AddPair('originalSize',TJSONNumber.Create(Size));
+  FPlan.AddPair('finalSize',TJSONNumber.Create(0));
+  FPlan.AddPair('metadataOffset',TJSONNumber.Create(0));
+  FPlan.AddPair('untouchedEnd',TJSONNumber.Create(0));
+  FPlan.AddPair('metadata','');
+  FPlan.AddPair('chunks',TJSONArray.Create);
+  FPlan.AddPair('remaining',TJSONArray.Create);
+  CheckPlan;
 end;
 
 constructor TZipMemberDeletion.Recover(const Archive, Job: string);

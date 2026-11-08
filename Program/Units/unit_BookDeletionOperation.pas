@@ -208,7 +208,7 @@ var Retained: TDictionary<string,Byte>; Containers: TDictionary<string,Byte>;
     Key:=Copy(Source,1,25);
     if Kept then Containers.AddOrSetValue(Key,0);
     if not Kept and not Containers.ContainsKey(Key) then Exit;
-    if IsArchiveBookSource(Book) then
+    if IsArchiveBookSource(Book) and not IsWholeBookArchive(Book) then
     begin
       if Source<>LastSource then
       begin

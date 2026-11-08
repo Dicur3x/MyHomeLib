@@ -42,6 +42,7 @@ type
   TArchiveBookGroup = class
     Archive, Identity: string;
     Rows: TList<Integer>;
+    WholeSource: Boolean;
     constructor Create(const FileName, SourceIdentity: string);
     destructor Destroy; override;
   end;
@@ -200,7 +201,8 @@ begin
         if Cancelled then Abort;
         Report('Проверка путей выбранных книг','',I,Groups.Count);
         var Book:=Books[I];
-        if not (Book.GetBookFormat(TPath.Combine(Book.CollectionRoot,Book.Folder)) in
+        var WholeSource:=IsWholeBookArchive(Book);
+        if not WholeSource and not (Book.GetBookFormat(TPath.Combine(Book.CollectionRoot,Book.Folder)) in
           [bfFb2Archive,bfRawArchive,bfFbd]) then
           raise EArgumentException.Create('В очередь архивов передана отдельная книга.');
         var Archive:=TPath.GetFullPath(Book.GetBookFileName);
@@ -214,12 +216,21 @@ begin
         else if Groups[Index].Identity<>Identity then
           raise EReadError.Create('Архив изменился во время подготовки. Удаление не начато.');
         Groups[Index].Rows.Add(I);
+        Groups[Index].WholeSource:=Groups[Index].WholeSource or WholeSource;
       end;
       SetLength(Tasks,Groups.Count); Done:=0;
       for var I:=0 to Groups.Count-1 do
       begin
         if Cancelled then Abort;
         var Group:=Groups[I]; Members.Clear; Selected.Clear;
+        Tasks[I].Archive:=Group.Archive; Tasks[I].SourceIdentity:=Group.Identity;
+        Tasks[I].CatalogueBinding:=FBinding.Slice(Group.Rows.ToArray).ToJSON;
+        if Group.WholeSource then
+        begin
+          Tasks[I].WholeSource:=True;
+          Inc(Done,Group.Rows.Count);
+          Continue;
+        end;
         Report('Чтение списка файлов архива',Group.Archive,Done,Groups.Count);
         // Inventories are loaded one archive at a time, even if selected books
         // came in a mixed order. No whole-library filename cache is retained.
@@ -236,9 +247,7 @@ begin
           end;
           Inc(Done);
         end;
-        Tasks[I].Archive:=Group.Archive; Tasks[I].SourceIdentity:=Group.Identity;
         Tasks[I].Members:=Members.ToArray;
-        Tasks[I].CatalogueBinding:=FBinding.Slice(Group.Rows.ToArray).ToJSON;
         PlanPictureRemoval(Tasks[I],Inventory,Selected,function:Boolean begin Result:=Cancelled; end);
         Inventory:=nil;
       end;

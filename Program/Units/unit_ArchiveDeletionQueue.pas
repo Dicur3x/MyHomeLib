@@ -17,6 +17,7 @@ type
     // Captured catalogue identity. Only the owning UI thread may interpret or
     // commit it; the filesystem worker never touches a database connection.
     CatalogueBinding: string;
+    WholeSource: Boolean;
     Companions: TArray<TArchiveDeletionCompanion>;
   end;
 
@@ -157,7 +158,10 @@ begin
       var CurrentIdentity:=ArchiveDeletionSourceIdentity(FTasks[I].Archive);
       if FTasks[I].SourceIdentity='' then
         FTasks[I].SourceIdentity:=CurrentIdentity;
-      if (Length(FTasks[I].Members)=0) or
+      if (FTasks[I].WholeSource and
+        (not FWaitForCatalogue or (FTasks[I].CatalogueBinding='') or
+          (Length(FTasks[I].Members)<>0) or (Length(FTasks[I].Companions)<>0))) or
+        (not FTasks[I].WholeSource and (Length(FTasks[I].Members)=0)) or
         (Length(TEncoding.UTF8.GetBytes(FTasks[I].CatalogueBinding))>4*1024*1024) then
         raise EArgumentException.Create('Неверный список книг для удаления из архива.');
       // Drive aliases, junctions and hard links can name the same physical
@@ -530,10 +534,13 @@ begin
           Lease:=AcquireArchiveChange(Item.Archive);
           if not CreateDirectory(PChar(DeletionNativePath(Item.WorkDirectory)),nil) then RaiseLastOSError;
           SaveBinding(FTasks[I],Item.WorkDirectory);
-          Deletion:=TZipMemberDeletion.Prepare(Item.Archive,FTasks[I].Members,
-            procedure(const Stage: string; Done,Total: Int64) begin Report(Stage,Done,Total); end,
-            function: Boolean begin Result:=TInterlocked.CompareExchange(FStop,0,0)<>0; end,
-            FTasks[I].SourceIdentity);
+          if FTasks[I].WholeSource then
+            Deletion:=TZipMemberDeletion.PrepareWholeArchive(Item.Archive,FTasks[I].SourceIdentity)
+          else
+            Deletion:=TZipMemberDeletion.Prepare(Item.Archive,FTasks[I].Members,
+              procedure(const Stage: string; Done,Total: Int64) begin Report(Stage,Done,Total); end,
+              function: Boolean begin Result:=TInterlocked.CompareExchange(FStop,0,0)<>0; end,
+              FTasks[I].SourceIdentity);
           Deletion.BindContext(BindingHash(Item.WorkDirectory));
           if FWaitForCatalogue then Deletion.EnableWholeRemoval;
           if Assigned(FReview) and (Deletion.WholeSourceIdentity='') then
