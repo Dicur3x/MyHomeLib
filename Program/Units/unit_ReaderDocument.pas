@@ -327,9 +327,13 @@ begin
   if Assigned(FB2Warnings) then
   begin
     Failure:=FB2MarkupFailure(Result.parseError,S);
-    if TryRepairFB2Markup(Result,S) then
+    var ClosedTail: Boolean;
+    if TryRepairFB2Markup(Result,S,ClosedTail) then
     begin
-      FB2Warnings.Add('Исправлена разметка FB2 для чтения. Исходный файл сохранён.');
+      if ClosedTail then
+        FB2Warnings.Add('Закрыты недостающие теги FB2 для чтения. Полноту текста подтвердить нельзя.')
+      else
+        FB2Warnings.Add('Исправлена разметка FB2 для чтения. Исходный файл сохранён.');
       Exit;
     end;
     if Failure<>'' then raise EReadError.Create(Failure);

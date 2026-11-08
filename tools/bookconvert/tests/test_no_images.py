@@ -85,6 +85,39 @@ class NoImages(unittest.TestCase):
         self.assertIn('Сноска & текст.', ''.join(c.xml(repaired.read_bytes()).itertext()))
         self.assertEqual(self.source.read_bytes(),before)
 
+    def test_fb2_with_complete_final_paragraph_recovers_only_outer_tags(self):
+        prefix = (f'<f:FictionBook xmlns:f="{c.FB}" xmlns:l="{c.XL}">'
+                  '<f:description><f:title-info><f:book-title>Глава</f:book-title>'
+                  '<f:coverpage><f:image l:href="#cover.jpg"/></f:coverpage>'
+                  '<f:lang>ru</f:lang></f:title-info></f:description>'
+                  '<f:body><f:section><f:section><!-- </f:section> -->')
+        completed = '<f:p><![CDATA[Текст </p> цел.]]></f:p>'
+        source = self.root/'outer-tags.fb2'
+        original = (prefix + completed + '\r\n').encode()
+        source.write_bytes(original)
+        for suffix in ('.fb2', '.epub'):
+            with self.subTest(suffix=suffix):
+                target = self.root/('repaired-tail'+suffix)
+                report = c.convert_book(source,target)
+                self.assertTrue(any('Полноту текста подтвердить нельзя' in w for w in report['warnings']))
+                self.assertTrue(any('отсутствуют данные обложки' in w for w in report['warnings']))
+                if suffix=='.fb2':
+                    document = c.xml(target.read_bytes())
+                else:
+                    with zipfile.ZipFile(target) as archive:
+                        document = c.xml(archive.read('OEBPS/body-1.xhtml'))
+                self.assertIn('Текст </p> цел.', ''.join(document.itertext()))
+                self.assertEqual(source.read_bytes(), original)
+        for tail in ('<f:p>оборванный текст', '<f:p>цел</f:p> но ещё текст',
+                     '<f:p>цел</f:p></f:sect', '<f:p>битые\x00данные</f:p>',
+                     '<f:p><f:strong>неполный абзац</f:strong>'):
+            with self.subTest(tail=tail):
+                source.write_bytes((prefix+tail).encode())
+                target = self.root/'unrecoverable.epub'
+                with self.assertRaises(c.ConversionError):
+                    c.convert_book(source,target)
+                self.assertFalse(target.exists())
+
     def test_unrestored_external_pictures_need_no_decoder_for_explicit_text_only(self):
         # FLibrary's intermediate source has image references but keeps their
         # actual bytes in companion archives. Explicit omission can remove the

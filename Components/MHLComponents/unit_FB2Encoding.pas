@@ -11,7 +11,8 @@ const FB2_ENCODING_PROBE_SIZE = 8192;
 function RepairFB2UTF8Declaration(var Bytes: TBytes; PrefixOnly: Boolean = False): Boolean;
 
 // Retry only local, unambiguous syntax errors reported by a strict parser.
-function TryRepairFB2Markup(const Document: IXMLDOMDocument3; var XML: string): Boolean;
+function TryRepairFB2Markup(const Document: IXMLDOMDocument3; var XML: string;
+  out ClosedTail: Boolean): Boolean;
 function FB2MarkupFailure(const Error: IXMLDOMParseError; const XML: string): string;
 function FB2BinaryFailure(const Bytes: TBytes): string;
 function RepairedFB2Stream(const Source: TStream; out Failure: string): TStream;
@@ -94,12 +95,88 @@ begin
   Result := True;
 end;
 
-function TryRepairFB2Markup(const Document: IXMLDOMDocument3; var XML: string): Boolean;
+function CloseFB2Tail(const Document: IXMLDOMDocument3; var XML: string): Boolean;
+const
+  // The strict parser found EOF. Ignore comments, CDATA and quoted attributes
+  // when collecting open tag names, then validate the complete result.
+  TokenPattern = '<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>|<\?[\s\S]*?\?>|' +
+    '</?([A-Za-z_][\w.:-]*)(?=[\s/>])(?:[^"''<>]++|"[^"]*"|''[^'']*'')*>';
+var
+  Stack: array[0..128] of string;
+  Depth, LastEnd: Integer;
+  Closing, Candidate, Name: string;
+  Match: TMatch;
+  Bodies: IXMLDOMNodeList;
+  HasText: Boolean;
 begin
+  Result := False;
+  Depth := 0;
+  LastEnd := 0;
+  Match := TRegEx.Match(XML,TokenPattern);
+  while Match.Success do
+  begin
+    Name := '';
+    if Match.Groups.Count>1 then Name := Match.Groups[1].Value;
+    LastEnd := 0;
+    if Name<>'' then
+      if Match.Value.StartsWith('</') then
+      begin
+        if (Depth=0) or (Stack[Depth-1]<>Name) then Exit;
+        Dec(Depth);
+        LastEnd := Match.Index+Match.Length;
+      end
+      else if not Match.Value.EndsWith('/>') then
+      begin
+        if Depth=Length(Stack) then Exit;
+        Stack[Depth] := Name;
+        Inc(Depth);
+      end;
+    Match := Match.NextMatch;
+  end;
+  if (Depth=0) or (LastEnd=0) or (Trim(Copy(XML,LastEnd,MaxInt))<>'') then Exit;
+  for var I := 0 to Depth-1 do
+  begin
+    Name := Copy(Stack[I],Pos(':',Stack[I])+1,MaxInt);
+    case I of
+      0: if Name<>'FictionBook' then Exit;
+      1: if Name<>'body' then Exit;
+    else
+      if Name<>'section' then Exit;
+    end;
+  end;
+  Closing := '';
+  for var I := Depth-1 downto 0 do Closing := Closing+'</'+Stack[I]+'>';
+  Candidate := XML+Closing;
+  if not Document.loadXML(Candidate) then Exit;
+  if (Document.documentElement.baseName<>'FictionBook') or
+    (Document.documentElement.namespaceURI<>FB2Namespace) then Exit;
+  Bodies := Document.documentElement.selectNodes(
+    '*[local-name()="body" and namespace-uri()="'+FB2Namespace+'"]');
+  HasText := False;
+  for var I := 0 to Bodies.length-1 do
+    if Trim(Bodies.item[I].text)<>'' then
+    begin
+      HasText := True;
+      Break;
+    end;
+  if not HasText then Exit;
+  XML := Candidate;
+  Result := True;
+end;
+
+function TryRepairFB2Markup(const Document: IXMLDOMDocument3; var XML: string;
+  out ClosedTail: Boolean): Boolean;
+begin
+  ClosedTail := False;
   Result := False;
   if (Length(XML)>MaxFB2RepairBytes) or (Pos(#0,XML)>0) then Exit;
   for var Attempt := 1 to 4 do
   begin
+    if Cardinal(Document.parseError.errorCode)=XMLUnexpectedEnd then
+    begin
+      ClosedTail := CloseFB2Tail(Document,XML);
+      Exit(ClosedTail);
+    end;
     // MSXML reports a zero-based UTF-16 position after loadXML.
     var At := Document.parseError.filepos + 1;
     if (At<2) or (At>Length(XML)) then Exit;
@@ -162,6 +239,7 @@ var
   XML: string;
   Declaration: TMatch;
   Document: IXMLDOMDocument3;
+  ClosedTail: Boolean;
 begin
   Result := nil;
   Failure := '';
@@ -194,7 +272,7 @@ begin
     Document.setProperty('ProhibitDTD',True);
     if Document.loadXML(XML) then Exit;
     Failure := FB2MarkupFailure(Document.parseError,XML);
-    if not TryRepairFB2Markup(Document,XML) then Exit;
+    if not TryRepairFB2Markup(Document,XML,ClosedTail) then Exit;
     var Repaired := TMemoryStream.Create;
     try
       if Offset>0 then Repaired.WriteBuffer(Bytes[0],Offset);

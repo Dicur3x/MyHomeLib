@@ -88,6 +88,29 @@ begin
       'TXT export lost the repaired FB2 text');
     Require(TFile.ReadAllText(ReadFile,TEncoding.UTF8)=RepairSource,'FB2 markup recovery changed its source');
 
+    var TailSource:=Sample.Replace('windows-1251','UTF-8').Replace(
+      '<section><p>','<section><!-- </section> --><section><p>').Replace('</section></body></FictionBook>','')+#13#10;
+    TFile.WriteAllText(ReadFile,TailSource,TEncoding.UTF8);
+    Require(LoadFictionBook(ReadFile).Description.Titleinfo.Booktitle.Text=UTF8Title,
+      'Missing outer tags blocked FB2 import');
+    Reader.Load(ReadFile);
+    Require(Reader.PlainText.Contains(CyrillicBody) and Reader.Warnings.Text.Contains('Полноту текста подтвердить нельзя'),
+      'Outer tags recovery lost text or the incomplete-source warning');
+    Member:=TFileStream.Create(ReadFile,fmOpenRead or fmShareDenyWrite);
+    try ConvertToTxt(Folder+'repaired-tail.txt',enUTF8,Member); finally Member.Free; end;
+    Require(TFile.ReadAllText(Folder+'repaired-tail.txt',TEncoding.UTF8).Contains(CyrillicBody),
+      'TXT export lost the FB2 text after closing outer tags');
+    Require(TFile.ReadAllText(ReadFile,TEncoding.UTF8)=TailSource,'Outer tags recovery changed its source');
+
+    for var Broken in [TailSource.Replace('</p>',''), TailSource+'</sect', TailSource+'Оборванный текст'] do
+    begin
+      TFile.WriteAllText(ReadFile,Broken,TEncoding.UTF8);
+      var Rejected:=False;
+      try Reader.Load(ReadFile); except on E:Exception do Rejected:=True; end;
+      Require(Rejected,'Incomplete FB2 content was silently completed');
+    end;
+    Writeln('PASS FB2 closes outer tags for import, reading with a warning and TXT export');
+
     Mixed:=Copy(Bytes);
     Mixed[High(Mixed)]:=$FF;
     Require(not unit_FB2Encoding.RepairFB2UTF8Declaration(Mixed),

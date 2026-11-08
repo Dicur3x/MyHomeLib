@@ -214,11 +214,12 @@ def parse_fb2_file(path, maximum, *, keep_binary_data):
             raise ConversionError('Некорректная структура XML: ' + str(error)) from error
 
 
-def truncated_fb2_image(data, maximum):
-    """Accept EOF only inside a root-level image after a complete FB2 body."""
+def truncated_fb2_recovery(data, maximum):
+    """Recognize EOF after a closed element or inside a root-level image."""
     parser = expat.ParserCreate(namespace_separator='}')
     stack = []
     nested_binary = False
+    last_end = -1
 
     def start(name, attributes):
         nonlocal nested_binary
@@ -230,14 +231,30 @@ def truncated_fb2_image(data, maximum):
             nested_binary = False
         stack.append((name, attributes, parser.CurrentByteIndex))
 
+    def end(_name):
+        nonlocal last_end
+        last_end = parser.CurrentByteIndex
+        stack.pop()
+
     parser.StartElementHandler = start
-    parser.EndElementHandler = lambda name: stack.pop()
+    parser.EndElementHandler = end
     try:
         parser.Parse(data, True)
     except expat.ExpatError as error:
         if error.code != expat.errors.codes[expat.errors.XML_ERROR_NO_ELEMENTS]:
             return None
-    if nested_binary or [frame[0] for frame in stack] != [FB + '}FictionBook', FB + '}binary']:
+    names = [frame[0] for frame in stack]
+    root = FB + '}FictionBook'
+    section = FB + '}section'
+    if names[:1] == [root]:
+        remaining = names[1:]
+        if not remaining or remaining[0] == FB + '}body' and all(name == section for name in remaining[1:]):
+            if last_end >= 0 and re.fullmatch(br'</[^<>\x00- ]+\s*>\s*', data[last_end:]):
+                tags = [re.match(br'<([^<>\x00- />]+)(?=[\s/>])', data[offset:offset+512])
+                        for _, _, offset in stack]
+                if all(tags):
+                    return data + b''.join(b'</' + match[1] + b'>' for match in reversed(tags))
+    if nested_binary or names != [root, FB + '}binary']:
         return None
     _, attrs, image_at = stack[1]
     identity = attrs.get('id')
@@ -286,17 +303,21 @@ def read_fb2(data, maximum, warnings):
             raise ConversionError('FB2 повреждён: внутри файла найдены нулевые байты.') from original
         candidate = repair_fb2_encoding(data)
         for _ in range(4):
+            closed_tail = False
             parser = expat.ParserCreate(namespace_separator='}')
             try:
                 parser.Parse(candidate, True)
             except expat.ExpatError as error:
                 offset = parser.ErrorByteIndex
                 if error.code == expat.errors.codes[expat.errors.XML_ERROR_NO_ELEMENTS]:
-                    recovery = truncated_fb2_image(candidate, maximum)
-                    if recovery is not None:
+                    recovery = truncated_fb2_recovery(candidate, maximum)
+                    if isinstance(recovery, FB2ImageRecoveryRequired):
                         raise recovery from original
-                    raise ConversionError('FB2 обрывается до конца документа.') from original
-                if (error.code == expat.errors.codes[expat.errors.XML_ERROR_INVALID_TOKEN] and
+                    if recovery is None:
+                        raise ConversionError('FB2 обрывается до конца документа.') from original
+                    candidate = recovery
+                    closed_tail = True
+                elif (error.code == expat.errors.codes[expat.errors.XML_ERROR_INVALID_TOKEN] and
                         offset > 0 and candidate[offset-1:offset] == b'&' and
                         candidate[offset:offset+1] in (b' ',b'\r',b'\n',b'\t')):
                     candidate = candidate[:offset] + b'amp;' + candidate[offset:]
@@ -317,7 +338,17 @@ def read_fb2(data, maximum, warnings):
                 continue
             if book.tag != '{'+FB+'}FictionBook':
                 raise original
-            warnings.add('Исправлена разметка FB2 в сохранённой копии. Исходный файл сохранён.')
+            if closed_tail:
+                if not any(plain(body) for body in book.findall('{' + FB + '}body')):
+                    raise ConversionError('FB2 обрывается до конца документа.') from original
+                warnings.add('В копии закрыты недостающие теги FB2. Полноту текста подтвердить нельзя. Исходный файл сохранён.')
+                images = {node.get('id') for node in children(book, 'binary')}
+                if any(node.get('{' + XL + '}href', '').startswith('#') and
+                       node.get('{' + XL + '}href')[1:] not in images
+                       for cover in book.iter('{' + FB + '}coverpage') for node in cover.iter('{' + FB + '}image')):
+                    warnings.add('В исходном FB2 отсутствуют данные обложки.')
+            else:
+                warnings.add('Исправлена разметка FB2 в сохранённой копии. Исходный файл сохранён.')
             return book, candidate
         raise original
 
