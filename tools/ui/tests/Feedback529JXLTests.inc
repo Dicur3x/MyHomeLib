@@ -51,7 +51,7 @@ begin
 end;
 
 procedure TestFLibraryJpegReconstruction;
-var Root, Container, Original, Encoded, Prepared, Fb2: string; Book: TBookRecord;
+var Root, Container, Original, Encoded, Prepared, Fb2, Stamp: string; Book: TBookRecord;
   Sink: TMemoryStream; Zip: TZipFile; Bytes, OriginalBytes: TBytes; Document: TReaderDocument;
 begin
   Root:=Settings.AppPath+'feedback529-jpeg'; ForceDirectories(Root+'\images');
@@ -69,11 +69,13 @@ begin
       '<rootfiles><rootfile full-path="OPS/book.opf" media-type="application/oebps-package+xml"/></rootfiles></container>'),'META-INF/container.xml');
     Zip.Add(TEncoding.UTF8.GetBytes('<package xmlns="http://www.idpf.org/2007/opf" version="2.0">'+
       '<manifest><item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/>'+
-      '<item id="picture" href="picture.jpg" media-type="image/jpeg"/></manifest>'+
+      '<item id="picture" href="picture.jpg" media-type="image/jpeg"/>'+
+      '<item id="alias" href="picture-alias.jpg" media-type="image/jpeg"/></manifest>'+
       '<spine><itemref idref="chapter"/></spine></package>'),'OPS/book.opf');
     Zip.Add(TEncoding.UTF8.GetBytes('<html xmlns="http://www.w3.org/1999/xhtml"><body><p>Complete EPUB text.</p>'+
-      '<img src="picture.jpg" alt="Picture"/></body></html>'),'OPS/chapter.xhtml');
-    Zip.Add(TEncoding.UTF8.GetBytes('[{"id":"OPS/picture.jpg","num":0}]'),'FLibraryImageIndex.json');
+      '<img src="picture.jpg" alt="Picture"/><img src="picture-alias.jpg" alt="Alias"/></body></html>'),'OPS/chapter.xhtml');
+    Zip.Add(TEncoding.UTF8.GetBytes('[{"id":"OPS/picture.jpg","num":0},'+
+      '{"id":"OPS/picture-alias.jpg","num":0}]'),'FLibraryImageIndex.json');
     Zip.Close;
     Zip.Open(Root+'\images\books.zip',zmWrite);
     Zip.Add(Encoded,'1/1'); Zip.Add(Encoded,'2/0');
@@ -94,17 +96,27 @@ begin
   Require(TFile.ReadAllText(Prepared,TEncoding.UTF8)=Fb2,'Saving preparation changed the recovered FB2 JPEG');
   Book.FileName:='2'; Book.FileExt:='.epub'; Book.LibID:='jpeg-reconstruct-epub';
   Prepared:=PrepareConversionSource(Book,nil,'.epub');
+  Stamp:=TFile.ReadAllText(Prepared+'.source',TEncoding.UTF8);
+  Require(Stamp.Contains('|flibrary-epub-v2'),'Restored EPUB cache revision did not change');
+  TFile.WriteAllText(Prepared,'stale EPUB without all image paths',TEncoding.UTF8);
+  TFile.WriteAllText(Prepared+'.source',Stamp.Replace('|flibrary-epub-v2',''),TEncoding.UTF8);
+  Prepared:=PrepareConversionSource(Book,nil,'.epub');
   Zip:=TZipFile.Create;
   try
-    Zip.Open(Prepared,zmRead); Zip.Read('OPS/picture.jpg',Bytes);
-    Require((Length(Bytes)>0) and (Length(Bytes)=Length(OriginalBytes)) and
-      CompareMem(@Bytes[0],@OriginalBytes[0],Length(Bytes)),
-      'Restored EPUB JPEG differs from its original bytes');
+    Zip.Open(Prepared,zmRead);
+    for var Path in ['OPS/picture.jpg','OPS/picture-alias.jpg'] do
+    begin
+      Require(Zip.IndexOf(Path)>=0,'Restored EPUB lost an image path: '+Path);
+      Zip.Read(Path,Bytes);
+      Require((Length(Bytes)>0) and (Length(Bytes)=Length(OriginalBytes)) and
+        CompareMem(@Bytes[0],@OriginalBytes[0],Length(Bytes)),
+        'Restored EPUB JPEG differs from its original bytes: '+Path);
+    end;
   finally Zip.Free; end;
   Document:=TReaderDocument.Create;
   try
     Document.Load(Prepared);
-    Require((Document.ImageCount=1) and Document.PlainText.Contains('Complete EPUB text.'),
+    Require((Document.ImageCount=2) and Document.PlainText.Contains('Complete EPUB text.'),
       'The EPUB reader could not display the recovered JPEG and text');
   finally Document.Free; end;
   Writeln('PASS FLibrary reconstructs exact JPEG bytes in native FB2 and EPUB reading and export preparation');

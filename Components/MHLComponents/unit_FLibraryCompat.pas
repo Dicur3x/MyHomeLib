@@ -799,7 +799,7 @@ end;
 
 function LoadEpubImageIndex(const Archive: TMHLZip;
   const Names: TArray<string>; const ExtractedRoot: string; const ImageTargets:
-  TDictionary<Integer, string>): Boolean;
+  TObjectDictionary<Integer, TList<string>>): Boolean;
 var
   ArrayValue: TJSONArray;
   Bytes: TBytes;
@@ -810,6 +810,8 @@ var
   NumberValue: TJSONValue;
   Obj: TJSONObject;
   Stream: TMemoryStream;
+  Number: Integer;
+  Targets: TList<string>;
 begin
   Result := False;
   for I := Low(Names) to High(Names) do
@@ -836,8 +838,16 @@ begin
         NameValue := Obj.GetValue('id');
         NumberValue := Obj.GetValue('num');
         if Assigned(NameValue) and Assigned(NumberValue) then
-          ImageTargets.AddOrSetValue(StrToIntDef(NumberValue.Value, 0),
-            NormalizeArchiveName(NameValue.Value));
+        begin
+          Number := StrToIntDef(NumberValue.Value, 0);
+          if not ImageTargets.TryGetValue(Number, Targets) then
+          begin
+            Targets := TList<string>.Create;
+            ImageTargets.Add(Number, Targets);
+          end;
+          // A single stored illustration can appear under multiple EPUB paths.
+          Targets.Add(NormalizeArchiveName(NameValue.Value));
+        end;
       end;
       Result := ImageTargets.Count > 0;
     finally
@@ -857,7 +867,8 @@ var
   ExtractedRoot: string;
   I: Integer;
   ImageNo: Integer;
-  ImageTargets: TDictionary<Integer, string>;
+  ImageTargets: TObjectDictionary<Integer, TList<string>>;
+  Targets: TList<string>;
   InputFile: string;
   MimetypeIndex: Integer;
   Names: TArray<string>;
@@ -867,7 +878,7 @@ var
   Stream: TMemoryStream;
   TargetImages: TDictionary<string, TExternalBookImage>;
   Zip: TZipFile;
-  SourceIsSevenZip: Boolean;
+  SourceIsSevenZip, BatchExtract: Boolean;
 begin
   Result := nil;
 
@@ -884,16 +895,23 @@ begin
   ExtractedRoot := '';
   Archive := nil;
   Zip := nil;
-  ImageTargets := TDictionary<Integer, string>.Create;
+  ImageTargets := TObjectDictionary<Integer, TList<string>>.Create([doOwnsValues]);
   TargetImages := TDictionary<string, TExternalBookImage>.Create;
   AddedNames := TDictionary<string, Byte>.Create;
   try
     TFile.WriteAllBytes(InputFile, Bytes);
     Archive := TMHLZip.Create(InputFile, True);
     SetLength(Names, Archive.FileCount);
+    BatchExtract := SourceIsSevenZip;
     for I := 0 to Archive.FileCount - 1 do
+    begin
       Names[I] := NormalizeArchiveName(Archive.FileNameAt(I));
-    if SourceIsSevenZip then
+      // On Windows 7-Zip replaces trailing dots and spaces with underscores
+      // on disk. Read those archives by their original member names instead.
+      if BatchExtract and (Names[I].Contains('./') or Names[I].Contains(' /') or
+        Names[I].EndsWith('.') or Names[I].EndsWith(' ')) then BatchExtract := False;
+    end;
+    if BatchExtract then
     begin
       ExtractedRoot := NewTemporaryDirectory;
       Archive.ExtractAllToDirectory(ExtractedRoot);
@@ -907,8 +925,9 @@ begin
         ImageNo := -1
       else
         ImageNo := StrToIntDef(Images[I].Name, MaxInt);
-      if ImageTargets.TryGetValue(ImageNo, OutputName) then
-        TargetImages.AddOrSetValue(OutputName, Images[I]);
+      if ImageTargets.TryGetValue(ImageNo, Targets) then
+        for OutputName in Targets do
+          TargetImages.AddOrSetValue(OutputName, Images[I]);
     end;
 
     CommonFolder := CommonTopFolder(Names);

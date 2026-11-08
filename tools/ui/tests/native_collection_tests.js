@@ -30,6 +30,7 @@ const readerFixturesArg = process.argv.find(arg => arg.startsWith("--reader-fixt
 const conversionFixturesArg = process.argv.find(arg => arg.startsWith("--conversion-fixtures="));
 const saveDocInventoryArg = process.argv.find(arg => arg.startsWith('--save-doc-inventory='));
 const packingInventoryArg = process.argv.find(arg => arg.startsWith('--packing-inventory='));
+const packingFlibraryArg = process.argv.find(arg => arg.startsWith('--packing-flibrary-epub='));
 const packingImagesArg = process.argv.find(arg => arg.startsWith('--packing-images='));
 const packingJpegXL = process.argv.includes('--packing-jpeg-xl');
 const packingMenuReaderArg = process.argv.find(arg => arg.startsWith('--packing-menu-reader='));
@@ -38,6 +39,8 @@ if (packingJpegXL && (viewsMode!=='packing-fbd' || !packingImagesArg || process.
   throw Error('JPEG XL packing requires its own packing-fbd image fixture.');
 if (packingMenuReaderArg && (viewsMode !== 'packing-fbd' || !packingInventoryArg))
   throw Error('The packing menu review requires a real packing inventory and the packing-fbd scenario.');
+if (packingFlibraryArg && (viewsMode !== 'packing-fbd' || packingMenuReaderArg))
+  throw Error('The real FLibrary EPUB fixture requires the packing-fbd scenario.');
 const sqlFixturesArg = process.argv.find(arg => arg.startsWith('--sql-fixtures='));
 if (sqlFixturesArg && viewsMode !== 'sql-catalogue-download')
   throw Error('SQL fixtures require the explicit download scenario');
@@ -357,7 +360,8 @@ function requiredPasses(executable, mode) {
   if (mode === "fbd-editor-save") return ["PASS FBD editor preserves unsaved metadata"];
   if (mode === "packing-fbd") return ["PASS original FBD container", "PASS packing estimate review", "PASS unavailable books remain in the catalogue", "PASS selected INPX adds and replaces exact books", "PASS selected INPX estimate cancels and continues",
       "PASS packing restart restores selected INPX and profile once and rejects changed inputs",
-    ...(packingInventoryArg ? ["PASS real mixed packed books survive two INPX updates and export with exact original bytes"] : [])];
+    ...(packingInventoryArg ? ["PASS real mixed packed books survive two INPX updates and export with exact original bytes"] : []),
+    ...(packingFlibraryArg ? ["PASS real FLibrary EPUB restores every expected image path"] : [])];
   if (mode === "update-theme") return ["PASS update notes retain visible dark/light foreground"];
   if (mode === "bulk-writes") return ["PASS bulk writes preserve Unicode fields", "PASS current catalogs reopen without schema/data writes", "PASS metadata delta matches full writes", "PASS metadata delta preserves exact personal review prefix"];
   if (mode === "query-batch") return ["PASS bounded statement reuse, cleared parameters, concurrent queries, schema changes and rollback"];
@@ -537,6 +541,11 @@ function run(executable, mode, subcase = "") {
           path.join(__dirname,'prepare_packing_real_fixtures.py'),folder,inventory],
           {windowsHide:true,encoding:'utf8',timeout:60000});
         if (made.status!==0) throw Error('Cannot stage original books: '+made.stdout+made.stderr);
+      }
+      if (packingFlibraryArg) {
+        const fixture=fs.realpathSync(packingFlibraryArg.slice('--packing-flibrary-epub='.length));
+        fs.cpSync(fixture,path.join(folder,'packing-flibrary-epub'),{recursive:true});
+        fs.cpSync(path.join(runtime,'tools/jpeg-xl'),path.join(folder,'tools/jpeg-xl'),{recursive:true});
       }
     }
     if (mode==='book-preview-adaptive' && process.env.HOMELIB_TEST_PREVIEW_VISUAL==='1') fs.writeFileSync(path.join(folder,'preview-adaptive-visual.flag'),'isolated visual review');
@@ -982,7 +991,7 @@ with zipfile.ZipFile(sys.argv[2]+'/reader-spread.epub','w') as z:
     }
     const exe = path.join(folder, path.basename(executable));
     if (mode==='packing-fbd' && packingMenuReaderArg) { runPackingMenu(folder,exe); return; }
-    const result = cp.spawnSync(exe, mode ? [mode,...(subcase ? [subcase] : []),...(mode === "audit-new" ? [auditCaseArg ? auditCaseArg.slice(13) : "filters", ...(amberArchiveArg ? [fs.realpathSync(amberArchiveArg.slice(16))] : [])] : []),...(toolProbe ? ["probe"] : []),...((visualCache || visualUI || visualUpdate || visualRecords) ? ["visual"] : []),...(mode === "feedback14" && amberArchiveArg ? [fs.realpathSync(amberArchiveArg.slice("--amber-archive=".length))] : [])] : [], { cwd: folder, env: {...process.env, LOCALAPPDATA: path.join(folder, "LocalAppData")}, encoding: "utf8", timeout: mode==='builtin-reader' ? 360000 : mode==='packing-fbd' && packingJpegXL ? 420000 : ['zip-member-deletion','archive-member-engines','flibrary-real-deletion'].includes(mode) ? 180000 : mode==='script-export-paths' ? 900000 : visualEstimates || ((mode==='book-preview-adaptive' && process.env.HOMELIB_TEST_PREVIEW_VISUAL==='1') || (mode==='compact-search-filters' && process.env.HOMELIB_TEST_SEARCH_VISUAL==='1')) ? 900000 : mode==='save-module-restart' || mode==='unified-send' || mode==='save-planning' || mode==='kindle-save' || mode==='advanced-save' ? 900000 : mode==='catalogue-performance' || mode==='first-book-list-large' || mode==='image-quality-dialog' ? 900000 : mode==='catalogue-formats' ? 3600000 : mode==='conversion-menu' ? 300000 : mode==='update-source-failures' ? 240000 : !!process.env.HLRU_FEEDBACK529_VISUAL && mode === "feedback529" ? 300000 : mode === "post525-update" ? (visualUI ? 900000 : 180000) : mode === "filter-captions" && ["annotation-light", "annotation-dark"].includes(subcase) ? 240000 : mode === "large-inpx" ? 900000 : ["component-monthly-lifecycle", "reader-spread", "view-sessions", "builtin-reader", "reader-resource-idle", "update-repair", "compact-book-views", "book-preview-layout", "book-preview-adaptive", "metadata-book-columns", "reader-notes-proposals", "update-keyboard-accessibility", "main-toolbar-states", "favorite-ui"].includes(mode) ? 180000 : mode === 'native-folder-picker' || mode === 'cancel-interactive' || mode === 'export-cancel-interactive' || mode === 'legacy-import-interactive' || proposalVisualModes.includes(mode) || visualUI || visualUpdate || visualRecords ? 900000 : visualCache ? 180000 : 90000, windowsHide: mode !== 'script-export-paths' && !process.env.HLRU_FEEDBACK529_VISUAL && mode !== 'update-keyboard-accessibility' && !mode.startsWith("first-run") && mode !== 'cancel-interactive' && mode !== 'export-cancel-interactive' && mode !== 'legacy-import-interactive' && !proposalVisualModes.includes(mode) && !visualCache && !visualUI && !visualRecords && !visualEstimates, maxBuffer: 2 * 1024 * 1024 });
+    const result = cp.spawnSync(exe, mode ? [mode,...(subcase ? [subcase] : []),...(mode === "audit-new" ? [auditCaseArg ? auditCaseArg.slice(13) : "filters", ...(amberArchiveArg ? [fs.realpathSync(amberArchiveArg.slice(16))] : [])] : []),...(toolProbe ? ["probe"] : []),...((visualCache || visualUI || visualUpdate || visualRecords) ? ["visual"] : []),...(mode === "feedback14" && amberArchiveArg ? [fs.realpathSync(amberArchiveArg.slice("--amber-archive=".length))] : [])] : [], { cwd: folder, env: {...process.env, LOCALAPPDATA: path.join(folder, "LocalAppData")}, encoding: "utf8", timeout: mode==='builtin-reader' ? 360000 : mode==='packing-fbd' && (packingJpegXL || packingFlibraryArg) ? 420000 : ['zip-member-deletion','archive-member-engines','flibrary-real-deletion'].includes(mode) ? 180000 : mode==='script-export-paths' ? 900000 : visualEstimates || ((mode==='book-preview-adaptive' && process.env.HOMELIB_TEST_PREVIEW_VISUAL==='1') || (mode==='compact-search-filters' && process.env.HOMELIB_TEST_SEARCH_VISUAL==='1')) ? 900000 : mode==='save-module-restart' || mode==='unified-send' || mode==='save-planning' || mode==='kindle-save' || mode==='advanced-save' ? 900000 : mode==='catalogue-performance' || mode==='first-book-list-large' || mode==='image-quality-dialog' ? 900000 : mode==='catalogue-formats' ? 3600000 : mode==='conversion-menu' ? 300000 : mode==='update-source-failures' ? 240000 : !!process.env.HLRU_FEEDBACK529_VISUAL && mode === "feedback529" ? 300000 : mode === "post525-update" ? (visualUI ? 900000 : 180000) : mode === "filter-captions" && ["annotation-light", "annotation-dark"].includes(subcase) ? 240000 : mode === "large-inpx" ? 900000 : ["component-monthly-lifecycle", "reader-spread", "view-sessions", "builtin-reader", "reader-resource-idle", "update-repair", "compact-book-views", "book-preview-layout", "book-preview-adaptive", "metadata-book-columns", "reader-notes-proposals", "update-keyboard-accessibility", "main-toolbar-states", "favorite-ui"].includes(mode) ? 180000 : mode === 'native-folder-picker' || mode === 'cancel-interactive' || mode === 'export-cancel-interactive' || mode === 'legacy-import-interactive' || proposalVisualModes.includes(mode) || visualUI || visualUpdate || visualRecords ? 900000 : visualCache ? 180000 : 90000, windowsHide: mode !== 'script-export-paths' && !process.env.HLRU_FEEDBACK529_VISUAL && mode !== 'update-keyboard-accessibility' && !mode.startsWith("first-run") && mode !== 'cancel-interactive' && mode !== 'export-cancel-interactive' && mode !== 'legacy-import-interactive' && !proposalVisualModes.includes(mode) && !visualCache && !visualUI && !visualRecords && !visualEstimates, maxBuffer: 2 * 1024 * 1024 });
     const output = (result.stdout || "") + (result.stderr || "");
     if (mode === "favorite-ui") {
       const screenshot = path.join(folder, "all-favorite-authors.png");

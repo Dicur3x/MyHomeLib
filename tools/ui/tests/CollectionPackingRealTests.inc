@@ -150,3 +150,100 @@ begin
     (Collection.ResolveBookID('107',0)>0),'Production menu lost the old catalogue or the new DOCX');
   Writeln('PASS production menu published the expected real INPX update separately');
 end;
+
+procedure TestPackedFLibraryEpub;
+var Fixture, OriginalRoot, PackedRoot: string;
+  Manifest: TJSONObject; Expected: TJSONArray; Source, PackedCopy, Repacked: IBookCollection;
+  Options: TCollectionPackingOptions; SourceID, ID: Integer; Book: TBookRecord;
+
+  function Pack(const Collection: IBookCollection; const Root, Name: string;
+    Reused: Integer): IBookCollection;
+  var Snapshot: TCollectionPackingSnapshot;
+  begin
+    Options.SourceID:=Collection.CollectionID; Options.CatalogFile:=Collection.GetProperty(PROP_DATAFILE);
+    Options.SourceRoot:=Root; Options.DisplayName:=Name;
+    Snapshot:=TCollectionPackingSnapshot.Create(Options);
+    try
+      Snapshot.Prepare; Snapshot.Pack;
+      Require((Snapshot.Status.Unavailable=0) and (Snapshot.Status.Reused=Reused) and
+        (Snapshot.Status.OutputBytes<=Snapshot.Status.InputBytes),'Packed FLibrary lost a book, reused the wrong source or grew');
+      Snapshot.ApplyPrepared;
+      Result:=SystemDB.GetCollection(Snapshot.RegisterNew(SystemDB));
+    finally Snapshot.Free; end;
+  end;
+
+  procedure Verify(const Collection: IBookCollection);
+  var Book: TBookRecord; Source: TStream; Zip: TZipFile; Bytes: TBytes; Document: TReaderDocument;
+    Prepared: string;
+  begin
+    for var Entry in Expected do
+    begin
+      var LibID:=Entry.GetValue<string>('id');
+      var BookID:=Collection.ResolveBookID(LibID,0);
+      Require(BookID>0,'Missing FLibrary book '+LibID);
+      Collection.GetBookRecord(CreateBookKey(BookID,Collection.CollectionID),Book,True);
+      Source:=Book.GetBookStream(True,False);
+      try Require(SameText(THashSHA2.GetHashString(Source),Entry.GetValue<string>('sha256')),
+        'Nested 7z bytes differ for '+LibID);
+      finally Source.Free; end;
+      Prepared:=PrepareReaderFile(Book,True);
+      Zip:=TZipFile.Create;
+      try
+        Zip.Open(Prepared,zmRead);
+        Require((Zip.FileNames[0]='mimetype') and (Zip.IndexOf('META-INF/container.xml')>=0),'Invalid restored EPUB');
+        for var Asset in Entry.GetValue<TJSONObject>('assets') do
+        begin
+          var Path:=Asset.JsonString.Value;
+          Require(Zip.IndexOf(Path)>=0,'Missing restored EPUB resource: '+Path);
+          Zip.Read(Path,Bytes);
+          Source:=TBytesStream.Create(Bytes);
+          try Require(SameText(THashSHA2.GetHashString(Source),Asset.JsonValue.Value),
+            'Changed restored EPUB resource: '+Path);
+          finally Source.Free; end;
+        end;
+      finally Zip.Free; end;
+      Document:=TReaderDocument.Create;
+      try
+        Document.Load(Prepared);
+        Require((Length(Document.PlainText)>1000) and (Document.ImageCount>0),'Restored EPUB did not open with text and images');
+      finally Document.Free; end;
+    end;
+  end;
+
+begin
+  RequireIsolatedRegression;
+  Fixture:=Settings.AppPath+'packing-flibrary-epub'; OriginalRoot:=Fixture+'\source';
+  PackedRoot:=Settings.AppPath+'packing-flibrary-epub-output';
+  Manifest:=TJSONObject.ParseJSONValue(TFile.ReadAllText(Fixture+'\manifest.json',TEncoding.UTF8)) as TJSONObject;
+  try
+    Expected:=Manifest.GetValue<TJSONArray>('books');
+    SourceID:=SystemDB.CreateCollection('Original FLibrary EPUB',OriginalRoot,'packing-flibrary-epub.hlc2',
+      CT_EXTERNAL_LOCAL_FB,Settings.AppPath+'genres_fb2.glst');
+    Source:=SystemDB.GetCollection(SourceID);
+    for var Entry in Expected do
+    begin
+      ID:=AddBook(Source,'FLibrary '+Entry.GetValue<string>('id'),'Author','ru','','prose_contemporary');
+      Source.GetBookRecord(CreateBookKey(ID,SourceID),Book,True);
+      Book.LibID:=Entry.GetValue<string>('id'); Book.Folder:=Entry.GetValue<string>('archive');
+      Book.FileName:=ChangeFileExt(Entry.GetValue<string>('wanted'),''); Book.FileExt:='.epub';
+      Book.InsideNo:=Entry.GetValue<Integer>('inside'); Source.UpdateBook(Book);
+    end;
+    Verify(Source);
+    Options:=Default(TCollectionPackingOptions); Options.Dataset:='real-flibrary-epub';
+    Options.OutputRoot:=PackedRoot; Options.PersonalFile:=Settings.SystemFileName[sfSystemDB];
+    Options.Python:=Settings.AppPath+'tools\kindle\python\python.exe';
+    Options.SevenZip:=Settings.AppPath+'tools\7zip\7za.exe';
+    Options.Script:=Settings.AppPath+'tools\collectionpack\pack_collection.py';
+    PackedCopy:=Pack(Source,OriginalRoot,'Packed FLibrary EPUB',0);
+    Require(RenameFile(OriginalRoot,OriginalRoot+'.held'),'Cannot hide the owned source archives');
+    try
+      Verify(PackedCopy);
+      Repacked:=Pack(PackedCopy,PackedRoot,'Reused FLibrary EPUB',Manifest.GetValue<Integer>('archives'));
+      Verify(Repacked);
+    finally Require(RenameFile(OriginalRoot+'.held',OriginalRoot),'Cannot restore the owned source archives'); end;
+    for var FileHash in Manifest.GetValue<TJSONObject>('files') do
+      Require(SameText(UpdateSHA256(TPath.Combine(OriginalRoot,FileHash.JsonString.Value)),FileHash.JsonValue.Value),
+        'Packing changed a source archive or its images');
+    Writeln('PASS real FLibrary EPUB restores every expected image path and preserves nested bytes through packing and reuse');
+  finally Manifest.Free; end;
+end;

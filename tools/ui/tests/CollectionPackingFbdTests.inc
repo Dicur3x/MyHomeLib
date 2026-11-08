@@ -125,4 +125,5 @@ begin
   TestPackingUnavailable;
   TestPackingInpx;
   if DirectoryExists(Settings.AppPath+'packing-real-input') then TestPackingReal;
+  if DirectoryExists(Settings.AppPath+'packing-flibrary-epub') then TestPackedFLibraryEpub;
 end;

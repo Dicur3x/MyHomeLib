@@ -600,8 +600,12 @@ begin
     Book.FileName + Book.FileExt + '|' + IntToStr(Book.InsideNo) + '|' +
     BoolToStr(ConvertImages, True) + '|' + PROGRAM_RELEASE_VERSION;
   if SameText(ExtractFileExt(Source), '.7z') then
+  begin
+    if SameText(Book.FileExt, '.epub') then
+      Result := Result + '|flibrary-epub-v2';
     for Dependency in FLibraryImageSourceFiles(Source) do
       Result := Result + '|' + FileStamp(Dependency, False);
+  end;
   Result := Result + '|' + FileStamp(FindExternalTool('djxl.exe', 'jpeg-xl'), False) +
     '|' + FileStamp(Settings.AppPath + 'tools\webp\libwebp.dll', False);
 end;
