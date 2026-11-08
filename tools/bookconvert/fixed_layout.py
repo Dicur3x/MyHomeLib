@@ -498,7 +498,10 @@ def read_djvu(book, tools):
         with tempfile.TemporaryFile() as out:
             try: result = subprocess.run([str(a) for a in args], stdout=out, stderr=subprocess.PIPE, timeout=timeout, creationflags=0x08000000)
             except subprocess.TimeoutExpired: book.fail(f'Чтение DjVu: {step} — превышено допустимое время ({timeout} с).')
-            if result.returncode: book.fail('DjVuLibre не смог прочитать документ: ' + result.stderr.decode('utf-8', errors='replace')[-500:])
+            if result.returncode:
+                details = result.stderr.decode('utf-8', errors='replace').strip()[-500:]
+                message = f'Чтение DjVu: {step} — DjVuLibre завершился с кодом {result.returncode}.'
+                book.fail(message + (' ' + details if details else ''))
             if out.tell() > limit: book.fail('Текст или растр DjVu превышает предел конвертации.')
             out.seek(0); return out.read()
     count = int(run([used, '-n', '-e', 'n', book.source], 1024).decode('utf-8-sig').strip())

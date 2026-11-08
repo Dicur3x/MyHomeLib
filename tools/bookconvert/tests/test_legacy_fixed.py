@@ -264,6 +264,15 @@ class LegacyFixed(unittest.TestCase):
             with self.assertRaisesRegex(c.ConversionError,'размеры страниц'):
                 fixed.read_djvu(book,TOOLS)
 
+    def test_djvu_error_without_stderr_reports_step_and_exit_code(self):
+        tools = self.root / 'tools'
+        (tools / 'djvu').mkdir(parents=True)
+        (tools / 'djvu/djvused.exe').touch()
+        book = text_inputs.Book(c, self.root / 'book.djvu', set(), tools_root=tools, omit_images=True)
+        with patch.object(fixed.subprocess, 'run', return_value=subprocess.CompletedProcess([], 2, b'', b'')):
+            with self.assertRaisesRegex(c.ConversionError, 'сведения о книге.*кодом 2'):
+                fixed.read_djvu(book, tools)
+
     def test_djvu_text_only_reads_page_level_text_and_missing_pages_without_renderer(self):
         tools = self.root/'tools'
         (tools/'djvu').mkdir(parents=True)
