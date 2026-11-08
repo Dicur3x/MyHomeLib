@@ -27,8 +27,8 @@ type
     constructor Create(const LibraryFile, FileName: string);
     destructor Destroy; override;
     function AsyncPages: Boolean; override;
-    procedure PreparePage(Index: Integer; Prefetch: Boolean = False; RenderEdge: Integer = 4000); override;
-    function IsPageCached(Index: Integer; MinEdge: Integer = 0): Boolean; override;
+    procedure PreparePage(Index: Integer; Prefetch: Boolean = False; RenderEdge: Integer = 4000; TargetWidth: Integer = 0); override;
+    function IsPageCached(Index: Integer; MinEdge: Integer = 0; MinWidth: Integer = 0): Boolean; override;
     procedure SetVisibleRange(First, Count: Integer); override;
     function Render(Index, Width, Height: Integer; Night: Boolean = False): TBitmap; override;
   end;
@@ -81,7 +81,7 @@ begin
   finally TMonitor.Exit(FLock); end;
 end;
 
-function TReaderPDFAsync.IsPageCached(Index, MinEdge: Integer): Boolean;
+function TReaderPDFAsync.IsPageCached(Index, MinEdge, MinWidth: Integer): Boolean;
 var Page: TPDFPreparedPage;
 begin
   TMonitor.Enter(FLock);
@@ -89,7 +89,7 @@ begin
   finally TMonitor.Exit(FLock); end;
 end;
 
-procedure TReaderPDFAsync.PreparePage(Index: Integer; Prefetch: Boolean; RenderEdge: Integer);
+procedure TReaderPDFAsync.PreparePage(Index: Integer; Prefetch: Boolean; RenderEdge, TargetWidth: Integer);
 const Budget = 96*1024*1024;
 var Page, Visible, Old: TPDFPreparedPage; Pair: TPair<Integer,TPDFPreparedPage>;
   Protected, Oldest: Integer; Stamp: UInt64;

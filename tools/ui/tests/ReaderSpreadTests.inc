@@ -494,7 +494,9 @@ begin
         end;
         Require((Reader.TextPosition=0) and (Frames>=3),
           Format('%s wheel drew %d intermediate frames before turning', [Extension,Frames]));
-        Steps:=Reader.ReadingSurface.ClientHeight div Max(1,MulDiv(30,Reader.CurrentPPI,96))+4;
+        Steps:=Reader.ReadingSurface.ClientHeight;
+        if Extension='cbz' then Steps:=Reader.PageRasterSize.Y div 2;
+        Steps:=Steps div Max(1,MulDiv(30,Reader.CurrentPPI,96))+4;
         PressArrow(VK_DOWN,Steps);
         Watch:=TStopwatch.StartNew;
         while ((Reader.TextPosition=0) or (Reader.PDFPan.Y=0)) and (Watch.ElapsedMilliseconds<5000) do Pump(30);
@@ -519,5 +521,75 @@ begin
     finally Reader.Free; end;
     Require(THashSHA2.GetHashStringFromFile(FileName)=Original,Extension+' source changed');
   end;
+  FileName:=Settings.AppPath+'reader-tall.cbz';
+  Original:=THashSHA2.GetHashStringFromFile(FileName);
+  var Profile:=Settings.AppPath+'scroll-tall-comic.ini';
+  Reader:=TfrmBuiltinReader.Create(nil);
+  try
+    Reader.OpenBook(FileName,'Tall comic','reader-tall',Profile,'');
+    Reader.Show;
+    Reader.Width:=1150; Reader.Height:=720;
+    Pump(220);
+    Watch:=TStopwatch.StartNew;
+    while not Reader.Ready and (Watch.ElapsedMilliseconds<20000) do Pump(30);
+    Require(Reader.Ready,'Tall comic failed to open');
+    Reader.ReadingSurface.SetFocus;
+    Reader.SetPageLayout(rplContinuous);
+    var FitWidth:=Reader.ReadingSurface.ClientWidth-MulDiv(24,Reader.CurrentPPI,96);
+    var FirstPageHeight:=MulDiv(18000,FitWidth,900);
+    Watch:=TStopwatch.StartNew;
+    while (Reader.PageRasterSize.Y<=FirstPageHeight+MulDiv(12,Reader.CurrentPPI,96)) and
+      (Watch.ElapsedMilliseconds<20000) do Pump(30);
+    Require((Reader.PageRasterSize.X=FitWidth) and
+      (Reader.PageRasterSize.Y>FirstPageHeight+MulDiv(12,Reader.CurrentPPI,96)),
+      'Tall comic did not fit the width or prepare its next page');
+    Require(Int64(Reader.PageRasterSize.X)*Reader.PageRasterSize.Y>25000000,
+      'Fixture does not exercise a strip too large for the old bitmap');
+    var Capture:=Vcl.Graphics.TBitmap.Create;
+    try
+      Capture.SetSize(Reader.ReadingSurface.ClientWidth,Reader.ReadingSurface.ClientHeight);
+      Reader.ReadingSurface.PaintTo(Capture.Canvas.Handle,0,0);
+      Require(ColorToRGB(Capture.Canvas.Pixels[Reader.PDFPan.X+5,30])=RGB(36,70,150),
+        'Tall page pixels did not fill the reading width');
+      PressArrow(VK_DOWN,(FirstPageHeight-Reader.ReadingSurface.ClientHeight div 2) div
+        Max(1,MulDiv(30,Reader.CurrentPPI,96)));
+      Watch:=TStopwatch.StartNew;
+      while (Reader.PDFPan.Y>-(FirstPageHeight-Reader.ReadingSurface.ClientHeight)) and
+        (Watch.ElapsedMilliseconds<12000) do Pump(20);
+      Pump(650);
+      Reader.ReadingSurface.PaintTo(Capture.Canvas.Handle,0,0);
+      var CenterX:=Capture.Width div 2;
+      Require((Reader.TextPosition=0) and (ColorToRGB(Capture.Canvas.Pixels[CenterX,30])=RGB(146,95,80))
+        and (ColorToRGB(Capture.Canvas.Pixels[CenterX,Capture.Height-30])=RGB(66,70,150)),
+        'Scrolling across a tall page boundary skipped pixels or the neighbour');
+    finally Capture.Free; end;
+    PressArrow(VK_DOWN,Reader.ReadingSurface.ClientHeight div Max(1,MulDiv(30,Reader.CurrentPPI,96))+4);
+    Watch:=TStopwatch.StartNew;
+    while (Reader.TextPosition=0) and (Watch.ElapsedMilliseconds<5000) do Pump(30);
+    Require(Reader.TextPosition=1,'Tall comic could not advance to the preloaded page');
+    Pump(600);
+    Position:=Reader.PDFPan.Y;
+    Require(Position<0,'Tall comic lost the scroll remainder on the next page');
+    Reader.Close;
+  finally Reader.Free; end;
+
+  Reader:=TfrmBuiltinReader.Create(nil);
+  try
+    Reader.OpenBook(FileName,'Tall comic','reader-tall',Profile,'');
+    Reader.Show;
+    Reader.Width:=1150; Reader.Height:=720;
+    Pump(220);
+    Watch:=TStopwatch.StartNew;
+    while ((not Reader.Ready) or (Reader.TextPosition<>1) or (Reader.PDFPan.Y=0)) and
+      (Watch.ElapsedMilliseconds<20000) do Pump(30);
+    Require((Reader.PageLayout=rplContinuous) and (Reader.TextPosition=1) and
+      (Abs(Reader.PDFPan.Y-Position)<12),'Tall comic did not restore the scroll position');
+    Reader.SetPageLayout(rplSingle);
+    Require(Reader.PageRasterSize.X<Reader.ReadingSurface.ClientWidth div 3,
+      'Paged comic did not restore whole-page fitting');
+    Reader.Close;
+  finally Reader.Free; end;
+  Require(THashSHA2.GetHashStringFromFile(FileName)=Original,'Tall comic source changed');
+  Writeln('PASS tall comic viewport fits width, draws both sides of a boundary and restores the scroll position');
   Writeln('PASS continuous scrolling preserves ordinary wheel paging and advances in intermediate frames');
 end;

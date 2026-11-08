@@ -49,8 +49,8 @@ type
     destructor Destroy; override;
     function PageSize(Index: Integer): TPoint; virtual;
     function AsyncPages: Boolean; virtual;
-    procedure PreparePage(Index: Integer; Prefetch: Boolean = False; RenderEdge: Integer = 4000); virtual;
-    function IsPageCached(Index: Integer; MinEdge: Integer = 0): Boolean; virtual;
+    procedure PreparePage(Index: Integer; Prefetch: Boolean = False; RenderEdge: Integer = 4000; TargetWidth: Integer = 0); virtual;
+    function IsPageCached(Index: Integer; MinEdge: Integer = 0; MinWidth: Integer = 0): Boolean; virtual;
     procedure SetVisibleRange(First, Count: Integer); virtual;
     procedure RenderPixels(Index, Width, Height: Integer; Pixels: Pointer);
     function Render(Index, Width, Height: Integer; Night: Boolean = False): TBitmap; virtual;
@@ -181,7 +181,7 @@ begin Result:=True; end;
 function TReaderPDF.AsyncPages: Boolean;
 begin Result:=False; end;
 
-procedure TReaderPDF.PreparePage(Index: Integer; Prefetch: Boolean; RenderEdge: Integer);
+procedure TReaderPDF.PreparePage(Index: Integer; Prefetch: Boolean; RenderEdge, TargetWidth: Integer);
 begin end;
 
 procedure TReaderPDF.SetVisibleRange(First, Count: Integer);
@@ -189,7 +189,7 @@ begin
   // Direct PDFium rendering does not evict prepared source pages.
 end;
 
-function TReaderPDF.IsPageCached(Index, MinEdge: Integer): Boolean;
+function TReaderPDF.IsPageCached(Index, MinEdge, MinWidth: Integer): Boolean;
 begin Result:=True; end;
 
 procedure TReaderPDF.RenderPixels(Index, Width, Height: Integer; Pixels: Pointer);

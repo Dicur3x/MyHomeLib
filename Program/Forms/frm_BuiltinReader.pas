@@ -48,13 +48,13 @@ type
   end;
 
   TReaderPageThread = class(TThread)
-  private FReader: TReaderPDF; FRasterEdge: Integer;
+  private FReader: TReaderPDF; FRasterEdge, FTargetWidth: Integer;
   protected procedure Execute; override;
   public
     Index: Integer;
     Navigated, Prefetch: Boolean;
     Error: string;
-    constructor Create(Reader: TReaderPDF; Page: Integer; RasterEdge: Integer = 4000);
+    constructor Create(Reader: TReaderPDF; Page: Integer; RasterEdge: Integer = 4000; TargetWidth: Integer = 0);
   end;
 
   TfrmBuiltinReader = class(TForm)
@@ -117,6 +117,7 @@ type
     FPageLayout: TReaderPageLayout;
     FScrollTimer: TTimer;
     FScrollOffset, FScrollTarget, FScrollTileHeight: Integer;
+    FRasterStripSize: TPoint;
     FScrollBackOffset, FScrollRestore: Integer;
     FPageTurn: TReaderPageTurn;
     FPageAppearance: TReaderPageAppearance;
@@ -145,7 +146,7 @@ type
     FRequestedPage: Integer;
     FRequestedMoved: Boolean;
     FPrefetchedForPage: Integer;
-    FQualityAttemptPage, FQualityAttemptEdge: Integer;
+    FQualityAttemptPage, FQualityAttemptEdge, FQualityAttemptWidth: Integer;
     FPageTimer: TTimer;
     FPageStatus: TMHLOperationStatus;
     FPages: TList<Integer>;
@@ -197,6 +198,7 @@ type
     procedure RequestPage(Index: Integer; Moved: Boolean = True);
     procedure PrefetchNextPage;
     function DesiredRasterEdge: Integer;
+    function DesiredRasterWidth: Integer;
     procedure PageLoaded(Sender: TObject);
     procedure ResetInspection;
     function CreateFormattingBuffer: TRichEdit;
@@ -791,15 +793,18 @@ begin
   finally if Succeeded(HR) then CoUninitialize; end;
 end;
 
-constructor TReaderPageThread.Create(Reader: TReaderPDF; Page, RasterEdge: Integer);
-begin inherited Create(True); FreeOnTerminate:=False; FReader:=Reader; Index:=Page; FRasterEdge:=RasterEdge; end;
+constructor TReaderPageThread.Create(Reader: TReaderPDF; Page, RasterEdge, TargetWidth: Integer);
+begin
+  inherited Create(True);
+  FreeOnTerminate:=False; FReader:=Reader; Index:=Page; FRasterEdge:=RasterEdge; FTargetWidth:=TargetWidth;
+end;
 
 procedure TReaderPageThread.Execute;
 var HR: HRESULT;
 begin
   HR:=CoInitializeEx(nil,COINIT_APARTMENTTHREADED);
   try
-    try FReader.PreparePage(Index,Prefetch,FRasterEdge); except on E: Exception do Error:=E.Message; end;
+    try FReader.PreparePage(Index,Prefetch,FRasterEdge,FTargetWidth); except on E: Exception do Error:=E.Message; end;
   finally if Succeeded(HR) then CoUninitialize; end;
 end;
 
@@ -1651,35 +1656,42 @@ begin
   if TextPageCount=2 then Result:=Min(Result,3200);
 end;
 
+function TfrmBuiltinReader.DesiredRasterWidth: Integer;
+begin
+  Result:=0;
+  if ContinuousReading and (FPDF is TReaderRaster) and TReaderRaster(FPDF).FitsContinuousWidth then
+    Result:=EnsureRange(MulDiv(FSurface.ClientWidth-MulDiv(24,CurrentPPI,96),FZoom,100),1,6000);
+end;
+
 procedure TfrmBuiltinReader.PrefetchNextPage;
-var Edge: Integer;
+var Edge, TargetWidth: Integer;
 begin
   if FClosing or not FReady or (not Assigned(FPDF) or not FPDF.AsyncPages) or Assigned(FPageWorker) or
     (FRequestedPage<>FPage) then Exit;
-  Edge:=DesiredRasterEdge;
+  Edge:=DesiredRasterEdge; TargetWidth:=DesiredRasterWidth;
   if TextPageCount=2 then
   begin
     for var I:=FPage to Min(FPDF.PageCount-1,FPage+1) do
       if not FPDF.IsPageCached(I,Edge) and
         ((FQualityAttemptPage<>I) or (FQualityAttemptEdge<>Edge)) then
       begin
-        FQualityAttemptPage:=I; FQualityAttemptEdge:=Edge;
+        FQualityAttemptPage:=I; FQualityAttemptEdge:=Edge; FQualityAttemptWidth:=0;
         FPageWorker:=TReaderPageThread.Create(FPDF,I,Edge);
         FPageWorker.Prefetch:=True; FPageTimer.Enabled:=True; FPageWorker.Start; Exit;
       end;
     Exit;
   end;
-  if not FPDF.IsPageCached(FPage,Edge) and
-    ((FQualityAttemptPage<>FPage) or (FQualityAttemptEdge<>Edge)) then
+  if not FPDF.IsPageCached(FPage,Edge,TargetWidth) and
+    ((FQualityAttemptPage<>FPage) or (FQualityAttemptEdge<>Edge) or (FQualityAttemptWidth<>TargetWidth)) then
   begin
-    FQualityAttemptPage:=FPage; FQualityAttemptEdge:=Edge;
-    FPageWorker:=TReaderPageThread.Create(FPDF,FPage,Edge);
+    FQualityAttemptPage:=FPage; FQualityAttemptEdge:=Edge; FQualityAttemptWidth:=TargetWidth;
+    FPageWorker:=TReaderPageThread.Create(FPDF,FPage,Edge,TargetWidth);
     FPageWorker.Prefetch:=True; FPageTimer.Enabled:=True; FPageWorker.Start; Exit;
   end;
   if (FPage+1>=FPDF.PageCount) or (FPrefetchedForPage=FPage) then Exit;
   FPrefetchedForPage:=FPage;
-  if FPDF.IsPageCached(FPage+1,Edge) then Exit;
-  FPageWorker:=TReaderPageThread.Create(FPDF,FPage+1,Edge);
+  if FPDF.IsPageCached(FPage+1,Edge,TargetWidth) then Exit;
+  FPageWorker:=TReaderPageThread.Create(FPDF,FPage+1,Edge,TargetWidth);
   FPageWorker.Prefetch:=True; FPageTimer.Enabled:=True; FPageWorker.Start;
 end;
 
@@ -1707,7 +1719,7 @@ begin
   if not Assigned(FPageStatus) then FPageStatus:=TMHLOperationStatus.Create('Открытие страницы книги…');
   if Assigned(FPageWorker) then Exit;
   ResetInspection; FSearchStatus:='';
-  FPageWorker:=TReaderPageThread.Create(FPDF,FRequestedPage,DesiredRasterEdge);
+  FPageWorker:=TReaderPageThread.Create(FPDF,FRequestedPage,DesiredRasterEdge,DesiredRasterWidth);
   FPageWorker.Navigated:=Moved; FPageTimer.Enabled:=True; FPageWorker.Start;
 end;
 
@@ -1890,7 +1902,7 @@ begin
 end;
 
 function TfrmBuiltinReader.RasterScrollLimit: Integer;
-begin Result:=Max(0,FBitmap.Height-FSurface.ClientHeight); end;
+begin Result:=Max(0,PageRasterSize.Y-FSurface.ClientHeight); end;
 
 function TfrmBuiltinReader.RasterOrigin: TPoint;
 begin
@@ -2020,7 +2032,10 @@ function TfrmBuiltinReader.DecodedPictureCount: Integer;
 begin Result:=Length(FLoadedPictures); end;
 
 function TfrmBuiltinReader.PageRasterSize: TPoint;
-begin Result:=Point(FBitmap.Width,FBitmap.Height); end;
+begin
+  if FRasterStripSize.X>0 then Exit(FRasterStripSize);
+  Result:=Point(FBitmap.Width,FBitmap.Height);
+end;
 
 function TfrmBuiltinReader.PageBackground: TColor;
 begin Result:=FBitmap.Canvas.Pixels[10,10]; end;
@@ -2256,7 +2271,8 @@ end;
 
 procedure TfrmBuiltinReader.RenderPDFPages;
 var Views: TArray<TReaderPDFPageView>; Raster, Spread: TBitmap;
-  Count, Gap, TotalWidth, MaximumHeight, Width, Height, Left, PageWidth, PageHeight, TileHeight, Edge: Integer;
+  Count, Gap, TotalWidth, MaximumHeight, Width, Height, Left, PageWidth, PageHeight, TileHeight,
+    Edge, TargetWidth: Integer;
   Scale: Double;
   procedure Mark(Raster: TBitmap; const Size: TPoint; const Rectangles: TArray<TRectF>);
   var Box: TRect; Pixel: PRGBQuad; Color: Cardinal;
@@ -2282,6 +2298,7 @@ var Views: TArray<TReaderPDFPageView>; Raster, Spread: TBitmap;
   end;
 begin
   FPage:=EnsureRange(FPage,0,FPDF.PageCount-1);
+  TargetWidth:=DesiredRasterWidth;
   Count:=Min(RasterPageCount,FPDF.PageCount-FPage);
   if ContinuousReading and (Count=2) and FPDF.AsyncPages and
     not FPDF.IsPageCached(FPage+1) then Count:=1;
@@ -2289,7 +2306,9 @@ begin
   TotalWidth:=0; MaximumHeight:=0;
   for var I:=0 to Count-1 do
   begin
-    Views[I].Page:=FPage+I; Views[I].Size:=FPDF.PageSize(FPage+I);
+    Views[I].Page:=FPage+I;
+    if TargetWidth>0 then Views[I].Size:=TReaderRaster(FPDF).SourcePageSize(FPage+I)
+    else Views[I].Size:=FPDF.PageSize(FPage+I);
     Inc(TotalWidth,Views[I].Size.X); MaximumHeight:=Max(MaximumHeight,Views[I].Size.Y);
   end;
   Width:=0; Height:=0;
@@ -2301,10 +2320,18 @@ begin
     Edge:=Min(3200,11500000 div Max(3200+Gap,FSurface.ClientHeight));
     for var I:=0 to Count-1 do
     begin
-      Scale:=Min((FSurface.ClientWidth-24)/Max(1,Views[I].Size.X),
-        (FSurface.ClientHeight-24)/Max(1,Views[I].Size.Y))*FZoom/100;
-      Scale:=Min(Scale,Edge/Max(1,Max(Views[I].Size.X,Views[I].Size.Y)));
-      PageWidth:=Max(1,Round(Views[I].Size.X*Scale)); PageHeight:=Max(1,Round(Views[I].Size.Y*Scale));
+      if TargetWidth>0 then
+      begin
+        PageWidth:=TargetWidth;
+        PageHeight:=Max(1,MulDiv(Views[I].Size.Y,PageWidth,Views[I].Size.X));
+      end
+      else
+      begin
+        Scale:=Min((FSurface.ClientWidth-24)/Max(1,Views[I].Size.X),
+          (FSurface.ClientHeight-24)/Max(1,Views[I].Size.Y))*FZoom/100;
+        Scale:=Min(Scale,Edge/Max(1,Max(Views[I].Size.X,Views[I].Size.Y)));
+        PageWidth:=Max(1,Round(Views[I].Size.X*Scale)); PageHeight:=Max(1,Round(Views[I].Size.Y*Scale));
+      end;
       TileHeight:=Max(FSurface.ClientHeight,PageHeight+Gap);
       Views[I].Bounds:=Rect(0,Height+(TileHeight-PageHeight) div 2,PageWidth,
         Height+(TileHeight-PageHeight) div 2+PageHeight);
@@ -2325,30 +2352,43 @@ begin
       Height:=Max(Height,Max(1,Round(Views[I].Size.Y*Scale)));
     end;
   end;
-  Spread:=TBitmap.Create;
-  try
-    Spread.PixelFormat:=pf32bit; Spread.SetSize(Width,Height);
-    Spread.Canvas.Brush.Color:=ThemeBackground; Spread.Canvas.FillRect(Rect(0,0,Width,Height));
-    Left:=0; FPDFPageHasText:=False;
-    for var I:=0 to Count-1 do
-    begin
-      if not ContinuousReading then
+  // Keep the fast bitmap path for small strips. Large strips are drawn
+  // directly in the viewport to avoid allocating a full scaled page.
+  if (TargetWidth>0) and (Int64(Width)*Height>11500000) then
+  begin
+    FRasterStripSize:=Point(Width,Height);
+    FBitmap.SetSize(0,0);
+    FPDFPageViews:=Views;
+    FPDFPageHasText:=False;
+  end
+  else
+  begin
+    FRasterStripSize:=Point(0,0);
+    Spread:=TBitmap.Create;
+    try
+      Spread.PixelFormat:=pf32bit; Spread.SetSize(Width,Height);
+      Spread.Canvas.Brush.Color:=ThemeBackground; Spread.Canvas.FillRect(Rect(0,0,Width,Height));
+      Left:=0; FPDFPageHasText:=False;
+      for var I:=0 to Count-1 do
       begin
-        Views[I].Bounds:=Rect(Left,0,Left+Max(1,Round(Views[I].Size.X*Scale)),Max(1,Round(Views[I].Size.Y*Scale)));
-        OffsetRect(Views[I].Bounds,0,(Height-Views[I].Bounds.Height) div 2);
+        if not ContinuousReading then
+        begin
+          Views[I].Bounds:=Rect(Left,0,Left+Max(1,Round(Views[I].Size.X*Scale)),Max(1,Round(Views[I].Size.Y*Scale)));
+          OffsetRect(Views[I].Bounds,0,(Height-Views[I].Bounds.Height) div 2);
+        end;
+        Raster:=FPDF.Render(Views[I].Page,Views[I].Bounds.Width,Views[I].Bounds.Height,FNight);
+        try
+          if FSearchAll.Checked and (FPDFQuery<>'') then
+            for var Match in FPDF.FindAllOnPage(Views[I].Page,FPDFQuery,FSearchCase.Checked,FSearchWord.Checked) do Mark(Raster,Views[I].Size,Match.Rects)
+          else if FPDFMatchPage=Views[I].Page then Mark(Raster,Views[I].Size,FPDFRects);
+          Spread.Canvas.Draw(Views[I].Bounds.Left,Views[I].Bounds.Top,Raster);
+        finally Raster.Free; end;
+        FPDFPageHasText:=FPDFPageHasText or FPDF.PageHasText(Views[I].Page);
+        Left:=Views[I].Bounds.Right+TextPageGap;
       end;
-      Raster:=FPDF.Render(Views[I].Page,Views[I].Bounds.Width,Views[I].Bounds.Height,FNight);
-      try
-        if FSearchAll.Checked and (FPDFQuery<>'') then
-          for var Match in FPDF.FindAllOnPage(Views[I].Page,FPDFQuery,FSearchCase.Checked,FSearchWord.Checked) do Mark(Raster,Views[I].Size,Match.Rects)
-        else if FPDFMatchPage=Views[I].Page then Mark(Raster,Views[I].Size,FPDFRects);
-        Spread.Canvas.Draw(Views[I].Bounds.Left,Views[I].Bounds.Top,Raster);
-      finally Raster.Free; end;
-      FPDFPageHasText:=FPDFPageHasText or FPDF.PageHasText(Views[I].Page);
-      Left:=Views[I].Bounds.Right+TextPageGap;
-    end;
-    FBitmap.Free; FBitmap:=Spread; Spread:=nil; FPDFPageViews:=Views;
-  finally Spread.Free; end;
+      FBitmap.Free; FBitmap:=Spread; Spread:=nil; FPDFPageViews:=Views;
+    finally Spread.Free; end;
+  end;
   FLoadFinished:=True; FSpreadLoading:=False;
   FPan:=Point(Max(0,(FSurface.ClientWidth-Width) div 2),Max(0,(FSurface.ClientHeight-Height) div 2));
   if ContinuousReading then
@@ -2360,6 +2400,8 @@ begin
     end;
     FScrollOffset:=EnsureRange(FScrollOffset,0,RasterScrollLimit);
   end;
+  if TargetWidth>0 then FFitButton.Hint:='Вписать страницу по ширине'
+  else FFitButton.Hint:='Вписать страницу в окно';
   if not FFitButton.Visible then begin FFitButton.Visible:=True; ArrangeToolbar(nil); end;
   if FPDFPageHasText and FSelectionEnabled then FSurface.Cursor:=crIBeam else FSurface.Cursor:=crDefault;
   if Count=1 then FStatus.Caption:=Format('%s · Страница %d из %d · Масштаб %d%%',[FPDF.DisplayName,FPage+1,FPDF.PageCount,FZoom])
@@ -2508,7 +2550,16 @@ begin
       if Assigned(FPDF) then
       begin
         var Origin:=RasterOrigin;
-        Canvas.Draw(Origin.X,Origin.Y,FBitmap); PaintPageDecoration(Canvas); PaintAnnotations(Canvas);
+        if FRasterStripSize.X>0 then
+        begin
+          for var View in FPDFPageViews do
+          begin
+            Box:=View.Bounds; OffsetRect(Box,Origin.X,Origin.Y);
+            TReaderRaster(FPDF).DrawVisiblePage(View.Page,Canvas,Box,FSurface.ClientRect);
+          end;
+        end
+        else Canvas.Draw(Origin.X,Origin.Y,FBitmap);
+        PaintPageDecoration(Canvas); PaintAnnotations(Canvas);
         if Length(FPDFSelectionRects)>0 then
         begin
           Boxes:=TList<TRect>.Create;
@@ -2794,7 +2845,11 @@ begin
   end;
 end;
 procedure TfrmBuiltinReader.FitPageClick(Sender: TObject);
-begin if not FReady or not Assigned(FPDF) then Exit; ResetInspection; FZoom:=100; RenderPage; end;
+begin
+  if not FReady or not Assigned(FPDF) then Exit;
+  ResetInspection; FZoom:=100;
+  if ContinuousReading then InvalidateLayout else RenderPage;
+end;
 
 procedure TfrmBuiltinReader.PreparePageSelection;
 var Content: TRect; DPI, Width, Margin, PageWidth, PageHeight, TopMargin, FirstEnd: Integer;
@@ -3270,9 +3325,11 @@ procedure TfrmBuiltinReader.ThemeClick(Sender: TObject);
 begin SetTheme(FThemes.ItemIndex); FSurface.SetFocus; end;
 
 procedure TfrmBuiltinReader.ClampPan;
+var Width: Integer;
 begin
-  if FBitmap.Width<=FSurface.ClientWidth then FPan.X:=(FSurface.ClientWidth-FBitmap.Width) div 2
-  else FPan.X:=EnsureRange(FPan.X,FSurface.ClientWidth-FBitmap.Width,0);
+  Width:=PageRasterSize.X;
+  if Width<=FSurface.ClientWidth then FPan.X:=(FSurface.ClientWidth-Width) div 2
+  else FPan.X:=EnsureRange(FPan.X,FSurface.ClientWidth-Width,0);
   if ContinuousReading then FPan.Y:=0
   else if FBitmap.Height<=FSurface.ClientHeight then FPan.Y:=(FSurface.ClientHeight-FBitmap.Height) div 2
   else FPan.Y:=EnsureRange(FPan.Y,FSurface.ClientHeight-FBitmap.Height,0);

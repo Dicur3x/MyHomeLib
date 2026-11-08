@@ -845,6 +845,14 @@ with zipfile.ZipFile(sys.argv[1],'w',compression=zipfile.ZIP_STORED) as archive:
   raw=row*4000
   data=b'\\x89PNG\\r\\n\\x1a\\n'+chunk(b'IHDR',struct.pack('>IIBBBBB',4000,4000,8,2,0,0,0))+chunk(b'IDAT',zlib.compress(raw))+chunk(b'IEND',b'')
   archive.writestr(str(i+1)+'.png',data)
+if sys.argv[4]=='reader-scroll':
+ with zipfile.ZipFile(sys.argv[2]+'/reader-tall.cbz','w') as archive:
+  for i,height in enumerate((18000,12000,7000)):
+   top,bottom=((36+i*30,70,150),(146+i*30,95,80))
+   first=b'\\x00'+bytes(top)*900
+   last=b'\\x00'+bytes(bottom)*900
+   data=b'\\x89PNG\\r\\n\\x1a\\n'+chunk(b'IHDR',struct.pack('>IIBBBBB',900,height,8,2,0,0,0))+chunk(b'IDAT',zlib.compress(first*(height//2)+last*(height-height//2)))+chunk(b'IEND',b'')
+   archive.writestr(str(i+1)+'.png',data)
 frames=[Image.new('RGB',(1200+i*40,1600),(70+i*30,120,160)) for i in range(5)]
 frames[0].save(sys.argv[2]+'/reader-spread.tiff',save_all=True,append_images=frames[1:],compression='tiff_adobe_deflate')
 frames[0].save(sys.argv[2]+'/reader-spread.png')
@@ -860,7 +868,7 @@ with zipfile.ZipFile(sys.argv[2]+'/reader-spread.epub','w') as z:
  z.writestr('book.opf','<package xmlns="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="id">spread</dc:identifier><dc:title>Spread</dc:title><dc:language>en</dc:language></metadata><manifest><item id="body" href="body.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="body"/></spine></package>')
  z.writestr('body.xhtml','<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Spread</title></head><body>'+''.join('<p>'+str(i)+'. '+paragraph+'</p>' for i in range(180))+'</body></html>')
 `.replace(/^\+/gm,'');
-      const made=cp.spawnSync(process.env.HLRU_PYTHON||'python',['-c',script,path.join(folder,'reader-spread.cbz'),folder,path.join(runtime,'tools/djvu/djvulibre-3.5.29.tar.gz')],{windowsHide:true,encoding:'utf8'});
+      const made=cp.spawnSync(process.env.HLRU_PYTHON||'python',['-c',script,path.join(folder,'reader-spread.cbz'),folder,path.join(runtime,'tools/djvu/djvulibre-3.5.29.tar.gz'),mode],{windowsHide:true,encoding:'utf8'});
       if(made.status!==0)throw new Error(made.stdout+made.stderr);
 
     }

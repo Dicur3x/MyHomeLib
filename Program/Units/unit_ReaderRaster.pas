@@ -11,7 +11,7 @@ function CanReadTiffDirectly(const FileName: string): Boolean;
 type
   TReaderRasterPage = record
     Pixels: TBytes;
-    Width, Height, RenderEdge: Integer;
+    Width, Height, SourceWidth, SourceHeight, RenderEdge, TargetWidth: Integer;
     Used: Int64;
   end;
   // A bounded three-page LRU retains the current page and nearby turns.
@@ -29,16 +29,20 @@ type
     FTiff, FDjvu: Boolean;
     FSourceStream: TStream;
     FNativeDjvu: TReaderDjvuNative;
-    function DecodePage(Index, RenderEdge: Integer): TReaderRasterPage;
+    function DecodePage(Index, RenderEdge, TargetWidth: Integer): TReaderRasterPage;
+    function PreparedFor(const Page: TReaderRasterPage; MinEdge, MinWidth: Integer): Boolean;
     function CachedPage(Index: Integer; out Page: TReaderRasterPage; Visible: Boolean = False): Boolean;
   public
     constructor Create(const FileName: string; RenderEdge: Integer = 4000);
     destructor Destroy; override;
     function AsyncPages: Boolean; override;
-    procedure PreparePage(Index: Integer; Prefetch: Boolean = False; RenderEdge: Integer = 4000); override;
-    function IsPageCached(Index: Integer; MinEdge: Integer = 0): Boolean; override;
+    procedure PreparePage(Index: Integer; Prefetch: Boolean = False; RenderEdge: Integer = 4000; TargetWidth: Integer = 0); override;
+    function IsPageCached(Index: Integer; MinEdge: Integer = 0; MinWidth: Integer = 0): Boolean; override;
     procedure SetVisibleRange(First, Count: Integer); override;
     function PageSize(Index: Integer): TPoint; override;
+    function SourcePageSize(Index: Integer): TPoint;
+    function FitsContinuousWidth: Boolean;
+    procedure DrawVisiblePage(Index: Integer; Canvas: TCanvas; const Bounds, Clip: TRect);
     function Render(Index, Width, Height: Integer; Night: Boolean = False): TBitmap; override;
     function Chapters: TArray<TPDFChapter>; override;
     function DisplayName: string; override;
@@ -193,20 +197,28 @@ begin
   finally TMonitor.Exit(FCacheLock); end;
 end;
 
-function TReaderRaster.IsPageCached(Index, MinEdge: Integer): Boolean;
+function TReaderRaster.IsPageCached(Index, MinEdge, MinWidth: Integer): Boolean;
 var Page: TReaderRasterPage;
 begin
   TMonitor.Enter(FCacheLock);
   try
     Result:=FPageCache.TryGetValue(Index,Page);
-    if Result then Result:=Page.RenderEdge>=MinEdge;
+    if Result then Result:=PreparedFor(Page,MinEdge,MinWidth);
   finally TMonitor.Exit(FCacheLock); end;
+end;
+
+function TReaderRaster.PreparedFor(const Page: TReaderRasterPage; MinEdge, MinWidth: Integer): Boolean;
+begin
+  if MinWidth>0 then
+    Exit((Page.TargetWidth>=MinWidth) or (Page.Width>=MinWidth) or (Page.Width=Page.SourceWidth));
+  Result:=(MinEdge=0) or ((Page.TargetWidth=0) and (Page.RenderEdge>=MinEdge)) or
+    (Max(Page.Width,Page.Height)>=MinEdge);
 end;
 
 function TReaderRaster.AsyncPages: Boolean;
 begin Result:=True; end;
 
-procedure TReaderRaster.PreparePage(Index: Integer; Prefetch: Boolean; RenderEdge: Integer);
+procedure TReaderRaster.PreparePage(Index: Integer; Prefetch: Boolean; RenderEdge, TargetWidth: Integer);
 const Budget = 96*1024*1024;
 var Page, Visible, Old: TReaderRasterPage; Pair: TPair<Integer,TReaderRasterPage>;
   Oldest, Protected: Integer; Stamp: Int64;
@@ -215,8 +227,8 @@ begin
   TMonitor.Enter(FCacheLock);
   try if FVisibleCount=2 then RenderEdge:=Min(RenderEdge,3200);
   finally TMonitor.Exit(FCacheLock); end;
-  if CachedPage(Index,Page) and (Page.RenderEdge>=RenderEdge) then Exit;
-  Page:=DecodePage(Index,RenderEdge);
+  if CachedPage(Index,Page) and PreparedFor(Page,RenderEdge,TargetWidth) then Exit;
+  Page:=DecodePage(Index,RenderEdge,TargetWidth);
   TMonitor.Enter(FCacheLock);
   try
     Protected:=FVisiblePage; if FVisibleCount>0 then Protected:=FVisibleFirst;
@@ -241,7 +253,7 @@ begin
   finally TMonitor.Exit(FCacheLock); end;
 end;
 
-function TReaderRaster.DecodePage(Index, RenderEdge: Integer): TReaderRasterPage;
+function TReaderRaster.DecodePage(Index, RenderEdge, TargetWidth: Integer): TReaderRasterPage;
 var Stream, Converted, PageStream: TStream; Adapter: IStream;
   Factory: IWICImagingFactory; Decoder: IWICBitmapDecoder;
   Frame: IWICBitmapFrameDecode; Converter: IWICFormatConverter;
@@ -250,7 +262,7 @@ var Stream, Converted, PageStream: TStream; Adapter: IStream;
   I,A,NativeWidth,NativeHeight: Integer;
 begin
   Result:=Default(TReaderRasterPage);
-  Result.RenderEdge:=RenderEdge;
+  Result.RenderEdge:=RenderEdge; Result.TargetWidth:=TargetWidth;
   if (Index<0) or (Index>=FPageCount) then raise ERangeError.Create('Номер страницы вне диапазона.');
   if (GetCurrentThreadID<>MainThreadID) and TThread.CheckTerminated then Abort;
   if Assigned(FNativeDjvu) then
@@ -290,11 +302,16 @@ begin
     end;
     OleCheck(Frame.GetSize(W,H));
     if (W=0) or (H=0) or (W>100000) or (H>100000) then raise Exception.Create('Некорректный размер изображения страницы.');
+    Result.SourceWidth:=W; Result.SourceHeight:=H;
     Source:=Frame;
-    if (Max(W,H)>Cardinal(RenderEdge)) or (UInt64(W)*H>16000000) then
+    if TargetWidth>0 then
+      // Keep two prepared pages within the raster cache even for tall images.
+      Scale:=Min(TargetWidth/Double(W),Sqrt(11500000.0/(Double(W)*H)))
+    else
+      Scale:=Min(RenderEdge/Double(Max(W,H)),Sqrt(16000000.0/(Double(W)*H)));
+    if Scale<1 then
     begin
-      // Two visible pages must fit together in the bounded raster cache.
-      Scale:=Min(RenderEdge/Double(Max(W,H)),Sqrt(16000000.0/(Double(W)*H))); W:=Max(1,Trunc(W*Scale)); H:=Max(1,Trunc(H*Scale));
+      W:=Max(1,Trunc(W*Scale)); H:=Max(1,Trunc(H*Scale));
       OleCheck(Factory.CreateBitmapScaler(Scaler));
       OleCheck(Scaler.Initialize(Frame,W,H,WICBitmapInterpolationModeFant)); Source:=Scaler;
     end;
@@ -329,6 +346,37 @@ var Page: TReaderRasterPage;
 begin
   if not CachedPage(Index,Page,True) then raise Exception.Create('Страница ещё подготавливается.');
   Result:=Point(Page.Width,Page.Height);
+end;
+
+function TReaderRaster.SourcePageSize(Index: Integer): TPoint;
+var Page: TReaderRasterPage;
+begin
+  if not CachedPage(Index,Page,True) then raise Exception.Create('Страница ещё подготавливается.');
+  Result:=Point(Page.SourceWidth,Page.SourceHeight);
+end;
+
+function TReaderRaster.FitsContinuousWidth: Boolean;
+begin Result:=not FDjvu and not FTiff; end;
+
+procedure TReaderRaster.DrawVisiblePage(Index: Integer; Canvas: TCanvas; const Bounds, Clip: TRect);
+var Visible: TRect; Page: TReaderRasterPage; Info: TBitmapInfo;
+  FirstRow, LastRow, Top, Bottom: Integer;
+begin
+  if not IntersectRect(Visible,Bounds,Clip) or not CachedPage(Index,Page) then Exit;
+  // Map the viewport to source rows before calling GDI. The full page may
+  // be much taller than any bitmap we could allocate at the display scale.
+  FirstRow:=Integer(Int64(Visible.Top-Bounds.Top)*Page.Height div Bounds.Height);
+  LastRow:=Integer((Int64(Visible.Bottom-Bounds.Top)*Page.Height+Bounds.Height-1) div Bounds.Height);
+  Top:=Bounds.Top+MulDiv(FirstRow,Bounds.Height,Page.Height);
+  Bottom:=Bounds.Top+MulDiv(LastRow,Bounds.Height,Page.Height);
+  FillChar(Info,SizeOf(Info),0);
+  Info.bmiHeader.biSize:=SizeOf(TBitmapInfoHeader);
+  Info.bmiHeader.biWidth:=Page.Width; Info.bmiHeader.biHeight:=FirstRow-LastRow;
+  Info.bmiHeader.biPlanes:=1; Info.bmiHeader.biBitCount:=32;
+  SetStretchBltMode(Canvas.Handle,HALFTONE);
+  SetBrushOrgEx(Canvas.Handle,0,0,nil);
+  StretchDIBits(Canvas.Handle,Bounds.Left,Top,Bounds.Width,Bottom-Top,0,0,
+    Page.Width,LastRow-FirstRow,@Page.Pixels[FirstRow*Page.Width*4],Info,DIB_RGB_COLORS,SRCCOPY);
 end;
 
 function TReaderRaster.Render(Index, Width, Height: Integer; Night: Boolean): TBitmap;
