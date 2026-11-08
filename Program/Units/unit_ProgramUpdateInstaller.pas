@@ -1588,9 +1588,20 @@ begin
   finally Manifest.Free; end;
 end;
 
+function UpdateStagePath(const Directory, StageID: string): string;
+var ID: TGUID;
+begin
+  if Length(StageID)<>38 then raise Exception.Create('Повреждён журнал обновления.');
+  try ID:=StringToGUID(StageID);
+  except on E: EConvertError do raise Exception.Create('Повреждён журнал обновления.'); end;
+  if not SameText(ID.ToString,StageID) then
+    raise Exception.Create('Повреждён журнал обновления.');
+  Result:=ChildPath(Directory,'.homelibre-update-'+ID.ToString+'.tmp');
+end;
+
 procedure RollbackProgramUpdate(const Job, Target: string);
 var Journal: TJSONObject; Files: TJSONArray; Value: TJSONValue;
-  Name, OriginalTarget, Destination, Backup, State: string; Existed: Boolean; I: Integer;
+  Name, OriginalTarget, Destination, Backup, State, StageID, Temporary: string; Existed: Boolean; I: Integer;
 begin
   Journal := ReadJSON(ChildPath(Job, 'journal.json'));
   try
@@ -1598,7 +1609,12 @@ begin
        not SameText(UpdateFullPath(Target), OriginalTarget) or
        not Journal.TryGetValue<TJSONArray>('files', Files) then
       raise Exception.Create('Не удалось прочитать резервную копию обновления.');
-    if Journal.TryGetValue<string>('state', State) and (State = 'installed') then Exit;
+    if Journal.TryGetValue<string>('state', State) and
+      ((State='installed') or (State='rolled-back')) then Exit;
+    StageID:='';
+    if Assigned(Journal.GetValue('stage')) and
+      (not Journal.TryGetValue<string>('stage',StageID) or (StageID='')) then
+      raise Exception.Create('Повреждён журнал обновления.');
     for I := Files.Count - 1 downto 0 do
     begin
       Value := Files.Items[I];
@@ -1607,6 +1623,12 @@ begin
          not TJSONObject(Value).TryGetValue<Boolean>('existed', Existed) then
         raise Exception.Create('Повреждён журнал обновления.');
       Destination := ChildPath(Target, Name); Backup := ChildPath(Job, 'backup/' + Name);
+      if StageID<>'' then
+      begin
+        Temporary:=UpdateStagePath(ExtractFileDir(Destination),StageID);
+        if FileExists(Temporary) and not RetryUpdateFileOperation(function: Boolean
+          begin Result:=DeleteFile(PChar(Temporary)); end) then RaiseLastOSError;
+      end;
       if Existed then
       begin
         // An operation that failed before replacement must not overwrite an
@@ -1627,7 +1649,7 @@ procedure InstallProgramUpdate(const Job, Target: string;
   const Progress: TUpdateProgress; FailAfter: Integer);
 const ComponentNames: array[0..26] of string = ('SQLite', 'AlReader', 'SumatraPDF','DjVuLibre','7-Zip','DocSharp','JPEG XL','WebP','HomeLibReader','PDFium','BookConverter','IBK','MHLMcpServer','Zstandard','BookProcessing','ImageProcessing','Kindle','LegacyBooks','LegacyOffice','XPS','KindleExport','FB2Export','KoboExport','EpubPdfExport','KfxExport','OPDSTls',JPEG_XL_ENCODER_COMPONENT);
 var Manifest, Journal, Entry: TJSONObject; Files: TUpdateFiles; List: TJSONArray;
-  Info: TUpdateFile; Source, Destination, Backup, Temporary, State: string;
+  Info: TUpdateFile; Source, Destination, Backup, Temporary, StageID, State: string;
   Handle: THandle; Existed: Boolean; I, J, Applied, Comparison: Integer;
   ComponentID, ComponentPath, Folder: string;
   PreviouslyInstalled: TArray<Boolean>;
@@ -1693,6 +1715,8 @@ begin
     if SameText(Files[I].Name, 'HomeLibRu.exe') or SameText(Files[I].Name, 'HomeLibReader.exe') then
     begin Info := Files[High(Files)]; Files[High(Files)] := Files[I]; Files[I] := Info; Break; end;
   // Preflight every destination and back up every original before changing any.
+  // Keep staged files on the destination volume and scope them to one journal.
+  StageID:=TGUID.NewGuid.ToString;
   for I:=0 to High(Files) do
   begin
     Info:=Files[I];
@@ -1713,13 +1737,15 @@ begin
       Backup := ChildPath(Job, 'backup/' + Info.Name); ForceDirectories(ExtractFileDir(Backup));
       if not CopyFile(PChar(Destination), PChar(Backup), False) then RaiseLastOSError;
     end;
-    Temporary := ChildPath(Target, Info.Name + '.homelibru-new');
-    Handle := CreateFile(PChar(Temporary), GENERIC_WRITE, 0, nil, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, 0);
+    Temporary:=UpdateStagePath(ExtractFileDir(Destination),StageID);
+    Handle:=CreateFile(PChar(Temporary),GENERIC_WRITE,0,nil,CREATE_NEW,
+      FILE_ATTRIBUTE_NORMAL or FILE_FLAG_DELETE_ON_CLOSE,0);
     if Handle = INVALID_HANDLE_VALUE then RaiseLastOSError;
-    CloseHandle(Handle); DeleteFile(PChar(Temporary));
+    CloseHandle(Handle);
   end;
   Journal := TJSONObject.Create; List := TJSONArray.Create;
   Journal.AddPair('target', UpdateFullPath(Target)); Journal.AddPair('state', 'installing');
+  Journal.AddPair('stage',StageID);
   Journal.AddPair('files', List); Applied := 0;
   try
     WriteJSON(ChildPath(Job, 'journal.json'), Journal);
@@ -1738,13 +1764,16 @@ begin
         Entry := TJSONObject.Create; Entry.AddPair('path', Info.Name);
         Entry.AddPair('existed', TJSONBool.Create(Existed)); List.AddElement(Entry);
         WriteJSON(ChildPath(Job, 'journal.json'), Journal);
-        Source := SourceFor(Info); Temporary := ChildPath(Target, Info.Name + '.homelibru-new');
+        Source := SourceFor(Info);
+        Temporary:=UpdateStagePath(ExtractFileDir(Destination),StageID);
         if not CopyFile(PChar(Source), PChar(Temporary), True) then
         begin
           I := GetLastError;
-          // CREATE_NEW preflight proved this is our temporary destination.
-          // Do not remove a pre-existing file created by another process.
-          if (I <> ERROR_FILE_EXISTS) and (I <> ERROR_ALREADY_EXISTS) then DeleteFile(PChar(Temporary));
+          if (I=ERROR_FILE_EXISTS) or (I=ERROR_ALREADY_EXISTS) then
+          begin
+            Journal.RemovePair('stage').Free;
+            WriteJSON(ChildPath(Job,'journal.json'),Journal);
+          end;
           RaiseLastOSError(I);
         end;
         if not RetryUpdateFileOperation(function: Boolean

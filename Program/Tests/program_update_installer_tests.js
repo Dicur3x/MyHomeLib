@@ -100,8 +100,58 @@ function lateLockTests() {
   assert.deepEqual(snapshot(destination,names),saved);
   pass('late journal lock exceeds retry deadline and rolls back after release without changing profiles');
 }
+function interruptedStagingTests() {
+  const interrupted = job(), destination = target();
+  const before = snapshot(destination, personal);
+  const stagedID = '{'+crypto.randomUUID().toUpperCase()+'}';
+  const staged = path.join(destination, '.homelibre-update-'+stagedID+'.tmp');
+  const legacy = path.join(destination, 'LICENSE.homelibru-new');
+  const unrelated = path.join(destination, '.homelibre-update-{'+crypto.randomUUID().toUpperCase()+'}.tmp');
+  const nestedStage = path.join(destination, 'Help', path.basename(staged));
+  const journal = path.join(interrupted, 'journal.json');
+  const license = path.join(destination, 'LICENSE');
+  const record = {target:destination,state:'installing',stage:stagedID,files:[
+    {path:'LICENSE',existed:true}, {path:'Help/update.html',existed:false}]};
+  fs.mkdirSync(path.join(interrupted,'backup'));
+  fs.mkdirSync(path.dirname(nestedStage));
+  fs.copyFileSync(license, path.join(interrupted,'backup/LICENSE'));
+  fs.writeFileSync(license, 'interrupted version');
+  fs.writeFileSync(staged, 'incomplete staged contents');
+  fs.writeFileSync(nestedStage, 'incomplete nested contents');
+  fs.writeFileSync(legacy, 'older staging file');
+  fs.writeFileSync(unrelated, 'another transaction');
+  fs.writeFileSync(journal, JSON.stringify({...record,stage:'../myhomelib2.ini'}));
+  run(['--rollback',interrupted,destination],1);
+  assert.deepEqual(snapshot(destination,personal),before);
+  assert.equal(read(license).toString(),'interrupted version');
+
+  fs.writeFileSync(journal, JSON.stringify(record));
+  run(['--rollback',interrupted,destination]);
+  assert.equal(json(journal).state,'rolled-back');
+  assert.equal(read(license).toString(),'old license');
+  assert(!fs.existsSync(staged));
+  assert(!fs.existsSync(nestedStage));
+  assert.equal(read(legacy).toString(),'older staging file');
+  assert.equal(read(unrelated).toString(),'another transaction');
+  pass('interrupted update removes only its own staged file and restores the previous installation');
+
+  const fresh = prepare(archive());
+  run(['--install',fresh,destination]);
+  const newer = snapshot(destination,['HomeLibRu.exe','LICENSE','NOTICE','sqlite3.dll',...personal]);
+  run(['--rollback',interrupted,destination]);
+  run(['--install',interrupted,destination],1);
+  assert.deepEqual(snapshot(destination,['HomeLibRu.exe','LICENSE','NOTICE','sqlite3.dll',...personal]),newer);
+  assert.deepEqual(snapshot(destination,personal),before);
+  assert.equal(read(license).toString(),'new license');
+  assert.equal(read(legacy).toString(),'older staging file');
+  assert.equal(read(unrelated).toString(),'another transaction');
+  const freshStage = json(path.join(fresh,'journal.json')).stage;
+  assert(freshStage && !fs.existsSync(path.join(destination,'.homelibre-update-'+freshStage+'.tmp')));
+  pass('fresh installation ignores old staging files and a completed rollback cannot overwrite it');
+}
 async function main() {
   if(process.argv.includes('--locks-only')) { lateLockTests();console.log('PASS 3 late lock tests');return; }
+  if(process.argv.includes('--recovery-only')) { interruptedStagingTests();return; }
   run(['--metadata']); pass('schedule, never, custom interval, backward clock and safe names');
   const versions={SQLite:fileVersion('sqlite3.dll'),AlReader:fileVersion('Readers/AlReader/AlReader2.exe'),
     SumatraPDF:fileVersion('Readers/SumatraPDF/SumatraPDF.exe')};
@@ -232,6 +282,7 @@ async function main() {
   run(['--install',locked,busy],1);assert.equal(read(path.join(busy,'LICENSE')).toString(),'old license');
   await new Promise(r=>locker.on('exit',r));run(['--install',locked,busy]);pass('busy DLL fails before replacement and can retry after reader exits');
   lateLockTests();
+  interruptedStagingTests();
   const outside=folder('outside'), linked=target();fs.symlinkSync(outside,path.join(linked,'Help'),'junction');
   run(['--install',prepare(zip),linked],1);assert.equal(fs.readdirSync(outside).length,0);pass('junction target is never written');
   // The real test application now imports SQLite through the converter/cache.
@@ -250,11 +301,15 @@ async function main() {
   fs.copyFileSync(path.join(path.dirname(helper),'sqlite3.dll'),path.join(recoverTarget,'sqlite3.dll'));
   fs.mkdirSync(path.join(recoverJob,'backup'));fs.copyFileSync(path.join(recoverTarget,'LICENSE'),path.join(recoverJob,'backup/LICENSE'));
   fs.writeFileSync(path.join(recoverTarget,'LICENSE'),'interrupted new version');
-  fs.writeFileSync(path.join(recoverJob,'journal.json'),JSON.stringify({target:recoverTarget,state:'installing',files:[{path:'LICENSE',existed:true}]}));
+  const recoverStageID='{'+crypto.randomUUID().toUpperCase()+'}';
+  const recoverStage=path.join(recoverTarget,'.homelibre-update-'+recoverStageID+'.tmp');
+  fs.writeFileSync(recoverStage,'partial staged copy');
+  fs.writeFileSync(path.join(recoverJob,'journal.json'),JSON.stringify({target:recoverTarget,state:'installing',stage:recoverStageID,files:[{path:'LICENSE',existed:true}]}));
   fs.copyFileSync(helper,path.join(recoverJob,'HomeLibRuUpdater.exe'));
   fs.writeFileSync(path.join(recoverJob,'request.json'),JSON.stringify({target:recoverTarget,pid:0xffffffff,tag,sha256:sha(read(zip)),args:['--probe','recovered'],recover:true}));
   await asyncRun(['--job',recoverJob],0,path.join(recoverJob,'HomeLibRuUpdater.exe'));await until(path.join(recoverTarget,'probe.json'));
-  assert.equal(read(path.join(recoverTarget,'LICENSE')).toString(),'old license');pass('interrupted transaction restores old installation and restarts');
+  assert.equal(read(path.join(recoverTarget,'LICENSE')).toString(),'old license');assert(!fs.existsSync(recoverStage));
+  pass('interrupted transaction removes its staged copy, restores old installation and restarts');
   const bytes=read(zip);
   server=http.createServer((req,res)=>{
     if(req.url==='/404'){res.writeHead(404);res.end();return;}
