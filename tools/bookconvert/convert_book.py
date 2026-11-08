@@ -1004,12 +1004,15 @@ def epub_to_fb2(source, output, warnings, *, use_navigation=True):
             # counterpart (identifier, publisher, rights and EPUB refinements).
             description.append(element(FB, 'custom-info', base64.b64encode(serialized(metadata)).decode('ascii'), **{'info-type': 'HomeLib Ru: EPUB metadata (XML/base64)'}))
         image_ids, binaries = {}, []
-        def image(path, reference, preferred=''):
-            resolved, fragment = archive.resolve(path, reference)
-            if resolved is None: raise ConversionError('Внешнее изображение EPUB не скачивается: ' + reference)
+        image_types = {}
+        for resource_id, item in items.items():
+            # Preserve the first declaration when several IDs name one file.
+            image_types.setdefault(paths[resource_id], item.get('media-type'))
+
+        def embed_image(resolved, preferred=''):
             if resolved not in image_ids:
                 data = archive.read(resolved)
-                mime = next((n.get('media-type') for n in manifest if archive.resolve(package_path, n.get('href', ''))[0] == resolved), None)
+                mime = image_types.get(resolved)
                 mime = mime or mimetypes.guess_type(resolved)[0] or ''
                 if not mime.startswith('image/'): raise ConversionError('Неизвестный тип изображения EPUB: ' + resolved)
                 name = preferred or 'image_' + str(len(image_ids) + 1)
@@ -1017,6 +1020,12 @@ def epub_to_fb2(source, output, warnings, *, use_navigation=True):
                 binary = element(FB, 'binary', base64.b64encode(data).decode('ascii'), id=name, **{'content-type': mime})
                 image_ids[resolved] = name; binaries.append(binary)
             return image_ids[resolved]
+
+        def image(path, reference, preferred=''):
+            resolved, _ = archive.resolve(path, reference)
+            if resolved is None: raise ConversionError('Внешнее изображение EPUB не скачивается: ' + reference)
+            return embed_image(resolved, preferred)
+
         # EPUB 2 commonly identifies its cover through OPF metadata instead of
         # the EPUB 3 cover-image manifest property.
         cover_items = {n.get('content') for n in metadata if tag(n) == 'meta' and n.get('name') == 'cover'}
@@ -1284,9 +1293,10 @@ def epub_to_fb2(source, output, warnings, *, use_navigation=True):
         # FB2 permits unreferenced binaries. Keep local publisher image
         # resources too, even when an alternate cover or decoration is unused.
         if preserved_description is None:
-            for item in manifest:
-                if item.get('media-type', '').startswith('image/') and archive.resolve(package_path, item.get('href', ''))[0] is not None:
-                    image(package_path, item.get('href', ''))
+            for resource_id, item in items.items():
+                resolved = paths[resource_id]
+                if resolved is not None and item.get('media-type', '').startswith('image/'):
+                    embed_image(resolved)
         book.extend(binaries)
         normalize_fb2(book, preserved_bodies, warnings)
         # FB2 styleLinkType deliberately has no attributes, unlike the same

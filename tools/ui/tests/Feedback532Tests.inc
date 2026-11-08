@@ -330,7 +330,7 @@ var Root: TJSONValue; Items, Results: TJSONArray; Item: TJSONValue; Row: TJSONOb
   FileName, Extension, Prepared, OriginalPrepared, Source, OutputName, Hash, ErrorText, Member: string;
   Members: TArray<string>;
   Book, ConvertedBook: TBookRecord; Reader: TfrmBuiltinReader; Document: TReaderDocument;
-  Started: UInt64; Warnings: TStringList; Timer: TTimer; Chooser: T532ArchiveChooser;
+  Started, LoadDeadline: UInt64; Warnings: TStringList; Timer: TTimer; Chooser: T532ArchiveChooser;
   Count: Integer;
   LastProgress, Updates, TotalPages: Integer; CancelConversion, WasCanceled, IdentityCopy: Boolean;
   ProgressRows: TJSONArray;
@@ -441,11 +441,23 @@ begin
           try
             Reader.OpenBook(Prepared,'Catalogue audit','audit-'+IntToStr(Count),Settings.AppPath+'audit-reader.ini',Settings.AppPath+'tools/pdfium/pdfium.dll');
             Reader.Show;
-            while (((not Reader.Ready) and not Reader.LoadFinished) or Reader.PageLoading) and (GetTickCount64-Started<30000) do
+            // Opening a prepared file gets its own deadline. Preparing a
+            // complex legacy book may itself take longer than 30 seconds.
+            LoadDeadline:=GetTickCount64+30000;
+            while (((not Reader.Ready) and not Reader.LoadFinished) or Reader.PageLoading) and
+              (GetTickCount64<LoadDeadline) do
             begin Application.ProcessMessages; CheckSynchronize(5); Sleep(5); end;
             // PDF has no document loader; Ready/PageLoading are authoritative.
             if not Reader.Ready or Reader.PageLoading then raise Exception.Create(Reader.ReaderStatus.Caption);
             Require(Reader.TextLength>0,'Reader returned no text or pages');
+            if SameText(ExtractFileExt(Prepared),'.pdf') or IsRasterReaderFormat(ExtractFileExt(Prepared)) then
+            begin
+              var Raster:=Reader.PageRasterSize;
+              Require((Raster.X>0) and (Raster.Y>0) and
+                not string(Reader.ReaderStatus.Caption).Contains('Не удалось'),
+                'Reader did not render the first page: '+Reader.ReaderStatus.Caption);
+              Row.AddPair('first_page_raster',Format('%dx%d',[Raster.X,Raster.Y]));
+            end;
             Row.AddPair('read','ok'); Row.AddPair('read_length',TJSONNumber.Create(Reader.TextLength));
             Row.AddPair('pictures',TJSONNumber.Create(Reader.PictureCount));
           finally Reader.Free; end;

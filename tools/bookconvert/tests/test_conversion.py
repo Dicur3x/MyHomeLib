@@ -268,6 +268,43 @@ class ConversionTests(unittest.TestCase):
                 z.writestr('OPS/'+name, f'<html xmlns="{c.XH}" xmlns:epub="{c.EP}"><head><title>Тест</title>{head}</head><body>{content}</body></html>')
             z.writestr('OPS/image.png',PNG); z.writestr('OPS/book.css',css)
         return path
+    def test_epub_to_fb2_resolves_the_image_catalogue_once(self):
+        names = [f'images/page%20{i}.png' for i in range(64)]
+        epub = self.generic(first='<h1>Images</h1>' + ''.join(f'<p><img src="{name}"/></p>' for name in names),
+                            notes_in_spine=False)
+        with zipfile.ZipFile(epub) as archive:
+            files = {name: archive.read(name) for name in archive.namelist()}
+        package = c.xml(files['OPS/package.opf'])
+        manifest = c.first(package, 'manifest')
+        for i, name in enumerate(names):
+            manifest.append(c.element(c.OP, 'item', id=f'picture-{i}', href=name, **{'media-type': 'image/png'}))
+            files['OPS/'+name.replace('%20', ' ')] = PNG
+        manifest.append(c.element(c.OP, 'item', id='alias', href='./'+names[0], **{'media-type': 'application/octet-stream'}))
+        files['OPS/package.opf'] = c.serialized(package)
+        with zipfile.ZipFile(epub, 'w') as archive:
+            for name, data in files.items():
+                archive.writestr(name, data)
+
+        before = digest(epub)
+        output = self.root/'illustrated.fb2'
+        resolve = c.EpubArchive.resolve
+        lookups = Counter()
+        def counted(archive, current, reference):
+            if current == 'OPS/package.opf' and reference in names:
+                lookups[reference] += 1
+            return resolve(archive, current, reference)
+        with mock.patch.object(c.EpubArchive, 'resolve', counted):
+            c.convert_book(epub, output)
+        self.assertEqual(lookups, Counter(names))
+        book = ET.parse(output).getroot()
+        images = c.children(book, 'binary')
+        self.assertEqual(len(images), len(names) + 1)  # Keep the unused fixture image too.
+        self.assertTrue(all(image.get('content-type') == 'image/png' and
+                            base64.b64decode(c.plain(image)) == PNG for image in images))
+        refs = [image.get('{'+c.XL+'}href') for image in book.iter('{'+c.FB+'}image')]
+        self.assertEqual(refs, ['#'+image.get('id') for image in images[:-1]])
+        self.assertEqual(digest(epub), before)
+
     def test_rich_round_trip(self):
         self.validate_fb2(self.source)
         epub, fb2 = self.root/'result.epub', self.root/'result.fb2'
