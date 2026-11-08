@@ -30,6 +30,8 @@ implementation
 
 uses
   Winapi.Windows,
+  Winapi.ActiveX,
+  Winapi.MSXML,
   System.SysUtils,
   System.Hash,
   System.IOUtils,
@@ -37,6 +39,7 @@ uses
   System.Zip,
   System.JSON,
   System.NetEncoding,
+  System.Variants,
   System.Generics.Collections,
   unit_MHLArchiveHelpers,
   unit_MHLExternalTools;
@@ -757,22 +760,108 @@ begin
   Result := StringReplace(Value, '\', '/', [rfReplaceAll]);
 end;
 
-function NormalizeOpfImageReferenceCase(const Bytes: TBytes;
+function OpfResourcePath(const PackageName, Href: string): string;
+var Path: string; Parts: TList<string>; EndOfPath: Integer;
+begin
+  Result := '';
+  EndOfPath := Href.IndexOfAny(['?', '#']);
+  Path := Href;
+  if EndOfPath >= 0 then Path := Copy(Path, 1, EndOfPath);
+  try
+    Path := NormalizeArchiveName(TNetEncoding.URL.Decode(Path.Replace('+', '%2B')));
+  except
+    on E: EConvertError do Exit;
+  end;
+  if (Path = '') or Path.Contains(':') or Path.StartsWith('//') then Exit;
+  if Path.StartsWith('/') then Path := Path.Substring(1)
+  else Path := Copy(PackageName, 1, LastDelimiter('/', PackageName)) + Path;
+  Parts := TList<string>.Create;
+  try
+    for var Part in Path.Split(['/']) do
+      if (Part = '') or (Part = '.') then Continue
+      else if Part = '..' then
+      begin
+        if Parts.Count = 0 then Exit;
+        Parts.Delete(Parts.Count - 1);
+      end
+      else Parts.Add(Part);
+    Result := string.Join('/', Parts.ToArray);
+  finally Parts.Free; end;
+end;
+
+function NormalizeOpfImageReferences(const Bytes: TBytes; const PackageName: string;
   const TargetImages: TDictionary<string, TExternalBookImage>): TBytes;
 var
-  ImageName: string;
-  Text: string;
+  Text, Original, MediaType: string;
+  Document: IXMLDOMDocument3;
+  Items: IXMLDOMNodeList;
+  Item: IXMLDOMElement;
+  Image: TExternalBookImage;
+  Input, Output: TMemoryStream;
+  Adapter: OleVariant;
+  ComStatus: HRESULT;
+  Changed: Boolean;
 begin
+  Result := Bytes;
+  if TargetImages.Count = 0 then Exit;
   // ZIP entry names are case-sensitive.  Real-world EPUB files sometimes
   // disagree only by case between the OPF guide and its manifest (Images vs
   // images).  Desktop readers may forgive that, while e-readers commonly do
   // not.  The FLibrary image index supplies the canonical entry names, so use
   // those names everywhere in the OPF while rebuilding the archive.
-  Text := TEncoding.UTF8.GetString(Bytes);
-  for ImageName in TargetImages.Keys do
+  Original := TEncoding.UTF8.GetString(Bytes);
+  Text := Original;
+  for var ImageName in TargetImages.Keys do
     Text := StringReplace(Text, ImageName, ImageName,
       [rfReplaceAll, rfIgnoreCase]);
-  Result := TEncoding.UTF8.GetBytes(Text);
+  if Text <> Original then Result := TEncoding.UTF8.GetBytes(Text);
+
+  // Raw JPEG XL can restore to PNG even when the original EPUB used a JPEG
+  // filename. Keep existing links and describe the bytes actually restored.
+  ComStatus := CoInitializeEx(nil, COINIT_MULTITHREADED);
+  if Failed(ComStatus) and (ComStatus <> RPC_E_CHANGED_MODE) then Exit;
+  Input := nil;
+  Output := nil;
+  try
+    Input := BytesToStream(Result);
+    Document := CoDOMDocument60.Create;
+    Document.async := False;
+    Document.resolveExternals := False;
+    Document.validateOnParse := False;
+    Document.preserveWhiteSpace := True;
+    Document.setProperty('ProhibitDTD', True);
+    Document.setProperty('MaxXMLSize', 2048);
+    Document.setProperty('MaxElementDepth', 128);
+    Adapter := TStreamAdapter.Create(Input, soReference) as IStream;
+    if not Document.load(Adapter) then Exit;
+    Adapter := Unassigned;
+    Items := Document.selectNodes('/*[local-name()="package"]/*[local-name()="manifest"]/*[local-name()="item"]');
+    Changed := False;
+    for var I := 0 to Items.length - 1 do
+    begin
+      Item := Items.item[I] as IXMLDOMElement;
+      if not TargetImages.TryGetValue(OpfResourcePath(PackageName, VarToStr(Item.getAttribute('href'))), Image) then Continue;
+      MediaType := ImageMediaType(Image.Data);
+      if (MediaType <> 'application/octet-stream') and (MediaType <> VarToStr(Item.getAttribute('media-type'))) then
+      begin
+        Item.setAttribute('media-type', MediaType);
+        Changed := True;
+      end;
+    end;
+    if not Changed then Exit;
+    Output := TMemoryStream.Create;
+    Adapter := TStreamAdapter.Create(Output, soReference) as IStream;
+    Document.save(Adapter);
+    Result := StreamToBytes(Output);
+  finally
+    Adapter := Unassigned;
+    Item := nil;
+    Items := nil;
+    Document := nil;
+    Output.Free;
+    Input.Free;
+    if Succeeded(ComStatus) then CoUninitialize;
+  end;
 end;
 
 function CommonTopFolder(const Names: TArray<string>): string;
@@ -986,8 +1075,8 @@ begin
         ExtractArchiveEntry(Archive, I, ExtractedRoot, Stream);
         if SameText(ExtractFileExt(OutputName), '.opf') then
         begin
-          Bytes := NormalizeOpfImageReferenceCase(StreamToBytes(Stream),
-            TargetImages);
+          Bytes := NormalizeOpfImageReferences(StreamToBytes(Stream),
+            OutputName, TargetImages);
           Stream.Size := 0;
           if Length(Bytes) > 0 then
             Stream.WriteBuffer(Bytes[0], Length(Bytes));

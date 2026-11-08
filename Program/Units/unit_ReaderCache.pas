@@ -602,7 +602,7 @@ begin
   if SameText(ExtractFileExt(Source), '.7z') then
   begin
     if SameText(Book.FileExt, '.epub') then
-      Result := Result + '|flibrary-epub-v2';
+      Result := Result + '|flibrary-epub-v3';
     for Dependency in FLibraryImageSourceFiles(Source) do
       Result := Result + '|' + FileStamp(Dependency, False);
   end;

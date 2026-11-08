@@ -70,15 +70,18 @@ begin
     Zip.Add(TEncoding.UTF8.GetBytes('<package xmlns="http://www.idpf.org/2007/opf" version="2.0">'+
       '<manifest><item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/>'+
       '<item id="picture" href="picture.jpg" media-type="image/jpeg"/>'+
-      '<item id="alias" href="picture-alias.jpg" media-type="image/jpeg"/></manifest>'+
+      '<item id="alias" href="picture-alias.jpg" media-type="image/jpeg"/>'+
+      '<item id="ink" href="./ink%20plate+.jpeg" media-type="image/jpeg"/></manifest>'+
       '<spine><itemref idref="chapter"/></spine></package>'),'OPS/book.opf');
     Zip.Add(TEncoding.UTF8.GetBytes('<html xmlns="http://www.w3.org/1999/xhtml"><body><p>Complete EPUB text.</p>'+
-      '<img src="picture.jpg" alt="Picture"/><img src="picture-alias.jpg" alt="Alias"/></body></html>'),'OPS/chapter.xhtml');
+      '<img src="picture.jpg" alt="Picture"/><img src="picture-alias.jpg" alt="Alias"/>'+
+      '<img src="ink%20plate+.jpeg" alt="Ink"/></body></html>'),'OPS/chapter.xhtml');
     Zip.Add(TEncoding.UTF8.GetBytes('[{"id":"OPS/picture.jpg","num":0},'+
-      '{"id":"OPS/picture-alias.jpg","num":0}]'),'FLibraryImageIndex.json');
+      '{"id":"OPS/picture-alias.jpg","num":0},{"id":"OPS/ink plate+.jpeg","num":1}]'),'FLibraryImageIndex.json');
     Zip.Close;
     Zip.Open(Root+'\images\books.zip',zmWrite);
     Zip.Add(Encoded,'1/1'); Zip.Add(Encoded,'2/0');
+    Zip.Add(Settings.AppPath+'transparent-ink.jxl','2/1');
   finally Zip.Free; end;
   Sink:=TMemoryStream.Create;
   try RunExternalToolToStream(Settings.AppPath+'tools\7zip\7za.exe',
@@ -97,9 +100,9 @@ begin
   Book.FileName:='2'; Book.FileExt:='.epub'; Book.LibID:='jpeg-reconstruct-epub';
   Prepared:=PrepareConversionSource(Book,nil,'.epub');
   Stamp:=TFile.ReadAllText(Prepared+'.source',TEncoding.UTF8);
-  Require(Stamp.Contains('|flibrary-epub-v2'),'Restored EPUB cache revision did not change');
+  Require(Stamp.Contains('|flibrary-epub-v3'),'Restored EPUB cache revision did not change');
   TFile.WriteAllText(Prepared,'stale EPUB without all image paths',TEncoding.UTF8);
-  TFile.WriteAllText(Prepared+'.source',Stamp.Replace('|flibrary-epub-v2',''),TEncoding.UTF8);
+  TFile.WriteAllText(Prepared+'.source',Stamp.Replace('|flibrary-epub-v3','|flibrary-epub-v2'),TEncoding.UTF8);
   Prepared:=PrepareConversionSource(Book,nil,'.epub');
   Zip:=TZipFile.Create;
   try
@@ -112,11 +115,17 @@ begin
         CompareMem(@Bytes[0],@OriginalBytes[0],Length(Bytes)),
         'Restored EPUB JPEG differs from its original bytes: '+Path);
     end;
+    Zip.Read('OPS/ink plate+.jpeg',Bytes);
+    Require((Length(Bytes)>4) and (Bytes[0]=$89) and (Bytes[1]=$50) and (Bytes[2]=$4E) and (Bytes[3]=$47),
+      'Restored EPUB ink must keep its PNG transparency');
+    Zip.Read('OPS/book.opf',Bytes);
+    Require(TEncoding.UTF8.GetString(Bytes).Contains('href="./ink%20plate+.jpeg" media-type="image/png"'),
+      'Restored EPUB declares a PNG illustration as JPEG');
   finally Zip.Free; end;
   Document:=TReaderDocument.Create;
   try
     Document.Load(Prepared);
-    Require((Document.ImageCount=2) and Document.PlainText.Contains('Complete EPUB text.'),
+    Require((Document.ImageCount=3) and Document.PlainText.Contains('Complete EPUB text.'),
       'The EPUB reader could not display the recovered JPEG and text');
   finally Document.Free; end;
   Writeln('PASS FLibrary reconstructs exact JPEG bytes in native FB2 and EPUB reading and export preparation');
