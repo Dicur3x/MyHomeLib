@@ -22,6 +22,9 @@ begin
       Require((Length(Layout.Remaining)>=1) and (Layout.FinalSize<Source.Size) and
         (Length(Layout.Header)=32) and (Length(Layout.Tail)<128*1024),
         '7z planner did not produce a bounded deletion layout');
+      Require((Length(Layout.Ranges)=1) and (Layout.Ranges[0].Bytes>128*1024) and
+        (Layout.Ranges[0].Source>Layout.Ranges[0].Target),
+        'Adjacent 7z writes for one moved stream were not merged into one journal block');
       Target:=TFileStream.Create(Root+'planned-'+Kind+'.7z',fmCreate);
       try
         Target.WriteBuffer(Layout.Header[0],Length(Layout.Header));
@@ -42,6 +45,7 @@ begin
     Require(THashSHA2.GetHashStringFromFile(ArchivePath)=BeforeHash,'7z planning changed its original archive');
   end;
   Writeln('PASS read-only 7z deletion planner retains original compressed blocks and metadata with bounded virtual output'); Flush(Output);
+  Writeln('PASS adjacent 7z writes use one bounded recovery block with the original SHA-256'); Flush(Output);
   ArchivePath:=Root+'solid.7z'; BeforeHash:=THashSHA2.GetHashStringFromFile(ArchivePath);
   Source:=TFileStream.Create(ArchivePath,fmOpenRead or fmShareDenyWrite);
   try

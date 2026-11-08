@@ -32,6 +32,8 @@ implementation
 uses Winapi.Windows, System.IOUtils, System.Variants, System.Math, System.Hash,
   System.Generics.Collections, unit_MHLExternalTools;
 
+const MaxRangeBytes = 4 * 1024 * 1024; // Same bound as the recovery journal's data block.
+
 type
   ISzSeqIn = interface(IUnknown)
     ['{23170F69-40C1-278A-0000-000300010000}']
@@ -99,6 +101,10 @@ type
     function Seek(Offset:Int64; Origin:Cardinal; Position:PUInt64):HRESULT; stdcall;
   end;
   TSzPlannedOutput = class(TInterfacedObject,ISzSeqOut,ISzOut)
+  private
+    FPendingRange: TSevenZipRetainedRange;
+    FPendingHash: THashSHA2;
+    FRangeLimit: Int64;
   public
     Input:TSzBorrowedInput;
     Position, Size, TailStart:Int64;
@@ -107,6 +113,7 @@ type
     Error:string;
     constructor Create(Borrowed:TSzBorrowedInput);
     destructor Destroy; override;
+    procedure FinishRange;
     function Write(Data:Pointer; Count:Cardinal; Processed:PCardinal):HRESULT; stdcall;
     function Seek(Offset:Int64; Origin:Cardinal; NewPosition:PUInt64):HRESULT; stdcall;
     function SetSize(NewSize:UInt64):HRESULT; stdcall;
@@ -135,7 +142,7 @@ begin
   if Assigned(Cancel) and Cancel() then Exit(E_ABORT);
   try
     LastOffset:=Source.Position; LastPointer:=NativeUInt(Data);
-    var N:=Source.Read(Data^,Integer(Min(Size,Cardinal(4*1024*1024))));
+    var N:=Source.Read(Data^,Integer(Min(Size,Cardinal(MaxRangeBytes))));
     SetLength(LastBytes,N); if N>0 then Move(Data^,LastBytes[0],N);
     if Assigned(Processed) then Processed^:=N;
     Result:=S_OK;
@@ -155,19 +162,30 @@ end;
 constructor TSzPlannedOutput.Create(Borrowed:TSzBorrowedInput);
 begin
   inherited Create; Input:=Borrowed; TailStart:=-1;
+  // The free-space check reserves two blocks and room for journal metadata.
+  // Keep the larger blocks for archives that benefit from batching writes.
+  FRangeLimit:=Min(Int64(MaxRangeBytes),Max(Int64(128*1024),(Borrowed.Source.Size-65536) div 2));
   Header:=TMemoryStream.Create; Tail:=TMemoryStream.Create;
   Ranges:=TList<TSevenZipRetainedRange>.Create;
 end;
 destructor TSzPlannedOutput.Destroy;
 begin Ranges.Free; Header.Free; Tail.Free; inherited; end;
 
+procedure TSzPlannedOutput.FinishRange;
+begin
+  if FPendingRange.Bytes=0 then Exit;
+  FPendingRange.SHA256:=FPendingHash.HashAsString;
+  Ranges.Add(FPendingRange);
+  FPendingRange.Bytes:=0;
+end;
+
 function TSzPlannedOutput.Write(Data:Pointer; Count:Cardinal; Processed:PCardinal):HRESULT;
-var Delta:NativeUInt; Borrow:Boolean; Range:TSevenZipRetainedRange; Hash:THashSHA2;
+var Delta:NativeUInt; Borrow:Boolean; RangeSource:Int64;
 begin
   if Assigned(Processed) then Processed^:=0;
   if Count=0 then Exit(S_OK);
   try
-    if (Position<0) or (Count>4*1024*1024) then
+    if (Position<0) or (Count>MaxRangeBytes) then
       raise EWriteError.Create('Неподдерживаемая порция данных 7z.');
     if Position<32 then
     begin
@@ -187,19 +205,28 @@ begin
       if Borrow then
       begin
         if TailStart>=0 then raise EWriteError.Create('7-Zip переставил данные после заголовка.');
-        Range.Source:=Input.LastOffset+Int64(Delta); Range.Target:=Position; Range.Bytes:=Count;
-        if (Range.Source<Range.Target) or (Range.Source<32) or
-          (Range.Source>Input.Source.Size-Int64(Count)) then
+        RangeSource:=Input.LastOffset+Int64(Delta);
+        if (RangeSource<Position) or (RangeSource<32) or
+          (RangeSource>Input.Source.Size-Int64(Count)) then
           raise EWriteError.Create('Требуется неподдерживаемое перемещение блока 7z.');
-        if Ranges.Count>0 then
+        if FPendingRange.Bytes>0 then
         begin
-          var Previous:=Ranges[Ranges.Count-1];
-          if (Range.Target<>Previous.Target+Previous.Bytes) or
-            (Range.Source<Previous.Source+Previous.Bytes) then
+          var PreviousEnd:=FPendingRange.Source+FPendingRange.Bytes;
+          if (Position<>FPendingRange.Target+FPendingRange.Bytes) or (RangeSource<PreviousEnd) then
             raise EWriteError.Create('7-Zip изменил физический порядок блоков.');
-        end else if Range.Target<>32 then raise EWriteError.Create('Пропущено начало данных 7z.');
-        Hash:=THashSHA2.Create; Hash.Update(Data^,Count); Range.SHA256:=Hash.HashAsString;
-        Ranges.Add(Range);
+          // One journal checkpoint can protect adjacent ranges with the same
+          // displacement. A gap or the journal limit starts the next block.
+          if (RangeSource<>PreviousEnd) or (FPendingRange.Bytes+Int64(Count)>FRangeLimit) then
+            FinishRange;
+        end else if Position<>32 then raise EWriteError.Create('Пропущено начало данных 7z.');
+        if FPendingRange.Bytes=0 then
+        begin
+          FPendingRange.Source:=RangeSource;
+          FPendingRange.Target:=Position;
+          FPendingHash:=THashSHA2.Create;
+        end;
+        FPendingHash.Update(Data^,Count);
+        Inc(FPendingRange.Bytes,Count);
       end
       else
       begin
@@ -344,6 +371,7 @@ begin
     if OutputObject.Error<>'' then raise EWriteError.Create(OutputObject.Error);
     if InputObject.Error<>'' then raise EReadError.Create(InputObject.Error);
     Check(Code,'подготовка удаления из 7z');
+    OutputObject.FinishRange;
     if (OutputObject.TailStart<0) and (OutputObject.Size=32) and (OutputObject.Ranges.Count=0) then
       OutputObject.TailStart:=32;
     if (OutputObject.Header.Size<>32) or (OutputObject.TailStart<32) or
