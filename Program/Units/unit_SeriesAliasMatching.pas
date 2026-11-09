@@ -6,7 +6,7 @@ uses System.SysUtils, SQLiteWrap, unit_CollectionMerge;
 
 type
   TSeriesAliasCandidate = record
-    ID, Rank: Integer;
+    ID, Rank, SpellingRank: Integer;
     Title, Key, LiteralKey, PublisherBaseKey, PublisherSuffix: string;
     Tag: Char;
   end;
@@ -20,7 +20,27 @@ function SeriesShareRecord(DB: TSQLiteDatabase; LeftID, RightID: Integer): Boole
 
 implementation
 
-uses System.Generics.Collections, System.Character, System.StrUtils, unit_LibrarySourceID;
+uses System.Generics.Collections, System.Character, System.StrUtils, System.RegularExpressions,
+  unit_LibrarySourceID;
+
+const DottedAbbreviation = '(?<![\p{L}\p{N}])(?:\p{L}\.){2,}\p{L}(?![\p{L}\p{N}])';
+
+function SeriesLoosePunctuation(const Name: string): string;
+var Value: string; Match: TMatch; Start: Integer;
+begin
+  Value:=Name.Replace('. ',' ');
+  if not Value.Contains('.') then Exit(Value);
+  Match:=TRegEx.Match(Value,DottedAbbreviation);
+  if not Match.Success then Exit(Value);
+  Start:=1;
+  Result:='';
+  repeat
+    Result:=Result+Copy(Value,Start,Match.Index-Start)+Match.Value.Replace('.','');
+    Start:=Match.Index+Match.Length;
+    Match:=Match.NextMatch;
+  until not Match.Success;
+  Result:=Result+Copy(Value,Start,MaxInt);
+end;
 
 function NormalizePublisherName(const Name: string): string;
 begin
@@ -31,7 +51,7 @@ end;
 
 function SeriesAliasCandidate(ID: Integer; const Title: string): TSeriesAliasCandidate;
 const MixedLabel = '[межавторский цикл]';
-var Name, Suffix: string; Size, Bracket: Integer;
+var Name, Suffix: string; Size, Bracket: Integer; Abbreviation: TMatch;
 begin
   Result:=Default(TSeriesAliasCandidate); Result.ID:=ID; Result.Title:=Title;
   Name:=Trim(Title);
@@ -52,6 +72,24 @@ begin
     Name:=TrimRight(Copy(Name,1,Length(Name)-Length(MixedLabel)))+' (Межавторский цикл)';
     Inc(Result.Rank);
   end;
+  if Name.EndsWith('!!') or Name.EndsWith('..') then Inc(Result.SpellingRank,2)
+  else if Name.EndsWith('!') or Name.EndsWith('.') then Dec(Result.SpellingRank);
+  if Name.Contains('. ') then Dec(Result.SpellingRank);
+  if Name.Contains('.') then
+  begin
+    Abbreviation:=TRegEx.Match(Name,DottedAbbreviation);
+    if Abbreviation.Success then
+    begin
+      Dec(Result.SpellingRank);
+      if Abbreviation.Value=TCharacter.ToUpper(Abbreviation.Value) then Dec(Result.SpellingRank);
+    end;
+  end;
+  Bracket:=LastDelimiter('([',Name);
+  if (Bracket>1) and (Name.EndsWith(')') or Name.EndsWith(']')) then
+  begin
+    if not TCharacter.IsWhiteSpace(Name[Bracket-1]) then Inc(Result.SpellingRank,2);
+    if Name[Bracket]='[' then Inc(Result.SpellingRank);
+  end;
   Result.LiteralKey:=TCharacter.ToLower(Name);
   // Spelling and punctuation only make candidates. Confirm these looser
   // matches using book overlap, never merely a shared author.
@@ -63,12 +101,12 @@ begin
     Suffix:=Copy(Result.Key,Bracket+1,Result.Key.Length-Bracket-1).Trim;
     if (Suffix<>'') and not Suffix.Contains(')') then
     begin
-      Result.PublisherBaseKey:=Copy(Result.Key,1,Bracket-1).TrimRight(['!','.',' ']).Replace('. ',' ');
+      Result.PublisherBaseKey:=SeriesLoosePunctuation(Copy(Result.Key,1,Bracket-1).TrimRight(['!','.',' ']));
       Result.PublisherSuffix:=NormalizePublisherName(Suffix);
       Result.Key:=Copy(Result.Key,1,Bracket-1).TrimRight+' '+Suffix;
     end;
   end;
-  Result.Key:=Result.Key.Replace('. ',' ');
+  Result.Key:=SeriesLoosePunctuation(Result.Key);
 end;
 
 function SeriesHavePublisher(DB: TSQLiteDatabase; SeriesID: Integer; const Publisher: string): Boolean;

@@ -25,7 +25,7 @@ const
   UPDATE_COMPONENTS: array[0..26] of TUpdateComponent = (
     (ID:'SQLite'; Title:'База коллекций'; URL:'https://www.sqlite.org/changes.html'; CheckKind:ccSQLite; CheckOnly:False),
     (ID:'AlReader'; Title:'Внешняя читалка'; URL:'https://github.com/Dicur3x/MyHomeLib/releases/tag/optional-alreader-2.5.1009.25'; CheckKind:ccBundled; CheckOnly:False),
-    (ID:'SumatraPDF'; Title:'Внешняя читалка PDF и DjVu'; URL:'https://www.sumatrapdfreader.org/docs/Version-history'; CheckKind:ccSumatra; CheckOnly:False),
+    (ID:'SumatraPDF'; Title:'Внешняя читалка PDF, EPUB и DjVu'; URL:'https://www.sumatrapdfreader.org/docs/Version-history'; CheckKind:ccSumatra; CheckOnly:False),
     (ID:'DjVuLibre'; Title:'Чтение DjVu'; URL:'https://sourceforge.net/projects/djvu/files/DjVuLibre_Windows/'; CheckKind:ccRaster; CheckOnly:False),
     (ID:'7-Zip'; Title:'Распаковка архивов'; URL:'https://www.7-zip.org/download.html'; CheckKind:ccRaster; CheckOnly:False),
     (ID:'DocSharp'; Title:'Чтение DOC, PPT и XLS'; URL:'https://github.com/manfromarce/DocSharp/releases'; CheckKind:ccDocSharp; CheckOnly:False),

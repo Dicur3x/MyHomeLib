@@ -226,43 +226,49 @@ var
   Item: TImageCollectionItem;
   ResName, ItemName: string;
 begin
-  ACollection.Images.Clear;
-  AVirtualImageList.Images.Clear;
+  // Disconnect during population so VCL does not regenerate bitmaps for each icon.
+  AVirtualImageList.ImageCollection := nil;
+  try
+    ACollection.Images.Clear;
+    AVirtualImageList.Images.Clear;
 
-  for I := 0 to High(ANames) do
-  begin
-    Item := ACollection.Images.Add;
-
-    if ANames[I] <> '' then
-      ItemName := ANames[I] + '_' + IntToStr(I)
-    else
-      ItemName := '_empty_' + IntToStr(I);
-
-    Item.Name := ItemName;
-
-    if ANames[I] <> '' then
+    for I := 0 to High(ANames) do
     begin
-      ResName := AResPrefix + SanitizeName(ANames[I]);
-      try
-        RS := TResourceStream.Create(FResModule, ResName, RT_RCDATA);
+      Item := ACollection.Images.Add;
+
+      if ANames[I] <> '' then
+        ItemName := ANames[I] + '_' + IntToStr(I)
+      else
+        ItemName := '_empty_' + IntToStr(I);
+
+      Item.Name := ItemName;
+
+      if ANames[I] <> '' then
+      begin
+        ResName := AResPrefix + SanitizeName(ANames[I]);
         try
-          Item.SourceImages.Add;
-          Item.SourceImages[0].Image.LoadFromStream(RS);
-        finally
-          RS.Free;
+          RS := TResourceStream.Create(FResModule, ResName, RT_RCDATA);
+          try
+            Item.SourceImages.Add;
+            Item.SourceImages[0].Image.LoadFromStream(RS);
+          finally
+            RS.Free;
+          end;
+        except
+          on E: EResNotFound do
+            ; // leave empty placeholder
         end;
-      except
-        on E: EResNotFound do
-          ; // leave empty placeholder
+      end;
+
+      with AVirtualImageList.Images.Add do
+      begin
+        CollectionIndex := I;
+        CollectionName := ItemName;
+        Name := ItemName;
       end;
     end;
-
-    with AVirtualImageList.Images.Add do
-    begin
-      CollectionIndex := I;
-      CollectionName := ItemName;
-      Name := ItemName;
-    end;
+  finally
+    AVirtualImageList.ImageCollection := ACollection;
   end;
 end;
 

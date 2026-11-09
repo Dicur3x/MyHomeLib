@@ -19,6 +19,10 @@ begin
         Contents.Contains('PDF — PDFium') and Contents.Contains('DJVM — DjVuLibre') and
         Contents.Contains('DOC, DOT — DocSharp') and Contents.Contains('WPS, WPD — libwps/libwpd'),
         'Reader help lost native formats, module dependencies or update ownership');
+      Require(Contents.Contains('Модули, которые читалка предложит при открытии'+sLineBreak+
+        'SM — интерактивные книги с выбором ответов. Нужен BookProcessing.') and
+        Contents.Contains('Из APK можно открыть вложенную книгу'),
+        'Reader help lost the interactive book dependency or nested APK support');
       for var PPI in [96,144,192] do
       begin
         Dialog.ScaleForPPI(PPI);

@@ -4,7 +4,7 @@ The minimal catalogue archive no longer contains `MHLMcpServer.exe` or the unuse
 `HomeLibRu.url` shortcut. Existing installed servers remain usable. Full developer
 packages can still include the server.
 
-The catalogue's **Инструменты → Подключить AI-ассистента…** action requests the
+The catalogue's **Инструменты → Подключения → Подключить ИИ-ассистента…** action requests the
 server only when it is absent. The compact installation prompt shows its purpose
 and download size. Cancelling installs nothing. After installation and restart,
 the same action shows a stdio configuration for the current catalogue profile.

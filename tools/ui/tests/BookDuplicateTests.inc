@@ -87,14 +87,14 @@ begin
       GroupsList:=Dialog.FindComponent('lvDuplicateGroups') as TListView;
       CopiesList:=Dialog.FindComponent('lvDuplicateCopies') as TListView;
       Require((GroupsList.Items.Count=1) and (CopiesList.Items.Count=2),'Duplicate window did not render the chosen page and copies');
-      Require((CopiesList.Columns.Count=7) and (CopiesList.Columns[4].Caption='Источник') and
+      Require((CopiesList.Columns.Count=7) and (CopiesList.Columns[1].Caption='Источник') and
         (CopiesList.Columns[5].Caption='Файл / архив') and (CopiesList.Columns[6].Caption='Автор') and
-        CopiesList.Items[0].SubItems[1].Contains('КБ'),
+        CopiesList.Items[0].SubItems[2].Contains('КБ'),
         'Duplicate comparison hides source, author or readable size');
       CopiesList.Items[1].Selected:=True;
       Prefer:=Dialog.FindComponent('btnPreferDuplicateCopy') as TButton;
       Prefer.OnClick(Prefer);
-      Require(CopiesList.Items[1].Caption.Contains('★') and not CopiesList.Items[0].Caption.Contains('★'),
+      Require((CopiesList.Items[1].Caption='Основная') and (CopiesList.Items[0].Caption='—'),
         'Preferred duplicate has no persistent visible marker');
       CopiesList.Items[0].Selected:=True;
       Require((Dialog.FindComponent('mmDuplicateCopyDetails') as TMemo).Lines[0]='Основная запись: '+IntToStr(B),
@@ -102,6 +102,8 @@ begin
       SelectGroup:=Dialog.FindComponent('cbSelectDuplicateGroup') as TCheckBox;
       SelectGroup.Checked:=True;
       Require(Dialog.Plan.SelectedCount=1,'Duplicate window lost preferred copy or explicit selection');
+      Require((CopiesList.Items[1].Caption='Основная') and (CopiesList.Items[0].Caption='К удалению'),
+        'Review rows did not show which file would be removed');
       for var PPI in [96,144,192,96] do
       begin
         Dialog.ScaleForPPI(PPI); Application.ProcessMessages;
@@ -123,7 +125,7 @@ end;
 
 procedure TestBookDuplicateSourcePreference;
 var C: IBookCollection; DB: TSQLiteDatabase; Plan: TBookDuplicatePlan;
-  CID, Preferred, PersonalPreferred, ManualID, ManualGroup, BookmarkID, ThirdID, Calls: Integer;
+  CID, BaseID, Preferred, PersonalPreferred, ManualID, ManualGroup, BookmarkID, ThirdID, Calls: Integer;
   Name, ReaderFile, Before: string; Failed: Boolean;
   BookmarkBook: TBookRecord; Ini: TMemIniFile;
   Dialog: TfrmBookDuplicates; ChoosePriority, MoveUp: TButton;
@@ -143,7 +145,7 @@ begin
   Name:=Settings.ExpandCollectionFileName(VarToStr(C.GetProperty(PROP_DATAFILE)));
   DB:=TSQLiteDatabase.Create(Name);
   try
-    AddCopy('1',''); Preferred:=AddCopy('1','preferred');
+    BaseID:=AddCopy('1',''); Preferred:=AddCopy('1','preferred');
     AddCopy('2','preferred'); AddCopy('2','preferred');
     AddCopy('3',''); AddCopy('3','preferred'); AddCopy('3','preferred');
     AddCopy('4','',5); AddCopy('4','preferred');
@@ -204,6 +206,19 @@ begin
       if Group.Selected then
         Require((Group.KeepID=ThirdID) or (Group.KeepID=Preferred) or (Group.KeepID=PersonalPreferred) or
           ((Group.ID=ManualGroup) and (Group.KeepID=ManualID)),'Ranked source selection kept the wrong copy');
+    for var Group in Plan.Groups(0,50) do
+      if Group.KeepID=ThirdID then Plan.Choose(Group.ID,Group.KeepID,False);
+    Require(Plan.SelectSourcePriority(['Base source','Third source','Источник ''Б'''])=3,
+      'Changing priority did not recalculate automatic choices and exclusions');
+    var BaseSelected:=False;
+    for var Group in Plan.Groups(0,50) do
+    begin
+      if Group.KeepID=BaseID then BaseSelected:=Group.Selected;
+      if Group.KeepID=ThirdID then Require(not Group.Selected,'Explicitly unmarked group was selected again');
+      Require(Group.KeepID<>PersonalPreferred,'A newly excluded automatic choice was left in place');
+    end;
+    Require(BaseSelected and (Plan.SelectedCount=4) and (Plan.SelectedRemovedCount=4),
+      'Changing priority did not keep the new first source and preserve manual marks');
     Require(THashSHA2.GetHashStringFromFile(Name)=Before,'Source selection modified the source catalog');
   finally Plan.Free; end;
   Dialog:=TfrmBookDuplicates.CreateForCollection(frmMain,C);
@@ -237,6 +252,24 @@ begin
     Unmarked.Checked:=True;
     Require(GroupsList.Items.Count=10-Dialog.Plan.SelectedCount,'Unmarked checkbox did not filter the displayed groups');
   finally Dialog.Free; end;
+  Dialog:=TfrmBookDuplicates.CreateForCollection(frmMain,C);
+  try
+    Dialog.Plan.Preview; Dialog.RenderPage;
+    var TopSource:='';
+    TThread.ForceQueue(nil,
+      procedure
+      begin
+        PriorityForm:=Screen.ActiveForm;
+        if Assigned(PriorityForm) and (PriorityForm.Name='DuplicateSourcePriorityForm') then
+        begin
+          PriorityList:=PriorityForm.FindComponent('lbDuplicateSourcePriority') as TListBox;
+          TopSource:=PriorityList.Items[0];
+        end;
+        if Assigned(PriorityForm) then PriorityForm.ModalResult:=mrCancel;
+      end);
+    TButton(Dialog.FindComponent('btnSelectDuplicateSource')).Click;
+    Require(TopSource='Third source','Source priority was not restored when reopening the same collection');
+  finally Dialog.Free; end;
   Writeln('PASS duplicate source preference: bulk choice, unique preferred copy, same-source and unknown exclusions, protected data, manual choices, cancellation and read-only catalog');
 end;
 
@@ -263,7 +296,7 @@ begin SQLite3_Result_Int(Context,0); end;
 
 procedure CheckLargeLinkedDuplicatePreview(Plan: TBookDuplicatePlan; CID: Integer);
 var Baseline, Peak: Int64; Watch: TStopwatch; Page: TArray<TDuplicateGroup>;
-  Selection: TDuplicateFileDeletion; Keys: TArray<string>;
+  Checked, Staged: Integer; LastMark: Boolean;
 begin
   Baseline:=DuplicatePrivateBytes; Peak:=Baseline; Watch:=TStopwatch.StartNew;
   Plan.PreviewLinked(nil,procedure(Current,Total: Integer) begin Peak:=Max(Peak,DuplicatePrivateBytes); end);
@@ -273,13 +306,24 @@ begin
   Page:=Plan.Groups(99950,50);
   Require((Length(Page)=50) and (Page[49].KeepID=100000),'Large linked preview lost its last page');
   Plan.ChooseCopy('large:100000',True);
-  Require((Plan.SelectSource('Large source')=MAX_LINKED_DUPLICATE_SELECTION-1) and
-    (Plan.SelectedRemovedCount=MAX_LINKED_DUPLICATE_SELECTION) and (Plan.SelectSource('Large source')=0),
-    'Bulk linked selection did not respect the batch size and the existing manual choice');
-  Selection:=Plan.PrepareFileDeletion(SystemDB.GetCollectionInfo(CID),nil);
-  Keys:=Selection.Removed.SourceKeys;
-  Require((Length(Keys)=MAX_LINKED_DUPLICATE_SELECTION) and (Keys[0]='large:1') and
-    (Keys[High(Keys)]='large:100000'),'Large linked binding lost the manual mark or changed deterministic batch order');
+  Require((Plan.SelectSource('Large source')=99999) and
+    (Plan.SelectedRemovedCount=100000) and (Plan.SelectSource('Large source')=0),
+    'Bulk linked selection missed part of the source or lost the existing manual choice');
+  Checked:=0; Staged:=0; LastMark:=False;
+  Plan.PrepareLinkedBatches(SystemDB.GetCollectionInfo(CID),nil,
+    procedure(Current,Total: Integer)
+    begin Checked:=Current; end);
+  for var I:=1 to 100 do
+  begin
+    var Binding:=Plan.LinkedDeletionBatch(I);
+    if Binding.CollectionID=0 then Break;
+    var Keys:=Binding.SourceKeys;
+    Require((Length(Keys)>0) and (Length(Keys)<=LINKED_DUPLICATE_BATCH_SIZE),
+      'The linked preview produced an unbounded batch');
+    Inc(Staged,Length(Keys));
+    for var Key in Keys do LastMark:=LastMark or (Key='large:100000');
+  end;
+  Require((Checked=100000) and (Staged=100000) and LastMark,'Linked batches did not retain the entire marked source');
   Require((Peak-Baseline<96*Int64(1024)*1024) and (Watch.ElapsedMilliseconds<60000),
     'Large linked preview exceeded its memory or time budget');
   Writeln('PROFILE linked duplicate scan rows=',Plan.Scanned,' groups=',Plan.GroupCount,
@@ -559,9 +603,8 @@ var Root: string;
   procedure CaseCheck(const Kind, ExpectedError: string);
   var Collection, Other: IBookCollection;
     CID: Integer;
-    Keep, Lose, AliasBook: TBookRecord;
+    Keep, Lose, AliasBook, BlockedKeep, BlockedLose: TBookRecord;
     Form: TfrmBookDuplicates;
-    Selection: TDuplicateFileDeletion;
     Operation: TBookDeletionOperation;
     Target, TargetHash, KeepHash, Stage: string;
     Zip: TZipFile;
@@ -632,61 +675,64 @@ var Root: string;
       AliasBook:=Lose; AliasBook.FileName:='alternate';
       Collection.SetCatalogBookCopy('duplicate-test-alternate','Alternate source',AliasBook);
     end;
+    if Kind='combined' then
+    begin
+      AliasBook:=Lose; AliasBook.FileName:='approved-alt';
+      Collection.SetCatalogBookCopy('approved-alt','Approved source',AliasBook);
+      TFile.WriteAllText(AliasBook.GetBookFileName,'Approved alternative',TEncoding.UTF8);
+      BlockedKeep:=Add(Collection,'Keep second book','flibusta:9010','','blocked-keep');
+      BlockedLose:=Add(Collection,'Keep unresolved duplicate','merged:test:flibusta:9010','','blocked-lose');
+      AliasBook:=BlockedLose; AliasBook.FileName:='unmarked-alt';
+      Collection.SetCatalogBookCopy('unmarked-alt','Separate source',AliasBook);
+      for var Name in ['blocked-keep.fb2','blocked-lose.fb2','unmarked-alt.fb2'] do
+        TFile.WriteAllText(Stage+Name,'Retain '+Name,TEncoding.UTF8);
+    end;
     Collection.SetReview(Keep.BookKey,'Keep this note');
     Form:=TfrmBookDuplicates.CreateForCollection(frmMain,Collection);
     try
-      Form.Plan.Preview;
-      Require(Form.Plan.GroupCount=1,'Fixture did not find one duplicate group: '+Kind);
-      Form.Plan.Choose(Form.Plan.Groups(0,1)[0].ID,Keep.BookKey.BookID,True);
+      if Kind='combined' then
+      begin
+        TButton(Form.FindComponent('btnFindBookDuplicates')).Click;
+        Require(Form.Plan.GroupCount=2,'Combined fixture lost an ordinary duplicate group');
+        for var Group in Form.Plan.Groups(0,10) do
+        begin
+          var KeepID:=Group.KeepID;
+          for var Book in Form.Plan.Books(Group.ID) do
+            if (Book.Book.BookKey.BookID=Keep.BookKey.BookID) or
+               (Book.Book.BookKey.BookID=BlockedKeep.BookKey.BookID) then KeepID:=Book.Book.BookKey.BookID;
+          Form.Plan.Choose(Group.ID,KeepID,True);
+        end;
+        var Results:=TComboBox(Form.FindComponent('cbDuplicateResultKind'));
+        Results.ItemIndex:=1; Results.OnChange(Results);
+        Form.Plan.ChooseCopy('approved-alt',True);
+      end
+      else
+      begin
+        Form.Plan.Preview;
+        Require(Form.Plan.GroupCount=1,'Fixture did not find one duplicate group: '+Kind);
+        Form.Plan.Choose(Form.Plan.Groups(0,1)[0].ID,Keep.BookKey.BookID,True);
+      end;
       Form.RenderPage;
       var Button:=TButton(Form.FindComponent('btnDeleteDuplicateFiles'));
       Require(Assigned(Button) and Button.Enabled,'Duplicate file action is unavailable');
-      if (Kind='archive') or (Kind='batched') then
+      if (Kind='archive') or (Kind='batched') or (Kind='combined') then
       begin
         DialogProbe.Accept:=False; DialogProbe.Count:=0; DialogProbe.DefaultNo:=False;
         Timer.Enabled:=True;
         try Button.Click; finally Timer.Enabled:=False; end;
         Require((DialogProbe.Count=1) and DialogProbe.DefaultNo and
-          (Form.FileDeletion.Removed.CollectionID=0) and (THashSHA2.GetHashStringFromFile(Target)=TargetHash),
+          not Assigned(Form.TakeDeletionOperation(Settings.SystemFileName[sfSystemDB],Stage+'deletion-journal')) and
+          (THashSHA2.GetHashStringFromFile(Target)=TargetHash),
           'Cancelling duplicate file deletion changed a source or accepted a plan');
       end;
       if Kind='stale' then Collection.SetReview(Lose.BookKey,'New personal data after preview');
+      if Kind='personal' then Collection.SetRate(Lose.BookKey,3);
       DialogProbe.Accept:=True; DialogProbe.Count:=0;
       Timer.Enabled:=True;
       try Button.Click; finally Timer.Enabled:=False; end;
-      Selection:=Form.FileDeletion;
-      if (Kind='alternate') or (Kind='stale') then
-      begin
-        Require(DialogProbe.Count=2,'Rejected removal did not show its failure after confirmation: '+Kind);
-        var Details:=TMemo(Form.FindComponent('mmDuplicateCopyDetails'));
-        Require((Selection.Removed.CollectionID=0) and (Pos(ExpectedError,Details.Text)>0) and
-          (CountRows(Lose)=1) and (THashSHA2.GetHashStringFromFile(Target)=TargetHash),
-          'Preparation did not protect the changed or multi-source record: '+Kind+' '+Details.Text);
-        Exit;
-      end;
-      Require(DialogProbe.Count=1,'Expected one explicit destructive prompt: '+Kind);
-      Require((Length(Selection.Removed.ExpectedBooks)=1) and
-        (Selection.Removed.ExpectedBooks[0].BookKey.BookID=Lose.BookKey.BookID) and
-        (Length(Selection.Retained.ExpectedBooks)=1) and
-        (Selection.Retained.ExpectedBooks[0].BookKey.BookID=Keep.BookKey.BookID),
-        'Prepared file removal bound the wrong records: '+Kind);
+      Operation:=Form.TakeDeletionOperation(Settings.SystemFileName[sfSystemDB],Stage+'deletion-journal');
+      Require((DialogProbe.Count=1) and Assigned(Operation),'Expected one explicit destructive prompt: '+Kind);
     finally Form.Free; end;
-    if Kind='personal' then Collection.SetRate(Lose.BookKey,3);
-    if Kind='batched' then
-    begin
-      var Info:=SystemDB.GetCollectionInfo(CID);
-      var Plan:=TBookDuplicatePlan.Create(Info.DBFileName,Info.GetRootPath,'flibusta',
-        Settings.SystemFileName[sfSystemDB],ResolveReaderSettingsFile(Settings.DataDir),CID,Settings.WorkPath);
-      try
-        Plan.Preview;
-        Plan.Choose(Plan.Groups(0,1)[0].ID,Keep.BookKey.BookID,True);
-        Operation:=TBookDeletionOperation.CreateDuplicateBatches(Plan,CID,Settings.SystemFileName[sfSystemDB],
-          Stage+'deletion-journal');
-        Require(not Assigned(Plan),'Background removal did not take ownership of the selection');
-      finally Plan.Free; end;
-    end
-    else Operation:=TBookDeletionOperation.CreateDuplicateRemoval(Selection,Settings.SystemFileName[sfSystemDB],
-      Stage+'deletion-journal');
     try
       Operation.Start;
       Started:=GetTickCount64;
@@ -697,6 +743,25 @@ var Root: string;
       end;
       Operation.WaitFor;
       var State:=Operation.Status;
+      if (Kind='alternate') or (Kind='stale') or (Kind='personal') then
+      begin
+        Require((State.Error='') and (State.SkippedDuplicates=1) and not State.CatalogueChanged and
+          (CountRows(Lose)=1) and (THashSHA2.GetHashStringFromFile(Target)=TargetHash),
+          'An unapproved or changed group was not skipped safely: '+Kind+' '+State.Error);
+        Exit;
+      end;
+      if Kind='combined' then
+      begin
+        Require((State.Error='') and (State.SelectedDuplicates=3) and (State.CompletedBooks=1) and
+          (State.CompletedCopies=1) and (State.SkippedDuplicates=1) and (State.DuplicateBatch=2) and
+          (Length(State.SkippedDuplicateDetails)=1) and State.SkippedDuplicateDetails[0].Contains('неотмеченные'),
+          'Combined cleanup did not complete both lists and skip the unresolved group: '+State.Error);
+        Require(not FileExists(Stage+'approved-alt.fb2') and (CountRows(BlockedKeep)=1) and
+          (CountRows(BlockedLose)=1),'Combined cleanup lost an unapproved card or retained an approved copy');
+        for var Name in ['blocked-keep.fb2','blocked-lose.fb2','unmarked-alt.fb2'] do
+          Require(TFile.ReadAllText(Stage+Name,TEncoding.UTF8)='Retain '+Name,'Combined cleanup changed an unselected file');
+        Writeln('PASS one confirmation removes files from both lists and skips groups with unapproved files');
+      end;
       if ExpectedError<>'' then
       begin
         Require(State.Error.Contains(ExpectedError) and not State.CatalogueChanged and (CountRows(Lose)=1) and
@@ -792,15 +857,22 @@ var Root: string;
     begin
       var Form:=TfrmBookDuplicates.CreateForCollection(frmMain,Collection);
       try
-        TButton(Form.FindComponent('btnFindLinkedBookCopies')).Click;
+        TButton(Form.FindComponent('btnFindBookDuplicates')).Click;
         Require(Form.Plan.LinkedMode and (Form.Plan.GroupCount=1) and
           not TButton(Form.FindComponent('btnApplyBookDuplicates')).Visible,
-          'Linked copy scan did not open the separate deletion view');
+          'Unified scan did not select the linked results when they were the only matches');
         var Copies:=TListView(Form.FindComponent('lvDuplicateCopies'));
-        Require(Copies.Checkboxes and (Copies.Items.Count=4) and Copies.Items[0].Caption.EndsWith(' ★'),
+        Require(Copies.Checkboxes and (Copies.Items.Count=4) and (Copies.Items[0].Caption='Основная'),
           'Linked copy list did not distinguish the primary or hid an alternative');
         var Sources:=TComboBox(Form.FindComponent('cbDuplicatePreferredSource'));
-        Require(Sources.Items.Count=3,'Same-named sources with different roots or IDs were combined');
+        Require((Sources.Items.Count=4) and (Sources.Items[0]='Все источники'),
+          'Bulk choice is absent or same-named sources with different roots or IDs were combined');
+        TButton(Form.FindComponent('btnSelectDuplicateSource')).Click;
+        Require((Form.Plan.SelectedRemovedCount=3) and (Form.Plan.SelectedCount=1) and
+          (Copies.Items[1].Caption='К удалению') and (Copies.Items[2].Caption='К удалению') and
+          (Copies.Items[3].Caption='К удалению') and not Copies.Items[0].Checked,
+          'Marking all extra files did not include every source or put the primary at risk');
+        TButton(Form.FindComponent('btnClearDuplicateSelection')).Click;
         Sources.ItemIndex:=-1;
         for var I:=0 to Sources.Items.Count-1 do
           if EndsText(' · test:member',Sources.Items[I]) then Sources.ItemIndex:=I;
@@ -809,6 +881,15 @@ var Root: string;
         TButton(Form.FindComponent('btnSelectDuplicateSource')).Click;
         Require((Form.Plan.SelectedRemovedCount=1) and (Form.Plan.SelectedCount=1) and Copies.Items[2].Checked and
           not Copies.Items[1].Checked and not Copies.Items[3].Checked,'Source marking selected another source');
+        var Groups:=TListView(Form.FindComponent('lvDuplicateGroups'));
+        Require((Groups.Items[0].SubItems[1]='1') and (Form.Plan.Groups(0,50)[0].SelectedCopies=1),
+          'Marked copy count differs between the list and the plan');
+        var ResultKind:=TComboBox(Form.FindComponent('cbDuplicateResultKind'));
+        ResultKind.ItemIndex:=0; ResultKind.OnChange(ResultKind);
+        Require(not Form.Plan.LinkedMode and Form.Plan.Ready,'Switching results started another scan');
+        ResultKind.ItemIndex:=1; ResultKind.OnChange(ResultKind);
+        Require(Form.Plan.LinkedMode and (Groups.Items[0].SubItems[1]='1'),
+          'Switching results lost the number of marked copies');
         Copies.Items[0].Checked:=True;
         Copies.OnItemChecked(Copies,Copies.Items[0]);
         Require(not Copies.Items[0].Checked and (Form.Plan.SelectedRemovedCount=1),'Primary file can be selected for deletion');
@@ -819,20 +900,22 @@ var Root: string;
         DialogProbe.Accept:=False; DialogProbe.Count:=0; DialogProbe.DefaultNo:=False;
         Timer.Enabled:=True;
         try DeleteButton.Click; finally Timer.Enabled:=False; end;
-        Require((DialogProbe.Count=1) and DialogProbe.DefaultNo and (Form.FileDeletion.Removed.CollectionID=0),
+        Require((DialogProbe.Count=1) and DialogProbe.DefaultNo and
+          not Assigned(Form.TakeDeletionOperation(Settings.SystemFileName[sfSystemDB],Stage+'journal')),
           'Declining linked deletion accepted a binding');
         DialogProbe.Accept:=True; DialogProbe.Count:=0;
         Timer.Enabled:=True;
         try DeleteButton.Click; finally Timer.Enabled:=False; end;
-        Selection:=Form.FileDeletion;
-        Require((DialogProbe.Count=1) and Selection.Removed.RemovesCopies and
-          (Length(Selection.Removed.SourceKeys)=2),'Normal duplicate dialog did not prepare the linked file selection');
+        Operation:=Form.TakeDeletionOperation(Settings.SystemFileName[sfSystemDB],Stage+'journal');
+        Require((DialogProbe.Count=1) and Assigned(Operation),'Normal duplicate dialog did not prepare the linked file selection');
         Writeln('PASS linked duplicate dialog selects individual files and one source, protects the primary, and confirms deletion');
       finally Form.Free; end;
     end
     else
+    begin
       Selection.Removed:=TBookDeletionBinding.CaptureCopies(Info,[Member,Loose],[Primary,Primary],['test:member','test:loose']);
-    Operation:=TBookDeletionOperation.CreateDuplicateRemoval(Selection,Settings.SystemFileName[sfSystemDB],Stage+'journal');
+      Operation:=TBookDeletionOperation.CreateDuplicateRemoval(Selection,Settings.SystemFileName[sfSystemDB],Stage+'journal');
+    end;
     try
       Operation.ReviewArchives:=Kind='cancel';
       if Kind='resume' then
@@ -895,13 +978,14 @@ begin
   try
     CaseCheck('archive','');
     CaseCheck('batched','');
+    CaseCheck('combined','');
     CaseCheck('loose','');
     CaseCheck('missing','сохраняемой копии недоступен');
     CaseCheck('alias','указывают на один файл');
     CaseCheck('shared','Файл нужен другой записи');
-    CaseCheck('personal','появились личные данные');
-    CaseCheck('alternate','связаны дополнительные копии');
-    CaseCheck('stale','Запись книги изменилась');
+    CaseCheck('personal','');
+    CaseCheck('alternate','');
+    CaseCheck('stale','');
     Writeln('PASS duplicate file removal explicit confirmation retains exact books and rejects missing, shared, protected and stale sources');
     for var Kind in ['ok','shared','missing-primary','cancel','resume'] do CheckLinkedCopies(Kind);
     Writeln('PASS linked duplicate deletion removes loose and archived files, protects the main card and unselected sources, and cancels before writing');
@@ -973,12 +1057,12 @@ begin
 end;
 
 procedure TestLinkedDuplicateMassRemoval;
-const CopyCount = MAX_LINKED_DUPLICATE_SELECTION;
+const CopyCount = LINKED_DUPLICATE_BATCH_SIZE + 2;
   FullCount = 2500;
   Neighbours = 100;
 var Root, KeptArchive, FullArchive, SharedArchive, KeptHash: string;
   Collection: IBookCollection; Info: TCollectionInfo; DB: TSQLiteDatabase;
-  Plan: TBookDuplicatePlan; Selection: TDuplicateFileDeletion;
+  Plan, NoRegularPlan: TBookDuplicatePlan;
   Operation: TBookDeletionOperation; State: TBookDeletionOperationStatus;
   Zip: TZipFile; CID: Integer; Started: UInt64; Primary: TBookRecord;
 
@@ -1036,9 +1120,9 @@ begin
   try
     Plan.PreviewLinked;
     Require(Plan.SelectSource('Mass source')=CopyCount,'Could not mark the complete mass source');
-    Selection:=Plan.PrepareFileDeletion(Info,nil);
+    NoRegularPlan:=nil;
+    Operation:=TBookDeletionOperation.CreateDuplicateCleanup(NoRegularPlan,Plan,CID,Settings.SystemFileName[sfSystemDB],Root+'journal');
   finally Plan.Free; end;
-  Operation:=TBookDeletionOperation.CreateDuplicateRemoval(Selection,Settings.SystemFileName[sfSystemDB],Root+'journal');
   try
     Started:=GetTickCount64;
     Operation.Start;
@@ -1050,7 +1134,7 @@ begin
     end;
     Operation.WaitFor; State:=Operation.Status;
     Require((State.Error='') and (State.CleanupWarning='') and (State.PendingJournal='') and
-      (State.CompletedBooks=0) and (State.CompletedCopies=CopyCount),'Mass linked deletion failed: '+State.Error);
+      (State.CompletedBooks=0) and (State.CompletedCopies=CopyCount) and (State.DuplicateBatch=2),'Mass linked deletion failed: '+State.Error);
     Writeln('PROFILE linked file deletion copies=',State.CompletedCopies,' ms=',GetTickCount64-Started);
   finally Operation.Free; end;
   Require(not FileExists(FullArchive) and not FileExists(Root+'extra'+IntToStr(CopyCount)+'.fb2') and
@@ -1076,7 +1160,7 @@ begin
       (Collection.GetReview(Primary.BookKey)='Keep the review after bulk deletion'),
       'Mass deletion lost a main card, its review, or the other source');
   finally DB.Free; end;
-  Writeln('PASS mass linked deletion removes 5000 copies across two ZIPs and a loose file while retaining primary cards and unselected bytes');
+  Writeln('PASS mass linked deletion removes 5002 copies across two ZIPs and a loose file while retaining primary cards and unselected bytes');
   TestLargeOrdinaryDuplicateBatches;
 end;
 
@@ -1125,12 +1209,15 @@ begin
           if Chosen='' then Chosen:=Name;
         end;
       Require(Count>=2,'Actual catalogue did not separate the repeated fb2_local source names');
-      Require(Plan.SelectSource(Chosen)=MAX_LINKED_DUPLICATE_SELECTION,'Actual catalogue could not stage a full linked batch');
+      var Selected:=Plan.SelectSource(Chosen);
+      Require(Selected>=LINKED_DUPLICATE_BATCH_SIZE,'Actual catalogue could not stage a full linked batch');
       var Info:=Default(TCollectionInfo);
       Info.ID:=CID; Info.DBFileName:=CatalogFile; Info.RootFolder:=Root; Info.CollectionType:=CT_EXTERNAL_LOCAL_FB;
-      var Selection:=Plan.PrepareFileDeletion(Info,nil);
-      var Copies:=Selection.Removed.ExpectedBooks;
-      Require(Length(Copies)=MAX_LINKED_DUPLICATE_SELECTION,'Actual linked batch did not bind all marked copies');
+      var Staged:=0;
+      Plan.PrepareLinkedBatches(Info,nil,procedure(Current,Total: Integer) begin Staged:=Current; end);
+      var Copies:=Plan.LinkedDeletionBatch(1).ExpectedBooks;
+      Require((Staged=Selected) and (Length(Copies)>0) and (Length(Copies)<=LINKED_DUPLICATE_BATCH_SIZE),
+        'Actual linked batches did not bind the entire selection in bounded batches');
       var ChosenRoot:=ExcludeTrailingPathDelimiter(Copies[0].CollectionRoot);
       Require(Chosen.Contains(ChosenRoot),'The batch does not belong to the displayed source root');
       for var Book in Copies do
@@ -1138,7 +1225,7 @@ begin
           'An identically named source from a different path entered the selected batch');
       Writeln('PROFILE readonly linked duplicate scan rows=',Plan.Scanned,' groups=',Plan.GroupCount,
         ' ms=',Watch.ElapsedMilliseconds,' sampled_private_growth_bytes=',Peak-Baseline,' matching_sources=',Count);
-      Writeln('PASS actual read-only catalogue distinguishes fb2_local sources and stages 5000 exact copies from one root');
+      Writeln('PASS actual read-only catalogue distinguishes fb2_local sources and stages the entire selection from one root');
       Exit;
     end;
     Writeln('PROFILE readonly duplicate scan rows=',Plan.Scanned,' groups=',Plan.GroupCount,

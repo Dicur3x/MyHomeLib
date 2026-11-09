@@ -1994,6 +1994,8 @@ object frmSettings: TfrmSettings
     Align = alLeft
     HideSelection = False
     Indent = 19
+    ReadOnly = True
+    RightClickSelect = True
     RowSelect = True
     TabOrder = 0
     OnChange = tvSectionsChange

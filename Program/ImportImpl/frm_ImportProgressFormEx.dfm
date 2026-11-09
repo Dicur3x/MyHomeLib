@@ -58,6 +58,17 @@ inherited ImportProgressFormEx: TImportProgressFormEx
     Visible = False
     OnClick = btnSaveLogClick
   end
+  object btnUpdatedBooks: TButton
+    Left = 94
+    Top = 333
+    Width = 154
+    Height = 25
+    Anchors = [akLeft, akBottom]
+    Caption = #1055#1086#1082#1072#1079#1072#1090#1100#32#1085#1086#1074#1099#1077#32#1082#1085#1080#1075#1080
+    ModalResult = 6
+    TabOrder = 4
+    Visible = False
+  end
   object Timer: TTimer
     Enabled = False
     Interval = 10000

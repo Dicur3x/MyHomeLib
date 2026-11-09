@@ -579,6 +579,7 @@ var IDs: TArray<Integer>; GroupID: Integer; Tree: TBookTree; Item: TMenuItem;
   Layout: TColumns; Column: Integer; CellText: string;
   Hit: TVTHeaderHitInfo; LeftEdge, RightEdge: TDimension;
   Ini: TMemIniFile; Stored: TBookRecord; Opened: TDateTime;
+  SavedPPI: Integer; SavedScaled: Boolean;
 
   procedure RequireOrder(const Expected: array of Integer);
   var Node: PVirtualNode; Book: PBookRecord;
@@ -661,6 +662,56 @@ begin
     Item.OnClick(Item);
     Require(not Item.Checked and (MBCColumn(Tree,COL_PROGRESS)<0), 'Progress column could not be hidden');
   finally Layout.Free; end;
+  SavedPPI:=frmMain.CurrentPPI;
+  SavedScaled:=frmMain.Scaled;
+  try
+    for var DPI in [96,144,192] do
+    begin
+      frmMain.Scaled:=True;
+      frmMain.ScaleForPPI(DPI);
+      // The monitor stays at its real DPI. Use VCL's scaled control values
+      // for this private desktop simulation of a different monitor.
+      frmMain.Scaled:=False;
+      Require((Tree.CurrentPPI=DPI) and (Tree.Font.PixelsPerInch=DPI),
+        'Progress test did not scale the actual search tree');
+      MBCRefreshMenu;
+      Item:=MBCMenu(COL_PROGRESS);
+      Item.OnClick(Item);
+      Column:=MBCColumn(Tree,COL_PROGRESS);
+      Require(Column>=0,'Progress column could not be added at the new scale');
+      var ProgressColumn:=Tree.Header.Columns[Column];
+      Require(ProgressColumn.Width=MulDiv(86,DPI,96),'New progress column lost its full-width default');
+      ProgressColumn.Width:=1;
+      Require((ProgressColumn.Width=MulDiv(52,DPI,96)) and (coResizable in ProgressColumn.Options),
+        'Progress column cannot be shrunk to its compact width');
+      var Node:=MBCNode(Tree,IDs[2]);
+      var TextBounds:=Tree.GetDisplayRect(Node,Column,True,True,True);
+      var ClippedBounds:=Tree.GetDisplayRect(Node,Column,True,False,True);
+      Require((TextBounds.Width>0) and (TextBounds.Width<=ClippedBounds.Width),
+        '100% is clipped in the narrow progress cell');
+
+      Layout:=TColumns.Create(Settings.SystemFileName[sfColumnsStore],Tree.CurrentPPI);
+      try
+        Layout.GetColumns(Tree.Header.Columns);
+        Layout.Save(SECTION_SR_FLAT);
+        Layout.Load(SECTION_SR_FLAT,tmFlat);
+        Layout.SetColumns(Tree.Header.Columns);
+      finally Layout.Free; end;
+      Column:=MBCColumn(Tree,COL_PROGRESS);
+      Require(Column>=0,'Compact progress column was lost on reload');
+      ProgressColumn:=Tree.Header.Columns[Column];
+      Require((ProgressColumn.Width=MulDiv(52,DPI,96)) and (ProgressColumn.MinWidth=ProgressColumn.Width),
+        'Saved compact width or its resize limit changed on reload');
+      MBCRefreshMenu;
+      Item:=MBCMenu(COL_PROGRESS);
+      Item.OnClick(Item);
+      Writeln('PASS compact reading progress fits 100% and reloads at DPI ',DPI);
+    end;
+  finally
+    frmMain.Scaled:=True;
+    frmMain.ScaleForPPI(SavedPPI);
+    frmMain.Scaled:=SavedScaled;
+  end;
   Writeln('PASS reading progress from catalogue and group sorts numerically and restores optional column'); Flush(Output);
 end;
 

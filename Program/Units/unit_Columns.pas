@@ -56,6 +56,7 @@ type
   private
     FIniFile: TIniFile;
     FMode: TTreeMode;
+    FPixelsPerInch: Integer;
 
     function GetColumn(Index: Integer): TColumnDesc;
     procedure SetColumn(Index: Integer; const Value: TColumnDesc);
@@ -65,7 +66,7 @@ type
     procedure LoadDefault(const Section: string);
 
   public
-    constructor Create(const FileName: string);
+    constructor Create(const FileName: string; PixelsPerInch: Integer = 0);
     destructor Destroy; override;
 
     procedure Add(const Tag: Integer; const Width: Integer; const Position: Integer);
@@ -87,7 +88,8 @@ procedure GetDefaultColumnProperties(
   out MinWidth: Integer;
   out MaxWidth: Integer;
   out Alignment: TAlignment;
-  out Options: TVTColumnOptions
+  out Options: TVTColumnOptions;
+  PixelsPerInch: Integer = 0
   );
 
 implementation
@@ -98,9 +100,10 @@ uses
   unit_Consts,
   unit_Helpers;
 
-function S(Value: Integer): Integer; inline;
+function S(Value: Integer; PixelsPerInch: Integer = 0): Integer; inline;
 begin
-  Result := MulDiv(Value, Screen.PixelsPerInch, 96);
+  if PixelsPerInch = 0 then PixelsPerInch := Screen.PixelsPerInch;
+  Result := MulDiv(Value, PixelsPerInch, 96);
 end;
 
 resourcestring
@@ -140,7 +143,8 @@ procedure GetDefaultColumnProperties(
   out MinWidth: Integer;
   out MaxWidth: Integer;
   out Alignment: TAlignment;
-  out Options: TVTColumnOptions
+  out Options: TVTColumnOptions;
+  PixelsPerInch: Integer
   );
 var
   Fix: TVTColumnOptions;
@@ -236,8 +240,8 @@ begin
     COL_PROGRESS:
       begin
         Caption := rstrProgress;
-        MaxWidth := S(200);
-        MinWidth := S(86);
+        MaxWidth := S(200, PixelsPerInch);
+        MinWidth := S(52, PixelsPerInch);
         Alignment := taCenter;
         Options := Rez;
       end;
@@ -326,10 +330,11 @@ begin
 end;
 
 
-constructor TColumns.Create(const FileName: string);
+constructor TColumns.Create(const FileName: string; PixelsPerInch: Integer);
 begin
   inherited Create(TColumnDesc);
   FIniFile := TIniFile.Create(FileName);
+  FPixelsPerInch := PixelsPerInch;
 end;
 
 destructor TColumns.Destroy;
@@ -349,7 +354,8 @@ begin
       Column.Tag := Tag;
       Column.Width := Width;
       Column.Position := Position;
-      GetDefaultColumnProperties(FMode, Tag, Column.FCaption, Column.FMinWidth, Column.FMaxWidth, Column.FAlignment, Column.FOptions);
+      GetDefaultColumnProperties(FMode, Tag, Column.FCaption, Column.FMinWidth,
+        Column.FMaxWidth, Column.FAlignment, Column.FOptions, FPixelsPerInch);
     except
       Column.Free;
       raise ;

@@ -10,13 +10,14 @@ type
     Stage, Archive, Error, RequiredComponent, PendingJournal, CleanupWarning: string;
     CollectionName: string;
     CollectionIndex, CollectionCount: Integer;
-    DuplicateBatch, SelectedDuplicates: Integer;
+    DuplicateBatch, SelectedDuplicates, SkippedDuplicates: Integer;
     Done, Total: Int64;
     MoveBytes, JournalBytes: Int64;
     CompanionCount: Integer;
     ArchiveIndex, ArchiveCount, CompletedBooks, CompletedCopies: Integer;
     Stopping, Finished, AwaitingArchiveConfirmation: Boolean;
     AffectedCollections: TArray<Integer>;
+    SkippedDuplicateDetails: TArray<string>;
     function CatalogueChanged: Boolean;
     function AffectsCollection(CollectionID: Integer): Boolean;
   end;
@@ -33,7 +34,8 @@ type
   private
     FBinding, FRetainedDuplicates: TBookDeletionBinding;
     FBatch: TArray<TBookDeletionBatchItem>;
-    FDuplicatePlan: TBookDuplicatePlan;
+    FDuplicatePlan, FLinkedDuplicatePlan: TBookDuplicatePlan;
+    FDuplicateCleanup: Boolean;
     FDuplicateCollectionID: Integer;
     FJournalRoot, FUserFile: string;
     FReviewFiles: TArray<string>;
@@ -62,6 +64,8 @@ type
     constructor CreateDuplicateRemoval(const Selection: TDuplicateFileDeletion; const UserFile, JournalRoot: string);
     constructor CreateDuplicateBatches(var Plan: TBookDuplicatePlan; CollectionID: Integer;
       const UserFile, JournalRoot: string);
+    constructor CreateDuplicateCleanup(var RegularPlan, LinkedPlan: TBookDuplicatePlan;
+      CollectionID: Integer; const UserFile, JournalRoot: string);
     constructor Recover(const UserFile, JournalRoot: string);
     destructor Destroy; override;
     procedure RequestStop;
@@ -207,17 +211,79 @@ begin
   Plan:=nil;
 end;
 
+constructor TBookDeletionOperation.CreateDuplicateCleanup(var RegularPlan, LinkedPlan: TBookDuplicatePlan;
+  CollectionID: Integer; const UserFile, JournalRoot: string);
+begin
+  CreateDuplicateBatches(RegularPlan,CollectionID,UserFile,JournalRoot);
+  FDuplicateCleanup:=True;
+  FLinkedDuplicatePlan:=LinkedPlan;
+  LinkedPlan:=nil;
+end;
+
 procedure TBookDeletionOperation.RunDuplicateBatches(const User: ISystemData);
 var Cursor: TDuplicateDeletionCursor; Batch: TDuplicateFileDeletion; Info: TCollectionInfo;
+  RegularCount, LinkedCount, LinkedBatch: Integer;
+
+  procedure RunSelectedBatch(const Selection: TDuplicateFileDeletion);
+  begin
+    TMonitor.Enter(FLock);
+    try Inc(FState.DuplicateBatch); finally TMonitor.Exit(FLock); end;
+    FBinding:=Selection.Removed;
+    FRetainedDuplicates:=Selection.Retained;
+    RunRemoval(User);
+  end;
+
 begin
   Info:=User.GetCollectionInfo(FDuplicateCollectionID);
+  RegularCount:=0; LinkedCount:=0;
+  if Assigned(FDuplicatePlan) then
+  begin
+    RegularCount:=FDuplicatePlan.SelectedRemovedCount;
+    if RegularCount=0 then FDuplicatePlan.DiscardPreview;
+  end;
+  if Assigned(FLinkedDuplicatePlan) then
+  begin
+    LinkedCount:=FLinkedDuplicatePlan.SelectedRemovedCount;
+    if LinkedCount=0 then FLinkedDuplicatePlan.DiscardPreview;
+  end;
   TMonitor.Enter(FLock);
-  try FState.SelectedDuplicates:=FDuplicatePlan.SelectedRemovedCount;
+  try FState.SelectedDuplicates:=RegularCount+LinkedCount;
   finally TMonitor.Exit(FLock); end;
-  Report('Проверка выбранных дублей и личных данных','',0,0);
-  FDuplicatePlan.PrepareDeletionBatches(Info,function:Boolean begin Result:=Stopping; end,
-    procedure(Current,Total: Integer)
-    begin Report('Проверка выбранных дублей и личных данных','',0,0,Current,Total); end);
+  if LinkedCount>0 then
+  begin
+    Report('Проверка отмеченных дополнительных файлов','',0,0);
+    FLinkedDuplicatePlan.PrepareLinkedBatches(Info,function:Boolean begin Result:=Stopping; end,
+      procedure(Current,Total: Integer)
+      begin Report('Проверка отмеченных дополнительных файлов','',0,0,Current,Total); end);
+  end;
+  if RegularCount>0 then
+  begin
+    Report('Проверка повторных карточек и личных данных','',0,0);
+    FDuplicatePlan.PrepareDeletionBatches(Info,function:Boolean begin Result:=Stopping; end,
+      procedure(Current,Total: Integer)
+      begin Report('Проверка повторных карточек и личных данных','',0,0,Current,Total); end,
+      FLinkedDuplicatePlan,FDuplicateCleanup);
+    TMonitor.Enter(FLock);
+    try
+      FState.SkippedDuplicates:=FDuplicatePlan.SkippedCopies;
+      FState.SkippedDuplicateDetails:=FDuplicatePlan.SkippedDetails;
+    finally TMonitor.Exit(FLock); end;
+  end;
+  // Remove explicitly selected alternatives before their owning cards. Each
+  // binding is checked again against the live catalogue before changing a file.
+  if LinkedCount>0 then
+  begin
+    LinkedBatch:=1;
+    while not Stopping do
+    begin
+      Batch:=Default(TDuplicateFileDeletion);
+      Batch.Removed:=FLinkedDuplicatePlan.LinkedDeletionBatch(LinkedBatch);
+      if Batch.Removed.CollectionID=0 then Break;
+      RunSelectedBatch(Batch);
+      Inc(LinkedBatch);
+    end;
+  end;
+  if RegularCount=0 then Exit;
   Cursor:=Default(TDuplicateDeletionCursor);
   while not Stopping do
   begin
@@ -225,11 +291,7 @@ begin
     Info:=User.GetCollectionInfo(FDuplicateCollectionID);
     Batch:=FDuplicatePlan.NextDeletionBatch(Info,Cursor,function:Boolean begin Result:=Stopping; end);
     if Batch.Removed.CollectionID=0 then Break;
-    TMonitor.Enter(FLock);
-    try Inc(FState.DuplicateBatch); finally TMonitor.Exit(FLock); end;
-    FBinding:=Batch.Removed;
-    FRetainedDuplicates:=Batch.Retained;
-    RunRemoval(User);
+    RunSelectedBatch(Batch);
   end;
 end;
 
@@ -331,6 +393,7 @@ destructor TBookDeletionOperation.Destroy;
 begin
   RequestStop;
   inherited;
+  FLinkedDuplicatePlan.Free;
   FDuplicatePlan.Free;
   FLock.Free;
 end;
@@ -707,7 +770,7 @@ begin
       if not FileExists(FUserFile) then raise EReadError.Create('База коллекций не найдена.');
       User:=TSystemData_SQLite.Create(FUserFile);
       if FRecovery then RunRecovery(User)
-      else if Assigned(FDuplicatePlan) then RunDuplicateBatches(User)
+      else if Assigned(FDuplicatePlan) or Assigned(FLinkedDuplicatePlan) then RunDuplicateBatches(User)
       else if Length(FBatch)>0 then RunBatch(User)
       else RunRemoval(User);
     except

@@ -53,6 +53,24 @@ class Book:
         self.image_export = image_export if not reading else None
         self.scan_export = None
 
+    def scan_processor(self):
+        if self.scan_export is None:
+            import importlib.util
+            spec = importlib.util.spec_from_file_location('homelib_scan_export', Path(__file__).with_name('scan_export.py'))
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            self.scan_export = module.ScanExport(self, self.image_export)
+        return self.scan_export
+
+    def fixed_illustration(self, data):
+        if self.image_export:
+            profile = self.image_export['profile']
+            if self.scan_export is not None and self.scan_export.chosen:
+                profile = self.scan_export.profile
+            if profile != 'ask' and (profile not in {'original', 'high'} or self.image_export.get('grayscale')):
+                return self.scan_processor().add_illustration(data)
+        return self.image(data)
+
     def scan_page(self, data, number, total=0):
         if self.image_export:
             if (self.image_export['profile'] in {'original','high'} and self.image_export.get('layout','keep')=='keep'
@@ -61,12 +79,7 @@ class Book:
                 # Keeping it untouched requires no separate image processor.
                 self.image_export['handled']=True
             else:
-                if self.scan_export is None:
-                    import importlib.util
-                    spec=importlib.util.spec_from_file_location('homelib_scan_export',Path(__file__).with_name('scan_export.py'))
-                    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
-                    self.scan_export=module.ScanExport(self,self.image_export)
-                self.scan_export.add(data,number,total)
+                self.scan_processor().add(data,number,total)
                 return
         section=self.el('section',id='page-'+str(number));self.body.append(section)
         section.append(self.el('h2','Страница '+str(number)))
@@ -105,6 +118,8 @@ class Book:
         if key not in self.images:
             self.total += len(data)
             if self.total > self.c.MAX_TOTAL:
+                if self.image_export and self.image_export['profile'] in {'original', 'high', 'balanced', 'economy'}:
+                    self.fail('Изображения книги превышают предел конвертации. Выберите более сильное сжатие изображений или сохраните книгу в исходном формате.')
                 self.fail('Иллюстрации книги превышают предел конвертации.')
             path = 'images/' + key[:32] + match[2]
             self.resources[path] = (data, match[1]); self.images[key] = path
@@ -455,10 +470,64 @@ class Package:
         return result
 
 
+def read_docx_body(book, package, consume):
+    """Read one top-level body block at a time, including its nested runs."""
+    class BodyParser:
+        depth = nodes = block_nodes = 0
+        seen_body = in_body = False
+        block = None
+
+        def start(self, tag, attrs):
+            self.depth += 1
+            self.nodes += 1
+            if self.depth > 129 or self.nodes > 2000000:
+                book.fail('XML книги слишком сложен для конвертации.')
+            if self.depth == 2 and tag == '{' + W + '}body':
+                if self.seen_body: book.fail('В DOCX повторяется основной текст.')
+                self.seen_body = self.in_body = True
+            if self.in_body and self.depth == 3:
+                self.block = ET.TreeBuilder()
+                self.block_nodes = 0
+            if self.block is not None:
+                self.block_nodes += 1
+                if self.block_nodes > 500000:
+                    book.fail('Один блок DOCX слишком сложен для конвертации.')
+                self.block.start(tag, attrs)
+
+        def end(self, tag):
+            if self.block is not None:
+                self.block.end(tag)
+                if self.depth == 3:
+                    consume(self.block.close())
+                    self.block = None
+            if self.depth == 2: self.in_body = False
+            self.depth -= 1
+
+        def data(self, text):
+            if self.block is not None: self.block.data(text)
+
+        def doctype(self, name, public_id, system_id):
+            book.fail('Объявления DTD в DOCX не поддерживаются.')
+
+        def close(self):
+            if not self.seen_body: book.fail('В DOCX нет основного текста.')
+
+    part = 'word/document.xml'
+    if part not in package.names: book.fail('Не найден ресурс документа: ' + part)
+    parser = ET.XMLParser(target=BodyParser())
+    try:
+        with package.z.open(part) as source:
+            while chunk := source.read(65536):
+                parser.feed(chunk)
+        parser.close()
+    except (ET.ParseError, LookupError) as error:
+        book.fail('Некорректная структура XML: ' + str(error))
+
+
 def read_docx(book):
     p = Package(book); c = book.c
     try:
-        root = p.xml('word/document.xml'); styles = p.xml('word/styles.xml', True); props = p.xml('docProps/core.xml', True)
+        styles = p.xml('word/styles.xml', True); props = p.xml('docProps/core.xml', True)
         if props is not None:
             for n in props:
                 if c.tag(n) == 'title' and c.plain(n): book.title = c.plain(n)
@@ -472,7 +541,7 @@ def read_docx(book):
             for n in nums:
                 if c.tag(n) == 'abstractNum': abstract[val(n, 'abstractNumId')] = n
                 elif c.tag(n) == 'num': numbering[val(n, 'numId')] = val(n.find('{' + W + '}abstractNumId'))
-        counters = {}
+        counters = {}; relationships = {}
         def inherited(style_id, prop):
             result = []; seen = set()
             while style_id and style_id not in seen:
@@ -519,6 +588,18 @@ def read_docx(book):
                     identity = val(n, 'name')
                     if identity and identity != '_GoBack': dst.append(book.el('span', id=identity))
                 elif name in {'drawing', 'pict'}:
+                    # DocSharp may emit a standalone vertical rule anchored to
+                    # the page margin. It carries no picture or drawing text.
+                    if name == 'pict' and len(n) == 1:
+                        line = n[0]
+                        x1, sep1, y1 = line.get('from', '').partition(',')
+                        x2, sep2, y2 = line.get('to', '').partition(',')
+                        if (line.tag == '{urn:schemas-microsoft-com:vml}line' and not len(line) and
+                                not (line.text or '').strip() and sep1 and sep2 and x1.strip() == x2.strip() and
+                                y1.strip() != y2.strip() and re.search(r'(?:^|;)\s*mso-position-horizontal-relative:\s*margin\s*(?:;|$)',
+                                                                      line.get('style', ''), re.I)):
+                            book.warnings.add('Вертикальная линия на полях DOCX опущена при переносе страничной вёрстки.')
+                            continue
                     found = False
                     for image in n.iter():
                         identity = image.get('{' + R + '}embed') or image.get('{' + R + '}id')
@@ -534,7 +615,9 @@ def read_docx(book):
                 elif name in {'instrText', 'fldChar', 'footnoteRef', 'endnoteRef', 'lastRenderedPageBreak'}: continue
                 else: add_inline(n, dst, part, rels, paragraph_style)
         def block(src, dst, part):
-            rels = p.relationships(part)
+            if part not in relationships:
+                relationships[part] = p.relationships(part)
+            rels = relationships[part]
             for n in src:
                 name = c.tag(n)
                 if name == 'p':
@@ -568,9 +651,7 @@ def read_docx(book):
                             if span is not None: td.set('colspan', val(span))
                 elif name in {'sdt', 'sdtContent', 'customXml', 'ins'}: block(n, dst, part)
                 elif name not in {'sectPr', 'tcPr', 'sdtPr', 'tblPr', 'tblGrid'}: add_inline([n], dst, part, rels)
-        body = root.find('{' + W + '}body')
-        if body is None: book.fail('В DOCX нет основного текста.')
-        block(body, book.body, 'word/document.xml')
+        read_docx_body(book, p, lambda node: block([node], book.body, 'word/document.xml'))
         for kind, identity, anchor in notes:
             part = 'word/footnotes.xml' if kind == 'footnoteReference' else 'word/endnotes.xml'; nr = p.xml(part)
             note = next((n for n in nr if val(n, 'id') == identity), None)

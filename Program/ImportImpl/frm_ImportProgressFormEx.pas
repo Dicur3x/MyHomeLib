@@ -27,6 +27,7 @@ type
   TImportProgressFormEx = class(TImportProgressForm)
     errorLog: TListView;
     btnSaveLog: TButton;
+    btnUpdatedBooks: TButton;
     Timer: TTimer;
 
     procedure FormCreate(Sender: TObject);
@@ -35,6 +36,7 @@ type
     procedure TimerTimer(Sender: TObject);
   private
     FCloseOnTimer: boolean;
+    FOfferUpdatedBooks: Boolean;
     FErrors: TStringList;
     FFullErrorLogFileName: string;
     procedure DoCloseForm(Sender: TObject);
@@ -45,6 +47,7 @@ type
 
   public
     property CloseOnTimer: Boolean read FCloseOnTimer write FCloseOnTimer;
+    property OfferUpdatedBooks: Boolean read FOfferUpdatedBooks write FOfferUpdatedBooks;
     property FullErrorLogFileName: string read FFullErrorLogFileName write FFullErrorLogFileName;
     procedure SaveErrorLog(AFileName: string);
   end;
@@ -55,7 +58,7 @@ var
 implementation
 
 uses
-  unit_Helpers, System.IOUtils;
+  unit_Helpers, System.IOUtils, unit_CollectionWorkerThread;
 
 resourcestring
   rstrClose = 'Закрыть';
@@ -81,6 +84,16 @@ begin
     btnSaveLog.Visible := True;
   btnCancel.OnClick := DoCloseForm;
   btnCancel.Caption := rstrClose;
+  if FOfferUpdatedBooks and (WorkerThread is TCollectionWorker) then
+  begin
+    var Update:=TCollectionWorker(WorkerThread);
+    if Update.Success and Update.CommittedChanges and not Update.Canceled then
+    begin
+      Constraints.MinWidth:=ScaleValue(400);
+      if Width<Constraints.MinWidth then Width:=Constraints.MinWidth;
+      btnUpdatedBooks.Visible:=True;
+    end;
+  end;
   Timer.Enabled := FCloseOnTimer;
 end;
 

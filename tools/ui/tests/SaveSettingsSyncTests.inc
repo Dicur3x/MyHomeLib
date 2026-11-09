@@ -10,6 +10,20 @@ var SavedINI: TBytes; Root, FirstFolder, ChosenFolder, FB2, TXT: string;
     try Callback(Ini); Ini.UpdateFile; finally Ini.Free; end;
     Settings.LoadSettings;
   end;
+  procedure RenameSection(const Value: string);
+  begin
+    Probe:=TFCTModalProbe.Create('TInputQueryForm','Переименовать раздел',
+      procedure(Popup: TForm)
+      begin
+        for var I:=0 to Popup.ControlCount-1 do
+          if Popup.Controls[I] is TEdit then TEdit(Popup.Controls[I]).Text:=Value;
+        Popup.ModalResult:=mrOk;
+      end);
+    try
+      Form.tvSections.PopupMenu.Items[0].Click;
+      Require(Probe.Completed,'Settings section rename prompt did not open');
+    finally FreeAndNil(Probe); end;
+  end;
   procedure ApplyForm(Index: Integer; Folders: Boolean; const Destination, Mask: string);
   begin
     Form:=TfrmSettings.Create(nil);
@@ -100,6 +114,30 @@ begin
       (Settings.FolderTemplate='') and not Settings.SaveAsKeepSourceFormat,
       'Migration lost the disabled mask or an existing Kindle default');
     Writeln('PASS save settings migration preserves legacy choices and unifies remembered destination and active folder policy');
+
+    Form:=TfrmSettings.Create(nil);
+    try
+      Form.LoadSetting;
+      Form.tvSections.Selected:=Form.tvSections.Items[0];
+      var DefaultSectionName:=Form.tvSections.Selected.Text;
+      Require(Form.tvSections.ReadOnly,'Settings sections allow accidental inline editing');
+      RenameSection('Мои папки');
+      Require(Form.tvSections.Selected.Text='Мои папки','Rename did not update the selected section');
+      Require(Form.pcSetPages.ActivePage=Form.tsDevices,'Renaming changed the selected settings page');
+      Require(Settings.SettingsPageNames.Values[Form.tsDevices.Name]='','Unsaved rename changed the stored settings');
+      Form.SaveSettings;
+      Settings.SaveSettings;
+      Settings.LoadSettings;
+      FreeAndNil(Form);
+      Form:=TfrmSettings.Create(nil);
+      Form.LoadSetting;
+      Form.tvSections.Selected:=Form.tvSections.Items[0];
+      Require(Form.tvSections.Selected.Text='Мои папки','Saved section name did not survive reopening');
+      RenameSection('');
+      Require(Form.tvSections.Selected.Text=DefaultSectionName,'Empty name did not restore the default');
+      Form.SaveSettings;
+    finally FreeAndNil(Form); end;
+    Writeln('PASS settings sections only rename explicitly, persist when saved and restore defaults');
 
     for var Index:=0 to 6 do
     begin

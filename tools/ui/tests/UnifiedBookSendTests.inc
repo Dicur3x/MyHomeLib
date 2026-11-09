@@ -509,7 +509,8 @@ var Root, SourceFB2, SourceEPUB, ImageFile, XML, SavedFolder, SavedFile, SavedDe
   end;
 
   procedure Run(const Name: string; FormatIndex, ImageIndex: Integer; RemoveImages, ExactCopy: Boolean;
-    CancelOptions: Boolean=False; CancelQuality: Boolean=False; MTP: Boolean=False; Grayscale: Boolean=False);
+    CancelOptions: Boolean=False; CancelQuality: Boolean=False; MTP: Boolean=False; Grayscale: Boolean=False;
+    const OpenOptions: TProc=nil);
   var Outputs: TArray<string>; Document: TReaderDocument; Target, ExpectedExt: string;
     Zip: TZipFile; Bytes: TBytes;
   begin
@@ -519,7 +520,7 @@ var Root, SourceFB2, SourceEPUB, ImageFile, XML, SavedFolder, SavedFile, SavedDe
     Probe.Dialogs:=0; Probe.QualityDialogs:=0; Probe.Results:=nil; Probe.Worker:=nil;
     Probe.CancelOptions:=CancelOptions; Probe.CancelQuality:=CancelQuality; Probe.ShellSurrogate:=MTP;
     Probe.Failure:=''; Probe.Messages.Clear; Probe.Deadline:=GetTickCount64+180000; Probe.Timer.Enabled:=True;
-    frmMain.pmiSendToDevice.Click;
+    if Assigned(OpenOptions) then OpenOptions() else frmMain.pmiSendToDevice.Click;
     Probe.Timer.Enabled:=False; Probe.Worker:=nil;
     Require(Probe.Failure='',Probe.Failure);
     Require(Probe.Dialogs=1,'Public send did not open exactly one combined options dialog');
@@ -711,6 +712,11 @@ begin
     for var Parent in TArray<TMenuItem>.Create(frmMain.pmiScripts,frmMain.mmiScripts,frmMain.pmScripts.Items) do
       for var Item in Parent do Require((Item.Tag<850) or (Item.Tag>856),'Duplicate built-in conversion remains in a menu');
     Run('cancel-options',0,0,False,False,True);
+    Run('cancel-toolbar-options',0,0,False,False,True,False,False,False,
+      procedure begin frmMain.tbSendToDevice.Click; end);
+    Run('cancel-book-menu-options',0,0,False,False,True,False,False,False,
+      procedure begin frmMain.miDevice.Click; end);
+    Writeln('PASS Save As toolbar, Book menu and context preserve both marks on cancel');
     Run('source-as-is',0,0,False,True);
     Run('source-no-images',0,BOOK_QUALITY_NONE,True,False);
     for var Quality in [1,2] do Run('source-compressed-'+IntToStr(Quality),0,Quality,False,False);

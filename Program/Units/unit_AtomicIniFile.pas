@@ -14,7 +14,7 @@ procedure SaveStreamAtomically(Source: TStream; const FileName: string);
 
 implementation
 
-uses Winapi.Windows, System.SysUtils;
+uses Winapi.Windows, System.SysUtils, unit_ProgramUpdatePaths;
 
 procedure RaiseIniSaveError(Code: DWORD; const FileName, RecoveryFile: string);
 var Error: EOSError; Details: string;
@@ -31,7 +31,7 @@ begin Result := (Code = ERROR_FILE_NOT_FOUND) or (Code = ERROR_PATH_NOT_FOUND); 
 procedure SaveMemIniFileAtomically(Ini: TMemIniFile);
 var
   Lines: TStringList; Encoding: TEncoding; Stream: THandleStream;
-  ID: TGUID; Target, Temporary, Backup, Recovery: string;
+  ID: TGUID; Target, TargetIO, Temporary, Backup, Recovery: string;
   Handle: THandle; Attributes, Code, TargetError: DWORD;
   OwnTemporary, OwnBackup: Boolean;
 begin
@@ -41,8 +41,11 @@ begin
   if Ini.FileName = '' then raise EArgumentException.Create('Не указан файл настроек.');
   Target := ExpandFileName(Ini.FileName);
   if CreateGUID(ID) <> 0 then raise Exception.Create('Не удалось создать имя временного файла настроек.');
-  Temporary := Target + '.homelib-ini-' + GUIDToString(ID) + '.tmp';
-  Backup := Target + '.homelib-ini-' + GUIDToString(ID) + '.bak';
+  TargetIO := UpdateIOPath(Target);
+  // Sibling names do not repeat the destination name, which can already
+  // occupy a full Windows filename component.
+  Temporary := UpdateIOPath(ExtractFilePath(Target) + '.homelib-ini-' + GUIDToString(ID) + '.tmp');
+  Backup := ChangeFileExt(Temporary, '.bak');
   // CREATE_NEW below owns only this file. A pre-existing backup is never ours.
   Attributes := GetFileAttributes(PChar(Backup));
   if Attributes <> INVALID_FILE_ATTRIBUTES then RaiseIniSaveError(ERROR_FILE_EXISTS, Target, '');
@@ -65,13 +68,13 @@ begin
       if not FlushFileBuffers(Handle) then RaiseIniSaveError(GetLastError, Target, '');
     finally CloseHandle(Handle); end;
 
-    Attributes := GetFileAttributes(PChar(Target));
+    Attributes := GetFileAttributes(PChar(TargetIO));
     if Attributes = INVALID_FILE_ATTRIBUTES then
     begin
       Code := GetLastError;
       if not IsMissingFileError(Code) then RaiseIniSaveError(Code, Target, '');
       // If another writer creates the target meanwhile, do not overwrite it.
-      if not MoveFileEx(PChar(Temporary), PChar(Target), MOVEFILE_WRITE_THROUGH) then
+      if not MoveFileEx(PChar(Temporary), PChar(TargetIO), MOVEFILE_WRITE_THROUGH) then
         RaiseIniSaveError(GetLastError, Target, '');
     end
     else
@@ -80,15 +83,15 @@ begin
         RaiseIniSaveError(ERROR_ACCESS_DENIED, Target, '');
       // Preserve ACLs, alternate streams and the previous complete file. The
       // documented partial-rename failure is recoverable because Backup exists.
-      if not ReplaceFile(PChar(Target), PChar(Temporary), PChar(Backup), 0, nil, nil) then
+      if not ReplaceFile(PChar(TargetIO), PChar(Temporary), PChar(Backup), 0, nil, nil) then
       begin
         Code := GetLastError; Recovery := '';
         if GetFileAttributes(PChar(Backup)) <> INVALID_FILE_ATTRIBUTES then
         begin
-          Attributes := GetFileAttributes(PChar(Target)); TargetError := GetLastError;
+          Attributes := GetFileAttributes(PChar(TargetIO)); TargetError := GetLastError;
           Recovery := Backup;
           if (Attributes = INVALID_FILE_ATTRIBUTES) and IsMissingFileError(TargetError) then
-            if MoveFileEx(PChar(Backup), PChar(Target), MOVEFILE_WRITE_THROUGH) then Recovery := '';
+            if MoveFileEx(PChar(Backup), PChar(TargetIO), MOVEFILE_WRITE_THROUGH) then Recovery := '';
           // No replacement/deletion of a target that appeared during recovery.
           // A recovery backup is retained if it cannot be safely restored.
         end;
@@ -106,7 +109,7 @@ end;
 
 procedure SaveStreamAtomically(Source: TStream; const FileName: string);
 var
-  Stream: THandleStream; ID: TGUID; Target, Temporary, Backup, Recovery: string;
+  Stream: THandleStream; ID: TGUID; Target, TargetIO, Temporary, Backup, Recovery: string;
   Handle: THandle; Attributes, Code, TargetError: DWORD;
   OwnTemporary, OwnBackup: Boolean; Position, Count: Int64;
 
@@ -125,8 +128,9 @@ begin
   Target := ExpandFileName(FileName); Position := Source.Position; Count := Source.Size;
   if (Position < 0) or (Count < 0) then raise EReadError.Create('Неверное положение или размер сохраняемых данных.');
   if CreateGUID(ID) <> 0 then raise Exception.Create('Не удалось создать имя временного файла данных.');
-  Temporary := Target + '.homelib-data-' + GUIDToString(ID) + '.tmp';
-  Backup := Target + '.homelib-data-' + GUIDToString(ID) + '.bak';
+  TargetIO := UpdateIOPath(Target);
+  Temporary := UpdateIOPath(ExtractFilePath(Target) + '.homelib-data-' + GUIDToString(ID) + '.tmp');
+  Backup := ChangeFileExt(Temporary, '.bak');
   Attributes := GetFileAttributes(PChar(Backup));
   if Attributes <> INVALID_FILE_ATTRIBUTES then RaiseSaveError(ERROR_FILE_EXISTS, '');
   Code := GetLastError;
@@ -150,27 +154,27 @@ begin
       finally Stream.Free; end;
       if not FlushFileBuffers(Handle) then RaiseSaveError(GetLastError, '');
     finally CloseHandle(Handle); end;
-    Attributes := GetFileAttributes(PChar(Target));
+    Attributes := GetFileAttributes(PChar(TargetIO));
     if Attributes = INVALID_FILE_ATTRIBUTES then
     begin
       Code := GetLastError;
       if not IsMissingFileError(Code) then RaiseSaveError(Code, '');
-      if not MoveFileEx(PChar(Temporary), PChar(Target), MOVEFILE_WRITE_THROUGH) then
+      if not MoveFileEx(PChar(Temporary), PChar(TargetIO), MOVEFILE_WRITE_THROUGH) then
         RaiseSaveError(GetLastError, '');
     end
     else
     begin
       if (Attributes and (FILE_ATTRIBUTE_DIRECTORY or FILE_ATTRIBUTE_READONLY)) <> 0 then
         RaiseSaveError(ERROR_ACCESS_DENIED, '');
-      if not ReplaceFile(PChar(Target), PChar(Temporary), PChar(Backup), 0, nil, nil) then
+      if not ReplaceFile(PChar(TargetIO), PChar(Temporary), PChar(Backup), 0, nil, nil) then
       begin
         Code := GetLastError; Recovery := '';
         if GetFileAttributes(PChar(Backup)) <> INVALID_FILE_ATTRIBUTES then
         begin
-          Attributes := GetFileAttributes(PChar(Target)); TargetError := GetLastError;
+          Attributes := GetFileAttributes(PChar(TargetIO)); TargetError := GetLastError;
           Recovery := Backup;
           if (Attributes = INVALID_FILE_ATTRIBUTES) and IsMissingFileError(TargetError) then
-            if MoveFileEx(PChar(Backup), PChar(Target), MOVEFILE_WRITE_THROUGH) then Recovery := '';
+            if MoveFileEx(PChar(Backup), PChar(TargetIO), MOVEFILE_WRITE_THROUGH) then Recovery := '';
         end;
         RaiseSaveError(Code, Recovery);
       end;

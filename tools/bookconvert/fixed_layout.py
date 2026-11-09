@@ -3,7 +3,8 @@
 MIT. Uses only the PDFium and DjVuLibre already shipped with HomeLib Ru.
 No OCR, network requests, source edits or new third-party runtime.
 """
-from contextlib import contextmanager
+from collections import defaultdict
+from contextlib import ExitStack, contextmanager
 import ctypes as C
 import os
 from pathlib import Path
@@ -16,6 +17,7 @@ import unicodedata
 import zlib
 
 SUPPORTED = {'.pdf', '.djvu', '.djv', '.dju', '.djvm', '.djm'}
+PDF_PAGES_PER_DOCUMENT = 24
 
 
 def png(rgb, width, height):
@@ -181,7 +183,7 @@ def emit_page(book, number, lines, rgb, width, height, page_width, page_height):
     # closest following line rather than globally re-sorting the text by Y.
     for l, t, r, b in regions:
         crop = b''.join(rgb[(y * width + l) * 3:(y * width + r) * 3] for y in range(t, b))
-        image = book.image(png(crop, r - l, b - t)); image.set('alt', 'Иллюстрация, страница ' + str(number))
+        image = book.fixed_illustration(png(crop, r - l, b - t)); image.set('alt', 'Иллюстрация, страница ' + str(number))
         insert = next((i for i, (_, kind, n) in enumerate(events) if kind == 'text' and n['box'][1] >= b * page_height / height), len(events))
         events.insert(insert, (t * page_height / height, 'image', image))
     for _, kind, item in events:
@@ -240,28 +242,35 @@ class PDF:
         for name, (result, args) in signatures.items():
             function = getattr(self.dll, name); function.restype = result; function.argtypes = args; setattr(self, name, function)
 
-    def scan_sample_groups(self, document, count, check):
-        """Pick typical raster pages from separate parts of the PDF."""
-        if count <= 20:
-            return []
+    def estimate_object_functions(self):
         try:
             object_count = self.dll.FPDFPage_CountObjects
             page_object = self.dll.FPDFPage_GetObject
             object_type = self.dll.FPDFPageObj_GetType
             image_size = self.dll.FPDFImageObj_GetImageDataRaw
         except AttributeError:
-            return []
+            return None
         pointer = C.c_void_p
         object_count.argtypes, object_count.restype = [pointer], C.c_int
         page_object.argtypes, page_object.restype = [pointer, C.c_int], pointer
         object_type.argtypes, object_type.restype = [pointer], C.c_int
         image_size.argtypes, image_size.restype = [pointer, pointer, C.c_ulong], C.c_ulong
+        return object_count, page_object, object_type, image_size
+
+    def scan_sample_groups(self, load_page, count, check):
+        """Pick typical raster pages from separate parts of the PDF."""
+        if count <= 20:
+            return []
+        functions = self.estimate_object_functions()
+        if functions is None:
+            return []
+        object_count, page_object, object_type, image_size = functions
         page_sizes = []
         uniform_short_scan = count <= 128
         dimensions = None
         for index in range(count):
             if check is not None: check()
-            page = self.FPDF_LoadPage(document, index)
+            page = load_page(index)
             if not page: return []
             try:
                 objects = object_count(page)
@@ -300,6 +309,88 @@ class PDF:
             # count is not proportional to the size after re-encoding.
             groups.append((page, end-start))
         return groups
+
+    def has_readable_text(self, page, get_text):
+        text_page = self.FPDFText_LoadPage(page)
+        if not text_page:
+            return False
+        try:
+            count = self.FPDFText_CountChars(text_page)
+            if not 0 < count <= 1000000:
+                return False
+            data = (C.c_ushort * (count + 1))()
+            written = get_text(text_page, 0, count, data)
+            if not 1 < written <= len(data):
+                return False
+            return readable(C.string_at(data, 2 * (written - 1)).decode('utf-16le', 'replace'))
+        finally:
+            self.FPDFText_ClosePage(text_page)
+
+    def mixed_sample_groups(self, load_page, count, check):
+        if count <= 20:
+            return [], False
+        functions = self.estimate_object_functions()
+        get_text = getattr(self.dll, 'FPDFText_GetText', None)
+        if functions is None or get_text is None:
+            return [], False
+        object_count, page_object, object_type, image_size = functions
+        get_text.argtypes = [C.c_void_p, C.c_int, C.c_int, C.POINTER(C.c_ushort)]
+        get_text.restype = C.c_int
+        classes = defaultdict(list)
+        census_count = min(count, 120) if count > 130 else count
+        for band in range(census_count):
+            start = count * band // census_count
+            stop = count * (band + 1) // census_count
+            # Vary the representative's position so an alternating page
+            # pattern cannot always be sampled on the same side of a spread.
+            index = start + ((band * 37) % 101) * (stop - start) // 101
+            if check is not None:
+                check()
+            page = load_page(index)
+            if not page:
+                return [], False
+            try:
+                objects = object_count(page)
+                if not 0 <= objects <= 10000:
+                    return [], False
+                size = 0
+                may_have_text = False
+                for position in range(objects):
+                    obj = page_object(page, position)
+                    if not obj:
+                        continue
+                    kind = object_type(obj)
+                    if kind == 3:  # FPDF_PAGEOBJ_IMAGE
+                        size += image_size(obj, None, 0)
+                    elif kind in (1, 5):  # FPDF_PAGEOBJ_TEXT / FPDF_PAGEOBJ_FORM
+                        may_have_text = True
+                key = may_have_text and self.has_readable_text(page, get_text), size > 0
+                classes[key].append((size, index, stop - start))
+            finally:
+                self.FPDF_ClosePage(page)
+
+        plain = sum(weight for _, _, weight in classes[True, False])
+        if plain == count:
+            return [], False
+        scan_majority = count <= 130 and 2 * len(classes[False, True]) >= count
+        text_majority = count <= 130 and 2 * plain >= count
+        allocations = {(False, True): 12 if scan_majority else 2,
+                       (False, False): 3 if count <= 130 else 1,
+                       (True, True): 4, (True, False): 4 if text_majority else 1}
+        # Leave a sample in each nonempty class before assigning extra bands.
+        available = 18 - sum(bool(rows) for rows in classes.values())
+        groups = []
+        for key, limit in allocations.items():
+            rows = sorted(classes[key])
+            if not rows:
+                continue
+            bands = min(len(rows), limit, available + 1)
+            available -= bands - 1
+            for band in range(bands):
+                subset = rows[len(rows) * band // bands:len(rows) * (band + 1) // bands]
+                _, index, _ = subset[len(subset) // 2]
+                groups.append((index, sum(weight for _, _, weight in subset)))
+        return groups, text_majority
 
     @contextmanager
     def open_document(self, source, fail):
@@ -380,23 +471,89 @@ class PDF:
         finally: self.FPDFBitmap_Destroy(bitmap)
 
 
+def estimate_mixed_pdf(book, convert_page, groups, count, measure_text, check):
+    def sample_book(omit_images=False):
+        sample = type(book)(book.c, book.source, set(), title=book.title, author=book.author,
+                            language=book.language, tools_root=book.tools_root, omit_images=omit_images)
+        sample.work_root = book.work_root
+        return sample
+
+    samples = []
+    retained = 0
+    for position, (index, weight) in enumerate(sorted(groups), 1):
+        if check is not None:
+            check()
+        sample = sample_book()
+        convert_page(index, sample)
+        pictures = [data for data, _mime in sample.resources.values()]
+        retained += sum(map(len, pictures))
+        if retained > 48 * 1024 * 1024:
+            return  # The streaming full-page path has a smaller working set.
+        samples.append((weight, bool(getattr(sample, 'fixed_image_pages', 0)),
+                        book.c.serialized(sample.body), pictures))
+        book.progress('pages', position, count)
+    pictures = [data for _, _, _, images in samples for data in images]
+    if not pictures:
+        return
+    export = book.scan_processor()
+    text_baseline = None
+    # When pictures are shared across pages, text can account for most of the
+    # final file. Measuring its real markup avoids magnifying per-page overhead.
+    measure_text = measure_text or (count <= 130 and 2 * len(set(pictures)) <= len(pictures))
+    if measure_text:
+        text = sample_book(omit_images=True)
+        for index in range(count):
+            if check is not None:
+                check()
+            convert_page(index, text)
+        with tempfile.TemporaryDirectory(prefix='homelib-pdf-text-', dir=book.work_root) as directory:
+            epub = Path(directory) / 'text.epub'
+            text.finish(epub)
+            if book.image_export['target'] == '.fb2':
+                fb2 = epub.with_suffix('.fb2')
+                book.c.epub_to_fb2(epub, fb2, text.warnings, use_navigation=False)
+                image_references = sum(weight * len(images) for weight, _, _, images in samples)
+                text_baseline = (fb2.stat().st_size + 56 * image_references,
+                                 export.codec.deflated_size(fb2.read_bytes()) + 512)
+            else:
+                text_baseline = epub.stat().st_size, epub.stat().st_size + 512
+    export.finish_mixed_measurement(samples, count, text_baseline)
+
+
 def read_pdf(book, tools):
     if not (tools / 'pdfium' / 'pdfium.dll').is_file():
         book.require('PDFium', 'Для этой книги нужен модуль чтения PDF.')
     api = PDF(tools, book.fail); api.FPDF_InitLibrary()
     try:
-        with api.open_document(book.source, book.fail) as document:
+        with ExitStack() as documents:
+            document = documents.enter_context(api.open_document(book.source, book.fail))
             count = api.FPDF_GetPageCount(document)
             if not 0 < count <= 5000: book.fail('Недопустимое число страниц PDF (предел 5000).')
             book.page_count=count
             book.progress('pages', 0, count)
-            def convert_page(i):
-                page = api.FPDF_LoadPage(document, i)
+            loaded = 0
+
+            def load_page(index):
+                nonlocal document, loaded
+                # PDFium can retain document resources after closing individual
+                # pages. Release them in batches, including during sampling
+                # and text-only conversion.
+                if loaded == PDF_PAGES_PER_DOCUMENT:
+                    documents.close()
+                    document = documents.enter_context(api.open_document(book.source, book.fail))
+                    if api.FPDF_GetPageCount(document) != count:
+                        book.fail('Число страниц PDF изменилось во время конвертации.')
+                    loaded = 0
+                loaded += 1
+                return api.FPDF_LoadPage(document, index)
+
+            def convert_page(i, target=book):
+                page = load_page(i)
                 if not page: book.fail(f'Не удалось открыть страницу PDF {i + 1}.')
                 try:
                     lines, rgb, w, h, pw, ph, hidden = api.page(
-                        page, book.fail, bool(book.image_export), render=not book.omit_images)
-                    letters = emit_page(book, i + 1, lines, rgb, w, h, pw, ph)
+                        page, book.fail, bool(book.image_export), render=not target.omit_images)
+                    letters = emit_page(target, i + 1, lines, rgb, w, h, pw, ph)
                     if any('\ufffd' in line['text'] for line in lines):
                         book.warnings.add('В PDF встречаются символы без пригодного Unicode-соответствия; они отмечены знаком �. Проверьте эти места в оригинале.')
                     book.warnings.add('Текстовый слой PDF может содержать результат OCR. Возможны ошибки распознавания; сверьте важные цитаты с оригиналом.')
@@ -404,7 +561,12 @@ def read_pdf(book, tools):
                 return letters
             groups = []
             if book.image_export and book.image_export.get('measure_scans'):
-                groups = api.scan_sample_groups(document, count, book.image_export.get('check'))
+                check = book.image_export.get('check')
+                groups = api.scan_sample_groups(load_page, count, check)
+                if not groups:
+                    mixed, measure_text = api.mixed_sample_groups(load_page, count, check)
+                    if mixed:
+                        estimate_mixed_pdf(book, convert_page, mixed, count, measure_text, check)
             sampled = sorted(number-1 for number, _weight in groups)
             letters = 0
             if groups:

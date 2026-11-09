@@ -209,7 +209,7 @@ var Stream: TFileStream; Bytes: TBytes; Prefix, Wide: string; Zip: TZipFile; N: 
       end;
     if not Visible then Exit;
     Extension:=LowerCase(ExtractFileExt(FileName));
-    if InList(Extension,'|txt|text|faq|md|markdown|') then Result:=Extension
+    if InList(Extension,'|txt|faq|md|markdown|') then Result:=Extension
     else Result:='.txt';
   end;
 begin
@@ -305,11 +305,11 @@ begin
   if Copy(Prefix,1,3)='GIF' then Exit('.gif');
   if (Copy(Prefix,1,4)='RIFF') and (Copy(Prefix,9,4)='WEBP') then Exit('.webp');
   if Copy(Prefix,1,2)='MZ' then Exit('.exe');
-  // Strong container signatures win over a PDF header embedded in a stored
-  // ZIP member or another format. Allow leading PDF transport bytes last.
-  if Pos('%PDF-',Copy(Prefix,1,1024))>0 then Exit('.pdf');
   if (Bytes[0]=$FF) and (Bytes[1]=$FE) then Prefix:=TEncoding.Unicode.GetString(Bytes,2,Min(Length(Bytes)-2,4096) and not 1)
   else if (Bytes[0]=$FE) and (Bytes[1]=$FF) then Prefix:=TEncoding.BigEndianUnicode.GetString(Bytes,2,Min(Length(Bytes)-2,4096) and not 1);
+  if TRegEx.IsMatch(Prefix,'\A(?:\xEF\xBB\xBF)?\s*<\?(?:php(?=\s|$)|=)',[roIgnoreCase]) then Exit('.php');
+  // A PDF header can appear inside a stronger container or quoted in a script.
+  if Pos('%PDF-',ReaderSignatureBytes(Bytes,0,1024))>0 then Exit('.pdf');
   if TRegEx.IsMatch(Prefix,'<([A-Za-z_][\w.-]*:)?FictionBook(\s|>)',[roIgnoreCase]) then Exit('.fb2');
   if TRegEx.IsMatch(Prefix,'<([A-Za-z_][\w.-]*:)?abiword(\s|>)',[roIgnoreCase]) then Exit('.abw');
   if ContainsText(Prefix,'MIME-Version:') and (ContainsText(Prefix,'multipart/') or ContainsText(Prefix,'text/html')) then Exit('.mht');
@@ -360,6 +360,7 @@ begin
   Input:=OpenCachedBookFile(InputName);
   try
     Extension:=DetectReaderExtension(InputName);
+    if Extension='.php' then raise EReadError.Create('Файл содержит PHP-код. Для чтения нужен файл книги.');
     if (Extension='') or SameText(Extension,ExtractFileExt(InputName)) then
     begin KeepResult:=True; Exit; end;
     // Native document containers retain their dedicated reader identity.

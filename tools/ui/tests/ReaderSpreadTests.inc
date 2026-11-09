@@ -552,6 +552,99 @@ begin
   Writeln('PASS real FB2 appearance and continuous scrolling');
 end;
 
+type
+  TRasterScaleDialogProbe = class
+    Timer: TTimer;
+    Expected, Choose: Integer;
+    Accept, Seen: Boolean;
+    Failure: string;
+    procedure Tick(Sender: TObject);
+  end;
+
+procedure TRasterScaleDialogProbe.Tick(Sender: TObject);
+var Dialog: TCustomForm; Scale, Zoom, Layout: TComboBox; Hold: TCheckBox;
+begin
+  for var I:=0 to Screen.FormCount-1 do
+  begin
+    Dialog:=Screen.Forms[I];
+    if (Dialog.Name<>'ReaderAppearanceDialog') or not Dialog.Visible then Continue;
+    Timer.Enabled:=False; Seen:=True;
+    try
+      Scale:=Dialog.FindComponent('ReaderRasterScale') as TComboBox;
+      Zoom:=Dialog.FindComponent('ReaderInspectionPercent') as TComboBox;
+      Layout:=Dialog.FindComponent('cbReaderPageLayout') as TComboBox;
+      Hold:=Dialog.FindComponent('ReaderInspectionHold') as TCheckBox;
+      Require(Assigned(Scale) and Assigned(Zoom) and Assigned(Layout) and Assigned(Hold),
+        'Image scale dialog lacks independent permanent and temporary controls');
+      Require(Scale.Enabled and (Scale.ItemIndex=Expected) and (Scale.Items[1]='Исходный (100%)') and
+        not Zoom.Enabled and (Zoom.Text='200') and not Hold.Enabled,
+        'Continuous image layout does not distinguish source scale from temporary 200 percent');
+      Layout.ItemIndex:=Ord(rplSingle); Layout.OnChange(Layout);
+      Require(not Scale.Enabled and Zoom.Enabled and Hold.Enabled,'Paged layout exposes the wrong zoom controls');
+      Layout.ItemIndex:=Ord(rplContinuous); Layout.OnChange(Layout);
+      Require(Scale.Enabled and not Zoom.Enabled and not Hold.Enabled,'Switching back did not restore image scale');
+      Scale.ItemIndex:=Choose;
+      if Accept then Dialog.ModalResult:=mrOk else Dialog.ModalResult:=mrCancel;
+    except on E: Exception do
+      begin Failure:=E.Message; Dialog.ModalResult:=mrCancel; end;
+    end;
+    Exit;
+  end;
+end;
+
+type
+  TReaderNavigationProbe = class
+    Timer: TTimer;
+    Mode: Integer;
+    Seen: Boolean;
+    Failure: string;
+    procedure Tick(Sender: TObject);
+  end;
+
+procedure TReaderNavigationProbe.Tick(Sender: TObject);
+var Dialog: TCustomForm; Previous, ScreenUp, ScreenDown: TComboBox; Save, Reset: TButton;
+begin
+  for var I:=0 to Screen.FormCount-1 do
+  begin
+    Dialog:=Screen.Forms[I];
+    if (Dialog.Name<>'ReaderNavigationDialog') or not Dialog.Visible then Continue;
+    Timer.Enabled:=False; Seen:=True;
+    try
+      Previous:=Dialog.FindComponent('ReaderKeyPrevious') as TComboBox;
+      ScreenUp:=Dialog.FindComponent('ReaderKeyScreenUp') as TComboBox;
+      ScreenDown:=Dialog.FindComponent('ReaderKeyScreenDown') as TComboBox;
+      Save:=Dialog.FindComponent('ReaderKeysSave') as TButton;
+      Reset:=Dialog.FindComponent('ReaderKeysReset') as TButton;
+      if Mode=0 then
+      begin
+        Require((ScreenUp.Text='Page Up') and (ScreenDown.Text='Page Down'),
+          'Existing reader profile did not get default navigation keys');
+        ScreenUp.ItemIndex:=ScreenUp.Items.IndexOf('A');
+        ScreenDown.ItemIndex:=ScreenDown.Items.IndexOf('D');
+        Previous.ItemIndex:=Previous.Items.IndexOf('D');
+        Save.Click;
+        Require(Dialog.ModalResult=mrNone,'The navigation dialog accepted conflicting keys');
+        Previous.ItemIndex:=Previous.Items.IndexOf('Без клавиши');
+        Save.Click;
+      end
+      else
+      begin
+        Require((ScreenUp.Text='A') and (ScreenDown.Text='D') and (Previous.ItemIndex=0),
+          'Navigation selections were lost after reopening the reader');
+        Reset.Click;
+        Require((ScreenUp.Text='Page Up') and (ScreenDown.Text='Page Down') and (Previous.ItemIndex>0),
+          'The navigation dialog did not restore the default choices');
+        if Mode=1 then (Dialog.FindComponent('ReaderKeysCancel') as TButton).Click
+        else Save.Click;
+      end;
+      Require(Dialog.ModalResult<>mrNone,'The navigation dialog did not finish');
+    except on E: Exception do
+      begin Failure:=E.Message; Dialog.ModalResult:=mrCancel; end;
+    end;
+    Exit;
+  end;
+end;
+
 procedure TestReaderContinuousScrolling;
 var Reader: TfrmBuiltinReader; FileName, Extension, Original: string;
   Watch: TStopwatch; Position, Frames, LastTop, Steps, I: Integer;
@@ -576,6 +669,34 @@ var Reader: TfrmBuiltinReader; FileName, Extension, Original: string;
     end;
     Application.ProcessMessages;
     Require(Reader.ReadingSurface.Focused,'Reader navigation moved focus away from the book');
+  end;
+  procedure CheckNavigationDialog(Mode: Integer);
+  var Probe: TReaderNavigationProbe; Menu: TPopupMenu; Item: TMenuItem;
+  begin
+    Probe:=TReaderNavigationProbe.Create;
+    try
+      Probe.Mode:=Mode;
+      Probe.Timer:=TTimer.Create(nil); Probe.Timer.Interval:=30; Probe.Timer.OnTimer:=Probe.Tick;
+      Menu:=Reader.FindComponent('ReaderSelectionMenu') as TPopupMenu;
+      Menu.OnPopup(Menu);
+      Item:=Menu.FindComponent('ReaderNavigationKeysContext') as TMenuItem;
+      Require(Assigned(Item) and Item.Visible,'Reader navigation settings are absent from the fallback menu');
+      Item.Click;
+      Require(Probe.Seen and (Probe.Failure=''),'Navigation settings failed: '+Probe.Failure);
+      Reader.ReadingSurface.SetFocus;
+    finally Probe.Timer.Free; Probe.Free; end;
+  end;
+  procedure CheckScaleDialog(Expected, Choose: Integer; Accept: Boolean);
+  var Probe: TRasterScaleDialogProbe;
+  begin
+    Probe:=TRasterScaleDialogProbe.Create;
+    try
+      Probe.Expected:=Expected; Probe.Choose:=Choose; Probe.Accept:=Accept;
+      Probe.Timer:=TTimer.Create(nil); Probe.Timer.Interval:=30; Probe.Timer.OnTimer:=Probe.Tick;
+      TButton(Reader.FindComponent('ReaderAppearance')).Click;
+      Require(Probe.Seen and (Probe.Failure=''),'Image scale dialog failed: '+Probe.Failure);
+      Require(Reader.InspectionPercent=200,'Changing image scale changed temporary zoom');
+    finally Probe.Timer.Free; Probe.Free; end;
   end;
 begin
   RequireIsolatedRegression;
@@ -683,6 +804,13 @@ begin
   FileName:=Settings.AppPath+'reader-tall.cbz';
   Original:=THashSHA2.GetHashStringFromFile(FileName);
   var Profile:=Settings.AppPath+'scroll-tall-comic.ini';
+  var ImageArchive:=Default(TBookRecord);
+  ImageArchive.CollectionRoot:=Settings.AppPath; ImageArchive.FileName:='scanned-document';
+  ImageArchive.FileExt:='.zip'; ImageArchive.LibID:='scanned-document'; ImageArchive.BookProps:=[bpIsLocal];
+  TFile.Copy(FileName,ImageArchive.GetBookFileName);
+  var PreparedImages:=PrepareReaderFile(ImageArchive,True);
+  Require(SameText(ExtractFileExt(PreparedImages),'.cbz') and
+    (THashSHA2.GetHashStringFromFile(PreparedImages)=Original),'Image-only ZIP lost its original page set');
   Reader:=TfrmBuiltinReader.Create(nil);
   try
     Reader.OpenBook(FileName,'Tall comic','reader-tall',Profile,'');
@@ -704,6 +832,39 @@ begin
       'Tall comic did not fit the width or prepare its next page');
     Require(Int64(Reader.PageRasterSize.X)*Reader.PageRasterSize.Y>25000000,
       'Fixture does not exercise a strip too large for the old bitmap');
+    var ScreenHeight:=Reader.ReadingSurface.ClientHeight;
+    var FirstTop:=Reader.PDFPan.Y;
+    PressArrow(VK_NEXT,1);
+    Require((Reader.TextPosition=0) and (Reader.PDFPan.Y=FirstTop-ScreenHeight),
+      'Page Down skipped a long image or failed to move one screen immediately');
+    PressArrow(VK_PRIOR,1);
+    Require((Reader.TextPosition=0) and (Reader.PDFPan.Y=FirstTop),
+      'Page Up did not immediately return one screen on the same image');
+    Reader.GoToPosition(1);
+    Watch:=TStopwatch.StartNew;
+    while ((Reader.TextPosition<>1) or Reader.PageLoading) and
+      (Watch.ElapsedMilliseconds<10000) do Pump(20);
+    Require(Reader.TextPosition=1,'Cannot position the test at the next image');
+    var SecondTop:=Reader.PDFPan.Y;
+    var SeamTop:=FirstTop-FirstPageHeight-MulDiv(12,Reader.CurrentPPI,96)+ScreenHeight;
+    PressArrow(VK_PRIOR,1);
+    Watch:=TStopwatch.StartNew;
+    while ((Reader.TextPosition<>0) or (Reader.PDFPan.Y<>SeamTop)) and
+      (Watch.ElapsedMilliseconds<10000) do Pump(20);
+    Require((Reader.TextPosition=0) and (Reader.PDFPan.Y=SeamTop),
+      'Page Up across images lost part of the preceding screen');
+    PressArrow(VK_NEXT,1);
+    Watch:=TStopwatch.StartNew;
+    while ((Reader.TextPosition<>1) or (Reader.PDFPan.Y<>SecondTop)) and
+      (Watch.ElapsedMilliseconds<10000) do Pump(20);
+    Require((Reader.TextPosition=1) and (Reader.PDFPan.Y=SecondTop),
+      'Page Down across images did not return to the next image boundary');
+    Writeln('PASS Page Up and Page Down move one screen immediately within and across long images');
+    Reader.GoToPosition(0);
+    Watch:=TStopwatch.StartNew;
+    while ((Reader.TextPosition<>0) or Reader.PageLoading) and
+      (Watch.ElapsedMilliseconds<10000) do Pump(20);
+    Require((Reader.TextPosition=0) and (Reader.PDFPan.Y=FirstTop),'Cannot reset after testing screen navigation');
     var Capture:=Vcl.Graphics.TBitmap.Create;
     try
       Capture.SetSize(Reader.ReadingSurface.ClientWidth,Reader.ReadingSurface.ClientHeight);
@@ -743,12 +904,13 @@ begin
     Pump(650);
     Require(Reader.TextPosition=1,'The tall comic could not be opened past the boundary again');
     Position:=Reader.PDFPan.Y;
+    CheckNavigationDialog(0);
     Reader.Close;
   finally Reader.Free; end;
 
   Reader:=TfrmBuiltinReader.Create(nil);
   try
-    Reader.OpenBook(FileName,'Tall comic','reader-tall',Profile,'');
+    Reader.OpenBook(PreparedImages,'Scanned document','reader-tall',Profile,'');
     Reader.Show;
     Reader.Width:=1150; Reader.Height:=720;
     Pump(220);
@@ -764,7 +926,37 @@ begin
     Reader.GoToPosition(0);
     Watch:=TStopwatch.StartNew;
     while (Reader.TextPosition<>0) and (Watch.ElapsedMilliseconds<10000) do Pump(20);
+    CheckNavigationDialog(1);
+    var CustomScreenHeight:=Reader.ReadingSurface.ClientHeight;
+    var OriginalTop:=Reader.PDFPan.Y;
+    PressArrow(VK_NEXT,1);
+    Require(Reader.PDFPan.Y=OriginalTop,'A replaced key still ran its previous command');
+    PressArrow(Ord('D'),1);
+    Require(Reader.PDFPan.Y=OriginalTop-CustomScreenHeight,'Custom key did not move one screen');
+    PressArrow(Ord('A'),1);
+    Require(Reader.PDFPan.Y=OriginalTop,'Custom key did not move one screen back');
+    CheckNavigationDialog(2);
+    PressArrow(VK_NEXT,1);
+    Require(Reader.PDFPan.Y=OriginalTop-CustomScreenHeight,'Default navigation did not return after saving');
+    PressArrow(VK_PRIOR,1);
+    Require(Reader.PDFPan.Y=OriginalTop,'Restored default key did not move one screen back');
+    Writeln('PASS customizable reader navigation, conflicts, cancellation, persistence and reset');
     var ScaleMenu:=Reader.FindComponent('ReaderSelectionMenu') as TPopupMenu;
+    var OriginalButton:=Reader.FindComponent('ReaderOriginalRasterButton') as TButton;
+    var FitButton:=Reader.FindComponent('ReaderFitPage') as TButton;
+    var FullScreenItem:=ScaleMenu.FindComponent('ReaderFullScreenMenu') as TMenuItem;
+    Reader.ToggleInterface;
+    ScaleMenu.OnPopup(ScaleMenu);
+    Require(Assigned(FullScreenItem) and (FullScreenItem.Caption='На весь экран'),
+      'The context menu cannot enter fullscreen with the interface hidden');
+    FullScreenItem.Click;
+    ScaleMenu.OnPopup(ScaleMenu);
+    Require(Reader.FullScreenMode and Reader.InterfaceHidden and
+      (FullScreenItem.Caption='Выйти из полноэкранного режима'),
+      'Fullscreen context command changed interface visibility or lacked an exit');
+    FullScreenItem.Click;
+    Require(not Reader.FullScreenMode and Reader.InterfaceHidden,'Context command did not restore window mode');
+    Reader.ToggleInterface;
     ScaleMenu.OnPopup(ScaleMenu);
     Require((ScaleMenu.Items[1].Name='ReaderOriginalRasterScale') and ScaleMenu.Items[1].Visible,
       'The comic has no original-scale command');
@@ -774,9 +966,44 @@ begin
       (Watch.ElapsedMilliseconds<15000) do Pump(30);
     Require((Reader.PageRasterSize.X=900) and (Reader.PageRasterSize.Y>=30000),
       'The tall comic was not rendered at its original 900-pixel width');
+    Reader.SetInspectionPercent(200);
+    CheckScaleDialog(1,0,False);
+    Require(Reader.PageRasterSize.X=900,'Cancel changed the original image scale');
+    CheckScaleDialog(1,0,True);
+    var FitWidth:=Reader.ReadingSurface.ClientWidth-MulDiv(24,Reader.CurrentPPI,96);
+    Watch:=TStopwatch.StartNew;
+    while (Reader.PageRasterSize.X<>FitWidth) and (Watch.ElapsedMilliseconds<15000) do Pump(30);
+    Require(Reader.PageRasterSize.X=FitWidth,'Fit-to-width choice did not resize the image');
+    Require(Assigned(OriginalButton) and OriginalButton.Visible and OriginalButton.Enabled and
+      Assigned(FitButton) and (OriginalButton.Top=FitButton.Top) and (OriginalButton.Left>FitButton.Left),
+      'Original scale button is missing beside the fitted-scale button');
+    OriginalButton.Click;
+    Watch:=TStopwatch.StartNew;
+    while (Reader.PageRasterSize.X<>900) and (Watch.ElapsedMilliseconds<15000) do Pump(30);
+    Require(Reader.PageRasterSize.X=900,'Toolbar 100 percent button did not select original size');
+    FitButton.Click;
+    Watch:=TStopwatch.StartNew;
+    while (Reader.PageRasterSize.X<>FitWidth) and (Watch.ElapsedMilliseconds<15000) do Pump(30);
+    Require(Reader.PageRasterSize.X=FitWidth,'Toolbar fit button did not restore fitted size');
+    Writeln('PASS comic toolbar and hidden interface context menu provide scale and fullscreen');
+    CheckScaleDialog(0,1,True);
+    Watch:=TStopwatch.StartNew;
+    while (Reader.PageRasterSize.X<>900) and (Watch.ElapsedMilliseconds<15000) do Pump(30);
+    Require(Reader.PageRasterSize.X=900,'Original image scale from View did not render at 100 percent');
     Reader.Close;
+    Watch:=TStopwatch.StartNew;
+    while Reader.Visible and (Watch.ElapsedMilliseconds<10000) do Pump(30);
+    Require(not Reader.Visible,'Image reader did not finish closing after background preparation');
   finally Reader.Free; end;
+  var SavedScale:=TMemIniFile.Create(Profile,TEncoding.UTF8);
+  try
+    Require(SavedScale.ReadBool('Book.'+Copy(THashSHA2.GetHashString('reader-tall'),1,40),'OriginalRasterScale',False) and
+      (SavedScale.ReadInteger('Reader','InspectionPercent',0)=200),
+      'Image scale and temporary zoom did not save independently');
+  finally SavedScale.Free; end;
   Require(THashSHA2.GetHashStringFromFile(FileName)=Original,'Tall comic source changed');
+  Require(THashSHA2.GetHashStringFromFile(ImageArchive.GetBookFileName)=Original,'Scanned document archive changed');
+  Writeln('PASS image-only ZIP opens as pages and View sets original or fitted scale independently of temporary zoom');
   Writeln('PASS tall comic viewport fits width, draws both sides of a boundary and restores the scroll position');
   Writeln('PASS continuous scrolling preserves ordinary wheel paging and advances in intermediate frames');
 end;

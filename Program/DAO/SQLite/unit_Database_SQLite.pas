@@ -304,9 +304,9 @@ type
     function CaptureLocalBooks: TArray<TLocalCatalogBook>;
     procedure RestoreLocalBooks(const Books: TArray<TLocalCatalogBook>);
     procedure TruncateTablesBeforeImport;
-    function StartInpxUpdateTracking(FullReimport: Boolean): Integer;
-    procedure FinishInpxUpdateTracking(FullReimport: Boolean; PreviousLastID: Integer);
-    function HasLastInpxUpdate: Boolean;
+    function StartCatalogUpdateTracking(FullReimport: Boolean): Integer;
+    procedure FinishCatalogUpdateTracking(FullReimport: Boolean; PreviousLastID: Integer);
+    function HasLastCatalogUpdate: Boolean;
 
     procedure StartBatchUpdate;
     procedure AfterBatchUpdate;
@@ -1538,10 +1538,10 @@ begin
         3: AddToFilter('b.UpdateDate', Format('> "%s"', [FormatDateTime(DT_FORMAT, IncDay(Now, -14))]), False, FilterString);
         4: AddToFilter('b.UpdateDate', Format('> "%s"', [FormatDateTime(DT_FORMAT, IncMonth(Now, -1))]), False, FilterString);
         5: AddToFilter('b.UpdateDate', Format('> "%s"', [FormatDateTime(DT_FORMAT, IncMonth(Now, -3))]), False, FilterString);
-        SEARCH_DATE_LAST_INPX:
+        SEARCH_DATE_LAST_CATALOG_UPDATE:
           begin
             if FilterString<>'' then FilterString:=FilterString+' AND ';
-            if FCollection.HasLastInpxUpdate then
+            if FCollection.HasLastCatalogUpdate then
               FilterString:=FilterString+'b.BookID IN (SELECT BookID FROM LastInpxBooks)'
             else
               FilterString:=FilterString+'0=1';
@@ -2048,7 +2048,7 @@ procedure TBookCollection_SQLite.TSeriesIteratorImpl.PrepareData(const Mode: TSe
 var
   Where: string;
   SQLRows: string;
-  SQLCount: string;
+  SQLCount, VisibleBook: string;
 
   procedure SetParams(query: TSQLiteQuery; const Mode: TSeriesIteratorMode);
   begin
@@ -2081,17 +2081,18 @@ begin
 
     smFullFilter:
     begin
-      SQLRows := 'SELECT DISTINCT s.SeriesID, s.SeriesTitle FROM Series s ';
+      SQLRows := 'SELECT s.SeriesID, s.SeriesTitle FROM Series s ';
       if FCollection.GetHideDeleted or FCollection.GetShowLocalOnly then
       begin
-        SQLRows := SQLRows +
-          ' INNER JOIN Series_List sl ON s.SeriesID = sl.SeriesID ' +
-          ' INNER JOIN Books b ON b.BookID = sl.BookID ';
+        // The selector needs one visible book per series.
+        VisibleBook := 'EXISTS (SELECT 1 FROM Series_List sl JOIN Books b ON b.BookID = sl.BookID '+
+          'WHERE sl.SeriesID = s.SeriesID';
         if FCollection.GetHideDeleted then
-          AddToWhere(Where, ' b.IsDeleted = :IsDeleted ');
+          VisibleBook := VisibleBook + ' AND b.IsDeleted = :IsDeleted';
 
         if FCollection.GetShowLocalOnly then
-          AddToWhere(Where, ' b.IsLocal = :IsLocal ');
+          VisibleBook := VisibleBook + ' AND b.IsLocal = :IsLocal';
+        AddToWhere(Where, VisibleBook + ')');
       end;
 
       if FCollection.GetSeriesFilterType <> '' then
@@ -2115,7 +2116,7 @@ begin
       end;
 
       SQLRows := SQLRows + Where;
-      SQLCount := 'SELECT COUNT(*) FROM (' + SQLRows + ') ROWS ';
+      SQLCount := 'SELECT COUNT(*) FROM Series s ' + Where;
       SQLRows := SQLRows + ' ORDER BY s.SeriesTitle';
     end;
 
@@ -4679,7 +4680,7 @@ const
     'ELSE ''path:''||hex(MHL_UPPER(coalesce(Folder,'''')))||'':''||hex(MHL_UPPER(FileName))'+
     '||'':''||hex(MHL_UPPER(coalesce(Ext,'''')))||'':''||InsideNo END';
 
-function TBookCollection_SQLite.StartInpxUpdateTracking(FullReimport: Boolean): Integer;
+function TBookCollection_SQLite.StartCatalogUpdateTracking(FullReimport: Boolean): Integer;
 begin
   Assert(InBulkOperation);
   if not FullReimport then Exit(FDatabase.QuerySingleInt('SELECT coalesce(max(BookID),0) FROM Books'));
@@ -4688,7 +4689,7 @@ begin
   Result:=0;
 end;
 
-procedure TBookCollection_SQLite.FinishInpxUpdateTracking(FullReimport: Boolean; PreviousLastID: Integer);
+procedure TBookCollection_SQLite.FinishCatalogUpdateTracking(FullReimport: Boolean; PreviousLastID: Integer);
 begin
   Assert(InBulkOperation);
   FDatabase.ExecSQL('CREATE TABLE IF NOT EXISTS LastInpxBooks(BookID INTEGER PRIMARY KEY)');
@@ -4703,7 +4704,7 @@ begin
     FDatabase.ExecSQL('INSERT INTO LastInpxBooks SELECT BookID FROM Books WHERE BookID>?',[PreviousLastID]);
 end;
 
-function TBookCollection_SQLite.HasLastInpxUpdate: Boolean;
+function TBookCollection_SQLite.HasLastCatalogUpdate: Boolean;
 begin
   Result:=FDatabase.QuerySingleInt('SELECT count(*) FROM sqlite_master '+
     'WHERE type=''table'' AND name=''LastInpxBooks''')<>0;

@@ -190,17 +190,50 @@ begin
 end;
 
 procedure TestDeferredStartupEarlyClose;
-var Started: UInt64;
+var Started: UInt64; Entered, ReleaseRead: TEvent;
 begin
-  Require(frmMain.StartupLoading and (frmMain.tvBooksA.TotalCount = 0),
-    'Early-close main eagerly loaded the catalogue');
-  frmMain.StartInitialCollectionLoad;
-  // The catalogue may already be read, but its results are applied by the timer.
-  Started := GetTickCount64;
-  while GetTickCount64 - Started < 25 do begin Application.ProcessMessages; Sleep(1); end;
-  Started := GetTickCount64;
-  FreeAndNil(frmMain);
-  Require(GetTickCount64 - Started < 2000, 'Closing during startup stalled');
+  Entered := TEvent.Create(nil, True, False, '');
+  ReleaseRead := TEvent.Create(nil, True, False, '');
+  try
+    TStartupCatalogLoader.BeforeReadForProfile :=
+      procedure
+      begin
+        Entered.SetEvent;
+        Require(ReleaseRead.WaitFor(10000) = wrSignaled, 'Startup fixture was not released');
+      end;
+    Application.CreateForm(TfrmMain, frmMain);
+    Require(Entered.WaitFor(2000) = wrSignaled, 'Startup fixture was not entered');
+    Require(frmMain.StartupLoading and (frmMain.tvBooksA.TotalCount = 0),
+      'Early-close main eagerly loaded the catalogue');
+    frmMain.StartInitialCollectionLoad;
+    Started := GetTickCount64;
+    SendMessage(frmMain.Handle, WM_CLOSE, 0, 0);
+    Require(GetTickCount64 - Started < 500, 'Close blocked the window during startup');
+    Require(frmMain.StatusMessage = 'Отмена загрузки коллекции…', 'No cancellation feedback');
+    SendMessage(frmMain.Handle, WM_CLOSE, 0, 0);
+    Started := GetTickCount64;
+    while GetTickCount64 - Started < 100 do
+    begin
+      Application.ProcessMessages;
+      Sleep(1);
+    end;
+    Require(not Application.Terminated, 'The application exited with a live startup worker');
+    ReleaseRead.SetEvent;
+    Started := GetTickCount64;
+    while not Application.Terminated and (GetTickCount64 - Started < 4000) do
+    begin
+      Application.ProcessMessages;
+      Sleep(1);
+    end;
+    Require(Application.Terminated, 'Startup did not finish closing');
+    Require(frmMain.StartupLoading, 'Startup applied results after a close request');
+  finally
+    ReleaseRead.SetEvent;
+    FreeAndNil(frmMain);
+    TStartupCatalogLoader.BeforeReadForProfile := nil;
+    ReleaseRead.Free;
+    Entered.Free;
+  end;
   Writeln('PASS actual Main closes during background startup without callbacks into freed controls');
 end;
 

@@ -43,7 +43,7 @@ function ReaderSessionSourceMatches(const Request: TReaderSessionRequest;
 implementation
 
 uses System.IOUtils, System.JSON, System.RegularExpressions, Winapi.Windows,
-  unit_AtomicIniFile, unit_FileMutex;
+  unit_AtomicIniFile, unit_FileMutex, unit_ProgramUpdatePaths;
 
 const MAX_SESSION_BYTES = 128 * 1024;
 
@@ -72,7 +72,7 @@ end;
 function ReadObject(const FileName: string): TJSONObject;
 var Stream: TFileStream; Data: TBytes; Value: TJSONValue; Offset: Integer;
 begin
-  Result:=nil; Stream:=TFileStream.Create(FileName,fmOpenRead or fmShareDenyNone);
+  Result:=nil; Stream:=TFileStream.Create(UpdateIOPath(FileName),fmOpenRead or fmShareDenyNone);
   try
     if (Stream.Size=0) or (Stream.Size>MAX_SESSION_BYTES) then
       raise Exception.Create('Файл параметров открытия книги имеет недопустимый размер.');
@@ -185,8 +185,10 @@ begin
   if OriginalSource<>'' then Result.OriginalSource:=AbsoluteFile(OriginalSource);
   Result.OriginalMember:=OriginalMember;
   Folder:=TPath.Combine(AbsoluteFile(Directory),'HomeLibReader-session-'+Result.ID);
-  if DirectoryExists(Folder) then raise Exception.Create('Папка сеанса чтения уже существует.');
-  ForceDirectories(Folder); Result.RequestFile:=TPath.Combine(Folder,'request.json');
+  if DirectoryExists(UpdateIOPath(Folder)) then raise Exception.Create('Папка сеанса чтения уже существует.');
+  if not ForceDirectories(UpdateIOPath(Folder)) then
+    raise EInOutError.Create('Не удалось создать папку сеанса чтения: '+Folder);
+  Result.RequestFile:=TPath.Combine(Folder,'request.json');
   Value:=RequestObject(Result);
   try WriteObject(Result.RequestFile,Value); finally Value.Free; end;
   // Validate our serialized representation too; do not launch a book with a
@@ -235,7 +237,7 @@ function TryReadReaderSessionReply(const Request: TReaderSessionRequest;
 var Root, Note: TJSONObject; Value: TJSONValue; Pending: TReaderSessionReply;
 begin
   Result:=False; Reply:=Default(TReaderSessionReply);
-  if not FileExists(ReplyFile(Request)) then Exit;
+  if not FileExists(UpdateIOPath(ReplyFile(Request))) then Exit;
   Root:=nil;
   try
     try
@@ -276,7 +278,7 @@ begin
   inherited Create;
   Lock:=TFileMutex.Create(Request.RequestFile); FLock:=Lock;
   if not Lock.TryAcquire then raise Exception.Create('Эта книга уже открывается в другом экземпляре читалки.');
-  FRequest:=TFileStream.Create(Request.RequestFile,fmOpenRead or fmShareDenyWrite);
+  FRequest:=TFileStream.Create(UpdateIOPath(Request.RequestFile),fmOpenRead or fmShareDenyWrite);
   // Keep an extracted input or source archive alive while the catalogue exits.
   // It remains readable, but cannot be overwritten/deleted during this view.
   FSource:=TFileStream.Create(Request.SourceFile,fmOpenRead or fmShareDenyWrite);

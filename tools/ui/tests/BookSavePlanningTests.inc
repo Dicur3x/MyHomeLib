@@ -327,6 +327,17 @@ begin
   Thread:=TBookSendEstimateThread.Create(Books,Choice,Settings.AppPath,Settings.TempPath);
   try Thread.Terminate; WaitForEstimate; Require(not Items[0].Completed,'Cancelled estimate reported completion');
   finally Thread.Free; end;
+  var TextOutput:=(Settings.TempPath+'long-').PadRight(270,'x')+'.txt';
+  var TextSource:=TFileStream.Create(Source,fmOpenRead or fmShareDenyWrite);
+  try
+    ConvertToTxt(TextOutput,enUTF8,TextSource);
+    Require(TFile.ReadAllText(BookOutputPath(TextOutput),TEncoding.UTF8).Contains('Полный текст'),
+      'TXT export with a long output path lost its content');
+    var Refused:=False;
+    try ConvertToTxt(TextOutput,enUTF8,TextSource); except on EInOutError do Refused:=True; end;
+    Require(Refused and (TextSource.Position=0),'TXT overwrote a long output path or changed the source position');
+  finally TextSource.Free; TFile.Delete(BookOutputPath(TextOutput)); end;
+  Writeln('PASS TXT export with a long output path and collision protection');
   Require(UpdateSHA256(Source)=Hash,'Size estimation changed source bytes');
   Writeln('PASS save estimate known bytes four modes native ZIP unavailable module cancellation and unchanged source');
 end;
@@ -600,6 +611,51 @@ begin
     Require(UpdateSHA256(Books[I].GetBookFileName)=Hashes[I],'Mixed estimate changed its source');
   end;
   var RealScan:=GetEnvironmentVariable('HOMELIB_TEST_REAL_SCAN_ESTIMATE');
+  var MixedArchive:=GetEnvironmentVariable('HOMELIB_TEST_REAL_MIXED_PDF_ARCHIVE');
+  if MixedArchive<>'' then
+  begin
+    var Member:=GetEnvironmentVariable('HOMELIB_TEST_REAL_MIXED_PDF_MEMBER');
+    var MemberHash:=GetEnvironmentVariable('HOMELIB_TEST_REAL_MIXED_PDF_SHA256');
+    var MemberSize:=StrToInt(GetEnvironmentVariable('HOMELIB_TEST_REAL_MIXED_PDF_SIZE'));
+    Require((Member<>'') and (Length(MemberHash)=64),'The archived estimate needs an exact ZIP member and checksum');
+    var ArchiveSize:=TFile.GetSize(MixedArchive);
+    var ArchiveTime:=TFile.GetLastWriteTimeUtc(MixedArchive);
+    for var Mode in [emFB2,emFB2Zip,emEpub] do
+    begin
+      var ArchiveName:=Settings.AppPath+'mixed-cold-'+IntToStr(Ord(Mode))+'.zip';
+      // Each alias has its own cache identity and points to the owned snapshot.
+      Win32Check(CreateHardLink(PChar(ArchiveName),PChar(MixedArchive),nil));
+      var ArchivedBook:=Default(TBookRecord);
+      ArchivedBook.NodeType:=ntBookInfo; ArchivedBook.BookKey:=CreateBookKey(1,Ord(Mode)+1);
+      ArchivedBook.BookProps:=[bpIsLocal]; ArchivedBook.Size:=MemberSize;
+      ArchivedBook.LibID:='archived-estimate:'+ArchiveName;
+      ArchivedBook.CollectionRoot:=Settings.AppPath; ArchivedBook.Folder:=ExtractFileName(ArchiveName);
+      ArchivedBook.FileExt:=ExtractFileExt(Member); ArchivedBook.FileName:=ChangeFileExt(Member,'');
+      ArchivedBook.Title:=ExtractFileName(ArchivedBook.FileName);
+      Require((ArchivedBook.GetBookFormat=bfRawArchive) and SameText(ArchivedBook.GetBookFileName,ArchiveName),
+        'Mixed PDF fixture must be an exact member of a fresh archive');
+      var CachedCopy:=TPath.Combine(BookCachePath,ReaderCopyName(ArchivedBook));
+      Require(not FileExists(CachedCopy),'Archived PDF fixture reused a warm cache');
+      Choice:=Default(TBookSaveChoice); Choice.Mode:=Mode;
+      var Started:=GetTickCount64;
+      RunEstimate([ArchivedBook],9500,True);
+      var Elapsed:=GetTickCount64-Started;
+      var Estimate:=Items[0].Options;
+      Require(Items[0].Completed and (Items[0].ErrorText='') and (Items[0].SourceExtension='.pdf') and Estimate.DistributedSamples and
+        (Estimate.SampleCount>0) and (Estimate.SampleCount<Estimate.ImageCount) and (Elapsed<=10000),
+        'Native mixed PDF estimate lost its sample or deadline: '+Status+' '+Items[0].ErrorText);
+      for var L:=0 to 2 do
+        for var Q:=0 to BOOK_QUALITY_MAXIMUM do
+          Require((Estimate.OutputBytes[L,Q]>0) and (Estimate.ZipOutputBytes[L,Q]>0) and
+            (Estimate.MarginBytes[L,Q]>0),'Native mixed PDF estimate lost a layout, quality or range');
+      Require((TFile.GetSize(ArchiveName)=ArchiveSize) and (TFile.GetLastWriteTimeUtc(ArchiveName)=ArchiveTime),
+        'Native estimate changed its source archive');
+      Require(SameText(UpdateSHA256(CachedCopy),MemberHash),'The extracted PDF does not match the ZIP member');
+      Writeln('PASS cold archived mixed PDF estimate mode=',Ord(Mode),' ms=',Elapsed,
+        ' maximum=',Estimate.OutputBytes[0,BOOK_QUALITY_MAXIMUM],
+        ' packed=',Estimate.ZipOutputBytes[0,BOOK_QUALITY_MAXIMUM]); Flush(Output);
+    end;
+  end;
   if RealScan<>'' then
   begin
     var Before:=UpdateSHA256(RealScan);

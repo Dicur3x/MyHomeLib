@@ -64,7 +64,21 @@ begin
       Require(Assigned(Action),'Small FB2 actual Main read action missing');
       Action.Update; Require(Action.Enabled,'Small FB2 actual Main read action disabled');
       Trace('small reader before action');
-      Driver.BeginRead(Book.Title); Require(Action.Execute,'Small FB2 actual Main read action did not execute');
+      Driver.BeginRead(Book.Title);
+      if Trial=0 then
+      begin
+        var Item: TMenuItem:=nil;
+        for var Candidate in frmMain.pmMain.Items do
+          if Candidate.Action=Action then Item:=Candidate;
+        Require(Assigned(Item) and Item.Visible,'Explicit Reader context command is missing');
+        Item.Click;
+      end
+      else
+      begin
+        Require((frmMain.tbtnRead.Action=Action) and (frmMain.tbtnRead.Hint='Читать в читалке по умолчанию'),
+          'Toolbar does not explain and use the default reader');
+        frmMain.tbtnRead.Click;
+      end;
       while not Driver.Finished and (GetTickCount64-Driver.Started<20000) do
       begin Application.ProcessMessages; CheckSynchronize(5); Sleep(2); end;
       Require(Driver.Finished and (Driver.Failure=''),'Small FB2 preparation loop or reader failure: '+Driver.Failure);

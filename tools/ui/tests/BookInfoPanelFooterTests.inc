@@ -246,7 +246,7 @@ var
     ButtonRect, ClipRect, CaptionRect: TRect;
     CaptionHeight: Integer;
     P: TPoint;
-    OldClicks, K: Integer;
+    OldClicks, K, DetailWidth: Integer;
     Hit: HWND;
     LinkControl: TWinControl;
     LinkFont: TFont;
@@ -286,11 +286,14 @@ var
           Context+': final native/logical visibility differs for '+Content.Controls[K].ClassName);
     // Hidden detail bounds may wait until display, but every public/native
     // switch must immediately provide a complete usable current viewport.
+    DetailWidth:=Content.ClientWidth;
+    if Panel.Gallery.Visible and Panel.Gallery.Expanded and (Panel.Gallery.Left>0) then
+      DetailWidth:=Panel.Gallery.Left-MulDiv(8,Panel.Font.PixelsPerInch,96);
     for K:=0 to Content.ControlCount-1 do
     begin
       Detail:=Content.Controls[K];
       if Detail.Visible and ((Detail is TMemo) or (Detail is TListView)) then
-        Require((Detail.Left=0) and (Detail.Width=Content.ClientWidth) and
+        Require((Detail.Left=0) and (Detail.Width=DetailWidth) and
           (Detail.Top>=0) and (Detail.Height>=0) and
           (Detail.Top+Detail.Height<=Content.ClientHeight),
           Context+': visible detail view kept stale deferred bounds');
@@ -797,17 +800,25 @@ var
       'Nested book update lost final native author/annotation text');
     CheckFooter('nested batch final text and visibility');
     Panel.BeginUpdate;
-    try Panel.InfoPriority:=True;
+    try
+      Panel.SetFb2Info(nil,'','layout-fixture.fb2');
+      Panel.InfoPriority:=True;
+    finally Panel.EndUpdate; end;
+    Require(IsWindowVisible(Annotation.Handle) and not IsWindowVisible(Items.Handle),
+      'Structured information hid an available annotation');
+    Panel.BeginUpdate;
+    try Panel.SetBookAnnotationText('');
     finally Panel.EndUpdate; end;
     Require(not IsWindowVisible(Annotation.Handle) and IsWindowVisible(Items.Handle),
-      'Outer redraw restoration showed the annotation hidden by a batch');
+      'Structured information did not fill an empty annotation');
     CheckFooter('batch switches to structured information');
     Panel.BeginUpdate;
-    try Panel.InfoPriority:=False;
+    try Panel.SetBookAnnotationText(FinalAnnotation);
     finally Panel.EndUpdate; end;
     Require(IsWindowVisible(Annotation.Handle) and not IsWindowVisible(Items.Handle) and
       (Annotation.Text=FinalAnnotation),
       'Outer redraw restoration lost the restored annotation or hidden structured state');
+    Panel.InfoPriority:=False;
     CheckFooter('batch restores annotation');
     CheckViewportBrush;
     CheckOpaqueBackdrop;

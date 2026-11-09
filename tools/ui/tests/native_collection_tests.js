@@ -147,6 +147,7 @@ const requiredViews = {
   'save-settings-sync': ['PASS save settings migration preserves legacy choices', 'PASS save settings actual form applies seven defaults', 'PASS save settings defaults reach single and mixed Save As', 'PASS save settings restored operation retains explicit format', 'PASS save settings accepted Save As path and masks survive reopen', 'PASS save settings original mixed copy preserves exact bytes', 'PASS save settings device parsing names survive shared destination persistence'],
   "version-migration": ["PASS 3.x display labels preserve legacy transport grammar and beta final patch ordering", "PASS first-party components share beta labels while numeric ordering and upstream versions remain intact", "PASS new-series feed retains exact download tags digests and legacy history", "PASS actual updater table current caption and catalogue status use unified public version in both themes"],"compact-search-filters": ["PASS compact search common filters and pinned actions fit small windows cases=24",
     "PASS collapsed extra conditions remain applied and visible by count without changing query semantics",
+    "PASS toolbar opens catalog title search and F3 keeps no-match feedback visible",
     "PASS compact search reaches extra fields and collapsed headers by Tab Space and wheel",
     "PASS extra-field expansion persists and compact search leaves catalogue bytes unchanged"],
   'book-preview-adaptive': ['PASS adaptive preview uses actual Main bounded automatic height in all six views', 'PASS expanded illustrations keep panel height and wide description position', 'PASS reading progress fits the footer and preserves the description bounds', 'PASS adaptive preview keeps thumbnail pixels and original source unchanged', 'PASS manual preview height survives new books, views, DPI and profile reload'],
@@ -164,7 +165,7 @@ const requiredViews = {
   'save-dependency-feedback': ['PASS one book reports known missing processing image and format modules together with content detection cancellation and unchanged copies'],
   'component-batch-feedback': ['PASS explicit operation batches only its known missing modules, validates both real packages and uses one restart'],
   'djvu-first-use-feedback': ['PASS DjVu first use downloads its ready verified package without another 7-Zip install'],
-  'catalogue-description': ['PASS catalogue description and keywords in actual details and refreshed lower card', 'PASS explicit local EPUB description preserves source and review'],
+  'catalogue-description': ['PASS catalogue description and keywords in actual details and refreshed lower card', 'PASS explicit local EPUB description preserves source and review', 'PASS lower FB2 card keeps file catalog and manually edited descriptions with metadata enabled'],
   'component-prompt-feedback': ['PASS component prompts show purpose once preserve context and agree on small download sizes', 'PASS standalone Reader module prompt has its own visible taskbar window', 'PASS reader formats help names native handlers and external updates with scrollable light dark 96 144 192 DPI dialog'],
   'archive-open-feedback': ['PASS archive picker prefers main document keeps companion text and double click confirms reading and conversion', 'PASS CBZ literal bracket Unicode duplicate base names natural order and all page pixels'],
   'format-components': ['PASS independent format base converts FB2 to EPUB without Kindle Office XPS', 'PASS independent format component prepare verify install BookProcessing', 'PASS independent format component prepare verify install ImageProcessing', 'PASS independent format component prepare verify install Kindle', 'PASS independent format component prepare verify install LegacyBooks', 'PASS independent format component prepare verify install LegacyOffice', 'PASS independent format component prepare verify install XPS'],
@@ -181,16 +182,16 @@ const requiredViews = {
     'PASS linked duplicate recovery resumes the exact pending file after a catalogue write failure'
   ],
   'duplicate-source': ['PASS duplicate source preference: bulk choice', 'PASS duplicate preview: scoped identity', 'PASS duplicate apply: preferred ID', 'PASS duplicate large preview: 100000 rows', 'PASS large linked preview pages 100000 copies'],
-  'duplicate-linked-audit': ['PASS actual read-only catalogue distinguishes fb2_local sources and stages 5000 exact copies from one root'],
-  'duplicate-linked-mass': ['PASS mass linked deletion removes 5000 copies across two ZIPs and a loose file while retaining primary cards and unselected bytes'],
+  'duplicate-linked-audit': ['PASS actual read-only catalogue distinguishes fb2_local sources and stages the entire selection from one root'],
+  'duplicate-linked-mass': ['PASS mass linked deletion removes 5002 copies across two ZIPs and a loose file while retaining primary cards and unselected bytes'],
   'reader-session-process': ['PASS independent reader process returns progress across restart rejects foreign and missing replies survives catalogue close and removes only session files'],
   "reader-small-fb2": ["PASS actual Main small unchanged FB2 opens and pages through explicit builtin and default reader actions without repeated preparation", "PASS reader return updates the selected catalogue book progress badge"],
   "paged-export-progress": ["PASS paged export actual progress caption, bar, cancel enabled and source preservation cancel=0", "PASS paged export actual progress caption, bar, cancel enabled and source preservation cancel=1", "PASS paged export actual cancellation without a second prompt action=1", "PASS paged export actual cancellation without a second prompt action=2"],
   "minimal-first-install": ["PASS minimal first install verifies actual archive, excludes optional binaries and installs 7-Zip DocSharp DjVuLibre with preserved private files"],
   "reader-session-context": ["PASS exact archive paths distinguish case variants with native ZIP and 7-Zip", "PASS legacy 7z locators recover exact trimmed-stem bytes", "PASS reader session preserves selected archive member history settings progress notes and source leases while rejecting invalid replies"],
   "sqlite-mapping": ["PASS SQLite mapped reads beyond 256 MB preserve concurrent snapshots Unicode rollback backup restore and compaction"],
-  "reader-open-choice": ["PASS catalogue open-book choice keeps catalogue colours while reading theme stays independent; accept cancel and remembered choice work"],
-  "reader-host-session": ["PASS catalogue reader host opens the selected archive member with existing history notes bookmarks progress and source protection", "PASS Reader help diagnostic menu current log copyable folder ZIP owner palette resize and 96/144/192 DPI"],
+  "reader-open-choice": ["PASS EPUB line break repair preserves contents and leaves valid markup unchanged", "PASS catalogue open-book choice keeps catalogue colours while reading theme stays independent; accept cancel and remembered choice work", "PASS clean catalogue external EPUB command explains the SumatraPDF assignment and alternatives"],
+  "reader-host-session": ["PASS reader closes responsively during document loading and page prefetch", "PASS catalogue reader host opens the selected archive member with existing history notes bookmarks progress and source protection", "PASS Reader help diagnostic menu current log copyable folder ZIP owner palette resize and 96/144/192 DPI", "PASS catalogue and standalone reader close during archive extraction and remove incomplete files", "PASS long catalogue reader session opens the book, returns progress and removes its files", "PASS standalone recent books and cross-book notes and bookmarks reopen the exact archive member"],
   "zip-member-deletion": ["PASS owner-coordinated archive queue waits for catalogue commit off the UI thread and stops before queued sources", "PASS rejected or abandoned owner retains recoverable journals and fresh owner completes them safely", "PASS archive change guard follows physical aliases and blocks current source readers without blocking other archives", "PASS exact ZIP member deletion preserves bytes names comments and bounded workspace", "PASS interrupted ZIP block and metadata writes recover without an archive clone", "PASS ZIP64 offsets above 4 GiB recover with sub-128-KiB journal", "PASS killed own ZIP worker recovers partial payload and metadata writes", "PASS archive queue batches exact members across archives while UI timers continue and catalogue receipts remain durable", "PASS archive queue stop finishes current archive preserves queued sources and rejects missing members without mutation", "PASS read-only 7z deletion planner retains original compressed blocks and metadata with bounded virtual output", "PASS partial solid 7z removal is rejected before any source mutation", "PASS in-place PPMd and LZMA2 removal recovers ten interruption phases and killed workers without an archive clone", "PASS archive queue revalidates captured file identity before any mutation", "PASS background 7z queue removes multiple exact members from one and different archives", "PASS archive queue rejects physical aliases before creating conflicting jobs"],
   "book-deletion": ["PASS linked references block physical deletion through another row or filename", "PASS Main removes linked catalogue rows and preserves both loose and archived originals", "PASS Main removes whole ZIP and 7z books without damaging retained references", "PASS whole archive and complete book recovery before commit and after final unlink", "PASS deletion confirmations unique books cancel records files shared archives five views online failures identity and protected neighbours", "PASS external local FB2 deletion honours the file setting in five views and Unicode update folders", "PASS Main refuses physical deletion through a shared archive alias in another collection", "PASS Main startup completes a bound archive deletion receipt and clears its private journals", "PASS Main removes verified empty ZIP and 7z containers and keeps hard-linked paths and companion files", "PASS Main reviews archive move and journal size before writing and stops on cancel or changed references"],
   "reader-cache-settings": ["PASS standalone reader cache settings preserve books notes positions and active files with age size cancel and reload"],
@@ -225,7 +226,7 @@ const requiredViews = {
   "queue-load-negative": ["PASS queue startup negative", "PASS queue failed startup negative"],
   "queue-load-truncated": ["PASS queue startup truncated", "PASS queue failed startup truncated"],
   "queue-load-zero": ["PASS queue startup zero", "PASS queue failed startup zero"],
-  "atomic-ini": ["PASS atomic INI initial large UTF8 bytes match RTL", "PASS atomic INI lock failure and destructor retain the last complete profile", "PASS atomic INI data preservation all native cases"],
+  "atomic-ini": ["PASS atomic INI initial large UTF8 bytes match RTL", "PASS atomic INI lock failure and destructor retain the last complete profile", "PASS atomic INI and stream create, replace and clean up long Unicode paths and filenames", "PASS atomic INI data preservation all native cases"],
   "group-book-identity": ["PASS Main saved group identity empty", "PASS Main saved group identity zero", "PASS Main saved group identity trusted", "PASS Main saved group identity rawunknown", "PASS saved download identity matching", "PASS saved download identity before-worker", "PASS saved download identity during-response", "PASS saved download identity legacy-matching", "PASS saved download identity legacy-replacement", "PASS saved download identity posted-completion"],
   "reader-copy-identity": ["PASS reused positive IDs", "PASS matching stable and merged verified copies", "PASS placeholder cache/history IDs", "PASS atomic reader progress/local/personal guards", "PASS concurrent catalog commit after identity read"],
   "favorite-ui": ["PASS favorite baseline", "PASS favorite search intersects", "PASS known commits refresh", "PASS favorite removal refreshes", "PASS inline favorite condition fits", "PASS all favorite authors actual menu includes absent names, filters, DPI, cancel, exact-key removal and reopen without changing books"],
@@ -258,7 +259,7 @@ const requiredViews = {
   "loose-archive": ["PASS loose archives open readable members", "PASS archive picker handles several books"],
   "update-mounts": ["PASS real volume-GUID mount accepts update preparation", "PASS mounted-volume descendants remain rejected"],
   "reader-spread": ["PASS reader spread draws both pages"],
-  "reader-scroll": ["PASS continuous scrolling preserves ordinary wheel paging"],
+  "reader-scroll": ["PASS continuous scrolling preserves ordinary wheel paging", "PASS image-only ZIP opens as pages and View sets original or fitted scale independently of temporary zoom", "PASS Page Up and Page Down move one screen immediately within and across long images"],
   "reader-scroll-live": ["PASS real FB2 appearance and continuous scrolling"],
   "builtin-reader": ["PASS main built-in reader action opens selected book", "PASS malformed and canceled readers return"],
   "external-reader-names": ["PASS real FB2 rewrite changes only private copy for Readable original book", "PASS real FB2 rewrite changes only private copy for 0031", "PASS external title-first Unicode name", "PASS equal titles/raw IDs remain separate", "PASS changed source refreshes owned alias", "PASS actual prepared extension, wrong-origin rejection", "PASS invalid control/device/path title", "PASS touched canonical warm hit uses dependency metadata", "PASS legacy missing dependency metadata and explicit same-size FB2 rewrite refresh safely after cache Touch", "PASS small cache limit keeps the canonical input alive", "PASS external friendly alias uses cancellable background lifecycle", "PASS external-reader filename policy preserves original/canonical bytes, profiles, reader history and notes"],
@@ -309,7 +310,7 @@ function filterCaptionPasses(subcase) {
     `PASS annotation caption complete theme=${dark}`];
 }
 function requiredPasses(executable, mode) {
-  if (mode === 'reading-progress-column') return ['PASS reading progress from catalogue and group sorts numerically and restores optional column'];
+  if (mode === 'reading-progress-column') return ['PASS reading progress from catalogue and group sorts numerically and restores optional column', ...[96,144,192].map(dpi => `PASS compact reading progress fits 100% and reloads at DPI ${dpi}`)];
   if (mode==='flibrary-source-preparation' || mode==='packed-pdf-preparation' || mode==='packed-usr-zip') return requiredViews[mode];
   if (mode==='distribution-layout') return requiredViews[mode];
   if (mode==='webp-live') return ['PASS live WebP update check'];
@@ -350,7 +351,7 @@ function requiredPasses(executable, mode) {
     'PASS actual catalogue startup phase profile completed',
     'TRACE catalogue orderly cleanup complete'
   ];
-  if (mode==='catalogue-performance' && process.argv.includes('--catalogue-startup')) return ['PASS actual catalogue startup phase profile completed','PASS actual catalogue uses the distributed deferred startup path','ACTUAL startup icons_load_ms=','ACTUAL startup main_create_ms=','TRACE catalogue orderly cleanup complete'];
+  if (mode==='catalogue-performance' && (process.argv.includes('--catalogue-startup') || process.argv.includes('--catalogue-startup-series'))) return ['PASS actual catalogue startup phase profile completed','PASS actual catalogue uses the distributed deferred startup path','ACTUAL startup icons_load_ms=','ACTUAL startup main_create_ms=','TRACE catalogue orderly cleanup complete'];
   if (mode==='catalogue-performance' && process.argv.includes('--catalogue-sample')) return ['PASS actual catalogue sampled iterator profile completed','TRACE cache-clear symbol RVA','TRACE catalogue orderly cleanup complete'];
   if (mode==='catalogue-performance' && process.argv.includes('--catalogue-record-transfer')) return ['TRANSFER copy=1 trial=1','TRANSFER copy=0 trial=8','PASS same-binary full catalogue record ownership transfer comparison preserves all row counts','TRACE cache-clear symbol RVA','TRACE catalogue orderly cleanup complete'];
   if (mode==='catalogue-performance') return [process.argv.includes('--catalogue-profile')
@@ -529,6 +530,16 @@ function run(executable, mode, subcase = "") {
       process.stdout.write(prepared.stdout);
     }
     if (mode === 'packing-fbd') {
+      const resultComponents = process.env.HOMELIB_PACKED_RESULT_COMPONENTS;
+      if (resultComponents) {
+        const prepared = cp.spawnSync(process.env.HLRU_PYTHON,
+          ['-B', path.join(__dirname, 'prepare_format_runtime_fixture.py'), resultComponents,
+            folder, architecture === 0x8664 ? 'Win64' : 'Win32', 'BookProcessing'],
+          {windowsHide:true, encoding:'utf8', timeout:30000});
+        if (prepared.status !== 0)
+          throw Error('Packed result component fixture failed: ' + prepared.stdout + prepared.stderr);
+        process.stdout.write(prepared.stdout);
+      }
       const sevenZip = path.join(runtime, 'tools/7zip/7za.exe');
       const python = path.join(runtime, 'tools/kindle/python');
       if (machine(sevenZip) !== architecture || machine(path.join(python, 'python.exe')) !== architecture)
@@ -1037,6 +1048,17 @@ with zipfile.ZipFile(sys.argv[2]+'/reader-spread.epub','w') as z:
     process.stdout.write(`${path.basename(exe)}${mode ? ` (${mode})` : ""}:\n${output}`);
     if (result.error) throw result.error;
     if (result.status !== 0 || !/^PASS\b/m.test(output) || /^FAIL\b/m.test(output)) throw new Error(`Native test failed: ${path.basename(exe)} ${mode || "default"}, exit ${result.status}`);
+    if (mode === 'packing-fbd' && process.env.HOMELIB_PACKED_RESULT_COMPONENTS) {
+      const argument = fs.readFileSync(path.join(folder, 'packing-inpx-result.argument'), 'utf8').trim();
+      const child = cp.spawnSync(exe, ['packing-inpx-result-child', argument],
+        {cwd:folder, env:{...process.env, LOCALAPPDATA:path.join(folder, 'LocalAppData')},
+          windowsHide:true, encoding:'utf8', timeout:60000});
+      const details = (child.stdout || '') + (child.stderr || '');
+      process.stdout.write(details);
+      if (child.status !== 0 || /^FAIL\b/m.test(details) ||
+          !details.includes('PASS packed INPX result opens only new books from the registered generation'))
+        throw Error('Packed update result check failed: ' + (child.error || child.status));
+    }
     if (mode === 'packing-fbd' && packingImagesArg &&
         !output.includes('PASS native packed INPX reuses the profile and opens the optimized FB2'))
       throw Error('Native INPX illustration checks did not execute.');
@@ -1193,6 +1215,7 @@ function runView(mode) {
   if (mode==='catalogue-performance' && process.argv.includes('--catalogue-ui-legacy')) return run(tests[2],mode,'ui-legacy');
   if (mode==='catalogue-performance' && process.argv.includes('--catalogue-ui')) return run(tests[2],mode,'ui');
   if (mode==='catalogue-performance' && process.argv.includes('--catalogue-startup-late')) return run(tests[2],mode,'startup-late');
+  if (mode==='catalogue-performance' && process.argv.includes('--catalogue-startup-series')) return run(tests[2],mode,'startup-series');
   if (mode==='catalogue-performance' && process.argv.includes('--catalogue-startup')) return run(tests[2],mode,'startup');
   if (mode==='catalogue-performance' && process.argv.includes('--catalogue-sample')) return run(tests[2],mode,'sample');
   if (mode==='catalogue-performance' && process.argv.includes('--catalogue-record-transfer')) return run(tests[2],mode,'record-transfer');

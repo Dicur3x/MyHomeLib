@@ -248,6 +248,7 @@ type
     procedure btnResetClick(Sender: TObject);
 
   private
+    FDefaultSectionNames: TArray<string>;
     FRestoreBookViews: TComboBox;
     FUseBuiltinReader: TCheckBox;
     FCachePage: TTabSheet;
@@ -263,6 +264,7 @@ type
     FCacheExit: TCheckBox;
     FCacheUsage: TLabel;
     FCacheTimer: TTimer;
+    procedure RenameSectionClick(Sender: TObject);
     procedure ReaderModeChanged(Sender: TObject);
     procedure ChooseCacheDirectory(Sender: TObject);
     procedure BrowseCacheDirectory;
@@ -381,7 +383,8 @@ begin
   CaptionLabel.Caption:='Если формат поддерживается. Остальные файлы — во внешней программе. Пути ниже сохраняются. Правой кнопкой можно выбрать другую читалку.';
   ReaderModeChanged(nil);
 
-  FCachePage:=TTabSheet.Create(Self); FCachePage.PageControl:=pcSetPages; FCachePage.TabVisible:=False;
+  FCachePage:=TTabSheet.Create(Self); FCachePage.Name:='tsBookCache';
+  FCachePage.PageControl:=pcSetPages; FCachePage.TabVisible:=False;
   FCachePage.Caption:='Кэш книг';
   CaptionLabel:=TLabel.Create(Self); CaptionLabel.Parent:=FCachePage;
   CaptionLabel.SetBounds(12,14,410,44); CaptionLabel.AutoSize:=False; CaptionLabel.WordWrap:=True;
@@ -497,6 +500,13 @@ begin
   SessionPage.Name := 'tsBookViewSessions';
   SessionPage.PageControl := pcSetPages; SessionPage.TabVisible := False;
   tvSections.Items.Add(nil, 'Списки книг');
+  SetLength(FDefaultSectionNames,tvSections.Items.Count);
+  for I:=0 to High(FDefaultSectionNames) do FDefaultSectionNames[I]:=tvSections.Items[I].Text;
+  tvSections.PopupMenu:=TPopupMenu.Create(Self);
+  FolderItem:=TMenuItem.Create(tvSections.PopupMenu);
+  FolderItem.Caption:='Переименовать раздел…';
+  FolderItem.OnClick:=RenameSectionClick;
+  tvSections.PopupMenu.Items.Add(FolderItem);
   CaptionLabel := TLabel.Create(Self); CaptionLabel.Parent := SessionPage;
   CaptionLabel.Align := alTop; CaptionLabel.AutoSize := False;
   CaptionLabel.AlignWithMargins := True; CaptionLabel.Margins.SetBounds(12,12,12,8);
@@ -735,6 +745,12 @@ procedure TfrmSettings.LoadSetting;
 var
   i: integer;
 begin
+  for I:=0 to High(FDefaultSectionNames) do
+  begin
+    var CustomName:=Settings.SettingsPageNames.Values[pcSetPages.Pages[I].Name];
+    if CustomName='' then CustomName:=FDefaultSectionNames[I];
+    tvSections.Items[I].Text:=CustomName;
+  end;
   LoadCacheSettings;
   cbPromptPath.Checked := Settings.PromptDevicePath;
   edDeviceDir.Text := Settings.DeviceDir;
@@ -986,6 +1002,12 @@ begin
   Settings.FB2FileTemplate := edFB2FileTemplate.Text;
   Settings.FBDFolderTemplate := edFBDFolderTemplate.Text;
   Settings.FBDFileTemplate := edFBDFileTemplate.Text;
+  for var I:=0 to High(FDefaultSectionNames) do
+  begin
+    var CustomName:=tvSections.Items[I].Text;
+    if CustomName=FDefaultSectionNames[I] then CustomName:='';
+    Settings.SettingsPageNames.Values[pcSetPages.Pages[I].Name]:=CustomName;
+  end;
 end;
 
 procedure TfrmSettings.SaveReaders;
@@ -1308,6 +1330,18 @@ begin
   // Сброс реализован только для этих двух разделов
   btnReset.Enabled := (pcSetPages.ActivePage = tsDevices) or
                       (pcSetPages.ActivePage = tsInterface);
+end;
+
+procedure TfrmSettings.RenameSectionClick(Sender: TObject);
+var Node: TTreeNode; NewName: string;
+begin
+  Node:=tvSections.Selected;
+  if not Assigned(Node) then Exit;
+  NewName:=Node.Text;
+  if not InputQuery('Переименовать раздел', 'Название (пустое поле вернёт исходное)', NewName) then Exit;
+  NewName:=Copy(Trim(NewName),1,60);
+  if NewName='' then NewName:=FDefaultSectionNames[Node.Index];
+  Node.Text:=NewName;
 end;
 
 // Сброс раздела настроек к типовым значениям.

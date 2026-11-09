@@ -69,6 +69,7 @@
     Margins.Right = 3
     Margins.Bottom = 0
     Align = alTop
+    AllowTextButtons = True
     Images = dmImages.vilToolbar
     ButtonHeight = 40
     AutoSize = True
@@ -132,10 +133,9 @@
       Hint = #1042#1099#1073#1088#1072#1090#1100' '#1082#1086#1083#1083#1077#1082#1094#1080#1102
       DropDownMenu = pmCollection
       ImageIndex = 6
-      Style = tbsDropDown
+      Style = tbsWholeDropDown
       ParentShowHint = False
       ShowHint = True
-      OnClick = tbtnWizardClick
     end
     object RzSep3: TToolButton
       Left = 197
@@ -232,6 +232,13 @@
       Hint = #1057#1087#1088#1072#1074#1082#1072
       Action = acHelpHelp
       ImageIndex = 26
+    end
+    object tbtnCatalogSearch: TToolButton
+      Left = 485
+      Top = 2
+      Action = acCatalogSearch
+      AutoSize = True
+      Style = tbsTextButton
     end
   end
   object pgControl: TPageControl
@@ -3536,8 +3543,15 @@
       object miDevice: TMenuItem
         Action = acBookSend2Device
       end
+      object miBookDetails: TMenuItem
+        Action = acBookDetails
+      end
       object miDownloadBooks: TMenuItem
         Action = acBookAdd2DownloadList
+      end
+      object miFastBookSearch: TMenuItem
+        Action = acToolsQuickSearch
+        ShortCut = 114
       end
       object N7: TMenuItem
         Caption = '-'
@@ -3576,7 +3590,7 @@
         Action = acBookAdd2Favorites
       end
       object miAddToGroup: TMenuItem
-        Caption = #1042#1099#1073#1088#1072#1090#1100' '#1082#1086#1083#1083#1077#1082#1094#1080#1102
+        Caption = #1044#1086#1073#1072#1074#1080#1090#1100#32#1074#32#1075#1088#1091#1087#1087#1091
         OnClick = acBookAdd2GroupExecute
         object TMenuItem
         end
@@ -3608,7 +3622,7 @@
         Action = acCollectionNew
       end
       object miCollSelect: TMenuItem
-        Caption = #1044#1086#1073#1072#1074#1080#1090#1100' '#1074' '#1075#1088#1091#1087#1087#1091
+        Caption = #1042#1099#1073#1088#1072#1090#1100#32#1082#1086#1083#1083#1077#1082#1094#1080#1102
         ImageIndex = 27
       end
       object miCollsettings: TMenuItem
@@ -3817,10 +3831,6 @@
     end
     object miTools: TMenuItem
       Caption = #1048#1085#1089#1090#1088#1091#1084#1077#1085#1090#1099
-      object miFastBookSearch: TMenuItem
-        Action = acToolsQuickSearch
-        ShortCut = 114
-      end
       object miUpdate: TMenuItem
         Action = acToolsUpdateOnlineCollections
       end
@@ -3902,15 +3912,11 @@
       OnClick = miGoToAuthorClick
     end
     object pmiBookInfo: TMenuItem
-      Caption = #1048#1085#1092#1086#1088#1084#1072#1094#1080#1103' '#1086' '#1082#1085#1080#1075#1077
-      ShortCut = 16457
-      OnClick = ShowBookInfo
+      Action = acBookDetails
     end
     object miBookEdit: TMenuItem
-      Caption = #1048#1079#1084#1077#1085#1080#1090#1100' '#1086#1087#1080#1089#1072#1085#1080#1077
+      Action = acEditBook
       ImageIndex = 3
-      ShortCut = 16453
-      OnClick = EditBookExecute
     end
     object N19: TMenuItem
       Caption = '-'
@@ -4792,6 +4798,13 @@
       ImageIndex = 7
       OnExecute = SendToDeviceExecute
     end
+    object acBookDetails: TAction
+      Category = #1050#1085#1080#1075#1072
+      Caption = #1048#1085#1092#1086#1088#1084#1072#1094#1080#1103' '#1086' '#1082#1085#1080#1075#1077
+      ShortCut = 16457
+      OnExecute = ShowBookInfo
+      OnUpdate = BookDetailsUpdate
+    end
     object acBookAdd2DownloadList: TAction
       Category = #1050#1085#1080#1075#1072
       Caption = #1044#1086#1073#1072#1074#1080#1090#1100' '#1074' '#1089#1087#1080#1089#1086#1082' '#1079#1072#1075#1088#1091#1079#1086#1082
@@ -4924,7 +4937,8 @@
     end
     object acEditBook: TAction
       Category = #1056#1077#1076#1072#1082#1090#1080#1088#1086#1074#1072#1085#1080#1077
-      Caption = #1048#1085#1092#1086#1088#1084#1072#1094#1080#1103' '#1086' '#1082#1085#1080#1075#1077
+      Caption = #1048#1079#1084#1077#1085#1080#1090#1100' '#1086#1087#1080#1089#1072#1085#1080#1077
+      ShortCut = 16453
       OnExecute = EditBookExecute
     end
     object acEditConvert2FBD: TAction
@@ -5000,13 +5014,13 @@
     end
     object acCollectionUpdateFromFile: TAction
       Category = #1050#1086#1083#1083#1077#1082#1094#1080#1103
-      Caption = #1054#1073#1085#1086#1074#1080#1090#1100' '#1082#1086#1083#1083#1077#1082#1094#1080#1102' '#1080#1079' '#1092#1072#1081#1083#1072'...'
+      Caption = #1048#1079#32#1092#1072#1081#1083#1072#32#73#78#80#88#32#1080#1083#1080#32#77#101#116#97#98#105#98#8230
       OnExecute = UpdateCollectionFromFileExecute
       OnUpdate = UpdateCollectionFromFileUpdate
     end
     object acCollectionDelete: TAction
       Category = #1050#1086#1083#1083#1077#1082#1094#1080#1103
-      Caption = #1059#1076#1072#1083#1080#1090#1100
+      Caption = #1059#1076#1072#1083#1080#1090#1100#32#1082#1086#1083#1083#1077#1082#1094#1080#1102#8230
       ImageIndex = 2
       OnExecute = DeleteCollectionExecute
     end
@@ -5040,14 +5054,22 @@
       OnExecute = ShowLocalOnlyExecute
       OnUpdate = ShowLocalOnlyUpdate
     end
+    object acCatalogSearch: TAction
+      Category = #1050#1085#1080#1075#1072
+      Caption = #1055#1086#1080#1089#1082#32#1082#1085#1080#1075
+      Hint = #1054#1090#1082#1088#1099#1090#1100#32#1087#1086#1080#1089#1082#32#1087#1086#32#1085#1072#1079#1074#1072#1085#1080#1102#32#1074#32#1090#1077#1082#1091#1097#1077#1081#32#1082#1086#1083#1083#1077#1082#1094#1080#1080
+      OnExecute = CatalogSearchExecute
+      OnUpdate = CatalogSearchUpdate
+    end
     object acToolsQuickSearch: TAction
-      Category = #1048#1085#1089#1090#1088#1091#1084#1077#1085#1090#1099
-      Caption = #1041#1099#1089#1090#1088#1099#1081' '#1087#1086#1080#1089#1082
+      Category = #1050#1085#1080#1075#1072
+      Caption = #1053#1072#1081#1090#1080#32#1074#32#1090#1077#1082#1091#1097#1077#1084#32#1089#1087#1080#1089#1082#1077#8230
       OnExecute = QuickSearchExecute
+      OnUpdate = CatalogSearchUpdate
     end
     object acToolsUpdateOnlineCollections: TAction
       Category = #1048#1085#1089#1090#1088#1091#1084#1077#1085#1090#1099
-      Caption = #1054#1073#1085#1086#1074#1080#1090#1100' '#1082#1086#1083#1083#1077#1082#1094#1080#1080
+      Caption = #1055#1088#1086#1074#1077#1088#1080#1090#1100#32#1086#1073#1085#1086#1074#1083#1077#1085#1080#1103#32#1086#1085#1083#1072#1081#1085#45#1082#1086#1083#1083#1077#1082#1094#1080#1081#8230
       OnExecute = UpdateOnlineCollectionExecute
     end
     object acToolsClearReadFolder: TAction
@@ -5075,7 +5097,7 @@
     end
     object acHelpCheckUpdates: TAction
       Category = #1055#1086#1084#1086#1097#1100
-      Caption = #1055#1088#1086#1074#1077#1088#1080#1090#1100' '#1085#1072#1083#1080#1095#1080#1077' '#1086#1073#1085#1086#1074#1083#1077#1085#1080#1081
+      Caption = #1054#1073#1085#1086#1074#1083#1077#1085#1080#1103#32#1087#1088#1086#1075#1088#1072#1084#1084#1099#32#1080#32#1082#1086#1084#1087#1086#1085#1077#1085#1090#1086#1074#8230
       OnExecute = CheckUpdatesExecute
     end
     object acHelpProgramSite: TAction
@@ -5166,7 +5188,8 @@
     end
     object acCollectionCompact: TAction
       Category = #1050#1086#1083#1083#1077#1082#1094#1080#1103
-      Caption = #1057#1078#1072#1090#1100
+      Caption = #1054#1087#1090#1080#1084#1080#1079#1080#1088#1086#1074#1072#1090#1100#32#1073#1072#1079#1091#32#1082#1072#1090#1072#1083#1086#1075#1072
+      Hint = #1054#1089#1074#1086#1073#1086#1076#1080#1090#1100#32#1084#1077#1089#1090#1086#32#1074#32#1092#1072#1081#1083#1077#32#1073#1072#1079#1099#32#1082#1072#1090#1072#1083#1086#1075#1072#46#32#1060#1072#1081#1083#1099#32#1082#1085#1080#1075#32#1085#1077#32#1084#1077#1085#1103#1102#1090#1089#1103#46
       OnExecute = CompactDataBaseExecute
     end
     object acViewSetInfoPriority: TAction

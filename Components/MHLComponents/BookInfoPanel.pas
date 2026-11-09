@@ -82,6 +82,7 @@ type
     FGenreLabel: TLabel;
     FGenres: TMHLLinkLabel;
     FAnnotation: TMemo;
+    FKeywords: TLabel;
     FFb2Info: TListView;
     FGallery: TBookGallery;
     FGalleryToggle: TButton;
@@ -183,6 +184,7 @@ type
 
 
     procedure SetBookAnnotationText(const Value: string);
+    procedure SetBookKeywords(const Value: string);
     procedure ConfigureReviews(const LoadSavedReview: TLoadSavedBookReview;
       const RequestReview: TProc = nil; const CancelReview: TProc = nil);
     procedure SetReviewDownloadState(const Status: string; Downloading: Boolean);
@@ -591,6 +593,15 @@ begin
   FAnnotation.ScrollBars := ssVertical;
   FShowAnnotation := True;
 
+  FKeywords := TLabel.Create(FInfoPanel);
+  FKeywords.Parent := FInfoPanel;
+  FKeywords.Name := 'BookPreviewKeywords';
+  FKeywords.AutoSize := False;
+  FKeywords.ShowAccelChar := False;
+  FKeywords.EllipsisPosition := epEndEllipsis;
+  FKeywords.ShowHint := True;
+  FKeywords.Visible := False;
+
   FFb2Info := TListView.Create(FInfoPanel);
 
   with FFb2Info do
@@ -787,6 +798,18 @@ begin
   FContentSizePending:=True;
   SetInfoText(FAnnotation,Value);
   UpdateDetailVisibility;
+  LayoutControls;
+end;
+
+procedure TInfoPanel.SetBookKeywords(const Value: string);
+var Keywords: string;
+begin
+  Keywords := Trim(Value.Replace(#13#10, ' ').Replace(#13, ' ').Replace(#10, ' '));
+  if Keywords <> '' then Keywords := rstrKeywords + ': ' + Keywords;
+  FKeywords.Visible := Keywords <> '';
+  FKeywords.Hint := Keywords;
+  SetInfoText(FKeywords, Keywords);
+  FContentSizePending := True;
   LayoutControls;
 end;
 
@@ -1269,6 +1292,11 @@ begin
       finally ProfileLayout(ipsLinkBounds, False); end;
       ProfileLayout(ipsDetailBounds, True);
       try
+      if FKeywords.Visible then
+      begin
+        Inc(Y, RowH + Gap);
+        Inc(BaseY, RowH + Gap);
+      end;
       // Even a very short panel must not leave the old annotation over the links.
       DesiredDetailH:=0;
       if FAnnotation.Visible or FFb2Info.Visible then
@@ -1288,6 +1316,11 @@ begin
         FInfoViewport.VertScrollBar.Range := FInfoPanel.Height;
       if FAnnotation.Visible then FAnnotation.SetBounds(0, DetailY, MetaW, DetailH);
       if FFb2Info.Visible then FFb2Info.SetBounds(0, DetailY, MetaW, DetailH);
+      if FKeywords.Visible then
+      begin
+        FKeywords.SetBounds(0, DetailY + DetailH, MetaW, RowH);
+        Inc(DetailH, RowH + Gap);
+      end;
       if FReadingSupport.Visible then FReadingSupport.Top:=FReadingSupport.Top+DetailH;
       if FPreviewStatus.Visible then FPreviewStatus.Top:=FPreviewStatus.Top+DetailH;
       if FGalleryToggle.Visible then FGalleryToggle.Top:=FGalleryToggle.Top+DetailH;
@@ -1329,7 +1362,8 @@ end;
 
 procedure TInfoPanel.UpdateDetailVisibility;
 begin
-  FFb2Info.Visible := FInfoPriority and (FFb2Info.Items.Count > 0);
+  FFb2Info.Visible := FInfoPriority and (FFb2Info.Items.Count > 0) and
+    (not FShowAnnotation or (Trim(InfoText(FAnnotation)) = ''));
   FAnnotation.Visible := FShowAnnotation and not FFb2Info.Visible;
 end;
 
@@ -1648,6 +1682,7 @@ begin
   SetInfoText(FSeries, '');
   SetInfoText(FGenres, '');
   SetInfoText(FAnnotation, '');
+  SetBookKeywords('');
   if FFb2Info.Items.Count > 0 then FFb2Info.Items.Clear;
   UpdateDetailVisibility;
   FCover.Picture.Assign(nil);

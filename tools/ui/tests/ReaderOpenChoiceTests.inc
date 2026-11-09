@@ -84,3 +84,141 @@ begin
     Driver.Timer.Free; Driver.Free; Host.Free; Reader.Free; SetMHLTheme(SavedDark);
   end;
 end;
+
+procedure TestEpubLineBreakRepair;
+const RepairWarning = 'Исправлены теги переноса строки в EPUB для чтения.';
+  SectionBody = '<h1>Chapter</h1><p>Before%sAfter</p><p><![CDATA[Literal <br>]]></p>'+
+    '<!-- comment <br> --><p title="A > B">Last paragraph</p><img src="pixel.png"/>';
+  Pixel = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGMQMgn7DwAClAGcHVtGXwAAAABJRU5ErkJggg==';
+var Folder, Original, Reference: string;
+
+  procedure WriteBook(const FileName, Body: string);
+  var Zip: TZipFile;
+  begin
+    Zip:=TZipFile.Create;
+    try
+      Zip.Open(FileName,zmWrite);
+      Zip.Add(TEncoding.ASCII.GetBytes('application/epub+zip'),'mimetype',zcStored);
+      Zip.Add(TEncoding.UTF8.GetBytes('<container><rootfiles><rootfile full-path="book.opf"/>'+
+        '</rootfiles></container>'),'META-INF/container.xml');
+      Zip.Add(TEncoding.UTF8.GetBytes('<package><metadata><title>EPUB line breaks</title></metadata>'+
+        '<manifest><item id="section" href="chapter.html" media-type="application/xhtml+xml"/>'+
+        '<item id="picture" href="pixel.png" media-type="image/png"/></manifest>'+
+        '<spine><itemref idref="section"/></spine></package>'),'book.opf');
+      Zip.Add(TEncoding.UTF8.GetBytes('<html xmlns="http://www.w3.org/1999/xhtml"><body>'+
+        Body+'</body></html>'),'chapter.html');
+      Zip.Add(TNetEncoding.Base64.DecodeStringToBytes(Pixel),'pixel.png');
+    finally Zip.Free; end;
+  end;
+
+  procedure CheckPair(const Source, Control: string; RealBook: Boolean);
+  var Actual, Expected: TReaderDocument; Reader: TfrmBuiltinReader;
+    Hash: string; ActualChapters, ExpectedChapters: TArray<TReaderChapter>;
+    Started: UInt64; WarningCount: Integer;
+  begin
+    Hash:=THashSHA2.GetHashStringFromFile(Source);
+    Actual:=TReaderDocument.Create; Expected:=TReaderDocument.Create;
+    try
+      Actual.Load(Source); Expected.Load(Control);
+      Require((Actual.Title=Expected.Title) and (Actual.PlainText=Expected.PlainText) and
+        (Actual.ImageCount=Expected.ImageCount) and (Actual.RTF=Expected.RTF),
+        'EPUB repair changed content, formatting, or pictures');
+      ActualChapters:=Actual.Chapters; ExpectedChapters:=Expected.Chapters;
+      Require(Length(ActualChapters)=Length(ExpectedChapters),'EPUB repair changed the chapter count');
+      for var Index:=0 to High(ActualChapters) do
+        Require((ActualChapters[Index].Title=ExpectedChapters[Index].Title) and
+          (ActualChapters[Index].Position=ExpectedChapters[Index].Position) and
+          (ActualChapters[Index].Depth=ExpectedChapters[Index].Depth),'EPUB repair changed navigation');
+      WarningCount:=0;
+      for var Warning in Actual.Warnings do
+        if Warning=RepairWarning then Inc(WarningCount);
+      Require((WarningCount=1) and (Expected.Warnings.IndexOf(RepairWarning)<0),
+        'EPUB repair did not distinguish corrected and valid input');
+      if not RealBook then
+        Require(Actual.PlainText.Contains('Literal <br>') and (Actual.ImageCount=1),
+          'EPUB repair changed literal CDATA or lost an inline image')
+      else
+      begin
+        Require((Actual.PlainText.Length>100000) and (Length(ActualChapters)>100),
+          Format('Reported EPUB fixture has only %d characters and %d chapters',
+          [Actual.PlainText.Length,Length(ActualChapters)]));
+        Reader:=TfrmBuiltinReader.Create(nil);
+        try
+          Reader.OpenBook(Source,Actual.Title,'epub-break-repair','','',nil);
+          Reader.HandleNeeded;
+          Started:=GetTickCount64;
+          while not Reader.LoadFinished and (GetTickCount64-Started<30000) do
+          begin Application.ProcessMessages; CheckSynchronize(5); Sleep(10); end;
+          Require(Reader.Ready and (Reader.BookText.Length>100000),
+            'The reading window did not present the repaired EPUB');
+        finally Reader.Free; end;
+        Writeln('PASS reported EPUB opens in reader, chapters=',Length(ActualChapters),
+          ' images=',Actual.ImageCount,' text=',Actual.PlainText.Length,' sha256=',Hash);
+      end;
+      Require(THashSHA2.GetHashStringFromFile(Source)=Hash,'EPUB repair changed the source archive');
+    finally Expected.Free; Actual.Free; end;
+  end;
+
+begin
+  RequireIsolatedRegression;
+  Original:=TPath.Combine(Settings.AppPath,'epub-open-break.epub');
+  Reference:=TPath.Combine(Settings.AppPath,'epub-closed-break.epub');
+  WriteBook(Original,Format(SectionBody,['<br>']));
+  WriteBook(Reference,Format(SectionBody,['<br/>']));
+  CheckPair(Original,Reference,False);
+  Writeln('PASS EPUB line break repair preserves contents and leaves valid markup unchanged');
+  Folder:=GetEnvironmentVariable('HOMELIB_TEST_EPUB_LINE_BREAK_PAIR');
+  if Folder<>'' then CheckPair(TPath.Combine(Folder,'source.epub'),TPath.Combine(Folder,'control.epub'),True);
+end;
+
+procedure TestExternalEpubPrompt(const Collection: IBookCollection);
+var Book: TBookRecord; Key: TBookKey; Tree: TBookTree;
+  Action: TAction; Prompt: TCustomForm; Reason: TMemo; Header: TLabel;
+  Path, Digest, DisplayedReason: string; Deadline: UInt64;
+begin
+  RequireIsolatedRegression;
+  var Reader:=Settings.Readers.Find('.epub');
+  Require(Assigned(Reader) and (MissingExternalReaderComponent(Settings.AppPath,Reader.Path)='SumatraPDF'),
+    'Clean EPUB profile did not assign the absent external SumatraPDF');
+  Key:=CreateBookKey(AddBook(Collection,'external-epub-prompt','Fixture','ru','','0.1'),Collection.CollectionID);
+  Collection.GetBookRecord(Key,Book,True);
+  Book.FileExt:='.epub'; Collection.UpdateBook(Book);
+  Path:=Book.GetBookFileName;
+  TFile.Copy(TPath.Combine(Settings.AppPath,'epub-closed-break.epub'),Path);
+  Digest:=UpdateSHA256(Path);
+  Tree:=frmMain.tvBooksSR;
+  ShowPage(PAGE_SEARCH);
+  frmMain.FillBooksTree(Tree,nil,Collection.GetBookIterator(bmAll,False),False,False,@Key);
+  Tree.FocusedNode:=Tree.GetFirstSelected;
+  Require(Assigned(Tree.FocusedNode),'External EPUB prompt lost its selected catalogue book');
+  Action:=frmMain.FindComponent('acReadExternal') as TAction;
+  Require(Assigned(Action) and Assigned(Action.OnExecute),'External reader command is missing');
+  Prompt:=nil; Reason:=nil;
+  try
+    Action.OnExecute(Action);
+    Deadline:=GetTickCount64+10000;
+    repeat
+      Application.ProcessMessages; CheckSynchronize(5);
+      for var I:=0 to Screen.FormCount-1 do
+        if Screen.Forms[I].Visible and (Screen.Forms[I].Name='OptionalComponentPrompt') then
+        begin
+          Prompt:=Screen.Forms[I];
+          Reason:=Prompt.FindComponent('ComponentPromptReason') as TMemo;
+          Break;
+        end;
+    until Assigned(Reason) or (GetTickCount64>=Deadline);
+    Require(Assigned(Reason),'Catalogue did not show the external reader installation prompt');
+    Header:=Prompt.FindComponent('ComponentPromptTitle') as TLabel;
+    Require(Assigned(Header),'External EPUB installation prompt has no title');
+    Require(string(Header.Caption).Contains('PDF, EPUB и DjVu'),
+      'SumatraPDF title does not include EPUB: '+Header.Caption);
+    DisplayedReason:=Reason.Text;
+    Require(DisplayedReason.Contains('Для внешнего открытия EPUB выбрана программа SumatraPDF.') and
+      DisplayedReason.Contains('«Выбрать читалку…»') and DisplayedReason.Contains('«Настройки → Типы файлов»'),
+      'External EPUB installation prompt lost its format, reader, or alternative');
+  finally
+    if Assigned(Prompt) then Prompt.Close;
+  end;
+  Require(UpdateSHA256(Path)=Digest,'External reading prompt changed the EPUB source');
+  Writeln('PASS clean catalogue external EPUB command explains the SumatraPDF assignment and alternatives');
+end;

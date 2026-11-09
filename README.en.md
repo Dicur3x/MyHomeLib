@@ -15,15 +15,11 @@ originally created by **Олексій Пеньков (Oleksiy Penkov)**.
 
 ## Download and run
 
-The current public beta is **[HomeLibre 3.0 beta 10](https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.10)**.
-[Release notes](https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.10) · [Release history](docs/releases/README.md) ·
-[Validation and limitations](docs/RELEASE_VALIDATION_3.0.0_pre1.10.md) (in Russian).
+[HomeLibre releases for Windows](https://github.com/Dicur3x/MyHomeLib/releases) · [Release history](docs/releases/README.md)
 
-| Archive | System |
-| --- | --- |
-| [HomeLibre — 64-bit](https://github.com/Dicur3x/MyHomeLib/releases/download/3.0.0_pre1.10/HomeLibre_x64.zip) | 64-bit Windows |
-| [HomeLibre — 32-bit](https://github.com/Dicur3x/MyHomeLib/releases/download/3.0.0_pre1.10/HomeLibre.zip) | 32-bit Windows; also runs on 64-bit Windows |
-| [SHA256SUMS.txt](https://github.com/Dicur3x/MyHomeLib/releases/download/3.0.0_pre1.10/SHA256SUMS.txt) | Archive checksums |
+In the selected release, choose `HomeLibre_x64.zip` for 64-bit Windows or
+`HomeLibre.zip` for 32-bit Windows. The same page has `SHA256SUMS.txt`
+for checking the archives.
 
 Requires **Windows 10 or later**. The archive contains the catalogue app.
 Books are obtained separately.
@@ -43,21 +39,37 @@ Books are obtained separately.
 
 ## HomeLibre Reader
 
-[Download Reader for Windows x64](https://github.com/Dicur3x/MyHomeLib/releases/download/optional-alreader-2.5.1009.25/HomeLibRu-HomeLibReader-3.0.0.8-Win64.zip) · [Download Reader for Windows x86](https://github.com/Dicur3x/MyHomeLib/releases/download/optional-alreader-2.5.1009.25/HomeLibRu-HomeLibReader-3.0.0.8-Win32.zip) ·
-[All components and external readers](https://github.com/Dicur3x/MyHomeLib/releases/tag/optional-alreader-2.5.1009.25)
+[Download HomeLibre Reader and components](https://github.com/Dicur3x/MyHomeLib/releases/tag/optional-alreader-2.5.1009.25)
+Choose the HomeLibre Reader archive for Windows x86 or x64 from the list of assets.
 
 To read files without the catalogue app, extract the Reader archive, run
 **HomeLibReader.exe** and press **Ctrl+O**. If you open a book from the catalogue,
 HomeLibre offers to install the reader the first time you need it.
 
-- **Ready to open:** FB2, FB3, EPUB, TXT, RTF, HTML/MHTML, Markdown, DOCX, ODT,
-  common image formats and CBZ comics with those images.
-- **Modules on demand:** PDF, DjVu, XPS, Kindle (MOBI, AZW, AZW3, PRC), older
-  Office documents including DOC, and additional image and comic formats.
-  Presentations and spreadsheets can be opened without installing Office.
-- **Less common formats:** CHM, LIT, LRF, RB, ABW, SXW, WRI, TCR, RGO, IBK and
-  supported PDB variants. The reader can also open supported books in ZIP,
-  7z and RAR archives and lets you choose when an archive contains several.
+### Supported reading formats
+
+| File type | Formats | Additional module |
+| --- | --- | --- |
+| E-books | FB2, FB3, EPUB | Very large FB2 files may require BookProcessing |
+| Text and markup | TXT, FAQ, WRI, RTF, MD, MARKDOWN, HTML, HTM, SHTML, XHTML, MHT, MHTML | Very large RTF files may require BookProcessing |
+| Text documents | DOCX, ODT | Built in |
+| Word and OpenDocument templates | DOC, DOT, DOCM, DOTX, DOTM, OTT | DocSharp for DOC and DOT. BookProcessing for the others |
+| Presentations | PPT, PPS, POT, PPTX, PPTM, PPSX, PPSM, POTX, POTM, ODP, OTP | BookProcessing. PPT, PPS and POT also require DocSharp |
+| Spreadsheets | XLS, XLT, XLSX, XLSM, XLTX, XLTM, ODS, OTS | BookProcessing. XLS and XLT also require DocSharp |
+| Works and WordPerfect | WPS, WPD | BookProcessing and libwps/libwpd. Requires 64-bit Windows |
+| Fixed-layout documents | PDF, DJVU, DJV, DJU, DJM, DJVM, XPS, OXPS | PDFium for PDF, DjVuLibre for DjVu, HomeLibXps and BookProcessing for XPS and OXPS |
+| Kindle books | MOBI, AZW, AZW3, PRC | KindleUnpack and BookProcessing. Some older variants also require calibre codecs |
+| Interactive books | SM | BookProcessing. You can save the route you played |
+| Less common books and documents | CHM, LIT, LRF, RB, ABW, SXW, TCR, PDB, RGO, IBK, JUTOH, PAGES, CR3, B1, HA | BookProcessing. CHM requires 7-Zip, LIT and LRF require calibre codecs, and IBK requires ICE Book Reader data. Support depends on the file variant |
+| Images and comics | JPG, JPEG, PNG, GIF, BMP, WEBP, TIF, TIFF, CBZ, CBR, CB7 | WebP requires libwebp. Some TIFF files require BookProcessing, and some comics require 7-Zip. JPEG XL illustrations in books require a JPEG XL decoder |
+
+The reader can open supported books inside ZIP, FBZ, 7Z, 7ZIP, RAR, TAR, GZ,
+GZIP, TGZ, BZ2, XZ, CAB and APK files. If a container has several books, you
+can choose one. Some compression methods require 7-Zip.
+
+The reader checks the file contents and can recognise a book with an incorrect
+extension. It offers to install additional modules when needed. Presentations
+and spreadsheets open without Microsoft Office installed.
 
 Adjust colours, fonts, two-page spreads and smooth scrolling. The reader has
 text search, a table of contents, bookmarks, notes and saved reading positions.

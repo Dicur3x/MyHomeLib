@@ -1,8 +1,41 @@
-﻿procedure TestCompactSearchFilters;
+﻿type
+  TCurrentListSearchProbe = class
+    Failure: string;
+    procedure Tick(Sender: TObject);
+  end;
+
+procedure TCurrentListSearchProbe.Tick(Sender: TObject);
+var Dialog: TfrmBookSearch; Previous: PVirtualNode;
+begin
+  for var Index:=0 to Screen.FormCount-1 do
+  begin
+    if not (Screen.Forms[Index] is TfrmBookSearch) then Continue;
+    Dialog:=TfrmBookSearch(Screen.Forms[Index]);
+    if not Dialog.Visible then Continue;
+    TTimer(Sender).Enabled:=False;
+    try
+      Dialog.edText.Text:=' ha R ';
+      Dialog.Perform(CM_DIALOGKEY,VK_RETURN,0);
+      Previous:=frmMain.tvBooksSR.FocusedNode;
+      Require(Assigned(Previous) and (Dialog.ModalResult=mrNone) and
+        (Dialog.btnFind.Caption='Найти дальше'),'Enter did not find a partial title and leave the dialog open');
+      Dialog.edText.Text:='сжать';
+      Dialog.Perform(CM_DIALOGKEY,VK_RETURN,0);
+      Require((Dialog.ModalResult=mrNone) and (frmMain.tvBooksSR.FocusedNode=Previous) and
+        (Pos('Совпадений нет',Dialog.lblResult.Caption)>0),'No-match search did not explain the result and preserve selection');
+      Failure:='';
+    except on E: Exception do Failure:=E.Message; end;
+    Dialog.btnClose.Click;
+    Exit;
+  end;
+end;
+
+procedure TestCompactSearchFilters;
 var More: TButton; Publisher: TMHLButtonedEdit; OldBounds: TRect;
   OldPage, DPI, Width, Height, Cases, PosBefore, OriginalPPI: Integer;
   OldDark, Dark, OldMore, OldBook, OldOther, OldFile: Boolean;
   DBFile, DBHash: string; Reopened: TMHLSettings; Started: UInt64;
+  LocateProbe: TCurrentListSearchProbe; LocateTimer: TTimer;
 
   function ScreenBounds(Control: TControl): TRect;
   begin
@@ -59,6 +92,8 @@ begin
             Require(Inside(frmMain.btnApplyFilter,frmMain.pnSearchView) and
               Inside(frmMain.btnClearFilterEdits,frmMain.pnSearchView),
               'Apply/Clear are outside the small Search sidebar');
+            Require(Inside(frmMain.tbtnCatalogSearch,frmMain.tlbrMain),
+              'Catalog search button is clipped on the main toolbar');
             Require(frmMain.btnApplyFilter.BoundsRect.Right<=frmMain.btnClearFilterEdits.Left,
               'Search action buttons overlap');
             Require((frmMain.ctpBook.Top<frmMain.ctpOther.Top) and
@@ -78,6 +113,38 @@ begin
     Flush(Output);
 
     SetMHLTheme(False); frmMain.ScaleForPPI(96); frmMain.SetBounds(0,0,1000,760);
+    ShowPage(PAGE_AUTHORS);
+    frmMain.ctpBook.Collapsed:=True;
+    frmMain.edFTitle.Text:='previous search';
+    frmMain.tbtnCatalogSearch.Click;
+    Require((frmMain.pgControl.ActivePage=frmMain.tsSearch) and not frmMain.ctpBook.Collapsed and
+      (frmMain.ActiveControl=frmMain.edFTitle) and (frmMain.edFTitle.SelText='previous search'),
+      'Toolbar search does not open the catalog title field');
+    frmMain.edFTitle.Text:='Alpha ru';
+    frmMain.DoApplyFilter(nil);
+    ExpectTitles(frmMain.tvBooksSR,['Alpha ru']);
+    Require((frmMain.miFastBookSearch.ShortCut=VK_F3) and
+      (frmMain.miFastBookSearch.Parent=frmMain.miBook),'F3 is missing from the Book menu');
+    Require((frmMain.miAddToGroup.Caption='Добавить в группу') and
+      (frmMain.miCollSelect.Caption='Выбрать коллекцию') and
+      (Pos('программы и компонентов',frmMain.acHelpCheckUpdates.Caption)>0) and
+      (Pos('онлайн-коллекций',frmMain.acToolsUpdateOnlineCollections.Caption)>0),
+      'Catalog menus confuse collections, book groups or update targets');
+    LocateProbe:=TCurrentListSearchProbe.Create;
+    LocateTimer:=TTimer.Create(nil);
+    try
+      LocateProbe.Failure:='Current-list search dialog did not open';
+      LocateTimer.Interval:=30;
+      LocateTimer.OnTimer:=LocateProbe.Tick;
+      frmMain.miFastBookSearch.Click;
+      Require(LocateProbe.Failure='',LocateProbe.Failure);
+    finally
+      LocateTimer.Free;
+      LocateProbe.Free;
+    end;
+    frmMain.DoClearFilter(False);
+    Writeln('PASS toolbar opens catalog title search and F3 keeps no-match feedback visible');
+    Flush(Output);
     frmMain.SearchParams.VertScrollBar.Position:=0;
     Publisher.Text:='There is no publisher with this fixture name';
     Require((Pos('(1)',More.Caption)>0),'Filled hidden conditions have no visible count');

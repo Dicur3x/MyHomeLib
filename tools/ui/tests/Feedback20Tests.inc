@@ -10,7 +10,7 @@ type
     Timer: TTimer;
     Collection: IBookCollection;
     Book: TBookRecord;
-    Done: Boolean;
+    Done, HasSource: Boolean;
     Failure: string;
     procedure Tick(Sender: TObject);
   end;
@@ -30,8 +30,8 @@ begin
         for var Item in Details.lvFileInfo.Items do
           if (Item.Caption='Ключевые слова') and (Item.SubItems[0]=Book.KeyWords) then KeywordsVisible:=True;
         Require(KeywordsVisible,'Catalogue keywords were not shown when the book file is absent');
-        Require(not Details.btnAnnotationFile.Enabled and not Details.mmoAnnotation.ReadOnly,
-          'Wrong source availability or edit access for a missing local file');
+        Require((Details.btnAnnotationFile.Enabled=HasSource) and not Details.mmoAnnotation.ReadOnly,
+          'Wrong source availability or edit access in book details');
         Collection.SetReview(Book.BookKey,'Другой отзыв, сохранённый параллельно');
         Details.mmoAnnotation.Text:='Моё новое описание — ё 😀';
         Done:=True;
@@ -70,7 +70,7 @@ end;
 
 function Feedback20HasAnnotation(Control: TWinControl; const Text: string): Boolean;
 begin
-  Result:=(Control is TMemo) and string(TMemo(Control).Text).Contains(Text);
+  Result:=(Control is TMemo) and Control.Visible and string(TMemo(Control).Text).Contains(Text);
   if Result then Exit;
   for var I:=0 to Control.ControlCount-1 do
     if (Control.Controls[I] is TWinControl) and Feedback20HasAnnotation(TWinControl(Control.Controls[I]),Text) then Exit(True);
@@ -245,9 +245,13 @@ begin
   One.SetReview(DescriptionKey,'Прежний отзыв');
   var WasInfo:=Settings.ShowInfoPanel; var WasCover:=Settings.ShowBookCover;
   var WasAnnotation:=Settings.ShowBookAnnotation; var WasPriority:=Settings.Fb2InfoPriority;
+  var PanelAnnotation:=frmMain.ipnlSearch.ShowAnnotation;
+  var PanelPriority:=frmMain.ipnlSearch.InfoPriority;
   try
     Settings.ShowInfoPanel:=True; Settings.ShowBookCover:=False;
     Settings.ShowBookAnnotation:=True; Settings.Fb2InfoPriority:=False;
+    frmMain.ipnlSearch.ShowAnnotation:=True;
+    frmMain.ipnlSearch.InfoPriority:=False;
     ShowPage(PAGE_SEARCH);
     var Key:=CreateBookKey(AnnotationID,OneID);
     frmMain.FillBooksTree(frmMain.tvBooksSR,nil,One.GetBookIterator(bmAll,False),False,False,@Key);
@@ -291,6 +295,8 @@ begin
   finally
     Settings.ShowInfoPanel:=WasInfo; Settings.ShowBookCover:=WasCover;
     Settings.ShowBookAnnotation:=WasAnnotation; Settings.Fb2InfoPriority:=WasPriority;
+    frmMain.ipnlSearch.ShowAnnotation:=PanelAnnotation;
+    frmMain.ipnlSearch.InfoPriority:=PanelPriority;
   end;
 
   var FileBook:=Default(TBookRecord);
@@ -325,4 +331,111 @@ begin
       (UpdateSHA256(FilePath)=SourceHash),'Importing an embedded EPUB description changed its source or the review');
   finally Details.Free; end;
   Writeln('PASS explicit local EPUB description preserves source and review');
+end;
+
+procedure TestFB2DescriptionPriority(const One: IBookCollection; OneID: Integer);
+const FileDescription = 'Аннотация внутри FB2 — ё.';
+  CatalogDescription = 'Описание из каталога — ї.';
+  ManualDescription = 'Моё новое описание — ё 😀';
+var Book: TBookRecord; Key: TBookKey; Panel: TInfoPanel; Tree: TBookTree;
+  Probe: TDescriptionDialogProbe; Row: PBookRecord; Path, SourceHash: string;
+  Keywords: TLabel;
+  WasInfo, WasCover, WasAnnotation, WasPriority, PanelAnnotation, PanelPriority: Boolean;
+
+  procedure WaitForDescription(const Text: string);
+  var Deadline: UInt64;
+  begin
+    Deadline:=GetTickCount64+5000;
+    while not Feedback20HasAnnotation(Panel,Text) and (GetTickCount64<Deadline) do
+    begin Application.ProcessMessages; CheckSynchronize(5); end;
+    Require(Feedback20HasAnnotation(Panel,Text),'Lower FB2 card did not display '+Text);
+  end;
+
+  function FindKeywords(Control: TWinControl): TLabel;
+  begin
+    Result := Control.FindComponent('BookPreviewKeywords') as TLabel;
+    if Assigned(Result) then Exit;
+    for var I := 0 to Control.ControlCount - 1 do
+      if Control.Controls[I] is TWinControl then
+      begin
+        Result := FindKeywords(TWinControl(Control.Controls[I]));
+        if Assigned(Result) then Exit;
+      end;
+  end;
+
+begin
+  RequireIsolatedRegression;
+  Key:=CreateBookKey(AddBook(One,'fb2-description-priority','Описание','ru','','0.1'),OneID);
+  One.GetBookRecord(Key,Book,True);
+  Book.KeyWords:='Проверка ключевых слов';
+  One.UpdateBook(Book);
+  Path:=Book.GetBookFileName;
+  TFile.WriteAllText(Path,'<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0">'+
+    '<description><title-info><genre>prose_contemporary</genre><author><nickname>Автор</nickname></author>'+
+    '<book-title>Название из файла</book-title><annotation><p>'+FileDescription+'</p></annotation><lang>ru</lang>'+
+    '</title-info></description><body><section><p>Текст книги.</p></section></body></FictionBook>',TEncoding.UTF8);
+  SourceHash:=UpdateSHA256(Path);
+  Panel:=frmMain.ipnlSearch; Tree:=frmMain.tvBooksSR;
+  WasInfo:=Settings.ShowInfoPanel; WasCover:=Settings.ShowBookCover;
+  WasAnnotation:=Settings.ShowBookAnnotation; WasPriority:=Settings.Fb2InfoPriority;
+  PanelAnnotation:=Panel.ShowAnnotation; PanelPriority:=Panel.InfoPriority;
+  try
+    frmMain.Show;
+    Application.ProcessMessages;
+    Settings.ShowInfoPanel:=True; Settings.ShowBookCover:=False;
+    Settings.ShowBookAnnotation:=True; Settings.Fb2InfoPriority:=True;
+    Panel.Visible:=True; Panel.ShowAnnotation:=True; Panel.InfoPriority:=True;
+    ShowPage(PAGE_SEARCH);
+    Application.ProcessMessages;
+    Require(Panel.Showing,'Lower card must be shown to verify the keyword layout');
+    frmMain.FillBooksTree(Tree,nil,One.GetBookIterator(bmAll,False),False,False,@Key);
+    Tree.FocusedNode:=Tree.GetFirstSelected;
+    Row:=PBookRecord(Tree.GetNodeData(Tree.FocusedNode));
+    Require(Assigned(Row) and Row.BookKey.IsSameAs(Key),'FB2 preview selected the wrong book');
+    frmMain.tvBooksTreeChange(Tree,Tree.FocusedNode);
+    WaitForDescription(FileDescription);
+    Keywords := FindKeywords(Panel);
+    Require(Assigned(Keywords) and Keywords.Visible and
+      (Keywords.Caption = 'Ключевые слова: Проверка ключевых слов'),
+      'Lower FB2 card did not show its catalogue keywords');
+    for var I := 0 to Keywords.Parent.ControlCount - 1 do
+      if (Keywords.Parent.Controls[I] is TMemo) and Keywords.Parent.Controls[I].Visible then
+        Require(Keywords.Top >= Keywords.Parent.Controls[I].BoundsRect.Bottom,
+          'Catalogue keywords overlap the lower card description');
+
+    One.SetAnnotation(Key,CatalogDescription);
+    Row.Annotation:='';
+    frmMain.tvBooksTreeChange(Tree,Tree.FocusedNode);
+    WaitForDescription(CatalogDescription);
+    One.GetBookRecord(Key,Book,True);
+    Probe:=TDescriptionDialogProbe.Create;
+    try
+      Probe.Collection:=One; Probe.Book:=Book; Probe.HasSource:=True;
+      Probe.Timer:=TTimer.Create(nil); Probe.Timer.Interval:=20; Probe.Timer.OnTimer:=Probe.Tick;
+      Probe.Timer.Enabled:=True;
+      Panel.DetailsButton.Click;
+      Require(Probe.Done,'Could not edit the FB2 description. '+Probe.Failure);
+    finally Probe.Timer.Free; Probe.Free; end;
+    WaitForDescription(ManualDescription);
+    One.GetBookRecord(Key,Book,True);
+    Require((Book.Annotation.Trim=ManualDescription) and (UpdateSHA256(Path)=SourceHash),
+      'Manual FB2 description was not saved independently of the file');
+
+    Book.KeyWords := 'Новые & сохранённые слова';
+    One.UpdateBook(Book);
+    frmMain.FillBooksTree(Tree,nil,One.GetBookIterator(bmAll,False),False,False,@Key);
+    frmMain.tvBooksTreeChange(Tree,Tree.GetFirstSelected);
+    Require(Keywords.Visible and (Keywords.Caption = 'Ключевые слова: Новые & сохранённые слова'),
+      'Lower card kept old keywords after the catalogue was refreshed');
+    Key := CreateBookKey(AddBook(One,'fb2-without-keywords','Описание','ru','','0.1'),OneID);
+    frmMain.FillBooksTree(Tree,nil,One.GetBookIterator(bmAll,False),False,False,@Key);
+    frmMain.tvBooksTreeChange(Tree,Tree.GetFirstSelected);
+    Require(not Keywords.Visible, 'Keywords from the previous selection remained in the lower card');
+    Writeln('PASS lower card shows catalogue keywords below description, refreshes edits and hides empty values');
+  finally
+    Settings.ShowInfoPanel:=WasInfo; Settings.ShowBookCover:=WasCover;
+    Settings.ShowBookAnnotation:=WasAnnotation; Settings.Fb2InfoPriority:=WasPriority;
+    Panel.ShowAnnotation:=PanelAnnotation; Panel.InfoPriority:=PanelPriority;
+  end;
+  Writeln('PASS lower FB2 card keeps file catalog and manually edited descriptions with metadata enabled');
 end;

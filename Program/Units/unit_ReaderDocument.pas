@@ -298,8 +298,37 @@ begin
   finally B.Free; end;
 end;
 
+function CloseEpubLineBreaks(const Value: string): string;
+const Markup = '<!\[CDATA\[.*?\]\]>|<!--.*?-->|<\?.*?\?>|(<br[ \t\r\n]*>)|<(?:"[^"]*"|''[^'']*''|[^<>"'']++)*>';
+var Match: TMatch; Output: TStringBuilder; Start, Finish: Integer;
+begin
+  Result:=Value; Output:=nil; Start:=1;
+  try
+    // A literal in CDATA, a comment or a quoted attribute is not a tag.
+    Match:=TRegEx.Match(Value,Markup,[roIgnoreCase,roSingleLine]);
+    while Match.Success do
+    begin
+      if (Match.Groups.Count>1) and (Match.Groups[1].Length>0) then
+      begin
+        if not Assigned(Output) then Output:=TStringBuilder.Create;
+        Finish:=Match.Index+Match.Length-1;
+        Output.Append(Copy(Value,Start,Finish-Start));
+        Output.Append('/>');
+        Start:=Finish+1;
+      end;
+      Match:=Match.NextMatch;
+    end;
+    if Assigned(Output) then
+    begin
+      Output.Append(Copy(Value,Start,MaxInt));
+      Result:=Output.ToString;
+    end;
+  finally Output.Free; end;
+end;
+
 function XMLDocument(const Bytes: TBytes; TextEncoding: TReaderTextEncoding = rteAutomatic;
-  FB2Warnings: TStrings = nil): IXMLDOMDocument3;
+  FB2Warnings: TStrings = nil; EpubWarnings: TStrings = nil): IXMLDOMDocument3;
+const EpubLineBreakWarning = 'Исправлены теги переноса строки в EPUB для чтения.';
 var S, Failure: string; M: TMatch; Enc: TEncoding;
 begin
   if Length(Bytes)>MAX_DOCUMENT_BYTES then raise Exception.Create('Документ превышает предел встроенной читалки (64 МБ).');
@@ -326,6 +355,15 @@ begin
   Result.preserveWhiteSpace := True;
   Result.setProperty('ProhibitDTD',True);
   if Result.loadXML(S) then Exit;
+  if Assigned(EpubWarnings) then
+  begin
+    var Repaired:=CloseEpubLineBreaks(S);
+    if (Repaired<>S) and Result.loadXML(Repaired) then
+    begin
+      if EpubWarnings.IndexOf(EpubLineBreakWarning)<0 then EpubWarnings.Add(EpubLineBreakWarning);
+      Exit;
+    end;
+  end;
   if Assigned(FB2Warnings) then
   begin
     Failure:=FB2MarkupFailure(Result.parseError,S);
@@ -576,7 +614,9 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
     begin
       Entries.Clear; Seen.Clear;
       try
-        CurrentPath:=ZipPath(PackagePath,Href); ReadZip(CurrentPath,Bytes); Navigation:=XMLDocument(Bytes);
+        CurrentPath:=ZipPath(PackagePath,Href); ReadZip(CurrentPath,Bytes);
+        if NCX then Navigation:=XMLDocument(Bytes)
+        else Navigation:=XMLDocument(Bytes,rteAutomatic,nil,Warnings);
         if NCX then TocNode:=DirectChild(Navigation.documentElement,'navmap')
         else TocNode:=DirectChild(FindToc(Navigation.documentElement),'ol');
         ReadList(TocNode,NCX,0);
@@ -1109,7 +1149,7 @@ begin
         ID:=Attribute(Item,'idref');
         if not Paths.TryGetValue(ID,CurrentPath) then raise Exception.Create('Не найден раздел EPUB: '+ID);
         CurrentPath:=ZipPath(PackagePath,CurrentPath);
-        ReadZip(CurrentPath,Data); Document:=XMLDocument(Data);
+        ReadZip(CurrentPath,Data); Document:=XMLDocument(Data,rteAutomatic,nil,Warnings);
         CSS.Clear; LoadCSS(FindNode(Document.documentElement,'head'));
         Node:=FindNode(Document.documentElement,'body');
         if Node<>nil then begin CollectNotes(Node,CurrentPath+'#',False); Walk(Node,0); end;
@@ -1125,7 +1165,7 @@ begin
           begin
             // Remember a broken resource as well: repeated references must not reread it.
             NoteFiles.Add(CurrentPath,nil);
-            ReadZip(CurrentPath,Data); Document:=XMLDocument(Data); NoteFiles[CurrentPath]:=Document;
+            ReadZip(CurrentPath,Data); Document:=XMLDocument(Data,rteAutomatic,nil,Warnings); NoteFiles[CurrentPath]:=Document;
             CollectNotes(Document.documentElement,CurrentPath+'#',False);
           end;
           if not Assigned(Document) then Continue;
@@ -1179,12 +1219,15 @@ begin
             else if ReaderBinaryArea(Node.text)>ReaderBinaryArea(ExistingBinary) then Binaries[ID]:=Node.text;
           end;
         end;
+        var HasBody:=False;
         for I:=0 to Root.childNodes.length-1 do
         begin
           Node:=Root.childNodes.item[I];
-          if (LocalName(Node)='body') and MatchText(Attribute(Node,'name'),['notes','comments']) then
-            CollectNotes(Node,'',True);
+          if LocalName(Node)<>'body' then Continue;
+          HasBody:=True;
+          if MatchText(Attribute(Node,'name'),['notes','comments']) then CollectNotes(Node,'',True);
         end;
+        if not HasBody then raise EReadError.Create('В файле FB2/FBD не найдено содержимое книги.');
         // The FB2 cover belongs to description/title-info, outside its body.
         Node:=FindNode(Root,'title-info');
         if Node<>nil then Node:=FindNode(Node,'coverpage');

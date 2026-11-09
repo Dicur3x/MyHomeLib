@@ -61,7 +61,7 @@ begin
   else if Bytes>0 then
   begin
     if Item.Options.FirstSamples then Result:='Приблизительно, по первым страницам'
-    else if Item.Options.DistributedSamples then Result:=Format('По %d из %d страниц сканов',
+    else if Item.Options.DistributedSamples then Result:=Format('По %d из %d страниц',
       [Item.Options.SampleCount,Item.Options.ImageCount])
     else if Item.Options.AllScanPages then Result:='По всем страницам сканов'
     else if Item.Completed then Result:='Рассчитано'

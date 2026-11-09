@@ -16,7 +16,7 @@ procedure CleanupReaderRestartSession(const Profile, RequestFile: string);
 
 implementation
 
-uses System.SysUtils, System.Classes, System.IOUtils, System.JSON;
+uses System.SysUtils, System.Classes, System.IOUtils, System.JSON, unit_ProgramUpdatePaths;
 
 const RESTART_SESSION_PREFIX = 'HomeLibReader-session-';
 
@@ -56,10 +56,12 @@ end;
 procedure PublishReaderRestart(const Profile, RequestFile: string);
 var Value: TJSONObject; Destination, Temporary: string;
 begin
-  if not OwnedRestartRequest(Profile,RequestFile) or not FileExists(RequestFile) then
+  if not OwnedRestartRequest(Profile,RequestFile) or not FileExists(UpdateIOPath(RequestFile)) then
     raise Exception.Create('Invalid current-book restart session');
-  ForceDirectories(ReaderRestartDirectory(Profile));
-  Destination:=ReceiptFile(Profile,GetCurrentProcessId); Temporary:=Destination+'.new';
+  ForceDirectories(UpdateIOPath(ReaderRestartDirectory(Profile)));
+  Destination:=ReceiptFile(Profile,GetCurrentProcessId);
+  Temporary:=UpdateIOPath(Destination+'.new');
+  Destination:=UpdateIOPath(Destination);
   Value:=TJSONObject.Create;
   try
     Value.AddPair('format',TJSONNumber.Create(1));
@@ -77,7 +79,7 @@ function ReadReaderRestart(const Profile: string; PID: Cardinal;
 var FileName, Stamp: string; Stream: TFileStream; Data: TBytes;
   Value: TJSONValue; Version, RecordedPID: Int64;
 begin
-  Result:=''; FileName:=ReceiptFile(Profile,PID);
+  Result:=''; FileName:=UpdateIOPath(ReceiptFile(Profile,PID));
   if not FileExists(FileName) then Exit;
   Stream:=TFileStream.Create(FileName,fmOpenRead or fmShareDenyWrite);
   try
@@ -101,7 +103,7 @@ end;
 
 procedure RemoveReaderRestart(const Profile: string);
 begin
-  Winapi.Windows.DeleteFile(PChar(ReceiptFile(Profile,GetCurrentProcessId)));
+  Winapi.Windows.DeleteFile(PChar(UpdateIOPath(ReceiptFile(Profile,GetCurrentProcessId))));
 end;
 
 procedure CleanupReaderRestartSession(const Profile, RequestFile: string);
@@ -110,10 +112,10 @@ begin
   if not OwnedRestartRequest(Profile,RequestFile) then Exit;
   // The updater may still hold the request. Leave it for the resumed Reader;
   // never recursively delete a directory or remove unrelated cached inputs.
-  if not Winapi.Windows.DeleteFile(PChar(RequestFile)) then Exit;
+  if not Winapi.Windows.DeleteFile(PChar(UpdateIOPath(RequestFile))) then Exit;
   Folder:=ExtractFileDir(RequestFile);
-  Winapi.Windows.DeleteFile(PChar(TPath.Combine(Folder,'response.json')));
-  Winapi.Windows.RemoveDirectory(PChar(Folder));
+  Winapi.Windows.DeleteFile(PChar(UpdateIOPath(TPath.Combine(Folder,'response.json'))));
+  Winapi.Windows.RemoveDirectory(PChar(UpdateIOPath(Folder)));
 end;
 
 end.

@@ -143,10 +143,12 @@ begin
   begin
     if State.SelectedDuplicates>0 then
       Detail:=Format('Удалено копий: %d из %d. Можно продолжать работу с каталогом.',
-        [State.CompletedBooks,State.SelectedDuplicates])
+        [State.CompletedBooks+State.CompletedCopies,State.SelectedDuplicates])
     else if State.CompletedCopies>0 then
       Detail:=Format('Обработано дополнительных копий: %d. Можно продолжать работать с другими книгами.',[State.CompletedCopies])
     else Detail:=Format('Готово книг: %d. Можно продолжать работать с другими книгами.',[State.CompletedBooks]);
+    if State.SkippedDuplicates>0 then
+      Detail:=Detail+sLineBreak+Format('Пропущено копий: %d.',[State.SkippedDuplicates]);
     if State.DuplicateBatch>0 then
       Detail:=Detail+sLineBreak+Format('Партия %d.',[State.DuplicateBatch]);
     if (State.Stage=ArchiveDeletionWriteStage) and (State.Done>0) then

@@ -624,7 +624,7 @@ function TBookCacheWrite.TemporaryName(const Destination: string; KeepExtension:
 begin
   // A short sibling keeps atomic publication on the same volume without
   // repeating the (possibly long) cache destination and stamp suffix.
-  Result:=TPath.Combine(ExtractFileDir(Destination),'mhl.pending-'+
+  Result:=TPath.Combine(ExtractFileDir(Destination),'homelib-.pending-'+
     IntToStr(GetCurrentProcessId)+'-'+TGUID.NewGuid.ToString);
   if KeepExtension then Result:=Result+ExtractFileExt(Destination);
   TMonitor.Enter(CacheGuard); try FPending:=FPending+[Result]; finally TMonitor.Exit(CacheGuard); end;

@@ -138,7 +138,8 @@ begin
 end;
 
 procedure TestSpecialFormatDetection;
-var Source, Expected, Name, Pair: string; At: Integer; ProjectDB: TSQLiteDatabase;
+var Source, Expected, Name, Pair, ErrorText: string; At: Integer; ProjectDB: TSQLiteDatabase;
+  ScriptBook: TBookRecord;
 begin
   RequireIsolatedRegression;
   for Pair in TArray<string>.Create('.sqlite|SQLite format 3'+#0+'.stub',
@@ -173,6 +174,26 @@ begin
   Name:=Settings.AppPath+'misnamed-book.md5';
   TFile.WriteAllText(Name,'Обычный текст книги.',TEncoding.UTF8);
   Require(DetectReaderExtension(Name)='.txt','An incorrect MD5 suffix hid a readable text');
+  Name:=Settings.AppPath+'legacy-plain.text';
+  TFile.WriteAllText(Name,'Обычный текст книги.',TEncoding.UTF8);
+  Require(DetectReaderExtension(Name)='.txt','Legacy .text name did not resolve to the built-in TXT reader');
+  Name:=Settings.AppPath+'script-named-book.txt';
+  TFile.WriteAllText(Name,'<?php echo ''%PDF-1.7'';',TEncoding.UTF8);
+  Require(DetectReaderExtension(Name)='.php','PHP code with a quoted PDF signature was accepted as a book');
+  ScriptBook.Clear; ScriptBook.CollectionRoot:=Settings.AppPath;
+  ScriptBook.FileName:='script-named-book'; ScriptBook.FileExt:='.txt';
+  for var Exporting in [False,True] do
+  begin
+    ErrorText:='';
+    try
+      if Exporting then PrepareConversionSource(ScriptBook,nil,'.fb2')
+      else PrepareReaderFile(ScriptBook,True);
+    except on E:EReadError do ErrorText:=E.Message; end;
+    Require(ErrorText.Contains('содержит PHP-код'),'A PHP script reached the reader or converter');
+  end;
+  Name:=Settings.AppPath+'html-named-script.php';
+  TFile.WriteAllText(Name,'<html><body><p>Readable book</p></body></html>',TEncoding.UTF8);
+  Require(DetectReaderExtension(Name)='.html','Incorrect PHP suffix hid a valid HTML document');
   Writeln('PASS special container and project signatures ignore misleading filenames');Flush(Output);
 end;
 
@@ -312,6 +333,7 @@ const
 var Source: string; Doc: TReaderDocument; RTF: UTF8String;
   Info: TBitmapInfoHeader; Colors: array[0..1] of TRGBQuad;
   At, X, Y, ColorIndex: Integer; Pixel: Byte;
+  MetadataRejected: Boolean;
 begin
   Source:=Settings.AppPath+'monochrome-reader.fb2';
   TFile.WriteAllText(Source,'<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:l="http://www.w3.org/1999/xlink"><body><section><p>Black and white text glyphs</p><image l:href="#mono"/></section></body><binary id="mono" content-type="image/png">'+Picture+'</binary></FictionBook>',TEncoding.UTF8);
@@ -334,18 +356,28 @@ begin
           (Colors[ColorIndex].rgbBlue=Pixel),'Monochrome glyph colors or scanlines changed');
       end;
     Require(Doc.ImageCount=1,'Monochrome picture disappeared from the reader document');
+    TFile.WriteAllText(Source,'<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:l="http://www.w3.org/1999/xlink">'+
+      '<description><title-info><coverpage><image l:href="#mono"/></coverpage></title-info></description>'+
+      '<binary id="mono" content-type="image/png">'+Picture+'</binary></FictionBook>',TEncoding.UTF8);
+    MetadataRejected:=False;
+    try Doc.Load(Source);
+    except on E: EReadError do MetadataRejected:=E.Message.Contains('не найдено содержимое книги'); end;
+    Require(MetadataRejected,'Reader accepted a metadata-only FBD as a book because it has a cover');
   finally Doc.Free; end;
   Writeln('PASS monochrome reader DIB preserves every pixel and palette at one bit per pixel'); Flush(Output);
+  Writeln('PASS FB2/FBD metadata without a body does not open as a cover-only book'); Flush(Output);
 end;
 
 procedure TestCatalogueArchiveProbes(const Manifest: string);
 var Root: TJSONValue; Entries: TJSONArray; Item: TJSONValue; Book, Resolved: TBookRecord;
-  Archive: TMHLZip; Prefix: TMemoryStream; Path, ID: string; Expected: TBytes;
+  Archive: TMHLZip; Prefix: TMemoryStream; Source: TStream; Path, ID, ExpectedHash: string; Expected: TBytes;
+  FullChecks: Integer;
 begin
   Root:=TJSONObject.ParseJSONValue(TFile.ReadAllText(Manifest,TEncoding.UTF8));
   try
     Entries:=Root.GetValue<TJSONArray>('entries');
     Require(Entries.Count>0,'Archive audit has no catalogue records');
+    FullChecks:=0;
     for Item in Entries do
     begin
       ID:=IntToStr(Item.GetValue<Integer>('id'));
@@ -369,14 +401,27 @@ begin
             Require(CompareMem(Prefix.Memory,@Expected[0],Length(Expected)),'Wrong archive member bytes for '+ID);
         finally Prefix.Free; end;
       finally Archive.Free; end;
+      if Item.TryGetValue<string>('sha256',ExpectedHash) then
+      begin
+        Source:=OpenRawBookSource(Resolved);
+        try
+          Require(SameText(THashSHA2.GetHashString(Source),ExpectedHash),'Wrong full archive member bytes for '+ID);
+        finally Source.Free; end;
+        Inc(FullChecks);
+      end;
     end;
     Writeln('PASS archive locator against original catalogue entries=',Entries.Count);Flush(Output);
+    if FullChecks>0 then
+    begin
+      Writeln('PASS original archive member SHA-256 verified through the book cache=',FullChecks);
+      Flush(Output);
+    end;
   finally Root.Free; end;
 end;
 
 procedure TestCatalogueFormats;
 var Root: TJSONValue; Items, Results: TJSONArray; Item: TJSONValue; Row: TJSONObject;
-  FileName, Extension, Prepared, OriginalPrepared, Source, OutputName, Hash, ErrorText, Member: string;
+  FileName, Extension, Prepared, OriginalPrepared, Source, OutputName, Hash, ErrorText, Member, ImageProfile: string;
   Members: TArray<string>;
   Book, ConvertedBook: TBookRecord; Reader: TfrmBuiltinReader; Document: TReaderDocument;
   Started, LoadDeadline: UInt64; Warnings: TStringList; Timer: TTimer; Chooser: T532ArchiveChooser;
@@ -430,8 +475,11 @@ var Root: TJSONValue; Items, Results: TJSONArray; Item: TJSONValue; Row: TJSONOb
   end;
 begin
   RequireIsolatedRegression;
+  Require(not IsWindowVisible(frmMain.Handle), 'Catalogue format audit exposed the main window');
   Source:=GetEnvironmentVariable('HOMELIB_TEST_CATALOGUE_ARCHIVE_PROBES');
   if Source<>'' then TestCatalogueArchiveProbes(Source);
+  ImageProfile:=GetEnvironmentVariable('HOMELIB_TEST_CATALOGUE_IMAGE_PROFILE');
+  if ImageProfile='' then ImageProfile:='original';
   TrackUsage:=GetEnvironmentVariable('HOMELIB_TEST_FORMAT_USAGE')='1';
   if TrackUsage then
   begin
@@ -519,8 +567,8 @@ begin
         begin
           Reader:=TfrmBuiltinReader.Create(nil);
           try
+            Reader.HandleNeeded;
             Reader.OpenBook(Prepared,'Catalogue audit','audit-'+IntToStr(Count),Settings.AppPath+'audit-reader.ini',Settings.AppPath+'tools/pdfium/pdfium.dll');
-            Reader.Show;
             // Opening a prepared file gets its own deadline. Preparing a
             // complex legacy book may itself take longer than 30 seconds.
             LoadDeadline:=GetTickCount64+30000;
@@ -553,6 +601,7 @@ begin
             Row.AddPair('read','ok'); Row.AddPair('read_length',TJSONNumber.Create(Reader.TextLength));
             Row.AddPair('pictures',TJSONNumber.Create(Reader.PictureCount));
           finally Reader.Free; end;
+          Require(not IsWindowVisible(frmMain.Handle), 'Opening a book exposed the catalogue audit window');
           CheckUsage('read',False);
         end;
       except on E: Exception do begin Row.AddPair('read','error'); Row.AddPair('read_error',E.Message); end; end;
@@ -603,7 +652,7 @@ begin
                   Entry.AddPair('ms',TJSONNumber.Create(GetTickCount64-Started));
                   Writeln('PROFILE conversion ',Target,' progress=',Percent,' page=',Completed,'/',Total,' stage=',Stage); Flush(Output);
                 end;
-              end);
+              end,ImageProfile);
             end);
             Require((LastProgress=100) and (Updates>=1+Ord(not IdentityCopy)),'Conversion did not finish its progress lifecycle');
             Row.AddPair(Target+'_identity_copy',TJSONBool.Create(IdentityCopy));

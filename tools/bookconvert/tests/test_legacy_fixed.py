@@ -92,13 +92,36 @@ class LegacyFixed(unittest.TestCase):
                 path = self.root / f'tiled-{with_text}-{pages}.pdf'
                 path.write_bytes(pdf_fixture(text=with_text, pages=pages, tiled_scan=True))
                 with api.open_document(path, self.fail) as document:
-                    groups = api.scan_sample_groups(document, pages, None)
+                    groups = api.scan_sample_groups(lambda index: api.FPDF_LoadPage(document, index), pages, None)
                 self.assertEqual(len(groups), parts)
                 for index, (number, weight) in enumerate(groups):
                     self.assertEqual(weight, pages//parts)
                     self.assertIn(number, range(index*weight+1, (index+1)*weight+1))
         finally:
             api.FPDF_DestroyLibrary()
+
+    @unittest.skipUnless(os.name=='nt' and (TOOLS/'pdfium/pdfium.dll').is_file(), 'Windows PDFium')
+    def test_pdf_document_batches_preserve_page_order_text_and_images(self):
+        source = self.root / 'batched.pdf'
+        source.write_bytes(pdf_fixture(pages=5, image_only_last=True))
+        expected = text_inputs.Book(c, source, set(), tools_root=TOOLS)
+        fixed.read_pdf(expected, TOOLS)
+        actual = text_inputs.Book(c, source, set(), tools_root=TOOLS)
+        documents = []
+        open_document = fixed.PDF.open_document
+
+        def track_open(api, path, fail):
+            documents.append(path)
+            return open_document(api, path, fail)
+
+        with patch.object(fixed, 'PDF_PAGES_PER_DOCUMENT', 2), patch.object(fixed.PDF, 'open_document', track_open):
+            fixed.read_pdf(actual, TOOLS)
+        self.assertEqual(documents, [source] * 3)
+        self.assertEqual([node.get('id') for node in actual.body], [f'page-{i}' for i in range(1, 6)])
+        self.assertEqual(ET.tostring(actual.body), ET.tostring(expected.body))
+        self.assertEqual(actual.resources, expected.resources)
+        self.assertTrue(actual.resources)
+
     def convert(self, extension, data, target='.epub'):
         source = self.root / ('source' + extension); source.write_bytes(data); before = hashlib.sha256(data).hexdigest()
         output = self.root / ('output' + target)
@@ -323,6 +346,20 @@ class LegacyFixed(unittest.TestCase):
         report, text, images = self.convert('.123456', pdf_fixture(), '.fb2')
         self.assertIn('First readable paragraph', text); self.assertIn('Last paragraph preserves', text); self.assertGreaterEqual(len(images), 1)
         self.assertTrue(any('OCR' in w for w in report['warnings']))
+
+    @unittest.skipUnless(os.name == 'nt' and (TOOLS/'pdfium/pdfium.dll').is_file(), 'bundled Windows PDFium')
+    def test_scan_image_limit_explains_available_output_choices(self):
+        source = self.root / 'scan.pdf'
+        original = pdf_fixture(text=False)
+        source.write_bytes(original)
+        for suffix in ('.fb2', '.epub'):
+            with self.subTest(suffix=suffix):
+                output = self.root / ('scan' + suffix)
+                with patch.object(c, 'MAX_TOTAL', 64):
+                    with self.assertRaisesRegex(c.ConversionError, 'Выберите более сильное сжатие'):
+                        c.convert_book(source, output, tools_root=TOOLS)
+                self.assertFalse(output.exists())
+        self.assertEqual(source.read_bytes(), original)
 
     @unittest.skipUnless(os.name == 'nt' and (TOOLS/'pdfium/pdfium.dll').is_file(), 'bundled Windows PDFium')
     def test_large_pdf_with_wrong_suffix_preserves_text_and_images(self):

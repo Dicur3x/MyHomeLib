@@ -3,7 +3,8 @@
 interface
 
 uses System.Classes, System.SysUtils, Winapi.Messages, Vcl.Forms, Vcl.Controls, Vcl.Menus, Vcl.StdCtrls,
-  Vcl.ExtCtrls, unit_Globals, frm_ProgramUpdate, unit_ReaderSession, unit_BookSaveContinuation;
+  Vcl.ExtCtrls, unit_Globals, frm_ProgramUpdate, unit_ReaderSession, unit_BookSaveContinuation,
+  unit_ReaderAnnotations;
 
 type
   TfrmReaderHost = class(TForm)
@@ -18,6 +19,9 @@ type
     FCurrentFile, FNextFile, FPendingComponent: string;
     FPreparing, FDisplaying, FExitRequested: Boolean;
     FNextSession: string;
+    FNoteTarget: TReaderAnnotation;
+    FExpectedMembers, FOpenedMembers: TArray<string>;
+    FArchiveAmbiguous: Boolean;
     FSession: TReaderSessionRequest;
     FRestartRequest: TReaderSessionRequest;
     FRestartLease: TReaderSessionLease;
@@ -38,6 +42,11 @@ type
     procedure OpenClick(Sender: TObject);
     procedure RecentClick(Sender: TObject);
     procedure RecentViewClick(Sender: TObject);
+    procedure RecentViewKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
+    procedure NotesClick(Sender: TObject);
+    procedure OpenNote(const Note: TReaderAnnotation);
+    procedure QueueFile(const FileName: string; const Note: TReaderAnnotation;
+      const ArchiveMembers: TArray<string>);
     procedure SaveClick(Sender: TObject);
     procedure ExitClick(Sender: TObject);
     procedure ComponentsClick(Sender: TObject);
@@ -73,13 +82,14 @@ var ReaderHost: TfrmReaderHost;
 
 implementation
 
-uses System.IOUtils, System.IniFiles, System.Math, Vcl.Dialogs,
+uses System.IOUtils, System.IniFiles, System.JSON, System.Math, Vcl.Dialogs,
   Vcl.Graphics, Winapi.Windows, unit_FileBooks, unit_Settings, unit_AtomicIniFile,
   unit_ReaderCache, unit_ReaderDocument, unit_ReaderFormats, unit_BookCache,
   unit_BookSendOptions, unit_BookExportResults, unit_ComponentUpdates,
   unit_ProgramUpdateInstaller, unit_Diagnostics, unit_MHLTheme, unit_MHLExternalTools, dm_user,
   frm_BuiltinReader, frm_StoryReader, frm_ReaderCacheSettings, unit_ReaderPalette,
-  unit_ReaderRestartState, unit_ComponentUsage, unit_ComponentRemoval, frm_ComponentMaintenance;
+  unit_ReaderRestartState, unit_ReaderNoteBooks, unit_ComponentUsage, unit_ComponentRemoval,
+  frm_ComponentMaintenance;
 
 type
   TStandaloneBookReader = class(TfrmBuiltinReader)
@@ -91,6 +101,76 @@ type
     procedure CreateParams(var Params: TCreateParams); override;
   end;
 
+function ArchiveMembersJSON(const Members: TArray<string>): string;
+var Entries: TJSONArray;
+begin
+  Entries:=TJSONArray.Create;
+  try
+    for var Member in Members do Entries.Add(Member);
+    Result:=Entries.ToJSON;
+  finally Entries.Free; end;
+end;
+
+function StandaloneHistory(const Book: TBookRecord; const Members: TArray<string>): string;
+begin
+  Result:=ReaderHistoryName(Book,'');
+  if Length(Members)>0 then Result:=Result+#1+ReaderNoteIdentity(ArchiveMembersJSON(Members));
+end;
+
+function FindStandaloneNoteSource(const SettingsFile, BookID: string;
+  out FileName: string; out Members: TArray<string>): Boolean;
+var Ini: TMemIniFile; Value: TJSONValue; Entries: TJSONArray; Section: string;
+begin
+  Result:=False; FileName:=''; Members:=nil;
+  Section:='Book.'+BookID;
+  Ini:=TMemIniFile.Create(SettingsFile,TEncoding.UTF8);
+  try
+    FileName:=Ini.ReadString(Section,'StandaloneFile','');
+    if (FileName='') or not TPath.IsPathRooted(FileName) or not FileExists(FileName) then Exit;
+    Value:=TJSONObject.ParseJSONValue(Ini.ReadString(Section,'StandaloneArchive','[]'));
+    try
+      if not (Value is TJSONArray) then Exit;
+      Entries:=TJSONArray(Value);
+      if Entries.Count>10 then Exit;
+      SetLength(Members,Entries.Count);
+      for var I:=0 to Entries.Count-1 do
+      begin
+        if not (Entries.Items[I] is TJSONString) then Exit;
+        Members[I]:=Entries.Items[I].Value;
+        if (Members[I]='') or (Pos(#0,Members[I])>0) then Exit;
+      end;
+      var Book:=FileBook(FileName);
+      Result:=(ReaderNoteIdentity(StandaloneHistory(Book,Members))=BookID) or
+        (ReaderNoteIdentity(ReaderHistoryName(Book,''))=BookID);
+    finally Value.Free; end;
+  finally Ini.Free; end;
+end;
+
+procedure BindStandaloneNoteSource(const SettingsFile, FileName: string; const Book: TBookRecord;
+  const Members: TArray<string>; Ambiguous: Boolean; var Identity: string);
+var Ini: TMemIniFile; Section, Archive, OldArchive, MemberIdentity, MemberSection: string;
+begin
+  Section:='Book.'+ReaderNoteIdentity(Identity); Archive:=ArchiveMembersJSON(Members);
+  Ini:=TMemIniFile.Create(SettingsFile,TEncoding.UTF8);
+  try
+    if Length(Members)>0 then
+    begin
+      // A previously unambiguous ZIP keeps its original history when other
+      // books are added. New multi-book archives have separate histories.
+      OldArchive:=Ini.ReadString(Section,'StandaloneArchive','');
+      MemberIdentity:=StandaloneHistory(Book,Members);
+      MemberSection:='Book.'+ReaderNoteIdentity(MemberIdentity);
+      if (OldArchive<>Archive) and
+        (Ambiguous or (OldArchive<>'') or Ini.ValueExists(MemberSection,'StandaloneFile')) then
+      begin Identity:=MemberIdentity; Section:=MemberSection; end;
+    end;
+    if (Ini.ReadString(Section,'StandaloneFile','')=FileName) and
+      (Ini.ReadString(Section,'StandaloneArchive','')=Archive) then Exit;
+    Ini.WriteString(Section,'StandaloneFile',FileName);
+    Ini.WriteString(Section,'StandaloneArchive',Archive);
+    SaveMemIniFileAtomically(Ini);
+  finally Ini.Free; end;
+end;
 procedure TStandaloneBookReader.CreateParams(var Params: TCreateParams);
 begin
   inherited;
@@ -106,7 +186,7 @@ begin
 end;
 
 constructor TfrmReaderHost.Create(AOwner: TComponent);
-var Intro: TLabel; OpenButton: TButton; Ini: TMemIniFile; Value: string;
+var Intro: TLabel; OpenButton: TButton; Ini: TMemIniFile; Value, NoteFile: string;
 begin
   inherited CreateNew(AOwner);
   ConfigureComponentUsage(Settings.AppPath);
@@ -125,8 +205,22 @@ begin
     if FileExists(Value) then FNextFile:=Value;
     Value:=Ini.ReadString('ReaderSession','PendingSession','');
     if FileExists(Value) then begin FNextSession:=Value; FNextFile:=''; end;
+    Value:=Ini.ReadString('ReaderSession','PendingNoteBook','');
+    if (FNextFile<>'') and (Value<>'') then
+      try
+        if FindStandaloneNoteSource(ResolveReaderSettingsFile(Settings.DataDir),Value,NoteFile,FExpectedMembers)
+          and SameFileName(NoteFile,FNextFile) then
+        begin
+          FNoteTarget.BookID:=Value;
+          FNoteTarget.Position:=Ini.ReadInteger('ReaderSession','PendingNotePosition',0);
+        end
+        else FExpectedMembers:=nil;
+      except on E: Exception do
+        begin FExpectedMembers:=nil; LogDiagnosticError('reader-note-resume',E); end; end;
     Ini.DeleteKey('ReaderSession','PendingFile');
-    Ini.DeleteKey('ReaderSession','PendingSession'); SaveMemIniFileAtomically(Ini);
+    Ini.DeleteKey('ReaderSession','PendingSession');
+    Ini.DeleteKey('ReaderSession','PendingNoteBook');
+    Ini.DeleteKey('ReaderSession','PendingNotePosition'); SaveMemIniFileAtomically(Ini);
     for var I:=0 to 9 do
     begin
       Value:=Ini.ReadString('ReaderRecent','File'+IntToStr(I),'');
@@ -140,10 +234,12 @@ begin
   OpenButton.Caption:='Открыть книгу…'; OpenButton.OnClick:=OpenClick;
   FRecentView:=TListBox.Create(Self); FRecentView.Parent:=Self;
   FRecentView.SetBounds(24,158,672,208); FRecentView.Anchors:=[akLeft,akTop,akRight,akBottom];
+  FRecentView.Name:='ReaderRecentBooks';
   FRecentView.Items.Assign(FRecent); FRecentView.OnDblClick:=RecentViewClick;
+  FRecentView.OnKeyDown:=RecentViewKeyDown;
   FStatus:=TLabel.Create(Self); FStatus.Parent:=Self; FStatus.AutoSize:=False; FStatus.WordWrap:=True;
   FStatus.SetBounds(24,380,672,40); FStatus.Anchors:=[akLeft,akRight,akBottom];
-  FStatus.Caption:='Недавние книги — двойной щелчок для открытия.';
+  FStatus.Caption:='Недавние книги — Enter или двойной щелчок для открытия.';
   InstallMenu(Self); ApplyMHLControlTheme(Self);
   FTimer:=TTimer.Create(Self); FTimer.Interval:=150; FTimer.OnTimer:=Tick;
   try TakeBookSaveContinuation(Settings.SettingsFileName,FSaveContinuation);
@@ -197,13 +293,22 @@ begin
     Item.Tag:=I; Item.OnClick:=RecentClick; RecentMenu.Add(Item);
   end;
   RecentMenu.Enabled:=FRecent.Count>0;
+  if Form=Self then
+  begin
+    Add('Закладки и заметки всех книг…',0,NotesClick);
+    Item.Name:='ReaderAllNotesMenu';
+  end;
   Add('Сохранить как…',ShortCut(Ord('S'),[ssCtrl,ssShift]),SaveClick);
   Add('-',0,nil); Add('Закрыть читалку',ShortCut(VK_F4,[ssAlt]),ExitClick);
   SettingsMenu:=TMenuItem.Create(Menu); SettingsMenu.Caption:='Настройки'; Menu.Items.Add(SettingsMenu);
   Item:=TMenuItem.Create(Menu); Item.Caption:='Кэш книг…'; Item.OnClick:=CacheSettingsClick;
   SettingsMenu.Add(Item);
   if Form is TfrmBuiltinReader then
+  begin
+    Item:=TMenuItem.Create(Menu); Item.Name:='ReaderNavigationKeysMenu'; Item.Caption:='Клавиши чтения…';
+    Item.OnClick:=TfrmBuiltinReader(Form).ConfigureNavigationKeys; SettingsMenu.Add(Item);
     TfrmBuiltinReader(Form).AddTextEncodingMenu(SettingsMenu);
+  end;
   Item:=TMenuItem.Create(Menu); Item.Name:='ReaderComponentsMenu'; Item.Caption:='Компоненты…';
   Item.OnClick:=ComponentsClick; SettingsMenu.Add(Item);
   HelpMenu:=TMenuItem.Create(Menu); HelpMenu.Caption:='Помощь'; Menu.Items.Add(HelpMenu);
@@ -231,9 +336,9 @@ const Formats =
   'DOCX, ODT — текстовые документы.'+sLineBreak+
   'TXT, FAQ, WRI, RTF, MD, MARKDOWN — текст и разметка.'+sLineBreak+
   'HTML, HTM, SHTML, XHTML, MHT, MHTML — веб-документы.'+sLineBreak+
-  'JPG, JPEG, PNG, GIF, BMP — изображения. CBZ — комиксы с такими страницами.'+sLineBreak+
-  'SM — интерактивные книги с выбором ответов.'+sLineBreak+sLineBreak+
+  'JPG, JPEG, PNG, GIF, BMP — изображения. CBZ — комиксы с такими страницами.'+sLineBreak+sLineBreak+
   'Модули, которые читалка предложит при открытии'+sLineBreak+
+  'SM — интерактивные книги с выбором ответов. Нужен BookProcessing.'+sLineBreak+
   'PDF — PDFium.'+sLineBreak+
   'DJVU, DJV, DJU, DJM, DJVM — DjVuLibre.'+sLineBreak+
   'XPS, OXPS — HomeLibXps и подготовка книг (BookProcessing).'+sLineBreak+
@@ -247,7 +352,7 @@ const Formats =
   'TIF, TIFF — встроенное чтение или подготовка книг, в зависимости от файла.'+sLineBreak+
   'CBR, CB7 — комиксы. Для некоторых архивов нужен 7-Zip. Для отдельных страниц TIFF нужна подготовка книг.'+sLineBreak+sLineBreak+
   'Из ZIP, FBZ, 7Z, 7ZIP, RAR, TAR, GZ, GZIP, TGZ, BZ2, XZ и CAB можно выбрать вложенную книгу. '+
-  'Для некоторых способов сжатия читалка предложит 7-Zip.'+sLineBreak+sLineBreak+
+  'Из APK можно открыть вложенную книгу поддерживаемого формата. Для некоторых способов сжатия читалка предложит 7-Zip.'+sLineBreak+sLineBreak+
   'Очень крупные FB2 и RTF могут потребовать подготовку книг. Поддержка редких форматов зависит от их варианта. '+
   'Встроенные обработчики обновляются вместе с читалкой. Модули обновляются в «Настройки → Компоненты».';
 var Dialog: TForm; ParentForm: TCustomForm; Text: TMemo; CloseButton: TButton;
@@ -290,7 +395,14 @@ end;
 
 procedure TfrmReaderHost.OpenFile(const FileName: string);
 begin
+  QueueFile(FileName,Default(TReaderAnnotation),nil);
+end;
+
+procedure TfrmReaderHost.QueueFile(const FileName: string; const Note: TReaderAnnotation;
+  const ArchiveMembers: TArray<string>);
+begin
   FNextFile:=TPath.GetFullPath(FileName); FNextSession:=''; FPendingComponent:='';
+  FNoteTarget:=Note; FExpectedMembers:=ArchiveMembers;
   if Assigned(FView) then begin FView.ModalResult:=mrRetry; FView.Close; end;
 end;
 
@@ -364,6 +476,38 @@ end;
 procedure TfrmReaderHost.RecentViewClick(Sender: TObject);
 begin
   if FRecentView.ItemIndex>=0 then OpenFile(FRecentView.Items[FRecentView.ItemIndex]);
+end;
+
+procedure TfrmReaderHost.RecentViewKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
+begin
+  if (Key<>VK_RETURN) or (Shift<>[]) or FPreparing then Exit;
+  Key:=0; RecentViewClick(Sender);
+end;
+
+procedure TfrmReaderHost.NotesClick(Sender: TObject);
+var Note: TReaderAnnotation;
+begin
+  if not FPreparing and BrowseReaderNotes(Self,ResolveReaderSettingsFile(Settings.DataDir),Note) then
+    OpenNote(Note);
+end;
+
+procedure TfrmReaderHost.OpenNote(const Note: TReaderAnnotation);
+var FileName, SettingsFile: string; Members: TArray<string>;
+begin
+  SettingsFile:=ResolveReaderSettingsFile(Settings.DataDir);
+  try
+    if FindStandaloneNoteSource(SettingsFile,Note.BookID,FileName,Members) then
+    begin QueueFile(FileName,Note,Members); Exit; end;
+    // Old profiles only kept the last ten paths. Never guess a book by
+    // title or use the shared identity of a loose multi-book archive.
+    for var RecentFile in FRecent do
+      if FileExists(RecentFile) and not IsReaderContainer(RecentFile) then
+        try
+          if ReaderNoteIdentity(StandaloneHistory(FileBook(RecentFile),nil))=Note.BookID then
+          begin QueueFile(RecentFile,Note,nil); Exit; end;
+        except on E: EStreamError do LogDiagnosticError('reader-note-source',E); end;
+  except on E: Exception do LogDiagnosticError('reader-note-source',E); end;
+  MessageDlg('Не удалось найти исходный файл для «'+Note.BookTitle+'». Проверьте, доступен ли файл.',mtInformation,[mbOK],0);
 end;
 
 procedure TfrmReaderHost.SaveClick(Sender: TObject);
@@ -445,13 +589,23 @@ begin
   Ini:=TMemIniFile.Create(Settings.SettingsFileName,TEncoding.UTF8);
   try
     Ini.DeleteKey('ReaderSession','PendingFile'); Ini.DeleteKey('ReaderSession','PendingSession');
+    Ini.DeleteKey('ReaderSession','PendingNoteBook'); Ini.DeleteKey('ReaderSession','PendingNotePosition');
     if FRestartRequest.ID<>'' then Ini.WriteString('ReaderSession','PendingSession',FRestartRequest.RequestFile)
     else if FSession.ID<>'' then Ini.WriteString('ReaderSession','PendingSession',FSession.RequestFile)
-    else Ini.WriteString('ReaderSession','PendingFile',FCurrentFile);
+    else
+    begin
+      Ini.WriteString('ReaderSession','PendingFile',FCurrentFile);
+      if FNoteTarget.BookID<>'' then
+      begin
+        Ini.WriteString('ReaderSession','PendingNoteBook',FNoteTarget.BookID);
+        Ini.WriteInteger('ReaderSession','PendingNotePosition',FNoteTarget.Position);
+      end;
+    end;
     SaveMemIniFileAtomically(Ini);
     if not FUpdates.LaunchInstallation then
     begin
       Ini.DeleteKey('ReaderSession','PendingFile'); Ini.DeleteKey('ReaderSession','PendingSession');
+      Ini.DeleteKey('ReaderSession','PendingNoteBook'); Ini.DeleteKey('ReaderSession','PendingNotePosition');
       SaveMemIniFileAtomically(Ini); Exit;
     end;
   finally Ini.Free; end;
@@ -519,8 +673,11 @@ end;
 
 procedure TfrmReaderHost.ConfirmSessionOpened;
 begin
-  if (FSession.ID='') or FSessionReply.Opened or (FSessionReply.State<>'displaying') or not Assigned(FView) then Exit;
+  if not Assigned(FView) then Exit;
   if (FView is TfrmBuiltinReader) and not TfrmBuiltinReader(FView).Ready then Exit;
+  // A newer note can already be queued by the closing view.
+  if FNextFile='' then FNoteTarget:=Default(TReaderAnnotation);
+  if (FSession.ID='') or FSessionReply.Opened or (FSessionReply.State<>'displaying') then Exit;
   FSessionReply.Opened:=True;
   SendSessionState('displaying');
 end;
@@ -530,7 +687,7 @@ var FileName: string;
 begin
   if FPreparing and not ReaderPreparationsPending(Self) then FPreparing:=False;
   if FDisplaying then begin ConfirmSessionOpened; Exit; end;
-  if FPreparing then Exit;
+  if FPreparing or FExitRequested then Exit;
   // Installation always restarts through the helper. Retrying a partially
   // installed module here would reopen the same prompt every timer tick.
   if FPendingComponent<>'' then Exit;
@@ -548,14 +705,23 @@ begin
 end;
 
 procedure TfrmReaderHost.Prepare(const FileName: string);
+var OnArchiveOpened: TProc<TReaderArchiveSelection>;
 begin
   try
+    FOpenedMembers:=nil; FArchiveAmbiguous:=False; OnArchiveOpened:=nil;
     if (FSession.ID<>'') and ReaderSessionSourceMatches(FSession,FileName) then FBook:=FSession.Book
     else FBook:=FileBook(FileName);
     FCurrentFile:=FileName;
     if FSession.OriginalSource<>'' then FCurrentFile:=FSession.OriginalSource;
     if FBook.Title='' then FBook.Title:=ExtractFileName(FileName);
     FExportBook:=Default(TBookRecord);
+    if FSession.ID='' then OnArchiveOpened:=
+      procedure(Selection: TReaderArchiveSelection)
+      begin
+        FOpenedMembers:=Selection.Opened; FArchiveAmbiguous:=Selection.Ambiguous;
+        if FArchiveAmbiguous and (Length(FOpenedMembers)>0) then
+          FBook.Title:=ChangeFileExt(ExtractFileName(FOpenedMembers[High(FOpenedMembers)].Replace('/','\')),'');
+      end;
     FPreparing:=True; FStatus.Caption:='Открытие книги…';
     // First retain the selected original payload for Save As. Kindle and
     // Office preparation belongs only to the subsequent reading view.
@@ -581,7 +747,8 @@ begin
           end;
         end;
       end,False,False,False,
-      nil,procedure(IDs:TArray<string>) begin FPreparing:=False; MissingComponents(IDs); end);
+      nil,procedure(IDs:TArray<string>) begin FPreparing:=False; MissingComponents(IDs); end,
+      FExpectedMembers,OnArchiveOpened);
   except
     on E: Exception do
     begin
@@ -593,7 +760,7 @@ end;
 
 procedure TfrmReaderHost.Display(const FileName: string);
 var Identity, SettingsFile, Required, Container, Member: string;
-  ViewInput, ExportInput: TStream; WasVisible: Boolean;
+  ViewInput, ExportInput: TStream; WasVisible, Standalone: Boolean; StartPosition: Integer;
 begin
   FDisplaying:=True; Required:=''; ViewInput:=nil; ExportInput:=nil; WasVisible:=Visible;
   try
@@ -604,9 +771,27 @@ begin
     ExportInput:=OpenCachedBookFile(FExportBook.GetBookFileName);
     PinReaderCacheFile(FileName);
     Identity:=ReaderHistoryName(FBook,''); SettingsFile:=ResolveReaderSettingsFile(Settings.DataDir);
+    Standalone:=(FSession.ID='') or ((FBook.BookKey.DatabaseID=0) and FBook.LibID.StartsWith('local-file:'));
+    StartPosition:=-1;
     if FSession.ID<>'' then
     begin Identity:=FSession.HistoryIdentity; SettingsFile:=FSession.SettingsFile; end
-    else RememberFile(FCurrentFile);
+    else
+    begin
+      if FNoteTarget.BookID<>'' then
+      begin
+        if (Length(FOpenedMembers)>0) and (Length(FExpectedMembers)=0) then
+          raise EReadError.Create('В старой заметке не сохранено имя книги внутри архива.');
+        if FNoteTarget.BookID<>ReaderNoteIdentity(Identity) then
+          Identity:=StandaloneHistory(FBook,FOpenedMembers);
+        if FNoteTarget.BookID<>ReaderNoteIdentity(Identity) then
+          raise EReadError.Create('Содержимое исходного файла изменилось. Не удалось открыть место с заметкой.');
+        StartPosition:=FNoteTarget.Position;
+      end;
+      RememberFile(FCurrentFile);
+      if FNoteTarget.BookID='' then
+        try BindStandaloneNoteSource(SettingsFile,FCurrentFile,FBook,FOpenedMembers,FArchiveAmbiguous,Identity);
+        except on E: Exception do LogDiagnosticError('reader-note-source-save',E); end;
+    end;
     if SameText(ExtractFileExt(FileName),'.sm') then
     begin
       Container:=''; if SameText(ExtractFileExt(FCurrentFile),'.zip') then Container:=FCurrentFile;
@@ -623,10 +808,13 @@ begin
       if not ReaderSupportsReflow(FileName) and not SameText(ExtractFileExt(FileName),'.pdf') then
         raise Exception.Create('Не удалось подготовить этот формат для чтения.');
       FView:=TStandaloneBookReader.Create(Self);
+      if Standalone then TfrmBuiltinReader(FView).OnOpenNote:=
+        procedure(Note: TReaderAnnotation) begin OpenNote(Note); end;
       TfrmBuiltinReader(FView).OpenBook(FileName,FBook.Title,Identity,SettingsFile,
         Settings.AppPath+'tools\pdfium\pdfium.dll',
         procedure(Progress: Integer)
-        begin FSessionReply.HasProgress:=True; FSessionReply.Progress:=Progress; SendSessionState('displaying'); end);
+        begin FSessionReply.HasProgress:=True; FSessionReply.Progress:=Progress; SendSessionState('displaying'); end,
+        StartPosition);
     end;
     TForm(FView).PopupMode:=pmNone; TForm(FView).PopupParent:=nil;
     FView.Caption:='HomeLibre Reader — '+FBook.Title;
@@ -721,8 +909,13 @@ end;
 procedure TfrmReaderHost.HostCloseQuery(Sender: TObject; var CanClose: Boolean);
 begin
   CanClose:=not FDisplaying;
+  if CanClose and DeferCloseForReaderPreparation(Self) then
+  begin
+    CanClose:=False;
+    FExitRequested:=True;
+    FStatus.Caption:='Отмена подготовки книги…';
+  end;
   if not CanClose then FHostCloseRequested:=True;
-  if CanClose then CancelReaderPreparations(Self);
 end;
 
 end.

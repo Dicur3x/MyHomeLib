@@ -8,6 +8,7 @@ type
   TMHLOperationStatus = class
   private
     FHint: THintWindow;
+    FAnchor: TWinControl;
     FTimer: TTimer;
     FText, FShownText: string;
     FStarted, FLastPulse: UInt64;
@@ -15,7 +16,8 @@ type
     FTrackDecoder: Boolean;
     procedure Tick(Sender: TObject);
   public
-    constructor Create(const Stage: string; TrackDecoder: Boolean = False);
+    constructor Create(const Stage: string; TrackDecoder: Boolean = False;
+      Anchor: TWinControl = nil);
     destructor Destroy; override;
     procedure SetStage(const Stage: string);
     procedure Pulse;
@@ -24,10 +26,11 @@ type
 implementation
 uses Winapi.Windows, System.Types, Vcl.Forms, Vcl.Graphics, unit_MHLExternalTools;
 
-constructor TMHLOperationStatus.Create(const Stage: string; TrackDecoder: Boolean);
+constructor TMHLOperationStatus.Create(const Stage: string; TrackDecoder: Boolean;
+  Anchor: TWinControl);
 begin
   inherited Create;
-  FText:=Stage; FStarted:=GetTickCount64;
+  FText:=Stage; FStarted:=GetTickCount64; FAnchor:=Anchor;
   FHint:=THintWindow.Create(nil); FHint.Font.Name:='Segoe UI'; FHint.Font.Size:=9;
   FHint.Color:=RGB(244,247,250); FHint.Font.Color:=RGB(45,60,75);
   FTrackDecoder:=TrackDecoder;
@@ -58,6 +61,11 @@ begin Result:=IsWindowVisible(FHint.Handle); end;
 procedure TMHLOperationStatus.Pulse;
 var Position: TPoint; Bounds, Area: TRect; Now: UInt64;
 begin
+  if Assigned(FAnchor) and (not FAnchor.HandleAllocated or not IsWindowVisible(FAnchor.Handle)) then
+  begin
+    if FHint.HandleAllocated and IsWindowVisible(FHint.Handle) then ShowWindow(FHint.Handle,SW_HIDE);
+    Exit;
+  end;
   Now:=GetTickCount64;
   if (Now-FStarted<400) or (Now-FLastPulse<50) then Exit;
   FLastPulse:=Now;

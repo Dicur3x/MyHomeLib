@@ -27,7 +27,7 @@ type
 
 implementation
 
-uses Winapi.ActiveX, Winapi.MSXML, System.Win.ComObj, unit_FB2Encoding;
+uses Winapi.ActiveX, Winapi.MSXML, System.Win.ComObj, unit_FB2Encoding, unit_BookOutput;
 
 procedure TFb2ToText.Convert(const FileOut: string; ResEncoding: TTXTEncoding; Stream: TStream);
 var Document: IXMLDOMDocument3; Bodies: IXMLDOMNodeList; Input: IStream; Lines: TStringList;
@@ -46,7 +46,7 @@ var Document: IXMLDOMDocument3; Bodies: IXMLDOMNodeList; Input: IStream; Lines: 
   end;
 begin
   if not Assigned(Stream) then raise EArgumentNilException.Create('Stream');
-  if FileExists(FileOut) then raise EInOutError.Create('Файл результата уже существует: '+FileOut);
+  if BookOutputExists(FileOut) then raise EInOutError.Create('Файл результата уже существует: '+FileOut);
   SavedPosition:=Stream.Position; Lines:=TStringList.Create; Temporary:=''; Repaired:=nil;
   COMInitialized:=Succeeded(CoInitializeEx(nil,COINIT_APARTMENTTHREADED));
   try
@@ -72,14 +72,14 @@ begin
     Bodies:=Document.selectNodes('/*[local-name()="FictionBook"]/*[local-name()="body"]');
     for var I:=0 to Bodies.length-1 do Visit(Bodies.item[I]);
     if Trim(Lines.Text)='' then raise EReadError.Create('В книге нет распознанного текста для TXT. Для сканов сначала нужно распознавание текста.');
-    Temporary:=FileOut+'.homelib-new-'+TGUID.NewGuid.ToString;
+    Temporary:=CreateBookOutputStage(FileOut);
     Lines.SaveToFile(Temporary,ConvertEncoding(ResEncoding));
-    if not MoveFile(PChar(Temporary),PChar(FileOut)) then RaiseLastOSError;
+    PublishBookOutput(Temporary,FileOut);
     Temporary:='';
   finally
     Bodies:=nil; Input:=nil; Document:=nil; Repaired.Free;
     if COMInitialized then CoUninitialize;
-    if (Temporary<>'') and FileExists(Temporary) then SysUtils.DeleteFile(Temporary);
+    DeleteBookOutputStage(Temporary);
     Stream.Position:=SavedPosition; Lines.Free;
   end;
 end;

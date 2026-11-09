@@ -146,11 +146,11 @@ begin
     Target:=Snapshot; Snapshot.UpdateRoot:=FUpdateRoot;
     Target.BeginBulkOperation;
     try
-      PreviousLastID:=Target.StartInpxUpdateTracking(False);
+      PreviousLastID:=Target.StartCatalogUpdateTracking(False);
       Import(FInpx,False,Target);
       if Canceled then raise EAbort.Create('Подготовка обновления INPX отменена.');
       if FSeen.Count=0 then raise EInvalidOperation.Create('В выбранном INPX нет записей книг.');
-      Target.FinishInpxUpdateTracking(False,PreviousLastID);
+      Target.FinishCatalogUpdateTracking(False,PreviousLastID);
       Target.EndBulkOperation(True);
     except
       if Target.InBulkOperation then Target.EndBulkOperation(False);

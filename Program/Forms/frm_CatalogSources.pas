@@ -35,7 +35,7 @@ type
     FList: TListView;
     FReport: TMemo;
     FApply, FRefresh, FRoot, FIndexFile, FUp, FDown, FDisconnect, FLibrary, FPreview, FMetadataFill,
-      FSaveReport, FClose, FSeriesButton, FDuplicates: TButton;
+      FSaveReport, FClose, FSeriesButton: TButton;
     FDetails, FPolicyHelp, FSpace, FAllSources, FWorkflowTitle, FWorkflowDetails, FSeriesScope: TLabel;
     FPreviewRevision: Integer;
     FBusy, FSeriesLayoutBusy: Boolean;
@@ -43,7 +43,6 @@ type
     FPolicy, FTargetLibrary: TComboBox;
     FChanged: Boolean;
     FMetadataChanged: Boolean;
-    FDuplicatesRequested: Boolean;
     FRequiredComponent: string;
     FLastReportFile: string;
     FLayoutFile: string;
@@ -72,7 +71,6 @@ type
     function DoMouseWheel(Shift: TShiftState; WheelDelta: Integer; MousePos: TPoint): Boolean; override;
     procedure Resize; override;
     procedure PreviewSeriesAliases(Sender: TObject);
-    procedure ReviewDuplicates(Sender: TObject);
     procedure FillBookMetadata(Sender: TObject);
     procedure SaveReport(Sender: TObject);
     procedure Selected(Sender: TObject; Item: TListItem; Selected: Boolean);
@@ -85,7 +83,6 @@ type
     destructor Destroy; override;
     property CatalogChanged: Boolean read FChanged;
     property MetadataChanged: Boolean read FMetadataChanged;
-    property DuplicatesRequested: Boolean read FDuplicatesRequested;
     property RequiredComponent: string read FRequiredComponent;
   end;
 
@@ -254,9 +251,6 @@ begin
   B:=Button(Panel,'Сохранить отчёт…',540,158,SaveReport); B.Top:=48; FSaveReport:=B;
   B:=Button(Panel,'Объединить названия серий…',12,252,PreviewSeriesAliases); B.Top:=82;
   B.Name:='btnSeriesNames'; B.Hint:='Проверяет серии уже добавленных книг текущей коллекции. Источники из списка не импортирует.'; B.ShowHint:=True; FSeriesButton:=B;
-  FDuplicates:=Button(Panel,'Объединить повторы книг…',540,252,ReviewDuplicates); FDuplicates.Top:=82;
-  FDuplicates.Name:='btnBookDuplicates'; FDuplicates.ShowHint:=True;
-  FDuplicates.Hint:='Открыть сравнение повторных записей уже добавленных книг. Изменения выполняются только после выбора и подтверждения; файлы сохраняются.';
   FMetadataFill:=Button(Panel,'Заполнить сведения из книг…',276,252,FillBookMetadata); FMetadataFill.Top:=82;
   FMetadataFill.Name:='btnFillBookMetadata'; FMetadataFill.ShowHint:=True;
   FMetadataFill.Hint:='Заполнить выбранные недостающие сведения уже добавленных местных книг этой коллекции. Проверка запускается только по вашей команде.';
@@ -340,8 +334,7 @@ begin
       FApply.SetBounds(2*Gap+ColumnWidth,FPreview.Top,ColumnWidth,RowHeight);
       FSaveReport.SetBounds(3*Gap+2*ColumnWidth,FPreview.Top,ColumnWidth,RowHeight);
       FSeriesButton.SetBounds(Gap,FPreview.Top+MulDiv(34,PPI,96),ColumnWidth,RowHeight);
-      FDuplicates.SetBounds(FApply.Left,FSeriesButton.Top,ColumnWidth,RowHeight);
-      FMetadataFill.SetBounds(FSaveReport.Left,FSeriesButton.Top,ColumnWidth,RowHeight);
+      FMetadataFill.SetBounds(FApply.Left,FSeriesButton.Top,ColumnWidth,RowHeight);
       FClose.SetBounds(FSaveReport.Left,FSeriesButton.Top+MulDiv(34,PPI,96),ColumnWidth,RowHeight);
       FSeriesScope.SetBounds(Gap,FClose.Top,2*ColumnWidth+Gap,MulDiv(30,PPI,96));
     end
@@ -351,8 +344,7 @@ begin
       FApply.SetBounds(MulDiv(276,PPI,96),FPreview.Top,FPreview.Width,FPreview.Height);
       FSaveReport.SetBounds(MulDiv(540,PPI,96),FPreview.Top,MulDiv(158,PPI,96),FPreview.Height);
       FSeriesButton.SetBounds(FPreview.Left,FPreview.Top+MulDiv(34,PPI,96),FPreview.Width,FPreview.Height);
-      FDuplicates.SetBounds(FApply.Left,FSeriesButton.Top,FPreview.Width,FPreview.Height);
-      FMetadataFill.SetBounds(FSaveReport.Left,FSeriesButton.Top,FPreview.Width,FPreview.Height);
+      FMetadataFill.SetBounds(FApply.Left,FSeriesButton.Top,FPreview.Width,FPreview.Height);
       FClose.SetBounds(Footer.ClientWidth-MulDiv(112,PPI,96),FPreview.Top,MulDiv(100,PPI,96),FPreview.Height);
       FSeriesScope.SetBounds(FPreview.Left,FSeriesButton.Top+MulDiv(34,PPI,96),Footer.ClientWidth-MulDiv(24,PPI,96),MulDiv(30,PPI,96));
     end;
@@ -528,7 +520,6 @@ begin
   FUp.Enabled:=Index>0; FDown.Enabled:=(Index>=0) and (Index<High(FSources));
   FPreview.Enabled:=(Length(FSources)>0) and not FBusy;
   if Assigned(FMetadataFill) then FMetadataFill.Enabled:=not FBusy;
-  if Assigned(FDuplicates) then FDuplicates.Enabled:=not FBusy;
   if not FRefresh.Enabled then begin FDetails.Caption:='Выберите источник в списке, чтобы изменить его настройки.'; Exit; end;
   Source:=FSources[Index]; FRefresh.Enabled:=Source.IsINPX;
   FRoot.Enabled:=Source.IsINPX; FIndexFile.Enabled:=Source.IsINPX;
@@ -759,14 +750,6 @@ begin
   try Review.ShowModal; finally Review.Free; end;
 end;
 
-procedure TfrmCatalogSources.ReviewDuplicates(Sender: TObject);
-begin
-  if FBusy then Exit;
-  // Reopen the active collection in the main form before reviewing its records.
-  // An import or metadata operation may have changed it while this dialog was open.
-  FDuplicatesRequested:=True;
-  ModalResult:=mrOk;
-end;
 
 procedure TfrmCatalogSources.FillBookMetadata(Sender: TObject);
 var Changed: Boolean;

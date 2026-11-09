@@ -148,6 +148,7 @@ begin
         begin
           Result:=CompareStr(Left.Key,Right.Key);
           if Result=0 then Result:=Left.Rank-Right.Rank;
+          if Result=0 then Result:=Left.SpellingRank-Right.SpellingRank;
           if Result=0 then Result:=Left.ID-Right.ID;
         end));
       First:=0;

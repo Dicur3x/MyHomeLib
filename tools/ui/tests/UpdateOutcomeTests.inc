@@ -222,6 +222,50 @@ begin
   Collection.GetStatistics(Authors,Result,Series);
 end;
 
+type
+  TUpdateResultProbe = class
+    FileName, Failure: string;
+    OpenBooks, ExpectAction, SawChooser, SawResult: Boolean;
+    procedure Tick(Sender: TObject);
+  end;
+
+procedure TUpdateResultProbe.Tick(Sender: TObject);
+begin
+  for var I:=Screen.FormCount-1 downto 0 do
+  begin
+    var Form:=Screen.Forms[I];
+    if not Form.Visible then Continue;
+    if Form is TdlgUpdateFromFile then
+    begin
+      SawChooser:=True;
+      if FileName='' then Form.ModalResult:=mrCancel
+      else
+      begin
+        var Picker:=TdlgUpdateFromFile(Form);
+        Picker.edFile.Text:=FileName;
+        Picker.btnOk.Click;
+      end;
+      Exit;
+    end;
+    if Form is TImportProgressFormEx then
+    begin
+      var Progress:=TImportProgressFormEx(Form);
+      if not Progress.WorkerThread.Finished or (Progress.btnCancel.Caption<>'Закрыть') then
+      begin
+        Progress.Width:=Progress.Constraints.MinWidth;
+        if Progress.btnUpdatedBooks.Visible then Failure:='Update result action is visible while running';
+        Exit;
+      end;
+      SawResult:=True;
+      if Progress.btnUpdatedBooks.Visible<>ExpectAction then Failure:='Wrong update result action availability';
+      if Progress.btnUpdatedBooks.Visible and (Progress.btnUpdatedBooks.BoundsRect.Right>=Progress.btnCancel.Left) then
+        Failure:='Update result actions overlap at minimum width';
+      if OpenBooks and (Failure='') then Progress.btnUpdatedBooks.Click else Progress.btnCancel.Click;
+      Exit;
+    end;
+  end;
+end;
+
 procedure TestUpdateOutcomes;
 var Folder, Profile, BookRoot, FB2Root, EmptyRoot, Index1, Index2, FullIndex, BadIndex, Dataset, BadDataset, SourceHash: string;
   SystemData: ISystemData; Collection: IBookCollection; IDs: TArray<Integer>;
@@ -241,18 +285,61 @@ var Folder, Profile, BookRoot, FB2Root, EmptyRoot, Index1, Index2, FullIndex, Ba
     Collection:=nil;
   end;
 
-  procedure RequireLastInpx(CatalogID: Integer; HasHistory: Boolean; const ID: string);
+  procedure RequireLastUpdate(CatalogID: Integer; HasHistory: Boolean; const ID: string);
   var Catalog: IBookCollection; Books: IBookIterator; Criteria: TBookSearchCriteria; Item: TBookRecord;
   begin
     Catalog:=SystemData.GetCollection(CatalogID,True);
-    Require(Catalog.HasLastInpxUpdate=HasHistory,'Wrong availability for last INPX update');
+    Require(Catalog.HasLastCatalogUpdate=HasHistory,'Wrong availability for last catalogue update');
     Criteria:=Default(TBookSearchCriteria);
-    Criteria.DateIdx:=SEARCH_DATE_LAST_INPX; Criteria.CollapseMultiSeriesResults:=True;
+    Criteria.DateIdx:=SEARCH_DATE_LAST_CATALOG_UPDATE; Criteria.CollapseMultiSeriesResults:=True;
     Books:=Catalog.Search(Criteria,False);
     if ID<>'' then
       Require(Books.Next(Item) and (Item.LibID=ID) and (YearOf(Item.Date)=2026),
-        'Last INPX result lost the new book or its old source date');
-    Require(not Books.Next(Item),'Last INPX search included extra records');
+        'Last update result lost the new book or its old source date');
+    Require(not Books.Next(Item),'Last update search included extra records');
+  end;
+
+  procedure WriteMetabibSnapshot(const Path: string; IncludeNewBook: Boolean);
+    function RecordLine(const ID, Title: string; Index: Integer): string;
+    begin
+      Result:=Format('{"schema":"metabib.dataset_record/1","record":{"library":"Outcome fixture",'+
+        '"locator":{"kind":"archive_entry","source":"arc","index":%d,"book_id":%s}},'+
+        '"artifacts":[{"occurrences":[{"archive":"arc","entry":"%s.fb2","index":%d,"uncompressed_size":100}]}],'+
+        '"claims":{"bibliographic":{"title":[{"value":"%s"}]},"catalog":{"modified":[{"value":"2026-01-03T00:00:00Z"}]}}}',
+        [Index,ID,ID,Index,Title])+sLineBreak;
+    end;
+  var Rows: string;
+  begin
+    Rows:=RecordLine('7001','Existing book',0);
+    if IncludeNewBook then Rows:=Rows+RecordLine('7002','New book',1);
+    TFile.WriteAllText(Path,Format('{"schema":"metabib.dataset/1","record_schema":"metabib.dataset_record/1",'+
+      '"library":"Outcome fixture","records":%d,"archives":[{"id":"arc","name":"books.zip"}]}',
+      [1+Ord(IncludeNewBook)])+sLineBreak+Rows,TEncoding.UTF8);
+  end;
+
+  procedure CheckUpdateResult(const Path: string; ExpectAction, OpenBooks: Boolean;
+    const Expected: array of string);
+  var Probe: TUpdateResultProbe; Timer: TTimer;
+  begin
+    frmMain.pgControl.ActivePage:=frmMain.tsByAuthor;
+    frmMain.pgControlChange(nil);
+    frmMain.edFTitle.Text:='Не применять прежний фильтр';
+    Probe:=TUpdateResultProbe.Create;
+    Timer:=TTimer.Create(nil);
+    try
+      Probe.FileName:=Path; Probe.ExpectAction:=ExpectAction; Probe.OpenBooks:=OpenBooks;
+      Timer.Interval:=15; Timer.OnTimer:=Probe.Tick; Timer.Enabled:=True;
+      frmMain.miUpdateFromFile.Click;
+      Require(Probe.SawChooser and (Probe.SawResult=(Path<>'')) and (Probe.Failure=''),
+        'Unexpected manual update result: '+Probe.Failure);
+      if OpenBooks then
+      begin
+        Require((frmMain.pgControl.ActivePage=frmMain.tsSearch) and (frmMain.edFTitle.Text='') and
+          (frmMain.cbDate.ItemIndex=SEARCH_DATE_LAST_CATALOG_UPDATE),'Update result did not apply its own search');
+        ExpectTitles(frmMain.tvBooksSR,Expected);
+      end
+      else Require(frmMain.pgControl.ActivePage=frmMain.tsByAuthor,'Closing the update unexpectedly opened Search');
+    finally Timer.Free; Probe.Free; end;
   end;
 
   function NewCollection(const Name, Root: string): Integer;
@@ -289,7 +376,7 @@ begin
     Collection.SetRate(Seed.BookKey,4); Collection.SetProgress(Seed.BookKey,37);
     Collection.SetReview(Seed.BookKey,'Не терять мою заметку ё'); Collection.SetAnnotation(Seed.BookKey,'Не терять аннотацию');
     Collection.AddBookToGroup(Seed.BookKey,FAVORITES_GROUP_ID); Collection:=nil;
-    RequireLastInpx(CID,False,'');
+    RequireLastUpdate(CID,False,'');
 
     for var Path in TArray<string>.Create(Folder+'missing.inpx',BadIndex) do
     begin
@@ -312,13 +399,13 @@ begin
       TOORun(Manual);
       Require(Manual.Success and Manual.CommittedChanges,'Successful manual update lost outcome flags');
       Require(TOOBookCount(SystemData,CID)=2,'Successful manual import missing'); RequireSeed;
-      RequireLastInpx(CID,True,'1101');
+      RequireLastUpdate(CID,True,'1101');
     finally Manual.Free; end;
     Manual:=TOOManualWorker.Create(CID,FullIndex,True,gtFb2); Manual.FixtureProfile:=Profile;
     try
       TOORun(Manual,True);
       Require(Manual.Canceled and not Manual.CommittedChanges,'Canceled full update committed');
-      RequireLastInpx(CID,True,'1101');
+      RequireLastUpdate(CID,True,'1101');
     finally Manual.Free; end;
     Manual:=TOOManualWorker.Create(CID,Index2,False,gtFb2);
     Manual.FixtureProfile:=Profile; Manual.FailAfterCommit:=True;
@@ -326,27 +413,27 @@ begin
       TOORun(Manual);
       Require(not Manual.Success and Manual.CommittedChanges,'Postcommit failure concealed durable catalogue changes');
       Require(TOOBookCount(SystemData,CID)=3,'Postcommit failure reverted or lost committed import'); RequireSeed;
-      RequireLastInpx(CID,True,'2202');
+      RequireLastUpdate(CID,True,'2202');
     finally Manual.Free; end;
     Manual:=TOOManualWorker.Create(CancelCID,Index2,False,gtFb2); Manual.FixtureProfile:=Profile;
     try
       TOORun(Manual);
       Require(Manual.Success and Manual.CommittedChanges,'Full INPX fixture baseline did not commit');
-      RequireLastInpx(CancelCID,True,'2202');
+      RequireLastUpdate(CancelCID,True,'2202');
     finally Manual.Free; end;
     Manual:=TOOManualWorker.Create(CancelCID,FullIndex,True,gtFb2); Manual.FixtureProfile:=Profile;
     try
       TOORun(Manual);
       Require(Manual.Success and Manual.CommittedChanges,'Full INPX comparison did not commit');
-      RequireLastInpx(CancelCID,True,'3303');
+      RequireLastUpdate(CancelCID,True,'3303');
     finally Manual.Free; end;
     Manual:=TOOManualWorker.Create(CancelCID,FullIndex,False,gtFb2); Manual.FixtureProfile:=Profile;
     try
       TOORun(Manual);
       Require(Manual.Success and Manual.CommittedChanges,'Identical INPX comparison did not commit');
-      RequireLastInpx(CancelCID,True,'');
+      RequireLastUpdate(CancelCID,True,'');
     finally Manual.Free; end;
-    Require(frmMain.cbDate.Items[SEARCH_DATE_LAST_INPX]='Последний INPX','Last INPX filter is missing from the search window');
+    Require(frmMain.cbDate.Items[SEARCH_DATE_LAST_CATALOG_UPDATE]='Последнее обновление коллекции','Last update filter has the wrong search label: '+frmMain.cbDate.Items[SEARCH_DATE_LAST_CATALOG_UPDATE]);
     Writeln('PASS last INPX search tracks additions through commits, cancellation, full reimport and empty repeat');
     BatchCID1:=NewCollection('Outcomes first batch',BookRoot); BatchCID2:=NewCollection('Outcomes second batch',BookRoot);
     Batch:=TOOBatchWorker.Create;
@@ -367,6 +454,20 @@ begin
     try TOORun(Metabib); Require(not Metabib.Success and not Metabib.CommittedChanges,'Canceled metabib reported success'); finally Metabib.Free; end;
     Metabib:=TOOMetabibWorker.Create(MetaCID,Dataset,gtFb2); Metabib.FixtureProfile:=Profile;
     try TOORun(Metabib); Require(Metabib.Success and Metabib.CommittedChanges,'Valid metabib lost successful commit'); finally Metabib.Free; end;
+    WriteMetabibSnapshot(Dataset,False);
+    Metabib:=TOOMetabibWorker.Create(MetaCID,Dataset,gtFb2); Metabib.FixtureProfile:=Profile;
+    try TOORun(Metabib); Require(Metabib.Success,'First metabib snapshot failed'); finally Metabib.Free; end;
+    RequireLastUpdate(MetaCID,True,'7001');
+    WriteMetabibSnapshot(Dataset,True);
+    Metabib:=TOOMetabibWorker.Create(MetaCID,Dataset,gtFb2); Metabib.FixtureProfile:=Profile;
+    try TOORun(Metabib); Require(Metabib.Success,'Updated metabib snapshot failed'); finally Metabib.Free; end;
+    RequireLastUpdate(MetaCID,True,'7002');
+    Metabib:=TOOMetabibWorker.Create(MetaCID,Dataset,gtFb2); Metabib.FixtureProfile:=Profile;
+    try TOORun(Metabib,True); Require(not Metabib.CommittedChanges,'Canceled metabib replaced the last update'); finally Metabib.Free; end;
+    RequireLastUpdate(MetaCID,True,'7002');
+    Metabib:=TOOMetabibWorker.Create(MetaCID,Dataset,gtFb2); Metabib.FixtureProfile:=Profile;
+    try TOORun(Metabib); Require(Metabib.Success,'Repeated metabib snapshot failed'); finally Metabib.Free; end;
+    RequireLastUpdate(MetaCID,True,'');
     ImportCID:=NewCollection('Outcomes INPX wizard worker',BookRoot);
     Importer:=TOOINPXWorker.Create(ImportCID,Index1,gtFb2); Importer.FixtureProfile:=Profile;
     try TOORun(Importer); Require(Importer.Success and Importer.CommittedChanges,'Wizard INPX worker lost outcome'); finally Importer.Free; end;
@@ -389,6 +490,16 @@ begin
     try TOORun(FBD); Require(FBD.Success and FBD.CommittedChanges,'Completed FBD lost outcome'); finally FBD.Free; end;
     RequireSeed;
     Require(THashSHA2.GetHashStringFromFile(Index1)=SourceHash,'Outcome notification rewrote input archive');
+    CheckUpdateResult('',False,False,[]);
+    CheckUpdateResult(BadIndex,False,False,[]);
+    CheckUpdateResult(Index1,True,True,['Первая новая книга']);
+    CheckUpdateResult(Index1,True,True,[]);
+    WriteMetabibSnapshot(Dataset,False);
+    CheckUpdateResult(Dataset,True,False,[]);
+    WriteMetabibSnapshot(Dataset,True);
+    CheckUpdateResult(Dataset,True,True,['New book']);
+    Require(THashSHA2.GetHashStringFromFile(Index1)=SourceHash,'Update result menu changed the INPX');
+    Writeln('PASS update result opens only new INPX and Metabib books and respects close, cancellation, failure and empty repeats');
     Writeln('PASS update outcomes: invalid/cancel rollback, actual commit flags, postcommit failure, copied affected CIDs, private data preservation, FB2 partial phases and INPX/metabib/FBD workers');
   finally
     Collection:=nil; SystemData:=nil; Settings.EnableSort:=SavedSort;

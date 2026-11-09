@@ -64,6 +64,19 @@ begin
     C.AddBookSeries(OtherPublisher,'Серия с уточнением (АСТ)',0);
     Add('Книга без общих записей','Автор','Только издатель','flibusta:887','ru','.fb2','','','АСТ');
     Add('Другая книга без общих записей','Автор','Только издатель (АСТ)','flibusta:888','ru','.fb2','','','АСТ');
+    var Stalker:=Add('Книга Сталкера','Автор','Stalker','flibusta:889');
+    C.AddBookSeries(Stalker,'S.T.A.L.K.E.R.',0);
+    var Health:=Add('Книга о здоровье','Автор','Будьте здоровы','flibusta:890');
+    C.AddBookSeries(Health,'Будьте здоровы!',0);
+    var Pierce:=Add('Книга о вампирах','Автор','Вампиры(Пирс)','flibusta:891');
+    C.AddBookSeries(Pierce,'Вампиры (Пирс)',0);
+    var Individual:=Add('Книга издательства','Автор','Individuum. Vol','flibusta:892');
+    C.AddBookSeries(Individual,'Individuum. Vol.',0);
+    var Beaumont:=Add('Книга Бомонта','Автор','J P Beaumont','flibusta:893');
+    C.AddBookSeries(Beaumont,'J. P. Beaumont',0);
+    var Vera:=Add('Книга о Вере','Автор','Вера[Шепот]','flibusta:894');
+    C.AddBookSeries(Vera,'Вера [Шепот]',0);
+    C.AddBookSeries(Vera,'Вера (Шепот)',0);
     C.EndBulkOperation(True);
   except if C.InBulkOperation then C.EndBulkOperation(False); raise; end;
   C.SetRate(CreateBookKey(BookID,ID),4); C.SetProgress(CreateBookKey(BookID,ID),37);
@@ -72,8 +85,8 @@ begin
   Plan:=TSeriesAliasPlan.Create(C,SystemDB);
   try
     Plan.Preview(nil);
-    if Plan.Count<>12 then Writeln(Plan.Report.Text);
-    Require(Plan.Count=12,'Verified publisher/mixed/bracket aliases missed, or unrelated cycles included: '+IntToStr(Plan.Count));
+    if Plan.Count<>19 then Writeln(Plan.Report.Text);
+    Require(Plan.Count=19,'Verified aliases missed, or unrelated cycles included: '+IntToStr(Plan.Count));
     Require((Scalar('SELECT COUNT(*) FROM Books')=BeforeCount) and
       (Scalar('SELECT COUNT(*) FROM Series WHERE SeriesTitle=''Академия для всех[p]''')=1),
       'Series preview changed catalog records');
@@ -89,6 +102,9 @@ begin
     Require(Scalar('SELECT COUNT(*) FROM Series WHERE SeriesTitle IN '+
       '(''Алиса в стране чудес. КИНО!!'',''Альма [Фомбель]'')')=0,
       'New punctuation or author-particle aliases remain after applying the plan');
+    Require(Scalar('SELECT COUNT(*) FROM Series WHERE SeriesTitle IN '+
+      '(''S.T.A.L.K.E.R.'',''Будьте здоровы!'',''Вампиры (Пирс)'',''Individuum. Vol.'',''J. P. Beaumont'',''Вера (Шепот)'')')=6,
+      'Series merge chose less legible punctuation or acronym casing');
     Require(Scalar('SELECT COUNT(*) FROM Series WHERE SeriesTitle IN '+
       '(''Отдельная серия (КИНО)'',''Отдельная серия. КИНО!!'')')=2,
       'Punctuation merged series without any common book');

@@ -170,6 +170,7 @@ end;
 procedure TBookInfoPreview.Load(const Book: TBookRecord; Cover, Annotation, Metadata, LocalSource: Boolean);
 begin
   Cancel; FBook:=Book; FCover:=Cover; FAnnotation:=Annotation; FMetadata:=Metadata; FLocalSource:=LocalSource;
+  FPanel.SetBookKeywords(Book.KeyWords);
   FPanel.SetReadingProgress(Book.Progress);
   FPending:=Cover or Annotation or Metadata;
   if FPending then FPanel.SetPreviewStatus('Загрузка дополнительных сведений из файла…');

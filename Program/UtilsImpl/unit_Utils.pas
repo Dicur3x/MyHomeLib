@@ -36,11 +36,11 @@ function LibrusecUpdate(const LogFileName: string;
 
 function ManualCollectionUpdate(const CollectionID: Integer; const LogFileName: string): Boolean; overload;
 function ManualCollectionUpdate(const CollectionID: Integer; const LogFileName: string;
-  out CommittedChanges: Boolean): Boolean; overload;
+  out CommittedChanges, ShowUpdatedBooks: Boolean): Boolean; overload;
 
 function PrepareSqlCatalogue(const Source, Folder, Version, IndexFile: string): Boolean;
 function ApplyPreparedCollectionUpdate(const CollectionID: Integer; const FileName, LogFileName: string;
-  Full: Boolean; out CommittedChanges: Boolean): Boolean;
+  Full: Boolean; out CommittedChanges, ShowUpdatedBooks: Boolean): Boolean;
 
 procedure ShowPopup(const Msg: string);
 procedure HidePopup;
@@ -50,8 +50,8 @@ procedure LocateBook;
 implementation
 
 uses
-  Forms, System.Classes, System.SysUtils, System.IOUtils,
-  unit_WorkerThread, unit_FormatComponents, unit_MHLExternalTools, unit_ComponentUsage,
+  Forms, System.Classes, System.SysUtils, System.IOUtils, System.UITypes,
+  unit_WorkerThread, unit_CollectionWorkerThread, unit_FormatComponents, unit_MHLExternalTools, unit_ComponentUsage,
   unit_SyncOnLineThread,
   frm_SyncOnLineProgressForm,
   unit_SyncFoldersThread,
@@ -233,32 +233,33 @@ begin
 end;
 
 function ManualCollectionUpdate(const CollectionID: Integer; const LogFileName: string): Boolean;
-var CommittedChanges: Boolean;
+var CommittedChanges, ShowUpdatedBooks: Boolean;
 begin
-  Result := ManualCollectionUpdate(CollectionID, LogFileName, CommittedChanges);
+  Result := ManualCollectionUpdate(CollectionID, LogFileName, CommittedChanges, ShowUpdatedBooks);
 end;
 
 function ManualCollectionUpdate(const CollectionID: Integer; const LogFileName: string;
-  out CommittedChanges: Boolean): Boolean;
+  out CommittedChanges, ShowUpdatedBooks: Boolean): Boolean;
 var FileName: string; Full: Boolean;
 begin
   Result:=False;
   CommittedChanges:=False;
+  ShowUpdatedBooks:=False;
   if not AskUpdateFile(FileName,Full) then Exit;
-  Result:=ApplyPreparedCollectionUpdate(CollectionID,FileName,LogFileName,Full,CommittedChanges);
+  Result:=ApplyPreparedCollectionUpdate(CollectionID,FileName,LogFileName,Full,CommittedChanges,ShowUpdatedBooks);
 end;
 
 function ApplyPreparedCollectionUpdate(const CollectionID: Integer; const FileName, LogFileName: string;
-  Full: Boolean; out CommittedChanges: Boolean): Boolean;
+  Full: Boolean; out CommittedChanges, ShowUpdatedBooks: Boolean): Boolean;
 var
   GenresType: TGenresType;
   CollectionInfo: TCollectionInfo;
-  worker: TManualUpdateThread;
-  mbWorker: TMetabibManualUpdateThread;
+  Worker: TCollectionWorker;
   ProgressForm: TImportProgressFormEx;
 begin
   Result := False;
   CommittedChanges := False;
+  ShowUpdatedBooks := False;
 
   if not EnsureCatalogReaderComponent(Application,FileName) then Exit;
 
@@ -276,48 +277,32 @@ begin
   if TMetabibReader.IsDatasetFile(FileName) then
   begin
     // Каталог metabib всегда содержит полный срез: флаг Full не имеет смысла
-    mbWorker := TMetabibManualUpdateThread.Create(CollectionID, FileName, GenresType);
-    try
-      mbWorker.DisplayName := CollectionInfo.DisplayName;
-
-      ProgressForm := TImportProgressFormEx.Create(Application);
-      ProgressForm.Caption := rstrUpdateFromFile;
-      try
-        ProgressForm.btnSaveLog.Visible := True;
-        ProgressForm.WorkerThread := mbWorker;
-        ProgressForm.ShowModal;
-        mbWorker.WaitFor;
-        Result := mbWorker.Success;
-        CommittedChanges := mbWorker.CommittedChanges;
-        ProgressForm.SaveErrorLog(LogFileName);
-      finally
-        ProgressForm.Free;
-      end;
-    finally
-      mbWorker.Free;
-    end;
-    Exit;
+    Worker := TMetabibManualUpdateThread.Create(CollectionID, FileName, GenresType);
+    TMetabibManualUpdateThread(Worker).DisplayName := CollectionInfo.DisplayName;
+  end
+  else
+  begin
+    Worker := TManualUpdateThread.Create(CollectionID, FileName, Full, GenresType);
+    TManualUpdateThread(Worker).DisplayName := CollectionInfo.DisplayName;
   end;
-
-  worker := TManualUpdateThread.Create(CollectionID, FileName, Full, GenresType);
   try
-    worker.DisplayName := CollectionInfo.DisplayName;
-
     ProgressForm := TImportProgressFormEx.Create(Application);
-    ProgressForm.Caption := rstrUpdateFromFile;
     try
+      ProgressForm.Caption := rstrUpdateFromFile;
       ProgressForm.btnSaveLog.Visible := True;
-      ProgressForm.WorkerThread := worker;
-      ProgressForm.ShowModal;
-      worker.WaitFor;
-      Result := worker.Success;
-      CommittedChanges := worker.CommittedChanges;
+      ProgressForm.OfferUpdatedBooks := True;
+      ProgressForm.WorkerThread := Worker;
+      var Action := ProgressForm.ShowModal;
+      Worker.WaitFor;
+      Result := Worker.Success;
+      CommittedChanges := Worker.CommittedChanges;
+      ShowUpdatedBooks := Result and CommittedChanges and not Worker.Canceled and (Action = mrYes);
       ProgressForm.SaveErrorLog(LogFileName);
     finally
       ProgressForm.Free;
     end;
   finally
-    worker.Free;
+    Worker.Free;
   end;
 
 end;

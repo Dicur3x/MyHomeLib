@@ -2688,7 +2688,7 @@ end;
 
 function TXMLDocumentinfo.Get_Version: String;
 begin
-  Result := ChildNodes['version'].NodeValue;
+  Result := ChildNodes['version'].Text;
 end;
 
 procedure TXMLDocumentinfo.Set_Version(Value: String);

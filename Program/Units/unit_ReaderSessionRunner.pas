@@ -15,7 +15,7 @@ function RemoveReaderSessionFiles(const Request: TReaderSessionRequest): Boolean
 implementation
 
 uses Winapi.Windows, System.IOUtils, System.RegularExpressions, Vcl.ExtCtrls,
-  unit_MHLExternalTools, unit_BookCache, unit_Diagnostics;
+  unit_MHLExternalTools, unit_BookCache, unit_Diagnostics, unit_ProgramUpdatePaths;
 
 const READER_PROCESS_QUERY_LIMITED = $1000;
 
@@ -45,26 +45,36 @@ type
   end;
 
 function RemoveReaderSessionFiles(const Request: TReaderSessionRequest): Boolean;
-var Folder, FileName: string; Attributes: DWORD;
+var Folder, FileName: string; Attributes, Code: DWORD;
 begin
   Result:=False;
   if not TRegEx.IsMatch(Request.ID,'\A[0-9a-f]{32}\z') then Exit;
   Folder:=ExcludeTrailingPathDelimiter(ExtractFileDir(Request.RequestFile));
   if (ExtractFileName(Request.RequestFile)<>'request.json') or
     (ExtractFileName(Folder)<>'HomeLibReader-session-'+Request.ID) then Exit;
-  Attributes:=GetFileAttributes(PChar(Folder));
-  if Attributes=INVALID_FILE_ATTRIBUTES then Exit(True);
+  Attributes:=GetFileAttributes(PChar(UpdateIOPath(Folder)));
+  if Attributes=INVALID_FILE_ATTRIBUTES then
+  begin
+    Code:=GetLastError;
+    Exit((Code=ERROR_FILE_NOT_FOUND) or (Code=ERROR_PATH_NOT_FOUND));
+  end;
   if Attributes and FILE_ATTRIBUTE_REPARSE_POINT<>0 then Exit;
   // Only our two JSON messages. Never recursively remove a folder or any
   // original/extracted book; an unexpected extra file keeps the folder intact.
   for var Name in ['request.json','response.json'] do
   begin
-    FileName:=TPath.Combine(Folder,Name); Attributes:=GetFileAttributes(PChar(FileName));
-    if Attributes=INVALID_FILE_ATTRIBUTES then Continue;
+    FileName:=UpdateIOPath(TPath.Combine(Folder,Name));
+    Attributes:=GetFileAttributes(PChar(FileName));
+    if Attributes=INVALID_FILE_ATTRIBUTES then
+    begin
+      Code:=GetLastError;
+      if (Code=ERROR_FILE_NOT_FOUND) or (Code=ERROR_PATH_NOT_FOUND) then Continue;
+      Exit;
+    end;
     if Attributes and (FILE_ATTRIBUTE_REPARSE_POINT or FILE_ATTRIBUTE_DIRECTORY)<>0 then Exit;
     if not Winapi.Windows.DeleteFile(PChar(FileName)) then Exit;
   end;
-  Result:=RemoveDirectory(PChar(Folder));
+  Result:=RemoveDirectory(PChar(UpdateIOPath(Folder)));
 end;
 
 constructor TReaderSessionRunner.Start(Owner: TComponent; const Executable, Profile: string;

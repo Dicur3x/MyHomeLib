@@ -72,6 +72,7 @@ type
     class function ForTree(Tree: TBookTree): TBookColumnFilters; static;
     procedure SetValue(Tag: Integer; const Value: string);
     function Value(Tag: Integer): string;
+    function ActiveColumnNames: string;
     procedure Clear;
     procedure RestoreApplied;
     procedure SetCaseSensitive(Tag: Integer; Enabled: Boolean);
@@ -319,6 +320,22 @@ function TBookColumnFilters.GetCount: Integer;
 begin
   Result := FValues.Count + Ord(FFavoriteAuthorsOnly) +
     Ord((FTree.Tag<>PAGE_DOWNLOAD) and PersonalAuthorFilterActive);
+end;
+
+function TBookColumnFilters.ActiveColumnNames: string;
+begin
+  Result := '';
+  for var I := Low(ColumnTags) to High(ColumnTags) do
+    if FValues.ContainsKey(ColumnTags[I]) then
+    begin
+      if Result <> '' then Result := Result + ', ';
+      Result := Result + ColumnNames[I];
+    end;
+  if FFavoriteAuthorsOnly then
+  begin
+    if Result <> '' then Result := Result + ', ';
+    Result := Result + 'Любимые авторы';
+  end;
 end;
 
 procedure TBookColumnFilters.Clear;

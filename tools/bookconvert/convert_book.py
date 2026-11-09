@@ -1537,8 +1537,28 @@ def kindle_epub(source, output, warnings=None):
         package_data = re.sub(rb'<!-- BEGIN INFORMATION ONLY .*?END INFORMATION ONLY -->',
                               b'', package_data, flags=re.DOTALL)
         package = xml(package_data)
+        manifest = first(package, 'manifest')
+        spine = first(package, 'spine')
+        if manifest is None or spine is None:
+            raise ConversionError('В результате KindleUnpack нет манифеста или порядка чтения EPUB.')
+        manifest_ids = {item.get('id') for item in manifest}
+        for entry in spine:
+            if entry.get('idref') != 'x_ref_cover' or 'x_ref_cover' in manifest_ids or entry.get('linear') != 'no':
+                continue
+            guide = first(package, 'guide')
+            cover_paths = {archive.resolve(package_path, node.get('href', ''))[0]
+                           for node in guide if node.get('type') == 'cover'} if guide is not None else set()
+            cover_paths.intersection_update(archive.names)
+            cover_ids = [item.get('id') for item in manifest if item.get('id') and
+                         item.get('media-type') == 'application/xhtml+xml' and
+                         archive.resolve(package_path, item.get('href', ''))[0] in cover_paths]
+            if len(cover_ids) != 1:
+                raise ConversionError('Не удалось однозначно восстановить ссылку на обложку Kindle.')
+            entry.set('idref', cover_ids[0])
+            if warnings is not None:
+                warnings.add('Восстановлена ссылка на страницу обложки Kindle.')
         changed = {}
-        for item in first(package, 'manifest'):
+        for item in manifest:
             if item.get('media-type') != 'application/xhtml+xml': continue
             part = archive.resolve(package_path, item.get('href', ''))[0]
             document, dirty = kindle_xhtml(archive.read(part))
@@ -1730,11 +1750,12 @@ def detect_input(source):
         return '.zip'
     if prefix.startswith(b'MZ'):return '.exe'
     if prefix.startswith(b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1'):return detect_compound_office(source, prefix)
-    if b'%PDF-' in prefix[:1024]:return '.pdf'
     if prefix[:2] in (b'\xff\xfe', b'\xfe\xff'):
         try: probe = prefix[:len(prefix)&~1].decode('utf-16').encode('utf-8')
         except UnicodeError: probe = b''
     else: probe = prefix.removeprefix(b'\xef\xbb\xbf')
+    if re.match(br'\s*<\?(?:php(?=\s|$)|=)', probe, re.I): return '.php'
+    if b'%PDF-' in prefix[:1024]:return '.pdf'
     if re.search(br'<(?:\w+:)?FictionBook\b', probe, re.I): return '.fb2'
     if re.search(br'<(?:\w+:)?abiword\b',probe,re.I):return '.abw'
     if re.search(br'^MIME-Version:', probe, re.M | re.I) and re.search(br'multipart/|text/html', probe, re.I): return '.mht'
@@ -1873,6 +1894,8 @@ def _convert_book(source, destination, **metadata):
     if source_size > MAX_PDF_SOURCE:
         raise ConversionError('Книга превышает предел конвертации (512 МБ).')
     extension, target_extension = detect_input(source), destination.suffix.lower()
+    if extension == '.php':
+        raise ConversionError('Файл содержит PHP-код. Для конвертации нужен файл книги.')
     if extension != '.pdf' and source_size > MAX_TOTAL:
         raise ConversionError('Книга превышает предел конвертации (256 МБ).')
     if packing_grayscale and (metadata.get('reading') or output_profile or extension != target_extension or

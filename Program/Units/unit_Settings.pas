@@ -196,6 +196,7 @@ type
 
 
     FInitialDirs: TStringList;
+    FSettingsPageNames: TStringList;
 
     FMinimizeToTray: Boolean;
     FAutoStartDwnld: Boolean;
@@ -315,6 +316,7 @@ type
     property SystemFileName[fileType: TMHLSystemFile]: string read GetSystemFileName;
 
     property SettingsFileName: string read GetSettingsFileName;
+    property SettingsPageNames: TStringList read FSettingsPageNames;
     property RestoreBookViews: TRestoreBookViews read FRestoreBookViews write FRestoreBookViews;
 
     property DeviceDir: string read FDeviceDir write SetDeviceDir;
@@ -605,11 +607,13 @@ begin
   FUpdateList := TUpdateInfoList.Create;
 
   FInitialDirs := TStringList.Create;
+  FSettingsPageNames := TStringList.Create;
 end;
 
 destructor TMHLSettings.Destroy;
 begin
   FreeAndNil(FInitialDirs);
+  FreeAndNil(FSettingsPageNames);
   FreeAndNil(FUpdateList);
   FreeAndNil(FScripts);
   FreeAndNil(FReaders);
@@ -710,6 +714,8 @@ var
 begin
   iniFile := TMemIniFile.Create(GetSettingsFileName, TEncoding.UTF8);
   try
+    FSettingsPageNames.Clear;
+    iniFile.ReadSectionValues('SettingsPageNames', FSettingsPageNames);
     DeviceDir := iniFile.ReadString(PATH_SECTION, 'Device', DEF_DEVICE_DIR);
     ReadDir := iniFile.ReadString(PATH_SECTION, 'Read', DEF_READ_DIR);
     UpdateDir := iniFile.ReadString(PATH_SECTION, 'Update', '');
@@ -916,6 +922,9 @@ var
 begin
   iniFile := TMemIniFile.Create(GetSettingsFileName, TEncoding.UTF8);
   try
+    iniFile.EraseSection('SettingsPageNames');
+    for var I := 0 to FSettingsPageNames.Count - 1 do
+      iniFile.WriteString('SettingsPageNames', FSettingsPageNames.Names[I], FSettingsPageNames.ValueFromIndex[I]);
     iniFile.WriteString(PATH_SECTION, 'Device', FDeviceDir);
     iniFile.WriteString(PATH_SECTION, 'Read', FReadDir);
     iniFile.WriteString(PATH_SECTION, 'Update', FUpdateDir);

@@ -41,13 +41,14 @@ type
     RzPanel1: TMHLSimplePanel;
     Label1: TLabel;
     edText: TEdit;
-    procedure FormCreate(Sender: TObject);
-    procedure FormKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
+    lblResult: TLabel;
+    btnFind: TButton;
+    btnClose: TButton;
     procedure edTextChange(Sender: TObject);
-    procedure edTextKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
+    procedure FindClick(Sender: TObject);
 
   private
-    FBusy: boolean;
+    FFound: Boolean;
     FOnLocateBook: TOnLocateBookEvent;
 
   protected
@@ -61,7 +62,7 @@ type
 implementation
 
 uses
-  unit_Localization;
+  unit_Localization, unit_MHLTheme;
 
 {$R *.dfm}
 
@@ -69,45 +70,28 @@ procedure TfrmBookSearch.DoCreate;
 begin
   inherited;
   Localize(Self);
-end;
-
-procedure TfrmBookSearch.FormCreate(Sender: TObject);
-begin
-  FBusy := False;
+  ApplyMHLControlTheme(Self);
 end;
 
 procedure TfrmBookSearch.edTextChange(Sender: TObject);
 begin
-  if not FBusy then
-  begin
-    FBusy := True;
-    try
-      Assert(Assigned(FOnLocateBook));
-      FOnLocateBook(edText.Text, False)
-    finally
-      FBusy := False;
-    end;
-  end;
+  FFound := False;
+  lblResult.Caption := '';
+  btnFind.Caption := 'Найти';
+  btnFind.Enabled := Trim(edText.Text)<>'';
 end;
 
-procedure TfrmBookSearch.edTextKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
+procedure TfrmBookSearch.FindClick(Sender: TObject);
 begin
-  if (Key = VK_RIGHT) and not FBusy then
+  if not Assigned(FOnLocateBook) or (Trim(edText.Text)='') then Exit;
+  FFound := FOnLocateBook(edText.Text, FFound);
+  if FFound then
   begin
-    FBusy := True;
-    try
-      Assert(Assigned(FOnLocateBook));
-      FOnLocateBook(edText.Text, True)
-    finally
-      FBusy := False;
-    end;
-  end;
-end;
-
-procedure TfrmBookSearch.FormKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
-begin
-  if (Key = VK_RETURN) or (Key = VK_ESCAPE) then
-    Close;
+    lblResult.Caption := 'Книга выделена в списке.';
+    btnFind.Caption := 'Найти дальше';
+  end
+  else
+    lblResult.Caption := 'Совпадений нет. Для поиска по всей коллекции откройте «Поиск книг».';
 end;
 
 end.

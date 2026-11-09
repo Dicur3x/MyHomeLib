@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import random
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -302,6 +303,126 @@ class ImageQuality(unittest.TestCase):
         with zipfile.ZipFile(actual) as archive:
             self.assertEqual(len([name for name in archive.namelist() if '/images/' in name]), 1)
         self.assertEqual(source.read_bytes(), data)
+        self.assert_clean()
+
+    @unittest.skipUnless(os.name=='nt' and (TOOLS/'pdfium/pdfium.dll').is_file(), 'Windows PDFium')
+    def test_mixed_pdf_applies_image_quality_to_both_scans_and_illustrations(self):
+        from test_legacy_fixed import pdf_fixture
+
+        source = self.root/'mixed.pdf'
+        original = pdf_fixture(pages=2, image_only_last=True)
+        source.write_bytes(original)
+
+        def epub_images(path):
+            with zipfile.ZipFile(path) as book:
+                body = c.xml(book.read('OEBPS/book.xhtml'))
+                self.assertIn('First readable paragraph', ''.join(body.itertext()))
+                return {node.get('alt'): book.read('OEBPS/'+node.get('src'))
+                        for node in body.iter() if c.tag(node)=='img'}
+
+        color = self.root/'color.epub'
+        grayscale = self.root/'grayscale.epub'
+        c.convert_book(source, color, tools_root=TOOLS)
+        c.convert_book(source, grayscale, tools_root=TOOLS, grayscale=True)
+        color_images, gray_images = epub_images(color), epub_images(grayscale)
+        self.assertEqual(set(color_images), {'Иллюстрация, страница 1', 'Страница 2'})
+        self.assertEqual(set(color_images), set(gray_images))
+        for name in color_images:
+            self.assertNotEqual(color_images[name], gray_images[name])
+        crop = 'Иллюстрация, страница 1'
+        self.assertGreater(len(set(middle_pixel(color_images[crop]))), 1)
+        self.assertEqual(len(set(middle_pixel(gray_images[crop]))), 1)
+
+        for extension in ('.fb2', '.epub'):
+            with self.subTest(extension=extension):
+                output = self.root/('maximum'+extension)
+                c.convert_book(source, output, tools_root=TOOLS, image_quality='maximum', grayscale=True)
+                options, choice = (self.root/(extension+suffix) for suffix in ('-estimate.json','-choice.txt'))
+                candidate = self.root/('estimate'+extension)
+                with subprocess.Popen([sys.executable, '-I', '-B', '-X', 'utf8', str(Path(c.__file__)),
+                        str(source), str(candidate), '--tools-root', str(TOOLS), '--image-quality', 'ask',
+                        '--grayscale', '--measure-scans', '--image-options', str(options), '--image-choice', str(choice)],
+                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                        creationflags=subprocess.CREATE_NO_WINDOW) as process:
+                    try:
+                        estimate = wait_options(options, 30, 'No mixed PDF estimate')
+                        choice.write_text('cancel', encoding='utf-8')
+                        self.assertIn('отменён', process.communicate(timeout=10)[0].decode('utf-8'))
+                    finally:
+                        if process.poll() is None:
+                            process.kill()
+                            process.wait()
+                self.assertTrue(estimate['all_scan_pages'])
+                self.assertFalse(candidate.exists())
+                self.assertLess(abs(output.stat().st_size-estimate['sizes']['maximum']), 1024)
+
+        options, choice = self.root/'interactive.json', self.root/'interactive.txt'
+        failure = []
+        def select_profile():
+            try:
+                wait_options(options, 30, 'No interactive mixed PDF estimate')
+                choice.write_text('maximum', encoding='utf-8')
+            except BaseException as error:
+                failure.append(error)
+                choice.write_text('cancel', encoding='utf-8')
+        thread = threading.Thread(target=select_profile)
+        thread.start()
+        interactive = self.root/'interactive.epub'
+        try:
+            c.convert_book(source, interactive, tools_root=TOOLS, image_quality='ask', grayscale=True,
+                           image_options=options, image_choice=choice)
+        finally:
+            thread.join(31)
+        self.assertFalse(thread.is_alive())
+        self.assertFalse(failure, failure)
+        self.assertEqual(epub_images(interactive), epub_images(self.root/'maximum.epub'))
+        self.assertEqual(source.read_bytes(), original)
+        self.assert_clean()
+
+    @unittest.skipUnless(os.name == 'nt' and (TOOLS / 'pdfium/pdfium.dll').is_file(), 'Windows PDFium')
+    def test_sampled_mixed_pdf_counts_repeated_illustration_once(self):
+        from test_legacy_fixed import pdf_fixture
+
+        source = self.root / 'repeated.pdf'
+        original = pdf_fixture(pages=24, image_only_last=True)
+        source.write_bytes(original)
+        options = self.root / 'options.json'
+        choice = self.root / 'choice.txt'
+        candidate = self.root / 'estimate.fb2'
+        with subprocess.Popen([sys.executable, '-I', '-B', '-X', 'utf8', str(Path(c.__file__)),
+                str(source), str(candidate), '--tools-root', str(TOOLS), '--image-quality', 'ask',
+                '--image-container', 'fb2-zip', '--grayscale', '--measure-scans',
+                '--image-options', str(options), '--image-choice', str(choice)],
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                creationflags=subprocess.CREATE_NO_WINDOW) as process:
+            try:
+                estimate = wait_options(options, 20, 'No sampled estimate for repeated illustrations')
+                choice.write_text('cancel', encoding='utf-8')
+                self.assertIn('отменён', process.communicate(timeout=10)[0].decode('utf-8'))
+            finally:
+                if process.poll() is None:
+                    process.kill()
+                    process.wait()
+
+        self.assertTrue(estimate['distributed_samples'])
+        self.assertEqual(estimate['images'], 24)
+        self.assertLess(estimate['sampled'], 24)
+        self.assertFalse(candidate.exists())
+        output = self.root / 'actual.fb2'
+        c.convert_book(source, output, tools_root=TOOLS, image_quality='maximum',
+                       image_container='fb2-zip', grayscale=True)
+        document = c.xml(output.read_bytes())
+        self.assertEqual(sum(c.tag(node) == 'binary' for node in document), 2)
+        self.assertEqual(sum(c.tag(node) == 'image' for node in document.iter()), 24)
+        packed = self.root / 'actual.fb2.zip'
+        with zipfile.ZipFile(packed, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.write(output, output.name)
+        for final, key in ((output, 'sizes'), (packed, 'zip_sizes')):
+            actual = final.stat().st_size
+            predicted = estimate[key]['maximum']
+            self.assertLess(abs(actual - predicted), max(1500, actual * .15),
+                            f'{final.name}: estimated {predicted}, actual {actual}')
+        self.assertEqual(source.read_bytes(), original)
         self.assert_clean()
 
     def test_illustrated_fb2_and_epub_offer_quality_preserve_text_cover_and_gif(self):

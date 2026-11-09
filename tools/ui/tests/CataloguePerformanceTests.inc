@@ -95,7 +95,9 @@ begin
     CID := SystemDB.RegisterCollection(FileName, 'Actual catalogue performance',
       Settings.AppPath + 'absent-books\');
   end;
-  Settings.ActiveCollection := CID; Settings.ActivePage := PAGE_AUTHORS;
+  Settings.ActiveCollection := CID;
+  if ParamStr(2)='startup-series' then Settings.ActivePage:=PAGE_SERIES
+  else Settings.ActivePage:=PAGE_AUTHORS;
   Settings.HideDeletedBooks := True;
   Settings.ShowInfoPanel := False; Settings.ShowBookCover := False;
   Settings.ShowBookAnnotation := False; Settings.CheckUpdate := False;
@@ -125,6 +127,9 @@ begin
   while frmMain.StartupLoading and (GetTickCount64-Started < 180000) do
   begin Application.ProcessMessages; CheckSynchronize(0); Sleep(1); end;
   Require(not frmMain.StartupLoading, 'Actual catalogue startup did not finish');
+  if ParamStr(2)='startup-series' then
+    Require((frmMain.pgControl.ActivePageIndex=PAGE_SERIES) and (frmMain.tvSeries.RootNodeCount>0),
+      'Startup from the Series tab did not load its selector');
   Writeln('ACTUAL startup ready_ms=',GetTickCount64-Started); Flush(Output);
   Writeln('ACTUAL startup cpu_ms=',ProcessCPUMilliseconds-CPUStarted); Flush(Output);
   Writeln('PASS actual catalogue uses the distributed deferred startup path');

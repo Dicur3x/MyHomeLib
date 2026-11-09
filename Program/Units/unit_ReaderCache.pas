@@ -3,7 +3,7 @@
 interface
 
 uses
-  System.Classes, System.SysUtils, unit_Globals, unit_Interfaces;
+  System.Classes, System.SysUtils, Vcl.Controls, unit_Globals, unit_Interfaces;
 
 function ReaderCopyName(const Book: TBookRecord): string;
 function ReaderHistoryName(const Book: TBookRecord; const LibraryNamespace: string): string;
@@ -11,15 +11,24 @@ function PrepareExternalReaderFile(const Book: TBookRecord; const PreparedFile, 
   ForceCopy: Boolean = False): string;
 procedure PrepareExternalReaderFileInBackground(Owner: TComponent; const Book: TBookRecord;
   const PreparedFile, LibraryNamespace: string; const OnReady: TProc<string>; ForceCopy: Boolean = False);
-function PrepareReaderFile(const Book: TBookRecord; const PreserveImages: Boolean = False; const OnStage: TProc<string> = nil; OpenArchive: Boolean = False; ConvertKindle: Boolean = False; ConvertOffice: Boolean = False): string;
+type
+  TReaderArchiveSelection = record
+    Expected, Opened: TArray<string>;
+    Ambiguous: Boolean;
+  end;
+  PReaderArchiveSelection = ^TReaderArchiveSelection;
+
+function PrepareReaderFile(const Book: TBookRecord; const PreserveImages: Boolean = False; const OnStage: TProc<string> = nil; OpenArchive: Boolean = False; ConvertKindle: Boolean = False; ConvertOffice: Boolean = False; const IsCanceled: TFunc<Boolean> = nil; Selection: PReaderArchiveSelection = nil): string;
 procedure PrepareReaderFileInBackground(Owner: TComponent; const Book: TBookRecord;
-  PreserveImages: Boolean; const OnReady: TProc<string>; OpenArchive: Boolean = False; ConvertKindle: Boolean = False; ConvertOffice: Boolean = False; const OnMissingComponent: TProc<string> = nil; const OnMissingComponents: TProc<TArray<string>> = nil);
+  PreserveImages: Boolean; const OnReady: TProc<string>; OpenArchive: Boolean = False; ConvertKindle: Boolean = False; ConvertOffice: Boolean = False; const OnMissingComponent: TProc<string> = nil; const OnMissingComponents: TProc<TArray<string>> = nil;
+  const ArchiveMembers: TArray<string> = nil; const OnArchiveOpened: TProc<TReaderArchiveSelection> = nil);
 function IsReaderContainer(const FileName: string): Boolean;
 // False is an intermediate source for explicit text-only export; never a reading copy.
 function PrepareConversionSource(const Book: TBookRecord; const OnStage: TProc<string> = nil;
   const TargetExtension: string = ''; RestoreOriginalImages: Boolean = True; AllowArchiveChoice: Boolean = True; const IsCanceled: TFunc<Boolean> = nil): string;
 function IsReaderArchive(const FileName: string): Boolean;
 procedure CancelReaderPreparations(Owner: TComponent);
+function DeferCloseForReaderPreparation(Owner: TWinControl): Boolean;
 function ReaderPreparationsPending(Owner: TComponent): Boolean;
 function ResolveReaderBook(const Collection: IBookCollection; const Book: TBookRecord): TBookRecord;
 function ReaderBookPhysicalIdentity(const Book: TBookRecord): string;
@@ -35,13 +44,17 @@ function TryStoreReaderBookPersonal(const Collection: IBookCollection; const Use
 function TryStoreReaderBookProgress(const Collection: IBookCollection; const Saved: TBookRecord;
   Progress: Integer): Boolean;
 
+{$IFDEF MHL_SQL_PROFILE}
+var BeforeReaderArchiveExtractForProfile: TProc;
+{$ENDIF}
+
 implementation
 
 uses
   System.IOUtils, System.Hash, System.Variants, System.Math, unit_FileMutex, unit_LibrarySourceID,
-  System.Generics.Collections, Vcl.Forms, Vcl.Controls, Vcl.StdCtrls,
+  System.Generics.Collections, Vcl.Forms, Vcl.StdCtrls,
   Vcl.ExtCtrls, System.SyncObjs, unit_MHLOperationStatus,
-  Winapi.Windows, unit_ReaderFormats, unit_ReaderKindle, unit_ReaderOffice, unit_ReaderLegacy, unit_Settings, unit_Consts, unit_FLibraryCompat, unit_MHLExternalTools,
+  Winapi.Windows, Winapi.Messages, unit_ReaderFormats, unit_ReaderKindle, unit_ReaderOffice, unit_ReaderLegacy, unit_Settings, unit_Consts, unit_FLibraryCompat, unit_MHLExternalTools,
   unit_MHLArchiveHelpers, unit_WebPCompat, unit_BookMetadataCache, unit_BookCache, dm_user, unit_ProgramUpdates, unit_BookConversion, unit_ComponentUpdates, unit_Diagnostics;
 
 type
@@ -610,10 +623,10 @@ begin
     '|' + FileStamp(Settings.AppPath + 'tools\webp\libwebp.dll', False);
 end;
 
-function PrepareLooseArchive(const Book: TBookRecord; const Source: string; const ConvertImages: Boolean; const OnStage: TProc<string>; ConversionOnly: Boolean; const TargetExtension: string; AllowArchiveChoice: Boolean; const IsCanceled: TFunc<Boolean>): string;
+function PrepareLooseArchive(const Book: TBookRecord; const Source: string; const ConvertImages: Boolean; const OnStage: TProc<string>; ConversionOnly: Boolean; const TargetExtension: string; AllowArchiveChoice: Boolean; const IsCanceled: TFunc<Boolean>; Selection: PReaderArchiveSelection): string;
 var Archive: TMHLZip; Candidates, Nested, Unknown: TList<Integer>; I, Entry: Integer;
   Member, Extension, Folder, Stamp, StampFile, Temporary: string;
-  Preferred, PreferredScore, Score: Integer;
+  Preferred, PreferredScore, Score, Depth: Integer;
   Dialog: TForm; Names: TListBox; OpenButton, CancelButton: TButton; LabelControl: TLabel;
   Extracted: TFileStream; Converted: TStream; Writer: TBookCacheWrite; RequestingThread: TThread;
 begin
@@ -631,7 +644,9 @@ begin
   try
     // An image-only archive is one book. Keep every page instead of asking
     // the reader to choose a single image and silently omitting the others.
-    if Archive.IsImageOnlyComic then
+    if Archive.IsImageOnlyComic and
+      ((Selection=nil) or (Length(Selection.Expected)=0) or
+        (Length(Selection.Opened)=Length(Selection.Expected))) then
     begin
       Extension:=DetectReaderExtension(Source);
       if Extension='.zip' then Extension:='.cbz'
@@ -646,7 +661,9 @@ begin
         ForceDirectories(ExtractFileDir(Result)); Writer:=TBookCacheWrite.Create(Book.GetBookFileName);
         try
           Temporary:=Writer.TemporaryName(Result);StampFile:=Writer.TemporaryName(Result+'.source');
-          TFile.Copy(Source,Temporary,True);TFile.WriteAllText(StampFile,Stamp,TEncoding.UTF8);
+          TFile.Copy(Source,Temporary,True);
+          if Assigned(IsCanceled) and IsCanceled() then Abort;
+          TFile.WriteAllText(StampFile,Stamp,TEncoding.UTF8);
           Writer.Publish(Temporary,Result,StampFile);
         finally Writer.Free;end;
         Exit;
@@ -702,7 +719,20 @@ begin
       if Score<PreferredScore then begin Preferred:=I; PreferredScore:=Score; end;
     end;
     Entry := Candidates[Preferred];
-    if Candidates.Count > 1 then
+    if (Selection<>nil) and (Candidates.Count>1) then Selection.Ambiguous:=True;
+    if (Selection<>nil) and (Length(Selection.Expected)>0) then
+    begin
+      Depth:=Length(Selection.Opened); Entry:=-1;
+      if Depth<Length(Selection.Expected) then
+        for I:=0 to Archive.FileCount-1 do
+          if Archive.FileNames[I]=Selection.Expected[Depth] then
+          begin
+            if Entry>=0 then raise EReadError.Create('В архиве несколько вложений с именем сохранённой книги.');
+            Entry:=I;
+          end;
+      if Entry<0 then raise EReadError.Create('В архиве не найдено сохранённое вложение книги.');
+    end
+    else if Candidates.Count > 1 then
     begin
       if not AllowArchiveChoice then
         raise EReadError.Create('В архиве несколько книг. Размер зависит от файла, выбранного при сохранении.');
@@ -744,6 +774,7 @@ begin
     if ConversionOnly and ((Archive.FileSizes[Entry]<0) or (Archive.FileSizes[Entry]>MAX_PDF_CONVERSION_SOURCE)) then
       raise EReadError.Create('Книга в архиве превышает предел конвертации (512 МБ).');
     Member := Archive.FileNames[Entry]; Extension := LowerCase(ExtractFileExt(Member));
+    if Selection<>nil then Selection.Opened:=Selection.Opened+[Member];
     Folder:=BookCachePath;
     if (Extension = FB2_EXTENSION) and ConvertImages then
       Folder := TPath.Combine(Folder, WEBP_READER_CACHE_FOLDER);
@@ -766,6 +797,10 @@ begin
       Temporary:=Writer.TemporaryName(Result);
       Extracted := TFileStream.Create(Temporary, fmCreate);
       try
+        {$IFDEF MHL_SQL_PROFILE}
+        if Assigned(BeforeReaderArchiveExtractForProfile) then BeforeReaderArchiveExtractForProfile();
+        {$ENDIF}
+        if Assigned(IsCanceled) and IsCanceled() then Abort;
         Archive.ExtractToStream(Entry, Extracted); Extracted.Position := 0;
         if (Extension = FB2_EXTENSION) and ConvertImages then
           Converted := NormalizeEmbeddedWebPFb2(Extracted)
@@ -774,6 +809,7 @@ begin
         if Assigned(Converted) then
         begin Extracted.Size := 0; Extracted.Position := 0; Converted.Position := 0; Extracted.CopyFrom(Converted, 0); end;
       finally Extracted.Free; end;
+      if Assigned(IsCanceled) and IsCanceled() then Abort;
       // A missing/old stamp is a miss. Publish the bytes before marking them current.
       StampFile:=Writer.TemporaryName(Result+'.source');
       TFile.WriteAllText(StampFile,Stamp,TEncoding.UTF8);
@@ -782,7 +818,7 @@ begin
   finally Unknown.Free; Nested.Free; Candidates.Free; Archive.Free; end;
 end;
 
-function PrepareReaderFileCore(const Book: TBookRecord; const PreserveImages: Boolean; const OnStage: TProc<string>; OpenArchive: Boolean; ConversionOnly: Boolean = False; const TargetExtension: string = ''; RestoreOriginalImages: Boolean = True; AllowArchiveChoice: Boolean = True; const IsCanceled: TFunc<Boolean> = nil): string;
+function PrepareReaderFileCore(const Book: TBookRecord; const PreserveImages: Boolean; const OnStage: TProc<string>; OpenArchive: Boolean; ConversionOnly: Boolean = False; const TargetExtension: string = ''; RestoreOriginalImages: Boolean = True; AllowArchiveChoice: Boolean = True; const IsCanceled: TFunc<Boolean> = nil; Selection: PReaderArchiveSelection = nil): string;
 var Source, Folder, Stamp, StampFile, Temporary, TemporaryStamp: string;
   Format: TBookFormat; Stream, Converted: TStream; Target: TFileStream; ConvertImages: Boolean;
   Corrected: TBookRecord; Writer: TBookCacheWrite; Actual: string;
@@ -802,7 +838,7 @@ begin
   ConvertImages := Settings.ConvertWebPToPNG and not PreserveImages;
   Corrected:=ResolveArchivedBook(Book);
   if (Corrected.FileName<>Book.FileName) or (Corrected.FileExt<>Book.FileExt) then
-    Exit(PrepareReaderFileCore(Corrected,PreserveImages,OnStage,OpenArchive,ConversionOnly,TargetExtension,RestoreOriginalImages,AllowArchiveChoice,IsCanceled));
+    Exit(PrepareReaderFileCore(Corrected,PreserveImages,OnStage,OpenArchive,ConversionOnly,TargetExtension,RestoreOriginalImages,AllowArchiveChoice,IsCanceled,Selection));
   // An already validated FB2 compatibility copy is checked below before
   // reopening source bytes. Raw/unconverted sources still need detection here.
   if not OpenArchive and (Format in [bfRaw,bfFb2]) and
@@ -812,12 +848,12 @@ begin
     if (Actual<>'') and not SameText(Actual,ExtractFileExt(Source)) then
     begin
       Source:=PrepareDetectedReaderFile(Source,Book.GetBookFileName);
-      if IsReaderContainer(Source) then Exit(PrepareLooseArchive(Book,Source,ConvertImages,OnStage,ConversionOnly,TargetExtension,AllowArchiveChoice,IsCanceled));
+      if IsReaderContainer(Source) then Exit(PrepareLooseArchive(Book,Source,ConvertImages,OnStage,ConversionOnly,TargetExtension,AllowArchiveChoice,IsCanceled,Selection));
       Exit(Source);
     end;
   end;
   if OpenArchive and not IsReaderArchive(Book.FileName+Book.FileExt) then Exit(Source);
-  if not OpenArchive and (Format in [bfRaw,bfFbd]) and IsReaderContainer(Source) then Exit(PrepareLooseArchive(Book, Source, ConvertImages,OnStage,ConversionOnly,TargetExtension,AllowArchiveChoice,IsCanceled));
+  if not OpenArchive and (Format in [bfRaw,bfFbd]) and IsReaderContainer(Source) then Exit(PrepareLooseArchive(Book, Source, ConvertImages,OnStage,ConversionOnly,TargetExtension,AllowArchiveChoice,IsCanceled,Selection));
   if not (Format in [bfFb2Archive, bfFbd, bfRawArchive]) and
     not ((Format = bfFb2) and ConvertImages) then Exit(Source);
 
@@ -839,7 +875,7 @@ begin
       begin
         RegisterBookCacheFile(Result,Source);
         if Assigned(OnStage) then OnStage('Открытие книги из кэша…');
-        if not OpenArchive and IsReaderContainer(Result) then Result := PrepareLooseArchive(Book,Result,ConvertImages,OnStage,ConversionOnly,TargetExtension,AllowArchiveChoice,IsCanceled);
+        if not OpenArchive and IsReaderContainer(Result) then Result := PrepareLooseArchive(Book,Result,ConvertImages,OnStage,ConversionOnly,TargetExtension,AllowArchiveChoice,IsCanceled,Selection);
         Exit;
       end;
     except
@@ -854,7 +890,7 @@ begin
     if (Actual<>'') and not SameText(Actual,ExtractFileExt(Source)) then
     begin
       Source:=PrepareDetectedReaderFile(Source,Book.GetBookFileName);
-      if IsReaderContainer(Source) then Exit(PrepareLooseArchive(Book,Source,ConvertImages,OnStage,ConversionOnly,TargetExtension,AllowArchiveChoice,IsCanceled));
+      if IsReaderContainer(Source) then Exit(PrepareLooseArchive(Book,Source,ConvertImages,OnStage,ConversionOnly,TargetExtension,AllowArchiveChoice,IsCanceled,Selection));
       Exit(Source);
     end;
   end;
@@ -885,17 +921,18 @@ begin
     if not Assigned(Stream) then raise Exception.Create('Не удалось подготовить книгу для чтения.');
     Target := TFileStream.Create(Temporary, fmCreate);
     try Target.CopyFrom(Stream, 0); finally Target.Free; end;
+    if Assigned(IsCanceled) and IsCanceled() then Abort;
     TFile.WriteAllText(TemporaryStamp, Stamp, TEncoding.UTF8);
     Writer.Publish(Temporary,Result,TemporaryStamp);
   finally
     Stream.Free;
     Writer.Free;
   end;
-  if not OpenArchive and IsReaderContainer(Result) then Result := PrepareLooseArchive(Book,Result,ConvertImages,OnStage,ConversionOnly,TargetExtension,AllowArchiveChoice,IsCanceled);
+  if not OpenArchive and IsReaderContainer(Result) then Result := PrepareLooseArchive(Book,Result,ConvertImages,OnStage,ConversionOnly,TargetExtension,AllowArchiveChoice,IsCanceled,Selection);
 end;
 
 function ResolvePreparedPayload(const Book: TBookRecord; const FileName: string;
-  ConvertImages, ConversionOnly: Boolean; const OnStage: TProc<string>; const TargetExtension: string; AllowArchiveChoice: Boolean = True; const IsCanceled: TFunc<Boolean> = nil): string;
+  ConvertImages, ConversionOnly: Boolean; const OnStage: TProc<string>; const TargetExtension: string; AllowArchiveChoice: Boolean = True; const IsCanceled: TFunc<Boolean> = nil; Selection: PReaderArchiveSelection = nil): string;
 begin
   Result:=FileName;
   for var Depth:=0 to 7 do
@@ -909,19 +946,23 @@ begin
       Result:=PrepareDetectedReaderFile(Result,Book.GetBookFileName);
     end;
     if not IsReaderContainer(Result) then Exit;
-    Result:=PrepareLooseArchive(Book,Result,ConvertImages,OnStage,ConversionOnly,TargetExtension,AllowArchiveChoice,IsCanceled);
+    Result:=PrepareLooseArchive(Book,Result,ConvertImages,OnStage,ConversionOnly,TargetExtension,AllowArchiveChoice,IsCanceled,Selection);
   end;
   raise Exception.Create('Слишком много вложенных архивов книги (более восьми).');
 end;
 
 function PrepareReaderFile(const Book: TBookRecord; const PreserveImages: Boolean;
-  const OnStage: TProc<string>; OpenArchive, ConvertKindle, ConvertOffice: Boolean): string;
+  const OnStage: TProc<string>; OpenArchive, ConvertKindle, ConvertOffice: Boolean; const IsCanceled: TFunc<Boolean>; Selection: PReaderArchiveSelection): string;
 begin
-  Result := PrepareReaderFileCore(Book,PreserveImages,OnStage,OpenArchive);
+  if Selection<>nil then begin Selection.Opened:=nil; Selection.Ambiguous:=False; end;
+  Result := PrepareReaderFileCore(Book,PreserveImages,OnStage,OpenArchive,False,'',True,True,IsCanceled,Selection);
   if (Result <> '') and not OpenArchive then
   begin
-    Result:=ResolvePreparedPayload(Book,Result,Settings.ConvertWebPToPNG and not PreserveImages,False,OnStage,'');
+    Result:=ResolvePreparedPayload(Book,Result,Settings.ConvertWebPToPNG and not PreserveImages,False,OnStage,'',True,IsCanceled,Selection);
     if Result='' then Exit;
+    if (Selection<>nil) and (Length(Selection.Expected)>0) and
+      (Length(Selection.Opened)<>Length(Selection.Expected)) then
+      raise EReadError.Create('В архиве не найдено сохранённое вложение книги.');
     // The archive's extension can differ from its selected readable member.
     // Preserve a custom Kindle reader, but prepare KF8 for Sumatra as well.
     if not ConvertKindle then
@@ -967,21 +1008,29 @@ type
     FRequiredComponents: TArray<string>;
     FOnMissingComponents: TProc<TArray<string>>;
     FReady: TProc<string>;
+    FOnArchiveOpened: TProc<TReaderArchiveSelection>;
+    FArchiveSelection: TReaderArchiveSelection;
+    FCloseRequested: Boolean;
     procedure Tick(Sender: TObject);
   public
     constructor CreateTask(Owner: TComponent; const Book: TBookRecord;
-      PreserveImages: Boolean; const OnReady: TProc<string>; OpenArchive, ConvertKindle, ConvertOffice: Boolean; const OnMissingComponent: TProc<string>; const OnMissingComponents: TProc<TArray<string>>);
+      PreserveImages: Boolean; const OnReady: TProc<string>; OpenArchive, ConvertKindle, ConvertOffice: Boolean; const OnMissingComponent: TProc<string>; const OnMissingComponents: TProc<TArray<string>>;
+      const ArchiveMembers: TArray<string>; const OnArchiveOpened: TProc<TReaderArchiveSelection>);
     constructor CreateExternalTask(Owner: TComponent; const Book: TBookRecord;
       const PreparedFile, LibraryNamespace: string; const OnReady: TProc<string>; ForceCopy: Boolean);
     destructor Destroy; override;
   end;
 
 constructor TReaderPreparation.CreateTask(Owner: TComponent; const Book: TBookRecord;
-  PreserveImages: Boolean; const OnReady: TProc<string>; OpenArchive, ConvertKindle, ConvertOffice: Boolean; const OnMissingComponent: TProc<string>; const OnMissingComponents: TProc<TArray<string>>);
-var Snapshot: TBookRecord;
+  PreserveImages: Boolean; const OnReady: TProc<string>; OpenArchive, ConvertKindle, ConvertOffice: Boolean; const OnMissingComponent: TProc<string>; const OnMissingComponents: TProc<TArray<string>>;
+  const ArchiveMembers: TArray<string>; const OnArchiveOpened: TProc<TReaderArchiveSelection>);
+var Snapshot: TBookRecord; Selection: PReaderArchiveSelection;
 begin
   inherited Create(Owner);
   Snapshot := Book; FReady := OnReady; FOnMissingComponent:=OnMissingComponent; FOnMissingComponents:=OnMissingComponents; FLock := TCriticalSection.Create;
+  FOnArchiveOpened:=OnArchiveOpened; FArchiveSelection.Expected:=Copy(ArchiveMembers);
+  Selection:=nil;
+  if Assigned(FOnArchiveOpened) or (Length(ArchiveMembers)>0) then Selection:=@FArchiveSelection;
   FStage := 'Подготовка книги для чтения…'; FStatus := TMHLOperationStatus.Create(FStage);
   FWorker := TThread.CreateAnonymousThread(
     procedure
@@ -997,7 +1046,8 @@ begin
             if FWorker.CheckTerminated then Abort;
             FLock.Enter;
             try FStage := Stage; finally FLock.Leave; end;
-          end,OpenArchive,ConvertKindle,ConvertOffice);
+          end,OpenArchive,ConvertKindle,ConvertOffice,
+          function: Boolean begin Result:=TThread.CheckTerminated; end,Selection);
         LogDiagnosticTrace('reader-prepare-ready',Snapshot.Title+sLineBreak+FResult,Snapshot.FileExt);
       except
         on E: EAbort do begin FResult := ''; LogDiagnosticTrace('reader-prepare-cancel',Snapshot.Title,Snapshot.FileExt); end;
@@ -1070,13 +1120,24 @@ end;
 procedure TReaderPreparation.Tick(Sender: TObject);
 var Stage, ErrorText, Required: string; Ready, Missing: TProc<string>; WorkFile: string;
   MissingMany:TProc<TArray<string>>; RequiredIDs:TArray<string>;
+  ClosingOwner: TWinControl;
+  ArchiveOpened: TProc<TReaderArchiveSelection>; Selection: TReaderArchiveSelection;
 begin
+  if FCloseRequested then
+  begin
+    if WaitForSingleObject(FWorker.Handle,0)<>WAIT_OBJECT_0 then Exit;
+    ClosingOwner:=TWinControl(Owner);
+    Free;
+    if ClosingOwner.HandleAllocated then PostMessage(ClosingOwner.Handle,WM_CLOSE,0,0);
+    Exit;
+  end;
   FLock.Enter;
   try Stage := FStage; finally FLock.Leave; end;
   FStatus.SetStage(Stage);
   if WaitForSingleObject(FWorker.Handle,0) <> WAIT_OBJECT_0 then Exit;
   FTimer.Enabled := False;
   Ready := FReady; FReady := nil; WorkFile := FResult; ErrorText := FError;
+  ArchiveOpened:=FOnArchiveOpened; Selection:=FArchiveSelection;
   Required:=FRequiredComponent; Missing:=FOnMissingComponent; FOnMissingComponent:=nil;
   RequiredIDs:=Copy(FRequiredComponents); MissingMany:=FOnMissingComponents; FOnMissingComponents:=nil;
   // The callback can run a modal reader or destroy its owner. Release the
@@ -1090,7 +1151,9 @@ begin
   if (Required<>'') and Assigned(Missing) and not Application.Terminated then begin Missing(Required); Exit; end;
   if ErrorText <> '' then raise Exception.Create(ErrorText);
   if (WorkFile <> '') and Assigned(Ready) and not Application.Terminated then
-    try Ready(WorkFile);
+    try
+      if Assigned(ArchiveOpened) then ArchiveOpened(Selection);
+      Ready(WorkFile);
     except
       // Comic/inner archives may first need a decoder while constructing the
       // reader, after preparation has already released its background worker.
@@ -1110,6 +1173,20 @@ begin
     if Owner.Components[I] is TReaderPreparation then Owner.Components[I].Free;
 end;
 
+function DeferCloseForReaderPreparation(Owner: TWinControl): Boolean;
+begin
+  for var Component in Owner do
+    if Component is TReaderPreparation then
+    begin
+      var Preparation:=TReaderPreparation(Component);
+      Preparation.FCloseRequested:=True;
+      Preparation.FWorker.Terminate;
+      Preparation.FStatus.SetStage('Отмена подготовки книги…');
+      Exit(True);
+    end;
+  Result:=False;
+end;
+
 function ReaderPreparationsPending(Owner: TComponent): Boolean;
 begin
   Result:=False; if not Assigned(Owner) then Exit;
@@ -1118,12 +1195,14 @@ begin
 end;
 
 procedure PrepareReaderFileInBackground(Owner: TComponent; const Book: TBookRecord;
-  PreserveImages: Boolean; const OnReady: TProc<string>; OpenArchive, ConvertKindle, ConvertOffice: Boolean; const OnMissingComponent: TProc<string>; const OnMissingComponents: TProc<TArray<string>>);
+  PreserveImages: Boolean; const OnReady: TProc<string>; OpenArchive, ConvertKindle, ConvertOffice: Boolean; const OnMissingComponent: TProc<string>; const OnMissingComponents: TProc<TArray<string>>;
+  const ArchiveMembers: TArray<string>; const OnArchiveOpened: TProc<TReaderArchiveSelection>);
 var Component: TComponent;
 begin
   // A double click while preparing must not start duplicate decompression.
   for Component in Owner do if Component is TReaderPreparation then Exit;
-  TReaderPreparation.CreateTask(Owner,Book,PreserveImages,OnReady,OpenArchive,ConvertKindle,ConvertOffice,OnMissingComponent,OnMissingComponents);
+  TReaderPreparation.CreateTask(Owner,Book,PreserveImages,OnReady,OpenArchive,ConvertKindle,ConvertOffice,OnMissingComponent,OnMissingComponents,
+    ArchiveMembers,OnArchiveOpened);
 end;
 
 end.

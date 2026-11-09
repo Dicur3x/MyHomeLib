@@ -38,6 +38,9 @@ type
   protected
     procedure Execute; override;
   public
+    {$IFDEF MHL_SQL_PROFILE}
+    class var BeforeReadForProfile: TProc;
+    {$ENDIF}
     constructor Create(const FileName: string; CollectionID: Integer;
       HideDeleted, LocalOnly, LoadPublisher: Boolean;
       LoadAuthors: Boolean = True; LoadSeries: Boolean = True);
@@ -138,6 +141,9 @@ begin
   SQLiteCancelCallback := Cancelled;
   try
     try
+      {$IFDEF MHL_SQL_PROFILE}
+      if Assigned(BeforeReadForProfile) then BeforeReadForProfile();
+      {$ENDIF}
       if Cancelled then Abort;
       SystemData := TSystemData_SQLite.Create(FFileName);
       FData := TStartupCatalogData.Create;

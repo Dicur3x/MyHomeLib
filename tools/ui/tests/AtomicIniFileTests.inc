@@ -184,6 +184,36 @@ begin
     Require(Failed and Ini.Modified and not Ini.AutoSave, 'Atomic INI accepted an empty destination');
     CheckNoPublicationTemporary;
     Writeln('PASS atomic INI directory/nil/empty targets reject without destructive fallback');
+    FreeAndNil(Ini);
+
+    var DeepFolder:=TPath.Combine(Root, StringOfChar('я',120)+StringOfChar('ї',120));
+    Require(ForceDirectories(BookOutputPath(DeepFolder)), 'Could not create the long path fixture');
+    var DeepTarget:=TPath.Combine(DeepFolder, StringOfChar('ф',225)+'.ini');
+    Require(Length(DeepTarget)>MAX_PATH, 'Atomic fixture did not cross the native path limit');
+    Ini:=TMemIniFile.Create(BookOutputPath(DeepTarget),TEncoding.UTF8);
+    Ini.WriteString('FutureSection','Value',UnicodeText);
+    SaveMemIniFileAtomically(Ini);
+    Ini.WriteInteger('ReadingKeys','Next',Ord('D'));
+    SaveMemIniFileAtomically(Ini);
+    FreeAndNil(Ini);
+    Ini:=TMemIniFile.Create(BookOutputPath(DeepTarget),TEncoding.UTF8);
+    Require((Ini.ReadString('FutureSection','Value','')=UnicodeText) and
+      (Ini.ReadInteger('ReadingKeys','Next',0)=Ord('D')),
+      'Atomic INI creation/replacement lost settings on a long Unicode path');
+    var StreamTarget:=TPath.Combine(DeepFolder, StringOfChar('д',225)+'.json');
+    var Stream:=TStringStream.Create('first',TEncoding.UTF8);
+    try
+      Stream.Position:=2;
+      SaveStreamAtomically(Stream,StreamTarget);
+      Require(Stream.Position=2, 'Atomic long stream write changed the caller position');
+    finally Stream.Free; end;
+    Stream:=TStringStream.Create(UnicodeText,TEncoding.UTF8);
+    try SaveStreamAtomically(Stream,StreamTarget); finally Stream.Free; end;
+    Require(TFile.ReadAllText(BookOutputPath(StreamTarget),TEncoding.UTF8)=UnicodeText,
+      'Atomic long stream replacement changed the bytes');
+    Require(Length(TDirectory.GetFiles(BookOutputPath(DeepFolder)))=2,
+      'Atomic saves retained an intermediate file on the long path');
+    Writeln('PASS atomic INI and stream create, replace and clean up long Unicode paths and filenames');
     Writeln('PASS atomic INI data preservation all native cases'); Flush(Output);
   finally Lock.Free; Reopened.Free; Legacy.Free; Ini.Free; end;
 end;

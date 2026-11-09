@@ -309,7 +309,7 @@ begin
     Sender.Canvas.MoveTo(R.Left+4,R.Bottom-2); Sender.Canvas.LineTo(R.Right-4,R.Bottom-2); Sender.Canvas.Pen.Width:=1;
   end;
   Content:=R; ArrowWidth:=0; Gap:=MulDiv(4,Sender.CurrentPPI,96); Offset:=Ord(Pressed);
-  if Button.Style=tbsDropDown then
+  if Button.Style in [tbsDropDown,tbsWholeDropDown] then
   begin
     ArrowWidth:=MulDiv(14,Sender.CurrentPPI,96); Dec(Content.Right,ArrowWidth);
     X:=R.Right-ArrowWidth div 2-1; Y:=(R.Top+R.Bottom) div 2;
@@ -317,7 +317,10 @@ begin
     Sender.Canvas.Polygon([Point(X-3,Y-1),Point(X+3,Y-1),Point(X,Y+2)]);
   end;
   Sender.Canvas.Font.Assign(Sender.Font); Sender.Canvas.Font.Color:=Foreground;
-  if Sender.ShowCaptions then Text:=Button.Caption else Text:='';
+  if Sender.ShowCaptions or (Sender.AllowTextButtons and (Button.Style=tbsTextButton)) then
+    Text:=Button.Caption
+  else
+    Text:='';
   if Assigned(Sender.Images) and (Button.ImageIndex>=0) and (Button.ImageIndex<Sender.Images.Count) then
   begin
     X:=Content.Left+(Content.Width-Sender.Images.Width) div 2; Y:=Content.Top+(Content.Height-Sender.Images.Height) div 2;

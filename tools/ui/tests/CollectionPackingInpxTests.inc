@@ -1,4 +1,68 @@
-﻿procedure TestPackingInpx;
+﻿type
+  TPackedInpxResultProbe = class(TPackingReviewProbe)
+    Accepted: Boolean;
+    procedure Tick(Sender: TObject); reintroduce;
+  end;
+
+function AcceptPackedInpxResult(Window: HWND; Data: LPARAM): BOOL; stdcall;
+var Caption: array[0..127] of Char;
+begin
+  Result:=True;
+  if not IsWindowVisible(Window) then Exit;
+  GetWindowText(Window,Caption,Length(Caption));
+  if string(Caption)<>'Обновление коллекции' then Exit;
+  TPackedInpxResultProbe(Pointer(Data)).Accepted:=True;
+  PostMessage(Window,WM_USER+102,mrRetry,0); // TDM_CLICK_BUTTON
+  Result:=False;
+end;
+
+procedure TPackedInpxResultProbe.Tick(Sender: TObject);
+begin
+  Dialog:=frmMain.FindComponent('CollectionPackingProgress') as TfrmCollectionPackingProgress;
+  if Assigned(Dialog) then inherited Tick(Sender)
+  else if SawEstimate and not Accepted then
+    EnumThreadWindows(GetCurrentThreadId,@AcceptPackedInpxResult,LPARAM(Pointer(Self)));
+end;
+
+procedure TestPackedInpxResultChild;
+var Probe: TPackedInpxResultProbe; Timer: TTimer; Started: UInt64; PreviousID: Integer;
+begin
+  PreviousID:=Settings.ActiveCollection;
+  Settings.EnableSort:=False;
+  Settings.RestoreBookViews:=rbvAutomatic;
+  Application.CreateForm(TdmImages,dmImages);
+  dmImages.ApplyThemeIcons;
+  TfrmMain.DeferInitialCollection:=True;
+  Application.CreateForm(TfrmMain,frmMain);
+  Probe:=TPackedInpxResultProbe.Create;
+  Timer:=TTimer.Create(nil);
+  try
+    Probe.ExpectedBooks:=4; Probe.ExpectedUnavailable:=1;
+    Timer.Interval:=20; Timer.OnTimer:=Probe.Tick;
+    frmSplash.Hide;
+    frmMain.Show;
+    frmMain.StartInitialCollectionLoad;
+    Started:=GetTickCount64;
+    repeat
+      Application.ProcessMessages;
+      CheckSynchronize(2);
+      Sleep(5);
+      Require(GetTickCount64-Started<45000,'Packed update did not open its new books');
+    until Probe.Accepted and (frmMain.pgControl.ActivePage=frmMain.tsSearch);
+    Require((Settings.ActiveCollection<>PreviousID) and
+      (SystemDB.GetCollectionInfo(Settings.ActiveCollection).DataVersion=20261104) and
+      (frmMain.cbDate.ItemIndex=SEARCH_DATE_LAST_CATALOG_UPDATE),
+      'Packed update result did not open the filter on the registered generation');
+    ExpectTitles(frmMain.tvBooksSR,['New title','Absent member']);
+    Writeln('PASS packed INPX result opens only new books from the registered generation');
+    Flush(Output);
+  finally
+    Timer.Free; Probe.Free;
+    FreeAndNil(frmMain); FreeAndNil(dmImages);
+  end;
+end;
+
+procedure TestPackingInpx;
 var Source, PackedSource, Updated: IBookCollection; Book, Card: TBookRecord;
   Options: TCollectionPackingOptions; Snapshot: TCollectionPackingSnapshot;
   LegacyUpdate: TManualUpdateThread;
@@ -308,10 +372,10 @@ begin
   Require(MissingID>0,'An unavailable INPX book disappeared from the catalogue');
   Updated.GetBookRecord(CreateBookKey(MissingID,UpdatedID),Book,True);
   Require(not (bpIsLocal in Book.BookProps),'Missing INPX member was resolved to an unrelated archive entry');
-  Require(Updated.HasLastInpxUpdate and not PackedSource.HasLastInpxUpdate,
+  Require(Updated.HasLastCatalogUpdate and not PackedSource.HasLastCatalogUpdate,
     'The latest INPX result was not confined to the updated generation');
   var Search:=Default(TBookSearchCriteria);
-  Search.DateIdx:=SEARCH_DATE_LAST_INPX; Search.CollapseMultiSeriesResults:=True;
+  Search.DateIdx:=SEARCH_DATE_LAST_CATALOG_UPDATE; Search.CollapseMultiSeriesResults:=True;
   var NewBooks:=Updated.Search(Search,False);
   var SeenNew, SeenMissing: Boolean;
   SeenNew:=False; SeenMissing:=False;
@@ -329,4 +393,12 @@ begin
   Writeln('PASS selected INPX adds and replaces exact books, retains prior archives and IDs, and publishes a separate generation');
   Writeln('PASS an empty INPX replacement retains the previously readable book');
   Writeln('PASS selected INPX estimate cancels and continues, and legacy full import refuses a packed catalogue');
+  if GetEnvironmentVariable('HOMELIB_PACKED_RESULT_COMPONENTS')<>'' then
+  begin
+    Settings.ActiveCollection:=PackedID;
+    Settings.ActivePage:=PAGE_AUTHORS;
+    Settings.SaveSettings;
+    TFile.WriteAllText(Settings.AppPath+'packing-inpx-result.argument',
+      StorePackingContinuation(Settings.SettingsFileName,ResumedPacking),TEncoding.ASCII);
+  end;
 end;

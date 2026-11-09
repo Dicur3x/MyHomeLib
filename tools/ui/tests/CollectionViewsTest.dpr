@@ -7,7 +7,7 @@
 {$R '..\..\..\Program\lang.res'}
 
 uses
-  unit_Utils, frm_MCPSetup, Xml.XMLDoc, Xml.XMLIntf,
+  unit_Utils, frm_search, frm_MCPSetup, Xml.XMLDoc, Xml.XMLIntf,
   unit_CatalogComponents, unit_MetabibReader, unit_FormatComponents, unit_ComponentRemoval, unit_ComponentUsage, frm_ComponentMaintenance,
   unit_StartupCatalog, unit_FLibraryCompat, NativeRegressionGuard, System.SysUtils, System.StrUtils, System.Classes, System.Types, System.IOUtils, System.IniFiles, System.JSON, System.Net.HttpClient, System.Net.URLClient, System.Generics.Collections, System.Variants, Winapi.Windows, Winapi.Messages, Winapi.CommCtrl, Winapi.RichEdit, Winapi.ActiveX, Winapi.ShlObj,
   Vcl.Forms, Vcl.Dialogs, Vcl.Themes, Vcl.Styles, Vcl.Clipbrd, Vcl.CheckLst, Vcl.Graphics, Vcl.Menus, Vcl.ComCtrls, Vcl.ExtCtrls, Vcl.Controls, Vcl.StdCtrls, Vcl.ActnList,
@@ -24,7 +24,7 @@ uses
   unit_SystemDatabase_SQLite,
   unit_WorkerThread, unit_CollectionWorkerThread, unit_libupdateThread, unit_ImportFB2Thread,
   unit_ImportFBDThread, unit_ImportMetabibThread,
-  unit_ReaderPalette, unit_ReaderRaster, unit_ReaderPDF, unit_ReaderLaunch, unit_ReaderDOC, unit_ReaderOffice, unit_ReaderKindle, unit_ReaderFormats, unit_ReaderLegacy, unit_ReaderSession, unit_ReaderSessionRunner,
+  unit_ReaderPalette, unit_ReaderRaster, unit_ReaderPDF, unit_ReaderLaunch, unit_ReaderDOC, unit_ReaderOffice, unit_ReaderKindle, unit_ReaderFormats, unit_ReaderLegacy, unit_ReaderSession, unit_ReaderSessionRunner, unit_ReaderRestartState,
   unit_MetadataSyncTypes, unit_CollectionMetadataSync, frm_BookMetadataFill, unit_NCWParams,
   unit_FB2PublisherMetadataReader, unit_PublisherSeriesSource, unit_SevenZipMetadata, unit_PackageBookMetadata, unit_ReaderAnnotations, unit_ReaderNoteBooks,
   unit_Downloader, unit_DownloadBooksThread, unit_DownloadManagerThread, unit_DownloadView, unit_treeController,
@@ -46,7 +46,7 @@ uses
   frm_AuthorInformation, frm_AuthorFavorites, frm_book_info, frm_statistic, unit_ReviewParser, frm_BuiltinReader,
   dm_user, dm_Images, frm_splash, frm_main, frm_genre_tree, unit_PublisherSeriesView,
   frm_ProgramUpdate, frm_settings, frm_ReaderCacheSettings, frm_ReaderHost, unit_ProgramUpdates, unit_ComponentUpdates, unit_ProgramUpdateInstaller, unit_UpdateAuthenticity, unit_IBKRuntime,
-  frm_ImportProgressFormEx, unit_IndexPublisherSeriesThread, unit_ImportInpxThread, frm_NewCollectionWizard,
+  frm_ImportProgressFormEx, frm_UpdateFromFile, unit_IndexPublisherSeriesThread, unit_ImportInpxThread, frm_NewCollectionWizard,
   frame_NCWCollectionNameAndLocation, frame_NCWCollectionFileTypes,
   frame_NCWFinish, frame_WizardPageBase, frm_ConverToFBD, unit_FileMutex,
   unit_CollectionPacking in '..\..\..\Program\Units\unit_CollectionPacking.pas',
@@ -1724,6 +1724,17 @@ var Filters: TBookColumnFilters; Node: PVirtualNode; Book: PBookRecord;
       N := frmMain.tvBooksA.GetNext(N);
     end;
   end;
+
+  procedure CheckHeaderIndicator(Tag: Integer);
+  var ColumnPresent, Highlighted: Boolean;
+  begin
+    ColumnPresent:=False; Highlighted:=False;
+    for var Index:=0 to frmMain.tvBooksA.Header.Columns.Count-1 do
+      if frmMain.tvBooksA.Header.Columns[Index].Tag=Tag then ColumnPresent:=True;
+    for var HighlightedTag in frmMain.tvBooksA.HeaderFilteredTags do
+      if HighlightedTag=Tag then Highlighted:=True;
+    Require(ColumnPresent=Highlighted,'Active filter header state differs for column '+IntToStr(Tag));
+  end;
 begin
   Filters := TBookColumnFilters.ForTree(frmMain.tvBooksA);
   Filters.SetValue(COL_TITLE, 'EXTRA');
@@ -1733,6 +1744,10 @@ begin
   Book := frmMain.tvBooksA.GetNodeData(frmMain.tvBooksA.FocusedNode);
   Require(Book.Title = 'Alpha extra uk', 'Filter retained a hidden focused book');
   Require(Pos('1 из 3', frmMain.lblBooksTotalA.Caption) > 0, 'Active filter count is invisible');
+  CheckHeaderIndicator(COL_TITLE);
+  CheckHeaderIndicator(COL_LANG);
+  Require(frmMain.lblBooksTotalA.ShowHint and frmMain.lblBooksTotalA.Hint.Contains('Название') and
+    frmMain.lblBooksTotalA.Hint.Contains('Язык'),'Active filters on visible and hidden columns are not described');
   Filters.SetValue(COL_TITLE,'unmatched'); Filters.SetCaseSensitive(COL_TITLE,True);
   PostMessage(frmMain.Handle,WM_KEYDOWN,VK_ESCAPE,0);
   frmMain.ApplyBookColumnFilters(frmMain.tvBooksA);
@@ -1755,6 +1770,19 @@ begin
     Node := frmMain.tvBooksA.GetNext(Node);
   end;
   Require(Marked = 1, 'Filtered mark-all selected the wrong books');
+  Require(frmMain.acBookMarkAsRead.Execute,'Marked visible book cannot be marked read');
+  Node := frmMain.tvBooksA.GetFirst;
+  while Assigned(Node) do
+  begin
+    Book := frmMain.tvBooksA.GetNodeData(Node);
+    if Book.NodeType=ntBookInfo then
+      if frmMain.tvBooksA.IsEffectivelyFiltered[Node] then
+        Require(Book.Progress=0,'Mark as read changed a filtered-out book')
+      else
+        Require(Book.Progress=100,'Mark as read skipped the visible marked book');
+    Node := frmMain.tvBooksA.GetNext(Node);
+  end;
+  Require(frmMain.acBookMarkAsRead.Execute,'Visible book cannot be marked unread again');
   frmMain.pmiSelectAllClick(nil);
   Node := frmMain.tvBooksA.GetFirst;
   while Assigned(Node) do
@@ -1763,8 +1791,9 @@ begin
       'Select all included a filtered-out row');
     Node := frmMain.tvBooksA.GetNext(Node);
   end;
-  frmMain.LocateBook('Alpha ru', False);
-  Require(frmMain.tvBooksA.GetFirstSelected = nil, 'Quick search selected a filtered-out book');
+  var PreviousSelection:=frmMain.tvBooksA.GetFirstSelected;
+  Require(not frmMain.LocateBook('Alpha ru',False) and
+    (frmMain.tvBooksA.GetFirstSelected=PreviousSelection),'Quick search changed selection for a filtered-out title');
   frmMain.btnSwitchTreeModeClick(nil);
   Require(CountVisible = 1, 'Flat mode rebuild lost active column filters');
   frmMain.btnSwitchTreeModeClick(nil);
@@ -1773,9 +1802,24 @@ begin
   frmMain.ApplyBookColumnFilters(frmMain.tvBooksA);
   Require((CountVisible = 0) and (frmMain.tvBooksA.FocusedNode = nil), 'No-match filter retained a book');
   Require(frmMain.tvBooksA.GetFirstVisible = nil, 'Empty groups survived the filter');
-  Filters.Clear;
-  frmMain.ApplyBookColumnFilters(frmMain.tvBooksA);
+  frmMain.acBookRead.Update;
+  frmMain.acEditBook.Update;
+  frmMain.acBookDetails.Update;
+  Require(not (frmMain.acBookRead.Enabled or frmMain.acEditBook.Enabled or frmMain.acBookDetails.Enabled),
+    'Empty filtered list offers actions on a hidden book');
+  var ResetButton: TButton:=nil;
+  var StatusPanel:=frmMain.lblBooksTotalA.Parent;
+  for var Index:=0 to StatusPanel.ControlCount-1 do
+    if (StatusPanel.Controls[Index] is TButton) and
+      (TButton(StatusPanel.Controls[Index]).Caption='Сбросить фильтры столбцов') then
+      ResetButton:=TButton(StatusPanel.Controls[Index]);
+  Require(Assigned(ResetButton) and ResetButton.Visible and
+    (ResetButton.Hint=frmMain.lblBooksTotalA.Hint),'Active filters offer no visible reset or conditions');
+  ResetButton.Click;
   Require((CountVisible = 3) and Assigned(frmMain.tvBooksA.FocusedNode), 'Clearing filters failed to restore books');
+  Require((Length(frmMain.tvBooksA.HeaderFilteredTags)=0) and not ResetButton.Visible and
+    (frmMain.lblBooksTotalA.Hint=''),'Clearing filters retained indicators');
+  Writeln('PASS column filters highlight active headers, disable hidden-book actions and clear from the visible reset button');
   Writeln('PASS column filters combine, survive regrouping, hide empty groups and mark only matching books');
   Node := frmMain.tvBooksA.GetFirst;
   while Assigned(Node) do
@@ -2260,6 +2304,33 @@ begin
         Require(not Popup.ReviewChanged, 'Opening book details modified review'); Popup.Close;
       end);
     frmMain.ipnlAuthors.DetailsButton.Click;
+    Require((frmMain.miBookDetails.Parent=frmMain.miBook) and
+      (frmMain.miBookDetails.Action=frmMain.acBookDetails) and (frmMain.pmiBookInfo.Action=frmMain.acBookDetails) and
+      (frmMain.N51.Parent=frmMain.N36) and (frmMain.N51.Action=frmMain.acEditBook) and
+      (frmMain.miBookEdit.Action=frmMain.acEditBook) and (frmMain.tbtnEditBook.Action=frmMain.acEditBook) and
+      (frmMain.acEditBook.Caption='Изменить описание') and (frmMain.acBookDetails.Caption='Информация о книге') and
+      (frmMain.acEditBook.ShortCut=ShortCut(Ord('E'),[ssCtrl])) and
+      (frmMain.acBookDetails.ShortCut=ShortCut(Ord('I'),[ssCtrl])),
+      'Card and editor commands do not share their labels and shortcuts');
+    for var Command in TArray<TMenuItem>.Create(frmMain.miBookDetails,frmMain.pmiBookInfo) do
+    begin
+      TThread.ForceQueue(nil,
+        procedure
+        begin
+          Require(Screen.ActiveForm is TfrmBookDetails,'Book information menu opened the wrong window');
+          Screen.ActiveForm.ModalResult:=mrCancel;
+        end);
+      Command.Click;
+    end;
+    Trace('book information routes checked; opening local description editor');
+    TThread.ForceQueue(nil,
+      procedure
+      begin
+        Require(Screen.ActiveForm.ClassNameIs('TfrmEditBookInfo'),'Edit description menu opened the wrong window');
+        Screen.ActiveForm.ModalResult:=mrCancel;
+      end);
+    frmMain.N51.Click;
+    Writeln('PASS book menu and context open the shared card while Edit opens the description editor');
   finally
     if OldLocal then Include(BookData.BookProps, bpIsLocal);
   end;
@@ -2609,11 +2680,46 @@ begin
     'Theme switch is not at the right edge');
   Captions:=TStringList.Create;
   try
-    for I:=0 to frmMain.pmiReadBook.Parent.Count-1 do
-    begin Item:=frmMain.pmiReadBook.Parent.Items[I]; if Item.Visible then Captions.Add(Item.Caption); end;
-    Require((Captions.Count>=2) and Captions[0].Contains('встроенной') and Captions[1].Contains('внешней'),
-      'Read destinations are duplicated or incorrectly ordered: '+Captions.Text);
+    for var Parent in TArray<TMenuItem>.Create(frmMain.miBook,frmMain.pmMain.Items) do
+    begin
+      Captions.Clear;
+      for Item in Parent do
+        if Item.Visible then Captions.Add(Item.Caption);
+      Require((Captions.Count>=3) and Captions[0].Contains('Reader') and Captions[1].Contains('внешней') and
+        Captions[2].StartsWith('Сохранить как'),
+        'Read destinations are duplicated or incorrectly ordered: '+Captions.Text);
+    end;
   finally Captions.Free; end;
+  var Pack:=frmMain.FindComponent('miPackCollection') as TMenuItem;
+  var Duplicates:=frmMain.FindComponent('miBookDuplicates') as TMenuItem;
+  var Restore:=frmMain.FindComponent('miRestoreCollectionSnapshot') as TMenuItem;
+  Require(Assigned(Pack) and Assigned(Duplicates) and (Pack.Parent=frmMain.N2) and (Duplicates.Parent=frmMain.N2) and
+    Pack.Caption.Contains('файлы книг') and frmMain.miCompactDataBase.Caption.Contains('базу каталога'),
+    'Book compression, database maintenance or duplicate review is ambiguous');
+  Require(Assigned(Restore) and (Restore.Parent=frmMain.N6) and
+    frmMain.N6.Caption.Contains('каталога') and
+    (frmMain.miUpdate.Parent=frmMain.miUpdateFromFile.Parent) and
+    (frmMain.miUpdate.Parent.Parent=frmMain.N2),'Restore or update commands are in the wrong menu');
+  Require((frmMain.tbtnWizard.Style=tbsWholeDropDown) and (frmMain.tbtnWizard.DropdownMenu=frmMain.pmCollection) and
+    (frmMain.tbtnWizard.Hint='Выбрать коллекцию') and (frmMain.BtnFav_add.DropdownMenu=frmMain.pmGroups) and
+    frmMain.BtnFav_add.Hint.Contains('список групп'),'Collection and group controls do not describe their actual actions');
+  Require(frmMain.miUpdateFromFile.Caption.Contains('INPX или Metabib') and
+    frmMain.miUpdate.Caption.Contains('онлайн-коллекций') and
+    frmMain.acHelpCheckUpdates.Caption.Contains('программы и компонентов'), 'Update commands no longer distinguish their targets');
+  var SpecialImport:=frmMain.FindComponent('miSpecialImport') as TMenuItem;
+  Require(Assigned(SpecialImport) and (SpecialImport.Parent=frmMain.N39) and
+    (frmMain.miImportSelectedBook.Parent=frmMain.N39) and (frmMain.miFb2Import.Parent=frmMain.N39) and
+    (frmMain.miPdfdjvu.Parent=SpecialImport) and (frmMain.miFBDImport.Parent=SpecialImport) and
+    (frmMain.miExplorerImportShortcut.Parent=SpecialImport),
+    'Common import commands are hidden or specialised import commands are still scattered');
+  Require((frmMain.pmiCheckAll.Parent=frmMain.pmiSelectAll.Parent) and
+    (frmMain.pmiCheckAll.Parent.Parent=frmMain.pmMain.Items),'Book selection commands are not grouped');
+  var Connections:=frmMain.FindComponent('miConnections') as TMenuItem;
+  Require(Assigned(Connections) and (Connections.Parent=frmMain.miTools) and (Connections.Count=2) and
+    Assigned(Connections.Items[0].OnClick) and Assigned(Connections.Items[1].OnClick),
+    'Connection actions should share one submenu');
+  Require((frmMain.FBD1.Parent=frmMain.FBD2.Parent) and
+    (frmMain.FBD1.Parent.Parent=frmMain.N36),'Legacy FBD actions are not grouped');
   for I:=0 to frmMain.tvBooksA.Header.Columns.Count-1 do
   begin
     Column:=frmMain.tvBooksA.Header.Columns[I];
@@ -2629,19 +2735,24 @@ begin
     Deadline:=GetTickCount64+15000;
     while not Reader.LoadFinished and (GetTickCount64<Deadline) do begin Application.ProcessMessages; CheckSynchronize(5); end;
     Require(Reader.Ready,'Theme reader failed to open');
+    var ReaderTheme:=Reader.ThemeIndex;
+    var ThemeStart:=GetTickCount64;
     ThemeButton.OnClick(ThemeButton); Application.ProcessMessages;
+    Writeln('TRACE catalogue dark switch ms=',GetTickCount64-ThemeStart);
     Require(TStyleManager.ActiveStyle.Name='Charcoal Dark Slate','Dark menu/control style was not activated');
     Require(Settings.DarkTheme and MHLThemeDark,'Theme switch failed');
     Require(ColorToRGB(frmMain.tvBooksA.Color)=RGB(30,31,34),'Book table stayed light');
     Require(ColorToRGB(frmMain.tvBooksA.Font.Color)=RGB(205,208,214),'Book text lacks dark-theme contrast');
-    Require(Reader.ThemeIndex=4,'Open reader did not follow dark theme');
+    Require(Reader.ThemeIndex=ReaderTheme,'Dark catalogue changed the reading theme');
     Require((Configuration.pnCA.Color=Background) and (Configuration.pnDefaultFontColor.Font.Color=TextColour),
       'Theme switch overwrote user colour previews');
     Configuration.SaveSettings;
     Require((Settings.AuthorColor=Background) and (Settings.FontColor=TextColour),'Saving dark settings corrupts light colours');
+    ThemeStart:=GetTickCount64;
     ThemeButton.OnClick(ThemeButton); Application.ProcessMessages;
+    Writeln('TRACE catalogue light switch ms=',GetTickCount64-ThemeStart);
     Require(not Settings.DarkTheme and not MHLThemeDark,'Light theme was not restored');
-    Require(Reader.ThemeIndex=1,'Open reader did not return to paper');
+    Require(Reader.ThemeIndex=ReaderTheme,'Light catalogue changed the reading theme');
     Require((Configuration.pnCA.Color=Background) and (Configuration.pnDefaultFontColor.Font.Color=TextColour),
       'Returning to light theme overwrote user colour previews');
     Settings.WindowsDarkThemeOfferDismissed:=False;
@@ -2657,10 +2768,10 @@ begin
     frmMain.UpdateWindowsThemeOffer(False); frmMain.UpdateWindowsThemeOffer(True);
     Require(TPanel(frmMain.FindComponent('pnWindowsThemeOffer')).Visible,'A new Windows dark-theme cycle is not offered');
     TButton(frmMain.FindComponent('btnApplyWindowsTheme')).Click; Application.ProcessMessages;
-    Require(Settings.DarkTheme and (Reader.ThemeIndex=4),'Windows suggestion does not apply app/reader theme');
+    Require(Settings.DarkTheme and (Reader.ThemeIndex=ReaderTheme),'Windows suggestion changed the wrong theme');
     ThemeButton.OnClick(ThemeButton); Application.ProcessMessages;
-    Writeln('PASS Windows dark-theme suggestion, dismissal and reader synchronization without changing Windows');
-    Writeln('PASS app theme switch, reader synchronization, preserved colour settings, explicit read menus and resizable language/type'); Flush(Output);
+    Writeln('PASS Windows dark-theme suggestion, dismissal without changing the Reader or Windows');
+    Writeln('PASS app theme switch, independent reader theme, preserved colour settings, explicit read menus and resizable language/type'); Flush(Output);
     if ParamStr(2)='visual' then
     begin
       Reader.Close; Settings.WindowsDarkThemeOfferDismissed:=False;
@@ -3707,15 +3818,8 @@ begin
       end;
     finally SetMHLTheme(OldTheme); Dialog.Hide; end;
     Writeln('PASS source text reflows and wheel reaches the report in short windows at both themes and 96/144/192 DPI');
-    Require(not Dialog.DuplicatesRequested,'Source window starts with a duplicate action pending');
-    var DuplicateCatalog:=Settings.ExpandCollectionFileName(VarToStr(Target.GetProperty(PROP_DATAFILE)));
-    var DuplicateHash:=THashSHA2.GetHashStringFromFile(DuplicateCatalog);
-    FeedbackButton(Dialog,'Объединить повторы книг').Click;
-    Require(Dialog.DuplicatesRequested and (Dialog.ModalResult=mrOk),
-      'Source window cannot hand off to the duplicate review');
-    Require(THashSHA2.GetHashStringFromFile(DuplicateCatalog)=DuplicateHash,
-      'Opening duplicate review from sources modified the catalog');
-    Writeln('PASS duplicate review is available beside series merging and navigation does not change the catalog');
+    Require(not Assigned(Dialog.FindComponent('btnBookDuplicates')),
+      'Source window still duplicates the collection menu command');
   finally Dialog.Free; end;
   Writeln('PASS all sources participate without multiselect; independent series review shows zero result; source labels/buttons fit 100/150/200 percent and short windows scroll');
   if ParamStr(1)='catalog-sources-ui' then
@@ -5860,6 +5964,12 @@ begin
       if ParamStr(1) = 'update-theme' then begin TestUpdateNotesTheme; Halt(0); end;
       if ParamStr(1) = 'fbd-editor-save' then begin TestFBDEditorSave; Halt(0); end;
       if ParamStr(1) = 'packing-fbd' then begin TestPackingFbd; Halt(0); end;
+      if ParamStr(1) = 'packing-inpx-result-child' then
+      begin
+        TestPackedInpxResultChild;
+        FreeAndNil(DMUser); FreeAndNil(frmSplash);
+        Halt(0);
+      end;
       if ParamStr(1) = 'packing-menu-fixture' then begin TestPackingReal(True); Halt(0); end;
       if ParamStr(1) = 'packing-menu-verify' then begin VerifyPackingMenu; Halt(0); end;
       if ParamStr(1) = 'series-stream' then begin TestSeriesReadStream; Halt(0); end;
@@ -5896,6 +6006,13 @@ begin
       Two := SystemDB.GetCollection(TwoID);
       FirstBook := AddBook(One, 'Alpha uk', 'Alpha', 'uk', 'Alpha series', 'prose_contemporary');
       LastBook := AddBook(One, 'Alpha ru', 'Alpha', 'ru', 'Alpha series', 'prose_contemporary');
+      if ParamStr(1)='book-information' then
+      begin
+        var LocalBook: TBookRecord;
+        One.GetBookRecord(CreateBookKey(LastBook,OneID),LocalBook,True);
+        LocalBook.LibID:=NewLocalBookID;
+        One.UpdateBook(LocalBook);
+      end;
       One.AddBookToGroup(CreateBookKey(FirstBook, OneID), FAVORITES_GROUP_ID);
       One.AddBookToGroup(CreateBookKey(LastBook, OneID), FAVORITES_GROUP_ID);
       AddBook(One, 'Alpha extra uk', 'Alpha', 'uk', '', 'prose_contemporary');
@@ -5984,12 +6101,13 @@ begin
       else if ParamStr(1) = 'queue-load-zero' then PrepareQueuePersistenceStartup('zero');
       if ParamStr(1) = 'search-startup-layout' then PrepareSearchStartupLayout;
       Trace('main form');
+      if ParamStr(1) = 'catalogue-formats' then Settings.WindowState := Ord(wsNormal);
       if ParamStr(1) = 'feedback22' then PrepareFeedback22Scripts;
       if ParamStr(1).StartsWith('startup-deferred') then TfrmMain.DeferInitialCollection := True;
       if ParamStr(1) = 'startup-deferred-fallback' then Settings.ActiveCollection := 999999;
-      Application.CreateForm(TfrmMain, frmMain);
       if ParamStr(1) = 'startup-deferred-close' then
       begin TestDeferredStartupEarlyClose; Halt(0); end;
+      Application.CreateForm(TfrmMain, frmMain);
       if ParamStr(1).StartsWith('startup-deferred') then CompleteDeferredStartup;
       if ParamStr(1) = 'search-startup-layout' then TestSearchStartupLayout;
       TestHeaderMenuTags;
@@ -6056,8 +6174,10 @@ begin
       else if ParamStr(1) = 'reader-session-context' then TestReaderSessionContext
       else if ParamStr(1) = 'reader-session-process' then TestReaderSessionProcess
       else if ParamStr(1) = 'sqlite-mapping' then TestSQLiteMapping
-      else if ParamStr(1) = 'reader-open-choice' then TestReaderOpenChoice
-      else if ParamStr(1) = 'reader-host-session' then TestReaderHostSession
+      else if ParamStr(1) = 'reader-open-choice' then
+      begin TestEpubLineBreakRepair; TestReaderOpenChoice; TestExternalEpubPrompt(One); end
+      else if ParamStr(1) = 'reader-host-session' then
+      begin TestReaderCloseDuringWork; TestReaderHostSession; TestStandaloneNotes; TestReaderPreparationClose; end
       else if ParamStr(1) = 'book-deletion' then TestBookDeletionSafety
       else if ParamStr(1) = 'book-deletion-lifecycle' then TestBookDeletionSafety(bdsLifecycle)
       else if ParamStr(1) = 'flibrary-deletion' then TestBookDeletionSafety(bdsFLibrary)
@@ -6140,7 +6260,8 @@ begin
       else if ParamStr(1) = 'native-folder-picker' then TestNativeFolderPicker
       else if ParamStr(1) = 'feedback22' then TestFeedback22(One, OneID)
       else if ParamStr(1) = 'feedback21' then TestFeedback21
-      else if ParamStr(1) = 'catalogue-description' then TestCatalogueDescription(One,OneID)
+      else if ParamStr(1) = 'catalogue-description' then
+      begin TestCatalogueDescription(One,OneID); TestFB2DescriptionPriority(One,OneID); end
       else if ParamStr(1) = 'feedback20-main' then
         TestFeedback20(One,Two,OneID,TwoID)
       else if ParamStr(1) = 'compact-search-filters' then TestCompactSearchFilters

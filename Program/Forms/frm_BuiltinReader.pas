@@ -2,7 +2,7 @@
 
 interface
 
-uses Winapi.Windows, Winapi.Messages, System.SysUtils, System.Classes, System.Types,
+uses Winapi.Windows, Winapi.Messages, System.SysUtils, System.Classes, System.Types, System.UITypes,
   System.Generics.Collections, Vcl.Forms, Vcl.Controls, Vcl.StdCtrls,
   Vcl.ExtCtrls, Vcl.ComCtrls, Vcl.Graphics, Vcl.Menus, unit_MHLOperationStatus, unit_ReaderDocument, unit_ReaderPDF,
   unit_ReaderBookSkin, unit_ReaderRaster, unit_ReaderPDFAsync, unit_ReaderFonts, unit_ReaderFontDownloads, unit_ReaderFontFallback, unit_ReaderAnnotations, unit_ReaderPageSelection;
@@ -12,6 +12,9 @@ type
   TReaderPageLayout = (rplSingle, rplDouble, rplAutomatic, rplContinuous);
   TReaderPageTurn = (rptSpread, rptSliding);
   TReaderPageAppearance = (rpaFlat, rpaBook);
+  TReaderNavigation = (rnPrevious, rnNext, rnNextAlternate, rnScrollUp, rnScrollDown,
+    rnScreenUp, rnScreenDown, rnFirst, rnLast);
+  TReaderNavigationKeys = array[TReaderNavigation] of Word;
   TReaderPDFPageView = record
     Page: Integer;
     Size: TPoint;
@@ -41,6 +44,9 @@ type
   private FFileName: string; FRasterEdge: Integer; FTextEncoding: TReaderTextEncoding;
   protected procedure Execute; override;
   public
+    {$IFDEF MHL_SQL_PROFILE}
+    class var BeforeLoadForProfile: TProc;
+    {$ENDIF}
     Document: TReaderDocument;
     Pages: TReaderPDF;
     Error, RequiredComponent: string;
@@ -52,6 +58,9 @@ type
   private FReader: TReaderPDF; FRasterEdge, FTargetWidth: Integer;
   protected procedure Execute; override;
   public
+    {$IFDEF MHL_SQL_PROFILE}
+    class var BeforePageForProfile: TProc;
+    {$ENDIF}
     Index: Integer;
     Navigated, Prefetch: Boolean;
     Error: string;
@@ -67,11 +76,12 @@ type
     FStatus, FPercentLabel, FChapterPath: TLabel;
     FSearch: TEdit;
     FThemes: TComboBox;
-    FFitButton: TButton;
+    FFitButton, FOriginalRasterButton: TButton;
     FInterfaceReturn: TButton;
     FEdgeTimer: TTimer;
     FShowInterfaceItem: TMenuItem;
-    FOriginalRasterItem: TMenuItem;
+    FOriginalRasterItem, FNavigationKeysItem, FFullScreenItem: TMenuItem;
+    FNavigationKeys: TReaderNavigationKeys;
     FOriginalRasterScale: Boolean;
     FInterfaceMenu: TMainMenu;
     FInterfaceSearch: Boolean;
@@ -122,6 +132,7 @@ type
     FPageLayout: TReaderPageLayout;
     FScrollTimer: TTimer;
     FScrollOffset, FScrollTarget, FScrollTileHeight, FScrollVelocity: Integer;
+    FScrollByScreen: Boolean;
     FRasterStripSize: TPoint;
     FScrollBackOffset, FScrollRestore: Integer;
     FPageTurn: TReaderPageTurn;
@@ -154,6 +165,7 @@ type
     FQualityAttemptPage, FQualityAttemptEdge, FQualityAttemptWidth: Integer;
     FPageTimer: TTimer;
     FPageStatus: TMHLOperationStatus;
+    FDeferredCloseResult: TModalResult;
     FPages: TList<Integer>;
     FPage, FNext, FLength, FFontSize, FZoom, FWheel: Integer;
     FNight, FFullScreen, FInterfaceHidden, FReady, FClosing, FLoadFinished, FReadingMoved, FWheelControl: Boolean;
@@ -189,7 +201,9 @@ type
     FPDFRects: TArray<TRectF>;
     FImageWidth, FImageHeight, FIllustrationHeightPercent: Integer;
     FOnProgress: TProc<Integer>;
+    FOnOpenNote: TProc<TReaderAnnotation>;
     FRequestedNote: TReaderAnnotation;
+    FStartPosition: Integer;
     FBookmarks: TPopupMenu;
     procedure ReloadBookmarkMarkers;
     function BookmarkMarkerBounds: TRect;
@@ -204,6 +218,7 @@ type
     procedure PrefetchNextPage;
     function DesiredRasterEdge: Integer;
     function DesiredRasterWidth: Integer;
+    function RasterFitsScrollWidth: Boolean;
     procedure PageLoaded(Sender: TObject);
     procedure ResetInspection;
     function CreateFormattingBuffer: TRichEdit;
@@ -309,6 +324,8 @@ type
     procedure ExportFormatChanged(Sender: TObject);
     procedure QuoteNoteClick(Sender: TObject);
     procedure AddNote(const Quote: string);
+    function ReaderWorkersRunning: Boolean;
+    procedure FinishClose(Sender: TObject);
     procedure CloseReader(Sender: TObject; var Action: TCloseAction);
     procedure RestoreSettings;
     procedure SaveSettings;
@@ -336,7 +353,7 @@ type
     function RasterScrollLimit: Integer;
     function RasterOrigin: TPoint;
     procedure ApplyPageLayout(Value: TReaderPageLayout);
-    procedure ScrollPixels(Pixels: Integer);
+    procedure ScrollPixels(Pixels: Integer; ByScreen: Boolean = False);
     procedure ScrollFrame(Sender: TObject);
     procedure RestorePendingBackwardScroll;
     procedure ResetScroll;
@@ -355,7 +372,7 @@ type
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
     procedure OpenBook(const FileName, BookTitle, Identity, SettingsFile, PDFLibrary: string;
-      const OnProgress: TProc<Integer> = nil);
+      const OnProgress: TProc<Integer> = nil; StartPosition: Integer = -1);
     procedure NextPage;
     procedure PreviousPage;
     procedure ChangeSize(Delta: Integer);
@@ -417,6 +434,7 @@ type
     property NumberChapters: Boolean read FNumberChapters;
     function ChapterTitle(Index: Integer): string;
     function ChapterCount: Integer;
+    procedure ConfigureNavigationKeys(Sender: TObject);
     procedure AddBookmark(const CustomTitle: string = '');
     procedure GoToBookmark(Index: Integer);
     function BookText: string;
@@ -428,6 +446,7 @@ type
     property Ready: Boolean read FReady;
     property RequiredComponent: string read FRequiredComponent;
     property RequestedNote: TReaderAnnotation read FRequestedNote;
+    property OnOpenNote: TProc<TReaderAnnotation> read FOnOpenNote write FOnOpenNote;
     property LoadFinished: Boolean read FLoadFinished;
     property ReaderStatus: TLabel read FStatus;
     property ReadingSurface: TReaderSurface read FSurface;
@@ -534,6 +553,142 @@ implementation
 
 uses Winapi.ActiveX, Winapi.RichEdit, Winapi.CommDlg, Winapi.CommCtrl, Winapi.ShellAPI, System.Math, System.DateUtils, System.IOUtils, System.RegularExpressions,
   System.IniFiles, System.Hash, System.NetEncoding, Vcl.Dialogs, Vcl.Clipbrd, unit_ReaderRichEdit, unit_ReaderLookup, unit_MHLTheme, unit_AtomicIniFile, Vcl.Themes, unit_MHLExternalTools, unit_ReaderPalette, unit_Diagnostics, unit_ReaderFormats;
+
+const
+  DefaultReaderNavigationKeys: TReaderNavigationKeys =
+    (VK_LEFT,VK_RIGHT,VK_SPACE,VK_UP,VK_DOWN,VK_PRIOR,VK_NEXT,VK_HOME,VK_END);
+  ReaderNavigationNames: array[TReaderNavigation] of string =
+    ('Назад', 'Вперёд', 'Вперёд (доп. клавиша)', 'Прокрутить вверх', 'Прокрутить вниз',
+     'На экран вверх', 'На экран вниз', 'К началу книги', 'К концу книги');
+  ReaderNavigationFields: array[TReaderNavigation] of string =
+    ('Previous','Next','NextAlternate','ScrollUp','ScrollDown','ScreenUp','ScreenDown','First','Last');
+  ReaderKeyNames: array[TReaderNavigation] of string =
+    ('←','→','Пробел','↑','↓','Page Up','Page Down','Home','End');
+  ReaderKeysSection = 'ReadingKeys';
+
+type
+  TReaderNavigationDialog = class(TForm)
+  private
+    FChoices: array[TReaderNavigation] of TComboBox;
+    FStatus: TLabel;
+    procedure SetKeys(const Keys: TReaderNavigationKeys);
+    procedure ResetClick(Sender: TObject);
+    procedure ApplyClick(Sender: TObject);
+  public
+    Keys: TReaderNavigationKeys;
+    constructor CreateFor(Reader: TfrmBuiltinReader);
+  end;
+
+function ValidReaderNavigationKeys(const Keys: TReaderNavigationKeys): Boolean;
+var Action, Earlier: TReaderNavigation; Key: Word;
+begin
+  for Action:=Low(Action) to High(Action) do
+  begin
+    Key:=Keys[Action];
+    if Key=0 then Continue;
+    if not (Key in [VK_LEFT,VK_RIGHT,VK_SPACE,VK_UP,VK_DOWN,VK_PRIOR,VK_NEXT,VK_HOME,VK_END,
+      Ord('0')..Ord('9'),Ord('A')..Ord('Z')]) then Exit(False);
+    for Earlier:=Low(Earlier) to High(Earlier) do
+    begin
+      if Earlier=Action then Break;
+      if Keys[Earlier]=Key then Exit(False);
+    end;
+  end;
+  Result:=True;
+end;
+
+constructor TReaderNavigationDialog.CreateFor(Reader: TfrmBuiltinReader);
+var Action, Option: TReaderNavigation; LabelControl: TLabel; Combo: TComboBox;
+    Button: TButton; Y, Key: Integer;
+
+  function AddButton(const Text: string; Left, Width: Integer): TButton;
+  begin
+    Result:=TReaderPaletteButton.Create(Self);
+    Result.Parent:=Self;
+    Result.SetBounds(Left,362,Width,28);
+    Result.Caption:=Text;
+  end;
+
+begin
+  inherited CreateNew(Reader);
+  Name:='ReaderNavigationDialog';
+  Caption:='Клавиши чтения';
+  PopupMode:=pmExplicit;
+  PopupParent:=Reader;
+  Position:=poOwnerFormCenter;
+  BorderStyle:=bsDialog;
+  Font.Assign(Reader.Font);
+  ClientWidth:=436;
+  ClientHeight:=404;
+
+  LabelControl:=TLabel.Create(Self);
+  LabelControl.Parent:=Self;
+  LabelControl.AutoSize:=False;
+  LabelControl.WordWrap:=True;
+  LabelControl.SetBounds(16,12,404,40);
+  LabelControl.Caption:='В режиме перелистывания команды прокрутки тоже листают страницы.';
+
+  for Action:=Low(Action) to High(Action) do
+  begin
+    Y:=54+30*Ord(Action);
+    Combo:=TReaderPaletteCombo.Create(Self);
+    Combo.Name:='ReaderKey'+ReaderNavigationFields[Action];
+    Combo.Parent:=Self;
+    Combo.SetBounds(242,Y,178,26);
+    Combo.Items.AddObject('Без клавиши',nil);
+    for Option:=Low(Option) to High(Option) do
+      Combo.Items.AddObject(ReaderKeyNames[Option],TObject(NativeInt(DefaultReaderNavigationKeys[Option])));
+    for Key:=Ord('0') to Ord('9') do Combo.Items.AddObject(Char(Key),TObject(NativeInt(Key)));
+    for Key:=Ord('A') to Ord('Z') do Combo.Items.AddObject(Char(Key),TObject(NativeInt(Key)));
+    FChoices[Action]:=Combo;
+
+    LabelControl:=TLabel.Create(Self);
+    LabelControl.Parent:=Self;
+    LabelControl.SetBounds(16,Y+4,218,20);
+    LabelControl.Caption:=ReaderNavigationNames[Action];
+    LabelControl.FocusControl:=Combo;
+  end;
+
+  FStatus:=TLabel.Create(Self);
+  FStatus.Parent:=Self;
+  FStatus.SetBounds(16,330,404,22);
+  Button:=AddButton('По умолчанию',16,136);
+  Button.Name:='ReaderKeysReset';
+  Button.OnClick:=ResetClick;
+  Button:=AddButton('Сохранить',220,96);
+  Button.Name:='ReaderKeysSave';
+  Button.Default:=True;
+  Button.OnClick:=ApplyClick;
+  Button:=AddButton('Отмена',324,96);
+  Button.Name:='ReaderKeysCancel';
+  Button.Cancel:=True;
+  Button.ModalResult:=mrCancel;
+
+  SetKeys(Reader.FNavigationKeys);
+  Reader.ApplyWindowPalette(Self);
+end;
+
+procedure TReaderNavigationDialog.SetKeys(const Keys: TReaderNavigationKeys);
+var Action: TReaderNavigation;
+begin
+  for Action:=Low(Action) to High(Action) do
+    FChoices[Action].ItemIndex:=FChoices[Action].Items.IndexOfObject(TObject(NativeInt(Keys[Action])));
+  FStatus.Caption:='';
+end;
+
+procedure TReaderNavigationDialog.ResetClick(Sender: TObject);
+begin
+  SetKeys(DefaultReaderNavigationKeys);
+end;
+
+procedure TReaderNavigationDialog.ApplyClick(Sender: TObject);
+var Action: TReaderNavigation;
+begin
+  for Action:=Low(Action) to High(Action) do
+    Keys[Action]:=Word(NativeInt(FChoices[Action].Items.Objects[FChoices[Action].ItemIndex]));
+  if ValidReaderNavigationKeys(Keys) then ModalResult:=mrOk
+  else FStatus.Caption:='Назначьте разные клавиши для разных команд.';
+end;
 
 type
   TReaderChapterSelector = class(TReaderPaletteCombo)
@@ -795,7 +950,7 @@ begin
 end;
 
 destructor TReaderLoadThread.Destroy;
-begin Pages.Free; Document.Free; inherited; end;
+begin inherited; Pages.Free; Document.Free; end;
 
 procedure TReaderLoadThread.Execute;
 var HR: HRESULT;
@@ -803,6 +958,10 @@ begin
   HR:=CoInitializeEx(nil,COINIT_APARTMENTTHREADED);
   try
     try
+      {$IFDEF MHL_SQL_PROFILE}
+      if Assigned(BeforeLoadForProfile) then BeforeLoadForProfile();
+      {$ENDIF}
+      if Terminated then Exit;
       if IsRasterReaderFormat(ExtractFileExt(FFileName)) then Pages:=TReaderRaster.Create(FFileName,FRasterEdge)
       else
       begin
@@ -827,7 +986,12 @@ var HR: HRESULT;
 begin
   HR:=CoInitializeEx(nil,COINIT_APARTMENTTHREADED);
   try
-    try FReader.PreparePage(Index,Prefetch,FRasterEdge,FTargetWidth); except on E: Exception do Error:=E.Message; end;
+    try
+      {$IFDEF MHL_SQL_PROFILE}
+      if Assigned(BeforePageForProfile) then BeforePageForProfile();
+      {$ENDIF}
+      if not Terminated then FReader.PreparePage(Index,Prefetch,FRasterEdge,FTargetWidth);
+    except on E: Exception do Error:=E.Message; end;
   finally if Succeeded(HR) then CoUninitialize; end;
 end;
 
@@ -1179,6 +1343,7 @@ begin
   StyleName:='Windows'; StyleElements:=[];
   if AOwner is TCustomForm then
   begin PopupMode:=pmExplicit; PopupParent:=TCustomForm(AOwner); end;
+  FNavigationKeys:=DefaultReaderNavigationKeys;
   Caption:='HomeLibre — Читалка';
   Icon.LoadFromResourceName(HInstance,'ZZ_HOME_LIBRE_READER_ICON');
   Position:=poScreenCenter; SetBounds(0,0,820,680); FRestoredBounds:=BoundsRect;
@@ -1218,6 +1383,15 @@ begin
   FFitButton.Left:=MaxInt; FFitButton.Width:=72; FFitButton.Caption:='Вписать';
   FFitButton.OnClick:=FitPageClick; FFitButton.Visible:=False;
   FFitButton.Hint:='Вписать страницу в окно'; FFitButton.ShowHint:=True;
+  FOriginalRasterButton:=TReaderPaletteButton.Create(Self);
+  FOriginalRasterButton.Parent:=FButtons;
+  FOriginalRasterButton.Name:='ReaderOriginalRasterButton';
+  FOriginalRasterButton.Caption:='100%'; FOriginalRasterButton.Tag:=52;
+  FOriginalRasterButton.TabStop:=False; FOriginalRasterButton.Visible:=False;
+  FOriginalRasterButton.Hint:='Исходный масштаб изображения'; FOriginalRasterButton.ShowHint:=True;
+  FOriginalRasterButton.OnClick:=OriginalRasterClick;
+  TReaderPaletteButton(FOriginalRasterButton).Toolbar:=True;
+  FToolbarItems.Add(FOriginalRasterButton);
   MakeButton('🔖︎',BookmarkSaveClick,34);
   MakeButton('✎',NotesClick,34);
   MakeButton('Закладки и заметки',NotesManageClick,154);
@@ -1333,6 +1507,11 @@ begin
   MenuItem:=TMenuItem.Create(FCopyMenu); MenuItem.Caption:='Добавить заметку…';
   MenuItem.OnClick:=NotesClick; FCopyMenu.Items.Add(MenuItem);
   FEncodingMenu:=AddTextEncodingMenu(FCopyMenu.Items);
+  FNavigationKeysItem:=TMenuItem.Create(FCopyMenu);
+  FNavigationKeysItem.Name:='ReaderNavigationKeysContext';
+  FNavigationKeysItem.Caption:='Клавиши чтения…';
+  FNavigationKeysItem.OnClick:=ConfigureNavigationKeys;
+  FCopyMenu.Items.Add(FNavigationKeysItem);
   FShowInterfaceItem:=TMenuItem.Create(FCopyMenu);
   FShowInterfaceItem.Name:='ReaderRestoreInterfaceMenu';
   FShowInterfaceItem.Caption:='Показать интерфейс'; FShowInterfaceItem.OnClick:=InterfaceClick;
@@ -1342,6 +1521,10 @@ begin
   FOriginalRasterItem.Caption:='Исходный масштаб изображения (100%)';
   FOriginalRasterItem.OnClick:=OriginalRasterClick; FOriginalRasterItem.Visible:=False;
   FCopyMenu.Items.Insert(1,FOriginalRasterItem);
+  FFullScreenItem:=TMenuItem.Create(FCopyMenu);
+  FFullScreenItem.Name:='ReaderFullScreenMenu';
+  FFullScreenItem.OnClick:=FullScreenClick;
+  FCopyMenu.Items.Insert(2,FFullScreenItem);
   // Start with page keys ready; the contents selector keeps its own keys after a click.
   ActiveControl:=FSurface;
   // This hidden formatting buffer must survive showing, scaling and restyling
@@ -1547,13 +1730,14 @@ begin
 end;
 
 procedure TfrmBuiltinReader.OpenBook(const FileName, BookTitle, Identity, SettingsFile, PDFLibrary: string;
-  const OnProgress: TProc<Integer>);
+  const OnProgress: TProc<Integer>; StartPosition: Integer);
 var Stream: TFileStream; Chapter: TPDFChapter;
 begin
   FRequiredComponent := '';
   FMissingFonts.Clear; FFontOfferDeclined:=False; FFontsDownloading:=False; FFontOffer.Visible:=False;
   FFileName:=FileName; FIdentity:=Copy(THashSHA2.GetHashString(Identity),1,40);
   FSettingsFile:=SettingsFile; FOnProgress:=OnProgress; FBookTitle:=BookTitle;
+  FStartPosition:=StartPosition;
   FTextEncoding:=rteAutomatic;
   FEncodingMenu.Visible:=ReaderSupportsTextEncoding(FFileName);
   Caption:='HomeLibre — '+BookTitle+' — Читалка';
@@ -1580,7 +1764,7 @@ begin
   else
   begin
     FStatus.Caption:='Открытие книги…';
-    FLoadStatus:=TMHLOperationStatus.Create('Подготовка текста и изображений книги…');
+    FLoadStatus:=TMHLOperationStatus.Create('Подготовка текста и изображений книги…',False,Self);
     StartTextLoad(FTextEncoding);
   end;
 end;
@@ -1695,10 +1879,15 @@ begin
   if TextPageCount=2 then Result:=Min(Result,3200);
 end;
 
+function TfrmBuiltinReader.RasterFitsScrollWidth: Boolean;
+begin
+  Result:=(FPDF is TReaderRaster) and TReaderRaster(FPDF).FitsContinuousWidth;
+end;
+
 function TfrmBuiltinReader.DesiredRasterWidth: Integer;
 begin
   Result:=0;
-  if ContinuousReading and (FPDF is TReaderRaster) and TReaderRaster(FPDF).FitsContinuousWidth then
+  if ContinuousReading and RasterFitsScrollWidth then
     if FOriginalRasterScale then Result:=-1
     else Result:=EnsureRange(MulDiv(FSurface.ClientWidth-MulDiv(24,CurrentPPI,96),FZoom,100),1,6000);
 end;
@@ -1757,7 +1946,7 @@ begin
     RenderPage; RestorePendingBackwardScroll; PrefetchNextPage; Exit;
   end;
   FStatus.Caption:=Format('Открытие страницы %d из %d…',[FRequestedPage+1,FPDF.PageCount]);
-  if not Assigned(FPageStatus) then FPageStatus:=TMHLOperationStatus.Create('Открытие страницы книги…');
+  if not Assigned(FPageStatus) then FPageStatus:=TMHLOperationStatus.Create('Открытие страницы книги…',False,Self);
   if Assigned(FPageWorker) then Exit;
   ResetInspection; FSearchStatus:='';
   FPageWorker:=TReaderPageThread.Create(FPDF,FRequestedPage,DesiredRasterEdge,DesiredRasterWidth);
@@ -1982,12 +2171,15 @@ begin
   FScrollOffset:=0;
   FScrollTarget:=0;
   FScrollVelocity:=0;
+  FScrollByScreen:=False;
   FScrollBackOffset:=0; FScrollRestore:=0;
 end;
 
-procedure TfrmBuiltinReader.ScrollPixels(Pixels: Integer);
+procedure TfrmBuiltinReader.ScrollPixels(Pixels: Integer; ByScreen: Boolean);
 begin
   if (Pixels=0) or (FScrollTileHeight<=0) or FTextSelecting or FPDFSelecting then Exit;
+  if ByScreen and not FScrollByScreen then FScrollTarget:=FScrollOffset;
+  FScrollByScreen:=ByScreen;
   if (Pixels<0) and (FPage>0) and Assigned(FPDF) and FPDF.AsyncPages and
     not Assigned(FPageWorker) and (FRequestedPage=FPage) and not FPDF.IsPageCached(FPage-1) then
   begin
@@ -2006,16 +2198,18 @@ begin
   end
   else FScrollTarget:=EnsureRange(FScrollTarget+Pixels,-2*FScrollTileHeight,3*FScrollTileHeight);
   FScrollTimer.Enabled:=FScrollTarget<>FScrollOffset;
+  if ByScreen and FScrollTimer.Enabled then ScrollFrame(nil);
 end;
 
 procedure TfrmBuiltinReader.ScrollFrame(Sender: TObject);
 var Difference, Step, Remainder, Overshoot, PreviousPosition, Limit, Direction: Integer;
-  HasNext, CanAdvance: Boolean;
+  HasNext, CanAdvance, ByScreen: Boolean;
 begin
   if not FReady or FClosing or not ContinuousReading then
   begin ResetScroll; Exit; end;
   if FTextSelecting or FPDFSelecting then
-  begin FScrollTarget:=FScrollOffset; FScrollVelocity:=0; FScrollTimer.Enabled:=False; Exit; end;
+  begin FScrollTarget:=FScrollOffset; FScrollVelocity:=0; FScrollByScreen:=False; FScrollTimer.Enabled:=False; Exit; end;
+  ByScreen:=FScrollByScreen;
   PreviousPosition:=CurrentPosition;
   if Assigned(FPDF) then
   begin
@@ -2038,7 +2232,8 @@ begin
   else Difference:=Min(FScrollTarget,Limit)-FScrollOffset;
   Direction:=Sign(Difference);
   if Sign(FScrollVelocity)<>Direction then FScrollVelocity:=0;
-  Step:=Min(EnsureRange(Abs(Difference) div 4,1,Max(1,MulDiv(90,CurrentPPI,96))),
+  if ByScreen then Step:=Abs(Difference)
+  else Step:=Min(EnsureRange(Abs(Difference) div 4,1,Max(1,MulDiv(90,CurrentPPI,96))),
     Abs(FScrollVelocity)+Max(1,MulDiv(6,CurrentPPI,96)));
   if Difference>0 then
   begin
@@ -2083,7 +2278,8 @@ begin
   end;
   FReadingMoved:=FReadingMoved or (PreviousPosition<>CurrentPosition) or (FScrollOffset<>0);
   FScrollTimer.Enabled:=FScrollOffset<>Min(FScrollTarget,Limit);
-  if FScrollTimer.Enabled then FScrollVelocity:=Direction*Step else FScrollVelocity:=0;
+  FScrollByScreen:=ByScreen and ((FScrollOffset<>FScrollTarget) or (FScrollBackOffset<0));
+  if FScrollTimer.Enabled and not ByScreen then FScrollVelocity:=Direction*Step else FScrollVelocity:=0;
   if not FScrollTimer.Enabled and not Assigned(FPDF) then
   begin
     var Chapter:=ChapterIndexAt(VisibleReadingPosition);
@@ -2486,7 +2682,13 @@ begin
   end;
   if TargetWidth<>0 then FFitButton.Hint:='Вписать страницу по ширине'
   else FFitButton.Hint:='Вписать страницу в окно';
-  if not FFitButton.Visible then begin FFitButton.Visible:=True; ArrangeToolbar(nil); end;
+  FOriginalRasterButton.Enabled:=not FOriginalRasterScale;
+  if not FFitButton.Visible or (FOriginalRasterButton.Visible<>(TargetWidth<>0)) then
+  begin
+    FFitButton.Visible:=True;
+    FOriginalRasterButton.Visible:=TargetWidth<>0;
+    ArrangeToolbar(nil);
+  end;
   if FPDFPageHasText and FSelectionEnabled then FSurface.Cursor:=crIBeam else FSurface.Cursor:=crDefault;
   if Count=1 then FStatus.Caption:=Format('%s · Страница %d из %d · Масштаб %d%%',[FPDF.DisplayName,FPage+1,FPDF.PageCount,FZoom])
   else FStatus.Caption:=Format('%s · Страницы %d–%d из %d · Масштаб %d%%',[FPDF.DisplayName,FPage+1,FPage+Count,FPDF.PageCount,FZoom]);
@@ -2933,8 +3135,10 @@ begin
   ResetInspection;
   if Assigned(FPDF) then
   begin
+    NewSize:=EnsureRange(FZoom+Delta*10,50,300);
+    if (NewSize=FZoom) and not FOriginalRasterScale then Exit;
     FOriginalRasterScale:=False;
-    NewSize:=EnsureRange(FZoom+Delta*10,50,300); if NewSize=FZoom then Exit; FZoom:=NewSize;
+    FZoom:=NewSize;
   end
   else
   begin NewSize:=EnsureRange(FFontSize+Delta,8,48); if NewSize=FFontSize then Exit; FFontSize:=NewSize; FTypographyDirty:=True; end;
@@ -2945,6 +3149,7 @@ procedure TfrmBuiltinReader.ResizePage(Sender: TObject);
 begin FResizeTimer.Enabled:=False; ResetInspection; InvalidateLayout; end;
 procedure TfrmBuiltinReader.ScheduleResize(Sender: TObject);
 begin
+  if FClosing then Exit;
   ArrangeToolbar(nil);
   if Assigned(FResizeTimer) then
   begin
@@ -2964,6 +3169,7 @@ end;
 procedure TfrmBuiltinReader.OriginalRasterClick(Sender: TObject);
 begin
   if not FReady or (DesiredRasterWidth=0) then Exit;
+  if FOriginalRasterScale and (Sender=FOriginalRasterButton) then Exit;
   FOriginalRasterScale:=not FOriginalRasterScale;
   InvalidateLayout;
 end;
@@ -3279,8 +3485,11 @@ end;
 procedure TfrmBuiltinReader.CopyMenuPopup(Sender: TObject);
 begin
   FShowInterfaceItem.Visible:=FInterfaceHidden;
+  FNavigationKeysItem.Visible:=not Assigned(Menu) and not Assigned(FInterfaceMenu);
   FOriginalRasterItem.Visible:=DesiredRasterWidth<>0;
   FOriginalRasterItem.Checked:=FOriginalRasterScale;
+  if FFullScreen then FFullScreenItem.Caption:='Выйти из полноэкранного режима'
+  else FFullScreenItem.Caption:='На весь экран';
   if FEncodingMenu.Visible then EncodingMenuOpened(FEncodingMenu);
   FCopyItem.Visible:=True; FCopyItem.Enabled:=SelectedText<>'';
   FDictionaryItem.Enabled:=ReaderLookupText(SelectedText)<>'';
@@ -3869,6 +4078,7 @@ begin
   Scope:=TPanel.Create(Self); Scope.Parent:=Self; Scope.Align:=alTop; Scope.Top:=Row.Height; Scope.Height:=36; Scope.BevelOuter:=bvNone;
   FBooks:=TReaderPaletteCombo.Create(Self); FBooks.Name:='NotesBooks'; FBooks.Parent:=Scope; FBooks.SetBounds(8,4,ClientWidth-270,26);
   FBooks.Anchors:=[akLeft,akTop,akRight]; FBooks.Style:=csDropDownList; FBooks.OnChange:=BooksChanged;
+  FBooks.ShowHint:=True; FBooks.Hint:='Выберите книгу или «Все книги».';
   FShowNotes:=TReaderPaletteCheckBox.Create(Self); FShowNotes.Name:='NotesShowNotes'; FShowNotes.Parent:=Scope;
   FShowNotes.SetBounds(ClientWidth-250,4,112,26); FShowNotes.Anchors:=[akTop,akRight];
   FShowNotes.Caption:='Заметки'; FShowNotes.Checked:=True; FShowNotes.OnClick:=KindChanged;
@@ -3891,7 +4101,7 @@ begin
   FResultStatus.SetBounds(8,4,ClientWidth-272,54); FResultStatus.AutoSize:=False; FResultStatus.WordWrap:=True;
   FResultStatus.Anchors:=[akLeft,akTop,akRight];
   Button:=TReaderPaletteButton.Create(Self); Button.Parent:=Footer; Button.SetBounds(ClientWidth-248,6,132,30);
-  Button.Anchors:=[akRight,akBottom]; Button.Caption:='Открыть книгу'; Button.OnClick:=OpenSelected;
+  Button.Anchors:=[akRight,akBottom]; Button.Caption:='К месту в книге'; Button.OnClick:=OpenSelected;
   Button:=TReaderPaletteButton.Create(Self); Button.Parent:=Footer; Button.SetBounds(ClientWidth-108,6,100,30);
   Button.Anchors:=[akRight,akBottom]; Button.Caption:='Закрыть'; Button.ModalResult:=mrCancel; Button.Cancel:=True;
   Body:=TPanel.Create(Self); Body.Parent:=Self; Body.Align:=alClient; Body.BevelOuter:=bvNone;
@@ -4517,7 +4727,14 @@ begin
   try
     Dialog.ShowModal; FRequestedNote:=Dialog.FRequestedNote;
   finally Dialog.Free; end;
-  if FRequestedNote.ID<>'' then ModalResult:=mrOk;
+  if FRequestedNote.ID='' then Exit;
+  if Assigned(FOnOpenNote) then
+  begin
+    var Note:=FRequestedNote;
+    FRequestedNote:=Default(TReaderAnnotation);
+    FOnOpenNote(Note);
+  end
+  else ModalResult:=mrOk;
 end;
 
 function TfrmBuiltinReader.AnnotationItems(AllBooks: Boolean): TArray<TReaderAnnotation>;
@@ -5012,19 +5229,24 @@ var Choice: TComboBox; Item: TComponent; Pages: Boolean;
 begin
   Choice:=TComboBox(Sender);
   Pages:=Choice.ItemIndex<>Ord(rplContinuous);
-  for var Name in TArray<string>.Create('cbReaderPageTurn','cbReaderPageAppearance','ReaderShowFootnotes') do
+  for var Name in TArray<string>.Create('cbReaderPageTurn','cbReaderPageAppearance','ReaderShowFootnotes',
+    'ReaderInspectionPercent','ReaderInspectionHold') do
   begin
     Item:=Choice.Owner.FindComponent(Name);
     if Item is TControl then TControl(Item).Enabled:=Pages;
   end;
+  Item:=Choice.Owner.FindComponent('ReaderRasterScale');
+  if Item is TControl then TControl(Item).Enabled:=not Pages;
 end;
 
 procedure TfrmBuiltinReader.StyleClick(Sender: TObject);
 var Dialog: TForm;
-  FontBox, SizeBox, SpacingBox, MarginBox, WidthBox, ZoomBox, InitialBox, LayoutBox, TurnBox, AppearanceBox: TReaderPaletteCombo;
+  FontBox, SizeBox, SpacingBox, MarginBox, WidthBox, ZoomBox, InitialBox, LayoutBox, TurnBox, AppearanceBox,
+    RasterScaleBox: TReaderPaletteCombo;
   FontNames: TStringList; LabelText: TLabel; Button: TButton; WidthText: string;
   FormattingBox, NotesBox, InitialCheck, HoldCheck, SelectionCheck: TCheckBox;
   ChapterTicksBox, FullScreenProgressBox: TCheckBox;
+  ExtraRow, ReadingZoom: Integer;
   function NumericChoices(First, Last, Step: Integer): string;
   var Value: Integer;
   begin
@@ -5087,43 +5309,71 @@ begin
       Dialog.Name:='ReaderAppearanceDialog';
       Dialog.PopupMode:=pmExplicit; Dialog.PopupParent:=Self;
       Dialog.Caption:='Вид страниц'; Dialog.BorderStyle:=bsDialog; Dialog.Position:=poOwnerFormCenter;
-      Dialog.ClientWidth:=350; Dialog.ClientHeight:=326; Dialog.Font.Assign(Font);
-      AddLabel('Приближение, %',20); ZoomBox:=Choice(16);
-      ZoomBox.SetDeferredChoices(NumericChoices(120,300,10),IntToStr(FInspectionPercent));
-      AddLabel('Режим чтения',58); LayoutBox:=Choice(54); LayoutBox.Name:='cbReaderPageLayout';
+      ExtraRow:=0; RasterScaleBox:=nil;
+      if RasterFitsScrollWidth then ExtraRow:=38;
+      Dialog.ClientWidth:=350; Dialog.ClientHeight:=338+ExtraRow; Dialog.Font.Assign(Font);
+      AddLabel('Режим чтения',20); LayoutBox:=Choice(16); LayoutBox.Name:='cbReaderPageLayout';
       LayoutBox.Items.Text:='Одна страница'+#13+'Две страницы'+#13+'Автоматически по ширине'+#13+'Плавная прокрутка';
       LayoutBox.ItemIndex:=Ord(FPageLayout);
-      AddLabel('Перелистывать',96); TurnBox:=Choice(92); TurnBox.Name:='cbReaderPageTurn';
+      if ExtraRow>0 then
+      begin
+        AddLabel('Масштаб изображений',54);
+        LabelText.AutoSize:=False; LabelText.WordWrap:=True; LabelText.SetBounds(16,54,100,28);
+        RasterScaleBox:=Choice(54); RasterScaleBox.Name:='ReaderRasterScale';
+        RasterScaleBox.Items.Text:='По ширине окна'+#13+'Исходный (100%)';
+        ReadingZoom:=FZoom; if FInspect then ReadingZoom:=FInspectZoom;
+        if ReadingZoom<>100 then RasterScaleBox.Items.Add(Format('%d%% ширины окна',[ReadingZoom]));
+        if FOriginalRasterScale then RasterScaleBox.ItemIndex:=1
+        else if ReadingZoom<>100 then RasterScaleBox.ItemIndex:=2 else RasterScaleBox.ItemIndex:=0;
+      end;
+      AddLabel('Временный зум',58+ExtraRow); ZoomBox:=Choice(54+ExtraRow);
+      ZoomBox.Name:='ReaderInspectionPercent'; ZoomBox.ShowHint:=True;
+      ZoomBox.Hint:='Приближение изображения мышью в постраничном режиме, в процентах от текущего масштаба.';
+      ZoomBox.SetDeferredChoices(NumericChoices(120,300,10),IntToStr(FInspectionPercent));
+      AddLabel('Перелистывать',96+ExtraRow); TurnBox:=Choice(92+ExtraRow); TurnBox.Name:='cbReaderPageTurn';
       TurnBox.Items.Text:='Парами страниц'+#13+'Со сдвигом на одну'; TurnBox.ItemIndex:=Ord(FPageTurn);
-      AddLabel('Стиль страниц',134); AppearanceBox:=Choice(130); AppearanceBox.Name:='cbReaderPageAppearance';
+      AddLabel('Стиль страниц',134+ExtraRow); AppearanceBox:=Choice(130+ExtraRow); AppearanceBox.Name:='cbReaderPageAppearance';
       AppearanceBox.Items.Text:='Плоские страницы'+#13+'Объёмная книга'; AppearanceBox.ItemIndex:=Ord(FPageAppearance);
-      LabelText:=TLabel.Create(Dialog); LabelText.Parent:=Dialog; LabelText.AutoSize:=False; LabelText.SetBounds(16,166,318,32);
-      LabelText.WordWrap:=True; LabelText.Caption:='Для сканов и комиксов. На странице с текстом мышь выделяет текст для копирования.';
-      HoldCheck:=TReaderPaletteCheckBox.Create(Dialog); HoldCheck.Parent:=Dialog; HoldCheck.SetBounds(16,202,320,28);
+      LabelText:=TLabel.Create(Dialog); LabelText.Parent:=Dialog; LabelText.AutoSize:=False;
+      LabelText.SetBounds(16,166+ExtraRow,318,44); LabelText.WordWrap:=True;
+      if Assigned(RasterScaleBox) then
+        LabelText.Caption:='Масштаб действует в плавной прокрутке. Временный зум доступен при чтении по страницам.'
+      else LabelText.Caption:='Временный зум доступен при чтении по страницам. На странице с текстом мышь выделяет текст для копирования.';
+      HoldCheck:=TReaderPaletteCheckBox.Create(Dialog); HoldCheck.Parent:=Dialog;
+      HoldCheck.Name:='ReaderInspectionHold'; HoldCheck.SetBounds(16,214+ExtraRow,320,28);
       HoldCheck.Caption:='Приближение при удержании'; HoldCheck.Checked:=FInspectionHold;
       HoldCheck.ShowHint:=True; HoldCheck.Hint:='Отпускание кнопки возвращает прежний масштаб. Без галочки возвращает повторный щелчок.';
-      SelectionCheck:=TReaderPaletteCheckBox.Create(Dialog); SelectionCheck.Parent:=Dialog; SelectionCheck.SetBounds(16,232,320,28);
+      SelectionCheck:=TReaderPaletteCheckBox.Create(Dialog); SelectionCheck.Parent:=Dialog; SelectionCheck.SetBounds(16,244+ExtraRow,320,28);
       SelectionCheck.Caption:='Выделять текст мышью'; SelectionCheck.Checked:=FSelectionEnabled;
-      AddProgressChecks(261); AddThemeColorsButton(288);
-      Button:=TReaderPaletteButton.Create(Dialog); Button.Parent:=Dialog; Button.SetBounds(156,288,86,26); Button.Caption:='Применить'; Button.Default:=True; Button.ModalResult:=mrOk;
-      Button:=TReaderPaletteButton.Create(Dialog); Button.Parent:=Dialog; Button.SetBounds(248,288,86,26); Button.Caption:='Отмена'; Button.Cancel:=True; Button.ModalResult:=mrCancel;
+      AddProgressChecks(273+ExtraRow); AddThemeColorsButton(300+ExtraRow);
+      Button:=TReaderPaletteButton.Create(Dialog); Button.Parent:=Dialog; Button.SetBounds(156,300+ExtraRow,86,26); Button.Caption:='Применить'; Button.Default:=True; Button.ModalResult:=mrOk;
+      Button:=TReaderPaletteButton.Create(Dialog); Button.Parent:=Dialog; Button.SetBounds(248,300+ExtraRow,86,26); Button.Caption:='Отмена'; Button.Cancel:=True; Button.ModalResult:=mrCancel;
       LayoutBox.OnChange:=LayoutChoiceChanged; LayoutChoiceChanged(LayoutBox);
       ApplyWindowPalette(Dialog);
       if Dialog.ShowModal=mrOk then
       begin
         ApplyProgressChecks;
-        SetInspectionPercent(StrToIntDef(ZoomBox.Text,150));
-        SetInspectionHold(HoldCheck.Checked);
+        if ZoomBox.Enabled then
+        begin
+          SetInspectionPercent(StrToIntDef(ZoomBox.Text,150));
+          SetInspectionHold(HoldCheck.Checked);
+        end;
         SetSelectionEnabled(SelectionCheck.Checked);
         SetPageAppearance(TReaderPageAppearance(EnsureRange(AppearanceBox.ItemIndex,0,1)));
         var Layout:=TReaderPageLayout(EnsureRange(LayoutBox.ItemIndex,0,Ord(High(TReaderPageLayout))));
         var Turn:=TReaderPageTurn(EnsureRange(TurnBox.ItemIndex,0,1));
-        if FPageLayout=Layout then SetPageTurn(Turn)
-        else
+        var LayoutChanged:=(FPageLayout<>Layout) or (FPageTurn<>Turn);
+        ApplyPageLayout(Layout);
+        FPageTurn:=Turn;
+        if Assigned(RasterScaleBox) and ContinuousReading then
         begin
-          FPageTurn:=Turn;
-          SetPageLayout(Layout);
+          var OriginalScale:=RasterScaleBox.ItemIndex=1;
+          LayoutChanged:=LayoutChanged or (FOriginalRasterScale<>OriginalScale);
+          FOriginalRasterScale:=OriginalScale;
+          if (RasterScaleBox.ItemIndex=0) and (FZoom<>100) then
+          begin FZoom:=100; LayoutChanged:=True; end;
         end;
+        if LayoutChanged then InvalidateLayout;
       end;
     finally Dialog.Free; end;
     if FSurface.CanFocus then FSurface.SetFocus;
@@ -5612,7 +5862,27 @@ begin InterfaceClick(nil); end;
 procedure TfrmBuiltinReader.ToggleFullScreen;
 begin FullScreenClick(nil); end;
 
+procedure TfrmBuiltinReader.ConfigureNavigationKeys(Sender: TObject);
+var Dialog: TReaderNavigationDialog; Ini: TMemIniFile; Action: TReaderNavigation;
+begin
+  Dialog:=TReaderNavigationDialog.CreateFor(Self);
+  try
+    if Dialog.ShowModal<>mrOk then Exit;
+    if FSettingsFile<>'' then
+    begin
+      Ini:=TMemIniFile.Create(FSettingsFile,TEncoding.UTF8);
+      try
+        for Action:=Low(Action) to High(Action) do
+          Ini.WriteInteger(ReaderKeysSection,ReaderNavigationFields[Action],Dialog.Keys[Action]);
+        SaveMemIniFileAtomically(Ini);
+      finally Ini.Free; end;
+    end;
+    FNavigationKeys:=Dialog.Keys;
+  finally Dialog.Free; end;
+end;
+
 procedure TfrmBuiltinReader.KeyReader(Sender: TObject; var Key: Word; Shift: TShiftState);
+var Action: TReaderNavigation; Keys: TReaderNavigationKeys;
 begin
   if (Key=VK_F11) and (Shift=[]) then
   begin FullScreenClick(nil); Key:=0; Exit; end;
@@ -5632,16 +5902,26 @@ begin
   begin SearchCloseClick(Sender); Key:=0; Exit; end;
   if (Key=VK_ESCAPE) and FInspect then begin EndInspection; Key:=0; Exit; end;
   if (ssCtrl in Shift) and (Key=Ord('F')) then begin SearchClick(nil); Key:=0; Exit; end;
-  if ContinuousReading and (Shift=[]) and (Key in [VK_UP,VK_DOWN]) then
+  if (ActiveControl is TCustomComboBox) and (Key in [Ord('0')..Ord('9'),Ord('A')..Ord('Z')]) then Exit;
+  if Shift=[] then Keys:=FNavigationKeys else Keys:=DefaultReaderNavigationKeys;
+  for Action:=Low(Action) to High(Action) do
   begin
-    ScrollPixels(MulDiv(30,CurrentPPI,96)*(2*Ord(Key=VK_DOWN)-1));
-    Key:=0; Exit;
+    if (Key=0) or (Key<>Keys[Action]) then Continue;
+    if ContinuousReading and (Shift=[]) and (Action in [rnScreenUp,rnScreenDown]) then
+      ScrollPixels(FSurface.ClientHeight*(2*Ord(Action=rnScreenDown)-1),True)
+    else if ContinuousReading and (Shift=[]) and (Action in [rnScrollUp,rnScrollDown]) then
+      ScrollPixels(MulDiv(30,CurrentPPI,96)*(2*Ord(Action=rnScrollDown)-1))
+    else
+      case Action of
+        rnPrevious,rnScrollUp,rnScreenUp: PreviousPage;
+        rnNext,rnNextAlternate,rnScrollDown,rnScreenDown: NextPage;
+        rnFirst: NavigateTo(0);
+        rnLast: NavigateTo(Max(0,FLength-1));
+      end;
+    Key:=0;
+    Exit;
   end;
   case Key of
-    VK_NEXT,VK_RIGHT,VK_DOWN,VK_SPACE: NextPage;
-    VK_PRIOR,VK_LEFT,VK_UP: PreviousPage;
-    VK_HOME: NavigateTo(0);
-    VK_END: NavigateTo(Max(0,FLength-1));
     VK_ADD,VK_OEM_PLUS: ChangeSize(1);
     VK_SUBTRACT,VK_OEM_MINUS: ChangeSize(-1);
     VK_ESCAPE: if FInterfaceHidden then InterfaceClick(nil)
@@ -5660,7 +5940,8 @@ begin
 end;
 
 procedure TfrmBuiltinReader.RestoreSettings;
-var Ini: TMemIniFile; Bounds,Work: TRect; Position,StoredEncoding,I,J: Integer;
+var Ini: TMemIniFile; Bounds,Work: TRect; Position,StoredEncoding,I,J,StoredKey: Integer;
+    Action: TReaderNavigation;
 begin
   if FSettingsFile='' then Exit;
   Ini:=TMemIniFile.Create(FSettingsFile,TEncoding.UTF8);
@@ -5674,6 +5955,13 @@ begin
         if (StoredEncoding>=Ord(Low(TReaderTextEncoding))) and (StoredEncoding<=Ord(High(TReaderTextEncoding))) then
           FTextEncoding:=TReaderTextEncoding(StoredEncoding);
       end;
+      for Action:=Low(Action) to High(Action) do
+      begin
+        StoredKey:=Ini.ReadInteger(ReaderKeysSection,ReaderNavigationFields[Action],DefaultReaderNavigationKeys[Action]);
+        if (StoredKey<0) or (StoredKey>High(Word)) then StoredKey:=High(Word);
+        FNavigationKeys[Action]:=Word(StoredKey);
+      end;
+      if not ValidReaderNavigationKeys(FNavigationKeys) then FNavigationKeys:=DefaultReaderNavigationKeys;
       FFontSize:=EnsureRange(Ini.ReadInteger('Reader','FontSize',14),8,48);
       FFontName:=AvailableReaderFont(Ini.ReadString('Reader','FontName','PT Serif'));
       FDictionaryExecutable:=Ini.ReadString('Reader','DictionaryExecutable','');
@@ -5730,14 +6018,17 @@ begin
     end
     else
     begin
-      Position:=Ini.ReadInteger('Book.'+FIdentity,'Position',0);
+      if FStartPosition>=0 then Position:=FStartPosition
+      else Position:=Ini.ReadInteger('Book.'+FIdentity,'Position',0);
       if Assigned(FPDF) then
       begin
         FPage:=EnsureRange(Position,0,FPDF.PageCount-1);
         if ContinuousReading then
-          FScrollRestore:=EnsureRange(Ini.ReadInteger('Book.'+FIdentity,'ScrollFraction',0),0,10000);
+          if FStartPosition>=0 then FScrollRestore:=0
+          else FScrollRestore:=EnsureRange(Ini.ReadInteger('Book.'+FIdentity,'ScrollFraction',0),0,10000);
       end
       else begin FPages.Clear; FPages.Add(EnsureRange(Position,0,Max(0,FLength-1))); FPage:=0; end;
+      FStartPosition:=-1;
     end;
   finally Ini.Free; end;
 end;
@@ -5806,8 +6097,46 @@ begin
     FOnProgress(EnsureRange(Round(ReadingProgress*100),0,100));
 end;
 
+function TfrmBuiltinReader.ReaderWorkersRunning: Boolean;
+begin
+  Result:=(Assigned(FLoader) and (WaitForSingleObject(FLoader.Handle,0)=WAIT_TIMEOUT)) or
+    (Assigned(FPageWorker) and (WaitForSingleObject(FPageWorker.Handle,0)=WAIT_TIMEOUT));
+end;
+
+procedure TfrmBuiltinReader.FinishClose(Sender: TObject);
+begin
+  if ReaderWorkersRunning then Exit;
+  FPageTimer.Enabled:=False;
+  if fsModal in FormState then ModalResult:=FDeferredCloseResult else Close;
+end;
+
 procedure TfrmBuiltinReader.CloseReader(Sender: TObject; var Action: TCloseAction);
-begin StopSearch; SaveSettings; end;
+begin
+  if ReaderWorkersRunning then
+  begin
+    Action:=caNone;
+    if FClosing then Exit;
+    FClosing:=True;
+    FDeferredCloseResult:=ModalResult;
+    FResizeTimer.Enabled:=False;
+    FEdgeTimer.Enabled:=False;
+    FScrollTimer.Enabled:=False;
+    FSeekTimer.Enabled:=False;
+    FPaginationTimer.Enabled:=False;
+    StopSearch;
+    if Assigned(FLoader) then FLoader.Terminate;
+    if Assigned(FPageWorker) then FPageWorker.Terminate;
+    FreeAndNil(FLoadStatus);
+    FreeAndNil(FPageStatus);
+    FStatus.Caption:='Закрытие книги…';
+    Enabled:=False;
+    FPageTimer.OnTimer:=FinishClose;
+    FPageTimer.Enabled:=True;
+    Exit;
+  end;
+  StopSearch;
+  SaveSettings;
+end;
 
 procedure OpenBuiltinReader(Owner: TComponent; const FileName, BookTitle, Identity,
   SettingsFile, PDFLibrary: string; const OnProgress: TProc<Integer>; const OnOpenNote: TProc<TReaderAnnotation>;

@@ -135,7 +135,7 @@ end;
 
 procedure TestReaderSessionProcess;
 var Book: TBookRecord; Request: TReaderSessionRequest; Owner: TComponent;
-  Reply: TReaderSessionReply; Completed: Boolean; Source, Hash: string; Started: UInt64;
+  Reply: TReaderSessionReply; Completed: Boolean; Source, Hash, SessionRoot, Profile: string; Started: UInt64;
 begin
   RequireIsolatedRegression; TestReaderFormatByteSignatures;
   Source:=TPath.Combine(Settings.AppPath,'process-source.fb2'); TFile.WriteAllText(Source,'original source bytes');
@@ -145,7 +145,24 @@ begin
   for var Mode in TArray<string>.Create('closed','crash','foreign','restart','detach') do
   begin
     SetEnvironmentVariable('HLRU_SESSION_TEST_MODE',PChar(Mode)); Completed:=False;
-    Request:=CreateReaderSession(Settings.AppPath,Book,'process-test',TPath.Combine(Settings.DataDir,'reader.ini'),True);
+    SessionRoot:=Settings.AppPath;
+    if Mode='restart' then
+    begin
+      Profile:=TPath.Combine(SessionRoot,StringOfChar('п',Max(10,248-Length(SessionRoot))));
+      SessionRoot:=ReaderRestartDirectory(Profile);
+    end;
+    Request:=CreateReaderSession(SessionRoot,Book,'process-test',TPath.Combine(Settings.DataDir,'reader.ini'),True);
+    if Mode='restart' then
+    begin
+      Require(Length(Request.RequestFile)>MAX_PATH,'Restart fixture did not exceed the standard path limit');
+      PublishReaderRestart(Profile,Request.RequestFile);
+      try
+        Require(ReadReaderRestart(Profile,GetCurrentProcessId,ReaderProcessStamp(GetCurrentProcess))=
+          Request.RequestFile,'Restart receipt could not preserve the long path');
+      finally RemoveReaderRestart(Profile); end;
+      Require(ReadReaderRestart(Profile,GetCurrentProcessId,ReaderProcessStamp(GetCurrentProcess))='',
+        'Restart receipt was not removed on the long path');
+    end;
     Owner:=TComponent.Create(nil);
     try
       LaunchReaderSession(Owner,ParamStr(0),TPath.Combine(Settings.DataDir,'process-profile'),Request,
@@ -168,7 +185,8 @@ begin
         if (Mode='closed') or (Mode='restart') then
           Require((Reply.ErrorText='') and (Reply.State='closed') and (Reply.Progress=42),'Valid reader result lost '+Mode)
         else Require((Reply.ErrorText<>'') and (Reply.State='failed') and not Reply.HasProgress,'Invalid child result accepted '+Mode);
-        Require(not FileExists(Request.RequestFile),'Finished reader left its own request file '+Mode);
+        Require(not DirectoryExists(BookOutputPath(ExtractFileDir(Request.RequestFile))),
+          'Finished reader left its own session directory '+Mode);
       end;
       Require(THashSHA2.GetHashStringFromFile(Source)=Hash,'Reader process transport changed original book');
     finally Owner.Free; end;

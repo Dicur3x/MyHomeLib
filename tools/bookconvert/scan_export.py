@@ -30,6 +30,8 @@ class ScanExport:
         self.codec = importlib.util.module_from_spec(spec); spec.loader.exec_module(self.codec)
         self.storage = self.codec.image_storage(context['target'],context.get('container'))
         self.pending = []; self.done = 0; self.total = 0; self.chosen = False
+        self.illustrations = {}
+        self.illustration_paths = {}
         self.unsplit = set()
         self.grayscale = context.get('grayscale', False)
         self.check = context.get('check')
@@ -54,6 +56,48 @@ class ScanExport:
         maximum = 9 if not self.chosen or (self.storage != 'raw' and self.profile in ('balanced','economy','maximum')) else 12
         if len(self.pending) >= maximum or sum(len(item[0]) for item in self.pending) >= 32*1024*1024:
             self.flush()
+
+    def add_illustration(self, data, node=None):
+        if node is None:
+            node = self.book.el('img', alt='')
+        key = hashlib.sha256(data).digest()
+        if key in self.illustration_paths:
+            node.set('src', self.illustration_paths[key])
+        else:
+            entry = self.illustrations.setdefault(key, (data, []))
+            entry[1].append(node)
+            if len(self.illustrations) >= 9 or sum(len(data) for data, _ in self.illustrations.values()) >= 16*1024*1024:
+                self.flush_illustrations()
+        return node
+
+    def flush_illustrations(self):
+        if not self.illustrations:
+            return
+        profile = 'high' if self.profile == 'original' else self.profile
+        pictures = [data for data, _ in self.illustrations.values()]
+        with tempfile.TemporaryDirectory(prefix='homelib-illustration-batch-', dir=self.book.work_root) as temporary:
+            encoded = self.codec.run(self.book.c, self.tool, pictures, Path(temporary), profile,
+                                     lambda *_: None, storage=self.storage, check=self.check,
+                                     grayscale=self.grayscale)[profile]
+        for (key, (_, nodes)), data in zip(self.illustrations.items(), encoded):
+            path = self.book.image(data).get('src')
+            self.illustration_paths[key] = path
+            for node in nodes:
+                node.set('src', path)
+        self.illustrations.clear()
+
+    def prepare_early_illustrations(self):
+        # An interactive choice is made before storing any scan resources.
+        if self.profile in {'original', 'high'} and not self.grayscale:
+            return
+        originals = self.book.resources
+        if not originals:
+            return
+        self.book.resources, self.book.images, self.book.total = {}, {}, 0
+        for node in self.book.body.iter():
+            source = node.get('src')
+            if source in originals:
+                self.add_illustration(originals[source][0], node)
 
     def encode_estimates(self, directory, pictures, progress):
         kept = self.codec.run(self.book.c,self.tool,pictures,directory,'estimate-maximum',progress,'keep',self.storage,check=self.check,grayscale=self.grayscale)
@@ -98,6 +142,7 @@ class ScanExport:
         self.profile=parts[0]; self.layout=parts[1] if len(parts)>=2 else 'keep'; self.chosen=True
         try: self.excluded=excluded_pages(parts[2][7:] if len(parts)==3 else '')
         except ValueError as error: self.book.fail(str(error))
+        self.prepare_early_illustrations()
         if self.layout=='auto':
             self.unsplit.update(self.pending[i][2] for i in estimates['auto']['_unsplit'] if self.pending[i][2] not in self.excluded)
         return [estimates['keep' if number in self.excluded else self.layout][self.profile][i]
@@ -177,11 +222,135 @@ class ScanExport:
         variation = round(sum(abs(costs[page][column]-average)*weight for page, weight in groups))
         return total, max((total+9)//10, variation)
 
+    def measure_illustrations(self):
+        pictures = [data for data, _ in self.book.resources.values()]
+        costs = {profile: {} for profile in self.codec.SCAN_PROFILES}
+        approximate = dict.fromkeys(costs, (0, 0))
+        if not pictures:
+            return costs, approximate
+        if not self.grayscale:
+            originals = {hashlib.sha256(data).digest(): self.image_cost(data) for data in pictures}
+            costs['original'] = costs['high'] = originals
+        indices, weights = self.codec.estimate_image_samples(pictures)
+        # Estimate the compression of representative illustrations; scan
+        # layout settings only apply to full pages.
+        with tempfile.TemporaryDirectory(prefix='homelib-illustration-estimate-', dir=self.book.work_root) as temporary:
+            encoded = self.codec.run(self.book.c, self.tool, [pictures[i] for i in indices],
+                                     Path(temporary), 'estimate-maximum', self.book.progress,
+                                     storage=self.storage, check=self.check, grayscale=self.grayscale)
+        if self.grayscale:
+            encoded['original'] = encoded['high']
+        for profile, images in encoded.items():
+            if not self.grayscale and profile == 'high':
+                continue
+            if len(indices) == len(pictures):
+                costs[profile] = {hashlib.sha256(data).digest(): self.image_cost(data) for data in images}
+            else:
+                sizes = [self.image_cost(data) for data in images]
+                approximate[profile] = tuple(round(sum(size[column]*weight for size, weight in zip(sizes, weights)))
+                                             for column in (0, 1))
+        return costs, approximate
+
+    def mixed_image_costs(self, samples, directory, scan):
+        layouts = ('keep', 'split', 'auto')
+        profiles = self.codec.SCAN_PROFILES
+        images = {}
+        for weight, _scan, _body, pictures in samples:
+            for data in pictures:
+                key = hashlib.sha256(data).digest()
+                if key not in images:
+                    images[key] = data, weight, weight
+                else:
+                    first, _weight, projected = images[key]
+                    images[key] = first, 1, projected + weight
+        assets = list(images.values())
+        totals = {(layout, profile): [] for layout in layouts for profile in profiles}
+        cached = {}
+
+        def costs(data):
+            key = hashlib.sha256(data).digest()
+            if key not in cached:
+                if self.storage == 'raw':
+                    # The selected output is uncompressed FB2. Its unused ZIP
+                    # projection is approximate. FB2.ZIP measures its real
+                    # deflate cost in the separate ZIP estimation request.
+                    size = len(data)
+                    cached[key] = 4 * ((size + 2) // 3) + 96, size + size // 50
+                else:
+                    cached[key] = self.image_cost(data)
+            return cached[key]
+
+        for start in range(0, len(assets), 9):
+            chunk = assets[start:start + 9]
+            batch = [data for data, _weight, _projected in chunk]
+            if scan:
+                encoded = self.encode_estimates(directory, batch, lambda *_: None)
+            else:
+                illustrations = self.codec.run(self.book.c, self.tool, batch, directory,
+                    'estimate-maximum', lambda *_: None, storage=self.storage,
+                    check=self.check, grayscale=self.grayscale)
+                if self.grayscale:
+                    illustrations['original'] = illustrations['high']
+                else:
+                    illustrations['original'] = illustrations['high'] = batch
+                illustrations = {key: [[data] for data in values]
+                                 for key, values in illustrations.items() if key in profiles}
+                encoded = dict.fromkeys(layouts, illustrations)
+            for layout in layouts:
+                for profile in profiles:
+                    for (_data, weight, projected), parts in zip(chunk, encoded[layout][profile]):
+                        sizes = tuple(map(costs, parts))
+                        raw, packed = (sum(size[column] for size in sizes) for column in (0, 1))
+                        totals[layout, profile].append((weight, raw, packed, projected))
+        return totals
+
+    def finish_mixed_measurement(self, samples, pages, text_baseline):
+        layouts = ('keep', 'split', 'auto')
+        profiles = self.codec.SCAN_PROFILES
+        totals = {(layout, profile): [] for layout in layouts for profile in profiles}
+        fb2 = self.context['target'] == '.fb2'
+        if text_baseline is None:
+            raw = sum(weight * (len(body) if fb2 else self.codec.deflated_size(body))
+                      for weight, _scan, body, _pictures in samples)
+            packed = sum(weight * self.codec.deflated_size(body)
+                         for weight, _scan, body, _pictures in samples)
+            text_baseline = 1200 + raw, 1712 + packed
+
+        with tempfile.TemporaryDirectory(prefix='homelib-pdf-estimate-', dir=self.book.work_root) as temp:
+            with ThreadPoolExecutor(max_workers=2) as workers:
+                jobs = []
+                for scan in (False, True):
+                    group = [sample for sample in samples if sample[1] == scan]
+                    directory = Path(temp) / ('scans' if scan else 'illustrations')
+                    directory.mkdir()
+                    jobs.append(workers.submit(self.mixed_image_costs, group, directory, scan))
+                for task in jobs:
+                    for mode, costs in task.result().items():
+                        totals[mode].extend(costs)
+
+        sizes = {layout: {'none': 0} for layout in layouts}
+        zip_sizes = {layout: {'none': 0} for layout in layouts}
+        margins = {layout: {} for layout in layouts}
+        zip_margins = {layout: {} for layout in layouts}
+        for (layout, profile), costs in totals.items():
+            for column, (outputs, uncertainty) in enumerate(((sizes, margins), (zip_sizes, zip_margins)), 1):
+                image_size = sum(row[0] * row[column] for row in costs)
+                size = text_baseline[column - 1] + image_size
+                average = image_size / pages
+                variation = round(sum(row[0] * abs(row[column] - average) for row in costs))
+                repeated = sum((row[3] - row[0]) * row[column] for row in costs)
+                outputs[layout][profile] = size
+                uncertainty[layout][profile] = max((size + 9) // 10, variation, repeated)
+        self.publish_and_wait({'format': self.context['target'][1:].upper(),
+            'images': pages, 'sampled': len(samples), 'scan_pages': True, 'all_scan_pages': False,
+            'distributed_samples': True, 'margins': margins, 'zip_margins': zip_margins,
+            'sizes': sizes['keep'], 'split_sizes': sizes['split'], 'auto_sizes': sizes['auto'],
+            'zip_sizes': zip_sizes['keep'], 'zip_split_sizes': zip_sizes['split'],
+            'zip_auto_sizes': zip_sizes['auto']})
+        self.book.fail('Оценка размера завершена без записи копии.')
+
     def finish_measurement(self):
-        # Text pages may also contain illustrations. The scan writer keeps
-        # those unchanged, so count their bytes with the rest of the assets.
-        illustrations = {hashlib.sha256(data).digest(): self.image_cost(data)
-                         for data, _mime in self.book.resources.values()}
+        illustrations, approximate = self.measure_illustrations()
         body = self.book.c.serialized(self.book.body)
         sampled = self.sample_costs is not None
         pages = self.total if sampled else self.done
@@ -199,9 +368,10 @@ class ScanExport:
                 margins.setdefault(layout, {})[profile] = margin
                 zip_margins.setdefault(layout, {})[profile] = packed_margin
             else:
-                assets = (images | illustrations).values()
-                size = overhead+sum(raw for raw, _packed in assets)
-                packed_size = packed_overhead+sum(packed for _raw, packed in assets)
+                assets = (images | illustrations[profile]).values()
+                raw_illustrations, packed_illustrations = approximate[profile]
+                size = overhead+raw_illustrations+sum(raw for raw, _packed in assets)
+                packed_size = packed_overhead+packed_illustrations+sum(packed for _raw, packed in assets)
             sizes.setdefault(layout, {'none': 0})[profile] = size
             zip_sizes.setdefault(layout, {'none': 0})[profile] = packed_size
         self.publish_and_wait({'format': self.context['target'][1:].upper(),
@@ -242,6 +412,9 @@ class ScanExport:
     def finish(self):
         self.flush(True)
         if self.measure_only: self.finish_measurement()
+        self.flush_illustrations()
+        if not self.done:
+            return
         self.book.warnings.add('Сканы обработаны небольшими порциями: '+{'original':'исходное разрешение изображений','high':'высокое качество','balanced':'сбалансированный режим','economy':'экономный режим','maximum':'максимальная экономия'}[self.profile]+'. Исходная книга сохранена.')
         if self.layout=='split':
             self.book.warnings.add('Горизонтальные сканы разворотов разделены по центру: сначала левая, затем правая страница. Вертикальные страницы сохранены целиком.')

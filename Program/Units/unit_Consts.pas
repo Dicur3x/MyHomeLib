@@ -183,7 +183,7 @@ const
   SF_DELETED     = 'Deleted';
   SF_DATE        = 'Date';
   SF_DATE_STR    = 'Date_Str';
-  SEARCH_DATE_LAST_INPX = 6;
+  SEARCH_DATE_LAST_CATALOG_UPDATE = 6;
   SF_LANG        = 'Lang';
   SF_LIBRATE     = 'LibRate';
   SF_LIBRATE_STR = 'LibRate_Str';

@@ -1496,7 +1496,7 @@ begin
   end;
   FCycleAutomatic:=False; FApplicationRelease:=Default(TProgramRelease);
   FNeedsCheck:=True; FComponentExplicit:=True;
-  SelectRow(Index+1); CheckComponents(False);
+  SelectRow(Index+1); ComponentSelected(nil); CheckComponents(False);
   FStatus.Caption:=FRequestReason+sLineBreak+'Проверяем доступность и размер загрузки…'; LayoutWindow; Present;
 end;
 

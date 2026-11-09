@@ -337,12 +337,24 @@ class TextInputs(unittest.TestCase):
         svg=ET.SubElement(body,'{http://www.w3.org/2000/svg}svg',{'viewBox':'0 0 20 20'})
         ET.SubElement(svg,'{http://www.w3.org/2000/svg}circle',{'cx':'10','cy':'10','r':'5'})
         files['OEBPS/book.xhtml']=c.serialized(document)
+        package_path='OEBPS/package.opf'
+        package=c.xml(files[package_path]); spine=c.first(package,'spine')
+        cover_id='inserted'
+        ET.SubElement(c.first(package,'manifest'),'{'+c.OP+'}item',
+                      {'id':cover_id,'media-type':'application/xhtml+xml','href':'Text/cover_page.xhtml'})
+        spine.insert(0,ET.Element('{'+c.OP+'}itemref',{'idref':'x_ref_cover','linear':'no'}))
+        guide=ET.SubElement(package,'{'+c.OP+'}guide')
+        ET.SubElement(guide,'{'+c.OP+'}reference',{'type':'cover','title':'Cover','href':'Text/cover_page.xhtml'})
+        files[package_path]=c.serialized(package)
+        files['OEBPS/Text/cover_page.xhtml']=('<html xmlns="'+c.XH+'"><body><p>Cover page</p></body></html>').encode()
         incoming=self.root/'kindle.epub'
         with zipfile.ZipFile(incoming,'w') as z:
             for name,data in files.items(): z.writestr(name,data)
-        output=self.root/'fixed.epub'; c.kindle_epub(incoming,output)
+        output=self.root/'fixed.epub'; warnings=set(); c.kindle_epub(incoming,output,warnings)
         with zipfile.ZipFile(output) as z:
             fixed=c.xml(z.read('OEBPS/book.xhtml')); package=c.xml(z.read('OEBPS/package.opf'))
+            self.assertEqual(c.first(package,'spine')[0].attrib,{'idref':cover_id,'linear':'no'})
+            self.assertTrue(any('ссылка на страницу обложки' in value for value in warnings))
             self.assertTrue(all('cid' not in n.attrib for n in fixed.iter()))
             self.assertIn('svg',next(n for n in package.iter() if n.get('href')=='book.xhtml').get('properties','').split())
             for name,data in files.items():
@@ -390,6 +402,60 @@ class TextInputs(unittest.TestCase):
         with self.assertRaises(c.ConversionError) as error: c.convert_book(source,output,tools_root=tools)
         self.assertIn('Invalid Palm record table',str(error.exception)); self.assertEqual(source.read_bytes(),data)
         self.assertFalse(output.exists()); self.assertFalse(list(self.root.glob('.homelib-convert-*')))
+
+    def test_docx_many_small_runs_are_processed_in_order(self):
+        source = self.root / 'many-runs.docx'
+        run = '<w:r><w:rPr><w:rFonts w:ascii="Test"/></w:rPr><w:t>т</w:t></w:r>'
+        paragraphs = [
+            f'<w:p><w:r><w:t>Блок {i}: </w:t></w:r>{run * 220}</w:p>'
+            for i in range(600)
+        ]
+        margin_rule = ('<w:r><w:pict><v:line from="-41.5pt,474pt" to="-41.5pt,516.25pt" '
+                       'style="mso-position-horizontal-relative:margin;z-index:1;"/></w:pict></w:r>')
+        paragraphs[0] = paragraphs[0].replace('</w:p>', margin_rule + '</w:p>')
+        with zipfile.ZipFile(source, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr('word/document.xml', f'<w:document xmlns:w="{W}" '
+                             f'xmlns:v="urn:schemas-microsoft-com:vml"><w:body>{"".join(paragraphs)}</w:body></w:document>')
+        expected = [f'Блок {i}: ' + 'т' * 220 for i in range(600)]
+        before = hashlib.sha256(source.read_bytes()).digest()
+        for extension in ['.epub', '.fb2']:
+            output = self.root / ('many-runs' + extension)
+            result = c.convert_book(source, output)
+            self.assertTrue(any('Вертикальная линия на полях' in warning for warning in result['warnings']))
+            if extension == '.epub':
+                with zipfile.ZipFile(output) as archive:
+                    root = c.first(c.xml(archive.read('OEBPS/book.xhtml')), 'body')
+            else:
+                root = c.first(c.xml(output.read_bytes()), 'body')
+            self.assertEqual([c.plain(node) for node in root.iter() if c.tag(node) == 'p'], expected)
+        self.assertEqual(hashlib.sha256(source.read_bytes()).digest(), before)
+
+    def test_docx_dtd_does_not_publish_partial_output(self):
+        source = self.root / 'entities.docx'
+        with zipfile.ZipFile(source, 'w') as archive:
+            archive.writestr('word/document.xml',
+                             (f'<!DOCTYPE w:document [<!ENTITY text "injected">]>'
+                              f'<w:document xmlns:w="{W}"><w:body><w:p><w:r><w:t>&text;</w:t>'
+                              '</w:r></w:p></w:body></w:document>').encode('utf-16'))
+        output = self.root / 'entities.epub'
+        with self.assertRaisesRegex(c.ConversionError, 'DTD'):
+            c.convert_book(source, output)
+        self.assertFalse(output.exists())
+
+    def test_php_code_does_not_become_a_book(self):
+        source = self.root / 'script.txt'
+        output = self.root / 'script.epub'
+        for encoding in ['utf-8-sig', 'utf-16']:
+            source.write_text("<?php echo '%PDF-1.7';", encoding=encoding)
+            self.assertEqual(c.detect_input(source), '.php')
+            for options in [{}, {'output_profile': 'kepub'}]:
+                with self.assertRaisesRegex(c.ConversionError, 'PHP-код'):
+                    c.convert_book(source, output, **options)
+                self.assertFalse(output.exists())
+        source = self.root / 'ordinary.php'
+        source.write_text(f'<html><body><p>{TEXT}</p></body></html>', encoding='utf-8')
+        self.assertEqual(c.detect_input(source), '.html')
+        self.outputs(source, [TEXT])
 
 
 if __name__ == '__main__': unittest.main()

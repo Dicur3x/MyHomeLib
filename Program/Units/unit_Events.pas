@@ -28,7 +28,7 @@ type
   TSelectBookEvent = procedure(MoveForward: Boolean) of object;
   TGetBookEvent = procedure(var BookRecord: TBookRecord) of object;
   TChangeStateEvent = procedure(State: Boolean) of object;
-  TOnLocateBookEvent = procedure(const Text: string; MoveForward: Boolean) of object;
+  TOnLocateBookEvent = function(const Text: string; MoveForward: Boolean): Boolean of object;
   TOnHelpEvent = function(Command: Word; Data: NativeInt; var CallHelp: Boolean): Boolean of object;
 
   TProgressOpenEvent = procedure of object;

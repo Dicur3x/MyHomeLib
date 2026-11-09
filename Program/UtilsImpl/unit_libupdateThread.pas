@@ -142,7 +142,7 @@ rstrDownloadProgress = 'Загружено: %u%% из %u байт';
    rstrUpdateFileNotFound = 'Файл обновления не найден: %s';
    rstrInvalidUpdateFile = 'Неверный формат файла INPX: %s';
    rstrMbDatasetAlwaysFull = 'Каталог metabib всегда импортируется полностью.';
-   rstrPackedUpdate = 'Сжатую коллекцию можно обновить из INPX через меню «Коллекция → Обновить коллекцию из файла».';
+   rstrPackedUpdate = 'Сжатую коллекцию можно обновить из INPX через меню «Коллекция → Обновить коллекцию → Из файла INPX или Metabib…».';
 
 
 procedure RestoreCatalogUserData(const Collection: IBookCollection; Data: TUserData);
@@ -174,7 +174,7 @@ begin
     raise ENotSupportedException.Create(rstrPackedUpdate);
   Collection.BeginBulkOperation;
   try
-    PreviousLastID:=Collection.StartInpxUpdateTracking(AFull);
+    PreviousLastID:=Collection.StartCatalogUpdateTracking(AFull);
     UserDataBackup := TUserData.Create;
     try
       if AFull then
@@ -200,7 +200,7 @@ begin
         Exit;
       end;
 
-      Collection.FinishInpxUpdateTracking(AFull,PreviousLastID);
+      Collection.FinishCatalogUpdateTracking(AFull,PreviousLastID);
       if AFull then
       begin
         Teletype(Format(rstrRestoreUserData, [ADisplayName]), tsInfo);
@@ -443,6 +443,7 @@ var
   Collection: IBookCollection;
   UserDataBackup: TUserData;
   LocalBooks: TArray<TLocalCatalogBook>;
+  PreviousLastID: Integer;
 begin
   if not FileExists(FFileName) then
   begin
@@ -465,6 +466,7 @@ begin
       raise ENotSupportedException.Create(rstrPackedUpdate);
     Collection.BeginBulkOperation;
     try
+      PreviousLastID := Collection.StartCatalogUpdateTracking(True);
       UserDataBackup := TUserData.Create;
       try
         Teletype(Format(rstrBackupUserData, [FDisplayName]), tsInfo);
@@ -486,6 +488,7 @@ begin
           Exit;
         end;
 
+        Collection.FinishCatalogUpdateTracking(True, PreviousLastID);
         Teletype(Format(rstrRestoreUserData, [FDisplayName]), tsInfo);
         RestoreCatalogUserData(Collection,UserDataBackup);
         Collection.RestoreLocalBooks(LocalBooks);
