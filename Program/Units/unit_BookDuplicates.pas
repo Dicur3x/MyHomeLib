@@ -321,11 +321,30 @@ end;
 
 procedure TBookDuplicatePlan.PreviewLinked(const Canceled: TMergeCanceled; const Progress: TMergeProgress);
 var Previous: TSQLiteCancelCallback; Q, Insert: TSQLiteQuery;
-  Primary, CopyBook: TBookRecord; Identity: string;
+  CopyBook: TBookRecord; Identity, PrimaryIdentity, CopyKey: string;
+  SourceIDs: TDictionary<string,Integer>; LastBookID: Integer;
+
+  function SourceID(const Name, Root, Key: string): Integer;
+  var Origin, Token, Folder: string; P: Integer;
+  begin
+    if Name='' then Exit(0);
+    // Imported source keys carry the registered source ID before :file:.
+    // Old entries without that ID are separated by their recorded root.
+    P:=Pos(':file:',Key);
+    if (P>1) and (Length(Key)-P=69) then Origin:=Copy(Key,1,P-1);
+    Folder:=ExcludeTrailingPathDelimiter(Root.Replace('/','\'));
+    Token:=Name+#1+LowerCase(Folder)+#1+Origin;
+    if SourceIDs.TryGetValue(Token,Result) then Exit;
+    Result:=SourceIDs.Count+1;
+    FStage.ExecSQL('INSERT INTO LinkedSourceChoices(SourceID,Name,Root,Origin) VALUES(?,?,?,?)',
+      [Result,Name,Folder,Origin]);
+    SourceIDs.Add(Token,Result);
+  end;
+
 begin
   FReady:=False; FLinkedMode:=True; FGroupCount:=0; FScanned:=0;
   FreeAndNil(FSource); FreeAndNil(FStage);
-  Q:=nil; Insert:=nil;
+  Q:=nil; Insert:=nil; SourceIDs:=nil; LastBookID:=0;
   Previous:=SQLiteCancelCallback; FCanceled:=Canceled; SQLiteCancelCallback:=QueryCanceled;
   try
     try
@@ -333,27 +352,36 @@ begin
       FCatalogueKey:=Copy(ArchiveDeletionSourceIdentity(FFile),1,25);
       FSource:=TSQLiteDatabase.CreateReadOnly(FFile); FSource.Start;
       FStage:=TSQLiteDatabase.Create(''); FStage.ExecSQL('PRAGMA cache_size=-4096');
+      SourceIDs:=TDictionary<string,Integer>.Create;
       FStage.ExecSQL('CREATE TABLE LinkedCopies(CopyKey TEXT PRIMARY KEY,BookID INTEGER NOT NULL,'+
-        'SourceName TEXT NOT NULL,Selected INTEGER NOT NULL DEFAULT 0)');
+        'SourceID INTEGER NOT NULL,Selected INTEGER NOT NULL DEFAULT 0)');
+      FStage.ExecSQL('CREATE TABLE LinkedSourceChoices(SourceID INTEGER PRIMARY KEY,Name TEXT NOT NULL,'+
+        'Root TEXT NOT NULL,Origin TEXT NOT NULL,Caption TEXT)');
       Q:=FSource.NewQuery('SELECT c.SourceKey,c.BookID,c.SourceName,c.Root,c.LibID,c.Folder,c.FileName,c.Ext,c.InsideNo,'+
         'b.LibID,b.Folder,b.FileName,b.Ext,b.InsideNo FROM CatalogBookCopies c JOIN Books b USING(BookID) '+
         'WHERE b.IsDeleted=0');
-      Insert:=FStage.NewQuery('INSERT INTO LinkedCopies(CopyKey,BookID,SourceName) VALUES(?,?,?)');
+      Insert:=FStage.NewQuery('INSERT INTO LinkedCopies(CopyKey,BookID,SourceID) VALUES(?,?,?)');
       FStage.Start;
       Q.Open;
       while not Q.Eof do
       begin
         if QueryCanceled then Abort;
         var Key:=CreateBookKey(Q.FieldAsInt(1),FCID);
-        Primary:=ReadDuplicateLocation(Q,9,FRoot,Key);
+        if Key.BookID<>LastBookID then
+        begin
+          PrimaryIdentity:=ReaderBookPhysicalIdentity(ReadDuplicateLocation(Q,9,FRoot,Key));
+          LastBookID:=Key.BookID;
+        end;
         CopyBook:=ReadDuplicateLocation(Q,4,Q.FieldAsString(3),Key);
-        if not CopyBook.IsLinkedSource then
+        if (PrimaryIdentity<>'') and not CopyBook.IsLinkedSource then
         begin
           Identity:=ReaderBookPhysicalIdentity(CopyBook);
-          if (Identity<>'') and (Identity<>ReaderBookPhysicalIdentity(Primary)) then
+          if (Identity<>'') and (Identity<>PrimaryIdentity) then
           begin
-            Insert.SetParam(0,Q.FieldAsString(0)); Insert.SetParam(1,Key.BookID);
-            Insert.SetParam(2,Q.FieldAsString(2)); Insert.ExecSQL; Insert.Reset;
+            CopyKey:=Q.FieldAsString(0);
+            Insert.SetParam(0,CopyKey); Insert.SetParam(1,Key.BookID);
+            Insert.SetParam(2,SourceID(Q.FieldAsString(2),CopyBook.CollectionRoot,CopyKey));
+            Insert.ExecSQL; Insert.Reset;
           end;
         end;
         Inc(FScanned);
@@ -361,8 +389,12 @@ begin
         Q.Next;
       end;
       FStage.Commit;
+      FStage.ExecSQL('UPDATE LinkedSourceChoices AS a SET Caption=Name || CASE WHEN '+
+        'EXISTS(SELECT 1 FROM LinkedSourceChoices b WHERE b.SourceID<>a.SourceID AND b.Name=a.Name) '+
+        'THEN '' · '' || Root || CASE WHEN EXISTS(SELECT 1 FROM LinkedSourceChoices b WHERE b.SourceID<>a.SourceID '+
+        'AND b.Name=a.Name AND b.Root=a.Root COLLATE NOCASE) THEN '' · '' || Origin ELSE '''' END ELSE '''' END');
       FStage.ExecSQL('CREATE INDEX LinkedBooks ON LinkedCopies(BookID)');
-      FStage.ExecSQL('CREATE INDEX LinkedSources ON LinkedCopies(SourceName)');
+      FStage.ExecSQL('CREATE INDEX LinkedSources ON LinkedCopies(SourceID,Selected,BookID,CopyKey)');
       FStage.ExecSQL('CREATE INDEX LinkedSelected ON LinkedCopies(BookID) WHERE Selected=1');
       FStage.ExecSQL('CREATE TABLE LinkedGroups(BookID INTEGER PRIMARY KEY,Count INTEGER NOT NULL)');
       FStage.ExecSQL('INSERT INTO LinkedGroups SELECT BookID,count(*)+1 FROM LinkedCopies GROUP BY BookID');
@@ -370,7 +402,7 @@ begin
       if QueryCanceled then Abort;
       FReady:=True;
       if Assigned(Progress) then Progress(FScanned,FScanned);
-    finally Insert.Free; Q.Free; end;
+    finally Insert.Free; Q.Free; SourceIDs.Free; end;
   except
     FreeAndNil(FSource); FreeAndNil(FStage); FGroupCount:=0;
     SQLiteCancelCallback:=Previous; FCanceled:=nil;
@@ -386,7 +418,7 @@ begin
   Names:=TList<string>.Create;
   try
     if FLinkedMode then
-      Q:=FStage.NewQuery('SELECT DISTINCT SourceName FROM LinkedCopies WHERE SourceName<>'''' ORDER BY SourceName')
+      Q:=FStage.NewQuery('SELECT Caption FROM LinkedSourceChoices ORDER BY Caption')
     else
       Q:=FStage.NewQuery('SELECT DISTINCT c.SourceName FROM Candidates c JOIN DuplicateGroups g USING(Identity) '+
         'WHERE c.SourceName<>'''' ORDER BY c.SourceName');
@@ -410,8 +442,11 @@ begin
     try
       if FLinkedMode then
       begin
+        if FStage.QuerySingleInt('SELECT count(*) FROM LinkedSourceChoices WHERE Caption=?',[SourceName])<>1 then
+          raise EInvalidOperation.Create('Не удалось однозначно определить источник. Отметьте файлы вручную.');
         FStage.ExecSQL('UPDATE LinkedCopies SET Selected=1 WHERE CopyKey IN ('+
-          'SELECT CopyKey FROM LinkedCopies WHERE SourceName=? AND Selected=0 ORDER BY BookID,CopyKey LIMIT ?)',
+          'SELECT CopyKey FROM LinkedCopies WHERE SourceID=(SELECT SourceID FROM LinkedSourceChoices WHERE Caption=?) '+
+          'AND Selected=0 ORDER BY BookID,CopyKey LIMIT ?)',
           [SourceName,MAX_LINKED_DUPLICATE_SELECTION-SelectedRemovedCount]);
         Result:=FStage.QuerySingleInt('SELECT changes()');
         if QueryCanceled then Abort;
@@ -424,7 +459,7 @@ begin
       FStage.ExecSQL('CREATE TEMP TABLE SourceChoices(GroupID INTEGER PRIMARY KEY,KeepID INTEGER NOT NULL)');
       FStage.ExecSQL('INSERT INTO SourceChoices '+
         'SELECT g.GroupID,min(CASE WHEN c.SourceName=? COLLATE BINARY THEN c.BookID END) FROM DuplicateGroups g '+
-        'JOIN Candidates c USING(Identity) WHERE g.Selected=0 AND g.Count<=1000 '+
+        'JOIN Candidates c USING(Identity) WHERE g.Selected=0 AND g.Count=2 '+
         'GROUP BY g.GroupID HAVING '+
         'sum(c.SourceName=? COLLATE BINARY)=1 AND '+
         'sum(c.SourceName='''')=0 AND count(DISTINCT c.SourceName)=2 AND '+
@@ -525,7 +560,8 @@ begin
     Primary.Book.Title:=Q.FieldAsString(5); Primary.Book.Lang:=Q.FieldAsString(6);
     Primary.Book.Size:=Q.FieldAsInt(7); Primary.SourceName:=Q.FieldAsString(8);
     Values.Add(Primary); FreeAndNil(Q);
-    Staged:=FStage.NewQuery('SELECT CopyKey,SourceName,Selected FROM LinkedCopies WHERE BookID=? ORDER BY CopyKey',[BookID]);
+    Staged:=FStage.NewQuery('SELECT c.CopyKey,s.Caption,c.Selected FROM LinkedCopies c LEFT JOIN LinkedSourceChoices s USING(SourceID) '+
+      'WHERE c.BookID=? ORDER BY c.CopyKey',[BookID]);
     Q:=FSource.NewQuery('SELECT LibID,Folder,FileName,Ext,InsideNo,Root,BookSize FROM CatalogBookCopies WHERE SourceKey=?');
     Staged.Open;
     while not Staged.Eof do

@@ -6240,6 +6240,8 @@ begin
       else if ParamStr(1) = 'estimate-failure-visibility' then TestEstimateFailureVisibility
       else if ParamStr(1) = 'export-cache-lifecycle' then TestExportCacheLifecycle
       else if ParamStr(1) = 'duplicate-file-removal' then TestDuplicateFileRemoval
+      else if ParamStr(1) = 'duplicate-linked-audit' then
+        TestBookDuplicateReadOnlyCatalog(GetEnvironmentVariable('HLRU_DUPLICATE_READONLY_CATALOG'),True)
       else if ParamStr(1) = 'duplicate-source' then
       begin
         TestBookDuplicateSourcePreference;

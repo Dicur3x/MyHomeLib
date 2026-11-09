@@ -137,7 +137,7 @@ begin
     CT_EXTERNAL_LOCAL_FB,Settings.SystemFileName[sfGenresFB2]);
   C:=SystemDB.GetCollection(CID);
   C.SetProperty(PROP_CATALOG_SOURCES,'[{"id":"preferred","name":"Источник ''Б''"},'+
-    '{"id":"third","name":"Third source"}]');
+    '{"id":"third","name":"Third source"},{"id":"same-base","name":"Base source"}]');
   Name:=Settings.ExpandCollectionFileName(VarToStr(C.GetProperty(PROP_DATAFILE)));
   DB:=TSQLiteDatabase.Create(Name);
   try
@@ -150,6 +150,7 @@ begin
     ManualID:=AddCopy('7',''); AddCopy('7','preferred');
     BookmarkID:=AddCopy('8',''); AddCopy('8','preferred');
     AddCopy('9',''); AddCopy('9','preferred'); AddCopy('9','third');
+    AddCopy('10',''); AddCopy('10','preferred'); AddCopy('10','same-base');
   finally DB.Free; end;
   ReaderFile:=TPath.Combine(Settings.AppPath,'source-duplicate-reader\reader.ini');
   ForceDirectories(ExtractFilePath(ReaderFile));
@@ -162,7 +163,7 @@ begin
   Before:=THashSHA2.GetHashStringFromFile(Name);
   Plan:=TBookDuplicatePlan.Create(Name,Settings.AppPath,'mixed',Settings.SystemFileName[sfSystemDB],ReaderFile,CID,Settings.WorkPath);
   try
-    Plan.Preview; Require(Plan.GroupCount=9,'Source preference fixture lost candidate groups');
+    Plan.Preview; Require(Plan.GroupCount=10,'Source preference fixture lost candidate groups');
     Require(Length(Plan.Sources)=3,'Source preference includes an unknown source or loses one of the three known sources');
     ManualGroup:=0;
     for var Group in Plan.Groups(0,50) do
@@ -208,6 +209,32 @@ end;
 procedure DuplicateFixtureTriggersOff(Context: TSQLite3Context; Count: Integer; Args: TSQLite3Value); cdecl;
 begin SQLite3_Result_Int(Context,0); end;
 
+procedure CheckLargeLinkedDuplicatePreview(Plan: TBookDuplicatePlan; CID: Integer);
+var Baseline, Peak: Int64; Watch: TStopwatch; Page: TArray<TDuplicateGroup>;
+  Selection: TDuplicateFileDeletion; Keys: TArray<string>;
+begin
+  Baseline:=DuplicatePrivateBytes; Peak:=Baseline; Watch:=TStopwatch.StartNew;
+  Plan.PreviewLinked(nil,procedure(Current,Total: Integer) begin Peak:=Max(Peak,DuplicatePrivateBytes); end);
+  Watch.Stop; Peak:=Max(Peak,DuplicatePrivateBytes);
+  Require(Plan.Ready and Plan.LinkedMode and (Plan.Scanned=100000) and (Plan.GroupCount=100000),
+    'Large linked preview dropped or repeated source rows');
+  Page:=Plan.Groups(99950,50);
+  Require((Length(Page)=50) and (Page[49].KeepID=100000),'Large linked preview lost its last page');
+  Plan.ChooseCopy('large:100000',True);
+  Require((Plan.SelectSource('Large source')=MAX_LINKED_DUPLICATE_SELECTION-1) and
+    (Plan.SelectedRemovedCount=MAX_LINKED_DUPLICATE_SELECTION) and (Plan.SelectSource('Large source')=0),
+    'Bulk linked selection did not respect the batch size and the existing manual choice');
+  Selection:=Plan.PrepareFileDeletion(SystemDB.GetCollectionInfo(CID),nil);
+  Keys:=Selection.Removed.SourceKeys;
+  Require((Length(Keys)=MAX_LINKED_DUPLICATE_SELECTION) and (Keys[0]='large:1') and
+    (Keys[High(Keys)]='large:100000'),'Large linked binding lost the manual mark or changed deterministic batch order');
+  Require((Peak-Baseline<96*Int64(1024)*1024) and (Watch.ElapsedMilliseconds<60000),
+    'Large linked preview exceeded its memory or time budget');
+  Writeln('PROFILE linked duplicate scan rows=',Plan.Scanned,' groups=',Plan.GroupCount,
+    ' ms=',Watch.ElapsedMilliseconds,' private_growth_bytes=',Peak-Baseline);
+  Writeln('PASS large linked preview pages 100000 copies and prepares a bounded batch without losing manual marks');
+end;
+
 procedure TestBookDuplicateLargePreview;
 var C: IBookCollection; CID: Integer; Name, ReaderFile, Before: string;
   DB: TSQLiteDatabase; Plan: TBookDuplicatePlan; Watch: TStopwatch;
@@ -225,6 +252,9 @@ begin
     DB.ExecSQL('WITH RECURSIVE n(x) AS(VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<100000) '+
       'INSERT INTO Books(LibID,Title,UpdateDate,FileName,InsideNo,Lang,Ext,BookSize) '+
       'SELECT ''flibusta:''||((x+1)/2),''Candidate ''||((x+1)/2),''2026-10-21'',''file''||x,0,''ru'',''.fb2'',100 FROM n');
+    DB.ExecSQL('INSERT INTO CatalogBookCopies(SourceKey,BookID,SourceName,Root,Folder,FileName,Ext,InsideNo,BookSize,LibID) '+
+      'SELECT ''large:''||BookID,BookID,''Large source'',?,''extra.zip'',''copy''||BookID,Ext,0,BookSize,LibID FROM Books',
+      [Settings.AppPath]);
   finally DB.Free; end;
   ReaderFile:=TPath.Combine(Settings.AppPath,'large-duplicate-reader\reader.ini'); ForceDirectories(ExtractFilePath(ReaderFile));
   Before:=THashSHA2.GetHashStringFromFile(Name);
@@ -249,6 +279,7 @@ begin
     except on E: Exception do if Cancel then Failed:=True else raise; end;
     Require(Failed and not Plan.Ready and not Assigned(SQLiteCancelCallback),
       'Mid-scan cancellation retained a ready plan or a thread callback');
+    CheckLargeLinkedDuplicatePreview(Plan,CID);
     Require(THashSHA2.GetHashStringFromFile(Name)=Before,'Large read-only scan changed the source database');
   finally Plan.Free; end;
   // Path mismatches must be rejected before the first source record is read.
@@ -447,6 +478,26 @@ begin
   end;
 end;
 
+function RunLinkedCopyTestOperation(Operation: TBookDeletionOperation; const Kind: string): TBookDeletionOperationStatus;
+begin
+  Operation.Start;
+  var Started:=GetTickCount64;
+  while not Operation.Status.Finished do
+  begin
+    Require(GetTickCount64-Started<25000,'Linked deletion exceeded deadline: '+Kind);
+    if Operation.Status.AwaitingArchiveConfirmation then Operation.RequestStop;
+    Sleep(5);
+  end;
+  Operation.WaitFor;
+  Result:=Operation.Status;
+end;
+
+procedure RunLinkedCopyTestSQL(const FileName, SQL: string);
+begin
+  var DB:=TSQLiteDatabase.Create(FileName);
+  try DB.ExecSQL(SQL); finally DB.Free; end;
+end;
+
 procedure TestDuplicateFileRemoval;
 var Root: string;
   DialogProbe: TDuplicateFilePromptProbe;
@@ -615,8 +666,9 @@ var Root: string;
 
   procedure CheckLinkedCopies(const Kind: string);
   var Collection: IBookCollection; Info: TCollectionInfo; Operation: TBookDeletionOperation;
-    Primary, Member, Loose, Neighbour: TBookRecord; Stage, Archive, ArchiveHash, LoosePath, LooseHash: string;
-    Zip: TZipFile; Started: UInt64; CID, BID: Integer;
+    Primary, Member, Loose, Neighbour: TBookRecord; Stage, Archive, ArchiveHash, LoosePath, LooseHash, MemberKey, NeighbourKey: string;
+    Zip: TZipFile; CID, BID: Integer;
+
   begin
     Stage:=IncludeTrailingPathDelimiter(Root+'linked-'+Kind);
     ForceDirectories(Stage);
@@ -635,10 +687,24 @@ var Root: string;
     Member:=Primary; Member.FileName:='extra';
     Loose:=Primary; Loose.Folder:=''; Loose.FileName:='standalone';
     Neighbour:=Primary; Neighbour.FileName:='neighbour';
+    MemberKey:='test:member'; NeighbourKey:='test:neighbour';
     Collection.SetCatalogBookCopy('test:primary','Kept source',Primary);
-    Collection.SetCatalogBookCopy('test:member','Archive copy',Member);
-    Collection.SetCatalogBookCopy('test:loose','Loose copy',Loose);
-    Collection.SetCatalogBookCopy('test:neighbour','Unselected source',Neighbour);
+    if Kind='ok' then
+    begin
+      // Same display name across two roots and two registered IDs on one root.
+      Loose.CollectionRoot:=IncludeTrailingPathDelimiter(Stage+'another-root');
+      ForceDirectories(Loose.CollectionRoot);
+      MemberKey:=MemberKey+':file:'+StringOfChar('1',64);
+      NeighbourKey:=NeighbourKey+':file:'+StringOfChar('2',64);
+      Collection.SetCatalogBookCopy('test:loose','Archive copy',Loose);
+      Collection.SetCatalogBookCopy(NeighbourKey,'Archive copy',Neighbour);
+    end
+    else
+    begin
+      Collection.SetCatalogBookCopy('test:loose','Loose copy',Loose);
+      Collection.SetCatalogBookCopy(NeighbourKey,'Unselected source',Neighbour);
+    end;
+    Collection.SetCatalogBookCopy(MemberKey,'Archive copy',Member);
     if Kind='shared' then Collection.SetCatalogBookCopy('test:alias','Shared source',Loose);
     Archive:=Primary.GetBookFileName; LoosePath:=Loose.GetBookFileName;
     Zip:=TZipFile.Create;
@@ -667,8 +733,12 @@ var Root: string;
         Require(Copies.Checkboxes and (Copies.Items.Count=4) and Copies.Items[0].Caption.EndsWith(' ★'),
           'Linked copy list did not distinguish the primary or hid an alternative');
         var Sources:=TComboBox(Form.FindComponent('cbDuplicatePreferredSource'));
-        Sources.ItemIndex:=Sources.Items.IndexOf('Archive copy');
-        Require(Sources.ItemIndex>=0,'Linked source filter omitted an available source');
+        Require(Sources.Items.Count=3,'Same-named sources with different roots or IDs were combined');
+        Sources.ItemIndex:=-1;
+        for var I:=0 to Sources.Items.Count-1 do
+          if EndsText(' · test:member',Sources.Items[I]) then Sources.ItemIndex:=I;
+        Require((Sources.ItemIndex>=0) and (Pos(ExcludeTrailingPathDelimiter(Stage),Sources.Text)>0),
+          'Linked source filter did not expose the root and source ID');
         TButton(Form.FindComponent('btnSelectDuplicateSource')).Click;
         Require((Form.Plan.SelectedRemovedCount=1) and (Form.Plan.SelectedCount=1) and Copies.Items[2].Checked and
           not Copies.Items[1].Checked and not Copies.Items[3].Checked,'Source marking selected another source');
@@ -698,18 +768,27 @@ var Root: string;
     Operation:=TBookDeletionOperation.CreateDuplicateRemoval(Selection,Settings.SystemFileName[sfSystemDB],Stage+'journal');
     try
       Operation.ReviewArchives:=Kind='cancel';
-      Operation.Start; Started:=GetTickCount64;
-      while not Operation.Status.Finished do
+      if Kind='resume' then
+        RunLinkedCopyTestSQL(Info.DBFileName,'CREATE TRIGGER OwnedLinkedCopyFailure BEFORE DELETE ON CatalogBookCopies '+
+          'WHEN OLD.SourceKey=''test:loose'' BEGIN SELECT RAISE(ABORT,''owned linked copy failure''); END');
+      var State:=RunLinkedCopyTestOperation(Operation,Kind);
+      var Completed:=State.CompletedCopies;
+      if Kind='resume' then
       begin
-        Require(GetTickCount64-Started<25000,'Linked deletion exceeded deadline: '+Kind);
-        if Operation.Status.AwaitingArchiveConfirmation then Operation.RequestStop;
-        Sleep(5);
+        Require(State.Error.Contains('owned linked copy failure') and (State.CompletedCopies=1) and
+          (State.PendingJournal<>'') and (THashSHA2.GetHashStringFromFile(LoosePath)=LooseHash),
+          'Linked failure did not retain the uncommitted file and its recovery receipt: '+State.Error);
+        RunLinkedCopyTestSQL(Info.DBFileName,'DROP TRIGGER OwnedLinkedCopyFailure');
+        FreeAndNil(Operation);
+        Operation:=TBookDeletionOperation.Recover(Settings.SystemFileName[sfSystemDB],Stage+'journal');
+        State:=RunLinkedCopyTestOperation(Operation,Kind);
+        Require(State.CompletedCopies=1,'Recovery repeated the completed archive or missed the pending copy: '+State.Error);
+        Inc(Completed,State.CompletedCopies);
+        Writeln('PASS linked duplicate recovery resumes the exact pending file after a catalogue write failure');
       end;
-      Operation.WaitFor;
-      var State:=Operation.Status;
-      if Kind='ok' then
+      if (Kind='ok') or (Kind='resume') then
       begin
-        Require((State.Error='') and (State.PendingJournal='') and (State.CompletedCopies=2) and
+        Require((State.Error='') and (State.PendingJournal='') and (Completed=2) and
           (State.CompletedBooks=0) and (Length(Collection.GetCatalogBookCopies(Primary.BookKey))=2) and
           not FileExists(LoosePath),'Linked copy deletion did not complete both exact files: '+State.Error);
         Zip:=TZipFile.Create;
@@ -756,14 +835,14 @@ begin
     CaseCheck('alternate','связаны дополнительные копии');
     CaseCheck('stale','Запись книги изменилась');
     Writeln('PASS duplicate file removal explicit confirmation retains exact books and rejects missing, shared, protected and stale sources');
-    for var Kind in ['ok','shared','missing-primary','cancel'] do CheckLinkedCopies(Kind);
+    for var Kind in ['ok','shared','missing-primary','cancel','resume'] do CheckLinkedCopies(Kind);
     Writeln('PASS linked duplicate deletion removes loose and archived files, protects the main card and unselected sources, and cancels before writing');
   finally Vcl.Dialogs.UseLatestCommonDialogs:=SavedDialogs; Timer.Free; DialogProbe.Free; end;
 end;
 
 // Optional audit of an explicitly supplied catalog. No collection DAO and no
 // Apply call are used: catalog, registration and reader files are read-only.
-procedure TestBookDuplicateReadOnlyCatalog(const CatalogFile: string);
+procedure TestBookDuplicateReadOnlyCatalog(const CatalogFile: string; Linked: Boolean = False);
 var Registration, Catalog: TSQLiteDatabase; Plan: TBookDuplicatePlan;
   SystemFile, WorkRoot, Root, Namespace, ReaderFile: string; CID: Integer;
   Watch: TStopwatch; Baseline, Peak: Int64;
@@ -786,13 +865,41 @@ begin
   Plan:=TBookDuplicatePlan.Create(CatalogFile,Root,Namespace,SystemFile,ReaderFile,CID,WorkRoot);
   try
     Baseline:=DuplicatePrivateBytes; Peak:=Baseline; Watch:=TStopwatch.StartNew;
-    Plan.Preview(nil,procedure(Current,Total: Integer) begin Peak:=Max(Peak,DuplicatePrivateBytes); end);
+    if Linked then
+      Plan.PreviewLinked(nil,procedure(Current,Total: Integer) begin Peak:=Max(Peak,DuplicatePrivateBytes); end)
+    else Plan.Preview(nil,procedure(Current,Total: Integer) begin Peak:=Max(Peak,DuplicatePrivateBytes); end);
     Watch.Stop; Peak:=Max(Peak,DuplicatePrivateBytes);
     Require(Plan.Ready and (Plan.SelectedCount=0) and not Plan.Committed,'Read-only preview changed catalog state');
     if Plan.GroupCount>0 then
     begin
       Require(Length(Plan.Groups(0,50))>0,'Large catalog first page is empty');
       Require(Length(Plan.Groups(((Plan.GroupCount-1) div 50)*50,50))>0,'Large catalog last page is empty');
+    end;
+    if Linked then
+    begin
+      var Chosen:=''; var Count:=0;
+      for var Name in Plan.Sources do
+        if Name.StartsWith('fb2_local · ') then
+        begin
+          Inc(Count);
+          if Chosen='' then Chosen:=Name;
+        end;
+      Require(Count>=2,'Actual catalogue did not separate the repeated fb2_local source names');
+      Require(Plan.SelectSource(Chosen)=MAX_LINKED_DUPLICATE_SELECTION,'Actual catalogue could not stage a full linked batch');
+      var Info:=Default(TCollectionInfo);
+      Info.ID:=CID; Info.DBFileName:=CatalogFile; Info.RootFolder:=Root; Info.CollectionType:=CT_EXTERNAL_LOCAL_FB;
+      var Selection:=Plan.PrepareFileDeletion(Info,nil);
+      var Copies:=Selection.Removed.ExpectedBooks;
+      Require(Length(Copies)=MAX_LINKED_DUPLICATE_SELECTION,'Actual linked batch did not bind all marked copies');
+      var ChosenRoot:=ExcludeTrailingPathDelimiter(Copies[0].CollectionRoot);
+      Require(Chosen.Contains(ChosenRoot),'The batch does not belong to the displayed source root');
+      for var Book in Copies do
+        Require(SameFileName(ExcludeTrailingPathDelimiter(Book.CollectionRoot),ChosenRoot),
+          'An identically named source from a different path entered the selected batch');
+      Writeln('PROFILE readonly linked duplicate scan rows=',Plan.Scanned,' groups=',Plan.GroupCount,
+        ' ms=',Watch.ElapsedMilliseconds,' sampled_private_growth_bytes=',Peak-Baseline,' matching_sources=',Count);
+      Writeln('PASS actual read-only catalogue distinguishes fb2_local sources and stages 5000 exact copies from one root');
+      Exit;
     end;
     Writeln('PROFILE readonly duplicate scan rows=',Plan.Scanned,' groups=',Plan.GroupCount,
       ' ms=',Watch.ElapsedMilliseconds,' sampled_private_growth_bytes=',Peak-Baseline);
