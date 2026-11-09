@@ -19,15 +19,11 @@ HomeLibre — программа для Windows, которая помогает
 
 ## Скачать и запустить
 
-Текущий тестовый выпуск — **[HomeLibre 3.0 beta 10](https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.10)**.
-[Изменения](https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.10) · [История выпусков](https://github.com/Dicur3x/MyHomeLib/releases) ·
-[Проверки и ограничения](docs/RELEASE_VALIDATION_3.0.0_pre1.10.md).
+[Выпуски HomeLibre для Windows](https://github.com/Dicur3x/MyHomeLib/releases) · [История изменений](docs/releases/README.md)
 
-| Скачать HomeLibre | Для какой системы |
-| --- | --- |
-| [HomeLibre — 64 бит](https://github.com/Dicur3x/MyHomeLib/releases/download/3.0.0_pre1.10/HomeLibre_x64.zip) | 64-разрядная Windows |
-| [HomeLibre — 32 бит](https://github.com/Dicur3x/MyHomeLib/releases/download/3.0.0_pre1.10/HomeLibre.zip) | 32-разрядная Windows; также работает на 64-разрядной |
-| [SHA256SUMS.txt](https://github.com/Dicur3x/MyHomeLib/releases/download/3.0.0_pre1.10/SHA256SUMS.txt) | Контрольные суммы архивов |
+В файлах выбранного выпуска `HomeLibre_x64.zip` предназначен для 64-разрядной
+Windows, а `HomeLibre.zip` — для 32-разрядной. Контрольные суммы находятся
+в `SHA256SUMS.txt` на той же странице.
 
 Требуется **Windows 10 или новее**. Архив содержит каталогизатор. Книги
 скачиваются отдельно.
@@ -47,22 +43,38 @@ HomeLibre — программа для Windows, которая помогает
 
 ## HomeLibre Reader
 
-[Скачать Reader для Windows x64](https://github.com/Dicur3x/MyHomeLib/releases/download/optional-alreader-2.5.1009.25/HomeLibRu-HomeLibReader-3.0.0.8-Win64.zip) · [Скачать Reader для Windows x86](https://github.com/Dicur3x/MyHomeLib/releases/download/optional-alreader-2.5.1009.25/HomeLibRu-HomeLibReader-3.0.0.8-Win32.zip) ·
-[Все компоненты и внешние читалки](https://github.com/Dicur3x/MyHomeLib/releases/tag/optional-alreader-2.5.1009.25)
+[Скачать HomeLibre Reader и компоненты](https://github.com/Dicur3x/MyHomeLib/releases/tag/optional-alreader-2.5.1009.25)
+В списке файлов выберите архив HomeLibre Reader для Windows x86 или x64.
 
 HomeLibre Reader можно запустить отдельно, чтобы читать свои файлы без
 каталогизатора и коллекции. Распакуйте архив, запустите **HomeLibReader.exe**
 и нажмите **Ctrl+O**. Если вы открываете книгу из каталогизатора, он предложит
 установить читалку при первом обращении.
 
-- **Сразу доступны** FB2, FB3, EPUB, TXT, RTF, HTML/MHTML, Markdown, DOCX, ODT,
-  JPEG, PNG, GIF, BMP, поддерживаемые TIFF и CBZ с такими изображениями.
-- **По запросу** загружаются модули для PDF, DjVu, XPS, Kindle (MOBI, AZW, AZW3, PRC),
-  старых документов Office (включая DOC), WebP и комиксов CBR/CB7.
-  Презентации и таблицы можно открыть без установленного Office.
-- **Редкие форматы** включают CHM, LIT, LRF, RB, ABW, SXW, WRI, TCR, RGO,
-  IBK и поддерживаемые варианты PDB. Читалка также открывает поддерживаемые
-  книги внутри ZIP, 7z и RAR. Если в архиве несколько книг, можно выбрать нужную.
+### Поддерживаемые форматы чтения
+
+| Тип файлов | Форматы | Дополнительный модуль |
+| --- | --- | --- |
+| Электронные книги | FB2, FB3, EPUB | Для очень крупных FB2 может понадобиться BookProcessing |
+| Текст и разметка | TXT, FAQ, WRI, RTF, MD, MARKDOWN, HTML, HTM, SHTML, XHTML, MHT, MHTML | Для очень крупных RTF может понадобиться BookProcessing |
+| Текстовые документы | DOCX, ODT | Встроено |
+| Word и шаблоны OpenDocument | DOC, DOT, DOCM, DOTX, DOTM, OTT | Для DOC и DOT — DocSharp. Для остальных — BookProcessing |
+| Презентации | PPT, PPS, POT, PPTX, PPTM, PPSX, PPSM, POTX, POTM, ODP, OTP | BookProcessing. Для PPT, PPS и POT также нужен DocSharp |
+| Таблицы | XLS, XLT, XLSX, XLSM, XLTX, XLTM, ODS, OTS | BookProcessing. Для XLS и XLT также нужен DocSharp |
+| Works и WordPerfect | WPS, WPD | BookProcessing и libwps/libwpd. Требуется 64-разрядная Windows |
+| Документы с фиксированными страницами | PDF, DJVU, DJV, DJU, DJM, DJVM, XPS, OXPS | PDFium для PDF, DjVuLibre для DjVu, HomeLibXps и BookProcessing для XPS и OXPS |
+| Книги Kindle | MOBI, AZW, AZW3, PRC | KindleUnpack и BookProcessing. Для некоторых старых вариантов также нужны кодеки calibre |
+| Интерактивные книги | SM | BookProcessing. Можно сохранить пройденную ветку |
+| Редкие книги и документы | CHM, LIT, LRF, RB, ABW, SXW, TCR, PDB, RGO, IBK, JUTOH, PAGES, CR3, B1, HA | BookProcessing. Для CHM нужен 7-Zip, для LIT и LRF — кодеки calibre, для IBK — данные ICE Book Reader. Поддержка зависит от варианта файла |
+| Изображения и комиксы | JPG, JPEG, PNG, GIF, BMP, WEBP, TIF, TIFF, CBZ, CBR, CB7 | WebP требует libwebp. Для некоторых TIFF нужен BookProcessing, а для некоторых комиксов — 7-Zip. Для иллюстраций JPEG XL в книгах нужен декодер JPEG XL |
+
+Книги можно открыть внутри ZIP, FBZ, 7Z, 7ZIP, RAR, TAR, GZ, GZIP, TGZ,
+BZ2, XZ, CAB и APK, если там есть книга поддерживаемого формата. При нескольких
+книгах можно выбрать нужную. Для некоторых способов сжатия нужен 7-Zip.
+
+Читалка проверяет содержимое файла и может распознать книгу с ошибочным
+расширением. Дополнительные модули предлагаются при первом обращении.
+Презентации и таблицы открываются без установленного Microsoft Office.
 
 В читалке можно настроить цвета, шрифт, развороты и плавную прокрутку.
 Есть поиск по тексту, оглавление, закладки и заметки. Место чтения сохраняется.
