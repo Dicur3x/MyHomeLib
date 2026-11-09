@@ -99,6 +99,9 @@ begin
     Require((State.Error='') and (State.PendingJournal='') and State.CatalogueChanged and
       (State.CompletedBooks=2) and (State.CollectionIndex=2) and (State.CollectionCount=2),
       'Multi-collection deletion failed: '+State.Error);
+    Require((Length(State.AffectedCollections)=2) and State.AffectsCollection(Collections[0].CollectionID) and
+      State.AffectsCollection(Collections[1].CollectionID) and not State.AffectsCollection(0),
+      'Background deletion did not identify exactly the catalogues that need refreshing');
     Require(not Exists(Selected[0]) and not Exists(Selected[1]) and Exists(Neighbour),
       'Equal IDs in two collections were confused or a neighbour row was removed');
     Require(THashSHA2.GetHashStringFromFile(LooseName)=LooseHash,'Catalogue-only phase removed or changed its file');

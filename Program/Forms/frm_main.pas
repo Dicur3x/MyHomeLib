@@ -822,7 +822,8 @@ type
     procedure ImportBooksFromFiles(const FileNames: TArray<string>; CollectionID: Integer);
     procedure StopBookDeletion(Sender: TObject);
     procedure ConfirmArchiveDeletion(Sender: TObject);
-    procedure RefreshAfterBookDeletion(const CollectionID: Integer; RemoveRecords: Boolean);
+    procedure RefreshAfterBookDeletion(const CollectionID: Integer; RemoveRecords: Boolean;
+      GroupsOnly: Boolean = False);
 
 
 
@@ -8780,7 +8781,11 @@ begin
   if State.Error<>'' then LogDiagnosticMessage('book-delete',State.Error);
   if State.CleanupWarning<>'' then LogDiagnosticMessage('book-delete-cleanup',State.CleanupWarning);
   if State.CatalogueChanged and not FCloseAfterBookDeletion and Assigned(FCollection) then
-    RefreshAfterBookDeletion(FCollection.CollectionID,True);
+  begin
+    var ActiveCollectionID:=FCollection.CollectionID;
+    var ChangedHere:=State.AffectsCollection(ActiveCollectionID);
+    RefreshAfterBookDeletion(ActiveCollectionID,ChangedHere,not ChangedHere);
+  end;
   if FCloseAfterBookDeletion then
   begin
     FCloseAfterBookDeletion:=False;
@@ -8815,7 +8820,7 @@ begin
   else if State.CompletedBooks>0 then StatusMessage:=Format('Обработано книг: %d.',[State.CompletedBooks]);
 end;
 
-procedure TfrmMain.RefreshAfterBookDeletion(const CollectionID: Integer; RemoveRecords: Boolean);
+procedure TfrmMain.RefreshAfterBookDeletion(const CollectionID: Integer; RemoveRecords, GroupsOnly: Boolean);
 var Tree: TBookTree; View: TView; Node, FocusNode, TopNode: PVirtualNode;
   FocusRanks, TopRanks: TDictionary<UInt64,Integer>; FocusRank, TopRank, OffsetX: Integer;
 
@@ -8842,8 +8847,15 @@ var Tree: TBookTree; View: TView; Node, FocusNode, TopNode: PVirtualNode;
 
 begin
   if not Assigned(FCollection) or (FCollection.CollectionID<>CollectionID) then Exit;
+  View:=ActiveView;
+  if GroupsOnly then
+  begin
+    // Personal groups can contain cards from any collection.
+    Exclude(FLoadedBookViews,FavoritesView);
+    if View<>FavoritesView then Exit;
+  end;
   if RemoveRecords then FStaleSelectors:=FStaleSelectors+[AuthorsView,SeriesView];
-  View:=ActiveView; GetActiveTree(Tree);
+  GetActiveTree(Tree);
   if not Assigned(Tree) or (View=DownloadView) then
   begin RefreshBookMetadataViews(CollectionID); Exit; end;
   FocusRanks:=TDictionary<UInt64,Integer>.Create;
@@ -8854,7 +8866,9 @@ begin
     Remember(FocusRanks,Tree.FocusedNode,True);
     Remember(TopRanks,Tree.TopNode,False);
     Remember(TopRanks,Tree.TopNode,True);
-    RefreshBookMetadataViews(CollectionID);
+    if GroupsOnly then
+    begin EnsureActiveBookViewLoaded; RefreshActiveBookInfo; end
+    else RefreshBookMetadataViews(CollectionID);
     if not Assigned(FCollection) or (FCollection.CollectionID<>CollectionID) or
       (View<>ActiveView) or (Tree<>GetViewTree(View)) then Exit;
     FocusNode:=nil; TopNode:=nil; FocusRank:=MaxInt; TopRank:=MaxInt;

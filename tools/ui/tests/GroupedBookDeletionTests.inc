@@ -127,7 +127,8 @@ var Root:string; IDs:array[0..2] of Integer; Collections:array[0..2] of IBookCol
     Require(string(frmMain.acBookDelete.Caption).Contains('исходных коллекций'),
       'Group deletion action can be confused with removing a group link');
   end;
-  procedure Execute(Accept,OnlyFiles:Boolean; Count,CollectionCount:Integer; ExpectedWarnings:Integer=0);
+  procedure Execute(Accept,OnlyFiles:Boolean; Count,CollectionCount:Integer; ExpectedWarnings:Integer=0;
+    DuringDeletion:TProc=nil);
   var Progress:TComponent; Started:UInt64;
   begin
     Probe.Accept:=Accept; Probe.ExpectedCount:=Count; Probe.ExpectedCollections:=CollectionCount;
@@ -135,6 +136,11 @@ var Root:string; IDs:array[0..2] of Integer; Collections:array[0..2] of IBookCol
     try
       if OnlyFiles then frmMain.miDeleteFilesClick(nil) else frmMain.N74.Click;
       Progress:=frmMain.FindComponent('BookDeletionProgress'); Started:=GetTickCount64;
+      if Assigned(DuringDeletion) then
+      begin
+        Require(Assigned(Progress),'Background deletion did not open a progress window');
+        DuringDeletion();
+      end;
       while Assigned(frmMain.FindComponent('BookDeletionProgress')) do
       begin
         Require(frmMain.Enabled,'Grouped deletion disabled the catalogue');
@@ -199,6 +205,34 @@ begin
     Probe.FileChoice:=1; Execute(True,False,2,2);
     Require(not Exists(Selected[0]) and not Exists(Selected[1]),'Grouped archive removal left selected records');
     Retained(0,True,True); Retained(1,True,True);
+    SystemDB.ClearGroup(GroupID); Source(1,7,True); LoadGroup([1]);
+    var OtherBook:TBookKey;
+    Execute(True,False,1,1,0,procedure
+      begin
+        ShowPage(PAGE_AUTHORS);
+        var Row:=frmMain.tvBooksA.GetFirst;
+        while Assigned(Row) and (PBookRecord(frmMain.tvBooksA.GetNodeData(Row))^.NodeType<>ntBookInfo) do
+          Row:=frmMain.tvBooksA.GetNext(Row);
+        Require(Assigned(Row),'Unaffected collection did not show a book');
+        OtherBook:=PBookRecord(frmMain.tvBooksA.GetNodeData(Row))^.BookKey;
+        Require(OtherBook.DatabaseID=IDs[0],'Unaffected collection fixture used the wrong catalogue');
+        frmMain.tvBooksA.CheckState[Row]:=csCheckedNormal;
+      end);
+    var Row:=frmMain.tvBooksA.GetFirst;
+    while Assigned(Row) and not PBookRecord(frmMain.tvBooksA.GetNodeData(Row))^.BookKey.IsSameAs(OtherBook) do
+      Row:=frmMain.tvBooksA.GetNext(Row);
+    Require(Assigned(Row) and (frmMain.tvBooksA.CheckState[Row]=csCheckedNormal),
+      'Deletion in another collection rebuilt the unrelated list and cleared the checked book');
+    ShowPage(PAGE_FAVORITES);
+    Row:=frmMain.tvBooksF.GetFirst;
+    while Assigned(Row) do
+    begin
+      Require(not PBookRecord(frmMain.tvBooksF.GetNodeData(Row))^.BookKey.IsSameAs(Selected[1].BookKey),
+        'The group still displays the removed card from the other collection');
+      Row:=frmMain.tvBooksF.GetNext(Row);
+    end;
+    Retained(1,True,True);
+    Writeln('PASS background deletion keeps unrelated catalogue marks and refreshes shared Groups');
     SystemDB.ClearGroup(GroupID); Source(0,3,True); Source(1,3,True); LoadGroup([0,1]);
     Execute(True,True,2,2);
     Require(Exists(Selected[0]) and Exists(Selected[1]),'Files-only grouped command removed catalogue records');

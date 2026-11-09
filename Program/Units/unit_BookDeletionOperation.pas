@@ -15,7 +15,10 @@ type
     MoveBytes, JournalBytes: Int64;
     CompanionCount: Integer;
     ArchiveIndex, ArchiveCount, CompletedBooks, CompletedCopies: Integer;
-    Stopping, Finished, CatalogueChanged, AwaitingArchiveConfirmation: Boolean;
+    Stopping, Finished, AwaitingArchiveConfirmation: Boolean;
+    AffectedCollections: TArray<Integer>;
+    function CatalogueChanged: Boolean;
+    function AffectsCollection(CollectionID: Integer): Boolean;
   end;
 
   TBookDeletionBatchItem = record
@@ -82,6 +85,18 @@ begin
   // A catalogue-only confirmation never probes the source drive.
   Result:=not Book.IsLinkedSource and
     IsArchiveExt(Book.GetBookFileName(TPath.Combine(Book.CollectionRoot,Book.Folder)));
+end;
+
+function TBookDeletionOperationStatus.CatalogueChanged: Boolean;
+begin
+  Result:=Length(AffectedCollections)>0;
+end;
+
+function TBookDeletionOperationStatus.AffectsCollection(CollectionID: Integer): Boolean;
+begin
+  for var ID in AffectedCollections do
+    if ID=CollectionID then Exit(True);
+  Result:=False;
 end;
 
 constructor TBookDeletionOperation.Create(const Binding:TBookDeletionBinding;
@@ -408,7 +423,10 @@ begin
   // Two durable stores may commit separately. Even on failure the owner must
   // refresh the view and keep the receipt so the remaining phase can replay.
   TMonitor.Enter(FLock);
-  try FState.CatalogueChanged:=True; finally TMonitor.Exit(FLock); end;
+  try
+    if not FState.AffectsCollection(Binding.CollectionID) then
+      FState.AffectedCollections:=FState.AffectedCollections+[Binding.CollectionID];
+  finally TMonitor.Exit(FLock); end;
   if Binding.RemovesCopies then
   begin
     Binding.CommitCopies(User);
