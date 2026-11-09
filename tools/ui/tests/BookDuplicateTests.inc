@@ -654,8 +654,48 @@ var Root: string;
     TFile.WriteAllText(LoosePath,'Original separate copy',TEncoding.UTF8);
     ArchiveHash:=THashSHA2.GetHashStringFromFile(Archive);
     LooseHash:=THashSHA2.GetHashStringFromFile(LoosePath);
-    var Binding:=TBookDeletionBinding.CaptureCopies(Info,[Member,Loose],[Primary,Primary],['test:member','test:loose']);
-    Operation:=TBookDeletionOperation.Create(Binding,Settings.SystemFileName[sfSystemDB],Stage+'journal');
+    var Selection:=Default(TDuplicateFileDeletion);
+    if Kind='ok' then
+    begin
+      var Form:=TfrmBookDuplicates.CreateForCollection(frmMain,Collection);
+      try
+        TButton(Form.FindComponent('btnFindLinkedBookCopies')).Click;
+        Require(Form.Plan.LinkedMode and (Form.Plan.GroupCount=1) and
+          not TButton(Form.FindComponent('btnApplyBookDuplicates')).Visible,
+          'Linked copy scan did not open the separate deletion view');
+        var Copies:=TListView(Form.FindComponent('lvDuplicateCopies'));
+        Require(Copies.Checkboxes and (Copies.Items.Count=4) and Copies.Items[0].Caption.EndsWith(' ★'),
+          'Linked copy list did not distinguish the primary or hid an alternative');
+        var Sources:=TComboBox(Form.FindComponent('cbDuplicatePreferredSource'));
+        Sources.ItemIndex:=Sources.Items.IndexOf('Archive copy');
+        Require(Sources.ItemIndex>=0,'Linked source filter omitted an available source');
+        TButton(Form.FindComponent('btnSelectDuplicateSource')).Click;
+        Require((Form.Plan.SelectedRemovedCount=1) and (Form.Plan.SelectedCount=1) and Copies.Items[2].Checked and
+          not Copies.Items[1].Checked and not Copies.Items[3].Checked,'Source marking selected another source');
+        Copies.Items[0].Checked:=True;
+        Copies.OnItemChecked(Copies,Copies.Items[0]);
+        Require(not Copies.Items[0].Checked and (Form.Plan.SelectedRemovedCount=1),'Primary file can be selected for deletion');
+        Copies.Items[1].Checked:=True;
+        Copies.OnItemChecked(Copies,Copies.Items[1]);
+        Require(Form.Plan.SelectedRemovedCount=2,'An individual copy could not be marked');
+        var DeleteButton:=TButton(Form.FindComponent('btnDeleteDuplicateFiles'));
+        DialogProbe.Accept:=False; DialogProbe.Count:=0; DialogProbe.DefaultNo:=False;
+        Timer.Enabled:=True;
+        try DeleteButton.Click; finally Timer.Enabled:=False; end;
+        Require((DialogProbe.Count=1) and DialogProbe.DefaultNo and (Form.FileDeletion.Removed.CollectionID=0),
+          'Declining linked deletion accepted a binding');
+        DialogProbe.Accept:=True; DialogProbe.Count:=0;
+        Timer.Enabled:=True;
+        try DeleteButton.Click; finally Timer.Enabled:=False; end;
+        Selection:=Form.FileDeletion;
+        Require((DialogProbe.Count=1) and Selection.Removed.RemovesCopies and
+          (Length(Selection.Removed.SourceKeys)=2),'Normal duplicate dialog did not prepare the linked file selection');
+        Writeln('PASS linked duplicate dialog selects individual files and one source, protects the primary, and confirms deletion');
+      finally Form.Free; end;
+    end
+    else
+      Selection.Removed:=TBookDeletionBinding.CaptureCopies(Info,[Member,Loose],[Primary,Primary],['test:member','test:loose']);
+    Operation:=TBookDeletionOperation.CreateDuplicateRemoval(Selection,Settings.SystemFileName[sfSystemDB],Stage+'journal');
     try
       Operation.ReviewArchives:=Kind='cancel';
       Operation.Start; Started:=GetTickCount64;

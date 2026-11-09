@@ -5,11 +5,13 @@ interface
 uses System.SysUtils, System.Classes, System.Generics.Collections, SQLiteWrap, unit_Globals,
   unit_CollectionMerge, unit_BookDeletionBinding;
 
+const MAX_LINKED_DUPLICATE_SELECTION = 5000;
+
 type
   TDuplicateBook = record
     Book: TBookRecord;
-    SourceName: string;
-    HasPersonalData: Boolean;
+    SourceName, CopyKey: string;
+    HasPersonalData, Selected: Boolean;
   end;
   TDuplicateGroup = record
     ID, Count, KeepID: Integer;
@@ -22,23 +24,27 @@ type
     FSource, FStage: TSQLiteDatabase;
     FFile, FRoot, FNamespace, FSystemFile, FReaderFile, FWorkRoot: string;
     FCID, FGroupCount, FScanned: Integer;
-    FReady, FCommitted: Boolean;
+    FReady, FCommitted, FLinkedMode: Boolean;
     FRemoved: Integer;
     FBaseDigest, FTitle, FCatalogueKey: string;
     FCanceled: TMergeCanceled;
     function QueryCanceled: Boolean;
     procedure LoadPersonalProtection;
+    function LinkedBooks(BookID: Integer): TArray<TDuplicateBook>;
+    function PrepareLinkedDeletion(const Info: TCollectionInfo): TBookDeletionBinding;
   public
     constructor Create(const CatalogFile, Root, LibraryNamespace, SystemFile,
       ReaderFile: string; CollectionID: Integer; const WorkRoot: string = '');
     destructor Destroy; override;
     procedure Preview(const Canceled: TMergeCanceled = nil; const Progress: TMergeProgress = nil);
+    procedure PreviewLinked(const Canceled: TMergeCanceled = nil; const Progress: TMergeProgress = nil);
     function Groups(Offset, Limit: Integer): TArray<TDuplicateGroup>;
     function Books(GroupID: Integer): TArray<TDuplicateBook>;
     function Sources: TArray<string>;
     function SelectSource(const SourceName: string; const Canceled: TMergeCanceled = nil): Integer;
     procedure ClearSelection;
     procedure Choose(GroupID, KeepID: Integer; Selected: Boolean);
+    procedure ChooseCopy(const CopyKey: string; Selected: Boolean);
     procedure Apply(const BackupFolder: string; const Canceled: TMergeCanceled = nil;
       const Progress: TMergeStageProgress = nil);
     function PrepareFileDeletion(const Info: TCollectionInfo; const Canceled: TMergeCanceled): TDuplicateFileDeletion;
@@ -47,6 +53,7 @@ type
     property GroupCount: Integer read FGroupCount;
     property Scanned: Integer read FScanned;
     property Ready: Boolean read FReady;
+    property LinkedMode: Boolean read FLinkedMode;
     property Committed: Boolean read FCommitted;
     property Removed: Integer read FRemoved;
   end;
@@ -212,7 +219,7 @@ var Q, Insert, Protected, ReaderKey: TSQLiteQuery; Book: TBookRecord;
 begin
   SourceNames:=TDictionary<string,string>.Create;
   try
-  FReady:=False; FGroupCount:=0; FScanned:=0; FBaseDigest:=''; FreeAndNil(FSource); FreeAndNil(FStage);
+  FReady:=False; FLinkedMode:=False; FGroupCount:=0; FScanned:=0; FBaseDigest:=''; FreeAndNil(FSource); FreeAndNil(FStage);
   Check;
   Previous:=SQLiteCancelCallback; FCanceled:=Canceled; SQLiteCancelCallback:=QueryCanceled;
   try
@@ -303,14 +310,86 @@ begin
   finally SourceNames.Free; end;
 end;
 
+function ReadDuplicateLocation(Q: TSQLiteQuery; First: Integer; const Root: string;
+  const Key: TBookKey): TBookRecord;
+begin
+  Result:=Default(TBookRecord); Result.BookKey:=Key;
+  Result.CollectionRoot:=Root; Result.LibID:=Q.FieldAsString(First);
+  Result.Folder:=Q.FieldAsString(First+1); Result.FileName:=Q.FieldAsString(First+2);
+  Result.FileExt:=Q.FieldAsString(First+3); Result.InsideNo:=Q.FieldAsInt(First+4);
+end;
+
+procedure TBookDuplicatePlan.PreviewLinked(const Canceled: TMergeCanceled; const Progress: TMergeProgress);
+var Previous: TSQLiteCancelCallback; Q, Insert: TSQLiteQuery;
+  Primary, CopyBook: TBookRecord; Identity: string;
+begin
+  FReady:=False; FLinkedMode:=True; FGroupCount:=0; FScanned:=0;
+  FreeAndNil(FSource); FreeAndNil(FStage);
+  Q:=nil; Insert:=nil;
+  Previous:=SQLiteCancelCallback; FCanceled:=Canceled; SQLiteCancelCallback:=QueryCanceled;
+  try
+    try
+      if QueryCanceled then Abort;
+      FCatalogueKey:=Copy(ArchiveDeletionSourceIdentity(FFile),1,25);
+      FSource:=TSQLiteDatabase.CreateReadOnly(FFile); FSource.Start;
+      FStage:=TSQLiteDatabase.Create(''); FStage.ExecSQL('PRAGMA cache_size=-4096');
+      FStage.ExecSQL('CREATE TABLE LinkedCopies(CopyKey TEXT PRIMARY KEY,BookID INTEGER NOT NULL,'+
+        'SourceName TEXT NOT NULL,Selected INTEGER NOT NULL DEFAULT 0)');
+      Q:=FSource.NewQuery('SELECT c.SourceKey,c.BookID,c.SourceName,c.Root,c.LibID,c.Folder,c.FileName,c.Ext,c.InsideNo,'+
+        'b.LibID,b.Folder,b.FileName,b.Ext,b.InsideNo FROM CatalogBookCopies c JOIN Books b USING(BookID) '+
+        'WHERE b.IsDeleted=0');
+      Insert:=FStage.NewQuery('INSERT INTO LinkedCopies(CopyKey,BookID,SourceName) VALUES(?,?,?)');
+      FStage.Start;
+      Q.Open;
+      while not Q.Eof do
+      begin
+        if QueryCanceled then Abort;
+        var Key:=CreateBookKey(Q.FieldAsInt(1),FCID);
+        Primary:=ReadDuplicateLocation(Q,9,FRoot,Key);
+        CopyBook:=ReadDuplicateLocation(Q,4,Q.FieldAsString(3),Key);
+        if not CopyBook.IsLinkedSource then
+        begin
+          Identity:=ReaderBookPhysicalIdentity(CopyBook);
+          if (Identity<>'') and (Identity<>ReaderBookPhysicalIdentity(Primary)) then
+          begin
+            Insert.SetParam(0,Q.FieldAsString(0)); Insert.SetParam(1,Key.BookID);
+            Insert.SetParam(2,Q.FieldAsString(2)); Insert.ExecSQL; Insert.Reset;
+          end;
+        end;
+        Inc(FScanned);
+        if (FScanned mod 4096=0) and Assigned(Progress) then Progress(FScanned,0);
+        Q.Next;
+      end;
+      FStage.Commit;
+      FStage.ExecSQL('CREATE INDEX LinkedBooks ON LinkedCopies(BookID)');
+      FStage.ExecSQL('CREATE INDEX LinkedSources ON LinkedCopies(SourceName)');
+      FStage.ExecSQL('CREATE INDEX LinkedSelected ON LinkedCopies(BookID) WHERE Selected=1');
+      FStage.ExecSQL('CREATE TABLE LinkedGroups(BookID INTEGER PRIMARY KEY,Count INTEGER NOT NULL)');
+      FStage.ExecSQL('INSERT INTO LinkedGroups SELECT BookID,count(*)+1 FROM LinkedCopies GROUP BY BookID');
+      FGroupCount:=FStage.QuerySingleInt('SELECT count(*) FROM LinkedGroups');
+      if QueryCanceled then Abort;
+      FReady:=True;
+      if Assigned(Progress) then Progress(FScanned,FScanned);
+    finally Insert.Free; Q.Free; end;
+  except
+    FreeAndNil(FSource); FreeAndNil(FStage); FGroupCount:=0;
+    SQLiteCancelCallback:=Previous; FCanceled:=nil;
+    raise;
+  end;
+  SQLiteCancelCallback:=Previous; FCanceled:=nil;
+end;
+
 function TBookDuplicatePlan.Sources: TArray<string>;
 var Q: TSQLiteQuery; Names: TList<string>;
 begin
   if not FReady then Exit(nil);
   Names:=TList<string>.Create;
   try
-    Q:=FStage.NewQuery('SELECT DISTINCT c.SourceName FROM Candidates c JOIN DuplicateGroups g USING(Identity) '+
-      'WHERE c.SourceName<>'''' ORDER BY c.SourceName');
+    if FLinkedMode then
+      Q:=FStage.NewQuery('SELECT DISTINCT SourceName FROM LinkedCopies WHERE SourceName<>'''' ORDER BY SourceName')
+    else
+      Q:=FStage.NewQuery('SELECT DISTINCT c.SourceName FROM Candidates c JOIN DuplicateGroups g USING(Identity) '+
+        'WHERE c.SourceName<>'''' ORDER BY c.SourceName');
     try
       Q.Open;
       while not Q.Eof do begin Names.Add(Q.FieldAsString(0)); Q.Next; end;
@@ -329,6 +408,16 @@ begin
     if QueryCanceled then Abort;
     FStage.Start;
     try
+      if FLinkedMode then
+      begin
+        FStage.ExecSQL('UPDATE LinkedCopies SET Selected=1 WHERE CopyKey IN ('+
+          'SELECT CopyKey FROM LinkedCopies WHERE SourceName=? AND Selected=0 ORDER BY BookID,CopyKey LIMIT ?)',
+          [SourceName,MAX_LINKED_DUPLICATE_SELECTION-SelectedRemovedCount]);
+        Result:=FStage.QuerySingleInt('SELECT changes()');
+        if QueryCanceled then Abort;
+        FStage.Commit;
+        Exit;
+      end;
       FStage.ExecSQL('DROP TABLE IF EXISTS SourceChoices');
       // Only a unique preferred copy in a group spanning known sources can be
       // chosen automatically. Preserve manual selections and all protected rows.
@@ -352,7 +441,9 @@ end;
 
 procedure TBookDuplicatePlan.ClearSelection;
 begin
-  if FReady then FStage.ExecSQL('UPDATE DuplicateGroups SET Selected=0 WHERE Selected<>0');
+  if not FReady then Exit;
+  if FLinkedMode then FStage.ExecSQL('UPDATE LinkedCopies SET Selected=0 WHERE Selected=1')
+  else FStage.ExecSQL('UPDATE DuplicateGroups SET Selected=0 WHERE Selected<>0');
 end;
 
 function TBookDuplicatePlan.Groups(Offset, Limit: Integer): TArray<TDuplicateGroup>;
@@ -362,7 +453,11 @@ begin
   if (Offset<0) or (Limit<1) or (Limit>100) then raise EArgumentOutOfRangeException.Create('Страница повторов');
   Values:=TList<TDuplicateGroup>.Create;
   try
-    Q:=FStage.NewQuery('SELECT GroupID,Identity,Count,KeepID,Selected FROM DuplicateGroups ORDER BY GroupID LIMIT ? OFFSET ?');
+    if FLinkedMode then
+      Q:=FStage.NewQuery('SELECT BookID,'''',Count,BookID,EXISTS(SELECT 1 FROM LinkedCopies c WHERE c.BookID=g.BookID '+
+        'AND c.Selected=1) FROM LinkedGroups g ORDER BY BookID LIMIT ? OFFSET ?')
+    else
+      Q:=FStage.NewQuery('SELECT GroupID,Identity,Count,KeepID,Selected FROM DuplicateGroups ORDER BY GroupID LIMIT ? OFFSET ?');
     try
       Q.SetParam(0,Limit); Q.SetParam(1,Offset); Q.Open;
       while not Q.Eof do
@@ -381,6 +476,7 @@ function TBookDuplicatePlan.Books(GroupID: Integer): TArray<TDuplicateBook>;
 var IDs, Q: TSQLiteQuery; Values: TList<TDuplicateBook>; Value: TDuplicateBook;
 begin
   if not FReady then raise EInvalidOperation.Create('Сначала выполните поиск повторов.');
+  if FLinkedMode then Exit(LinkedBooks(GroupID));
   Values:=TList<TDuplicateBook>.Create;
   try
     IDs:=FStage.NewQuery('SELECT c.BookID,c.SourceName FROM Candidates c JOIN DuplicateGroups g USING(Identity) WHERE g.GroupID=? ORDER BY c.BookID');
@@ -414,9 +510,63 @@ begin
   finally Values.Free; end;
 end;
 
+function TBookDuplicatePlan.LinkedBooks(BookID: Integer): TArray<TDuplicateBook>;
+var Q, Staged: TSQLiteQuery; Values: TList<TDuplicateBook>; Primary, Entry: TDuplicateBook;
+begin
+  Values:=TList<TDuplicateBook>.Create;
+  Q:=nil; Staged:=nil;
+  try
+    Q:=FSource.NewQuery('SELECT b.LibID,b.Folder,b.FileName,b.Ext,b.InsideNo,b.Title,b.Lang,b.BookSize,p.SourceName '+
+      'FROM Books b LEFT JOIN CatalogPreferredSource p USING(BookID) WHERE b.BookID=?',[BookID]);
+    Q.Open;
+    if Q.Eof then raise EReadError.Create('Основная запись исчезла из снимка.');
+    Primary:=Default(TDuplicateBook);
+    Primary.Book:=ReadDuplicateLocation(Q,0,FRoot,CreateBookKey(BookID,FCID));
+    Primary.Book.Title:=Q.FieldAsString(5); Primary.Book.Lang:=Q.FieldAsString(6);
+    Primary.Book.Size:=Q.FieldAsInt(7); Primary.SourceName:=Q.FieldAsString(8);
+    Values.Add(Primary); FreeAndNil(Q);
+    Staged:=FStage.NewQuery('SELECT CopyKey,SourceName,Selected FROM LinkedCopies WHERE BookID=? ORDER BY CopyKey',[BookID]);
+    Q:=FSource.NewQuery('SELECT LibID,Folder,FileName,Ext,InsideNo,Root,BookSize FROM CatalogBookCopies WHERE SourceKey=?');
+    Staged.Open;
+    while not Staged.Eof do
+    begin
+      if Values.Count>=1000 then raise EReadError.Create('С этой книгой связано больше 999 дополнительных копий.');
+      Entry:=Default(TDuplicateBook);
+      Entry.CopyKey:=Staged.FieldAsString(0); Entry.SourceName:=Staged.FieldAsString(1);
+      Entry.Selected:=Staged.FieldAsBoolean(2);
+      Q.SetParam(0,Entry.CopyKey); Q.Open;
+      if Q.Eof then raise EReadError.Create('Дополнительная копия исчезла из снимка.');
+      Entry.Book:=ReadDuplicateLocation(Q,0,Q.FieldAsString(5),Primary.Book.BookKey);
+      Entry.Book.Title:=Primary.Book.Title; Entry.Book.Lang:=Primary.Book.Lang;
+      Entry.Book.Size:=Q.FieldAsInt(6);
+      Values.Add(Entry); Q.Reset; Staged.Next;
+    end;
+    Result:=Values.ToArray;
+  finally Q.Free; Staged.Free; Values.Free; end;
+end;
+
+procedure TBookDuplicatePlan.ChooseCopy(const CopyKey: string; Selected: Boolean);
+begin
+  if not FReady or not FLinkedMode or (CopyKey='') then
+    raise EArgumentException.Create('Основная копия сохраняется.');
+  var Previous:=FStage.QuerySingleInt('SELECT Selected FROM LinkedCopies WHERE CopyKey=?',[CopyKey]);
+  if Selected and (Previous=0) and (SelectedRemovedCount>=MAX_LINKED_DUPLICATE_SELECTION) then
+    raise EInvalidOperation.CreateFmt('За один раз можно удалить до %d дополнительных копий.',[MAX_LINKED_DUPLICATE_SELECTION]);
+  FStage.ExecSQL('UPDATE LinkedCopies SET Selected=? WHERE CopyKey=?',[Ord(Selected),CopyKey]);
+end;
+
 procedure TBookDuplicatePlan.Choose(GroupID, KeepID: Integer; Selected: Boolean);
 var Found: Boolean;
 begin
+  if FReady and FLinkedMode then
+  begin
+    if Selected and (SelectedRemovedCount+
+      FStage.QuerySingleInt('SELECT count(*) FROM LinkedCopies WHERE BookID=? AND Selected=0',[GroupID])>
+      MAX_LINKED_DUPLICATE_SELECTION) then
+      raise EInvalidOperation.CreateFmt('За один раз можно удалить до %d дополнительных копий.',[MAX_LINKED_DUPLICATE_SELECTION]);
+    FStage.ExecSQL('UPDATE LinkedCopies SET Selected=? WHERE BookID=?',[Ord(Selected),GroupID]);
+    Exit;
+  end;
   Found:=False;
   for var Value in Books(GroupID) do
   begin
@@ -430,12 +580,48 @@ end;
 
 function TBookDuplicatePlan.SelectedCount: Integer;
 begin
-  Result:=0; if FReady then Result:=FStage.QuerySingleInt('SELECT count(*) FROM DuplicateGroups WHERE Selected<>0');
+  if not FReady then Exit(0);
+  if FLinkedMode then Exit(FStage.QuerySingleInt('SELECT count(DISTINCT BookID) FROM LinkedCopies WHERE Selected=1'));
+  Result:=FStage.QuerySingleInt('SELECT count(*) FROM DuplicateGroups WHERE Selected<>0');
 end;
 
 function TBookDuplicatePlan.SelectedRemovedCount: Integer;
 begin
-  Result:=0; if FReady then Result:=FStage.QuerySingleInt('SELECT coalesce(sum(Count-1),0) FROM DuplicateGroups WHERE Selected<>0');
+  if not FReady then Exit(0);
+  if FLinkedMode then Exit(FStage.QuerySingleInt('SELECT count(*) FROM LinkedCopies WHERE Selected=1'));
+  Result:=FStage.QuerySingleInt('SELECT coalesce(sum(Count-1),0) FROM DuplicateGroups WHERE Selected<>0');
+end;
+
+function TBookDuplicatePlan.PrepareLinkedDeletion(const Info: TCollectionInfo): TBookDeletionBinding;
+var Selection, Q: TSQLiteQuery; Keys: TArray<string>; Copies, Primary: TArray<TBookRecord>;
+begin
+  if not SameFileName(ExcludeTrailingPathDelimiter(Info.GetRootPath),ExcludeTrailingPathDelimiter(FRoot)) then
+    raise EReadError.Create('Папка книг изменилась. Повторите поиск дополнительных копий.');
+  var Count:=SelectedRemovedCount;
+  if (Count=0) or (Count>MAX_LINKED_DUPLICATE_SELECTION) then
+    raise EReadError.Create('Неверное число дополнительных копий в выбранной партии.');
+  SetLength(Keys,Count); SetLength(Copies,Count); SetLength(Primary,Count);
+  Selection:=FStage.NewQuery('SELECT CopyKey,BookID FROM LinkedCopies WHERE Selected=1 ORDER BY BookID,CopyKey');
+  Q:=nil;
+  try
+    Q:=FSource.NewQuery('SELECT c.LibID,c.Folder,c.FileName,c.Ext,c.InsideNo,c.Root,'+
+      'b.LibID,b.Folder,b.FileName,b.Ext,b.InsideNo FROM CatalogBookCopies c JOIN Books b USING(BookID) WHERE c.SourceKey=? AND c.BookID=?');
+    Selection.Open;
+    for var I:=0 to Count-1 do
+    begin
+      if QueryCanceled then Abort;
+      if Selection.Eof then raise EReadError.Create('Выбор дополнительных копий изменился.');
+      Keys[I]:=Selection.FieldAsString(0);
+      var Key:=CreateBookKey(Selection.FieldAsInt(1),FCID);
+      Q.SetParam(0,Keys[I]); Q.SetParam(1,Key.BookID); Q.Open;
+      if Q.Eof then raise EReadError.Create('Дополнительная копия исчезла из снимка.');
+      Copies[I]:=ReadDuplicateLocation(Q,0,Q.FieldAsString(5),Key);
+      Primary[I]:=ReadDuplicateLocation(Q,6,FRoot,Key);
+      Q.Reset; Selection.Next;
+    end;
+    if not Selection.Eof then raise EReadError.Create('Выбор дополнительных копий изменился.');
+    Result:=TBookDeletionBinding.CaptureCopies(Info,Copies,Primary,Keys);
+  finally Q.Free; Selection.Free; end;
 end;
 
 function TBookDuplicatePlan.PrepareFileDeletion(const Info: TCollectionInfo;
@@ -457,6 +643,11 @@ begin
   Current:=nil; Personal:=nil; Selection:=nil; Copies:=nil; Removed:=nil; Retained:=nil;
   try
     CheckCanceled;
+    if FLinkedMode then
+    begin
+      Result.Removed:=PrepareLinkedDeletion(Info);
+      Exit;
+    end;
     LoadPersonalProtection;
     Personal:=TSQLiteDatabase.CreateReadOnly(FSystemFile);
     if DuplicateQueryDigest(Personal,'SELECT * FROM Bases WHERE DatabaseID=?',[FCID])<>FBaseDigest then
@@ -591,7 +782,7 @@ var Catalog, Personal: TSQLiteDatabase; GroupsQuery, Map: TSQLiteQuery;
       ['dedupe-base:'+IntToStr(FCID)+':'+IntToStr(BookID),Result,FRoot,BookID]);
   end;
 begin
-  if not FReady or (SelectedCount=0) then
+  if not FReady or FLinkedMode or (SelectedCount=0) then
     raise EInvalidOperation.Create('Сначала выберите группы и предпочтительные записи в предпросмотре.');
   FCommitted:=False; FRemoved:=0; Catalog:=nil; Personal:=nil;
   ReaderHandle:=INVALID_HANDLE_VALUE; NotesLock:=INVALID_HANDLE_VALUE; CreatedReader:=False;

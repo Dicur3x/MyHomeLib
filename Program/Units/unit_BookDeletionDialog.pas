@@ -141,7 +141,9 @@ begin
   if State.Stopping then FDetail.Caption:='Останавливаемся. Если архив уже меняется, сначала закончим его.'
   else
   begin
-    Detail:=Format('Готово книг: %d. Можно продолжать работать с другими книгами.',[State.CompletedBooks]);
+    if State.CompletedCopies>0 then
+      Detail:=Format('Обработано дополнительных копий: %d. Можно продолжать работать с другими книгами.',[State.CompletedCopies])
+    else Detail:=Format('Готово книг: %d. Можно продолжать работать с другими книгами.',[State.CompletedBooks]);
     if (State.Stage=ArchiveDeletionWriteStage) and (State.Done>0) then
     begin
       var NowTick:=GetTickCount64;

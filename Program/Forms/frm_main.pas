@@ -8794,6 +8794,12 @@ begin
     MHLShowWarning('Не удалось завершить удаление.'+sLineBreak+Detail);
   end
   else if State.CleanupWarning<>'' then MHLShowWarning(State.CleanupWarning)
+  else if State.CompletedCopies>0 then
+  begin
+    if State.Stopping then
+      StatusMessage:=Format('Удаление остановлено. Удалено дополнительных копий: %d.',[State.CompletedCopies])
+    else StatusMessage:=Format('Удалено дополнительных копий: %d. Основные карточки сохранены.',[State.CompletedCopies]);
+  end
   else if State.Stopping then StatusMessage:=Format('Удаление остановлено. Обработано книг: %d.',[State.CompletedBooks])
   else if State.CompletedBooks>0 then StatusMessage:=Format('Обработано книг: %d.',[State.CompletedBooks]);
 end;

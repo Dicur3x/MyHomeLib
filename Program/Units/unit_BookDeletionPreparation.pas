@@ -58,9 +58,9 @@ begin Rows.Free; inherited; end;
 constructor TBookDeletionPreparation.Create(const Binding:TBookDeletionBinding);
 begin
   inherited Create(True); FreeOnTerminate:=False; FLock:=TObject.Create;
-  // Parse a private validated copy rather than retaining an outward record's
-  // managed-array storage. This also bounds a future durable receipt up front.
-  FBinding:=TBookDeletionBinding.Parse(Binding.ToJSON);
+  // The binding exposes copies of its arrays. Serialize only each archive's
+  // slice so an operation spanning many archives has no single-receipt cap.
+  FBinding:=Binding;
   FState.BookCount:=Length(FBinding.ExpectedBooks); Priority:=tpLower;
 end;
 

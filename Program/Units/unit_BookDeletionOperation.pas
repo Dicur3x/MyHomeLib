@@ -170,6 +170,7 @@ constructor TBookDeletionOperation.CreateDuplicateRemoval(const Selection: TDupl
   const UserFile, JournalRoot: string);
 begin
   Create(Selection.Removed,UserFile,JournalRoot);
+  if Selection.Removed.RemovesCopies then Exit;
   if (Selection.Retained.CollectionID<>Selection.Removed.CollectionID) or
     not Selection.Removed.RemoveRecords or (Length(Selection.Retained.ExpectedBooks)=0) then
     raise EArgumentException.Create('Не выбраны сохраняемые копии дублей.');

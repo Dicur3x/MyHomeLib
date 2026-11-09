@@ -166,6 +166,7 @@ const requiredViews = {
   'ibk-components': ['PASS IBK original component requests on first use', 'PASS catalogue-formats audit completed'],
   'duplicate-file-removal': [
     'PASS duplicate file removal explicit confirmation retains exact books and rejects missing, shared, protected and stale sources',
+    'PASS linked duplicate dialog selects individual files and one source, protects the primary, and confirms deletion',
     'PASS linked duplicate deletion removes loose and archived files, protects the main card and unselected sources, and cancels before writing'
   ],
   'duplicate-source': ['PASS duplicate source preference: bulk choice', 'PASS duplicate preview: scoped identity', 'PASS duplicate apply: preferred ID', 'PASS duplicate large preview: 100000 rows'],
