@@ -186,6 +186,45 @@ begin
       (THashSHA2.GetHashStringFromFile(SourceFile)=SourceHash),'Files-only completion lost a saved card group link or physical source');
     Writeln('PASS files-only receipt clears only matching source availability and preserves records ratings progress notes groups and source bytes'); Flush(Output);
 
+    var CopyA:=Current; CopyA.FileName:='alternate-a';
+    var CopyB:=Current; CopyB.FileName:='alternate-b';
+    Collection.SetCatalogBookCopy('test-copy:a','Archive A',CopyA);
+    Collection.SetCatalogBookCopy('test-copy:b','Archive B',CopyB);
+    Collection.SetCatalogBookCopy('test-copy:main','Primary source',Current);
+    Catalog.ExecSQL('INSERT INTO CatalogSourceBooks(SourceKey,BookID) VALUES(?,?)',['test-copy:b',LocalID]);
+    var CopyBinding:=TBookDeletionBinding.CaptureCopies(User.GetCollectionInfo(CID),[CopyA,CopyB],
+      [Current,Current],['test-copy:a','test-copy:b']);
+    var CopyReceipt:=CopyBinding.ToJSON;
+    CopyBinding:=TBookDeletionBinding.Parse(CopyReceipt);
+    var CopySlice:=CopyBinding.Slice([1]);
+    Require(CopySlice.RemovesCopies and (Length(CopySlice.SourceKeys)=1) and
+      (CopySlice.SourceKeys[0]='test-copy:b') and (CopySlice.ExpectedBooks[0].FileName='alternate-b'),
+      'Copy receipt slice changed the source identity');
+    CopyBinding.CheckBeforePhysicalRemoval(User);
+    Catalog.ExecSQL('UPDATE Books SET FileName=? WHERE BookID=?',['changed-primary',LocalID]);
+    Rejected:=False;
+    try CopyBinding.CheckBeforePhysicalRemoval(User); except on E:EReadError do Rejected:=True; end;
+    Require(Rejected,'Copy receipt accepted a changed primary');
+    Catalog.ExecSQL('UPDATE Books SET FileName=? WHERE BookID=?',[Current.FileName,LocalID]);
+    Catalog.ExecSQL('UPDATE CatalogBookCopies SET BookID=? WHERE SourceKey=?',[NeighbourID,'test-copy:b']);
+    Rejected:=False;
+    try CopyBinding.CommitCopies(User); except on E:EReadError do Rejected:=True; end;
+    Require(Rejected and (Catalog.QuerySingleInt('SELECT count(*) FROM CatalogBookCopies WHERE SourceKey=?',['test-copy:a'])=1),
+      'Changed copy owner accepted or rolled back only part of a copy receipt');
+    Catalog.ExecSQL('UPDATE CatalogBookCopies SET BookID=? WHERE SourceKey=?',[LocalID,'test-copy:b']);
+    Require(CopySlice.CommitCopies(User)=1,'Archive slice did not detach its own copy');
+    Require(TBookDeletionBinding.Parse(CopyReceipt).CommitCopies(User)=1,
+      'Receipt replay did not detach only the pending copy');
+    Require(CopyBinding.CommitCopies(User)=0,'Committed copy receipt was not idempotent');
+    Require((Catalog.QuerySingleInt('SELECT count(*) FROM CatalogBookCopies WHERE BookID=?',[LocalID])=1) and
+      (Catalog.QuerySingleInt('SELECT BookID FROM CatalogSourceBooks WHERE SourceKey=?',['test-copy:b'])=LocalID) and
+      (Catalog.QuerySingleInt('SELECT count(*) FROM Books WHERE BookID=?',[LocalID])=1) and
+      (Collection.GetReview(Current.BookKey)='Keep files-only note — ё') and
+      (Personal.QuerySingleInt('SELECT count(*) FROM BookGroups WHERE BookID=? AND DatabaseID=?',[LocalID,CID])=1) and
+      (THashSHA2.GetHashStringFromFile(SourceFile)=SourceHash),
+      'Detaching additional copies changed the primary book, source mapping, physical source or personal data');
+    Writeln('PASS linked-copy receipt binds exact source keys, protects changed owners and primary copies, rolls back and replays safely'); Flush(Output);
+
     var MemberBook:TBookRecord; var Members:TArray<string>;
     MemberBook.Clear; MemberBook.CollectionRoot:=Root; MemberBook.Folder:='members.zip';
     MemberBook.FileName:='каталог/Книга ё'; MemberBook.FileExt:='.fb2'; MemberBook.InsideNo:=0;
