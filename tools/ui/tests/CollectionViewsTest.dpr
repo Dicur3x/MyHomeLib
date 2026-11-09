@@ -393,6 +393,18 @@ begin
     Require(Cycle.Visible,'Explicit update command did not present its current window');
     RequireNativeVisibility;
     Cycle.Close;
+    Cycle.ApplicationChecked(Current,True,'');
+    Cycle.ComponentsReceived(Components,True,'');
+    Require(not Cycle.Visible and not IsWindowVisible(Cycle.Handle),
+      'A successful manual check reopened its closed window');
+    Cycle.ShowFullWindow;
+    RequireNativeVisibility;
+    var Table:=TListView(Cycle.FindComponent('UpdateComponents'));
+    Require(Assigned(Table) and (Table.Items.Count>0) and
+      (Table.Items[0].SubItems.IndexOf(ReleaseDisplayVersion(Current.Tag))>=0),
+      'Manual reopening did not display the completed program check');
+    Require(Cycle.StartCheckCycle(False),'A dismissed successful check prevented a fresh check');
+    Cycle.Close;
     Cycle.ApplicationChecked(Current,False,'Controlled application check failure');
     Cycle.ComponentsReceived(Components,False,'Controlled component check failure');
     Require(not Cycle.Visible and not IsWindowVisible(Cycle.Handle),
@@ -6252,6 +6264,7 @@ begin
         TestBookDuplicateLargePreview;
       end
       else if ParamStr(1) = 'feedback529' then TestFeedback529ReaderAndStatistics(One)
+      else if ParamStr(1) = 'feedback529-series' then TestFeedback529Series
       else if ParamStr(1) = 'reader-chapters' then
         TestReaderChapterTitles
       else if ParamStr(1) = 'metadata-prefix-bounds' then

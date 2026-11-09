@@ -2,13 +2,13 @@
 var C: IBookCollection; ID, BookID, BeforeCount: Integer; Plan: TSeriesAliasPlan;
   DB: TSQLiteDatabase; FileName, Backup: string; Book: TBookRecord; Rejected: Boolean;
   function Add(const Title, Author, Series, LibID: string;
-    const Lang: string = 'ru'; const Ext: string = '.fb2'): Integer;
+    const Lang: string = 'ru'; const Ext: string = '.fb2'; const First: string = ''; const Middle: string = ''): Integer;
   var Value: TBookRecord;
   begin
     Value:=Default(TBookRecord); Value.Title:=Title; Value.Series:=Series;
     Value.FileName:=Title; Value.FileExt:=Ext; Value.LibID:=LibID;
     Value.Lang:=Lang; Value.Size:=100; Include(Value.BookProps,bpIsLocal);
-    TAuthorsHelper.Add(Value.Authors,Author,'','');
+    TAuthorsHelper.Add(Value.Authors,Author,First,Middle);
     Result:=C.InsertBook(Value,False,False);
   end;
   function Scalar(const SQL: string): Integer;
@@ -50,6 +50,12 @@ begin
     Add('Первая в цепочке','Автор','Цепочка[p]','merged:{first}:flibusta:860');
     Add('Вторая в цепочке','Автор','Цепочка[p]','flibusta:870');
     Add('Вторая в цепочке','Автор','Цепочка[m]','merged:{second}:flibusta:870');
+    var Alice:=Add('Одна и та же запись','Автор','Алиса в стране чудес (КИНО)','flibusta:881');
+    C.AddBookSeries(Alice,'Алиса в стране чудес. КИНО!!',0);
+    Add('Альма. Неотразимая','Фомбель','Альма (Фомбель)','librusec:781681','ru','.fb2','Тимоте','де');
+    Add('Альма. Неотразимая','де Фомбель','Альма [Фомбель]','flibusta:802675','ru','.fb2','Тимоте');
+    Add('Первая книга без пересечения','Автор','Отдельная серия (КИНО)','flibusta:882');
+    Add('Вторая книга без пересечения','Автор','Отдельная серия. КИНО!!','flibusta:883');
     C.EndBulkOperation(True);
   except if C.InBulkOperation then C.EndBulkOperation(False); raise; end;
   C.SetRate(CreateBookKey(BookID,ID),4); C.SetProgress(CreateBookKey(BookID,ID),37);
@@ -58,8 +64,8 @@ begin
   Plan:=TSeriesAliasPlan.Create(C,SystemDB);
   try
     Plan.Preview(nil);
-    if Plan.Count<>9 then Writeln(Plan.Report.Text);
-    Require(Plan.Count=9,'Verified publisher/mixed/bracket aliases missed, or unrelated cycles included: '+IntToStr(Plan.Count));
+    if Plan.Count<>11 then Writeln(Plan.Report.Text);
+    Require(Plan.Count=11,'Verified publisher/mixed/bracket aliases missed, or unrelated cycles included: '+IntToStr(Plan.Count));
     Require((Scalar('SELECT COUNT(*) FROM Books')=BeforeCount) and
       (Scalar('SELECT COUNT(*) FROM Series WHERE SeriesTitle=''Академия для всех[p]''')=1),
       'Series preview changed catalog records');
@@ -72,6 +78,12 @@ begin
     Require(Scalar('SELECT COUNT(*) FROM Series WHERE SeriesTitle IN '+
       '(''Академия для всех[p]'',''Академия З.А.В.Р.[[p]]'',''Академия Изумруд (Межавторский цикл)[m]'',''Академия Изумруд [Межавторский цикл]'',''Цепочка[p]'',''Цепочка[m]'')')=0,
       'Reported duplicate series or transitive aliases remain');
+    Require(Scalar('SELECT COUNT(*) FROM Series WHERE SeriesTitle IN '+
+      '(''Алиса в стране чудес. КИНО!!'',''Альма [Фомбель]'')')=0,
+      'New punctuation or author-particle aliases remain after applying the plan');
+    Require(Scalar('SELECT COUNT(*) FROM Series WHERE SeriesTitle IN '+
+      '(''Отдельная серия (КИНО)'',''Отдельная серия. КИНО!!'')')=2,
+      'Punctuation merged series without any common book');
     Require(Scalar('SELECT COUNT(*) FROM Series WHERE SeriesTitle IN '+
       '(''Ложное совпадение[p]'',''Разные библиотеки[m]'',''Разные авторы[m]'',''Разные форматы[p]'',''Разные пометки [Гром]'',''Разные пометки [Мед]'')')=6,
       'Unverified cycles, colliding library IDs, formats or meaningful labels merged');

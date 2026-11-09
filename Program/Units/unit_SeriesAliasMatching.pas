@@ -18,11 +18,11 @@ function SeriesHaveSameAuthor(DB: TSQLiteDatabase; LeftID, RightID: Integer): Bo
 
 implementation
 
-uses System.Generics.Collections, System.Character, unit_LibrarySourceID;
+uses System.Generics.Collections, System.Character, System.StrUtils, unit_LibrarySourceID;
 
 function SeriesAliasCandidate(ID: Integer; const Title: string): TSeriesAliasCandidate;
 const MixedLabel = '[межавторский цикл]';
-var Name, Suffix: string; Size: Integer;
+var Name, Suffix: string; Size, Bracket: Integer;
 begin
   Result:=Default(TSeriesAliasCandidate); Result.ID:=ID; Result.Title:=Title;
   Name:=Trim(Title);
@@ -47,7 +47,15 @@ begin
   // Spelling and punctuation only make candidates. Confirm these looser
   // matches using book overlap, never merely a shared author.
   Result.Key:=Result.LiteralKey.Replace('ё','е').Replace('–','-').Replace('—','-')
-    .Replace('[','(').Replace(']',')');
+    .Replace('[','(').Replace(']',')').TrimRight(['!','.',' ']);
+  Bracket:=LastDelimiter('(',Result.Key);
+  if (Bracket>1) and Result.Key.EndsWith(')') then
+  begin
+    Suffix:=Copy(Result.Key,Bracket+1,Result.Key.Length-Bracket-1).Trim;
+    if (Suffix<>'') and not Suffix.Contains(')') then
+      Result.Key:=Copy(Result.Key,1,Bracket-1).TrimRight+' '+Suffix;
+  end;
+  Result.Key:=Result.Key.Replace('. ',' ');
 end;
 
 function SeriesHaveSameAuthor(DB: TSQLiteDatabase; LeftID, RightID: Integer): Boolean;
@@ -62,14 +70,33 @@ function SeriesHaveSameBook(DB: TSQLiteDatabase; LeftID, RightID: Integer;
   const LibraryNamespace: string; const Canceled: TMergeCanceled): Boolean;
 const
   ChunkRows=4096;
-  SQL='SELECT b.BookID,b.LibID,b.Title,b.Lang,b.Ext,b.Folder,a.AuthorID,b.IsDeleted,b.BookSize '+
+  SQL='SELECT b.BookID,b.LibID,b.Title,b.Lang,b.Ext,b.Folder,a.AuthorID,b.IsDeleted,b.BookSize,'+
+    'n.LastName,n.FirstName,n.MiddleName '+
     'FROM Series_List s JOIN Books b ON b.BookID=s.BookID '+
-    'LEFT JOIN Author_List a ON a.BookID=b.BookID WHERE s.SeriesID=?';
+    'LEFT JOIN Author_List a ON a.BookID=b.BookID LEFT JOIN Authors n ON n.AuthorID=a.AuthorID '+
+    'WHERE s.SeriesID=?';
 var Left, Right: TSQLiteQuery; Keys: TDictionary<string,Boolean>;
   Rows, Swap: Integer;
 
   procedure CheckCanceled;
   begin if Assigned(Canceled) and Canceled() then Abort; end;
+
+  function ParticleAuthorKey(Query: TSQLiteQuery): string;
+  const Particles: array[0..8] of string = ('де','де ла','дель','да','ди','дю','ван','ван дер','фон');
+  var Surname, Given, Middle, Particle: string;
+  begin
+    Result:='';
+    Surname:=TCharacter.ToLower(Query.FieldAsString(9).Trim);
+    Given:=TCharacter.ToLower(Query.FieldAsString(10).Trim);
+    Middle:=TCharacter.ToLower(Query.FieldAsString(11).Trim);
+    if (Surname='') or (Given.Length<2) then Exit;
+    for Particle in Particles do
+      if (Middle=Particle) or ((Middle='') and Surname.StartsWith(Particle+' ')) then
+      begin
+        if Middle<>'' then Surname:=Particle+' '+Surname;
+        Exit(Given+#1+Surname);
+      end;
+  end;
 
   function RowKeys(Query: TSQLiteQuery): TArray<string>;
   var ID, Namespace, Original, Title, Tail: string; P: Integer;
@@ -99,7 +126,11 @@ var Left, Right: TSQLiteQuery; Keys: TDictionary<string,Boolean>;
     // whose numeric IDs are unrelated. A bare title or author is insufficient.
     Title:=TCharacter.ToLower(Trim(Query.FieldAsString(2)));
     if (Length(Title)>3) and (Title<>'без названия') and (Query.FieldAsInt(6)>0) then
+    begin
       Result:=Result+['title:'+Title+Tail+#1+IntToStr(Query.FieldAsInt(6))];
+      var Author:=ParticleAuthorKey(Query);
+      if Author<>'' then Result:=Result+['title-author:'+Title+Tail+#1+Author];
+    end;
   end;
 
 begin
