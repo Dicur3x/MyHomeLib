@@ -840,6 +840,113 @@ begin
   finally Vcl.Dialogs.UseLatestCommonDialogs:=SavedDialogs; Timer.Free; DialogProbe.Free; end;
 end;
 
+procedure TestLinkedDuplicateMassRemoval;
+const CopyCount = MAX_LINKED_DUPLICATE_SELECTION;
+  FullCount = 2500;
+  Neighbours = 100;
+var Root, KeptArchive, FullArchive, SharedArchive, KeptHash: string;
+  Collection: IBookCollection; Info: TCollectionInfo; DB: TSQLiteDatabase;
+  Plan: TBookDuplicatePlan; Selection: TDuplicateFileDeletion;
+  Operation: TBookDeletionOperation; State: TBookDeletionOperationStatus;
+  Zip: TZipFile; CID: Integer; Started: UInt64; Primary: TBookRecord;
+
+  procedure AddMember(Archive: TZipFile; const Name: string);
+  var Data: TStringStream;
+  begin
+    Data:=TStringStream.Create('Original bytes of '+Name,TEncoding.UTF8);
+    try Archive.Add(Data,Name); finally Data.Free; end;
+  end;
+
+begin
+  RequireIsolatedRegression;
+  Root:=IncludeTrailingPathDelimiter(Settings.AppPath+'linked-mass');
+  ForceDirectories(Root);
+  CID:=SystemDB.CreateCollection('Linked mass deletion',Root,Root+'mass.hlc2',
+    CT_EXTERNAL_LOCAL_FB,Settings.SystemFileName[sfGenresFB2]);
+  Collection:=SystemDB.GetCollection(CID); Info:=SystemDB.GetCollectionInfo(CID);
+  DB:=TSQLiteDatabase.Create(Info.DBFileName);
+  try
+    DB.AddFunction('MHL_TRIGGERS_ON',0,DuplicateFixtureTriggersOff);
+    DB.AddFunction('MHL_SERIES_TRIGGERS_ON',0,DuplicateFixtureTriggersOff);
+    DB.ExecSQL('WITH RECURSIVE n(x) AS(VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<?) '+
+      'INSERT INTO Books(BookID,LibID,Title,UpdateDate,Folder,FileName,InsideNo,Lang,Ext,BookSize,IsLocal) '+
+      'SELECT x,''flibusta:''||x,''Mass book ''||x,''2026-11-09'',''main.zip'',''keep''||x,0,''ru'',''.fb2'',100,1 FROM n',[CopyCount]);
+    DB.ExecSQL('INSERT INTO CatalogBookCopies(SourceKey,BookID,SourceName,Root,Folder,FileName,Ext,InsideNo,BookSize,LibID) '+
+      'SELECT ''mass:''||BookID,BookID,''Mass source'',?,CASE WHEN BookID<=? THEN ''full.zip'' '+
+      'WHEN BookID<? THEN ''shared.zip'' ELSE '''' END,''extra''||BookID,Ext,0,BookSize,LibID FROM Books',
+      [Root,FullCount,CopyCount]);
+    DB.ExecSQL('INSERT INTO CatalogSourceBooks SELECT SourceKey,BookID FROM CatalogBookCopies');
+    DB.ExecSQL('INSERT INTO CatalogBookCopies(SourceKey,BookID,SourceName,Root,Folder,FileName,Ext,InsideNo,BookSize,LibID) '+
+      'SELECT ''other:''||BookID,BookID,''Another source'',?,''shared.zip'',''neighbour''||BookID,Ext,0,BookSize,LibID '+
+      'FROM Books WHERE BookID<=?',[Root,Neighbours]);
+  finally DB.Free; end;
+  Collection.GetBookRecord(CreateBookKey(1,CID),Primary,False);
+  Collection.SetReview(Primary.BookKey,'Keep the review after bulk deletion');
+  SystemDB.AddBookToGroup(Primary.BookKey,FAVORITES_GROUP_ID,Primary);
+  KeptArchive:=Root+'main.zip'; FullArchive:=Root+'full.zip'; SharedArchive:=Root+'shared.zip';
+  Zip:=TZipFile.Create;
+  try
+    Zip.Open(KeptArchive,zmWrite);
+    for var I:=1 to CopyCount do AddMember(Zip,'keep'+IntToStr(I)+'.fb2');
+    Zip.Close; Zip.Open(FullArchive,zmWrite);
+    for var I:=1 to FullCount do AddMember(Zip,'extra'+IntToStr(I)+'.fb2');
+    Zip.Close; Zip.Open(SharedArchive,zmWrite);
+    for var I:=FullCount+1 to CopyCount-1 do
+    begin
+      AddMember(Zip,'extra'+IntToStr(I)+'.fb2');
+      if I<=FullCount+Neighbours then AddMember(Zip,'neighbour'+IntToStr(I-FullCount)+'.fb2');
+    end;
+  finally Zip.Free; end;
+  TFile.WriteAllText(Root+'extra'+IntToStr(CopyCount)+'.fb2','Original loose book',TEncoding.UTF8);
+  KeptHash:=THashSHA2.GetHashStringFromFile(KeptArchive);
+  Plan:=TBookDuplicatePlan.Create(Info.DBFileName,Root,'flibusta',Settings.SystemFileName[sfSystemDB],
+    Root+'reader.ini',CID,Settings.WorkPath);
+  try
+    Plan.PreviewLinked;
+    Require(Plan.SelectSource('Mass source')=CopyCount,'Could not mark the complete mass source');
+    Selection:=Plan.PrepareFileDeletion(Info,nil);
+  finally Plan.Free; end;
+  Operation:=TBookDeletionOperation.CreateDuplicateRemoval(Selection,Settings.SystemFileName[sfSystemDB],Root+'journal');
+  try
+    Started:=GetTickCount64;
+    Operation.Start;
+    while not Operation.Status.Finished do
+    begin
+      State:=Operation.Status;
+      Require(GetTickCount64-Started<150000,'Mass linked deletion exceeded its deadline: '+State.Stage);
+      Sleep(20);
+    end;
+    Operation.WaitFor; State:=Operation.Status;
+    Require((State.Error='') and (State.CleanupWarning='') and (State.PendingJournal='') and
+      (State.CompletedBooks=0) and (State.CompletedCopies=CopyCount),'Mass linked deletion failed: '+State.Error);
+    Writeln('PROFILE linked file deletion copies=',State.CompletedCopies,' ms=',GetTickCount64-Started);
+  finally Operation.Free; end;
+  Require(not FileExists(FullArchive) and not FileExists(Root+'extra'+IntToStr(CopyCount)+'.fb2') and
+    (THashSHA2.GetHashStringFromFile(KeptArchive)=KeptHash),'Mass deletion left a whole source or changed the primary archive');
+  Zip:=TZipFile.Create;
+  try
+    Zip.Open(SharedArchive,zmRead);
+    Require(Zip.FileCount=Neighbours,'Mass deletion left extra entries or removed retained members');
+    for var I:=0 to Neighbours-1 do
+    begin
+      var Name:='neighbour'+IntToStr(I+1)+'.fb2';
+      var Data:TBytes; Zip.Read(I,Data);
+      Require((Zip.FileNames[I]=Name) and (TEncoding.UTF8.GetString(Data)='Original bytes of '+Name),
+        'Mass deletion changed an unselected ZIP member');
+    end;
+  finally Zip.Free; end;
+  DB:=TSQLiteDatabase.CreateReadOnly(Info.DBFileName);
+  try
+    Require((DB.QuerySingleInt('SELECT count(*) FROM Books')=CopyCount) and
+      (DB.QuerySingleInt('SELECT count(*) FROM CatalogBookCopies WHERE SourceName=''Another source''')=Neighbours) and
+      (DB.QuerySingleInt('SELECT count(*) FROM CatalogBookCopies')=Neighbours) and
+      (DB.QuerySingleInt('SELECT count(*) FROM CatalogSourceBooks')=CopyCount) and
+      (Collection.GetReview(Primary.BookKey)='Keep the review after bulk deletion'),
+      'Mass deletion lost a main card, its review, or the other source');
+  finally DB.Free; end;
+  Writeln('PASS mass linked deletion removes 5000 copies across two ZIPs and a loose file while retaining primary cards and unselected bytes');
+end;
+
 // Optional audit of an explicitly supplied catalog. No collection DAO and no
 // Apply call are used: catalog, registration and reader files are read-only.
 procedure TestBookDuplicateReadOnlyCatalog(const CatalogFile: string; Linked: Boolean = False);
