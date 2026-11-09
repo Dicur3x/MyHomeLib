@@ -372,6 +372,9 @@ type
     function CaptureLocalBooks: TArray<TLocalCatalogBook>;
     procedure RestoreLocalBooks(const Books: TArray<TLocalCatalogBook>);
     procedure TruncateTablesBeforeImport;
+    function StartInpxUpdateTracking(FullReimport: Boolean): Integer;
+    procedure FinishInpxUpdateTracking(FullReimport: Boolean; PreviousLastID: Integer);
+    function HasLastInpxUpdate: Boolean;
 
     procedure StartBatchUpdate;
     procedure AfterBatchUpdate;

@@ -125,7 +125,7 @@ end;
 
 procedure TCollectionPackingInpxWorker.ImportDelta(const CatalogFile, PersonalFile: string);
 var Info: TCollectionInfo; Reader: TSQLiteDatabase; Target: IBookCollection;
-  Snapshot: TPackingCatalogSnapshot; Version: Integer;
+  Snapshot: TPackingCatalogSnapshot; Version, PreviousLastID: Integer;
 begin
   Info:=FSystemData.GetCollectionInfo(FOptions.SourceID);
   if isOnlineCollection(Info.CollectionType) then
@@ -146,9 +146,11 @@ begin
     Target:=Snapshot; Snapshot.UpdateRoot:=FUpdateRoot;
     Target.BeginBulkOperation;
     try
+      PreviousLastID:=Target.StartInpxUpdateTracking(False);
       Import(FInpx,False,Target);
       if Canceled then raise EAbort.Create('Подготовка обновления INPX отменена.');
       if FSeen.Count=0 then raise EInvalidOperation.Create('В выбранном INPX нет записей книг.');
+      Target.FinishInpxUpdateTracking(False,PreviousLastID);
       Target.EndBulkOperation(True);
     except
       if Target.InBulkOperation then Target.EndBulkOperation(False);

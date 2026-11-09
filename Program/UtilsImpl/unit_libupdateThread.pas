@@ -163,14 +163,18 @@ var
   Collection: IBookCollection;
   UserDataBackup: TUserData;
   LocalBooks: TArray<TLocalCatalogBook>;
+  PreviousLastID: Integer;
 begin
   Result := False;
+  if Canceled then
+    Exit;
 
   Collection := FSystemData.GetCollection(ACollectionID);
   if IsPackedCollectionCatalog(Collection.GetProperty(PROP_DATAFILE)) then
     raise ENotSupportedException.Create(rstrPackedUpdate);
   Collection.BeginBulkOperation;
   try
+    PreviousLastID:=Collection.StartInpxUpdateTracking(AFull);
     UserDataBackup := TUserData.Create;
     try
       if AFull then
@@ -196,6 +200,7 @@ begin
         Exit;
       end;
 
+      Collection.FinishInpxUpdateTracking(AFull,PreviousLastID);
       if AFull then
       begin
         Teletype(Format(rstrRestoreUserData, [ADisplayName]), tsInfo);

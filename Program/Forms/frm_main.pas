@@ -4226,6 +4226,10 @@ begin
   FSearchFields.Downloaded := cbDownloaded;
   FSearchFields.LibRate := cbLibRate;
   FSearchFields.AddedDate := cbDate;
+  Assert(cbDate.Items.Count=SEARCH_DATE_LAST_INPX);
+  cbDate.Items.Add('Последний INPX');
+  cbDate.Hint:='Периоды используют даты из источника. «Последний INPX» показывает книги, добавленные последним обновлением.';
+  cbDate.ShowHint:=True;
   FSearchFields.FavoriteAuthors := FSearchFavoriteCheck;
   FSearchFields.NotesOnly := FNotesOnlySearchCheck;
   FSearchFields.Readed := cbReaded;
@@ -11403,6 +11407,9 @@ end;
 function TfrmMain.SearchCompletionMessage: string;
 begin
   Result := rstrReadyMessage;
+  if FHasAppliedSearch and not FBookListCancelled and (FSearchCriteria.DateIdx=SEARCH_DATE_LAST_INPX) and
+    Assigned(FCollection) and not FCollection.HasLastInpxUpdate then
+    Exit('Список новых книг появится после следующего обновления INPX.');
   if not FHasAppliedSearch or FBookListCancelled or not FSearchCriteria.FavoriteAuthorsOnly or
     (Length(FSearchCriteria.FavoriteAuthorIDs) <> 0) then Exit;
   if Length(FavoriteStore.Entries) = 0 then

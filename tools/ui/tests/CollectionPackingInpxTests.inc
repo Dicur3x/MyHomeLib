@@ -308,6 +308,20 @@ begin
   Require(MissingID>0,'An unavailable INPX book disappeared from the catalogue');
   Updated.GetBookRecord(CreateBookKey(MissingID,UpdatedID),Book,True);
   Require(not (bpIsLocal in Book.BookProps),'Missing INPX member was resolved to an unrelated archive entry');
+  Require(Updated.HasLastInpxUpdate and not PackedSource.HasLastInpxUpdate,
+    'The latest INPX result was not confined to the updated generation');
+  var Search:=Default(TBookSearchCriteria);
+  Search.DateIdx:=SEARCH_DATE_LAST_INPX; Search.CollapseMultiSeriesResults:=True;
+  var NewBooks:=Updated.Search(Search,False);
+  var SeenNew, SeenMissing: Boolean;
+  SeenNew:=False; SeenMissing:=False;
+  while NewBooks.Next(Book) do
+    if (Book.BookKey.BookID=NewID) and not SeenNew then SeenNew:=True
+    else if (Book.BookKey.BookID=MissingID) and not SeenMissing then SeenMissing:=True
+    else Require(False,'Last INPX search included a replaced or unchanged packed book');
+  Require(SeenNew and SeenMissing,'Last INPX search lost new packed catalogue records');
+  NewBooks:=nil;
+  Writeln('PASS last INPX search in a packed catalogue selects only the new records');
   Require((SystemDB.GetCollectionInfo(UpdatedID).DataVersion=20261104) and
     (SystemDB.GetCollectionInfo(PackedID).DataVersion<>20261104),'INPX version changed the old collection');
   Require((THashSHA2.GetHashStringFromFile(BeforeCatalog)=BeforeHash) and

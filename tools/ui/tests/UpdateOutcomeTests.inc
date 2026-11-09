@@ -195,17 +195,23 @@ begin
   end;
 end;
 
-procedure TOOIndex(const FileName, Title, LibraryID: string);
-var Zip: TZipFile; Data: TBytes;
+procedure TOOIndex(const FileName, Title, LibraryID: string;
+  const AnotherTitle: string = ''; const AnotherID: string = '');
+var Zip: TZipFile; Data: TBytes; Rows: string;
+  function Row(const BookTitle, ID: string): string;
+  begin
+    Result:='Автор,Тест:'#4'prose_contemporary:'#4+BookTitle+#4#4#4+
+      ID+#4'100'#4+ID+#4'0'#4'fb2'#4'2026-10-13'#4'ru';
+  end;
 begin
   Zip:=TZipFile.Create;
   try
     Zip.Open(FileName,zmWrite);
     Data:=TEncoding.UTF8.GetBytes('AUTHOR;GENRE;TITLE;SERIES;SERNO;FILE;SIZE;LIBID;DEL;EXT;DATE;LANG');
     Zip.Add(Data,'structure.info');
-    Data:=TEncoding.UTF8.GetBytes('Автор,Тест:'#4'prose_contemporary:'#4+Title+#4#4#4+
-      LibraryID+#4'100'#4+LibraryID+#4'0'#4'fb2'#4'2026-10-13'#4'ru');
-    Zip.Add(Data,'books.inp');
+    Rows:=Row(Title,LibraryID);
+    if AnotherID<>'' then Rows:=Rows+sLineBreak+Row(AnotherTitle,AnotherID);
+    Zip.Add(TEncoding.UTF8.GetBytes(Rows),'books.inp');
   finally Zip.Free; end;
 end;
 
@@ -217,7 +223,7 @@ begin
 end;
 
 procedure TestUpdateOutcomes;
-var Folder, Profile, BookRoot, FB2Root, EmptyRoot, Index1, Index2, BadIndex, Dataset, BadDataset, SourceHash: string;
+var Folder, Profile, BookRoot, FB2Root, EmptyRoot, Index1, Index2, FullIndex, BadIndex, Dataset, BadDataset, SourceHash: string;
   SystemData: ISystemData; Collection: IBookCollection; IDs: TArray<Integer>;
   CID, CancelCID, BatchCID1, BatchCID2, FB2CID, FBDCID, MetaCID, ImportCID: Integer;
   Manual: TOOManualWorker; Metabib: TOOMetabibWorker; Importer: TOOINPXWorker;
@@ -233,6 +239,20 @@ var Folder, Profile, BookRoot, FB2Root, EmptyRoot, Index1, Index2, BadIndex, Dat
       (Stored.Review='Не терять мою заметку ё') and (Stored.Annotation='Не терять аннотацию'),
       'Outcome notifications changed existing personal book metadata');
     Collection:=nil;
+  end;
+
+  procedure RequireLastInpx(CatalogID: Integer; HasHistory: Boolean; const ID: string);
+  var Catalog: IBookCollection; Books: IBookIterator; Criteria: TBookSearchCriteria; Item: TBookRecord;
+  begin
+    Catalog:=SystemData.GetCollection(CatalogID,True);
+    Require(Catalog.HasLastInpxUpdate=HasHistory,'Wrong availability for last INPX update');
+    Criteria:=Default(TBookSearchCriteria);
+    Criteria.DateIdx:=SEARCH_DATE_LAST_INPX; Criteria.CollapseMultiSeriesResults:=True;
+    Books:=Catalog.Search(Criteria,False);
+    if ID<>'' then
+      Require(Books.Next(Item) and (Item.LibID=ID) and (YearOf(Item.Date)=2026),
+        'Last INPX result lost the new book or its old source date');
+    Require(not Books.Next(Item),'Last INPX search included extra records');
   end;
 
   function NewCollection(const Name, Root: string): Integer;
@@ -253,6 +273,8 @@ begin
   try
     Index1:=Folder+'source-1.inpx'; Index2:=Folder+'source-2.inpx'; BadIndex:=Folder+'invalid.inpx';
     TOOIndex(Index1,'Первая новая книга','1101'); TOOIndex(Index2,'Вторая новая книга','2202');
+    FullIndex:=Folder+'full.inpx';
+    TOOIndex(FullIndex,'Вторая книга с обновлённым названием','2202','Третья новая книга','3303');
     TFile.WriteAllText(BadIndex,'invalid ZIP source, preserve catalogue',TEncoding.UTF8);
     Dataset:=Folder+'empty-metabib.jsonl'; BadDataset:=Folder+'invalid-metabib.jsonl';
     TFile.WriteAllText(Dataset,'{"schema":"metabib.dataset/1","record_schema":"metabib.dataset_record/1","library":"Outcome fixture","records":0}'+sLineBreak,TEncoding.UTF8);
@@ -267,6 +289,7 @@ begin
     Collection.SetRate(Seed.BookKey,4); Collection.SetProgress(Seed.BookKey,37);
     Collection.SetReview(Seed.BookKey,'Не терять мою заметку ё'); Collection.SetAnnotation(Seed.BookKey,'Не терять аннотацию');
     Collection.AddBookToGroup(Seed.BookKey,FAVORITES_GROUP_ID); Collection:=nil;
+    RequireLastInpx(CID,False,'');
 
     for var Path in TArray<string>.Create(Folder+'missing.inpx',BadIndex) do
     begin
@@ -289,6 +312,13 @@ begin
       TOORun(Manual);
       Require(Manual.Success and Manual.CommittedChanges,'Successful manual update lost outcome flags');
       Require(TOOBookCount(SystemData,CID)=2,'Successful manual import missing'); RequireSeed;
+      RequireLastInpx(CID,True,'1101');
+    finally Manual.Free; end;
+    Manual:=TOOManualWorker.Create(CID,FullIndex,True,gtFb2); Manual.FixtureProfile:=Profile;
+    try
+      TOORun(Manual,True);
+      Require(Manual.Canceled and not Manual.CommittedChanges,'Canceled full update committed');
+      RequireLastInpx(CID,True,'1101');
     finally Manual.Free; end;
     Manual:=TOOManualWorker.Create(CID,Index2,False,gtFb2);
     Manual.FixtureProfile:=Profile; Manual.FailAfterCommit:=True;
@@ -296,7 +326,28 @@ begin
       TOORun(Manual);
       Require(not Manual.Success and Manual.CommittedChanges,'Postcommit failure concealed durable catalogue changes');
       Require(TOOBookCount(SystemData,CID)=3,'Postcommit failure reverted or lost committed import'); RequireSeed;
+      RequireLastInpx(CID,True,'2202');
     finally Manual.Free; end;
+    Manual:=TOOManualWorker.Create(CancelCID,Index2,False,gtFb2); Manual.FixtureProfile:=Profile;
+    try
+      TOORun(Manual);
+      Require(Manual.Success and Manual.CommittedChanges,'Full INPX fixture baseline did not commit');
+      RequireLastInpx(CancelCID,True,'2202');
+    finally Manual.Free; end;
+    Manual:=TOOManualWorker.Create(CancelCID,FullIndex,True,gtFb2); Manual.FixtureProfile:=Profile;
+    try
+      TOORun(Manual);
+      Require(Manual.Success and Manual.CommittedChanges,'Full INPX comparison did not commit');
+      RequireLastInpx(CancelCID,True,'3303');
+    finally Manual.Free; end;
+    Manual:=TOOManualWorker.Create(CancelCID,FullIndex,False,gtFb2); Manual.FixtureProfile:=Profile;
+    try
+      TOORun(Manual);
+      Require(Manual.Success and Manual.CommittedChanges,'Identical INPX comparison did not commit');
+      RequireLastInpx(CancelCID,True,'');
+    finally Manual.Free; end;
+    Require(frmMain.cbDate.Items[SEARCH_DATE_LAST_INPX]='Последний INPX','Last INPX filter is missing from the search window');
+    Writeln('PASS last INPX search tracks additions through commits, cancellation, full reimport and empty repeat');
     BatchCID1:=NewCollection('Outcomes first batch',BookRoot); BatchCID2:=NewCollection('Outcomes second batch',BookRoot);
     Batch:=TOOBatchWorker.Create;
     Batch.FixtureProfile:=Profile; Batch.FirstCID:=BatchCID1; Batch.SecondCID:=BatchCID2;

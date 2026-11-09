@@ -304,6 +304,9 @@ type
     function CaptureLocalBooks: TArray<TLocalCatalogBook>;
     procedure RestoreLocalBooks(const Books: TArray<TLocalCatalogBook>);
     procedure TruncateTablesBeforeImport;
+    function StartInpxUpdateTracking(FullReimport: Boolean): Integer;
+    procedure FinishInpxUpdateTracking(FullReimport: Boolean; PreviousLastID: Integer);
+    function HasLastInpxUpdate: Boolean;
 
     procedure StartBatchUpdate;
     procedure AfterBatchUpdate;
@@ -1535,6 +1538,14 @@ begin
         3: AddToFilter('b.UpdateDate', Format('> "%s"', [FormatDateTime(DT_FORMAT, IncDay(Now, -14))]), False, FilterString);
         4: AddToFilter('b.UpdateDate', Format('> "%s"', [FormatDateTime(DT_FORMAT, IncMonth(Now, -1))]), False, FilterString);
         5: AddToFilter('b.UpdateDate', Format('> "%s"', [FormatDateTime(DT_FORMAT, IncMonth(Now, -3))]), False, FilterString);
+        SEARCH_DATE_LAST_INPX:
+          begin
+            if FilterString<>'' then FilterString:=FilterString+' AND ';
+            if FCollection.HasLastInpxUpdate then
+              FilterString:=FilterString+'b.BookID IN (SELECT BookID FROM LastInpxBooks)'
+            else
+              FilterString:=FilterString+'0=1';
+          end;
       end;
 
     case SearchCriteria.DownloadedIdx of
@@ -4645,6 +4656,7 @@ begin
   FDatabase.ExecSQL('DELETE FROM CatalogSourceBooks');
   FDatabase.ExecSQL('DELETE FROM CatalogBookCopies');
   FDatabase.ExecSQL('DELETE FROM CatalogPreferredSource');
+  FDatabase.ExecSQL('DROP TABLE IF EXISTS LastInpxBooks');
   for TableName in TABLE_NAMES do
     FDatabase.ExecSQL(Format(SQL_TRUNCATE, [TableName]));
 
@@ -4656,6 +4668,45 @@ begin
   end;
 
   EnsurePublisherSeriesSchema;
+end;
+
+const
+  // An INPX identity survives renumbering and moving to another archive.
+  // Use an exact file locator for records without a library ID.
+  InpxBookIdentitySQL =
+    'CASE WHEN coalesce(trim(LibID),'''') NOT IN ('''',''0'') '+
+    'THEN ''id:''||hex(MHL_UPPER(trim(LibID)))||'':''||hex(MHL_UPPER(coalesce(Ext,''''))) '+
+    'ELSE ''path:''||hex(MHL_UPPER(coalesce(Folder,'''')))||'':''||hex(MHL_UPPER(FileName))'+
+    '||'':''||hex(MHL_UPPER(coalesce(Ext,'''')))||'':''||InsideNo END';
+
+function TBookCollection_SQLite.StartInpxUpdateTracking(FullReimport: Boolean): Integer;
+begin
+  Assert(InBulkOperation);
+  if not FullReimport then Exit(FDatabase.QuerySingleInt('SELECT coalesce(max(BookID),0) FROM Books'));
+  FDatabase.ExecSQL('CREATE TEMP TABLE InpxPreviousBooks(Identity TEXT PRIMARY KEY) WITHOUT ROWID');
+  FDatabase.ExecSQL('INSERT OR IGNORE INTO temp.InpxPreviousBooks SELECT '+InpxBookIdentitySQL+' FROM Books');
+  Result:=0;
+end;
+
+procedure TBookCollection_SQLite.FinishInpxUpdateTracking(FullReimport: Boolean; PreviousLastID: Integer);
+begin
+  Assert(InBulkOperation);
+  FDatabase.ExecSQL('CREATE TABLE IF NOT EXISTS LastInpxBooks(BookID INTEGER PRIMARY KEY)');
+  FDatabase.ExecSQL('DELETE FROM LastInpxBooks');
+  if FullReimport then
+  begin
+    FDatabase.ExecSQL('INSERT INTO LastInpxBooks SELECT BookID FROM Books WHERE '+
+      InpxBookIdentitySQL+' NOT IN (SELECT Identity FROM temp.InpxPreviousBooks)');
+    FDatabase.ExecSQL('DROP TABLE temp.InpxPreviousBooks');
+  end
+  else
+    FDatabase.ExecSQL('INSERT INTO LastInpxBooks SELECT BookID FROM Books WHERE BookID>?',[PreviousLastID]);
+end;
+
+function TBookCollection_SQLite.HasLastInpxUpdate: Boolean;
+begin
+  Result:=FDatabase.QuerySingleInt('SELECT count(*) FROM sqlite_master '+
+    'WHERE type=''table'' AND name=''LastInpxBooks''')<>0;
 end;
 
 procedure TBookCollection_SQLite.StartBatchUpdate;
