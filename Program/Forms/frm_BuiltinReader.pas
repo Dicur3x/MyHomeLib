@@ -34,6 +34,7 @@ type
     procedure MouseUp(Button: TMouseButton; Shift: TShiftState; X,Y: Integer); override;
     procedure WMCaptureChanged(var Message: TMessage); message WM_CAPTURECHANGED;
     procedure WMGetDlgCode(var Message: TMessage); message WM_GETDLGCODE;
+    procedure CMHintShow(var Message: TCMHintShow); message CM_HINTSHOW;
   end;
 
   TReaderLoadThread = class(TThread)
@@ -63,7 +64,7 @@ type
     FTop, FButtons, FBottom, FSearchPanel: TPanel;
     FToolbarItems: TList<TControl>;
     FArrangingToolbar: Boolean;
-    FStatus, FChapterPath: TLabel;
+    FStatus, FPercentLabel, FChapterPath: TLabel;
     FSearch: TEdit;
     FThemes: TComboBox;
     FFitButton: TButton;
@@ -215,6 +216,7 @@ type
     procedure PrepareVisiblePictures(Start, Finish: Integer);
     function TextCharacterAt(X,Y: Integer): Integer;
     function TextLinkTargetAt(X,Y: Integer): Integer;
+    function FootnoteHintAt(const Cursor: TPoint; out Bounds: TRect): string;
     procedure UpdateTextSelection(X,Y: Integer);
     procedure SelectWordAt(X,Y: Integer);
     procedure PaintSelection(Canvas: TCanvas; const Boxes: TArray<TRect>);
@@ -287,6 +289,7 @@ type
     procedure DrawChapterItem(Control: TWinControl; Index: Integer; Rect: TRect; State: TOwnerDrawState);
     procedure AddChapter(const Title: string; Position, Depth: Integer);
     procedure PaintProgress(Sender: TObject);
+    procedure UpdateReadingPercent;
     procedure UpdateProgressVisibility;
     procedure UpdateHiddenChrome;
     procedure RevealScreenEdges(Sender: TObject);
@@ -652,6 +655,20 @@ procedure TReaderSurface.WMGetDlgCode(var Message: TMessage);
 begin
   inherited;
   Message.Result:=Message.Result or DLGC_WANTARROWS;
+end;
+
+procedure TReaderSurface.CMHintShow(var Message: TCMHintShow);
+var Note: string; Bounds: TRect;
+begin
+  inherited;
+  if (Message.Result<>0) or not Assigned(FReader) or
+    (Message.HintInfo.HintStr<>'') or MouseCapture then Exit;
+  Note:=FReader.FootnoteHintAt(Message.HintInfo.CursorPos,Bounds);
+  if Note='' then Exit;
+  Message.HintInfo.HintStr:=Note;
+  Message.HintInfo.CursorRect:=Bounds;
+  Message.HintInfo.HintMaxWidth:=Min(Message.HintInfo.HintMaxWidth,MulDiv(430,FReader.CurrentPPI,96));
+  Message.HintInfo.HideTimeout:=Max(Message.HintInfo.HideTimeout,12000);
 end;
 
 function TReaderSurface.DoMouseWheel(Shift: TShiftState; WheelDelta: Integer; MousePos: TPoint): Boolean;
@@ -1238,6 +1255,10 @@ begin
   FBottom.Name:='ReaderFooter'; FBottom.Caption:='';
   FStatus:=TLabel.Create(Self); FStatus.Parent:=FBottom; FStatus.Align:=alClient; FStatus.Layout:=tlCenter; FStatus.Alignment:=taCenter;
   FStatus.Caption:='Колесо — страницы · Ctrl+колесо — размер · F11 — полный экран · Ctrl+F — поиск';
+  FPercentLabel:=TLabel.Create(Self); FPercentLabel.Name:='ReaderReadingPercent';
+  FPercentLabel.Parent:=FBottom; FPercentLabel.AutoSize:=False; FPercentLabel.Align:=alLeft;
+  FPercentLabel.Width:=48; FPercentLabel.Alignment:=taCenter; FPercentLabel.Layout:=tlCenter;
+  FPercentLabel.Hint:='Прочитано'; FPercentLabel.ShowHint:=True; FPercentLabel.Visible:=False;
   FProgressLine:=TReaderProgress.Create(Self); FProgressLine.Parent:=FBottom; FProgressLine.Align:=alBottom;
   FProgressLine.Name:='ReaderProgressLine';
   FProgressLine.Height:=14; FProgressLine.OnPaint:=PaintProgress; FProgressLine.Cursor:=crHandPoint;
@@ -2056,6 +2077,7 @@ begin
       UpdateChapterPath;
     end;
   end;
+  if not FScrollTimer.Enabled then UpdateReadingPercent;
   FProgressLine.Invalidate;
   FSurface.Invalidate;
 end;
@@ -2546,7 +2568,7 @@ begin
     end;
     if ContinuousReading then
       FStatus.Caption:=Format('Плавная прокрутка · Шрифт %d · Ctrl+колесо — размер',[FFontSize])
-    else FStatus.Caption:=Format('%d%% · Шрифт %d · Колесо — страницы · Ctrl+колесо — размер',[Min(100,Round(ReadingProgress*100)),FFontSize]);
+    else FStatus.Caption:=Format('Шрифт %d · Колесо — страницы · Ctrl+колесо — размер',[FFontSize]);
     if TextPageCount=2 then FStatus.Caption:=FStatus.Caption+' · Две страницы';
     if Assigned(FDocument) and (FDocument.SkippedImages>0) then FStatus.Caption:=FStatus.Caption+' · Изображений пропущено: '+IntToStr(FDocument.SkippedImages);
   end;
@@ -2562,6 +2584,7 @@ begin
   if FAnnotationLoadError<>'' then FStatus.Caption:=FStatus.Caption+' · Заметки недоступны: '+FAnnotationLoadError;
   FLastPageInteraction:=GetTickCount64;
   if FSearchStatus<>'' then FStatus.Caption:=FSearchStatus;
+  UpdateReadingPercent;
   FProgressLine.Invalidate; FSurface.Invalidate; PrefetchNextPage;
 end;
 
@@ -2982,6 +3005,36 @@ begin
     if not FDocument.LinkTargetAt(Candidate,Target) then Continue;
     for var Box in TextSelectionRectangles(Candidate,Candidate+1) do
       if PtInRect(AnnotationRectangle(Box),Point(X,Y)) then Exit(Target);
+  end;
+end;
+
+function TfrmBuiltinReader.FootnoteHintAt(const Cursor: TPoint; out Bounds: TRect): string;
+const MaxHintCharacters = 800;
+var Index, Candidate, Start, Count: Integer; Note: string;
+begin
+  Result:='';
+  if not Assigned(FDocument) or not FDocument.HasFootnotes or FInspect then Exit;
+  Index:=TextCharacterAt(Cursor.X,Cursor.Y);
+  for var Offset in [0,1] do
+  begin
+    if Index<Offset then Exit;
+    Candidate:=ReaderCharacterStart(FRichEdit,Index-Offset);
+    Note:=FDocument.FootnoteAt(Candidate,Start,Count);
+    if Note='' then Continue;
+    for var Box in TextSelectionRectangles(Start,Start+Count) do
+    begin
+      Bounds:=AnnotationRectangle(Box);
+      if not PtInRect(Bounds,Cursor) then Continue;
+      Result:=Note.Trim;
+      if Length(Result)>MaxHintCharacters then
+      begin
+        SetLength(Result,MaxHintCharacters);
+        if (Result[MaxHintCharacters]>=#$D800) and (Result[MaxHintCharacters]<=#$DBFF) then
+          SetLength(Result,MaxHintCharacters-1);
+        Result:=Result+'…';
+      end;
+      Exit;
+    end;
   end;
 end;
 
@@ -4687,15 +4740,16 @@ end;
 
 procedure TfrmBuiltinReader.SearchClick(Sender: TObject);
 begin
-  if FInterfaceHidden then
-  begin InterfaceClick(nil); FSearchPanel.Visible:=True; end
-  else FSearchPanel.Visible:=not FSearchPanel.Visible;
-  if FSearchPanel.Visible then FSearch.SetFocus else begin StopSearch; FSurface.SetFocus; end;
+  if FInterfaceHidden then InterfaceClick(nil)
+  else if FSearchPanel.Visible then
+  begin SearchCloseClick(Sender); Exit; end;
+  FSearchPanel.Visible:=True;
+  FSearch.SetFocus;
 end;
 
 procedure TfrmBuiltinReader.SearchKey(Sender: TObject; var Key: Word; Shift: TShiftState);
 begin
-  if Key=VK_ESCAPE then begin StopSearch; FSearchPanel.Visible:=False; FSurface.SetFocus; Key:=0; Exit; end;
+  if Key=VK_ESCAPE then begin SearchCloseClick(Sender); Key:=0; Exit; end;
   if (Key<>VK_RETURN) or (FSearch.Text='') then Exit;
   FindText(FSearch.Text,ssShift in Shift);
   Key:=0;
@@ -4760,7 +4814,17 @@ begin FindText(FSearch.Text,True); end;
 procedure TfrmBuiltinReader.SearchNextClick(Sender: TObject);
 begin FindText(FSearch.Text); end;
 procedure TfrmBuiltinReader.SearchCloseClick(Sender: TObject);
-begin StopSearch; FSearchPanel.Visible:=False; FSurface.SetFocus; end;
+var Repaint: Boolean;
+begin
+  Repaint:=(FSearchQuery<>'') or (FSearchStatus<>'') or SearchRunning;
+  StopSearch;
+  FSearchQuery:=''; FSearchStatus:='';
+  FTextMatch:=-1; FTextMatchLength:=0;
+  FPDFQuery:=''; FPDFMatchPage:=-1; FPDFMatchIndex:=0; FPDFRects:=nil;
+  FSearchPanel.Visible:=False;
+  if Repaint then RenderPage;
+  if FSurface.CanFocus then FSurface.SetFocus;
+end;
 
 procedure TfrmBuiltinReader.SetSearchOptions(MatchCase, WholeWord, AllMatches: Boolean);
 begin
@@ -5047,6 +5111,8 @@ begin
     NotesBox:=TReaderPaletteCheckBox.Create(Dialog); NotesBox.Parent:=Dialog; NotesBox.SetBounds(16,272,320,26);
     NotesBox.Name:='ReaderShowFootnotes';
     NotesBox.Caption:='Сноски внизу при перелистывании'; NotesBox.Checked:=FShowFootnotes;
+    NotesBox.Hint:='Всплывающие подсказки на номерах сносок работают и без нижней панели.';
+    NotesBox.ShowHint:=True;
     InitialCheck:=TReaderPaletteCheckBox.Create(Dialog); InitialCheck.Parent:=Dialog; InitialCheck.SetBounds(16,302,320,26);
     InitialCheck.Caption:='Выделять первые буквы абзацев'; InitialCheck.Checked:=FInitialsMode<>rimNone;
     AddLabel('Где выделять',336); InitialBox:=Choice(332);
@@ -5335,6 +5401,12 @@ begin
   end;
 end;
 
+procedure TfrmBuiltinReader.UpdateReadingPercent;
+begin
+  if FReady then FPercentLabel.Caption:=IntToStr(EnsureRange(Round(ReadingProgress*100),0,100))+'%';
+  FPercentLabel.Visible:=FReady and FStatus.Visible;
+end;
+
 procedure TfrmBuiltinReader.UpdateProgressVisibility;
 var ShowLine: Boolean;
 begin
@@ -5361,14 +5433,14 @@ begin
     begin
       FInterfaceReturn.Align:=alNone;
       FBottom.Align:=alNone;
-      FStatus.Visible:=False;
+      FStatus.Visible:=False; FPercentLabel.Visible:=False;
     end
     else
     begin
       FInterfaceReturn.Align:=alTop;
       FInterfaceReturn.Visible:=FInterfaceHidden;
       FBottom.Align:=alBottom;
-      FStatus.Visible:=True;
+      FStatus.Visible:=True; FPercentLabel.Visible:=FReady;
       FBottom.Height:=MulDiv(26,CurrentPPI,96)+Ord(FProgressLine.Visible)*FProgressLine.Height;
       FBottom.Visible:=not FInterfaceHidden;
     end;
@@ -5488,7 +5560,8 @@ begin
   if (Key=Ord('B')) and (Shift=[ssCtrl]) then begin BookmarkSaveClick(nil); Key:=0; Exit; end;
   if (FChapters.Focused or FThemes.Focused) and ((Key in [VK_UP,VK_DOWN,VK_LEFT,VK_RIGHT,VK_HOME,VK_END,VK_PRIOR,VK_NEXT,VK_SPACE,VK_RETURN]) or
     ((Key=VK_ESCAPE) and (FChapters.DroppedDown or FThemes.DroppedDown))) then Exit;
-  if (Key=VK_ESCAPE) and SearchRunning then begin StopSearch; RenderPage; Key:=0; Exit; end;
+  if (Key=VK_ESCAPE) and (FSearchPanel.Visible or (FSearchQuery<>'') or SearchRunning) then
+  begin SearchCloseClick(Sender); Key:=0; Exit; end;
   if (Key=VK_ESCAPE) and FInspect then begin EndInspection; Key:=0; Exit; end;
   if (ssCtrl in Shift) and (Key=Ord('F')) then begin SearchClick(nil); Key:=0; Exit; end;
   if ContinuousReading and (Shift=[]) and (Key in [VK_UP,VK_DOWN]) then

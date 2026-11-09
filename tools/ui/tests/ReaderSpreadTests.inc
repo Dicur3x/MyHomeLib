@@ -339,7 +339,7 @@ begin
     '<book-title>Разворот</book-title></title-info></description><body><section><title><p>Разворот</p></title>';
   for var I:=1 to 260 do XML:=XML+'<p>'+IntToStr(I)+'. Текст двух страниц: ё, ї, ў. '+
     'Последовательность абзацев, выделение и закладки сохраняются при перелистывании.'+
-    IfThen(I=1,'<a l:href="#note1" type="note">1</a>','')+'</p>';
+    IfThen(I=1,'<a l:href="#note1" type="note">[1]</a>','')+'</p>';
   XML:=XML+'</section></body><body name="notes"><section id="note1"><title><p>1</p></title>'+
     '<p>Сноска разворота.</p></section></body></FictionBook>';
   TFile.WriteAllText(FileName,XML,TEncoding.UTF8); Original:=THashSHA2.GetHashStringFromFile(FileName);
@@ -381,6 +381,52 @@ begin
     Reader.NextPage; Reader.GoToBookmark(0); Require(Reader.TextPosition=Saved,'Bookmark moved after reflow');
     Reader.GoToPosition(0); Reader.SetShowFootnotes(True); Settle;
     Require(Reader.VisibleFootnotes.Contains('Сноска разворота'),'Spread lost a visible footnote');
+    for var Layout in [rplSingle,rplContinuous] do
+    begin
+      Reader.SetPageLayout(Layout); Reader.SetShowFootnotes(False);
+      Reader.GoToPosition(0); Settle;
+      var SearchButton:=Reader.FindComponent('ReaderSearch') as TButton;
+      SearchButton.Click; Settle;
+      Reader.SetHighlightColor(clLime);
+      Reader.SetSearchOptions(False,False,False);
+      Reader.FindText('[1]'); Settle;
+      Require((Reader.HighlightCount=1) and (Reader.VisibleFootnotes=''),
+        'The footnote probe needs a highlighted marker and no footer');
+      Capture;
+      var Hint: THintInfo;
+      var Found:=False;
+      for var Y:=0 to Min(Image.Height-1,370) do
+      begin
+        for var X:=0 to Image.Width-1 do
+          if ColorToRGB(Image.Canvas.Pixels[X,Y])=ColorToRGB(clLime) then
+          begin
+            Hint:=Default(THintInfo); Hint.CursorPos:=Point(X,Y); Hint.HintMaxWidth:=Reader.ClientWidth;
+            Reader.ReadingSurface.Perform(CM_HINTSHOW,0,LPARAM(@Hint));
+            if Hint.HintStr.Contains('Сноска разворота') then begin Found:=True; Break; end;
+          end;
+        if Found then Break;
+      end;
+      Require(Found,'Hovering the marker did not show its note in layout '+IntToStr(Ord(Layout)));
+      Hint.HintStr:=''; Hint.CursorPos.X:=0;
+      Reader.ReadingSurface.Perform(CM_HINTSHOW,0,LPARAM(@Hint));
+      Require(Hint.HintStr='','A margin unexpectedly showed the nearest footnote');
+      if Layout=rplSingle then SearchButton.Click
+      else
+      begin
+        Reader.ReadingSurface.SetFocus;
+        var Key: Word:=VK_ESCAPE;
+        Reader.OnKeyDown(Reader,Key,[]);
+        Require(Key=0,'Escape did not close the visible search panel');
+      end;
+      Settle;
+      Require((Reader.HighlightCount=0) and (Reader.MatchPosition<0) and
+        not TPanel(Reader.FindComponent('ReaderSearchPanel')).Visible,
+        'Closing the search left its text highlight');
+      var Percent:=TLabel(Reader.FindComponent('ReaderReadingPercent'));
+      Require(Percent.Visible and string(Percent.Caption).EndsWith('%'),'Reading percentage is missing');
+    end;
+    Reader.SetShowFootnotes(True);
+    Writeln('PASS reading percent, cleared search and hover footnotes without footer in both reading modes');
     Reader.SetPageLayout(rplDouble); Reader.GoToPosition(Saved); Reader.Close;
   finally Reader.Free; Image.Free; end;
   Reader:=TfrmBuiltinReader.Create(nil);

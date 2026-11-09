@@ -69,6 +69,8 @@ type
     function Chapters: TArray<TReaderChapter>;
     function Styles: TArray<TReaderStyledRange>;
     function FootnoteCount: Integer;
+    function HasFootnotes: Boolean;
+    function FootnoteAt(Position: Integer; out Start, Count: Integer): string;
     function Links: TArray<TReaderTextLink>;
     function HasLinks: Boolean;
     function LinkTargetAt(Position: Integer; out Target: Integer): Boolean;
@@ -1218,6 +1220,26 @@ var Link: TReaderFootnoteLink;
 begin
   Result:=0;
   for Link in FNoteLinks do if FNoteBodies.ContainsKey(Link.Target) then Inc(Result);
+end;
+
+function TReaderDocument.HasFootnotes: Boolean;
+begin
+  Result:=(FNoteLinks.Count>0) and (FNoteBodies.Count>0);
+end;
+
+function TReaderDocument.FootnoteAt(Position: Integer; out Start, Count: Integer): string;
+begin
+  Result:='';
+  for var Link in FNoteLinks do
+  begin
+    if Link.Start>Position then Break;
+    if (Position<Link.Start+Link.Count) and FNoteBodies.TryGetValue(Link.Target,Result) then
+    begin
+      Start:=Link.Start;
+      Count:=Link.Count;
+      Exit;
+    end;
+  end;
 end;
 
 function TReaderDocument.FootnotesForRange(Start, Finish, MaxCharacters: Integer): string;
