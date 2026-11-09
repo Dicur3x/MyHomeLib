@@ -32,7 +32,13 @@ class PublicationContract(unittest.TestCase):
                 repo / 'LICENSE': b'fixture licence',
                 runtime / 'NOTICE': b'fixture notices',
                 runtime / 'tools/fonts/manifest.json': b'{}',
-                repo / 'Installer/Release.json': b'{"version":"3.0.0.1"}'}.items():
+                repo / 'Installer/Release.json': b'{"version":"3.0.0.1"}',
+                repo / 'Installer/Components.json': packages.json_bytes({
+                    'format': 1,
+                    'components': [{'id': 'HomeLibReader', 'platform': platform,
+                                    'version': '3.0.0.1', 'history': [
+                                        {'version': '3.0.0.1', 'notes': 'fixture release'}]}],
+                })}.items():
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(data)
         return repo
