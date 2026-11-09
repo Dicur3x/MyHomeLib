@@ -209,6 +209,10 @@ end;
 
 function TReaderRaster.PreparedFor(const Page: TReaderRasterPage; MinEdge, MinWidth: Integer): Boolean;
 begin
+  if MinWidth<0 then Exit((Page.TargetWidth<0) or
+    ((Page.Width=Page.SourceWidth) and (Page.Height=Page.SourceHeight)));
+  if (Page.TargetWidth<0) and ((MinEdge>0) or (MinWidth>0)) and
+    (Int64(Page.Width)*Page.Height>11500000) then Exit(False);
   if MinWidth>0 then
     Exit((Page.TargetWidth>=MinWidth) or (Page.Width>=MinWidth) or (Page.Width=Page.SourceWidth));
   Result:=(MinEdge=0) or ((Page.TargetWidth=0) and (Page.RenderEdge>=MinEdge)) or
@@ -219,10 +223,11 @@ function TReaderRaster.AsyncPages: Boolean;
 begin Result:=True; end;
 
 procedure TReaderRaster.PreparePage(Index: Integer; Prefetch: Boolean; RenderEdge, TargetWidth: Integer);
-const Budget = 96*1024*1024;
 var Page, Visible, Old: TReaderRasterPage; Pair: TPair<Integer,TReaderRasterPage>;
-  Oldest, Protected: Integer; Stamp: Int64;
+  Oldest, Protected, Budget: Integer; Stamp: Int64;
 begin
+  Budget:=96*1024*1024;
+  if TargetWidth<0 then Budget:=2*Budget;
   RenderEdge:=EnsureRange(RenderEdge,200,4000);
   TMonitor.Enter(FCacheLock);
   try if FVisibleCount=2 then RenderEdge:=Min(RenderEdge,3200);
@@ -304,7 +309,9 @@ begin
     if (W=0) or (H=0) or (W>100000) or (H>100000) then raise Exception.Create('Некорректный размер изображения страницы.');
     Result.SourceWidth:=W; Result.SourceHeight:=H;
     Source:=Frame;
-    if TargetWidth>0 then
+    if TargetWidth<0 then
+      Scale:=Min(1.0,Sqrt(23000000.0/(Double(W)*H)))
+    else if TargetWidth>0 then
       // Keep two prepared pages within the raster cache even for tall images.
       Scale:=Min(TargetWidth/Double(W),Sqrt(11500000.0/(Double(W)*H)))
     else

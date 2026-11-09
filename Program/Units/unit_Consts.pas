@@ -137,6 +137,7 @@ const
   COL_PUBYEAR = 28;
   COL_ISBN = 29;
   COL_PROGRESS = 30;
+  COL_LAST_OPENED = 31;
 
   COL_STATE = 99;
 

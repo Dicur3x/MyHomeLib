@@ -136,7 +136,7 @@ begin
     until (TryReadReaderSessionReply(Request,Reply) and ((Reply.State='closed') or (Reply.State='failed'))) or
       (Driver.Error<>'') or (Watch.ElapsedMilliseconds>25000);
     Require(Driver.Error='',Driver.Error);
-    Require(Driver.Completed and (Reply.State='closed') and Reply.HasProgress and
+    Require(Driver.Completed and (Reply.State='closed') and Reply.Opened and Reply.HasProgress and
       (Reply.Progress>0) and (Reply.ProcessID=GetCurrentProcessId),
       'Catalogue reader host did not return the selected book progress');
     Ini:=TMemIniFile.Create(SettingsFile,TEncoding.UTF8);

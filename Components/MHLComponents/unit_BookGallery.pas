@@ -94,7 +94,7 @@ type
     FImage: TImage;
     FPrevious, FNext: TButton;
     FPosition: TLabel;
-    FIndex: Integer;
+    FIndex, FWheelRemainder: Integer;
     FNormalBounds: TRect;
     procedure LoadBounds;
     procedure SaveBounds;
@@ -102,6 +102,9 @@ type
     procedure Navigate(Sender: TObject);
     procedure CMDialogKey(var Message: TCMDialogKey); message CM_DIALOGKEY;
     procedure ShowIndex(Index: Integer);
+  protected
+    function DoMouseWheel(Shift: TShiftState; WheelDelta: Integer;
+      MousePos: TPoint): Boolean; override;
   public
     constructor CreateGallery(Gallery: TBookGallery; Index: Integer);
     destructor Destroy; override;
@@ -624,6 +627,27 @@ end;
 procedure TGalleryPreview.Navigate(Sender: TObject);
 begin
   ShowIndex(FIndex + TButton(Sender).Tag);
+end;
+
+function TGalleryPreview.DoMouseWheel(Shift: TShiftState; WheelDelta: Integer;
+  MousePos: TPoint): Boolean;
+var Steps: Integer;
+begin
+  if ((WheelDelta>0) and (FIndex=0)) or
+    ((WheelDelta<0) and (FIndex=FGallery.ImageCount-1)) then
+  begin
+    FWheelRemainder:=0;
+    Exit(True);
+  end;
+  Inc(FWheelRemainder,WheelDelta);
+  Steps:=FWheelRemainder div WHEEL_DELTA;
+  FWheelRemainder:=FWheelRemainder mod WHEEL_DELTA;
+  if Steps<>0 then
+  begin
+    ShowIndex(EnsureRange(FIndex-Steps,0,FGallery.ImageCount-1));
+    if (FIndex=0) or (FIndex=FGallery.ImageCount-1) then FWheelRemainder:=0;
+  end;
+  Result:=True;
 end;
 
 procedure TGalleryPreview.CMDialogKey(var Message: TCMDialogKey);

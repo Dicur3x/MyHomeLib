@@ -876,6 +876,8 @@ type
     procedure FrameTrees;
 
     procedure OnReadBookHandler(const BookRecord: TBookRecord);
+    function BookLastOpened(Book: PBookRecord): TDateTime;
+    procedure RememberBookOpened(const Book: TBookRecord);
     procedure ReadBuiltinExecute(Sender: TObject);
     procedure ReadExternalExecute(Sender: TObject);
     procedure ReadBuiltinUpdate(Sender: TObject);
@@ -971,6 +973,7 @@ type
 
   private
     FController: TTreeController;
+    FOpenedBooks: TDictionary<string, string>;
     FCollection: IBookCollection;
 
     FSelectionState: Boolean;
@@ -1272,7 +1275,7 @@ uses
   DateUtils,
   IOUtils,
   System.Hash,
-  unit_AtomicIniFile, System.IniFiles,
+  unit_AtomicIniFile, unit_FileMutex, System.IniFiles,
   Character,
   unit_HelpTopics,
   unit_MHLHttpClient,
@@ -4122,6 +4125,8 @@ end;
 procedure TfrmMain.ConnectTreeControllers;
 begin
   FController := TTreeController.Create(FSystemData);
+  FController.LastOpened := function(Book: PBookRecord): TDateTime
+    begin Result := BookLastOpened(Book); end;
 
   FController.ConnectAuthorsTree(tvAuthors);
   FController.ConnectSeriesTree(tvSeries);
@@ -5257,6 +5262,11 @@ begin
   pmHeaders.Items.Add(FilterMenu);
 
   FilterMenu := TMenuItem.Create(Self);
+  FilterMenu.Name := 'miColumnLastOpened'; FilterMenu.Caption := 'Последнее открытие';
+  FilterMenu.Tag := COL_LAST_OPENED; FilterMenu.OnClick := HeaderPopupItemClick;
+  pmHeaders.Items.Add(FilterMenu);
+
+  FilterMenu := TMenuItem.Create(Self);
   FilterMenu.Caption := 'Источники и объединение коллекции...';
   FilterMenu.OnClick := ShowCatalogSources;
   N2.Insert(3, FilterMenu);
@@ -5681,6 +5691,7 @@ begin
   FreeAndNil(FBookViewSessions);
 
   FreeAndNil(FController);
+  FreeAndNil(FOpenedBooks);
   FreeAndNil(FDMThread);
 
   // Persistent custom reading folders keep their files across sessions.
@@ -7192,13 +7203,68 @@ begin
   end;
 end;
 
+function TfrmMain.BookLastOpened(Book: PBookRecord): TDateTime;
+var Ini: TMemIniFile; Lines: TStringList; Value, Key: string; Sep: Integer;
+begin
+  Result:=0;
+  if not Assigned(Book) or (Book^.BookKey.BookID<=0) then Exit;
+  if not Assigned(FOpenedBooks) then
+  begin
+    FOpenedBooks:=TDictionary<string, string>.Create;
+    try
+      Ini:=TMemIniFile.Create(Settings.DataPath+'last-opened.ini',TEncoding.UTF8);
+      try
+        Lines:=TStringList.Create;
+        try
+          Ini.ReadSectionValues('Books',Lines);
+          for var I:=0 to Lines.Count-1 do
+            FOpenedBooks.AddOrSetValue(Lines.Names[I],Lines.ValueFromIndex[I]);
+        finally Lines.Free; end;
+      finally Ini.Free; end;
+    except on E: Exception do LogDiagnosticError('catalogue-open-history-read',E); end;
+  end;
+  Key:=IntToStr(Book^.BookKey.DatabaseID)+':'+IntToStr(Book^.BookKey.BookID);
+  if not FOpenedBooks.TryGetValue(Key,Value) then Exit;
+  Sep:=Pos('|',Value);
+  if (Sep>0) and (Copy(Value,Sep+1)=ReaderNoteIdentity(ReaderHistoryName(Book^,''))) then
+    if not TryISO8601ToDate(Copy(Value,1,Sep-1),Result,False) then Result:=0;
+end;
+
+procedure TfrmMain.RememberBookOpened(const Book: TBookRecord);
+var Ini: TMemIniFile; Lock: TFileMutex; FileName, Key, Value: string; Tree: TBookTree;
+begin
+  if Application.Terminated or (csDestroying in ComponentState) or (Book.BookKey.BookID<=0) then Exit;
+  Key:=IntToStr(Book.BookKey.DatabaseID)+':'+IntToStr(Book.BookKey.BookID);
+  Value:=DateToISO8601(Now,False)+'|'+ReaderNoteIdentity(ReaderHistoryName(Book,''));
+  FileName:=Settings.DataPath+'last-opened.ini';
+  try
+    Lock:=TFileMutex.Create(FileName);
+    try
+      for var Attempt:=1 to 10 do
+      begin
+        if Lock.TryAcquire then Break;
+        Sleep(10);
+      end;
+      if not Lock.Acquired then raise Exception.Create('Файл истории открытия книг занят.');
+      Ini:=TMemIniFile.Create(FileName,TEncoding.UTF8);
+      try
+        Ini.WriteString('Books',Key,Value);
+        SaveMemIniFileAtomically(Ini);
+      finally Ini.Free; end;
+    finally Lock.Free; end;
+    if Assigned(FOpenedBooks) then FOpenedBooks.AddOrSetValue(Key,Value);
+    GetActiveTree(Tree);
+    if Assigned(Tree) then Tree.Invalidate;
+  except on E: Exception do LogDiagnosticError('catalogue-open-history-write',E); end;
+end;
+
 procedure TfrmMain.RunCatalogueReader(const Request: TReaderSessionRequest; const Snapshot: TBookRecord;
   const LibraryNamespace: string);
 var Expected: TBookRecord; ReaderCollection: IBookCollection; Namespace: string;
-  ReaderKey: TBookKey; Personal: Boolean;
+  ReaderKey: TBookKey; Personal, Remembered: Boolean;
 begin
   Expected:=Snapshot; Namespace:=LibraryNamespace; ReaderKey:=Expected.BookKey;
-  Personal:=Request.RequirePersonalProgress; ReaderCollection:=nil;
+  Personal:=Request.RequirePersonalProgress; ReaderCollection:=nil; Remembered:=False;
   if Expected.BookKey.BookID>0 then
     try ReaderCollection:=FSystemData.GetCollection(Expected.BookKey.DatabaseID); except end;
   LaunchReaderSession(Self,Settings.AppPath+'HomeLibReader.exe',
@@ -7210,6 +7276,7 @@ begin
       if Application.Terminated or (csDestroying in ComponentState) then Exit;
       if Reply.HasProgress and (Expected.BookKey.BookID>0) then
       begin
+        if not Remembered then RememberBookOpened(Expected);
         Changed:=Expected; Changed.Progress:=Reply.Progress;
         Outcome:=TryStoreReaderBookPersonal(ReaderCollection,FSystemData,Changed,[bpfProgress],Personal);
         if Outcome=rpwCatalog then
@@ -7242,6 +7309,11 @@ begin
       begin StatusMessage:='Читалка: '+Reply.ErrorText; Exit; end;
       if Reply.RequestedNote.ID<>'' then OpenReaderNote(Reply.RequestedNote)
       else RefreshNotesSearch;
+    end,
+    procedure
+    begin
+      RememberBookOpened(Expected);
+      Remembered:=True;
     end);
 end;
 
@@ -7347,6 +7419,7 @@ begin
                 raise Exception.Create('Не удалось обновить сведения FB2 в копии для читалки. Оригинал книги не изменён.');
               if SimpleShellExecute(Handle,ExternalPath,NamedFile)<=32 then
                 raise Exception.Create('Не удалось открыть читалку: '+ExternalPath);
+              RememberBookOpened(Snapshot);
               RecordComponentToolUse(ExternalPath);
             end,RewriteFB2)
         else
@@ -7356,6 +7429,7 @@ begin
               if RewriteFB2 and not WriteFb2InfoToFile(Snapshot,NamedFile) then
                 raise Exception.Create('Не удалось обновить сведения FB2 в копии для читалки. Оригинал книги не изменён.');
               Settings.Readers.RunReader(NamedFile);
+              RememberBookOpened(Snapshot);
             end,RewriteFB2);
       finally
         TrimBookCache;
@@ -9158,9 +9232,16 @@ begin
 end;
 
 procedure TfrmMain.acViewSetInfoPriorityExecute(Sender: TObject);
+var Tree: TBookTree;
 begin
-  Settings.Fb2InfoPriority := not Settings.Fb2InfoPriority ;
+  Settings.Fb2InfoPriority := not Settings.Fb2InfoPriority;
   SetBookInfoPriority(Settings.Fb2InfoPriority);
+  if Settings.ShowInfoPanel and (ActiveView <> DownloadView) then
+  begin
+    GetActiveTree(Tree);
+    if Assigned(Tree) and Assigned(Tree.FocusedNode) then
+      tvBooksTreeChange(Tree, Tree.FocusedNode);
+  end;
 end;
 
 procedure TfrmMain.Add2DownloadListExecute(Sender: TObject);
@@ -12699,7 +12780,7 @@ begin
   end;
   for i := 0 to pmHeaders.Items.Count-1 do
     if pmHeaders.Items[i].Tag in [COL_PUBLISHER_SERIES, COL_PUBLISHER,
-      COL_TRANSLATORS, COL_CITY, COL_PUBYEAR, COL_ISBN, COL_PROGRESS] then
+      COL_TRANSLATORS, COL_CITY, COL_PUBYEAR, COL_ISBN, COL_PROGRESS, COL_LAST_OPENED] then
       for var J := 0 to Tree.Header.Columns.Count-1 do
         if Tree.Header.Columns[J].Tag = pmHeaders.Items[i].Tag then pmHeaders.Items[i].Checked := True;
   pmHeaders.Items[9].Visible := True;

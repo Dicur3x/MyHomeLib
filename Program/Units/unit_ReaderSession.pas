@@ -16,7 +16,7 @@ type
   TReaderSessionReply = record
     State, RequiredComponent, ErrorText: string;
     ProcessID, OriginProcessID: Cardinal;
-    HasProgress: Boolean;
+    HasProgress, Opened: Boolean;
     Progress: Integer;
     RequestedNote: TReaderAnnotation;
   end;
@@ -216,6 +216,7 @@ begin
     Value.AddPair('state',Reply.State); Value.AddPair('pid',TJSONNumber.Create(Reply.ProcessID));
     if Reply.OriginProcessID<>0 then Value.AddPair('origin_pid',TJSONNumber.Create(Reply.OriginProcessID));
     if Reply.HasProgress then Value.AddPair('progress',TJSONNumber.Create(Reply.Progress));
+    if Reply.Opened then Value.AddPair('opened',TJSONTrue.Create);
     if Reply.RequiredComponent<>'' then Value.AddPair('component',Reply.RequiredComponent);
     if Reply.ErrorText<>'' then Value.AddPair('error',Copy(Reply.ErrorText,1,4096));
     if Reply.RequestedNote.ID<>'' then
@@ -247,6 +248,8 @@ begin
         Pending.OriginProcessID:=Number(Root,'origin_pid',1,High(Cardinal));
       Pending.HasProgress:=Assigned(Root.GetValue('progress'));
       if Pending.HasProgress then Pending.Progress:=Number(Root,'progress',0,100);
+      Value:=Root.GetValue('opened');
+      Pending.Opened:=(Value is TJSONBool) and TJSONBool(Value).AsBoolean;
       Pending.RequiredComponent:=Text(Root,'component',128,False);
       Pending.ErrorText:=Text(Root,'error',4096,False);
       Value:=Root.GetValue('note');

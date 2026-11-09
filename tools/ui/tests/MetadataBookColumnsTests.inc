@@ -578,6 +578,7 @@ const Progresses: array[0..3] of Integer = (42, 0, 100, 9);
 var IDs: TArray<Integer>; GroupID: Integer; Tree: TBookTree; Item: TMenuItem;
   Layout: TColumns; Column: Integer; CellText: string;
   Hit: TVTHeaderHitInfo; LeftEdge, RightEdge: TDimension;
+  Ini: TMemIniFile; Stored: TBookRecord; Opened: TDateTime;
 
   procedure RequireOrder(const Expected: array of Integer);
   var Node: PVirtualNode; Book: PBookRecord;
@@ -624,6 +625,32 @@ begin
     RequireOrder([2,0,3,1]);
   end;
   Tree:=frmMain.tvBooksSR; MBCActivate(Tree); MBCRefreshMenu;
+  Opened:=EncodeDate(2026,11,9)+EncodeTime(11,0,0,0);
+  Ini:=TMemIniFile.Create(Settings.DataPath+'last-opened.ini',TEncoding.UTF8);
+  try
+    for var I in [0,3] do
+    begin
+      Collection.GetBookRecord(CreateBookKey(IDs[I],Collection.CollectionID),Stored,False);
+      Ini.WriteString('Books',IntToStr(Collection.CollectionID)+':'+IntToStr(IDs[I]),
+        DateToISO8601(Opened+I,False)+'|'+ReaderNoteIdentity(ReaderHistoryName(Stored,'')));
+    end;
+    SaveMemIniFileAtomically(Ini);
+  finally Ini.Free; end;
+  Item:=MBCMenu(COL_LAST_OPENED);
+  Require((Item.Caption='Последнее открытие') and not Item.Checked,'Last-opened column must be optional');
+  Item.OnClick(Item); Column:=MBCColumn(Tree,COL_LAST_OPENED);
+  Require(Item.Checked and (Column>=0),'Last-opened column could not be shown');
+  CellText:=''; Tree.OnGetText(Tree,MBCNode(Tree,IDs[0]),Column,ttNormal,CellText);
+  Require(CellText=DateTimeToStr(Opened),'Last-opened column did not load saved history');
+  CellText:=''; Tree.OnGetText(Tree,MBCNode(Tree,IDs[1]),Column,ttNormal,CellText);
+  Require(CellText='—','A book without history has a date');
+  frmMain.ClearBookSorting(nil);
+  Hit:=Default(TVTHeaderHitInfo); Hit.Column:=Column; Hit.Button:=mbLeft;
+  Tree.Header.Columns.GetColumnBounds(Column,LeftEdge,RightEdge);
+  Hit.X:=RightEdge-MulDiv(16,Tree.CurrentPPI,96);
+  frmMain.tvBooksTreeHeaderClick(Tree.Header,Hit);
+  RequireOrder([1,2,0,3]);
+  Writeln('PASS last-opened dates from the profile appear in the optional column and sort chronologically');
   Layout:=TColumns.Create(Settings.SystemFileName[sfColumnsStore]);
   try
     Layout.Load(SECTION_SR_FLAT,tmFlat);

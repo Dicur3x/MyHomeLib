@@ -35,6 +35,7 @@ type
     FSystemData: ISystemData;
     FCompareCount: Integer;
     FCancelCheck: TFunc<Boolean>;
+    FLastOpened: TFunc<PBookRecord, TDateTime>;
     FCollectionTypes: TDictionary<Integer, COLLECTION_TYPE>;
 
     FStarImage: TPngImage;
@@ -81,6 +82,7 @@ type
 
   public
     property CancelCheck: TFunc<Boolean> read FCancelCheck write FCancelCheck;
+    property LastOpened: TFunc<PBookRecord, TDateTime> read FLastOpened write FLastOpened;
     constructor Create(SystemData: ISystemData);
     destructor Destroy; override;
 
@@ -328,6 +330,15 @@ begin
     COL_PROGRESS:
       if Data^.Progress > 0 then Result := IntToStr(Min(Data^.Progress, 100)) + '%'
       else Result := '—';
+    COL_LAST_OPENED:
+      begin
+        Result := '—';
+        if Assigned(FLastOpened) then
+        begin
+          var Stamp := FLastOpened(Data);
+          if Stamp > 0 then Result := DateTimeToStr(Stamp);
+        end;
+      end;
     COL_NO:
       Result := IfThen(Data^.SeqNumber = 0, '', IntToStr(Data^.SeqNumber));
     COL_SIZE:
@@ -578,6 +589,8 @@ var
       COL_ISBN: Result := CompareStr(Data1^.ISBN, Data2^.ISBN);
       COL_PROGRESS: Result := CompareInt(EnsureRange(Data1^.Progress, 0, 100),
         EnsureRange(Data2^.Progress, 0, 100));
+      COL_LAST_OPENED:
+        if Assigned(FLastOpened) then Result := CompareDate(FLastOpened(Data1), FLastOpened(Data2));
       COL_SERIES:  Result := CompareStr(Data1^.Series, Data2^.Series);
       COL_NO:      Result := CompareSeqNumber(Number1, Number2);
       COL_SIZE:    Result := CompareInt(Data1^.Size, Data2^.Size);

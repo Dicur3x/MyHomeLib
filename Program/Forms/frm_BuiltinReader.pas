@@ -68,6 +68,10 @@ type
     FThemes: TComboBox;
     FFitButton: TButton;
     FInterfaceReturn: TButton;
+    FEdgeTimer: TTimer;
+    FShowInterfaceItem: TMenuItem;
+    FOriginalRasterItem: TMenuItem;
+    FOriginalRasterScale: Boolean;
     FInterfaceMenu: TMainMenu;
     FInterfaceSearch: Boolean;
     FOnInterfaceModeChanged: TNotifyEvent;
@@ -235,6 +239,7 @@ type
     procedure PreviousClick(Sender: TObject);
     procedure BiggerClick(Sender: TObject);
     procedure FitPageClick(Sender: TObject);
+    procedure OriginalRasterClick(Sender: TObject);
     procedure CopyReaderText(const Text, SuccessStatus: string);
     procedure CopyTextClick(Sender: TObject);
     procedure CopyPageClick(Sender: TObject);
@@ -283,6 +288,8 @@ type
     procedure AddChapter(const Title: string; Position, Depth: Integer);
     procedure PaintProgress(Sender: TObject);
     procedure UpdateProgressVisibility;
+    procedure UpdateHiddenChrome;
+    procedure RevealScreenEdges(Sender: TObject);
     procedure ProgressMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X,Y: Integer);
     procedure ProgressMouseMove(Sender: TObject; Shift: TShiftState; X,Y: Integer);
     procedure ProgressMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X,Y: Integer);
@@ -1305,6 +1312,15 @@ begin
   MenuItem:=TMenuItem.Create(FCopyMenu); MenuItem.Caption:='Добавить заметку…';
   MenuItem.OnClick:=NotesClick; FCopyMenu.Items.Add(MenuItem);
   FEncodingMenu:=AddTextEncodingMenu(FCopyMenu.Items);
+  FShowInterfaceItem:=TMenuItem.Create(FCopyMenu);
+  FShowInterfaceItem.Name:='ReaderRestoreInterfaceMenu';
+  FShowInterfaceItem.Caption:='Показать интерфейс'; FShowInterfaceItem.OnClick:=InterfaceClick;
+  FShowInterfaceItem.Visible:=False; FCopyMenu.Items.Insert(0,FShowInterfaceItem);
+  FOriginalRasterItem:=TMenuItem.Create(FCopyMenu);
+  FOriginalRasterItem.Name:='ReaderOriginalRasterScale';
+  FOriginalRasterItem.Caption:='Исходный масштаб изображения (100%)';
+  FOriginalRasterItem.OnClick:=OriginalRasterClick; FOriginalRasterItem.Visible:=False;
+  FCopyMenu.Items.Insert(1,FOriginalRasterItem);
   // Start with page keys ready; the contents selector keeps its own keys after a click.
   ActiveControl:=FSurface;
   // This hidden formatting buffer must survive showing, scaling and restyling
@@ -1319,6 +1335,8 @@ begin
   FResizeTimer:=TTimer.Create(Self); FResizeTimer.Enabled:=False; FResizeTimer.Interval:=140; FResizeTimer.OnTimer:=ResizePage;
   FScrollTimer:=TTimer.Create(Self); FScrollTimer.Enabled:=False;
   FScrollTimer.Interval:=15; FScrollTimer.OnTimer:=ScrollFrame;
+  FEdgeTimer:=TTimer.Create(Self); FEdgeTimer.Enabled:=False;
+  FEdgeTimer.Interval:=45; FEdgeTimer.OnTimer:=RevealScreenEdges;
   FPageTimer:=TTimer.Create(Self); FPageTimer.Enabled:=False; FPageTimer.Interval:=30; FPageTimer.OnTimer:=PageLoaded;
   FSearchTimer:=TTimer.Create(Self); FSearchTimer.Enabled:=False; FSearchTimer.Interval:=1; FSearchTimer.OnTimer:=SearchTick;
   FSeekTimer:=TTimer.Create(Self); FSeekTimer.Enabled:=False; FSeekTimer.Interval:=90; FSeekTimer.OnTimer:=SeekTick;
@@ -1496,7 +1514,7 @@ end;
 
 destructor TfrmBuiltinReader.Destroy;
 begin
-  FClosing:=True; FScrollTimer.Enabled:=False; FSeekTimer.Enabled:=False; FPaginationTimer.Enabled:=False; FreeAndNil(FLoadStatus);
+  FClosing:=True; FEdgeTimer.Enabled:=False; FScrollTimer.Enabled:=False; FSeekTimer.Enabled:=False; FPaginationTimer.Enabled:=False; FreeAndNil(FLoadStatus);
   FPageTimer.Enabled:=False;
   if Assigned(FPageWorker) then begin FPageWorker.Terminate; FPageWorker.WaitFor; FreeAndNil(FPageWorker); end;
   FreeAndNil(FPageStatus);
@@ -1660,7 +1678,8 @@ function TfrmBuiltinReader.DesiredRasterWidth: Integer;
 begin
   Result:=0;
   if ContinuousReading and (FPDF is TReaderRaster) and TReaderRaster(FPDF).FitsContinuousWidth then
-    Result:=EnsureRange(MulDiv(FSurface.ClientWidth-MulDiv(24,CurrentPPI,96),FZoom,100),1,6000);
+    if FOriginalRasterScale then Result:=-1
+    else Result:=EnsureRange(MulDiv(FSurface.ClientWidth-MulDiv(24,CurrentPPI,96),FZoom,100),1,6000);
 end;
 
 procedure TfrmBuiltinReader.PrefetchNextPage;
@@ -1761,7 +1780,10 @@ begin
   if (FRequestedPage<>FPage) and (Preloaded or (FRequestedPage<>Index)) then
     RequestPage(FRequestedPage,FRequestedMoved)
   else if not Preloaded and (Error<>'') and (Index=FRequestedPage) then
-  begin FSpreadLoading:=False; FStatus.Caption:='Не удалось открыть страницу: '+Error; end
+  begin
+    FScrollBackOffset:=0;
+    FSpreadLoading:=False; FStatus.Caption:='Не удалось открыть страницу: '+Error;
+  end
   else PrefetchNextPage;
 end;
 
@@ -1940,7 +1962,15 @@ end;
 procedure TfrmBuiltinReader.ScrollPixels(Pixels: Integer);
 begin
   if (Pixels=0) or (FScrollTileHeight<=0) or FTextSelecting or FPDFSelecting then Exit;
-  FScrollTarget:=EnsureRange(FScrollTarget+Pixels,-2*FScrollTileHeight,3*FScrollTileHeight);
+  if FScrollBackOffset<0 then
+  begin
+    FScrollBackOffset:=Max(-2*FScrollTileHeight,FScrollBackOffset+Pixels);
+    if FScrollBackOffset<0 then Exit;
+    FScrollTarget:=FScrollBackOffset;
+    FScrollBackOffset:=0;
+    RequestPage(FPage);
+  end
+  else FScrollTarget:=EnsureRange(FScrollTarget+Pixels,-2*FScrollTileHeight,3*FScrollTileHeight);
   FScrollTimer.Enabled:=FScrollTarget<>FScrollOffset;
 end;
 
@@ -1967,6 +1997,7 @@ begin
     Limit:=FScrollTileHeight*Ord(HasNext);
   end;
   if not HasNext then FScrollTarget:=Min(FScrollTarget,Limit);
+  if PreviousPosition=0 then FScrollTarget:=Max(0,FScrollTarget);
   // A loaded next tile is not a destination. Easing towards its edge would
   // slow down to one pixel per frame even when the wheel keeps moving down.
   if CanAdvance then Difference:=FScrollTarget-FScrollOffset
@@ -1995,14 +2026,21 @@ begin
     begin
       Remainder:=FScrollTarget;
       Overshoot:=Step-FScrollOffset;
-      PreviousPage;
+      if Assigned(FPDF) and FPDF.AsyncPages then
+      begin
+        // Keep the current viewport at the seam while the previous page loads.
+        FScrollOffset:=0; FScrollTarget:=0;
+        RequestPage(FPage-1);
+        if FRequestedPage<>FPage then FScrollBackOffset:=Remainder;
+      end
+      else PreviousPage;
       if PreviousPosition<>CurrentPosition then
       begin
-        FScrollOffset:=Max(0,FScrollTileHeight-Overshoot);
-        FScrollTarget:=FScrollTileHeight+Remainder;
-      end
-      else if Assigned(FPDF) and FPDF.AsyncPages and (FRequestedPage<>FPage) then
-        FScrollBackOffset:=Remainder;
+        if Assigned(FPDF) then Limit:=Min(FScrollTileHeight,RasterScrollLimit)
+        else Limit:=FScrollTileHeight;
+        FScrollOffset:=Max(0,Limit-Overshoot);
+        FScrollTarget:=Limit+Remainder;
+      end;
     end
     else Dec(FScrollOffset,Step);
   end;
@@ -2307,7 +2345,7 @@ begin
   for var I:=0 to Count-1 do
   begin
     Views[I].Page:=FPage+I;
-    if TargetWidth>0 then Views[I].Size:=TReaderRaster(FPDF).SourcePageSize(FPage+I)
+    if TargetWidth<>0 then Views[I].Size:=TReaderRaster(FPDF).SourcePageSize(FPage+I)
     else Views[I].Size:=FPDF.PageSize(FPage+I);
     Inc(TotalWidth,Views[I].Size.X); MaximumHeight:=Max(MaximumHeight,Views[I].Size.Y);
   end;
@@ -2320,7 +2358,12 @@ begin
     Edge:=Min(3200,11500000 div Max(3200+Gap,FSurface.ClientHeight));
     for var I:=0 to Count-1 do
     begin
-      if TargetWidth>0 then
+      if TargetWidth<0 then
+      begin
+        Views[I].Size:=FPDF.PageSize(FPage+I);
+        PageWidth:=Views[I].Size.X; PageHeight:=Views[I].Size.Y;
+      end
+      else if TargetWidth>0 then
       begin
         PageWidth:=TargetWidth;
         PageHeight:=Max(1,MulDiv(Views[I].Size.Y,PageWidth,Views[I].Size.X));
@@ -2354,7 +2397,7 @@ begin
   end;
   // Keep the fast bitmap path for small strips. Large strips are drawn
   // directly in the viewport to avoid allocating a full scaled page.
-  if (TargetWidth>0) and (Int64(Width)*Height>11500000) then
+  if (TargetWidth<0) or ((TargetWidth>0) and (Int64(Width)*Height>11500000)) then
   begin
     FRasterStripSize:=Point(Width,Height);
     FBitmap.SetSize(0,0);
@@ -2390,7 +2433,9 @@ begin
     finally Spread.Free; end;
   end;
   FLoadFinished:=True; FSpreadLoading:=False;
-  FPan:=Point(Max(0,(FSurface.ClientWidth-Width) div 2),Max(0,(FSurface.ClientHeight-Height) div 2));
+  if (TargetWidth<0) and (Width>FSurface.ClientWidth) then
+    FPan:=Point(EnsureRange(FPan.X,FSurface.ClientWidth-Width,0),0)
+  else FPan:=Point(Max(0,(FSurface.ClientWidth-Width) div 2),Max(0,(FSurface.ClientHeight-Height) div 2));
   if ContinuousReading then
   begin
     if (FScrollRestore>0) and ((Count=2) or (FPage+1>=FPDF.PageCount)) then
@@ -2400,7 +2445,7 @@ begin
     end;
     FScrollOffset:=EnsureRange(FScrollOffset,0,RasterScrollLimit);
   end;
-  if TargetWidth>0 then FFitButton.Hint:='Вписать страницу по ширине'
+  if TargetWidth<>0 then FFitButton.Hint:='Вписать страницу по ширине'
   else FFitButton.Hint:='Вписать страницу в окно';
   if not FFitButton.Visible then begin FFitButton.Visible:=True; ArrangeToolbar(nil); end;
   if FPDFPageHasText and FSelectionEnabled then FSurface.Cursor:=crIBeam else FSurface.Cursor:=crDefault;
@@ -2412,6 +2457,13 @@ begin
   if ContinuousReading then
     FStatus.Caption:=Format('%s · Страница %d из %d · Прокрутка · Ctrl+колесо — масштаб',
       [FPDF.DisplayName,FPage+1,FPDF.PageCount]);
+  if TargetWidth<0 then
+  begin
+    if FPDF.PageSize(FPage)=TReaderRaster(FPDF).SourcePageSize(FPage) then
+      FStatus.Caption:=FStatus.Caption+' · Исходный масштаб'
+    else FStatus.Caption:=FStatus.Caption+' · Масштаб ограничен размером изображения';
+    if Width>FSurface.ClientWidth then FStatus.Caption:=FStatus.Caption+' · Ctrl+перетаскивание — сдвиг';
+  end;
 end;
 
 procedure TfrmBuiltinReader.RenderPage;
@@ -2730,6 +2782,7 @@ begin
   if (RasterOffset=0) and ContinuousReading and Assigned(FPDF) and (FScrollTileHeight>0) then
     RasterOffset:=MulDiv(FScrollOffset,10000,FScrollTileHeight);
   ResetScroll; FScrollRestore:=RasterOffset; ResetPagination;
+  FPrefetchedForPage:=-1;
   if not Assigned(FPDF) then
   begin
     if Assigned(FDocument) and (FDocument.ImageCount>0) and
@@ -2825,7 +2878,10 @@ var NewSize: Integer;
 begin
   ResetInspection;
   if Assigned(FPDF) then
-  begin NewSize:=EnsureRange(FZoom+Delta*10,50,300); if NewSize=FZoom then Exit; FZoom:=NewSize; end
+  begin
+    FOriginalRasterScale:=False;
+    NewSize:=EnsureRange(FZoom+Delta*10,50,300); if NewSize=FZoom then Exit; FZoom:=NewSize;
+  end
   else
   begin NewSize:=EnsureRange(FFontSize+Delta,8,48); if NewSize=FFontSize then Exit; FFontSize:=NewSize; FTypographyDirty:=True; end;
   InvalidateLayout;
@@ -2847,8 +2903,15 @@ end;
 procedure TfrmBuiltinReader.FitPageClick(Sender: TObject);
 begin
   if not FReady or not Assigned(FPDF) then Exit;
-  ResetInspection; FZoom:=100;
+  ResetInspection; FZoom:=100; FOriginalRasterScale:=False;
   if ContinuousReading then InvalidateLayout else RenderPage;
+end;
+
+procedure TfrmBuiltinReader.OriginalRasterClick(Sender: TObject);
+begin
+  if not FReady or (DesiredRasterWidth=0) then Exit;
+  FOriginalRasterScale:=not FOriginalRasterScale;
+  InvalidateLayout;
 end;
 
 procedure TfrmBuiltinReader.PreparePageSelection;
@@ -3131,6 +3194,9 @@ end;
 
 procedure TfrmBuiltinReader.CopyMenuPopup(Sender: TObject);
 begin
+  FShowInterfaceItem.Visible:=FInterfaceHidden;
+  FOriginalRasterItem.Visible:=DesiredRasterWidth<>0;
+  FOriginalRasterItem.Checked:=FOriginalRasterScale;
   if FEncodingMenu.Visible then EncodingMenuOpened(FEncodingMenu);
   FCopyItem.Visible:=True; FCopyItem.Enabled:=SelectedText<>'';
   FDictionaryItem.Enabled:=ReaderLookupText(SelectedText)<>'';
@@ -5273,7 +5339,6 @@ procedure TfrmBuiltinReader.UpdateProgressVisibility;
 var ShowLine: Boolean;
 begin
   ShowLine:=not FFullScreen or FShowFullScreenProgress;
-  if FProgressLine.Visible=ShowLine then Exit;
   if not ShowLine and FProgressDragging then
   begin
     FProgressDragging:=False;
@@ -5281,7 +5346,55 @@ begin
     FSeekTimer.Enabled:=False;
   end;
   FProgressLine.Visible:=ShowLine;
-  FBottom.Height:=MulDiv(26,CurrentPPI,96)+Ord(ShowLine)*FProgressLine.Height;
+  UpdateHiddenChrome;
+end;
+
+procedure TfrmBuiltinReader.UpdateHiddenChrome;
+var EdgeMode: Boolean;
+begin
+  EdgeMode:=FFullScreen and FInterfaceHidden;
+  DisableAlign;
+  try
+    FInterfaceReturn.Visible:=False;
+    FBottom.Visible:=False;
+    if EdgeMode then
+    begin
+      FInterfaceReturn.Align:=alNone;
+      FBottom.Align:=alNone;
+      FStatus.Visible:=False;
+    end
+    else
+    begin
+      FInterfaceReturn.Align:=alTop;
+      FInterfaceReturn.Visible:=FInterfaceHidden;
+      FBottom.Align:=alBottom;
+      FStatus.Visible:=True;
+      FBottom.Height:=MulDiv(26,CurrentPPI,96)+Ord(FProgressLine.Visible)*FProgressLine.Height;
+      FBottom.Visible:=not FInterfaceHidden;
+    end;
+  finally EnableAlign; end;
+  FEdgeTimer.Enabled:=EdgeMode;
+  if EdgeMode then RevealScreenEdges(nil);
+end;
+
+procedure TfrmBuiltinReader.RevealScreenEdges(Sender: TObject);
+var CursorPoint: TPoint; InReader, ShowReturn, ShowProgress: Boolean; Edge, ButtonWidth: Integer;
+begin
+  if not (FFullScreen and FInterfaceHidden) or not HandleAllocated then Exit;
+  CursorPoint:=ScreenToClient(Mouse.CursorPos);
+  InReader:=Showing and (GetAncestor(Handle,GA_ROOT)=GetForegroundWindow) and PtInRect(ClientRect,CursorPoint);
+  Edge:=MulDiv(5,CurrentPPI,96);
+  ButtonWidth:=Min(ClientWidth,MulDiv(170,CurrentPPI,96));
+  FInterfaceReturn.SetBounds((ClientWidth-ButtonWidth) div 2,0,ButtonWidth,MulDiv(28,CurrentPPI,96));
+  FBottom.SetBounds(0,Max(0,ClientHeight-FProgressLine.Height),ClientWidth,FProgressLine.Height);
+  ShowReturn:=InReader and ((CursorPoint.Y<Edge) or
+    (FInterfaceReturn.Visible and PtInRect(FInterfaceReturn.BoundsRect,CursorPoint)));
+  ShowProgress:=FShowFullScreenProgress and (FProgressDragging or (InReader and
+    ((CursorPoint.Y>=ClientHeight-Edge) or (FBottom.Visible and PtInRect(FBottom.BoundsRect,CursorPoint)))));
+  if ShowReturn and not FInterfaceReturn.Visible then FInterfaceReturn.BringToFront;
+  if ShowProgress and not FBottom.Visible then FBottom.BringToFront;
+  FInterfaceReturn.Visible:=ShowReturn;
+  FBottom.Visible:=ShowProgress;
 end;
 
 procedure TfrmBuiltinReader.ChapterClick(Sender: TObject);
@@ -5301,18 +5414,18 @@ begin
       FInterfaceHidden:=True;
       FInterfaceMenu:=Menu; Menu:=nil;
       FInterfaceSearch:=FSearchPanel.Visible;
-      FTop.Visible:=False; FBottom.Visible:=False;
+      FTop.Visible:=False;
       FSearchPanel.Visible:=False; FFontOffer.Visible:=False;
-      FInterfaceReturn.Visible:=True;
     end
     else
     begin
       Menu:=FInterfaceMenu; FInterfaceMenu:=nil;
-      FTop.Visible:=True; FBottom.Visible:=True;
+      FTop.Visible:=True;
       FSearchPanel.Visible:=FInterfaceSearch;
       FFontOffer.Visible:=(FMissingFonts.Count>0) and not FFontOfferDeclined;
-      FInterfaceReturn.Visible:=False; FInterfaceHidden:=False;
+      FInterfaceHidden:=False;
     end;
+    UpdateHiddenChrome;
   finally EnableAlign; end;
   if Assigned(FOnInterfaceModeChanged) then FOnInterfaceModeChanged(Self);
   RefreshWindowTheme; FSurface.SetFocus;
@@ -5453,6 +5566,7 @@ begin
       FSelectionEnabled:=Ini.ReadBool('Reader','SelectionEnabled',True);
       // A new book always fits the window; zoom belongs to that book alone.
       FZoom:=EnsureRange(Ini.ReadInteger('Book.'+FIdentity,'Zoom',100),50,300); FNight:=Ini.ReadBool('Reader','Night',False);
+      FOriginalRasterScale:=Ini.ReadBool('Book.'+FIdentity,'OriginalRasterScale',False);
       FTheme:=EnsureRange(Ini.ReadInteger('Reader','Theme',IfThen(FNight,5,0)),0,5);
       // Reading has its own palette, including when launched by the catalogue.
       FThemes.ItemIndex:=FTheme; FNight:=FTheme>=4;
@@ -5540,6 +5654,7 @@ begin
         Ini.WriteInteger('Book.'+FIdentity,'ScrollFraction',MulDiv(FScrollOffset,10000,FScrollTileHeight))
       else Ini.DeleteKey('Book.'+FIdentity,'ScrollFraction');
       if FInspect then Ini.WriteInteger('Book.'+FIdentity,'Zoom',FInspectZoom) else Ini.WriteInteger('Book.'+FIdentity,'Zoom',FZoom);
+      Ini.WriteBool('Book.'+FIdentity,'OriginalRasterScale',FOriginalRasterScale);
     end;
     SaveMemIniFileAtomically(Ini);
     FChangedThemeColors:=[];

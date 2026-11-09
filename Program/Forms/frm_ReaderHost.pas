@@ -32,6 +32,7 @@ type
     procedure ResumeBookSave(var Message: TMessage); message WM_RESUME_BOOK_SAVE;
     procedure BeginSession(const RequestFile: string);
     procedure SendSessionState(const State: string; const ErrorText: string = '');
+    procedure ConfirmSessionOpened;
     procedure FinishSession(const State: string);
     procedure InstallMenu(Form: TForm);
     procedure OpenClick(Sender: TObject);
@@ -491,17 +492,33 @@ begin
   else OfferUnusedComponents(Self,Settings.AppPath,True);
 end;
 
+procedure TfrmReaderHost.ConfirmSessionOpened;
+begin
+  if (FSession.ID='') or FSessionReply.Opened or (FSessionReply.State<>'displaying') or not Assigned(FView) then Exit;
+  if (FView is TfrmBuiltinReader) and not TfrmBuiltinReader(FView).Ready then Exit;
+  FSessionReply.Opened:=True;
+  SendSessionState('displaying');
+end;
+
 procedure TfrmReaderHost.Tick(Sender: TObject);
 var FileName: string;
 begin
   if FPreparing and not ReaderPreparationsPending(Self) then FPreparing:=False;
-  if FPreparing or FDisplaying then Exit;
+  if FDisplaying then begin ConfirmSessionOpened; Exit; end;
+  if FPreparing then Exit;
   // Installation always restarts through the helper. Retrying a partially
   // installed module here would reopen the same prompt every timer tick.
   if FPendingComponent<>'' then Exit;
   if FNextSession<>'' then
   begin FileName:=FNextSession; FNextSession:=''; BeginSession(FileName); Exit; end;
-  if FNextFile='' then begin CheckModuleCleanup; Exit; end;
+  if FNextFile='' then
+  begin
+    // A direct launch has no launcher window to return to after an error or cancellation.
+    if FDirectLaunch and not FRestarting and (Application.ModalLevel=0) then
+    begin FinishSession('closed'); Close; end
+    else CheckModuleCleanup;
+    Exit;
+  end;
   FileName:=FNextFile; FNextFile:=''; FinishSession('closed'); Prepare(FileName);
 end;
 
@@ -599,6 +616,7 @@ begin
     FReaderClosedActive:=False; FPreviousViewClose:=TForm(FView).OnClose;
     TForm(FView).OnClose:=BookViewClosing;
     FView.ShowModal;
+    ConfirmSessionOpened;
     if FView is TfrmBuiltinReader then
     begin
       Required:=TfrmBuiltinReader(FView).RequiredComponent;

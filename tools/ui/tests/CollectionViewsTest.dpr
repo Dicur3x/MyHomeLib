@@ -1054,7 +1054,7 @@ var
   I: Integer;
   ColumnHandler: TMethod;
 begin
-  Require(frmMain.pmHeaders.Items.Count = Length(Expected) + 13,
+  Require(frmMain.pmHeaders.Items.Count = Length(Expected) + 14,
     'Wrong header menu structure');
   ColumnHandler := TMethod(frmMain.pmHeaders.Items[0].OnClick);
   for I := Low(Expected) to High(Expected) do
@@ -1521,6 +1521,17 @@ begin
   Require(TFile.ReadAllText(Original, TEncoding.UTF8) = PLAIN, 'An ordinary source book changed');
   WithWebP := '<FictionBook><body><section><p>WebP book</p></section></body>' +
     '<binary id="cover.jpg" content-type="image/jpeg">' + WEBP + '</binary></FictionBook>';
+  ReaderPreferences:=TMemIniFile.Create(Settings.DataPath+'last-opened.ini',TEncoding.UTF8);
+  try
+    var Entry:=ReaderPreferences.ReadString('Books',IntToStr(Book.BookKey.DatabaseID)+':'+IntToStr(Book.BookKey.BookID),'');
+    var Separator:=Pos('|',Entry);
+    var Opened: TDateTime;
+    Require((Separator>0) and TryISO8601ToDate(Copy(Entry,1,Separator-1),Opened,False) and
+      (SecondsBetween(Opened,Now)<120) and
+      (Copy(Entry,Separator+1)=ReaderNoteIdentity(ReaderHistoryName(Book^,''))),
+      'Successful external reader launch did not record the correct book and date');
+    Writeln('PASS launching the external reader saves the actual book opening date');
+  finally ReaderPreferences.Free; end;
   WriteSource(WithWebP);
   Converted := ReadSelected;
   Require(not SameFileName(Converted, Original) and
@@ -2046,10 +2057,19 @@ begin
 
     TThread.ForceQueue(nil,
       procedure
-      var Preview: TForm;
+      var Preview: TForm; Wheel: TCMMouseWheel;
       begin
         Preview := Screen.ActiveForm;
         Require(Pos('Иллюстрации — 1 из 2', Preview.Caption) = 1, 'Wrong initial preview image');
+        Wheel:=Default(TCMMouseWheel); Wheel.Msg:=CM_MOUSEWHEEL; Wheel.WheelDelta:=-WHEEL_DELTA div 2;
+        Preview.Dispatch(Wheel);
+        Require(Pos('1 из 2', Preview.Caption)>0,'Partial wheel motion skipped the current image');
+        Preview.Dispatch(Wheel);
+        Require(Pos('2 из 2', Preview.Caption)>0,'Wheel did not advance to the next image');
+        Preview.Dispatch(Wheel);
+        Require(Pos('2 из 2', Preview.Caption)>0,'Wheel ran past the last image');
+        Wheel.WheelDelta:=WHEEL_DELTA; Preview.Dispatch(Wheel);
+        Require(Pos('1 из 2', Preview.Caption)>0,'Wheel did not return to the previous image');
         Preview.Perform(CM_DIALOGKEY, VK_RIGHT, 0);
         Require(Pos('2 из 2', Preview.Caption) > 0, 'Preview right arrow was consumed by button focus');
         Preview.Perform(CM_DIALOGKEY, VK_LEFT, 0);
@@ -2069,7 +2089,7 @@ begin
         Preview.Perform(CM_DIALOGKEY, VK_ESCAPE, 0);
       end);
     Gallery.OpenImage(1);
-    Writeln('PASS illustration preview arrows work and resized window position persists');
+    Writeln('PASS illustration preview wheel and arrows work and resized window position persists');
 
     SmallImage := PNGBytes(200, 300); LargeImage := PNGBytes(333, 500);
     for DuplicateCase := 0 to 2 do
@@ -4161,7 +4181,7 @@ procedure TestAsyncBookPreview;
 var Host: TForm; Panel: TInfoPanel; Preview: TBookInfoPreview; Book: TBookRecord;
   Started, Elapsed: UInt64; Viewport: TScrollBox; Content: TWinControl; Annotation: TMemo;
   LockedSource: TFileStream;
-  I: Integer; FileName, OriginalHash: string;
+  I: Integer; FileName, OriginalHash, ExpectedAnnotation: string;
   procedure WaitPreview;
   var Deadline: UInt64;
   begin
@@ -4222,13 +4242,25 @@ begin
     if TFile.Exists(Settings.AppPath+'preview-real.fb2') then
     begin
       OriginalHash:=THashSHA2.GetHashStringFromFile(Settings.AppPath+'preview-real.fb2');
-      Book.FileName:='preview-real'; Book.Title:='Космос Пушкина'; Preview.Load(Book,True,True,True); WaitPreview;
-      Require((Pos('В файле нет аннотации.',Panel.PreviewStatusText)>0) and
-        (Pos('Обложка в метаданных не задана.',Panel.PreviewStatusText)>0) and
-        (Pos('Название в файле отличается от каталога: «ГЛАВА ЧЕТВЁРТАЯ»',Panel.PreviewStatusText)>0) and
-        (Pos('Название в метаданных повреждено',Panel.PreviewStatusText)=0),'Real metadata warnings differ: '+Panel.PreviewStatusText);
+      ExpectedAnnotation:=GetEnvironmentVariable('HOMELIB_TEST_EXPECT_PREVIEW_ANNOTATION');
+      Book.FileName:='preview-real';
+      if ExpectedAnnotation='' then Book.Title:='Космос Пушкина' else Book.Title:='';
+      Preview.Load(Book,True,True,ExpectedAnnotation=''); WaitPreview;
+      if ExpectedAnnotation<>'' then
+      begin
+        Require(Annotation.Visible and (Pos(ExpectedAnnotation,Annotation.Text)>0) and
+          not Assigned(Annotation.OnDblClick),'Real annotation is absent or needs a double click');
+        Writeln('PASS real FB2 annotation appears in the card without switching views');
+      end
+      else
+      begin
+        Require((Pos('В файле нет аннотации.',Panel.PreviewStatusText)>0) and
+          (Pos('Обложка в метаданных не задана.',Panel.PreviewStatusText)>0) and
+          (Pos('Название в файле отличается от каталога: «ГЛАВА ЧЕТВЁРТАЯ»',Panel.PreviewStatusText)>0) and
+          (Pos('Название в метаданных повреждено',Panel.PreviewStatusText)=0),'Real metadata warnings differ: '+Panel.PreviewStatusText);
+        Writeln('PASS real Cosmos metadata explains missing annotation, cover and different title');
+      end;
       Require(THashSHA2.GetHashStringFromFile(Settings.AppPath+'preview-real.fb2')=OriginalHash,'Real preview modified copy');
-      Writeln('PASS real Cosmos metadata explains missing annotation, cover and different title');
     end;
     Writeln('PASS missing metadata shows explicit explanations without replacing catalogue fields');
     Book.FileName:='preview-first'; Preview.Load(Book,True,True,True);

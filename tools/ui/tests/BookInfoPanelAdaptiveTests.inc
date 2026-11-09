@@ -100,6 +100,7 @@ begin
               'Automatic preview consumed more than its bounded share of the list');
             Require(Trees[Index].ClientHeight>=3*Trees[Index].DefaultNodeHeight,'Automatic fitting hid book rows');
             Require(Annotation.Visible and (Annotation.Height>0),'Description has no visible area');
+            Require(not Assigned(Annotation.OnDblClick),'Double-click can still swap the description for metadata');
             Require(Pos('Новая глава',Annotation.Text)>0,'Selection preview overwrote the explicit layout fixture');
             Writeln('TRACE adaptive before view=',Index,' dark=',Ord(Dark),' dpi=',DPI,
               ' width=',Width,' height=',Panel.Height,' preferred=',Panel.PreferredHeight,

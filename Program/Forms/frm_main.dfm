@@ -419,8 +419,6 @@
           Align = alBottom
           TabOrder = 2
           OnResize = InfoPanelResize
-          ShowAnnotation = False
-          InfoPriority = True
           OnAuthorLinkClicked = AuthorLinkClicked
           OnSeriesLinkClicked = SeriesLinkClicked
           OnGenreLinkClicked = GenreLinkClicked
@@ -2476,7 +2474,7 @@
               Width = 26
               Height = 13
               Alignment = taRightJustify
-              Caption = #1044#1072#1090#1072
+              Caption = #1044#1072#1090#1072' '#1076#1086#1073#1072#1074#1083#1077#1085#1080#1103
             end
             object Label2: TLabel
               Left = 7
@@ -3792,7 +3790,7 @@
         object miBookInfoPriority: TMenuItem
           Action = acViewSetInfoPriority
           AutoCheck = True
-          Caption = #1055#1086#1082#1072#1079#1099#1074#1072#1090#1100' BookInfo'
+          Caption = #1052#1077#1090#1072#1076#1072#1085#1085#1099#1077' FB2 '#1074#1084#1077#1089#1090#1086' '#1072#1085#1085#1086#1090#1072#1094#1080#1080
         end
       end
       object N76: TMenuItem

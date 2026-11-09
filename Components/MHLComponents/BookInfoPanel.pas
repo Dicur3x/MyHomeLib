@@ -106,7 +106,7 @@ type
     FOnPublisherSeriesLinkClicked: TSysLinkEvent;
     FMenu: TPopupMenu;
 
-    FInfoPriority: Boolean;
+    FInfoPriority, FShowAnnotation: Boolean;
     FUpdatingLayout: Boolean;
     FUpdateCount: Integer;
     FRedrawSuspended: Boolean;
@@ -131,7 +131,7 @@ type
     procedure UpdateLinkTexts;
 
     procedure OnLinkClicked(Sender: TObject; const Link: string; LinkType: TSysLinkType);
-    procedure OnAnnotationClicked(Sender: TObject);
+    procedure UpdateDetailVisibility;
     procedure SetInfoPriority(const Value: Boolean);
     procedure CopyToClipboard(Sender: TObject);
     procedure ApplyInfoText(Control: TControl; const Value: string);
@@ -589,8 +589,7 @@ begin
   FAnnotation.ReadOnly := True;
   FAnnotation.TextHint := rstrNoAnnotationHint;
   FAnnotation.ScrollBars := ssVertical;
-  FAnnotation.OnDblClick := OnAnnotationClicked;
-  FAnnotation.Visible := not FInfoPriority;
+  FShowAnnotation := True;
 
   FFb2Info := TListView.Create(FInfoPanel);
 
@@ -614,8 +613,7 @@ begin
     TabOrder := 0;
     ViewStyle := vsReport;
     Anchors := [akLeft, akTop];
-    OnDblClick := OnAnnotationClicked;
-    Visible := FInfoPriority;
+    Visible := False;
     PopupMenu := FMenu;
   end;
 
@@ -787,7 +785,8 @@ end;
 procedure TInfoPanel.SetBookAnnotationText(const Value: string);
 begin
   FContentSizePending:=True;
-  SetInfoText(FAnnotation,Value); FAnnotation.Visible:=not FInfoPriority;
+  SetInfoText(FAnnotation,Value);
+  UpdateDetailVisibility;
   LayoutControls;
 end;
 
@@ -1030,7 +1029,7 @@ end;
 procedure TInfoPanel.LayoutControls;
 var
   RowH, LinkH, LinkW, Gap, LblW, W, H, Y, DetailH, Pass: Integer;
-  LayoutPPI, FooterH, FooterW, Padding, MetaW, BaseY, ButtonH, DesiredDetailH,
+  LayoutPPI, FooterH, FooterW, Padding, MetaW, BaseY, DetailY, ButtonH, DesiredDetailH,
     ReviewW, ButtonY, ProgressLeft, ProgressW, ProgressH: Integer;
   ProgressText: TSize;
   ShowProgress: Boolean;
@@ -1229,6 +1228,7 @@ begin
       FGenreLabel.SetBounds(0, Y, LblW, RowH);
       FGenres.SetBounds(LblW, Y, LinkW, LinkH);
       Inc(Y, LinkH + Gap);
+      DetailY:=Y;
       if FReadingSupport.Visible then
       begin
         Canvas.Font.Assign(FInfoPanel.Font);
@@ -1272,21 +1272,23 @@ begin
         DesiredDetailH:=MulDiv(80,LayoutPPI,96);
         if FAnnotation.Visible and (InfoText(FAnnotation)<>'') then
           DesiredDetailH:=EnsureRange(MeasureInfoText(9,Copy(InfoText(FAnnotation),1,16384),
-            FAnnotation.Font,Max(1,W)).cy+Gap,DesiredDetailH,MulDiv(180,LayoutPPI,96));
+            FAnnotation.Font,Max(1,MetaW)).cy+Gap,DesiredDetailH,MulDiv(180,LayoutPPI,96));
       end;
       FPreferredHeight:=FInfoViewport.Margins.Top+BaseY+DesiredDetailH+
         FInfoViewport.Margins.Bottom;
-      DetailH := Max(0, H - Y);
-      if (DetailH < MulDiv(80, LayoutPPI, 96)) and
-        (FAnnotation.Visible or FFb2Info.Visible) then
-        DetailH := MulDiv(80, LayoutPPI, 96);
+      DetailH := 0;
+      if FAnnotation.Visible or FFb2Info.Visible then
+        DetailH := Max(MulDiv(80, LayoutPPI, 96), H - Y);
       FInfoPanel.Height := Y + DetailH;
       if FInfoViewport.VertScrollBar.Range <> FInfoPanel.Height then
         FInfoViewport.VertScrollBar.Range := FInfoPanel.Height;
-      // Resize only the currently displayed detail view. Its public toggle
-      // immediately lays out the other view before that view can be used.
-      if FAnnotation.Visible then FAnnotation.SetBounds(0, Y, W, DetailH);
-      if FFb2Info.Visible then FFb2Info.SetBounds(0, Y, W, DetailH);
+      if FAnnotation.Visible then FAnnotation.SetBounds(0, DetailY, MetaW, DetailH);
+      if FFb2Info.Visible then FFb2Info.SetBounds(0, DetailY, MetaW, DetailH);
+      if FReadingSupport.Visible then FReadingSupport.Top:=FReadingSupport.Top+DetailH;
+      if FPreviewStatus.Visible then FPreviewStatus.Top:=FPreviewStatus.Top+DetailH;
+      if FGalleryToggle.Visible then FGalleryToggle.Top:=FGalleryToggle.Top+DetailH;
+      if FGallery.Visible and (MetaW=W) and FGallery.Expanded then
+        FGallery.Top:=FGallery.Top+DetailH;
       finally ProfileLayout(ipsDetailBounds, False); end;
       finally
         // Manual SetBounds must not realign/scan all siblings for every child.
@@ -1321,13 +1323,10 @@ begin
   finally EndUpdate; end;
 end;
 
-procedure TInfoPanel.OnAnnotationClicked(Sender: TObject);
+procedure TInfoPanel.UpdateDetailVisibility;
 begin
-  BeginUpdate;
-  try
-    FFb2Info.Visible := not FFb2Info.Visible;
-    FAnnotation.Visible := not FAnnotation.Visible;
-  finally EndUpdate; end;
+  FFb2Info.Visible := FInfoPriority and (FFb2Info.Items.Count > 0);
+  FAnnotation.Visible := FShowAnnotation and not FFb2Info.Visible;
 end;
 
 procedure TInfoPanel.OnLinkClicked(Sender: TObject; const Link: string; LinkType: TSysLinkType);
@@ -1415,7 +1414,6 @@ var
 begin
 
   ffb2info.Clear;
-  FFb2Info.Visible := FInfoPriority;
 
   with ffb2Info.Groups.Add do
   begin
@@ -1424,7 +1422,8 @@ begin
     AddItem(ffb2Info, rstrFile, FileName, GroupID);
   end;
 
-  if (book = nil) then   Exit;
+  UpdateDetailVisibility;
+  if book = nil then Exit;
 
   try
     with book.Description.Titleinfo, ffb2info.Groups.Add do
@@ -1544,8 +1543,7 @@ begin
   BeginUpdate;
   try
     FInfoPriority := Value;
-    FFb2Info.Visible := FInfoPriority;
-    FAnnotation.Visible := not FInfoPriority;
+    UpdateDetailVisibility;
   finally EndUpdate; end;
 end;
 
@@ -1647,6 +1645,7 @@ begin
   SetInfoText(FGenres, '');
   SetInfoText(FAnnotation, '');
   if FFb2Info.Items.Count > 0 then FFb2Info.Items.Clear;
+  UpdateDetailVisibility;
   FCover.Picture.Assign(nil);
   FContentSizePending:=False;
   SetPublisherSeries('');
@@ -1655,14 +1654,15 @@ end;
 
 function TInfoPanel.GetShowAnnotation: Boolean;
 begin
-  Result := FAnnotation.Visible;
+  Result := FShowAnnotation;
 end;
 
 procedure TInfoPanel.SetShowAnnotation(const Value: Boolean);
 begin
   if GetShowAnnotation <> Value then
   begin
-    FAnnotation.Visible := Value;
+    FShowAnnotation := Value;
+    UpdateDetailVisibility;
     if Value then
       Constraints.MinHeight := MulDiv(150, Max(1, Font.PixelsPerInch), 96)
     else

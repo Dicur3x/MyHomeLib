@@ -50,7 +50,12 @@ var Reader: TfrmBuiltinReader; FileName, Profile, XML, Original, Page: string;
     HideButton.Click; Application.ProcessMessages;
     Require(Reader.FullScreenMode and Reader.InterfaceHidden and not Toolbar.Visible,
       Kind+' full screen and hidden interface cannot be combined');
-    Restore.Click; Application.ProcessMessages;
+    Require(Reader.ReadingSurface.Top=0,'Hidden full-screen controls still reserve reading space');
+    var RestoreMenu:=Reader.FindComponent('ReaderSelectionMenu') as TPopupMenu;
+    RestoreMenu.OnPopup(RestoreMenu);
+    Require((RestoreMenu.Items[0].Name='ReaderRestoreInterfaceMenu') and RestoreMenu.Items[0].Visible,
+      'The reader context menu cannot bring back the interface');
+    RestoreMenu.Items[0].Click; Application.ProcessMessages;
     Require(Reader.FullScreenMode and not Reader.InterfaceHidden and Toolbar.Visible,
       Kind+' showing interface unexpectedly exited full screen');
     Key:=VK_F11; Reader.OnKeyDown(Reader,Key,[]); Application.ProcessMessages;
@@ -570,6 +575,20 @@ begin
     Pump(600);
     Position:=Reader.PDFPan.Y;
     Require(Position<0,'Tall comic lost the scroll remainder on the next page');
+    PressArrow(VK_UP,(-Position+Reader.ReadingSurface.ClientHeight div 2) div
+      Max(1,MulDiv(30,Reader.CurrentPPI,96)));
+    Watch:=TStopwatch.StartNew;
+    while (Reader.TextPosition<>0) and (Watch.ElapsedMilliseconds<10000) do Pump(20);
+    Pump(650);
+    Require((Reader.TextPosition=0) and
+      (Reader.PDFPan.Y<-(FirstPageHeight-Reader.ReadingSurface.ClientHeight)),
+      'Going backwards skipped the bottom part of the previous tall page');
+    PressArrow(VK_DOWN,Reader.ReadingSurface.ClientHeight div Max(1,MulDiv(30,Reader.CurrentPPI,96))+4);
+    Watch:=TStopwatch.StartNew;
+    while (Reader.TextPosition<>1) and (Watch.ElapsedMilliseconds<5000) do Pump(20);
+    Pump(650);
+    Require(Reader.TextPosition=1,'The tall comic could not be opened past the boundary again');
+    Position:=Reader.PDFPan.Y;
     Reader.Close;
   finally Reader.Free; end;
 
@@ -587,6 +606,20 @@ begin
     Reader.SetPageLayout(rplSingle);
     Require(Reader.PageRasterSize.X<Reader.ReadingSurface.ClientWidth div 3,
       'Paged comic did not restore whole-page fitting');
+    Reader.SetPageLayout(rplContinuous);
+    Reader.GoToPosition(0);
+    Watch:=TStopwatch.StartNew;
+    while (Reader.TextPosition<>0) and (Watch.ElapsedMilliseconds<10000) do Pump(20);
+    var ScaleMenu:=Reader.FindComponent('ReaderSelectionMenu') as TPopupMenu;
+    ScaleMenu.OnPopup(ScaleMenu);
+    Require((ScaleMenu.Items[1].Name='ReaderOriginalRasterScale') and ScaleMenu.Items[1].Visible,
+      'The comic has no original-scale command');
+    ScaleMenu.Items[1].Click;
+    Watch:=TStopwatch.StartNew;
+    while ((Reader.PageRasterSize.X<>900) or (Reader.PageRasterSize.Y<30000)) and
+      (Watch.ElapsedMilliseconds<15000) do Pump(30);
+    Require((Reader.PageRasterSize.X=900) and (Reader.PageRasterSize.Y>=30000),
+      'The tall comic was not rendered at its original 900-pixel width');
     Reader.Close;
   finally Reader.Free; end;
   Require(THashSHA2.GetHashStringFromFile(FileName)=Original,'Tall comic source changed');

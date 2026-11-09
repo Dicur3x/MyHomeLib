@@ -7,7 +7,8 @@ uses System.Classes, System.SysUtils, unit_ReaderSession;
 // Owns the process handle and the original input lease, never the reader's
 // lifetime. Closing the catalogue leaves the independent reader running.
 procedure LaunchReaderSession(Owner: TComponent; const Executable, Profile: string;
-  const Request: TReaderSessionRequest; const OnReply: TProc<TReaderSessionReply>);
+  const Request: TReaderSessionRequest; const OnReply: TProc<TReaderSessionReply>;
+  const OnOpened: TProc = nil);
 procedure CancelReaderSessionRunners(Owner: TComponent);
 function RemoveReaderSessionFiles(const Request: TReaderSessionRequest): Boolean;
 
@@ -31,13 +32,15 @@ type
     FSource: TStream;
     FTimer: TTimer;
     FOnReply: TProc<TReaderSessionReply>;
+    FOnOpened: TProc;
     FPolling, FRestarting: Boolean;
     FExitedAt: UInt64;
     procedure Tick(Sender: TObject);
     function AdoptReader(ProcessID: Cardinal): Boolean;
   public
     constructor Start(Owner: TComponent; const Executable, Profile: string;
-      const Request: TReaderSessionRequest; const OnReply: TProc<TReaderSessionReply>);
+      const Request: TReaderSessionRequest; const OnReply: TProc<TReaderSessionReply>;
+      const OnOpened: TProc);
     destructor Destroy; override;
   end;
 
@@ -65,12 +68,13 @@ begin
 end;
 
 constructor TReaderSessionRunner.Start(Owner: TComponent; const Executable, Profile: string;
-  const Request: TReaderSessionRequest; const OnReply: TProc<TReaderSessionReply>);
+  const Request: TReaderSessionRequest; const OnReply: TProc<TReaderSessionReply>;
+  const OnOpened: TProc);
 var Startup: TStartupInfo; Process: TProcessInformation; Command: string;
 begin
   inherited Create(Owner);
   FRequest:=Request; FExecutable:=TPath.GetFullPath(Executable);
-  FOnReply:=OnReply;
+  FOnReply:=OnReply; FOnOpened:=OnOpened;
   if not FileExists(FExecutable) then raise EFileNotFoundException.Create('Не найдена HomeLibre Reader.');
   // This also registers a cache reader, so explicit cache cleanup cannot
   // retire the original input while a component helper restarts the reader.
@@ -122,6 +126,12 @@ begin
       Accepted:=(Reply.ProcessID=FOriginalPID) or (Reply.OriginProcessID=FOriginalPID);
       if Accepted then
       begin
+        if Reply.Opened and Assigned(FOnOpened) then
+        begin
+          var OpenedAction:=FOnOpened;
+          FOnOpened:=nil;
+          OpenedAction();
+        end;
         if Reply.State='restarting' then FRestarting:=True;
         if (Reply.State='closed') or (Reply.State='failed') then
         begin Finished:=True; HasReply:=True; if Reply.State='failed' then Error:=Reply.ErrorText; end
@@ -158,8 +168,9 @@ begin
 end;
 
 procedure LaunchReaderSession(Owner: TComponent; const Executable, Profile: string;
-  const Request: TReaderSessionRequest; const OnReply: TProc<TReaderSessionReply>);
-begin TReaderSessionRunner.Start(Owner,Executable,Profile,Request,OnReply); end;
+  const Request: TReaderSessionRequest; const OnReply: TProc<TReaderSessionReply>;
+  const OnOpened: TProc);
+begin TReaderSessionRunner.Start(Owner,Executable,Profile,Request,OnReply,OnOpened); end;
 
 procedure CancelReaderSessionRunners(Owner: TComponent);
 begin
