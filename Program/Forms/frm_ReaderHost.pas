@@ -202,16 +202,13 @@ begin
   SettingsMenu:=TMenuItem.Create(Menu); SettingsMenu.Caption:='Настройки'; Menu.Items.Add(SettingsMenu);
   Item:=TMenuItem.Create(Menu); Item.Caption:='Кэш книг…'; Item.OnClick:=CacheSettingsClick;
   SettingsMenu.Add(Item);
-  Item:=TMenuItem.Create(Menu); Item.Name:='ReaderFormatsHelp'; Item.Caption:='Форматы чтения…'; Item.OnClick:=FormatsClick;
-  SettingsMenu.Add(Item);
   if Form is TfrmBuiltinReader then
-  begin
-    TfrmBuiltinReader(Form).AddThemeColorsMenu(SettingsMenu);
     TfrmBuiltinReader(Form).AddTextEncodingMenu(SettingsMenu);
-  end;
   Item:=TMenuItem.Create(Menu); Item.Name:='ReaderComponentsMenu'; Item.Caption:='Компоненты…';
   Item.OnClick:=ComponentsClick; SettingsMenu.Add(Item);
   HelpMenu:=TMenuItem.Create(Menu); HelpMenu.Caption:='Помощь'; Menu.Items.Add(HelpMenu);
+  Item:=TMenuItem.Create(Menu); Item.Name:='ReaderFormatsHelp'; Item.Caption:='Форматы чтения…';
+  Item.OnClick:=FormatsClick; HelpMenu.Add(Item);
   Item:=TMenuItem.Create(Menu); Item.Name:='ReaderDiagnostics'; Item.Caption:='Журнал ошибок…';
   Item.OnClick:=DiagnosticsClick; HelpMenu.Add(Item);
   Form.Menu:=Menu;
@@ -228,18 +225,46 @@ begin
 end;
 
 procedure TfrmReaderHost.FormatsClick(Sender: TObject);
-var Dialog: TForm; Text: TMemo; CloseButton: TButton;
+const Formats =
+  'Открываются без дополнительных модулей'+sLineBreak+
+  'FB2, FB3, EPUB — электронные книги.'+sLineBreak+
+  'DOCX, ODT — текстовые документы.'+sLineBreak+
+  'TXT, FAQ, WRI, RTF, MD, MARKDOWN — текст и разметка.'+sLineBreak+
+  'HTML, HTM, SHTML, XHTML, MHT, MHTML — веб-документы.'+sLineBreak+
+  'JPG, JPEG, PNG, GIF, BMP — изображения. CBZ — комиксы с такими страницами.'+sLineBreak+
+  'SM — интерактивные книги с выбором ответов.'+sLineBreak+sLineBreak+
+  'Модули, которые читалка предложит при открытии'+sLineBreak+
+  'PDF — PDFium.'+sLineBreak+
+  'DJVU, DJV, DJU, DJM, DJVM — DjVuLibre.'+sLineBreak+
+  'XPS, OXPS — HomeLibXps и подготовка книг (BookProcessing).'+sLineBreak+
+  'MOBI, AZW, AZW3, PRC — KindleUnpack и подготовка книг. Для отдельных старых книг также нужны кодеки calibre.'+sLineBreak+
+  'DOC, DOT — DocSharp. PPT, PPS, POT, XLS, XLT — DocSharp и подготовка книг.'+sLineBreak+
+  'DOCM, DOTX, DOTM, OTT, PPTX, PPTM, PPSX, PPSM, POTX, POTM, ODP, OTP, XLSX, XLSM, XLTX, XLTM, ODS, OTS — подготовка книг.'+sLineBreak+
+  'WPS, WPD — libwps/libwpd и подготовка книг. Требуется 64-разрядная Windows.'+sLineBreak+
+  'LIT, LRF — кодеки calibre и подготовка книг. IBK — данные ICE Book Reader и подготовка книг.'+sLineBreak+
+  'CHM — 7-Zip и подготовка книг. PDB, RGO, JUTOH, PAGES, CR3, B1, TCR, RB, ABW, SXW, HA — подготовка книг.'+sLineBreak+
+  'WEBP — libwebp. Для иллюстраций JPEG XL в книгах из сжатых коллекций нужен декодер JPEG XL.'+sLineBreak+
+  'TIF, TIFF — встроенное чтение или подготовка книг, в зависимости от файла.'+sLineBreak+
+  'CBR, CB7 — комиксы. Для некоторых архивов нужен 7-Zip. Для отдельных страниц TIFF нужна подготовка книг.'+sLineBreak+sLineBreak+
+  'Из ZIP, FBZ, 7Z, 7ZIP, RAR, TAR, GZ, GZIP, TGZ, BZ2, XZ и CAB можно выбрать вложенную книгу. '+
+  'Для некоторых способов сжатия читалка предложит 7-Zip.'+sLineBreak+sLineBreak+
+  'Очень крупные FB2 и RTF могут потребовать подготовку книг. Поддержка редких форматов зависит от их варианта. '+
+  'Встроенные обработчики обновляются вместе с читалкой. Модули обновляются в «Настройки → Компоненты».';
+var Dialog: TForm; ParentForm: TCustomForm; Text: TMemo; CloseButton: TButton;
 begin
-  Dialog:=TForm.CreateNew(Self);
+  ParentForm:=FView;
+  if not Assigned(ParentForm) then ParentForm:=Self;
+  Dialog:=TForm.CreateNew(ParentForm);
   try
-    Dialog.Name:='ReaderFormatsDialog'; Dialog.Caption:='Форматы и обновления читалки';
-    Dialog.Position:=poMainFormCenter; Dialog.Font.Assign(Font);
+    Dialog.Name:='ReaderFormatsDialog'; Dialog.Caption:='Форматы чтения';
+    Dialog.PopupMode:=pmExplicit; Dialog.PopupParent:=ParentForm;
+    Dialog.Position:=poOwnerFormCenter; Dialog.Font.Assign(ParentForm.Font);
     Dialog.ClientWidth:=650; Dialog.ClientHeight:=420;
     Dialog.Constraints.MinWidth:=460; Dialog.Constraints.MinHeight:=300;
     Text:=TMemo.Create(Dialog); Text.Parent:=Dialog; Text.Name:='ReaderFormatsText';
     Text.ReadOnly:=True; Text.ScrollBars:=ssVertical; Text.WordWrap:=True;
     Text.SetBounds(16,16,618,340); Text.Anchors:=[akLeft,akTop,akRight,akBottom];
-    Text.Text:=ComponentPurpose('HomeLibReader');
+    Text.Text:=Formats;
     CloseButton:=TReaderPaletteButton.Create(Dialog); CloseButton.Parent:=Dialog; CloseButton.Caption:='Закрыть';
     CloseButton.SetBounds(524,372,110,30); CloseButton.Anchors:=[akRight,akBottom];
     CloseButton.Default:=True; CloseButton.Cancel:=True; CloseButton.ModalResult:=mrOk;

@@ -160,7 +160,7 @@ type
     FBookFormatting, FShowFootnotes, FDecorativeInitials, FTypographyDirty: Boolean;
     FInitialsMode: TReaderInitialsMode;
     FHeadingColors: array[0..1,0..1] of TColor;
-    FThemeBackgrounds, FThemeTexts: array[0..5] of TColor;
+    FThemeBackgrounds, FThemeTexts, FThemeProgress: array[0..5] of TColor;
     FChangedThemeColors: set of 0..5;
     FFootnotesPanel: TPanel;
     FFootnotesLabel: TLabel;
@@ -386,7 +386,6 @@ type
     procedure SetHighlightColor(Value: TColor);
     procedure SetTheme(Index: Integer);
     procedure SetThemeColors(Background, Foreground: TColor);
-    procedure AddThemeColorsMenu(Parent: TMenuItem);
     procedure StopSearch;
     procedure SetInspectionPercent(Value: Integer);
     procedure SetInspectionHold(Value: Boolean);
@@ -1192,6 +1191,7 @@ begin
   begin
     FThemeBackgrounds[I]:=clDefault;
     FThemeTexts[I]:=clDefault;
+    FThemeProgress[I]:=clDefault;
   end;
   FPDFMatchPage:=-1; FPDFMatchIndex:=-1;
   FTextMatch:=-1; FHighlightColor:=$0080E5FF; FHighlighted:=TList<TPoint>.Create;
@@ -3414,13 +3414,6 @@ begin
   InvalidateLayout;
 end;
 
-procedure TfrmBuiltinReader.AddThemeColorsMenu(Parent: TMenuItem);
-var Item: TMenuItem;
-begin
-  Item:=TMenuItem.Create(Parent); Item.Name:='ReaderThemeColors'; Item.Caption:='Цвета темы…';
-  Item.OnClick:=ThemeColorsClick; Parent.Add(Item);
-end;
-
 procedure TfrmBuiltinReader.SetTheme(Index: Integer);
 begin
   Index:=EnsureRange(Index,0,5);
@@ -4821,6 +4814,7 @@ begin
   FSearchQuery:=''; FSearchStatus:='';
   FTextMatch:=-1; FTextMatchLength:=0;
   FPDFQuery:=''; FPDFMatchPage:=-1; FPDFMatchIndex:=0; FPDFRects:=nil;
+  FInterfaceSearch:=False;
   FSearchPanel.Visible:=False;
   if Repaint then RenderPage;
   if FSurface.CanFocus then FSurface.SetFocus;
@@ -4950,7 +4944,7 @@ begin
 end;
 
 procedure TfrmBuiltinReader.ThemeColorsClick(Sender: TObject);
-var Dialog: TForm; BackgroundBox, TextBox: TColorBox; Info: TLabel;
+var Dialog: TForm; ParentDialog: TCustomForm; BackgroundBox, TextBox, ProgressBox: TColorBox; Info: TLabel; ProgressColor: TColor;
   function ColorChoice(const Caption: string; Top: Integer; Selected: TColor): TColorBox;
   var LabelText: TLabel;
   begin
@@ -4965,23 +4959,39 @@ var Dialog: TForm; BackgroundBox, TextBox: TColorBox; Info: TLabel;
   var Button: TButton;
   begin
     Button:=TReaderPaletteButton.Create(Dialog); Button.Parent:=Dialog;
-    Button.SetBounds(Left,128,86,26); Button.Caption:=Caption; Button.ModalResult:=ModalResult;
+    Button.SetBounds(Left,162,86,26); Button.Caption:=Caption; Button.ModalResult:=ModalResult;
     Button.Default:=ModalResult=mrOk; Button.Cancel:=ModalResult=mrCancel;
   end;
 begin
-  Dialog:=TForm.CreateNew(Self);
+  ParentDialog:=GetParentForm(TControl(Sender));
+  Dialog:=TForm.CreateNew(ParentDialog);
   try
+    Dialog.Name:='ReaderThemeColorsDialog';
+    Dialog.PopupMode:=pmExplicit; Dialog.PopupParent:=ParentDialog;
     Dialog.Caption:='Цвета темы «'+FThemes.Text+'»';
     Dialog.BorderStyle:=bsDialog; Dialog.Position:=poOwnerFormCenter;
-    Dialog.ClientWidth:=350; Dialog.ClientHeight:=169; Dialog.Font.Assign(Font);
+    Dialog.ClientWidth:=350; Dialog.ClientHeight:=203; Dialog.Font.Assign(Font);
     BackgroundBox:=ColorChoice('&Фон',16,FThemeBackgrounds[FTheme]);
     TextBox:=ColorChoice('&Текст',50,FThemeTexts[FTheme]);
+    ProgressBox:=ColorChoice('&Полоса чтения',84,FThemeProgress[FTheme]);
+    ProgressBox.Name:='ReaderThemeProgressColor';
     Info:=TLabel.Create(Dialog); Info.Parent:=Dialog; Info.AutoSize:=False; Info.WordWrap:=True;
-    Info.SetBounds(16,87,318,35);
+    Info.SetBounds(16,121,318,35);
     Info.Caption:='Цвета сохраняются для выбранной темы. Выберите «Автоматически», чтобы вернуть цвет темы.';
     AddButton('Применить',156,mrOk); AddButton('Отмена',248,mrCancel);
     ApplyWindowPalette(Dialog);
-    if Dialog.ShowModal=mrOk then SetThemeColors(BackgroundBox.Selected,TextBox.Selected);
+    if Dialog.ShowModal=mrOk then
+    begin
+      ProgressColor:=NormalizeReaderThemeColor(ProgressBox.Selected);
+      if FThemeProgress[FTheme]<>ProgressColor then
+      begin
+        FThemeProgress[FTheme]:=ProgressColor;
+        Include(FChangedThemeColors,FTheme);
+        FProgressLine.Invalidate;
+      end;
+      SetThemeColors(BackgroundBox.Selected,TextBox.Selected);
+      ApplyWindowPalette(ParentDialog);
+    end;
   finally Dialog.Free; end;
 end;
 
@@ -5022,6 +5032,14 @@ var Dialog: TForm; FontBox, SizeBox, SpacingBox, MarginBox, WidthBox, ZoomBox, I
     FullScreenProgressBox.Caption:='Полоса в полном экране';
     FullScreenProgressBox.Checked:=FShowFullScreenProgress;
   end;
+  procedure AddThemeColorsButton(Top: Integer);
+  var Colors: TButton;
+  begin
+    Colors:=TReaderPaletteButton.Create(Dialog); Colors.Parent:=Dialog;
+    Colors.Name:='ReaderThemeColors';
+    Colors.SetBounds(16,Top,126,26); Colors.Caption:='Цвета темы…';
+    Colors.OnClick:=ThemeColorsClick;
+  end;
   procedure ApplyProgressChecks;
   begin
     FShowChapterTicks:=ChapterTicksBox.Checked;
@@ -5034,6 +5052,8 @@ begin
   begin
     Dialog:=TForm.CreateNew(Self);
     try
+      Dialog.Name:='ReaderAppearanceDialog';
+      Dialog.PopupMode:=pmExplicit; Dialog.PopupParent:=Self;
       Dialog.Caption:='Вид страниц'; Dialog.BorderStyle:=bsDialog; Dialog.Position:=poOwnerFormCenter;
       Dialog.ClientWidth:=350; Dialog.ClientHeight:=326; Dialog.Font.Assign(Font);
       AddLabel('Приближение, %',20); ZoomBox:=Choice(16);
@@ -5053,7 +5073,7 @@ begin
       HoldCheck.ShowHint:=True; HoldCheck.Hint:='Отпускание кнопки возвращает прежний масштаб. Без галочки возвращает повторный щелчок.';
       SelectionCheck:=TReaderPaletteCheckBox.Create(Dialog); SelectionCheck.Parent:=Dialog; SelectionCheck.SetBounds(16,232,320,28);
       SelectionCheck.Caption:='Выделять текст мышью'; SelectionCheck.Checked:=FSelectionEnabled;
-      AddProgressChecks(261);
+      AddProgressChecks(261); AddThemeColorsButton(288);
       Button:=TReaderPaletteButton.Create(Dialog); Button.Parent:=Dialog; Button.SetBounds(156,288,86,26); Button.Caption:='Применить'; Button.Default:=True; Button.ModalResult:=mrOk;
       Button:=TReaderPaletteButton.Create(Dialog); Button.Parent:=Dialog; Button.SetBounds(248,288,86,26); Button.Caption:='Отмена'; Button.Cancel:=True; Button.ModalResult:=mrCancel;
       LayoutBox.OnChange:=LayoutChoiceChanged; LayoutChoiceChanged(LayoutBox);
@@ -5080,6 +5100,8 @@ begin
   end;
   Dialog:=TForm.CreateNew(Self); FontNames:=TStringList.Create;
   try
+    Dialog.Name:='ReaderAppearanceDialog';
+    Dialog.PopupMode:=pmExplicit; Dialog.PopupParent:=Self;
     Dialog.Caption:='Текст и оформление'; Dialog.BorderStyle:=bsDialog; Dialog.Position:=poOwnerFormCenter;
     Dialog.ClientWidth:=350; Dialog.ClientHeight:=555; Dialog.Font.Assign(Font);
     AddLabel('Шрифт / размер',20); FontBox:=Choice(16); FontBox.Width:=160;
@@ -5130,7 +5152,7 @@ begin
     SelectionCheck.Caption:='Выделять текст мышью'; SelectionCheck.Checked:=FSelectionEnabled;
     TitleBox.ShowHint:=True; TitleBox.Hint:='Цвета сохраняются для каждой темы. В тёмной теме слишком тёмные оттенки подсветляются.';
     SubtitleBox.ShowHint:=True; SubtitleBox.Hint:=TitleBox.Hint;
-    AddProgressChecks(496);
+    AddProgressChecks(496); AddThemeColorsButton(523);
     Button:=TReaderPaletteButton.Create(Dialog); Button.Parent:=Dialog; Button.SetBounds(156,523,86,26); Button.Caption:='Применить'; Button.Default:=True; Button.ModalResult:=mrOk;
     Button:=TReaderPaletteButton.Create(Dialog); Button.Parent:=Dialog; Button.SetBounds(248,523,86,26); Button.Caption:='Отмена'; Button.Cancel:=True; Button.ModalResult:=mrCancel;
     LayoutBox.OnChange:=LayoutChoiceChanged; LayoutChoiceChanged(LayoutBox);
@@ -5361,11 +5383,18 @@ var
   Brush: HBRUSH;
   OldBrushColor: COLORREF;
   TrackColor, FillColor, TrackTick, FillTick: TColor;
-  Filled, I, X, LastX, Position, TickWidth, TickHeight: Integer;
+  Filled, I, X, Position, TickWidth, TickHeight, Spacing, Slot: Integer;
+  Ticks: TBytes;
   procedure FillArea(const Area: TRect; Color: TColor);
   begin
     SetDCBrushColor(DC,ColorToRGB(Color));
     Winapi.Windows.FillRect(DC,Area,Brush);
+  end;
+  function TickColor(Background: TColor): TColor;
+  begin
+    if ReaderColorContrast(clWhite,Background)>=ReaderColorContrast(clBlack,Background) then
+      Result:=clWhite
+    else Result:=clBlack;
   end;
 begin
   // Keep every layer on the same device context, including off-screen paints.
@@ -5374,27 +5403,36 @@ begin
   OldBrushColor:=GetDCBrushColor(DC);
   try
     TrackColor:=ReaderBlendColor(ThemeBackground,ThemeText,28);
-    if FNight then FillColor:=RGB(114,159,213) else FillColor:=RGB(67,117,174);
+    FillColor:=FThemeProgress[FTheme];
+    if FillColor=clDefault then
+      if FNight then FillColor:=RGB(114,159,213) else FillColor:=RGB(67,117,174);
     Filled:=Round(FProgressLine.Width*IfThen(FProgressDragging,FProgressTarget,ReadingProgress));
     FillArea(FProgressLine.ClientRect,TrackColor);
     FillArea(Rect(0,0,Filled,FProgressLine.Height),FillColor);
 
     if not FReady or not FShowChapterTicks or (FLength<=0) or (FProgressLine.Width<2) then Exit;
-    TickWidth:=Max(1,MulDiv(1,CurrentPPI,96));
-    TickHeight:=Max(3,FProgressLine.Height div 3);
-    TrackTick:=ReaderBlendColor(TrackColor,ThemeText,115);
-    FillTick:=ReaderBlendColor(FillColor,ThemeText,115);
-    LastX:=-3*TickWidth;
+    TickWidth:=Max(2,MulDiv(2,CurrentPPI,96));
+    Spacing:=2*TickWidth;
+    SetLength(Ticks,(FProgressLine.Width+Spacing-1) div Spacing);
+    TrackTick:=TickColor(TrackColor);
+    FillTick:=TickColor(FillColor);
     for I:=0 to Min(FChapters.Items.Count,FChapterDepths.Count)-1 do
     begin
-      if FChapterDepths[I]>0 then Continue;
       Position:=NativeInt(FChapters.Items.Objects[I]);
       if (Position<=0) or (Position>=FLength) then Continue;
       X:=MulDiv(FProgressLine.Width-1,Position,FLength);
-      if (X<=0) or (Abs(X-LastX)<3*TickWidth) then Continue;
-      var Area:=Rect(X,0,Min(X+TickWidth,FProgressLine.Width),TickHeight);
+      Slot:=X div Spacing;
+      // Where chapters share a few pixels, give the taller marker to the part.
+      if FChapterDepths[I]<=0 then Ticks[Slot]:=2
+      else if Ticks[Slot]=0 then Ticks[Slot]:=1;
+    end;
+    for Slot:=0 to High(Ticks) do
+    begin
+      if Ticks[Slot]=0 then Continue;
+      X:=Slot*Spacing;
+      TickHeight:=MulDiv(FProgressLine.Height,Ticks[Slot]+1,4);
+      var Area:=Rect(X,0,Min(X+TickWidth,FProgressLine.Width),Max(1,TickHeight));
       if X<Filled then FillArea(Area,FillTick) else FillArea(Area,TrackTick);
-      LastX:=X;
     end;
   finally
     SetDCBrushColor(DC,OldBrushColor);
@@ -5560,7 +5598,7 @@ begin
   if (Key=Ord('B')) and (Shift=[ssCtrl]) then begin BookmarkSaveClick(nil); Key:=0; Exit; end;
   if (FChapters.Focused or FThemes.Focused) and ((Key in [VK_UP,VK_DOWN,VK_LEFT,VK_RIGHT,VK_HOME,VK_END,VK_PRIOR,VK_NEXT,VK_SPACE,VK_RETURN]) or
     ((Key=VK_ESCAPE) and (FChapters.DroppedDown or FThemes.DroppedDown))) then Exit;
-  if (Key=VK_ESCAPE) and (FSearchPanel.Visible or (FSearchQuery<>'') or SearchRunning) then
+  if (Key=VK_ESCAPE) and (FSearchPanel.Visible or SearchRunning) then
   begin SearchCloseClick(Sender); Key:=0; Exit; end;
   if (Key=VK_ESCAPE) and FInspect then begin EndInspection; Key:=0; Exit; end;
   if (ssCtrl in Shift) and (Key=Ord('F')) then begin SearchClick(nil); Key:=0; Exit; end;
@@ -5633,6 +5671,7 @@ begin
       begin
         FThemeBackgrounds[I]:=NormalizeReaderThemeColor(Ini.ReadInteger('Reader','ThemeBackground'+IntToStr(I),clDefault));
         FThemeTexts[I]:=NormalizeReaderThemeColor(Ini.ReadInteger('Reader','ThemeText'+IntToStr(I),clDefault));
+        FThemeProgress[I]:=NormalizeReaderThemeColor(Ini.ReadInteger('Reader','ThemeProgress'+IntToStr(I),clDefault));
       end;
       FInspectionPercent:=EnsureRange(Ini.ReadInteger('Reader','InspectionPercent',150),120,300);
       FInspectionHold:=Ini.ReadBool('Reader','InspectionHold',True);
@@ -5702,6 +5741,7 @@ begin
     begin
       Ini.WriteInteger('Reader','ThemeBackground'+IntToStr(I),FThemeBackgrounds[I]);
       Ini.WriteInteger('Reader','ThemeText'+IntToStr(I),FThemeTexts[I]);
+      Ini.WriteInteger('Reader','ThemeProgress'+IntToStr(I),FThemeProgress[I]);
     end;
     Ini.WriteInteger('Reader','PageLayout',Ord(FPageLayout));
     Ini.WriteInteger('Reader','PageTurn',Ord(FPageTurn));

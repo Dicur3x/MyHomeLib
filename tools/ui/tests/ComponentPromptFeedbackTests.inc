@@ -16,7 +16,9 @@ begin
         'Reader format help is not readable and scrollable');
       var Contents:string:=Text.Text;
       Require(Contents.Contains('DOCX, ODT') and Contents.Contains('вместе с читалкой') and
-        Contents.Contains('PDFium, DjVuLibre и DocSharp'), 'Reader help lost native formats or update ownership');
+        Contents.Contains('PDF — PDFium') and Contents.Contains('DJVM — DjVuLibre') and
+        Contents.Contains('DOC, DOT — DocSharp') and Contents.Contains('WPS, WPD — libwps/libwpd'),
+        'Reader help lost native formats, module dependencies or update ownership');
       for var PPI in [96,144,192] do
       begin
         Dialog.ScaleForPPI(PPI);
@@ -28,6 +30,83 @@ begin
       end;
       Dialog.ModalResult:=mrOk; Exit;
     end;
+end;
+
+type
+  TReaderAppearanceProbe = class
+    Reader: TfrmBuiltinReader;
+    Appearance: TForm;
+    SawColors: Boolean;
+    procedure Tick(Sender: TObject);
+  end;
+
+procedure TReaderAppearanceProbe.Tick(Sender: TObject);
+var Timer: TTimer; Dialog: TForm; Colors: TButton;
+begin
+  Timer:=TTimer(Sender);
+  for var I:=0 to Screen.FormCount-1 do
+    if Screen.Forms[I].Visible then
+    begin
+      Dialog:=Screen.Forms[I];
+      if (Dialog.Name='ReaderAppearanceDialog') and not Assigned(Appearance) then
+      begin
+        Appearance:=Dialog;
+        Require((GetWindow(Dialog.Handle,GW_OWNER)=Reader.Handle) and IsWindowVisible(Dialog.Handle),
+          'Appearance is not owned by the active reading window');
+        Colors:=Dialog.FindComponent('ReaderThemeColors') as TButton;
+        Require(Assigned(Colors) and Colors.Visible,'Theme colors are missing from Appearance');
+        Colors.Click;
+        Require(SawColors,'Theme colors did not open from Appearance');
+        Appearance.ModalResult:=mrCancel;
+        Exit;
+      end;
+      if Dialog.Name='ReaderThemeColorsDialog' then
+      begin
+        Timer.Enabled:=False;
+        Require(GetWindow(Dialog.Handle,GW_OWNER)=Appearance.Handle,'Theme colors lost their Appearance window');
+        var ColorBox:=Dialog.FindComponent('ReaderThemeProgressColor') as TColorBox;
+        Require(Assigned(ColorBox),'The theme does not offer a progress color');
+        ColorBox.Selected:=clAqua;
+        SawColors:=True;
+        Dialog.ModalResult:=mrOk;
+        Exit;
+      end;
+    end;
+end;
+
+procedure CheckColoredNestedChapterProgress(Reader: TfrmBuiltinReader);
+var Bar: TPaintBox; Chapters: TComboBox; Picture: TBitmap; DC: HDC; Saved: HGDIOBJ;
+  Fill: COLORREF; Marks, Spacing, X: Integer;
+begin
+  Reader.GoToPosition(Reader.TextLength-1);
+  Require(Reader.ReadingProgress=1,'Progress test did not reach the end');
+  Bar:=Reader.FindComponent('ReaderProgressLine') as TPaintBox;
+  Picture:=TBitmap.Create;
+  try
+    Picture.SetSize(Bar.Width,Bar.Height);
+    DC:=CreateCompatibleDC(0);
+    Win32Check(DC<>0);
+    try
+      Saved:=SelectObject(DC,Picture.Handle);
+      try
+        Bar.Perform(WM_PAINT,WPARAM(DC),0);
+        Fill:=GetPixel(DC,Bar.Width div 2,Bar.Height-2);
+        Require(Fill=ColorToRGB(clAqua),'The chosen progress color was not painted');
+        Chapters:=Reader.FindComponent('ReaderChapterSelector') as TComboBox;
+        Marks:=0; Spacing:=2*Max(2,MulDiv(2,Reader.CurrentPPI,96));
+        for var I:=0 to Chapters.Items.Count-1 do
+          if Chapters.Items[I].Contains('Первая глава') or Chapters.Items[I].Contains('Вторая глава') then
+          begin
+            X:=MulDiv(Bar.Width-1,NativeInt(Chapters.Items.Objects[I]),Reader.TextLength);
+            X:=X div Spacing*Spacing;
+            Require((GetPixel(DC,X,1)<>Fill) and (GetPixel(DC,X,Bar.Height*3 div 4)=Fill),
+              'A nested chapter marker is missing or hidden on the filled progress bar: '+Chapters.Items[I]);
+            Inc(Marks);
+          end;
+        Require(Marks=2,'Progress fixture did not supply its two nested chapters');
+      finally SelectObject(DC,Saved); end;
+    finally DeleteDC(DC); end;
+  finally Picture.Free; end;
 end;
 
 procedure TestComponentPromptFeedback;
@@ -89,7 +168,8 @@ begin
       Assigned(Components.Parent) and (Components.Parent.Caption='Настройки'),
       'Reader component menu is outside Settings');
     var Item:=TMenuItem(Host.Menu.FindComponent('ReaderFormatsHelp'));
-    Require(Assigned(Item) and Assigned(Item.OnClick),'Reader lacks discoverable formats help');
+    Require(Assigned(Item) and Assigned(Item.OnClick) and Assigned(Item.Parent) and
+      (Item.Parent.Caption='Помощь'),'Reader format list is outside Help');
     for var Dark in [False,True] do
     begin
       SetMHLTheme(Dark); Probe.Seen:=False; Timer.Enabled:=True; Item.Click;
@@ -97,6 +177,39 @@ begin
     end;
   finally SetMHLTheme(SavedDark); Timer.Free; Probe.Free; Host.Free; end;
   Writeln('PASS reader formats help names native handlers and external updates with scrollable light dark 96 144 192 DPI dialog');
+  var AppearanceProbe:=TReaderAppearanceProbe.Create;
+  Timer:=TTimer.Create(nil);
+  try
+    AppearanceProbe.Reader:=TfrmBuiltinReader.Create(nil);
+    AppearanceProbe.Reader.Show;
+    var BookFile:=Settings.AppPath+'appearance-reader.fb2';
+    var ProfileFile:=Settings.AppPath+'appearance-reader.ini';
+    var Text:=StringOfChar('а',160);
+    TFile.WriteAllText(BookFile,'<FictionBook><body><section><title><p>Часть</p></title><p>'+Text+
+      '</p><section><title><p>Первая глава</p></title><p>'+Text+'</p></section>'+
+      '<section><title><p>Вторая глава</p></title><p>'+Text+'</p></section></section></body></FictionBook>',TEncoding.UTF8);
+    AppearanceProbe.Reader.OpenBook(BookFile,'Проверка оформления','appearance-reader',ProfileFile,'');
+    Started:=GetTickCount64;
+    while not AppearanceProbe.Reader.LoadFinished and (GetTickCount64-Started<5000) do
+    begin Application.ProcessMessages; CheckSynchronize(2); Sleep(5); end;
+    Require(AppearanceProbe.Reader.Ready,'The appearance fixture book did not open');
+    Timer.Enabled:=False; Timer.Interval:=80; Timer.OnTimer:=AppearanceProbe.Tick;
+    Timer.Enabled:=True;
+    TButton(AppearanceProbe.Reader.FindComponent('ReaderAppearance')).Click;
+    Require(AppearanceProbe.SawColors and AppearanceProbe.Reader.ReadingSurface.Focused,
+      'Closing Appearance did not return to the reading surface');
+    CheckColoredNestedChapterProgress(AppearanceProbe.Reader);
+    AppearanceProbe.Reader.Close;
+    var SavedProfile:=TMemIniFile.Create(ProfileFile,TEncoding.UTF8);
+    try
+      Require(SavedProfile.ReadInteger('Reader','ThemeProgress'+IntToStr(AppearanceProbe.Reader.ThemeIndex),clDefault)=ColorToRGB(clAqua),
+        'The progress color was not saved for the active theme');
+    finally SavedProfile.Free; end;
+  finally
+    Timer.Free; AppearanceProbe.Reader.Free; AppearanceProbe.Free;
+  end;
+  Writeln('PASS appearance and theme colors stay owned by their visible reader windows');
+  Writeln('PASS nested chapter marks stay visible over the selected and saved progress color');
 end;
 
 procedure TestDjvuFirstUseFeedback;
