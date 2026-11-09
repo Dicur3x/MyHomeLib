@@ -251,6 +251,41 @@ def mime(data):
     return None
 
 
+def estimate_image_samples(pictures):
+    # A handful of JPEGs can compress very differently from the PNGs that
+    # dominate a book. Sample them separately even when their sizes overlap.
+    groups = {}
+    for index, picture in enumerate(pictures):
+        kind = mime(picture)
+        png_color = picture[25] if kind == 'image/png' and len(picture) > 25 else None
+        if png_color not in (0, 2, 3, 4, 6):
+            png_color = None
+        groups.setdefault((kind, png_color), []).append(index)
+    counts = dict.fromkeys(groups, 1)
+    for _ in range(min(9, len(pictures)) - len(groups)):
+        kind = max((kind for kind in groups if counts[kind] < len(groups[kind])),
+                   key=lambda kind: len(groups[kind]) / (counts[kind] + 1))
+        counts[kind] += 1
+
+    indices, weights = [], []
+    for kind, group in groups.items():
+        group.sort(key=lambda index: len(pictures[index]))
+        count = counts[kind]
+        if count == 1:
+            selected = [group[len(group) // 2]]
+        else:
+            selected = [group[round(at * (len(group) - 1) / (count - 1))]
+                        for at in range(count)]
+        group_weights = [0] * len(selected)
+        for index in group:
+            closest = min(range(len(selected)),
+                          key=lambda at: abs(len(pictures[index]) - len(pictures[selected[at]])))
+            group_weights[closest] += len(pictures[index])
+        indices.extend(selected)
+        weights.extend(total / len(pictures[index]) for total, index in zip(group_weights, selected))
+    return indices, weights
+
+
 def image_storage(target_extension, container=None):
     if container == 'fb2-zip':
         if target_extension != '.fb2': raise ValueError('ZIP-контекст допустим только для FB2.')
@@ -453,30 +488,22 @@ def apply(api, book, target_extension, profile, tools_root, progress, options_fi
                 text_only_size = 0
                 if small: return
             if not options_file or not choice_file: raise api.ConversionError('Не указан канал выбора качества.')
-            ordered = sorted(range(len(pictures)), key=lambda i: len(pictures[i]))
-            count = min(9, len(ordered))
-            sample_indices = sorted({ordered[round(i*(len(ordered)-1)/max(1,count-1))] for i in range(count)})
+            sample_indices, weights = estimate_image_samples(pictures)
             samples = ({p:[pictures[i] for i in sample_indices] for p in PACKING_PROFILES} if small else
                        run(api, tool, [pictures[i] for i in sample_indices], directory, 'estimate-maximum', progress, storage=storage, check=check, grayscale=grayscale))
-            # Stratify by source resource size, rather than multiplying one cover
-            # by the page count. EPUB compression and FB2 base64 have different costs.
-            weights = [0]*len(sample_indices)
-            for data in pictures:
-                nearest = min(range(len(sample_indices)), key=lambda n: abs(len(data)-len(pictures[sample_indices[n]])))
-                weights[nearest] += 1
             sizes = {'original': book.stat().st_size}
             # Includes a small allowance for UTF-8 member names and ZIP headers.
             # All are estimates, not a promise of byte-identical final lengths.
             zip_sizes = {'original': 512 + deflated_size(book)}
             for p in PACKING_PROFILES:
                 costs = [4*((len(data)+2)//3) if target_extension == '.fb2' else len(zlib.compress(data)) for data in samples[p]]
-                sizes[p] = book.stat().st_size if small else max(1, overhead + sum(a*b for a,b in zip(costs,weights)))
+                sizes[p] = book.stat().st_size if small else max(1, overhead + round(sum(a*b for a,b in zip(costs,weights))))
                 if p == 'high' and grayscale: sizes['original'] = sizes[p]
                 if small:
                     zip_sizes[p] = zip_sizes['original']
                 elif target_extension == '.fb2':
                     packed = [deflated_size(base64.b64encode(data)) for data in samples[p]]
-                    zip_sizes[p] = max(1,512+zip_overhead+sum(a*b for a,b in zip(packed,weights)))
+                    zip_sizes[p] = max(1,512+zip_overhead+round(sum(a*b for a,b in zip(packed,weights))))
                 else:
                     # EPUB already deflates each member. The outer archive
                     # usually has little additional image compression to do.

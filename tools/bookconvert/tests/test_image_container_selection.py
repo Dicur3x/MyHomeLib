@@ -40,6 +40,17 @@ class ContainerSelection(unittest.TestCase):
         self.assertEqual(len(result['economy']),1)
         self.assertEqual(result['economy'][0],[self.clearer,self.clearer])
 
+    def test_size_sample_represents_rare_jpegs_among_transparent_pngs(self):
+        png = b'\x89PNG\r\n\x1a\n' + bytes(17) + bytes([6])
+        images = [png + bytes(size) for size in range(100, 140)]
+        images.insert(11, b'\xff\xd8\xff' + bytes(130))
+        indices, weights = quality.estimate_image_samples(images)
+        self.assertEqual(len(indices), 9)
+        self.assertEqual(len(set(indices)), 9)
+        self.assertAlmostEqual(sum(len(images[i]) * w for i, w in zip(indices, weights)),
+                               sum(map(len, images)))
+        self.assertEqual(weights[indices.index(11)], 1)
+
     def test_container_context_is_explicit_and_validated(self):
         self.assertEqual(quality.image_storage('.epub'),'epub')
         self.assertEqual(quality.image_storage('.epub','raw'),'raw')
