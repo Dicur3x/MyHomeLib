@@ -419,6 +419,7 @@ begin
 end;
 
 procedure TestProgramUpdateUI;
+const NewTag = '99.1.2';
 var Popup: TfrmProgramUpdate; Configuration: TfrmSettings; ReleaseInfo, Parsed: TProgramRelease;
   ComponentID, SQLiteArch, SavedOptional: string; NotesView: TUpdateNotesView;
   I, HeightBefore, BodyBefore, SavedWidth, SavedHeight: Integer; Notes, PreviousEditor: TRichEdit;
@@ -448,6 +449,13 @@ var Popup: TfrmProgramUpdate; Configuration: TfrmSettings; ReleaseInfo, Parsed: 
   begin
     View.Items[Index].Selected:=True;
     View.OnSelectItem(View,View.Items[Index],True);
+  end;
+
+  function ComponentRow(View: TListView; const ID: string): Integer;
+  begin
+    for var Item in View.Items do
+      if Item.Caption.EndsWith(' · '+ID) then Exit(Item.Index);
+    raise Exception.Create('Component not visible: '+ID);
   end;
 
   procedure CheckTableLayout;
@@ -480,8 +488,10 @@ var Popup: TfrmProgramUpdate; Configuration: TfrmSettings; ReleaseInfo, Parsed: 
           Require(Assigned(View) and Assigned(Body) and Assigned(Button),'Component layout controls missing');
           Require((Body.Top>=View.Top+View.Height) and (Body.Top+Body.Height<=Button.Top) and
             (Button.Top+Button.Height<=Form.ClientHeight),'Component table/status/details/buttons overlap at '+IntToStr(DPI));
-          Require(View.Items[View.Items.Count-1].DisplayRect(drBounds).Bottom<=View.ClientHeight,
-            'Last component does not fit at '+IntToStr(DPI));
+          var LastItem:=View.Items[View.Items.Count-1];
+          LastItem.MakeVisible(False);
+          Require(LastItem.DisplayRect(drBounds).Bottom<=View.ClientHeight,
+            'Last component cannot be reached at '+IntToStr(DPI));
           SetMHLTheme(True); Application.ProcessMessages;
           Require((ColorToRGB(View.Color)=RGB(30,31,34)) and
             (ColorToRGB(View.Font.Color)=ColorToRGB(MHLThemeText)),'Dark component table has unreadable colors');
@@ -498,8 +508,9 @@ var Popup: TfrmProgramUpdate; Configuration: TfrmSettings; ReleaseInfo, Parsed: 
             (Body.Height>=MulDiv(280,Form.CurrentPPI,96)),
             'Changes tab does not reclaim enough reading space at '+IntToStr(DPI));
           Require(HistorySelector.ItemIndex=View.Selected.Index,'Changes tab lost the selected component');
-          HistorySelector.ItemIndex:=6; HistorySelector.OnChange(HistorySelector);
-          Require(View.Selected.Index=6,'Changes component selector and table disagree');
+          var DocRow:=ComponentRow(View,'DocSharp');
+          HistorySelector.ItemIndex:=DocRow; HistorySelector.OnChange(HistorySelector);
+          Require(View.Selected.Index=DocRow,'Changes component selector and table disagree');
           SetMHLTheme(True); Application.ProcessMessages;
           Require(string(Body.PrimaryNotes.Text).Contains('DocSharp'),'Theme switch lost DOC changes on reading tab');
           SetMHLTheme(False); Application.ProcessMessages;
@@ -547,10 +558,10 @@ var Popup: TfrmProgramUpdate; Configuration: TfrmSettings; ReleaseInfo, Parsed: 
       Cycle.ComponentsReceived(CycleComponents, True, '');
       Require(not Cycle.Visible, 'Component response opened before application check completed');
       Cycle.ApplicationChecked(Current, True, '');
-      Require(Cycle.Visible and (Selector.Selected.Index = 1), 'Component-only update did not select SQLite');
+      Require(Cycle.Visible and (Selector.Selected.Index=ComponentRow(Selector,'SQLite')), 'Component-only update did not select SQLite');
       Require(StatusText(Cycle) = 'Есть обновления для SQLite и SumatraPDF', 'Two-component summary incorrect: '+StatusText(Cycle));
       Cycle.Hide;
-      App := Current; App.Tag := '2.7.0_pre5.999'; App.DownloadURL := 'http://127.0.0.1/application.zip';
+      App := Current; App.Tag := NewTag; App.DownloadURL := 'http://127.0.0.1/application.zip';
       // Metadata-only cycle fixture; this case never starts a download.
       App.SHA256 := StringOfChar('a',64); App.Size := 1024;
       Require(Cycle.StartCheckCycle(True), 'Combined cycle did not start');
@@ -558,7 +569,7 @@ var Popup: TfrmProgramUpdate; Configuration: TfrmSettings; ReleaseInfo, Parsed: 
       Require(not Cycle.Visible, 'Application response opened before component check completed');
       Cycle.ComponentsReceived(CycleComponents, True, '');
       Require(Cycle.Visible and (Selector.Selected.Index = 0), 'Application update did not select program');
-      Require(StatusText(Cycle) = 'Есть обновления для HomeLib Ru, SQLite и SumatraPDF', 'Combined summary incorrect');
+      Require(StatusText(Cycle) = 'Есть обновления для HomeLibre, SQLite и SumatraPDF', 'Combined summary incorrect');
       Cycle.Hide;
       CycleComponents := Default(TComponentReleases);
       Require(Cycle.StartCheckCycle(False), 'Manual cycle disabled by Never');
@@ -571,7 +582,7 @@ var Popup: TfrmProgramUpdate; Configuration: TfrmSettings; ReleaseInfo, Parsed: 
         'DjVuLibre', CycleComponents[3]), 'Windows DjVu version fixture failed');
       Require(Cycle.StartCheckCycle(True), 'DjVu check cycle did not start');
       Cycle.ApplicationChecked(Current, True, ''); Cycle.ComponentsReceived(CycleComponents, True, '');
-      Require(Cycle.Visible and (Selector.Selected.Index=4), 'DjVu-only update was not presented');
+      Require(Cycle.Visible and (Selector.Selected.Index=ComponentRow(Selector,'DjVuLibre')), 'DjVu-only update was not presented');
       Primary := nil;
       for Index := 0 to Cycle.ControlCount-1 do
         if (Cycle.Controls[Index] is TButton) and TButton(Cycle.Controls[Index]).Default then
@@ -584,7 +595,7 @@ var Popup: TfrmProgramUpdate; Configuration: TfrmSettings; ReleaseInfo, Parsed: 
       Require(Cycle.StartCheckCycle(True), 'Mixed component cycle did not start');
       Cycle.ApplicationChecked(Current, True, ''); Cycle.ComponentsReceived(CycleComponents, True, '');
       Require(StatusText(Cycle)='Есть обновления для SQLite', 'Check-only component entered download summary');
-      ChooseRow(Selector, 4);
+      ChooseRow(Selector,ComponentRow(Selector,'DjVuLibre'));
       Require((Primary.Caption='Проверить у автора') and StatusText(Cycle).Contains('3.5.99'),
         'Batch summary overwrote check-only action');
       Cycle.Hide;
@@ -594,14 +605,15 @@ var Popup: TfrmProgramUpdate; Configuration: TfrmSettings; ReleaseInfo, Parsed: 
         'DOC four-package available-version fixture failed');
       Require(Cycle.StartCheckCycle(True),'DOC-only check cycle failed');
       Cycle.ApplicationChecked(Current,True,''); Cycle.ComponentsReceived(CycleComponents,True,'');
-      Require(Cycle.Visible and (Selector.Selected.Index=6) and (Primary.Caption='Скачать обновление') and
+      var DocRow:=ComponentRow(Selector,'DocSharp');
+      Require(Cycle.Visible and (Selector.Selected.Index=DocRow) and (Primary.Caption='Скачать обновление') and
         StatusText(Cycle).Contains('DocSharp') and StatusText(Cycle).Contains('0.99.0'),
         'Official DOC module action incorrect: selected='+IntToStr(Selector.Selected.Index)+' primary='+Primary.Caption+' status='+StatusText(Cycle));
-      Require(Selector.Items[6].SubItems[1]='0.99.0','DOC available version missing from table');
+      Require(Selector.Items[DocRow].SubItems[1]='0.99.0','DOC available version missing from table');
       Cycle.Hide;
       Require(Cycle.StartCheckCycle(False),'DOC failed refresh did not start');
       Cycle.ApplicationChecked(Current,True,''); Cycle.ComponentsReceived(CycleComponents,False,'Сеть недоступна');
-      Require(Selector.Items[6].SubItems[2]='Не удалось проверить','Failed refresh claims DOC is current');
+      Require(Selector.Items[ComponentRow(Selector,'DocSharp')].SubItems[2]='Не удалось проверить','Failed refresh claims DOC is current');
       Cycle.Hide;
       Require(CycleComponents[5].OfficialComponent and not CycleComponents[5].CheckOnly and
         IsOfficialComponentURL('DocSharp','0.99.0',CycleComponents[5].DownloadURL,ProgramUpdatePlatform,False) and
@@ -656,20 +668,30 @@ begin
       if (Popup.Controls[I] is TLabel) and (Popup.Controls[I].Top > 400) then Bytes := TLabel(Popup.Controls[I]);
     end;
     Require(Assigned(Notes) and Assigned(Primary) and Assigned(Version) and Assigned(Bytes), 'Popup controls incomplete');
-    Require(Pos(PROGRAM_RELEASE_VERSION, Version.Caption) > 0, 'Installed version missing');
-    Require(Assigned(Selector) and (Selector.Items.Count=9), 'Expected core and classic component rows; unused published modules must stay hidden');
+    Require(Pos(ReleaseDisplayVersion(PROGRAM_RELEASE_VERSION), Version.Caption) > 0, 'Installed version missing');
+    Require(Assigned(Selector) and (Selector.Items.Count>=9),'Missing core or installed classic component rows');
+    for var Item in Selector.Items do
+      if Item.Index>2 then
+      begin
+        var ID:=Item.Caption.Substring(Item.Caption.LastIndexOf(' · ')+3);
+        Require((ID='SQLite') or (ComponentInstalledVersion(Settings.AppPath,ID)<>''),
+          'Uninstalled optional component is visible: '+ID);
+      end;
     Require((Selector.Columns.Count=4) and (Selector.Columns[1].Caption='Установлено') and
       (Selector.Columns[2].Caption='Доступно'),'Installed/available component columns missing');
+    Require((ComponentRow(Selector,'AlReader')=1) and (ComponentRow(Selector,'SumatraPDF')=2),
+      'External readers are missing below HomeLibre');
     for I:=0 to 7 do
-      Require(Selector.Items[I+1].Caption.Contains(UPDATE_COMPONENTS[I].ID) and
-        Selector.Items[I+1].Caption.Contains(UPDATE_COMPONENTS[I].Title),'Purpose or library name missing');
-    Require(Selector.Items[6].SubItems[0]='0.21.0','Installed bundled DocSharp version missing');
-    ChooseRow(Selector,6); var CopyKey: Word:=Ord('C');
+      Require(Selector.Items[ComponentRow(Selector,UPDATE_COMPONENTS[I].ID)].Caption=ComponentTitle(I),
+        'Purpose or library name missing');
+    var DocRow:=ComponentRow(Selector,'DocSharp');
+    Require(Selector.Items[DocRow].SubItems[0]='0.21.0','Installed bundled DocSharp version missing');
+    ChooseRow(Selector,DocRow); var CopyKey: Word:=Ord('C');
     Selector.OnKeyDown(Selector,CopyKey,[ssCtrl]);
     Require((CopyKey=0) and CopiedText.Contains('Чтение DOC, PPT и XLS · DocSharp') and
       CopiedText.Contains('0.21.0'),'Component purpose/library/version cannot be copied');
     Selector.PopupMenu.Items[1].Click;
-    Require(CopiedText.StartsWith('Компонент'+#9) and CopiedText.Contains('HomeLib Ru') and
+    Require(CopiedText.StartsWith('Компонент'+#9) and CopiedText.Contains('HomeLibre') and
       CopiedText.Contains('DocSharp'),'Entire component list cannot be copied');
 
     Require(ParseDocSharpVersions('{"versions":["0.9.0","0.21.0","0.22.0-preview","0.100.0","0.99.0"]}',
@@ -680,39 +702,44 @@ begin
       'DOC preview-only feed accepted');
     var FeedRoot:=TJSONObject.ParseJSONValue(TFile.ReadAllText(Settings.AppPath+'COMPONENTS.json',TEncoding.UTF8));
     try
+      var BaselineFeed: TComponentReleases;
+      Require(ParseComponentFeed(FeedRoot.ToJSON,PROGRAM_RELEASE_VERSION,'[]',BaselineFeed,False,True) and
+        (BaselineFeed[5].ComponentVersion<>''),'Bundled component metadata is invalid');
       var FeedRows:=TJSONObject(FeedRoot).GetValue<TJSONArray>('components');
       var Future:=TJSONObject.Create; Future.AddPair('id','FutureReader'); Future.AddPair('platform',ProgramUpdatePlatform);
       Future.AddPair('version','1.0'); var History:=TJSONArray.Create;
       var Entry:=TJSONObject.Create; Entry.AddPair('version','1.0'); Entry.AddPair('notes','Future component');
       History.AddElement(Entry); Future.AddPair('history',History); FeedRows.AddElement(Future);
       var FeedResult: TComponentReleases;
-      Require(ParseComponentFeed(FeedRoot.ToJSON,PROGRAM_RELEASE_VERSION,'[]',FeedResult,False) and
-        (FeedResult[5].ComponentVersion='0.21.0'),'More than five components or a future ID invalidates known metadata');
+      Require(ParseComponentFeed(FeedRoot.ToJSON,PROGRAM_RELEASE_VERSION,'[]',FeedResult,False,True) and
+        (FeedResult[5].ComponentVersion=BaselineFeed[5].ComponentVersion),
+        'An unknown component invalidates known metadata');
     finally FeedRoot.Free; end;
     Writeln('PASS scalable component table keeps purpose, library name, installed and available versions; DocSharp checks stable pairs');
-    ChooseRow(Selector, 1);
+    ChooseRow(Selector,ComponentRow(Selector,'SQLite'));
     Require((Pos('3.54.1', NotesView.SectionHeader(0).Caption) > 0) and
-      ContainsText(Notes.Text,'исправлены'), 'Installed component changelog missing');
+      ContainsText(Notes.Text,'Запасная копия проверенного компонента'), 'Installed component changelog missing');
     Require(Primary.Caption = 'Проверить всё', 'Component check missing');
     ChooseRow(Selector, 0);
-    ReleaseInfo := Default(TProgramRelease); ReleaseInfo.Tag := '2.7.0_pre5.999';
+    ReleaseInfo := Default(TProgramRelease); ReleaseInfo.Tag := NewTag;
     // GitHub and bundled Markdown may use Unix line breaks; the Windows memo
     // must retain separate heading and bullet lines when displaying them.
-    ReleaseInfo.Changelog := '2.7.0_pre5.999' + #10 + 'Новые изменения' + #10#10 + '- Первый пункт';
-    ReleaseInfo.History := ReleaseInfo.Changelog + sLineBreak + PROGRAM_RELEASE_VERSION;
-    ReleaseInfo.DownloadURL := 'https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.999/HomeLibRu.zip';
+    ReleaseInfo.Changelog := NewTag + #10 + 'Новые изменения' + #10#10 + '- Первый пункт';
+    ReleaseInfo.History := ReleaseInfo.Changelog + sLineBreak + ReleaseDisplayVersion(PROGRAM_RELEASE_VERSION) +
+      sLineBreak + '- Изменения установленной версии';
+    ReleaseInfo.DownloadURL := 'https://github.com/Dicur3x/MyHomeLib/releases/download/'+NewTag+'/HomeLibre.zip';
     ReleaseInfo.SHA256:=StringOfChar('a',64); ReleaseInfo.Size:=1024; // Metadata only; never downloaded.
     Popup.SetRelease(ReleaseInfo);
     Require(Primary.Enabled and (Primary.Caption = 'Скачать обновление'), 'New release download button missing');
     Require(Pos('Новые изменения', Notes.Text) > 0, 'Changelog missing');
-    Require((Notes.Lines.Count >= 3) and (Pos('2.7.0_pre5.999', NotesView.SectionHeader(0).Caption) > 0) and
+    Require((Notes.Lines.Count >= 3) and (Pos(NewTag, NotesView.SectionHeader(0).Caption) > 0) and
       (Notes.Lines[0] = 'Новые изменения') and (Pos('Первый пункт', Notes.Lines[2]) > 0),
       'Unix changelog line breaks collapsed in Windows memo');
     Require((NotesView.SectionCount = 2) and not NotesView.IsExpanded(1) and
-      (Pos(PROGRAM_RELEASE_VERSION, NotesView.SectionHeader(1).Caption) > 0),
+      (Pos(ReleaseDisplayVersion(PROGRAM_RELEASE_VERSION), NotesView.SectionHeader(1).Caption) > 0),
       'New update hides installed-version history');
     ReleaseInfo.History := '';
-    ReleaseInfo.Changelog := '2.7.0_pre5.999' + #10 + '## Исправления' + #10 +
+    ReleaseInfo.Changelog := NewTag + #10 + '## Исправления' + #10 +
       '- **Переходы** по ссылкам' + #10 + '  - Дочерний пункт' + #10#10 +
       '2.7.0_pre5.11' + #10 + 'Текст {\rtf1} и кириллица ← ↔';
     Popup.SetRelease(ReleaseInfo);
@@ -749,11 +776,11 @@ begin
       '3.53.0 — 09.04.2026', 'Release date missing');
     Require((ReleaseNotesHeading('3.53.0', '') = '3.53.0') and
       (ReleaseNotesHeading('3.53.0', '2026-02-30') = '3.53.0'), 'Unknown or invalid date was invented');
-    Require(ParseProgramReleases('[{"tag_name":"2.7.0_pre9.99","draft":false,' +
+    Require(ParseProgramReleases('[{"tag_name":"'+NewTag+'","draft":false,' +
       '"published_at":"2026-10-07T12:00:00Z","body":"## Изменения\n- Первый пункт",' +
       '"assets":[{"name":"HomeLibRu.zip"}]}]', Parsed), 'Application date fixture failed');
-    Require((Pos('2.7.0_pre9.99 — 07.10.2026', Parsed.Changelog) > 0) and
-      (Pos('2.7.0_pre9.99 — 07.10.2026', Parsed.History) > 0), 'Application history omitted its date');
+    Require((Pos(NewTag+' — 07.10.2026', Parsed.Changelog) > 0) and
+      (Pos(NewTag+' — 07.10.2026', Parsed.History) > 0), 'Application history omitted its date');
 {$IFDEF WIN64}
     SQLiteArch := 'x64';
 {$ELSE}
@@ -788,7 +815,7 @@ begin
     ReleaseInfo.ComponentID := ''; ReleaseInfo.PublishedAt := '';
     Writeln('PASS dates and shared formatting cover application and every component');
 
-    ReleaseInfo.History := '2.7.0_pre5.999' + sLineBreak;
+    ReleaseInfo.History := NewTag + sLineBreak;
     for I := 1 to 100 do ReleaseInfo.History := ReleaseInfo.History +
       '- Строка ' + IntToStr(I) + ' длинного журнала изменений' + sLineBreak;
     ReleaseInfo.History := ReleaseInfo.History + '2.7.0_pre5.11' + sLineBreak + '- Старый выпуск';
@@ -879,7 +906,7 @@ begin
         if Reloaded.Controls[I] is TListView then ReloadedSelector := TListView(Reloaded.Controls[I]);
       end;
       Require(Pos('длинного журнала', ReloadedView.PrimaryNotes.Text) > 0, 'Application history missing before network check');
-      ChooseRow(ReloadedSelector, 3);
+      ChooseRow(ReloadedSelector,ComponentRow(ReloadedSelector,'SumatraPDF'));
       Require(Pos('Сохранённое описание SumatraPDF', ReloadedView.PrimaryNotes.Text) > 0,
         'Cached component history missing before network check');
       Reloaded.CheckFailed('Сеть недоступна');
@@ -6241,6 +6268,7 @@ begin
       else if ParamStr(1) = 'metadata-fill-ui' then TestMetadataFillUI(OneID)
       else if ParamStr(1) = 'collection-metadata-sync' then TestCollectionMetadataSync
       else if ParamStr(1) = 'main-toolbar-states' then TestMainThemeToolbarStates
+      else if ParamStr(1) = 'toolbar-icon-theme' then TestMainToolbarIconTheme
       else if ParamStr(1) = 'main-publisher-index-cache' then TestMainPublisherIndexCache(OneID)
       else if ParamStr(1) = 'conversion-menu' then TestMainBuiltinConversionMenus(OneID)
       else if ParamStr(1) = 'metabib-size' then TestMetabibSizeComparison(ExpandFileName('metabib-size-inputs/same-records-full.jsonl'),ExpandFileName('metabib-size-inputs/same-records.inpx'))

@@ -1248,6 +1248,64 @@ begin
   end;
 end;
 
+procedure TestMainToolbarIconTheme;
+var Bitmap:TBitmap; SavedTheme,SavedSetting:Boolean; SavedPPI:Integer; ThemeButton:TToolButton;
+  function LineBrightness(Enabled:Boolean):Integer;
+  begin
+    var Icons:=frmMain.tlbrMain.Images;
+    Bitmap.SetSize(Icons.Width,Icons.Height);
+    Bitmap.Canvas.Brush.Color:=RGB(43,45,48);
+    Bitmap.Canvas.FillRect(Rect(0,0,Bitmap.Width,Bitmap.Height));
+    Icons.Draw(Bitmap.Canvas,0,0,frmMain.tbSelectAll.ImageIndex,Enabled);
+    Result:=0;
+    // The two list lines have the same outline in both shipped PNGs.
+    // The light asset has dark blue strokes, the dark asset pale strokes.
+    for var Y:=MulDiv(Icons.Height,12,40) to MulDiv(Icons.Height,14,40) do
+      for var X:=MulDiv(Icons.Width,23,40) to MulDiv(Icons.Width,31,40) do
+      begin
+        var Pixel:=ColorToRGB(Bitmap.Canvas.Pixels[X,Y]);
+        Result:=Max(Result,(Integer(GetRValue(Pixel))+GetGValue(Pixel)+GetBValue(Pixel)) div 3);
+      end;
+  end;
+begin
+  RequireIsolatedRegression;
+  SavedTheme:=MHLThemeDark; SavedSetting:=Settings.DarkTheme; SavedPPI:=frmMain.CurrentPPI;
+  ThemeButton:=nil;
+  for var Item in frmMain do
+    if (Item is TToolButton) and (TToolButton(Item).ImageIndex=25) then ThemeButton:=TToolButton(Item);
+  Require(Assigned(ThemeButton) and Assigned(ThemeButton.OnClick),'The catalogue theme toggle is missing');
+  Bitmap:=TBitmap.Create;
+  try
+    SetMHLTheme(False); Settings.DarkTheme:=False;
+    dmImages.ApplyThemeIcons;
+    for var PPI in [96,144,192] do
+    begin
+      frmMain.ScaleForPPI(PPI);
+      frmMain.FormAfterMonitorDpiChanged(nil,frmMain.CurrentPPI,PPI);
+      var Light:=LineBrightness(True);
+      ThemeButton.OnClick(ThemeButton); Application.ProcessMessages;
+      var Dark:=LineBrightness(True);
+      var Disabled:=LineBrightness(False);
+      Writeln('TRACE toolbar icon dpi=',PPI,' light=',Light,' dark=',Dark,' disabled=',Disabled); Flush(Output);
+      Require(MHLThemeDark and (Dark>=Light+45) and (Disabled>55) and (Disabled<Dark),
+        'The catalogue toggle left light or unreadable artwork on the dark toolbar');
+      ThemeButton.OnClick(ThemeButton); Application.ProcessMessages;
+      Require(not MHLThemeDark and (LineBrightness(True)=Light),'The light toolbar artwork did not return');
+      SetMHLTheme(True); Application.ProcessMessages;
+      Require((LineBrightness(True)=Dark) and (LineBrightness(False)=Disabled),
+        'Changing the application theme did not replace light toolbar artwork');
+      SetMHLTheme(False); Application.ProcessMessages;
+      Require(LineBrightness(True)=Light,'A second theme change retained stale artwork');
+    end;
+  finally
+    SetMHLTheme(SavedTheme); dmImages.ApplyThemeIcons;
+    Settings.DarkTheme:=SavedSetting; Settings.SaveSettings;
+    frmMain.ScaleForPPI(SavedPPI); frmMain.FormAfterMonitorDpiChanged(nil,frmMain.CurrentPPI,SavedPPI);
+    Bitmap.Free;
+  end;
+  Writeln('PASS catalogue toolbar uses contrast-appropriate native artwork across theme changes at 96 144 192 DPI');
+end;
+
 procedure TestMainThemeToolbarStates;
 var Bar, ForwardBar: TToolBar; Button, ForwardButton, ThemeButton: TToolButton;
   Forward: TMLIToolbarForwardProbe; Bitmap: TBitmap; Png: TPngImage;

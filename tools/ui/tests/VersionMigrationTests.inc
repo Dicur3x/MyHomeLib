@@ -1,6 +1,8 @@
 ﻿procedure TestVersionMigration;
+const NextTag = '99.0.0_pre1.2';
+  NextDisplay = '99.0 beta 2';
 var Comparison: Integer; Info: TProgramRelease; Popup: TfrmProgramUpdate;
-  View: TListView; PreviousTheme, CaptionFound: Boolean;
+  View: TListView; PreviousTheme, CaptionFound: Boolean; CurrentDisplay: string;
   procedure OrderTag(const Left, Right: string);
   begin Require(CompareReleaseTags(Left,Right,Comparison) and (Comparison<0),
     'Transport release order changed: '+Left+' / '+Right); end;
@@ -17,8 +19,10 @@ var Comparison: Integer; Info: TProgramRelease; Popup: TfrmProgramUpdate;
   end;
 begin
   RequireIsolatedRegression;
-  Require((PROGRAM_RELEASE_VERSION='3.0.0_pre1.1') and (PROGRAM_FILE_VERSION='3.0.0.1'),'Unexpected release identity');
-  Require(ReleaseDisplayVersion(PROGRAM_RELEASE_VERSION)='3.0 beta 1','Wrong public beta label');
+  CurrentDisplay:=ReleaseDisplayVersion(PROGRAM_RELEASE_VERSION);
+  Require((CurrentDisplay<>PROGRAM_RELEASE_VERSION) and
+    (ComponentDisplayVersion('HomeLibReader',PROGRAM_FILE_VERSION)=CurrentDisplay),'Unexpected release identity');
+  Require(ReleaseDisplayVersion('3.0.0_pre1.1')='3.0 beta 1','Wrong public beta label');
   Require(ReleaseDisplayVersion('3.0.0_pre1.2')='3.0 beta 2','Wrong next beta label');
   Require(ReleaseDisplayVersion('3.0.0')='3.0 release','Wrong final label');
   Require(ReleaseDisplayVersion('3.0.1')='3.0.1','Wrong patch label');
@@ -27,6 +31,7 @@ begin
   Require(ReleaseDisplayVersion('3.0.0_pre1.65535')='3.0.0_pre1.65535','Reserved final revision accepted as beta');
   OrderTag('2.7.0_pre5.33',PROGRAM_RELEASE_VERSION); OrderTag('2.7.0_pre5.37',PROGRAM_RELEASE_VERSION);
   OrderTag('3.0.0_pre1.1','3.0.0_pre1.2'); OrderTag('3.0.0_pre1.2','3.0.0');
+  OrderTag('3.0.0_pre1.9','3.0.0_pre1.10');
   OrderTag('3.0.0','3.0.1'); OrderTag('3.0.1','3.1.0');
   Require(not CompareReleaseTags('3.0 beta 1',PROGRAM_RELEASE_VERSION,Comparison),'Display text accepted as tag');
   Require(not CompareReleaseTags('3.0.0_pre1.1/other',PROGRAM_RELEASE_VERSION,Comparison),'Unsafe tag accepted');
@@ -49,14 +54,16 @@ begin
   Require(ComponentDisplayVersion('PDFium','157.0.8086.0')='157.0.8086.0','PDFium relabelled');
   Require(ComponentDisplayVersion('WebP','3.0.0.1')='3.0.0.1','Upstream version relabelled');
   Require(ComponentDisplayVersion('DocSharp','0.21.0.0')='0.21.0','DocSharp display regressed');
+  Require(ReleaseNotesHeading('3.53.0','2026-04-09')='3.53.0 — 09.04.2026',
+    'A third-party release heading was formatted as a HomeLibre version');
   Writeln('PASS first-party components share beta labels while numeric ordering and upstream versions remain intact');
 
   Require(ParseProgramReleases('['+ReleaseJSON('2.7.0_pre5.37')+','+
-    ReleaseJSON(PROGRAM_RELEASE_VERSION)+','+ReleaseJSON('3.0.0_pre1.2')+']',Info),'New feed rejected');
-  Require((Info.Tag='3.0.0_pre1.2') and Info.DownloadURL.Contains('/3.0.0_pre1.2/'),'Download tag relabelled');
-  Require(Info.Changelog.Contains('3.0 beta 2') and not Info.Changelog.Contains('2.7.0_pre5.37'),'Wrong new changelog');
-  Require(ReleaseNotesHeading(PROGRAM_RELEASE_VERSION,'2026-10-30T00:00:00Z')=
-    '3.0 beta 1 — 30.10.2026','Friendly dated heading lost');
+    ReleaseJSON(PROGRAM_RELEASE_VERSION)+','+ReleaseJSON(NextTag)+']',Info),'New feed rejected');
+  Require((Info.Tag=NextTag) and Info.DownloadURL.Contains('/'+NextTag+'/'),'Download tag relabelled');
+  Require(Info.Changelog.Contains(NextDisplay) and not Info.Changelog.Contains('2.7.0_pre5.37'),'Wrong new changelog');
+  Require(ReleaseNotesHeading(ReleaseDisplayVersion(PROGRAM_RELEASE_VERSION),'2026-10-30T00:00:00Z')=
+    CurrentDisplay+' — 30.10.2026','Friendly dated heading lost');
   Writeln('PASS new-series feed retains exact download tags digests and legacy history');
 
   PreviousTheme:=MHLThemeDark;
@@ -69,17 +76,17 @@ begin
         View:=Popup.FindComponent('UpdateComponents') as TListView;
         Require(Assigned(View) and (View.Items.Count>0),'No native updater table');
         Require((View.Items[0].Caption='HomeLibre') and
-          (View.Items[0].SubItems[0]='3.0 beta 1') and (View.Items[0].SubItems[1]='3.0 beta 1'),
+          (View.Items[0].SubItems[0]=CurrentDisplay) and (View.Items[0].SubItems[1]=CurrentDisplay),
           'Application table exposes transport tag');
         CaptionFound:=False;
         for var C in Popup do if C is TLabel then
-          if TLabel(C).Caption='Текущая версия: 3.0 beta 1' then CaptionFound:=True;
+          if TLabel(C).Caption='Текущая версия: '+CurrentDisplay then CaptionFound:=True;
         Require(CaptionFound,'Current-version caption not unified');
-        Info.Tag:='3.0.0_pre1.2'; Info.PublishedAt:='2026-10-30';
+        Info.Tag:=NextTag; Info.PublishedAt:='2026-10-30';
         Popup.SetRelease(Info); CaptionFound:=False;
         for var C in Popup do if C is TLabel then
-          if string(TLabel(C).Caption).Contains('HomeLibre 3.0 beta 2 — 30.10.2026') and
-            not string(TLabel(C).Caption).Contains('3.0.0_pre1.2') then CaptionFound:=True;
+          if string(TLabel(C).Caption).Contains('HomeLibre '+NextDisplay+' — 30.10.2026') and
+            not string(TLabel(C).Caption).Contains(NextTag) then CaptionFound:=True;
         Require(CaptionFound,'Application proposal heading exposes the transport tag');
         Info.ComponentID:='HomeLibReader'; Info.ComponentVersion:='3.0.0.2'; Info.Tag:=ALREADER_FIXED_TAG;
         Popup.SetRelease(Info); CaptionFound:=False;
@@ -91,6 +98,6 @@ begin
       finally Popup.Free; end;
     end;
   finally SetMHLTheme(PreviousTheme); end;
-  Require(frmMain.spInfo.Caption='3.0 beta 1','Catalogue status exposes numeric build');
+  Require(frmMain.spInfo.Caption=CurrentDisplay,'Catalogue status exposes numeric build');
   Writeln('PASS actual updater table current caption and catalogue status use unified public version in both themes');
 end;

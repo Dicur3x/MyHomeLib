@@ -79,7 +79,7 @@ uses
   Vcl.Themes,
   dm_Images, VirtualTrees.BaseAncestorVCL, VirtualTrees.BaseTree,
   VirtualTrees.AncestorVCL,
-  unit_Localization, unit_BookInfoPreview, System.Generics.Collections,
+  unit_Localization, unit_BookInfoPreview, unit_MHLTheme, System.Generics.Collections,
   unit_AuthorFavorites, unit_AuthorFavoriteRefresh, unit_ReaderAnnotations, unit_ReaderSession,
   unit_BookSaveContinuation, unit_BookReviewPreview, unit_CollectionPacking;
 
@@ -804,6 +804,7 @@ type
     procedure WindowsThemeOfferAccept(Sender: TObject);
     procedure WindowsThemeOfferDismiss(Sender: TObject);
     procedure WMSettingChange(var Message: TMessage); message WM_SETTINGCHANGE;
+    procedure WMApplicationTheme(var Message: TMessage); message WM_MHL_APP_THEME;
     procedure ShowOPDS(Sender: TObject);
 
     function IsSelectedBookNode(Node: PVirtualNode; Data: PBookRecord): Boolean;
@@ -1299,7 +1300,7 @@ uses
   unit_TreeUtils,
   unit_MHL_strings,
   unit_Settings,
-  unit_BookDeletionBinding, unit_MHLTheme, unit_Readers, unit_ReaderCache, unit_ReaderSessionRunner, unit_ReaderFormats, unit_ReaderOffice, unit_ReaderLaunch, unit_BookMetadataCache,
+  unit_BookDeletionBinding, unit_Readers, unit_ReaderCache, unit_ReaderSessionRunner, unit_ReaderFormats, unit_ReaderOffice, unit_ReaderLaunch, unit_BookMetadataCache,
   unit_ReaderDocument, unit_ReaderNoteBooks, unit_BookConversion,
   frm_BuiltinReader, frm_StoryReader, frm_AuthorFavorites,
   dm_user,
@@ -5126,6 +5127,15 @@ begin
     UpdateWindowsThemeOffer(WindowsDark);
 end;
 
+procedure TfrmMain.WMApplicationTheme(var Message: TMessage);
+begin
+  // Both application theme entry points and a recreated Main use the same
+  // image lists as the toolbar and menus.
+  if Assigned(dmImages) then dmImages.ApplyThemeIcons;
+  if Assigned(tlbrMain) then tlbrMain.Invalidate;
+  if Assigned(FThemeToolbar) then FThemeToolbar.Invalidate;
+end;
+
 procedure TfrmMain.ToggleApplicationTheme(Sender: TObject);
 var WindowsDark: Boolean;
 begin
@@ -5136,7 +5146,6 @@ begin
   if Assigned(FWindowsThemeOffer) then FWindowsThemeOffer.Visible:=False;
   if Settings.DarkTheme then FThemeButton.Hint:='Переключить на светлую тему'
   else FThemeButton.Hint:='Переключить на тёмную тему';
-  dmImages.ApplyThemeIcons;
   UpdateThemeToolbar;
   if not Settings.DarkTheme then SetColors;
   EnsureBookHeadersFit;

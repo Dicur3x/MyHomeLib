@@ -9,8 +9,8 @@ const
   WM_PROGRAM_UPDATE_CHECKED = WM_APP + $0501;
   WM_PROGRAM_UPDATE_DOWNLOADED = WM_APP + $0502;
   WM_PROGRAM_UPDATE_PROGRESS = WM_APP + $0503;
-  PROGRAM_RELEASE_VERSION = '3.0.0_pre1.9';
-  PROGRAM_FILE_VERSION = '3.0.0.9';
+  PROGRAM_RELEASE_VERSION = '3.0.0_pre1.10';
+  PROGRAM_FILE_VERSION = '3.0.0.10';
   PROGRAM_RELEASES_API = 'https://api.github.com/repos/Dicur3x/MyHomeLib/releases?per_page=100';
 
 type
@@ -158,7 +158,7 @@ end;
 function ReleaseNotesHeading(const Version, PublishedAt: string): string;
 var Match: TMatch; Year, Month, Day: Integer; Date: TDateTime;
 begin
-  Result := ReleaseDisplayVersion(Version);
+  Result := Version;
   Match := TRegEx.Match(PublishedAt.Trim, '^([0-9]{4})-([0-9]{2})-([0-9]{2})(?:T.*)?$');
   if Match.Success and TryStrToInt(Match.Groups[1].Value, Year) and
      TryStrToInt(Match.Groups[2].Value, Month) and
@@ -261,10 +261,10 @@ begin
     for Candidate in Releases do
     begin
       if Length(History) < 300000 then
-        History := History + ReleaseNotesHeading(Candidate.Tag, Candidate.PublishedAt) + sLineBreak + Candidate.Notes.Trim + sLineBreak + sLineBreak;
+        History := History + ReleaseNotesHeading(ReleaseDisplayVersion(Candidate.Tag), Candidate.PublishedAt) + sLineBreak + Candidate.Notes.Trim + sLineBreak + sLineBreak;
       if CompareReleaseTags(Candidate.Tag, PROGRAM_RELEASE_VERSION, Comparison) and (Comparison > 0) and
          (Length(NewNotes) < 300000) then
-        NewNotes := NewNotes + ReleaseNotesHeading(Candidate.Tag, Candidate.PublishedAt) + sLineBreak + Candidate.Notes.Trim + sLineBreak + sLineBreak;
+        NewNotes := NewNotes + ReleaseNotesHeading(ReleaseDisplayVersion(Candidate.Tag), Candidate.PublishedAt) + sLineBreak + Candidate.Notes.Trim + sLineBreak + sLineBreak;
     end;
     ReleaseInfo.Changelog := NewNotes.Trim; ReleaseInfo.History := History.Trim;
     Result := ReleaseInfo.Tag <> '';
