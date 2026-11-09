@@ -148,9 +148,13 @@
     {
       "id": "HomeLibReader",
       "platform": "Win32",
-      "version": "3.0.0.8",
-      "archive": "HomeLibRu-HomeLibReader-3.0.0.8-Win32.zip",
+      "version": "3.0.0.9",
+      "archive": "HomeLibRu-HomeLibReader-3.0.0.9-Win32.zip",
       "history": [
+        {
+          "version": "3.0.0.9",
+          "notes": "Длинные страницы манги в масштабе 100%, исправлена прокрутка вверх. В полном экране элементы чтения появляются у краёв."
+        },
         {
           "version": "3.0.0.8",
           "notes": "Плавная прокрутка и длинные страницы комиксов. Исправлены открытие книг и поведение окна компонентов."
@@ -212,9 +216,13 @@
     {
       "id": "HomeLibReader",
       "platform": "Win64",
-      "version": "3.0.0.8",
-      "archive": "HomeLibRu-HomeLibReader-3.0.0.8-Win64.zip",
+      "version": "3.0.0.9",
+      "archive": "HomeLibRu-HomeLibReader-3.0.0.9-Win64.zip",
       "history": [
+        {
+          "version": "3.0.0.9",
+          "notes": "Длинные страницы манги в масштабе 100%, исправлена прокрутка вверх. В полном экране элементы чтения появляются у краёв."
+        },
         {
           "version": "3.0.0.8",
           "notes": "Плавная прокрутка и длинные страницы комиксов. Исправлены открытие книг и поведение окна компонентов."
@@ -276,9 +284,13 @@
     {
       "id": "BookProcessing",
       "platform": "Win32",
-      "version": "3.0.0.8",
-      "archive": "HomeLibRu-BookProcessing-3.0.0.8-Win32.zip",
+      "version": "3.0.0.9",
+      "archive": "HomeLibRu-BookProcessing-3.0.0.9-Win32.zip",
       "history": [
+        {
+          "version": "3.0.0.9",
+          "notes": "Точнее оценка размеров FB2 и EPUB для книг с иллюстрациями в разных форматах."
+        },
         {
           "version": "3.0.0.8",
           "notes": "Чтение больших RTF, восстановление FB2, точнее оценка сканов и упаковка коллекций с необычными именами и дополнительными копиями."
@@ -408,9 +420,13 @@
     {
       "id": "BookProcessing",
       "platform": "Win64",
-      "version": "3.0.0.8",
-      "archive": "HomeLibRu-BookProcessing-3.0.0.8-Win64.zip",
+      "version": "3.0.0.9",
+      "archive": "HomeLibRu-BookProcessing-3.0.0.9-Win64.zip",
       "history": [
+        {
+          "version": "3.0.0.9",
+          "notes": "Точнее оценка размеров FB2 и EPUB для книг с иллюстрациями в разных форматах."
+        },
         {
           "version": "3.0.0.8",
           "notes": "Чтение больших RTF, восстановление FB2, точнее оценка сканов и упаковка коллекций с необычными именами и дополнительными копиями."

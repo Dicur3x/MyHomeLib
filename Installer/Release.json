@@ -1,11 +1,11 @@
 {
   "format": 1,
-  "release": "3.0.0_pre1.8",
-  "version": "3.0.0.8",
+  "release": "3.0.0_pre1.9",
+  "version": "3.0.0.9",
   "components_version": "3.0.0.5",
-  "display_version": "3.0 beta 8",
+  "display_version": "3.0 beta 9",
   "component_versions": {
-    "BookProcessing": "3.0.0.8",
+    "BookProcessing": "3.0.0.9",
     "ImageProcessing": "3.0.0.8",
     "KindleExport": "3.0.0.8",
     "EpubPdfExport": "3.0.0.8"
