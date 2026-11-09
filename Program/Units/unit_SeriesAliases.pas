@@ -121,7 +121,8 @@ begin
             A:=RootOf(I); B:=RootOf(J); if A=B then Continue;
             // Keep the established author-cycle rule. Publisher/mixed labels
             // and bracket variants require actual overlap of catalog books.
-            if (((Candidates[First+I].Tag='a') or (Candidates[First+J].Tag='a')) and
+            if ((Candidates[First+I].LiteralKey=Candidates[First+J].LiteralKey) and
+              ((Candidates[First+I].Tag='a') or (Candidates[First+J].Tag='a')) and
               CharInSet(Candidates[First+I].Tag,[#0,'a']) and
               CharInSet(Candidates[First+J].Tag,[#0,'a']) and
               SeriesHaveSameAuthor(DB,Candidates[First+I].ID,Candidates[First+J].ID)) or
@@ -148,7 +149,7 @@ begin
   CheckCanceled;
   FReport.Add(Format('Найдено пар названий серий: %d.',[Count]));
   FReport.Add('Проверка ничего не изменила. Для применения нажмите «Объединить найденные серии».');
-  FReport.Add('Для меток [p], [m] и разных скобок «Межавторского цикла» проверено совпадение книг: общий библиотечный ID либо название с автором, языком и форматом.');
+  FReport.Add('Для вариантов со скобками, тире, е/ё и метками [p], [m] проверено совпадение книг: общий библиотечный ID либо название с автором, языком и форматом.');
   FReport.Add('Для авторских меток [a] также учитывается совпадение автора при одинаковом названии серии. Разные циклы без подтверждения остаются отдельно.');
   FReport.Add('Книги обеих серий будут в одном списке. Все файлы, издания, оценки, прогресс чтения и группы сохраняются.');
   FReport.Add('Это объединение названий серий. Копии книг не удаляются; для выбора одной записи требуется отдельная проверка дублей книг.');

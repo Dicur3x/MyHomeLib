@@ -8,6 +8,7 @@ uses System.SysUtils, System.Classes, System.Generics.Collections, SQLiteWrap, u
 type
   TDuplicateBook = record
     Book: TBookRecord;
+    SourceName: string;
     HasPersonalData: Boolean;
   end;
   TDuplicateGroup = record
@@ -337,7 +338,7 @@ begin
         'JOIN Candidates c USING(Identity) WHERE g.Selected=0 AND g.Count<=1000 '+
         'GROUP BY g.GroupID HAVING '+
         'sum(c.SourceName=? COLLATE BINARY)=1 AND '+
-        'sum(c.SourceName='''')=0 AND count(DISTINCT c.SourceName)>1 AND '+
+        'sum(c.SourceName='''')=0 AND count(DISTINCT c.SourceName)=2 AND '+
         'sum(c.Protected<>0 AND c.SourceName<>? COLLATE BINARY)=0', [SourceName,SourceName,SourceName]);
       Result:=FStage.QuerySingleInt('SELECT count(*) FROM SourceChoices');
       FStage.ExecSQL('UPDATE DuplicateGroups SET KeepID=(SELECT KeepID FROM SourceChoices s '+
@@ -382,7 +383,7 @@ begin
   if not FReady then raise EInvalidOperation.Create('Сначала выполните поиск повторов.');
   Values:=TList<TDuplicateBook>.Create;
   try
-    IDs:=FStage.NewQuery('SELECT c.BookID FROM Candidates c JOIN DuplicateGroups g USING(Identity) WHERE g.GroupID=? ORDER BY c.BookID');
+    IDs:=FStage.NewQuery('SELECT c.BookID,c.SourceName FROM Candidates c JOIN DuplicateGroups g USING(Identity) WHERE g.GroupID=? ORDER BY c.BookID');
     try
       IDs.SetParam(0,GroupID); IDs.Open;
       Q:=FSource.NewQuery('SELECT LibID,Title,Lang,Ext,BookSize,Folder,FileName,InsideNo,Rate,Progress,length(CAST(Review AS BLOB)),IsLocal FROM Books WHERE BookID=?');
@@ -392,6 +393,7 @@ begin
           if Values.Count>=1000 then
             raise EInvalidOperation.Create('В группе больше 1000 записей. Автоматическое объединение такой группы недоступно.');
           Value:=Default(TDuplicateBook); Value.Book.BookKey:=CreateBookKey(IDs.FieldAsInt(0),FCID);
+          Value.SourceName:=IDs.FieldAsString(1);
           Q.Reset; Q.SetParam(0,IDs.FieldAsInt(0)); Q.Open;
           if Q.Eof then raise EInvalidOperation.Create('Запись книги исчезла из снимка.');
           Value.Book.LibID:=Q.FieldAsString(0); Value.Book.Title:=Q.FieldAsString(1);

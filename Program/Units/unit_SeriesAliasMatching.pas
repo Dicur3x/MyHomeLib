@@ -7,7 +7,7 @@ uses System.SysUtils, SQLiteWrap, unit_CollectionMerge;
 type
   TSeriesAliasCandidate = record
     ID, Rank: Integer;
-    Title, Key: string;
+    Title, Key, LiteralKey: string;
     Tag: Char;
   end;
 
@@ -43,7 +43,11 @@ begin
     Name:=TrimRight(Copy(Name,1,Length(Name)-Length(MixedLabel)))+' (Межавторский цикл)';
     Inc(Result.Rank);
   end;
-  Result.Key:=TCharacter.ToLower(Name);
+  Result.LiteralKey:=TCharacter.ToLower(Name);
+  // Spelling and punctuation only make candidates. Confirm these looser
+  // matches using book overlap, never merely a shared author.
+  Result.Key:=Result.LiteralKey.Replace('ё','е').Replace('–','-').Replace('—','-')
+    .Replace('[','(').Replace(']',')');
 end;
 
 function SeriesHaveSameAuthor(DB: TSQLiteDatabase; LeftID, RightID: Integer): Boolean;

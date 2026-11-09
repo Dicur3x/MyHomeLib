@@ -136,7 +136,7 @@ begin
   FClearSelection.Anchors:=[akTop,akRight]; FClearSelection.OnClick:=ClearSelection;
   LabelText:=TLabel.Create(Self); LabelText.Parent:=Top; LabelText.AutoSize:=False; LabelText.WordWrap:=True;
   LabelText.SetBounds(12,154,1016,40); LabelText.Anchors:=[akLeft,akTop,akRight];
-  LabelText.Caption:='Массово отмечаются группы с одной копией из выбранного источника. Повторы внутри одного источника, неизвестные источники и конфликты личных данных пропускаются. Уже отмеченные группы сохраняют ваш выбор.';
+  LabelText.Caption:='Массовый выбор отмечает группы из двух известных источников с одной копией из выбранного источника. Группы с тремя источниками и конфликтами личных данных проверьте вручную. Прежние отметки сохраняются.';
   Bottom:=TPanel.Create(Self); Bottom.Parent:=Self; Bottom.Align:=alBottom; Bottom.Height:=52; Bottom.BevelOuter:=bvNone;
   FPrevious:=TButton.Create(Self); FPrevious.Parent:=Bottom; FPrevious.Name:='btnPreviousDuplicatePage';
   FPrevious.SetBounds(12,10,140,30); FPrevious.Caption:='Предыдущие 50'; FPrevious.OnClick:=ChangePage;
@@ -177,7 +177,8 @@ begin
   with FCopies.Columns.Add do begin Caption:='Название'; Width:=250; end;
   with FCopies.Columns.Add do begin Caption:='Размер'; Width:=80; end;
   with FCopies.Columns.Add do begin Caption:='Личные данные'; Width:=110; end;
-  with FCopies.Columns.Add do begin Caption:='Источник / файл'; Width:=260; end;
+  with FCopies.Columns.Add do begin Caption:='Источник'; Width:=164; end;
+  with FCopies.Columns.Add do begin Caption:='Файл / архив'; Width:=260; end;
   with FCopies.Columns.Add do begin Caption:='Автор'; Width:=190; end;
   FDetails.Lines.Text:='Поиск запускается только по кнопке. Выбор групп и предпочтительных записей сам по себе ничего не удаляет.';
   UpdateStatus; ScaleForPPI(Screen.PixelsPerInch);
@@ -239,9 +240,15 @@ procedure TfrmBookDuplicates.DeleteSelectedFiles(Sender: TObject);
 var Worker: TDuplicateScanWorker; Progress: TImportProgressFormEx;
 begin
   if not FPlan.Ready or (FPlan.SelectedCount=0) then Exit;
+  if FPlan.SelectedRemovedCount>MAX_BOOK_DELETION_BINDING then
+  begin
+    MessageDlg(Format('Удаление не началось. Отмечено больше %d копий. Снимите часть отметок и повторите попытку.',
+      [MAX_BOOK_DELETION_BINDING]),mtInformation,[mbOK],0);
+    Exit;
+  end;
   if Assigned(FBeforeApply) then FBeforeApply(Self);
   if MessageDlg(Format('Удалить %d повторных копий из %d групп вместе с файлами?'+sLineBreak+sLineBreak+
-    'Основная копия каждой группы останется. Удаляемые записи и их связи с каталогом не переносятся в основную запись.'+sLineBreak+
+    'Останется основная копия со звёздочкой. Остальные копии в каждой отмеченной группе будут удалены независимо от их источников.'+sLineBreak+
     'Перед удалением программа проверит выбранные записи, личные данные и файлы сохраняемых копий.',
     [FPlan.SelectedRemovedCount,FPlan.SelectedCount]),mtWarning,[mbYes,mbNo],0,mbNo)<>mrYes then Exit;
   if Assigned(FBeforeApply) then FBeforeApply(Self);
@@ -259,7 +266,11 @@ begin
     if Worker.Canceled then Exit;
     if Assigned(Worker.FatalException) then raise EReadError.Create(Exception(Worker.FatalException).Message);
     if Worker.FError<>'' then
-    begin FDetails.Lines.Text:=Worker.FError; Exit; end;
+    begin
+      FDetails.Lines.Text:='Удаление не началось.'+sLineBreak+Worker.FError;
+      MessageDlg(FDetails.Lines.Text,mtInformation,[mbOK],0);
+      Exit;
+    end;
     FFileDeletion:=Worker.FFileDeletion;
     ModalResult:=mrOk;
   finally Worker.Free; end;
@@ -353,6 +364,7 @@ begin
         IfThen(FBooks[I].Book.BookKey.BookID=FPage[Item.Index].KeepID,' ★','');
       CopyItem.SubItems.Add(FBooks[I].Book.Title); CopyItem.SubItems.Add(FormatFloat('0.0',FBooks[I].Book.Size/1024.0)+' КБ');
       CopyItem.SubItems.Add(IfThen(FBooks[I].HasPersonalData,'Есть','—'));
+      CopyItem.SubItems.Add(IfThen(FBooks[I].SourceName<>'',FBooks[I].SourceName,'Неизвестен'));
       CopyItem.SubItems.Add(FBooks[I].Book.Folder+' / '+FBooks[I].Book.FileName+FBooks[I].Book.FileExt);
       CopyItem.SubItems.Add(TAuthorsHelper.GetList(FBooks[I].Book.Authors));
       if FBooks[I].Book.BookKey.BookID=FPage[Item.Index].KeepID then Preferred:=I;

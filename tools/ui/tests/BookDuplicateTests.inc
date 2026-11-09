@@ -87,8 +87,9 @@ begin
       GroupsList:=Dialog.FindComponent('lvDuplicateGroups') as TListView;
       CopiesList:=Dialog.FindComponent('lvDuplicateCopies') as TListView;
       Require((GroupsList.Items.Count=1) and (CopiesList.Items.Count=2),'Duplicate window did not render the chosen page and copies');
-      Require((CopiesList.Columns.Count=6) and (CopiesList.Columns[4].Caption='Источник / файл') and
-        (CopiesList.Columns[5].Caption='Автор') and CopiesList.Items[0].SubItems[1].Contains('КБ'),
+      Require((CopiesList.Columns.Count=7) and (CopiesList.Columns[4].Caption='Источник') and
+        (CopiesList.Columns[5].Caption='Файл / архив') and (CopiesList.Columns[6].Caption='Автор') and
+        CopiesList.Items[0].SubItems[1].Contains('КБ'),
         'Duplicate comparison hides source, author or readable size');
       CopiesList.Items[1].Selected:=True;
       Prefer:=Dialog.FindComponent('btnPreferDuplicateCopy') as TButton;
@@ -135,7 +136,8 @@ begin
   CID:=SystemDB.CreateCollection('Base source',Settings.AppPath,'source-duplicates.hlc2',
     CT_EXTERNAL_LOCAL_FB,Settings.SystemFileName[sfGenresFB2]);
   C:=SystemDB.GetCollection(CID);
-  C.SetProperty(PROP_CATALOG_SOURCES,'[{"id":"preferred","name":"Источник ''Б''"}]');
+  C.SetProperty(PROP_CATALOG_SOURCES,'[{"id":"preferred","name":"Источник ''Б''"},'+
+    '{"id":"third","name":"Third source"}]');
   Name:=Settings.ExpandCollectionFileName(VarToStr(C.GetProperty(PROP_DATAFILE)));
   DB:=TSQLiteDatabase.Create(Name);
   try
@@ -147,6 +149,7 @@ begin
     AddCopy('6','unknown'); AddCopy('6','preferred');
     ManualID:=AddCopy('7',''); AddCopy('7','preferred');
     BookmarkID:=AddCopy('8',''); AddCopy('8','preferred');
+    AddCopy('9',''); AddCopy('9','preferred'); AddCopy('9','third');
   finally DB.Free; end;
   ReaderFile:=TPath.Combine(Settings.AppPath,'source-duplicate-reader\reader.ini');
   ForceDirectories(ExtractFilePath(ReaderFile));
@@ -159,8 +162,8 @@ begin
   Before:=THashSHA2.GetHashStringFromFile(Name);
   Plan:=TBookDuplicatePlan.Create(Name,Settings.AppPath,'mixed',Settings.SystemFileName[sfSystemDB],ReaderFile,CID,Settings.WorkPath);
   try
-    Plan.Preview; Require(Plan.GroupCount=8,'Source preference fixture lost candidate groups');
-    Require(Length(Plan.Sources)=2,'Source preference includes an unknown source or loses the base');
+    Plan.Preview; Require(Plan.GroupCount=9,'Source preference fixture lost candidate groups');
+    Require(Length(Plan.Sources)=3,'Source preference includes an unknown source or loses one of the three known sources');
     ManualGroup:=0;
     for var Group in Plan.Groups(0,50) do
       if Group.KeepID=ManualID then ManualGroup:=Group.ID;
@@ -548,16 +551,17 @@ var Root: string;
       DialogProbe.Accept:=True; DialogProbe.Count:=0;
       Timer.Enabled:=True;
       try Button.Click; finally Timer.Enabled:=False; end;
-      Require(DialogProbe.Count=1,'Expected one explicit destructive prompt: '+Kind);
       Selection:=Form.FileDeletion;
       if (Kind='alternate') or (Kind='stale') then
       begin
+        Require(DialogProbe.Count=2,'Rejected removal did not show its failure after confirmation: '+Kind);
         var Details:=TMemo(Form.FindComponent('mmDuplicateCopyDetails'));
         Require((Selection.Removed.CollectionID=0) and (Pos(ExpectedError,Details.Text)>0) and
           (CountRows(Lose)=1) and (THashSHA2.GetHashStringFromFile(Target)=TargetHash),
           'Preparation did not protect the changed or multi-source record: '+Kind+' '+Details.Text);
         Exit;
       end;
+      Require(DialogProbe.Count=1,'Expected one explicit destructive prompt: '+Kind);
       Require((Length(Selection.Removed.ExpectedBooks)=1) and
         (Selection.Removed.ExpectedBooks[0].BookKey.BookID=Lose.BookKey.BookID) and
         (Length(Selection.Retained.ExpectedBooks)=1) and

@@ -4,6 +4,8 @@ interface
 
 uses System.SysUtils, System.Classes, unit_Globals, unit_Interfaces;
 
+const MAX_BOOK_DELETION_BINDING = 100000;
+
 type
   // Only source identity is persisted, never annotations or a complete book
   // snapshot. Interpret it only on the thread that owns the database connection.
@@ -56,7 +58,7 @@ procedure TBookDeletionBinding.Validate;
 var Seen: TDictionary<Integer,Byte>;
 begin
   if (FCollectionID<=0) or (FCatalogueFile='') or (Length(FCatalogueKey)<>25) or
-    (Length(FBooks)=0) or (Length(FBooks)>100000) then
+    (Length(FBooks)=0) or (Length(FBooks)>MAX_BOOK_DELETION_BINDING) then
     raise EReadError.Create('Неполная привязка удаления к коллекции.');
   if FCatalogueFile<>ExpandFileName(FCatalogueFile) then
     raise EReadError.Create('В журнале удаления нужен полный путь каталога.');
@@ -136,7 +138,7 @@ begin
     Result.FCatalogueFile:=Text(Obj,'catalogueFile'); Result.FCatalogueKey:=Text(Obj,'catalogueKey');
     Result.FRemoveRecords:=TJSONBool(Obj.GetValue('removeRecords')).AsBoolean;
     Items:=TJSONArray(Obj.GetValue('books'));
-    if Items.Count>100000 then raise EReadError.Create('Слишком много записей в журнале удаления.');
+    if Items.Count>MAX_BOOK_DELETION_BINDING then raise EReadError.Create('Слишком много записей в журнале удаления.');
     SetLength(Result.FBooks,Items.Count);
     for var I:=0 to Items.Count-1 do
     begin
