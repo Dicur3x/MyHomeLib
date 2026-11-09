@@ -6264,7 +6264,12 @@ begin
         TestBookDuplicateLargePreview;
       end
       else if ParamStr(1) = 'feedback529' then TestFeedback529ReaderAndStatistics(One)
-      else if ParamStr(1) = 'feedback529-series' then TestFeedback529Series
+      else if ParamStr(1) = 'feedback529-series' then
+      begin
+        TestFeedback529Series;
+        var PublisherSource:=GetEnvironmentVariable('HLRU_TEST_PUBLISHER_SERIES_SOURCE');
+        if PublisherSource<>'' then TestFeedback529DesktopSeries(PublisherSource,True);
+      end
       else if ParamStr(1) = 'reader-chapters' then
         TestReaderChapterTitles
       else if ParamStr(1) = 'metadata-prefix-bounds' then

@@ -71,6 +71,8 @@ procedure TSeriesAliasPlan.Preview(const Canceled: TMergeCanceled);
 var DB: TSQLiteDatabase; Query: TSQLiteQuery; Pair: TSeriesAliasPair;
   SavedCancel: TSQLiteCancelCallback; Candidates: TList<TSeriesAliasCandidate>;
   Parents: TArray<Integer>; First, Last, I, J, A, B: Integer; Namespace: string;
+  Starts: TDictionary<string,Integer>;
+  Aliases: TDictionary<Integer,TSeriesAliasCandidate>;
   function RootOf(Index: Integer): Integer;
   begin
     Result:=Index;
@@ -78,6 +80,44 @@ var DB: TSQLiteDatabase; Query: TSQLiteQuery; Pair: TSeriesAliasPair;
   end;
   procedure CheckCanceled;
   begin if Assigned(Canceled) and Canceled() then Abort; end;
+  function Canonical(Candidate: TSeriesAliasCandidate): TSeriesAliasCandidate;
+  var Next: TSeriesAliasCandidate;
+  begin
+    Result:=Candidate;
+    while Aliases.TryGetValue(Result.ID,Next) do Result:=Next;
+  end;
+  procedure AddAlias(const Source, Target: TSeriesAliasCandidate);
+  begin
+    Pair.OldID:=Source.ID; Pair.NewID:=Target.ID;
+    Pair.OldTitle:=Source.Title; Pair.NewTitle:=Target.Title;
+    FPairs.Add(Pair);
+    Aliases.Add(Source.ID,Target);
+  end;
+  procedure MatchPublisherSuffixes;
+  var Source, Target: TSeriesAliasCandidate; Index: Integer;
+  begin
+    for var Candidate in Candidates do
+    begin
+      CheckCanceled;
+      if (Candidate.PublisherSuffix='') or not Starts.TryGetValue(Candidate.PublisherBaseKey,Index) then Continue;
+      Source:=Canonical(Candidate);
+      if (Source.PublisherBaseKey<>Candidate.PublisherBaseKey) or
+        (Source.PublisherSuffix<>Candidate.PublisherSuffix) then Continue;
+      while (Index<Candidates.Count) and (Candidates[Index].Key=Candidate.PublisherBaseKey) do
+      begin
+        CheckCanceled;
+        Target:=Canonical(Candidates[Index]);
+        if (Source.ID<>Target.ID) and SeriesShareRecord(DB,Candidate.ID,Candidates[Index].ID) and
+          SeriesHavePublisher(DB,Candidate.ID,Candidate.PublisherSuffix) and
+          ((Source.ID=Candidate.ID) or SeriesHavePublisher(DB,Source.ID,Candidate.PublisherSuffix)) then
+        begin
+          AddAlias(Source,Target);
+          Break;
+        end;
+        Inc(Index);
+      end;
+    end;
+  end;
 begin
   FReady:=False; FPairs.Clear; FReport.Clear; CheckCanceled;
   if isOnlineCollection(FCollection.CollectionCode) then
@@ -87,6 +127,8 @@ begin
   DB:=TSQLiteDatabase.CreateReadOnly(Settings.ExpandCollectionFileName(
     VarToStr(FCollection.GetProperty(PROP_DATAFILE))));
   Candidates:=TList<TSeriesAliasCandidate>.Create;
+  Starts:=TDictionary<string,Integer>.Create;
+  Aliases:=TDictionary<Integer,TSeriesAliasCandidate>.Create;
   SavedCancel:=SQLiteCancelCallback; FQueryCanceled:=Canceled; FQueryAborted:=False;
   SQLiteCancelCallback:=QueryCanceled;
   try
@@ -113,6 +155,7 @@ begin
       begin
         CheckCanceled; Last:=First+1;
         while (Last<Candidates.Count) and (Candidates[Last].Key=Candidates[First].Key) do Inc(Last);
+        Starts.Add(Candidates[First].Key,First);
         SetLength(Parents,Last-First);
         for I:=0 to High(Parents) do Parents[I]:=I;
         for I:=0 to High(Parents) do
@@ -134,30 +177,31 @@ begin
         for I:=0 to High(Parents) do
         begin
           A:=RootOf(I); if A=I then Continue;
-          Pair.OldID:=Candidates[First+I].ID; Pair.NewID:=Candidates[First+A].ID;
-          Pair.OldTitle:=Candidates[First+I].Title; Pair.NewTitle:=Candidates[First+A].Title;
-          FPairs.Add(Pair);
+          AddAlias(Candidates[First+I],Candidates[First+A]);
         end;
         First:=Last;
       end;
+      MatchPublisherSuffixes;
     except
       on E: ESQLiteException do if FQueryAborted then Abort else raise;
     end;
   finally
-    SQLiteCancelCallback:=SavedCancel; FQueryCanceled:=nil; Candidates.Free; DB.Free;
+    SQLiteCancelCallback:=SavedCancel; FQueryCanceled:=nil;
+    Aliases.Free; Starts.Free; Candidates.Free; DB.Free;
   end;
   CheckCanceled;
   FReport.Add(Format('Найдено пар названий серий: %d.',[Count]));
   FReport.Add('Проверка ничего не изменила. Для применения нажмите «Объединить найденные серии».');
   FReport.Add('Для вариантов со скобками, тире, е/ё и метками [p], [m] проверено совпадение книг: общий библиотечный ID либо название с автором, языком и форматом.');
   FReport.Add('Для авторских меток [a] также учитывается совпадение автора при одинаковом названии серии. Разные циклы без подтверждения остаются отдельно.');
+  FReport.Add('Пометка издателя в скобках объединяется с названием без пометки, если издатель подтверждён и есть общая запись книги.');
   FReport.Add('Книги обеих серий будут в одном списке. Все файлы, издания, оценки, прогресс чтения и группы сохраняются.');
   FReport.Add('Это объединение названий серий. Копии книг не удаляются; для выбора одной записи требуется отдельная проверка дублей книг.');
   FReport.Add('Повторное подключение INPX не требуется. Перед применением создаются резервные копии.');
   FReport.Add('');
   for Pair in FPairs do
   begin
-    if FReport.Count>=1007 then Break;
+    if FReport.Count>=1008 then Break;
     FReport.Add(Pair.OldTitle+' → '+Pair.NewTitle);
   end;
   if Count>1000 then FReport.Add('В предпросмотре показаны первые 1000 пар. Полный список будет сохранён вместе с резервной копией.');

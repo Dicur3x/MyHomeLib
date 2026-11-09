@@ -2,12 +2,13 @@
 var C: IBookCollection; ID, BookID, BeforeCount: Integer; Plan: TSeriesAliasPlan;
   DB: TSQLiteDatabase; FileName, Backup: string; Book: TBookRecord; Rejected: Boolean;
   function Add(const Title, Author, Series, LibID: string;
-    const Lang: string = 'ru'; const Ext: string = '.fb2'; const First: string = ''; const Middle: string = ''): Integer;
+    const Lang: string = 'ru'; const Ext: string = '.fb2'; const First: string = ''; const Middle: string = '';
+    const Publisher: string = ''): Integer;
   var Value: TBookRecord;
   begin
     Value:=Default(TBookRecord); Value.Title:=Title; Value.Series:=Series;
     Value.FileName:=Title; Value.FileExt:=Ext; Value.LibID:=LibID;
-    Value.Lang:=Lang; Value.Size:=100; Include(Value.BookProps,bpIsLocal);
+    Value.Lang:=Lang; Value.Size:=100; Value.Publisher:=Publisher; Include(Value.BookProps,bpIsLocal);
     TAuthorsHelper.Add(Value.Authors,Author,First,Middle);
     Result:=C.InsertBook(Value,False,False);
   end;
@@ -56,6 +57,13 @@ begin
     Add('Альма. Неотразимая','де Фомбель','Альма [Фомбель]','flibusta:802675','ru','.fb2','Тимоте');
     Add('Первая книга без пересечения','Автор','Отдельная серия (КИНО)','flibusta:882');
     Add('Вторая книга без пересечения','Автор','Отдельная серия. КИНО!!','flibusta:883');
+    var Allods:=Add('Общая книга издателя','Автор','Аллоды','flibusta:884','ru','.fb2','','','АСТ'+#$00A0);
+    C.AddBookSeries(Allods,'Аллоды (АСТ)',1);
+    Add('Другая книга издателя','Автор','Аллоды (АСТ)','flibusta:885','ru','.fb2','','','АСТ');
+    var OtherPublisher:=Add('Книга другого издателя','Автор','Серия с уточнением','flibusta:886','ru','.fb2','','','Эксмо');
+    C.AddBookSeries(OtherPublisher,'Серия с уточнением (АСТ)',0);
+    Add('Книга без общих записей','Автор','Только издатель','flibusta:887','ru','.fb2','','','АСТ');
+    Add('Другая книга без общих записей','Автор','Только издатель (АСТ)','flibusta:888','ru','.fb2','','','АСТ');
     C.EndBulkOperation(True);
   except if C.InBulkOperation then C.EndBulkOperation(False); raise; end;
   C.SetRate(CreateBookKey(BookID,ID),4); C.SetProgress(CreateBookKey(BookID,ID),37);
@@ -64,8 +72,8 @@ begin
   Plan:=TSeriesAliasPlan.Create(C,SystemDB);
   try
     Plan.Preview(nil);
-    if Plan.Count<>11 then Writeln(Plan.Report.Text);
-    Require(Plan.Count=11,'Verified publisher/mixed/bracket aliases missed, or unrelated cycles included: '+IntToStr(Plan.Count));
+    if Plan.Count<>12 then Writeln(Plan.Report.Text);
+    Require(Plan.Count=12,'Verified publisher/mixed/bracket aliases missed, or unrelated cycles included: '+IntToStr(Plan.Count));
     Require((Scalar('SELECT COUNT(*) FROM Books')=BeforeCount) and
       (Scalar('SELECT COUNT(*) FROM Series WHERE SeriesTitle=''Академия для всех[p]''')=1),
       'Series preview changed catalog records');
@@ -84,6 +92,11 @@ begin
     Require(Scalar('SELECT COUNT(*) FROM Series WHERE SeriesTitle IN '+
       '(''Отдельная серия (КИНО)'',''Отдельная серия. КИНО!!'')')=2,
       'Punctuation merged series without any common book');
+    Require(Scalar('SELECT COUNT(*) FROM Series_List JOIN Series USING(SeriesID) WHERE SeriesTitle=''Аллоды''')=2,
+      'Confirmed publisher suffix did not merge all books into the base series');
+    Require(Scalar('SELECT COUNT(*) FROM Series WHERE SeriesTitle IN '+
+      '(''Серия с уточнением (АСТ)'',''Только издатель (АСТ)'')')=2,
+      'Publisher suffix merged an unconfirmed label or a series without a common record');
     Require(Scalar('SELECT COUNT(*) FROM Series WHERE SeriesTitle IN '+
       '(''Ложное совпадение[p]'',''Разные библиотеки[m]'',''Разные авторы[m]'',''Разные форматы[p]'',''Разные пометки [Гром]'',''Разные пометки [Мед]'')')=6,
       'Unverified cycles, colliding library IDs, formats or meaningful labels merged');
@@ -105,24 +118,31 @@ begin
   Writeln('PASS feedback529 verified publisher/mixed/bracket and transitive series aliases; unrelated cycles, formats, library collisions, personal cards, backup and cancellation');
 end;
 
-procedure TestFeedback529DesktopSeries(const SourceFile: string);
-const Scope='50156,151808,17477,115731,41621,182951,28371,91943,38402,112363,181825,17588,144422';
+procedure TestFeedback529DesktopSeries(const SourceFile: string; PublisherOnly: Boolean = False);
 var Source: TSQLiteDatabase; Query, Authors: TSQLiteQuery; C: IBookCollection;
-  ID, OriginalID, AddedID: Integer; Book: TBookRecord; Plan: TSeriesAliasPlan;
+  ID, OriginalID, AddedID, SourceCount, ExpectedAliases: Integer; Book: TBookRecord; Plan: TSeriesAliasPlan;
   Mapped: TDictionary<Integer,Integer>;
+  Scope: string;
 begin
   // Read only the reported series. All reconstructed rows and every write are
   // in the isolated fixture: never register or open the user's catalog RW.
   Source:=TSQLiteDatabase.CreateReadOnly(SourceFile); Query:=nil; Authors:=nil;
   Mapped:=TDictionary<Integer,Integer>.Create;
   try
+    if PublisherOnly then
+    begin Scope:='114508,142020'; SourceCount:=2; ExpectedAliases:=1; end
+    else
+    begin
+      Scope:='50156,151808,17477,115731,41621,182951,28371,91943,38402,112363,181825,17588,144422';
+      SourceCount:=13; ExpectedAliases:=7;
+    end;
     Require(Source.QuerySingleInt('PRAGMA query_only')=1,'Desktop source is not read-only');
-    Require(Source.QuerySingleInt('SELECT COUNT(*) FROM Series WHERE SeriesID IN ('+Scope+')')=13,
+    Require(Source.QuerySingleInt('SELECT COUNT(*) FROM Series WHERE SeriesID IN ('+Scope+')')=SourceCount,
       'Reported desktop series no longer match the read-only regression scope');
     ID:=SystemDB.CreateCollection('Read-only feedback529 sample',Settings.AppPath,
       'feedback529-desktop-sample.hlc2',CT_EXTERNAL_LOCAL_FB,Settings.SystemFileName[sfGenresFB2]);
     C:=SystemDB.GetCollection(ID); C.SetProperty(PROP_SOURCE_LIBRARY,'flibusta');
-    Query:=Source.NewQuery('SELECT s.SeriesTitle,b.BookID,b.LibID,b.Title,b.Lang,b.Ext,b.Folder,b.FileName,b.BookSize '+
+    Query:=Source.NewQuery('SELECT s.SeriesTitle,b.BookID,b.LibID,b.Title,b.Lang,b.Ext,b.Folder,b.FileName,b.BookSize,b.Publisher,b.IsDeleted '+
       'FROM Series s JOIN Series_List l ON l.SeriesID=s.SeriesID JOIN Books b ON b.BookID=l.BookID '+
       'WHERE s.SeriesID IN ('+Scope+') ORDER BY b.BookID,s.SeriesID');
     Authors:=Source.NewQuery('SELECT a.LastName,a.FirstName,a.MiddleName FROM Author_List l '+
@@ -139,6 +159,8 @@ begin
           Book.Title:=Query.FieldAsString(3); Book.Lang:=Query.FieldAsString(4);
           Book.FileExt:=Query.FieldAsString(5); Book.Folder:=Query.FieldAsString(6);
           Book.FileName:=Query.FieldAsString(7); Book.Size:=Query.FieldAsInt(8);
+          Book.Publisher:=Query.FieldAsString(9);
+          if Query.FieldAsInt(10)<>0 then Include(Book.BookProps,bpIsDeleted);
           Book.Series:=Query.FieldAsString(0);
           Authors.Reset; Authors.SetParam(0,OriginalID); Authors.Open;
           while not Authors.Eof do
@@ -156,8 +178,8 @@ begin
     Plan:=TSeriesAliasPlan.Create(C,SystemDB);
     try
       Plan.Preview(nil); Writeln(Plan.Report.Text);
-      Require(Plan.Count=7,'Reported desktop series aliases were not all recognized: '+IntToStr(Plan.Count));
+      Require(Plan.Count=ExpectedAliases,'Reported desktop series aliases were not all recognized: '+IntToStr(Plan.Count));
     finally Plan.Free; end;
-    Writeln('PASS feedback529 actual desktop series reconstructed in an isolated fixture from a read-only connection; seven reported aliases recognized, no real records changed');
+    Writeln('PASS feedback529 actual desktop series reconstructed in an isolated fixture from a read-only connection; aliases=',ExpectedAliases);
   finally Authors.Free; Query.Free; C:=nil; Mapped.Free; Source.Free; end;
 end;

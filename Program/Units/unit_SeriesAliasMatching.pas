@@ -7,7 +7,7 @@ uses System.SysUtils, SQLiteWrap, unit_CollectionMerge;
 type
   TSeriesAliasCandidate = record
     ID, Rank: Integer;
-    Title, Key, LiteralKey: string;
+    Title, Key, LiteralKey, PublisherBaseKey, PublisherSuffix: string;
     Tag: Char;
   end;
 
@@ -15,10 +15,19 @@ function SeriesAliasCandidate(ID: Integer; const Title: string): TSeriesAliasCan
 function SeriesHaveSameBook(DB: TSQLiteDatabase; LeftID, RightID: Integer;
   const LibraryNamespace: string; const Canceled: TMergeCanceled): Boolean;
 function SeriesHaveSameAuthor(DB: TSQLiteDatabase; LeftID, RightID: Integer): Boolean;
+function SeriesHavePublisher(DB: TSQLiteDatabase; SeriesID: Integer; const Publisher: string): Boolean;
+function SeriesShareRecord(DB: TSQLiteDatabase; LeftID, RightID: Integer): Boolean;
 
 implementation
 
 uses System.Generics.Collections, System.Character, System.StrUtils, unit_LibrarySourceID;
+
+function NormalizePublisherName(const Name: string): string;
+begin
+  Result:=TCharacter.ToLower(Name.Replace(#$00A0,' ').Replace(#$202F,' ').Trim)
+    .Replace('ё','е').Replace('–','-').Replace('—','-');
+  while Result.Contains('  ') do Result:=Result.Replace('  ',' ');
+end;
 
 function SeriesAliasCandidate(ID: Integer; const Title: string): TSeriesAliasCandidate;
 const MixedLabel = '[межавторский цикл]';
@@ -53,9 +62,37 @@ begin
   begin
     Suffix:=Copy(Result.Key,Bracket+1,Result.Key.Length-Bracket-1).Trim;
     if (Suffix<>'') and not Suffix.Contains(')') then
+    begin
+      Result.PublisherBaseKey:=Copy(Result.Key,1,Bracket-1).TrimRight(['!','.',' ']).Replace('. ',' ');
+      Result.PublisherSuffix:=NormalizePublisherName(Suffix);
       Result.Key:=Copy(Result.Key,1,Bracket-1).TrimRight+' '+Suffix;
+    end;
   end;
   Result.Key:=Result.Key.Replace('. ',' ');
+end;
+
+function SeriesHavePublisher(DB: TSQLiteDatabase; SeriesID: Integer; const Publisher: string): Boolean;
+var Query: TSQLiteQuery;
+begin
+  Result:=False;
+  Query:=DB.NewQuery('SELECT b.Publisher FROM Series_List s JOIN Books b USING(BookID) '+
+    'WHERE s.SeriesID=? AND b.IsDeleted=0',[SeriesID]);
+  try
+    Query.Open;
+    while not Query.Eof do
+    begin
+      if NormalizePublisherName(Query.FieldAsString(0))<>Publisher then Exit(False);
+      Result:=True;
+      Query.Next;
+    end;
+  finally Query.Free; end;
+end;
+
+function SeriesShareRecord(DB: TSQLiteDatabase; LeftID, RightID: Integer): Boolean;
+begin
+  Result:=DB.QuerySingleInt('SELECT EXISTS(SELECT 1 FROM Series_List x JOIN Series_List y USING(BookID) '+
+    'JOIN Books b ON b.BookID=x.BookID WHERE x.SeriesID=? AND y.SeriesID=? AND b.IsDeleted=0)',
+    [LeftID,RightID])<>0;
 end;
 
 function SeriesHaveSameAuthor(DB: TSQLiteDatabase; LeftID, RightID: Integer): Boolean;
