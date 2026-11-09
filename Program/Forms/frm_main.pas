@@ -4579,26 +4579,30 @@ begin
 end;
 
 procedure TfrmMain.ShowBookDuplicates(Sender: TObject);
-var Dialog: TfrmBookDuplicates; Changed: Boolean; FileDeletion: TDuplicateFileDeletion;
+var Dialog: TfrmBookDuplicates; Changed: Boolean; Operation: TBookDeletionOperation;
 begin
   if not Assigned(FCollection) or FFormBusy or FBookListLoading then Exit;
   if isOnlineCollection(FCollection.CollectionCode) then
   begin
     MessageDlg('Поиск повторов доступен для локальной коллекции.',mtInformation,[mbOK],0); Exit;
   end;
-  FFormBusy:=True; Changed:=False;
+  FFormBusy:=True; Changed:=False; Operation:=nil;
   try
     Dialog:=TfrmBookDuplicates.CreateForCollection(Self,FCollection);
     try
       Dialog.OnBeforeApply:=CheckBookDuplicateApply;
-      Dialog.ShowModal; Changed:=Dialog.CatalogChanged; FileDeletion:=Dialog.FileDeletion;
+      Dialog.ShowModal; Changed:=Dialog.CatalogChanged;
+      try
+        Operation:=Dialog.TakeDeletionOperation(Settings.SystemFileName[sfSystemDB],BookDeletionJournalRoot);
+      except
+        on E:Exception do begin LogDiagnosticError('book-delete-duplicates',E); MHLShowWarning(E.Message); end;
+      end;
     finally Dialog.Free; end;
   finally FFormBusy:=False; end;
-  if FileDeletion.Removed.CollectionID<>0 then
+  if Assigned(Operation) then
   begin
     try
-      StartBookDeletion(TBookDeletionOperation.CreateDuplicateRemoval(FileDeletion,
-        Settings.SystemFileName[sfSystemDB],BookDeletionJournalRoot),True);
+      StartBookDeletion(Operation,True);
     except
       on E:Exception do begin LogDiagnosticError('book-delete-duplicates',E); MHLShowWarning(E.Message); end;
     end;
@@ -8793,6 +8797,9 @@ begin
   else if State.Error<>'' then
   begin
     var Detail:=State.Error;
+    if (State.SelectedDuplicates>0) and (State.CompletedBooks>0) then
+      Detail:=Detail+sLineBreak+Format('До остановки удалено копий: %d из %d.',
+        [State.CompletedBooks,State.SelectedDuplicates]);
     if FBookDeletionNeedsRecovery then
       Detail:=Detail+sLineBreak+'Журнал сохранён. HomeLibre попробует завершить операцию при следующем запуске.';
     MHLShowWarning('Не удалось завершить удаление.'+sLineBreak+Detail);

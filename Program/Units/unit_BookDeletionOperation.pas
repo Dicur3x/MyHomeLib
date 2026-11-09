@@ -3,13 +3,14 @@
 interface
 
 uses System.Classes, System.SysUtils, unit_Interfaces, unit_Globals,
-  unit_BookDeletionBinding, unit_ArchiveDeletionQueue;
+  unit_BookDeletionBinding, unit_ArchiveDeletionQueue, unit_BookDuplicates;
 
 type
   TBookDeletionOperationStatus = record
     Stage, Archive, Error, RequiredComponent, PendingJournal, CleanupWarning: string;
     CollectionName: string;
     CollectionIndex, CollectionCount: Integer;
+    DuplicateBatch, SelectedDuplicates: Integer;
     Done, Total: Int64;
     MoveBytes, JournalBytes: Int64;
     CompanionCount: Integer;
@@ -29,6 +30,8 @@ type
   private
     FBinding, FRetainedDuplicates: TBookDeletionBinding;
     FBatch: TArray<TBookDeletionBatchItem>;
+    FDuplicatePlan: TBookDuplicatePlan;
+    FDuplicateCollectionID: Integer;
     FJournalRoot, FUserFile: string;
     FReviewFiles: TArray<string>;
     FRecovery, FReviewArchives: Boolean;
@@ -45,6 +48,7 @@ type
     procedure RunRemoval(const User: ISystemData);
     procedure CheckDuplicateSources(const User: ISystemData);
     procedure RunBatch(const User: ISystemData);
+    procedure RunDuplicateBatches(const User: ISystemData);
     procedure RunRecovery(const User: ISystemData);
   protected
     procedure Execute; override;
@@ -53,6 +57,8 @@ type
     constructor CreateBatch(const Items: TArray<TBookDeletionBatchItem>;
       const UserFile, JournalRoot: string);
     constructor CreateDuplicateRemoval(const Selection: TDuplicateFileDeletion; const UserFile, JournalRoot: string);
+    constructor CreateDuplicateBatches(var Plan: TBookDuplicatePlan; CollectionID: Integer;
+      const UserFile, JournalRoot: string);
     constructor Recover(const UserFile, JournalRoot: string);
     destructor Destroy; override;
     procedure RequestStop;
@@ -177,6 +183,41 @@ begin
   FRetainedDuplicates:=Selection.Retained;
 end;
 
+constructor TBookDeletionOperation.CreateDuplicateBatches(var Plan: TBookDuplicatePlan;
+  CollectionID: Integer; const UserFile, JournalRoot: string);
+begin
+  Create(Default(TBookDeletionBinding),UserFile,JournalRoot);
+  FDuplicateCollectionID:=CollectionID;
+  FDuplicatePlan:=Plan;
+  Plan:=nil;
+end;
+
+procedure TBookDeletionOperation.RunDuplicateBatches(const User: ISystemData);
+var Cursor: TDuplicateDeletionCursor; Batch: TDuplicateFileDeletion; Info: TCollectionInfo;
+begin
+  Info:=User.GetCollectionInfo(FDuplicateCollectionID);
+  TMonitor.Enter(FLock);
+  try FState.SelectedDuplicates:=FDuplicatePlan.SelectedRemovedCount;
+  finally TMonitor.Exit(FLock); end;
+  Report('Проверка выбранных дублей и личных данных','',0,0);
+  FDuplicatePlan.PrepareDeletionBatches(Info,function:Boolean begin Result:=Stopping; end,
+    procedure(Current,Total: Integer)
+    begin Report('Проверка выбранных дублей и личных данных','',0,0,Current,Total); end);
+  Cursor:=Default(TDuplicateDeletionCursor);
+  while not Stopping do
+  begin
+    Report('Подготовка следующей партии','',0,0);
+    Info:=User.GetCollectionInfo(FDuplicateCollectionID);
+    Batch:=FDuplicatePlan.NextDeletionBatch(Info,Cursor,function:Boolean begin Result:=Stopping; end);
+    if Batch.Removed.CollectionID=0 then Break;
+    TMonitor.Enter(FLock);
+    try Inc(FState.DuplicateBatch); finally TMonitor.Exit(FLock); end;
+    FBinding:=Batch.Removed;
+    FRetainedDuplicates:=Batch.Retained;
+    RunRemoval(User);
+  end;
+end;
+
 procedure TBookDeletionOperation.CheckDuplicateSources(const User: ISystemData);
 var Retained: TDictionary<string,Byte>; Containers: TDictionary<string,Byte>;
   PrimaryIDs: TDictionary<Integer,Byte>;
@@ -275,6 +316,7 @@ destructor TBookDeletionOperation.Destroy;
 begin
   RequestStop;
   inherited;
+  FDuplicatePlan.Free;
   FLock.Free;
 end;
 
@@ -647,6 +689,7 @@ begin
       if not FileExists(FUserFile) then raise EReadError.Create('База коллекций не найдена.');
       User:=TSystemData_SQLite.Create(FUserFile);
       if FRecovery then RunRecovery(User)
+      else if Assigned(FDuplicatePlan) then RunDuplicateBatches(User)
       else if Length(FBatch)>0 then RunBatch(User)
       else RunRemoval(User);
     except
