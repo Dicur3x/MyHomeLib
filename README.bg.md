@@ -15,15 +15,15 @@ HomeLibre е програма за Windows за подреждане, намир
 
 ## Изтегляне и стартиране
 
-Текущата публична бета е **[HomeLibre 3.0 beta 8](https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.8)**.
-[Промени](https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.8) · [История на изданията](docs/releases/README.md) ·
-[Проверки и ограничения](docs/RELEASE_VALIDATION_3.0.0_pre1.8.md) (на руски).
+Текущата публична бета е **[HomeLibre 3.0 beta 9](https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.9)**.
+[Промени](https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.9) · [История на изданията](docs/releases/README.md) ·
+[Проверки и ограничения](docs/RELEASE_VALIDATION_3.0.0_pre1.9.md) (на руски).
 
 | Архив | Система |
 | --- | --- |
-| [HomeLibre — 64 бита](https://github.com/Dicur3x/MyHomeLib/releases/download/3.0.0_pre1.8/HomeLibre_x64.zip) | 64-битов Windows |
-| [HomeLibre — 32 бита](https://github.com/Dicur3x/MyHomeLib/releases/download/3.0.0_pre1.8/HomeLibre.zip) | 32-битов Windows; работи и на 64-битов |
-| [SHA256SUMS.txt](https://github.com/Dicur3x/MyHomeLib/releases/download/3.0.0_pre1.8/SHA256SUMS.txt) | Контролни суми на архивите |
+| [HomeLibre — 64 бита](https://github.com/Dicur3x/MyHomeLib/releases/download/3.0.0_pre1.9/HomeLibre_x64.zip) | 64-битов Windows |
+| [HomeLibre — 32 бита](https://github.com/Dicur3x/MyHomeLib/releases/download/3.0.0_pre1.9/HomeLibre.zip) | 32-битов Windows; работи и на 64-битов |
+| [SHA256SUMS.txt](https://github.com/Dicur3x/MyHomeLib/releases/download/3.0.0_pre1.9/SHA256SUMS.txt) | Контролни суми на архивите |
 
 Изисква се **Windows 10 или по-нова версия**. Архивът съдържа каталогизатора.
 Книгите се изтеглят отделно.

@@ -15,15 +15,15 @@ HomeLibre — програма для Windows, яка допомагає збе�
 
 ## Завантаження й запуск
 
-Поточна публічна бета — **[HomeLibre 3.0 beta 8](https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.8)**.
-[Зміни](https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.8) · [Історія випусків](docs/releases/README.md) ·
-[Перевірки й обмеження](docs/RELEASE_VALIDATION_3.0.0_pre1.8.md) (російською).
+Поточна публічна бета — **[HomeLibre 3.0 beta 9](https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.9)**.
+[Зміни](https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.9) · [Історія випусків](docs/releases/README.md) ·
+[Перевірки й обмеження](docs/RELEASE_VALIDATION_3.0.0_pre1.9.md) (російською).
 
 | Архів | Для якої системи |
 | --- | --- |
-| [HomeLibre — 64 біти](https://github.com/Dicur3x/MyHomeLib/releases/download/3.0.0_pre1.8/HomeLibre_x64.zip) | 64-бітна Windows |
-| [HomeLibre — 32 біти](https://github.com/Dicur3x/MyHomeLib/releases/download/3.0.0_pre1.8/HomeLibre.zip) | 32-бітна Windows; також працює на 64-бітній |
-| [SHA256SUMS.txt](https://github.com/Dicur3x/MyHomeLib/releases/download/3.0.0_pre1.8/SHA256SUMS.txt) | Контрольні суми архівів |
+| [HomeLibre — 64 біти](https://github.com/Dicur3x/MyHomeLib/releases/download/3.0.0_pre1.9/HomeLibre_x64.zip) | 64-бітна Windows |
+| [HomeLibre — 32 біти](https://github.com/Dicur3x/MyHomeLib/releases/download/3.0.0_pre1.9/HomeLibre.zip) | 32-бітна Windows; також працює на 64-бітній |
+| [SHA256SUMS.txt](https://github.com/Dicur3x/MyHomeLib/releases/download/3.0.0_pre1.9/SHA256SUMS.txt) | Контрольні суми архівів |
 
 Потрібна **Windows 10 або новіша**. Архів містить каталогізатор.
 Книги завантажуються окремо.
