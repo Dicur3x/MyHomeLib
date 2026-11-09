@@ -102,6 +102,8 @@ begin
                 'Automatic preview consumed more than its bounded share of the list');
               Require(Trees[Index].ClientHeight>=3*Trees[Index].DefaultNodeHeight,'Automatic fitting hid book rows');
               Require(Annotation.Visible and (Annotation.Height>0),'Description has no visible area');
+              Require((Annotation.Width=Content.ClientWidth) and (Panel.Gallery.Width=0),
+                'Collapsed illustrations reserve space beside the description');
               Require(not Assigned(Annotation.OnDblClick),'Double-click can still swap the description for metadata');
               Require(Pos('Новая глава',Annotation.Text)>0,'Selection preview overwrote the explicit layout fixture');
               Writeln('TRACE adaptive before view=',Index,' dark=',Ord(Dark),' dpi=',DPI,
@@ -139,6 +141,7 @@ begin
                     if Strip.Controls[ThumbIndex] is TImage then
                     begin
                       var Thumb:=TImage(Strip.Controls[ThumbIndex]);
+                      Require(Thumb.Height>=MulDiv(152,DPI,96),'Illustration thumbnail is too short');
                       Require((Thumb.Picture.Width=120) and (Thumb.Picture.Height=160),'Thumbnail source grid changed');
                       Png.Assign(Thumb.Picture.Graphic);
                       Require(ColorToRGB(Png.Canvas.Pixels[5,5])=RGB(30*(Thumb.Tag+1),60,180),'Thumbnail original pixels changed');
@@ -146,15 +149,18 @@ begin
                 end;
               Require((Panel.Height=BeforeHeight) and (Panel.PreferredHeight=BeforePreferred),
                 'Expanding illustrations increased the outer preview height');
-              if Panel.Gallery.Top=0 then
+              if Panel.Gallery.Left>0 then
               begin
                 Inc(WideCases);
-                Require(Panel.Gallery.Left>=Panel.GalleryButton.BoundsRect.Right,
-                  'Wide thumbnails overlap metadata');
-                Require(Annotation.BoundsRect=DescriptionBounds,'Wide gallery moved or reduced the description');
-              end;
+                Require(Panel.Gallery.Left>Annotation.BoundsRect.Right,'Wide thumbnails overlap the description');
+                Require((Panel.Gallery.Top=Annotation.Top) and (Annotation.Top=DescriptionBounds.Top) and
+                  (Annotation.Width<DescriptionBounds.Width),'Wide gallery did not share the available detail area');
+              end
+              else Require(Annotation.Width=Content.ClientWidth,'Stacked illustrations narrowed the description');
               Panel.GalleryButton.Click;
               Require(not Panel.Gallery.Expanded and (Panel.Height=BeforeHeight),'Collapsing gallery changed preview height');
+              Require((Annotation.Width=Content.ClientWidth) and (Panel.Gallery.Width=0),
+                'Collapsing the gallery did not restore the description width');
               Fill(Panel,False);
               // Native theme frame settling can change parent capacity by a pixel.
               // Compare content demand itself, then verify the current actual bound.

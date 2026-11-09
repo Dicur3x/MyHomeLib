@@ -1032,7 +1032,7 @@ var
   LayoutPPI, FooterH, FooterW, Padding, MetaW, BaseY, DetailY, ButtonH, DesiredDetailH,
     ReviewW, ButtonY, ProgressLeft, ProgressW, ProgressH: Integer;
   ProgressText: TSize;
-  ShowProgress: Boolean;
+  ShowProgress, GallerySide: Boolean;
   function LinkHeight(Link: TMHLLinkLabel; AvailableWidth: Integer; out LinkWidth: Integer): Integer;
   var
     IdealSize: TSize;
@@ -1190,9 +1190,9 @@ begin
         LblW := Max(LblW, MeasureInfoText(5,FPublisherSerieLabel.Caption,FPublisherSerieLabel.Font).cx + Gap);
       LblW := Min(LblW, W);
 
-      // Reserve a stable metadata column before expanding thumbnails.
+      GallerySide:=FGallery.Visible and FGallery.Expanded and (W>=MulDiv(600,LayoutPPI,96));
       MetaW:=W;
-      if FGallery.Visible and (W>=MulDiv(600,LayoutPPI,96)) then
+      if GallerySide then
         MetaW:=Min(MulDiv(420,LayoutPPI,96),(W-Gap) div 2);
       FGalleryToggle.Visible:=FGallery.Visible;
       if FGallery.Expanded then FGalleryToggle.Caption:=FGallery.Title+' ▾'
@@ -1200,18 +1200,18 @@ begin
       ProfileLayout(ipsLinkBounds, True);
       try
       Y := 0;
-      FTitle.SetBounds(0, Y, MetaW, RowH);
+      FTitle.SetBounds(0, Y, W, RowH);
       Inc(Y, RowH);
-      LinkH := LinkHeight(FAuthors, MetaW, LinkW);
+      LinkH := LinkHeight(FAuthors, W, LinkW);
       FAuthors.SetBounds(0, Y, LinkW, LinkH);
       Inc(Y, LinkH);
-      LinkH := LinkHeight(FSeries, Max(0,MetaW - LblW), LinkW);
+      LinkH := LinkHeight(FSeries, Max(0,W - LblW), LinkW);
       FSerieLabel.SetBounds(0, Y, LblW, RowH);
       FSeries.SetBounds(LblW, Y, LinkW, LinkH);
       Inc(Y, LinkH);
       if FPublisherSeriesLinks.Visible then
       begin
-        LinkH := LinkHeight(FPublisherSeriesLinks, Max(0,MetaW - LblW), LinkW);
+        LinkH := LinkHeight(FPublisherSeriesLinks, Max(0,W - LblW), LinkW);
         FPublisherSerieLabel.SetBounds(0, Y, LblW, RowH);
         FPublisherSeriesLinks.SetBounds(LblW, Y, LinkW, LinkH);
         Inc(Y, LinkH);
@@ -1219,30 +1219,34 @@ begin
       else if FPublisherSeries.Visible then
       begin
         LinkH := Max(RowH, MeasureInfoText(6,FPublisherSeries.Caption,FPublisherSeries.Font,
-          Max(1,MetaW-LblW)).cy + MulDiv(RowSpacing, LayoutPPI, 96));
+          Max(1,W-LblW)).cy + MulDiv(RowSpacing, LayoutPPI, 96));
         FPublisherSerieLabel.SetBounds(0, Y, LblW, RowH);
-        FPublisherSeries.SetBounds(LblW, Y, Max(0,MetaW - LblW), LinkH);
+        FPublisherSeries.SetBounds(LblW, Y, Max(0,W - LblW), LinkH);
         Inc(Y, LinkH);
       end;
-      LinkH := LinkHeight(FGenres, Max(0,MetaW - LblW), LinkW);
+      LinkH := LinkHeight(FGenres, Max(0,W - LblW), LinkW);
       FGenreLabel.SetBounds(0, Y, LblW, RowH);
       FGenres.SetBounds(LblW, Y, LinkW, LinkH);
       Inc(Y, LinkH + Gap);
       DetailY:=Y;
+      BaseY:=Y;
       if FReadingSupport.Visible then
       begin
         Canvas.Font.Assign(FInfoPanel.Font);
         if MHLThemeDark then Canvas.Font.Color:=RGB(146,180,153) else Canvas.Font.Color:=$0063482E;
         UseMeasuredFont(FReadingSupport);
-        LinkH:=Max(RowH,MeasureInfoText(7,FReadingSupport.Caption,FReadingSupport.Font,Max(1,MetaW)).cy); FReadingSupport.SetBounds(0,Y,MetaW,LinkH); Inc(Y,LinkH+Gap);
+        LinkH:=Max(RowH,MeasureInfoText(7,FReadingSupport.Caption,FReadingSupport.Font,MetaW).cy);
+        FReadingSupport.SetBounds(0,Y,MetaW,LinkH); Inc(Y,LinkH+Gap);
+        Inc(BaseY,Max(RowH,MeasureInfoText(7,FReadingSupport.Caption,FReadingSupport.Font,W).cy)+Gap);
       end;
       if FPreviewStatus.Visible then
       begin
         Canvas.Font.Assign(FInfoPanel.Font);
         if MHLThemeDark then Canvas.Font.Color:=RGB(150,152,156) else Canvas.Font.Color:=clGrayText;
         UseMeasuredFont(FPreviewStatus);
-        LinkH:=Max(RowH,MeasureInfoText(8,FPreviewStatus.Caption,FPreviewStatus.Font,Max(1,MetaW)).cy);
+        LinkH:=Max(RowH,MeasureInfoText(8,FPreviewStatus.Caption,FPreviewStatus.Font,MetaW).cy);
         FPreviewStatus.SetBounds(0,Y,MetaW,LinkH); Inc(Y,LinkH+Gap);
+        Inc(BaseY,Max(RowH,MeasureInfoText(8,FPreviewStatus.Caption,FPreviewStatus.Font,W).cy)+Gap);
       end;
       if FGallery.Visible then
       begin
@@ -1250,15 +1254,15 @@ begin
           MeasureInfoText(0,'Wg',FGalleryToggle.Font).cy+MulDiv(12,LayoutPPI,96));
         FGalleryToggle.SetBounds(0,Y,Min(MetaW,MulDiv(220,LayoutPPI,96)),ButtonH);
         Inc(Y,ButtonH+Gap);
+        Inc(BaseY,ButtonH+Gap);
       end;
-      BaseY:=Y;
-      if FGallery.Visible and (MetaW<W) then
-        FGallery.SetBounds(MetaW+Gap,0,W-MetaW-Gap,Max(0,Y-Gap))
+      if GallerySide then
+        FGallery.SetBounds(MetaW+Gap,DetailY,W-MetaW-Gap,Max(MulDiv(176,LayoutPPI,96),H-DetailY))
       else if FGallery.Visible and FGallery.Expanded then
       begin
-        // Narrow windows keep a bounded strip in the existing scroll viewport.
+        // Keep the taller thumbnails within the existing scroll viewport.
         // Expansion is excluded from automatic outer panel sizing.
-        FGallery.SetBounds(0,Y,W,MulDiv(120,LayoutPPI,96));
+        FGallery.SetBounds(0,Y,W,MulDiv(176,LayoutPPI,96));
         Inc(Y,FGallery.Height+Gap);
       end
       else FGallery.SetBounds(0,0,0,0);
@@ -1272,14 +1276,14 @@ begin
         DesiredDetailH:=MulDiv(80,LayoutPPI,96);
         if FAnnotation.Visible and (InfoText(FAnnotation)<>'') then
           DesiredDetailH:=EnsureRange(MeasureInfoText(9,Copy(InfoText(FAnnotation),1,16384),
-            FAnnotation.Font,Max(1,MetaW)).cy+Gap,DesiredDetailH,MulDiv(180,LayoutPPI,96));
+            FAnnotation.Font,W).cy+Gap,DesiredDetailH,MulDiv(180,LayoutPPI,96));
       end;
       FPreferredHeight:=FInfoViewport.Margins.Top+BaseY+DesiredDetailH+
         FInfoViewport.Margins.Bottom;
       DetailH := 0;
       if FAnnotation.Visible or FFb2Info.Visible then
         DetailH := Max(MulDiv(80, LayoutPPI, 96), H - Y);
-      FInfoPanel.Height := Y + DetailH;
+      FInfoPanel.Height := Max(Y + DetailH, FGallery.BoundsRect.Bottom);
       if FInfoViewport.VertScrollBar.Range <> FInfoPanel.Height then
         FInfoViewport.VertScrollBar.Range := FInfoPanel.Height;
       if FAnnotation.Visible then FAnnotation.SetBounds(0, DetailY, MetaW, DetailH);
@@ -1287,7 +1291,7 @@ begin
       if FReadingSupport.Visible then FReadingSupport.Top:=FReadingSupport.Top+DetailH;
       if FPreviewStatus.Visible then FPreviewStatus.Top:=FPreviewStatus.Top+DetailH;
       if FGalleryToggle.Visible then FGalleryToggle.Top:=FGalleryToggle.Top+DetailH;
-      if FGallery.Visible and (MetaW=W) and FGallery.Expanded then
+      if FGallery.Visible and FGallery.Expanded and not GallerySide then
         FGallery.Top:=FGallery.Top+DetailH;
       finally ProfileLayout(ipsDetailBounds, False); end;
       finally

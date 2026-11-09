@@ -431,7 +431,7 @@ begin
 end;
 
 procedure TBookGallery.UpdateLayout;
-var I, HeaderH, StripH, ThumbW, Gap, LayoutPPI: Integer;
+var I, HeaderH, StripH, ThumbW, ThumbH, Gap, LayoutPPI: Integer;
 begin
   if not Assigned(FToggle) or not Assigned(Parent) or
     not Assigned(GetParentForm(Self)) then Exit;
@@ -450,8 +450,10 @@ begin
     if not FInlinePreview and (FImages.Count = 0) and not Loading then StripH := MulDiv(65, LayoutPPI, 96);
     if FInlinePreview then FStrip.SetBounds(0,0,Width,StripH)
     else FStrip.SetBounds(0, HeaderH + Gap, Width, StripH);
+    ThumbH:=Max(0,StripH-MulDiv(24,LayoutPPI,96));
+    if FInlinePreview then ThumbW:=Max(ThumbW,MulDiv(ThumbH,3,4));
     for I := 0 to FImages.Count - 1 do
-      FImages[I].SetBounds(I * (ThumbW + Gap), 0, ThumbW, StripH - MulDiv(24, LayoutPPI, 96));
+      FImages[I].SetBounds(I * (ThumbW + Gap), 0, ThumbW, ThumbH);
     FStatus.SetBounds(FImages.Count * (ThumbW + Gap), 0, Max(MulDiv(180,LayoutPPI,96), Width - Gap), StripH - Gap);
     if not FInlinePreview then Height := HeaderH + Gap + StripH;
   end
