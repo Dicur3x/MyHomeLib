@@ -456,6 +456,101 @@ end;
 
 type
   TContinuousScrollSurface = class(TReaderSurface);
+  TLiveAppearanceProbe = class
+    Reader: TfrmBuiltinReader;
+    Watch: TStopwatch;
+    OpenMS: Int64;
+    procedure Tick(Sender: TObject);
+  end;
+
+procedure TLiveAppearanceProbe.Tick(Sender: TObject);
+begin
+  for var I:=0 to Screen.FormCount-1 do
+  begin
+    var Dialog:=Screen.Forms[I];
+    if (Dialog.Name<>'ReaderAppearanceDialog') or not Dialog.Visible then Continue;
+    if GetWindow(Dialog.Handle,GW_OWNER)=Reader.Handle then OpenMS:=Watch.ElapsedMilliseconds;
+    TTimer(Sender).Enabled:=False;
+    Dialog.ModalResult:=mrOk;
+    Exit;
+  end;
+end;
+
+procedure TestReaderLiveFeedback;
+var Reader: TfrmBuiltinReader; BookFile, SourceHash: string; Probe: TLiveAppearanceProbe; Timer: TTimer;
+  Watch, Frame: TStopwatch;
+  OpenMS, ColdOpenMS, MaxPumpUS: Int64;
+  Before, ForwardPosition, Frames, Last: Integer;
+  function Scroll(Direction, Pulses: Integer): Integer;
+  var Deadline, SendAt, Started: UInt64; Sent: Integer; Current: Integer;
+  begin
+    Started:=GetTickCount64; Deadline:=Started+UInt64(Pulses)*52+420;
+    SendAt:=Started; Sent:=0; Result:=0; Last:=Reader.TextPosition;
+    repeat
+      if (Sent<Pulses) and (GetTickCount64>=SendAt) then
+      begin
+        TContinuousScrollSurface(Reader.ReadingSurface).DoMouseWheel([],Direction*WHEEL_DELTA,Point(0,0));
+        Inc(Sent); Inc(SendAt,52);
+      end;
+      Frame:=TStopwatch.StartNew;
+      Application.ProcessMessages;
+      Frame.Stop;
+      MaxPumpUS:=Max(MaxPumpUS,Frame.ElapsedTicks*1000000 div TStopwatch.Frequency);
+      Current:=Reader.TextPosition;
+      if Current<>Last then begin Inc(Result); Last:=Current; end;
+      Sleep(2);
+    until GetTickCount64>=Deadline;
+  end;
+begin
+  RequireIsolatedRegression;
+  BookFile:=GetEnvironmentVariable('HLRU_TEST_LIVE_READER_BOOK');
+  Require(FileExists(BookFile),'Real reader fixture not supplied');
+  SourceHash:=THashSHA2.GetHashStringFromFile(BookFile);
+  Reader:=TfrmBuiltinReader.Create(nil);
+  Probe:=TLiveAppearanceProbe.Create;
+  Timer:=TTimer.Create(nil);
+  try
+    Probe.Reader:=Reader;
+    Timer.Enabled:=False; Timer.Interval:=16; Timer.OnTimer:=Probe.Tick;
+    Reader.Width:=1000; Reader.Height:=800;
+    Reader.Show;
+    Reader.OpenBook(BookFile,'Инженер Петра Великого','live-reader-feedback',Settings.AppPath+'feedback-reader.ini','');
+    Watch:=TStopwatch.StartNew;
+    while not Reader.LoadFinished and (Watch.ElapsedMilliseconds<30000) do
+    begin Application.ProcessMessages; CheckSynchronize(5); Sleep(5); end;
+    Require(Reader.Ready,'Real reader fixture did not open: '+Reader.ReaderStatus.Caption);
+    Writeln('PROFILE real FB2 ready ms=',Watch.ElapsedMilliseconds);
+    ColdOpenMS:=0;
+    for var Attempt:=1 to 2 do
+    begin
+      Probe.OpenMS:=-1;
+      Reader.ReadingSurface.SetFocus;
+      Probe.Watch:=TStopwatch.StartNew;
+      Timer.Enabled:=True;
+      (Reader.FindComponent('ReaderAppearance') as TButton).Click;
+      OpenMS:=Probe.OpenMS;
+      Require(OpenMS>=0,'Appearance did not display over the real book');
+      Require(Reader.ActiveControl=Reader.ReadingSurface,'Appearance did not return focus after Apply');
+      if Attempt=1 then ColdOpenMS:=OpenMS;
+      Watch:=TStopwatch.StartNew;
+      repeat Application.ProcessMessages; Sleep(5); until Watch.ElapsedMilliseconds>=350;
+    end;
+    Reader.SetPageLayout(rplContinuous);
+    Reader.GoToPosition(300000);
+    Before:=Reader.TextPosition; MaxPumpUS:=0;
+    Frames:=Scroll(-1,45); ForwardPosition:=Reader.TextPosition;
+    Require((Frames>45) and (ForwardPosition>Before),'Real book did not scroll forward in intermediate frames');
+    Writeln('PROFILE real reader appearance cold_ms=',ColdOpenMS,' warm_ms=',OpenMS,
+      ' forward_frames=',Frames,' max_pump_us=',MaxPumpUS);
+    MaxPumpUS:=0;
+    Frames:=Scroll(1,32);
+    Require((Frames>32) and (Reader.TextPosition<ForwardPosition),'Real book did not scroll backward in intermediate frames');
+    Writeln('PROFILE real reader backward_frames=',Frames,' max_pump_us=',MaxPumpUS);
+    Reader.Close;
+  finally Timer.Free; Probe.Free; Reader.Free; end;
+  Require(THashSHA2.GetHashStringFromFile(BookFile)=SourceHash,'Real reader test changed the source');
+  Writeln('PASS real FB2 appearance and continuous scrolling');
+end;
 
 procedure TestReaderContinuousScrolling;
 var Reader: TfrmBuiltinReader; FileName, Extension, Original: string;
@@ -559,6 +654,19 @@ begin
         Watch:=TStopwatch.StartNew;
         while (Reader.TextPosition>0) and (Watch.ElapsedMilliseconds<5000) do Pump(30);
         Require(Reader.TextPosition=0,Extension+' could not scroll backwards');
+        if Extension='cbz' then
+        begin
+          Reader.GoToPosition(4);
+          Watch:=TStopwatch.StartNew;
+          while ((Reader.TextPosition<>4) or Reader.PageLoading) and (Watch.ElapsedMilliseconds<5000) do Pump(20);
+          Require(Reader.TextPosition=4,'Could not seek before the uncached backward scroll');
+          TContinuousScrollSurface(Reader.ReadingSurface).DoMouseWheel([],WHEEL_DELTA,Point(0,0));
+          Watch:=TStopwatch.StartNew;
+          while (Reader.TextPosition<>3) and (Watch.ElapsedMilliseconds<5000) do Pump(20);
+          Pump(380);
+          Require((Reader.TextPosition=3) and (Reader.PDFPan.Y<-(Reader.ReadingSurface.ClientHeight div 4)),
+            'Backward scroll after seeking lost its remainder when the previous page loaded');
+        end;
         Writeln('PASS smooth fixed-layout wheel and arrows: ',Extension,', intermediate frames=',Frames);
       end
       else

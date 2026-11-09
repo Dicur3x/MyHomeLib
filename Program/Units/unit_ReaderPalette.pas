@@ -28,10 +28,18 @@ type
     property Icon: TReaderCommandIcon read FIcon write FIcon;
   end;
   TReaderPaletteCombo = class(TComboBox)
+  private
+    FDeferredChoices: string;
+    procedure LoadChoices;
   protected
+    procedure DropDown; override;
+    procedure KeyDown(var Key: Word; Shift: TShiftState); override;
+    procedure KeyPress(var Key: Char); override;
     procedure DrawItem(Index: Integer; Rect: TRect; State: TOwnerDrawState); override;
     procedure WndProc(var Message: TMessage); override;
-  public constructor Create(AOwner: TComponent); override;
+  public
+    constructor Create(AOwner: TComponent); override;
+    procedure SetDeferredChoices(const Choices, Current: string);
   end;
 
   TReaderPaletteCheckBox = class(TCheckBox)
@@ -40,10 +48,21 @@ type
   public constructor Create(AOwner: TComponent); override;
   end;
   TReaderPaletteColorBox = class(TColorBox)
+  private
+    FBeforeDropDown: Integer;
+    FListClosed: Boolean;
+    procedure AddPalette(Sender: TCustomColorBox; Items: TStrings);
   protected
+    procedure DropDown; override;
+    procedure CloseUp; override;
+    procedure KeyDown(var Key: Word; Shift: TShiftState); override;
+    procedure KeyPress(var Key: Char); override;
+    procedure Select; override;
     procedure DrawItem(Index: Integer; Rect: TRect; State: TOwnerDrawState); override;
     procedure WndProc(var Message: TMessage); override;
-  public constructor Create(AOwner: TComponent); override;
+  public
+    constructor Create(AOwner: TComponent); override;
+    procedure Configure(SelectedColor: TColor);
   end;
 
 function ReaderThemeBackground(Index: Integer): TColor;
@@ -178,6 +197,44 @@ end;
 constructor TReaderPaletteCombo.Create(AOwner: TComponent);
 begin inherited; StyleName:='Windows'; StyleElements:=[]; Style:=csOwnerDrawFixed; end;
 
+procedure TReaderPaletteCombo.SetDeferredChoices(const Choices, Current: string);
+begin
+  FDeferredChoices:=Choices;
+  Items.Clear;
+  Items.Add(Current);
+  ItemIndex:=0;
+end;
+
+procedure TReaderPaletteCombo.LoadChoices;
+var Current: string; Index: Integer;
+begin
+  if FDeferredChoices='' then Exit;
+  Current:=Text;
+  Items.BeginUpdate;
+  try
+    Items.Text:=FDeferredChoices;
+    Index:=Items.IndexOf(Current);
+    if Index<0 then Index:=Items.Add(Current);
+    ItemIndex:=Index;
+    FDeferredChoices:='';
+  finally Items.EndUpdate; end;
+end;
+
+procedure TReaderPaletteCombo.DropDown;
+begin LoadChoices; inherited; end;
+
+procedure TReaderPaletteCombo.KeyDown(var Key: Word; Shift: TShiftState);
+begin
+  if Key in [VK_UP,VK_DOWN,VK_HOME,VK_END,VK_PRIOR,VK_NEXT] then LoadChoices;
+  inherited;
+end;
+
+procedure TReaderPaletteCombo.KeyPress(var Key: Char);
+begin
+  if Key>=#32 then LoadChoices;
+  inherited;
+end;
+
 procedure TReaderPaletteCombo.DrawItem(Index: Integer; Rect: TRect; State: TOwnerDrawState);
 var Text: string;
 begin
@@ -277,6 +334,77 @@ end;
 
 constructor TReaderPaletteColorBox.Create(AOwner: TComponent);
 begin inherited; StyleName:='Windows'; StyleElements:=[]; end;
+
+procedure TReaderPaletteColorBox.AddPalette(Sender: TCustomColorBox; Items: TStrings);
+const
+  Colors: array[0..15] of TColor = (clBlack,clMaroon,clGreen,clOlive,clNavy,clPurple,
+    clTeal,clGray,clSilver,clRed,clLime,clYellow,clBlue,clFuchsia,clAqua,clWhite);
+  Names: array[0..15] of string = ('Чёрный','Бордовый','Зелёный','Оливковый','Тёмно-синий',
+    'Фиолетовый','Бирюзовый','Серый','Светло-серый','Красный','Лаймовый','Жёлтый',
+    'Синий','Фуксия','Голубой','Белый');
+begin
+  Items.AddObject('Другой цвет…',TObject(NativeInt(clBlack)));
+  for var I:=0 to High(Colors) do Items.AddObject(Names[I],TObject(NativeInt(Colors[I])));
+  Items.AddObject('Автоматически (по теме)',TObject(NativeInt(clDefault)));
+end;
+
+procedure TReaderPaletteColorBox.Configure(SelectedColor: TColor);
+begin
+  // Populate only the reader palette, skipping the VCL system color list.
+  OnGetColors:=AddPalette;
+  Style:=[cbCustomColors];
+  for var I:=1 to Items.Count-1 do
+    if Colors[I]=SelectedColor then
+    begin
+      ItemIndex:=I;
+      Exit;
+    end;
+  Items.Objects[0]:=TObject(NativeInt(SelectedColor));
+  ItemIndex:=0;
+end;
+
+procedure TReaderPaletteColorBox.DropDown;
+begin
+  FBeforeDropDown:=ItemIndex;
+  FListClosed:=False;
+  inherited;
+end;
+
+procedure TReaderPaletteColorBox.CloseUp;
+begin
+  inherited;
+  FListClosed:=True;
+end;
+
+procedure TReaderPaletteColorBox.KeyDown(var Key: Word; Shift: TShiftState);
+begin
+  FListClosed:=False;
+  inherited;
+end;
+
+procedure TReaderPaletteColorBox.KeyPress(var Key: Char);
+begin
+  inherited;
+  if (Key=#13) and (ItemIndex=0) then
+  begin
+    if PickCustomColor and Assigned(OnSelect) then OnSelect(Self);
+    Key:=#0;
+  end;
+end;
+
+procedure TReaderPaletteColorBox.Select;
+begin
+  if FListClosed then
+  begin
+    FListClosed:=False;
+    if (ItemIndex=0) and not PickCustomColor then
+    begin
+      ItemIndex:=FBeforeDropDown;
+      Exit;
+    end;
+  end;
+  inherited;
+end;
 
 procedure TReaderPaletteColorBox.DrawItem(Index: Integer; Rect: TRect; State: TOwnerDrawState);
 var Swatch: TRect; Value: TColor; Text: string;

@@ -67,6 +67,10 @@ begin
         var ColorBox:=Dialog.FindComponent('ReaderThemeProgressColor') as TColorBox;
         Require(Assigned(ColorBox),'The theme does not offer a progress color');
         ColorBox.Selected:=clAqua;
+        var HeadingBox:=Dialog.FindComponent('ReaderThemeHeadingColor') as TColorBox;
+        var SubheadingBox:=Dialog.FindComponent('ReaderThemeSubheadingColor') as TColorBox;
+        Require(Assigned(HeadingBox) and Assigned(SubheadingBox),'Heading colors are outside the theme palette');
+        HeadingBox.Selected:=clBlue; SubheadingBox.Selected:=clTeal;
         SawColors:=True;
         Dialog.ModalResult:=mrOk;
         Exit;
@@ -76,7 +80,7 @@ end;
 
 procedure CheckColoredNestedChapterProgress(Reader: TfrmBuiltinReader);
 var Bar: TPaintBox; Chapters: TComboBox; Picture: TBitmap; DC: HDC; Saved: HGDIOBJ;
-  Fill: COLORREF; Marks, Spacing, X: Integer;
+  Fill: COLORREF; Marks, Spacing, X, LastMark, MarkCount: Integer;
 begin
   Reader.GoToPosition(Reader.TextLength-1);
   Require(Reader.ReadingProgress=1,'Progress test did not reach the end');
@@ -93,20 +97,94 @@ begin
         Fill:=GetPixel(DC,Bar.Width div 2,Bar.Height-2);
         Require(Fill=ColorToRGB(clAqua),'The chosen progress color was not painted');
         Chapters:=Reader.FindComponent('ReaderChapterSelector') as TComboBox;
-        Marks:=0; Spacing:=2*Max(2,MulDiv(2,Reader.CurrentPPI,96));
+        Marks:=0;
         for var I:=0 to Chapters.Items.Count-1 do
-          if Chapters.Items[I].Contains('Первая глава') or Chapters.Items[I].Contains('Вторая глава') then
+        begin
+          X:=MulDiv(Bar.Width-1,NativeInt(Chapters.Items.Objects[I]),Reader.TextLength);
+          if Chapters.Items[I].Contains('Глубокая подглава') then
+            Require(GetPixel(DC,X,0)=Fill,'A deeper heading cluttered the progress bar')
+          else if Chapters.Items[I].Contains('Первая глава') or Chapters.Items[I].Contains('Вторая глава') then
           begin
-            X:=MulDiv(Bar.Width-1,NativeInt(Chapters.Items.Objects[I]),Reader.TextLength);
-            X:=X div Spacing*Spacing;
-            Require((GetPixel(DC,X,1)<>Fill) and (GetPixel(DC,X,Bar.Height*3 div 4)=Fill),
+            Require((GetPixel(DC,X,0)<>Fill) and (GetPixel(DC,X,Bar.Height*3 div 4)=Fill),
               'A nested chapter marker is missing or hidden on the filled progress bar: '+Chapters.Items[I]);
             Inc(Marks);
           end;
+        end;
         Require(Marks=2,'Progress fixture did not supply its two nested chapters');
+        Spacing:=MulDiv(24,Reader.CurrentPPI,96);
+        LastMark:=-Spacing; MarkCount:=0;
+        for X:=0 to Bar.Width-1 do
+          if (GetPixel(DC,X,0)<>Fill) and ((X=0) or (GetPixel(DC,X-1,0)=Fill)) then
+          begin
+            Require(X-LastMark>=Spacing,'Adjacent progress marks are too close');
+            LastMark:=X; Inc(MarkCount);
+          end;
+        Require((Chapters.Items.Count>100) and (MarkCount>5) and (MarkCount<=32),
+          'Dense chapter marks were not reduced to a readable number');
       finally SelectObject(DC,Saved); end;
     finally DeleteDC(DC); end;
   finally Picture.Free; end;
+end;
+
+type
+  TReaderDeferredChoicesProbe = class(TReaderPaletteCombo);
+
+  TReaderColorChoiceProbe = class(TReaderPaletteColorBox)
+  protected
+    function PickCustomColor: Boolean; override;
+  public
+    Accept: Boolean;
+    Picks: Integer;
+    procedure PickFromList;
+    procedure PickWithEnter;
+  end;
+
+function TReaderColorChoiceProbe.PickCustomColor: Boolean;
+begin
+  Inc(Picks);
+  if Accept then Items.Objects[0]:=TObject(NativeInt(RGB(12,34,56)));
+  Result:=Accept;
+end;
+
+procedure TReaderColorChoiceProbe.PickFromList;
+begin
+  DropDown; ItemIndex:=0; CloseUp; Select;
+end;
+
+procedure TReaderColorChoiceProbe.PickWithEnter;
+var Key: Char;
+begin
+  ItemIndex:=0;
+  Key:=#13;
+  KeyPress(Key);
+  Require(Key=#0,'The custom color key also activated Apply');
+end;
+
+procedure CheckReaderColorChoices;
+var Form: TForm; Box: TReaderColorChoiceProbe; Choices: TReaderDeferredChoicesProbe; Key: Word;
+begin
+  Form:=TForm.CreateNew(nil);
+  try
+    Box:=TReaderColorChoiceProbe.Create(Form); Box.Parent:=Form;
+    Box.Configure(clDefault);
+    Require((Box.Items.Count=18) and (Box.Selected=clDefault),'Reader palette lost its automatic color or includes system colors');
+    Box.PickFromList;
+    Require((Box.Picks=1) and (Box.Selected=clDefault),'Canceling a custom color lost the current palette choice');
+    Box.Accept:=True;
+    Box.PickWithEnter;
+    Require((Box.Picks=2) and (Box.Selected=RGB(12,34,56)),'Keyboard could not apply a custom color');
+    Box.Configure(clBlack);
+    Require((Box.ItemIndex>0) and (Box.Selected=clBlack),'A standard color was confused with the custom entry');
+    Box.Configure(RGB(45,67,89));
+    Require((Box.ItemIndex=0) and (Box.Selected=RGB(45,67,89)),'The saved custom color was not selected');
+    Choices:=TReaderDeferredChoicesProbe.Create(Form); Choices.Parent:=Form;
+    Choices.SetDeferredChoices('100'+#13+'110'+#13+'120','115');
+    Require((Choices.Items.Count=1) and (Choices.Text='115'),'The deferred list lost the current custom value');
+    Key:=VK_DOWN; Choices.KeyDown(Key,[]);
+    Require((Choices.Items.Count=4) and (Choices.Text='115'),'Keyboard did not load all of the saved numeric choices');
+    Choices.DropDown;
+    Require((Choices.Items.Count=4) and (Choices.Text='115'),'Opening the list duplicated or changed its selected value');
+  finally Form.Free; end;
 end;
 
 procedure TestComponentPromptFeedback;
@@ -114,6 +192,7 @@ var Dialog: TReaderModuleForm; Prompt: TForm; Memo: TMemo; Started: UInt64;
   Purpose, Reason, Displayed: string; Host: TfrmReaderHost; Probe: TReaderFormatsHelpProbe;
   Timer: TTimer; SavedDark: Boolean;
 begin
+  CheckReaderColorChoices;
   RequireIsolatedRegression;
   for var ID in ['BookProcessing','ImageProcessing'] do
     for var Context in [False,True] do
@@ -184,10 +263,15 @@ begin
     AppearanceProbe.Reader.Show;
     var BookFile:=Settings.AppPath+'appearance-reader.fb2';
     var ProfileFile:=Settings.AppPath+'appearance-reader.ini';
-    var Text:=StringOfChar('а',160);
+    var Text:=StringOfChar('а',320);
+    var Chapters:='';
+    for var I:=1 to 120 do
+      Chapters:=Chapters+'<section><title><p>Глава '+IntToStr(I)+'</p></title><p>Текст.</p></section>';
     TFile.WriteAllText(BookFile,'<FictionBook><body><section><title><p>Часть</p></title><p>'+Text+
-      '</p><section><title><p>Первая глава</p></title><p>'+Text+'</p></section>'+
-      '<section><title><p>Вторая глава</p></title><p>'+Text+'</p></section></section></body></FictionBook>',TEncoding.UTF8);
+      '</p><section><title><p>Первая глава</p></title><p>'+Text+'</p>'+
+      '<section><title><p>Глубокая подглава</p></title><p>'+Text+'</p></section></section>'+
+      '<section><title><p>Вторая глава</p></title><p>'+Text+'</p></section>'+Chapters+
+      '</section></body></FictionBook>',TEncoding.UTF8);
     AppearanceProbe.Reader.OpenBook(BookFile,'Проверка оформления','appearance-reader',ProfileFile,'');
     Started:=GetTickCount64;
     while not AppearanceProbe.Reader.LoadFinished and (GetTickCount64-Started<5000) do
@@ -204,12 +288,16 @@ begin
     try
       Require(SavedProfile.ReadInteger('Reader','ThemeProgress'+IntToStr(AppearanceProbe.Reader.ThemeIndex),clDefault)=ColorToRGB(clAqua),
         'The progress color was not saved for the active theme');
+      var Prefix:='HeadingColor'+IntToStr(Ord(AppearanceProbe.Reader.ThemeIndex>=4))+'_';
+      Require((SavedProfile.ReadInteger('Reader',Prefix+'0',clDefault)=ColorToRGB(clBlue)) and
+        (SavedProfile.ReadInteger('Reader',Prefix+'1',clDefault)=ColorToRGB(clTeal)),
+        'Heading colors were not saved after accepting the theme palette');
     finally SavedProfile.Free; end;
   finally
     Timer.Free; AppearanceProbe.Reader.Free; AppearanceProbe.Free;
   end;
   Writeln('PASS appearance and theme colors stay owned by their visible reader windows');
-  Writeln('PASS nested chapter marks stay visible over the selected and saved progress color');
+  Writeln('PASS sparse chapter marks stay visible without crowding on the selected and saved progress color');
 end;
 
 procedure TestDjvuFirstUseFeedback;
