@@ -29,6 +29,13 @@ def encoded(value):
     return (json.dumps(value, ensure_ascii=False, indent=2) + '\n').encode('utf-8')
 
 
+def archive_name(entry):
+    if entry['id'] == 'HomeLibReader' and 'archive' not in entry:
+        # Old clients use the unversioned bridge when the feed omits the name.
+        return f"HomeLibRu-HomeLibReader-{entry['platform']}.zip"
+    return entry['archive']
+
+
 def entries(value):
     assert value['format'] == 1
     result = {}
@@ -37,8 +44,9 @@ def entries(value):
         assert key not in result, 'Duplicate component/platform: ' + str(key)
         assert key[1] in ('Win32', 'Win64')
         assert re.fullmatch(r'[0-9]+(?:\.[0-9]+){1,3}', entry['version'])
-        assert Path(entry['archive']).name == entry['archive']
-        assert '/' not in entry['archive'] and '\\' not in entry['archive']
+        name = archive_name(entry)
+        assert Path(name).name == name
+        assert '/' not in name and '\\' not in name
         result[key] = entry
     return result
 
@@ -203,7 +211,7 @@ def main():
     # nested minimal archive using the same component ID and release metadata.
     for key in reader_keys:
         legacy = baseline[key]
-        assert legacy['archive'] != replacement[key]['archive']
+        assert archive_name(legacy) != replacement[key]['archive']
         if 'minimal_reader' in legacy:
             previous = tuple(map(int, legacy['minimal_reader']['version'].split('.')))
             current = tuple(map(int, replacement[key]['version'].split('.')))
@@ -217,8 +225,9 @@ def main():
         elif key in unchanged and not partial:
             assert baseline[key] == bootstrap[key], 'Unchanged component metadata drift: ' + str(key)
         entry = baseline[key]
-        asset = old_assets[entry['archive']]
-        assert asset['browser_download_url'] == PREFIX + entry['archive']
+        name = archive_name(entry)
+        asset = old_assets[name]
+        assert asset['browser_download_url'] == PREFIX + name
         assert asset['size'] > 0 and re.fullmatch(r'sha256:[0-9a-f]{64}', asset['digest'])
     replacing_existing = [old_assets[item['name']] for item in uploads if item['name'] in old_assets]
     previous_owned = set(baseline) & (expected - reader_keys)
@@ -228,7 +237,7 @@ def main():
                     for key in sorted(reader_keys) if 'minimal_reader' in baseline[key])
     obsolete_names = {asset['name'] for asset in obsolete}
     assert len(obsolete_names) == len(obsolete)
-    assert not obsolete_names.intersection(baseline[key]['archive'] for key in reader_keys)
+    assert not obsolete_names.intersection(archive_name(baseline[key]) for key in reader_keys)
     feed = encoded(dict(format=1, components=list(merged.values())))
     retained_assets = [asset for name, asset in old_assets.items()
                        if name not in obsolete_names | {asset['name'] for asset in replacing_existing} | {'HomeLibRu.components.json'}]
@@ -253,7 +262,7 @@ def main():
     if not partial:
         report['kfx_corresponding_source'] = source_asset
     report['reader_archives_match_current_executables'] = True
-    report['legacy_reader_archives_retained'] = [baseline[key]['archive'] for key in sorted(reader_keys)]
+    report['legacy_reader_archives_retained'] = [archive_name(baseline[key]) for key in sorted(reader_keys)]
     report['reader_packages_directory'] = str(args.reader_packages.resolve())
     output.mkdir(parents=True, exist_ok=False)
     files = {'HomeLibRu.components.json': feed, 'assets.json': encoded(publication['assets']),
