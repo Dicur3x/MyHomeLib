@@ -89,6 +89,7 @@ modes.push('catalogue-description','flibrary-real-deletion','book-deletion-lifec
 modes.push('update-manual-reopen');
 if (viewsMode === 'reading-progress-column') modes.push(viewsMode);
 modes.push('duplicate-file-removal','duplicate-source','duplicate-linked-mass','review-formatting');
+modes.push('book-preview-manual-height');
 if (viewsMode==='duplicate-linked-audit') {
   if (!process.env.HLRU_DUPLICATE_READONLY_CATALOG || !process.env.HLRU_DUPLICATE_READONLY_CID)
     throw Error('The linked duplicate audit requires an explicit read-only catalogue and its collection ID.');
@@ -146,6 +147,7 @@ const requiredViews = {
     "PASS compact search reaches extra fields and collapsed headers by Tab Space and wheel",
     "PASS extra-field expansion persists and compact search leaves catalogue bytes unchanged"],
   'book-preview-adaptive': ['PASS adaptive preview uses actual Main bounded automatic height in all six views', 'PASS expanded illustrations keep panel height and wide description position', 'PASS reading progress fits the footer and preserves the description bounds', 'PASS adaptive preview keeps thumbnail pixels and original source unchanged', 'PASS manual preview height survives new books, views, DPI and profile reload'],
+  'book-preview-manual-height': ['PASS manual preview height survives new books, views, DPI and profile reload'],
   'book-preview-reviews': ['PASS saved review preview reads the selected catalogue record in both themes at 96/144/192 DPI'],
   'review-preview-http': ['PASS lower review panel loads refreshes and preserves previous text on empty or failed responses', 'PASS lower review panel cancels and ignores obsolete book source and concurrent edits'],
   'export-cache-lifecycle': ['PASS real archived-book estimate removes work immediately and retains reusable cached sources until exit', 'PASS failed archived-book estimate removes all operation work and preserves original archives', 'PASS in-flight estimate cancellation removes operation work and preserves original archives', 'PASS successful failed and cancelled real exports remove operation work and preserve source files', 'PASS real main-form exit clears archived-book estimate and export caches while preserving every original', 'PASS opt-in detailed diagnostics persist capture real failed cancelled exports with exact paths redact credentials exclude book contents and report local component versions', 'PASS native diagnostic journal option remains visible persists and toggles correctly at 96 144 192 DPI'],

@@ -1,6 +1,6 @@
 ﻿type TInfoPanelSplitterAccess = class(TMHLSplitter);
 
-procedure TestAdaptiveBookPreview;
+procedure TestAdaptiveBookPreview(ManualOnly: Boolean = False);
 var Infos: TArray<TInfoPanel>; Trees: TArray<TBookTree>; Panel: TInfoPanel;
   OldBounds: TRect; OldPage, DPI, Width, Index, Cases, WideCases, BeforeHeight, BeforePreferred: Integer;
   OldTheme, OldVisible, Dark: Boolean; Annotation: TMemo; Viewport: TScrollBox;
@@ -81,98 +81,103 @@ begin
     TFile.WriteAllText(Source,XML+'</FictionBook>',TEncoding.UTF8); Hash:=THashSHA2.GetHashStringFromFile(Source);
     if not Settings.ShowInfoPanel then frmMain.ShowBookInfoPanelExecute(nil);
     frmMain.WindowState:=wsNormal; frmMain.Show; Application.ProcessMessages;
-    for Dark in TArray<Boolean>.Create(False,True) do
+    if not ManualOnly then
     begin
-      SetMHLTheme(Dark);
-      for DPI in TArray<Integer>.Create(96,144,192) do
+      for Dark in TArray<Boolean>.Create(False,True) do
       begin
-        frmMain.ScaleForPPI(DPI);
-        for Width in TArray<Integer>.Create(800,1280) do
+        SetMHLTheme(Dark);
+        for DPI in TArray<Integer>.Create(96,144,192) do
         begin
-          frmMain.SetBounds(0,0,MulDiv(Width,DPI,96),MulDiv(850,DPI,96));
-          for Index:=0 to High(Infos) do
+          frmMain.ScaleForPPI(DPI);
+          for Width in TArray<Integer>.Create(800,1280) do
           begin
-            SelectView(Index); Panel:=Infos[Index]; Fill(Panel,True); Application.ProcessMessages;
-            FindDetails;
-            Require(Assigned(Panel.OnContentSizeChanged),'Actual Main did not connect automatic preview fitting');
-            Require((Panel.Height>=Panel.Constraints.MinHeight) and
-              (Panel.Height<=Max(Panel.Constraints.MinHeight,Panel.Parent.ClientHeight div 2)),
-              'Automatic preview consumed more than its bounded share of the list');
-            Require(Trees[Index].ClientHeight>=3*Trees[Index].DefaultNodeHeight,'Automatic fitting hid book rows');
-            Require(Annotation.Visible and (Annotation.Height>0),'Description has no visible area');
-            Require(not Assigned(Annotation.OnDblClick),'Double-click can still swap the description for metadata');
-            Require(Pos('Новая глава',Annotation.Text)>0,'Selection preview overwrote the explicit layout fixture');
-            Writeln('TRACE adaptive before view=',Index,' dark=',Ord(Dark),' dpi=',DPI,
-              ' width=',Width,' height=',Panel.Height,' preferred=',Panel.PreferredHeight,
-              ' viewport=',Viewport.ClientWidth,' annotation_y=',Annotation.Top); Flush(Output);
-            BeforeHeight:=Panel.Height; BeforePreferred:=Panel.PreferredHeight;
-            DescriptionBounds:=Annotation.BoundsRect;
-            ReadingProgress:=Panel.FindComponent('BookReadingProgress') as TPaintBox;
-            Require(Assigned(ReadingProgress) and not ReadingProgress.Visible,'No-progress book showed a stale badge');
-            Panel.SetReadingProgress(42);
-            Require((Panel.Height=BeforeHeight) and (Panel.PreferredHeight=BeforePreferred) and
-              (Annotation.BoundsRect=DescriptionBounds),'Reading progress changed the preview footprint');
-            if Width=1280 then Require(ReadingProgress.Visible,'Wide preview did not display reading progress');
-            if ReadingProgress.Visible then
-              Require((ReadingProgress.Left>=Panel.DetailsButton.BoundsRect.Right) and
-                (ReadingProgress.Top>=Panel.DetailsButton.Top) and
-                (ReadingProgress.BoundsRect.Bottom<=Panel.DetailsButton.BoundsRect.Bottom) and
-                (ReadingProgress.BoundsRect.Right<=Panel.ClientWidth),
-                'Reading progress overlaps the footer or leaves the panel');
-            Require(ReadingProgress.Hint='Прочитано 42%','Reading progress did not show the saved value');
-            Panel.SetReadingProgress(100);
-            Require(ReadingProgress.Hint='Прочитано 100%','Reading progress did not refresh');
-            Panel.SetReadingProgress(0);
-            Require(not ReadingProgress.Visible,'Clearing reading progress left the badge visible');
-            Panel.GalleryButton.Click;
-            Started:=GetTickCount64;
-            while Panel.Gallery.Loading and (GetTickCount64-Started<10000) do
-            begin Application.ProcessMessages; CheckSynchronize(2); Sleep(2); end;
-            Require(Panel.Gallery.Expanded and (Panel.Gallery.ImageCount=3),'Adaptive gallery lost decoded illustrations');
-            for var StripIndex:=0 to Panel.Gallery.ControlCount-1 do
-              if Panel.Gallery.Controls[StripIndex] is TScrollBox then
-              begin
-                var Strip:=TScrollBox(Panel.Gallery.Controls[StripIndex]);
-                for var ThumbIndex:=0 to Strip.ControlCount-1 do
-                  if Strip.Controls[ThumbIndex] is TImage then
-                  begin
-                    var Thumb:=TImage(Strip.Controls[ThumbIndex]);
-                    Require((Thumb.Picture.Width=120) and (Thumb.Picture.Height=160),'Thumbnail source grid changed');
-                    Png.Assign(Thumb.Picture.Graphic);
-                    Require(ColorToRGB(Png.Canvas.Pixels[5,5])=RGB(30*(Thumb.Tag+1),60,180),'Thumbnail original pixels changed');
-                  end;
-              end;
-            Require((Panel.Height=BeforeHeight) and (Panel.PreferredHeight=BeforePreferred),
-              'Expanding illustrations increased the outer preview height');
-            if Panel.Gallery.Top=0 then
+            frmMain.SetBounds(0,0,MulDiv(Width,DPI,96),MulDiv(850,DPI,96));
+            for Index:=0 to High(Infos) do
             begin
-              Inc(WideCases);
-              Require(Panel.Gallery.Left>=Panel.GalleryButton.BoundsRect.Right,
-                'Wide thumbnails overlap metadata');
-              Require(Annotation.BoundsRect=DescriptionBounds,'Wide gallery moved or reduced the description');
+              SelectView(Index); Panel:=Infos[Index]; Fill(Panel,True); Application.ProcessMessages;
+              FindDetails;
+              Require(Assigned(Panel.OnContentSizeChanged),'Actual Main did not connect automatic preview fitting');
+              Require((Panel.Height>=Panel.Constraints.MinHeight) and
+                (Panel.Height<=Max(Panel.Constraints.MinHeight,Panel.Parent.ClientHeight div 2)),
+                'Automatic preview consumed more than its bounded share of the list');
+              Require(Trees[Index].ClientHeight>=3*Trees[Index].DefaultNodeHeight,'Automatic fitting hid book rows');
+              Require(Annotation.Visible and (Annotation.Height>0),'Description has no visible area');
+              Require(not Assigned(Annotation.OnDblClick),'Double-click can still swap the description for metadata');
+              Require(Pos('Новая глава',Annotation.Text)>0,'Selection preview overwrote the explicit layout fixture');
+              Writeln('TRACE adaptive before view=',Index,' dark=',Ord(Dark),' dpi=',DPI,
+                ' width=',Width,' height=',Panel.Height,' preferred=',Panel.PreferredHeight,
+                ' viewport=',Viewport.ClientWidth,' annotation_y=',Annotation.Top); Flush(Output);
+              BeforeHeight:=Panel.Height; BeforePreferred:=Panel.PreferredHeight;
+              DescriptionBounds:=Annotation.BoundsRect;
+              ReadingProgress:=Panel.FindComponent('BookReadingProgress') as TPaintBox;
+              Require(Assigned(ReadingProgress) and not ReadingProgress.Visible,'No-progress book showed a stale badge');
+              Panel.SetReadingProgress(42);
+              Require((Panel.Height=BeforeHeight) and (Panel.PreferredHeight=BeforePreferred) and
+                (Annotation.BoundsRect=DescriptionBounds),'Reading progress changed the preview footprint');
+              if Width=1280 then Require(ReadingProgress.Visible,'Wide preview did not display reading progress');
+              if ReadingProgress.Visible then
+                Require((ReadingProgress.Left>=Panel.DetailsButton.BoundsRect.Right) and
+                  (ReadingProgress.Top>=Panel.DetailsButton.Top) and
+                  (ReadingProgress.BoundsRect.Bottom<=Panel.DetailsButton.BoundsRect.Bottom) and
+                  (ReadingProgress.BoundsRect.Right<=Panel.ClientWidth),
+                  'Reading progress overlaps the footer or leaves the panel');
+              Require(ReadingProgress.Hint='Прочитано 42%','Reading progress did not show the saved value');
+              Panel.SetReadingProgress(100);
+              Require(ReadingProgress.Hint='Прочитано 100%','Reading progress did not refresh');
+              Panel.SetReadingProgress(0);
+              Require(not ReadingProgress.Visible,'Clearing reading progress left the badge visible');
+              Panel.GalleryButton.Click;
+              Started:=GetTickCount64;
+              while Panel.Gallery.Loading and (GetTickCount64-Started<10000) do
+              begin Application.ProcessMessages; CheckSynchronize(2); Sleep(2); end;
+              Require(Panel.Gallery.Expanded and (Panel.Gallery.ImageCount=3),'Adaptive gallery lost decoded illustrations');
+              for var StripIndex:=0 to Panel.Gallery.ControlCount-1 do
+                if Panel.Gallery.Controls[StripIndex] is TScrollBox then
+                begin
+                  var Strip:=TScrollBox(Panel.Gallery.Controls[StripIndex]);
+                  for var ThumbIndex:=0 to Strip.ControlCount-1 do
+                    if Strip.Controls[ThumbIndex] is TImage then
+                    begin
+                      var Thumb:=TImage(Strip.Controls[ThumbIndex]);
+                      Require((Thumb.Picture.Width=120) and (Thumb.Picture.Height=160),'Thumbnail source grid changed');
+                      Png.Assign(Thumb.Picture.Graphic);
+                      Require(ColorToRGB(Png.Canvas.Pixels[5,5])=RGB(30*(Thumb.Tag+1),60,180),'Thumbnail original pixels changed');
+                    end;
+                end;
+              Require((Panel.Height=BeforeHeight) and (Panel.PreferredHeight=BeforePreferred),
+                'Expanding illustrations increased the outer preview height');
+              if Panel.Gallery.Top=0 then
+              begin
+                Inc(WideCases);
+                Require(Panel.Gallery.Left>=Panel.GalleryButton.BoundsRect.Right,
+                  'Wide thumbnails overlap metadata');
+                Require(Annotation.BoundsRect=DescriptionBounds,'Wide gallery moved or reduced the description');
+              end;
+              Panel.GalleryButton.Click;
+              Require(not Panel.Gallery.Expanded and (Panel.Height=BeforeHeight),'Collapsing gallery changed preview height');
+              Fill(Panel,False);
+              // Native theme frame settling can change parent capacity by a pixel.
+              // Compare content demand itself, then verify the current actual bound.
+              Require(Panel.PreferredHeight<=BeforePreferred,'A shorter description requested more room');
+              Require(Panel.Height<=Max(Panel.Constraints.MinHeight,Panel.Parent.ClientHeight div 2),
+                'Short-description fitting exceeded the current list share');
+              Inc(Cases);
             end;
-            Panel.GalleryButton.Click;
-            Require(not Panel.Gallery.Expanded and (Panel.Height=BeforeHeight),'Collapsing gallery changed preview height');
-            Fill(Panel,False);
-            // Native theme frame settling can change parent capacity by a pixel.
-            // Compare content demand itself, then verify the current actual bound.
-            Require(Panel.PreferredHeight<=BeforePreferred,'A shorter description requested more room');
-            Require(Panel.Height<=Max(Panel.Constraints.MinHeight,Panel.Parent.ClientHeight div 2),
-              'Short-description fitting exceeded the current list share');
-            Inc(Cases);
           end;
         end;
       end;
+      Require((Cases=72) and (WideCases>=6),'Adaptive preview did not exercise wide/narrow six-view DPI cases');
+      Writeln('PASS adaptive preview uses actual Main bounded automatic height in all six views cases=',Cases);
+      Writeln('PASS expanded illustrations keep panel height and wide description position');
+      Writeln('PASS reading progress fits the footer and preserves the description bounds');
+      Require(THashSHA2.GetHashStringFromFile(Source)=Hash,'Gallery layout changed source book bytes');
+      Writeln('PASS adaptive preview keeps thumbnail pixels and original source unchanged'); Flush(Output);
     end;
-    Require((Cases=72) and (WideCases>=6),'Adaptive preview did not exercise wide/narrow six-view DPI cases');
-    Writeln('PASS adaptive preview uses actual Main bounded automatic height in all six views cases=',Cases);
-    Writeln('PASS expanded illustrations keep panel height and wide description position');
-    Writeln('PASS reading progress fits the footer and preserves the description bounds');
-    Require(THashSHA2.GetHashStringFromFile(Source)=Hash,'Gallery layout changed source book bytes');
-    Writeln('PASS adaptive preview keeps thumbnail pixels and original source unchanged'); Flush(Output);
+    Writeln('TRACE manual preview setup'); Flush(Output);
     frmMain.ScaleForPPI(96); frmMain.SetBounds(0,0,1280,900);
     SelectView(0); Panel:=Infos[0]; Fill(Panel,False);
     BeforeHeight:=Panel.Height;
+    Writeln('TRACE manual preview splitter'); Flush(Output);
     var Splitter:=TInfoPanelSplitterAccess(frmMain.AuthorBookInfoSplitter);
     Splitter.MouseDown(mbLeft,[ssLeft],10,1);
     Splitter.MouseUp(mbLeft,[],10,1);
@@ -182,6 +187,7 @@ begin
     Splitter.MouseUp(mbLeft,[],10,-89);
     var ManualHeight:=Settings.ManualInfoPanelHeight;
     Require((ManualHeight>BeforeHeight) and (ManualHeight=Panel.Height),'Real splitter resize did not capture manual height');
+    Writeln('TRACE manual preview views'); Flush(Output);
     for Index:=0 to High(Infos) do
     begin
       SelectView(Index); Fill(Infos[Index],Index mod 2=0);
@@ -192,15 +198,19 @@ begin
       'Small window failed to clamp the panel without overwriting its preference');
     frmMain.SetBounds(0,0,1280,900);
     Require(Infos[5].Height=ManualHeight,'Restoring window size did not restore manual height');
+    Writeln('TRACE manual preview DPI'); Flush(Output);
     frmMain.SetBounds(0,0,1920,1350); frmMain.ScaleForPPI(144);
     Require((Settings.ManualInfoPanelHeight=ManualHeight) and
       (Infos[5].Font.PixelsPerInch=144) and (Infos[5].Height=MulDiv(ManualHeight,144,96)),
       Format('DPI change did not scale saved height (stored %d, actual %d, DPI %d, original %d)',
         [Settings.ManualInfoPanelHeight,Infos[5].Height,Infos[5].Font.PixelsPerInch,ManualHeight]));
+    Writeln('TRACE manual preview profile'); Flush(Output);
     Settings.SaveSettings;
     Settings.ManualInfoPanelHeight:=0;
     Settings.LoadSettings;
     Require(Settings.ManualInfoPanelHeight=ManualHeight,'Manual height was not restored from the profile');
+    frmMain.SetBounds(0,0,1919,1349);
+    Require(Infos[5].Height=MulDiv(ManualHeight,144,96),'Reloaded profile did not restore panel geometry');
     TMenuItem(frmMain.FindComponent('miAutoFitInfoPanel')).Click;
     Require((Settings.ManualInfoPanelHeight=0) and
       (Infos[5].Height<=Infos[5].Parent.ClientHeight div 2),'Automatic height could not be restored');

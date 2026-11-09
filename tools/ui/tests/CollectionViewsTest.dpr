@@ -6217,6 +6217,7 @@ begin
       else if ParamStr(1) = 'update-repair' then TestUpdateRepair
       else if ParamStr(1) = 'reader-cache-performance' then TestReaderCachePerformance
       else if ParamStr(1) = 'book-preview-adaptive' then TestAdaptiveBookPreview
+      else if ParamStr(1) = 'book-preview-manual-height' then TestAdaptiveBookPreview(True)
       else if ParamStr(1) = 'book-preview-reviews' then TestSavedReviewPreview(One, LastBook)
       else if ParamStr(1) = 'review-preview-http' then TestReviewPreviewHTTP(One, LastBook)
       else if ParamStr(1) = 'book-preview-layout' then TestInfoPanelFooter
