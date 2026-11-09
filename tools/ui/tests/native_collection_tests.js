@@ -1173,7 +1173,9 @@ with zipfile.ZipFile(sys.argv[2]+'/reader-spread.epub','w') as z:
     }
     // Only this process's verified, unique temporary runtime is removed.
     if (keepFixtures) console.log('RETAINED',absolute);
-    else if (absolute.startsWith(expectedRoot) && path.basename(absolute).startsWith("HomeLibRu-native-")) fs.rmSync(absolute, { recursive: true, force: true });
+    else if (absolute.startsWith(expectedRoot) && path.basename(absolute).startsWith("HomeLibRu-native-")) {
+      fs.rmSync(absolute, { recursive: true, force: true, maxRetries: 5, retryDelay: 150 });
+    }
   }
 }
 // Every subcase uses a fresh profile. The complete annotation DPI matrix has
