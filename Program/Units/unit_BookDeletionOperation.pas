@@ -13,7 +13,7 @@ type
     Done, Total: Int64;
     MoveBytes, JournalBytes: Int64;
     CompanionCount: Integer;
-    ArchiveIndex, ArchiveCount, CompletedBooks: Integer;
+    ArchiveIndex, ArchiveCount, CompletedBooks, CompletedCopies: Integer;
     Stopping, Finished, CatalogueChanged, AwaitingArchiveConfirmation: Boolean;
   end;
 
@@ -178,6 +178,7 @@ end;
 
 procedure TBookDeletionOperation.CheckDuplicateSources(const User: ISystemData);
 var Retained: TDictionary<string,Byte>; Containers: TDictionary<string,Byte>;
+  PrimaryIDs: TDictionary<Integer,Byte>;
   LastInventory: TArray<string>; LastSource: string;
   Personal, Catalogue: TSQLiteDatabase;
   Collection: IBookCollection;
@@ -191,7 +192,7 @@ var Retained: TDictionary<string,Byte>; Containers: TDictionary<string,Byte>;
       if Kept then raise EReadError.CreateFmt('Файл сохраняемой копии недоступен: %s. Удаление не началось.',[Path]);
       raise EReadError.CreateFmt('Файл удаляемой копии недоступен: %s. Удаление не началось.',[Path]);
     end;
-    if not Kept then
+    if not Kept and not FBinding.RemovesCopies then
     begin
       if Book.IsLinkedSource then
         raise EReadError.Create('Эта книга добавлена ссылкой. Удалите её запись из каталога, чтобы сохранить исходный файл.');
@@ -232,21 +233,35 @@ var Retained: TDictionary<string,Byte>; Containers: TDictionary<string,Byte>;
     end;
   end;
 begin
-  if FRetainedDuplicates.CollectionID=0 then Exit;
+  if (FRetainedDuplicates.CollectionID=0) and not FBinding.RemovesCopies then Exit;
   Report('Проверка сохраняемых копий дублей','',0,0);
-  FRetainedDuplicates.CheckBeforePhysicalRemoval(User);
-  Retained:=nil; Containers:=nil; Personal:=nil; Catalogue:=nil;
+  Retained:=nil; Containers:=nil; Personal:=nil; Catalogue:=nil; PrimaryIDs:=nil;
   try
-    Personal:=TSQLiteDatabase.CreateReadOnly(FUserFile);
-    Catalogue:=TSQLiteDatabase.CreateReadOnly(User.GetCollectionInfo(FBinding.CollectionID).DBFileName);
-    Collection:=User.GetCollection(FBinding.CollectionID);
     Retained:=TDictionary<string,Byte>.Create;
     Containers:=TDictionary<string,Byte>.Create;
-    for var Book in FRetainedDuplicates.ExpectedBooks do Locate(Book,True);
+    if FBinding.RemovesCopies then
+    begin
+      PrimaryIDs:=TDictionary<Integer,Byte>.Create;
+      for var Book in FBinding.PrimaryBooks do
+        if not PrimaryIDs.ContainsKey(Book.BookKey.BookID) then
+        begin
+          Locate(Book,True);
+          PrimaryIDs.Add(Book.BookKey.BookID,0);
+        end;
+    end
+    else
+    begin
+      FRetainedDuplicates.CheckBeforePhysicalRemoval(User);
+      Personal:=TSQLiteDatabase.CreateReadOnly(FUserFile);
+      Catalogue:=TSQLiteDatabase.CreateReadOnly(User.GetCollectionInfo(FBinding.CollectionID).DBFileName);
+      Collection:=User.GetCollection(FBinding.CollectionID);
+      for var Book in FRetainedDuplicates.ExpectedBooks do Locate(Book,True);
+    end;
     for var Book in FBinding.ExpectedBooks do Locate(Book,False);
-    CheckLooseDuplicateReferences(User,FBinding.CollectionID,FBinding.ExpectedBooks,
-      function:Boolean begin Result:=Stopping; end);
-  finally Catalogue.Free; Personal.Free; Containers.Free; Retained.Free; end;
+    if not FBinding.RemovesCopies then
+      CheckLooseDuplicateReferences(User,FBinding.CollectionID,FBinding.ExpectedBooks,
+        function:Boolean begin Result:=Stopping; end);
+  finally PrimaryIDs.Free; Catalogue.Free; Personal.Free; Containers.Free; Retained.Free; end;
 end;
 
 constructor TBookDeletionOperation.Recover(const UserFile,JournalRoot:string);
@@ -351,6 +366,11 @@ begin
   // refresh the view and keep the receipt so the remaining phase can replay.
   TMonitor.Enter(FLock);
   try FState.CatalogueChanged:=True; finally TMonitor.Exit(FLock); end;
+  if Binding.RemovesCopies then
+  begin
+    Binding.CommitCopies(User);
+    Exit;
+  end;
   if Binding.RemoveRecords then Binding.CommitRecords(User)
   else Binding.CommitSourceMissing(User);
   var Count:=Length(Binding.ExpectedBooks);
@@ -397,9 +417,15 @@ begin
   for var Receipt in Queue.Results do
     if Receipt.Acknowledged then
     begin
-      if Receipt.CleanupWarning = '' then Continue;
+      var Copies:=0;
+      if FBinding.RemovesCopies or FRecovery then
+      begin
+        var Binding:=TBookDeletionBinding.Parse(Receipt.CatalogueBinding);
+        if Binding.RemovesCopies then Copies:=Length(Binding.SourceKeys);
+      end;
       TMonitor.Enter(FLock);
       try
+        Inc(FState.CompletedCopies,Copies);
         if FState.CleanupWarning = '' then FState.CleanupWarning := Receipt.CleanupWarning;
       finally TMonitor.Exit(FLock); end;
     end
@@ -449,6 +475,13 @@ begin
     for var I:=0 to High(Books) do
     begin
       if Stopping then Exit;
+      if FBinding.RemovesCopies then
+      begin
+        // The preflight verified both copies. Use a durable receipt for
+        // every file, including individual books outside an archive.
+        Archives.Add(I);
+        Continue;
+      end;
       if Books[I].IsLinkedSource then
       begin
         if FBinding.RemoveRecords then Linked.Add(I);

@@ -164,7 +164,10 @@ const requiredViews = {
   'component-mirrors': ['PASS component mirror source and real download fallback preserve exact version architecture and bytes', 'PASS component mirror native UI shows exact fallback version and GitHub source', 'PASS IBK mirror preserves unchanged complete original distributions'],
   'ibk-download-live': ['PASS IBK live native source check and updater download preserve pinned identities and prepare complete original data'],
   'ibk-components': ['PASS IBK original component requests on first use', 'PASS catalogue-formats audit completed'],
-  'duplicate-file-removal': ['PASS duplicate file removal explicit confirmation retains exact books and rejects missing, shared, protected and stale sources'],
+  'duplicate-file-removal': [
+    'PASS duplicate file removal explicit confirmation retains exact books and rejects missing, shared, protected and stale sources',
+    'PASS linked duplicate deletion removes loose and archived files, protects the main card and unselected sources, and cancels before writing'
+  ],
   'duplicate-source': ['PASS duplicate source preference: bulk choice', 'PASS duplicate preview: scoped identity', 'PASS duplicate apply: preferred ID', 'PASS duplicate large preview: 100000 rows'],
   'reader-session-process': ['PASS independent reader process returns progress across restart rejects foreign and missing replies survives catalogue close and removes only session files'],
   "reader-small-fb2": ["PASS actual Main small unchanged FB2 opens and pages through explicit builtin and default reader actions without repeated preparation", "PASS reader return updates the selected catalogue book progress badge"],

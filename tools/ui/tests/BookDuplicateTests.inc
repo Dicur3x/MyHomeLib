@@ -613,6 +613,92 @@ var Root: string;
     finally Operation.Free; end;
   end;
 
+  procedure CheckLinkedCopies(const Kind: string);
+  var Collection: IBookCollection; Info: TCollectionInfo; Operation: TBookDeletionOperation;
+    Primary, Member, Loose, Neighbour: TBookRecord; Stage, Archive, ArchiveHash, LoosePath, LooseHash: string;
+    Zip: TZipFile; Started: UInt64; CID, BID: Integer;
+  begin
+    Stage:=IncludeTrailingPathDelimiter(Root+'linked-'+Kind);
+    ForceDirectories(Stage);
+    CID:=SystemDB.CreateCollection('Linked duplicate files '+Kind,Stage,Stage+'books.hlc2',
+      CT_EXTERNAL_LOCAL_FB,Settings.SystemFileName[sfGenresFB2]);
+    Collection:=SystemDB.GetCollection(CID); Info:=SystemDB.GetCollectionInfo(CID);
+    Primary.Clear; Primary.Title:='Merged book'; Primary.LibID:='flibusta:9011';
+    Primary.Folder:='linked.zip'; Primary.FileName:='keep'; Primary.FileExt:='.fb2';
+    Primary.Size:=42; Primary.Lang:='ru'; Include(Primary.BookProps,bpIsLocal);
+    TAuthorsHelper.Add(Primary.Authors,'Duplicate test','','');
+    TGenresHelper.Add(Primary.Genres,'','','prose_contemporary');
+    BID:=Collection.InsertBook(Primary,False,False);
+    Collection.GetBookRecord(CreateBookKey(BID,CID),Primary,False);
+    Collection.SetReview(Primary.BookKey,'Keep merged card and note');
+    SystemDB.AddBookToGroup(Primary.BookKey,FAVORITES_GROUP_ID,Primary);
+    Member:=Primary; Member.FileName:='extra';
+    Loose:=Primary; Loose.Folder:=''; Loose.FileName:='standalone';
+    Neighbour:=Primary; Neighbour.FileName:='neighbour';
+    Collection.SetCatalogBookCopy('test:primary','Kept source',Primary);
+    Collection.SetCatalogBookCopy('test:member','Archive copy',Member);
+    Collection.SetCatalogBookCopy('test:loose','Loose copy',Loose);
+    Collection.SetCatalogBookCopy('test:neighbour','Unselected source',Neighbour);
+    if Kind='shared' then Collection.SetCatalogBookCopy('test:alias','Shared source',Loose);
+    Archive:=Primary.GetBookFileName; LoosePath:=Loose.GetBookFileName;
+    Zip:=TZipFile.Create;
+    try
+      Zip.Open(Archive,zmWrite);
+      for var Name in ['keep.fb2','extra.fb2','neighbour.fb2'] do
+        if (Kind<>'missing-primary') or (Name<>'keep.fb2') then
+        begin
+          var Data:=TStringStream.Create('Original '+Name,TEncoding.UTF8);
+          try Zip.Add(Data,Name); finally Data.Free; end;
+        end;
+    finally Zip.Free; end;
+    TFile.WriteAllText(LoosePath,'Original separate copy',TEncoding.UTF8);
+    ArchiveHash:=THashSHA2.GetHashStringFromFile(Archive);
+    LooseHash:=THashSHA2.GetHashStringFromFile(LoosePath);
+    var Binding:=TBookDeletionBinding.CaptureCopies(Info,[Member,Loose],[Primary,Primary],['test:member','test:loose']);
+    Operation:=TBookDeletionOperation.Create(Binding,Settings.SystemFileName[sfSystemDB],Stage+'journal');
+    try
+      Operation.ReviewArchives:=Kind='cancel';
+      Operation.Start; Started:=GetTickCount64;
+      while not Operation.Status.Finished do
+      begin
+        Require(GetTickCount64-Started<25000,'Linked deletion exceeded deadline: '+Kind);
+        if Operation.Status.AwaitingArchiveConfirmation then Operation.RequestStop;
+        Sleep(5);
+      end;
+      Operation.WaitFor;
+      var State:=Operation.Status;
+      if Kind='ok' then
+      begin
+        Require((State.Error='') and (State.PendingJournal='') and (State.CompletedCopies=2) and
+          (State.CompletedBooks=0) and (Length(Collection.GetCatalogBookCopies(Primary.BookKey))=2) and
+          not FileExists(LoosePath),'Linked copy deletion did not complete both exact files: '+State.Error);
+        Zip:=TZipFile.Create;
+        try
+          Zip.Open(Archive,zmRead);
+          Require((Zip.FileCount=2) and (Zip.FileNames[0]='keep.fb2') and (Zip.FileNames[1]='neighbour.fb2'),
+            'Linked deletion changed the archive beyond the selected member');
+          for var Name in Zip.FileNames do
+          begin
+            var Data:TBytes; Zip.Read(Name,Data);
+            Require(TEncoding.UTF8.GetString(Data)='Original '+Name,'Linked deletion changed retained bytes');
+          end;
+        finally Zip.Free; end;
+      end
+      else
+      begin
+        if Kind='shared' then Require(State.Error.Contains('Файл ещё нужен другой записи'),'Unselected alias was not protected: '+State.Error);
+        if Kind='missing-primary' then Require(State.Error.Contains('точный путь книги'),'Missing primary was not protected: '+State.Error);
+        if Kind='cancel' then Require(State.Stopping and (State.Error=''),'Cancellation did not stop linked deletion');
+        Require((State.CompletedCopies=0) and not State.CatalogueChanged and (State.PendingJournal='') and
+          (THashSHA2.GetHashStringFromFile(Archive)=ArchiveHash) and (THashSHA2.GetHashStringFromFile(LoosePath)=LooseHash),
+          'Rejected linked copy deletion changed a file, count or catalogue: '+Kind);
+      end;
+      Collection.GetBookRecord(CreateBookKey(BID,CID),Primary,False);
+      Require((Primary.BookKey.BookID=BID) and (Primary.FileName='keep') and
+        (Collection.GetReview(Primary.BookKey)='Keep merged card and note'),'Linked deletion changed the merged card');
+    finally Operation.Free; end;
+  end;
+
 begin
   RequireIsolatedRegression;
   Root:=Settings.AppPath+'duplicate-file-removal\'; ForceDirectories(Root);
@@ -630,6 +716,8 @@ begin
     CaseCheck('alternate','связаны дополнительные копии');
     CaseCheck('stale','Запись книги изменилась');
     Writeln('PASS duplicate file removal explicit confirmation retains exact books and rejects missing, shared, protected and stale sources');
+    for var Kind in ['ok','shared','missing-primary','cancel'] do CheckLinkedCopies(Kind);
+    Writeln('PASS linked duplicate deletion removes loose and archived files, protects the main card and unselected sources, and cancels before writing');
   finally Vcl.Dialogs.UseLatestCommonDialogs:=SavedDialogs; Timer.Free; DialogProbe.Free; end;
 end;
 

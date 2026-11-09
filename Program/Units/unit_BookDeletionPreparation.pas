@@ -201,9 +201,12 @@ begin
         if Cancelled then Abort;
         Report('Проверка путей выбранных книг','',I,Groups.Count);
         var Book:=Books[I];
-        var WholeSource:=IsWholeBookArchive(Book);
-        if not WholeSource and not (Book.GetBookFormat(TPath.Combine(Book.CollectionRoot,Book.Folder)) in
-          [bfFb2Archive,bfRawArchive,bfFbd]) then
+        var IsMember:=Book.GetBookFormat(TPath.Combine(Book.CollectionRoot,Book.Folder)) in
+          [bfFb2Archive,bfRawArchive,bfFbd];
+        // Individual linked-copy files use the same durable whole-file
+        // receipt as single-book archives.
+        var WholeSource:=IsWholeBookArchive(Book) or (FBinding.RemovesCopies and not IsMember);
+        if not WholeSource and not IsMember then
           raise EArgumentException.Create('В очередь архивов передана отдельная книга.');
         var Archive:=TPath.GetFullPath(Book.GetBookFileName);
         var Identity:=ArchiveDeletionSourceIdentity(Archive);

@@ -34,6 +34,7 @@ type
     function CommitCopies(const User: ISystemData): Integer;
     function RemovesCopies: Boolean;
     function SourceKeys: TArray<string>;
+    function PrimaryBooks: TArray<TBookRecord>;
     function ExpectedBooks: TArray<TBookRecord>;
     function Slice(const Indices: TArray<Integer>): TBookDeletionBinding;
     property CollectionID: Integer read FCollectionID;
@@ -248,6 +249,9 @@ begin Result:=Length(FCopyKeys)>0; end;
 
 function TBookDeletionBinding.SourceKeys:TArray<string>;
 begin Result:=Copy(FCopyKeys); end;
+
+function TBookDeletionBinding.PrimaryBooks:TArray<TBookRecord>;
+begin Result:=Copy(FPrimaryBooks); end;
 
 function TBookDeletionBinding.Slice(const Indices:TArray<Integer>):TBookDeletionBinding;
 begin

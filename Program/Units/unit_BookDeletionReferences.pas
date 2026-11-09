@@ -22,9 +22,11 @@ type
     Task: TArchiveDeletionTask;
     Binding: TBookDeletionBinding;
     SelectedIDs: TDictionary<Integer,Byte>;
+    SelectedCopies: TDictionary<string,Byte>;
     RemovedNames, RetainedNames: TDictionary<string,Byte>;
     constructor Create(const Value: TArchiveDeletionTask);
     destructor Destroy; override;
+    function IsSelected(CollectionID, BookID: Integer; IsCopy: Boolean; const SourceKey: string): Boolean;
     procedure LoadInventory(const Cancelled: TFunc<Boolean>; var InventoryChars: Int64);
   end;
 
@@ -37,7 +39,13 @@ begin
   Task:=Value; Binding:=TBookDeletionBinding.Parse(Value.CatalogueBinding);
   SelectedIDs:=TDictionary<Integer,Byte>.Create;
   RemovedNames:=TDictionary<string,Byte>.Create;
-  for var Book in Binding.ExpectedBooks do SelectedIDs.Add(Book.BookKey.BookID,0);
+  if Binding.RemovesCopies then
+  begin
+    SelectedCopies:=TDictionary<string,Byte>.Create;
+    for var Key in Binding.SourceKeys do SelectedCopies.Add(Key,0);
+  end
+  else
+    for var Book in Binding.ExpectedBooks do SelectedIDs.Add(Book.BookKey.BookID,0);
   // Refuse even a case-insensitive conflict. The ordinary reader can use a
   // case-insensitive filename or basename when a source supplied one.
   for var Name in Task.Members do RemovedNames.AddOrSetValue(LowerCase(NormalName(Name)),0);
@@ -45,8 +53,16 @@ end;
 
 destructor TCheckedArchive.Destroy;
 begin
-  RetainedNames.Free; RemovedNames.Free; SelectedIDs.Free;
+  RetainedNames.Free; RemovedNames.Free; SelectedCopies.Free; SelectedIDs.Free;
   inherited;
+end;
+
+function TCheckedArchive.IsSelected(CollectionID, BookID: Integer; IsCopy: Boolean;
+  const SourceKey: string): Boolean;
+begin
+  if CollectionID<>Binding.CollectionID then Exit(False);
+  if Assigned(SelectedCopies) then Exit(IsCopy and SelectedCopies.ContainsKey(SourceKey));
+  Result:=SelectedIDs.ContainsKey(BookID);
 end;
 
 procedure TCheckedArchive.LoadInventory(const Cancelled:TFunc<Boolean>; var InventoryChars:Int64);
@@ -212,7 +228,7 @@ end;
 procedure CheckArchiveDeletionReferences(const User:ISystemData;
   var Tasks:TArray<TArchiveDeletionTask>; const Cancelled:TFunc<Boolean>);
 var Targets:TObjectDictionary<string,TCheckedArchive>; Paths:TDictionary<string,string>;
-  ImageOwners:TDictionary<string,string>;
+  ImageOwners:TDictionary<string,string>; LooseNames:TDictionary<string,Byte>;
   Collections:ICollectionInfoIterator; Info:TCollectionInfo; InventoryChars:Int64;
 
   procedure CheckPictureOwners(const Path,Key:string);
@@ -239,7 +255,7 @@ var Targets:TObjectDictionary<string,TCheckedArchive>; Paths:TDictionary<string,
   end;
 
   procedure CheckRows(Database:TSQLiteDatabase; const SQL,DefaultRoot:string; CID:Integer; HasRoot:Boolean);
-  var Query:TSQLiteQuery; Book:TBookRecord; Path,Key,LastFolder,LastRoot,LastKey:string;
+  var Query:TSQLiteQuery; Book:TBookRecord; Path,Key,LastFolder,LastRoot,LastKey,CopyKey,Member:string;
     Format:TBookFormat; Target:TCheckedArchive; CachedFolder,WholeSource:Boolean;
   begin
     Book:=Default(TBookRecord); Book.BookKey.DatabaseID:=CID;
@@ -253,13 +269,18 @@ var Targets:TObjectDictionary<string,TCheckedArchive>; Paths:TDictionary<string,
         Book.BookKey.BookID:=Query.FieldAsInt(0);
         Book.Folder:=Query.FieldAsString(1);
         Book.LibID:=Query.FieldAsString(4);
-        if HasRoot then Book.CollectionRoot:=Query.FieldAsString(5)
+        if HasRoot then
+        begin
+          Book.CollectionRoot:=Query.FieldAsString(5);
+          CopyKey:=Query.FieldAsString(6);
+        end
         else Book.CollectionRoot:=DefaultRoot;
         Book.FileName:=Query.FieldAsString(2); Book.FileExt:=Query.FieldAsString(3);
         var Container:=TPath.Combine(Book.CollectionRoot,Book.Folder);
         Format:=Book.GetBookFormat(Container);
         WholeSource:=((Format=bfRaw) and IsArchiveExt(Book.FileExt)) or
-          ((Format in [bfRaw,bfFb2]) and Book.IsLinkedSource);
+          ((Format in [bfRaw,bfFb2]) and (Book.IsLinkedSource or
+            ((LooseNames.Count>0) and LooseNames.ContainsKey(UpperCase(ExtractFileName(Book.FileName+Book.FileExt))))));
         if WholeSource or (Format in [bfFb2Archive,bfRawArchive,bfFbd]) then
         begin
           if not WholeSource and (Format<>bfFbd) and CachedFolder and (LastFolder=Book.Folder) and
@@ -281,13 +302,15 @@ var Targets:TObjectDictionary<string,TCheckedArchive>; Paths:TDictionary<string,
             end;
           end;
           if Targets.TryGetValue(Key,Target) and (Book.IsLinkedSource or not
-            ((CID=Target.Binding.CollectionID) and Target.SelectedIDs.ContainsKey(Book.BookKey.BookID))) then
+            Target.IsSelected(CID,Book.BookKey.BookID,HasRoot,CopyKey)) then
           begin
             if not WholeSource and not Target.Task.WholeSource then
               Target.LoadInventory(Cancelled,InventoryChars);
+            Member:=Book.FileName;
+            if not SameText(ExtractFileExt(Member),Book.FileExt) then Member:=Member+Book.FileExt;
             if WholeSource or Target.Task.WholeSource or (Format=bfFbd) or
-              not Target.RetainedNames.ContainsKey(NormalName(Book.FileName+Book.FileExt)) then
-              raise EInOutError.CreateFmt('Книга из этого архива ещё нужна другой записи или её файл нельзя определить точно: %s. Архив не изменён.',
+              not Target.RetainedNames.ContainsKey(NormalName(Member)) then
+              raise EInOutError.CreateFmt('Файл ещё нужен другой записи или его нельзя определить точно: %s. Удаление не началось.',
                 [ExtractFileName(Target.Task.Archive)]);
           end;
         end;
@@ -301,11 +324,14 @@ begin
   Targets:=TObjectDictionary<string,TCheckedArchive>.Create([doOwnsValues]);
   Paths:=TDictionary<string,string>.Create;
   ImageOwners:=TDictionary<string,string>.Create;
+  LooseNames:=TDictionary<string,Byte>.Create;
   InventoryChars:=0;
   try
     for var Task in Tasks do
     begin
       Targets.Add(Copy(Task.SourceIdentity,1,25),TCheckedArchive.Create(Task));
+      if Task.WholeSource and not IsArchiveExt(Task.Archive) then
+        LooseNames.AddOrSetValue(UpperCase(ExtractFileName(Task.Archive)),0);
       for var Image in Task.Companions do
       begin
         var ImageKey:=Copy(Image.SourceIdentity,1,25);
@@ -327,7 +353,7 @@ begin
         CheckRows(DB,'SELECT BookID,Folder,FileName,Ext,LibID FROM Books ORDER BY Folder',
           Info.GetRootPath,Info.ID,False);
         if DB.QuerySingleInt('SELECT COUNT(*) FROM sqlite_master WHERE type=''table'' AND name=''CatalogBookCopies''')>0 then
-          CheckRows(DB,'SELECT BookID,Folder,FileName,Ext,LibID,Root FROM CatalogBookCopies',
+          CheckRows(DB,'SELECT BookID,Folder,FileName,Ext,LibID,Root,SourceKey FROM CatalogBookCopies',
             '',Info.ID,True);
       finally DB.Free; end;
     end;
@@ -343,7 +369,7 @@ begin
       end;
       SetLength(Tasks[I].Companions,Count);
     end;
-  finally ImageOwners.Free; Paths.Free; Targets.Free; end;
+  finally LooseNames.Free; ImageOwners.Free; Paths.Free; Targets.Free; end;
 end;
 
 end.
