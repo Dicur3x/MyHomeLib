@@ -68,6 +68,7 @@ type
     procedure PrepareLinkedBatches(const Info: TCollectionInfo; const Canceled: TMergeCanceled;
       const Progress: TMergeProgress);
     function LinkedDeletionBatch(Index: Integer): TBookDeletionBinding;
+    function KeepRecordsWithSkippedFiles(const Books: TArray<TBookRecord>): Integer;
     function NextDeletionBatch(const Info: TCollectionInfo; var Cursor: TDuplicateDeletionCursor;
       const Canceled: TMergeCanceled): TDuplicateFileDeletion;
     function SelectedCount: Integer;
@@ -836,7 +837,11 @@ var Current, Personal: TSQLiteDatabase; Selection, Copies, AddRemoved, AddKept: 
   Previous: TSQLiteCancelCallback;
   GroupsTotal, RemovedTotal, GroupsDone, RemovedDone: Integer;
   BatchQueries: Boolean;
-  BlockReason: string;
+  BlockReason: Integer;
+  SkippedGroups: array[1..3] of Integer;
+const
+  BlockReasons: array[1..3] of string = ('запись изменилась после поиска',
+    'у удаляемой записи есть личные данные', 'у удаляемой записи есть неотмеченные копии файла');
   function ExtraLinksApproved(const Book: TBookRecord): Boolean;
   var Identity: string;
   begin
@@ -872,6 +877,7 @@ var Current, Personal: TSQLiteDatabase; Selection, Copies, AddRemoved, AddKept: 
 begin
   FSkippedCopies:=0;
   FSkippedDetails:=nil;
+  FillChar(SkippedGroups, SizeOf(SkippedGroups), 0);
   if not FReady or FLinkedMode or (SelectedCount=0) then
     raise EInvalidOperation.Create('Сначала отметьте группы и выберите копии, которые нужно сохранить.');
   if (Info.ID<>FCID) or isOnlineCollection(Info.CollectionType) or
@@ -913,28 +919,39 @@ begin
       CheckCanceled;
       var KeepID:=Selection.FieldAsInt(1);
       var Group:=Books(Selection.FieldAsInt(0));
-      BlockReason:='';
+      BlockReason := 0;
+      var BlockedTitle := '';
+      // Check reasons that prohibit removal before hashing records. A group
+      // can proceed only after every original safety check succeeds.
       for var Item in Group do
       begin
         CheckCanceled;
-        var ID:=Item.Book.BookKey.BookID;
-        if DuplicateQueryDigest(Current,'SELECT * FROM Books WHERE BookID=?',[ID])<>
-           DuplicateQueryDigest(FSource,'SELECT * FROM Books WHERE BookID=?',[ID]) then
-          BlockReason:='карточка изменилась после поиска'
-        else if ID<>KeepID then
+        if Item.Book.BookKey.BookID = KeepID then Continue;
+        if Item.HasPersonalData then BlockReason := 2
+        else if not ExtraLinksApproved(Item.Book) then BlockReason := 3;
+        if BlockReason = 0 then Continue;
+        BlockedTitle := Item.Book.Title;
+        Break;
+      end;
+      if BlockReason = 0 then
+        for var Item in Group do
         begin
-          if Item.HasPersonalData then BlockReason:='у повторной карточки есть личные данные'
-          else if not ExtraLinksApproved(Item.Book) then BlockReason:='есть неотмеченные дополнительные файлы';
-        end;
-        if BlockReason<>'' then
-        begin
-          var Detail:=Format('«%s» — %s.',[Copy(Item.Book.Title,1,100),BlockReason]);
-          if not SkipBlocked then raise EInvalidOperation.Create(Detail);
-          if Length(FSkippedDetails)<8 then FSkippedDetails:=FSkippedDetails+[Detail];
+          CheckCanceled;
+          var ID := Item.Book.BookKey.BookID;
+          if DuplicateQueryDigest(Current,'SELECT * FROM Books WHERE BookID=?',[ID]) =
+             DuplicateQueryDigest(FSource,'SELECT * FROM Books WHERE BookID=?',[ID]) then Continue;
+          BlockReason := 1;
+          BlockedTitle := Item.Book.Title;
           Break;
         end;
-      end;
-      if BlockReason<>'' then Inc(FSkippedCopies,Length(Group)-1)
+      if BlockReason <> 0 then
+      begin
+        var Detail := Format('«%s» — %s.', [Copy(BlockedTitle, 1, 100), BlockReasons[BlockReason]]);
+        if not SkipBlocked then raise EInvalidOperation.Create(Detail);
+        if Length(FSkippedDetails) < 8 then FSkippedDetails := FSkippedDetails + [Detail];
+        Inc(SkippedGroups[BlockReason]);
+        Inc(FSkippedCopies, Length(Group) - 1);
+      end
       else
         for var Item in Group do
         begin
@@ -962,6 +979,11 @@ begin
       (Copy(ArchiveDeletionSourceIdentity(FFile),1,25)<>FCatalogueKey) then
       raise EInvalidOperation.Create('Выбор или каталог изменились. Повторите поиск дублей.');
     FStage.Commit;
+    for var Reason := High(SkippedGroups) downto Low(SkippedGroups) do
+      if SkippedGroups[Reason] > 0 then
+        FSkippedDetails := [Format('%d — %s.', [SkippedGroups[Reason], BlockReasons[Reason]])] + FSkippedDetails;
+    if Length(FSkippedDetails) > 0 then
+      FSkippedDetails := ['Почему оставлены записи (по группам одной книги):'] + FSkippedDetails;
   finally
     AddKept.Free; AddRemoved.Free;
     Copies.Free; Selection.Free;
@@ -972,6 +994,26 @@ begin
     if FStage.InTransaction then FStage.Rollback;
   end;
   FreeAndNil(FSource);
+end;
+
+function TBookDuplicatePlan.KeepRecordsWithSkippedFiles(const Books: TArray<TBookRecord>): Integer;
+const AffectedGroups = ' WHERE KeepID=(SELECT KeepID FROM DeletionFiles WHERE BookID=?)';
+begin
+  Result := 0;
+  FStage.Start;
+  try
+    FStage.ExecSQL('CREATE INDEX IF NOT EXISTS DeletionFilesByBook ON DeletionFiles(BookID)');
+    FStage.ExecSQL('CREATE INDEX IF NOT EXISTS DeletionFilesByKeep ON DeletionFiles(KeepID)');
+    for var Book in Books do
+    begin
+      var ID := Book.BookKey.BookID;
+      Inc(Result, FStage.QuerySingleInt('SELECT COUNT(*) FROM DeletionFiles' + AffectedGroups, [ID]));
+      FStage.ExecSQL('DELETE FROM DeletionFiles' + AffectedGroups, [ID]);
+    end;
+    FStage.Commit;
+  finally
+    if FStage.InTransaction then FStage.Rollback;
+  end;
 end;
 
 function TBookDuplicatePlan.NextDeletionBatch(const Info: TCollectionInfo;

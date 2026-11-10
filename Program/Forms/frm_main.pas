@@ -110,6 +110,7 @@ type
     pmiDeselectAll: TMenuItem;
     N23: TMenuItem;
     miCopyClBrd: TMenuItem;
+    miContextDeleteBook: TMenuItem;
     pmiBookInfo: TMenuItem;
     miBookDetails: TMenuItem;
     N2: TMenuItem;
@@ -670,6 +671,7 @@ type
     procedure CopyToCollectionClick(Sender: TObject);
     procedure miGoToAuthorClick(Sender: TObject);
     procedure ShowBookInfo(Sender: TObject);
+    procedure ShowBookInfoPage(Sender: TObject; EditDescription: PBookRecord);
     procedure BookDetailsUpdate(Sender: TObject);
     procedure miCopyAuthorClick(Sender: TObject);
     procedure pgControlChange(Sender: TObject);
@@ -831,7 +833,7 @@ type
       Formats: TFormatArray; Shift: TShiftState; Pt: TPoint; var Effect: Integer; Mode: TDropMode);
     procedure ImportBooksFromFiles(const FileNames: TArray<string>; CollectionID: Integer);
     procedure StopBookDeletion(Sender: TObject);
-    procedure ConfirmArchiveDeletion(Sender: TObject);
+    procedure ConfirmArchiveDeletion(AllRemaining: Boolean);
     procedure RefreshAfterBookDeletion(const CollectionID: Integer; RemoveRecords: Boolean;
       GroupsOnly: Boolean = False);
 
@@ -3793,6 +3795,7 @@ procedure TfrmMain.RestartForProgramUpdate(Sender: TObject);
 begin
   if Assigned(FBookDeletionOperation) then
   begin
+    FProgramUpdateForm.CancelInstallation;
     MHLShowWarning('Дождитесь завершения удаления книг, затем снова нажмите «Установить и перезапустить».');
     Exit;
   end;
@@ -8871,10 +8874,10 @@ begin
     FBookDeletionProgress.UpdateProgress(FBookDeletionOperation.Status);
 end;
 
-procedure TfrmMain.ConfirmArchiveDeletion(Sender: TObject);
+procedure TfrmMain.ConfirmArchiveDeletion(AllRemaining: Boolean);
 begin
   if not Assigned(FBookDeletionOperation) then Exit;
-  FBookDeletionOperation.ConfirmArchive;
+  FBookDeletionOperation.ConfirmArchive(AllRemaining);
   if Assigned(FBookDeletionProgress) then
     FBookDeletionProgress.UpdateProgress(FBookDeletionOperation.Status);
 end;
@@ -8943,8 +8946,17 @@ begin
       [State.CompletedBooks,State.CompletedCopies]);
     if State.Stopping then Summary:='Удаление остановлено. '+Summary;
     if State.SkippedDuplicates>0 then
-      MHLShowWarning(Summary+sLineBreak+Format('Пропущено копий: %d.',[State.SkippedDuplicates])+sLineBreak+
-        string.Join(sLineBreak,State.SkippedDuplicateDetails))
+    begin
+      Summary:=Summary+sLineBreak+Format('Сохранено из отмеченных копий: %d.',[State.SkippedDuplicates]);
+      if Length(State.SkippedDuplicateDetails)>0 then
+        Summary:=Summary+sLineBreak+string.Join(sLineBreak,State.SkippedDuplicateDetails);
+      if State.SkippedArchiveCopies>0 then
+        Summary:=Summary+sLineBreak+Format('В архивах 7z, требующих перепаковки: %d.',
+          [State.SkippedArchiveCopies])+sLineBreak+string.Join(sLineBreak,State.SkippedArchiveDetails);
+      if State.SkippedArchiveRelatedRecords > 0 then
+        Summary := Summary + sLineBreak + Format('Сохранено связанных записей: %d.', [State.SkippedArchiveRelatedRecords]);
+      MHLShowWarning(Summary)
+    end
     else StatusMessage:=Summary;
   end
   else if State.CompletedCopies>0 then
@@ -9554,6 +9566,7 @@ var
   Tree: TBookTree;
   Data: PBookRecord;
   frmEditBook: TfrmEditBookInfo;
+  BookCollection: IBookCollection;
 begin
   Assert(Assigned(FCollection));
   if (ActiveView = DownloadView) then
@@ -9568,15 +9581,17 @@ begin
 
   if not CatalogBookAvailable(Data^) then Exit;
   if (Tree = tvBooksF) and not CatalogBookMatchesSaved(Data^) then Exit;
-  if IsLibRusecEdit(Data^.BookKey) then
+  BookCollection := FSystemData.GetCollection(Data^.BookKey.DatabaseID);
+  if not Assigned(BookCollection) then Exit;
+  if isExternalCollection(BookCollection.CollectionCode) and (BookCollection.GetEditURL(Data^.LibID) <> '') then
+  begin
+    ShowBookInfoPage(Sender, Data);
     Exit;
+  end;
 
   frmEditBook := TfrmEditBookInfo.Create(Application);
   try
-    if Data^.BookKey.DatabaseID <> FCollection.CollectionID then
-      frmEditBook.Collection := FSystemData.GetCollection(Data^.BookKey.DatabaseID)
-    else
-      frmEditBook.Collection := FCollection;
+    frmEditBook.Collection := BookCollection;
 
     if ActiveView = AuthorsView then
        FCollection.SetProperty(PROP_LAST_AUTHOR_BOOK, Data.BookKey.BookID);
@@ -12049,6 +12064,11 @@ begin
 end;
 
 procedure TfrmMain.ShowBookInfo(Sender: TObject);
+begin
+  ShowBookInfoPage(Sender, nil);
+end;
+
+procedure TfrmMain.ShowBookInfoPage(Sender: TObject; EditDescription: PBookRecord);
 var
   Tree: TBookTree;
   Data: PBookRecord;
@@ -12071,11 +12091,14 @@ var
   GroupNode: PVirtualNode; GroupData: PBookRecord; Modal: Integer;
   PreviewPanel: TInfoPanel;
 begin
-  BookDetailsUpdate(acBookDetails);
-  if not acBookDetails.Enabled then Exit;
   GetActiveTree(Tree);
-
-  Data := Tree.GetNodeData(Tree.FocusedNode);
+  Data := EditDescription;
+  if not Assigned(Data) then
+  begin
+    BookDetailsUpdate(acBookDetails);
+    if not acBookDetails.Enabled then Exit;
+    Data := Tree.GetNodeData(Tree.FocusedNode);
+  end;
 
   Saved := Data^; PersonalOnly := (Tree = tvBooksF) or (Saved.BookKey.BookID <= 0);
   PreviewPanel := nil;
@@ -12168,9 +12191,12 @@ begin
 
       frmBookDetails.Review := Stored.Review;
       frmBookDetails.Annotation := Stored.Annotation;
+      if Assigned(EditDescription) then
+        frmBookDetails.FocusDescription;
       PreviousReview := frmBookDetails.Review;
       PreviousAnnotation := frmBookDetails.Annotation;
-      if not PersonalOnly and (Stored.Review = '') and IsOnline and ReviewEditable and Settings.AutoLoadReview then
+      if not Assigned(EditDescription) and not PersonalOnly and (Stored.Review = '') and
+        IsOnline and ReviewEditable and Settings.AutoLoadReview then
         DownloadReview(frmBookDetails, URL);
       if Assigned(PreviewPanel) and PreviewPanel.ReviewsVisible then
         frmBookDetails.pcBookInfo.ActivePage := frmBookDetails.tsReview;
@@ -12181,7 +12207,7 @@ begin
       repeat
         Modal := frmBookDetails.ShowModal;
         if RetrySave and (Modal = mrCancel) then
-          if MHLShowWarning('Отзыв пока не сохранён. Закрыть редактор и отказаться от изменений?', mbYesNo) = mrYes then Exit
+          if MHLShowWarning('Изменения пока не сохранены. Закрыть редактор и отказаться от них?', mbYesNo) = mrYes then Exit
           else Continue;
         if not frmBookDetails.ReviewChanged then Exit;
         strReview := frmBookDetails.Review; strAnnotation := frmBookDetails.Annotation;

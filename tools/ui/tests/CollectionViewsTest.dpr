@@ -981,7 +981,7 @@ var Popup, OwnedPopup: TfrmProgramUpdate; Info: TProgramRelease;
       if (Popup.Controls[J] is TLabel) and (Popup.Controls[J].Top > 400) then Bytes := TLabel(Popup.Controls[J]);
       if Popup.Controls[J] is TButton then
       begin
-        if TButton(Popup.Controls[J]).Default then Primary := TButton(Popup.Controls[J]);
+        if Popup.Controls[J].Name = 'UpdatePrimary' then Primary := TButton(Popup.Controls[J]);
         if TButton(Popup.Controls[J]).Caption = 'Позже' then Later := TButton(Popup.Controls[J]);
       end;
     end;
@@ -1061,26 +1061,41 @@ begin
         'Component failure retained staged jobs');
       Writeln('PASS failed component download removes all stages and prevents partial installation'); Exit;
     end;
-    Require(Primary.Caption = 'Установить и перезапустить', 'Download failed: ' + Popup.Caption + ' / ' + Primary.Caption);
+    Require(Primary.Caption = 'Установить и перезапустить', 'Download failed: ' +
+      TLabel(Popup.FindComponent('UpdateStatus')).Caption + ' / ' + Primary.Caption);
     CheckUpdateComponentTable(Popup,'downloaded-ready');
+    Require(Popup.Visible and not Popup.PendingInstall and not Primary.Default and
+      (Popup.ActiveControl <> Primary), 'Download completion offered an implicit restart');
+    Popup.Perform(CM_DIALOGKEY, VK_RETURN, 0);
+    Require(not Popup.PendingInstall, 'Enter initiated installation after download');
+    Popup.Show;
     Require((Bar.Position = 100) and (Pos('Скачано:', Bytes.Caption) = 1) and (Pos(' / ', Bytes.Caption) > 0), 'Download size or progress missing');
     Require(Pos('Новые изменения', Notes.Text) > 0, 'Download discarded changelog');
     Later.Click; Require(not Popup.Visible, 'Later did not hide ready update');
   finally Popup.Free; end;
   Writeln('PASS update popup downloads only on click, displays bytes, retains changelog and postpones installation');
+  frmMain.CheckUpdatesExecute(frmMain.acHelpCheckUpdates);
   OwnedPopup := nil;
   for I := 0 to frmMain.ComponentCount - 1 do
     if frmMain.Components[I] is TfrmProgramUpdate then OwnedPopup := TfrmProgramUpdate(frmMain.Components[I]);
   Require(Assigned(OwnedPopup), 'Main form update popup missing');
   Popup := OwnedPopup;
-  Require(Popup.RestoreReady, 'Ready update did not survive reopening'); Controls;
-  Require(Primary.Caption = 'Установить и перезапустить', 'Restored update cannot install');
+  Controls;
+  Require(Popup.Visible and not Popup.PendingInstall and
+    (Primary.Caption = 'Установить и перезапустить') and not Primary.Default,
+    'Reopening through the Main menu did not restore the ready download');
   CheckUpdateComponentTable(Popup,'reopened-ready');
   ReadyFile := IncludeTrailingPathDelimiter(ProgramUpdateCache(Settings.AppPath)) + 'ready.json';
   Require(FileExists(ReadyFile), 'Ready download was lost');
   if Scenario='components' then
   begin Writeln('PASS component batch download restores one ready installation without replacing application'); Exit; end;
-  Primary.Click;
+  Root := TJSONObject.ParseJSONValue(TFile.ReadAllText(ReadyFile, TEncoding.UTF8));
+  try
+    var Job := Root.GetValue<string>('job');
+    Primary.Click;
+    Require(FileExists(TPath.Combine(Job, 'request.json')), 'Updater did not launch: ' +
+      TLabel(Popup.FindComponent('UpdateStatus')).Caption);
+  finally Root.Free; end;
   Writeln('PASS ready update restores and real main close launches native replacement and restart');
 end;
 
@@ -1819,6 +1834,25 @@ begin
   Require((CountVisible = 3) and Assigned(frmMain.tvBooksA.FocusedNode), 'Clearing filters failed to restore books');
   Require((Length(frmMain.tvBooksA.HeaderFilteredTags)=0) and not ResetButton.Visible and
     (frmMain.lblBooksTotalA.Hint=''),'Clearing filters retained indicators');
+  Filters.SetValue(COL_LANG,'values:not:["RU"]');
+  frmMain.ApplyBookColumnFilters(frmMain.tvBooksA);
+  Require(CountVisible=2,'Excluded languages did not leave the other books');
+  frmMain.pmiCheckAllClick(nil);
+  Node:=frmMain.tvBooksA.GetFirst;
+  while Assigned(Node) do
+  begin
+    Book:=frmMain.tvBooksA.GetNodeData(Node);
+    if Book.NodeType=ntBookInfo then
+      Require((Node.CheckState=csCheckedNormal)=(Book.Lang='uk'), 'Mark all included an excluded language');
+    Node:=frmMain.tvBooksA.GetNext(Node);
+  end;
+  Filters.SetValue(COL_TYPE,'values:not:["FB2"]');
+  frmMain.ApplyBookColumnFilters(frmMain.tvBooksA);
+  Require(CountVisible=0,'Excluded formats did not combine with the language filter');
+  ResetButton.Click;
+  Require(CountVisible=3,'Clearing exclusion did not restore all rows');
+  frmMain.pmiDeselectAllClick(nil);
+  Writeln('PASS language and format exclusions combine and protect hidden books from mark all');
   Writeln('PASS column filters highlight active headers, disable hidden-book actions and clear from the visible reset button');
   Writeln('PASS column filters combine, survive regrouping, hide empty groups and mark only matching books');
   Node := frmMain.tvBooksA.GetFirst;
@@ -2287,6 +2321,64 @@ var BookData: PBookRecord; OldLocal: Boolean; Details: TfrmBookDetails; Informat
       Require(GetTickCount64 - Started < 15000, 'Author worker did not finish');
     end;
   end;
+
+  procedure CheckSharedAuthorFolder;
+  const FolderKey = 'FLibraryAuthorInfo';
+  var
+    Legacy, NewCollection: IBookCollection;
+    NewRoot, Folder, PreviousFolder, AutoFolder: string;
+    LoadedSettings: TMHLSettings;
+  begin
+    PreviousFolder := Settings.InitialDir[FolderKey];
+    Settings.InitialDir[FolderKey] := '';
+    Folder := TPath.GetFullPath(Settings.AppPath + 'authors');
+    NewRoot := TPath.Combine(Settings.AppPath, 'new-author-catalogue');
+    TDirectory.CreateDirectory(NewRoot);
+    Legacy := SystemDB.GetCollection(SystemDB.CreateCollection('Author info legacy', Settings.AppPath,
+      'author-info-legacy.hlc2', CT_EXTERNAL_LOCAL_FB, Settings.AppPath + 'genres_fb2.glst'));
+    Legacy.SetProperty(PROP_AUTHOR_INFO_FOLDER, Folder);
+    NewCollection := SystemDB.GetCollection(SystemDB.CreateCollection('Author info new', NewRoot,
+      'author-info-new.hlc2', CT_EXTERNAL_LOCAL_FB, Settings.AppPath + 'genres_fb2.glst'));
+    try
+      Require(VarToStr(NewCollection.GetProperty(PROP_AUTHOR_INFO_FOLDER)) = '',
+        'New catalogue unexpectedly has its own author folder');
+      Details.AuthorInformation.Configure(NewRoot, '', ['Толстой Лев Николаевич'], nil);
+      Details.AuthorInformation.Activate;
+      WaitForAuthor;
+      Require(Details.AuthorInformation.Text.Text.Contains('Русский писатель') and
+        Details.AuthorInformation.Photographs.Visible, 'New catalogue did not use the legacy author folder');
+      Require(SameFileName(Settings.InitialDir[FolderKey], Folder), 'Legacy author folder did not become a profile default');
+
+      Settings.SaveSettings;
+      LoadedSettings := TMHLSettings.Create;
+      try
+        LoadedSettings.LoadSettings;
+        Require(SameFileName(LoadedSettings.InitialDir[FolderKey], Folder),
+          'Shared author folder did not persist in the profile');
+      finally LoadedSettings.Free; end;
+
+      AutoFolder := TPath.Combine(NewRoot, 'authors');
+      TDirectory.CreateDirectory(AutoFolder);
+      TFile.Copy(Information.SourceFile, TPath.Combine(AutoFolder, ExtractFileName(Information.SourceFile)));
+      Details.AuthorInformation.Configure(NewRoot, '', ['Толстой Лев Николаевич'], nil);
+      Details.AuthorInformation.Activate;
+      WaitForAuthor;
+      Require(Details.AuthorInformation.Text.Text.Contains('Русский писатель') and
+        not Details.AuthorInformation.Photographs.Visible, 'Shared default overrode the catalogue author folder');
+
+      Details.AuthorInformation.Configure(NewRoot, Folder, ['Толстой Лев Николаевич'], nil);
+      Details.AuthorInformation.Activate;
+      WaitForAuthor;
+      Require(Details.AuthorInformation.Photographs.Visible, 'Explicit author folder lost precedence');
+      Require(SameFileName(VarToStr(Legacy.GetProperty(PROP_AUTHOR_INFO_FOLDER)), Folder) and
+        (VarToStr(NewCollection.GetProperty(PROP_AUTHOR_INFO_FOLDER)) = ''), 'Folder discovery rewrote a catalogue');
+    finally
+      Settings.InitialDir[FolderKey] := PreviousFolder;
+      Settings.SaveSettings;
+    end;
+    Writeln('PASS shared FLibrary author folder migrates to a new catalogue, survives profile reload and preserves local sources');
+  end;
+
 begin
   BookData := frmMain.tvBooksA.GetNodeData(frmMain.tvBooksA.FocusedNode);
   OldLocal := bpIsLocal in BookData.BookProps; Exclude(BookData.BookProps, bpIsLocal);
@@ -2364,6 +2456,7 @@ begin
     Require(Details.AuthorInformation.Photographs.ImageCount = 1, 'Author photograph boundary leaked another author or failed to decode');
     if ParamStr(2) = 'visual' then Details.ShowModal;
     Require(Before = TNetEncoding.Base64.EncodeBytesToString(TFile.ReadAllBytes(Information.SourceFile)), 'Biography source changed');
+    CheckSharedAuthorFolder;
     Details.AuthorInformation.Configure('', '', ['Другой Автор'], nil);
     Details.AuthorInformation.Activate;
     Require(Pos('В INPX нет биографий', Details.AuthorInformation.Status.Caption) = 1, 'Missing author packs not explained');

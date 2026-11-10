@@ -249,16 +249,23 @@ def main():
             report['published_main_pid'] = old_pid
             print(json.dumps(dict(report, stage='inspect-published-main-ready')), flush=True)
             started = time.monotonic()
-            while process.poll() is None:
-                assert time.monotonic() - started < args.timeout, 'Install the ready update from the old Main UI'
-                path = job / 'request.json'
-                if path.exists():
+            path = job / 'request.json'
+            while True:
+                # The installer stages these files and can briefly hold an exclusive write handle.
+                if request is None:
                     try:
                         request = json.loads(path.read_text('utf-8-sig'))
                     except (OSError, json.JSONDecodeError):
                         pass
-                if helper.exists() and 'launched_helper_sha256' not in report:
-                    report['launched_helper_sha256'] = sha(helper)
+                if 'launched_helper_sha256' not in report:
+                    try:
+                        report['launched_helper_sha256'] = sha(helper)
+                    except (FileNotFoundError, PermissionError):
+                        pass
+                if process.poll() is not None and (process.returncode != 0 or
+                    request is not None and 'launched_helper_sha256' in report):
+                    break
+                assert time.monotonic() - started < args.timeout, 'Install the ready update from the old Main UI'
                 time.sleep(.1)
             assert process.returncode == 0 and request is not None, 'Old Main closed without requesting installation'
             assert request['pid'] == old_pid and request['application'] == 'HomeLibRu.exe'

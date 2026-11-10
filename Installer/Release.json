@@ -1,9 +1,9 @@
 {
   "format": 1,
-  "release": "3.0.0_pre1.11",
-  "version": "3.0.0.11",
+  "release": "3.0.0_pre1.12",
+  "version": "3.0.0.12",
   "components_version": "3.0.0.5",
-  "display_version": "3.0 beta 11",
+  "display_version": "3.0 beta 12",
   "component_versions": {
     "BookProcessing": "3.0.0.11",
     "ImageProcessing": "3.0.0.8",

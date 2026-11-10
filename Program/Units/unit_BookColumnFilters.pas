@@ -10,7 +10,7 @@ type
     Tag, Kind, Mode, RatingMask: Integer;
     Pattern: string;
     Lower, Upper: Extended;
-    Sensitive: Boolean;
+    Sensitive, ExcludeSelections: Boolean;
     Selections: TDictionary<string,Byte>;
   end;
   TBookColumnFilters = class;
@@ -454,6 +454,9 @@ end;
 function TBookColumnFilters.GetTotal: Integer;
 begin EnsureRows; Result := FRows.Count; end;
 
+const
+  ExcludedValuesPrefix = 'values:not:';
+
 procedure TBookColumnFilters.SetSelectedValues(Tag: Integer; Names: TStrings);
 var Values: TJSONArray; Text: string;
 begin
@@ -470,7 +473,10 @@ begin
   Names.Clear; Current := Value(Tag);
   if Current.StartsWith('=') then begin Names.Add(Copy(Current,2,MaxInt)); Exit; end;
   if not Current.StartsWith('values:') then Exit;
-  Parsed := TJSONObject.ParseJSONValue(Copy(Current,8,MaxInt));
+  if Current.StartsWith(ExcludedValuesPrefix) then
+    Delete(Current, 1, Length(ExcludedValuesPrefix))
+  else Delete(Current, 1, Length('values:'));
+  Parsed := TJSONObject.ParseJSONValue(Current);
   try
     if Parsed is TJSONArray then
       for Item in TJSONArray(Parsed) do if Item is TJSONString then Names.Add(Item.Value);
@@ -532,7 +538,9 @@ begin
     Parts := Pair.Value.Split([';']);
     if Pair.Value.StartsWith('values:') then
     begin
-      C.Kind := 7; C.Selections := TDictionary<string,Byte>.Create;
+      C.Kind := 7;
+      C.ExcludeSelections := Pair.Value.StartsWith(ExcludedValuesPrefix);
+      C.Selections := TDictionary<string,Byte>.Create;
       FSelectionSets.Add(C.Selections); Names := TStringList.Create;
       try
         GetSelectedValues(C.Tag,Names);
@@ -621,7 +629,7 @@ begin
           COL_GENRE: for Genre in Book.Genres do if Selected(Genre.GenreAlias) then begin Found := True; Break; end;
           COL_PUBLISHER_SERIES: for Series in Book.PublisherSeries do if Selected(Series.SeriesTitle) then begin Found := True; Break; end;
         else Found := Selected(TextFor(C.Tag,Book)); end;
-        if not Found then Exit(False);
+        if Found = C.ExcludeSelections then Exit(False);
       end;
       3,4:
       begin
@@ -1090,7 +1098,7 @@ type
     FBuilding, FLastSensitive: Boolean;
     FSearch: TEdit;
     FList: TVirtualStringTree;
-    FCase, FFavoriteAuthors: TCheckBox;
+    FCase, FFavoriteAuthors, FExclude: TCheckBox;
     FCount, FLegend: TLabel;
     FSearchPanel, FFooter: TPanel;
     FSelectFound, FClear, FReset, FApply, FCancel: TButton;
@@ -1152,6 +1160,14 @@ begin
   FCase := TCheckBox.Create(Self); FCase.Parent := SearchPanel; FCase.SetBounds(12,41,220,22);
   FCase.Caption := 'Учитывать регистр'; FCase.Checked := Filters.CaseSensitive(Tag);
   FLastSensitive := FCase.Checked; FCase.OnClick := SearchChanged;
+  if Tag in [COL_LANG, COL_TYPE] then
+  begin
+    FExclude := TCheckBox.Create(Self);
+    FExclude.Parent := SearchPanel;
+    FExclude.Name := 'ExcludeSelectedValues';
+    FExclude.Caption := 'Исключить отмеченные';
+    FExclude.Checked := Filters.Value(Tag).StartsWith(ExcludedValuesPrefix);
+  end;
   if Tag = COL_AUTHOR then
   begin
     FFavoriteAuthors := TCheckBox.Create(Self);
@@ -1284,6 +1300,12 @@ begin
     CaseHeight := Max(Pixels(22), TextHeight(FCase) + Pixels(4));
     FCase.SetBounds(Margin, Y, Available, CaseHeight);
     Inc(Y, CaseHeight + SmallGap);
+    if Assigned(FExclude) then
+    begin
+      CaseHeight := Max(Pixels(22), TextHeight(FExclude) + Pixels(4));
+      FExclude.SetBounds(Margin, Y, Available, CaseHeight);
+      Inc(Y, CaseHeight + SmallGap);
+    end;
     if Assigned(FFavoriteAuthors) then
     begin
       CaseHeight := Max(Pixels(22), TextHeight(FFavoriteAuthors) + Pixels(4));
@@ -1440,7 +1462,9 @@ begin
   Values := TJSONArray.Create; Count := 0;
   try
     for I := 0 to FNames.Count-1 do if Chosen(I) then begin Values.Add(FNames[I]); Inc(Count); end;
-    if Count = 0 then Result := '' else Result := 'values:'+Values.ToJSON;
+    if Count = 0 then Result := ''
+    else if Assigned(FExclude) and FExclude.Checked then Result := ExcludedValuesPrefix+Values.ToJSON
+    else Result := 'values:'+Values.ToJSON;
   finally Values.Free; end;
 end;
 

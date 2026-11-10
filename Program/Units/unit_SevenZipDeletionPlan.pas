@@ -5,6 +5,8 @@ interface
 uses System.SysUtils, System.Classes;
 
 type
+  ESevenZipDeletionUnsupported = class(ENotSupportedException);
+
   TSevenZipRetainedRange = record
     Source, Target: Int64;
     Bytes: Integer;
@@ -109,6 +111,7 @@ type
     Input:TSzBorrowedInput;
     Position, Size, TailStart:Int64;
     Header,Tail:TMemoryStream;
+    UnsupportedLayout:Boolean;
     Ranges:TList<TSevenZipRetainedRange>;
     Error:string;
     constructor Create(Borrowed:TSzBorrowedInput);
@@ -204,7 +207,11 @@ begin
       end;
       if Borrow then
       begin
-        if TailStart>=0 then raise EWriteError.Create('7-Zip переставил данные после заголовка.');
+        if TailStart>=0 then
+        begin
+          UnsupportedLayout:=True;
+          raise EWriteError.Create('Расположение блоков 7z требует перепаковки архива.');
+        end;
         RangeSource:=Input.LastOffset+Int64(Delta);
         if (RangeSource<Position) or (RangeSource<32) or
           (RangeSource>Input.Source.Size-Int64(Count)) then
@@ -367,7 +374,8 @@ begin
     Code:=Writer.UpdateItems(Output,Keep.Count,Callback);
     if Assigned(Cancel) and Cancel() then Abort;
     if CallbackObject.RepackRequested then
-      raise ENotSupportedException.Create('Эти книги находятся в общем solid-блоке 7z. Без перепаковки блока удалить их данные нельзя. Архив не изменён.');
+      raise ESevenZipDeletionUnsupported.Create('Выбранные и сохраняемые книги находятся в одном сжатом блоке 7z. Архив сохранён.');
+    if OutputObject.UnsupportedLayout then raise ESevenZipDeletionUnsupported.Create(OutputObject.Error);
     if OutputObject.Error<>'' then raise EWriteError.Create(OutputObject.Error);
     if InputObject.Error<>'' then raise EReadError.Create(InputObject.Error);
     Check(Code,'подготовка удаления из 7z');

@@ -473,6 +473,8 @@ var Margin, Gap, Width, ButtonTop, NotesTop, NotesBottom, StatusHeight, TableHei
   begin Result := MulDiv(Value, CurrentPPI, 96); end;
 begin
   if not Assigned(FZoomIn) then Exit;
+  FPrimary.Default:=not FReady;
+  if FReady and (ActiveControl=FPrimary) and FLater.CanFocus then ActiveControl:=FLater;
   if Assigned(FCompactForm) then begin SyncCompactPrompt; Exit; end;
   {$IFDEF MHL_RELEASE_PERFORMANCE}ProfileStarted:=GetTickCount64;{$ENDIF}
   DisableAlign;
@@ -1175,6 +1177,7 @@ begin
     if not Automatic then ShowFullWindow;
     Exit;
   end;
+  if not FReady and (FRequestedComponent='') and (FOperationComponent='') then RestoreReady;
   if FReady then begin if not Automatic then Present; Exit; end;
   FRequestedComponent:=''; FRequestedComponents:=nil; FRequestReason:=''; FComponentRestartArgument:=nil;
   RefreshInstalledComponents;
@@ -1352,6 +1355,9 @@ begin
   FCompactProgress.Position:=FProgress.Position;
   FCompactPrimary.Caption:=FPrimary.Caption; FCompactPrimary.Enabled:=FPrimary.Enabled;
   FCompactLater.Caption:='Отмена'; FCompactLater.Enabled:=FLater.Enabled;
+  FCompactPrimary.Default:=not FReady;
+  if FReady and (FCompactForm.ActiveControl=FCompactPrimary) and FCompactLater.CanFocus then
+    FCompactForm.ActiveControl:=FCompactLater;
 end;
 
 procedure TfrmProgramUpdate.CompactLater(Sender: TObject);
@@ -1750,6 +1756,7 @@ begin
       ComponentCheckClick(nil);
       Exit;
     end;
+    LogDiagnosticTrace('program-update-install','Подтверждена установка '+FRelease.Tag);
     FPendingInstall := True;
     if Assigned(FRestart) then FRestart(Self);
     Exit;
@@ -1926,7 +1933,6 @@ begin
       FPrimary.Caption:='Установить библиотеку';
       FStatus.Caption:='Библиотека скачана и проверена. После установки выбранная операция продолжится без перезапуска.';
     end;
-    Present;
   end
   else
   begin
@@ -1935,6 +1941,7 @@ begin
     DiscardJob; ClearQueueJobs;
   end;
   LayoutWindow;
+  if FReady then Present;
 end;
 
 procedure TfrmProgramUpdate.SaveReady;

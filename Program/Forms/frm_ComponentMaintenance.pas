@@ -16,7 +16,7 @@ type
     FHeader, FSummary: TLabel;
     FList: TListView;
     FDetails: TMemo;
-    FRemove, FResolve, FClose: TButton;
+    FRemove, FResolve, FClose, FSelectAll: TButton;
     FOffer: TCheckBox;
     FProgress: TProgressBar;
     FTimer: TTimer;
@@ -27,7 +27,11 @@ type
     FAvailable: TComponentReleases;
     FFactory: TInventoryDownloadFactory;
     FManifests, FJobs: TArray<string>;
-    procedure ListChanged(Sender: TObject; Item: TListItem; Change: TItemChange);
+    procedure ModuleChecked(Sender: TObject; Item: TListItem);
+    procedure ModuleSelected(Sender: TObject; Item: TListItem; Selected: Boolean);
+    procedure SelectAllClick(Sender: TObject);
+    procedure UpdateSelectionControls;
+    function InventorySelection: string;
     procedure RemoveClick(Sender: TObject);
     procedure ResolveClick(Sender: TObject);
     procedure CloseClick(Sender: TObject);
@@ -37,6 +41,7 @@ type
     procedure StartPlan;
     procedure PlanText;
     procedure FillRows(const Initial: TArray<string>);
+    procedure RefreshRowInventory(const ID: string; Item: TListItem);
     function CheckedIDs: TArray<string>;
     function IsCancelled: Boolean;
     procedure SaveOfferChoice;
@@ -134,8 +139,10 @@ begin
   FList:=TListView.Create(Self); FList.Parent:=Self; FList.Name:='MaintenanceModules';
   FList.ViewStyle:=vsReport; FList.ReadOnly:=True; FList.RowSelect:=True; FList.Checkboxes:=True;
   FList.HideSelection:=False; FList.DoubleBuffered:=True;
-  for var Title in ['Модуль','Размер','Использовался'] do FList.Columns.Add.Caption:=Title;
-  FList.OnChange:=ListChanged;
+  for var Title in ['Модуль','Размер','Состояние','Использовался'] do FList.Columns.Add.Caption:=Title;
+  FList.OnItemChecked:=ModuleChecked; FList.OnSelectItem:=ModuleSelected;
+  FSelectAll:=TButton.Create(Self); FSelectAll.Parent:=Self; FSelectAll.Name:='MaintenanceSelectAll';
+  FSelectAll.OnClick:=SelectAllClick;
   FSummary:=TLabel.Create(Self); FSummary.Parent:=Self; FSummary.Name:='MaintenanceSummary';
   FSummary.AutoSize:=False; FSummary.WordWrap:=True; FSummary.Caption:='Отметьте модули для удаления.';
   FDetails:=TMemo.Create(Self); FDetails.Parent:=Self; FDetails.Name:='MaintenanceDetails';
@@ -167,7 +174,7 @@ begin
 end;
 
 procedure TfrmComponentMaintenance.FillRows(const Initial: TArray<string>);
-var Item: TListItem; Size: Int64; Known: Boolean; Last: TDateTime;
+var Item: TListItem; Last: TDateTime;
 begin
   FBuilding:=True; FList.Items.BeginUpdate;
   try
@@ -178,16 +185,48 @@ begin
       Item:=FList.Items.Add;
       for var I:=Low(UPDATE_COMPONENTS) to High(UPDATE_COMPONENTS) do
         if UPDATE_COMPONENTS[I].ID=ID then begin Item.Caption:=ComponentTitle(I); Item.Data:=Pointer(NativeInt(I)); Break; end;
-      Known:=False; Size:=0;
-      try for var Info in InstalledComponentFiles(FAppPath,ID) do
-        begin Known:=True; if FileExists(CheckedUpdateChildPath(FAppPath,Info.Name)) then Inc(Size,Info.Size); end;
-      except end;
-      if Known then Item.SubItems.Add(ModuleSize(Size)) else Item.SubItems.Add('Нужна проверка');
+      Item.SubItems.Add('');
+      Item.SubItems.Add('');
+      RefreshRowInventory(ID, Item);
       Last:=0; try Last:=ComponentLastUse(FAppPath,ID); except end;
       if Last=0 then Item.SubItems.Add('Нет данных') else Item.SubItems.Add(FormatDateTime('dd.mm.yyyy',TTimeZone.Local.ToLocalTime(Last)));
       Item.Checked:=not FMonthly and (IndexStr(ID,Initial)>=0);
     end;
   finally FList.Items.EndUpdate; FBuilding:=False; end;
+  UpdateSelectionControls;
+end;
+
+procedure TfrmComponentMaintenance.RefreshRowInventory(const ID: string; Item: TListItem);
+var Size: Int64; Known, HasFiles: Boolean;
+begin
+  if Item = nil then
+    for var Row in FList.Items do
+      if UPDATE_COMPONENTS[NativeInt(Row.Data)].ID = ID then
+      begin
+        Item := Row;
+        Break;
+      end;
+  if Item = nil then Exit;
+  Known := False;
+  HasFiles := False;
+  Size := 0;
+  try
+    for var Info in InstalledComponentFiles(FAppPath, ID) do
+    begin
+      Known := True;
+      if FileExists(CheckedUpdateChildPath(FAppPath, Info.Name)) then
+      begin
+        HasFiles := True;
+        Inc(Size, Info.Size);
+      end;
+    end;
+  except end;
+  if Known then Item.SubItems[0] := ModuleSize(Size) else Item.SubItems[0] := '—';
+  if not Known then Item.SubItems[1] := 'Сверить состав'
+  else if FileExists(CheckedUpdateChildPath(FAppPath, ComponentFileName(ID))) then
+    Item.SubItems[1] := 'Состав учтён'
+  else if HasFiles then Item.SubItems[1] := 'Остались файлы'
+  else Item.SubItems[1] := 'Нет файлов';
 end;
 
 function TfrmComponentMaintenance.CheckedIDs: TArray<string>;
@@ -206,8 +245,55 @@ begin
   if Assigned(FWorker) then InterlockedExchange(FStop,1);
 end;
 
-procedure TfrmComponentMaintenance.ListChanged(Sender: TObject; Item: TListItem; Change: TItemChange);
-begin if not FBuilding and (Change=ctState) then RefreshPlan; end;
+procedure TfrmComponentMaintenance.ModuleChecked(Sender: TObject; Item: TListItem);
+begin
+  if FBuilding then Exit;
+  RefreshPlan;
+  UpdateSelectionControls;
+end;
+
+procedure TfrmComponentMaintenance.ModuleSelected(Sender: TObject; Item: TListItem; Selected: Boolean);
+begin
+  if not FBuilding then UpdateSelectionControls;
+end;
+
+function TfrmComponentMaintenance.InventorySelection: string;
+var IDs: TArray<string>;
+begin
+  IDs := CheckedIDs;
+  if Length(IDs) = 1 then Exit(IDs[0]);
+  Result := '';
+  if Assigned(FList.Selected) then
+    Result := UPDATE_COMPONENTS[NativeInt(FList.Selected.Data)].ID;
+end;
+
+procedure TfrmComponentMaintenance.UpdateSelectionControls;
+var AllChecked: Boolean;
+begin
+  AllChecked := (FList.Items.Count > 0) and (Length(CheckedIDs) = FList.Items.Count);
+  FSelectAll.Enabled := FList.Enabled and (FList.Items.Count > 0);
+  if AllChecked then FSelectAll.Caption := 'Снять все отметки'
+  else FSelectAll.Caption := 'Отметить все';
+  FResolve.Enabled := FList.Enabled and (InventorySelection <> '') and
+    not Assigned(FWorker) and not Assigned(FDownloads);
+end;
+
+procedure TfrmComponentMaintenance.SelectAllClick(Sender: TObject);
+var Check: Boolean;
+begin
+  if not FList.Enabled or (FList.Items.Count = 0) then Exit;
+  Check := Length(CheckedIDs) <> FList.Items.Count;
+  FBuilding := True;
+  FList.Items.BeginUpdate;
+  try
+    for var Item in FList.Items do Item.Checked := Check;
+  finally
+    FList.Items.EndUpdate;
+    FBuilding := False;
+  end;
+  RefreshPlan;
+  UpdateSelectionControls;
+end;
 
 procedure TfrmComponentMaintenance.StartPlan;
 var IDs, Sources: TArray<string>;
@@ -247,7 +333,7 @@ begin
         FDetails.Lines.Add('Сохранить: '+Item.FileInfo.Name+' — '+Item.Reason);
     end;
     FRemove.Enabled:=FPlanReady and FPlan.CanRemove and not Assigned(FWorker) and not Assigned(FDownloads);
-    FResolve.Enabled:=(Length(CheckedIDs)=1) and not Assigned(FWorker) and not Assigned(FDownloads);
+    UpdateSelectionControls;
   finally FDetails.Lines.EndUpdate; end;
 end;
 
@@ -284,11 +370,11 @@ begin
 end;
 
 procedure TfrmComponentMaintenance.ResolveClick(Sender: TObject);
-var IDs: TArray<string>; Info: TProgramRelease; ID, Installed: string;
+var Info: TProgramRelease; ID, Installed: string;
   Archive, Tag, Version: string;
 begin
   if Assigned(FWorker) or Assigned(FDownloads) then Exit;
-  IDs:=CheckedIDs; if Length(IDs)<>1 then Exit; ID:=IDs[0];
+  ID := InventorySelection; if ID = '' then Exit;
   Info:=Default(TProgramRelease); Installed:=InstalledComponentVersion(FAppPath,ID);
   for var I:=Low(UPDATE_COMPONENTS) to High(UPDATE_COMPONENTS) do if UPDATE_COMPONENTS[I].ID=ID then Info:=FAvailable[I];
   FJob:=CheckedUpdateChildPath(FAppPath,'tools/component-state/HomeLibRu-update-inventory-'+TGUID.NewGuid.ToString);
@@ -309,7 +395,7 @@ begin
         if Assigned(FDownloads) then begin FDownloads.Terminate; FreeAndNil(FDownloads); end;
         FError:=E.Message; LogDiagnosticError('module-inventory-download',E);
         FProgress.Visible:=False; FList.Enabled:=True;
-        FResolve.Enabled:=Length(CheckedIDs)=1;
+        UpdateSelectionControls;
         FRemove.Enabled:=FPlanReady and FPlan.CanRemove;
         FSummary.Caption:='Не удалось начать проверку состава'; FDetails.Text:=FError;
       end;
@@ -342,6 +428,7 @@ end;
 
 procedure TfrmComponentMaintenance.Tick(Sender: TObject);
 begin
+  if FSelectAll.Enabled <> (FList.Enabled and (FList.Items.Count > 0)) then UpdateSelectionControls;
   if Assigned(FDownloads) then
   begin
     if WaitForSingleObject(FDownloads.Handle,0)<>WAIT_OBJECT_0 then Exit;
@@ -350,6 +437,7 @@ begin
     begin
       try
         AdoptComponentFileInventory(FAppPath,FDownloads.ReleaseInfo.ComponentID,TPath.Combine(FJob,'manifest.json'));
+        RefreshRowInventory(FDownloads.ReleaseInfo.ComponentID, nil);
         FManifests:=FManifests+TArray<string>.Create(TPath.Combine(FJob,'manifest.json'));
       except on E: Exception do FError:=E.Message; end;
     end
@@ -359,7 +447,7 @@ begin
     if FError<>'' then
     begin
       FSummary.Caption:='Не удалось проверить состав'; FDetails.Text:=FError;
-      FResolve.Enabled:=Length(CheckedIDs)=1; Exit;
+      UpdateSelectionControls; Exit;
     end;
     RefreshPlan;
   end;
@@ -369,7 +457,9 @@ begin
     FWorker.WaitFor; FreeAndNil(FWorker); FProgress.Visible:=False; FList.Enabled:=True;
     if (FAction=2) and FClosing then FCancelled:=True;
     if (FAction=2) and not FCancelled and (FError='') then
-    try AdoptComponentFileInventory(FAppPath,FInventoryID,TPath.Combine(FJob,'manifest.json'));
+    try
+      AdoptComponentFileInventory(FAppPath,FInventoryID,TPath.Combine(FJob,'manifest.json'));
+      RefreshRowInventory(FInventoryID, nil);
     except on E: Exception do FError:=E.Message; end;
     if FError<>'' then
     begin FPlanReady:=True; FPlan:=Default(TComponentRemovalPlan); FSummary.Caption:='Операция не выполнена'; FDetails.Text:=FError; end
@@ -384,7 +474,7 @@ begin
     begin FManifests:=FManifests+TArray<string>.Create(TPath.Combine(FJob,'manifest.json')); RefreshPlan; end
     else if not FCancelled and (FWorkerVersion=FVersion) then
     begin FPlan:=FResult; FPlanReady:=True; PlanText; end;
-    FResolve.Enabled:=Length(CheckedIDs)=1;
+    UpdateSelectionControls;
     if FError<>'' then Exit;
   end;
   if FClosing then begin SaveOfferChoice; ModalResult:=mrCancel; Exit; end;
@@ -420,14 +510,17 @@ begin
   S:=CurrentPPI; Gap:=MulDiv(12,S,96); W:=ClientWidth-2*Gap;
   Canvas.Font.Assign(Font); H:=Canvas.TextHeight('Mg'); ButtonH:=Max(MulDiv(32,S,96),H+MulDiv(12,S,96));
   FHeader.SetBounds(Gap,Gap,W,2*H+Gap); FList.SetBounds(Gap,FHeader.Top+FHeader.Height+Gap,W,Max(MulDiv(130,S,96),ClientHeight div 3));
-  FList.Columns[0].Width:=W*50 div 100; FList.Columns[1].Width:=W*20 div 100;
-  FList.Columns[2].Width:=W-FList.Columns[0].Width-FList.Columns[1].Width-MulDiv(24,S,96);
+  FList.Columns[1].Width:=MulDiv(77,S,96);
+  FList.Columns[2].Width:=MulDiv(114,S,96);
+  FList.Columns[3].Width:=MulDiv(103,S,96);
+  FList.Columns[0].Width:=W-FList.Columns[1].Width-FList.Columns[2].Width-FList.Columns[3].Width-MulDiv(24,S,96);
+  FSelectAll.SetBounds(Gap,FList.Top+FList.Height+Gap div 2,MulDiv(140,S,96),ButtonH);
   Bottom:=ClientHeight-Gap-ButtonH;
   FClose.SetBounds(ClientWidth-Gap-MulDiv(100,S,96),Bottom,MulDiv(100,S,96),ButtonH);
   FRemove.SetBounds(FClose.Left-Gap-MulDiv(180,S,96),Bottom,MulDiv(180,S,96),ButtonH);
   FResolve.SetBounds(Gap,Bottom,MulDiv(180,S,96),ButtonH);
   FOffer.SetBounds(Gap,Bottom-Gap-H-8,W,H+8);
-  FSummary.SetBounds(Gap,FList.Top+FList.Height+Gap,W,2*H+Gap);
+  FSummary.SetBounds(Gap,FSelectAll.Top+FSelectAll.Height+Gap div 2,W,2*H+Gap);
   FDetails.SetBounds(Gap,FSummary.Top+FSummary.Height,W,Max(0,FOffer.Top-Gap-FSummary.Top-FSummary.Height));
   FProgress.SetBounds(Gap,FSummary.Top+FSummary.Height-5,W,4);
 end;

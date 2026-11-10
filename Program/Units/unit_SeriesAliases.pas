@@ -4,7 +4,7 @@ interface
 uses System.Classes, System.Generics.Collections, unit_Interfaces,
   unit_CollectionMerge, unit_CollectionWorkerThread;
 type
-  TSeriesAliasPair = record OldID, NewID: Integer; OldTitle, NewTitle: string; end;
+  TSeriesAliasPair = record OldID, NewID, FinalID: Integer; OldTitle, NewTitle, OriginalNewTitle: string; end;
   TSeriesAliasPlan = class
   private
     FCollection: IBookCollection;
@@ -85,6 +85,46 @@ var DB: TSQLiteDatabase; Query: TSQLiteQuery; Pair: TSeriesAliasPair;
   begin
     Result:=Candidate;
     while Aliases.TryGetValue(Result.ID,Next) do Result:=Next;
+  end;
+  procedure FinalizeAliases;
+  var ReservedTitles: TStringList; FinalTitles: TDictionary<Integer,string>;
+    Target: TSeriesAliasCandidate;
+    function CanonicalSpelling(const Candidate: TSeriesAliasCandidate): string;
+    var Name, Suffix, Proposed: string; Bracket: Integer;
+    begin
+      Result := Candidate.Title;
+      Name := Trim(Candidate.Title);
+      Bracket := LastDelimiter('(', Name);
+      if (Bracket <= 1) or not Name.EndsWith(')') then Exit;
+      Suffix := Trim(Copy(Name, Bracket + 1, Length(Name) - Bracket - 1));
+      if (Suffix = '') or Suffix.Contains(')') then Exit;
+      Proposed := TrimRight(Copy(Name, 1, Bracket - 1)) + ' (' + Suffix + ')';
+      if (Proposed = Candidate.Title) or (ReservedTitles.IndexOf(Proposed) >= 0) or
+        (DB.QuerySingleInt('SELECT COUNT(*) FROM Series WHERE SeriesTitle = ? COLLATE MHL_SYSTEM_NOCASE AND SeriesID <> ?',
+          [Proposed, Candidate.ID]) <> 0) then Exit;
+      ReservedTitles.Add(Proposed);
+      Result := Proposed;
+    end;
+  begin
+    ReservedTitles := TStringList.Create;
+    FinalTitles := TDictionary<Integer,string>.Create;
+    try
+      ReservedTitles.Sorted := True;
+      for var Index := 0 to FPairs.Count - 1 do
+      begin
+        CheckCanceled;
+        Pair := FPairs[Index];
+        Target := Canonical(Aliases[Pair.OldID]);
+        Pair.FinalID := Target.ID;
+        Pair.OriginalNewTitle := Target.Title;
+        if not FinalTitles.TryGetValue(Target.ID, Pair.NewTitle) then
+        begin
+          Pair.NewTitle := CanonicalSpelling(Target);
+          FinalTitles.Add(Target.ID, Pair.NewTitle);
+        end;
+        FPairs[Index] := Pair;
+      end;
+    finally FinalTitles.Free; ReservedTitles.Free; end;
   end;
   procedure AddAlias(const Source, Target: TSeriesAliasCandidate);
   begin
@@ -183,6 +223,7 @@ begin
         First:=Last;
       end;
       MatchPublisherSuffixes;
+      FinalizeAliases;
     except
       on E: ESQLiteException do if FQueryAborted then Abort else raise;
     end;
@@ -198,26 +239,27 @@ begin
   FReport.Add('Пометка издателя в скобках объединяется с названием без пометки, если издатель подтверждён и есть общая запись книги.');
   FReport.Add('Книги обеих серий будут в одном списке. Все файлы, издания, оценки, прогресс чтения и группы сохраняются.');
   FReport.Add('Это объединение названий серий. Копии книг не удаляются; для выбора одной записи требуется отдельная проверка дублей книг.');
-  FReport.Add('Повторное подключение INPX не требуется. Перед применением создаются резервные копии.');
+  FReport.Add('Повторное подключение INPX не требуется. Перед применением можно сохранить резервную копию.');
   FReport.Add('');
   for Pair in FPairs do
   begin
     if FReport.Count>=1008 then Break;
     FReport.Add(Pair.OldTitle+' → '+Pair.NewTitle);
   end;
-  if Count>1000 then FReport.Add('В предпросмотре показаны первые 1000 пар. Полный список будет сохранён вместе с резервной копией.');
+  if Count>1000 then FReport.Add('В предпросмотре показаны первые 1000 пар. Полный список входит в отчёт при сохранении резервной копии.');
   CheckRevision; FReady:=True;
 end;
 procedure TSeriesAliasPlan.Apply(const BackupFolder: string; const Progress: TMergeStageProgress;
   const Canceled: TMergeCanceled);
-var DB: TSQLiteDatabase; TargetFile, SystemFile: string; Pair: TSeriesAliasPair;
-  I: Integer; TargetCommitted, SystemStarted: Boolean; ReportFile: TStreamWriter;
+var DB: TSQLiteDatabase; TargetFile, SystemFile, BackupRoot, TargetSnapshot: string; Pair: TSeriesAliasPair;
+  I: Integer; TargetCommitted, SystemStarted, KeepBackup, KeepRecovery: Boolean; ReportFile: TStreamWriter;
+  Renamed: TDictionary<Integer, Boolean>;
   procedure CheckCanceled;
   begin if Assigned(Canceled) and Canceled() then Abort; end;
   procedure Backup(const Source, Name, Stage: string);
   begin
     CheckCanceled; DB := TSQLiteDatabase.CreateReadOnly(Source);
-    try DB.BackupTo(TPath.Combine(BackupFolder,Name),
+    try DB.BackupTo(TPath.Combine(BackupRoot,Name),
       procedure(Current, Total: Integer)
       begin
         if Assigned(Canceled) and Canceled() then Abort;
@@ -228,45 +270,84 @@ var DB: TSQLiteDatabase; TargetFile, SystemFile: string; Pair: TSeriesAliasPair;
 begin
   if not FReady then raise Exception.Create('Сначала выполните предпросмотр дублей серий.');
   CheckRevision; CheckCanceled;
-  if DirectoryExists(BackupFolder) then raise Exception.Create('Для резервной копии требуется новая папка.');
-  ForceDirectories(BackupFolder);
-  WriteCollectionBackupInfo(BackupFolder,cboSeries);
-  TargetFile := Settings.ExpandCollectionFileName(VarToStr(FCollection.GetProperty(PROP_DATAFILE)));
-  SystemFile := Settings.SystemFileName[sfSystemDB];
-  Backup(TargetFile,'destination.hlc2','Резервная копия коллекции');
-  Backup(SystemFile,'system.hlc2','Резервная копия групп');
-  TFile.WriteAllText(TPath.Combine(BackupFolder,'restore-paths.txt'),
-    'Коллекция: '+TargetFile+#13#10+'Группы и настройки: '+SystemFile+#13#10+
-    'Папка книг: '+Settings.ExpandCollectionRoot(VarToStr(FCollection.GetProperty(PROP_ROOTFOLDER))),TEncoding.UTF8);
-  ReportFile := TStreamWriter.Create(TPath.Combine(BackupFolder,'series.txt'),False,TEncoding.UTF8);
+  KeepBackup := BackupFolder <> '';
+  KeepRecovery := False;
+  BackupRoot := BackupFolder;
+  if not KeepBackup then
+    BackupRoot := TPath.Combine(TPath.GetTempPath, 'HomeLibre-series-' + TGUID.NewGuid.ToString);
+  if DirectoryExists(BackupRoot) then raise Exception.Create('Для резервной копии требуется новая папка.');
+  if not ForceDirectories(BackupRoot) then raise Exception.Create('Не удалось создать папку: ' + BackupRoot);
+  TargetSnapshot := TPath.Combine(BackupRoot, 'destination.hlc2');
+  Renamed := TDictionary<Integer, Boolean>.Create;
   try
-    ReportFile.WriteLine(FReport.Text);
-    for Pair in FPairs do ReportFile.WriteLine(Format('%d → %d | %s → %s',
-      [Pair.OldID,Pair.NewID,Pair.OldTitle,Pair.NewTitle]));
-  finally ReportFile.Free; end;
-  CheckRevision; CheckCanceled; TargetCommitted := False; SystemStarted := False;
-  FCollection.BeginBulkOperation;
-  try
-    FSystem.BeginDataUpdate; SystemStarted := True; I := 0;
-    for Pair in FPairs do
+    TargetFile := Settings.ExpandCollectionFileName(VarToStr(FCollection.GetProperty(PROP_DATAFILE)));
+    if KeepBackup then
+      Backup(TargetFile, 'destination.hlc2', 'Резервная копия коллекции')
+    else
+      Backup(TargetFile, 'destination.hlc2', 'Подготовка к безопасному изменению коллекции');
+    if KeepBackup then
     begin
-      CheckCanceled;
-      FCollection.ChangeBookSeriesID(Pair.OldID,Pair.NewID,FCollection.CollectionID);
-      Inc(I);
-      if Assigned(Progress) and ((I mod 100=0) or (I=Count)) then Progress('Объединение названий серий',I,Count);
+      SystemFile := Settings.SystemFileName[sfSystemDB];
+      WriteCollectionBackupInfo(BackupRoot,cboSeries);
+      Backup(SystemFile,'system.hlc2','Резервная копия групп');
+      TFile.WriteAllText(TPath.Combine(BackupRoot,'restore-paths.txt'),
+        'Коллекция: '+TargetFile+#13#10+'Группы и настройки: '+SystemFile+#13#10+
+        'Папка книг: '+Settings.ExpandCollectionRoot(VarToStr(FCollection.GetProperty(PROP_ROOTFOLDER))),TEncoding.UTF8);
+      ReportFile := TStreamWriter.Create(TPath.Combine(BackupRoot,'series.txt'),False,TEncoding.UTF8);
+      try
+        ReportFile.WriteLine(FReport.Text);
+        for Pair in FPairs do ReportFile.WriteLine(Format('%d → %d | %s → %s',
+          [Pair.OldID,Pair.FinalID,Pair.OldTitle,Pair.NewTitle]));
+      finally ReportFile.Free; end;
     end;
-    CheckCanceled; FCollection.EndBulkOperation(True); TargetCommitted := True;
-    FSystem.EndDataUpdate(True); SystemStarted := False;
-  except
-    if FCollection.InBulkOperation then FCollection.EndBulkOperation(False);
-    if SystemStarted then FSystem.EndDataUpdate(False);
-    if TargetCommitted then FCollection.RestoreCollectionBackup(TPath.Combine(BackupFolder,'destination.hlc2'));
-    try TFile.WriteAllText(TPath.Combine(BackupFolder,'status.txt'),'Отменено',TEncoding.UTF8); except end;
-    raise;
+    CheckRevision; CheckCanceled; TargetCommitted := False; SystemStarted := False;
+    FCollection.BeginBulkOperation;
+    try
+      FSystem.BeginDataUpdate; SystemStarted := True; I := 0;
+      for Pair in FPairs do
+      begin
+        CheckCanceled;
+        FCollection.ChangeBookSeriesID(Pair.OldID,Pair.NewID,FCollection.CollectionID);
+        Inc(I);
+        if Assigned(Progress) and ((I mod 100=0) or (I=Count)) then Progress('Объединение названий серий',I,Count);
+      end;
+      for Pair in FPairs do
+        if (Pair.NewTitle <> Pair.OriginalNewTitle) and not Renamed.ContainsKey(Pair.FinalID) then
+        begin
+          FCollection.SetSeriesTitle(Pair.FinalID, Pair.NewTitle);
+          Renamed.Add(Pair.FinalID, True);
+        end;
+      CheckCanceled; FCollection.EndBulkOperation(True); TargetCommitted := True;
+      FSystem.EndDataUpdate(True); SystemStarted := False;
+    except
+      KeepRecovery := TargetCommitted;
+      try
+        if FCollection.InBulkOperation then FCollection.EndBulkOperation(False);
+        if SystemStarted then FSystem.EndDataUpdate(False);
+        if TargetCommitted then FCollection.RestoreCollectionBackup(TargetSnapshot);
+        KeepRecovery := False;
+      except
+        on E: Exception do
+          raise Exception.Create(E.Message + sLineBreak + 'Копия для восстановления: ' + TargetSnapshot);
+      end;
+      if KeepBackup then
+        try TFile.WriteAllText(TPath.Combine(BackupRoot,'status.txt'),'Отменено',TEncoding.UTF8); except end;
+      raise;
+    end;
+    FReady := False;
+    if KeepBackup then
+      try TFile.WriteAllText(TPath.Combine(BackupRoot,'status.txt'),'Завершено',TEncoding.UTF8); except end;
+  finally
+    Renamed.Free;
+    if not KeepBackup and not KeepRecovery then
+      try
+        if FileExists(TargetSnapshot) then TFile.Delete(TargetSnapshot);
+        TDirectory.Delete(BackupRoot, False);
+      except
+        on E: Exception do
+          if Assigned(Progress) then Progress('Не удалось убрать временную копию: ' + BackupRoot, 0, 0);
+      end;
   end;
-  FReady := False;
-  // A diagnostic write after both commits must never undo one database only.
-  try TFile.WriteAllText(TPath.Combine(BackupFolder,'status.txt'),'Завершено',TEncoding.UTF8); except end;
 end;
 constructor TSeriesAliasWorker.CreatePreview(CollectionID: Integer);
 begin inherited Create(CollectionID); end;

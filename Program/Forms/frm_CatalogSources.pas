@@ -811,7 +811,7 @@ begin
       if FPlan.Count>0 then
       begin
         FSummary.Caption:=Format('Найдено пар серий: %s. Ниже показано «старое название → единое название». '+
-          'Для применения нажмите «Объединить». Книги и личные данные сохраняются; перед изменением создаётся резервная копия.',[FormatFloat('#,##0',FPlan.Count)]);
+          'Для применения нажмите «Объединить». Книги и личные данные сохраняются. Перед началом можно выбрать папку для резервной копии.',[FormatFloat('#,##0',FPlan.Count)]);
         FApply.Caption:=Format('Объединить %s пар серий',[FormatFloat('#,##0',FPlan.Count)]); FApply.Enabled:=True;
       end
       else begin FSummary.Caption:='Проверка завершена: подходящих пар не найдено. Коллекция не изменена.';
@@ -822,24 +822,45 @@ begin
 end;
 
 procedure TfrmSeriesAliasReview.ApplyAliases(Sender: TObject);
-var Worker: TSeriesAliasWorker; Backup: string;
+var Worker: TSeriesAliasWorker; Backup, Folder: string;
 begin
   if not Assigned(FPlan) or (FPlan.Count=0) or FFinished then Exit;
+  Backup := '';
+  case MessageDlg('Сохранить резервную копию перед объединением серий?' + sLineBreak +
+    '«Да» — выбрать папку для копии и отчёта. «Нет» — объединить, сохранив временную копию только на время операции.',
+    mtConfirmation, [mbYes, mbNo, mbCancel], 0) of
+    mrYes:
+      begin
+        Folder := Settings.DataPath;
+        if not SelectDirectory('Куда сохранить резервную копию', '', Folder, [sdNewUI, sdShowEdit]) then Exit;
+        Backup := TPath.Combine(Folder, 'series-' + FormatDateTime('yyyymmdd-hhnnss', Now) + '-' + TCatalogSource.NewID);
+      end;
+    mrNo: ;
+  else
+    Exit;
+  end;
   FApply.Enabled:=False; FCheck.Enabled:=False;
-  Backup:=TPath.Combine(Settings.DataPath,'Backups\series-'+FormatDateTime('yyyymmdd-hhnnss',Now)+'-'+TCatalogSource.NewID);
   Worker:=TSeriesAliasWorker.CreateApply(FPlan,Backup);
   try
     FSourceDialog.RunWorker(Worker,'Объединение названий серий',Self);
     if Worker.Success then
     begin
       FFinished:=True; FSourceDialog.FChanged:=True; FSourceDialog.InvalidatePreview('Названия серий текущей коллекции изменены.');
-      FSourceDialog.FLastReportFile:=TPath.Combine(Backup,'series.txt');
       FSummary.Caption:=Format('Готово: объединено %s пар серий. Закройте это окно и окно источников, чтобы обновить список серий.',[FormatFloat('#,##0',FPlan.Count)]);
-      FReport.Lines.Add(''); FReport.Lines.Add('Резервная копия и полный отчёт: '+Backup);
-      FSourceDialog.FReport.Lines.Text:=FSummary.Caption+sLineBreak+'Резервная копия и полный отчёт: '+Backup;
+      FSourceDialog.FReport.Lines.Text := FSummary.Caption;
+      if Backup <> '' then
+      begin
+        FSourceDialog.FLastReportFile := TPath.Combine(Backup, 'series.txt');
+        FReport.Lines.Add('');
+        FReport.Lines.Add('Резервная копия и полный отчёт: ' + Backup);
+        FSourceDialog.FReport.Lines.Add('Резервная копия и полный отчёт: ' + Backup);
+      end;
     end
     else begin FSummary.Caption:='Объединение не завершено. Подробности ниже.';
-      FReport.Lines.Add(Worker.Error+sLineBreak+'Папка операции: '+Backup); FApply.Enabled:=True; end;
+      FReport.Lines.Add(Worker.Error);
+      if Backup <> '' then FReport.Lines.Add('Папка операции: ' + Backup);
+      FApply.Enabled := True;
+    end;
   finally Worker.Free; FCheck.Enabled:=True; end;
 end;
 

@@ -606,7 +606,7 @@ var Root: string;
     Keep, Lose, AliasBook, BlockedKeep, BlockedLose: TBookRecord;
     Form: TfrmBookDuplicates;
     Operation: TBookDeletionOperation;
-    Target, TargetHash, KeepHash, Stage: string;
+    Target, TargetHash, KeepHash, Stage, SolidHash, SolidArchive: string;
     Zip: TZipFile;
     Started: UInt64;
 
@@ -670,6 +670,28 @@ var Root: string;
       Other:=SystemDB.GetCollection(OtherID);
       AliasBook:=Add(Other,'Unselected shared file','flibusta:9002','','lose');
     end;
+    if Kind = 'unsupported-archive' then
+    begin
+      BlockedKeep := Add(Collection, 'Retain primary', 'flibusta:9010', '', 'retained-solid-primary');
+      BlockedLose := Add(Collection, 'Retain unsupported file', 'merged:test:flibusta:9010', 'first.7z', 'selected/one');
+      TFile.WriteAllText(BlockedKeep.GetBookFileName, 'Retain primary', TEncoding.UTF8);
+      TFile.Copy(Settings.AppPath + 'sevenzip-delete-plan\solid.7z', BlockedLose.GetBookFileName);
+      SolidHash := UpdateSHA256(BlockedLose.GetBookFileName);
+    end;
+    if Kind = 'unsupported-linked' then
+    begin
+      BlockedKeep := Add(Collection, 'Retain primary', 'flibusta:9010', '', 'retained-linked-primary');
+      BlockedLose := Add(Collection, 'Retain attached files', 'merged:test:flibusta:9010', '', 'retained-linked-book');
+      for var Book in TArray<TBookRecord>.Create(BlockedKeep, BlockedLose) do
+        TFile.WriteAllText(Book.GetBookFileName, 'Retained ' + Book.Title, TEncoding.UTF8);
+      AliasBook := BlockedLose;
+      AliasBook.Folder := 'attached.7z';
+      AliasBook.FileName := 'selected/one';
+      Collection.SetCatalogBookCopy('approved-solid', 'Selected source', AliasBook);
+      SolidArchive := AliasBook.GetBookFileName;
+      TFile.Copy(Settings.AppPath + 'sevenzip-delete-plan\solid.7z', SolidArchive);
+      SolidHash := UpdateSHA256(SolidArchive);
+    end;
     if Kind='alternate' then
     begin
       AliasBook:=Lose; AliasBook.FileName:='alternate';
@@ -690,7 +712,7 @@ var Root: string;
     Collection.SetReview(Keep.BookKey,'Keep this note');
     Form:=TfrmBookDuplicates.CreateForCollection(frmMain,Collection);
     try
-      if Kind='combined' then
+      if (Kind='combined') or (Kind='unsupported-linked') then
       begin
         TButton(Form.FindComponent('btnFindBookDuplicates')).Click;
         Require(Form.Plan.GroupCount=2,'Combined fixture lost an ordinary duplicate group');
@@ -704,7 +726,18 @@ var Root: string;
         end;
         var Results:=TComboBox(Form.FindComponent('cbDuplicateResultKind'));
         Results.ItemIndex:=1; Results.OnChange(Results);
-        Form.Plan.ChooseCopy('approved-alt',True);
+        if Kind = 'unsupported-linked' then Form.Plan.ChooseCopy('approved-solid', True)
+        else Form.Plan.ChooseCopy('approved-alt',True);
+      end
+      else if Kind = 'unsupported-archive' then
+      begin
+        Form.Plan.Preview;
+        Require(Form.Plan.GroupCount = 2, 'Unsupported archive fixture missed a duplicate group');
+        for var Group in Form.Plan.Groups(0, 2) do
+          for var Book in Form.Plan.Books(Group.ID) do
+            if (Book.Book.BookKey.BookID = Keep.BookKey.BookID) or
+              (Book.Book.BookKey.BookID = BlockedKeep.BookKey.BookID) then
+              Form.Plan.Choose(Group.ID, Book.Book.BookKey.BookID, True);
       end
       else
       begin
@@ -750,11 +783,29 @@ var Root: string;
           'An unapproved or changed group was not skipped safely: '+Kind+' '+State.Error);
         Exit;
       end;
+      if Kind = 'unsupported-linked' then
+      begin
+        Require((State.Error = '') and (State.SkippedArchiveCopies = 1) and
+          (State.SkippedArchiveRelatedRecords = 1) and (State.SkippedDuplicates = 2) and
+          (CountRows(BlockedKeep) = 1) and (CountRows(BlockedLose) = 1) and
+          (Length(Collection.GetCatalogBookCopies(BlockedLose.BookKey)) > 0) and
+          FileExists(BlockedLose.GetBookFileName) and (UpdateSHA256(SolidArchive) = SolidHash),
+          'Unremoved 7z copy did not protect its catalogue group: ' + State.Error);
+        Writeln('PASS skipped linked archive protects its catalogue group without stopping other duplicate removal');
+      end;
+      if Kind = 'unsupported-archive' then
+      begin
+        Require((State.Error = '') and (State.SkippedArchiveCopies = 1) and (State.CompletedBooks = 1) and
+          (CountRows(BlockedKeep) = 1) and (CountRows(BlockedLose) = 1) and
+          (UpdateSHA256(BlockedLose.GetBookFileName) = SolidHash) and not FileExists(Target),
+          'Unsupported 7z changed protected bytes or stopped the following file: ' + State.Error);
+        Writeln('PASS duplicate cleanup skips a partial solid 7z and continues with the next file');
+      end;
       if Kind='combined' then
       begin
         Require((State.Error='') and (State.SelectedDuplicates=3) and (State.CompletedBooks=1) and
           (State.CompletedCopies=1) and (State.SkippedDuplicates=1) and (State.DuplicateBatch=2) and
-          (Length(State.SkippedDuplicateDetails)=1) and State.SkippedDuplicateDetails[0].Contains('неотмеченные'),
+          (Length(State.SkippedDuplicateDetails)=3) and State.SkippedDuplicateDetails[1].Contains('неотмеченные'),
           'Combined cleanup did not complete both lists and skip the unresolved group: '+State.Error);
         Require(not FileExists(Stage+'approved-alt.fb2') and (CountRows(BlockedKeep)=1) and
           (CountRows(BlockedLose)=1),'Combined cleanup lost an unapproved card or retained an approved copy');
@@ -979,6 +1030,8 @@ begin
     CaseCheck('archive','');
     CaseCheck('batched','');
     CaseCheck('combined','');
+    CaseCheck('unsupported-archive','');
+    CaseCheck('unsupported-linked','');
     CaseCheck('loose','');
     CaseCheck('missing','сохраняемой копии недоступен');
     CaseCheck('alias','указывают на один файл');

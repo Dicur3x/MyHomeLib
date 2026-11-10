@@ -24,7 +24,7 @@ type
   TArchiveDeletionResult = record
     Index: Integer;
     Archive, SourceIdentity, CatalogueBinding, WorkDirectory, JournalDirectory, Error, CleanupWarning: string;
-    FilesVerified, Cancelled: Boolean;
+    FilesVerified, Cancelled, UnsupportedLayout: Boolean;
     WaitsForCatalogue, CatalogueCommitted, Acknowledged: Boolean;
     Companions: TArray<TArchiveDeletionCompanion>;
   end;
@@ -83,7 +83,8 @@ type
 implementation
 
 uses Winapi.Windows, System.IOUtils, System.JSON, System.Hash,
-  System.Generics.Collections, unit_ZipMemberDeletion, unit_AtomicIniFile, unit_MHLArchiveBusy;
+  System.Generics.Collections, unit_ZipMemberDeletion, unit_AtomicIniFile, unit_MHLArchiveBusy,
+  unit_SevenZipDeletionPlan;
 
 function ValidCompanion(const Primary:string; const Image:TArchiveDeletionCompanion):Boolean;
 begin
@@ -554,6 +555,11 @@ begin
         Item.FilesVerified:=Deletion.Finished;
       except
         on E:EAbort do begin Item.Cancelled:=True; Item.Error:='Удаление остановлено до изменения архива.'; end;
+        on E:ESevenZipDeletionUnsupported do
+        begin
+          Item.UnsupportedLayout:=not Assigned(Deletion) and (FRecoveryJobs[I]='');
+          Item.Error:=E.Message;
+        end;
         on E:Exception do Item.Error:=E.Message;
       end;
       if Assigned(Deletion) then Item.JournalDirectory:=Deletion.JobDirectory;

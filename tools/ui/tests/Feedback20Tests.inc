@@ -10,7 +10,7 @@ type
     Timer: TTimer;
     Collection: IBookCollection;
     Book: TBookRecord;
-    Done, HasSource: Boolean;
+    Done, HasSource, ExpectEditor: Boolean;
     Failure: string;
     procedure Tick(Sender: TObject);
   end;
@@ -32,6 +32,9 @@ begin
         Require(KeywordsVisible,'Catalogue keywords were not shown when the book file is absent');
         Require((Details.btnAnnotationFile.Enabled=HasSource) and not Details.mmoAnnotation.ReadOnly,
           'Wrong source availability or edit access in book details');
+        if ExpectEditor then
+          Require((Details.pcBookInfo.ActivePage=Details.tsAnnotation) and Details.btnAnnotationSite.Enabled,
+            'Edit Description did not focus the local editor or offer the source description');
         Collection.SetReview(Book.BookKey,'Другой отзыв, сохранённый параллельно');
         Details.mmoAnnotation.Text:='Моё новое описание — ё 😀';
         Done:=True;
@@ -240,6 +243,7 @@ begin
   var DescriptionKey:=CreateBookKey(AnnotationID,OneID);
   One.GetBookRecord(DescriptionKey,Found,True);
   Found.KeyWords:='Личные ключевые слова ё';
+  if ParamStr(1)='catalogue-description' then Found.LibID:='flibusta:895621';
   One.UpdateBook(Found);
   One.SetAnnotation(DescriptionKey,'Каталожное описание — ё, ї, ў. Исходный файл недоступен.');
   One.SetReview(DescriptionKey,'Прежний отзыв');
@@ -273,10 +277,12 @@ begin
     var Probe:=TDescriptionDialogProbe.Create;
     try
       Probe.Collection:=One; Probe.Book:=Found;
+      Probe.ExpectEditor:=ParamStr(1)='catalogue-description';
       Probe.Timer:=TTimer.Create(nil);
       Probe.Timer.Interval:=20; Probe.Timer.OnTimer:=Probe.Tick;
       Probe.Timer.Enabled:=True;
-      frmMain.ipnlSearch.DetailsButton.Click;
+      if Probe.ExpectEditor then frmMain.acEditBook.Execute
+      else frmMain.ipnlSearch.DetailsButton.Click;
       Require(Probe.Done,'The catalogue details did not open or could not be inspected. '+Probe.Failure);
     finally
       Probe.Timer.Free;

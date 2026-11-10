@@ -226,8 +226,8 @@ begin
   FSearch.SetBounds(12,36,148,30); FSearch.Caption:='Найти дубли'; FSearch.OnClick:=Scan;
   FResultKind:=TComboBox.Create(Self); FResultKind.Parent:=Top; FResultKind.Name:='cbDuplicateResultKind';
   FResultKind.SetBounds(172,38,260,28); FResultKind.Style:=csDropDownList;
-  FResultKind.Items.Add('Повторные карточки');
-  FResultKind.Items.Add('Дополнительные файлы');
+  FResultKind.Items.Add('Отдельные записи');
+  FResultKind.Items.Add('Файлы одной записи');
   FResultKind.ItemIndex:=0; FResultKind.OnChange:=SwitchResults;
   FStatus:=TLabel.Create(Self); FStatus.Parent:=Top; FStatus.AutoSize:=False;
   FStatus.SetBounds(444,34,584,38); FStatus.Anchors:=[akLeft,akTop,akRight]; FStatus.WordWrap:=True;
@@ -310,7 +310,7 @@ begin
   FKeep.Visible:=not Linked;
   FUseGroup.Enabled:=Assigned(FGroups.Selected);
   FUseGroup.Top:=ScaleValue(IfThen(Linked,8,36));
-  FUseGroup.Caption:=IfThen(Linked,'Отметить все дополнительные файлы этой книги','Отметить остальные копии к удалению');
+  FUseGroup.Caption:=IfThen(Linked,'Отметить все копии файла этой книги','Отметить остальные копии к удалению');
   FApply.Visible:=not Linked;
   if Linked then FDelete.Left:=FApply.Left else FDelete.Left:=FApply.Left+FApply.Width+ScaleValue(12);
   RegularMarks:=FRegularPlan.SelectedRemovedCount;
@@ -324,24 +324,24 @@ begin
   FUnmarkedOnly.Enabled:=FPlan.Ready;
   FSelectSource.Left:=IfThen(Linked,FSource.Left+FSource.Width+ScaleValue(12),ScaleValue(12));
   if Linked then FSelectSource.Anchors:=[akTop,akRight] else FSelectSource.Anchors:=[akTop,akLeft];
-  FSelectSource.Caption:=IfThen(Linked,'Отметить дополнительные файлы','Выбрать, что оставить…');
+  FSelectSource.Caption:=IfThen(Linked,'Отметить копии из источника','Выбрать, что оставить…');
   FSelectSource.Enabled:=FPlan.Ready and
     ((Linked and (FPlan.GroupCount>0) and (FSource.ItemIndex>=0)) or (not Linked and (Length(FSourcePriority)>=2)));
   FClearSelection.Enabled:=FDelete.Enabled;
   if Linked then
   begin
-    FModeHelp.Caption:='У этих книг одна карточка и несколько файлов. Основной файл каждой книги останется.';
+    FModeHelp.Caption:='Одна запись в каталоге, несколько файлов на диске. Основной файл останется. Отметки в обоих списках применяются вместе.';
   end
   else
   begin
     if FPlan.Ready and (FSource.Items.Count<2) then
       FModeHelp.Caption:='Выберите основную копию вручную. Для выбора по приоритету нужны разные известные источники.'
     else
-      FModeHelp.Caption:='Можно выбрать копии по порядку источников. Спорные совпадения проверьте вручную.';
+      FModeHelp.Caption:='Одна книга добавлена несколькими записями. Выберите запись, которую оставить, вручную или по порядку источников.';
   end;
   if FPlan.Ready then
     FStatus.Caption:=Format('Книг в этом списке: %d · Показано: %d–%d'+sLineBreak+
-      'Всего к удалению: %d записей с файлами и %d дополнительных файлов.',
+      'Отмечено: %d записей с файлами и %d копий файлов.',
       [ShownCount,Ord(ShownCount>0)*(FOffset+1),FOffset+Length(FPage),RegularMarks,LinkedMarks])
   else if FChanged then FStatus.Caption:='Чтобы обновить список, нажмите «Найти дубли».'
   else FStatus.Caption:='Поиск ещё не выполнен';
@@ -371,8 +371,8 @@ begin
     FChanged:=FChanged or FPlan.Committed;
     if Assigned(Worker.FatalException) then raise Exception.Create(Exception(Worker.FatalException).Message);
     FOffset:=0; LoadSources; RenderPage;
-    FResultKind.Items[0]:='Повторные карточки';
-    FResultKind.Items[1]:='Дополнительные файлы';
+    FResultKind.Items[0]:='Отдельные записи';
+    FResultKind.Items[1]:='Файлы одной записи';
     if FPlan.Committed then
       FDetails.Lines.Text:=Format('Объединение сохранено. Убрано повторных записей: %d.'+#13#10+
         'Файлы книг и личные данные сохранены.'+#13#10+'Резервная копия: %s'+#13#10+
@@ -393,10 +393,11 @@ begin
   if FLinkedResultsValid then LinkedCount:=FLinkedPlan.SelectedRemovedCount;
   if RegularCount+LinkedCount=0 then Exit;
   Prompt:=Format('Удалить отмеченные файлы с диска?'+sLineBreak+
-    'Повторные карточки с их файлами: %d. Дополнительные файлы: %d.'+sLineBreak+sLineBreak+
-    'Для каждой книги сохранится основная копия. Если у повторной карточки есть неотмеченные '+
-    'дополнительные файлы или после поиска изменилась карточка, программа пропустит её группу.'+sLineBreak+
-    'Удаление пройдёт партиями. Уже выполненное сохранится при остановке.',[RegularCount,LinkedCount]);
+    'Дубли записей вместе с их файлами: %d. Лишние файлы у одной записи: %d.'+sLineBreak+sLineBreak+
+    'Для каждой книги останется основная копия. Программа оставит книгу целиком, если запись изменилась, '+
+    'содержит личные данные или с ней связаны файлы, которые вы не отметили.'+sLineBreak+
+    'Связанные копии можно отметить в списке «Файлы одной записи». Удаление идёт в фоне. При остановке уже выполненное сохранится.',
+    [RegularCount,LinkedCount]);
   if Assigned(FBeforeApply) then FBeforeApply(Self);
   if MessageDlg(Prompt,mtWarning,[mbYes,mbNo],0,mbNo)<>mrYes then Exit;
   if Assigned(FBeforeApply) then FBeforeApply(Self);
@@ -428,8 +429,8 @@ begin
     Progress.ShowModal; Worker.WaitFor;
     if Assigned(Worker.FatalException) then raise Exception.Create(Exception(Worker.FatalException).Message);
     FLinkedResultsValid:=(Worker.FError='') and FLinkedPlan.Ready;
-    FResultKind.Items[0]:=Format('Повторные карточки (%d)',[FRegularPlan.GroupCount]);
-    FResultKind.Items[1]:=Format('Дополнительные файлы (%d)',[FLinkedPlan.GroupCount]);
+    FResultKind.Items[0]:=Format('Отдельные записи (%d)',[FRegularPlan.GroupCount]);
+    FResultKind.Items[1]:=Format('Файлы одной записи (%d)',[FLinkedPlan.GroupCount]);
     FResultKind.ItemIndex:=Ord(FLinkedResultsValid and (FRegularPlan.GroupCount=0) and (FLinkedPlan.GroupCount>0));
     SwitchResults(FResultKind);
     if Worker.FError<>'' then FDetails.Lines.Text:=Worker.FError;

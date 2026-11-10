@@ -10,14 +10,14 @@ type
     Stage, Archive, Error, RequiredComponent, PendingJournal, CleanupWarning: string;
     CollectionName: string;
     CollectionIndex, CollectionCount: Integer;
-    DuplicateBatch, SelectedDuplicates, SkippedDuplicates: Integer;
+    DuplicateBatch, SelectedDuplicates, SkippedDuplicates, SkippedArchiveCopies, SkippedArchiveRelatedRecords: Integer;
     Done, Total: Int64;
     MoveBytes, JournalBytes: Int64;
     CompanionCount: Integer;
     ArchiveIndex, ArchiveCount, CompletedBooks, CompletedCopies: Integer;
     Stopping, Finished, AwaitingArchiveConfirmation: Boolean;
     AffectedCollections: TArray<Integer>;
-    SkippedDuplicateDetails: TArray<string>;
+    SkippedDuplicateDetails, SkippedArchiveDetails: TArray<string>;
     function CatalogueChanged: Boolean;
     function AffectsCollection(CollectionID: Integer): Boolean;
   end;
@@ -39,7 +39,7 @@ type
     FDuplicateCollectionID: Integer;
     FJournalRoot, FUserFile: string;
     FReviewFiles: TArray<string>;
-    FRecovery, FReviewArchives: Boolean;
+    FRecovery, FReviewArchives, FConfirmRemainingArchives: Boolean;
     FLock: TObject;
     FStop: Integer;
     FState: TBookDeletionOperationStatus;
@@ -69,7 +69,7 @@ type
     constructor Recover(const UserFile, JournalRoot: string);
     destructor Destroy; override;
     procedure RequestStop;
-    procedure ConfirmArchive;
+    procedure ConfirmArchive(AllRemaining: Boolean = False);
     function Status: TBookDeletionOperationStatus;
     property ReviewArchives: Boolean write FReviewArchives;
   end;
@@ -409,10 +409,12 @@ begin
   try TMonitor.PulseAll(FLock); finally TMonitor.Exit(FLock); end;
 end;
 
-procedure TBookDeletionOperation.ConfirmArchive;
+procedure TBookDeletionOperation.ConfirmArchive(AllRemaining: Boolean);
 begin
   TMonitor.Enter(FLock);
   try
+    if not FState.AwaitingArchiveConfirmation or Stopping then Exit;
+    FConfirmRemainingArchives:=AllRemaining;
     FState.AwaitingArchiveConfirmation:=False;
     TMonitor.PulseAll(FLock);
   finally TMonitor.Exit(FLock); end;
@@ -422,6 +424,12 @@ procedure TBookDeletionOperation.WaitForArchiveConfirmation(MoveBytes, JournalBy
   CompanionCount: Integer);
 var Observers:TObjectList<TSQLiteDatabase>; Revisions:TArray<Int64>; Identities:TArray<string>;
 begin
+  TMonitor.Enter(FLock);
+  try
+    if Stopping then Abort;
+    if FConfirmRemainingArchives then Exit;
+  finally TMonitor.Exit(FLock); end;
+
   // The catalogue remains usable while the archive is locked for review.
   // An edit to any catalogue may add a reference to the member being removed.
   Observers:=TObjectList<TSQLiteDatabase>.Create;
@@ -561,7 +569,30 @@ begin
         try FState.PendingJournal:=Receipt.WorkDirectory; finally TMonitor.Exit(FLock); end;
       end;
       if Receipt.Cancelled then Abort;
-      if Receipt.Error<>'' then raise EInOutError.Create(Receipt.Error);
+      if FDuplicateCleanup and Receipt.UnsupportedLayout and (Receipt.WorkDirectory='') and
+        (Receipt.JournalDirectory='') then
+      begin
+        var Binding:=TBookDeletionBinding.Parse(Receipt.CatalogueBinding);
+        var Copies:=Length(Binding.ExpectedBooks);
+        var RecordsKept := 0;
+        if Binding.RemovesCopies then
+        begin
+          Copies := Length(Binding.SourceKeys);
+          if Assigned(FDuplicatePlan) and FDuplicatePlan.Ready then
+            RecordsKept := FDuplicatePlan.KeepRecordsWithSkippedFiles(Binding.PrimaryBooks);
+        end;
+        TMonitor.Enter(FLock);
+        try
+          Inc(FState.SkippedDuplicates, Copies + RecordsKept);
+          Inc(FState.SkippedArchiveRelatedRecords, RecordsKept);
+          Inc(FState.SkippedArchiveCopies,Copies);
+          if Length(FState.SkippedArchiveDetails)<8 then
+            FState.SkippedArchiveDetails:=FState.SkippedArchiveDetails+
+              [ExtractFileName(Receipt.Archive)+' — '+Receipt.Error];
+        finally TMonitor.Exit(FLock); end;
+        Continue;
+      end;
+      if Receipt.Error<>'' then raise EInOutError.Create(ExtractFileName(Receipt.Archive)+': '+Receipt.Error);
       raise EInOutError.Create('Не удалось подтвердить удаление из архива.');
     end;
 end;
@@ -714,7 +745,7 @@ var Search:TSearchRec;
 begin
   Result:=False;
   if not OrdinaryDirectory(JournalRoot) or
-    (System.SysUtils.FindFirst(TPath.Combine(JournalRoot,'archive-delete-*'),faDirectory,Search)<>0) then Exit;
+    (System.SysUtils.FindFirst(DeletionNativePath(TPath.Combine(JournalRoot,'archive-delete-*')),faDirectory,Search)<>0) then Exit;
   try
     repeat
       if (Search.Attr and faDirectory<>0) and OrdinaryDirectory(TPath.Combine(JournalRoot,Search.Name)) then
@@ -726,22 +757,22 @@ end;
 procedure TBookDeletionOperation.RunRecovery(const User:ISystemData);
 var Jobs:TList<string>; Queue:TArchiveDeletionQueue;
 begin
-  if not DirectoryExists(FJournalRoot) then Exit;
+  if not DirectoryExists(DeletionNativePath(FJournalRoot)) then Exit;
   if not OrdinaryDirectory(FJournalRoot) then
     raise EReadError.Create('Папка журналов удаления недоступна или является ссылкой.');
   Report('Поиск незавершённых удалений','',0,0);
   Jobs:=TList<string>.Create;
   try
-    for var OperationDir in TDirectory.GetDirectories(FJournalRoot,'archive-delete-*') do
+    for var NativeOperation in TDirectory.GetDirectories(DeletionNativePath(FJournalRoot),'archive-delete-*') do
     begin
       if Stopping then Exit;
+      var OperationDir := TPath.Combine(FJournalRoot, ExtractFileName(NativeOperation));
       if not OrdinaryDirectory(OperationDir) then Continue;
-      for var TaskDir in TDirectory.GetDirectories(OperationDir,'archive-*') do
-        if OrdinaryDirectory(TaskDir) and
-          (Length(TDirectory.GetDirectories(TaskDir,'zip-delete-*'))>0) then
+      for var NativeTask in TDirectory.GetDirectories(NativeOperation,'archive-*') do
+        if OrdinaryDirectory(NativeTask) and (Length(TDirectory.GetDirectories(NativeTask,'zip-delete-*'))>0) then
         begin
           if Jobs.Count>=10000 then raise EReadError.Create('Слишком много незавершённых удалений.');
-          Jobs.Add(TaskDir);
+          Jobs.Add(TPath.Combine(OperationDir, ExtractFileName(NativeTask)));
         end;
     end;
     if Stopping or (Jobs.Count=0) then Exit;

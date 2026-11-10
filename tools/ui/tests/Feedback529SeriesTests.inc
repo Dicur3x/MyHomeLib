@@ -122,6 +122,26 @@ begin
     SystemDB.GetBookRecord(Book.BookKey,Book);
     Require((Book.Rate=4) and (Book.Series='Общая запись цикла'), 'Grouped book card was not preserved');
     Plan.Preview(nil); Require(Plan.Count=0,'Verified aliases are not idempotent');
+    var Wave := Add('5-я волна', 'Янси', '5-я волна ( Азбука)', 'flibusta:895');
+    C.AddBookSeries(Wave, '5-я волна [Азбука]', 0);
+    Plan.Preview(nil);
+    Require((Plan.Count=1) and Plan.Report.Text.Contains('→ 5-я волна (Азбука)'),
+      'Series preview left an extra space after the opening parenthesis');
+    Plan.Apply('', nil, nil);
+    Require((Scalar('SELECT COUNT(*) FROM Series WHERE SeriesTitle=' + QuotedStr('5-я волна (Азбука)'))=1) and
+      (Scalar('SELECT COUNT(*) FROM Series WHERE SeriesTitle=' + QuotedStr('5-я волна ( Азбука)'))=0) and
+      (Length(C.GetBookSeries(CreateBookKey(Wave,ID)))=1),
+      'The merged series spelling or membership differed from the preview');
+    var Other1 := Add('Первое издание', 'Первый автор', 'Серия ( Лейбл)', 'flibusta:896');
+    C.AddBookSeries(Other1, 'Серия [ Лейбл]', 0);
+    var Other2 := Add('Второе издание', 'Второй автор', 'Серия (Лейбл )', 'flibusta:897');
+    C.AddBookSeries(Other2, 'Серия [Лейбл ]', 0);
+    Plan.Preview(nil);
+    Require(Plan.Count=2, 'Similar spelling merged unrelated series');
+    Plan.Apply('', nil, nil);
+    Require((Scalar('SELECT COUNT(*) FROM Series WHERE SeriesTitle=' + QuotedStr('Серия (Лейбл)'))=1) and
+      (Length(C.GetBookSeries(CreateBookKey(Other1,ID)))=1) and (Length(C.GetBookSeries(CreateBookKey(Other2,ID)))=1),
+      'Independent aliases proposed the same final title or lost a membership');
     Rejected:=False;
     try Plan.Preview(function: Boolean begin Result:=True; end);
     except on E:EAbort do Rejected:=True; end;

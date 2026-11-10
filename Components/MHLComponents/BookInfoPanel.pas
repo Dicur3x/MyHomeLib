@@ -1175,9 +1175,8 @@ begin
       Gap := MulDiv(AnnotationGap, LayoutPPI, 96);
       ButtonH := Min(FInfoViewport.Height, MulDiv(30, LayoutPPI, 96));
       ReviewW := Min(FInfoViewport.Width, MulDiv(112, LayoutPPI, 96));
-      FReviewDownload.SetBounds(FInfoViewport.BoundsRect.Right - ReviewW,
-        FInfoViewport.Top, ReviewW, ButtonH);
-      FReviewStatus.SetBounds(FInfoViewport.Left, FInfoViewport.Top,
+      FReviewDownload.SetBounds(FInfoViewport.Left, FInfoViewport.Top, ReviewW, ButtonH);
+      FReviewStatus.SetBounds(FInfoViewport.Left + ReviewW + Gap, FInfoViewport.Top,
         Max(0, FInfoViewport.Width - ReviewW - Gap), ButtonH);
       FReviews.SetBounds(FInfoViewport.Left, FInfoViewport.Top + ButtonH + Gap,
         FInfoViewport.Width, Max(0, FInfoViewport.Height - ButtonH - Gap));

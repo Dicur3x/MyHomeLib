@@ -165,7 +165,16 @@ var PrivateID, OnlineID, ExternalID, RawID, ArchiveID, OtherID, PrivateFBD, Fail
       begin
         Require(frmMain.N74.Visible and frmMain.N74.Enabled and frmMain.tbtnDeleteBook.Visible,
           'Book deletion is unavailable in the menu or toolbar of the active collection');
-        frmMain.N74.Click;
+        Require((frmMain.miContextDeleteBook.Parent=frmMain.pmMain.Items) and
+          (frmMain.miContextDeleteBook.Action=frmMain.acBookDelete) and
+          frmMain.miContextDeleteBook.Visible and frmMain.miContextDeleteBook.Enabled,
+          'Book deletion is unavailable in the book context menu');
+        Require(Assigned(frmMain.pmMain.Images) and
+          (frmMain.miContextDeleteBook.ImageIndex = frmMain.acBookDelete.ImageIndex) and
+          (frmMain.miContextDeleteBook.ImageIndex >= 0) and
+          (frmMain.miContextDeleteBook.ImageIndex < frmMain.pmMain.Images.Count),
+          'Book deletion has no icon in the book context menu');
+        frmMain.miContextDeleteBook.Click;
       end;
       var ProgressForm:=frmMain.FindComponent('BookDeletionProgress');
       if Assigned(ProgressForm) then
@@ -790,6 +799,32 @@ begin
       Require(not Exists(RawID) and not Exists(ArchiveID) and not FileExists(RawPath),
         'Record deletion from this view did not commit unique selected books'); ProtectedArchive(True);
     end;
+
+    Sources('batch-review-first');
+    var FirstArchiveID:=ArchiveID;
+    var FirstNeighbourID:=OtherID;
+    var FirstArchivePath:=ArchivePath;
+    Sources('batch-review-second');
+    Rows([FirstArchiveID,ArchiveID]);
+    Execute(True,False,2,2,0,nil,20000,
+      procedure(Progress:TForm)
+      begin
+        var ConfirmAll:=TButton(Progress.FindComponent('ConfirmAllArchiveDeletions'));
+        Require(Assigned(ConfirmAll) and ConfirmAll.Visible, 'No batch archive confirmation offered');
+        ConfirmAll.Click;
+      end,1);
+    Require(not Exists(FirstArchiveID) and not Exists(ArchiveID) and Exists(FirstNeighbourID),
+      'Batch archive confirmation removed the wrong catalogue records');
+    ProtectedArchive(True);
+    PairZip:=TZipFile.Create;
+    try
+      PairZip.Open(FirstArchivePath,zmRead);
+      var Retained: TBytes;
+      PairZip.Read('unselected.fb2',Retained);
+      Require((PairZip.FileCount=1) and (TEncoding.UTF8.GetString(Retained)=XML('unselected.fb2')),
+        'Batch archive confirmation damaged the first retained member');
+    finally PairZip.Free; end;
+    Writeln('PASS one review covers two shared archives and preserves both unselected books');
 
     Trace('delete safety references across collections');
     Sources('archive-review-cancel'); Rows([ArchiveID]);

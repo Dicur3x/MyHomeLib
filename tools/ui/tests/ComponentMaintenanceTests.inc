@@ -37,6 +37,47 @@ var Target: string; Available: TComponentReleases; Dialog: TfrmComponentMaintena
     Time:=EncodeDate(2026,1,1);
     var WebP:=CheckedUpdateChildPath(Target,ComponentFileName('WebP'));
     ForceDirectories(ExtractFileDir(WebP)); TFile.WriteAllText(WebP,'OWNED NONEXECUTABLE WEBP MARKER');
+    var Legacy := TJSONObject.Create;
+    try
+      Legacy.AddPair('format',TJSONNumber.Create(1)); Legacy.AddPair('platform',ProgramUpdatePlatform);
+      var Files := TJSONArray.Create; Legacy.AddPair('files',Files);
+      for var Name in ['HomeLibRu.exe','LICENSE','NOTICE'] do
+      begin
+        var Core := TJSONObject.Create; Files.AddElement(Core);
+        Core.AddPair('path', Name);
+        Core.AddPair('size', TJSONNumber.Create(0));
+        Core.AddPair('sha256', StringOfChar('0', 64));
+      end;
+      var OldFile := TJSONObject.Create; Files.AddElement(OldFile);
+      OldFile.AddPair('path', ComponentFileName('WebP'));
+      OldFile.AddPair('size', TJSONNumber.Create(TFile.GetSize(WebP)));
+      OldFile.AddPair('sha256', StringOfChar('0', 64));
+      var OldManifest := CheckedUpdateChildPath(Target, UPDATE_MANIFEST);
+      TFile.WriteAllText(OldManifest, Legacy.ToJSON, TEncoding.UTF8);
+      var Plan := BuildComponentRemovalPlan(Target, ['WebP']);
+      Require(not Plan.CanRemove and (Length(Plan.Files) = 0) and
+        Plan.Blockers[0].Contains('сверить состав'), 'Stale main manifest accused an installed module of changing');
+      OldFile.RemovePair('sha256').Free;
+      OldFile.AddPair('sha256', UpdateSHA256(WebP));
+      TFile.WriteAllText(OldManifest, Legacy.ToJSON, TEncoding.UTF8);
+      Plan := BuildComponentRemovalPlan(Target, ['WebP']);
+      Require(Plan.CanRemove and (Length(Plan.Files) = 1), 'Matching legacy inventory was discarded');
+      TFile.Delete(OldManifest);
+    finally Legacy.Free; end;
+    Dialog:=TfrmComponentMaintenance.CreateManager(frmMain,Target,False,False,nil,Available,nil);
+    try
+      Dialog.Show; WaitPlan;
+      var Modules := TListView(Dialog.FindComponent('MaintenanceModules'));
+      var SelectAll := TButton(Dialog.FindComponent('MaintenanceSelectAll'));
+      Require(SelectAll.Enabled and (Modules.Items.Count=2),'Bulk selection unavailable');
+      SelectAll.Click; WaitPlan;
+      for var Item in Modules.Items do Require(Item.Checked,'Select all missed an installed module');
+      Require(not TButton(Dialog.FindComponent('MaintenanceRemove')).Enabled,
+        'Bulk selection bypassed an unverified inventory');
+      SelectAll.Click; WaitPlan;
+      for var Item in Modules.Items do Require(not Item.Checked,'Clear all left a module marked');
+      Dialog.Close;
+    finally Dialog.Free; end;
     // Both files already exist before the first beta-3 launch; WebP has no
     // installation receipt. Discovery must start its clock without a download.
     ObserveInstalledOptionalComponents(Target,False,Time);

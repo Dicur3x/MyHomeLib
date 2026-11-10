@@ -20,7 +20,15 @@ function zip(name,entries,component){
   input:JSON.stringify(entries.map(([p,b])=>[p,b.toString('base64')])),encoding:'utf8',windowsHide:true});
  assert.equal(result.status,0,result.stderr);return fs.readFileSync(target);
 }
-const payloads={app:zip('app',[['HomeLibRu.exe',app],['LICENSE',Buffer.from('fixture license')],['NOTICE',Buffer.from('fixture notice')]])};
+const helper=fs.readFileSync(path.join(runtime,'HomeLibRuUpdater.exe'));
+const currentTag=fs.readFileSync(path.resolve(__dirname,'../Units/unit_ProgramUpdates.pas'),'utf8')
+ .match(/PROGRAM_RELEASE_VERSION\s*=\s*'([^']+)'/)[1];
+const helperTag=Buffer.from(currentTag,'utf16le');
+assert.equal(helperTag.length,after.length,'Fixture tag must fit the helper version resource');
+n=helper.indexOf(helperTag);assert(n>=0,'The fixture requires the updater built for the current tag');
+while(n>=0){after.copy(helper,n);n=helper.indexOf(helperTag,n+helperTag.length);}
+const payloads={app:zip('app',[['HomeLibRu.exe',app],['HomeLibRuUpdater.exe',helper],
+ ['LICENSE',Buffer.from('fixture license')],['NOTICE',Buffer.from('fixture notice')]])};
 const componentFiles={SQLite:'sqlite3.dll',SumatraPDF:'Readers/SumatraPDF/SumatraPDF.exe'},expected={};
 const versions={SQLite:'9.0.0.0',SumatraPDF:'9.0.0.0'};
 for(const [id,file] of Object.entries(componentFiles)){
@@ -93,7 +101,11 @@ async function test(scenario){
     assert.deepEqual(fs.readFileSync(path.join(folder,'HomeLibRu.exe')),fs.readFileSync(path.resolve(viewsArg)));
    }else{
     for(let i=0;i<150&&!fs.existsSync(path.join(folder,'update-restarted.txt'));i++)await new Promise(r=>setTimeout(r,100));
-    assert(fs.existsSync(path.join(folder,'update-restarted.txt')),'Combined installation did not restart');
+    if(!fs.existsSync(path.join(folder,'update-restarted.txt'))){
+     const records=fs.readdirSync(cacheRoot,{recursive:true}).filter(p=>/update-error\.log$|result\.txt$/.test(p));
+     const errors=records.map(p=>fs.readFileSync(path.join(cacheRoot,p),'utf8')).join('\n');
+     assert.fail('Combined installation did not restart'+(errors?'\n'+errors:''));
+    }
     assert.deepEqual(fs.readFileSync(path.join(folder,'HomeLibRu.exe')),app);
    }
    for(const [id,file] of Object.entries(componentFiles))assert.deepEqual(fs.readFileSync(path.join(folder,file)),expected[id]);

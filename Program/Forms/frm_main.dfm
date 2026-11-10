@@ -4004,6 +4004,9 @@
       ShortCut = 16451
       OnClick = miCopyClBrdClick
     end
+    object miContextDeleteBook: TMenuItem
+      Action = acBookDelete
+    end
   end
   object pmAuthor: TPopupMenu
     OwnerDraw = True

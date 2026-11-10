@@ -6,16 +6,20 @@ uses System.Classes, Vcl.Forms, Vcl.StdCtrls, Vcl.ComCtrls, unit_BookDeletionOpe
   unit_Globals, unit_BookDeletionBinding, unit_BookDeletionSelection;
 
 type
+  TArchiveDeleteConfirmEvent = procedure(AllRemaining: Boolean) of object;
+
   TBookDeletionProgress = class(TForm)
   private
     FStage, FArchive, FDetail: TLabel;
     FProgress: TProgressBar;
-    FStop, FConfirm: TButton;
+    FStop, FConfirm, FConfirmAll: TButton;
+    FOnConfirm: TArchiveDeleteConfirmEvent;
     FWriteStarted: UInt64;
     FWriteStartBytes: Int64;
+    procedure ConfirmClick(Sender: TObject);
     procedure HideWhenClosed(Sender: TObject; var Action: TCloseAction);
   public
-    constructor CreateProgress(AOwner: TForm; Stop, Confirm: TNotifyEvent);
+    constructor CreateProgress(AOwner: TForm; Stop: TNotifyEvent; Confirm: TArchiveDeleteConfirmEvent);
     procedure UpdateProgress(const State: TBookDeletionOperationStatus);
   end;
 
@@ -68,7 +72,7 @@ begin
   finally Worker.Free; end;
 end;
 
-constructor TBookDeletionProgress.CreateProgress(AOwner:TForm; Stop,Confirm:TNotifyEvent);
+constructor TBookDeletionProgress.CreateProgress(AOwner:TForm; Stop:TNotifyEvent; Confirm:TArchiveDeleteConfirmEvent);
   function Line(const Text:string; Y,Height:Integer):TLabel;
   begin
     Result:=TLabel.Create(Self); Result.Parent:=Self;
@@ -92,12 +96,22 @@ begin
   FDetail.Name:='BookDeletionDetails';
   FConfirm:=TButton.Create(Self); FConfirm.Parent:=Self; FConfirm.Name:='ConfirmArchiveDeletion';
   FConfirm.Caption:='Удалить из архива'; FConfirm.Anchors:=[akRight,akBottom];
-  FConfirm.SetBounds(254,178,148,30); FConfirm.OnClick:=Confirm; FConfirm.Visible:=False;
+  FConfirm.SetBounds(254,178,148,30); FConfirm.OnClick:=ConfirmClick; FConfirm.Visible:=False;
+  FConfirmAll:=TButton.Create(Self); FConfirmAll.Parent:=Self; FConfirmAll.Name:='ConfirmAllArchiveDeletions';
+  FConfirmAll.Caption:='Для всех архивов'; FConfirmAll.Anchors:=[akRight,akBottom];
+  FConfirmAll.Hint:='Подтвердить удаление во всех оставшихся архивах этой операции'; FConfirmAll.ShowHint:=True;
+  FConfirmAll.SetBounds(86,178,156,30); FConfirmAll.OnClick:=ConfirmClick; FConfirmAll.Visible:=False;
+  FOnConfirm:=Confirm;
   FStop:=TButton.Create(Self); FStop.Parent:=Self; FStop.Name:='StopBookDeletion';
   FStop.Caption:='Остановить'; FStop.Anchors:=[akRight,akBottom];
   FStop.SetBounds(414,178,130,30); FStop.OnClick:=Stop;
   OnClose:=HideWhenClosed;
   ApplyMHLControlTheme(Self);
+end;
+
+procedure TBookDeletionProgress.ConfirmClick(Sender: TObject);
+begin
+  FOnConfirm(Sender=FConfirmAll);
 end;
 
 procedure TBookDeletionProgress.HideWhenClosed(Sender:TObject; var Action:TCloseAction);
@@ -117,6 +131,8 @@ begin
     FArchive.Caption:=Format('Коллекция %d из %d · %s',[State.CollectionIndex,
       State.CollectionCount,State.CollectionName])+sLineBreak+FArchive.Caption;
   FConfirm.Visible:=State.AwaitingArchiveConfirmation and not State.Stopping;
+  FConfirmAll.Visible:=FConfirm.Visible and ((State.ArchiveIndex<State.ArchiveCount) or
+    (State.CollectionIndex<State.CollectionCount));
   FStop.Enabled:=not State.Stopping;
   if FConfirm.Visible then
   begin
@@ -141,7 +157,14 @@ begin
   if State.Stopping then FDetail.Caption:='Останавливаемся. Если архив уже меняется, сначала закончим его.'
   else
   begin
-    if State.SelectedDuplicates>0 then
+    if (State.SelectedDuplicates>0) and (State.DuplicateBatch=0) then
+    begin
+      if State.Total>0 then
+        Detail:=Format('Проверено: %d из %d. Удаление начнётся после проверки.',[State.Done,State.Total])
+      else
+        Detail:='Проверяем выбранные книги. Можно продолжать работу с каталогом.';
+    end
+    else if State.SelectedDuplicates>0 then
       Detail:=Format('Удалено копий: %d из %d. Можно продолжать работу с каталогом.',
         [State.CompletedBooks+State.CompletedCopies,State.SelectedDuplicates])
     else if State.CompletedCopies>0 then

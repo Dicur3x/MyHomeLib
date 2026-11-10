@@ -176,6 +176,7 @@ const requiredViews = {
   'ibk-download-live': ['PASS IBK live native source check and updater download preserve pinned identities and prepare complete original data'],
   'ibk-components': ['PASS IBK original component requests on first use', 'PASS catalogue-formats audit completed'],
   'duplicate-file-removal': [
+    'PASS duplicate cleanup skips a partial solid 7z and continues with the next file',
     'PASS duplicate file removal explicit confirmation retains exact books and rejects missing, shared, protected and stale sources',
     'PASS linked duplicate dialog selects individual files and one source, protects the primary, and confirms deletion',
     'PASS linked duplicate deletion removes loose and archived files, protects the main card and unselected sources, and cancels before writing',
@@ -273,7 +274,7 @@ const requiredViews = {
   "feedback529-series": ["PASS feedback529 verified publisher/mixed/bracket"],
   "feedback529": ["PASS feedback529 block chapter boundaries", "PASS feedback529 asynchronous statistics", "PASS feedback529 JPEG XL alpha", "PASS feedback529 verified publisher/mixed/bracket", "PASS snapshot restore creates an isolated catalog", "PASS sync export destination persists", "PASS duplicate preview: scoped identity", "PASS duplicate apply: preferred ID", "PASS duplicate large preview: 100000 rows", "PASS backup descriptions preserve UTC time and operation", "PASS backup cleanup pins exact folders", "PASS backup cleanup refreshes missing rows"],
   "catalog-sources": ["PASS multiple INPX sources keep separate roots", "PASS statistics count book records once", "PASS all sources participate without multiselect", "PASS source text reflows and wheel reaches the report"],
-  "book-information": ["PASS common book information loads real FLibrary biographies", "PASS review parser preserves Russian text"],
+  "book-information": ["PASS common book information loads real FLibrary biographies", "PASS shared FLibrary author folder migrates to a new catalogue", "PASS review parser preserves Russian text"],
   "collection-merge": ["PASS safe merge previews", "PASS optional copy merging verifies origin", "PASS merge preview reuses sparse target user snapshot"],
   "display-labels": ["PASS diagnostic display labels same-process alternating comparison preserves all values"],
   "first-book-list": ["PASS search book details and FB2 genre aliases tolerate missing and circular genre parents", "PASS book display labels preserve established Unicode whitespace initials nicknames empty single multiple authors genres cases=2058", "PASS first-list stored book strings nested arrays scalars survive iterator release rebuild expanded series and fresh-query comparison", "PASS first-list stored Unicode annotation review keywords survive iterator destruction and tree clear", "PASS full author stream matches independent lookups with dangling links renamed Unicode authors bound=3", "PASS full author stream matches independent lookups with dangling links renamed Unicode authors bound=0", "PASS full author stream matches independent lookups with dangling links renamed Unicode authors bound=1", "PASS full author stream matches independent lookups with dangling links renamed Unicode authors bound=2", "PASS full visible metadata matches independent lookups across leading middle trailing deleted gaps empty lists coauthors and expanded series", "PASS first-list actual queries preserve compact expanded deleted metadata counts and source bytes"],
@@ -528,6 +529,12 @@ function run(executable, mode, subcase = "") {
         {windowsHide:true,encoding:'utf8',timeout:30000});
       if(prepared.status!==0) throw Error('Cannot prepare sparse ZIP64 seed: '+prepared.stdout+prepared.stderr);
       process.stdout.write(prepared.stdout);
+    }
+    if (mode === 'duplicate-file-removal') {
+      const prepared = cp.spawnSync(process.env.HLRU_PYTHON || 'python', ['-B', '-X', 'utf8', '-c',
+        'import pathlib,sys; sys.path.insert(0,sys.argv[1]); from sevenzip_deletion_fixture import prepare; prepare(pathlib.Path(sys.argv[2]))',
+        __dirname, folder], {windowsHide:true, encoding:'utf8', timeout:30000});
+      if (prepared.status !== 0) throw Error('Cannot prepare solid 7z fixture: ' + prepared.stdout + prepared.stderr);
     }
     if (mode === 'packing-fbd') {
       const resultComponents = process.env.HOMELIB_PACKED_RESULT_COMPONENTS;

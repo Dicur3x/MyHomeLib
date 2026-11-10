@@ -61,6 +61,16 @@ var Requested: TDictionary<string,Boolean>; Names: TDictionary<string,Integer>; 
   end;
   function Selected(const Value: string): Boolean;
   begin Result:=Requested.ContainsKey(Value); end;
+  function MatchesInstalledModule(const Inventory: TUpdateFiles): Boolean;
+  var Primary: string;
+  begin
+    Result := False;
+    Primary := CheckedUpdateChildPath(AppPath, ComponentFileName(ID));
+    if not FileExists(Primary) then Exit;
+    for var Info in Inventory do
+      if SameText(Info.Name, ComponentFileName(ID)) then
+        Exit((TFile.GetSize(Primary) = Info.Size) and SameText(UpdateSHA256(Primary), Info.SHA256));
+  end;
   procedure AddCandidate(const Value: TComponentRemovalFile);
   var Index: Integer;
   begin
@@ -114,13 +124,15 @@ begin
       if Length(Files)=0 then
         for Source in Result.ManifestSources do
         begin
-          try Files:=ComponentFilesFromManifest(Source,ID);
-          except on E: Exception do ErrorText:=E.Message; end;
-          if Length(Files)>0 then Break;
+          try
+            Files := ComponentFilesFromManifest(Source, ID);
+            if (Length(Files) > 0) and MatchesInstalledModule(Files) then Break;
+          except on E: Exception do ErrorText := E.Message; end;
+          Files := nil;
         end;
       if Length(Files)=0 then
       begin
-        Block('Для «'+Title(ID)+'» нет проверенного списка файлов. Нужно получить пакет установленной версии; переустановка не требуется. '+ErrorText);
+        Block('Для «'+Title(ID)+'» нужно сверить состав с архивом установленной версии. Выберите модуль в списке и нажмите «Проверить состав…». '+ErrorText);
         Continue;
       end;
       for var Info in Files do
@@ -142,7 +154,7 @@ begin
           else if Item.Disposition=crRemove then
           begin
             if (TFile.GetSize(PathName)<>Info.Size) or not SameText(UpdateSHA256(PathName),Info.SHA256) then
-            begin Item.Disposition:=crKeepChanged; Item.Reason:='Файл изменён после установки'; end;
+            begin Item.Disposition:=crKeepChanged; Item.Reason:='Файл отличается от учтённой копии'; end;
           end;
         end;
         if SameText(Info.Name,ComponentFileName(ID)) and

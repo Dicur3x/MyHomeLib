@@ -284,8 +284,8 @@ begin
         'Review text or footer overlaps at scaled small-window bounds');
       Require(Download.Visible and not Download.Enabled and Status.Visible and
         (Download.Caption='Обновить') and (Pos('нет адреса',Status.Caption)>0) and
-        (Download.BoundsRect.Bottom<=Review.Top) and (Status.BoundsRect.Right<Download.Left) and
-        (Download.BoundsRect.Right<=Panel.ClientWidth),
+        (Download.BoundsRect.Bottom<=Review.Top) and (Download.BoundsRect.Right<Status.Left) and
+        (Download.Left=Review.Left) and (Status.BoundsRect.Right<=Panel.ClientWidth),
         'Review load controls overlap or offer a request without a valid source');
       Panel.SetBookAnnotationText('Аннотация обновилась в фоне.');
       Require(not Viewport.Visible and (Pos(SavedText, Review.Text)>0),

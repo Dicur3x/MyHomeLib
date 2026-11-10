@@ -125,6 +125,7 @@ type
     procedure AllowOnlineReview(const URL: string);
     procedure Download;
     procedure ConfigureDescription(const Book: TBookRecord; Editable, HasLocalSource: Boolean);
+    procedure FocusDescription;
     procedure ConfigureRelink(const Action: TProc);
 
     procedure FillBookInfo(bookInfo: TBookRecord; bookStream: TStream);
@@ -273,6 +274,15 @@ begin
   mmoAnnotation.ReadOnly := not Editable;
   if not Editable then lblAnnotationState.Caption := 'Описание доступно только для чтения.';
   RefreshAnnotationButtons;
+end;
+
+procedure TfrmBookDetails.FocusDescription;
+begin
+  pcBookInfo.ActivePage := tsAnnotation;
+  ActiveControl := mmoAnnotation;
+  if mmoAnnotation.ReadOnly then Exit;
+  if Trim(Annotation) = '' then Annotation := FFileAnnotation;
+  lblAnnotationState.Caption := 'Ваше описание сохранится в HomeLibre. Его можно снова взять из файла или с сайта.';
 end;
 
 procedure TfrmBookDetails.RefreshAnnotationButtons;

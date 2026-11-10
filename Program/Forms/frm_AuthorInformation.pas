@@ -45,7 +45,53 @@ type
 implementation
 
 uses System.IOUtils, Vcl.Controls, Vcl.Dialogs,
-  unit_UpdateNotes, unit_Settings, dm_user;
+  SQLiteWrap, unit_Consts, unit_Globals, unit_Interfaces, unit_UpdateNotes, unit_Settings, dm_user;
+
+const AuthorInfoFolderKey = 'FLibraryAuthorInfo';
+
+var LegacyAuthorInfoFoldersChecked: Boolean;
+
+function SharedAuthorInfoFolder: string;
+var
+  Collections: ICollectionInfoIterator;
+  Info: TCollectionInfo;
+  Catalog: TSQLiteDatabase;
+  Folder: string;
+begin
+  Folder := Settings.InitialDir[AuthorInfoFolderKey];
+  if Folder <> '' then
+    Exit(FindAuthorInfoFolder('', Folder));
+  Result := '';
+  if LegacyAuthorInfoFoldersChecked then Exit;
+
+  // Older versions saved this choice only in the collection that was open.
+  LegacyAuthorInfoFoldersChecked := True;
+  Collections := SystemDB.GetCollectionInfoIterator;
+  while Collections.Next(Info) do
+  begin
+    if not FileExists(Info.DBFileName) then Continue;
+    try
+      Catalog := TSQLiteDatabase.CreateReadOnly(Info.DBFileName);
+      try
+        Folder := Catalog.QuerySingleString('SELECT SettingValue FROM Settings WHERE SettingID = ?',
+          [PROP_AUTHOR_INFO_FOLDER]);
+      finally
+        Catalog.Free;
+      end;
+      Result := FindAuthorInfoFolder('', Folder);
+    except
+      on E: ESQLiteException do Continue;
+      on E: EInOutError do Continue;
+      on E: EOSError do Continue;
+      on E: EArgumentException do Continue;
+    end;
+    if Result <> '' then
+    begin
+      Settings.InitialDir[AuthorInfoFolderKey] := Result;
+      Exit;
+    end;
+  end;
+end;
 
 constructor TAuthorInformationWorker.Create(const Folder, Name: string);
 begin
@@ -123,7 +169,9 @@ begin
   StopWorker; FPhotos.Clear; FText.Clear;
   if FAuthors.ItemIndex < 0 then
   begin FStatus.Caption := 'В книге не указан автор.'; Exit; end;
-  try Folder := FindAuthorInfoFolder(FRoot, FFolder);
+  try
+    Folder := FindAuthorInfoFolder(FRoot, FFolder);
+    if Folder = '' then Folder := SharedAuthorInfoFolder;
   except on E: Exception do
     begin FStatus.Caption := 'Не удалось открыть папку: ' + E.Message; Exit; end;
   end;
@@ -144,13 +192,16 @@ begin
   try
     Dialog.Title := 'Папка дополнительных сведений FLibrary';
     Dialog.Options := [fdoPickFolders, fdoPathMustExist];
-    if DirectoryExists(FFolder) then Dialog.DefaultFolder := FFolder;
+    Folder := FFolder;
+    if not DirectoryExists(Folder) then Folder := Settings.InitialDir[AuthorInfoFolderKey];
+    if DirectoryExists(Folder) then Dialog.DefaultFolder := Folder;
     if not Dialog.Execute then Exit;
     Folder := FindAuthorInfoFolder('', Dialog.FileName);
     if Folder = '' then
     begin FStatus.Caption := 'В выбранной папке нет authors/*.7z или *.7z.'; Exit; end;
     FFolder := Folder;
     if Assigned(FSaveFolder) then FSaveFolder(Folder);
+    Settings.InitialDir[AuthorInfoFolderKey] := Folder;
     FActivated := True; SelectAuthor(nil);
   finally Dialog.Free; end;
 end;
