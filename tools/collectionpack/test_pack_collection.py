@@ -1032,6 +1032,78 @@ Packer(json.loads(open(sys.argv[2],encoding='utf-8').read()),notify).execute()
             Packer(dict(self.job, images='balanced')).execute()
 
     @unittest.skipUnless(IMAGE_TOOLS, 'Native HomeLibre Images runtime not supplied')
+    def test_updated_archive_only_optimizes_new_or_changed_books(self):
+        self.job.update(engine='illustrations-ppmd', images='economy', tools_root=IMAGE_TOOLS)
+        picture = image_fixture()
+        first = illustrated_fb2(picture)
+        second = first.replace(b'Keep ', b'Second ')
+        source = self.archive('updated.zip', {'1.fb2': first, '2.fb2': second})
+        self.add(1, source, '1.fb2'); self.add(2, source, '2.fb2')
+        original = sha(source)
+        one = Packer(self.job).execute()
+        first_optimized = self.packed_book(one, 1)
+        self.assertLess(len(first_optimized), len(first))
+        self.assertEqual(sha(source), original)
+
+        changed = second.replace(b'Second ', b'Updated ')
+        added = first.replace(b'Keep ', b'Added ')
+        self.archive('updated.zip', {'1.fb2': first, '2.fb2': changed, '3.fb2': added})
+        self.add(3, source, '3.fb2')
+        updated_source = sha(source)
+        converted = []
+        optimize = Packer.optimize_book
+
+        def recording(packer, target, stage, entry=None):
+            converted.append(sha(target))
+            return optimize(packer, target, stage, entry)
+
+        with patch.object(Packer, 'optimize_book', recording):
+            two = Packer(self.job).execute()
+        self.assertCountEqual(converted, [hashlib.sha256(changed).hexdigest(), hashlib.sha256(added).hexdigest()])
+        self.assertEqual(two.books, 3)
+        self.assertEqual(self.packed_book(two, 1), first_optimized)
+        self.assertIn(b'Updated ', self.packed_book(two, 2))
+        self.assertIn(b'Added ', self.packed_book(two, 3))
+        self.assertEqual(self.packed_book(one, 1), first_optimized, 'Old generation remains readable')
+        self.assertEqual(sha(source), updated_source)
+
+        # Reimporting a previously optimized book must not degrade its
+        # illustrations through another lossy pass, even if the archive changed.
+        two_payloads = [self.packed_book(two, identity) for identity in (1, 2, 3)]
+        self.archive('updated.zip', {'1.fb2': first_optimized, '2.fb2': changed, '3.fb2': added})
+        reimported_source = sha(source)
+        converted.clear()
+        with patch.object(Packer, 'optimize_book', recording):
+            three = Packer(self.job).execute()
+            four = Packer(self.job).execute()
+        self.assertEqual(converted, [])
+        self.assertEqual(four.reused, 1)
+        self.assertEqual([self.packed_book(three, identity) for identity in (1, 2, 3)], two_payloads)
+        self.assertEqual(sha(source), reimported_source)
+        self.assertFalse(list(self.output.glob('.packing-*')))
+
+    @unittest.skipUnless(IMAGE_TOOLS, 'Native HomeLibre Images runtime not supplied')
+    def test_incremental_images_fall_back_to_source_when_previous_payload_is_missing(self):
+        self.job.update(engine='illustrations-ppmd', images='economy', tools_root=IMAGE_TOOLS)
+        original = illustrated_fb2(image_fixture())
+        source = self.archive('updated.zip', {'1.fb2': original})
+        self.add(1, source, '1.fb2')
+        one = Packer(self.job).execute()
+        with database(self.output / 'generations' / one.generation / 'locations.sqlite') as locations:
+            folder = locations.execute('SELECT folder FROM locations WHERE book_id=1').fetchone()[0]
+        (self.output / folder).unlink()
+        added = original.replace(b'Keep ', b'Added ')
+        self.archive('updated.zip', {'1.fb2': original, '2.fb2': added})
+        self.add(2, source, '2.fb2')
+        source_hash = sha(source)
+        result = Packer(self.job).execute()
+        self.assertEqual(result.books, 2)
+        self.assertIn(b'Keep ', self.packed_book(result, 1))
+        self.assertIn(b'Added ', self.packed_book(result, 2))
+        self.assertEqual(sha(source), source_hash)
+        self.assertFalse(list(self.output.glob('.packing-*')))
+
+    @unittest.skipUnless(IMAGE_TOOLS, 'Native HomeLibre Images runtime not supplied')
     def test_grayscale_is_independent_and_preserves_transparent_illustrations(self):
         picture = image_fixture(transparent=True)
         book = self.source / 'color.fb2'

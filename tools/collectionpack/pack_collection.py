@@ -952,6 +952,64 @@ class Packer:
             return None
         return row[0], json.loads(row[1]), artifacts, row[3], row[4]
 
+    def previous_optimized_books(self, identity):
+        # An INPX update can add a member to an existing archive or replace
+        # that archive without changing most of its books. Reuse the checked
+        # image payloads, not a second lossy conversion of those illustrations.
+        if self.engine not in IMAGE_ENGINES:
+            return None
+        row = self.db.execute('SELECT folder,members,artifacts FROM sources WHERE id=?',
+                              (identity,)).fetchone()
+        if row is None or self.invalid_artifact(json.loads(row[2])) is not None:
+            return None
+        books = {locator: item for locator, item in json.loads(row[1]).items()
+                 if item.get('image_result') == 'optimized' and
+                 re.fullmatch('[0-9a-f]{64}', item.get('original_sha256', '')) and
+                 re.fullmatch('[0-9a-f]{64}', item.get('payload_sha256', '')) and
+                 re.fullmatch('[0-9a-f]{32}', item.get('filename', '')) and
+                 not item.get('fbd') and not item.get('loose') and
+                 isinstance(item.get('payload_size'), int) and 0 < item['payload_size'] <= MAX_BOOK}
+        return (checked_relative(self.root, row[0]), books) if books else None
+
+    def reuse_optimized_book(self, previous, locator, target, stage):
+        if previous is None:
+            return None
+        archive, books = previous
+        old = books.get(locator)
+        if old is None or old.get('ext') != target.suffix:
+            return None
+        incoming = digest_file(target, self.check)
+        if incoming not in (old['original_sha256'], old['payload_sha256']):
+            return None
+        candidate = stage / ('reused-image-book' + target.suffix)
+        reserve_space(stage, old['payload_size'])
+        try:
+            self.check()
+            member = old['filename'] + old['ext']
+            try:
+                with zipfile.ZipFile(archive) as directory, directory.open(member) as reader, candidate.open('xb') as writer:
+                    while chunk := reader.read(BLOCK):
+                        self.check()
+                        if writer.tell() + len(chunk) > old['payload_size']:
+                            return None
+                        writer.write(chunk)
+            except NotImplementedError:
+                candidate.unlink(missing_ok=True)
+                self.seven.extract(archive, member, candidate, stage)
+            signature = book_signature(candidate, self.check)
+            if any(signature[key] != old.get(key) for key in signature):
+                return None
+            candidate.replace(target)
+            return dict(image_result='optimized', original_sha256=old['original_sha256'])
+        except Canceled:
+            raise
+        except (PackingError, OSError, KeyError, zipfile.BadZipFile):
+            # A stale or damaged cache is optional. The original extraction
+            # remains intact and will be processed and checked normally.
+            return None
+        finally:
+            candidate.unlink(missing_ok=True)
+
     def pack_with_jpeg_xl(self, files, stage, package, mappings, maximum_size):
         transformed = stage / 'separated'; transformed.mkdir()
         scratch = stage / 'codec'; scratch.mkdir()
@@ -1118,6 +1176,7 @@ class Packer:
             mappings = {row['locator']: self.original_book_item(source, row) for row in rows}
         else:
             files = stage / 'books'; files.mkdir()
+            previous = self.previous_optimized_books(identity)
             names_by_method = {'PPMd': [], 'LZMA': [], 'Deflate': [], 'Copy': []}
             adaptive = {}
             original = None
@@ -1177,7 +1236,9 @@ class Packer:
                         with target.open('rb') as document:
                             if document.read(len(PACKED_PDF_MAGIC)) == PACKED_PDF_MAGIC:
                                 keep_source = True
-                    image_result = {} if keep_source else self.optimize_book(target, stage, entry)
+                    image_result = {} if keep_source else self.reuse_optimized_book(previous, locator, target, stage)
+                    if image_result is None:
+                        image_result = self.optimize_book(target, stage, entry)
                     mappings[locator] = dict(filename=stem, ext=extension, inside_no=-1, **image_result,
                                              **book_signature(target, self.check))
                     if ((extension in DJVU_SUFFIXES and image_result.get('image_result') == 'optimized') or
