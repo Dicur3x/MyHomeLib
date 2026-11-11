@@ -20,7 +20,7 @@ type
 
   // The application supplies its existing book-path/member resolver. Keeping
   // it separate avoids a second interpretation of linked books, FBD and the
-  // legacy ZIP-to-7z fallback in a worker with no VCL/database connection.
+  // legacy ZIP-to-7z fallback without borrowing UI-owned database connections.
   TCompressionSourceResolver = reference to function(const Row: TCompressionLocator): string;
   TCompressionMemberResolver = reference to function(const Source: string;
     const Row: TCompressionLocator): string;
@@ -33,6 +33,7 @@ type
     FTemplate: TJSONObject;
     procedure AddMember(const Member, Extension: string);
     procedure AddRow(const Row: TCompressionLocator; const Member: string);
+    procedure AddFuturePersonalRows;
   public
     constructor Create(const Source: string; Template: TJSONObject);
     destructor Destroy; override;
@@ -131,6 +132,33 @@ begin
   FRows.AddElement(Row.AsJSON(Member));
 end;
 
+procedure TCompressionFilePlan.AddFuturePersonalRows;
+var Seen:TDictionary<Integer,Byte>; Row, Mirror:TJSONObject; ID, Count:Integer;
+begin
+  // Opening/annotating a book while the producer runs can create its first
+  // personal card. Include an optional primary locator without copying any
+  // notes, so the receipt can update its size while retaining the new data.
+  Seen:=TDictionary<Integer,Byte>.Create;
+  try
+    for var Value in FRows do
+    begin
+      Row:=TJSONObject(Value);
+      if Row.GetValue<Integer>('kind')=1 then Seen.AddOrSetValue(Row.GetValue<Integer>('id'),0);
+    end;
+    Count:=FRows.Count;
+    for var I:=0 to Count-1 do
+    begin
+      Row:=TJSONObject(FRows.Items[I]); ID:=Row.GetValue<Integer>('id');
+      if (Row.GetValue<Integer>('kind')<>0) or Seen.ContainsKey(ID) then Continue;
+      if FRows.Count>=100000 then raise EReadError.Create('Слишком много записей относится к одному файлу сжатия.');
+      Mirror:=TJSONObject(Row.Clone);
+      Mirror.RemovePair('kind').Free; Mirror.AddPair('kind',TJSONNumber.Create(1));
+      Mirror.RemovePair('required').Free; Mirror.AddPair('required',TJSONBool.Create(False));
+      FRows.AddElement(Mirror); Seen.Add(ID,0);
+    end;
+  finally Seen.Free; end;
+end;
+
 function TCompressionFilePlan.ReceiptTemplate: string;
 var Data: TJSONObject;
 begin
@@ -222,7 +250,7 @@ var Catalogue, Personal: TSQLiteDatabase; Query: TSQLiteQuery;
         if Locator.FileName<>'' then
         begin
           Path:=ExpandFileName(SourceFor(Locator));
-          if not ByPath.TryGetValue(LowerCase(Path),Target) then
+          if not ByPath.TryGetValue(Path,Target) then
           begin
             Target:=nil;
             // Only a same-name path can be another route through a junction
@@ -235,7 +263,7 @@ var Catalogue, Personal: TSQLiteDatabase; Query: TSQLiteQuery;
             end;
             // Cache archive paths, not every unrelated loose-book path.
             if Names.ContainsKey(LowerCase(ExtractFileName(Path))) then
-              ByPath.Add(LowerCase(Path),Target);
+              ByPath.Add(Path,Target);
           end;
           if Assigned(Target) then
           begin
@@ -300,17 +328,20 @@ begin
         FFiles.Add(FilePlan); ByKey.Add(Key,FilePlan);
         Names.AddOrSetValue(LowerCase(ExtractFileName(Source)),0);
       end;
-      ByPath.AddOrSetValue(LowerCase(Source),FilePlan);
+      ByPath.AddOrSetValue(Source,FilePlan);
       FilePlan.AddMember(Member,Row.Extension);
     end;
     Done:=0;
-    Scan(Catalogue,'SELECT '+Columns+' FROM Books',0);
     Scan(Personal,'SELECT '+Columns+' FROM Books WHERE DatabaseID='+IntToStr(FOptions.CollectionID),1);
+    // Release the personal read transaction before the potentially long main
+    // catalogue scan. Reader bookmarks/notes must not wait on that scan.
+    FreeAndNil(Personal);
+    Scan(Catalogue,'SELECT '+Columns+' FROM Books',0);
     if Catalogue.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE type=''table'' AND name=''CatalogBookCopies''')<>0 then
       Scan(Catalogue,'SELECT '+Columns+',Root,SourceKey FROM CatalogBookCopies',2);
     for FilePlan in FFiles do
     begin
-      CheckCancel; FilePlan.CheckSource;
+      CheckCancel; FilePlan.CheckSource; FilePlan.AddFuturePersonalRows;
       if FilePlan.RowCount=0 then raise EReadError.Create('В каталоге не осталось выбранных книг.');
       if Catalogue.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE type=''table'' AND name=''HomeLibreBookCompression''')<>0 then
       begin

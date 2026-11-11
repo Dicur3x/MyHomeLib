@@ -1,5 +1,6 @@
 """The actual catalogue resolver: fallback archives, loose/linked/FBD books."""
 from pathlib import Path
+import ctypes
 import shutil
 import subprocess
 import zipfile
@@ -43,7 +44,7 @@ class NativeCompressionApplicationTests(plan_fixtures.NativeCompressionPlanTests
         job = self.capture()['files'][0]
         self.assertEqual(Path(job['source']), source)
         self.assertEqual(job['members'], {'': '.fb2'})
-        self.assertEqual([r['kind'] for r in job['receipt_template']['rows']], [0])
+        self.assertEqual({r['kind'] for r in job['receipt_template']['rows']}, {0, 1})
         self.assertEqual(source.read_bytes(), self.fixture.original_book)
 
     def test_linked_book_outside_collection_retains_original_path(self):
@@ -55,7 +56,7 @@ class NativeCompressionApplicationTests(plan_fixtures.NativeCompressionPlanTests
         job = self.capture()['files'][0]
         self.assertEqual(Path(job['source']), source)
         self.assertEqual(job['members'], {'': '.fb2'})
-        row = job['receipt_template']['rows'][0]
+        row = next(r for r in job['receipt_template']['rows'] if r['kind'] == 0)
         self.assertEqual(row['folder'], str(folder) + '\\')
         self.assertEqual(row['lib_id'], self.config['selected'][0]['lib_id'])
 
@@ -90,3 +91,48 @@ class NativeCompressionApplicationTests(plan_fixtures.NativeCompressionPlanTests
         self.config['options']['catalogue'] = str(foreign)
         self.assertIn('Подключение коллекции изменилось', self.capture(False))
         self.unchanged()
+
+    def test_case_distinct_archives_are_not_treated_as_aliases(self):
+        folder = self.root / 'case-sensitive'
+        folder.mkdir()
+        kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+        kernel.CreateFileW.argtypes = (ctypes.c_wchar_p, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_void_p,
+                                       ctypes.c_uint32, ctypes.c_uint32, ctypes.c_void_p)
+        kernel.CreateFileW.restype = ctypes.c_void_p
+        kernel.SetFileInformationByHandle.argtypes = (ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32)
+        kernel.CloseHandle.argtypes = (ctypes.c_void_p,)
+        handle = kernel.CreateFileW(str(folder), 0x180, 7, None, 3, 0x02000000, None)
+        if handle == ctypes.c_void_p(-1).value:
+            self.skipTest('Private directory does not allow case-sensitivity flags')
+        try:
+            flags = ctypes.c_uint32(1)
+            if not kernel.SetFileInformationByHandle(handle, 23, ctypes.byref(flags), ctypes.sizeof(flags)):
+                self.skipTest('Case-sensitive directories unavailable on this filesystem')
+        finally:
+            kernel.CloseHandle(handle)
+        first, second = folder / 'Books.zip', folder / 'books.zip'
+        shutil.copyfile(self.fixture.source, first)
+        shutil.copyfile(self.fixture.source, second)
+        self.assertNotEqual(first.stat().st_ino, second.stat().st_ino)
+        self.update_main(Folder='case-sensitive\\Books.zip')
+        with database(self.catalogue) as db:
+            db.execute("UPDATE Books SET Folder='case-sensitive\\books.zip',FileName='one' WHERE BookID=102")
+        job = self.capture()['files'][0]
+        self.assertTrue(job['source'].endswith('Books.zip'))
+        self.assertEqual({r['id'] for r in job['receipt_template']['rows']}, {101})
+        self.assertEqual(sha(first.read_bytes()), self.before[self.fixture.source])
+        self.assertEqual(sha(second.read_bytes()), self.before[self.fixture.source])
+
+    def test_first_personal_card_created_after_capture_keeps_its_notes_and_new_size(self):
+        # The catalogue may contain an inaccurate INPX size. A newly opened
+        # Reader records the actual original size; both need the final size.
+        with database(self.catalogue) as db:
+            db.execute('UPDATE Books SET BookSize=BookSize+123 WHERE BookID=101')
+        with database(self.personal) as db:
+            db.execute('DELETE FROM Books WHERE DatabaseID=7 AND BookID=101')
+        def add_personal_card():
+            with database(self.personal) as db:
+                db.execute('INSERT INTO Books VALUES(' + ','.join('?' * (len(self.fixture.main_row) + 2)) + ')',
+                           (*self.fixture.main_row, 7, b'New notes written during compression\x00\xff'))
+        self.after_capture = add_personal_card
+        self.test_captured_selection_to_packaged_converter_to_native_commit()

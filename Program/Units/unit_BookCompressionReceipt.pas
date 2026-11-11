@@ -259,7 +259,11 @@ begin
             (Query.FieldAsString(2)=JSONText(Item,'file_name')) and
             (Query.FieldAsString(3)=JSONText(Item,'ext')) and
             (Query.FieldAsInt(4)=JSONNumber(Item,'inside_no')) and
-            ((CurrentSize=JSONNumber(Item,'old_size')) or (CurrentSize=NewSize));
+            // Personal cards can be created by a Reader while compression is
+            // running, with a corrected actual size instead of INPX's size.
+            // The exact library/book locator still has to match; only its
+            // BookSize is updated and the newly written notes stay intact.
+            ((Kind=1) or (CurrentSize=JSONNumber(Item,'old_size')) or (CurrentSize=NewSize));
           if Matches and (Kind=2) then
             Matches:=(Query.FieldAsString(6)=JSONText(Item,'root')) and
               (Query.FieldAsInt(7)=JSONNumber(Item,'id'));

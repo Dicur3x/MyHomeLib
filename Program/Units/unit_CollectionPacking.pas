@@ -201,7 +201,7 @@ begin
         Book:=CompressionBookFor(Row,Info);
         Container:=CompressionContainerFor(Book,Containers); Result:='';
         if not (Book.GetBookFormat(Container) in [bfFb2Archive,bfRawArchive,bfFbd]) then Exit;
-        Key:=LowerCase(ExpandFileName(Source));
+        Key:=ExpandFileName(Source);
         if not Archives.TryGetValue(Key,Archive) then
         begin
           Archive:=TMHLZip.Create(Source,True,False,Cancelled);

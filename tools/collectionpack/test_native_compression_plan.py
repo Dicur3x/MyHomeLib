@@ -70,7 +70,9 @@ class NativeCompressionPlanTests(unittest.TestCase):
         result = self.capture()
         self.assertEqual(len(result['files']), 1)
         self.assertEqual(set(result['files'][0]['members']), {'one.fb2', 'neighbor.fb2'})
-        self.assertEqual(len(result['files'][0]['receipt_template']['rows']), 4)
+        rows = result['files'][0]['receipt_template']['rows']
+        self.assertEqual(len(rows), 5)
+        self.assertEqual({r['id'] for r in rows if r['kind'] == 1}, {101, 102})
         self.unchanged()
 
     def test_unselected_alias_of_selected_physical_book_is_captured(self):
@@ -159,6 +161,8 @@ class NativeCompressionPlanTests(unittest.TestCase):
         tools = RUNTIME / 'tools'
         self.config.update(seven_zip=str(tools / '7zip' / '7za.exe'), tools_root=str(tools))
         job = self.capture()['files'][0]
+        if getattr(self, 'after_capture', None):
+            self.after_capture()
         workspace = Path(job['workspace'])
         workspace.mkdir()
         self.request.write_text(json.dumps(job, ensure_ascii=False), encoding='utf-8')

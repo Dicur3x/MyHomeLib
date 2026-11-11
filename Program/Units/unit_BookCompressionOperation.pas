@@ -392,8 +392,10 @@ begin
         Exit;
       end;
       CheckStop;
-      Job:=TBookCompressionJob.CreatePrepared(QueueRoot,Receipt.ToJSON,Candidate);
+      // Publication can have succeeded even if a subsequent constructor
+      // check fails. Keep its candidate for recovery, never remove it here.
       KeepWork:=True;
+      Job:=TBookCompressionJob.CreatePrepared(QueueRoot,Receipt.ToJSON,Candidate);
       TMonitor.Enter(FLock);
       try FState.PendingJob:=Job.Directory; finally TMonitor.Exit(FLock); end;
       Job.Execute(Stopping,

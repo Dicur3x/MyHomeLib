@@ -14,6 +14,7 @@ type
     FData: TJSONObject;
     FLease, FDirectoryGuard: THandle;
     FCompleted: Boolean;
+    procedure OpenDirectoryGuard;
     procedure OpenLease;
     procedure ReadBinding;
     function FindJournal: string;
@@ -21,7 +22,8 @@ type
     procedure SaveCompleted;
     function Field(const Name: string): string;
   public
-    constructor CreatePrepared(const QueueRoot, ReceiptJSON, Candidate: string);
+    constructor CreatePrepared(const QueueRoot, ReceiptJSON, Candidate: string;
+      const Fault: TProc<string> = nil);
     constructor OpenExisting(const Directory: string);
     destructor Destroy; override;
     procedure Execute(const Cancelled: TFunc<Boolean> = nil;
@@ -109,8 +111,8 @@ begin
   Result:=Value.Value;
 end;
 
-procedure TBookCompressionJob.OpenLease;
-var Info: TByHandleFileInformation; Path: string; FinalPath: TArray<Char>; Count: DWORD;
+procedure TBookCompressionJob.OpenDirectoryGuard;
+var Path: string; FinalPath: TArray<Char>; Count: DWORD;
 begin
   CheckDirectory(FDirectory);
   FDirectoryGuard:=CreateFile(PChar(DeletionNativePath(FDirectory)),FILE_READ_ATTRIBUTES,
@@ -125,6 +127,12 @@ begin
   SetString(Path,PChar(@FinalPath[0]),Count);
   if not SameFileName(Path,DeletionNativePath(FDirectory)) then
     raise EReadError.Create('Путь папки сжатия проходит через ссылку.');
+end;
+
+procedure TBookCompressionJob.OpenLease;
+var Info:TByHandleFileInformation;
+begin
+  OpenDirectoryGuard;
   FLease:=CreateFile(PChar(DeletionNativePath(TPath.Combine(FDirectory,'active.lock'))),
     GENERIC_READ or GENERIC_WRITE,FILE_SHARE_DELETE,nil,OPEN_ALWAYS,FILE_FLAG_OPEN_REPARSE_POINT,0);
   if FLease=INVALID_HANDLE_VALUE then begin FLease:=0; RaiseLastOSError; end;
@@ -134,8 +142,9 @@ begin
     raise EReadError.Create('Некорректная блокировка задания сжатия.');
 end;
 
-constructor TBookCompressionJob.CreatePrepared(const QueueRoot, ReceiptJSON, Candidate: string);
-var Binding: TJSONObject;
+constructor TBookCompressionJob.CreatePrepared(const QueueRoot, ReceiptJSON, Candidate: string;
+  const Fault:TProc<string>);
+var Binding: TJSONObject; Name:string;
 begin
   inherited Create;
   FReceipt:=TBookCompressionReceipt.Create(ReceiptJSON);
@@ -148,18 +157,24 @@ begin
   if Copy(FIdentity,1,25)<>Field('source_file_key') then
     raise EReadError.Create('Исходный файл изменился до создания задания.');
   ForceDirectories(DeletionNativePath(QueueRoot)); CheckDirectory(QueueRoot);
-  FDirectory:=TPath.Combine(ExpandFileName(QueueRoot),JobPrefix+TGUID.NewGuid.ToString);
+  Name:=JobPrefix+TGUID.NewGuid.ToString;
+  FDirectory:=TPath.Combine(ExpandFileName(QueueRoot),Name);
   if not CreateDirectory(PChar(DeletionNativePath(FDirectory)),nil) then RaiseLastOSError;
   OpenLease;
-  FJournalRoot:=TPath.Combine(FDirectory,'file');
   SaveText(TPath.Combine(FDirectory,'receipt.json'),FReceipt.ToJSON);
+  if Assigned(Fault) then Fault('receipt-prepared');
   Binding:=TJSONObject.Create;
   try
-    Binding.AddPair('kind',JobKind); Binding.AddPair('job',ExtractFileName(FDirectory));
+    Binding.AddPair('kind',JobKind); Binding.AddPair('job',Name);
     Binding.AddPair('receipt_sha256',FReceipt.SHA256);
     Binding.AddPair('source_identity',FIdentity); Binding.AddPair('candidate',FCandidate);
+    if Assigned(Fault) then Fault('binding-prepared');
+    // job.json is the last atomic publication, after the immutable receipt.
+    // Pending ignores an unstarted directory until this file is durable.
     SaveText(TPath.Combine(FDirectory,'job.json'),Binding.ToJSON);
   finally Binding.Free; end;
+  FJournalRoot:=TPath.Combine(FDirectory,'file');
+  if Assigned(Fault) then Fault('job-published');
 end;
 
 procedure TBookCompressionJob.ReadBinding;
@@ -343,7 +358,16 @@ begin
   try
     for var Path in TDirectory.GetDirectories(DeletionNativePath(QueueRoot),JobPrefix+'*') do
       if IsJobName(ExtractFileName(Path)) then
-      begin CheckDirectory(Path); Items.Add(ExpandFileName(Path)); end;
+      begin
+        CheckDirectory(Path);
+        // Before job.json is published the original cannot have been written.
+        // Never hide an already-started/corrupted job whose binding was lost:
+        // its file journal or completion marker still requires attention.
+        if FileExists(TPath.Combine(Path,'job.json')) or
+          DirectoryExists(TPath.Combine(Path,'file')) or
+          FileExists(TPath.Combine(Path,'completed.json')) then
+          Items.Add(ExpandFileName(Path));
+      end;
     Items.Sort; Result:=Items.ToArray;
   finally Items.Free; end;
 end;

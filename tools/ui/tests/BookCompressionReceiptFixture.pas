@@ -33,6 +33,19 @@ begin
   if not TerminateProcess(GetCurrentProcess,73) then RaiseLastOSError;
 end;
 
+procedure PreparationFault(Stage:string);
+begin
+  if (Mode='job-prepare-hold') and (Stage='job-published') then
+  begin
+    TFile.WriteAllText(Root+'publication-ready','ready');
+    while not FileExists(Root+'release-publication') do Sleep(25);
+    Exit;
+  end;
+  if Stage<>FaultAt then Exit;
+  TFile.WriteAllText(Root+'preparation-stage.txt',Stage,TEncoding.UTF8);
+  if not TerminateProcess(GetCurrentProcess,73) then RaiseLastOSError;
+end;
+
 function LoadReceipt: TBookCompressionReceipt;
 var Data: TJSONObject; Value: TJSONValue; Stream: TStringStream;
 begin
@@ -81,7 +94,10 @@ begin
   else
   begin
     Receipt:=LoadReceipt;
-    try Job:=TBookCompressionJob.CreatePrepared(Root+'queue',Receipt.ToJSON,Root+'candidate.bin');
+    try
+      if (Mode='job-prepare-crash') or (Mode='job-prepare-hold') then
+        Job:=TBookCompressionJob.CreatePrepared(Root+'queue',Receipt.ToJSON,Root+'candidate.bin',PreparationFault)
+      else Job:=TBookCompressionJob.CreatePrepared(Root+'queue',Receipt.ToJSON,Root+'candidate.bin');
     finally Receipt.Free; Receipt:=nil; end;
   end;
   try
