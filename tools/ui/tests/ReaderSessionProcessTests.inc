@@ -4,7 +4,9 @@ type
   TSessionRenderDriver = class
     Timer: TTimer;
     Started, PageStarted, VisibleAt: UInt64;
-    Pages, InitialPosition: Integer;
+    Pages, InitialPosition, RecentTarget, VolumeTarget: Integer;
+    VolumeEndReached: Boolean;
+    Request: TReaderSessionRequest;
     OpenMS, MaxPageMS, TotalPageMS: Int64;
     TextHash, Error: string;
     Done: Boolean;
@@ -25,7 +27,54 @@ begin
     if VisibleAt=0 then VisibleAt:=GetTickCount64;
     Require(not string(View.ReaderStatus.Caption).StartsWith('Не удалось'),View.ReaderStatus.Caption);
     if not View.Ready or View.PageLoading then Exit;
-    if Pages=0 then
+    if VolumeTarget>0 then
+    begin
+      if Request.Book.BookKey.BookID<>VolumeTarget then
+      begin
+        Require((Request.NextVolume.Book.Key.BookID=VolumeTarget) and
+          (Request.NextVolume.Sequence=3), 'The wrong book or number was offered as the next volume');
+        for var I:=0 to Screen.FormCount-1 do
+          if Screen.Forms[I].Visible and (Screen.Forms[I].Name='ReaderFollowingVolumeDialog') then
+          begin
+            var Dialog:=Screen.Forms[I];
+            var Named:=False;
+            for var Component in Dialog do
+              if (Component is TLabel) and string(TLabel(Component).Caption).Contains('3. Следующий том') then
+                Named:=True;
+            Require(Named and VolumeEndReached,'The dialog should name the next volume after a forward turn');
+            Dialog.ModalResult:=mrYes;
+            Done:=True; Timer.Enabled:=False; Exit;
+          end;
+        if not VolumeEndReached then
+        begin
+          View.GoToPosition(View.TextLength-1);
+          View.NextPage;
+          VolumeEndReached:=True;
+        end;
+        Exit;
+      end;
+      Require(View.BookText.Contains('NEXT SERIES VOLUME') and (Request.NextVolume.Sequence=10),
+        'The next volume did not continue in the same series');
+      InitialPosition:=View.TextPosition;
+    end
+    else if RecentTarget>0 then
+    begin
+      if Request.Book.BookKey.BookID<>RecentTarget then
+      begin
+        var Recent:=View.Menu.FindComponent('ReaderRecentMenu') as TMenuItem;
+        Require((Length(Request.CatalogueRecent)=1) and Assigned(Recent) and (Recent.Count=1) and
+          (Recent.Items[0].Caption='Недавняя книга') and (Recent.Items[0].Count=0) and
+          (Request.CatalogueRecent[0].Key.BookID=RecentTarget),
+          'Catalogue did not offer exactly the valid recent book');
+        View.GoToPosition(900);
+        Recent.Items[0].Click;
+        Done:=True; Timer.Enabled:=False; Exit;
+      end;
+      InitialPosition:=View.TextPosition;
+      Require((InitialPosition=1200) and View.BookText.Contains('SECOND RECENT BOOK'),
+        'Catalogue recent book did not open at its own saved place');
+    end
+    else if Pages=0 then
     begin
       OpenMS:=GetTickCount64-Started; InitialPosition:=View.TextPosition;
       Require(InitialPosition=0,'Independent reader lost the original history position');
@@ -33,11 +82,14 @@ begin
       TextHash:=THashSHA2.GetHashString(View.BookText);
       Pages:=1; PageStarted:=GetTickCount64; View.NextPage; Exit;
     end;
-    Elapsed:=GetTickCount64-PageStarted; MaxPageMS:=Max(MaxPageMS,Elapsed); Inc(TotalPageMS,Elapsed);
-    Require(Elapsed<1500,'Independent reader page turn blocks for seconds');
-    if Pages<5 then
-    begin Inc(Pages); PageStarted:=GetTickCount64; View.NextPage; Exit; end;
-    Require(View.TextPosition>InitialPosition,'Independent reader did not move through the text');
+    if (RecentTarget=0) and (VolumeTarget=0) then
+    begin
+      Elapsed:=GetTickCount64-PageStarted; MaxPageMS:=Max(MaxPageMS,Elapsed); Inc(TotalPageMS,Elapsed);
+      Require(Elapsed<1500,'Independent reader page turn blocks for seconds');
+      if Pages<5 then
+      begin Inc(Pages); PageStarted:=GetTickCount64; View.NextPage; Exit; end;
+      Require(View.TextPosition>InitialPosition,'Independent reader did not move through the text');
+    end;
   except on E: Exception do Error:=E.ClassName+': '+E.Message; end;
   Done:=True; Timer.Enabled:=False;
   Report:=TMemIniFile.Create(GetEnvironmentVariable('HLRU_READER_TEST_REPORT'),TEncoding.UTF8);
@@ -67,7 +119,7 @@ begin
   RequireIsolatedRegression;
   Request:=LoadReaderSession(ParamStr(1).Substring(10));
   Mode:=GetEnvironmentVariable('HLRU_SESSION_TEST_MODE');
-  if Mode<>'render' then
+  if (Mode<>'render') and (Mode<>'render-recent') and (Mode<>'render-volume') then
   begin
     if Mode='crash' then Exit;
     Lease:=TReaderSessionLease.Create(Request);
@@ -97,6 +149,9 @@ begin
   Application.CreateForm(TDMUser,DMUser); DMUser.Init;
   Driver:=TSessionRenderDriver.Create; Host:=TfrmReaderHost.Create(nil);
   try
+    Driver.Request:=Request;
+    if Mode='render-recent' then Driver.RecentTarget:=StrToInt(GetEnvironmentVariable('HLRU_READER_TEST_RECENT'));
+    if Mode='render-volume' then Driver.VolumeTarget:=StrToInt(GetEnvironmentVariable('HLRU_READER_TEST_VOLUME'));
     Driver.Started:=GetTickCount64;
     Driver.Timer:=TTimer.Create(nil); Driver.Timer.Interval:=20; Driver.Timer.OnTimer:=Driver.Tick;
     Host.OpenInitialSession(Request.RequestFile); Host.Show;

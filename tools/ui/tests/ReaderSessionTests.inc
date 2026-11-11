@@ -3,7 +3,7 @@ var Book: TBookRecord; Request, Reloaded: TReaderSessionRequest;
   Reply, ReadReply: TReaderSessionReply; Lease: TReaderSessionLease;
   Archive: TZipFile; ArchiveReader: TMHLZip; Input: TStream; Data: TBytes;
   Root: TJSONObject; Original, Response, SourceHash: string;
-  Blocked, OtherBlocked: Boolean; Worker: TThread;
+  Blocked, OtherBlocked: Boolean; Worker: TThread; Recent: TArray<TReaderCatalogueRecent>;
   procedure RejectReply(const Contents: string);
   begin
     TFile.WriteAllText(Response,Contents,TEncoding.UTF8);
@@ -28,8 +28,11 @@ begin
   finally Archive.Free; end;
   Book.Size:=TFile.GetSize(Book.GetBookFileName);
   SourceHash:=THashSHA2.GetHashStringFromFile(Book.GetBookFileName);
+  SetLength(Recent,1);
+  Recent[0].Key:=CreateBookKey(42,38); Recent[0].Identity:=StringOfChar('b',40);
+  Recent[0].Caption:='Недавняя книга из другой коллекции';
   Request:=CreateReaderSession(Settings.AppPath,Book,'existing-history-id-ё',
-    TPath.Combine(Settings.DataPath,'reader.ini'),True);
+    TPath.Combine(Settings.DataPath,'reader.ini'),True,'','',Recent);
   Original:=TFile.ReadAllText(Request.RequestFile,TEncoding.UTF8);
   // An ordinary UTF-8 file writer may add a BOM. It is not part of the JSON.
   TFile.WriteAllText(Request.RequestFile,Original,TEncoding.UTF8);
@@ -39,6 +42,9 @@ begin
     (Reloaded.Book.Title=Book.Title) and (Reloaded.Book.LibID=Book.LibID) and
     (Reloaded.HistoryIdentity='existing-history-id-ё') and
     (Reloaded.SettingsFile=Request.SettingsFile) and Reloaded.RequirePersonalProgress,'Reader session lost catalogue context');
+  Require((Length(Reloaded.CatalogueRecent)=1) and Reloaded.CatalogueRecent[0].Key.IsSameAs(Recent[0].Key) and
+    (Reloaded.CatalogueRecent[0].Identity=Recent[0].Identity) and (Reloaded.CatalogueRecent[0].Caption=Recent[0].Caption),
+    'Reader session lost the catalogue recent entry');
   Input:=Reloaded.Book.GetBookStream(True,True);
   try
     SetLength(Data,Input.Size); Input.ReadBuffer(Data[0],Length(Data));
@@ -136,16 +142,19 @@ begin
   Reply.HasProgress:=True; Reply.Progress:=42; Reply.RequestedNote.ID:='note-ё';
   Reply.RequestedNote.BookID:='other-history-id'; Reply.RequestedNote.BookTitle:='Другая книга';
   Reply.RequestedNote.Position:=12345; Reply.OriginProcessID:=123;
+  Reply.RequestedCatalogueRecent:=1;
   WriteReaderSessionReply(Request,Reply);
   Require(TryReadReaderSessionReply(Request,ReadReply) and
     (ReadReply.State='closed') and ReadReply.HasProgress and (ReadReply.Progress=42) and
     (ReadReply.OriginProcessID=123) and (ReadReply.RequestedNote.ID='note-ё') and (ReadReply.RequestedNote.Position=12345),
     'Reader session lost progress or a requested note');
+  Require(ReadReply.RequestedCatalogueRecent=1,'Reader session lost the recent-book request');
   Response:=TPath.Combine(ExtractFileDir(Request.RequestFile),'response.json');
   var ValidResponse:=TFile.ReadAllText(Response,TEncoding.UTF8);
   RejectReply(ValidResponse.Replace('"closed"','"unknown-state"'));
   RejectReply(ValidResponse.Replace(Request.ID,StringOfChar('0',32)));
   RejectReply(ValidResponse.Replace('"position":12345','"position":-1'));
+  RejectReply(ValidResponse.Replace('"catalogue_recent":1','"catalogue_recent":2'));
   RejectReply('{"format":1');
   Reply.Progress:=101; Blocked:=False;
   try WriteReaderSessionReply(Request,Reply); except on E: Exception do Blocked:=True; end;

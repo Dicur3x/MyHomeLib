@@ -11,6 +11,7 @@ function ReaderFontPrefix(const Family: string): string;
 function ReaderFontLanguage(const Family: string): string;
 function ReaderFontDownloadBytes(const Family: string): Int64;
 function ReaderFontFamilyCached(const Family: string): Boolean;
+function ReaderFontRequestPending(const Family: string): Boolean;
 function RegisterReaderFontWindow(Window: HWND): Cardinal;
 procedure UnregisterReaderFontWindow(Window: HWND);
 procedure RequestReaderFont(const Family: string);
@@ -25,7 +26,7 @@ implementation
 uses System.Classes, System.IOUtils, System.JSON, System.Hash,
   System.Net.HttpClient, System.SyncObjs, System.Generics.Collections;
 
-const FONT_MANIFEST_SHA256 = 'f873d2b4ab19bbd1c854d7ff5a1be032451c9ee72ce2382f6f1da7104f666053';
+const FONT_MANIFEST_SHA256 = 'b9bec801996b7f1aaa2188e9161882282f6ebf643fcb07c1182e9357ada973c8';
 
 var Gate: TCriticalSection; Wake: TEvent; Pending: TQueue<string>;
   Requested: TDictionary<string,UInt64>; FontWindows: TDictionary<HWND,Cardinal>;
@@ -41,6 +42,8 @@ end;
 
 function ReaderFontPrefix(const Family: string): string;
 begin
+  if Family='PT Serif' then Exit('ptserif/PT_Serif-Web-');
+  if Family='PT Sans' then Exit('ptsans/PT_Sans-Web-');
   if Family.StartsWith('Noto Serif CJK') then Exit('noto-cjk/NotoSerifCJK-');
   if Family.StartsWith('Noto Sans CJK') then Exit('noto-cjk/NotoSansCJK-');
   if Family.StartsWith('Noto ') then Exit('noto/'+Family.Replace(' ','')+'-');
@@ -115,6 +118,8 @@ end;
 
 function ReaderFontLicensePath(const Prefix: string): string;
 begin
+  if Prefix.StartsWith('ptserif/') then Exit('ptserif/OFL.txt');
+  if Prefix.StartsWith('ptsans/') then Exit('ptsans/OFL.txt');
   if Prefix.StartsWith('noto/') then Exit('noto/OFL.txt');
   if Prefix.StartsWith('noto-cjk/NotoSans') then Exit('noto-cjk/Sans-OFL.txt');
   if Prefix.StartsWith('noto-cjk/NotoSerif') then Exit('noto-cjk/Serif-OFL.txt');
@@ -252,6 +257,12 @@ begin
     if not Assigned(Worker) then begin Worker:=TFontWorker.Create(True); Worker.FreeOnTerminate:=False; Worker.Start; end;
     Wake.SetEvent;
   finally Gate.Release; end;
+end;
+
+function ReaderFontRequestPending(const Family: string): Boolean;
+begin
+  Gate.Acquire;
+  try Result:=Requested.ContainsKey(Family); finally Gate.Release; end;
 end;
 
 function RegisterReaderFontWindow(Window: HWND): Cardinal;

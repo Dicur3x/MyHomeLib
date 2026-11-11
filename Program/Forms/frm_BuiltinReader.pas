@@ -7,6 +7,8 @@ uses Winapi.Windows, Winapi.Messages, System.SysUtils, System.Classes, System.Ty
   Vcl.ExtCtrls, Vcl.ComCtrls, Vcl.Graphics, Vcl.Menus, unit_MHLOperationStatus, unit_ReaderDocument, unit_ReaderPDF,
   unit_ReaderBookSkin, unit_ReaderRaster, unit_ReaderPDFAsync, unit_ReaderFonts, unit_ReaderFontDownloads, unit_ReaderFontFallback, unit_ReaderAnnotations, unit_ReaderPageSelection;
 
+const ReaderCustomThemeIndex = 6;
+
 type
   TReaderInitialsMode = (rimNone, rimChapter, rimParagraph);
   TReaderPageLayout = (rplSingle, rplDouble, rplAutomatic, rplContinuous);
@@ -84,6 +86,7 @@ type
     FNavigationKeys: TReaderNavigationKeys;
     FOriginalRasterScale: Boolean;
     FInterfaceMenu: TMainMenu;
+    FStartPage: TPanel;
     FInterfaceSearch: Boolean;
     FOnInterfaceModeChanged: TNotifyEvent;
     FPDFSelecting, FPDFPageHasText: Boolean;
@@ -171,9 +174,10 @@ type
     FNight, FFullScreen, FInterfaceHidden, FReady, FClosing, FLoadFinished, FReadingMoved, FWheelControl: Boolean;
     FBookFormatting, FShowFootnotes, FDecorativeInitials, FTypographyDirty: Boolean;
     FInitialsMode: TReaderInitialsMode;
-    FHeadingColors: array[0..1,0..1] of TColor;
-    FThemeBackgrounds, FThemeTexts, FThemeProgress: array[0..5] of TColor;
-    FChangedThemeColors: set of 0..5;
+    FHeadingColors: array[0..2,0..1] of TColor;
+    FCustomHeadingColorsDirty: Boolean;
+    FThemeBackgrounds, FThemeTexts, FThemeProgress: array[0..ReaderCustomThemeIndex] of TColor;
+    FChangedThemeColors: set of 0..ReaderCustomThemeIndex;
     FFootnotesPanel: TPanel;
     FFootnotesLabel: TLabel;
     FFootnotesMemo: TMemo;
@@ -202,9 +206,12 @@ type
     FImageWidth, FImageHeight, FIllustrationHeightPercent: Integer;
     FOnProgress: TProc<Integer>;
     FOnOpenNote: TProc<TReaderAnnotation>;
+    FOnReadPastEnd: TProc;
+    FPastEndNotified: Boolean;
     FRequestedNote: TReaderAnnotation;
     FStartPosition: Integer;
     FBookmarks: TPopupMenu;
+    procedure NotifyReadPastEnd;
     procedure ReloadBookmarkMarkers;
     function BookmarkMarkerBounds: TRect;
     procedure PaintBookmarkMarker(Canvas: TCanvas);
@@ -263,6 +270,8 @@ type
     procedure CopyAllClick(Sender: TObject);
     procedure CopyViewClick(Sender: TObject);
     function HeadingColor(Subtitle: Boolean = False): TColor;
+    function HeadingThemeSlot: Integer;
+    function ThemeUsesNightColors: Boolean;
     procedure CopyMenuPopup(Sender: TObject);
     procedure DictionaryLookupClick(Sender: TObject);
     procedure WebLookupClick(Sender: TObject);
@@ -362,6 +371,7 @@ type
     function OpenLookupTarget(const Target, Parameters, WorkingDirectory: string): Boolean; virtual;
     procedure WMReaderFontsReady(var Message: TMessage); message WM_READER_FONTS_READY;
     procedure AlignControls(AControl: TControl; var Rect: TRect); override;
+    procedure MouseWheelHandler(var Message: TMessage); override;
     procedure DoAfterMonitorDpiChanged(OldDPI, NewDPI: Integer); override;
     procedure CreateWnd; override;
     procedure DestroyWnd; override;
@@ -383,6 +393,9 @@ type
     procedure SetPageTurn(Value: TReaderPageTurn);
     procedure SetPageAppearance(Value: TReaderPageAppearance);
     procedure RefreshWindowTheme;
+    function CreateStartPage(const SettingsFile: string): TPanel;
+    procedure RemoveStartPage;
+    procedure RecentBookDetails(var Title, Author, Cover: string);
     procedure ToggleInterface;
     property InterfaceHidden: Boolean read FInterfaceHidden;
     procedure ToggleFullScreen;
@@ -447,6 +460,7 @@ type
     property RequiredComponent: string read FRequiredComponent;
     property RequestedNote: TReaderAnnotation read FRequestedNote;
     property OnOpenNote: TProc<TReaderAnnotation> read FOnOpenNote write FOnOpenNote;
+    property OnReadPastEnd: TProc read FOnReadPastEnd write FOnReadPastEnd;
     property LoadFinished: Boolean read FLoadFinished;
     property ReaderStatus: TLabel read FStatus;
     property ReadingSurface: TReaderSurface read FSurface;
@@ -552,7 +566,7 @@ implementation
 {$R '..\Resources\reader-icon.res'}
 
 uses Winapi.ActiveX, Winapi.RichEdit, Winapi.CommDlg, Winapi.CommCtrl, Winapi.ShellAPI, System.Math, System.DateUtils, System.IOUtils, System.RegularExpressions,
-  System.IniFiles, System.Hash, System.NetEncoding, Vcl.Dialogs, Vcl.Clipbrd, unit_ReaderRichEdit, unit_ReaderLookup, unit_MHLTheme, unit_AtomicIniFile, Vcl.Themes, unit_MHLExternalTools, unit_ReaderPalette, unit_Diagnostics, unit_ReaderFormats;
+  System.IniFiles, System.Hash, System.NetEncoding, Vcl.Dialogs, Vcl.Clipbrd, unit_ReaderRichEdit, unit_ReaderLookup, unit_MHLTheme, unit_AtomicIniFile, Vcl.Themes, unit_MHLExternalTools, unit_ReaderPalette, frm_ReaderFontManager, unit_Diagnostics, unit_ReaderFormats;
 
 const
   DefaultReaderNavigationKeys: TReaderNavigationKeys =
@@ -850,6 +864,19 @@ begin
   end;
   while FReader.FWheel>=WHEEL_DELTA do begin Dec(FReader.FWheel,WHEEL_DELTA); FReader.PreviousPage; end;
   while FReader.FWheel<=-WHEEL_DELTA do begin Inc(FReader.FWheel,WHEEL_DELTA); FReader.NextPage; end;
+end;
+
+procedure TfrmBuiltinReader.MouseWheelHandler(var Message: TMessage);
+begin
+  // A toolbar or search field may retain keyboard focus after a menu.
+  // Use the event position so only the book under the pointer scrolls.
+  if (Message.Result=0) and not FClosing and Assigned(FSurface) and FSurface.HandleAllocated and
+    (WindowFromPoint(SmallPointToPoint(TCMMouseWheel(Message).Pos))=FSurface.Handle) then
+  begin
+    Message.Result:=FSurface.Perform(CM_MOUSEWHEEL,Message.WParam,Message.LParam);
+    Exit;
+  end;
+  inherited;
 end;
 
 procedure TReaderSurface.MouseDown(Button: TMouseButton; Shift: TShiftState; X,Y: Integer);
@@ -1351,7 +1378,7 @@ begin
   Font.Name:='Segoe UI'; Font.Size:=9; KeyPreview:=True; DoubleBuffered:=True;
   PrepareReaderFonts;
   FFontSize:=14; FFontName:=AvailableReaderFont('PT Serif'); FLinePercent:=110; FMargin:=32; FMaxTextWidth:=960; FBookFormatting:=True; FShowFootnotes:=True; FInspectionPercent:=150;
-  for I:=0 to 1 do for J:=0 to 1 do FHeadingColors[I,J]:=clDefault;
+  for I:=Low(FHeadingColors) to High(FHeadingColors) do for J:=0 to 1 do FHeadingColors[I,J]:=clDefault;
   for I:=Low(FThemeBackgrounds) to High(FThemeBackgrounds) do
   begin
     FThemeBackgrounds[I]:=clDefault;
@@ -1375,7 +1402,7 @@ begin
   FThemes.Name:='ReaderThemeSelector';
   FThemes.Width:=108; FThemes.Style:=csDropDownList;
   FThemes.Style:=csOwnerDrawFixed;
-  FThemes.Items.Text:='Светлая'+#13+'Бумага'+#13+'Сепия'+#13+'Серая'+#13+'Тёмная'+#13+'Ночь';
+  FThemes.Items.Text:='Светлая'+#13+'Бумага'+#13+'Сепия'+#13+'Серая'+#13+'Тёмная'+#13+'Ночь'+#13+'Моя тема';
   FThemes.ItemIndex:=0; FThemes.OnChange:=ThemeClick; FThemes.ShowHint:=True;
   FThemes.Hint:='Цветовая тема; для PDF тёмные темы включают инверсию страниц';
   FFitButton:=TReaderPaletteButton.Create(Self); FFitButton.Parent:=FButtons; FFitButton.Tag:=80; FToolbarItems.Add(FFitButton);
@@ -1734,6 +1761,7 @@ procedure TfrmBuiltinReader.OpenBook(const FileName, BookTitle, Identity, Settin
 var Stream: TFileStream; Chapter: TPDFChapter;
 begin
   FRequiredComponent := '';
+  FPastEndNotified:=False;
   FMissingFonts.Clear; FFontOfferDeclined:=False; FFontsDownloading:=False; FFontOffer.Visible:=False;
   FFileName:=FileName; FIdentity:=Copy(THashSHA2.GetHashString(Identity),1,40);
   FSettingsFile:=SettingsFile; FOnProgress:=OnProgress; FBookTitle:=BookTitle;
@@ -2178,6 +2206,11 @@ end;
 procedure TfrmBuiltinReader.ScrollPixels(Pixels: Integer; ByScreen: Boolean);
 begin
   if (Pixels=0) or (FScrollTileHeight<=0) or FTextSelecting or FPDFSelecting then Exit;
+  if (Pixels>0) and Assigned(FOnReadPastEnd) and not PageLoading then
+    if (Assigned(FPDF) and (FPage=FPDF.PageCount-1) and
+      (FScrollOffset>=Min(FScrollTileHeight,RasterScrollLimit))) or
+      (not Assigned(FPDF) and (NextTextPosition>=FLength)) then
+    begin NotifyReadPastEnd; Exit; end;
   if ByScreen and not FScrollByScreen then FScrollTarget:=FScrollOffset;
   FScrollByScreen:=ByScreen;
   if (Pixels<0) and (FPage>0) and Assigned(FPDF) and FPDF.AsyncPages and
@@ -2998,9 +3031,15 @@ begin
   FBookFormatting:=Value; FTypographyDirty:=True; InvalidateLayout;
 end;
 
+function TfrmBuiltinReader.HeadingThemeSlot: Integer;
+begin
+  if FTheme=ReaderCustomThemeIndex then Exit(2);
+  Result:=Ord(FNight);
+end;
+
 function TfrmBuiltinReader.HeadingColor(Subtitle: Boolean): TColor;
 begin
-  Result:=FHeadingColors[Ord(FNight),Ord(Subtitle)];
+  Result:=FHeadingColors[HeadingThemeSlot,Ord(Subtitle)];
   if Result=clDefault then
     if FNight then Result:=RGB(164,190,225) else Result:=RGB(53,83,121);
   if FNight or HasCustomThemeColors then Result:=ReadableReaderColor(Result,ThemeBackground);
@@ -3009,7 +3048,9 @@ end;
 procedure TfrmBuiltinReader.SetHeadingColor(Value: TColor; Subtitle: Boolean);
 begin
   if Value<>clDefault then Value:=ColorToRGB(Value) and $00FFFFFF;
-  FHeadingColors[Ord(FNight),Ord(Subtitle)]:=Value; FTypographyDirty:=True; InvalidateLayout;
+  FHeadingColors[HeadingThemeSlot,Ord(Subtitle)]:=Value;
+  if FTheme=ReaderCustomThemeIndex then FCustomHeadingColorsDirty:=True;
+  FTypographyDirty:=True; InvalidateLayout;
 end;
 
 procedure TfrmBuiltinReader.SetDecorativeInitials(Value: Boolean);
@@ -3048,6 +3089,15 @@ begin
   RenderPage;
 end;
 
+procedure TfrmBuiltinReader.NotifyReadPastEnd;
+begin
+  if FPastEndNotified or FClosing or not FReady or PageLoading or
+    not Assigned(FOnReadPastEnd) then Exit;
+  FPastEndNotified:=True;
+  FReadingMoved:=True;
+  FOnReadPastEnd();
+end;
+
 procedure TfrmBuiltinReader.NextPage;
 var KnownFirstBreak, NextPosition: Integer;
 begin
@@ -3056,18 +3106,24 @@ begin
   if Assigned(FPDF) and FPDF.AsyncPages then
   begin
     if FRequestedPage+PageTurnStep<FPDF.PageCount then
-    begin ResetScroll; RequestPage(FRequestedPage+PageTurnStep); end;
+    begin ResetScroll; RequestPage(FRequestedPage+PageTurnStep); end
+    else NotifyReadPastEnd;
     Exit;
   end;
   ResetInspection;
-  if Assigned(FPDF) then begin if FPage+PageTurnStep>=FPDF.PageCount then Exit; Inc(FPage,PageTurnStep); end
+  if Assigned(FPDF) then
+  begin
+    if FPage+PageTurnStep>=FPDF.PageCount then begin NotifyReadPastEnd; Exit; end;
+    Inc(FPage,PageTurnStep);
+  end
   else
   begin
     NextPosition:=NextTextPosition;
     // Returning from a fitted previous page must honor its already visited
     // successor, even when the final short tail also fits on this page.
     if FPage+1<FPages.Count then NextPosition:=FPages[FPage+1];
-    if (NextPosition<=CurrentPosition) or (NextPosition>=FLength) then Exit;
+    if NextPosition>=FLength then begin NotifyReadPastEnd; Exit; end;
+    if NextPosition<=CurrentPosition then Exit;
     // The second visible tile was already laid out with the current width,
     // height and typography. Measure only the new look-ahead tile.
     if ContinuousReading and (FSearchQuery='') and (Length(FSpreadBreaks)=3) and
@@ -3624,7 +3680,7 @@ procedure TfrmBuiltinReader.NightClick(Sender: TObject); begin ToggleNight; end;
 function TfrmBuiltinReader.ThemeBackground: TColor;
 begin
   Result:=FThemeBackgrounds[FTheme];
-  if Result=clDefault then Result:=ReaderThemeBackground(FTheme);
+  if Result=clDefault then Result:=ReaderThemeBackground(IfThen(FTheme=ReaderCustomThemeIndex,0,FTheme));
 end;
 
 function TfrmBuiltinReader.ThemeText: TColor;
@@ -3632,7 +3688,7 @@ begin
   Result:=FThemeTexts[FTheme];
   if Result=clDefault then
   begin
-    Result:=ReaderThemeText(FTheme);
+    Result:=ReaderThemeText(IfThen(FTheme=ReaderCustomThemeIndex,0,FTheme));
     if FThemeBackgrounds[FTheme]<>clDefault then
       Result:=ReadableReaderColor(Result,ThemeBackground);
   end;
@@ -3640,6 +3696,13 @@ end;
 
 function TfrmBuiltinReader.HasCustomThemeColors: Boolean;
 begin Result:=(FThemeBackgrounds[FTheme]<>clDefault) or (FThemeTexts[FTheme]<>clDefault); end;
+
+function TfrmBuiltinReader.ThemeUsesNightColors: Boolean;
+begin
+  if FTheme=ReaderCustomThemeIndex then
+    Exit(ReaderColorContrast(clWhite,ThemeBackground)>=ReaderColorContrast(clBlack,ThemeBackground));
+  Result:=FTheme>=4;
+end;
 
 procedure TfrmBuiltinReader.SetThemeColors(Background, Foreground: TColor);
 begin
@@ -3649,6 +3712,7 @@ begin
   FThemeBackgrounds[FTheme]:=Background;
   FThemeTexts[FTheme]:=Foreground;
   Include(FChangedThemeColors,FTheme);
+  FNight:=ThemeUsesNightColors;
   RefreshWindowTheme;
   FTypographyDirty:=True;
   InvalidateLayout;
@@ -3656,10 +3720,45 @@ end;
 
 procedure TfrmBuiltinReader.SetTheme(Index: Integer);
 begin
-  Index:=EnsureRange(Index,0,5);
+  Index:=EnsureRange(Index,0,ReaderCustomThemeIndex);
   if Index=FTheme then begin RefreshWindowTheme; Exit; end;
-  FTheme:=Index; FThemes.ItemIndex:=Index; FNight:=Index>=4;
+  FTheme:=Index; FThemes.ItemIndex:=Index; FNight:=ThemeUsesNightColors;
   RefreshWindowTheme; FTypographyDirty:=True; InvalidateLayout;
+end;
+
+function TfrmBuiltinReader.CreateStartPage(const SettingsFile: string): TPanel;
+begin
+  FSettingsFile:=SettingsFile;
+  RestoreSettings;
+  DisableAlign;
+  try
+    FTop.Hide; FBottom.Hide; FSurface.Hide;
+    FStartPage:=TPanel.Create(Self);
+    FStartPage.Name:='ReaderStartPage';
+    FStartPage.Parent:=Self;
+    FStartPage.BevelOuter:=bvNone;
+    FStartPage.Align:=alClient;
+    Result:=FStartPage;
+  finally EnableAlign; end;
+end;
+
+procedure TfrmBuiltinReader.RemoveStartPage;
+begin
+  DisableAlign;
+  try
+    FreeAndNil(FStartPage);
+    FSurface.Show; FTop.Show;
+    UpdateHiddenChrome;
+  finally EnableAlign; end;
+end;
+
+procedure TfrmBuiltinReader.RecentBookDetails(var Title, Author, Cover: string);
+begin
+  if not Assigned(FDocument) then Exit;
+  if (Trim(FDocument.Title)<>'') and not SameText(FDocument.Title,ExtractFileName(FFileName)) then
+    Title:=FDocument.Title;
+  if FDocument.Author<>'' then Author:=FDocument.Author;
+  Cover:=FDocument.RecentCover;
 end;
 
 procedure TfrmBuiltinReader.RefreshWindowTheme;
@@ -5141,8 +5240,21 @@ begin
 end;
 
 procedure TfrmBuiltinReader.SetTypography(const FontName: string; LinePercent, Margin: Integer);
+var SelectedFont: string; Ini: TMemIniFile;
 begin
-  if FontName.Trim<>'' then FFontName:=AvailableReaderFont(Copy(FontName.Trim,1,100));
+  if FontName.Trim<>'' then
+  begin
+    SelectedFont:=AvailableReaderFont(Copy(FontName.Trim,1,100));
+    if (SelectedFont<>FFontName) and (FSettingsFile<>'') then
+    begin
+      Ini:=TMemIniFile.Create(FSettingsFile,TEncoding.UTF8);
+      try
+        Ini.WriteString('Reader','FontName',SelectedFont);
+        SaveMemIniFileAtomically(Ini);
+      finally Ini.Free; end;
+    end;
+    FFontName:=SelectedFont;
+  end;
   FLinePercent:=EnsureRange(LinePercent,100,180); FMargin:=EnsureRange(Margin,12,80);
   FTypographyDirty:=True; InvalidateLayout;
 end;
@@ -5157,6 +5269,7 @@ procedure TfrmBuiltinReader.ThemeColorsClick(Sender: TObject);
 var Dialog: TForm; ParentDialog: TCustomForm;
   BackgroundBox, TextBox, ProgressBox, TitleBox, SubtitleBox: TReaderPaletteColorBox;
   Info: TLabel; ProgressColor, TitleColor, SubtitleColor: TColor;
+  HeadingSlot: Integer;
   HeadingsChanged, ThemeChanged: Boolean;
   function ColorChoice(const Caption: string; Top: Integer; Selected: TColor): TReaderPaletteColorBox;
   var LabelText: TLabel;
@@ -5172,29 +5285,35 @@ var Dialog: TForm; ParentDialog: TCustomForm;
   var Button: TButton;
   begin
     Button:=TReaderPaletteButton.Create(Dialog); Button.Parent:=Dialog;
-    Button.SetBounds(Left,230,86,26); Button.Caption:=Caption; Button.ModalResult:=ModalResult;
+    Button.SetBounds(Left,250,86,26); Button.Caption:=Caption; Button.ModalResult:=ModalResult;
     Button.Default:=ModalResult=mrOk; Button.Cancel:=ModalResult=mrCancel;
   end;
 begin
   ParentDialog:=GetParentForm(TControl(Sender));
+  HeadingSlot:=HeadingThemeSlot;
   Dialog:=TForm.CreateNew(ParentDialog);
   try
     Dialog.Name:='ReaderThemeColorsDialog';
     Dialog.PopupMode:=pmExplicit; Dialog.PopupParent:=ParentDialog;
     Dialog.Caption:='Цвета темы «'+FThemes.Text+'»';
     Dialog.BorderStyle:=bsDialog; Dialog.Position:=poOwnerFormCenter;
-    Dialog.ClientWidth:=350; Dialog.ClientHeight:=271; Dialog.Font.Assign(Font);
+    Dialog.ClientWidth:=350; Dialog.ClientHeight:=291; Dialog.Font.Assign(Font);
     BackgroundBox:=ColorChoice('&Фон',16,FThemeBackgrounds[FTheme]);
+    BackgroundBox.Name:='ReaderThemeBackgroundColor';
     TextBox:=ColorChoice('&Текст',50,FThemeTexts[FTheme]);
-    TitleBox:=ColorChoice('Заголовки',84,FHeadingColors[Ord(FNight),0]);
+    TextBox.Name:='ReaderThemeTextColor';
+    TitleBox:=ColorChoice('Заголовки',84,FHeadingColors[HeadingSlot,0]);
     TitleBox.Name:='ReaderThemeHeadingColor';
-    SubtitleBox:=ColorChoice('Подзаголовки',118,FHeadingColors[Ord(FNight),1]);
+    SubtitleBox:=ColorChoice('Подзаголовки',118,FHeadingColors[HeadingSlot,1]);
     SubtitleBox.Name:='ReaderThemeSubheadingColor';
     ProgressBox:=ColorChoice('&Полоса чтения',152,FThemeProgress[FTheme]);
     ProgressBox.Name:='ReaderThemeProgressColor';
     Info:=TLabel.Create(Dialog); Info.Parent:=Dialog; Info.AutoSize:=False; Info.WordWrap:=True;
-    Info.SetBounds(16,189,318,35);
-    Info.Caption:='Цвета заголовков задаются отдельно для светлых и тёмных тем. Остальные цвета сохраняются для выбранной темы.';
+    Info.SetBounds(16,189,318,55);
+    if FTheme=ReaderCustomThemeIndex then
+      Info.Caption:='Эти цвета сохраняются для «Моей темы». Для произвольного оттенка выберите «Другой цвет…».'
+    else
+      Info.Caption:='Цвета заголовков задаются отдельно для светлых и тёмных тем. Остальные цвета сохраняются для выбранной темы.';
     AddButton('Применить',156,mrOk); AddButton('Отмена',248,mrCancel);
     ApplyWindowPalette(Dialog);
     if Dialog.ShowModal=mrOk then
@@ -5208,13 +5327,14 @@ begin
       end;
       TitleColor:=NormalizeReaderThemeColor(TitleBox.Selected);
       SubtitleColor:=NormalizeReaderThemeColor(SubtitleBox.Selected);
-      HeadingsChanged:=(FHeadingColors[Ord(FNight),0]<>TitleColor) or (FHeadingColors[Ord(FNight),1]<>SubtitleColor);
+      HeadingsChanged:=(FHeadingColors[HeadingSlot,0]<>TitleColor) or (FHeadingColors[HeadingSlot,1]<>SubtitleColor);
       ThemeChanged:=(FThemeBackgrounds[FTheme]<>NormalizeReaderThemeColor(BackgroundBox.Selected)) or
         (FThemeTexts[FTheme]<>NormalizeReaderThemeColor(TextBox.Selected));
       if HeadingsChanged then
       begin
-        FHeadingColors[Ord(FNight),0]:=TitleColor;
-        FHeadingColors[Ord(FNight),1]:=SubtitleColor;
+        FHeadingColors[HeadingSlot,0]:=TitleColor;
+        FHeadingColors[HeadingSlot,1]:=SubtitleColor;
+        if FTheme=ReaderCustomThemeIndex then FCustomHeadingColorsDirty:=True;
         FTypographyDirty:=True;
       end;
       if ThemeChanged then SetThemeColors(BackgroundBox.Selected,TextBox.Selected)
@@ -5239,8 +5359,38 @@ begin
   if Item is TControl then TControl(Item).Enabled:=not Pages;
 end;
 
+type
+  TReaderTextAppearanceDialog = class(TForm)
+  public
+    SettingsFile: string;
+    FontBox: TComboBox;
+    FontNames: TStrings;
+    procedure RefreshFontChoices(const Selected: string);
+    procedure ManageFontsClick(Sender: TObject);
+  end;
+
+procedure TReaderTextAppearanceDialog.RefreshFontChoices(const Selected: string);
+begin
+  FontBox.Items.BeginUpdate;
+  try
+    ReaderFontChoices(FontNames,FontBox.Items,Selected,SettingsFile);
+    FontBox.ItemIndex:=FontNames.IndexOf(Selected);
+    if (FontBox.ItemIndex<0) and (FontNames.Count>0) then FontBox.ItemIndex:=0;
+  finally FontBox.Items.EndUpdate; end;
+  SendMessage(FontBox.Handle,CB_SETDROPPEDWIDTH,MulDiv(320,CurrentPPI,96),0);
+end;
+
+procedure TReaderTextAppearanceDialog.ManageFontsClick(Sender: TObject);
+var Selected: string;
+begin
+  Selected:='';
+  if FontBox.ItemIndex>=0 then Selected:=FontNames[FontBox.ItemIndex];
+  ManageReaderFonts(Self,SettingsFile,Selected);
+  RefreshFontChoices(Selected);
+end;
+
 procedure TfrmBuiltinReader.StyleClick(Sender: TObject);
-var Dialog: TForm;
+var Dialog: TForm; TextDialog: TReaderTextAppearanceDialog;
   FontBox, SizeBox, SpacingBox, MarginBox, WidthBox, ZoomBox, InitialBox, LayoutBox, TurnBox, AppearanceBox,
     RasterScaleBox: TReaderPaletteCombo;
   FontNames: TStringList; LabelText: TLabel; Button: TButton; WidthText: string;
@@ -5311,14 +5461,14 @@ begin
       Dialog.Caption:='Вид страниц'; Dialog.BorderStyle:=bsDialog; Dialog.Position:=poOwnerFormCenter;
       ExtraRow:=0; RasterScaleBox:=nil;
       if RasterFitsScrollWidth then ExtraRow:=38;
-      Dialog.ClientWidth:=350; Dialog.ClientHeight:=338+ExtraRow; Dialog.Font.Assign(Font);
+      Dialog.ClientWidth:=350; Dialog.ClientHeight:=348+ExtraRow; Dialog.Font.Assign(Font);
       AddLabel('Режим чтения',20); LayoutBox:=Choice(16); LayoutBox.Name:='cbReaderPageLayout';
       LayoutBox.Items.Text:='Одна страница'+#13+'Две страницы'+#13+'Автоматически по ширине'+#13+'Плавная прокрутка';
       LayoutBox.ItemIndex:=Ord(FPageLayout);
       if ExtraRow>0 then
       begin
         AddLabel('Масштаб изображений',54);
-        LabelText.AutoSize:=False; LabelText.WordWrap:=True; LabelText.SetBounds(16,54,100,28);
+        LabelText.AutoSize:=False; LabelText.WordWrap:=True; LabelText.SetBounds(16,54,100,34);
         RasterScaleBox:=Choice(54); RasterScaleBox.Name:='ReaderRasterScale';
         RasterScaleBox.Items.Text:='По ширине окна'+#13+'Исходный (100%)';
         ReadingZoom:=FZoom; if FInspect then ReadingZoom:=FInspectZoom;
@@ -5335,19 +5485,19 @@ begin
       AddLabel('Стиль страниц',134+ExtraRow); AppearanceBox:=Choice(130+ExtraRow); AppearanceBox.Name:='cbReaderPageAppearance';
       AppearanceBox.Items.Text:='Плоские страницы'+#13+'Объёмная книга'; AppearanceBox.ItemIndex:=Ord(FPageAppearance);
       LabelText:=TLabel.Create(Dialog); LabelText.Parent:=Dialog; LabelText.AutoSize:=False;
-      LabelText.SetBounds(16,166+ExtraRow,318,44); LabelText.WordWrap:=True;
+      LabelText.SetBounds(16,166+ExtraRow,318,54); LabelText.WordWrap:=True;
       if Assigned(RasterScaleBox) then
         LabelText.Caption:='Масштаб действует в плавной прокрутке. Временный зум доступен при чтении по страницам.'
       else LabelText.Caption:='Временный зум доступен при чтении по страницам. На странице с текстом мышь выделяет текст для копирования.';
       HoldCheck:=TReaderPaletteCheckBox.Create(Dialog); HoldCheck.Parent:=Dialog;
-      HoldCheck.Name:='ReaderInspectionHold'; HoldCheck.SetBounds(16,214+ExtraRow,320,28);
+      HoldCheck.Name:='ReaderInspectionHold'; HoldCheck.SetBounds(16,224+ExtraRow,320,28);
       HoldCheck.Caption:='Приближение при удержании'; HoldCheck.Checked:=FInspectionHold;
       HoldCheck.ShowHint:=True; HoldCheck.Hint:='Отпускание кнопки возвращает прежний масштаб. Без галочки возвращает повторный щелчок.';
-      SelectionCheck:=TReaderPaletteCheckBox.Create(Dialog); SelectionCheck.Parent:=Dialog; SelectionCheck.SetBounds(16,244+ExtraRow,320,28);
+      SelectionCheck:=TReaderPaletteCheckBox.Create(Dialog); SelectionCheck.Parent:=Dialog; SelectionCheck.SetBounds(16,254+ExtraRow,320,28);
       SelectionCheck.Caption:='Выделять текст мышью'; SelectionCheck.Checked:=FSelectionEnabled;
-      AddProgressChecks(273+ExtraRow); AddThemeColorsButton(300+ExtraRow);
-      Button:=TReaderPaletteButton.Create(Dialog); Button.Parent:=Dialog; Button.SetBounds(156,300+ExtraRow,86,26); Button.Caption:='Применить'; Button.Default:=True; Button.ModalResult:=mrOk;
-      Button:=TReaderPaletteButton.Create(Dialog); Button.Parent:=Dialog; Button.SetBounds(248,300+ExtraRow,86,26); Button.Caption:='Отмена'; Button.Cancel:=True; Button.ModalResult:=mrCancel;
+      AddProgressChecks(283+ExtraRow); AddThemeColorsButton(310+ExtraRow);
+      Button:=TReaderPaletteButton.Create(Dialog); Button.Parent:=Dialog; Button.SetBounds(156,310+ExtraRow,86,26); Button.Caption:='Применить'; Button.Default:=True; Button.ModalResult:=mrOk;
+      Button:=TReaderPaletteButton.Create(Dialog); Button.Parent:=Dialog; Button.SetBounds(248,310+ExtraRow,86,26); Button.Caption:='Отмена'; Button.Cancel:=True; Button.ModalResult:=mrCancel;
       LayoutBox.OnChange:=LayoutChoiceChanged; LayoutChoiceChanged(LayoutBox);
       ApplyWindowPalette(Dialog);
       if Dialog.ShowModal=mrOk then
@@ -5379,50 +5529,57 @@ begin
     if FSurface.CanFocus then FSurface.SetFocus;
     Exit;
   end;
-  Dialog:=TForm.CreateNew(Self); FontNames:=TStringList.Create;
+  TextDialog:=TReaderTextAppearanceDialog.CreateNew(Self); Dialog:=TextDialog; FontNames:=TStringList.Create;
   try
     Dialog.DisableAlign;
     Dialog.Name:='ReaderAppearanceDialog';
     Dialog.PopupMode:=pmExplicit; Dialog.PopupParent:=Self;
     Dialog.Caption:='Текст и оформление'; Dialog.BorderStyle:=bsDialog; Dialog.Position:=poOwnerFormCenter;
-    Dialog.ClientWidth:=350; Dialog.ClientHeight:=491; Dialog.Font.Assign(Font);
+    ExtraRow:=34;
+    Dialog.ClientWidth:=350; Dialog.ClientHeight:=491+ExtraRow; Dialog.Font.Assign(Font);
     AddLabel('Шрифт / размер',20); FontBox:=Choice(16); FontBox.Width:=160;
-    ReaderFontChoices(FontNames,FontBox.Items,FFontName); FontBox.ItemIndex:=FontNames.IndexOf(FFontName);
+    FontBox.Name:='ReaderFontFamily'; FontBox.DropDownCount:=12;
+    TextDialog.SettingsFile:=FSettingsFile; TextDialog.FontNames:=FontNames; TextDialog.FontBox:=FontBox;
     SizeBox:=TReaderPaletteCombo.Create(Dialog); SizeBox.Parent:=Dialog; SizeBox.SetBounds(286,16,48,26); SizeBox.Style:=csOwnerDrawFixed;
     SizeBox.Hint:='Размер шрифта'; SizeBox.ShowHint:=True;
     SizeBox.SetDeferredChoices(NumericChoices(8,32,1),IntToStr(FFontSize));
-    AddLabel('Интервал, %',58); SpacingBox:=Choice(54);
+    Button:=TReaderPaletteButton.Create(Dialog); Button.Parent:=Dialog;
+    Button.Name:='ReaderManageFonts'; Button.SetBounds(16,48,318,26);
+    Button.Caption:='Добавить или убрать шрифты…'; Button.Enabled:=FSettingsFile<>'';
+    Button.OnClick:=TextDialog.ManageFontsClick;
+    TextDialog.RefreshFontChoices(FFontName);
+    AddLabel('Интервал, %',58+ExtraRow); SpacingBox:=Choice(54+ExtraRow);
     SpacingBox.SetDeferredChoices(NumericChoices(100,180,10),IntToStr(FLinePercent));
-    AddLabel('Поля, пикс.',96); MarginBox:=Choice(92);
+    AddLabel('Поля, пикс.',96+ExtraRow); MarginBox:=Choice(92+ExtraRow);
     MarginBox.SetDeferredChoices('12'+#13+'20'+#13+'24'+#13+'32'+#13+'40'+#13+'48'+#13+'64'+#13+'80',IntToStr(FMargin));
-    AddLabel('Ширина, пикс.',134); WidthBox:=Choice(130);
+    AddLabel('Ширина, пикс.',134+ExtraRow); WidthBox:=Choice(130+ExtraRow);
     if FMaxTextWidth=0 then WidthText:='Вся ширина' else WidthText:=IntToStr(FMaxTextWidth);
     WidthBox.SetDeferredChoices('Вся ширина'+#13+'320'+#13+'640'+#13+'800'+#13+'960'+#13+'1120'+#13+'1280'+#13+'1600',WidthText);
-    AddLabel('Режим чтения',172); LayoutBox:=Choice(168); LayoutBox.Name:='cbReaderPageLayout';
+    AddLabel('Режим чтения',172+ExtraRow); LayoutBox:=Choice(168+ExtraRow); LayoutBox.Name:='cbReaderPageLayout';
     LayoutBox.Items.Text:='Одна страница'+#13+'Две страницы'+#13+'Автоматически по ширине'+#13+'Плавная прокрутка';
     LayoutBox.ItemIndex:=Ord(FPageLayout);
     LayoutBox.ShowHint:=True; LayoutBox.Hint:='Одна или две страницы. В узком окне остаётся одна страница; ширина выше задаёт предел для каждой страницы.';
-    AddLabel('Перелистывать',210); TurnBox:=Choice(206); TurnBox.Name:='cbReaderPageTurn';
+    AddLabel('Перелистывать',210+ExtraRow); TurnBox:=Choice(206+ExtraRow); TurnBox.Name:='cbReaderPageTurn';
     TurnBox.Items.Text:='Парами страниц'+#13+'Со сдвигом на одну'; TurnBox.ItemIndex:=Ord(FPageTurn);
-    FormattingBox:=TReaderPaletteCheckBox.Create(Dialog); FormattingBox.Parent:=Dialog; FormattingBox.SetBounds(16,242,320,26);
+    FormattingBox:=TReaderPaletteCheckBox.Create(Dialog); FormattingBox.Parent:=Dialog; FormattingBox.SetBounds(16,242+ExtraRow,320,26);
     FormattingBox.Caption:='Оформление книги: заголовки, стихи, цитаты'; FormattingBox.Checked:=FBookFormatting;
-    NotesBox:=TReaderPaletteCheckBox.Create(Dialog); NotesBox.Parent:=Dialog; NotesBox.SetBounds(16,272,320,26);
+    NotesBox:=TReaderPaletteCheckBox.Create(Dialog); NotesBox.Parent:=Dialog; NotesBox.SetBounds(16,272+ExtraRow,320,26);
     NotesBox.Name:='ReaderShowFootnotes';
     NotesBox.Caption:='Сноски внизу при перелистывании'; NotesBox.Checked:=FShowFootnotes;
     NotesBox.Hint:='Всплывающие подсказки на номерах сносок работают и без нижней панели.';
     NotesBox.ShowHint:=True;
-    InitialCheck:=TReaderPaletteCheckBox.Create(Dialog); InitialCheck.Parent:=Dialog; InitialCheck.SetBounds(16,302,320,26);
+    InitialCheck:=TReaderPaletteCheckBox.Create(Dialog); InitialCheck.Parent:=Dialog; InitialCheck.SetBounds(16,302+ExtraRow,320,26);
     InitialCheck.Caption:='Выделять первые буквы абзацев'; InitialCheck.Checked:=FInitialsMode<>rimNone;
-    AddLabel('Где выделять',336); InitialBox:=Choice(332);
+    AddLabel('Где выделять',336+ExtraRow); InitialBox:=Choice(332+ExtraRow);
     InitialBox.Items.Text:='В начале главы'+#13+'В каждом абзаце';
     InitialBox.ItemIndex:=Max(0,Ord(FInitialsMode)-1);
-    AddLabel('Стиль страниц',408); AppearanceBox:=Choice(404); AppearanceBox.Name:='cbReaderPageAppearance';
+    AddLabel('Стиль страниц',408+ExtraRow); AppearanceBox:=Choice(404+ExtraRow); AppearanceBox.Name:='cbReaderPageAppearance';
     AppearanceBox.Items.Text:='Плоские страницы'+#13+'Объёмная книга'; AppearanceBox.ItemIndex:=Ord(FPageAppearance);
-    SelectionCheck:=TReaderPaletteCheckBox.Create(Dialog); SelectionCheck.Parent:=Dialog; SelectionCheck.SetBounds(16,368,320,28);
+    SelectionCheck:=TReaderPaletteCheckBox.Create(Dialog); SelectionCheck.Parent:=Dialog; SelectionCheck.SetBounds(16,368+ExtraRow,320,28);
     SelectionCheck.Caption:='Выделять текст мышью'; SelectionCheck.Checked:=FSelectionEnabled;
-    AddProgressChecks(432); AddThemeColorsButton(459);
-    Button:=TReaderPaletteButton.Create(Dialog); Button.Parent:=Dialog; Button.SetBounds(156,459,86,26); Button.Caption:='Применить'; Button.Default:=True; Button.ModalResult:=mrOk;
-    Button:=TReaderPaletteButton.Create(Dialog); Button.Parent:=Dialog; Button.SetBounds(248,459,86,26); Button.Caption:='Отмена'; Button.Cancel:=True; Button.ModalResult:=mrCancel;
+    AddProgressChecks(432+ExtraRow); AddThemeColorsButton(459+ExtraRow);
+    Button:=TReaderPaletteButton.Create(Dialog); Button.Parent:=Dialog; Button.SetBounds(156,459+ExtraRow,86,26); Button.Caption:='Применить'; Button.Default:=True; Button.ModalResult:=mrOk;
+    Button:=TReaderPaletteButton.Create(Dialog); Button.Parent:=Dialog; Button.SetBounds(248,459+ExtraRow,86,26); Button.Caption:='Отмена'; Button.Cancel:=True; Button.ModalResult:=mrCancel;
     LayoutBox.OnChange:=LayoutChoiceChanged; LayoutChoiceChanged(LayoutBox);
     Dialog.EnableAlign;
     ApplyWindowPalette(Dialog);
@@ -5460,6 +5617,8 @@ begin
     end;
   finally
     FontNames.Free; Dialog.Free;
+    if not ReaderFontIsListed(FSettingsFile,FFontName) then
+      SetTypography(AvailableReaderFont(DefaultReaderFont(FSettingsFile)),FLinePercent,FMargin);
     if FSurface.CanFocus then FSurface.SetFocus;
   end;
 end;
@@ -5962,8 +6121,11 @@ begin
         FNavigationKeys[Action]:=Word(StoredKey);
       end;
       if not ValidReaderNavigationKeys(FNavigationKeys) then FNavigationKeys:=DefaultReaderNavigationKeys;
+      LoadReaderProfileFonts(FSettingsFile);
       FFontSize:=EnsureRange(Ini.ReadInteger('Reader','FontSize',14),8,48);
       FFontName:=AvailableReaderFont(Ini.ReadString('Reader','FontName','PT Serif'));
+      if not ReaderFontIsListed(FSettingsFile,FFontName) then
+        FFontName:=AvailableReaderFont(DefaultReaderFont(FSettingsFile));
       FDictionaryExecutable:=Ini.ReadString('Reader','DictionaryExecutable','');
       FLinePercent:=EnsureRange(Ini.ReadInteger('Reader','LinePercent',110),100,180);
       FMargin:=EnsureRange(Ini.ReadInteger('Reader','Margin',32),12,80);
@@ -5980,7 +6142,7 @@ begin
       FDecorativeInitials:=Ini.ReadBool('Reader','DecorativeInitials',False);
       FInitialsMode:=TReaderInitialsMode(EnsureRange(Ini.ReadInteger('Reader','InitialsMode',Ord(FDecorativeInitials)),0,2));
       FDecorativeInitials:=FInitialsMode<>rimNone;
-      for I:=0 to 1 do for J:=0 to 1 do
+      for I:=Low(FHeadingColors) to High(FHeadingColors) do for J:=0 to 1 do
       begin
         FHeadingColors[I,J]:=Ini.ReadInteger('Reader',Format('HeadingColor%d_%d',[I,J]),clDefault);
         if FHeadingColors[I,J]<>clDefault then FHeadingColors[I,J]:=FHeadingColors[I,J] and $00FFFFFF;
@@ -5997,9 +6159,9 @@ begin
       // A new book always fits the window; zoom belongs to that book alone.
       FZoom:=EnsureRange(Ini.ReadInteger('Book.'+FIdentity,'Zoom',100),50,300); FNight:=Ini.ReadBool('Reader','Night',False);
       FOriginalRasterScale:=Ini.ReadBool('Book.'+FIdentity,'OriginalRasterScale',False);
-      FTheme:=EnsureRange(Ini.ReadInteger('Reader','Theme',IfThen(FNight,5,0)),0,5);
+      FTheme:=EnsureRange(Ini.ReadInteger('Reader','Theme',IfThen(FNight,5,0)),0,ReaderCustomThemeIndex);
       // Reading has its own palette, including when launched by the catalogue.
-      FThemes.ItemIndex:=FTheme; FNight:=FTheme>=4;
+      FThemes.ItemIndex:=FTheme; FNight:=ThemeUsesNightColors;
       FHighlightColor:=Ini.ReadInteger('Reader','HighlightColor',$0080E5FF) and $00FFFFFF;
       FUpdatingSearch:=True;
       try
@@ -6057,6 +6219,8 @@ begin
     Ini.WriteBool('Reader','DecorativeInitials',FDecorativeInitials);
     Ini.WriteInteger('Reader','InitialsMode',Ord(FInitialsMode));
     for I:=0 to 1 do for J:=0 to 1 do Ini.WriteInteger('Reader',Format('HeadingColor%d_%d',[I,J]),FHeadingColors[I,J]);
+    if FCustomHeadingColorsDirty then
+      for J:=0 to 1 do Ini.WriteInteger('Reader',Format('HeadingColor2_%d',[J]),FHeadingColors[2,J]);
     // Another open book may have edited a different theme in this profile.
     for I in FChangedThemeColors do
     begin
@@ -6077,7 +6241,9 @@ begin
     Ini.WriteInteger('Reader','HighlightColor',FHighlightColor);
     Ini.WriteBool('Reader','SearchCase',FSearchCase.Checked); Ini.WriteBool('Reader','SearchWord',FSearchWord.Checked);
     Ini.WriteBool('Reader','SearchAll',FSearchAll.Checked);
-    Ini.WriteString('Reader','FontName',FFontName); Ini.WriteInteger('Reader','LinePercent',FLinePercent); Ini.WriteInteger('Reader','Margin',FMargin);
+    // A book opened before the last font choice must not restore its old face
+    // when saving its reading position.
+    Ini.WriteInteger('Reader','LinePercent',FLinePercent); Ini.WriteInteger('Reader','Margin',FMargin);
     if FReady then
     begin
       Ini.WriteString('Book.'+FIdentity,'Title',FBookTitle);
@@ -6092,6 +6258,7 @@ begin
     end;
     SaveMemIniFileAtomically(Ini);
     FChangedThemeColors:=[];
+    FCustomHeadingColorsDirty:=False;
   finally Ini.Free; end;
   if FReady and FReadingMoved and Assigned(FOnProgress) then
     FOnProgress(EnsureRange(Round(ReadingProgress*100),0,100));

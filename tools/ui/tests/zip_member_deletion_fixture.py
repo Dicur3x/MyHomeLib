@@ -14,6 +14,9 @@ import zipfile
 import zlib
 
 
+ZIP64_COMMENT = b"ZIP64 comment \xff\xfe"
+
+
 def root_from(value: str) -> Path:
     root = Path(value).resolve(strict=True)
     if not root.name.startswith("HomeLibRu-native-"):
@@ -32,11 +35,14 @@ def prepare(root: Path) -> None:
     kernel.GetCompressedFileSizeW.argtypes = [wintypes.LPCWSTR, ctypes.POINTER(wintypes.DWORD)]
     kernel.GetCompressedFileSizeW.restype = wintypes.DWORD
     first = b"chosen.fb2"
+    removed = b"offset-only-removed.bin"
+    removed_payload = b"Remove this small record above 4 GiB."
+    removed_crc = zlib.crc32(removed_payload)
     kept = "сохранить/book.fb2".encode("utf-8")
     payload = "ZIP64 retained payload — ё.".encode("utf-8")
-    keep_offset = (1 << 32) + 128
+    remove_offset = (1 << 32) + 128
     header_size = 30 + len(first) + 20
-    sparse_payload_size = keep_offset - header_size
+    sparse_payload_size = remove_offset - header_size
     zeros = bytes(4 * 1024 * 1024)
     crc = 0
     whole, tail = divmod(sparse_payload_size, len(zeros))
@@ -52,23 +58,31 @@ def prepare(root: Path) -> None:
         first_extra = struct.pack("<HHQQ", 1, 16, sparse_payload_size, sparse_payload_size)
         out.write(struct.pack("<I5H3I2H", 0x04034B50, 45, 0, 0, 0, 0,
             crc, 0xFFFFFFFF, 0xFFFFFFFF, len(first), len(first_extra)) + first + first_extra)
-        out.seek(keep_offset)
+        out.seek(remove_offset)
+        out.write(struct.pack("<I5H3I2H", 0x04034B50, 20, 0, 0, 0, 0, removed_crc,
+            len(removed_payload), len(removed_payload), len(removed), 0) + removed + removed_payload)
+        keep_offset = out.tell()
         out.write(struct.pack("<I5H3I2H", 0x04034B50, 20, 0x800, 0, 0, 0,
             keep_crc, len(payload), len(payload), len(kept), 0) + kept + payload)
         directory_offset = out.tell()
         first_central = struct.pack("<I6H3I5H2I", 0x02014B50, 45, 45, 0, 0, 0, 0,
             crc, 0xFFFFFFFF, 0xFFFFFFFF, len(first), len(first_extra), 0, 0, 0, 0, 0) + first + first_extra
+        remove_extra = struct.pack("<HHQ", 1, 8, remove_offset)
+        remove_central = struct.pack("<I6H3I5H2I", 0x02014B50, 45, 45, 0, 0, 0, 0, removed_crc,
+            len(removed_payload), len(removed_payload), len(removed), len(remove_extra),
+            0, 0, 0, 0, 0xFFFFFFFF) + removed + remove_extra
         keep_extra = struct.pack("<HHQ", 1, 8, keep_offset)
         kept_central = struct.pack("<I6H3I5H2I", 0x02014B50, 45, 45, 0x800, 0, 0, 0,
             keep_crc, len(payload), len(payload), len(kept), len(keep_extra), 0, 0, 0, 0, 0xFFFFFFFF) + kept + keep_extra
-        directory = first_central + kept_central
+        # Directory order is intentionally different from physical order.
+        directory = remove_central + kept_central + first_central
         out.write(directory)
         zip64_offset = out.tell()
         out.write(struct.pack("<IQHHIIQQQQ", 0x06064B50, 44, 45, 45, 0, 0,
-            2, 2, len(directory), directory_offset))
+            3, 3, len(directory), directory_offset))
         out.write(struct.pack("<IIQI", 0x07064B50, 0, zip64_offset, 1))
         out.write(struct.pack("<IHHHHIIH", 0x06054B50, 0, 0, 0xFFFF, 0xFFFF,
-            0xFFFFFFFF, 0xFFFFFFFF, 0))
+            0xFFFFFFFF, 0xFFFFFFFF, len(ZIP64_COMMENT)) + ZIP64_COMMENT)
         out.flush()
         os.fsync(out.fileno())
     high = wintypes.DWORD()
@@ -80,11 +94,12 @@ def prepare(root: Path) -> None:
     if allocated >= 1024 * 1024 or target.stat().st_size <= (1 << 32):
         raise RuntimeError("ZIP64 fixture was not sparse and bounded")
     with zipfile.ZipFile(target) as book:
-        if len(book.infolist()) != 2 or book.read(kept.decode("utf-8")) != payload:
+        if (len(book.infolist()) != 3 or book.read(removed.decode("ascii")) != removed_payload
+                or book.read(kept.decode("utf-8")) != payload):
             raise RuntimeError("Independent ZIP64 seed check failed")
     print(f"PASS sparse ZIP64 seed: logical={target.stat().st_size}, allocated={allocated}")
     import sevenzip_deletion_fixture
-    sevenzip_deletion_fixture.prepare(root)
+    sevenzip_deletion_fixture.prepare(root, include_limit=True)
 
 
 def verify(root: Path) -> None:
@@ -95,6 +110,8 @@ def verify(root: Path) -> None:
         if not archive.is_relative_to(root):
             raise RuntimeError("Unexpected proof archive path")
         with zipfile.ZipFile(archive) as book:
+            if relative == proof["zip64Archive"] and book.comment != ZIP64_COMMENT:
+                raise RuntimeError("Raw ZIP64 archive comment changed")
             names = book.namelist()
             if len(names) != len(entries) or set(names) != set(entries):
                 raise RuntimeError("Independent ZIP inventory differs")

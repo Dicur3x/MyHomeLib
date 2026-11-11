@@ -53,6 +53,7 @@ type
     FListClosed: Boolean;
     procedure AddPalette(Sender: TCustomColorBox; Items: TStrings);
   protected
+    function PickCustomColor: Boolean; override;
     procedure DropDown; override;
     procedure CloseUp; override;
     procedure KeyDown(var Key: Word; Shift: TShiftState); override;
@@ -72,7 +73,7 @@ procedure ApplyReaderPalette(Form: TCustomForm; Background, Foreground: TColor; 
 
 implementation
 
-uses System.SysUtils, System.Math, Vcl.Menus, Vcl.ComCtrls, Winapi.Dwmapi;
+uses System.SysUtils, System.Math, Vcl.Menus, Vcl.ComCtrls, Vcl.Dialogs, Winapi.Dwmapi;
 
 type TControlAccess = class(TControl);
   TReaderMenuPalette = class(TComponent)
@@ -361,6 +362,22 @@ begin
     end;
   Items.Objects[0]:=TObject(NativeInt(SelectedColor));
   ItemIndex:=0;
+end;
+
+function TReaderPaletteColorBox.PickCustomColor: Boolean;
+var Dialog: TColorDialog;
+begin
+  Dialog:=TColorDialog.Create(Self);
+  try
+    Dialog.Options:=Dialog.Options+[cdFullOpen];
+    Dialog.Color:=ColorToRGB(Colors[0]);
+    Result:=Dialog.Execute;
+    if Result then
+    begin
+      Items.Objects[0]:=TObject(NativeInt(Dialog.Color));
+      Invalidate;
+    end;
+  finally Dialog.Free; end;
 end;
 
 procedure TReaderPaletteColorBox.DropDown;

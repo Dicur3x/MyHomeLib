@@ -228,7 +228,7 @@ procedure TMHLLinkLabel.CNNotify(var Message: TWMNotify);
 var Draw: PNMCustomDraw;
 begin
   inherited;
-  if not MHLThemeDark or (Message.NMHdr.code <> NM_CUSTOMDRAW) then Exit;
+  if not (MHLThemeDark or MHLThemeCustomized) or (Message.NMHdr.code <> NM_CUSTOMDRAW) then Exit;
   Draw := PNMCustomDraw(Message.NMHdr);
   case Draw.dwDrawStage of
     CDDS_PREPAINT: Message.Result := CDRF_NOTIFYITEMDRAW;

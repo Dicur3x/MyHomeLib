@@ -120,6 +120,8 @@ def main():
         if (stage / 'opds-tls').is_dir():
             directories.append(stage / 'opds-tls')
     replacement, uploads, checked = {}, [], []
+    fb2_source_asset = None
+    fb2_build = None
     new_names = set()
     for directory in directories:
         for key, entry in entries(json.loads((directory / 'HomeLibRu.components.json').read_bytes())).items():
@@ -170,6 +172,27 @@ def main():
                     assert source_asset['browser_download_url'].encode('ascii') in archive.read(prefix + 'SOURCE.txt')
                     for file in (source_verifier['BUILDER'], source_verifier['PATCH']):
                         assert archive.read(prefix + file) == (ROOT / 'scripts' / file).read_bytes()
+                if key[0] == 'FB2Export':
+                    prefix = 'tools/fb2-export/'
+                    if fb2_build is None:
+                        fb2_build = runpy.run_path(str(ROOT / 'scripts/build-fb2-export.py'))
+                        source = directory / fb2_build['SOURCE_ARCHIVE']
+                        with zipfile.ZipFile(source) as bundle:
+                            assert bundle.testzip() is None, 'Corrupt FB2Export corresponding source'
+                            assert bundle.read(fb2_build['PATCH'].name) == fb2_build['PATCH'].read_bytes()
+                            assert {'go.mod', 'vendor/modules.txt', 'BUILD-HOMELIBRE.txt'} <= set(bundle.namelist())
+                        fb2_source_asset = dict(name=source.name, size=source.stat().st_size,
+                                                digest='sha256:' + fb2_build['sha256'](source),
+                                                browser_download_url=PREFIX + source.name)
+                        previous = old_assets.get(source.name)
+                        if previous is None:
+                            uploads.insert(0, dict(path=str(source), **fb2_source_asset))
+                        else:
+                            assert all(previous[field] == value for field, value in fb2_source_asset.items()), (
+                                'Existing FB2Export corresponding source must remain available unchanged')
+                    notice = archive.read(prefix + 'SOURCE.txt').splitlines()
+                    assert ('Corresponding source: ' + fb2_source_asset['browser_download_url']).encode('ascii') in notice
+                    assert ('SHA-256: ' + fb2_source_asset['digest'].removeprefix('sha256:')).encode('ascii') in notice
             history = entry.get('history', [])
             if args.selected_only and key not in reader_keys:
                 history = [note for note in bootstrap[key]['history'] if note['version'] == entry['version']]
@@ -190,7 +213,7 @@ def main():
             checked.append(dict(component=key[0], platform=key[1], version=entry['version'],
                                 archive_sha256=digest(data), managed_files=len(payload_names)))
     assert set(replacement) == expected
-    identical_archive_count = len(checked) - len(uploads)
+    identical_archive_count = len(checked) - sum(asset['name'] in new_names for asset in uploads)
     if not partial:
         previous_source = old_assets.get(kfx_source.name)
         if previous_source is None:
@@ -261,6 +284,8 @@ def main():
                   exact_manifest_and_payloads_verified=True, feed_sha256=digest(feed))
     if not partial:
         report['kfx_corresponding_source'] = source_asset
+    if fb2_source_asset is not None:
+        report['fb2_corresponding_source'] = fb2_source_asset
     report['reader_archives_match_current_executables'] = True
     report['legacy_reader_archives_retained'] = [archive_name(baseline[key]) for key in sorted(reader_keys)]
     report['reader_packages_directory'] = str(args.reader_packages.resolve())

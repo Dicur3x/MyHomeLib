@@ -1,5 +1,17 @@
-﻿procedure TestZipCrashChild;
+﻿type
+  TNoSpaceArchiveDeletion = class(TZipMemberDeletion)
+  protected
+    function JournalSpaceAvailable(const Directory: string): UInt64; override;
+  end;
+
+function TNoSpaceArchiveDeletion.JournalSpaceAvailable(const Directory: string): UInt64;
+begin
+  Result:=0;
+end;
+
+procedure TestZipCrashChild;
 var Archive, Parent, Stage, Report: string; Delete: TZipMemberDeletion; Fault: TZipDeleteFault;
+  Names: TArray<string>;
 begin
   RequireIsolatedRegression;
   Archive:=ExpandFileName(ParamStr(2)); Parent:=ExpandFileName(ParamStr(3));
@@ -18,8 +30,17 @@ begin
     end;
   var Member:='каталог/book.fb2';
   if ParamStr(6)<>'' then Member:=ParamStr(6);
+  Names:=[Member];
+  if ParamStr(7)='member-list' then
+  begin
+    var ListPath:=ExpandFileName(Member);
+    Require(StartsText(Owned,ListPath),'ZIP crash worker list is outside its owned fixture');
+    Names:=TFile.ReadAllText(ListPath,TEncoding.UTF8).Split([sLineBreak],TStringSplitOptions.ExcludeEmpty);
+  end;
   try
-    Delete:=TZipMemberDeletion.Prepare(Archive,[Member]);
+    if ParamStr(7)='staged-repack' then
+      Delete:=TZipMemberDeletion.Prepare(Archive,[Member],nil,nil,'',True,Parent)
+    else Delete:=TZipMemberDeletion.Prepare(Archive,Names);
     try Delete.Execute(Parent,nil,Fault); finally Delete.Free; end;
   except
     on E:Exception do
@@ -33,12 +54,13 @@ var Root, Archive, JournalParent, Job, BeforeHash, OriginalPath: string;
   Payload, Image, Small: TBytes; Delete: TZipMemberDeletion;
   Expected: TDictionary<string,string>; Zip: TZipFile; Interrupted, Rejected: Boolean;
   FaultStage: string; Proof, Items: TJSONObject; FaultCallback: TZipDeleteFault;
-  procedure KillWorker(const Phase: string);
+  procedure KillWorker(const Phase: string; const SelectionFile: string = '');
   var Startup: TStartupInfo; ProcessInfo: TProcessInformation; Command, Report: string;
     Started: UInt64; ExitCode: DWORD;
   begin
     Report:=Root+'crash-'+Phase+'.txt';
     Command:='"'+ParamStr(0)+'" zip-member-crash-child "'+Archive+'" "'+JournalParent+'" "'+Phase+'" "'+Report+'"';
+    if SelectionFile<>'' then Command:=Command+' "'+SelectionFile+'" member-list';
     UniqueString(Command); ZeroMemory(@Startup,SizeOf(Startup)); Startup.cb:=SizeOf(Startup);
     Startup.dwFlags:=STARTF_USESHOWWINDOW; Startup.wShowWindow:=SW_HIDE;
     ZeroMemory(@ProcessInfo,SizeOf(ProcessInfo)); Started:=GetTickCount64;
@@ -99,6 +121,80 @@ var Root, Archive, JournalParent, Job, BeforeHash, OriginalPath: string;
       end;
     finally Zip.Free; end;
   end;
+  procedure FragmentedFixture;
+  const Count=600;
+  var Selected: TArray<string>; Name, SelectionFile, InterruptedHash, PendingFile: string;
+    Bytes, Damaged: TBytes; Plan: TJSONObject; Chunks: TJSONArray; Block: TJSONArray;
+  begin
+    Expected.Clear;
+    SetLength(Selected,Count);
+    Zip:=TZipFile.Create;
+    try
+      Zip.Open(Archive,zmWrite); Zip.UTF8Support:=True; Zip.Comment:='Preserve this archive comment';
+      for var I:=0 to High(Selected) do
+      begin
+        Selected[I]:='remove/'+IntToStr(I)+'.fb2';
+        Name:='keep/'+IntToStr(I)+'.fb2';
+        Bytes:=TEncoding.UTF8.GetBytes('Unique retained payload '+Name);
+        var Stream:=TBytesStream.Create(Small);
+        try Zip.Add(Stream,Selected[I],zcStored); finally Stream.Free; end;
+        Stream:=TBytesStream.Create(Bytes);
+        try Zip.Add(Stream,Name,zcStored); finally Stream.Free; end;
+        Expected.Add(Name,Hash(Bytes));
+      end;
+    finally Zip.Free; end;
+    SelectionFile:=Root+'fragmented-selection.txt';
+    TFile.WriteAllText(SelectionFile,string.Join(sLineBreak,Selected),TEncoding.UTF8);
+    KillWorker('half-written',SelectionFile);
+    Plan:=TJSONObject.ParseJSONValue(TFile.ReadAllText(TPath.Combine(Job,'plan.json'),TEncoding.UTF8)) as TJSONObject;
+    try
+      Require(Plan.GetValue('schema').Value='5','Fragmented ZIP did not use grouped ranges');
+      Chunks:=Plan.GetValue('chunks') as TJSONArray;
+      Require(Chunks.Count=2,'Fragmented ZIP did not split at the range limit');
+      Block:=Chunks.Items[0] as TJSONArray;
+      Require((Block.Items[0] is TJSONArray) and (TJSONArray(Block.Items[0]).Count=512),
+        'The first ZIP block did not group the expected source ranges');
+    finally Plan.Free; end;
+    PendingFile:=TPath.Combine(Job,'pending.bin');
+    Bytes:=TFile.ReadAllBytes(PendingFile);
+    Require((Length(Bytes)>0) and (Length(Bytes)<=4*1024*1024) and
+      (Length(TDirectory.GetFiles(Job))=3),'The fragmented ZIP journal exceeds one pending block');
+    InterruptedHash:=THashSHA2.GetHashStringFromFile(Archive);
+    Damaged:=Copy(Bytes); Damaged[High(Damaged)]:=Damaged[High(Damaged)] xor $FF;
+    TFile.WriteAllBytes(PendingFile,Damaged);
+    Rejected:=False;
+    Delete:=TZipMemberDeletion.Recover(Archive,Job);
+    try
+      try Delete.Execute(JournalParent); except on E:EReadError do Rejected:=True; end;
+    finally Delete.Free; end;
+    Require(Rejected and (THashSHA2.GetHashStringFromFile(Archive)=InterruptedHash),
+      'Fragmented ZIP recovery accepted a damaged pending block or changed the archive');
+    TFile.WriteAllBytes(PendingFile,Bytes);
+    Delete:=TZipMemberDeletion.Recover(Archive,Job);
+    try Delete.Execute(JournalParent); Delete.Acknowledge; finally Delete.Free; end;
+    Verify;
+    Require(not DirectoryExists(Job),'Fragmented ZIP recovery left a journal');
+    Writeln('PASS fragmented ZIP groups bounded ranges and recovers a killed writer'); Flush(Output);
+  end;
+
+  procedure VerifyNoSpace(const FileName, Member: string; Repack: Boolean);
+  var LimitedJournal, OriginalHash: string;
+  begin
+    LimitedJournal:=TPath.Combine(Root,'no-space-journal');
+    OriginalHash:=THashSHA2.GetHashStringFromFile(FileName);
+    Delete:=TNoSpaceArchiveDeletion.Prepare(FileName,[Member],nil,nil,'',Repack,LimitedJournal);
+    try
+      Rejected:=False;
+      try Delete.Execute(LimitedJournal);
+      except on E:EWriteError do Rejected:=E.Message.Contains('Недостаточно места'); end;
+      Require(Rejected and (Delete.JobDirectory='') and not Delete.Finished,
+        'Low journal space did not stop archive deletion before the first write');
+    finally Delete.Free; end;
+    Require((OriginalHash=THashSHA2.GetHashStringFromFile(FileName)) and
+      (Length(TDirectory.GetFileSystemEntries(LimitedJournal))=0),
+      'Low journal space changed the source or left unpublished journal files');
+  end;
+
   function ActualJournalBytes(const Directory: string): Int64;
   var Stream: TFileStream;
   begin
@@ -126,7 +222,12 @@ begin
   Small:=TEncoding.UTF8.GetBytes('Содержимое отдельной книги — ё. Повторяющийся текст.');
   Expected:=TDictionary<string,string>.Create;
   try
+    FragmentedFixture;
     Fixture; BeforeHash:=THashSHA2.GetHashStringFromFile(Archive);
+    VerifyNoSpace(Archive,'каталог/book.fb2',False);
+    var SolidSeed:=TPath.Combine(Settings.AppPath,'sevenzip-delete-plan\solid.7z');
+    VerifyNoSpace(SolidSeed,'selected/one.fb2',True);
+    Writeln('PASS insufficient journal space leaves ZIP and staged solid 7z unchanged'); Flush(Output);
     Rejected:=False;
     try Delete:=TZipMemberDeletion.Prepare(Archive,['book.fb2']); Delete.Free;
     except on E: Exception do Rejected:=True; end;
@@ -289,6 +390,29 @@ begin
     var SparseSize:=TFileStream.Create(Zip64Archive,fmOpenRead or fmShareDenyWrite);
     try Require(SparseSize.Size>Int64(High(Cardinal)),'ZIP64 test did not exceed 4 GiB');
     finally SparseSize.Free; end;
+    var Small64:=TEncoding.UTF8.GetBytes('ZIP64 retained payload — ё.');
+    Delete:=TZipMemberDeletion.Prepare(Zip64Archive,['offset-only-removed.bin']);
+    try
+      Require((Delete.BytesToProcess>0) and (Delete.BytesToProcess<1024),
+        'ZIP64 deletion shifted more than its small neighbour');
+      Delete.Execute(JournalParent);
+      Delete.Acknowledge;
+    finally Delete.Free; end;
+    Zip:=TZipFile.Create;
+    try
+      Zip.Open(Zip64Archive,zmRead);
+      Require((Zip.FileCount=2) and (Zip.FileNames[0]='сохранить/book.fb2') and
+        (Zip.FileNames[1]='chosen.fb2'), 'ZIP64 central directory order changed');
+      Require(Zip.FileInfos[0].LocalHeaderOffset64>High(Cardinal),
+        'ZIP64 offset-only extra field did not preserve the retained neighbour above 4 GiB');
+      Require((Zip.FileInfos[0].ExtraFieldLength=12) and
+        (Zip.FileInfos[0].CompressedSize=Cardinal(Length(Small64))),
+        'A small ZIP64 removal expanded the retained central header');
+      var OffsetOnlyBytes: TBytes;
+      Zip.Read(0,OffsetOnlyBytes);
+      Require(Hash(OffsetOnlyBytes)=Hash(Small64),'ZIP64 offset-only neighbour was damaged');
+    finally Zip.Free; end;
+    Writeln('PASS offset-only ZIP64 extras retain a moved neighbour above 4 GiB'); Flush(Output);
     FaultStage:='half-written'; Interrupted:=False;
     Delete:=TZipMemberDeletion.Prepare(Zip64Archive,['chosen.fb2']);
     try
@@ -301,7 +425,6 @@ begin
     Require(Interrupted,'ZIP64 partial block write was not interrupted');
     Delete:=TZipMemberDeletion.Recover(Zip64Archive,Job);
     try Delete.Execute(JournalParent); Delete.Acknowledge; finally Delete.Free; end;
-    var Small64:=TEncoding.UTF8.GetBytes('ZIP64 retained payload — ё.');
     Zip:=TZipFile.Create;
     try
       Zip.Open(Zip64Archive,zmRead);

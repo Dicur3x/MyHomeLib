@@ -707,6 +707,23 @@ class ConversionTests(unittest.TestCase):
         c.convert_book(source,output); self.validate_fb2(output); book=ET.parse(output).getroot()
         self.assertEqual(base64.b64decode(c.plain(c.children(book,'binary')[0])),PNG)
         image=next(c.first(book,'body').iter('{'+c.FB+'}image')); self.assertEqual(image.get('alt'),'Описание')
+        for label, style, viewport, succeeds in [
+            ('responsive', 'max-width: 100%;', '0 0 1 1', True),
+            ('cropped', 'max-width: 100%;', '0 0 2 1', False),
+            ('narrow', 'max-width: 80%;', '0 0 1 1', False),
+            ('rotated', 'max-width: 100%; transform: rotate(90deg)', '0 0 1 1', False),
+        ]:
+            wrapped = svg.replace('viewBox="0 0 1 1"', 'viewBox="'+viewport+'"')
+            wrapped = wrapped.replace('<image ', '<image style="'+style+'" ')
+            source = self.generic('<p>Текст</p>'+wrapped, '<p>Конец</p>')
+            result = self.root/(label+'.fb2')
+            if succeeds:
+                c.convert_book(source,result); self.validate_fb2(result)
+                raster = c.children(ET.parse(result).getroot(),'binary')[0]
+                self.assertEqual(base64.b64decode(c.plain(raster)),PNG)
+            else:
+                with self.assertRaises(c.ConversionError): c.convert_book(source,result)
+                self.assertFalse(result.exists())
         source=self.generic('<svg xmlns="http://www.w3.org/2000/svg"><path d="M0,0L1,1"/></svg>','<p>Конец</p>')
         with self.assertRaises(c.ConversionError): c.convert_book(source,self.root/'vector.fb2')
         self.assertFalse((self.root/'vector.fb2').exists())

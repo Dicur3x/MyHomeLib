@@ -9,21 +9,25 @@ type
   TfrmBookDuplicates = class(TSourceDialogForm)
   private
     FPlan, FRegularPlan, FLinkedPlan: TBookDuplicatePlan;
+    FUnified: TUnifiedDuplicateView;
+    FUnifiedBooks: TArray<TUnifiedDuplicateCopy>;
     FGroups, FCopies: TListView;
     FDetails: TMemo;
     FSearch, FPrevious, FNext, FKeep, FApply, FDelete, FSelectSource, FClearSelection: TButton;
     FCollectionInfo: TCollectionInfo;
     FSource, FResultKind: TComboBox;
+    FShowDetails: TButton;
     FUseGroup, FUnmarkedOnly: TCheckBox;
     FStatus, FModeHelp: TLabel;
     FPage: TArray<TDuplicateGroup>;
     FSourcePriority, FSavedPriority: TArray<string>;
     FBooks: TArray<TDuplicateBook>;
     FOffset: Integer;
-    FUpdating, FChanged, FDeleteInBatches, FLinkedResultsValid: Boolean;
+    FUpdating, FChanged, FDeleteInBatches, FLinkedResultsValid, FDetailed: Boolean;
     FBeforeApply: TNotifyEvent;
     procedure Scan(Sender: TObject);
     procedure SwitchResults(Sender: TObject);
+    procedure ToggleDetails(Sender: TObject);
     procedure ReadSourcePriority;
     procedure SaveSourcePriority;
     procedure ChangePage(Sender: TObject);
@@ -42,21 +46,28 @@ type
     procedure LoadSources;
     procedure FilterGroups(Sender: TObject);
     function VisibleGroupCount: Integer;
+  protected
+    procedure ConstrainedResize(var MinWidth, MinHeight, MaxWidth, MaxHeight: Integer); override;
   public
     constructor CreateForCollection(AOwner: TComponent; const Collection: IBookCollection);
     destructor Destroy; override;
     procedure RenderPage;
     function TakeDeletionOperation(const UserFile, JournalRoot: string): TBookDeletionOperation;
     property Plan: TBookDuplicatePlan read FPlan;
+    property LinkedPlan:TBookDuplicatePlan read FLinkedPlan;
     property CatalogChanged: Boolean read FChanged;
     property OnBeforeApply: TNotifyEvent read FBeforeApply write FBeforeApply;
   end;
 
 implementation
 
-uses System.SysUtils, System.IOUtils, System.Variants, System.StrUtils, System.Math, System.JSON, System.IniFiles, Vcl.Controls,
+uses Winapi.Windows, System.SysUtils, System.IOUtils, System.Variants, System.StrUtils, System.Math, System.JSON, System.IniFiles, Vcl.Controls,
   Vcl.ExtCtrls, Vcl.Dialogs, unit_Settings, unit_Consts, unit_CollectionWorkerThread,
   frm_ImportProgressFormEx, frm_BuiltinReader, dm_user, unit_AtomicIniFile;
+
+const
+  DuplicateMinWidth = 900;
+  DuplicateMinHeight = 580;
 
 type
   TDuplicateSourcePriorityForm = class(TSourceDialogForm)
@@ -74,17 +85,20 @@ type
     FError: string;
     FApply, FSelectLinkedFiles: Boolean;
     FLinkedPlan: TBookDuplicatePlan;
+    FUnified: TUnifiedDuplicateView;
     FBackup: string;
     FSourceName: string;
-    FSourcePriority: TArray<string>;
-    FSelected: Integer;
+    FSourcePriority, FSavedPriority: TArray<string>;
+    FPriorityApplied: Boolean;
+    procedure ApplySourcePriority;
   protected
     procedure WorkFunction; override;
   public
     constructor Create(Plan: TBookDuplicatePlan);
   end;
 
-constructor TDuplicateSourcePriorityForm.CreateForSources(AOwner: TComponent; const Sources: TArray<string>);
+constructor TDuplicateSourcePriorityForm.CreateForSources(AOwner: TComponent;
+  const Sources: TArray<string>);
 var HintLabel: TLabel; Button: TButton;
   function AddButton(const Text: string; X,Y,W: Integer): TButton;
   begin
@@ -112,7 +126,7 @@ begin
   HintLabel.AutoSize:=False;
   HintLabel.WordWrap:=True;
   HintLabel.SetBounds(12,10,516,42);
-  HintLabel.Caption:='Поднимите нужные источники вверх. Программа пересчитает автоматические отметки по этому порядку. Ручной выбор сохранится.';
+  HintLabel.Caption:='Поставьте любимый источник первым. Если в нём нет книги, HomeLibre проверит следующие по списку.';
   FList:=TListBox.Create(Self);
   FList.Name:='lbDuplicateSourcePriority';
   FList.Parent:=Self;
@@ -127,13 +141,16 @@ begin
   Button:=AddButton('Ниже',418,91,110);
   Button.Tag:=1;
   Button.OnClick:=MoveSource;
-  Button:=AddButton('Применить порядок',242,255,170);
+  Button:=AddButton('Выбрать копии',242,255,170);
   Button.Default:=True;
   Button.ModalResult:=mrOk;
   Button:=AddButton('Отмена',418,255,110);
   Button.Cancel:=True;
   Button.ModalResult:=mrCancel;
   ScaleForPPI(PopupParent.CurrentPPI);
+  var Widest:=0;
+  for var Source in Sources do Widest:=System.Math.Max(Widest,FList.Canvas.TextWidth(Source));
+  if Widest>FList.ClientWidth then FList.ScrollWidth:=Widest+ScaleValue(12);
 end;
 
 procedure TDuplicateSourcePriorityForm.MoveSource(Sender: TObject);
@@ -155,19 +172,35 @@ end;
 constructor TDuplicateScanWorker.Create(Plan: TBookDuplicatePlan);
 begin inherited Create(INVALID_COLLECTION_ID); FPlan:=Plan; end;
 
+function AvailableDuplicatePriorities(Regular, Linked: TBookDuplicatePlan): TArray<string>;
+begin
+  Result:=Regular.PrioritySources;
+  if Assigned(Linked) then
+    for var Name in Linked.PrioritySources do
+      if not MatchStr(Name,Result) then Result:=Result+[Name];
+end;
+
+procedure TDuplicateScanWorker.ApplySourcePriority;
+var LinkedSelected: Integer;
+begin
+  SetComment('Выбор повторов по порядку источников…');
+  if Assigned(FLinkedPlan) then
+    FPlan.SelectCombinedSourcePriority(FLinkedPlan,FSourcePriority,
+      function: Boolean begin Result:=Canceled; end,LinkedSelected)
+  else FPlan.SelectSourcePriority(FSourcePriority,
+    function: Boolean begin Result:=Canceled; end);
+  FPriorityApplied:=True;
+end;
+
 procedure TDuplicateScanWorker.WorkFunction;
 begin
   try
-    SetProgressHint(pbstMarquee); SetComment('Поиск повторных записей книг…');
-    if Length(FSourcePriority)>0 then
-    begin
-      SetComment('Выбор повторов по порядку источников…');
-      FSelected:=FPlan.SelectSourcePriority(FSourcePriority,function: Boolean begin Result:=Canceled; end);
-    end
+    SetProgressHint(pbstMarquee); SetComment('Поиск дублей книг…');
+    if Length(FSourcePriority)>0 then ApplySourcePriority
     else if FSelectLinkedFiles then
     begin
       SetComment('Отметка дополнительных файлов…');
-      FSelected:=FPlan.SelectSource(FSourceName,function: Boolean begin Result:=Canceled; end);
+      FPlan.SelectSource(FSourceName,function: Boolean begin Result:=Canceled; end);
     end
     else if FApply then
       FPlan.Apply(FBackup,function: Boolean begin Result:=Canceled; end,
@@ -181,18 +214,37 @@ begin
     begin
       FPlan.Preview(function: Boolean begin Result:=Canceled; end,
         procedure(Current,Total: Integer)
-        begin SetComment(Format('Проверено карточек книг: %d',[Current])); end);
+        begin SetComment(Format('Проверено книг в каталоге: %d',[Current])); end);
       if Assigned(FLinkedPlan) and not Canceled then
       begin
         SetComment('Поиск книг с несколькими файлами…');
         FLinkedPlan.PreviewLinked(function: Boolean begin Result:=Canceled; end,
           procedure(Current,Total: Integer)
-          begin SetComment(Format('Проверено путей к файлам: %d',[Current])); end);
+          begin SetComment(Format('Проверено ссылок на файлы: %d',[Current])); end);
+        if not Canceled then FPlan.AlignPrioritySources(FLinkedPlan);
       end;
+      if not Canceled and (Length(FSavedPriority)>=2) then
+      begin
+        var Available:=AvailableDuplicatePriorities(FPlan,FLinkedPlan);
+        for var Name in FSavedPriority do
+          if MatchStr(Name,Available) then FSourcePriority:=FSourcePriority+[Name];
+        if Length(FSourcePriority)>=2 then ApplySourcePriority;
+      end;
+    end;
+    if Assigned(FUnified) and not Canceled and FPlan.Ready and FLinkedPlan.Ready then
+    begin
+      SetComment('Объединение найденных копий в один список…');
+      if FUnified.Ready then FUnified.RefreshMarks
+      else FUnified.Build(function:Boolean begin Result:=Canceled; end,
+        procedure(Current,Total:Integer)
+        begin SetComment(Format('Проверено книг с копиями: %d',[Current])); end);
     end;
   except
     on E: Exception do
-      if Canceled then FError:='Операция отменена. Изменения не сохранены.' else FError:=E.Message;
+    begin
+      if Canceled then FError:='Операция отменена.' else FError:=E.Message;
+      if FPriorityApplied then FError:=FError+sLineBreak+'Отметки по порядку источников сохранены.';
+    end;
   end;
 end;
 
@@ -212,25 +264,28 @@ begin
   inherited CreateNew(AOwner); Name:='BookDuplicatesForm'; Caption:='Дубли книг';
   Position:=poOwnerFormCenter; PixelsPerInch:=96; Font.PixelsPerInch:=96; Font.Name:='Segoe UI'; Font.Size:=9;
   BorderStyle:=bsSizeable; ClientWidth:=1040; ClientHeight:=640;
-  Constraints.MinWidth:=900; Constraints.MinHeight:=580;
+  Constraints.MinWidth:=DuplicateMinWidth; Constraints.MinHeight:=DuplicateMinHeight;
   FCollectionInfo:=SystemDB.GetCollectionInfo(Collection.CollectionID);
   FRegularPlan:=NewPlan;
   FLinkedPlan:=NewPlan;
   FPlan:=FRegularPlan;
+  FUnified:=TUnifiedDuplicateView.Create(FRegularPlan,FLinkedPlan);
   ReadSourcePriority;
   Top:=TPanel.Create(Self); Top.Parent:=Self; Top.Align:=alTop; Top.Height:=135; Top.BevelOuter:=bvNone;
   LabelText:=TLabel.Create(Self); LabelText.Parent:=Top; LabelText.AutoSize:=False;
   LabelText.SetBounds(12,10,1016,24); LabelText.Anchors:=[akLeft,akTop,akRight]; LabelText.WordWrap:=True;
-  LabelText.Caption:='Найдите дубли, выберите, что оставить, затем проверьте отметки перед удалением.';
+  LabelText.Caption:='Найдите дубли и выберите, из каких источников оставить книги. HomeLibre отметит лишние копии.';
   FSearch:=TButton.Create(Self); FSearch.Parent:=Top; FSearch.Name:='btnFindBookDuplicates';
   FSearch.SetBounds(12,36,148,30); FSearch.Caption:='Найти дубли'; FSearch.OnClick:=Scan;
+  FShowDetails:=TButton.Create(Self); FShowDetails.Parent:=Top; FShowDetails.Name:='btnDuplicateDetails';
+  FShowDetails.SetBounds(172,36,155,30); FShowDetails.OnClick:=ToggleDetails;
   FResultKind:=TComboBox.Create(Self); FResultKind.Parent:=Top; FResultKind.Name:='cbDuplicateResultKind';
-  FResultKind.SetBounds(172,38,260,28); FResultKind.Style:=csDropDownList;
-  FResultKind.Items.Add('Отдельные записи');
-  FResultKind.Items.Add('Файлы одной записи');
+  FResultKind.SetBounds(339,38,280,28); FResultKind.Style:=csDropDownList;
+  FResultKind.Items.Add('Книги, добавленные несколько раз');
+  FResultKind.Items.Add('Книги с несколькими файлами');
   FResultKind.ItemIndex:=0; FResultKind.OnChange:=SwitchResults;
   FStatus:=TLabel.Create(Self); FStatus.Parent:=Top; FStatus.AutoSize:=False;
-  FStatus.SetBounds(444,34,584,38); FStatus.Anchors:=[akLeft,akTop,akRight]; FStatus.WordWrap:=True;
+  FStatus.SetBounds(172,34,856,38); FStatus.Anchors:=[akLeft,akTop,akRight]; FStatus.WordWrap:=True;
   FSource:=TComboBox.Create(Self); FSource.Parent:=Top; FSource.Name:='cbDuplicatePreferredSource';
   FSource.Style:=csDropDownList; FSource.SetBounds(12,76,380,26); FSource.Anchors:=[akLeft,akTop,akRight];
   FUnmarkedOnly:=TCheckBox.Create(Self); FUnmarkedOnly.Parent:=Top; FUnmarkedOnly.Name:='cbUnmarkedDuplicateGroups';
@@ -249,9 +304,9 @@ begin
   FNext:=TButton.Create(Self); FNext.Parent:=Bottom; FNext.Name:='btnNextDuplicatePage';
   FNext.SetBounds(164,10,140,30); FNext.Caption:='Следующие 50'; FNext.OnClick:=ChangePage;
   FApply:=TButton.Create(Self); FApply.Parent:=Bottom; FApply.Name:='btnApplyBookDuplicates';
-  FApply.SetBounds(316,10,211,30); FApply.Caption:='Объединить, сохранив файлы…'; FApply.OnClick:=ApplySelected;
+  FApply.SetBounds(316,10,211,30); FApply.Caption:='Объединить в каталоге…'; FApply.OnClick:=ApplySelected;
   FDelete:=TButton.Create(Self); FDelete.Parent:=Bottom; FDelete.Name:='btnDeleteDuplicateFiles';
-  FDelete.SetBounds(539,10,212,30); FDelete.Caption:='Удалить с диска…'; FDelete.OnClick:=DeleteSelectedFiles;
+  FDelete.SetBounds(539,10,212,30); FDelete.Caption:='Удалить копии с диска…'; FDelete.OnClick:=DeleteSelectedFiles;
   CloseButton:=TButton.Create(Self); CloseButton.Parent:=Bottom;
   CloseButton.SetBounds(908,10,120,30); CloseButton.Anchors:=[akTop,akRight];
   CloseButton.Caption:='Закрыть'; CloseButton.Cancel:=True; CloseButton.ModalResult:=mrCancel;
@@ -269,7 +324,7 @@ begin
   FKeep:=TButton.Create(Self); FKeep.Parent:=CopyActions; FKeep.Name:='btnPreferDuplicateCopy';
   FKeep.SetBounds(12,4,235,28); FKeep.Caption:='Оставить выбранную копию'; FKeep.OnClick:=KeepCopy;
   FUseGroup:=TCheckBox.Create(Self); FUseGroup.Parent:=CopyActions; FUseGroup.Name:='cbSelectDuplicateGroup';
-  FUseGroup.SetBounds(12,36,600,22); FUseGroup.Anchors:=[akLeft,akTop,akRight];
+  FUseGroup.SetBounds(12,36,315,22);
   FUseGroup.Caption:='Отметить остальные копии к удалению'; FUseGroup.OnClick:=MarkGroup;
   FDetails:=TMemo.Create(Self); FDetails.Parent:=RightPanel; FDetails.Name:='mmDuplicateCopyDetails';
   FDetails.Align:=alBottom; FDetails.Height:=102; FDetails.ReadOnly:=True; FDetails.WordWrap:=True; FDetails.ScrollBars:=ssVertical;
@@ -290,16 +345,56 @@ end;
 
 destructor TfrmBookDuplicates.Destroy;
 begin
+  FUnified.Free;
   FLinkedPlan.Free;
   FRegularPlan.Free;
   inherited;
 end;
 
+procedure TfrmBookDuplicates.ConstrainedResize(var MinWidth, MinHeight, MaxWidth, MaxHeight: Integer);
+begin
+  inherited;
+  // The styled frame can restore an old pixel minimum after a DPI change.
+  // Keep the minimum needed by the content at its current layout scale.
+  MinWidth:=Max(MinWidth,MulDiv(DuplicateMinWidth,PixelsPerInch,96));
+  MinHeight:=Max(MinHeight,MulDiv(DuplicateMinHeight,PixelsPerInch,96));
+end;
+
 procedure TfrmBookDuplicates.UpdateStatus;
 var Linked: Boolean; ShownCount, RegularMarks, LinkedMarks: Integer;
 begin
+  if Assigned(FUnified) and FUnified.Ready then
+  begin
+    FShowDetails.Visible:=False; FResultKind.Visible:=False; FSource.Visible:=False;
+    FStatus.Left:=ScaleValue(172);
+    FStatus.Width:=FStatus.Parent.ClientWidth-FStatus.Left-ScaleValue(12);
+    ShownCount:=VisibleGroupCount;
+    FStatus.Caption:=Format('Книг с копиями: %d · Показано: %d–%d'+sLineBreak+'Выбрано книг: %d',
+      [FUnified.GroupCount,Ord(ShownCount>0)*(FOffset+1),FOffset+Length(FPage),FUnified.SelectedCount]);
+    FPrevious.Enabled:=FOffset>0; FNext.Enabled:=FOffset+50<ShownCount;
+    FKeep.Visible:=True;
+    FKeep.Enabled:=Assigned(FCopies.Selected) and (FCopies.Selected.Index<Length(FUnifiedBooks));
+    if FKeep.Enabled then FKeep.Enabled:=not FUnifiedBooks[FCopies.Selected.Index].Kept;
+    FUseGroup.Enabled:=Assigned(FGroups.Selected); FUseGroup.Top:=ScaleValue(36);
+    FUseGroup.Caption:='Убрать остальные копии этой книги';
+    FApply.Visible:=True; FApply.Enabled:=FRegularPlan.SelectedCount>0;
+    FDelete.Left:=FApply.Left+FApply.Width+ScaleValue(12);
+    FDelete.Enabled:=(FRegularPlan.SelectedRemovedCount+FLinkedPlan.SelectedRemovedCount)>0;
+    FClearSelection.Enabled:=FDelete.Enabled;
+    FUnmarkedOnly.Visible:=True; FUnmarkedOnly.Enabled:=True;
+    FSelectSource.Left:=ScaleValue(12); FSelectSource.Anchors:=[akTop,akLeft];
+    FSelectSource.Caption:='Выбрать, что оставить…';
+    FSelectSource.Enabled:=(ShownCount>0) and (Length(FSourcePriority)>=2);
+    FModeHelp.Caption:='Одна строка — одна книга. Справа — её копии. Оставьте одну по порядку источников или вручную.';
+    Exit;
+  end;
+  FShowDetails.Visible:=False; FResultKind.Visible:=False;
   Linked:=FPlan.LinkedMode;
-  FResultKind.Enabled:=FLinkedResultsValid;
+  FShowDetails.Visible:=False;
+  FShowDetails.Caption:=IfThen(FDetailed,'Свернуть','Подробности…');
+  FResultKind.Visible:=False;
+  FStatus.Left:=ScaleValue(IfThen(FResultKind.Visible,631,339));
+  FStatus.Width:=FStatus.Parent.ClientWidth-FStatus.Left-ScaleValue(12);
   ShownCount:=VisibleGroupCount;
   FPrevious.Enabled:=FPlan.Ready and (FOffset>0);
   FNext.Enabled:=FPlan.Ready and (FOffset+50<ShownCount);
@@ -310,7 +405,7 @@ begin
   FKeep.Visible:=not Linked;
   FUseGroup.Enabled:=Assigned(FGroups.Selected);
   FUseGroup.Top:=ScaleValue(IfThen(Linked,8,36));
-  FUseGroup.Caption:=IfThen(Linked,'Отметить все копии файла этой книги','Отметить остальные копии к удалению');
+  FUseGroup.Caption:=IfThen(Linked,'Отметить все лишние копии этой книги','Отметить остальные копии к удалению');
   FApply.Visible:=not Linked;
   if Linked then FDelete.Left:=FApply.Left else FDelete.Left:=FApply.Left+FApply.Width+ScaleValue(12);
   RegularMarks:=FRegularPlan.SelectedRemovedCount;
@@ -319,30 +414,32 @@ begin
   FDelete.Enabled:=RegularMarks+LinkedMarks>0;
   FApply.Enabled:=not Linked and (RegularMarks>0);
   FSource.Enabled:=FPlan.Ready and (FSource.Items.Count>0);
-  FSource.Visible:=Linked;
+  FSource.Visible:=Linked and FDetailed;
   FUnmarkedOnly.Visible:=not Linked;
   FUnmarkedOnly.Enabled:=FPlan.Ready;
-  FSelectSource.Left:=IfThen(Linked,FSource.Left+FSource.Width+ScaleValue(12),ScaleValue(12));
-  if Linked then FSelectSource.Anchors:=[akTop,akRight] else FSelectSource.Anchors:=[akTop,akLeft];
-  FSelectSource.Caption:=IfThen(Linked,'Отметить копии из источника','Выбрать, что оставить…');
+  FSelectSource.Left:=IfThen(FSource.Visible,FSource.Left+FSource.Width+ScaleValue(12),ScaleValue(12));
+  if FSource.Visible then FSelectSource.Anchors:=[akTop,akRight] else FSelectSource.Anchors:=[akTop,akLeft];
+  if FSource.Visible then FSelectSource.Caption:='Отметить копии из источника'
+  else if Linked and (Length(FSourcePriority)<2) then FSelectSource.Caption:='Отметить лишние копии'
+  else FSelectSource.Caption:='Выбрать, что оставить…';
   FSelectSource.Enabled:=FPlan.Ready and
     ((Linked and (FPlan.GroupCount>0) and (FSource.ItemIndex>=0)) or (not Linked and (Length(FSourcePriority)>=2)));
   FClearSelection.Enabled:=FDelete.Enabled;
   if Linked then
   begin
-    FModeHelp.Caption:='Одна запись в каталоге, несколько файлов на диске. Основной файл останется. Отметки в обоих списках применяются вместе.';
+    FModeHelp.Caption:='Основной файл каждой книги останется. Вы можете отметить лишние файлы сразу или выбрать их справа.';
   end
   else
   begin
-    if FPlan.Ready and (FSource.Items.Count<2) then
-      FModeHelp.Caption:='Выберите основную копию вручную. Для выбора по приоритету нужны разные известные источники.'
-    else
-      FModeHelp.Caption:='Одна книга добавлена несколькими записями. Выберите запись, которую оставить, вручную или по порядку источников.';
+    if FPlan.Ready and (Length(FSourcePriority)<2) then
+      FModeHelp.Caption:='Выберите справа копию, которую хотите оставить, и отметьте остальные.'
+    else if FPlan.Ready then
+      FModeHelp.Caption:='Укажите, копии из каких источников оставить, или выберите копию вручную.'
+    else FModeHelp.Caption:='Поиск сравнит книги в текущей коллекции.';
   end;
   if FPlan.Ready then
-    FStatus.Caption:=Format('Книг в этом списке: %d · Показано: %d–%d'+sLineBreak+
-      'Отмечено: %d записей с файлами и %d копий файлов.',
-      [ShownCount,Ord(ShownCount>0)*(FOffset+1),FOffset+Length(FPage),RegularMarks,LinkedMarks])
+    FStatus.Caption:=Format('В этом списке: %d · Показано: %d–%d'+sLineBreak+'Отмечено к удалению: %d',
+      [ShownCount,Ord(ShownCount>0)*(FOffset+1),FOffset+Length(FPage),RegularMarks+LinkedMarks])
   else if FChanged then FStatus.Caption:='Чтобы обновить список, нажмите «Найти дубли».'
   else FStatus.Caption:='Поиск ещё не выполнен';
 end;
@@ -360,6 +457,7 @@ begin
     [FPlan.SelectedCount,FPlan.SelectedRemovedCount,BackupFolder]),mtConfirmation,[mbYes,mbNo],0,mbNo)<>mrYes then Exit;
   if Assigned(FBeforeApply) then FBeforeApply(Self);
   // The other results still hold a read snapshot of the same catalogue.
+  FreeAndNil(FUnified);
   FLinkedPlan.DiscardPreview;
   FLinkedResultsValid:=False;
   Worker:=TDuplicateScanWorker.Create(FPlan); Worker.FApply:=True; Worker.FBackup:=BackupFolder;
@@ -371,8 +469,9 @@ begin
     FChanged:=FChanged or FPlan.Committed;
     if Assigned(Worker.FatalException) then raise Exception.Create(Exception(Worker.FatalException).Message);
     FOffset:=0; LoadSources; RenderPage;
-    FResultKind.Items[0]:='Отдельные записи';
-    FResultKind.Items[1]:='Файлы одной записи';
+    FDetailed:=False;
+    FResultKind.Items[0]:='Книги, добавленные несколько раз';
+    FResultKind.Items[1]:='Книги с несколькими файлами';
     if FPlan.Committed then
       FDetails.Lines.Text:=Format('Объединение сохранено. Убрано повторных записей: %d.'+#13#10+
         'Файлы книг и личные данные сохранены.'+#13#10+'Резервная копия: %s'+#13#10+
@@ -392,12 +491,11 @@ begin
   LinkedCount:=0;
   if FLinkedResultsValid then LinkedCount:=FLinkedPlan.SelectedRemovedCount;
   if RegularCount+LinkedCount=0 then Exit;
-  Prompt:=Format('Удалить отмеченные файлы с диска?'+sLineBreak+
-    'Дубли записей вместе с их файлами: %d. Лишние файлы у одной записи: %d.'+sLineBreak+sLineBreak+
-    'Для каждой книги останется основная копия. Программа оставит книгу целиком, если запись изменилась, '+
-    'содержит личные данные или с ней связаны файлы, которые вы не отметили.'+sLineBreak+
-    'Связанные копии можно отметить в списке «Файлы одной записи». Удаление идёт в фоне. При остановке уже выполненное сохранится.',
-    [RegularCount,LinkedCount]);
+  Prompt:=Format('Удалить отмеченные копии с диска, в том числе из архивов?'+sLineBreak+
+    'Отмечено копий: %d.',[RegularCount+LinkedCount]);
+  Prompt:=Prompt+sLineBreak+sLineBreak+
+    'HomeLibre проверит, что сохраняемая копия доступна. Если безопасно удалить копию не получится, причина будет в отчёте.'+sLineBreak+
+    'Удаление пройдёт в фоне. При остановке уже выполненное сохранится.';
   if Assigned(FBeforeApply) then FBeforeApply(Self);
   if MessageDlg(Prompt,mtWarning,[mbYes,mbNo],0,mbNo)<>mrYes then Exit;
   if Assigned(FBeforeApply) then FBeforeApply(Self);
@@ -408,6 +506,7 @@ end;
 function TfrmBookDuplicates.TakeDeletionOperation(const UserFile, JournalRoot: string): TBookDeletionOperation;
 begin
   if not FDeleteInBatches then Exit(nil);
+  FreeAndNil(FUnified);
   if not FLinkedResultsValid then FLinkedPlan.DiscardPreview;
   Result:=TBookDeletionOperation.CreateDuplicateCleanup(FRegularPlan,FLinkedPlan,FCollectionInfo.ID,UserFile,JournalRoot);
   FPlan:=nil;
@@ -418,22 +517,30 @@ procedure TfrmBookDuplicates.Scan(Sender: TObject);
 var Worker: TDuplicateScanWorker; Progress: TImportProgressFormEx;
 begin
   FSearch.Enabled:=False;
-  FResultKind.Enabled:=False;
+  FDetailed:=False;
   FLinkedResultsValid:=False;
+  FShowDetails.Visible:=False;
+  FResultKind.Visible:=False;
+  FreeAndNil(FUnified);
+  FUnified:=TUnifiedDuplicateView.Create(FRegularPlan,FLinkedPlan);
   FLinkedPlan.DiscardPreview;
   Worker:=TDuplicateScanWorker.Create(FRegularPlan); Progress:=TImportProgressFormEx.Create(Self);
   try
     Worker.FLinkedPlan:=FLinkedPlan;
+    Worker.FUnified:=FUnified;
+    Worker.FSavedPriority:=FSavedPriority;
     Progress.Caption:='Поиск дублей книг'; Progress.WorkerThread:=Worker;
     Progress.CloseOnTimer:=True; Progress.Timer.Interval:=1; Progress.PopupMode:=pmExplicit; Progress.PopupParent:=Self;
     Progress.ShowModal; Worker.WaitFor;
     if Assigned(Worker.FatalException) then raise Exception.Create(Exception(Worker.FatalException).Message);
     FLinkedResultsValid:=(Worker.FError='') and FLinkedPlan.Ready;
-    FResultKind.Items[0]:=Format('Отдельные записи (%d)',[FRegularPlan.GroupCount]);
-    FResultKind.Items[1]:=Format('Файлы одной записи (%d)',[FLinkedPlan.GroupCount]);
+    FResultKind.Items[0]:=Format('Книги, добавленные несколько раз (%d)',[FRegularPlan.GroupCount]);
+    FResultKind.Items[1]:=Format('Книги с несколькими файлами (%d)',[FLinkedPlan.GroupCount]);
     FResultKind.ItemIndex:=Ord(FLinkedResultsValid and (FRegularPlan.GroupCount=0) and (FLinkedPlan.GroupCount>0));
     SwitchResults(FResultKind);
-    if Worker.FError<>'' then FDetails.Lines.Text:=Worker.FError;
+    if Worker.FError<>'' then FDetails.Lines.Text:=Worker.FError
+    else if Worker.FPriorityApplied then
+      FDetails.Lines.Text:='Сохранённый порядок источников применён. Проверьте отметки перед удалением.';
   finally Progress.Free; Worker.Free; FSearch.Enabled:=True; end;
 end;
 
@@ -449,6 +556,17 @@ begin
   RenderPage;
   if FPlan.Ready and (FPlan.GroupCount=0) then
     FDetails.Lines.Text:=IfThen(FPlan.LinkedMode,'Дополнительных файлов не найдено.','Повторных карточек не найдено.');
+end;
+
+procedure TfrmBookDuplicates.ToggleDetails(Sender: TObject);
+begin
+  FDetailed:=not FDetailed;
+  if FDetailed then UpdateStatus
+  else
+  begin
+    FResultKind.ItemIndex:=Ord(FLinkedResultsValid and (FRegularPlan.GroupCount=0) and (FLinkedPlan.GroupCount>0));
+    SwitchResults(nil);
+  end;
 end;
 
 procedure TfrmBookDuplicates.ReadSourcePriority;
@@ -496,7 +614,8 @@ begin
     for var Name in Sources do FSource.Items.Add(Name);
     if FSource.Items.Count>0 then FSource.ItemIndex:=0;
   finally FSource.Items.EndUpdate; end;
-  if FPlan.LinkedMode then Exit;
+  if FLinkedResultsValid then Sources:=AvailableDuplicatePriorities(FRegularPlan,FLinkedPlan)
+  else Sources:=FRegularPlan.PrioritySources;
   FSourcePriority:=nil;
   for var Name in FSavedPriority do
     if MatchStr(Name,Sources) then FSourcePriority:=FSourcePriority+[Name];
@@ -506,10 +625,11 @@ end;
 
 procedure TfrmBookDuplicates.SelectSource(Sender: TObject);
 var Worker: TDuplicateScanWorker; Progress: TImportProgressFormEx;
-  Dialog: TDuplicateSourcePriorityForm;
+  Dialog: TDuplicateSourcePriorityForm; Ranked: Boolean;
 begin
   if not FSelectSource.Enabled then Exit;
-  if not FPlan.LinkedMode then
+  Ranked:=(Assigned(FUnified) and FUnified.Ready) or not FPlan.LinkedMode or (not FDetailed and (Length(FSourcePriority)>=2));
+  if Ranked then
   begin
     Dialog:=TDuplicateSourcePriorityForm.CreateForSources(Self,FSourcePriority);
     try
@@ -524,29 +644,32 @@ begin
       end;
     finally Dialog.Free; end;
   end;
-  Worker:=TDuplicateScanWorker.Create(FPlan);
-  if FPlan.LinkedMode then
+  if Ranked then Worker:=TDuplicateScanWorker.Create(FRegularPlan)
+  else Worker:=TDuplicateScanWorker.Create(FPlan);
+  if not Ranked then
   begin
     Worker.FSelectLinkedFiles:=True;
-    if FSource.ItemIndex>0 then Worker.FSourceName:=FSource.Text;
+    if FSource.Visible and (FSource.ItemIndex>0) then Worker.FSourceName:=FSource.Text;
   end
-  else Worker.FSourcePriority:=FSourcePriority;
+  else
+  begin
+    Worker.FSourcePriority:=FSourcePriority;
+    if FLinkedResultsValid then Worker.FLinkedPlan:=FLinkedPlan;
+  end;
+  Worker.FUnified:=FUnified;
   Progress:=TImportProgressFormEx.Create(Self);
   try
-    Progress.Caption:='Выбор повторных записей по источнику'; Progress.WorkerThread:=Worker;
+    Progress.Caption:='Выбор копий по источникам'; Progress.WorkerThread:=Worker;
     Progress.CloseOnTimer:=True; Progress.Timer.Interval:=1;
     Progress.PopupMode:=pmExplicit; Progress.PopupParent:=Self;
     Progress.ShowModal; Worker.WaitFor;
     if Assigned(Worker.FatalException) then raise Exception.Create(Exception(Worker.FatalException).Message);
     RenderPage;
     if Worker.FError<>'' then FDetails.Lines.Text:=Worker.FError
-    else if FPlan.LinkedMode then FDetails.Lines.Text:=Format('Добавлено отметок: %d. Всего отмечено дополнительных файлов: %d.'+sLineBreak+
-      'Можно снять отметку с любого файла перед удалением.',[Worker.FSelected,FPlan.SelectedRemovedCount])
-    else FDetails.Lines.Text:=Format('Автоматически отмечено книг: %d.'+sLineBreak+
-      'Порядок источников: %s.'+sLineBreak+
-      'Проверьте выбор. Затем можно объединить записи или удалить повторные копии с диска.'+sLineBreak+
-      'Включите «Только книги без отметок», чтобы просмотреть пропущенные книги.',
-      [Worker.FSelected,string.Join(' → ',FSourcePriority)]);
+    else if Ranked then
+      FDetails.Lines.Text:='Копии сохраняются по порядку источников: '+string.Join(' → ',FSourcePriority)+'.'+sLineBreak+
+        'HomeLibre отметила копии, для которых удалось выбрать, что оставить. Проверьте выбор и нажмите «Удалить отмеченные копии…».'
+    else FDetails.Lines.Text:=Format('Отмечено файлов к удалению: %d.',[FPlan.SelectedRemovedCount]);
   finally Progress.Free; Worker.Free; UpdateStatus; end;
 end;
 
@@ -554,6 +677,7 @@ procedure TfrmBookDuplicates.ClearSelection(Sender: TObject);
 begin
   FRegularPlan.ClearSelection;
   FLinkedPlan.ClearSelection;
+  if Assigned(FUnified) and FUnified.Ready then FUnified.RefreshMarks;
   RenderPage;
 end;
 
@@ -565,6 +689,7 @@ end;
 
 function TfrmBookDuplicates.VisibleGroupCount: Integer;
 begin
+  if Assigned(FUnified) and FUnified.Ready then Exit(FUnified.GroupCount(FUnmarkedOnly.Checked));
   Result:=FPlan.GroupCount;
   if FUnmarkedOnly.Checked and not FPlan.LinkedMode then
     Dec(Result,FPlan.SelectedCount);
@@ -579,8 +704,10 @@ begin
   FUpdating:=True; FGroups.Items.BeginUpdate;
   try
     FGroups.Items.Clear; FCopies.Items.Clear; FBooks:=nil; FPage:=nil; FUseGroup.Checked:=False;
-    FCopies.Checkboxes:=FPlan.LinkedMode;
-    if FPlan.Ready then FPage:=FPlan.Groups(FOffset,50,FUnmarkedOnly.Checked);
+    FUnifiedBooks:=nil;
+    FCopies.Checkboxes:=FPlan.LinkedMode and not (Assigned(FUnified) and FUnified.Ready);
+    if Assigned(FUnified) and FUnified.Ready then FPage:=FUnified.Groups(FOffset,50,FUnmarkedOnly.Checked)
+    else if FPlan.Ready then FPage:=FPlan.Groups(FOffset,50,FUnmarkedOnly.Checked);
     for var Group in FPage do
     begin
       Item:=FGroups.Items.Add; Item.Caption:=Group.Title; Item.SubItems.Add(IntToStr(Group.Count));
@@ -604,11 +731,24 @@ begin
   FUpdating:=True; FCopies.Items.BeginUpdate;
   try
     FCopies.Items.Clear; FBooks:=nil; FUseGroup.Checked:=False; Preferred:=-1;
-    try FBooks:=FPlan.Books(FPage[Item.Index].ID);
+    try
+      if Assigned(FUnified) and FUnified.Ready then
+      begin
+        FUnifiedBooks:=FUnified.Books(FPage[Item.Index].ID);
+        SetLength(FBooks,Length(FUnifiedBooks));
+        for var J:=0 to High(FBooks) do FBooks[J]:=FUnifiedBooks[J].Value;
+      end
+      else FBooks:=FPlan.Books(FPage[Item.Index].ID);
+      if not (Assigned(FUnified) and FUnified.Ready) and not FPlan.LinkedMode and
+        FLinkedResultsValid and FPage[Item.Index].Selected then
+        for var I:=0 to High(FBooks) do
+          if FBooks[I].Book.BookKey.BookID=FPage[Item.Index].KeepID then
+            FLinkedPlan.PreviewSelectedPromotion(FBooks[I]);
     except on E: Exception do begin FDetails.Lines.Text:=E.Message; Exit; end; end;
     for var I:=0 to High(FBooks) do
     begin
-      if FPlan.LinkedMode then IsPrimary:=FBooks[I].CopyKey=''
+      if Assigned(FUnified) and FUnified.Ready then IsPrimary:=FUnifiedBooks[I].Kept
+      else if FPlan.LinkedMode then IsPrimary:=FBooks[I].CopyKey=''
       else IsPrimary:=FBooks[I].Book.BookKey.BookID=FPage[Item.Index].KeepID;
       CopyItem:=FCopies.Items.Add;
       CopyItem.SubItems.Add(IfThen(FBooks[I].SourceName<>'',FBooks[I].SourceName,
@@ -617,10 +757,16 @@ begin
       CopyItem.SubItems.Add(IfThen(FBooks[I].HasPersonalData,'Есть','—'));
       CopyItem.SubItems.Add(FBooks[I].Book.Folder+' / '+FBooks[I].Book.FileName+FBooks[I].Book.FileExt);
       CopyItem.SubItems.Add(TAuthorsHelper.GetList(FBooks[I].Book.Authors));
-      if FPlan.LinkedMode then CopyItem.Checked:=FBooks[I].Selected;
+      if FCopies.Checkboxes then CopyItem.Checked:=FBooks[I].Selected;
       if IsPrimary then Preferred:=I;
     end;
-    if FPlan.LinkedMode then RefreshLinkedMarks else FUseGroup.Checked:=FPage[Item.Index].Selected;
+    if Assigned(FUnified) and FUnified.Ready then
+    begin
+      var AllMarked:=Length(FUnifiedBooks)>1;
+      for var Entry in FUnifiedBooks do if not Entry.Kept and not Entry.Selected then AllMarked:=False;
+      FUseGroup.Checked:=AllMarked;
+    end
+    else if FPlan.LinkedMode then RefreshLinkedMarks else FUseGroup.Checked:=FPage[Item.Index].Selected;
     UpdateCopyStates;
   finally FCopies.Items.EndUpdate; FUpdating:=False; UpdateStatus; end;
   if Preferred>=0 then FCopies.Items[Preferred].Selected:=True;
@@ -633,7 +779,11 @@ begin
   Group:=FPage[FGroups.Selected.Index];
   for var I:=0 to High(FBooks) do
   begin
-    if FPlan.LinkedMode then
+    if Assigned(FUnified) and FUnified.Ready then
+    begin
+      Primary:=FUnifiedBooks[I].Kept; Marked:=FUnifiedBooks[I].Selected;
+    end
+    else if FPlan.LinkedMode then
     begin
       Primary:=FBooks[I].CopyKey='';
       Marked:=FBooks[I].Selected;
@@ -653,6 +803,16 @@ var Book: TDuplicateBook;
 begin
   if FUpdating or not Selected then Exit;
   Book:=FBooks[Item.Index];
+  if Assigned(FUnified) and FUnified.Ready then
+  begin
+    FDetails.Lines.Text:=Format('Копий этой книги: %d. Выбранная копия: %s.',
+      [Length(FUnifiedBooks),IfThen(FUnifiedBooks[Item.Index].Kept,'сохранится',
+        IfThen(FUnifiedBooks[Item.Index].Selected,'к удалению','пока не отмечена'))])+sLineBreak+
+      'Источник: '+Book.SourceName+sLineBreak+'Папка: '+Book.Book.CollectionRoot+sLineBreak+
+      'Файл / архив: '+Book.Book.Folder+' / '+Book.Book.FileName+Book.Book.FileExt+sLineBreak+
+      'Копии могут лежать в разных папках и коллекциях, даже если в каталоге была одна строка.';
+    UpdateStatus; Exit;
+  end;
   if FPlan.LinkedMode then
   begin
     FDetails.Lines.Text:=IfThen(Book.CopyKey='','Основная копия сохранится.','Дополнительная копия этой книги.')+sLineBreak+
@@ -693,7 +853,7 @@ end;
 
 procedure TfrmBookDuplicates.CheckCopy(Sender: TObject; Item: TListItem);
 begin
-  if FUpdating or not FPlan.LinkedMode or (Item.Index<0) or (Item.Index>=Length(FBooks)) then Exit;
+  if (Assigned(FUnified) and FUnified.Ready) or FUpdating or not FPlan.LinkedMode or (Item.Index<0) or (Item.Index>=Length(FBooks)) then Exit;
   var Index:=Item.Index;
   FUpdating:=True;
   try
@@ -714,6 +874,16 @@ end;
 procedure TfrmBookDuplicates.KeepCopy(Sender: TObject);
 var Index, KeepID: Integer;
 begin
+  if Assigned(FUnified) and FUnified.Ready and Assigned(FGroups.Selected) and Assigned(FCopies.Selected) then
+  begin
+    try
+      Index:=FGroups.Selected.Index;
+      FUnified.Choose(FPage[Index].ID,FCopies.Selected.Index,FPage[Index].Selected);
+      FPage:=FUnified.Groups(FOffset,50,FUnmarkedOnly.Checked);
+      SelectGroup(FGroups,FGroups.Selected,True);
+    except on E:Exception do MessageDlg(E.Message,mtInformation,[mbOK],0); end;
+    UpdateStatus; Exit;
+  end;
   if FPlan.LinkedMode or not Assigned(FGroups.Selected) or not Assigned(FCopies.Selected) then Exit;
   Index:=FGroups.Selected.Index; KeepID:=FBooks[FCopies.Selected.Index].Book.BookKey.BookID;
   try
@@ -731,6 +901,21 @@ var Index: Integer;
 begin
   if FUpdating or not Assigned(FGroups.Selected) then Exit;
   Index:=FGroups.Selected.Index;
+  if Assigned(FUnified) and FUnified.Ready then
+  begin
+    try
+      FUnified.Choose(FPage[Index].ID,-1,FUseGroup.Checked);
+      FPage:=FUnified.Groups(FOffset,50,FUnmarkedOnly.Checked);
+      if FUnmarkedOnly.Checked then RenderPage
+      else
+      begin
+        FGroups.Selected.SubItems[1]:=IfThen(FPage[Index].Selected,IntToStr(FPage[Index].SelectedCopies),'—');
+        SelectGroup(FGroups,FGroups.Selected,True);
+      end;
+    except on E:Exception do
+      begin SelectGroup(FGroups,FGroups.Selected,True); MessageDlg(E.Message,mtInformation,[mbOK],0); end; end;
+    UpdateStatus; Exit;
+  end;
   try
     FPlan.Choose(FPage[Index].ID,FPage[Index].KeepID,FUseGroup.Checked);
     if FPlan.LinkedMode then

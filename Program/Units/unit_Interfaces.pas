@@ -289,6 +289,8 @@ type
       const FullCheck: Boolean; Cache: TImportCache): Integer; overload;
     procedure GetBookRecord(const BookKey: TBookKey; out BookRecord: TBookRecord; const LoadMemos: Boolean);
     function GetBookSeries(const BookKey: TBookKey): TBookSeries;
+    function FindNextSeriesBook(const BookKey: TBookKey; SeriesID: Integer;
+      out Next: TBookRecord): Boolean;
     function GetBookPublisherSeries(const BookKey: TBookKey): TBookSeries;
     procedure SetBookPublisherSeries(const BookKey: TBookKey; const Series: TBookSeries);
     // Atomically store complete series (including empty), fill a missing

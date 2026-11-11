@@ -4,7 +4,7 @@
     Accept: Boolean;
     Confirmations, Warnings: Integer;
     ExpectedCount, ExpectedArchives: Integer;
-    Failure, LastConfirmation: string;
+    Failure, LastConfirmation, LastReport: string;
     BeforeAccept: TProc;
     OverrideFiles: Boolean;
     DeleteSource: Boolean;
@@ -17,6 +17,18 @@ begin
   for var I := Screen.FormCount - 1 downto 0 do
   begin
     Form := Screen.Forms[I];
+    if Form.Visible and (Form.Name='BookDeletionReport') then
+    begin
+      Inc(Warnings);
+      try
+        Require(frmMain.Enabled and IsWindowEnabled(frmMain.Handle),'Deletion report blocked the catalogue');
+        LastReport:=TMemo(Form.FindComponent('BookDeletionReportText')).Text;
+        Require(LastReport.Contains('Не удалось завершить удаление.'),
+          'Deletion report did not explain the failure');
+      except on E:Exception do Failure:=E.Message; end;
+      Form.Close;
+      Exit;
+    end;
     if not Form.Visible or not ((Form.ClassName = 'TMessageForm') or
       (Form.Name = 'BookDeletionConfirmation')) then Continue;
     Text := GBIComponentText(Form);
@@ -65,7 +77,7 @@ begin
   if Confirm.Visible then Confirm.Click;
 end;
 
-type TBookDeletionSafetyScenario = (bdsGeneral, bdsFLibrary, bdsLifecycle, bdsFLibraryReal);
+type TBookDeletionSafetyScenario = (bdsGeneral, bdsFLibrary, bdsLifecycle, bdsFLibraryReal, bdsFiltered);
 
 procedure TestBookDeletionSafety(Scenario: TBookDeletionSafetyScenario = bdsGeneral);
 var PrivateID, OnlineID, ExternalID, RawID, ArchiveID, OtherID, PrivateFBD, FailID, GoodID,
@@ -94,12 +106,13 @@ var PrivateID, OnlineID, ExternalID, RawID, ArchiveID, OtherID, PrivateFBD, Fail
     finally Zip.Free; end;
   end;
 
-  function Insert(const Title, Folder, FileName, Ext: string; const LibraryID: string = ''): Integer;
+  function Insert(const Title, Folder, FileName, Ext: string; const LibraryID: string = '';
+    const Language: string = 'ru'): Integer;
   begin
     Book.Clear; Book.Title := Title; Book.Folder := Folder; Book.FileName := FileName;
     Book.FileExt := Ext; Book.LibID := Title;
     if LibraryID <> '' then Book.LibID := LibraryID;
-    Book.Lang := 'ru'; Book.Size := 100;
+    Book.Lang := Language; Book.Size := 100;
     Book.Series := 'Delete series'; Book.Publisher := 'Delete publisher';
     Include(Book.BookProps,bpIsLocal); TAuthorsHelper.Add(Book.Authors,'Delete author','Alex','');
     TGenresHelper.Add(Book.Genres,'','','prose_contemporary');
@@ -155,7 +168,7 @@ var PrivateID, OnlineID, ExternalID, RawID, ArchiveID, OtherID, PrivateFBD, Fail
     // message form only after constructing Main so its real text is inspectable.
     Vcl.Dialogs.UseLatestCommonDialogs := False;
     Probe.Accept := Accept; Probe.ExpectedCount := Count; Probe.ExpectedArchives := Archives;
-    Probe.Confirmations := 0; Probe.Warnings := 0; Probe.Failure := '';
+    Probe.Confirmations := 0; Probe.Warnings := 0; Probe.Failure := ''; Probe.LastReport:='';
     Reviews:=0;
     Probe.Timer.Enabled := True;
     Trace('delete safety invoking Main action');
@@ -192,6 +205,7 @@ var PrivateID, OnlineID, ExternalID, RawID, ArchiveID, OtherID, PrivateFBD, Fail
           Sleep(5);
         until not Assigned(frmMain.FindComponent('BookDeletionProgress'));
       end;
+      Probe.Tick(nil);
     finally Probe.Timer.Enabled := False; end;
     Require(Probe.Failure='',Probe.Failure);
     Require(Probe.Confirmations=1,'Deletion did not ask exactly once per batch');
@@ -523,13 +537,234 @@ var PrivateID, OnlineID, ExternalID, RawID, ArchiveID, OtherID, PrivateFBD, Fail
     Flush(Output);
   end;
 
+  procedure FilteredArchives;
+  const RemovedCount=64;
+  var Paths, Hashes: array[0..1] of string; IDs: TArray<Integer>;
+    SelectedCount, HiddenCount: Integer;
+    Zip: TZipFile; BusyArchive:TFileStream;
+
+    procedure ExcludeOption(Tag: Integer; const Value: string);
+    var SelectedOption: Boolean; SelectInDialog: TThreadProcedure;
+    begin
+      SelectedOption:=False;
+      SelectInDialog:=procedure
+        begin
+          var Dialog:TForm:=nil;
+          for var I:=Screen.FormCount-1 downto 0 do
+            if Assigned(Screen.Forms[I].FindComponent('FilterOptionList')) then
+            begin Dialog:=Screen.Forms[I]; Break; end;
+          if not Assigned(Dialog) then Exit;
+          try
+            var ExcludeCheck:=Dialog.FindComponent('ExcludeSelectedValues') as TCheckBox;
+            var Options:=Dialog.FindComponent('FilterOptionList') as TVirtualStringTree;
+            if not Assigned(ExcludeCheck) or not Assigned(Options) then Exit;
+            var Node:=Options.GetFirst;
+            while Assigned(Node) do
+            begin
+              if SameText(Options.Text[Node,NoColumn],Value) then
+              begin
+                Options.CheckState[Node]:=csCheckedNormal;
+                ExcludeCheck.Checked:=True;
+                SelectedOption:=True;
+                TButton(Dialog.FindComponent('ApplyFilterButton')).Click;
+                Break;
+              end;
+              Node:=Options.GetNext(Node);
+            end;
+          finally
+            if not SelectedOption then Dialog.ModalResult:=mrCancel;
+          end;
+        end;
+      TThread.ForceQueue(nil,SelectInDialog);
+      Require(EditBookColumnFilter(Tree,Tag) and SelectedOption,'Cannot apply the actual column exclusion: '+Value);
+      frmMain.ApplyBookColumnFilters(Tree);
+    end;
+
+  begin
+    Settings.DeleteFiles:=True;
+    SetLength(IDs,6);
+    for var I:=0 to High(Paths) do
+    begin
+      var FileName:='filtered-'+IntToStr(I)+'.zip';
+      Paths[I]:=Root+FileName;
+      WriteZip(Paths[I],['chosen.fb2','protected-lang.fb2','protected-type.txt']);
+      Hashes[I]:=THashSHA2.GetHashStringFromFile(Paths[I]);
+      IDs[I*3]:=Insert(FileName+' chosen',FileName,'chosen','.fb2','','en');
+      IDs[I*3+1]:=Insert(FileName+' protected language',FileName,'protected-lang','.fb2');
+      IDs[I*3+2]:=Insert(FileName+' protected type',FileName,'protected-type','.txt','','en');
+      Collection.SetReview(CreateBookKey(IDs[I*3+1],PrivateID),'Retained filtered book');
+    end;
+    Rows(IDs);
+    ExcludeOption(COL_LANG,'ru');
+    ExcludeOption(COL_TYPE,'txt');
+    frmMain.pmiCheckAllClick(nil);
+    SelectedCount:=0; HiddenCount:=0;
+    var Row:=Tree.GetFirst;
+    while Assigned(Row) do
+    begin
+      var Data:=PBookRecord(Tree.GetNodeData(Row));
+      if Assigned(Data) and (Data^.NodeType=ntBookInfo) then
+        if Tree.IsEffectivelyFiltered[Row] then
+        begin
+          Inc(HiddenCount);
+          // A previously marked row must be protected even if the mark is still set.
+          Tree.CheckState[Row]:=csCheckedNormal;
+        end
+        else
+        begin
+          Require((Data^.Lang='en') and SameText(Data^.FileExt,'.fb2') and
+            (Tree.CheckState[Row]=csCheckedNormal),'Mark all selected the wrong filtered books');
+          Inc(SelectedCount);
+        end;
+      Row:=Tree.GetNext(Row);
+    end;
+    Require((SelectedCount=3) and (HiddenCount=4),'Combined filters did not retain the two intended books');
+
+    Execute(False,False,2,2,0,nil,20000,nil,0);
+    for var ID in IDs do Require(Exists(ID),'Cancelling filtered deletion removed a catalogue record');
+    for var I:=0 to High(Paths) do
+      Require(THashSHA2.GetHashStringFromFile(Paths[I])=Hashes[I],'Cancelling filtered deletion changed an archive');
+
+    Execute(True,False,2,2,0,nil,20000,
+      procedure(Progress:TForm)
+      begin
+        var ConfirmAll:=TButton(Progress.FindComponent('ConfirmAllArchiveDeletions'));
+        Require(Assigned(ConfirmAll) and ConfirmAll.Visible,'No one-step review for all filtered archives');
+        ConfirmAll.Click;
+      end,1);
+    for var I:=0 to High(Paths) do
+    begin
+      Require(not Exists(IDs[I*3]) and Exists(IDs[I*3+1]) and Exists(IDs[I*3+2]) and
+        (Collection.GetReview(CreateBookKey(IDs[I*3+1],PrivateID))='Retained filtered book'),
+        'Filtered deletion removed a protected catalogue record or note');
+      Zip:=TZipFile.Create;
+      try
+        Zip.Open(Paths[I],zmRead);
+        Require(Zip.FileCount=2,'Filtered deletion removed the wrong number of archive files');
+        for var Name in ['protected-lang.fb2','protected-type.txt'] do
+        begin
+          var Bytes:TBytes;
+          Zip.Read(Name,Bytes);
+          Require(TEncoding.UTF8.GetString(Bytes)=XML(Name),'Filtered deletion changed protected archive bytes');
+        end;
+      finally Zip.Free; end;
+    end;
+    var Names:TArray<string>;
+    var Selected:TArray<Integer>;
+    SetLength(Names,RemovedCount+1);
+    SetLength(Selected,RemovedCount+1);
+    for var I:=0 to RemovedCount-1 do
+    begin
+      var Name:='finished-'+IntToStr(I);
+      Names[I]:=Name+'.fb2';
+      Selected[I]:=Insert(Name,'finished.zip',Name,'.fb2','','en');
+    end;
+    Names[RemovedCount]:='neighbour.fb2';
+    WriteZip(Root+'finished.zip',Names);
+    var BusyName:=Root+'busy.zip';
+    WriteZip(BusyName,['locked.fb2','neighbour.fb2']);
+    var BusyHash:=THashSHA2.GetHashStringFromFile(BusyName);
+    var BusyID:=Insert('Busy archive','busy.zip','locked','.fb2','','en');
+    Selected[RemovedCount]:=BusyID;
+    Rows(Selected);
+    BusyArchive:=nil;
+    try
+      Execute(True,False,Length(Selected),Length(Selected),1,nil,20000,
+        procedure(Progress:TForm)
+        begin
+          if not Assigned(BusyArchive) then
+            BusyArchive:=TFileStream.Create(BusyName,fmOpenRead or fmShareExclusive);
+        end,1);
+    finally BusyArchive.Free; end;
+    Require(Probe.LastReport.Contains('обработано книг: '+IntToStr(RemovedCount)) and
+      Probe.LastReport.Contains('busy.zip'),'Partial deletion report omitted committed books or the failed archive');
+    for var I:=0 to RemovedCount-1 do Require(not Exists(Selected[I]),'Partial report counted an uncommitted row');
+    Zip:=TZipFile.Create;
+    try
+      Zip.Open(Root+'finished.zip',zmRead);
+      var Bytes:TBytes;
+      Zip.Read('neighbour.fb2',Bytes);
+      Require((Zip.FileCount=1) and (TEncoding.UTF8.GetString(Bytes)=XML('neighbour.fb2')),
+        'The completed archive changed an unselected file');
+    finally Zip.Free; end;
+
+    var FirstReport:=frmMain.FindComponent('BookDeletionReport') as TForm;
+    Require(Assigned(FirstReport) and not FirstReport.Visible,'Closing the partial result did not hide it');
+    Rows([BusyID]);
+    BusyArchive:=TFileStream.Create(BusyName,fmOpenRead or fmShareExclusive);
+    try Execute(True,False,1,1,1); finally BusyArchive.Free; end;
+    Require((frmMain.FindComponent('BookDeletionReport')=FirstReport) and
+      not Probe.LastReport.Contains('обработано книг:') and Probe.LastReport.Contains('busy.zip'),
+      'The next deletion report duplicated the window or retained outdated counts');
+    Require(Exists(BusyID) and (THashSHA2.GetHashStringFromFile(BusyName)=BusyHash),
+      'A reported archive failure modified the protected book or ZIP');
+    Writeln('PASS partial deletion report reopens with fresh counts without blocking the catalogue'); Flush(Output);
+    Writeln('PASS filtered Main deletion excludes both columns and reviews all archives once'); Flush(Output);
+  end;
+
+  procedure DeletionLayouts;
+  var Progress: TBookDeletionProgress; State: TBookDeletionOperationStatus;
+    Dialog: TfrmBookDuplicates; DeleteButton: TButton; Detail: TLabel;
+    Bounds: TRect; PreviousTheme: Boolean;
+  begin
+    for var PPI in [192,240,288] do
+    begin
+      Progress:=TBookDeletionProgress.CreateProgress(frmMain,nil,nil);
+      try
+        Progress.Show;
+        Bounds:=Rect(Progress.Left,Progress.Top,Progress.Left+MulDiv(Progress.Width,PPI,96),
+          Progress.Top+MulDiv(Progress.Height,PPI,96));
+        Progress.Perform(WM_DPICHANGED,MakeWParam(PPI,PPI),LPARAM(@Bounds));
+        Progress.ClientWidth:=MulDiv(560,PPI,96);
+        Progress.ClientHeight:=MulDiv(242,PPI,96);
+        State:=Default(TBookDeletionOperationStatus);
+        State.AwaitingArchiveConfirmation:=True;
+        State.CompanionCount:=2;
+        State.SelectedDuplicates:=588455;
+        State.CompletedBooks:=135801;
+        State.SkippedDuplicates:=31234;
+        State.MoveBytes:=2512345678;
+        State.JournalBytes:=10256789;
+        Progress.UpdateProgress(State);
+        Detail:=Progress.FindComponent('BookDeletionDetails') as TLabel;
+        Progress.Canvas.Font.Assign(Detail.Font);
+        Bounds:=Rect(0,0,Detail.Width,0);
+        DrawText(Progress.Canvas.Handle,PChar(Detail.Caption),Length(Detail.Caption),Bounds,
+          DT_CALCRECT or DT_WORDBREAK or DT_NOPREFIX);
+        Require(Bounds.Height<=Detail.Height,'Archive confirmation cuts off its last line at '+IntToStr(PPI)+' DPI');
+      finally Progress.Free; end;
+    end;
+    PreviousTheme:=MHLThemeDark;
+    try
+      for var Dark in [False,True] do
+      begin
+        SetMHLTheme(Dark);
+        for var PPI in [192,240,288] do
+        begin
+          Dialog:=TfrmBookDuplicates.CreateForCollection(frmMain,Collection);
+          try
+            Dialog.Show;
+            Bounds:=Rect(Dialog.Left,Dialog.Top,Dialog.Left+MulDiv(Dialog.Width,PPI,96),
+              Dialog.Top+MulDiv(Dialog.Height,PPI,96));
+            Dialog.Perform(WM_DPICHANGED,MakeWParam(PPI,PPI),LPARAM(@Bounds));
+            Dialog.Width:=Dialog.Constraints.MinWidth;
+            DeleteButton:=Dialog.FindComponent('btnDeleteDuplicateFiles') as TButton;
+            Require((Dialog.Width>=MulDiv(900,PPI,96)) and
+              (DeleteButton.Left+DeleteButton.Width<=DeleteButton.Parent.ClientWidth),
+              'Duplicate deletion controls are clipped at '+IntToStr(PPI)+' DPI');
+          finally Dialog.Free; end;
+        end;
+      end;
+    finally SetMHLTheme(PreviousTheme); end;
+  end;
+
   procedure StopOrCloseDeletion(CloseMain: Boolean);
   var FirstZip, SecondZip, SecondHash, JournalRoot, LabelText: string;
     FirstBook, SecondBook, KeepFirst, KeepSecond: Integer;
     KeptBytes, ReadBytes: TBytes;
     Zip: TZipFile;
     KeptStream: TBytesStream;
-    Requested: Boolean;
+    Requested, CheckedWindow: Boolean;
     ClosedAt: UInt64;
   begin
     LabelText := 'stop';
@@ -559,6 +794,7 @@ var PrivateID, OnlineID, ExternalID, RawID, ArchiveID, OtherID, PrivateFBD, Fail
     Application.ProcessMessages;
     Rows([FirstBook, SecondBook]);
     Requested := False;
+    CheckedWindow := False;
     Execute(True, False, 2, 2, 0,
       procedure(Progress: TForm)
       begin
@@ -578,7 +814,33 @@ var PrivateID, OnlineID, ExternalID, RawID, ArchiveID, OtherID, PrivateFBD, Fail
         else StopButton.Click;
         Requested := True;
         Require(not StopButton.Enabled, 'Stop was not delivered to the live deletion operation');
+      end, 20000,
+      procedure(Progress: TForm)
+      begin
+        if CloseMain or CheckedWindow then Exit;
+        var Pin := TButton(Progress.FindComponent('PinBookDeletionProgress'));
+        Require(Assigned(Pin) and (GetWindow(Progress.Handle,GW_OWNER)=0) and
+          (GetWindowLongPtr(Progress.Handle,GWL_EXSTYLE) and WS_EX_APPWINDOW<>0) and
+          (GetWindowLongPtr(Progress.Handle,GWL_EXSTYLE) and WS_EX_TOPMOST=0),
+          'Deletion progress is not an independent taskbar window');
+        Pin.Click;
+        var PreviousWindowState:=frmMain.WindowState;
+        frmMain.WindowState:=wsMinimized;
+        try
+          Require(IsIconic(frmMain.Handle) and IsWindowVisible(Progress.Handle) and
+            (GetWindowLongPtr(Progress.Handle,GWL_EXSTYLE) and WS_EX_TOPMOST<>0),
+            'Minimizing Main hid or unpinned deletion progress');
+          Pin.Click;
+          Require(IsWindowVisible(Progress.Handle) and
+            (GetWindowLongPtr(Progress.Handle,GWL_EXSTYLE) and WS_EX_TOPMOST=0),
+            'Unpinning hid the progress window or left it topmost');
+        finally
+          frmMain.WindowState:=PreviousWindowState;
+        end;
+        CheckedWindow:=True;
+        Writeln('PASS deletion progress stays visible when Main minimizes and can be pinned and unpinned');
       end);
+    if not CloseMain then Require(CheckedWindow, 'No active progress window was checked');
     Require(Requested, 'Test did not observe the archive write boundary');
     if CloseMain then
     begin
@@ -632,6 +894,7 @@ begin
       bdsFLibrary: begin FLibraryPictureDeletion; Exit; end;
       bdsFLibraryReal: begin DeleteRealFLibraryDuplicate; Exit; end;
       bdsLifecycle: begin StopOrCloseDeletion(False); StopOrCloseDeletion(True); Exit; end;
+      bdsFiltered: begin FilteredArchives; DeletionLayouts; Exit; end;
     end;
 
     Trace('delete safety cancellation');
@@ -832,7 +1095,7 @@ begin
       procedure(Progress:TForm)
       begin
         var Details:=TLabel(Progress.FindComponent('BookDeletionDetails'));
-        Require(Assigned(Details) and string(Details.Caption).Contains('Перемещение данных в архиве книг: ') and
+        Require(Assigned(Details) and string(Details.Caption).Contains('Нужно обработать в архиве: ') and
           string(Details.Caption).Contains('Оценка места для журнала: '), 'Shared archive review omitted the cost');
         var Catalogue:=TSQLiteDatabase.CreateReadOnly(SystemDB.GetCollectionInfo(PrivateID).DBFileName);
         try

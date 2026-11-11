@@ -2859,7 +2859,7 @@
             Top = 2
             Width = 75
             Height = 25
-            Hint = #1054#1095#1080#1089#1090#1080#1090#1100' '#1074#1089#1077' '#1087#1086#1083#1103
+            Hint = #1054#1095#1080#1089#1090#1080#1090#1100#32#1087#1086#1083#1103#32#1087#1086#1080#1089#1082#1072#32#1080#32#1092#1080#1083#1100#1090#1088#1099#32#1089#1090#1086#1083#1073#1094#1086#1074
             Caption = #1054#1095#1080#1089#1090#1080#1090#1100
             TabOrder = 1
             OnClick = btnClearFilterEditsClick
@@ -3750,6 +3750,9 @@
       object N51: TMenuItem
         Action = acEditBook
       end
+      object miEditBookMetadata: TMenuItem
+        Action = acEditBookMetadata
+      end
       object FBD1: TMenuItem
         Action = acEditConvert2FBD
       end
@@ -3917,6 +3920,9 @@
     object miBookEdit: TMenuItem
       Action = acEditBook
       ImageIndex = 3
+    end
+    object pmiEditBookMetadata: TMenuItem
+      Action = acEditBookMetadata
     end
     object N19: TMenuItem
       Caption = '-'
@@ -4942,6 +4948,11 @@
       Category = #1056#1077#1076#1072#1082#1090#1080#1088#1086#1074#1072#1085#1080#1077
       Caption = #1048#1079#1084#1077#1085#1080#1090#1100' '#1086#1087#1080#1089#1072#1085#1080#1077
       ShortCut = 16453
+      OnExecute = EditBookExecute
+    end
+    object acEditBookMetadata: TAction
+      Category = #1056#1077#1076#1072#1082#1090#1080#1088#1086#1074#1072#1085#1080#1077
+      Caption = #1048#1079#1084#1077#1085#1080#1090#1100#32#1089#1074#1077#1076#1077#1085#1080#1103#32#1086#32#1082#1085#1080#1075#1077#8230
       OnExecute = EditBookExecute
     end
     object acEditConvert2FBD: TAction

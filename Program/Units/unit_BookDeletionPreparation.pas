@@ -16,6 +16,7 @@ type
   TBookDeletionPreparation = class(TThread)
   private
     FBinding: TBookDeletionBinding;
+    FAllowSevenZipRepack: Boolean;
     FLock: TObject;
     FStop: Integer;
     FState: TBookDeletionPreparationStatus;
@@ -25,7 +26,7 @@ type
   protected
     procedure Execute; override;
   public
-    constructor Create(const Binding: TBookDeletionBinding);
+    constructor Create(const Binding: TBookDeletionBinding; AllowSevenZipRepack: Boolean = False);
     destructor Destroy; override;
     procedure RequestStop;
     function Status: TBookDeletionPreparationStatus;
@@ -55,12 +56,13 @@ end;
 destructor TArchiveBookGroup.Destroy;
 begin Rows.Free; inherited; end;
 
-constructor TBookDeletionPreparation.Create(const Binding:TBookDeletionBinding);
+constructor TBookDeletionPreparation.Create(const Binding:TBookDeletionBinding; AllowSevenZipRepack:Boolean);
 begin
   inherited Create(True); FreeOnTerminate:=False; FLock:=TObject.Create;
   // The binding exposes copies of its arrays. Serialize only each archive's
   // slice so an operation spanning many archives has no single-receipt cap.
   FBinding:=Binding;
+  FAllowSevenZipRepack:=AllowSevenZipRepack;
   FState.BookCount:=Length(FBinding.ExpectedBooks); Priority:=tpLower;
 end;
 
@@ -239,18 +241,22 @@ begin
         // came in a mixed order. No whole-library filename cache is retained.
         var Inventory:=ReadBookDeletionInventory(Group.Archive,Group.Identity,
           function:Boolean begin Result:=Cancelled; end);
-        for var Row in Group.Rows do
-        begin
-          if Cancelled then Abort;
-          for var Member in ExactBookDeletionMembers(Books[Row],Inventory) do
+        var MemberIndex:=TBookDeletionMemberIndex.Create(Inventory);
+        try
+          for var Row in Group.Rows do
           begin
-            var Normal:=Member.Replace('\','/');
-            if not Selected.ContainsKey(Normal) then
-            begin Selected.Add(Normal,0); Members.Add(Member); end;
+            if Cancelled then Abort;
+            for var Member in MemberIndex.Resolve(Books[Row]) do
+            begin
+              var Normal:=Member.Replace('\','/');
+              if not Selected.ContainsKey(Normal) then
+              begin Selected.Add(Normal,0); Members.Add(Member); end;
+            end;
+            Inc(Done);
           end;
-          Inc(Done);
-        end;
+        finally MemberIndex.Free; end;
         Tasks[I].Members:=Members.ToArray;
+        Tasks[I].AllowSevenZipRepack:=FAllowSevenZipRepack;
         PlanPictureRemoval(Tasks[I],Inventory,Selected,function:Boolean begin Result:=Cancelled; end);
         Inventory:=nil;
       end;

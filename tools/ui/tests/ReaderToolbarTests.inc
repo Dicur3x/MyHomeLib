@@ -29,11 +29,11 @@ begin
         Reader.Show; Reader.OpenBook(FileName,'Панель чтения',FileName,'toolbar-'+FileName+'.ini','pdfium.dll');
         WaitReady(Reader); Toolbar:=Reader.FindComponent('ReaderToolbar') as TPanel;
         Row:=TPanel(TControl(Reader.FindComponent('ReaderSavedItems')).Parent);
-        for var PPI in [96,144,192] do
+        for var PPI in TArray<Integer>.Create(96,144,192,240,288) do
         begin
           for var Width in WindowWidths do
           begin
-            for var Theme in [1,4] do
+            for var Theme in [1,4,ReaderCustomThemeIndex] do
             begin
               // Apply the real monitor's theme/handle changes before forcing
               // each synthetic DPI; pumping after ScaleForPPI would let Windows
@@ -74,7 +74,7 @@ begin
             end;
           end;
         end;
-        Writeln('PASS '+FileName+' all toolbar commands fit without overlap at 640/820/1280 and 96/144/192 DPI in paper/night palettes');
+        Writeln('PASS '+FileName+' all toolbar commands fit without overlap at 640/820/1280 and 96/144/192/240/288 DPI in paper/night/custom palettes');
         Reader.ScaleForPPI(96); Reader.SetBounds(40,40,640,480); WaitPage(Reader);
         Position:=Reader.TextPosition; InitialBounds:=Reader.BoundsRect;
         TButton(Reader.FindComponent('ReaderHideInterface')).Click; Application.ProcessMessages;

@@ -1348,7 +1348,12 @@ def epub_to_fb2(source, output, warnings, *, use_navigation=True):
                 images = [n for n in node if tag(n) == 'image']
                 if len(images) == 1 and all(tag(n) in {'image', 'title', 'desc'} for n in node):
                     picture = images[0]
-                    if any(picture.get(key) for key in {'transform', 'clip-path', 'mask', 'filter', 'style'}) or picture.get('x', '0') not in {'0', '0.0'} or picture.get('y', '0') not in {'0', '0.0'}:
+                    style = picture.get('style', '').strip()
+                    full_viewport_width = (node.get('viewBox') and picture.get('width') and
+                                           re.fullmatch(r'max-width\s*:\s*100%\s*;?', style, re.I))
+                    if (style and not full_viewport_width or
+                        any(picture.get(key) for key in {'transform', 'clip-path', 'mask', 'filter'}) or
+                        picture.get('x', '0') not in {'0', '0.0'} or picture.get('y', '0') not in {'0', '0.0'}):
                         raise ConversionError('Преобразованное изображение SVG нельзя сохранить в FB2 без потери оформления.')
                     if node.get('viewBox'):
                         try:

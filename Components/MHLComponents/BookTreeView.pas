@@ -102,6 +102,8 @@ type
     procedure DoChecked(Node: PVirtualNode); override;
     procedure DoInitNode(Parent, Node: PVirtualNode; var InitStates: TVirtualNodeInitStates); override;
     procedure DoColumnResize(Column: TColumnIndex); override;
+    procedure DoPaintText(Node: PVirtualNode; const Canvas: TCanvas;
+      Column: TColumnIndex; TextType: TVSTTextType); override;
   public
     constructor Create(AOwner: TComponent); override;
     procedure EndUpdate; override;
@@ -268,7 +270,18 @@ end;
 procedure TBookTree.CreateWnd;
 begin
   inherited;
-  if MHLThemeDark then ApplyMHLControlTheme(Self);
+  if MHLThemeDark or MHLThemeCustomized then ApplyMHLControlTheme(Self);
+end;
+
+procedure TBookTree.DoPaintText(Node:PVirtualNode; const Canvas:TCanvas;
+  Column:TColumnIndex; TextType:TVSTTextType);
+begin
+  inherited;
+  // The stock VirtualTree style overrides SelectionTextColor even without
+  // seFont. Respect the catalogue's explicit palette at the final paint hook,
+  // keeping the external dependency unmodified and normal book colours intact.
+  if MHLThemeCustomized and Assigned(Node) and (vsSelected in Node.States) and
+    not (vsDisabled in Node.States) and Enabled then Canvas.Font.Color:=MHLThemeSelectionText;
 end;
 
 procedure TBookTree.CMStyleChanged(var Message: TMessage);
@@ -279,7 +292,7 @@ end;
 
 function TBookTree.BaseHeaderColor: TColor;
 begin
-  if MHLThemeDark then Result:=MHLThemeBackground
+  if MHLThemeDark or MHLThemeCustomized then Result:=MHLThemeBackground
   else if FHeaderColor <> clNone then
     Result := FHeaderColor
   else

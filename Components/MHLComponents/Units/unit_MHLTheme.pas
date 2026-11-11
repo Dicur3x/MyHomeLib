@@ -12,6 +12,11 @@ function MHLShouldOfferWindowsDarkTheme(WindowsDark, AppDark, Dismissed: Boolean
 function MHLThemeBackground: TColor;
 function MHLThemeText: TColor;
 function MHLThemeLink: TColor;
+function MHLThemeField: TColor;
+function MHLThemeSelection: TColor;
+function MHLThemeSelectionText: TColor;
+function MHLThemeCustomized: Boolean;
+procedure RefreshMHLTheme;
 procedure SetMHLControlFontColor(Control: TControl; Color: TColor);
 procedure ApplyMHLControlTheme(Control: TControl);
 procedure SetMHLTheme(Dark: Boolean);
@@ -21,7 +26,7 @@ procedure FinalizeMHLTheme;
 implementation
 
 uses System.SysUtils, System.StrUtils, System.Classes, System.Types, System.Math, System.Win.Registry, Vcl.Forms, Vcl.StdCtrls, Vcl.ExtCtrls, Vcl.Themes, Vcl.Styles,
-  VirtualTrees, VirtualTrees.Types, Vcl.ComCtrls, Winapi.RichEdit;
+  VirtualTrees, VirtualTrees.Types, Vcl.ComCtrls, Winapi.RichEdit, unit_MHLThemePalette;
 
 type TControlAccess = class(TControl);
   TTreeAccess = class(TCustomVirtualStringTree);
@@ -366,13 +371,25 @@ function MHLShouldOfferWindowsDarkTheme(WindowsDark, AppDark, Dismissed: Boolean
 begin Result:=WindowsDark and not AppDark and not Dismissed; end;
 
 function MHLThemeBackground: TColor;
-begin if DarkActive then Result:=RGB(43,45,48) else Result:=clBtnFace; end;
+begin Result:=MHLPaletteColor(DarkActive,prWindow); end;
 
 function MHLThemeText: TColor;
-begin if DarkActive then Result:=RGB(205,208,214) else Result:=clWindowText; end;
+begin Result:=MHLPaletteColor(DarkActive,prText); end;
 
 function MHLThemeLink: TColor;
-begin if DarkActive then Result:=RGB(114,167,232) else Result:=clHotLight; end;
+begin Result:=MHLPaletteColor(DarkActive,prLink); end;
+
+function MHLThemeField: TColor;
+begin Result:=MHLPaletteColor(DarkActive,prField); end;
+
+function MHLThemeSelection: TColor;
+begin Result:=MHLPaletteColor(DarkActive,prSelection); end;
+
+function MHLThemeSelectionText: TColor;
+begin Result:=MHLPaletteColor(DarkActive,prSelectionText); end;
+
+function MHLThemeCustomized: Boolean;
+begin Result:=MHLPaletteCustomized(DarkActive); end;
 
 procedure SetMHLControlFontColor(Control: TControl; Color: TColor);
 var Tree: TTreeAccess; Options: TVTAutoOptions;
@@ -397,6 +414,8 @@ begin
   // The reader owns its hidden formatting buffer and reapplies semantic colors.
   // Updating it after the reader's theme message would erase those colors.
   if (Control is TForm) and SameText(Control.Name,'ReaderFormattingHost') then Exit;
+  // The reading canvas has an independent palette, including the user's theme.
+  if (Control is TForm) and SameText(Control.ClassName,'TfrmBuiltinReader') then Exit;
   // These panels display user-selected colours and are saved as preferences.
   if (Control is TPanel) and MatchText(Control.Name, [
     'pnCA','pnCS','pnASG','pnCT','pnBS','pnDefaultFontColor',
@@ -421,12 +440,22 @@ begin
   // Apply the final tree background once. A temporary panel colour would
   // trigger another native colour change on every style/handle notification.
   if (Control is TCustomEdit) or (Control is TCustomListBox) or
-    (Control is TCustomComboBox) or (Control is TCustomVirtualStringTree) then
-  begin
-    if DarkActive then TControlAccess(Control).Color:=RGB(30,31,34)
-    else TControlAccess(Control).Color:=clWindow;
-  end
+    (Control is TCustomComboBox) or (Control is TCustomVirtualStringTree) or
+    (Control is TCustomListView) or (Control is TCustomTreeView) then
+    TControlAccess(Control).Color:=MHLThemeField
   else TControlAccess(Control).Color:=MHLThemeBackground;
+  // VCL's styled client/font painting otherwise ignores explicit colours.
+  // Keep its borders and buttons; do not change system dialogs or menus.
+  if (Control is TCustomEdit) or (Control is TCustomListBox) or
+    (Control is TCustomComboBox) or (Control is TCustomListView) or
+    (Control is TCustomTreeView) or (Control is TPanel) or
+    (Control is TCustomForm) then
+    TControlAccess(Control).StyleElements:=TControlAccess(Control).StyleElements-[seClient,seFont];
+  // Native group headers need the VCL client painter, including hover and
+  // partial repaints. Otherwise Windows paints white strips after custom draw.
+  if (Control is TCustomListView) and (Control.Name='lvInfo') and
+    Assigned(Control.Parent) and (Control.Parent.ClassName='TfrmStat') then
+    TControlAccess(Control).StyleElements:=TControlAccess(Control).StyleElements+[seClient];
   if Control is TToolBar then
   begin
     Painter:=Control.FindComponent('MHLToolbarPainter');
@@ -440,25 +469,39 @@ begin
     Tree.Header.Font.Color:=MHLThemeText;
     if DarkActive then
     begin
-      Tree.Color:=RGB(30,31,34); SetMHLControlFontColor(Tree, MHLThemeText);
-      Tree.Colors.FocusedSelectionColor:=RGB(33,66,131);
+      Tree.Color:=MHLThemeField; SetMHLControlFontColor(Tree, MHLThemeText);
+      Tree.Colors.FocusedSelectionColor:=MHLThemeSelection;
       Tree.Colors.UnfocusedSelectionColor:=RGB(53,69,97);
-      Tree.Colors.SelectionTextColor:=RGB(221,225,234);
+      Tree.Colors.SelectionTextColor:=MHLThemeSelectionText;
       Tree.Colors.GridLineColor:=RGB(49,51,55);
       Tree.Colors.TreeLineColor:=RGB(87,89,94);
     end
     else
     begin
-      Tree.Color:=clWindow; SetMHLControlFontColor(Tree, clWindowText);
-      Tree.Colors.FocusedSelectionColor:=clHighlight;
+      Tree.Color:=MHLThemeField; SetMHLControlFontColor(Tree, MHLThemeText);
+      Tree.Colors.FocusedSelectionColor:=MHLThemeSelection;
       Tree.Colors.UnfocusedSelectionColor:=clBtnFace;
-      Tree.Colors.SelectionTextColor:=clHighlightText;
+      Tree.Colors.SelectionTextColor:=MHLThemeSelectionText;
       Tree.Colors.GridLineColor:=clBtnFace; Tree.Colors.TreeLineColor:=clBtnShadow;
     end;
+    if MHLThemeCustomized then Tree.Colors.UnfocusedSelectionColor:=MHLThemeSelection;
+    if DarkActive or MHLThemeCustomized then Tree.Colors.UnfocusedColor:=MHLThemeSelectionText
+    else Tree.Colors.UnfocusedColor:=clInactiveCaptionText;
   end;
   if Control is TWinControl then
     for I:=0 to TWinControl(Control).ControlCount-1 do ApplyMHLControlTheme(TWinControl(Control).Controls[I]);
   Control.Invalidate;
+end;
+
+procedure RefreshMHLTheme;
+begin
+  // Palette changes do not recreate styled HWNDs or change focus/font metrics.
+  for var I:=0 to Screen.FormCount-1 do
+  begin
+    ApplyMHLControlTheme(Screen.Forms[I]);
+    if Screen.Forms[I].HandleAllocated then
+      SendMessage(Screen.Forms[I].Handle,WM_MHL_APP_THEME,Ord(DarkActive),0);
+  end;
 end;
 
 procedure SetMHLTheme(Dark: Boolean);

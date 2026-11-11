@@ -111,7 +111,7 @@ var Folder, Original, Reference: string;
     finally Zip.Free; end;
   end;
 
-  procedure CheckPair(const Source, Control: string; RealBook: Boolean);
+  procedure CheckPair(const Source, Control: string; RealBook: Boolean; const ExpectedWarning: string = RepairWarning);
   var Actual, Expected: TReaderDocument; Reader: TfrmBuiltinReader;
     Hash: string; ActualChapters, ExpectedChapters: TArray<TReaderChapter>;
     Started: UInt64; WarningCount: Integer;
@@ -131,8 +131,8 @@ var Folder, Original, Reference: string;
           (ActualChapters[Index].Depth=ExpectedChapters[Index].Depth),'EPUB repair changed navigation');
       WarningCount:=0;
       for var Warning in Actual.Warnings do
-        if Warning=RepairWarning then Inc(WarningCount);
-      Require((WarningCount=1) and (Expected.Warnings.IndexOf(RepairWarning)<0),
+        if Warning=ExpectedWarning then Inc(WarningCount);
+      Require((WarningCount=1) and (Expected.Warnings.IndexOf(ExpectedWarning)<0),
         'EPUB repair did not distinguish corrected and valid input');
       if not RealBook then
         Require(Actual.PlainText.Contains('Literal <br>') and (Actual.ImageCount=1),
@@ -166,6 +166,11 @@ begin
   WriteBook(Original,Format(SectionBody,['<br>']));
   WriteBook(Reference,Format(SectionBody,['<br/>']));
   CheckPair(Original,Reference,False);
+  Original:=TPath.Combine(Settings.AppPath,'epub-open-text.epub');
+  Reference:=TPath.Combine(Settings.AppPath,'epub-escaped-text.epub');
+  WriteBook(Original,Format(SectionBody,['<br>'])+'<p>Ёж & ёлка: 1 < 2, &ldquo;да&rdquo;.</p>');
+  WriteBook(Reference,Format(SectionBody,['<br/>'])+'<p>Ёж &amp; ёлка: 1 &lt; 2, &#8220;да&#8221;.</p>');
+  CheckPair(Original,Reference,False,'Исправлены специальные символы в главах EPUB для чтения.');
   Writeln('PASS EPUB line break repair preserves contents and leaves valid markup unchanged');
   Folder:=GetEnvironmentVariable('HOMELIB_TEST_EPUB_LINE_BREAK_PAIR');
   if Folder<>'' then CheckPair(TPath.Combine(Folder,'source.epub'),TPath.Combine(Folder,'control.epub'),True);

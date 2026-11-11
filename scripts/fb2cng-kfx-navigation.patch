@@ -1,0 +1,18 @@
+diff --git a/convert/kfx/values.go b/convert/kfx/values.go
+--- a/convert/kfx/values.go
++++ b/convert/kfx/values.go
+@@ -38,12 +38,12 @@
+ 
+ // NewTOCContainer creates a TOC navigation container.
+ func NewTOCContainer(entries []any) StructValue {
+-	return NewNavContainer(SymTOC, entries) // $212 = toc
++	return NewNavContainer(SymTOC, entries).SetSymbol(SymNavContName, SymTOC)
+ }
+ 
+ // NewLandmarksContainer creates a landmarks navigation container.
+ func NewLandmarksContainer(entries []any) StructValue {
+-	return NewNavContainer(SymLandmarks, entries) // $236 = landmarks
++	return NewNavContainer(SymLandmarks, entries).SetSymbol(SymNavContName, SymLandmarks)
+ }
+ 
+ // NewLandmarkEntry creates a landmark entry with type, label and target position.

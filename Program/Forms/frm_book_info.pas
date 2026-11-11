@@ -277,12 +277,22 @@ begin
 end;
 
 procedure TfrmBookDetails.FocusDescription;
+var SaveButton: TButton;
 begin
   pcBookInfo.ActivePage := tsAnnotation;
   ActiveControl := mmoAnnotation;
   if mmoAnnotation.ReadOnly then Exit;
   if Trim(Annotation) = '' then Annotation := FFileAnnotation;
   lblAnnotationState.Caption := 'Ваше описание сохранится в HomeLibre. Его можно снова взять из файла или с сайта.';
+  btnClose.Caption := 'Отмена';
+  SaveButton := TButton.Create(Self);
+  SaveButton.Name := 'btnSaveDescription';
+  SaveButton.Parent := btnClose.Parent;
+  SaveButton.SetBounds(btnClose.Left - btnClose.Width - 8, btnClose.Top, btnClose.Width, btnClose.Height);
+  SaveButton.Anchors := btnClose.Anchors;
+  SaveButton.Caption := 'Сохранить';
+  SaveButton.ModalResult := mrOk;
+  SaveButton.Default := True;
 end;
 
 procedure TfrmBookDetails.RefreshAnnotationButtons;

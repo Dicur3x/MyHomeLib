@@ -10,6 +10,8 @@ import io
 import json
 import os
 from pathlib import Path
+import runpy
+import shutil
 import subprocess
 import tarfile
 import tempfile
@@ -21,12 +23,6 @@ helper = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(helper)
 COMPONENTS = ('BookProcessing', 'ImageProcessing', 'Kindle', 'LegacyBooks', 'LegacyOffice', 'XPS', 'KindleExport')
 WRITERS = {
-    'FB2Export': {
-        'directory': 'fb2-export', 'exe': 'fbc.exe', 'repo': 'rupor-github/fb2cng', 'tag': 'v1.9.5',
-        'license': '3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986',
-        'Win32': ('fbc-windows-386.zip', '5abb920a096ddd285f2db86b7f3d6f533b8d144ff041346d2d9c2354863bd3ea'),
-        'Win64': ('fbc-windows-amd64.zip', 'c4e76822e7ab5b8c699fc6f9644d2c75022c03abf886ac3e270f4705b2d6f589'),
-    },
     'KoboExport': {
         'directory': 'kobo-export', 'exe': 'kepubify.exe', 'repo': 'pgaskin/kepubify', 'tag': 'v4.0.4',
         'license': 'c37a2c194f63b0d175965205b756f76153194409408cf2c97174b6d48a0455bd',
@@ -34,7 +30,8 @@ WRITERS = {
         'Win64': ('kepubify-windows-64bit.exe', 'f3dee3ece063329661fef474262fe403812335bf1676eab35b672565bf195738'),
     },
 }
-ADVANCED_WRITERS = (*WRITERS, 'EpubPdfExport')
+FB2_BUILD = runpy.run_path(str(REPO / 'scripts/build-fb2-export.py'))
+ADVANCED_WRITERS = ('FB2Export', *WRITERS, 'EpubPdfExport')
 OPDS_TLS_TOOLCHAIN = 'go1.27.3'
 DESCRIPTORS = {
     'BookProcessing': 'tools/bookconvert/MODULAR_RUNTIME.json',
@@ -45,6 +42,7 @@ DESCRIPTORS = {
     'LegacyOffice': 'tools/office/COMPONENT.json',
     'XPS': 'tools/xps/COMPONENT.json',
     'EpubPdfExport': 'tools/epub-pdf/COMPONENT.json',
+    'FB2Export': 'tools/fb2-export/COMPONENT.json',
     'KfxExport': 'tools/kfx-export/COMPONENT.json',
     'OPDSTls': 'tools/opds-tls/COMPONENT.json',
     **{component: 'tools/' + writer['directory'] + '/COMPONENT.json' for component, writer in WRITERS.items()},
@@ -107,6 +105,43 @@ def advanced_writer_payload(platform, component, source):
             'Upstream asset: ' + asset_name + '\nSHA-256: ' + asset_hash + '\n').encode('ascii'),
     }
     return payload, list(payload)
+
+
+def fb2_writer_payload(platform, source):
+    if source is None:
+        raise ValueError('Verified patched fb2cng runtimes are required for FB2Export')
+    prefix = 'tools/fb2-export/'
+    directory = source / ('FB2Export-' + platform)
+    patch = FB2_BUILD['PATCH']
+    payload = {prefix + name: (directory / name).read_bytes() for name in
+               ('fbc.exe', 'RUNTIME.json', patch.name, 'LICENSE.txt', 'Noto-OFL.txt',
+                'GO-LICENSE.txt', 'GO-PATENTS.txt')}
+    bundle = source / FB2_BUILD['SOURCE_ARCHIVE']
+    source_sha = FB2_BUILD['sha256'](bundle)
+    binary = payload[prefix + 'fbc.exe']
+    expected = dict(format=1, platform=platform, commit=FB2_BUILD['COMMIT'], go=FB2_BUILD['GO_VERSION'],
+                    sha256=helper.digest(binary), patch_sha256=FB2_BUILD['sha256'](patch),
+                    source_sha256=source_sha)
+    if (json.loads(payload[prefix + 'RUNTIME.json']) != expected
+            or payload[prefix + patch.name] != patch.read_bytes()
+            or helper.digest(payload[prefix + 'LICENSE.txt']) !=
+            '3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986'
+            or helper.digest(payload[prefix + 'Noto-OFL.txt']) != FB2_BUILD['FONTS']['LICENSE']):
+        raise ValueError('Unexpected fb2cng runtime or source')
+    helper.binary_platform(binary, platform)
+    source_notice = (
+        'fb2cng ' + FB2_BUILD['VERSION'] + ' with the HomeLibre KFX navigation patch.\n'
+        'Upstream: https://github.com/rupor-github/fb2cng/tree/' + FB2_BUILD['COMMIT'] + '\n'
+        'Corresponding source: https://github.com/Dicur3x/MyHomeLib/releases/download/'
+        + helper.COMPONENT_RELEASE_TAG + '/' + bundle.name + '\n'
+        'SHA-256: ' + source_sha + '\n').encode('ascii')
+    for name in ('Noto-OFL.txt', 'GO-LICENSE.txt', 'GO-PATENTS.txt'):
+        source_notice += b'\n' + name.encode('ascii') + b'\n\n' + payload[prefix + name]
+    # The updater allowlist for FB2Export names these exact three files.
+    # Keep build metadata in the staging directory and source in its own ZIP.
+    installed = {prefix + 'fbc.exe': binary, prefix + 'LICENSE.txt': payload[prefix + 'LICENSE.txt'],
+                 prefix + 'SOURCE.txt': source_notice}
+    return installed, list(installed)
 
 
 def kfx_writer_payload(platform, source):
@@ -250,6 +285,8 @@ def payload_for(platform, component, kindle_export_root=None, advanced_export_ro
         return epub_pdf_payload(platform, advanced_export_root)
     if component == 'KfxExport':
         return kfx_writer_payload(platform, kfx_export_root)
+    if component == 'FB2Export':
+        return fb2_writer_payload(platform, advanced_export_root)
     if component in WRITERS:
         return advanced_writer_payload(platform, component, advanced_export_root)
     runtime = REPO/'Program/Out'/('Bin' if platform == 'Win32' else 'Bin64')/'tools'
@@ -369,7 +406,7 @@ if __name__ == '__main__':
     parser.add_argument('--platform', choices=('Win32','Win64'), action='append')
     parser.add_argument('--component', choices=COMPONENTS + ADVANCED_WRITERS + ('OPDSTls', 'KfxExport'), action='append')
     parser.add_argument('--kindle-export-root', type=Path, help='Verified CI artifacts containing KindleExport-Win32/Win64')
-    parser.add_argument('--advanced-export-root', type=Path, help='Pinned upstream files and licenses for optional writers')
+    parser.add_argument('--advanced-export-root', type=Path, help='Verified optional writer files, including the patched FB2Export build')
     parser.add_argument('--opds-tls-go', type=Path, help='Verified Go executable for the optional OPDS HTTPS transport')
     parser.add_argument('--kfx-export-root', type=Path, help='Verified Boko and resvg runtime artifacts')
     options=parser.parse_args()
@@ -384,6 +421,10 @@ if __name__ == '__main__':
                                  options.kindle_export_root, options.advanced_export_root, options.opds_tls_go,
                                  options.kfx_export_root)
             entries.append(entry); assets.append(asset)
+    if 'FB2Export' in components:
+        source = options.advanced_export_root / FB2_BUILD['SOURCE_ARCHIVE']
+        with source.open('rb') as original, (options.output / source.name).open('xb') as copied:
+            shutil.copyfileobj(original, copied)
     with (options.output/'format-components.json').open('xb') as stream:
         stream.write(helper.json_bytes(dict(format=1, components=entries)))
     feed=helper.json_bytes(dict(format=1, components=entries))

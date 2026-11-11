@@ -19,7 +19,7 @@ unit frm_statistic;
 
 interface
 
-uses System.Classes, Vcl.Controls, Vcl.Forms, Vcl.ComCtrls, Vcl.StdCtrls,
+uses System.Classes, System.Types, Vcl.Controls, Vcl.Forms, Vcl.ComCtrls, Vcl.StdCtrls,
   Vcl.ExtCtrls, unit_Interfaces, unit_CatalogSources;
 
 type
@@ -52,6 +52,7 @@ type
     procedure InfoChanged(Sender: TObject; Item: TListItem; Change: TItemChange);
     procedure InfoTip(Sender: TObject; Item: TListItem; var InfoTip: string);
     function GetLoading: Boolean;
+    procedure DrawGroups(Sender:TCustomListView; const ARect:TRect; Stage:TCustomDrawStage; var DefaultDraw:Boolean);
   protected
     procedure DoCreate; override;
     procedure Resize; override;
@@ -65,7 +66,8 @@ var frmStat: TfrmStat;
 
 implementation
 
-uses System.SysUtils, System.Variants, System.SyncObjs, System.Math,
+uses Winapi.Windows, Winapi.CommCtrl, Vcl.Graphics,
+  System.SysUtils, System.Variants, System.SyncObjs, System.Math, unit_MHLTheme,
   unit_Consts, unit_Helpers, unit_Localization, unit_Settings, SQLiteWrap, dm_user;
 
 {$R *.dfm}
@@ -117,6 +119,7 @@ begin
   Constraints.MinWidth:=660; Constraints.MinHeight:=420;
   ClientWidth:=720; ClientHeight:=470;
   lvInfo.DoubleBuffered:=True; lvInfo.ShowHint:=True;
+  lvInfo.OnAdvancedCustomDraw:=DrawGroups;
   lvInfo.OnChange:=InfoChanged; lvInfo.OnInfoTip:=InfoTip;
   FDetails:=TMemo.Create(Self); FDetails.Parent:=Self;
   FDetails.Name:='mmStatisticDetails'; FDetails.ReadOnly:=True;
@@ -132,6 +135,51 @@ destructor TfrmStat.Destroy;
 begin
   StopWorker;
   inherited;
+end;
+
+procedure TfrmStat.DrawGroups(Sender:TCustomListView; const ARect:TRect;
+  Stage:TCustomDrawStage; var DefaultDraw:Boolean);
+var Header:string; Bounds,TextBounds,Measured:TRect; DC:HDC;
+  Saved,AvailableHeight:Integer; Brush:HBRUSH; Pen,OldPen:HPEN; Padding:Integer;
+  FontInfo:TLogFont; FittedFont:HFONT;
+begin
+  if (Stage<>cdPostPaint) or not (MHLThemeDark or MHLThemeCustomized) then Exit;
+  DC:=Sender.Canvas.Handle; Padding:=MulDiv(8,CurrentPPI,96);
+  for var I:=0 to lvInfo.Groups.Count-1 do
+  begin
+    Header:=lvInfo.Groups[I].Header;
+    if (Header='') or (ListView_GetGroupRect(lvInfo.Handle,lvInfo.Groups[I].GroupID,LVGGR_HEADER,Bounds)=0) or
+      (Bounds.Bottom<=0) or (Bounds.Top>=lvInfo.ClientHeight) then Continue;
+    TextBounds:=Bounds; InflateRect(TextBounds,-Padding,0);
+    Saved:=SaveDC(DC); FittedFont:=0;
+    try
+      Brush:=CreateSolidBrush(ColorToRGB(lvInfo.Color));
+      try FillRect(DC,Bounds,Brush); finally DeleteObject(Brush); end;
+      SelectObject(DC,lvInfo.Font.Handle);
+      // Native group geometry can lag a programmatic DPI/font change. Keep
+      // the heading inside its actual rectangle rather than clipping it.
+      AvailableHeight:=Max(1,Bounds.Height-MulDiv(2,CurrentPPI,96));
+      if (GetObject(lvInfo.Font.Handle,SizeOf(FontInfo),@FontInfo)<>0) and
+        (Abs(FontInfo.lfHeight)>AvailableHeight) then
+      begin
+        FontInfo.lfHeight:=-AvailableHeight; FontInfo.lfWidth:=0;
+        FittedFont:=CreateFontIndirect(FontInfo);
+        if FittedFont<>0 then SelectObject(DC,FittedFont);
+      end;
+      SetBkMode(DC,TRANSPARENT); SetTextColor(DC,ColorToRGB(MHLThemeLink));
+      DrawText(DC,PChar(Header),Length(Header),TextBounds,
+        DT_LEFT or DT_VCENTER or DT_SINGLELINE or DT_NOPREFIX or DT_END_ELLIPSIS);
+      Measured:=TextBounds;
+      DrawText(DC,PChar(Header),Length(Header),Measured,DT_SINGLELINE or DT_NOPREFIX or DT_CALCRECT);
+      if Measured.Right+Padding<Bounds.Right-Padding then
+      begin
+        Pen:=CreatePen(PS_SOLID,1,RGB(75,79,86)); OldPen:=SelectObject(DC,Pen);
+        MoveToEx(DC,Measured.Right+Padding,(Bounds.Top+Bounds.Bottom) div 2,nil);
+        LineTo(DC,Bounds.Right-Padding,(Bounds.Top+Bounds.Bottom) div 2);
+        SelectObject(DC,OldPen); DeleteObject(Pen);
+      end;
+    finally RestoreDC(DC,Saved); if FittedFont<>0 then DeleteObject(FittedFont); end;
+  end;
 end;
 
 procedure TfrmStat.StopWorker;

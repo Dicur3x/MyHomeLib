@@ -1,5 +1,101 @@
 ﻿// Native main-form favorite authors regression. Extra uses: unit_ReaderAnnotations.
 // All catalogs, profile files and books belong to a guarded disposable profile.
+type TFavoriteBookPopupAccess = class(TPopupMenu);
+
+procedure TestFavoriteBookMenu(const Collection: IBookCollection);
+var Authors: TBookAuthors; Tree: TBookTree; Row, Single, Multiple: PVirtualNode;
+  Book: PBookRecord; MultiID: Integer; Bounds: TRect; Menu, Coauthor: TMenuItem;
+  Store: TAuthorFavorites;
+
+  procedure OpenBookMenu(Books: TBookTree; const PointInTree: TPoint);
+  begin
+    frmMain.pmMain.PopupComponent:=Books;
+    TFavoriteBookPopupAccess(frmMain.pmMain).SetPopupPoint(Books.ClientToScreen(PointInTree));
+    frmMain.pmMain.OnPopup(frmMain.pmMain);
+  end;
+
+begin
+  RequireIsolatedRegression;
+  AddBook(Collection,'Favorite menu single','Alpha','ru','','0.1');
+  MultiID:=AddBook(Collection,'Favorite menu multiple','Placeholder','ru','','0.1');
+  TAuthorsHelper.Add(Authors,'А&Б','Анна','');
+  TAuthorsHelper.Add(Authors,'Миронов','Павел','');
+  for var I:=0 to High(Authors) do Authors[I]:=Collection.EnsureAuthor(Authors[I]);
+  Collection.SetBookAuthors(MultiID,Authors,True);
+
+  ShowPage(PAGE_SEARCH);
+  Settings.TreeModes[PAGE_SEARCH]:=tmFlat;
+  frmMain.DoClearFilter(False);
+  frmMain.edFTitle.Text:='Favorite menu';
+  frmMain.btnApplyFilter.Click;
+  Tree:=frmMain.tvBooksSR; Single:=nil; Multiple:=nil; Row:=Tree.GetFirst;
+  while Assigned(Row) do
+  begin
+    Book:=Tree.GetNodeData(Row);
+    if Assigned(Book) and (Book^.NodeType=ntBookInfo) then
+      if Book^.BookKey.BookID=MultiID then Multiple:=Row
+      else Single:=Row;
+    Row:=Tree.GetNext(Row);
+  end;
+  Require(Assigned(Single) and Assigned(Multiple),'Favorite book menu fixtures are missing');
+  Menu:=frmMain.FindComponent('miFavoriteBookAuthor') as TMenuItem;
+  Require(Assigned(Menu),'Book popup has no favorite-author command');
+  Tree.FocusedNode:=Single;
+  Tree.Selected[Single]:=True;
+  Bounds:=Tree.GetDisplayRect(Multiple,-1,False);
+  var Hit:=Point(Max(2,Bounds.Left+4),(Bounds.Top+Bounds.Bottom) div 2);
+  Require(Tree.GetNodeAt(Hit)=Multiple,'Test click does not land on the coauthored book');
+  OpenBookMenu(Tree,Hit);
+  Require(Menu.Visible and (Menu.Caption='Любимые авторы') and (Menu.Count=2),
+    'Book popup did not resolve the coauthors of the row under the mouse');
+  Coauthor:=nil;
+  for var Item in Menu do
+  begin
+    Require(not Item.Checked,'Fresh profile unexpectedly marks a coauthor');
+    if string(Item.Caption).Contains('А&&Б') then Coauthor:=Item;
+  end;
+  Require(Assigned(Coauthor),'Coauthor name lost its escaped ampersand');
+  Coauthor.Click;
+  Store:=TAuthorFavorites.Create(TPath.Combine(Settings.DataPath,AUTHOR_FAVORITES_FILE_NAME));
+  try
+    Require(Store.IsFavorite('А&Б','Анна','') and not Store.IsFavorite('Миронов','Павел','') and
+      not Store.IsFavorite('Alpha','Alex',''),'Clicking one coauthor modified another author');
+
+    ShowPage(PAGE_SEARCH);
+    Row:=Tree.GetFirst;
+    while Assigned(Row) do
+    begin
+      Book:=Tree.GetNodeData(Row);
+      if Assigned(Book) and (Book^.BookKey.BookID=MultiID) then Break;
+      Row:=Tree.GetNext(Row);
+    end;
+    Require(Assigned(Row),'Favorite change lost the coauthored result');
+    Tree.FocusedNode:=Row;
+    OpenBookMenu(Tree,Point(0,0));
+    Require(Menu.Visible and (Menu.Count=2),'Keyboard context lost the coauthored result');
+    for var Item in Menu do
+      Require(Item.Checked=string(Item.Caption).Contains('А&&Б'),'Favorite check mark is stale');
+
+    ShowPage(PAGE_AUTHORS);
+    frmMain.edLocateAuthor.Text:='Alpha Alex'; frmMain.tmrSearchATimer(nil);
+    Tree:=frmMain.tvBooksA;
+    Require(Assigned(Tree.FocusedNode),'Ordinary book list has no focused book');
+    OpenBookMenu(Tree,Point(0,0));
+    Require(Menu.Visible and (Menu.Count=0) and (Menu.Caption='Добавить автора в любимые'),
+      'Single author did not get the direct add action in the ordinary book list');
+    Menu.Click; Store.Reload;
+    Require(Store.IsFavorite('Alpha','Alex',''),'Direct add did not persist author membership');
+    OpenBookMenu(Tree,Point(0,0));
+    Require(Menu.Visible and (Menu.Caption='Убрать автора из любимых'),'Single-author removal action is stale');
+    Menu.Click; Store.Reload;
+    Require(not Store.IsFavorite('Alpha','Alex','') and Store.IsFavorite('А&Б','Анна',''),
+      'Direct removal also removed a different author');
+    OpenBookMenu(Tree,Point(5,Tree.ClientHeight-4));
+    Require(not Menu.Visible,'Blank area offered a favorite action for the focused book');
+  finally Store.Free; end;
+  Writeln('PASS favorite book popup targets the clicked row, chooses one coauthor and toggles a single author');
+end;
+
 type
   TAllFavoriteAuthorsProbe = class
   public

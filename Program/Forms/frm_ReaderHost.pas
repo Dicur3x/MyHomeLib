@@ -3,14 +3,27 @@
 interface
 
 uses System.Classes, System.SysUtils, Winapi.Messages, Vcl.Forms, Vcl.Controls, Vcl.Menus, Vcl.StdCtrls,
-  Vcl.ExtCtrls, unit_Globals, frm_ProgramUpdate, unit_ReaderSession, unit_BookSaveContinuation,
+  Vcl.ExtCtrls, Vcl.ComCtrls, Vcl.ImgList, System.IniFiles, System.Generics.Collections, unit_Globals, frm_ProgramUpdate,
+  System.Threading, unit_ReaderSession, unit_BookSaveContinuation,
   unit_ReaderAnnotations;
 
 type
   TfrmReaderHost = class(TForm)
+  private type
+    TRecentBook = record
+      FileName: string;
+      Members: TArray<string>;
+      Title, Author, Cover: string;
+    end;
   private
-    FRecent: TStringList;
+    FRecent: TList<TRecentBook>;
+    FCatalogueRecentSelection: Integer;
     FRecentView: TListBox;
+    FHomeView: TForm;
+    FHomeList: TListView;
+    FHomeImages: TImageList;
+    FHomeStatus: TLabel;
+    FUseStartPage, FRecentMetadataPending: Boolean;
     FStatus: TLabel;
     FTimer: TTimer;
     FView: TCustomForm;
@@ -21,7 +34,8 @@ type
     FNextSession: string;
     FNoteTarget: TReaderAnnotation;
     FExpectedMembers, FOpenedMembers: TArray<string>;
-    FArchiveAmbiguous: Boolean;
+    FArchiveAmbiguous, FOfferFollowingComic, FCanFollowComic, FNextVolumePending: Boolean;
+    FFollowingComic: IFuture<string>;
     FSession: TReaderSessionRequest;
     FRestartRequest: TReaderSessionRequest;
     FRestartLease: TReaderSessionLease;
@@ -40,6 +54,13 @@ type
     procedure FinishSession(const State: string);
     procedure InstallMenu(Form: TForm);
     procedure OpenClick(Sender: TObject);
+    procedure HomeCloseQuery(Sender: TObject; var CanClose: Boolean);
+    procedure HomeRecentClick(Sender: TObject);
+    procedure HomeRecentKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
+    procedure ResizeHomeRecent(Sender: TObject);
+    procedure SetStatus(const Value: string);
+    procedure WMDropFiles(var Message: TWMDropFiles); message WM_DROPFILES;
+    procedure OfferDroppedBook(Target: TCustomForm; var Message: TWMDropFiles);
     procedure RecentClick(Sender: TObject);
     procedure RecentViewClick(Sender: TObject);
     procedure RecentViewKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
@@ -51,8 +72,14 @@ type
     procedure ExitClick(Sender: TObject);
     procedure ComponentsClick(Sender: TObject);
     procedure FormatsClick(Sender: TObject);
+    procedure AssociationsClick(Sender:TObject);
     procedure DiagnosticsClick(Sender: TObject);
     procedure CacheSettingsClick(Sender: TObject);
+    procedure ToggleFollowingComic(Sender: TObject);
+    procedure LookForFollowingBook;
+    procedure OfferFollowingBook;
+    function ConfirmBookOpen(Target: TCustomForm;
+      const DialogName, Title, Prompt, BookCaption, CancelCaption: string): Boolean;
     procedure EnsureUpdates;
     procedure RestartForUpdate(Sender: TObject);
     procedure ComponentCancelled(Sender: TObject);
@@ -63,8 +90,13 @@ type
     procedure Display(const FileName: string);
     procedure MissingComponent(const ID: string);
     procedure MissingComponents(const IDs: TArray<string>);
-    procedure RememberFile(const FileName: string);
-    procedure SaveRecent;
+    procedure ReadRecent(Ini: TCustomIniFile);
+    function RecentCaption(Index: Integer): string;
+    procedure OpenRecent(Index: Integer);
+    procedure CatalogueRecentClick(Sender: TObject);
+    procedure RefreshRecentView;
+    procedure RememberFile(const FileName: string; const Members: TArray<string>;
+      const Title, Author, Cover: string);
     procedure SaveRestartState(const Identity, SettingsFile, OriginalMember: string);
     procedure ClearRestartState;
     procedure HostCloseQuery(Sender: TObject; var CanClose: Boolean);
@@ -75,6 +107,7 @@ type
     destructor Destroy; override;
     procedure OpenInitialFile(const FileName: string);
     procedure OpenInitialSession(const RequestFile: string);
+    procedure ShowStartPage;
     procedure OpenFile(const FileName: string);
   end;
 
@@ -82,24 +115,32 @@ var ReaderHost: TfrmReaderHost;
 
 implementation
 
-uses System.IOUtils, System.IniFiles, System.JSON, System.Math, Vcl.Dialogs,
-  Vcl.Graphics, Winapi.Windows, unit_FileBooks, unit_Settings, unit_AtomicIniFile,
-  unit_ReaderCache, unit_ReaderDocument, unit_ReaderFormats, unit_BookCache,
+uses System.IOUtils, System.JSON, System.Math, System.NetEncoding, Vcl.Dialogs, Vcl.Imaging.jpeg,
+  Vcl.Graphics, Winapi.Windows, Winapi.ShellAPI, unit_FileBooks, unit_Settings, unit_AtomicIniFile, unit_FileMutex,
+  unit_ReaderCache, unit_ReaderDocument, unit_ReaderFormats, unit_ReaderRaster, unit_BookCache,
   unit_BookSendOptions, unit_BookExportResults, unit_ComponentUpdates,
   unit_ProgramUpdateInstaller, unit_Diagnostics, unit_MHLTheme, unit_MHLExternalTools, dm_user,
   frm_BuiltinReader, frm_StoryReader, frm_ReaderCacheSettings, unit_ReaderPalette,
   unit_ReaderRestartState, unit_ReaderNoteBooks, unit_ComponentUsage, unit_ComponentRemoval,
-  frm_ComponentMaintenance;
+  frm_ComponentMaintenance, unit_ExplorerImport, frm_ReaderAssociations;
 
 type
   TStandaloneBookReader = class(TfrmBuiltinReader)
+  private
+    procedure WMDropFiles(var Message: TWMDropFiles); message WM_DROPFILES;
   protected
     procedure CreateParams(var Params: TCreateParams); override;
   end;
   TStandaloneStoryReader = class(TfrmStoryReader)
+  private
+    procedure WMDropFiles(var Message: TWMDropFiles); message WM_DROPFILES;
   protected
     procedure CreateParams(var Params: TCreateParams); override;
   end;
+
+const
+  MR_CATALOGUE_RECENT = 101;
+  MR_CATALOGUE_NEXT_VOLUME = 102;
 
 function ArchiveMembersJSON(const Members: TArray<string>): string;
 var Entries: TJSONArray;
@@ -117,9 +158,29 @@ begin
   if Length(Members)>0 then Result:=Result+#1+ReaderNoteIdentity(ArchiveMembersJSON(Members));
 end;
 
+function TryArchiveMembers(const JSON: string; out Members: TArray<string>): Boolean;
+var Value: TJSONValue; Entries: TJSONArray;
+begin
+  Result:=False; Members:=nil;
+  Value:=TJSONObject.ParseJSONValue(JSON);
+  try
+    if not (Value is TJSONArray) then Exit;
+    Entries:=TJSONArray(Value);
+    if Entries.Count>10 then Exit;
+    SetLength(Members,Entries.Count);
+    for var I:=0 to Entries.Count-1 do
+    begin
+      if not (Entries.Items[I] is TJSONString) then Exit;
+      Members[I]:=Entries.Items[I].Value;
+      if (Members[I]='') or (Pos(#0,Members[I])>0) then Exit;
+    end;
+    Result:=True;
+  finally Value.Free; end;
+end;
+
 function FindStandaloneNoteSource(const SettingsFile, BookID: string;
   out FileName: string; out Members: TArray<string>): Boolean;
-var Ini: TMemIniFile; Value: TJSONValue; Entries: TJSONArray; Section: string;
+var Ini: TMemIniFile; Section: string;
 begin
   Result:=False; FileName:=''; Members:=nil;
   Section:='Book.'+BookID;
@@ -127,22 +188,10 @@ begin
   try
     FileName:=Ini.ReadString(Section,'StandaloneFile','');
     if (FileName='') or not TPath.IsPathRooted(FileName) or not FileExists(FileName) then Exit;
-    Value:=TJSONObject.ParseJSONValue(Ini.ReadString(Section,'StandaloneArchive','[]'));
-    try
-      if not (Value is TJSONArray) then Exit;
-      Entries:=TJSONArray(Value);
-      if Entries.Count>10 then Exit;
-      SetLength(Members,Entries.Count);
-      for var I:=0 to Entries.Count-1 do
-      begin
-        if not (Entries.Items[I] is TJSONString) then Exit;
-        Members[I]:=Entries.Items[I].Value;
-        if (Members[I]='') or (Pos(#0,Members[I])>0) then Exit;
-      end;
-      var Book:=FileBook(FileName);
-      Result:=(ReaderNoteIdentity(StandaloneHistory(Book,Members))=BookID) or
-        (ReaderNoteIdentity(ReaderHistoryName(Book,''))=BookID);
-    finally Value.Free; end;
+    if not TryArchiveMembers(Ini.ReadString(Section,'StandaloneArchive','[]'),Members) then Exit;
+    var Book:=FileBook(FileName);
+    Result:=(ReaderNoteIdentity(StandaloneHistory(Book,Members))=BookID) or
+      (ReaderNoteIdentity(ReaderHistoryName(Book,''))=BookID);
   finally Ini.Free; end;
 end;
 
@@ -175,14 +224,24 @@ procedure TStandaloneBookReader.CreateParams(var Params: TCreateParams);
 begin
   inherited;
   Params.WndParent:=0;
-  Params.ExStyle:=(Params.ExStyle or WS_EX_APPWINDOW) and not WS_EX_TOOLWINDOW;
+  Params.ExStyle:=(Params.ExStyle or WS_EX_APPWINDOW or WS_EX_ACCEPTFILES) and not WS_EX_TOOLWINDOW;
 end;
 
 procedure TStandaloneStoryReader.CreateParams(var Params: TCreateParams);
 begin
   inherited;
   Params.WndParent:=0;
-  Params.ExStyle:=(Params.ExStyle or WS_EX_APPWINDOW) and not WS_EX_TOOLWINDOW;
+  Params.ExStyle:=(Params.ExStyle or WS_EX_APPWINDOW or WS_EX_ACCEPTFILES) and not WS_EX_TOOLWINDOW;
+end;
+
+procedure TStandaloneBookReader.WMDropFiles(var Message: TWMDropFiles);
+begin
+  TfrmReaderHost(Owner).OfferDroppedBook(Self,Message);
+end;
+
+procedure TStandaloneStoryReader.WMDropFiles(var Message: TWMDropFiles);
+begin
+  TfrmReaderHost(Owner).OfferDroppedBook(Self,Message);
 end;
 
 constructor TfrmReaderHost.Create(AOwner: TComponent);
@@ -198,7 +257,7 @@ begin
   Font.Name:='Segoe UI'; Font.Size:=10; ClientWidth:=720; ClientHeight:=430;
   Constraints.MinWidth:=520; Constraints.MinHeight:=350;
   OnCloseQuery:=HostCloseQuery;
-  FRecent:=TStringList.Create;
+  FRecent:=TList<TRecentBook>.Create;
   Ini:=TMemIniFile.Create(Settings.SettingsFileName,TEncoding.UTF8);
   try
     Value:=Ini.ReadString('ReaderSession','PendingFile','');
@@ -221,21 +280,18 @@ begin
     Ini.DeleteKey('ReaderSession','PendingSession');
     Ini.DeleteKey('ReaderSession','PendingNoteBook');
     Ini.DeleteKey('ReaderSession','PendingNotePosition'); SaveMemIniFileAtomically(Ini);
-    for var I:=0 to 9 do
-    begin
-      Value:=Ini.ReadString('ReaderRecent','File'+IntToStr(I),'');
-      if Value<>'' then FRecent.Add(Value);
-    end;
+    ReadRecent(Ini);
+    FOfferFollowingComic:=Ini.ReadBool('Reader','OfferFollowingComic',True);
   finally Ini.Free; end;
   Intro:=TLabel.Create(Self); Intro.Parent:=Self; Intro.AutoSize:=False;
   Intro.WordWrap:=True; Intro.SetBounds(24,28,672,64); Intro.Anchors:=[akLeft,akTop,akRight];
-  Intro.Caption:='Откройте книгу с компьютера. Настройки чтения, позиция, закладки и заметки сохраняются в профиле читалки.';
+  Intro.Caption:='Откройте книгу с компьютера или перетащите файл в это окно. Настройки чтения, позиция, закладки и заметки сохраняются в профиле читалки.';
   OpenButton:=TButton.Create(Self); OpenButton.Parent:=Self; OpenButton.SetBounds(24,104,200,34);
   OpenButton.Caption:='Открыть книгу…'; OpenButton.OnClick:=OpenClick;
   FRecentView:=TListBox.Create(Self); FRecentView.Parent:=Self;
   FRecentView.SetBounds(24,158,672,208); FRecentView.Anchors:=[akLeft,akTop,akRight,akBottom];
   FRecentView.Name:='ReaderRecentBooks';
-  FRecentView.Items.Assign(FRecent); FRecentView.OnDblClick:=RecentViewClick;
+  RefreshRecentView; FRecentView.OnDblClick:=RecentViewClick;
   FRecentView.OnKeyDown:=RecentViewKeyDown;
   FStatus:=TLabel.Create(Self); FStatus.Parent:=Self; FStatus.AutoSize:=False; FStatus.WordWrap:=True;
   FStatus.SetBounds(24,380,672,40); FStatus.Anchors:=[akLeft,akRight,akBottom];
@@ -249,6 +305,8 @@ end;
 destructor TfrmReaderHost.Destroy;
 begin
   if Assigned(FTimer) then FTimer.Enabled:=False;
+  FHomeList:=nil; FHomeImages:=nil; FHomeStatus:=nil;
+  FreeAndNil(FHomeView);
   CancelReaderPreparations(Self);
   if not FRestarting then ClearRestartState;
   if FRestarting then FreeAndNil(FSessionLease) else FinishSession('closed');
@@ -262,7 +320,7 @@ begin
     CleanupReaderRestartSession(ExtractFileDir(Settings.SettingsFileName),FSession.RequestFile);
   end;
   FUpdates.Free; FUpdates:=nil;
-  if Assigned(FRecent) then begin SaveRecent; FRecent.Free; end;
+  FRecent.Free;
   inherited;
 end;
 
@@ -272,7 +330,7 @@ begin
   // CreateNew does not set VCL's FCreatingMainForm flag. This host must be
   // its own taskbar window rather than a popup owned by the hidden app HWND.
   Params.WndParent:=0;
-  Params.ExStyle:=(Params.ExStyle or WS_EX_APPWINDOW) and not WS_EX_TOOLWINDOW;
+  Params.ExStyle:=(Params.ExStyle or WS_EX_APPWINDOW or WS_EX_ACCEPTFILES) and not WS_EX_TOOLWINDOW;
 end;
 
 procedure TfrmReaderHost.InstallMenu(Form: TForm);
@@ -286,29 +344,47 @@ begin
   Menu:=TMainMenu.Create(Form); FileMenu:=TMenuItem.Create(Menu);
   FileMenu.Caption:='Файл'; Menu.Items.Add(FileMenu);
   Add('Открыть…',ShortCut(Ord('O'),[ssCtrl]),OpenClick);
-  RecentMenu:=TMenuItem.Create(Menu); RecentMenu.Caption:='Недавние книги'; FileMenu.Add(RecentMenu);
-  for var I:=0 to FRecent.Count-1 do
+  RecentMenu:=TMenuItem.Create(Menu); RecentMenu.Name:='ReaderRecentMenu';
+  RecentMenu.Caption:='Недавние книги'; FileMenu.Add(RecentMenu);
+  if FSession.Book.BookKey.BookID>0 then
   begin
-    Item:=TMenuItem.Create(Menu); Item.Caption:=FRecent[I].Replace('&','&&');
-    Item.Tag:=I; Item.OnClick:=RecentClick; RecentMenu.Add(Item);
-  end;
-  RecentMenu.Enabled:=FRecent.Count>0;
-  if Form=Self then
+    for var I:=0 to High(FSession.CatalogueRecent) do
+    begin
+      Item:=TMenuItem.Create(Menu);
+      Item.Caption:=FSession.CatalogueRecent[I].Caption.Replace('&','&&');
+      Item.Tag:=I+1; Item.OnClick:=CatalogueRecentClick; RecentMenu.Add(Item);
+    end;
+  end
+  else
+    for var I:=0 to FRecent.Count-1 do
+    begin
+      Item:=TMenuItem.Create(Menu); Item.Caption:=RecentCaption(I).Replace('&','&&');
+      Item.Tag:=I; Item.OnClick:=RecentClick; RecentMenu.Add(Item);
+    end;
+  RecentMenu.Enabled:=RecentMenu.Count>0;
+  RecentMenu.Visible:=Form<>FHomeView;
+  if (Form=Self) or (Form=FHomeView) then
   begin
     Add('Закладки и заметки всех книг…',0,NotesClick);
     Item.Name:='ReaderAllNotesMenu';
   end;
   Add('Сохранить как…',ShortCut(Ord('S'),[ssCtrl,ssShift]),SaveClick);
+  Item.Enabled:=Form<>FHomeView;
   Add('-',0,nil); Add('Закрыть читалку',ShortCut(VK_F4,[ssAlt]),ExitClick);
   SettingsMenu:=TMenuItem.Create(Menu); SettingsMenu.Caption:='Настройки'; Menu.Items.Add(SettingsMenu);
   Item:=TMenuItem.Create(Menu); Item.Caption:='Кэш книг…'; Item.OnClick:=CacheSettingsClick;
   SettingsMenu.Add(Item);
-  if Form is TfrmBuiltinReader then
+  if (Form is TfrmBuiltinReader) and (Form<>FHomeView) then
   begin
     Item:=TMenuItem.Create(Menu); Item.Name:='ReaderNavigationKeysMenu'; Item.Caption:='Клавиши чтения…';
     Item.OnClick:=TfrmBuiltinReader(Form).ConfigureNavigationKeys; SettingsMenu.Add(Item);
     TfrmBuiltinReader(Form).AddTextEncodingMenu(SettingsMenu);
+    Item:=TMenuItem.Create(Menu); Item.Name:='ReaderOfferFollowingComic';
+    Item.Caption:='Предлагать следующую главу или том'; Item.Checked:=FOfferFollowingComic;
+    Item.OnClick:=ToggleFollowingComic; SettingsMenu.Add(Item);
   end;
+  Item:=TMenuItem.Create(Menu); Item.Name:='ReaderAssociationsMenu'; Item.Caption:='Открытие файлов в Windows…';
+  Item.OnClick:=AssociationsClick; SettingsMenu.Add(Item);
   Item:=TMenuItem.Create(Menu); Item.Name:='ReaderComponentsMenu'; Item.Caption:='Компоненты…';
   Item.OnClick:=ComponentsClick; SettingsMenu.Add(Item);
   HelpMenu:=TMenuItem.Create(Menu); HelpMenu.Caption:='Помощь'; Menu.Items.Add(HelpMenu);
@@ -326,7 +402,24 @@ begin
     ShowDiagnostics(FView,procedure(Dialog: TComponent)
       begin TfrmBuiltinReader(FView).ApplyWindowPalette(TCustomForm(Dialog)); end)
   else if Assigned(FView) then ShowDiagnostics(FView)
+  else if Assigned(FHomeView) then
+    ShowDiagnostics(FHomeView,procedure(Dialog: TComponent)
+      begin TfrmBuiltinReader(FHomeView).ApplyWindowPalette(TCustomForm(Dialog)); end)
   else ShowDiagnostics(Self);
+end;
+
+procedure TfrmReaderHost.AssociationsClick(Sender:TObject);
+var ParentForm:TCustomForm; Dialog:TReaderAssociationsForm;
+begin
+  ParentForm:=Self;
+  if Assigned(FView) then ParentForm:=FView
+  else if Assigned(FHomeView) then ParentForm:=FHomeView;
+  Dialog:=TReaderAssociationsForm.Create(ParentForm);
+  try
+    if ParentForm is TfrmBuiltinReader then TfrmBuiltinReader(ParentForm).ApplyWindowPalette(Dialog)
+    else ApplyMHLControlTheme(Dialog);
+    Dialog.ShowModal;
+  finally Dialog.Free; end;
 end;
 
 procedure TfrmReaderHost.FormatsClick(Sender: TObject);
@@ -358,6 +451,7 @@ const Formats =
 var Dialog: TForm; ParentForm: TCustomForm; Text: TMemo; CloseButton: TButton;
 begin
   ParentForm:=FView;
+  if not Assigned(ParentForm) then ParentForm:=FHomeView;
   if not Assigned(ParentForm) then ParentForm:=Self;
   Dialog:=TForm.CreateNew(ParentForm);
   try
@@ -374,7 +468,7 @@ begin
     CloseButton.SetBounds(524,372,110,30); CloseButton.Anchors:=[akRight,akBottom];
     CloseButton.Default:=True; CloseButton.Cancel:=True; CloseButton.ModalResult:=mrOk;
     Dialog.ScaleForPPI(CurrentPPI);
-    if FView is TfrmBuiltinReader then TfrmBuiltinReader(FView).ApplyWindowPalette(Dialog)
+    if ParentForm is TfrmBuiltinReader then TfrmBuiltinReader(ParentForm).ApplyWindowPalette(Dialog)
     else ApplyMHLControlTheme(Dialog);
     Dialog.ShowModal;
   finally Dialog.Free; end;
@@ -384,13 +478,40 @@ procedure TfrmReaderHost.OpenClick(Sender: TObject);
 var Dialog: TOpenDialog; ParentWindow: THandle;
 begin
   if FPreparing then Exit;
-  ParentWindow:=Handle; if Assigned(FView) then ParentWindow:=FView.Handle;
+  ParentWindow:=Handle;
+  if Assigned(FView) then ParentWindow:=FView.Handle
+  else if Assigned(FHomeView) then ParentWindow:=FHomeView.Handle;
   Dialog:=TOpenDialog.Create(Self);
   try
     Dialog.Title:='Открыть книгу'; Dialog.Filter:='Книги и документы|*.*';
     Dialog.Options:=[ofFileMustExist,ofPathMustExist,ofEnableSizing];
     if Dialog.Execute(ParentWindow) then OpenFile(Dialog.FileName);
   finally Dialog.Free; end;
+end;
+
+procedure TfrmReaderHost.WMDropFiles(var Message: TWMDropFiles);
+begin
+  OfferDroppedBook(Self,Message);
+end;
+
+procedure TfrmReaderHost.OfferDroppedBook(Target: TCustomForm; var Message: TWMDropFiles);
+var Files: TArray<string>;
+begin
+  Message.Result:=0;
+  try
+    if FPreparing or FResumingSave or FExitRequested or FHostCloseRequested or FRestarting or
+      (FNextFile<>'') or (FNextSession<>'') or not Target.Enabled then Exit;
+    Files:=ReadDroppedImportFiles(Message.Drop);
+  finally DragFinish(Message.Drop); end;
+  if Length(Files)=0 then Exit;
+  if (Length(Files)<>1) or not FileExists(Files[0]) then
+  begin
+    MessageDlg('Перетащите один файл книги или архива.',mtInformation,[mbOK],0);
+    Exit;
+  end;
+  if ConfirmBookOpen(Target,'ReaderDroppedBookDialog','Открыть книгу',
+    'Открыть этот файл в читалке?',ExtractFileName(Files[0]),'Отмена') and
+    not FExitRequested and not FHostCloseRequested and not FRestarting then OpenFile(Files[0]);
 end;
 
 procedure TfrmReaderHost.OpenFile(const FileName: string);
@@ -404,6 +525,90 @@ begin
   FNextFile:=TPath.GetFullPath(FileName); FNextSession:=''; FPendingComponent:='';
   FNoteTarget:=Note; FExpectedMembers:=ArchiveMembers;
   if Assigned(FView) then begin FView.ModalResult:=mrRetry; FView.Close; end;
+end;
+
+procedure TfrmReaderHost.ShowStartPage;
+var Reader: TStandaloneBookReader; Page, OpenArea: TPanel; Heading, DropHint: TLabel;
+  OpenButton: TButton; Margin: Integer;
+begin
+  if FDirectLaunch or FExitRequested then Exit;
+  FUseStartPage:=True;
+  if not Assigned(FHomeView) then
+  begin
+    Reader:=TStandaloneBookReader.Create(Self);
+    FHomeView:=Reader;
+    Reader.Caption:='HomeLibre Reader';
+    Reader.PopupMode:=pmNone; Reader.PopupParent:=nil;
+    Reader.OnCloseQuery:=HomeCloseQuery;
+    Reader.ShowInTaskBar:=True;
+    Page:=Reader.CreateStartPage(ResolveReaderSettingsFile(Settings.DataDir));
+    Margin:=16;
+    Page.Padding.SetBounds(Margin,Margin,Margin,Margin);
+
+    OpenArea:=TPanel.Create(Page); OpenArea.Parent:=Page; OpenArea.Align:=alTop;
+    OpenArea.Name:='ReaderOpenArea'; OpenArea.Height:=82;
+    OpenArea.BevelOuter:=bvLowered; OpenArea.ShowCaption:=False;
+    OpenButton:=TReaderPaletteButton.Create(OpenArea); OpenButton.Parent:=OpenArea;
+    OpenButton.Name:='ReaderOpenFile'; OpenButton.Caption:='Открыть книгу…';
+    OpenButton.SetBounds(12,10,174,29); OpenButton.OnClick:=OpenClick;
+    DropHint:=TLabel.Create(OpenArea); DropHint.Parent:=OpenArea; DropHint.Left:=12; DropHint.Top:=49;
+    DropHint.Caption:='Или перетащите сюда книгу или архив';
+
+    Heading:=TLabel.Create(Page); Heading.Parent:=Page; Heading.Align:=alTop;
+    Heading.Top:=OpenArea.Height; Heading.AutoSize:=False; Heading.Height:=32; Heading.Layout:=tlCenter;
+    Heading.Caption:='Недавние книги'; Heading.Font.Style:=[fsBold];
+
+    FHomeStatus:=TLabel.Create(Page); FHomeStatus.Parent:=Page; FHomeStatus.Align:=alBottom;
+    FHomeStatus.AutoSize:=False; FHomeStatus.Height:=28; FHomeStatus.Layout:=tlCenter;
+    if FRecent.Count=0 then FHomeStatus.Caption:='Здесь появятся недавно открытые книги.'
+    else FHomeStatus.Caption:='Открыть книгу — двойной щелчок или Enter.';
+    FHomeList:=TListView.Create(Page); FHomeList.Parent:=Page; FHomeList.Align:=alClient;
+    FHomeList.Name:='ReaderStartRecent'; FHomeList.ViewStyle:=vsReport;
+    FHomeList.ReadOnly:=True; FHomeList.RowSelect:=True; FHomeList.HideSelection:=False;
+    FHomeList.Columns.Add.Caption:='Книга'; FHomeList.Columns.Add.Caption:='Автор';
+    FHomeImages:=TImageList.Create(Page); FHomeImages.Width:=42; FHomeImages.Height:=58;
+    FHomeList.SmallImages:=FHomeImages;
+    FHomeList.OnDblClick:=HomeRecentClick; FHomeList.OnKeyDown:=HomeRecentKeyDown;
+    FHomeList.OnResize:=ResizeHomeRecent;
+    InstallMenu(Reader);
+    Reader.ApplyWindowPalette(Reader);
+    FHomeList.Color:=Reader.Color;
+    FHomeList.Font.Color:=Reader.Font.Color;
+    Reader.ActiveControl:=FHomeList;
+  end;
+  RefreshRecentView;
+  FHomeView.Show;
+end;
+
+procedure TfrmReaderHost.HomeCloseQuery(Sender: TObject; var CanClose: Boolean);
+begin
+  CanClose:=False;
+  Close;
+end;
+
+procedure TfrmReaderHost.HomeRecentClick(Sender: TObject);
+begin
+  if Assigned(FHomeList.Selected) then OpenRecent(FHomeList.Selected.Index);
+end;
+
+procedure TfrmReaderHost.HomeRecentKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
+begin
+  if Key=VK_RETURN then begin Key:=0; HomeRecentClick(Sender); end;
+end;
+
+procedure TfrmReaderHost.ResizeHomeRecent(Sender: TObject);
+var Width: Integer;
+begin
+  if not Assigned(FHomeList) then Exit;
+  Width:=Max(0,FHomeList.ClientWidth-GetSystemMetrics(SM_CXVSCROLL)-4);
+  FHomeList.Columns[0].Width:=Width*2 div 3;
+  FHomeList.Columns[1].Width:=Width-FHomeList.Columns[0].Width;
+end;
+
+procedure TfrmReaderHost.SetStatus(const Value: string);
+begin
+  FStatus.Caption:=Value;
+  if Assigned(FHomeStatus) then FHomeStatus.Caption:=Value;
 end;
 
 procedure TfrmReaderHost.OpenInitialFile(const FileName: string);
@@ -468,15 +673,17 @@ begin
 end;
 
 procedure TfrmReaderHost.RecentClick(Sender: TObject);
+begin OpenRecent(TMenuItem(Sender).Tag); end;
+
+procedure TfrmReaderHost.CatalogueRecentClick(Sender: TObject);
 begin
-  var Index:=TMenuItem(Sender).Tag;
-  if (Index>=0) and (Index<FRecent.Count) then OpenFile(FRecent[Index]);
+  if not Assigned(FView) then Exit;
+  FCatalogueRecentSelection:=TMenuItem(Sender).Tag;
+  FView.ModalResult:=MR_CATALOGUE_RECENT;
 end;
 
 procedure TfrmReaderHost.RecentViewClick(Sender: TObject);
-begin
-  if FRecentView.ItemIndex>=0 then OpenFile(FRecentView.Items[FRecentView.ItemIndex]);
-end;
+begin OpenRecent(FRecentView.ItemIndex); end;
 
 procedure TfrmReaderHost.RecentViewKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
 begin
@@ -485,9 +692,12 @@ begin
 end;
 
 procedure TfrmReaderHost.NotesClick(Sender: TObject);
-var Note: TReaderAnnotation;
+var Note: TReaderAnnotation; ParentForm: TCustomForm;
 begin
-  if not FPreparing and BrowseReaderNotes(Self,ResolveReaderSettingsFile(Settings.DataDir),Note) then
+  ParentForm:=FView;
+  if not Assigned(ParentForm) then ParentForm:=FHomeView;
+  if not Assigned(ParentForm) then ParentForm:=Self;
+  if not FPreparing and BrowseReaderNotes(ParentForm,ResolveReaderSettingsFile(Settings.DataDir),Note) then
     OpenNote(Note);
 end;
 
@@ -500,11 +710,11 @@ begin
     begin QueueFile(FileName,Note,Members); Exit; end;
     // Old profiles only kept the last ten paths. Never guess a book by
     // title or use the shared identity of a loose multi-book archive.
-    for var RecentFile in FRecent do
-      if FileExists(RecentFile) and not IsReaderContainer(RecentFile) then
+    for var Recent in FRecent do
+      if FileExists(Recent.FileName) and not IsReaderContainer(Recent.FileName) then
         try
-          if ReaderNoteIdentity(StandaloneHistory(FileBook(RecentFile),nil))=Note.BookID then
-          begin QueueFile(RecentFile,Note,nil); Exit; end;
+          if ReaderNoteIdentity(StandaloneHistory(FileBook(Recent.FileName),nil))=Note.BookID then
+          begin QueueFile(Recent.FileName,Note,nil); Exit; end;
         except on E: EStreamError do LogDiagnosticError('reader-note-source',E); end;
   except on E: Exception do LogDiagnosticError('reader-note-source',E); end;
   MessageDlg('Не удалось найти исходный файл для «'+Note.BookTitle+'». Проверьте, доступен ли файл.',mtInformation,[mbOK],0);
@@ -580,7 +790,7 @@ begin
     // Defer destruction until the prompt's cancellation handler has returned.
     FExitRequested:=True; PostMessage(Handle,WM_CLOSE,0,0);
   end
-  else begin FStatus.Caption:='Открытие книги отменено.'; Show; end;
+  else begin SetStatus('Открытие книги отменено.'); if FUseStartPage then ShowStartPage else Show; end;
 end;
 
 procedure TfrmReaderHost.RestartForUpdate(Sender: TObject);
@@ -625,6 +835,95 @@ begin
   ConfigureReaderCache;
 end;
 
+procedure TfrmReaderHost.ToggleFollowingComic(Sender: TObject);
+var Ini: TMemIniFile; Lock: TFileMutex;
+begin
+  Lock:=TFileMutex.Create(Settings.SettingsFileName);
+  try
+    for var Attempt:=1 to 10 do
+    begin
+      if Lock.TryAcquire then Break;
+      Sleep(10);
+    end;
+    if not Lock.Acquired then raise EWriteError.Create('Настройки читалки заняты. Повторите попытку.');
+    Ini:=TMemIniFile.Create(Settings.SettingsFileName,TEncoding.UTF8);
+    try
+      Ini.WriteBool('Reader','OfferFollowingComic',not FOfferFollowingComic);
+      SaveMemIniFileAtomically(Ini);
+    finally Ini.Free; end;
+  finally Lock.Free; end;
+  FOfferFollowingComic:=not FOfferFollowingComic;
+  TMenuItem(Sender).Checked:=FOfferFollowingComic;
+  if not FOfferFollowingComic then
+  begin FFollowingComic:=nil; FNextVolumePending:=False; end;
+  if (FCanFollowComic or (FSession.NextVolume.Book.Key.BookID>0)) and (FView is TfrmBuiltinReader) then
+    if FOfferFollowingComic then TfrmBuiltinReader(FView).OnReadPastEnd:=LookForFollowingBook
+    else TfrmBuiltinReader(FView).OnReadPastEnd:=nil;
+end;
+
+procedure TfrmReaderHost.LookForFollowingBook;
+var Source: string;
+begin
+  if not FOfferFollowingComic then Exit;
+  if FSession.NextVolume.Book.Key.BookID>0 then
+  begin FNextVolumePending:=True; Exit; end;
+  Source:=FCurrentFile;
+  FFollowingComic:=TTask.Future<string>(
+    function: string
+    begin Result:=FindFollowingComicArchive(Source); end);
+end;
+
+procedure TfrmReaderHost.OfferFollowingBook;
+var Work: IFuture<string>; FileName: string;
+begin
+  if not Assigned(FView) or not FOfferFollowingComic or FExitRequested or FHostCloseRequested or
+    (Screen.ActiveCustomForm<>FView) then Exit;
+  if FNextVolumePending then
+  begin
+    FNextVolumePending:=False;
+    if ConfirmBookOpen(FView,'ReaderFollowingVolumeDialog','Следующий том',
+      'Открыть следующий том серии?',FSession.NextVolume.Book.Caption,'Остаться') then
+      FView.ModalResult:=MR_CATALOGUE_NEXT_VOLUME;
+    Exit;
+  end;
+  if not Assigned(FFollowingComic) then Exit;
+  if not (FFollowingComic.Status in [TTaskStatus.Completed,TTaskStatus.Exception,TTaskStatus.Canceled]) then Exit;
+  Work:=FFollowingComic; FFollowingComic:=nil;
+  if Work.Status=TTaskStatus.Canceled then Exit;
+  try FileName:=Work.Value;
+  except on E: Exception do begin LogDiagnosticError('reader-following-comic',E); Exit; end; end;
+  if (FileName<>'') and ConfirmBookOpen(FView,'ReaderFollowingComicDialog','Следующая глава манги',
+    'Открыть следующую главу?',ExtractFileName(FileName),'Остаться') then OpenFile(FileName);
+end;
+
+function TfrmReaderHost.ConfirmBookOpen(Target: TCustomForm;
+  const DialogName, Title, Prompt, BookCaption, CancelCaption: string): Boolean;
+var Dialog: TForm;
+begin
+  Dialog:=CreateMessageDialog(Prompt+sLineBreak+BookCaption,mtConfirmation,[mbYes,mbNo]);
+  try
+    Dialog.Name:=DialogName; Dialog.Caption:=Title;
+    Dialog.PopupMode:=pmExplicit; Dialog.PopupParent:=Target;
+    Dialog.Position:=poOwnerFormCenter;
+    for var Component in Dialog do
+      if Component is TButton then
+        case TButton(Component).ModalResult of
+          mrYes:
+            begin TButton(Component).Caption:='Открыть'; TButton(Component).Default:=False; end;
+          mrNo:
+            begin
+              TButton(Component).Caption:=CancelCaption;
+              TButton(Component).Default:=True;
+              TButton(Component).Cancel:=True;
+              Dialog.ActiveControl:=TButton(Component);
+            end;
+        end;
+    if Target is TfrmBuiltinReader then TfrmBuiltinReader(Target).ApplyWindowPalette(Dialog)
+    else ApplyMHLControlTheme(Dialog);
+    Result:=Dialog.ShowModal=mrYes;
+  finally Dialog.Free; end;
+end;
+
 procedure TfrmReaderHost.MissingComponent(const ID: string);
 begin MissingComponents(TArray<string>.Create(ID)); end;
 
@@ -639,7 +938,7 @@ begin
     for var Component in UPDATE_COMPONENTS do if Component.ID=ID then Title:=Component.Title;
     if Titles<>'' then Titles:=Titles+', '; Titles:=Titles+Title;
   end;
-  FPendingComponent:=IDs[0]; FStatus.Caption:='Для этой книги нужны компоненты: '+Titles+'.';
+  FPendingComponent:=IDs[0]; SetStatus('Для этой книги нужны компоненты: '+Titles+'.');
   FSessionReply.RequiredComponent:=IDs[0]; SendSessionState('component_required');
   EnsureUpdates; FUpdates.RequestComponents(IDs,FStatus.Caption,True);
 end;
@@ -655,7 +954,8 @@ end;
 procedure TfrmReaderHost.CheckModuleCleanup(AfterReading: Boolean);
 var Pending: TMsg;
 begin
-  if FRestarting or Application.Terminated or (GetSystemMetrics(SM_SHUTTINGDOWN)<>0) or
+  if (FSessionReply.RequestedCatalogueRecent<>0) or FSessionReply.RequestedNextVolume or FRestarting or
+    Application.Terminated or (GetSystemMetrics(SM_SHUTTINGDOWN)<>0) or
     FHostCloseRequested or (FExitRequested and not FExitViaMenu) or (FPendingComponent<>'') or
     (FNextFile<>'') or (FNextSession<>'') or (GetTickCount64<FNextCleanupCheck) then Exit;
   // The updater closes both the hidden host and its book. Do not open a new
@@ -672,11 +972,20 @@ begin
 end;
 
 procedure TfrmReaderHost.ConfirmSessionOpened;
+var Title, Author, Cover: string;
 begin
   if not Assigned(FView) then Exit;
   if (FView is TfrmBuiltinReader) and not TfrmBuiltinReader(FView).Ready then Exit;
   // A newer note can already be queued by the closing view.
   if FNextFile='' then FNoteTarget:=Default(TReaderAnnotation);
+  if FRecentMetadataPending then
+  begin
+    if (FView is TfrmStoryReader) and not TfrmStoryReader(FView).Ready then Exit;
+    FRecentMetadataPending:=False;
+    Title:=FBook.Title; Author:=TAuthorsHelper.GetList(FBook.Authors); Cover:='';
+    if FView is TfrmBuiltinReader then TfrmBuiltinReader(FView).RecentBookDetails(Title,Author,Cover);
+    RememberFile(FCurrentFile,FOpenedMembers,Title,Author,Cover);
+  end;
   if (FSession.ID='') or FSessionReply.Opened or (FSessionReply.State<>'displaying') then Exit;
   FSessionReply.Opened:=True;
   SendSessionState('displaying');
@@ -686,7 +995,7 @@ procedure TfrmReaderHost.Tick(Sender: TObject);
 var FileName: string;
 begin
   if FPreparing and not ReaderPreparationsPending(Self) then FPreparing:=False;
-  if FDisplaying then begin ConfirmSessionOpened; Exit; end;
+  if FDisplaying then begin ConfirmSessionOpened; OfferFollowingBook; Exit; end;
   if FPreparing or FExitRequested then Exit;
   // Installation always restarts through the helper. Retrying a partially
   // installed module here would reopen the same prompt every timer tick.
@@ -722,20 +1031,22 @@ begin
         if FArchiveAmbiguous and (Length(FOpenedMembers)>0) then
           FBook.Title:=ChangeFileExt(ExtractFileName(FOpenedMembers[High(FOpenedMembers)].Replace('/','\')),'');
       end;
-    FPreparing:=True; FStatus.Caption:='Открытие книги…';
+    FPreparing:=True; SetStatus('Открытие книги…');
     // First retain the selected original payload for Save As. Kindle and
     // Office preparation belongs only to the subsequent reading view.
     PrepareReaderFileInBackground(Self,FBook,True,
       procedure(Original: string)
       begin
         try
-          if Original='' then begin FPreparing:=False; FinishSession('closed'); Exit; end;
+          if Original='' then
+          begin FPreparing:=False; FinishSession('closed'); RefreshRecentView; Exit; end;
           FExportBook:=FileBook(ExistingBookCacheFile(Original)); FExportBook.Title:=FBook.Title;
           PrepareReaderFileInBackground(Self,FExportBook,True,
             procedure(Prepared: string)
             begin
               FPreparing:=False;
-              if Prepared<>'' then Display(Prepared) else FinishSession('closed');
+              if Prepared<>'' then Display(Prepared)
+              else begin FinishSession('closed'); RefreshRecentView; end;
             end,
             False,True,True,
             nil,procedure(IDs:TArray<string>) begin FPreparing:=False; MissingComponents(IDs); end);
@@ -787,7 +1098,7 @@ begin
           raise EReadError.Create('Содержимое исходного файла изменилось. Не удалось открыть место с заметкой.');
         StartPosition:=FNoteTarget.Position;
       end;
-      RememberFile(FCurrentFile);
+      FRecentMetadataPending:=True;
       if FNoteTarget.BookID='' then
         try BindStandaloneNoteSource(SettingsFile,FCurrentFile,FBook,FOpenedMembers,FArchiveAmbiguous,Identity);
         except on E: Exception do LogDiagnosticError('reader-note-source-save',E); end;
@@ -807,7 +1118,19 @@ begin
       if Required<>'' then begin MissingComponent(Required); Exit; end;
       if not ReaderSupportsReflow(FileName) and not SameText(ExtractFileExt(FileName),'.pdf') then
         raise Exception.Create('Не удалось подготовить этот формат для чтения.');
-      FView:=TStandaloneBookReader.Create(Self);
+      if Assigned(FHomeView) then
+      begin
+        FView:=FHomeView; FHomeView:=nil;
+        FHomeList:=nil; FHomeImages:=nil; FHomeStatus:=nil;
+        TForm(FView).OnCloseQuery:=nil;
+        TfrmBuiltinReader(FView).RemoveStartPage;
+        TForm(FView).Menu.Free; TForm(FView).Menu:=nil;
+      end
+      else FView:=TStandaloneBookReader.Create(Self);
+      FCanFollowComic:=Standalone and (Length(FOpenedMembers)=0) and (FSession.OriginalMember='') and
+        (Pos('|'+LowerCase(ExtractFileExt(FileName))+'|','|.cbz|.cbr|.cb7|')>0);
+      if (FCanFollowComic or (FSession.NextVolume.Book.Key.BookID>0)) and FOfferFollowingComic then
+        TfrmBuiltinReader(FView).OnReadPastEnd:=LookForFollowingBook;
       if Standalone then TfrmBuiltinReader(FView).OnOpenNote:=
         procedure(Note: TReaderAnnotation) begin OpenNote(Note); end;
       TfrmBuiltinReader(FView).OpenBook(FileName,FBook.Title,Identity,SettingsFile,
@@ -825,10 +1148,16 @@ begin
     // The book is the visible application while reading. Keeping the empty
     // launcher as its taskbar owner gives Alt+Tab/preview the wrong window.
     Hide;
+    if Assigned(FHomeView) then FHomeView.Hide;
+    FView.Hide;
     if FSaveContinuation.Token<>'' then PostMessage(Handle,WM_RESUME_BOOK_SAVE,0,0);
     FReaderClosedActive:=False; FPreviousViewClose:=TForm(FView).OnClose;
     TForm(FView).OnClose:=BookViewClosing;
-    FView.ShowModal;
+    FCatalogueRecentSelection:=0;
+    case FView.ShowModal of
+      MR_CATALOGUE_RECENT: FSessionReply.RequestedCatalogueRecent:=FCatalogueRecentSelection;
+      MR_CATALOGUE_NEXT_VOLUME: FSessionReply.RequestedNextVolume:=True;
+    end;
     ConfirmSessionOpened;
     if FView is TfrmBuiltinReader then
     begin
@@ -846,10 +1175,13 @@ begin
     end;
    end;
   finally
+    FFollowingComic:=nil; FCanFollowComic:=False; FNextVolumePending:=False;
+    FRecentMetadataPending:=False;
     FreeAndNil(FView);
     if not FRestarting then ClearRestartState;
     ExportInput.Free; ViewInput.Free; FDisplaying:=False;
     if FExitRequested then Close
+    else if FUseStartPage and (FNextFile='') and (FNextSession='') then ShowStartPage
     else if WasVisible and not FDirectLaunch then Show;
   end;
   if Required<>'' then MissingComponent(Required)
@@ -886,24 +1218,142 @@ begin
   FRestartRequest:=Default(TReaderSessionRequest);
 end;
 
-procedure TfrmReaderHost.RememberFile(const FileName: string);
-var PreviousMenu: TMainMenu;
+procedure TfrmReaderHost.ReadRecent(Ini: TCustomIniFile);
+var Entry: TRecentBook; Index: string;
 begin
-  for var I:=FRecent.Count-1 downto 0 do if SameFileName(FRecent[I],FileName) then FRecent.Delete(I);
-  FRecent.Insert(0,FileName); while FRecent.Count>10 do FRecent.Delete(FRecent.Count-1);
-  FRecentView.Items.Assign(FRecent); SaveRecent;
-  PreviousMenu:=Menu; Menu:=nil; PreviousMenu.Free; InstallMenu(Self);
+  FRecent.Clear;
+  for var I:=0 to 9 do
+  begin
+    Index:=IntToStr(I);
+    Entry.FileName:=Ini.ReadString('ReaderRecent','File'+Index,'');
+    Entry.Title:=Ini.ReadString('ReaderRecent','Title'+Index,'');
+    Entry.Author:=Ini.ReadString('ReaderRecent','Author'+Index,'');
+    Entry.Cover:=Ini.ReadString('ReaderRecent','Cover'+Index,'');
+    if Length(Entry.Cover)>16000 then Entry.Cover:='';
+    if (Entry.FileName<>'') and TryArchiveMembers(
+      Ini.ReadString('ReaderRecent','Members'+Index,'[]'),Entry.Members) then FRecent.Add(Entry);
+  end;
 end;
 
-procedure TfrmReaderHost.SaveRecent;
-var Ini: TMemIniFile;
+function TfrmReaderHost.RecentCaption(Index: Integer): string;
 begin
-  Ini:=TMemIniFile.Create(Settings.SettingsFileName,TEncoding.UTF8);
+  var Entry:=FRecent[Index];
+  if Length(Entry.Members)=0 then Exit(Entry.FileName);
+  Result:=Entry.Members[High(Entry.Members)]+' · '+ExtractFileName(Entry.FileName);
+end;
+
+procedure TfrmReaderHost.OpenRecent(Index: Integer);
+begin
+  if (Index<0) or (Index>=FRecent.Count) then Exit;
+  var Entry:=FRecent[Index];
+  QueueFile(Entry.FileName,Default(TReaderAnnotation),Entry.Members);
+end;
+
+procedure TfrmReaderHost.RefreshRecentView;
+var Item: TListItem; Bitmap: Vcl.Graphics.TBitmap; Title: string; Picture: TJPEGImage; Stream: TBytesStream;
+begin
+  FRecentView.Items.BeginUpdate;
   try
-    Ini.EraseSection('ReaderRecent');
-    for var I:=0 to FRecent.Count-1 do Ini.WriteString('ReaderRecent','File'+IntToStr(I),FRecent[I]);
-    SaveMemIniFileAtomically(Ini);
-  finally Ini.Free; end;
+    FRecentView.Clear;
+    for var I:=0 to FRecent.Count-1 do FRecentView.Items.Add(RecentCaption(I));
+  finally FRecentView.Items.EndUpdate; end;
+  if not Assigned(FHomeList) then Exit;
+  FHomeList.Items.BeginUpdate;
+  try
+    FHomeList.Items.Clear; FHomeImages.Clear;
+    for var Entry in FRecent do
+    begin
+      Title:=Entry.Title;
+      if Title='' then
+      begin
+        Title:=Entry.FileName;
+        if Length(Entry.Members)>0 then Title:=Entry.Members[High(Entry.Members)];
+        Title:=ChangeFileExt(ExtractFileName(Title.Replace('/','\')),'');
+      end;
+      Item:=FHomeList.Items.Add; Item.Caption:=Title; Item.SubItems.Add(Entry.Author);
+      Bitmap:=Vcl.Graphics.TBitmap.Create;
+      try
+        Bitmap.SetSize(FHomeImages.Width,FHomeImages.Height);
+        Bitmap.Canvas.Brush.Color:=FHomeList.Color;
+        Bitmap.Canvas.FillRect(Bitmap.Canvas.ClipRect);
+        if Entry.Cover<>'' then
+          try
+            Stream:=TBytesStream.Create(TNetEncoding.Base64.DecodeStringToBytes(Entry.Cover));
+            try
+              if Stream.Size<=12000 then
+              begin
+                Picture:=TJPEGImage.Create;
+                try
+                  Picture.LoadFromStream(Stream);
+                  if (Picture.Width>0) and (Picture.Width<=78) and
+                    (Picture.Height>0) and (Picture.Height<=108) then
+                  begin
+                    var Scale:=Min(Bitmap.Width/Picture.Width,Bitmap.Height/Picture.Height);
+                    var W:=Max(1,Round(Picture.Width*Scale));
+                    var H:=Max(1,Round(Picture.Height*Scale));
+                    var X:=(Bitmap.Width-W) div 2; var Y:=(Bitmap.Height-H) div 2;
+                    Bitmap.Canvas.StretchDraw(Rect(X,Y,X+W,Y+H),Picture);
+                  end;
+                finally Picture.Free; end;
+              end;
+            finally Stream.Free; end;
+          except on E: Exception do LogDiagnosticError('reader-recent-cover',E); end;
+        Item.ImageIndex:=FHomeImages.Add(Bitmap,nil);
+      finally Bitmap.Free; end;
+    end;
+  finally FHomeList.Items.EndUpdate; end;
+  ResizeHomeRecent(FHomeList);
+  if FRecent.Count=0 then FHomeStatus.Caption:='Здесь появятся недавно открытые книги.'
+  else FHomeStatus.Caption:='Двойной щелчок или Enter — открыть книгу.';
+end;
+
+procedure TfrmReaderHost.RememberFile(const FileName: string; const Members: TArray<string>;
+  const Title, Author, Cover: string);
+var PreviousMenu: TMainMenu; Ini: TMemIniFile; Lock: TFileMutex;
+  Entry: TRecentBook; MembersJSON, Index: string;
+begin
+  try
+    Lock:=TFileMutex.Create(Settings.SettingsFileName);
+    try
+      for var Attempt:=1 to 10 do
+      begin
+        if Lock.TryAcquire then Break;
+        Sleep(10);
+      end;
+      if not Lock.Acquired then raise EWriteError.Create('Файл недавних книг занят.');
+      Ini:=TMemIniFile.Create(Settings.SettingsFileName,TEncoding.UTF8);
+      try
+        ReadRecent(Ini);
+        MembersJSON:=ArchiveMembersJSON(Members);
+        for var I:=FRecent.Count-1 downto 0 do
+        begin
+          Entry:=FRecent[I];
+          if SameFileName(Entry.FileName,FileName) and ((Length(Entry.Members)=0) or
+            (ArchiveMembersJSON(Entry.Members)=MembersJSON)) then FRecent.Delete(I);
+        end;
+        Entry.FileName:=FileName; Entry.Members:=Copy(Members);
+        Entry.Title:=Copy(Title.Replace(#13,' ').Replace(#10,' '),1,512);
+        Entry.Author:=Copy(Author.Replace(#13,' ').Replace(#10,' '),1,512);
+        Entry.Cover:=Cover;
+        FRecent.Insert(0,Entry);
+        if FRecent.Count>10 then FRecent.Delete(FRecent.Count-1);
+        Ini.EraseSection('ReaderRecent');
+        for var I:=0 to FRecent.Count-1 do
+        begin
+          Index:=IntToStr(I); Entry:=FRecent[I];
+          Ini.WriteString('ReaderRecent','File'+Index,Entry.FileName);
+          if Entry.Title<>'' then Ini.WriteString('ReaderRecent','Title'+Index,Entry.Title);
+          if Entry.Author<>'' then Ini.WriteString('ReaderRecent','Author'+Index,Entry.Author);
+          if Entry.Cover<>'' then Ini.WriteString('ReaderRecent','Cover'+Index,Entry.Cover);
+          if Length(Entry.Members)>0 then
+            Ini.WriteString('ReaderRecent','Members'+Index,ArchiveMembersJSON(Entry.Members));
+        end;
+        SaveMemIniFileAtomically(Ini);
+      finally Ini.Free; end;
+    finally Lock.Free; end;
+  except on E: Exception do LogDiagnosticError('reader-recent-save',E); end;
+  RefreshRecentView;
+  PreviousMenu:=Menu; Menu:=nil; PreviousMenu.Free; InstallMenu(Self);
 end;
 
 procedure TfrmReaderHost.HostCloseQuery(Sender: TObject; var CanClose: Boolean);
@@ -913,7 +1363,7 @@ begin
   begin
     CanClose:=False;
     FExitRequested:=True;
-    FStatus.Caption:='Отмена подготовки книги…';
+    SetStatus('Отмена подготовки книги…');
   end;
   if not CanClose then FHostCloseRequested:=True;
 end;

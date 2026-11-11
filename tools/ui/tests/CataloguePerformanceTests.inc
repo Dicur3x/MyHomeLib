@@ -43,6 +43,59 @@ var
     frmMain.cbCollapseMultiSeriesResults.Checked := True;
     frmMain.edFTitle.Text := Title;
   end;
+  procedure CheckSurnameSearch;
+  var Filters: TBookColumnFilters; Views: TBookViewSessions;
+    Key: Word; ViewFile: string;
+
+    function VisibleBooks: Integer;
+    var Row: PVirtualNode;
+    begin
+      Result:=0; Row:=frmMain.tvBooksSR.GetFirst;
+      while Assigned(Row) do
+      begin
+        if not frmMain.tvBooksSR.IsEffectivelyFiltered[Row] then Inc(Result);
+        Row:=frmMain.tvBooksSR.GetNext(Row);
+      end;
+    end;
+
+  begin
+    Expected:=DB.QuerySingleInt('SELECT count(DISTINCT b.BookID) FROM Books b '+
+      'JOIN Author_List l ON l.BookID=b.BookID JOIN Authors a ON a.AuthorID=l.AuthorID '+
+      'WHERE instr(a.SearchName,?)>0 AND b.IsDeleted=0',['ПУШКИН']);
+    Require(Expected>0,'Catalogue fixture has no Pushkin books');
+    frmMain.acCatalogSearch.Execute;
+    Require(frmMain.pgControl.ActivePage=frmMain.tsSearch,'Search toolbar did not activate search');
+    Settings.TreeModes[PAGE_SEARCH]:=tmFlat;
+    PrepareSearch('');
+    frmMain.edFFullName.Text:='Пушкин';
+    frmMain.btnApplyFilter.Click;
+    Require(VisibleBooks=Expected,'Ordinary Cyrillic surname returned wrong results');
+    frmMain.edFFullName.Text:='  пушкин  ';
+    Key:=VK_RETURN; frmMain.edFFullName.OnKeyDown(frmMain.edFFullName,Key,[]);
+    Require(VisibleBooks=Expected,'Enter did not apply the lowercase surname');
+    Writeln('PASS catalogue surname applies button and Enter rows=',Expected); Flush(Output);
+
+    Filters:=TBookColumnFilters.ForTree(frmMain.tvBooksSR);
+    Filters.SetValue(COL_TITLE,'fixture retained filter with no matching titles');
+    ViewFile:=Settings.AppPath+'surname-book-views.ini';
+    Views:=TBookViewSessions.Create(ViewFile);
+    try Views.Capture(CID,frmMain.tvBooksSR); Views.Save; finally Views.Free; end;
+    Filters.Clear;
+    Views:=TBookViewSessions.Create(ViewFile);
+    try Views.Restore(CID,frmMain.tvBooksSR); finally Views.Free; end;
+    frmMain.btnApplyFilter.Click;
+    Require((Filters.Value(COL_TITLE)<>'') and (Filters.Total=Expected) and (VisibleBooks=0),
+      'Retained column filter did not reproduce hidden surname results');
+    Writeln('TRACE restored column filter hides surname matches'); Flush(Output);
+
+    frmMain.btnClearFilterEdits.Click;
+    frmMain.edFFullName.Text:='Пушкин';
+    frmMain.btnApplyFilter.Click;
+    Require((Filters.Count=0) and (VisibleBooks=Expected),
+      'Clear left an old column filter hiding the surname results');
+    Writeln('PASS catalogue surname Clear restores all matches after a saved filter'); Flush(Output);
+  end;
+
   procedure CheckTreeMetrics(Tree: TCustomVirtualStringTree; HasHeader: Boolean);
   var Height: Integer;
   begin
@@ -209,6 +262,8 @@ begin
   Collection.SetHideDeleted(True); Collection.SetShowLocalOnly(False);
   DB := TSQLiteDatabase.CreateReadOnly(FileName);
   try
+    if ParamStr(2)='surname' then
+    begin CheckSurnameSearch; Exit; end;
     Require(DB.QuerySingleInt('SELECT COUNT(*) FROM Books') > 1000000,
       'Actual benchmark requires the full merged catalogue');
     ShowPage(PAGE_SEARCH);

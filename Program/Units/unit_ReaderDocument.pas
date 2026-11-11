@@ -52,9 +52,10 @@ type
     procedure Paragraph;
     procedure Chapter(const Value: string; Depth: Integer = 0);
     procedure Picture(const Bytes: TBytes);
+    procedure MakeRecentCover(const Bytes: TBytes);
     function PictureHeader(Index, MaxWidth, MaxHeight: Integer; LayoutOnly: Boolean): UTF8String;
   public
-    Title, FormatName, Language: string;
+    Title, FormatName, Language, Author, RecentCover: string;
     Warnings: TStringList;
     constructor Create;
     destructor Destroy; override;
@@ -221,18 +222,16 @@ begin
     raise EEncodingError.Create('Файл не соответствует выбранной кодировке.');
 end;
 
-function EscapeRTF(const Value: string; const Canceled: TFunc<Boolean> = nil): string;
-var C: Char; B: TStringBuilder; Code,I: Integer;
+function EscapeRTF(const Value: string; CompactCyrillic: Boolean): string;
+const Hex = '0123456789abcdef';
+var C: Char; B: TStringBuilder; Code,I,Encoded: Integer;
 begin
   B := TStringBuilder.Create;
   try
     for I:=1 to Length(Value) do
     begin
-      if (I and 4095)=0 then
-      begin
-        if Assigned(Canceled) and Canceled() then raise EAbort.Create('Чтение отменено.');
-        if B.Length>128*1024*1024 then raise Exception.Create('Книга слишком велика для встроенной читалки.');
-      end;
+      if ((I and 4095)=0) and (B.Length>128*1024*1024) then
+        raise Exception.Create('Книга слишком велика для встроенной читалки.');
       C:=Value[I];
       case C of
         '\','{','}': B.Append('\').Append(C);
@@ -242,8 +241,22 @@ begin
       else
         if Ord(C)>127 then
         begin
-          Code:=Ord(C); if Code>32767 then Dec(Code,65536);
-          B.Append('\u').Append(Code).Append('?');
+          Code:=Ord(C);
+          Encoded:=0;
+          if CompactCyrillic then
+            case Code of
+              $0410..$044F: Encoded:=Code-$0410+$C0;
+              $0401: Encoded:=$A8;
+              $0451: Encoded:=$B8;
+            end;
+          // The RTF header already declares Windows-1251. Four ASCII bytes
+          // suffice for these letters, leaving the same Unicode text in RichEdit.
+          if Encoded<>0 then B.Append('\').Append(#39).Append(Hex[Encoded div 16+1]).Append(Hex[Encoded mod 16+1])
+          else
+          begin
+            if Code>32767 then Dec(Code,65536);
+            B.Append('\u').Append(Code).Append('?');
+          end;
         end
         else B.Append(C);
       end;
@@ -326,9 +339,43 @@ begin
   finally Output.Free; end;
 end;
 
+function RepairEpubTextMarkup(const Value: string): string;
+const
+  Tokens = '<!\[CDATA\[.*?\]\]>|<!--.*?-->|<\?.*?\?>|&(?:lsquo|rsquo|ldquo|rdquo);|'+
+    '&(?!amp;|lt;|gt;|quot;|apos;|#[0-9]+;|#x[0-9a-fA-F]+;)|<(?=\s|$)';
+var Output:TStringBuilder; Start:Integer; Replacement:string;
+begin
+  Result:=Value;
+  Output:=nil; Start:=1;
+  try
+    for var Match in TRegEx.Matches(Value,Tokens,[roSingleLine]) do
+    begin
+      Replacement:=Match.Value;
+      if Replacement='&' then Replacement:='&amp;'
+      else if Replacement='<' then Replacement:='&lt;'
+      else if Replacement='&lsquo;' then Replacement:='&#8216;'
+      else if Replacement='&rsquo;' then Replacement:='&#8217;'
+      else if Replacement='&ldquo;' then Replacement:='&#8220;'
+      else if Replacement='&rdquo;' then Replacement:='&#8221;'
+      else Continue;
+      if not Assigned(Output) then Output:=TStringBuilder.Create;
+      Output.Append(Copy(Value,Start,Match.Index-Start));
+      Output.Append(Replacement);
+      Start:=Match.Index+Match.Length;
+    end;
+    if Assigned(Output) then
+    begin
+      Output.Append(Copy(Value,Start,MaxInt));
+      Result:=Output.ToString;
+    end;
+  finally Output.Free; end;
+end;
+
 function XMLDocument(const Bytes: TBytes; TextEncoding: TReaderTextEncoding = rteAutomatic;
   FB2Warnings: TStrings = nil; EpubWarnings: TStrings = nil): IXMLDOMDocument3;
-const EpubLineBreakWarning = 'Исправлены теги переноса строки в EPUB для чтения.';
+const
+  EpubLineBreakWarning = 'Исправлены теги переноса строки в EPUB для чтения.';
+  EpubTextWarning = 'Исправлены специальные символы в главах EPUB для чтения.';
 var S, Failure: string; M: TMatch; Enc: TEncoding;
 begin
   if Length(Bytes)>MAX_DOCUMENT_BYTES then raise Exception.Create('Документ превышает предел встроенной читалки (64 МБ).');
@@ -361,6 +408,12 @@ begin
     if (Repaired<>S) and Result.loadXML(Repaired) then
     begin
       if EpubWarnings.IndexOf(EpubLineBreakWarning)<0 then EpubWarnings.Add(EpubLineBreakWarning);
+      Exit;
+    end;
+    var RepairedText:=RepairEpubTextMarkup(Repaired);
+    if (RepairedText<>Repaired) and Result.loadXML(RepairedText) then
+    begin
+      if EpubWarnings.IndexOf(EpubTextWarning)<0 then EpubWarnings.Add(EpubTextWarning);
       Exit;
     end;
   end;
@@ -427,7 +480,7 @@ var S: string;
 begin
   if PreserveWhitespace then S:=Value
   else S:=TRegEx.Replace(Value,'[\r\n\t ]+',' ');
-  FBody.Append(EscapeRTF(S)); FText.Append(S);
+  FBody.Append(EscapeRTF(S,FormatName='epub')); FText.Append(S);
 end;
 
 procedure TReaderDocument.Paragraph;
@@ -466,6 +519,36 @@ begin
     FPictures.Add(Item);
     FText.Append(#$FFFC); Paragraph; FBody.Append('\pard\qj\fi360 '); Inc(FImages);
   finally Graphic.Free; Stream.Free; end;
+end;
+
+procedure TReaderDocument.MakeRecentCover(const Bytes: TBytes);
+var Source, Output: TBytesStream; Graphic: TGraphic; Bitmap: TBitmap; JPEG: TJPEGImage;
+  W,H: Integer; Ratio: Double;
+begin
+  if (Length(Bytes)=0) or (Length(Bytes)>4*1024*1024) then Exit;
+  Source:=TBytesStream.Create(Bytes); Graphic:=nil; Bitmap:=nil; JPEG:=nil; Output:=nil;
+  try
+    try
+      if not ImageDimensions(Source,W,H) or (Int64(W)*H>12000000) then Exit;
+      Source.Position:=0;
+      Graphic:=CreateGraphicFromStream(Source);
+      if not Assigned(Graphic) or (Graphic.Width<=0) or (Graphic.Height<=0) then Exit;
+      if Graphic is TJPEGImage then TJPEGImage(Graphic).Scale:=jsEighth;
+      Bitmap:=TBitmap.Create; Bitmap.PixelFormat:=pf24bit;
+      Ratio:=Min(78/Graphic.Width,108/Graphic.Height);
+      Bitmap.SetSize(Max(1,Round(Graphic.Width*Ratio)),Max(1,Round(Graphic.Height*Ratio)));
+      Bitmap.Canvas.Brush.Color:=clWhite; Bitmap.Canvas.FillRect(Bitmap.Canvas.ClipRect);
+      Bitmap.Canvas.StretchDraw(Bitmap.Canvas.ClipRect,Graphic);
+      JPEG:=TJPEGImage.Create; JPEG.CompressionQuality:=75; JPEG.Assign(Bitmap);
+      Output:=TBytesStream.Create;
+      JPEG.SaveToStream(Output);
+      if Output.Size<=12000 then RecentCover:=TNetEncoding.Base64.EncodeBytesToString(
+        Copy(Output.Bytes,0,Integer(Output.Size))).Replace(#13,'').Replace(#10,'');
+    except
+      // An unreadable cover is optional. The reading flow can still use the book.
+      on E: Exception do RecentCover:='';
+    end;
+  finally Output.Free; JPEG.Free; Bitmap.Free; Graphic.Free; Source.Free; end;
 end;
 
 function ReaderBinaryArea(const Value: string): Int64;
@@ -1070,7 +1153,7 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
 begin
   FPlainRTF:=''; FPictures.Clear; FBody.Clear; FText.Clear; FChapters.Clear; FStyles.Clear; FNoteLinks.Clear; FNoteBodies.Clear; FLinks.Clear; FAnchors.Clear; Warnings.Clear; FImages:=0; FSkippedImages:=0;
   UnpackedBytes:=0; NoteCharacters:=0; PendingInitial:=True; Check; E:=LowerCase(ExtractFileExt(FileName)); FormatName:=E.TrimLeft(['.']);
-  Title:=ExtractFileName(FileName); Language:=''; Zip:=nil;
+  Title:=ExtractFileName(FileName); Language:=''; Author:=''; RecentCover:=''; Zip:=nil;
   CSS:=TReaderCSS.Create; CSSCache:=TDictionary<string,string>.Create;
   Binaries:=TDictionary<string,string>.Create; Paths:=TDictionary<string,string>.Create; Resources:=TDictionary<string,TBytes>.Create; NoteFiles:=TDictionary<string,IXMLDOMDocument3>.Create;
   try
@@ -1136,12 +1219,35 @@ begin
       PackagePath:=Attribute(Node,'full-path'); ReadZip(PackagePath,Data); Document:=XMLDocument(Data);
       Root:=Document.documentElement; Node:=FindNode(Root,'title'); if Node<>nil then Title:=Node.text;
       Node:=FindNode(Root,'language'); if Node<>nil then Language:=Trim(Node.text);
+      var Metadata:=FindNode(Root,'metadata');
+      var CoverID:='';
+      if Assigned(Metadata) then
+        for var K:=0 to Metadata.childNodes.length-1 do
+        begin
+          Item:=Metadata.childNodes.item[K];
+          if LocalName(Item)='creator' then
+          begin
+            var Name:=Trim(Item.text);
+            if Name<>'' then
+            begin if Author<>'' then Author:=Author+', '; Author:=Author+Name; end;
+          end;
+          if (LocalName(Item)='meta') and SameText(Attribute(Item,'name'),'cover') then
+            CoverID:=Attribute(Item,'content');
+        end;
       Manifest:=FindNode(Root,'manifest'); Spine:=FindNode(Root,'spine');
       if (Manifest=nil) or (Spine=nil) then raise Exception.Create('В EPUB нет порядка чтения.');
       for I:=0 to Manifest.childNodes.length-1 do
-      begin Item:=Manifest.childNodes.item[I]; if LocalName(Item)='item' then
-        // Resolve only a resource actually used by the reading spine.
-        Paths.AddOrSetValue(Attribute(Item,'id'),Attribute(Item,'href')); end;
+      begin
+        Item:=Manifest.childNodes.item[I]; if LocalName(Item)<>'item' then Continue;
+        Paths.AddOrSetValue(Attribute(Item,'id'),Attribute(Item,'href'));
+        if (RecentCover='') and (((CoverID<>'') and (Attribute(Item,'id')=CoverID)) or
+          (Pos(' cover-image ',' '+Attribute(Item,'properties')+' ')>0)) then
+          try
+            var CoverIndex:=Zip.IndexOf(ZipPath(PackagePath,Attribute(Item,'href')));
+            if (CoverIndex>=0) and (Zip.FileInfo[CoverIndex].UncompressedSize<=4*1024*1024) then
+            begin Zip.Read(CoverIndex,Data); MakeRecentCover(Data); end;
+          except on E: Exception do RecentCover:=''; end;
+      end;
       for I:=0 to Spine.childNodes.length-1 do
       begin
         Item:=Spine.childNodes.item[I]; if LocalName(Item)<>'itemref' then Continue;
@@ -1230,8 +1336,33 @@ begin
         if not HasBody then raise EReadError.Create('В файле FB2/FBD не найдено содержимое книги.');
         // The FB2 cover belongs to description/title-info, outside its body.
         Node:=FindNode(Root,'title-info');
-        if Node<>nil then Node:=FindNode(Node,'coverpage');
-        if Node<>nil then Walk(Node,0);
+        if Node<>nil then
+        begin
+          for var K:=0 to Node.childNodes.length-1 do
+          begin
+            Item:=Node.childNodes.item[K]; if LocalName(Item)<>'author' then Continue;
+            var Name:='';
+            for var Part in TArray<string>.Create('first-name','middle-name','last-name') do
+            begin
+              var Value:=FindNode(Item,Part);
+              if Assigned(Value) and (Trim(Value.text)<>'') then Name:=Trim(Name+' '+Value.text);
+            end;
+            if Name='' then
+            begin
+              var Nickname:=FindNode(Item,'nickname');
+              if Assigned(Nickname) then Name:=Trim(Nickname.text);
+            end;
+            if Name<>'' then
+            begin if Author<>'' then Author:=Author+', '; Author:=Author+Name; end;
+          end;
+          Node:=FindNode(Node,'coverpage');
+        end;
+        if Node<>nil then
+        begin
+          var CoverIndex:=FPictures.Count;
+          Walk(Node,0);
+          if FPictures.Count>CoverIndex then MakeRecentCover(FPictures[CoverIndex].Bytes);
+        end;
         for I:=0 to Root.childNodes.length-1 do
         begin Node:=Root.childNodes.item[I]; if LocalName(Node)='body' then Walk(Node,0); end;
       end

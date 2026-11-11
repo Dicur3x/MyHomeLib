@@ -20,7 +20,8 @@ type
     procedure Validate;
     function CapturedInfo(const User: ISystemData): TCollectionInfo;
     function OpenCapturedCollection(const User: ISystemData): IBookCollection;
-    function CheckCopyRows(const User: ISystemData; Commit: Boolean): Integer;
+    function CheckCopyRows(const User: ISystemData; Commit: Boolean;
+      const Progress: TProc<Integer,Integer> = nil): Integer;
   public
     class function Capture(const Info: TCollectionInfo; const Books: TArray<TBookRecord>;
       RemoveRecords: Boolean): TBookDeletionBinding; static;
@@ -29,10 +30,11 @@ type
     class function Parse(const JSON: string): TBookDeletionBinding; static;
     function ToJSON: string;
     procedure CheckBeforePhysicalRemoval(const User: ISystemData);
-    function CommitRecords(const User: ISystemData): Integer;
+    function CommitRecords(const User: ISystemData; const Progress: TProc<Integer,Integer> = nil): Integer;
     function CommitSourceMissing(const User: ISystemData): Integer;
-    function CommitCopies(const User: ISystemData): Integer;
+    function CommitCopies(const User: ISystemData; const Progress: TProc<Integer,Integer> = nil): Integer;
     function RemovesCopies: Boolean;
+    function PhysicalCopyCount: Integer;
     function SourceKeys: TArray<string>;
     function PrimaryBooks: TArray<TBookRecord>;
     function ExpectedBooks: TArray<TBookRecord>;
@@ -294,7 +296,8 @@ begin
   Result:=User.GetCollection(Info.ID);
 end;
 
-function TBookDeletionBinding.CheckCopyRows(const User:ISystemData; Commit:Boolean):Integer;
+function TBookDeletionBinding.CheckCopyRows(const User:ISystemData; Commit:Boolean;
+  const Progress:TProc<Integer,Integer>):Integer;
 var DB:TSQLiteDatabase; Primary,CopyRow,DeleteRow:TSQLiteQuery;
   Info:TCollectionInfo; Current:TBookRecord; BookID:Integer;
 
@@ -325,7 +328,11 @@ begin
       begin
         CopyRow.Reset;
         // A receipt may replay after the catalogue commit has already succeeded.
-        if Commit then Continue;
+        if Commit then
+        begin
+          if Assigned(Progress) then Progress(I+1,Length(FBooks));
+          Continue;
+        end;
         raise EReadError.Create('Дополнительная копия исчезла. Повторите выбор файлов.');
       end;
       BookID:=CopyRow.FieldAsInt(6);
@@ -345,6 +352,7 @@ begin
         DeleteRow.SetParam(0,FCopyKeys[I]); DeleteRow.SetParam(1,BookID);
         DeleteRow.ExecSQL; DeleteRow.Reset;
         Inc(Result);
+        if Assigned(Progress) then Progress(I+1,Length(FBooks));
       end;
     end;
     if Commit then DB.Commit;
@@ -356,10 +364,21 @@ begin
   end;
 end;
 
-function TBookDeletionBinding.CommitCopies(const User:ISystemData):Integer;
+function TBookDeletionBinding.CommitCopies(const User:ISystemData;
+  const Progress:TProc<Integer,Integer>):Integer;
 begin
   if not RemovesCopies then raise EInvalidOperation.Create('Этот журнал не удаляет дополнительные копии.');
-  Result:=CheckCopyRows(User,True);
+  Result:=CheckCopyRows(User,True,Progress);
+end;
+
+function TBookDeletionBinding.PhysicalCopyCount: Integer;
+var Files: TDictionary<string,Byte>;
+begin
+  Files:=TDictionary<string,Byte>.Create;
+  try
+    for var Book in FBooks do Files.AddOrSetValue(ReaderBookPhysicalIdentity(Book),0);
+    Result:=Files.Count;
+  finally Files.Free; end;
 end;
 
 procedure TBookDeletionBinding.CheckBeforePhysicalRemoval(const User:ISystemData);
@@ -379,7 +398,8 @@ begin
       raise EReadError.Create('Книга или её личная карточка изменилась. Файл не удалён.');
 end;
 
-function TBookDeletionBinding.CommitRecords(const User:ISystemData):Integer;
+function TBookDeletionBinding.CommitRecords(const User:ISystemData;
+  const Progress:TProc<Integer,Integer>):Integer;
 var Collection:IBookCollection; Writer:IBookIdentityDeletionWriter;
   Expected:TBookRecord; Match:TBookIdentityPredicate;
 begin
@@ -397,12 +417,17 @@ begin
   for Expected in FBooks do
     if not (Writer.DeleteBookIfIdentity(Expected,Match,True) in [bdwReady,bdwMissing]) then
       raise EReadError.Create('Книга или её личная карточка изменилась. Журнал удаления сохранён.');
-  for Expected in FBooks do
+  if Assigned(Progress) then Progress(0,Length(FBooks));
+  for var I:=0 to High(FBooks) do
+  begin
+    Expected:=FBooks[I];
     case Writer.DeleteBookIfIdentity(Expected,Match) of
       bdwDeleted: Inc(Result);
       bdwMissing: ;
       else raise EReadError.Create('Не удалось завершить удаление записи. Журнал сохранён для продолжения.');
     end;
+    if Assigned(Progress) then Progress(I+1,Length(FBooks));
+  end;
 end;
 
 function TBookDeletionBinding.CommitSourceMissing(const User:ISystemData):Integer;

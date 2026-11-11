@@ -6,6 +6,7 @@ uses System.SysUtils, System.Classes, System.Types, System.Generics.Collections,
   unit_ReaderPDF, unit_MHLArchiveHelpers, unit_ReaderDjvuNative;
 
 function IsRasterReaderFormat(const Extension: string): Boolean;
+function FindFollowingComicArchive(const FileName: string): string;
 function CanReadTiffDirectly(const FileName: string): Boolean;
 
 type
@@ -57,7 +58,7 @@ type
 implementation
 
 uses Winapi.Windows, Winapi.ActiveX, Winapi.Wincodec, System.Math, System.IOUtils,
-  System.Generics.Defaults, System.Win.ComObj,
+  System.Generics.Defaults, System.RegularExpressions, System.Win.ComObj,
   unit_WebPCompat, unit_ReaderDjvu, unit_BookCache;
 
 type TBitmap = Vcl.Graphics.TBitmap;
@@ -88,6 +89,45 @@ begin
   end;
   Result:=(Length(A)-I)-(Length(B)-J);
   if Result=0 then Result:=CompareStr(A,B);
+end;
+
+function FindFollowingComicArchive(const FileName: string): string;
+const ArchiveExtensions = '|.cbz|.cbr|.cb7|.zip|.rar|.7z|';
+var Family, Number, CandidateFamily, CandidateNumber, BestNumber, BestFile, Ext: string;
+  Comparison: Integer; Ambiguous: Boolean; Archive: TMHLZip;
+
+  function ReadNumber(const Path: string; out Prefix, Sequence: string): Boolean;
+  var Match: TMatch;
+  begin
+    Match:=TRegEx.Match(ChangeFileExt(ExtractFileName(Path),''),'^(.*?)([0-9]+(?:[-_.][0-9]+)*)[^0-9]*$');
+    Result:=Match.Success;
+    if not Result then Exit;
+    Prefix:=Match.Groups[1].Value.Trim;
+    Sequence:=Match.Groups[2].Value.Replace('.','-').Replace('_','-');
+    Sequence:=TRegEx.Replace(Sequence,'(^|-)0+(?=[0-9])','$1');
+  end;
+
+begin
+  Result:='';
+  if not ReadNumber(FileName,Family,Number) then Exit;
+  BestFile:=''; Ambiguous:=False;
+  for var Candidate in TDirectory.GetFiles(ExtractFileDir(FileName)) do
+  begin
+    Ext:=LowerCase(ExtractFileExt(Candidate));
+    if (Pos('|'+Ext+'|',ArchiveExtensions)=0) or
+      not ReadNumber(Candidate,CandidateFamily,CandidateNumber) or
+      not SameText(Family,CandidateFamily) or (PageCompare(CandidateNumber,Number)<=0) then Continue;
+    if BestFile='' then Comparison:=-1 else Comparison:=PageCompare(CandidateNumber,BestNumber);
+    if Comparison<0 then
+    begin BestFile:=Candidate; BestNumber:=CandidateNumber; Ambiguous:=False; end
+    else if Comparison=0 then Ambiguous:=True;
+  end;
+  if (BestFile='') or Ambiguous then Exit;
+  Ext:=LowerCase(ExtractFileExt(BestFile));
+  Archive:=TMHLZip.Create(BestFile,True,False,nil,(Ext<>'.zip') and (Ext<>'.cbz'));
+  try
+    if Archive.IsImageOnlyComic then Result:=BestFile;
+  finally Archive.Free; end;
 end;
 
 function CanReadTiffDirectly(const FileName: string): Boolean;

@@ -36,7 +36,7 @@ uses
   ComCtrls,
   ImgList,
   Vcl.Menus,
-  unit_AutoCompleteEdit;
+  unit_AutoCompleteEdit, unit_MHLThemePalette;
 
 type
   TfrmSettings = class(TForm)
@@ -249,6 +249,7 @@ type
 
   private
     FDefaultSectionNames: TArray<string>;
+    FInterfaceColors: TMHLThemePalettes;
     FRestoreBookViews: TComboBox;
     FUseBuiltinReader: TCheckBox;
     FCachePage: TTabSheet;
@@ -264,6 +265,7 @@ type
     FCacheExit: TCheckBox;
     FCacheUsage: TLabel;
     FCacheTimer: TTimer;
+    procedure InterfaceColorsClick(Sender: TObject);
     procedure RenameSectionClick(Sender: TObject);
     procedure ReaderModeChanged(Sender: TObject);
     procedure ChooseCacheDirectory(Sender: TObject);
@@ -316,7 +318,7 @@ uses
   unit_Helpers,
   frm_create_mask,
   unit_Templater,
-  unit_Localization, Vcl.FileCtrl, unit_BookSavePolicy;
+  unit_Localization, Vcl.FileCtrl, unit_BookSavePolicy, frm_InterfaceColors;
 
 type
   TCachePageControlAccess = class(TPageControl);
@@ -343,9 +345,17 @@ resourcestring
 {$R *.dfm}
 
 procedure TfrmSettings.DoCreate;
-var CaptionLabel: TLabel; ClearButton: TButton; ReaderPanel: TPanel; FolderItem: TMenuItem; CacheControl: TControl; I, CachePPI: Integer;
+var CaptionLabel: TLabel; ClearButton: TButton; ReaderPanel: TPanel; FolderItem: TMenuItem; CacheControl: TControl; I, CachePPI: Integer; InterfaceScroll: TScrollBox; ColorsButton: TButton;
 begin
   inherited;
+
+  InterfaceScroll:=TScrollBox.Create(Self); InterfaceScroll.Parent:=tsInterface;
+  InterfaceScroll.Align:=alClient; InterfaceScroll.BorderStyle:=bsNone;
+  InterfaceScroll.HorzScrollBar.Visible:=False; InterfaceScroll.VertScrollBar.Tracking:=True;
+  Panel8.Parent:=InterfaceScroll; Panel10.Parent:=InterfaceScroll; Panel10.Align:=alTop;
+  ColorsButton:=TButton.Create(Self); ColorsButton.Parent:=Panel8;
+  ColorsButton.Name:='btnInterfaceColors'; ColorsButton.Caption:='Цвета оформления…';
+  ColorsButton.SetBounds(9,202,289,28); ColorsButton.OnClick:=InterfaceColorsClick;
 
   with lvScripts.Columns.Add do begin Caption := 'Режим'; Width := 130; end;
   // Do not persist this list as TTreeView.Items.NodeData in the DFM. That
@@ -781,6 +791,7 @@ begin
 
   udFontSize.Position := Settings.TreeFontSize;
   udShortFontSize.Position := Settings.ShortFontSize;
+  FInterfaceColors:=MHLThemePalettes;
   SetPanelFontColor(Settings.FontColor);
   pnDownloadedFontColor.Font.Color := Settings.LocalColor;
   pnDeletedFontColor.Font.Color := Settings.DeletedColor;
@@ -935,6 +946,8 @@ begin
   Settings.BGColor := pnASG.Color;
   Settings.BookColor := pnCT.Color;
   Settings.SeriesBookColor := pnBS.Color;
+  SetMHLThemePalettes(FInterfaceColors);
+  RefreshMHLTheme;
 
   Settings.UseIESettings := cbUseIESettings.Checked;
   Settings.ProxyServer := edProxyServer.Text;
@@ -1225,7 +1238,7 @@ end;
 
 procedure TfrmSettings.FormShow(Sender: TObject);
 begin
-  if MHLThemeDark then ApplyMHLControlTheme(Self);
+  if MHLThemeDark or MHLThemeCustomized then ApplyMHLControlTheme(Self);
   tvSections.Select(tvSections.Items[0], [ssLeft]);
 end;
 
@@ -1297,6 +1310,9 @@ begin
   pnBS.Font.Color := Value;
 end;
 
+procedure TfrmSettings.InterfaceColorsClick(Sender: TObject);
+begin EditInterfaceColors(Self,FInterfaceColors); end;
+
 procedure TfrmSettings.SetDefaultFontColor(Sender: TObject);
 begin
   dlgColors.Color := pnDefaultFontColor.Font.Color;
@@ -1367,6 +1383,8 @@ end;
 
 procedure TfrmSettings.ResetInterfaceTab;
 begin
+  FInterfaceColors[False]:=EmptyMHLThemePalette;
+  FInterfaceColors[True]:=EmptyMHLThemePalette;
   udFontSize.Position := DEF_TREE_FONT_SIZE;
   udShortFontSize.Position := DEF_SHORT_FONT_SIZE;
 

@@ -19,7 +19,7 @@ def call(*args: str, cwd: Path | None = None) -> bytes:
     return run.stdout
 
 
-def prepare(root: Path) -> None:
+def prepare(root: Path, include_limit: bool = False) -> None:
     owned = root / "sevenzip-delete-plan"
     owned.mkdir()
     sources = owned / "inputs"
@@ -37,8 +37,28 @@ def prepare(root: Path) -> None:
                                  ("solid", "LZMA2:d20", "on")]:
         call("a", "-t7z", "-m0=" + method, "-ms=" + solid, "-mhc=on",
              "-mx=1", "-sccUTF-8", str(owned / (label + ".7z")), "selected", "unselected", cwd=sources)
+    grouped = owned / "grouped-inputs"
+    grouped.mkdir()
+    grouped_names = [f"book{index:02}.fb2" for index in range(12)]
+    for name in grouped_names:
+        (grouped / name).write_bytes(generator.randbytes(100_000))
+    call("a", "-t7z", "-m0=LZMA2:d20", "-ms=2f", "-mqs=off",
+         "-mx=1", str(owned / "grouped-solid.7z"), *grouped_names, cwd=grouped)
+    if include_limit:
+        prepare_limit(root)
     (owned / "expected.json").write_text(json.dumps(entries), encoding="utf-8")
     print("PASS bounded PPMd LZMA2 and solid 7z seeds from upstream 7-Zip")
+
+
+def prepare_limit(root: Path) -> None:
+    owned = root / "sevenzip-delete-plan"
+    inputs = owned / "limit-inputs"
+    (inputs / "selected").mkdir(parents=True)
+    (inputs / "unselected").mkdir()
+    (inputs / "selected" / "one.fb2").write_bytes(random.Random(7233).randbytes(1024 * 1024))
+    (inputs / "unselected" / "keep.fb2").write_bytes(random.Random(7232).randbytes(17 * 1024 * 1024))
+    call("a", "-t7z", "-m0=LZMA2:d20", "-ms=on", "-mhc=on", "-mx=1", "-sccUTF-8",
+         str(owned / "solid-limit.7z"), "selected", "unselected", cwd=inputs)
 
 
 def verify(root: Path) -> None:
@@ -57,6 +77,26 @@ def verify(root: Path) -> None:
         if hashlib.sha256(payload).hexdigest() != entries["unselected/keep.fb2"]:
             raise RuntimeError("Independent 7z retained payload differs")
     print("PASS upstream 7-Zip validates planned PPMd LZMA2 inventories CRC and payload hashes")
+    solid = owned / "repacked-solid.7z"
+    call("t", "--", str(solid))
+    listing = call("l", "-slt", "-sccUTF-8", "--", str(solid)).decode("utf-8").replace("\\", "/")
+    files = {line[7:] for line in listing.splitlines() if line.startswith("Path = ") and line.endswith(".fb2")}
+    if files != {"selected/two.fb2", "unselected/keep.fb2"}:
+        raise RuntimeError("Repacked solid 7z has an unexpected inventory")
+    for member in files:
+        payload = call("x", "-so", "-spd", "-sccUTF-8", "--", str(solid), member)
+        if hashlib.sha256(payload).hexdigest() != entries[member]:
+            raise RuntimeError("Repacked solid 7z changed retained contents")
+    print("PASS upstream 7-Zip verifies both surviving solid members byte for byte")
+    large = owned / "repacked-large.7z"
+    call("t", "--", str(large))
+    payload = call("x", "-so", "-spd", "--", str(large), "unselected/keep.fb2")
+    if hashlib.sha256(payload).digest() != hashlib.sha256((owned / "limit-inputs/unselected/keep.fb2").read_bytes()).digest():
+        raise RuntimeError("Large solid 7z changed its retained payload")
+    listing = call("l", "-slt", "-sccUTF-8", "--", str(large)).decode("utf-8").replace("\\", "/")
+    if "Path = selected/one.fb2" in listing:
+        raise RuntimeError("Large solid 7z retained the selected book")
+    print("PASS upstream 7-Zip verifies the large retained payload byte for byte")
     proof = json.loads((root / "sevenzip-recovery-proof.json").read_text(encoding="utf-8-sig"))
     archive = (root / proof["archive"]).resolve(strict=True)
     if not archive.is_relative_to(root):
@@ -79,3 +119,15 @@ def verify(root: Path) -> None:
         if hashlib.sha256(payload).hexdigest() != entries["unselected/keep.fb2"]:
             raise RuntimeError("Independent grouped 7z payload differs")
     print("PASS upstream 7-Zip validates grouped background deletion payloads")
+    archive = owned / "recovered-grouped-solid.7z"
+    call("t", "--", str(archive))
+    listing = call("l", "-slt", "--", str(archive)).decode("utf-8")
+    files = {line[7:] for line in listing.splitlines() if line.startswith("Path = ") and line.endswith(".fb2")}
+    remaining = {f"book{index:02}.fb2" for index in [1, 2, 3, 6, 7, 10, 11]}
+    if files != remaining:
+        raise RuntimeError("Grouped solid recovery changed the inventory")
+    for name in remaining:
+        payload = call("x", "-so", "-spd", "--", str(archive), name)
+        if payload != (owned / "grouped-inputs" / name).read_bytes():
+            raise RuntimeError("Grouped solid recovery changed " + name)
+    print("PASS upstream 7-Zip verifies surviving grouped solid entries byte for byte")

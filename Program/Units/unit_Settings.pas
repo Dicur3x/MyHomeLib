@@ -480,7 +480,7 @@ uses
   IOUtils,
   WinInet,
   unit_Helpers,
-  unit_AtomicIniFile;
+  unit_AtomicIniFile, unit_MHLThemePalette;
 
 const
   TOOLS_DIR_NAME = 'Tools';
@@ -802,6 +802,7 @@ begin
     FSearchMoreExpanded := iniFile.ReadBool(INTERFACE_SECTION, 'SearchMoreExpanded', False);
     FEditToolBarVisible := iniFile.ReadBool(INTERFACE_SECTION, 'ShowEditToolBar', False);
     FDarkTheme := iniFile.ReadBool(INTERFACE_SECTION, 'DarkTheme', False);
+    LoadMHLThemePalettes(iniFile);
     FWindowsDarkThemeOfferDismissed := iniFile.ReadBool(INTERFACE_SECTION, 'WindowsDarkThemeOfferDismissed', False);
 
     // The legacy integer 'Lang' key is deliberately ignored, not migrated:
@@ -979,6 +980,7 @@ begin
     iniFile.WriteBool(INTERFACE_SECTION, 'SearchMoreExpanded', FSearchMoreExpanded);
     iniFile.WriteBool(INTERFACE_SECTION, 'ShowEditToolBar', FEditToolBarVisible);
     iniFile.WriteBool(INTERFACE_SECTION, 'DarkTheme', FDarkTheme);
+    SaveMHLThemePalettes(iniFile);
     iniFile.WriteBool(INTERFACE_SECTION, 'WindowsDarkThemeOfferDismissed', FWindowsDarkThemeOfferDismissed);
 
     SaveSplitters(iniFile);

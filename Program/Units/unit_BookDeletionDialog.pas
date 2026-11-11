@@ -2,7 +2,7 @@
 
 interface
 
-uses System.Classes, Vcl.Forms, Vcl.StdCtrls, Vcl.ComCtrls, unit_BookDeletionOperation,
+uses System.Classes, Vcl.Controls, Vcl.Forms, Vcl.StdCtrls, Vcl.ComCtrls, unit_BookDeletionOperation,
   unit_Globals, unit_BookDeletionBinding, unit_BookDeletionSelection;
 
 type
@@ -10,15 +10,28 @@ type
 
   TBookDeletionProgress = class(TForm)
   private
-    FStage, FArchive, FDetail: TLabel;
+    FStage, FDetail, FSpace: TLabel;
+    FArchive, FVolumeText: TLabel;
+    FVolumes: TScrollBox;
     FProgress: TProgressBar;
-    FStop, FConfirm, FConfirmAll: TButton;
+    FStop, FConfirm, FConfirmAll, FSkipDetails, FPin, FCopyPath: TButton;
+    FPinned: Boolean;
+    FSkipReport, FSpaceReport, FSpaceSummary: string;
     FOnConfirm: TArchiveDeleteConfirmEvent;
     FWriteStarted: UInt64;
     FWriteStartBytes: Int64;
+    FLayoutReady, FScalingLayout: Boolean;
+    procedure ArrangeControls(PPI: Integer);
     procedure ConfirmClick(Sender: TObject);
+    procedure TogglePin(Sender: TObject);
+    procedure ShowSkipDetails(Sender: TObject);
+    procedure CopyArchivePath(Sender: TObject);
     procedure HideWhenClosed(Sender: TObject; var Action: TCloseAction);
+  protected
+    procedure CreateParams(var Params: TCreateParams); override;
+    procedure Resize; override;
   public
+    procedure ScaleForPPI(NewPPI: Integer); override;
     constructor CreateProgress(AOwner: TForm; Stop: TNotifyEvent; Confirm: TArchiveDeleteConfirmEvent);
     procedure UpdateProgress(const State: TBookDeletionOperationStatus);
   end;
@@ -28,19 +41,128 @@ function ConfirmBookDeletion(const CollectionName: string; BookCount, ArchiveCou
   LinkedCount: Integer = 0): Boolean;
 
 function ConfirmBookDeletionBatch(var Items: TArray<TBookDeletionBatchItem>): Boolean;
+procedure ShowBookDeletionReport(Owner:TForm; const Summary, Details:string);
+function BookDeletionSpaceSummary(const State:TBookDeletionOperationStatus):string;
+function BookDeletionSpaceDetails(const State:TBookDeletionOperationStatus):string;
 function PrepareSelectorBookDeletion(Owner:TForm; const Info:TCollectionInfo; Mode:TBookIteratorMode;
   const Selectors:TArray<TBookDeletionSelector>; RemoveRecords:Boolean; out Binding:TBookDeletionBinding):Boolean;
 
 implementation
 
-uses Winapi.Windows, System.SysUtils, System.Math, Vcl.Controls, Vcl.ExtCtrls, unit_MHLTheme,
-  frm_ImportProgressForm, unit_BookEstimateReport, unit_ZipMemberDeletion, unit_Errors;
+uses Winapi.Windows, System.SysUtils, System.Math, Vcl.ExtCtrls, unit_MHLTheme,
+  frm_ImportProgressForm, unit_BookEstimateReport, unit_ZipMemberDeletion, unit_Errors, Vcl.Clipbrd, System.Types;
 
 type
+  TBookDeletionReport = class(TForm)
+  private
+    FText: TMemo;
+    FPin:TButton;
+    FDisplayedText: string;
+    procedure TogglePin(Sender:TObject);
+    procedure CloseClick(Sender:TObject);
+    procedure SetReportText(const Text:string);
+  protected
+    procedure CreateParams(var Params:TCreateParams); override;
+  public
+    constructor CreateReport(AOwner:TForm; const AName:string='BookDeletionReport');
+  end;
+
   TSelectorDeletionProgress = class(TImportProgressForm)
     procedure CancelDirect(Sender:TObject);
     procedure StopOnClose(Sender:TObject; var CanClose:Boolean);
   end;
+
+constructor TBookDeletionReport.CreateReport(AOwner:TForm; const AName:string);
+var Footer:TPanel; Button:TButton;
+begin
+  inherited CreateNew(AOwner);
+  Name:=AName; Caption:='Результат удаления книг'; FormStyle:=fsStayOnTop;
+  Position:=poScreenCenter;
+  BorderStyle:=bsSizeable; BorderIcons:=[biSystemMenu,biMinimize];
+  Font.Name:='Segoe UI'; Font.Size:=9; ClientWidth:=620; ClientHeight:=360;
+  Constraints.MinWidth:=420; Constraints.MinHeight:=260;
+  Footer:=TPanel.Create(Self); Footer.Parent:=Self; Footer.Align:=alBottom;
+  Footer.Height:=50; Footer.BevelOuter:=bvNone;
+  Button:=TButton.Create(Self); Button.Parent:=Footer; Button.Caption:='Закрыть';
+  Button.SetBounds(484,10,120,30); Button.Anchors:=[akTop,akRight]; Button.OnClick:=CloseClick;
+  FPin:=TButton.Create(Self); FPin.Parent:=Footer; FPin.Name:='PinBookDeletionReport';
+  FPin.SetBounds(12,10,150,30); FPin.Caption:='Открепить'; FPin.OnClick:=TogglePin;
+  FText:=TMemo.Create(Self); FText.Name:='BookDeletionReportText'; FText.Parent:=Self;
+  FText.Align:=alClient; FText.ReadOnly:=True; FText.ScrollBars:=ssVertical;
+  ApplyMHLControlTheme(Self);
+end;
+
+function SpaceLine(Bytes:Int64):string;
+begin
+  if Bytes>=0 then Result:='Освобождено: ≈ '+BookEstimateSizeText(Bytes)
+  else Result:='Занято дополнительно: ≈ '+BookEstimateSizeText(Abs(Bytes));
+end;
+
+function BookDeletionSpaceSummary(const State:TBookDeletionOperationStatus):string;
+var Bytes:Int64; Missing:Integer;
+begin
+  Bytes:=0; Missing:=0;
+  for var Volume in State.SpaceByVolume do
+  begin Inc(Bytes,Volume.ReleasedBytes); Inc(Missing,Volume.UnmeasuredFiles); end;
+  Result:=SpaceLine(Bytes);
+  if Missing>0 then Result:=Result+' · не всё учтено';
+end;
+
+function BookDeletionSpaceDetails(const State:TBookDeletionOperationStatus):string;
+var Lines:TStringList;
+begin
+  Lines:=TStringList.Create;
+  try
+    for var Volume in State.SpaceByVolume do
+    begin
+      var Name:=ExcludeTrailingPathDelimiter(Volume.Volume);
+      if Name='' then Name:='Диск не определён';
+      Lines.Add(Name+' — '+SpaceLine(Volume.ReleasedBytes));
+      if Volume.UnmeasuredFiles>0 then
+        Lines.Add(Format('  Не удалось измерить файлов: %d.',[Volume.UnmeasuredFiles]));
+    end;
+    Result:=Trim(Lines.Text);
+    if Result<>'' then Result:=Result+sLineBreak+sLineBreak+
+      'Итог этого удаления: уменьшение файлов книг, архивов, обложек и иллюстраций. '+
+      'Суммы обновляются после обработки каждого архива.';
+  finally Lines.Free; end;
+end;
+
+procedure TBookDeletionReport.CreateParams(var Params:TCreateParams);
+begin
+  inherited;
+  Params.WndParent:=0;
+  Params.ExStyle:=(Params.ExStyle or WS_EX_APPWINDOW) and not WS_EX_TOOLWINDOW;
+end;
+
+procedure TBookDeletionReport.TogglePin(Sender:TObject);
+begin
+  if FormStyle=fsStayOnTop then begin FormStyle:=fsNormal; FPin.Caption:='Поверх окон'; end
+  else begin FormStyle:=fsStayOnTop; FPin.Caption:='Открепить'; end;
+end;
+
+procedure TBookDeletionReport.CloseClick(Sender:TObject);
+begin
+  Close;
+end;
+
+procedure TBookDeletionReport.SetReportText(const Text:string);
+begin
+  if FDisplayedText=Text then Exit;
+  FDisplayedText:=Text; FText.Text:=Text; FText.SelStart:=0;
+end;
+
+procedure ShowBookDeletionReport(Owner:TForm; const Summary, Details:string);
+var Report:TBookDeletionReport;
+begin
+  Report:=Owner.FindComponent('BookDeletionReport') as TBookDeletionReport;
+  if not Assigned(Report) then Report:=TBookDeletionReport.CreateReport(Owner);
+  if Details='' then Report.SetReportText(Summary)
+  else Report.SetReportText(Summary+sLineBreak+sLineBreak+Details);
+  if Report.WindowState=wsMinimized then Report.WindowState:=wsNormal;
+  Report.FormStyle:=fsStayOnTop; Report.FPin.Caption:='Открепить';
+  Report.Show; Report.BringToFront;
+end;
 
 procedure TSelectorDeletionProgress.CancelDirect(Sender:TObject);
 begin WorkerThread.Cancel; btnCancel.Enabled:=False; end;
@@ -83,35 +205,133 @@ constructor TBookDeletionProgress.CreateProgress(AOwner:TForm; Stop:TNotifyEvent
 begin
   inherited CreateNew(AOwner);
   Name:='BookDeletionProgress'; Caption:='Удаление книг';
-  PopupMode:=pmExplicit; PopupParent:=AOwner; Position:=poOwnerFormCenter;
-  BorderStyle:=bsSizeable; BorderIcons:=[biSystemMenu];
-  Font.Name:='Segoe UI'; Font.Size:=9; ClientWidth:=560; ClientHeight:=222;
-  Constraints.MinWidth:=510; Constraints.MinHeight:=260;
-  FStage:=Line('Подготовка удаления…',14,25);
-  FArchive:=Line('',45,34);
+  Position:=poOwnerFormCenter;
+  BorderStyle:=bsSizeable; BorderIcons:=[biSystemMenu,biMinimize];
+  Font.Name:='Segoe UI'; Font.Size:=9; ClientWidth:=560; ClientHeight:=280;
+  Constraints.MinWidth:=510; Constraints.MinHeight:=318;
+  FStage:=Line('Подготовка удаления…',14,29);
+  FStage.Width:=396;
+  FPin:=TButton.Create(Self); FPin.Parent:=Self; FPin.Name:='PinBookDeletionProgress';
+  FPin.Caption:='Поверх окон'; FPin.Hint:='Закрепить окно поверх всех окон'; FPin.ShowHint:=True;
+  FPin.Anchors:=[akTop,akRight]; FPin.SetBounds(424,10,120,28); FPin.OnClick:=TogglePin;
+  FArchive:=Line('',49,23); FArchive.Name:='BookDeletionCurrentArchive';
+  FArchive.WordWrap:=False; FArchive.EllipsisPosition:=epPathEllipsis; FArchive.ShowHint:=True;
+  FArchive.Visible:=False;
+  FCopyPath:=TButton.Create(Self); FCopyPath.Parent:=Self; FCopyPath.Name:='BookDeletionCopyPath';
+  FCopyPath.Caption:='Копировать'; FCopyPath.OnClick:=CopyArchivePath; FCopyPath.Visible:=False;
+  FCopyPath.Hint:='Скопировать полный путь архива'; FCopyPath.ShowHint:=True;
   FProgress:=TProgressBar.Create(Self); FProgress.Parent:=Self;
   FProgress.Name:='BookDeletionProgressBar'; FProgress.Max:=1000;
   FProgress.Anchors:=[akLeft,akTop,akRight]; FProgress.SetBounds(16,86,528,15);
-  FDetail:=Line('Можно продолжать работать с другими книгами.',110,65);
+  FDetail:=Line('Можно продолжать работать с другими книгами.',110,60);
   FDetail.Name:='BookDeletionDetails';
+  FSpace:=Line('Освобождено: 0 Б',174,18);
+  FSpace.Name:='BookDeletionReleasedSpace';
+  FVolumes:=TScrollBox.Create(Self); FVolumes.Parent:=Self; FVolumes.Name:='BookDeletionVolumes';
+  FVolumes.BorderStyle:=bsNone; FVolumes.HorzScrollBar.Visible:=False;
+  FVolumes.VertScrollBar.Tracking:=True; FVolumes.Visible:=False;
+  FVolumeText:=TLabel.Create(Self); FVolumeText.Parent:=FVolumes; FVolumeText.Name:='BookDeletionVolumeTotals';
+  FVolumeText.AutoSize:=False; FVolumeText.WordWrap:=True; FVolumeText.ShowAccelChar:=False;
+  FVolumeText.ShowHint:=True;
   FConfirm:=TButton.Create(Self); FConfirm.Parent:=Self; FConfirm.Name:='ConfirmArchiveDeletion';
   FConfirm.Caption:='Удалить из архива'; FConfirm.Anchors:=[akRight,akBottom];
-  FConfirm.SetBounds(254,178,148,30); FConfirm.OnClick:=ConfirmClick; FConfirm.Visible:=False;
+  FConfirm.SetBounds(254,198,148,30); FConfirm.OnClick:=ConfirmClick; FConfirm.Visible:=False;
   FConfirmAll:=TButton.Create(Self); FConfirmAll.Parent:=Self; FConfirmAll.Name:='ConfirmAllArchiveDeletions';
   FConfirmAll.Caption:='Для всех архивов'; FConfirmAll.Anchors:=[akRight,akBottom];
   FConfirmAll.Hint:='Подтвердить удаление во всех оставшихся архивах этой операции'; FConfirmAll.ShowHint:=True;
-  FConfirmAll.SetBounds(86,178,156,30); FConfirmAll.OnClick:=ConfirmClick; FConfirmAll.Visible:=False;
+  FConfirmAll.SetBounds(86,198,156,30); FConfirmAll.OnClick:=ConfirmClick; FConfirmAll.Visible:=False;
   FOnConfirm:=Confirm;
   FStop:=TButton.Create(Self); FStop.Parent:=Self; FStop.Name:='StopBookDeletion';
   FStop.Caption:='Остановить'; FStop.Anchors:=[akRight,akBottom];
-  FStop.SetBounds(414,178,130,30); FStop.OnClick:=Stop;
+  FStop.SetBounds(414,198,130,30); FStop.OnClick:=Stop;
+  FSkipDetails:=TButton.Create(Self); FSkipDetails.Parent:=Self; FSkipDetails.Name:='BookDeletionSkipDetails';
+  FSkipDetails.Caption:='Почему оставлены…'; FSkipDetails.Anchors:=[akLeft,akBottom];
+  FSkipDetails.SetBounds(16,198,180,30); FSkipDetails.OnClick:=ShowSkipDetails; FSkipDetails.Visible:=False;
   OnClose:=HideWhenClosed;
   ApplyMHLControlTheme(Self);
+  FLayoutReady:=True;
+  ArrangeControls(PixelsPerInch);
+end;
+
+procedure TBookDeletionProgress.ArrangeControls(PPI:Integer);
+  function Px(Value:Integer):Integer;
+  begin Result:=MulDiv(Value,PPI,96); end;
+var RightEdge, BottomY:Integer; Bounds:TRect;
+begin
+  if not FLayoutReady or FScalingLayout then Exit;
+  RightEdge:=ClientWidth-Px(16); BottomY:=ClientHeight-Px(44);
+  FStage.SetBounds(Px(16),Px(14),RightEdge-Px(148),Px(29));
+  FPin.SetBounds(RightEdge-Px(120),Px(10),Px(120),Px(28));
+  FArchive.SetBounds(Px(16),Px(49),RightEdge-Px(136),Px(23));
+  FCopyPath.SetBounds(RightEdge-Px(108),Px(45),Px(108),Px(27));
+  FProgress.SetBounds(Px(16),Px(86),RightEdge-Px(16),Px(15));
+  FDetail.SetBounds(Px(16),Px(110),RightEdge-Px(16),Px(60));
+  if FConfirm.Visible then FDetail.Height:=Px(84);
+  FSpace.SetBounds(Px(16),Px(174),RightEdge-Px(16),Px(18));
+  FVolumes.SetBounds(Px(16),Px(196),RightEdge-Px(16),Px(32));
+  FVolumeText.Width:=Max(Px(40),FVolumes.ClientWidth-Px(24));
+  Canvas.Font.Assign(FVolumeText.Font); Bounds:=Rect(0,0,FVolumeText.Width,0);
+  DrawText(Canvas.Handle,PChar(FVolumeText.Caption),Length(FVolumeText.Caption),Bounds,DT_CALCRECT or DT_WORDBREAK or DT_NOPREFIX);
+  FVolumeText.Height:=Max(Px(18),Bounds.Height);
+  FStop.SetBounds(RightEdge-Px(130),BottomY,Px(130),Px(30));
+  FConfirm.SetBounds(RightEdge-Px(290),BottomY,Px(148),Px(30));
+  FConfirmAll.SetBounds(RightEdge-Px(458),BottomY,Px(156),Px(30));
+  FSkipDetails.SetBounds(Px(16),BottomY,Px(180),Px(30));
+end;
+
+procedure TBookDeletionProgress.ScaleForPPI(NewPPI:Integer);
+begin
+  FScalingLayout:=True;
+  try inherited; finally FScalingLayout:=False; end;
+  ArrangeControls(PixelsPerInch);
+end;
+
+procedure TBookDeletionProgress.Resize;
+begin
+  inherited;
+  ArrangeControls(PixelsPerInch);
+end;
+
+procedure TBookDeletionProgress.CreateParams(var Params: TCreateParams);
+begin
+  inherited;
+  // Delphi still owns the component, but Windows treats it as its own window.
+  Params.WndParent:=0;
+  Params.ExStyle:=(Params.ExStyle or WS_EX_APPWINDOW) and not WS_EX_TOOLWINDOW;
+  if FPinned then Params.ExStyle:=Params.ExStyle or WS_EX_TOPMOST;
+end;
+
+procedure TBookDeletionProgress.TogglePin(Sender: TObject);
+var Layer: HWND;
+begin
+  if FPinned then Layer:=HWND_NOTOPMOST else Layer:=HWND_TOPMOST;
+  if not SetWindowPos(Handle,Layer,0,0,0,0,SWP_NOMOVE or SWP_NOSIZE or SWP_NOACTIVATE) then Exit;
+  FPinned:=not FPinned;
+  if FPinned then
+  begin
+    FPin.Caption:='Открепить';
+    FPin.Hint:='Вернуть обычный порядок окон';
+  end
+  else
+  begin
+    FPin.Caption:='Поверх окон';
+    FPin.Hint:='Закрепить окно поверх всех окон';
+  end;
 end;
 
 procedure TBookDeletionProgress.ConfirmClick(Sender: TObject);
 begin
   FOnConfirm(Sender=FConfirmAll);
+end;
+
+procedure TBookDeletionProgress.ShowSkipDetails(Sender: TObject);
+begin
+  if FSkipReport<>'' then ShowBookDeletionReport(TForm(Owner),'Оставленные копии',FSkipReport);
+end;
+
+procedure TBookDeletionProgress.CopyArchivePath(Sender:TObject);
+begin
+  if FArchive.Caption<>'' then Clipboard.AsText:=FArchive.Caption;
 end;
 
 procedure TBookDeletionProgress.HideWhenClosed(Sender:TObject; var Action:TCloseAction);
@@ -121,29 +341,57 @@ begin
 end;
 
 procedure TBookDeletionProgress.UpdateProgress(const State:TBookDeletionOperationStatus);
-var Detail: string;
+var Detail,Stage,Volumes,VolumeName,VolumeSize: string;
 begin
-  if State.Stage<>'' then FStage.Caption:=State.Stage;
-  FArchive.Caption:=ExtractFileName(State.Archive);
-  if (State.ArchiveIndex>0) and (State.ArchiveCount>0) then
-    FArchive.Caption:=Format('Архив %d из %d · %s',[State.ArchiveIndex,State.ArchiveCount,FArchive.Caption]);
+  Stage:=State.Stage;
+  if Stage='Проверка других записей в этих архивах' then Stage:='Проверяем оставшиеся книги';
+  if Stage='Проверка сохраненных копий дублей' then Stage:='Проверяем сохраняемые копии';
+  if (State.DuplicateBatch=0) and (State.ArchiveIndex>0) and (State.ArchiveCount>0) then
+    Stage:=Format('%s · архив %d из %d',[Stage,State.ArchiveIndex,State.ArchiveCount]);
   if State.CollectionCount>1 then
-    FArchive.Caption:=Format('Коллекция %d из %d · %s',[State.CollectionIndex,
-      State.CollectionCount,State.CollectionName])+sLineBreak+FArchive.Caption;
+    Stage:=Format('%s · коллекция %d из %d',[Stage,State.CollectionIndex,State.CollectionCount]);
+  if Stage<>'' then FStage.Caption:=Stage;
+  if FArchive.Caption<>State.Archive then FArchive.Caption:=State.Archive;
+  FArchive.Visible:=State.Archive<>''; FCopyPath.Visible:=FArchive.Visible;
+  FArchive.Hint:=State.Archive;
+  if State.CollectionName<>'' then FArchive.Hint:=State.CollectionName+sLineBreak+FArchive.Hint;
+  FSpaceSummary:=BookDeletionSpaceSummary(State); FSpace.Caption:=FSpaceSummary;
+  FSpaceReport:=BookDeletionSpaceDetails(State);
+  FSpace.Hint:=FSpaceReport; FSpace.ShowHint:=True;
+  Volumes:='';
+  for var Volume in State.SpaceByVolume do
+  begin
+    VolumeName:=ExcludeTrailingPathDelimiter(Volume.Volume);
+    if VolumeName='' then VolumeName:='Неизвестный диск';
+    VolumeSize:='≈ '+BookEstimateSizeText(Abs(Volume.ReleasedBytes));
+    if Volume.ReleasedBytes<0 then VolumeSize:='занято '+VolumeSize;
+    if Volume.UnmeasuredFiles>0 then VolumeSize:=VolumeSize+' (не всё учтено)';
+    if Volumes<>'' then Volumes:=Volumes+'   ·   ';
+    Volumes:=Volumes+VolumeName+' '+VolumeSize;
+  end;
+  if FVolumeText.Caption<>Volumes then FVolumeText.Caption:=Volumes;
+  FVolumeText.Hint:=FSpaceReport;
   FConfirm.Visible:=State.AwaitingArchiveConfirmation and not State.Stopping;
-  FConfirmAll.Visible:=FConfirm.Visible and ((State.ArchiveIndex<State.ArchiveCount) or
-    (State.CollectionIndex<State.CollectionCount));
+  FConfirmAll.Visible:=FConfirm.Visible and ((State.DuplicateBatch>0) or
+    (State.ArchiveIndex<State.ArchiveCount) or (State.CollectionIndex<State.CollectionCount));
+  FSpace.Visible:=not FConfirm.Visible; FVolumes.Visible:=FSpace.Visible and (Volumes<>'');
+  ArrangeControls(PixelsPerInch);
   FStop.Enabled:=not State.Stopping;
+  FSkipDetails.Visible:=(State.SkippedDuplicates>0) and not FConfirm.Visible;
+  if FSkipDetails.Visible then FSkipReport:=State.DuplicateSkipReport else FSkipReport:='';
   if FConfirm.Visible then
   begin
     FWriteStarted:=0;
     FStage.Caption:='Подтвердите удаление из общего архива';
     FProgress.Style:=pbstNormal;
     FProgress.Position:=0;
-    Detail:='Перемещение данных в архиве книг: '+BookEstimateSizeText(State.MoveBytes)+sLineBreak+
+    Detail:='Нужно обработать в архиве: '+BookEstimateSizeText(State.MoveBytes)+sLineBreak+
       'Оценка места для журнала: '+BookEstimateSizeText(State.JournalBytes)+'.';
     if State.CompanionCount>0 then
       Detail:=Detail+sLineBreak+Format('Отдельно будут обработаны архивы изображений: %d.',[State.CompanionCount]);
+    if State.SelectedDuplicates>0 then
+      Detail:=Detail+sLineBreak+Format('Всего удалено копий: %d · оставлено: %d.',
+        [State.CompletedBooks+State.CompletedCopies,State.SkippedDuplicates]);
     FDetail.Caption:=Detail;
     Exit;
   end;
@@ -165,15 +413,25 @@ begin
         Detail:='Проверяем выбранные книги. Можно продолжать работу с каталогом.';
     end
     else if State.SelectedDuplicates>0 then
-      Detail:=Format('Удалено копий: %d из %d. Можно продолжать работу с каталогом.',
+      Detail:=Format('Удалено копий: %d из %d.',
         [State.CompletedBooks+State.CompletedCopies,State.SelectedDuplicates])
     else if State.CompletedCopies>0 then
-      Detail:=Format('Обработано дополнительных копий: %d. Можно продолжать работать с другими книгами.',[State.CompletedCopies])
-    else Detail:=Format('Готово книг: %d. Можно продолжать работать с другими книгами.',[State.CompletedBooks]);
+      Detail:=Format('Удалено копий: %d.',[State.CompletedCopies])
+    else Detail:=Format('Обработано книг: %d.',[State.CompletedBooks]);
+    if (State.Stage='Обновление коллекции') and (State.Total>0) then
+      Detail:=Detail+sLineBreak+Format('Обновлено в каталоге: %d из %d.',[State.Done,State.Total]);
     if State.SkippedDuplicates>0 then
-      Detail:=Detail+sLineBreak+Format('Пропущено копий: %d.',[State.SkippedDuplicates]);
-    if State.DuplicateBatch>0 then
-      Detail:=Detail+sLineBreak+Format('Партия %d.',[State.DuplicateBatch]);
+      Detail:=Detail+sLineBreak+Format('Оставлено из отмеченных копий: %d.',[State.SkippedDuplicates]);
+    if (State.DuplicateBatch>0) and (State.Stage='Проверка файлов дублей') and (State.Total>0) then
+      Detail:=Detail+sLineBreak+Format('Проверено файлов: %d из %d.',[State.Done,State.Total]);
+    if (State.Stage=ArchiveDeletionRepackStage) and (State.Done>0) then
+    begin
+      Detail:=Detail+sLineBreak+'Подготовлено '+BookEstimateSizeText(State.Done);
+      if State.Total>0 then Detail:=Detail+' из '+BookEstimateSizeText(State.Total);
+      Detail:=Detail+'.';
+    end
+    else if (State.Done>0) and (State.Total=0) then
+      Detail:=Detail+sLineBreak+Format('Проверено книг и копий: %d.',[State.Done]);
     if (State.Stage=ArchiveDeletionWriteStage) and (State.Done>0) then
     begin
       var NowTick:=GetTickCount64;
@@ -183,7 +441,7 @@ begin
         FWriteStartBytes:=State.Done;
       end
       else if (NowTick-FWriteStarted>=1000) and (State.Done>FWriteStartBytes) and (State.Done<State.Total) then
-        Detail:=Detail+sLineBreak+Format('Перемещение данных займёт ещё около %d с.',
+        Detail:=Detail+sLineBreak+Format('Уменьшаем архив после удаления — осталось около %d с.',
           [Max(Int64(1),Round((State.Total-State.Done)/(State.Done-FWriteStartBytes)*
             ((NowTick-FWriteStarted)/1000.0)))]);
     end;

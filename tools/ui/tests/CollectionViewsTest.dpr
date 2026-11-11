@@ -9,11 +9,11 @@
 uses
   unit_Utils, frm_search, frm_MCPSetup, Xml.XMLDoc, Xml.XMLIntf,
   unit_CatalogComponents, unit_MetabibReader, unit_FormatComponents, unit_ComponentRemoval, unit_ComponentUsage, frm_ComponentMaintenance,
-  unit_StartupCatalog, unit_FLibraryCompat, NativeRegressionGuard, System.SysUtils, System.StrUtils, System.Classes, System.Types, System.IOUtils, System.IniFiles, System.JSON, System.Net.HttpClient, System.Net.URLClient, System.Generics.Collections, System.Variants, Winapi.Windows, Winapi.Messages, Winapi.CommCtrl, Winapi.RichEdit, Winapi.ActiveX, Winapi.ShlObj,
+  unit_StartupCatalog, unit_FLibraryCompat, unit_BookViewSessions, NativeRegressionGuard, System.SysUtils, System.StrUtils, System.Classes, System.Types, System.IOUtils, System.IniFiles, System.JSON, System.Net.HttpClient, System.Net.URLClient, System.Generics.Collections, System.Variants, Winapi.Windows, Winapi.Messages, Winapi.CommCtrl, Winapi.RichEdit, Winapi.ActiveX, Winapi.ShlObj,
   Vcl.Forms, Vcl.Dialogs, Vcl.Themes, Vcl.Styles, Vcl.Clipbrd, Vcl.CheckLst, Vcl.Graphics, Vcl.Menus, Vcl.ComCtrls, Vcl.ExtCtrls, Vcl.Controls, Vcl.StdCtrls, Vcl.ActnList,
-  VirtualTrees, VirtualTrees.Types, VirtualTrees.BaseTree, BookTreeView, BookInfoPanel, unit_MHLTheme, unit_BookGallery, unit_UpdateNotes, unit_UpdateTextCache,
+  VirtualTrees, VirtualTrees.Types, VirtualTrees.BaseTree, BookTreeView, BookInfoPanel, unit_MHLTheme, unit_MHLThemePalette, frm_InterfaceColors, unit_BookGallery, unit_UpdateNotes, unit_UpdateTextCache,
   System.SyncObjs, System.Zip, System.Hash, System.NetEncoding, System.Diagnostics, System.Math, System.DateUtils, Vcl.Imaging.pngimage,
-  unit_BookDeletionOperation,
+  unit_BookDeletionReferences, unit_BookDeletionOperation, unit_BookDeletionDialog, unit_BookDeletionSpace,
   unit_MHLArchiveBusy, unit_BookDeletionPreparation, unit_BookDeletionInventory, unit_BookDeletionMembers, unit_BookDeletionBinding, unit_SevenZipDeletionPlan, unit_ArchiveDeletionQueue, unit_ZipMemberDeletion, unit_ImageBounds, unit_BookCache, unit_MHLOperationStatus, unit_Globals, unit_Consts, unit_Interfaces, unit_Localization, unit_TreeUtils, unit_Settings, unit_ReaderCache, unit_BookMetadataCache, unit_FB2Utils, unit_MHLGenerics, FictionBook_21, unit_BookColumnFilters, unit_BookInfoPreview, unit_CollectionMerge, unit_BookDuplicates, frm_BookDuplicates, frm_CollectionBackup, unit_CollectionBackup, unit_SeriesAliases, unit_CatalogSources, frm_CatalogSources, unit_CollectionSpace, unit_Database_SQLite, SQLiteWrap, SQLite3, SQLiteProfile,
   unit_MHLHttpClient, unit_MHLExternalTools, unit_MHLArchiveHelpers, unit_WebPCompat, unit_ExportToDeviceThread, unit_AuthorInfo, unit_Helpers,
   unit_Scripts, frm_edit_script, Vcl.ToolWin, unit_ImportOldUserData,
@@ -45,6 +45,7 @@ uses
   unit_AuthorFavoriteRefresh in '..\..\..\Program\Units\unit_AuthorFavoriteRefresh.pas',
   frm_AuthorInformation, frm_AuthorFavorites, frm_book_info, frm_statistic, unit_ReviewParser, frm_BuiltinReader,
   dm_user, dm_Images, frm_splash, frm_main, frm_genre_tree, unit_PublisherSeriesView,
+  unit_ReaderAssociations, frm_ReaderAssociations, System.Win.Registry,
   frm_ProgramUpdate, frm_settings, frm_ReaderCacheSettings, frm_ReaderHost, unit_ProgramUpdates, unit_ComponentUpdates, unit_ProgramUpdateInstaller, unit_UpdateAuthenticity, unit_IBKRuntime,
   frm_ImportProgressFormEx, frm_UpdateFromFile, unit_IndexPublisherSeriesThread, unit_ImportInpxThread, frm_NewCollectionWizard,
   frame_NCWCollectionNameAndLocation, frame_NCWCollectionFileTypes,
@@ -418,6 +419,15 @@ begin
   finally Cycle.Free; end;
 end;
 
+procedure ScaleAuditForm(Form: TCustomForm; DPI: Integer);
+begin
+  Form.Scaled:=True;
+  Form.ScaleForPPI(DPI);
+  // Keep CurrentPPI on the explicit VCL scale instead of querying the host monitor.
+  Form.Scaled:=False;
+  Require(Form.CurrentPPI=DPI,'Dialog still reports host DPI: '+IntToStr(Form.CurrentPPI));
+end;
+
 procedure TestProgramUpdateUI;
 const NewTag = '99.1.2';
 var Popup: TfrmProgramUpdate; Configuration: TfrmSettings; ReleaseInfo, Parsed: TProgramRelease;
@@ -464,7 +474,7 @@ var Popup: TfrmProgramUpdate; Configuration: TfrmSettings; ReleaseInfo, Parsed: 
   begin
     SavedDark:=MHLThemeDark;
     try
-      for DPI in [96,144,192] do
+      for DPI in TArray<Integer>.Create(96,144,192,240,288) do
       begin
         // Each native harness subcase keeps the full workflow, cached notes
         // and its original functional guard, then checks one requested DPI.
@@ -473,7 +483,7 @@ var Popup: TfrmProgramUpdate; Configuration: TfrmSettings; ReleaseInfo, Parsed: 
         Form:=CreateTestProgramUpdate;
         try
           Form.Show; Application.ProcessMessages;
-          Form.ScaleForPPI(DPI); Form.ClientWidth:=MulDiv(760,DPI,96); Form.ClientHeight:=MulDiv(560,DPI,96);
+          ScaleAuditForm(Form,DPI); Form.ClientWidth:=MulDiv(760,DPI,96); Form.ClientHeight:=MulDiv(560,DPI,96);
           Tabs:=TTabControl(Form.FindComponent('UpdateTabs'));
           HistorySelector:=TComboBox(Form.FindComponent('UpdateHistoryComponent'));
           Require(Assigned(Tabs) and Assigned(HistorySelector),'Update/changes views missing');
@@ -497,7 +507,7 @@ var Popup: TfrmProgramUpdate; Configuration: TfrmSettings; ReleaseInfo, Parsed: 
             (ColorToRGB(View.Font.Color)=ColorToRGB(MHLThemeText)),'Dark component table has unreadable colors');
           SetMHLTheme(False); Application.ProcessMessages;
           Require(ColorToRGB(View.Color)=ColorToRGB(clWindow),'Light component table was not restored');
-          Form.ScaleForPPI(DPI); Form.ClientWidth:=MulDiv(760,DPI,96); Form.ClientHeight:=MulDiv(560,DPI,96);
+          ScaleAuditForm(Form,DPI); Form.ClientWidth:=MulDiv(760,DPI,96); Form.ClientHeight:=MulDiv(560,DPI,96);
           var PreviewHeight:=Body.Height;
           View.OnDblClick(View); Application.ProcessMessages;
           Writeln('TRACE changes DPI=',DPI,' PPI=',Form.CurrentPPI,' preview=',PreviewHeight,
@@ -529,7 +539,7 @@ var Popup: TfrmProgramUpdate; Configuration: TfrmSettings; ReleaseInfo, Parsed: 
         finally Form.Free; end;
       end;
     finally SetMHLTheme(SavedDark); end;
-    Writeln('PASS component table and dedicated changes tab remain separate at 96 144 192 DPI, minimum size and both themes');
+    Writeln('PASS component table and dedicated changes tab remain separate at 96/144/192/240/288 DPI, minimum size and both themes');
   end;
 
   procedure CheckCycles;
@@ -632,7 +642,7 @@ var Popup: TfrmProgramUpdate; Configuration: TfrmSettings; ReleaseInfo, Parsed: 
   end;
 begin
   if ParamStr(2).StartsWith('layout-') then
-    Require(MatchText(ParamStr(2),['layout-96','layout-144','layout-192']),
+    Require(MatchText(ParamStr(2),['layout-96','layout-144','layout-192','layout-240','layout-288']),
       'Unknown update layout audit subcase');
   TestUpdateDefaults;
   SavedOptional:=Settings.OptionalComponentUpdates;
@@ -1445,6 +1455,9 @@ begin
   finally Paths.Free; Configuration.Free; end;
 end;
 
+procedure TestMainCatalogueRecent(const Collection: IBookCollection; const Selected: TBookRecord); forward;
+procedure TestMainCatalogueNextVolume(const Collection: IBookCollection; Selected: PBookRecord); forward;
+
 procedure TestBuiltinReaderIntegration(const Collection: IBookCollection);
 var Book: PBookRecord; Updated: TBookRecord; Source, BeforeHash, Body: string;
   Action: TAction; I: Integer;
@@ -1469,6 +1482,19 @@ begin
   TFile.WriteAllText(Source,'<FictionBook xmlns:l="http://www.w3.org/1999/xlink"><body><section><image l:href="#picture"/>'+Body+
     '</section></body><binary id="picture" content-type="image/png">'+Picture+'</binary></FictionBook>',TEncoding.UTF8);
   BeforeHash:=THashSHA2.GetHashStringFromFile(Source);
+  if ParamStr(1)='reader-catalogue-recent' then
+  begin
+    TestMainCatalogueRecent(Collection,Book^);
+    Require(THashSHA2.GetHashStringFromFile(Source)=BeforeHash,
+      'Opening recent books rewrote the source of the first book');
+    Exit;
+  end;
+  if ParamStr(1)='reader-catalogue-volume' then
+  begin
+    TestMainCatalogueNextVolume(Collection,Book);
+    Require(THashSHA2.GetHashStringFromFile(Source)=BeforeHash,'Following a series changed the first source book');
+    Exit;
+  end;
   Settings.ConvertWebPToPNG:=True; Settings.OverwriteFB2Info:=True;
   Action:=frmMain.FindComponent('acReadBuiltin') as TAction;
   Require(Assigned(Action),'Main built-in reader action absent');
@@ -1933,9 +1959,9 @@ begin
             N:=Values.GetNext(N);
           end;
         end;
-        for var PPI in TArray<Integer>.Create(96,120,144,192) do
+        for var PPI in TArray<Integer>.Create(96,120,144,192,240,288) do
         begin
-          Popup.ScaleForPPI(PPI);
+          ScaleAuditForm(Popup,PPI);
           Popup.ClientWidth:=MulDiv(420,PPI,96); Popup.ClientHeight:=MulDiv(440,PPI,96);
           for var C in Popup do if C is TButton then
           begin
@@ -2053,7 +2079,7 @@ begin
   Require(EditBookColumnFilter(frmMain.tvBooksA,COL_LANG),'Empty selection did not apply');
   Require(Filters.Value(COL_LANG)='','No explicit choices should leave all values available');
   Filters.Apply;
-  Writeln('PASS no implicit value selections, explicit facets survive other filters, all popup buttons fit at 96/120/144/192 DPI and lists resize');
+  Writeln('PASS no implicit value selections, explicit facets survive other filters, all popup buttons fit at 96/120/144/192/240/288 DPI and lists resize');
   Writeln('PASS Unicode Cyrillic case mapping, explicit case mode and multi-value ratings');
   Writeln('PASS numeric size, number and rating filters compare raw values with inclusive ranges');
   Writeln('PASS compact size popup converts fractional MB and resets only its own column');
@@ -2308,7 +2334,7 @@ end;
 
 {$I ReviewHTTPTests.inc}
 
-procedure TestBookInformation;
+procedure TestBookInformation(ExternalBook: Boolean);
 var BookData: PBookRecord; OldLocal: Boolean; Details: TfrmBookDetails; Information: TAuthorInformation;
   Parser: TReviewParser; Reviews, Annotation: TStringList; Before: string;
   Started: UInt64; PhotoHash: string;
@@ -2345,7 +2371,7 @@ var BookData: PBookRecord; OldLocal: Boolean; Details: TfrmBookDetails; Informat
       Details.AuthorInformation.Configure(NewRoot, '', ['Толстой Лев Николаевич'], nil);
       Details.AuthorInformation.Activate;
       WaitForAuthor;
-      Require(Details.AuthorInformation.Text.Text.Contains('Русский писатель') and
+      Require((Pos('Русский писатель', Details.AuthorInformation.Text.Text) > 0) and
         Details.AuthorInformation.Photographs.Visible, 'New catalogue did not use the legacy author folder');
       Require(SameFileName(Settings.InitialDir[FolderKey], Folder), 'Legacy author folder did not become a profile default');
 
@@ -2363,7 +2389,7 @@ var BookData: PBookRecord; OldLocal: Boolean; Details: TfrmBookDetails; Informat
       Details.AuthorInformation.Configure(NewRoot, '', ['Толстой Лев Николаевич'], nil);
       Details.AuthorInformation.Activate;
       WaitForAuthor;
-      Require(Details.AuthorInformation.Text.Text.Contains('Русский писатель') and
+      Require((Pos('Русский писатель', Details.AuthorInformation.Text.Text) > 0) and
         not Details.AuthorInformation.Photographs.Visible, 'Shared default overrode the catalogue author folder');
 
       Details.AuthorInformation.Configure(NewRoot, Folder, ['Толстой Лев Николаевич'], nil);
@@ -2400,6 +2426,9 @@ begin
       (frmMain.miBookDetails.Action=frmMain.acBookDetails) and (frmMain.pmiBookInfo.Action=frmMain.acBookDetails) and
       (frmMain.N51.Parent=frmMain.N36) and (frmMain.N51.Action=frmMain.acEditBook) and
       (frmMain.miBookEdit.Action=frmMain.acEditBook) and (frmMain.tbtnEditBook.Action=frmMain.acEditBook) and
+      (frmMain.miEditBookMetadata.Parent=frmMain.N36) and
+      (frmMain.miEditBookMetadata.Action=frmMain.acEditBookMetadata) and
+      (frmMain.pmiEditBookMetadata.Action=frmMain.acEditBookMetadata) and
       (frmMain.acEditBook.Caption='Изменить описание') and (frmMain.acBookDetails.Caption='Информация о книге') and
       (frmMain.acEditBook.ShortCut=ShortCut(Ord('E'),[ssCtrl])) and
       (frmMain.acBookDetails.ShortCut=ShortCut(Ord('I'),[ssCtrl])),
@@ -2415,14 +2444,57 @@ begin
       Command.Click;
     end;
     Trace('book information routes checked; opening local description editor');
+    var OriginalAnnotation:=BookData^.Annotation;
+    for var Command in TArray<TMenuItem>.Create(frmMain.N51,frmMain.miBookEdit) do
+    begin
+      TThread.ForceQueue(nil,
+        procedure
+        var Popup: TfrmBookDetails;
+        begin
+          Require(Screen.ActiveForm is TfrmBookDetails,'Edit description opened the wrong window');
+          Popup:=TfrmBookDetails(Screen.ActiveForm);
+          Require((Popup.pcBookInfo.ActivePage=Popup.tsAnnotation) and
+            not Popup.mmoAnnotation.ReadOnly,'Edit description did not focus the writable description');
+          Popup.mmoAnnotation.Text:='Temporary description that must be discarded';
+          Popup.btnClose.Click;
+        end);
+      Command.Click;
+      Require(BookData^.Annotation=OriginalAnnotation,'Cancel saved the temporary description');
+    end;
+    TThread.ForceQueue(nil,
+      procedure
+      var Popup: TfrmBookDetails;
+      begin
+        Popup:=Screen.ActiveForm as TfrmBookDetails;
+        Popup.mmoAnnotation.Text:='Saved local description';
+        (Popup.FindComponent('btnSaveDescription') as TButton).Click;
+      end);
+    frmMain.N51.Click;
+    TThread.ForceQueue(nil,
+      procedure
+      var Popup: TfrmBookDetails;
+      begin
+        Popup:=Screen.ActiveForm as TfrmBookDetails;
+        Require(Trim(Popup.Annotation)='Saved local description','Description did not survive reopening');
+        Popup.mmoAnnotation.Text:=OriginalAnnotation;
+        (Popup.FindComponent('btnSaveDescription') as TButton).Click;
+      end);
+    frmMain.miBookEdit.Click;
+    if ExternalBook then
+    begin
+      frmMain.acEditBookMetadata.Update;
+      Require(not frmMain.acEditBookMetadata.Enabled, 'External metadata should not be editable');
+      Writeln('PASS external catalogue description is stored locally without editing site metadata');
+      Exit;
+    end;
     TThread.ForceQueue(nil,
       procedure
       begin
-        Require(Screen.ActiveForm.ClassNameIs('TfrmEditBookInfo'),'Edit description menu opened the wrong window');
+        Require(Screen.ActiveForm.ClassNameIs('TfrmEditBookInfo'),'Edit metadata opened the wrong window');
         Screen.ActiveForm.ModalResult:=mrCancel;
       end);
-    frmMain.N51.Click;
-    Writeln('PASS book menu and context open the shared card while Edit opens the description editor');
+    frmMain.miEditBookMetadata.Click;
+    Writeln('PASS book information, description and metadata routes open their own editors');
   finally
     if OldLocal then Include(BookData.BookProps, bpIsLocal);
   end;
@@ -2583,6 +2655,128 @@ begin
     Include(Book.BookProps, bpIsDeleted);
   Result := Collection.InsertBook(Book, False, False);
   Require(Result > 0, 'Fixture book was not inserted');
+end;
+
+procedure TestMainCatalogueRecent(const Collection: IBookCollection; const Selected: TBookRecord);
+var Target: TBookRecord; Ini: TMemIniFile; Body, Report, OldMode, OldReport, OldTarget, Namespace: string;
+  Deadline: UInt64;
+begin
+  var Key:=CreateBookKey(AddBook(Collection,'Недавняя книга','Другой автор','ru','Другая серия','prose_contemporary'),Collection.CollectionID);
+  Collection.GetBookRecord(Key,Target,False);
+  Body:='';
+  for var I:=1 to 180 do Body:=Body+'<p>SECOND RECENT BOOK '+IntToStr(I)+'</p>';
+  TFile.WriteAllText(Target.GetBookFileName,'<FictionBook><body><section>'+Body+
+    '</section></body></FictionBook>',TEncoding.UTF8);
+  Namespace:=VarToStr(Collection.GetProperty(PROP_SOURCE_LIBRARY));
+  Ini:=TMemIniFile.Create(ResolveReaderSettingsFile(Settings.DataDir),TEncoding.UTF8);
+  try
+    Ini.WriteInteger('Book.'+ReaderNoteIdentity(ReaderHistoryName(Target,Namespace)),'Position',1200);
+    SaveMemIniFileAtomically(Ini);
+  finally Ini.Free; end;
+  Ini:=TMemIniFile.Create(Settings.DataPath+'last-opened.ini',TEncoding.UTF8);
+  try
+    Ini.WriteString('Books',IntToStr(Key.DatabaseID)+':'+IntToStr(Key.BookID),
+      DateToISO8601(Now-1,False)+'|'+ReaderNoteIdentity(ReaderHistoryName(Target,'')));
+    Ini.WriteString('Books',IntToStr(Key.DatabaseID)+':'+IntToStr(Selected.BookKey.BookID),
+      DateToISO8601(Now,False)+'|'+ReaderNoteIdentity(ReaderHistoryName(Selected,'')));
+    Ini.WriteString('Books',IntToStr(Key.DatabaseID)+':999999999',
+      DateToISO8601(Now,False)+'|'+StringOfChar('a',40));
+    SaveMemIniFileAtomically(Ini);
+  finally Ini.Free; end;
+  Report:=Settings.AppPath+'reader-recent-route.ini';
+  OldMode:=GetEnvironmentVariable('HLRU_SESSION_TEST_MODE');
+  OldReport:=GetEnvironmentVariable('HLRU_READER_TEST_REPORT');
+  OldTarget:=GetEnvironmentVariable('HLRU_READER_TEST_RECENT');
+  SetEnvironmentVariable('HLRU_SESSION_TEST_MODE','render-recent');
+  SetEnvironmentVariable('HLRU_READER_TEST_REPORT',PChar(Report));
+  SetEnvironmentVariable('HLRU_READER_TEST_RECENT',PChar(IntToStr(Key.BookID)));
+  try
+    frmMain.acBookRead.Execute;
+    Deadline:=GetTickCount64+30000;
+    repeat Application.ProcessMessages; CheckSynchronize(5); Sleep(10);
+    until FileExists(Report) or (GetTickCount64>=Deadline);
+    Require(FileExists(Report),'Catalogue did not open the selected recent book');
+    Ini:=TMemIniFile.Create(Report,TEncoding.UTF8);
+    try
+      Require((Ini.ReadString('Reader','error','missing')='') and
+        (Ini.ReadInteger('Reader','position',-1)=1200) and
+        Ini.ReadString('Reader','caption','').Contains(Target.Title),
+        'Catalogue recent reopening failed: '+Ini.ReadString('Reader','error','missing'));
+    finally Ini.Free; end;
+    Writeln('PASS main catalogue reopens recent book from Reader menu at its saved position');
+  finally
+    SetEnvironmentVariable('HLRU_SESSION_TEST_MODE',PChar(OldMode));
+    SetEnvironmentVariable('HLRU_READER_TEST_REPORT',PChar(OldReport));
+    SetEnvironmentVariable('HLRU_READER_TEST_RECENT',PChar(OldTarget));
+  end;
+end;
+
+procedure TestMainCatalogueNextVolume(const Collection: IBookCollection; Selected: PBookRecord);
+const Cycle = 'Выбранная серия';
+var Key, Target: TBookKey; Next, Previous: TBookRecord; Ini: TMemIniFile;
+  Report, OldMode, OldReport, OldTarget, OriginalHash: string;
+  Deadline: UInt64; CycleID, AmbiguousID: Integer;
+  function AddVolume(const Title, Language, Series: string; Number: Integer; Deleted: Boolean = False): TBookKey;
+  begin
+    Result:=CreateBookKey(AddBook(Collection,Title,'Автор серии',Language,'Другая основная серия',
+      'prose_contemporary',Deleted),Collection.CollectionID);
+    Collection.AddBookSeries(Result.BookID,Series,Number);
+  end;
+begin
+  Key:=Selected.BookKey;
+  Collection.AddBookSeries(Key.BookID,Cycle,1);
+  Collection.AddBookSeries(Key.BookID,'Неоднозначная серия',1);
+  CycleID:=-1; AmbiguousID:=-1;
+  for var Link in Collection.GetBookSeries(Key) do
+  begin
+    if Link.SeriesTitle=Cycle then CycleID:=Link.SeriesID;
+    if Link.SeriesTitle='Неоднозначная серия' then AmbiguousID:=Link.SeriesID;
+  end;
+  Require((CycleID>0) and (AmbiguousID>0),'The selected series is missing');
+  AddVolume('Без номера','ru',Cycle,0);
+  AddVolume('Другой перевод','en',Cycle,2);
+  AddVolume('Удалённый том','ru',Cycle,2,True);
+  Target:=AddVolume('Следующий том','ru',Cycle,3);
+  AddVolume('Десятый том','ru',Cycle,10);
+  AddVolume('Издание А','ru','Неоднозначная серия',2);
+  AddVolume('Издание Б','ru','Неоднозначная серия',2);
+  Require(not Collection.FindNextSeriesBook(Key,AmbiguousID,Next),'An ambiguous volume was chosen automatically');
+  Require(Collection.FindNextSeriesBook(Key,CycleID,Next) and Next.BookKey.IsSameAs(Target) and
+    (Next.SeriesID=CycleID) and (Next.SeqNumber=3),
+    'Unnumbered, deleted or translated editions displaced the next volume');
+  TFile.WriteAllText(Next.GetBookFileName,
+    '<FictionBook><body><section><p>NEXT SERIES VOLUME</p></section></body></FictionBook>',TEncoding.UTF8);
+  OriginalHash:=THashSHA2.GetHashStringFromFile(Next.GetBookFileName);
+  Selected.SeriesID:=CycleID; Selected.Series:=Cycle; Selected.SeqNumber:=1;
+  Report:=Settings.AppPath+'reader-volume-route.ini';
+  OldMode:=GetEnvironmentVariable('HLRU_SESSION_TEST_MODE');
+  OldReport:=GetEnvironmentVariable('HLRU_READER_TEST_REPORT');
+  OldTarget:=GetEnvironmentVariable('HLRU_READER_TEST_VOLUME');
+  SetEnvironmentVariable('HLRU_SESSION_TEST_MODE','render-volume');
+  SetEnvironmentVariable('HLRU_READER_TEST_REPORT',PChar(Report));
+  SetEnvironmentVariable('HLRU_READER_TEST_VOLUME',PChar(IntToStr(Target.BookID)));
+  try
+    frmMain.acBookRead.Execute;
+    Deadline:=GetTickCount64+35000;
+    repeat Application.ProcessMessages; CheckSynchronize(5); Sleep(10);
+    until FileExists(Report) or (GetTickCount64>=Deadline);
+    Require(FileExists(Report),'The catalogue did not open the accepted next volume');
+    Ini:=TMemIniFile.Create(Report,TEncoding.UTF8);
+    try
+      Require((Ini.ReadString('Reader','error','missing')='') and
+        (Ini.ReadInteger('Reader','position',-1)=0) and
+        Ini.ReadString('Reader','caption','').Contains('Следующий том'),
+        'Opening the next volume failed: '+Ini.ReadString('Reader','error','missing'));
+    finally Ini.Free; end;
+    Collection.GetBookRecord(Key,Previous,False);
+    Require(Previous.Progress=100,'The catalogue lost reading progress on switching volumes');
+    Require(THashSHA2.GetHashStringFromFile(Next.GetBookFileName)=OriginalHash,'Following a series changed the next source book');
+    Writeln('PASS catalogue reader offers the next numbered volume in the selected series and saves progress');
+  finally
+    SetEnvironmentVariable('HLRU_SESSION_TEST_MODE',PChar(OldMode));
+    SetEnvironmentVariable('HLRU_READER_TEST_REPORT',PChar(OldReport));
+    SetEnvironmentVariable('HLRU_READER_TEST_VOLUME',PChar(OldTarget));
+  end;
 end;
 
 function SourceBookMapping(const Target: IBookCollection; const Source: TMergeSource;
@@ -3704,9 +3898,9 @@ end;
 procedure CheckSourceDialogLayout(Form: TCustomForm);
 var R: TRect; LabelText: string;
 begin
-  for var DPI in TArray<Integer>.Create(96,144,192) do
+  for var DPI in TArray<Integer>.Create(96,144,192,240,288) do
   begin
-    Form.ScaleForPPI(DPI);
+    ScaleAuditForm(Form,DPI);
     for var C in Form do
     begin
       if C is TLabel then
@@ -3727,7 +3921,8 @@ begin
       end;
     end;
   end;
-  Form.ScaleForPPI(96);
+  ScaleAuditForm(Form,96);
+  Form.Scaled:=True;
 end;
 
 {$I Feedback529SeriesTests.inc}
@@ -3910,7 +4105,7 @@ begin
         end;
       end;
     finally SetMHLTheme(OldTheme); Dialog.Hide; end;
-    Writeln('PASS source text reflows and wheel reaches the report in short windows at both themes and 96/144/192 DPI');
+    Writeln('PASS source text reflows and wheel reaches the report in short windows at both themes and 96/144/192/240/288 DPI');
     Require(not Assigned(Dialog.FindComponent('btnBookDuplicates')),
       'Source window still duplicates the collection menu command');
   finally Dialog.Free; end;
@@ -5899,6 +6094,10 @@ end;
 {$I GroupBookIdentityTests.inc}
 {$I OrdinaryBookExportIdentityTests.inc}
 {$I AtomicIniFileTests.inc}
+{$I BookDeletionSpaceTests.inc}
+{$I StatisticsThemeTests.inc}
+{$I CataloguePaletteTests.inc}
+{$I CatalogueSourceIndexTests.inc}
 {$I DownloadQueueSerializationTests.inc}
 {$I QueuePersistenceTests.inc}
 {$I SearchStartupLayoutTests.inc}
@@ -5943,6 +6142,7 @@ end;
 {$I SaveDependencyFeedbackTests.inc}
 {$I ReaderCacheSettingsTests.inc}
 {$I ReaderSessionTests.inc}
+{$I ReaderAssociationTests.inc}
 {$I ReaderHostSessionTests.inc}
 {$I BookDeletionSafetyTests.inc}
 {$I BookDeletionIdentityTests.inc}
@@ -6033,7 +6233,8 @@ begin
       Writeln('TRACE cache-clear symbol RVA ',IntToHex(NativeUInt(@unit_BookCache.ClearBookCache)-NativeUInt(HInstance),8));
     Application.Initialize;
     if (ParamStr(1) = 'publisher-startup') or (ParamStr(1) = 'cancel-interactive') or
-      ParamStr(1).StartsWith('startup-deferred') or (ParamStr(1) = 'view-session-reopen') then
+      ParamStr(1).StartsWith('startup-deferred') or (ParamStr(1) = 'view-session-reopen') or
+      (ParamStr(1) = 'book-deletion-lifecycle') then
       Application.MainFormOnTaskbar := True;
     ExceptionHandler := TRegressionExceptionHandler.Create;
     Application.OnException := ExceptionHandler.HandleException;
@@ -6269,10 +6470,17 @@ begin
       else if ParamStr(1) = 'sqlite-mapping' then TestSQLiteMapping
       else if ParamStr(1) = 'reader-open-choice' then
       begin TestEpubLineBreakRepair; TestReaderOpenChoice; TestExternalEpubPrompt(One); end
+      else if ParamStr(1) = 'diagnostics-view' then TestReadableDiagnostics
+      else if ParamStr(1) = 'reader-following-comic' then TestFollowingComic
       else if ParamStr(1) = 'reader-host-session' then
       begin TestReaderCloseDuringWork; TestReaderHostSession; TestStandaloneNotes; TestReaderPreparationClose; end
+      else if ParamStr(1) = 'book-deletion-space' then TestBookDeletionSpace
+      else if ParamStr(1) = 'statistics-theme' then TestStatisticsGroupTheme
+      else if ParamStr(1) = 'catalogue-palettes' then TestCataloguePalettes
+      else if ParamStr(1) = 'catalogue-source-index' then begin TestCatalogueSourceIndex(One); TestIndexedArchiveReferences; end
       else if ParamStr(1) = 'book-deletion' then TestBookDeletionSafety
       else if ParamStr(1) = 'book-deletion-lifecycle' then TestBookDeletionSafety(bdsLifecycle)
+      else if ParamStr(1) = 'book-deletion-filtered' then TestBookDeletionSafety(bdsFiltered)
       else if ParamStr(1) = 'flibrary-deletion' then TestBookDeletionSafety(bdsFLibrary)
       else if ParamStr(1) = 'flibrary-real-deletion' then TestBookDeletionSafety(bdsFLibraryReal)
       else if ParamStr(1) = 'fb2-encoding' then TestFB2Encoding
@@ -6374,6 +6582,8 @@ begin
         TestSystemBookRemapSafety
       else if ParamStr(1) = 'update-outcomes' then
         TestUpdateOutcomes
+      else if ParamStr(1) = 'favorite-book-menu' then
+        TestFavoriteBookMenu(One)
       else if ParamStr(1) = 'favorite-ui' then
         TestFavoriteAuthorUI(One, OneID, TwoID)
       else if ParamStr(1) = 'atomic-ini' then
@@ -6422,7 +6632,8 @@ begin
       else if ParamStr(1) = 'reader-compatibility' then
         TestReaderCompatibility
       else if ParamStr(1)='reader-link-feedback' then TestReaderLinkFeedback
-      else if (ParamStr(1) = 'builtin-reader') or (ParamStr(1)='reader-resource-idle') then
+      else if (ParamStr(1) = 'builtin-reader') or (ParamStr(1)='reader-resource-idle') or
+        (ParamStr(1)='reader-catalogue-recent') or (ParamStr(1)='reader-catalogue-volume') then
         TestBuiltinReaderIntegration(One)
       else if ParamStr(1) = 'main-preview' then
       begin
@@ -6433,8 +6644,8 @@ begin
       else if ParamStr(1) = 'review-http' then
         TestReviewHTTP
       else if ParamStr(1) = 'review-deadline' then TestReviewDeadline
-      else if ParamStr(1) = 'book-information' then
-        TestBookInformation
+      else if (ParamStr(1) = 'book-information') or (ParamStr(1) = 'book-information-external') then
+        TestBookInformation(ParamStr(1) = 'book-information-external')
       else if ParamStr(1) = 'book-gallery' then
         TestBookGallery
       else if (ParamStr(1) = 'catalog-sources') or (ParamStr(1) = 'catalog-sources-ui') then
@@ -6476,6 +6687,7 @@ begin
       else if ParamStr(1) = 'book-preview-layout' then TestInfoPanelFooter
       else if ParamStr(1) = 'update-mounts' then TestUpdateMountedVolume
       else if ParamStr(1) = 'reader-spread' then TestReaderSpread
+      else if ParamStr(1) = 'reader-wheel-routing' then TestReaderWheelRouting
       else if ParamStr(1) = 'reader-scroll' then TestReaderContinuousScrolling
       else if ParamStr(1) = 'reader-scroll-live' then TestReaderLiveFeedback
       else if ParamStr(1) = 'metadata-fill-layout' then TestMetadataFillLayout(OneID)
@@ -6496,6 +6708,8 @@ begin
       else if ParamStr(1) = 'estimate-failure-visibility' then TestEstimateFailureVisibility
       else if ParamStr(1) = 'export-cache-lifecycle' then TestExportCacheLifecycle
       else if ParamStr(1) = 'duplicate-file-removal' then TestDuplicateFileRemoval
+      else if ParamStr(1) = 'reader-associations' then TestReaderAssociations
+      else if ParamStr(1) = 'duplicate-unified' then TestUnifiedDuplicateFamilies
       else if ParamStr(1) = 'duplicate-linked-mass' then TestLinkedDuplicateMassRemoval
       else if ParamStr(1) = 'duplicate-linked-audit' then
         TestBookDuplicateReadOnlyCatalog(GetEnvironmentVariable('HLRU_DUPLICATE_READONLY_CATALOG'),True)

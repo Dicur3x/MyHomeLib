@@ -130,7 +130,7 @@ function TStartupCatalogLoader.TakeData: TStartupCatalogData;
 begin Result := FData; FData := nil; end;
 
 procedure TStartupCatalogLoader.Execute;
-var SystemData: ISystemData; AuthorFilter, SeriesFilter: string;
+var SystemData: ISystemData; AuthorFilter, SeriesFilter:string; Counts:TSQLiteDatabase;
   function LetterFilter(const Saved: string): string;
   begin
     Result := Char.ToUpper(Copy(Saved,1,1));
@@ -153,7 +153,19 @@ begin
       FData.Collection := SystemData.GetCollection(FCollectionID);
       FData.Collection.SetHideDeleted(FHideDeleted);
       FData.Collection.SetShowLocalOnly(FLocalOnly and isOnlineCollection(FData.Collection.CollectionCode));
-      FData.Collection.GetStatistics(FData.AuthorCount, FData.BookCount, FData.SeriesCount);
+      if FLoadAuthors or FLoadSeries or FLoadPublisher then
+        FData.Collection.GetStatistics(FData.AuthorCount,FData.BookCount,FData.SeriesCount)
+      else
+      begin
+        // Empty Search needs only the small/large threshold used to restore
+        // inactive letter filters, never exact counts over the whole library.
+        Counts:=TSQLiteDatabase.CreateReadOnly(SystemData.GetCollectionInfo(FCollectionID).DBFileName);
+        try
+          FData.AuthorCount:=Counts.QuerySingleInt('SELECT count(*) FROM (SELECT 1 FROM Authors LIMIT 501)');
+          FData.BookCount:=Counts.QuerySingleInt('SELECT count(*) FROM (SELECT 1 FROM Books LIMIT 501)');
+          FData.SeriesCount:=Counts.QuerySingleInt('SELECT count(*) FROM (SELECT 1 FROM Series LIMIT 501)');
+        finally Counts.Free; end;
+      end;
       AuthorFilter := VarToStr(FData.Collection.GetProperty(PROP_LAST_AUTHOR));
       if AuthorFilter = '' then
         if FData.AuthorCount > 500 then AuthorFilter := 'А' else AuthorFilter := ALPHA_FILTER_ALL;

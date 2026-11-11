@@ -25,6 +25,8 @@ begin
     SetMHLTheme(Settings.DarkTheme);
     Application.CreateForm(TfrmReaderHost,ReaderHost);
     ReaderHost.OpenInitialSession(Startup.SessionFile); ReaderHost.OpenInitialFile(Startup.Source);
+    Application.ShowMainForm:=False;
+    ReaderHost.ShowStartPage;
     Application.Run;
   except
     on E: Exception do begin LogDiagnosticError('reader-startup-or-main-loop',E); raise; end;

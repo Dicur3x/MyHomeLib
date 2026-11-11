@@ -221,6 +221,8 @@ type
       Cache: TImportCache): Integer; overload;
     procedure GetBookRecord(const BookKey: TBookKey; out BookRecord: TBookRecord; const LoadMemos: Boolean); override;
     function GetBookSeries(const BookKey: TBookKey): TBookSeries;
+    function FindNextSeriesBook(const BookKey: TBookKey; SeriesID: Integer;
+      out Next: TBookRecord): Boolean;
     function OpenBookSeriesReadStream: IBookSeriesReadStream;
     function GetBookPublisherSeries(const BookKey: TBookKey): TBookSeries;
     procedure SetBookPublisherSeries(const BookKey: TBookKey; const Series: TBookSeries);
@@ -592,6 +594,14 @@ begin
       + 'SourceName TEXT, Root TEXT, Folder TEXT, FileName TEXT, Ext TEXT, '
       + 'InsideNo INTEGER, BookSize INTEGER, LibID TEXT)');
     FDatabase.ExecSQL('CREATE INDEX IF NOT EXISTS IXCatalogBookCopies_BookID ON CatalogBookCopies(BookID)');
+    // The book-deletion trigger removes source mappings by BookID. SourceKey
+    // is the table's primary key, so merged collections otherwise scan every
+    // mapping for each removed book (millions of rows per deletion).
+    FDatabase.ExecSQL('CREATE INDEX IF NOT EXISTS IXCatalogSourceBooks_BookID ON CatalogSourceBooks(BookID)');
+    // Reference checks enumerate containers in SQLite and fetch only rows from
+    // archives being changed, instead of decoding the whole library per batch.
+    FDatabase.ExecSQL('CREATE INDEX IF NOT EXISTS IXBooks_DeletionFolder ON Books(Folder)');
+    FDatabase.ExecSQL('CREATE INDEX IF NOT EXISTS IXCatalogBookCopies_DeletionFolder ON CatalogBookCopies(Root,Folder)');
     FDatabase.ExecSQL('CREATE TABLE IF NOT EXISTS CatalogPreferredSource('
       + 'BookID INTEGER NOT NULL PRIMARY KEY, SourceName TEXT NOT NULL)');
 
@@ -3296,6 +3306,45 @@ begin
     end;
   finally
     Query.Free;
+  end;
+end;
+
+function TBookCollection_SQLite.FindNextSeriesBook(const BookKey: TBookKey; SeriesID: Integer;
+  out Next: TBookRecord): Boolean;
+const SQL =
+  'SELECT following.BookID, following.SeqNumber, s.SeriesTitle ' +
+  'FROM Series_List reading ' +
+  'JOIN Series s ON s.SeriesID=reading.SeriesID ' +
+  'JOIN Books source ON source.BookID=reading.BookID ' +
+  'JOIN Series_List following ON following.SeriesID=reading.SeriesID AND following.SeqNumber>reading.SeqNumber ' +
+  'JOIN Books b ON b.BookID=following.BookID AND b.Lang IS source.Lang ' +
+  'WHERE reading.BookID=? AND reading.SeriesID=? AND reading.SeqNumber>0 AND b.IsDeleted=0 ' +
+  'ORDER BY following.SeqNumber LIMIT 2';
+var Query: TSQLiteQuery; Key: TBookKey; Sequence: Integer; Title: string;
+begin
+  Next:=Default(TBookRecord);
+  Result:=False;
+  if (BookKey.DatabaseID<>CollectionID) or (BookKey.BookID<=0) or (SeriesID<=0) then Exit;
+  Query:=FDatabase.NewQuery(SQL);
+  try
+    Query.SetParam(0,BookKey.BookID);
+    Query.SetParam(1,SeriesID);
+    Query.Open;
+    if Query.Eof then Exit;
+    Key:=CreateBookKey(Query.FieldAsInt(0),CollectionID);
+    Sequence:=Query.FieldAsInt(1);
+    Title:=Query.FieldAsString(2);
+    Query.Next;
+    // Different editions may share a number. Leave the choice to the reader.
+    if not Query.Eof and (Query.FieldAsInt(1)=Sequence) then Exit;
+  finally Query.Free; end;
+  GetBookRecord(Key,Next,False);
+  Result:=Next.BookKey.IsSameAs(Key) and not (bpIsDeleted in Next.BookProps);
+  if Result then
+  begin
+    Next.SeriesID:=SeriesID;
+    Next.Series:=Title;
+    Next.SeqNumber:=Sequence;
   end;
 end;
 

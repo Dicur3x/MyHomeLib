@@ -645,6 +645,94 @@ begin
   end;
 end;
 
+procedure TestReaderWheelRouting;
+var Reader: TfrmBuiltinReader; Search: TEdit; Themes: TComboBox;
+  Position, FontSize: Integer; Key: Word; DialogCanceled: Boolean;
+  CancelSettings: TThreadProcedure;
+
+  procedure PumpUntilReady;
+  var Watch: TStopwatch;
+  begin
+    Watch:=TStopwatch.StartNew;
+    while (not Reader.Ready or Reader.PageLoading) and (Watch.ElapsedMilliseconds<15000) do
+    begin Application.ProcessMessages; CheckSynchronize(5); end;
+    Require(Reader.Ready and not Reader.PageLoading,'Wheel fixture did not open');
+  end;
+
+  procedure Wheel(Focused, Hovered: TWinControl; Delta: Integer; Flags: Word = 0);
+  var P: TPoint;
+  begin
+    P:=Hovered.ClientToScreen(Point(Hovered.ClientWidth div 2,Hovered.ClientHeight div 2));
+    Require(WindowFromPoint(P)=Hovered.Handle,'Wheel fixture is not over the expected control');
+    Require(GetFocus=Focused.Handle,'Wheel fixture lost its focused control');
+    Win32Check(PostMessage(Focused.Handle,WM_MOUSEWHEEL,
+      WPARAM((Cardinal(Word(Delta)) shl 16) or Flags),
+      LPARAM(MakeLong(Word(P.X),Word(P.Y)))));
+    Application.ProcessMessages;
+  end;
+
+begin
+  RequireIsolatedRegression;
+  Reader:=TfrmBuiltinReader.Create(nil);
+  try
+    Reader.Show;
+    Reader.OpenBook(Settings.AppPath+'reader-spread.txt','Wheel routing','wheel-routing',Settings.AppPath+'wheel-routing.ini','');
+    PumpUntilReady;
+    Reader.SetPageLayout(rplSingle);
+    Key:=Ord('F'); Reader.OnKeyDown(Reader,Key,[ssCtrl]);
+    Require(Reader.ActiveControl is TEdit,'Search did not focus its input');
+    Search:=TEdit(Reader.ActiveControl);
+    Search.Text:='Сохранить фокус поиска';
+    Position:=Reader.TextPosition; FontSize:=Reader.ReaderFontSize;
+    Wheel(Search,Search,-120,MK_CONTROL);
+    Require((Reader.TextPosition=Position) and (Reader.ReaderFontSize=FontSize) and Search.Focused,
+      'Wheel over the search field moved the book or changed focus');
+    Wheel(Search,Reader.ReadingSurface,-120);
+    Require((Reader.TextPosition>Position) and Search.Focused and (Search.Text='Сохранить фокус поиска'),
+      'Wheel over the book did not turn a page while search retained focus');
+    Wheel(Search,Reader.ReadingSurface,120,MK_CONTROL);
+    Require((Reader.ReaderFontSize=FontSize+1) and Search.Focused,
+      'Ctrl wheel over the book did not zoom without stealing search focus');
+
+    Themes:=TComboBox(Reader.FindComponent('ReaderThemeSelector'));
+    Themes.SetFocus;
+    DialogCanceled:=False;
+    CancelSettings:=procedure
+      begin
+        var Dialog:=Screen.ActiveForm;
+        Require(Assigned(Dialog) and (Dialog<>Reader),'Navigation settings did not open');
+        var Cancel:=TButton(Dialog.FindComponent('ReaderKeysCancel'));
+        Require(Assigned(Cancel),'Navigation settings did not expose Cancel');
+        Cancel.Click;
+        DialogCanceled:=True;
+      end;
+    TThread.ForceQueue(nil,CancelSettings);
+    Reader.ConfigureNavigationKeys(nil);
+    Require(DialogCanceled and Themes.Focused,'Cancelling settings did not restore the toolbar focus');
+    Position:=Reader.TextPosition;
+    Wheel(Themes,Reader.ReadingSurface,-120);
+    Require(Reader.TextPosition>Position,'Wheel over the book did not work after cancelling settings');
+  finally Reader.Free; end;
+
+  Reader:=TfrmBuiltinReader.Create(nil);
+  try
+    Reader.Show;
+    Reader.OpenBook(Settings.AppPath+'reader-spread.cbz','Comic wheel routing','wheel-comic',Settings.AppPath+'wheel-routing.ini','');
+    PumpUntilReady;
+    Reader.SetPageLayout(rplContinuous);
+    Themes:=TComboBox(Reader.FindComponent('ReaderThemeSelector'));
+    Themes.SetFocus;
+    Position:=Reader.TextPosition;
+    Wheel(Themes,Reader.ReadingSurface,-120);
+    var Watch:=TStopwatch.StartNew;
+    while (Reader.PDFPan.Y=0) and (Watch.ElapsedMilliseconds<2000) do
+    begin Application.ProcessMessages; CheckSynchronize(5); Sleep(10); end;
+    Require((Reader.TextPosition=Position) and (Reader.PDFPan.Y<0) and Themes.Focused,
+      'Wheel over a continuous comic did not scroll the image while the toolbar had focus');
+  finally Reader.Free; end;
+  Writeln('PASS reader wheel follows the hovered book after menus without stealing input focus');
+end;
+
 procedure TestReaderContinuousScrolling;
 var Reader: TfrmBuiltinReader; FileName, Extension, Original: string;
   Watch: TStopwatch; Position, Frames, LastTop, Steps, I: Integer;

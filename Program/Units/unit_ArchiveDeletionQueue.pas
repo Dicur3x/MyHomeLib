@@ -2,7 +2,7 @@
 
 interface
 
-uses System.Classes, System.SysUtils, System.SyncObjs;
+uses System.Classes, System.SysUtils, System.SyncObjs, unit_BookDeletionSpace;
 
 type
   TArchiveDeletionCompanion = record
@@ -17,16 +17,17 @@ type
     // Captured catalogue identity. Only the owning UI thread may interpret or
     // commit it; the filesystem worker never touches a database connection.
     CatalogueBinding: string;
-    WholeSource: Boolean;
+    WholeSource, AllowSevenZipRepack: Boolean;
     Companions: TArray<TArchiveDeletionCompanion>;
   end;
 
   TArchiveDeletionResult = record
     Index: Integer;
     Archive, SourceIdentity, CatalogueBinding, WorkDirectory, JournalDirectory, Error, CleanupWarning: string;
-    FilesVerified, Cancelled, UnsupportedLayout: Boolean;
+    FilesVerified, Cancelled, UnsupportedLayout, SpaceFinalized: Boolean;
     WaitsForCatalogue, CatalogueCommitted, Acknowledged: Boolean;
     Companions: TArray<TArchiveDeletionCompanion>;
+    SpaceChanges: TArray<TDeletionVolumeSpace>;
   end;
 
   TArchiveDeletionStatus = record
@@ -379,6 +380,7 @@ begin
   var MarkerText:=Context+':'+Image.SourceIdentity;
   var Directory:=PictureWorkDirectory(Item,Index);
   ForceDirectories(DeletionNativePath(Directory)); RequireOrdinaryDirectory(Directory);
+  DiscardUnpublishedDeletionStages(Directory);
   var Marker:=DeletionNativePath(TPath.Combine(Directory,'complete'));
   Jobs:=TDirectory.GetDirectories(DeletionNativePath(Directory),'zip-delete-*');
   if Length(Jobs)>1 then raise EReadError.Create('Найдено несколько журналов одного архива изображений.');
@@ -391,7 +393,7 @@ begin
     begin
       // The marker is written after the image archive is verified and any
       // unlink is complete. A stopped acknowledgement may leave its files.
-      for var Name in ['pending.bin','checkpoint.json','plan.json'] do
+      for var Name in ['pending.bin','replacement.bin','checkpoint.json','plan.json'] do
         RemovePictureMarker(DeletionNativePath(TPath.Combine(Jobs[0],Name)));
       if not RemoveDirectory(PChar(DeletionNativePath(Jobs[0]))) then RaiseLastOSError;
     end;
@@ -404,7 +406,7 @@ begin
     except on E:EOSError do if (Length(Jobs)=0) or (E.ErrorCode<>ERROR_FILE_NOT_FOUND) then raise; end;
     if Length(Jobs)=0 then
     begin
-      Engine:=TZipMemberDeletion.Prepare(Image.Archive,Image.Members,Progress,nil,Image.SourceIdentity);
+      Engine:=TZipMemberDeletion.Prepare(Image.Archive,Image.Members,Progress,nil,Image.SourceIdentity,True,Directory);
       Engine.RequirePrivateSource;
       Engine.BindContext(Context);
       Engine.EnableWholeRemoval;
@@ -429,10 +431,11 @@ begin
 end;
 
 procedure ApplyPictureRemovals(var Item:TArchiveDeletionResult;
-  const Context:string; const Progress:TZipDeleteProgress);
+  const Context:string; const Progress:TZipDeleteProgress; const CurrentArchive:TProc<string>);
 begin
   for var I:=0 to High(Item.Companions) do
     try
+      if Assigned(CurrentArchive) then CurrentArchive(Item.Companions[I].Archive);
       ApplyPictureRemoval(Item,I,Context,Progress);
     except
       on E:Exception do
@@ -491,6 +494,7 @@ end;
 
 procedure TArchiveDeletionQueue.Execute;
 var Deletion: TZipMemberDeletion; Item: TArchiveDeletionResult; Lease:IInterface;
+  SpaceBefore: TArray<TDeletionFileSpace>; SpacePaths: TArray<string>;
 begin
   try
     for var I:=0 to High(FTasks) do
@@ -500,6 +504,9 @@ begin
       Item.Archive:=FTasks[I].Archive; Item.CatalogueBinding:=FTasks[I].CatalogueBinding;
       Item.SourceIdentity:=FTasks[I].SourceIdentity;
       Item.Companions:=FTasks[I].Companions;
+      SpacePaths:=[Item.Archive];
+      for var Companion in Item.Companions do SpacePaths:=SpacePaths+[Companion.Archive];
+      SpaceBefore:=CaptureDeletionSpace(SpacePaths);
       if FRecoveryJobs[I]<>'' then
       begin
         Item.JournalDirectory:=FRecoveryJobs[I];
@@ -541,7 +548,7 @@ begin
             Deletion:=TZipMemberDeletion.Prepare(Item.Archive,FTasks[I].Members,
               procedure(const Stage: string; Done,Total: Int64) begin Report(Stage,Done,Total); end,
               function: Boolean begin Result:=TInterlocked.CompareExchange(FStop,0,0)<>0; end,
-              FTasks[I].SourceIdentity);
+              FTasks[I].SourceIdentity,FTasks[I].AllowSevenZipRepack,Item.WorkDirectory);
           Deletion.BindContext(BindingHash(Item.WorkDirectory));
           if FWaitForCatalogue then Deletion.EnableWholeRemoval;
           if Assigned(FReview) and (Deletion.WholeSourceIdentity='') then
@@ -567,6 +574,7 @@ begin
       begin
         // Planning cannot mutate the source. Its small binding is disposable
         // only when no filesystem recovery journal was started.
+        FreeAndNil(Deletion);
         var Binding:=DeletionNativePath(TPath.Combine(Item.WorkDirectory,'binding.json'));
         if FileExists(Binding) then System.SysUtils.DeleteFile(Binding);
         if RemoveDirectory(PChar(DeletionNativePath(Item.WorkDirectory))) then Item.WorkDirectory:='';
@@ -596,7 +604,12 @@ begin
                   Report('Удаление обложек и иллюстраций',0,0);
                   ApplyPictureRemovals(Item,Deletion.ContextHash,
                     procedure(const Stage:string; Done,Total:Int64)
-                    begin Report('Удаление обложек и иллюстраций',Done,Total); end);
+                    begin Report('Удаление обложек и иллюстраций',Done,Total); end,
+                    procedure(ImagePath:string)
+                    begin
+                      TMonitor.Enter(FLock);
+                      try FStatus.Archive:=ImagePath; finally TMonitor.Exit(FLock); end;
+                    end);
                 end);
               // A live new queue has not created its later task directories
               // yet. Its operation root must survive until the loop finishes.
@@ -618,6 +631,11 @@ begin
           try FResults[I]:=Item; finally TMonitor.Exit(FLock); end;
         end;
       finally Deletion.Free; Lease:=nil; end;
+      if Item.FilesVerified then Item.SpaceChanges:=MeasureDeletionSpace(SpaceBefore);
+      Item.SpaceFinalized:=True;
+      TMonitor.Enter(FLock);
+      try FResults[I]:=Item; finally TMonitor.Exit(FLock); end;
+      FResultEvent.SetEvent;
       if not Item.FilesVerified or (FWaitForCatalogue and not Item.Acknowledged) then Break;
     end;
   finally

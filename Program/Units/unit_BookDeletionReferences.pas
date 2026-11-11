@@ -5,7 +5,8 @@ interface
 uses unit_Interfaces, unit_ArchiveDeletionQueue, unit_Globals, System.SysUtils;
 
 procedure CheckArchiveDeletionReferences(const User: ISystemData;
-  var Tasks: TArray<TArchiveDeletionTask>; const Cancelled: TFunc<Boolean>);
+  var Tasks: TArray<TArchiveDeletionTask>; const Cancelled: TFunc<Boolean>;
+  const Progress: TProc<Int64>);
 procedure CheckLooseDuplicateReferences(const User: ISystemData; CollectionID: Integer;
   const Removed: TArray<TBookRecord>; const Cancelled: TFunc<Boolean>);
 procedure CheckLinkedLooseReferences(const User: ISystemData; const Removed: TArray<TBookRecord>;
@@ -226,10 +227,10 @@ begin
 end;
 
 procedure CheckArchiveDeletionReferences(const User:ISystemData;
-  var Tasks:TArray<TArchiveDeletionTask>; const Cancelled:TFunc<Boolean>);
+  var Tasks:TArray<TArchiveDeletionTask>; const Cancelled:TFunc<Boolean>; const Progress:TProc<Int64>);
 var Targets:TObjectDictionary<string,TCheckedArchive>; Paths:TDictionary<string,string>;
   ImageOwners:TDictionary<string,string>; LooseNames:TDictionary<string,Byte>;
-  Collections:ICollectionInfoIterator; Info:TCollectionInfo; InventoryChars:Int64;
+  Collections:ICollectionInfoIterator; Info:TCollectionInfo; InventoryChars, CheckedRows:Int64;
 
   procedure CheckPictureOwners(const Path,Key:string);
   begin
@@ -256,67 +257,137 @@ var Targets:TObjectDictionary<string,TCheckedArchive>; Paths:TDictionary<string,
 
   procedure CheckRows(Database:TSQLiteDatabase; const SQL,DefaultRoot:string; CID:Integer; HasRoot:Boolean);
   var Query:TSQLiteQuery; Book:TBookRecord; Path,Key,LastFolder,LastRoot,LastKey,CopyKey,Member:string;
-    Format:TBookFormat; Target:TCheckedArchive; CachedFolder,WholeSource:Boolean;
+    Format:TBookFormat; Target:TCheckedArchive;
+    CachedFolder,MatchesCachedFolder,LastWasLink,IsLink,WholeSource,Descriptor:Boolean;
   begin
-    Book:=Default(TBookRecord); Book.BookKey.DatabaseID:=CID;
-    CachedFolder:=False; LastKey:='';
+    Book:=Default(TBookRecord);
+    CachedFolder:=False; LastWasLink:=False; LastKey:='';
     Query:=Database.NewQuery(SQL);
     try
       Query.Open;
       while not Query.Eof do
       begin
         if Assigned(Cancelled) and Cancelled() then Abort;
-        Book.BookKey.BookID:=Query.FieldAsInt(0);
+        Inc(CheckedRows);
+        if Assigned(Progress) and (CheckedRows mod 4096=0) then Progress(CheckedRows);
         Book.Folder:=Query.FieldAsString(1);
         Book.LibID:=Query.FieldAsString(4);
-        if HasRoot then
-        begin
-          Book.CollectionRoot:=Query.FieldAsString(5);
-          CopyKey:=Query.FieldAsString(6);
-        end
+        if HasRoot then Book.CollectionRoot:=Query.FieldAsString(5)
         else Book.CollectionRoot:=DefaultRoot;
-        Book.FileName:=Query.FieldAsString(2); Book.FileExt:=Query.FieldAsString(3);
-        var Container:=TPath.Combine(Book.CollectionRoot,Book.Folder);
-        Format:=Book.GetBookFormat(Container);
-        WholeSource:=((Format=bfRaw) and IsArchiveExt(Book.FileExt)) or
-          ((Format in [bfRaw,bfFb2]) and (Book.IsLinkedSource or
-            ((LooseNames.Count>0) and LooseNames.ContainsKey(UpperCase(ExtractFileName(Book.FileName+Book.FileExt))))));
-        if WholeSource or (Format in [bfFb2Archive,bfRawArchive,bfFbd]) then
+        IsLink:=Book.IsLinkedSource;
+        MatchesCachedFolder:=CachedFolder and (LastWasLink=IsLink) and (LastFolder=Book.Folder) and
+          (LastRoot=Book.CollectionRoot);
+        if MatchesCachedFolder then
         begin
-          if not WholeSource and (Format<>bfFbd) and CachedFolder and (LastFolder=Book.Folder) and
-            (LastRoot=Book.CollectionRoot) then Key:=LastKey
-          else
+          // Once the folder is known to be a shared archive, the member's
+          // filename and extension cannot change its container or resolver.
+          Key:=LastKey; WholeSource:=False; Descriptor:=False;
+        end
+        else
+        begin
+          Book.FileName:=Query.FieldAsString(2); Book.FileExt:=Query.FieldAsString(3);
+          var Container:=TPath.Combine(Book.CollectionRoot,Book.Folder);
+          Format:=Book.GetBookFormat(Container);
+          Descriptor:=Format=bfFbd;
+          WholeSource:=((Format=bfRaw) and IsArchiveExt(Book.FileExt)) or
+            ((Format in [bfRaw,bfFb2]) and (IsLink or
+              ((LooseNames.Count>0) and LooseNames.ContainsKey(UpperCase(ExtractFileName(Book.FileName+Book.FileExt))))));
+          if not WholeSource and not (Format in [bfFb2Archive,bfRawArchive,bfFbd]) then
           begin
-            Path:=ExpandFileName(Book.GetBookFileName);
-            if not Paths.TryGetValue(Path,Key) then
-            begin
-              Key:=SourceKey(Path);
-              CheckPictureOwners(Path,Key);
-              // Cache each distinct source, not each row in a large catalogue.
-              if Paths.Count<65536 then Paths.Add(Path,Key);
-            end;
-            if not WholeSource and (Format<>bfFbd) then
-            begin
-              CachedFolder:=True; LastFolder:=Book.Folder;
-              LastRoot:=Book.CollectionRoot; LastKey:=Key;
-            end;
+            Query.Next;
+            Continue;
           end;
-          if Targets.TryGetValue(Key,Target) and (Book.IsLinkedSource or not
-            Target.IsSelected(CID,Book.BookKey.BookID,HasRoot,CopyKey)) then
+          Path:=ExpandFileName(Book.GetBookFileName);
+          if not Paths.TryGetValue(Path,Key) then
           begin
-            if not WholeSource and not Target.Task.WholeSource then
-              Target.LoadInventory(Cancelled,InventoryChars);
-            Member:=Book.FileName;
-            if not SameText(ExtractFileExt(Member),Book.FileExt) then Member:=Member+Book.FileExt;
-            if WholeSource or Target.Task.WholeSource or (Format=bfFbd) or
-              not Target.RetainedNames.ContainsKey(NormalName(Member)) then
-              raise EInOutError.CreateFmt('Файл ещё нужен другой записи или его нельзя определить точно: %s. Удаление не началось.',
-                [ExtractFileName(Target.Task.Archive)]);
+            Key:=SourceKey(Path);
+            CheckPictureOwners(Path,Key);
+            // Cache each distinct source, not each row in a large catalogue.
+            if Paths.Count<65536 then Paths.Add(Path,Key);
           end;
+          if not WholeSource and not Descriptor then
+          begin
+            CachedFolder:=True; LastWasLink:=IsLink; LastFolder:=Book.Folder;
+            LastRoot:=Book.CollectionRoot; LastKey:=Key;
+          end;
+        end;
+        if Targets.TryGetValue(Key,Target) then
+        begin
+          if HasRoot then CopyKey:=Query.FieldAsString(6);
+          if not IsLink and Target.IsSelected(CID,Query.FieldAsInt(0),HasRoot,CopyKey) then
+          begin
+            Query.Next;
+            Continue;
+          end;
+          // Other rows in a known archive need member names only if the
+          // archive is about to change and the row is not being removed.
+          if MatchesCachedFolder then
+          begin
+            Book.FileName:=Query.FieldAsString(2); Book.FileExt:=Query.FieldAsString(3);
+          end;
+          if not WholeSource and not Target.Task.WholeSource then
+            Target.LoadInventory(Cancelled,InventoryChars);
+          Member:=Book.FileName;
+          if not SameText(ExtractFileExt(Member),Book.FileExt) then Member:=Member+Book.FileExt;
+          if WholeSource or Target.Task.WholeSource or Descriptor or
+            not Target.RetainedNames.ContainsKey(NormalName(Member)) then
+            raise EInOutError.CreateFmt('Файл ещё нужен другой записи или его нельзя определить точно: %s. Удаление не началось.',
+              [ExtractFileName(Target.Task.Archive)]);
         end;
         Query.Next;
       end;
     finally Query.Free; end;
+  end;
+
+
+  procedure CheckIndexedRows(Database:TSQLiteDatabase; const TableName,SQL,DefaultRoot:string;
+    CID:Integer; HasRoot:Boolean);
+  var Folders:TSQLiteQuery; Book:TBookRecord; Root,Path,Key,Filter:string;
+  begin
+    // Old/foreign catalogues stay read-only and use the complete check. Never
+    // run one unindexed table scan for every distinct container.
+    var IndexName:='IXBooks_DeletionFolder';
+    if HasRoot then IndexName:='IXCatalogBookCopies_DeletionFolder';
+    if Database.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE type=''index'' AND name=?',
+      [IndexName])=0 then
+    begin CheckRows(Database,SQL,DefaultRoot,CID,HasRoot); Exit; end;
+    if HasRoot then Folders:=Database.NewQuery('SELECT DISTINCT Root,Folder FROM '+TableName)
+    else Folders:=Database.NewQuery('SELECT DISTINCT Folder FROM '+TableName);
+    try
+      Folders.Open;
+      while not Folders.Eof do
+      begin
+        if Assigned(Cancelled) and Cancelled() then Abort;
+        Book:=Default(TBookRecord); Root:=DefaultRoot;
+        if HasRoot then Root:=Folders.FieldAsString(0);
+        Book.CollectionRoot:=Root; Book.FileExt:='.unknown';
+        Book.Folder:=Folders.FieldAsString(Ord(HasRoot));
+        // Archive folders resolve independently of each member filename and
+        // LibID, including legacy .zip names whose actual container is .7z.
+        // Non-archive folders retain the full descriptor/link/loose-file check.
+        var Inspect:=True;
+        if IsArchiveExt(TPath.Combine(Root,Book.Folder)) then
+        begin
+          Path:=ExpandFileName(Book.GetBookFileName);
+          if not Paths.TryGetValue(Path,Key) then
+          begin
+            Key:=SourceKey(Path); CheckPictureOwners(Path,Key);
+            if Paths.Count<65536 then Paths.Add(Path,Key);
+          end;
+          Inspect:=Targets.ContainsKey(Key);
+        end;
+        if Inspect then
+        begin
+          if Folders.FieldIsNull(Ord(HasRoot)) then Filter:='Folder IS NULL'
+          else Filter:='Folder='+QuotedStr(Book.Folder);
+          if HasRoot then
+            if Folders.FieldIsNull(0) then Filter:=Filter+' AND Root IS NULL'
+            else Filter:=Filter+' AND Root='+QuotedStr(Root);
+          CheckRows(Database,SQL+' WHERE '+Filter,DefaultRoot,CID,HasRoot);
+        end;
+        Folders.Next;
+      end;
+    finally Folders.Free; end;
   end;
 
 begin
@@ -326,6 +397,7 @@ begin
   ImageOwners:=TDictionary<string,string>.Create;
   LooseNames:=TDictionary<string,Byte>.Create;
   InventoryChars:=0;
+  CheckedRows:=0;
   try
     for var Task in Tasks do
     begin
@@ -350,13 +422,15 @@ begin
       // collection's schema or read any book payload while finding references.
       var DB:=TSQLiteDatabase.CreateReadOnly(Info.DBFileName);
       try
-        CheckRows(DB,'SELECT BookID,Folder,FileName,Ext,LibID FROM Books ORDER BY Folder',
+        DB.Start;
+        CheckIndexedRows(DB,'Books','SELECT BookID,Folder,FileName,Ext,LibID FROM Books',
           Info.GetRootPath,Info.ID,False);
         if DB.QuerySingleInt('SELECT COUNT(*) FROM sqlite_master WHERE type=''table'' AND name=''CatalogBookCopies''')>0 then
-          CheckRows(DB,'SELECT BookID,Folder,FileName,Ext,LibID,Root,SourceKey FROM CatalogBookCopies',
+          CheckIndexedRows(DB,'CatalogBookCopies','SELECT BookID,Folder,FileName,Ext,LibID,Root,SourceKey FROM CatalogBookCopies',
             '',Info.ID,True);
       finally DB.Free; end;
     end;
+    if Assigned(Progress) then Progress(CheckedRows);
     for var I:=0 to High(Tasks) do
     begin
       var Count:=0;

@@ -4,7 +4,9 @@ interface
 
 uses System.Classes, System.SysUtils, System.JSON;
 
-const ArchiveDeletionWriteStage = 'Удаление из архива';
+const
+  ArchiveDeletionWriteStage = 'Удаление из архива';
+  ArchiveDeletionRepackStage = 'Перепаковываем архив без удалённых книг';
 
 type
   TZipDeleteProgress = reference to procedure(const Stage: string; Done, Total: Int64);
@@ -15,6 +17,8 @@ type
   TZipMemberDeletion = class
   private
     FSource: TFileStream;
+    FReplacement: TFileStream;
+    FReplacementSize: Int64;
     FPlan: TJSONObject;
     FArchive, FJob, FPlanHash: string;
     FMetadata, FHeader: TBytes;
@@ -22,24 +26,34 @@ type
     FPending, FFinished: Boolean;
     FWholeIdentity: string;
     FWholeHandle: THandle;
+    FStagingDirectory: string;
+    FStagingGuard: THandle;
     function Chunks: TJSONArray;
     function ReadAt(Offset: Int64; Count: Integer): TBytes;
+    function ReadChunkSource(Source: TJSONValue; Count: Integer): TBytes;
     procedure CheckIdentity;
     procedure CheckPlan;
-    procedure SaveCheckpoint;
+    procedure SaveCheckpoint(const Directory: string = '');
     procedure VerifyFinished;
-    procedure PrepareSevenZip(const Names:TArray<string>; const Cancelled:TFunc<Boolean>);
+    procedure PrepareSevenZip(const Names:TArray<string>; const Cancelled:TFunc<Boolean>;
+      AllowRepack:Boolean; const JournalParent:string; const Progress:TZipDeleteProgress);
+    procedure DiscardStaging;
+    procedure OpenReplacement(const Directory:string);
     function GetContextHash: string;
     function GetFileKey: string;
     function GetWholeSourceMissing: Boolean;
     function CanRemoveWhole: Boolean;
     procedure OpenWholeSource(AllowMissing: Boolean);
     function ChunkHash(Index: Integer): string;
+    function ChunkReplacement(Index: Integer): TBytes;
     function ChunkNumber(Index, Field: Integer): Int64;
+  protected
+    function JournalSpaceAvailable(const Directory: string): UInt64; virtual;
   public
     constructor Prepare(const Archive: string; const Names: TArray<string>;
       const Progress: TZipDeleteProgress = nil; const Cancelled: TFunc<Boolean> = nil;
-      const ExpectedSourceIdentity: string = '');
+      const ExpectedSourceIdentity: string = ''; AllowSevenZipRepack: Boolean = False;
+      const JournalParent: string = '');
     constructor PrepareWholeArchive(const Archive, ExpectedSourceIdentity: string);
     constructor Recover(const Archive, Job: string);
     destructor Destroy; override;
@@ -70,6 +84,7 @@ type
 function DeletionNativePath(const FileName: string): string;
 function ArchiveDeletionSourceIdentity(const FileName: string): string;
 function IsPrivateArchiveDeletionSource(const FileName: string): Boolean;
+function DiscardUnpublishedDeletionStages(const Parent: string): Boolean;
 
 implementation
 
@@ -79,11 +94,16 @@ uses Winapi.Windows, System.IOUtils, System.Zip, System.Hash, System.NetEncoding
 
 const
   BlockBytes = 4 * 1024 * 1024;
+  MaxChunkRanges = 512;
+  ZipGroupedRangesSchema = 5;
+  SevenZipGroupedRangesSchema = 6;
   MaxMetadataBytes = 64 * 1024 * 1024;
   MaxPlanBytes = 192 * 1024 * 1024;
   PlanName = 'plan.json';
   CheckpointName = 'checkpoint.json';
   PendingName = 'pending.bin';
+  ReplacementName = 'replacement.bin';
+  StagePrefix = 'zip-stage-';
   DeleteAccess = $00010000;
   FileDispositionInfoClass = 4;
 
@@ -92,9 +112,8 @@ function SetArchiveFileInformation(Handle: THandle; InformationClass: Integer;
   external kernel32 name 'SetFileInformationByHandle';
 
 type
-  // System.Zip serializes the final central directory against a virtual
-  // stream. Delete's payload moves are simulated, not read or written here.
-  // Actual source ranges are copied once, in physical order, by Execute.
+  // Capture the original directory position and raw comment from System.Zip
+  // without writing to the archive. Execute alone moves the payload.
   TZipDirectoryPlanStream = class(TStream)
   private
     FInput: TStream;
@@ -103,7 +122,7 @@ type
     function GetSize: Int64; override;
     procedure SetSize(const NewSize: Int64); override;
   public
-    Simulating, Capturing: Boolean;
+    Capturing: Boolean;
     Metadata: TMemoryStream;
     MetadataOffset: Int64;
     constructor Create(Input: TStream);
@@ -119,6 +138,40 @@ begin
   if Result.StartsWith('\\?\') then Exit;
   if Result.StartsWith('\\') then Result:='\\?\UNC\'+Result.Substring(2)
   else Result:='\\?\'+Result;
+end;
+
+function RemoveStagingDirectory(const Directory:string):Boolean;
+begin
+  var Attributes:=GetFileAttributes(PChar(DeletionNativePath(Directory)));
+  if (Attributes=INVALID_FILE_ATTRIBUTES) or (Attributes and FILE_ATTRIBUTE_DIRECTORY=0) or
+    (Attributes and FILE_ATTRIBUTE_REPARSE_POINT<>0) then Exit(False);
+  for var Name in [ReplacementName,CheckpointName,PlanName] do
+  begin
+    var FileName:=DeletionNativePath(TPath.Combine(Directory,Name));
+    Attributes:=GetFileAttributes(PChar(FileName));
+    if Attributes=INVALID_FILE_ATTRIBUTES then Continue;
+    if (Attributes and (FILE_ATTRIBUTE_DIRECTORY or FILE_ATTRIBUTE_REPARSE_POINT)<>0) or
+      not System.SysUtils.DeleteFile(FileName) then Exit(False);
+  end;
+  Result:=RemoveDirectory(PChar(DeletionNativePath(Directory)));
+end;
+
+function DiscardUnpublishedDeletionStages(const Parent:string):Boolean;
+var ID:TGUID;
+begin
+  Result:=False;
+  for var Directory in TDirectory.GetDirectories(DeletionNativePath(Parent),StagePrefix+'*') do
+  begin
+    var Name:=ExtractFileName(Directory);
+    if Length(Name)<>Length(StagePrefix)+38 then Continue;
+    try ID:=StringToGUID(Name.Substring(Length(StagePrefix)));
+    except on E:EConvertError do Continue; end;
+    if not SameText(Name,StagePrefix+ID.ToString) then Continue;
+    if GetFileAttributes(PChar(Directory+'.lock'))<>INVALID_FILE_ATTRIBUTES then Continue;
+    // A sharing error also means another process may still own the stage.
+    if GetLastError<>ERROR_FILE_NOT_FOUND then Continue;
+    Result:=RemoveStagingDirectory(Directory) or Result;
+  end;
 end;
 
 function Number(Value: TJSONValue): Int64;
@@ -151,6 +204,18 @@ end;
 
 procedure SaveObject(Obj: TJSONObject; const Name: string);
 begin SaveBytes(TEncoding.UTF8.GetBytes(Obj.ToJSON), Name); end;
+
+procedure WriteStagedBytes(const Bytes:TBytes; const Name:string);
+var Stream:TFileStream;
+begin
+  // The enclosing directory is still private to the planner and will be
+  // published as a unit. No extra temporary file is needed inside it.
+  Stream:=TFileStream.Create(DeletionNativePath(Name),fmCreate);
+  try
+    if Length(Bytes)>0 then Stream.WriteBuffer(Bytes[0],Length(Bytes));
+    if not FlushFileBuffers(Stream.Handle) then RaiseLastOSError;
+  finally Stream.Free; end;
+end;
 
 function LoadObject(const Name: string): TJSONObject;
 var Stream: TFileStream; Data: TBytes; Value: TJSONValue;
@@ -243,9 +308,7 @@ function TZipDirectoryPlanStream.Read(var Buffer; Count: Longint): Longint;
 begin
   if (Count < 0) or (FPosition > FSize) or (Count > FSize-FPosition) then
     raise EReadError.Create('Invalid ZIP planning read');
-  if Simulating then Result := Count
-  else
-  begin FInput.Position := FPosition; Result := FInput.Read(Buffer, Count); end;
+  FInput.Position := FPosition; Result := FInput.Read(Buffer, Count);
   Inc(FPosition, Result);
 end;
 
@@ -259,9 +322,105 @@ begin
       (Metadata.Size+Count > MaxMetadataBytes) then
       raise EWriteError.Create('Слишком большой или неподдерживаемый каталог ZIP.');
     Metadata.WriteBuffer(Buffer, Count);
-  end
-  else if not Simulating then raise EWriteError.Create('Unexpected ZIP planning write');
+  end;
   Inc(FPosition, Count); FSize := Max(FSize, FPosition); Result := Count;
+end;
+
+function Zip64ExtraPosition(const Extra: TBytes; out FieldSize: Word): Integer;
+const Zip64Field = 1;
+var FieldID: Word;
+begin
+  Result:=0;
+  while Result+4<=Length(Extra) do
+  begin
+    Move(Extra[Result],FieldID,SizeOf(FieldID));
+    Move(Extra[Result+2],FieldSize,SizeOf(FieldSize));
+    if Result+4+FieldSize>Length(Extra) then Break;
+    if FieldID=Zip64Field then Exit;
+    Inc(Result,4+FieldSize);
+  end;
+  raise EReadError.Create('Повреждено дополнительное поле ZIP64.');
+end;
+
+procedure SetZipHeaderOffset(var Header: TZipHeader; Offset: UInt64);
+var OriginalOffset: UInt64; FieldSize: Word; Pos, Skip: Integer;
+begin
+  OriginalOffset:=Header.LocalHeaderOffset64;
+  if Offset=OriginalOffset then Exit;
+  if Offset>OriginalOffset then raise EReadError.Create('Неверное смещение сохранённого файла ZIP.');
+  if Header.LocalHeaderOffset<>High(Cardinal) then
+    Header.LocalHeaderOffset:=Cardinal(Offset)
+  else
+  begin
+    // A central ZIP64 extra field can contain just its offset. Keep its
+    // original layout and update only the bytes occupied by the offset.
+    Pos:=Zip64ExtraPosition(Header.ExtraField,FieldSize)+4;
+    Skip:=0;
+    if Header.UncompressedSize=High(Cardinal) then Inc(Skip,SizeOf(UInt64));
+    if Header.CompressedSize=High(Cardinal) then Inc(Skip,SizeOf(UInt64));
+    if Skip+SizeOf(Offset)>FieldSize then raise EReadError.Create('Повреждено смещение ZIP64.');
+    Header.ExtraField:=Copy(Header.ExtraField);
+    Move(Offset,Header.ExtraField[Pos+Skip],SizeOf(Offset));
+  end;
+end;
+
+function NeedsZip64Directory(Count: Integer; Offset: Int64): Boolean;
+begin
+  Result:=(Count>=High(Word)) or (Offset>=ZIP64_MAXINT);
+end;
+
+function CapturedZipComment(const Capture: TZipDirectoryPlanStream;
+  const Headers: TArray<TZipHeader>): TBytes;
+var CommentOffset, Count: Int64;
+begin
+  CommentOffset:=SizeOf(UInt32)+SizeOf(TZipEndOfCentralHeader);
+  if NeedsZip64Directory(Length(Headers),Capture.MetadataOffset) then
+    Inc(CommentOffset,SizeOf(TZip64Header)+SizeOf(TZip64EndOfCentralHeader));
+  for var Header in Headers do
+    Inc(CommentOffset,SizeOf(UInt32)+CENTRALHEADERSIZE+Header.FileNameLength+
+      Header.ExtraFieldLength+Header.FileCommentLength);
+  Count:=Capture.Metadata.Size-CommentOffset;
+  if (Count<0) or (Count>High(Word)) then raise EReadError.Create('Неверный комментарий архива ZIP.');
+  SetLength(Result,Integer(Count));
+  if Count>0 then
+  begin
+    Capture.Metadata.Position:=CommentOffset;
+    Capture.Metadata.ReadBuffer(Result[0],Length(Result));
+  end;
+end;
+
+procedure WriteZipDirectoryEnd(Stream: TStream; Count: Integer; Offset: Int64; const Comment: TBytes);
+var Ending: TZipEndOfCentralHeader; Header: TZip64Header; Locator: TZip64EndOfCentralHeader;
+  Signature: UInt32;
+begin
+  Ending:=Default(TZipEndOfCentralHeader);
+  if NeedsZip64Directory(Count,Offset) then
+  begin
+    Header:=Default(TZip64Header);
+    Header.Signature:=SIGNATURE_ZIP64CENTRALHEADER;
+    Header.HeaderSize:=SizeOf(TZip64Header)-SizeOf(UInt32)-SizeOf(Int64);
+    Header.MadeByVersion:=45; Header.RequiredVersion:=45;
+    Header.NumEntriesThisDisk:=Count; Header.CentralDirEntries:=Count;
+    Header.CentralDirSize:=Stream.Size; Header.CentralDirOffset:=Offset;
+    Locator:=Default(TZip64EndOfCentralHeader);
+    Locator.Signature:=SIGNATURE_ZIP64ENDOFHEADER;
+    Locator.Zip64CentralDirOffset:=UInt64(Offset)+UInt64(Stream.Size);
+    Locator.TotalNumberOfDisks:=1;
+    Stream.WriteBuffer(Header,SizeOf(Header));
+    Stream.WriteBuffer(Locator,SizeOf(Locator));
+    Ending.NumEntriesThisDisk:=High(Word); Ending.CentralDirEntries:=High(Word);
+    Ending.CentralDirSize:=ZIP64_MAXINT; Ending.CentralDirOffset:=ZIP64_MAXINT;
+  end
+  else
+  begin
+    Ending.NumEntriesThisDisk:=Count; Ending.CentralDirEntries:=Count;
+    Ending.CentralDirSize:=Stream.Size; Ending.CentralDirOffset:=Offset;
+  end;
+  Ending.CommentLength:=Length(Comment);
+  Signature:=SIGNATURE_ZIPENDOFHEADER;
+  Stream.WriteBuffer(Signature,SizeOf(Signature));
+  Stream.WriteBuffer(Ending,SizeOf(Ending));
+  if Length(Comment)>0 then Stream.WriteBuffer(Comment[0],Length(Comment));
 end;
 
 function TZipMemberDeletion.ReadAt(Offset: Int64; Count: Integer): TBytes;
@@ -273,6 +432,24 @@ begin
   if Count > 0 then FSource.ReadBuffer(Result[0], Count);
 end;
 
+function TZipMemberDeletion.ReadChunkSource(Source: TJSONValue; Count: Integer): TBytes;
+var Position, PartSize: Integer;
+begin
+  if not (Source is TJSONArray) then Exit(ReadAt(Number(Source),Count));
+  SetLength(Result,Count);
+  Position:=0;
+  // Read the full group before writing. Some original bytes can overlap
+  // the compacted destination of this same group.
+  for var Value in TJSONArray(Source) do
+  begin
+    var Part:=Value as TJSONArray;
+    PartSize:=Integer(Number(Part.Items[1]));
+    FSource.Position:=Number(Part.Items[0]);
+    FSource.ReadBuffer(Result[Position],PartSize);
+    Inc(Position,PartSize);
+  end;
+end;
+
 function TZipMemberDeletion.Chunks: TJSONArray;
 begin Result := FPlan.GetValue('chunks') as TJSONArray; end;
 
@@ -281,6 +458,27 @@ begin Result := Number((Chunks.Items[Index] as TJSONArray).Items[Field]); end;
 
 function TZipMemberDeletion.ChunkHash(Index: Integer): string;
 begin Result := (Chunks.Items[Index] as TJSONArray).Items[3].Value; end;
+
+function TZipMemberDeletion.ChunkReplacement(Index: Integer): TBytes;
+begin
+  var Chunk:=Chunks.Items[Index] as TJSONArray;
+  if Chunk.Items[4] is TJSONString then
+    Exit(TNetEncoding.Base64.DecodeStringToBytes(Chunk.Items[4].Value));
+  if not Assigned(FReplacement) then raise EReadError.Create('Отсутствуют пересжатые данные журнала 7z.');
+  FReplacement.Position:=Number(Chunk.Items[4]);
+  SetLength(Result,Integer(ChunkNumber(Index,2)));
+  FReplacement.ReadBuffer(Result[0],Length(Result));
+end;
+
+procedure TZipMemberDeletion.OpenReplacement(const Directory:string);
+begin
+  var Path:=DeletionNativePath(TPath.Combine(Directory,ReplacementName));
+  var Attributes:=GetFileAttributes(PChar(Path));
+  if (Attributes=INVALID_FILE_ATTRIBUTES) or
+    (Attributes and (FILE_ATTRIBUTE_REPARSE_POINT or FILE_ATTRIBUTE_DIRECTORY)<>0) then
+    raise EReadError.Create('Пересжатые данные журнала 7z отсутствуют или недоступны.');
+  FReplacement:=TFileStream.Create(Path,fmOpenRead or fmShareExclusive);
+end;
 
 function TZipMemberDeletion.GetContextHash: string;
 begin
@@ -364,59 +562,170 @@ begin
 end;
 
 procedure TZipMemberDeletion.CheckPlan;
-var ArrayItem: TJSONValue; Item: TJSONArray; Source, Target, Count, EndSource, EndTarget: Int64;
-  Hash: string;
+var ArrayItem: TJSONValue; Item: TJSONArray; Target, Count, EndSource, EndTarget: Int64;
+  Hash: string; Schema, ReplacementBytes, OriginalSize, MetadataOffset: Int64;
+
+  procedure CheckSourceRange(Source, Destination, Size: Int64);
+  begin
+    if (((Schema<3) or (Schema=ZipGroupedRangesSchema)) and (Source<EndSource)) or
+      (Source<Destination) or (Source>OriginalSize-Size) then
+      raise EReadError.Create('Некорректный исходный диапазон архива.');
+    EndSource:=Source+Size;
+  end;
+
 begin
   CheckIdentity;
-  if not (FieldNumber(FPlan,'schema') in [1,2]) or
+  Schema:=FieldNumber(FPlan,'schema');
+  ReplacementBytes:=0;
+  if not (Schema in [1,2,3,4,ZipGroupedRangesSchema,SevenZipGroupedRangesSchema]) or
     not (FPlan.GetValue('chunks') is TJSONArray) or
     not (FPlan.GetValue('remaining') is TJSONArray) or
     (Chunks.Count > 1048576) then raise EReadError.Create('Неподдерживаемый журнал удаления ZIP.');
   FMetadata := TNetEncoding.Base64.DecodeStringToBytes(TextField(FPlan,'metadata'));
   FHeader:=nil;
-  if FieldNumber(FPlan,'schema')=2 then
+  if Schema in [2,3,4,SevenZipGroupedRangesSchema] then
   begin
     if TextField(FPlan,'format')<>'7z' then raise EReadError.Create('Неизвестный формат журнала удаления.');
     FHeader:=TNetEncoding.Base64.DecodeStringToBytes(TextField(FPlan,'header'));
     if Length(FHeader)<>32 then raise EReadError.Create('Повреждён заголовок плана 7z.');
   end;
+  OriginalSize:=FieldNumber(FPlan,'originalSize');
+  MetadataOffset:=FieldNumber(FPlan,'metadataOffset');
   if ((Length(FMetadata)=0) and (Length(FHeader)=0) and
       ((FWholeIdentity='') or not CanRemoveWhole or (FieldNumber(FPlan,'finalSize')<>0))) or
     (Length(FMetadata) > MaxMetadataBytes) or
-    (FieldNumber(FPlan,'originalSize') < FieldNumber(FPlan,'finalSize')) or
-    (FieldNumber(FPlan,'metadataOffset') < 0) or
-    (FieldNumber(FPlan,'finalSize')-Length(FMetadata) <> FieldNumber(FPlan,'metadataOffset')) then
+    (OriginalSize < FieldNumber(FPlan,'finalSize')) or (MetadataOffset < 0) or
+    (FieldNumber(FPlan,'finalSize')-Length(FMetadata) <> MetadataOffset) then
     raise EReadError.Create('Повреждён план удаления ZIP.');
   EndTarget := FieldNumber(FPlan,'untouchedEnd'); EndSource := EndTarget;
-  if (EndTarget<0) or (EndTarget>FieldNumber(FPlan,'metadataOffset')) then
+  if (EndTarget<0) or (EndTarget>MetadataOffset) then
     raise EReadError.Create('Неверная граница неизменяемого участка ZIP.');
   for ArrayItem in Chunks do
   begin
-    if not (ArrayItem is TJSONArray) or (TJSONArray(ArrayItem).Count <> 4) then
+    if not (ArrayItem is TJSONArray) or not (TJSONArray(ArrayItem).Count in [4,5]) then
       raise EReadError.Create('Повреждён блок плана ZIP.');
     Item := TJSONArray(ArrayItem);
-    Source := Number(Item.Items[0]); Target := Number(Item.Items[1]); Count := Number(Item.Items[2]);
+    Target := Number(Item.Items[1]); Count := Number(Item.Items[2]);
     Hash := Item.Items[3].Value;
-    if (Source < EndSource) or (Target <> EndTarget) or (Source < Target) or
-      (Count <= 0) or (Count > BlockBytes) or
-      (Source > FieldNumber(FPlan,'originalSize')-Count) or
-      (Target > FieldNumber(FPlan,'metadataOffset')-Count) or
+    if (Target <> EndTarget) or (Count <= 0) or (Count > BlockBytes) or
+      (Target > MetadataOffset-Count) or
       (Length(Hash) <> 64) then raise EReadError.Create('Некорректные границы перемещения в ZIP.');
+    if Item.Count=5 then
+    begin
+      if not (Schema in [3,4,SevenZipGroupedRangesSchema]) or (Number(Item.Items[0])<>-1) then
+        raise EReadError.Create('Некорректный пересжатый блок 7z.');
+      if Schema=3 then
+      begin
+        if not (Item.Items[4] is TJSONString) or (ReplacementBytes+Count>MaxSevenZipInlineReplacementBytes) then
+          raise EReadError.Create('Некорректный встроенный блок журнала 7z.');
+        var Payload:=TNetEncoding.Base64.DecodeStringToBytes(Item.Items[4].Value);
+        if (Length(Payload)<>Count) or (Digest(Payload)<>Hash) then
+          raise EReadError.Create('Пересжатый блок 7z не совпадает с журналом.');
+      end
+      else if Number(Item.Items[4])<>ReplacementBytes then
+        raise EReadError.Create('Неверное смещение пересжатого блока журнала 7z.');
+      Inc(ReplacementBytes,Count);
+    end
+    else if Item.Items[0] is TJSONArray then
+    begin
+      var Ranges:=TJSONArray(Item.Items[0]);
+      if not (Schema in [ZipGroupedRangesSchema,SevenZipGroupedRangesSchema]) or
+        (Ranges.Count<2) or (Ranges.Count>MaxChunkRanges) then
+        raise EReadError.Create('Некорректная группа исходных диапазонов ZIP.');
+      var Used:Int64:=0;
+      for var Range in Ranges do
+      begin
+        if not (Range is TJSONArray) or (TJSONArray(Range).Count<>2) then
+          raise EReadError.Create('Повреждён исходный диапазон ZIP.');
+        var Part:=TJSONArray(Range);
+        var Size:=Number(Part.Items[1]);
+        if (Size<=0) or (Size>Count-Used) then raise EReadError.Create('Некорректный размер диапазона ZIP.');
+        CheckSourceRange(Number(Part.Items[0]),Target+Used,Size);
+        Inc(Used,Size);
+      end;
+      if Used<>Count then raise EReadError.Create('Группа исходных диапазонов ZIP неполная.');
+    end
+    else CheckSourceRange(Number(Item.Items[0]),Target,Count);
     for var Ch in Hash do if not CharInSet(Ch,['0'..'9','a'..'f']) then
       raise EReadError.Create('Повреждена контрольная сумма блока ZIP.');
-    EndSource := Source+Count; EndTarget := Target+Count;
+    EndTarget := Target+Count;
   end;
-  if EndTarget <> FieldNumber(FPlan,'metadataOffset') then
+  if EndTarget <> MetadataOffset then
     raise EReadError.Create('План ZIP оставляет непроверенный участок.');
+  if Schema in [4,SevenZipGroupedRangesSchema] then
+  begin
+    if ((Schema=4) and (ReplacementBytes=0)) or
+      ((Schema=SevenZipGroupedRangesSchema) and
+        (ReplacementBytes<>FieldNumber(FPlan,'replacementBytes'))) or
+      ((ReplacementBytes>0) and not FFinished and
+        ((not Assigned(FReplacement)) or (FReplacement.Size<>ReplacementBytes))) then
+      raise EReadError.Create('Неверный размер пересжатых данных журнала 7z.');
+    FReplacementSize:=ReplacementBytes;
+  end;
 end;
 
 procedure TZipMemberDeletion.PrepareSevenZip(const Names:TArray<string>;
-  const Cancelled:TFunc<Boolean>);
-var Layout:TSevenZipDeletionLayout; List,Item:TJSONArray; Untouched:Int64;
+  const Cancelled:TFunc<Boolean>; AllowRepack:Boolean; const JournalParent:string; const Progress:TZipDeleteProgress);
+var Layout:TSevenZipDeletionLayout; List, Parts:TJSONArray; Untouched, SourceEnd, ReplacementBytes:Int64;
+  Schema, GroupBytes, GroupLimit:Integer; FirstRange:TSevenZipRetainedRange; HasGroups:Boolean;
+  Report:TProc<Int64,Int64>;
+
+  procedure AddChunk(const Range:TSevenZipRetainedRange; var Sources:TJSONArray; Size:Integer);
+  begin
+    var Item:=TJSONArray.Create;
+    try
+      if Assigned(Sources) and (Sources.Count>1) then
+      begin
+        Item.AddElement(Sources);
+        Sources:=nil;
+        HasGroups:=True;
+      end
+      else Item.AddElement(TJSONNumber.Create(Range.Source));
+      Item.AddElement(TJSONNumber.Create(Range.Target));
+      Item.AddElement(TJSONNumber.Create(Size));
+      if Item.Items[0] is TJSONArray then Item.Add(Digest(ReadChunkSource(Item.Items[0],Size)))
+      else Item.Add(Range.SHA256);
+      if Length(Range.Replacement)>0 then Item.Add(TNetEncoding.Base64.EncodeBytesToString(Range.Replacement));
+      if (Schema=4) and (Range.Source=-1) then Item.AddElement(TJSONNumber.Create(Range.ReplacementOffset));
+      Chunks.AddElement(Item);
+      Item:=nil;
+    finally Item.Free; end;
+  end;
+
+  procedure FinishGroup;
+  begin
+    if not Assigned(Parts) then Exit;
+    AddChunk(FirstRange,Parts,GroupBytes);
+    FreeAndNil(Parts);
+    GroupBytes:=0;
+  end;
+
 begin
-  Layout:=PlanSevenZipDeletion(FSource,Names,Cancelled);
+  if AllowRepack and (JournalParent<>'') then
+  begin
+    ForceDirectories(DeletionNativePath(JournalParent));
+    var Stage:=TPath.Combine(ExpandFileName(JournalParent),StagePrefix+TGUID.NewGuid.ToString);
+    FStagingGuard:=CreateFile(PChar(DeletionNativePath(Stage+'.lock')),DeleteAccess,
+      0,nil,CREATE_NEW,FILE_ATTRIBUTE_TEMPORARY or FILE_FLAG_DELETE_ON_CLOSE,0);
+    if FStagingGuard=INVALID_HANDLE_VALUE then
+    begin FStagingGuard:=0; RaiseLastOSError; end;
+    if not CreateDirectory(PChar(DeletionNativePath(Stage)),nil) then RaiseLastOSError;
+    FStagingDirectory:=Stage;
+    FReplacement:=TFileStream.Create(DeletionNativePath(TPath.Combine(Stage,ReplacementName)),fmCreate);
+  end;
+  if Assigned(Progress) then
+    Report:=procedure(Done,Total:Int64) begin Progress(ArchiveDeletionRepackStage,Done,Total); end;
+  Layout:=PlanSevenZipDeletion(FSource,Names,Cancelled,AllowRepack,FReplacement,Report);
+  if Assigned(FReplacement) and (FReplacement.Size=0) then DiscardStaging;
+  Schema:=2; SourceEnd:=32;
+  for var Range in Layout.Ranges do
+  begin
+    if (Range.Source<SourceEnd) then Schema:=3;
+    SourceEnd:=Range.Source+Range.Bytes;
+  end;
+  if Assigned(FReplacement) then Schema:=4;
   FPlan:=TJSONObject.Create;
-  FPlan.AddPair('schema',TJSONNumber.Create(2)); FPlan.AddPair('format','7z');
+  FPlan.AddPair('format','7z');
   FPlan.AddPair('archive',FArchive); FPlan.AddPair('fileId',ArchiveKey(FSource.Handle));
   FPlan.AddPair('originalSize',TJSONNumber.Create(FSource.Size));
   FPlan.AddPair('finalSize',TJSONNumber.Create(Layout.FinalSize));
@@ -424,14 +733,47 @@ begin
   FPlan.AddPair('metadata',TNetEncoding.Base64.EncodeBytesToString(Layout.Tail));
   FPlan.AddPair('header',TNetEncoding.Base64.EncodeBytesToString(Layout.Header));
   FPlan.AddPair('chunks',TJSONArray.Create); Untouched:=32;
-  for var Range in Layout.Ranges do
-    if (Range.Source=Range.Target) and (Range.Target=Untouched) then Inc(Untouched,Range.Bytes)
-    else
+  Parts:=nil; GroupBytes:=0; GroupLimit:=SevenZipRecoveryBlockBytes(FSource.Size); HasGroups:=False;
+  try
+    for var Range in Layout.Ranges do
     begin
-      Item:=TJSONArray.Create;
-      Item.AddElement(TJSONNumber.Create(Range.Source)); Item.AddElement(TJSONNumber.Create(Range.Target));
-      Item.AddElement(TJSONNumber.Create(Range.Bytes)); Item.Add(Range.SHA256); Chunks.AddElement(Item);
+      if Assigned(Cancelled) and Cancelled() then Abort;
+      if (Range.Source=Range.Target) and (Range.Target=Untouched) then
+      begin
+        Inc(Untouched,Range.Bytes);
+        Continue;
+      end;
+      if (Range.Source<0) or (Schema=3) then
+      begin
+        FinishGroup;
+        AddChunk(Range,Parts,Range.Bytes);
+        Continue;
+      end;
+      // The complete borrowed group is read before its destination changes.
+      // Keep generated bytes separate so the journal stores them only once.
+      if (GroupBytes+Range.Bytes>GroupLimit) or
+        (Assigned(Parts) and (Parts.Count=MaxChunkRanges)) then FinishGroup;
+      if not Assigned(Parts) then
+      begin
+        FirstRange:=Range;
+        Parts:=TJSONArray.Create;
+      end;
+      var Part:=TJSONArray.Create;
+      Parts.AddElement(Part);
+      Part.AddElement(TJSONNumber.Create(Range.Source));
+      Part.AddElement(TJSONNumber.Create(Range.Bytes));
+      Inc(GroupBytes,Range.Bytes);
     end;
+    FinishGroup;
+  finally Parts.Free; end;
+  if HasGroups then
+  begin
+    ReplacementBytes:=0;
+    if Assigned(FReplacement) then ReplacementBytes:=FReplacement.Size;
+    FPlan.AddPair('replacementBytes',TJSONNumber.Create(ReplacementBytes));
+    Schema:=SevenZipGroupedRangesSchema;
+  end;
+  FPlan.AddPair('schema',TJSONNumber.Create(Schema));
   FPlan.AddPair('untouchedEnd',TJSONNumber.Create(Untouched));
   List:=TJSONArray.Create; FPlan.AddPair('remaining',List);
   for var Name in Layout.Remaining do List.Add(Name);
@@ -440,16 +782,47 @@ end;
 
 constructor TZipMemberDeletion.Prepare(const Archive: string; const Names: TArray<string>;
   const Progress: TZipDeleteProgress; const Cancelled: TFunc<Boolean>;
-  const ExpectedSourceIdentity: string);
-var Zip: TZipFile; Virtual: TZipDirectoryPlanStream; Headers, FinalHeaders: TArray<TZipHeader>;
-  OriginalNames, FinalNames: TArray<string>; Remove: TArray<Boolean>; Order: TArray<Integer>;
-  FinalOffsets: TArray<Int64>; RangeSource, RangeTarget, RangeLength: Int64;
-  OriginalEnd, FinalEnd, CurrentEnd, Offset, Destination, Remaining, Total, Done, UntouchedEnd: Int64;
+  const ExpectedSourceIdentity: string; AllowSevenZipRepack: Boolean; const JournalParent:string);
+var Zip: TZipFile; Virtual: TZipDirectoryPlanStream; Headers: TArray<TZipHeader>;
+  OriginalNames: TArray<string>; Remove: TArray<Boolean>; Order: TArray<Integer>;
+  OriginalOffsets, FinalOffsets: TArray<Int64>; RangeSource, RangeTarget, RangeLength: Int64;
+  OriginalEnd, CurrentEnd, Offset, Destination, Remaining, Total, Done, UntouchedEnd: Int64;
   Indices: TDictionary<string,Integer>; OriginalEndByIndex: TArray<Int64>;
-  Metadata: TBytes; Requested, Key: string; Index, Count, FinalIndex: Integer;
-  Chunk: TJSONArray; Keep: TJSONArray;
+  Metadata, Comment: TBytes; Requested, Key: string; Index, RetainedCount: Integer;
+  HeaderSignature: UInt32;
+  Ranges, Keep: TJSONArray;
+  BlockTarget: Int64;
+  BlockLength: Integer;
+  HasGroupedRanges: Boolean;
+
   procedure CancelCheck;
   begin if Assigned(Cancelled) and Cancelled() then Abort; end;
+
+  procedure FinishBlock;
+  begin
+    if BlockLength=0 then Exit;
+    var Chunk:=TJSONArray.Create;
+    try
+      if Ranges.Count=1 then
+        Chunk.AddElement(TJSONNumber.Create(Number((Ranges.Items[0] as TJSONArray).Items[0])))
+      else
+      begin
+        Chunk.AddElement(Ranges);
+        Ranges:=nil;
+        HasGroupedRanges:=True;
+      end;
+      Chunk.AddElement(TJSONNumber.Create(BlockTarget));
+      Chunk.AddElement(TJSONNumber.Create(BlockLength));
+      Chunk.Add(Digest(ReadChunkSource(Chunk.Items[0],BlockLength)));
+      Chunks.AddElement(Chunk);
+      Chunk:=nil;
+      Inc(Done,BlockLength);
+      BlockLength:=0;
+      FreeAndNil(Ranges);
+      if Assigned(Progress) then Progress('Проверка архива',Done,Total-UntouchedEnd);
+    finally Chunk.Free; end;
+  end;
+
   procedure AddRange(Source, Target, Length: Int64);
   begin
     if Source=Target then
@@ -459,13 +832,20 @@ var Zip: TZipFile; Virtual: TZipDirectoryPlanStream; Headers, FinalHeaders: TArr
     end;
     while Length > 0 do
     begin
-      CancelCheck; Count := Integer(Min(Int64(BlockBytes),Length));
-      Chunk := TJSONArray.Create;
-      Chunk.AddElement(TJSONNumber.Create(Source)); Chunk.AddElement(TJSONNumber.Create(Target));
-      Chunk.AddElement(TJSONNumber.Create(Count)); Chunk.Add(Digest(ReadAt(Source,Count)));
-      Chunks.AddElement(Chunk); Inc(Source,Count); Inc(Target,Count); Dec(Length,Count);
-      Inc(Done,Count);
-      if Assigned(Progress) then Progress('Проверка архива',Done,Total-UntouchedEnd);
+      CancelCheck;
+      if BlockLength=0 then
+      begin
+        BlockTarget:=Target;
+        Ranges:=TJSONArray.Create;
+      end;
+      var Count:=Integer(Min(Int64(BlockBytes-BlockLength),Length));
+      var Part:=TJSONArray.Create;
+      Ranges.AddElement(Part);
+      Part.AddElement(TJSONNumber.Create(Source));
+      Part.AddElement(TJSONNumber.Create(Count));
+      Inc(BlockLength,Count);
+      Inc(Source,Count); Inc(Target,Count); Dec(Length,Count);
+      if (BlockLength=BlockBytes) or (Ranges.Count=MaxChunkRanges) then FinishBlock;
     end;
   end;
 begin
@@ -480,10 +860,11 @@ begin
     var Signature:=ReadAt(0,6);
     if (Signature[0]=$37) and (Signature[1]=$7A) and (Signature[2]=$BC) and
       (Signature[3]=$AF) and (Signature[4]=$27) and (Signature[5]=$1C) then
-    begin PrepareSevenZip(Names,Cancelled); Exit; end;
+    begin PrepareSevenZip(Names,Cancelled,AllowSevenZipRepack,JournalParent,Progress); Exit; end;
   end;
   Zip := TZipFile.Create; Virtual := TZipDirectoryPlanStream.Create(FSource);
   Indices := TDictionary<string,Integer>.Create;
+  Ranges:=nil; BlockLength:=0; HasGroupedRanges:=False;
   try
     Zip.Open(Virtual,zmReadWrite);
     Headers := Copy(Zip.FileInfos); OriginalNames := Zip.FileNames;
@@ -506,32 +887,31 @@ begin
     OriginalEnd := Virtual.MetadataOffset;
     if (OriginalEnd < 0) or (OriginalEnd > FSource.Size) then
       raise EReadError.Create('Неверные границы каталога ZIP.');
-    Virtual.Free; Virtual := TZipDirectoryPlanStream.Create(FSource);
-    Zip.Open(Virtual,zmReadWrite); Virtual.Simulating := True;
-    for var I := High(Remove) downto 0 do if Remove[I] then
-    begin CancelCheck; Zip.Delete(I); end;
-    FinalHeaders := Copy(Zip.FileInfos); FinalNames := Zip.FileNames;
-    Virtual.Simulating := False; Virtual.Capturing := True; Zip.Close;
-    FinalEnd := Virtual.MetadataOffset;
-    SetLength(Metadata,Integer(Virtual.Metadata.Size)); Virtual.Metadata.Position := 0;
-    if Length(Metadata)>0 then Virtual.Metadata.ReadBuffer(Metadata[0],Length(Metadata));
+    Comment:=CapturedZipComment(Virtual,Headers);
 
     SetLength(Order,Length(Headers)); SetLength(OriginalEndByIndex,Length(Headers));
-    for var I := 0 to High(Order) do Order[I] := I;
+    SetLength(OriginalOffsets,Length(Headers)); SetLength(FinalOffsets,Length(Headers));
+    for var I := 0 to High(Order) do
+    begin
+      CancelCheck;
+      var Position:=Headers[I].LocalHeaderOffset64;
+      if (Position>UInt64(High(Int64))) or (Headers[I].DiskNumberStart<>0) then
+        raise EReadError.Create('Неподдерживаемое размещение ZIP.');
+      OriginalOffsets[I]:=Int64(Position); Order[I]:=I;
+    end;
     TArray.Sort<Integer>(Order,TComparer<Integer>.Construct(
       function(const Left,Right: Integer): Integer
       begin
-        if Headers[Left].LocalHeaderOffset64 < Headers[Right].LocalHeaderOffset64 then Result := -1
-        else if Headers[Left].LocalHeaderOffset64 > Headers[Right].LocalHeaderOffset64 then Result := 1
+        if OriginalOffsets[Left] < OriginalOffsets[Right] then Result := -1
+        else if OriginalOffsets[Left] > OriginalOffsets[Right] then Result := 1
         else Result := 0;
       end));
     CurrentEnd := OriginalEnd;
     for var I := High(Order) downto 0 do
     begin
+      CancelCheck;
       Index := Order[I];
-      if (Headers[Index].LocalHeaderOffset64 > UInt64(High(Int64))) or
-        (Headers[Index].DiskNumberStart <> 0) then raise EReadError.Create('Неподдерживаемое размещение ZIP.');
-      Offset := Int64(Headers[Index].LocalHeaderOffset64);
+      Offset := OriginalOffsets[Index];
       if (Offset < 0) or (Offset >= CurrentEnd) or
         (Headers[Index].CompressedSize64 > UInt64(CurrentEnd-Offset)) then
         raise EReadError.Create('Перекрывающиеся или повреждённые файлы ZIP.');
@@ -544,29 +924,43 @@ begin
       OriginalEndByIndex[Index] := CurrentEnd; CurrentEnd := Offset;
     end;
     Total := CurrentEnd;
-    for var I := 0 to High(Headers) do if not Remove[I] then
-      Inc(Total,OriginalEndByIndex[I]-Int64(Headers[I].LocalHeaderOffset64));
-    if Total<>FinalEnd then raise EReadError.Create('План ZIP не сохраняет границы оставшихся файлов.');
+    for Index in Order do if not Remove[Index] then
+    begin
+      FinalOffsets[Index]:=Total;
+      Inc(Total,OriginalEndByIndex[Index]-OriginalOffsets[Index]);
+    end;
     FPlan := TJSONObject.Create;
-    FPlan.AddPair('schema',TJSONNumber.Create(1)); FPlan.AddPair('archive',FArchive);
+    FPlan.AddPair('archive',FArchive);
     FPlan.AddPair('fileId',ArchiveKey(FSource.Handle));
     FPlan.AddPair('originalSize',TJSONNumber.Create(FSource.Size));
-    FPlan.AddPair('finalSize',TJSONNumber.Create(Virtual.Size));
-    FPlan.AddPair('metadataOffset',TJSONNumber.Create(FinalEnd));
-    FPlan.AddPair('metadata',TNetEncoding.Base64.EncodeBytesToString(Metadata));
     FPlan.AddPair('chunks',TJSONArray.Create); Keep := TJSONArray.Create; FPlan.AddPair('remaining',Keep);
-    for Key in FinalNames do Keep.Add(Key);
-    SetLength(FinalOffsets,Length(Headers)); FinalIndex := 0;
-    for var I := 0 to High(Headers) do if not Remove[I] then
+    // Payload ranges follow physical offsets. Central headers keep the
+    // source's directory order and are serialized once for the whole batch.
+    Virtual.Metadata.Size:=0; Virtual.Metadata.Position:=0;
+    HeaderSignature:=SIGNATURE_CENTRALHEADER; RetainedCount:=0;
+    for var I:=0 to High(Headers) do if not Remove[I] then
     begin
-      if (FinalIndex>=Length(FinalHeaders)) or (FinalNames[FinalIndex]<>OriginalNames[I]) then
-        raise EReadError.Create('Изменён порядок сохранённых файлов ZIP.');
-      FinalOffsets[I] := Int64(FinalHeaders[FinalIndex].LocalHeaderOffset64); Inc(FinalIndex);
+      CancelCheck;
+      var Header:=Headers[I];
+      SetZipHeaderOffset(Header,UInt64(FinalOffsets[I]));
+      Virtual.Metadata.WriteBuffer(HeaderSignature,SizeOf(HeaderSignature));
+      Virtual.Metadata.WriteBuffer(Header.MadeByVersion,CENTRALHEADERSIZE);
+      if Header.FileNameLength>0 then Virtual.Metadata.WriteBuffer(Header.FileName[0],Header.FileNameLength);
+      if Header.ExtraFieldLength>0 then Virtual.Metadata.WriteBuffer(Header.ExtraField[0],Header.ExtraFieldLength);
+      if Header.FileCommentLength>0 then Virtual.Metadata.WriteBuffer(Header.FileComment[0],Header.FileCommentLength);
+      Keep.Add(OriginalNames[I]); Inc(RetainedCount);
     end;
+    WriteZipDirectoryEnd(Virtual.Metadata,RetainedCount,Total,Comment);
+    if Virtual.Metadata.Size>MaxMetadataBytes then raise EWriteError.Create('Слишком большой каталог ZIP.');
+    SetLength(Metadata,Integer(Virtual.Metadata.Size)); Virtual.Metadata.Position:=0;
+    Virtual.Metadata.ReadBuffer(Metadata[0],Length(Metadata));
+    FPlan.AddPair('finalSize',TJSONNumber.Create(Total+Length(Metadata)));
+    FPlan.AddPair('metadataOffset',TJSONNumber.Create(Total));
+    FPlan.AddPair('metadata',TNetEncoding.Base64.EncodeBytesToString(Metadata));
     Done := 0; UntouchedEnd := 0; Destination := CurrentEnd; RangeSource := 0; RangeTarget := 0; RangeLength := CurrentEnd;
     for Index in Order do if not Remove[Index] then
     begin
-      Offset := Int64(Headers[Index].LocalHeaderOffset64); Remaining := OriginalEndByIndex[Index]-Offset;
+      Offset := OriginalOffsets[Index]; Remaining := OriginalEndByIndex[Index]-Offset;
       if FinalOffsets[Index]<>Destination then
         raise EReadError.Create('Неверное смещение сохранённого файла ZIP.');
       if (RangeSource+RangeLength=Offset) and (RangeTarget+RangeLength=Destination) then Inc(RangeLength,Remaining)
@@ -578,11 +972,14 @@ begin
       Inc(Destination,Remaining);
     end;
     AddRange(RangeSource,RangeTarget,RangeLength);
+    FinishBlock;
+    FPlan.AddPair('schema',TJSONNumber.Create(IfThen(HasGroupedRanges,ZipGroupedRangesSchema,1)));
     FPlan.AddPair('untouchedEnd',TJSONNumber.Create(UntouchedEnd));
     CheckPlan;
   finally
+    Ranges.Free;
     Indices.Free;
-    Virtual.Capturing := False; Virtual.Simulating := True;
+    Virtual.Capturing := False;
     Zip.Free; Virtual.Free;
   end;
 end;
@@ -632,7 +1029,8 @@ begin
     Exit;
   end;
   FSource := TFileStream.Create(DeletionNativePath(FArchive),fmOpenReadWrite or fmShareExclusive);
-  CheckPlan;
+  if not (FPlan.GetValue('chunks') is TJSONArray) then
+    raise EReadError.Create('Повреждён список блоков журнала удаления.');
   State := LoadObject(TPath.Combine(FJob,CheckpointName));
   try
     if TextField(State,'planHash') <> FPlanHash then raise EReadError.Create('Журнал ZIP изменён.');
@@ -644,26 +1042,48 @@ begin
     if FPending and (FNext>=Chunks.Count) then raise EReadError.Create('Неверный ожидающий блок ZIP.');
     if FFinished and (FNext<>Chunks.Count) then raise EReadError.Create('Незавершённый журнал ZIP.');
   finally State.Free; end;
+  var Schema:=FieldNumber(FPlan,'schema');
+  if not FFinished and ((Schema=4) or
+    ((Schema=SevenZipGroupedRangesSchema) and (FieldNumber(FPlan,'replacementBytes')>0))) then
+    OpenReplacement(FJob);
+  CheckPlan;
   if (FSource.Size<>FieldNumber(FPlan,'originalSize')) and
     ((FNext<>Chunks.Count) or (FSource.Size<>FieldNumber(FPlan,'finalSize'))) then
     raise EReadError.Create('Размер архива изменился вне операции удаления.');
 end;
 
+procedure TZipMemberDeletion.DiscardStaging;
+begin
+  FreeAndNil(FReplacement);
+  if FStagingDirectory<>'' then
+  begin
+    RemoveStagingDirectory(FStagingDirectory);
+    FStagingDirectory:='';
+  end;
+  if FStagingGuard<>0 then
+  begin
+    CloseHandle(FStagingGuard);
+    FStagingGuard:=0;
+  end;
+end;
+
 destructor TZipMemberDeletion.Destroy;
 begin
+  DiscardStaging;
   if FWholeHandle<>0 then CloseHandle(FWholeHandle);
   FPlan.Free; FSource.Free;
   inherited;
 end;
 
-procedure TZipMemberDeletion.SaveCheckpoint;
+procedure TZipMemberDeletion.SaveCheckpoint(const Directory:string);
 var State: TJSONObject;
 begin
   State := TJSONObject.Create;
   try
     State.AddPair('planHash',FPlanHash); State.AddPair('next',TJSONNumber.Create(FNext));
     State.AddPair('pending',TJSONBool.Create(FPending)); State.AddPair('finished',TJSONBool.Create(FFinished));
-    SaveObject(State,TPath.Combine(FJob,CheckpointName));
+    if Directory='' then SaveObject(State,TPath.Combine(FJob,CheckpointName))
+    else WriteStagedBytes(TEncoding.UTF8.GetBytes(State.ToJSON),TPath.Combine(Directory,CheckpointName));
   finally State.Free; end;
 end;
 
@@ -675,7 +1095,7 @@ var Pending: Int64;
 begin
   Pending := 0;
   for var I := 0 to Chunks.Count-1 do Pending := Max(Pending,ChunkNumber(I,2));
-  Result := Length(TEncoding.UTF8.GetBytes(FPlan.ToJSON))+2*Pending+65536;
+  Result := FReplacementSize+Length(TEncoding.UTF8.GetBytes(FPlan.ToJSON))+2*Pending+65536;
 end;
 
 procedure TZipMemberDeletion.VerifyFinished;
@@ -705,28 +1125,58 @@ begin
   finally Zip.Free; end;
 end;
 
+function TZipMemberDeletion.JournalSpaceAvailable(const Directory: string): UInt64;
+var Capacity: UInt64;
+begin
+  if not GetDiskFreeSpaceEx(PChar(DeletionNativePath(Directory)),Result,Capacity,nil) then RaiseLastOSError;
+end;
+
 procedure TZipMemberDeletion.Execute(const JournalParent: string; const Progress: TZipDeleteProgress;
   const Fault: TZipDeleteFault);
 var Bytes, Actual: TBytes; Target, Done: Int64; Count: Integer; Pending: TFileStream;
-  FreeSpace, Capacity, TotalFree: UInt64;
   procedure Signal(const Stage: string);
   begin if Assigned(Fault) then Fault(Stage,FNext); end;
   procedure Flush;
   begin if not FlushFileBuffers(FSource.Handle) then RaiseLastOSError; end;
 begin
   CheckPlan;
+  if (FJob<>'') and not FFinished and Assigned(FReplacement) then
+    for var I:=FNext to Chunks.Count-1 do
+      if ((Chunks.Items[I] as TJSONArray).Count=5) and
+        (Digest(ChunkReplacement(I))<>ChunkHash(I)) then
+        raise EReadError.Create('Пересжатый блок 7z не совпадает с журналом.');
   if FJob='' then
   begin
     ForceDirectories(DeletionNativePath(JournalParent));
-    if not GetDiskFreeSpaceEx(PChar(DeletionNativePath(JournalParent)),FreeSpace,Capacity,@TotalFree) then RaiseLastOSError;
-    if FreeSpace<UInt64(JournalBytes) then
-      raise EWriteError.Create('Недостаточно места для небольшого журнала удаления ZIP. Архив не изменён.');
-    FJob := TPath.Combine(ExpandFileName(JournalParent),'zip-delete-'+TGUID.NewGuid.ToString);
-    if not CreateDirectory(PChar(DeletionNativePath(FJob)),nil) then RaiseLastOSError;
+    if JournalSpaceAvailable(JournalParent)<UInt64(JournalBytes-FReplacementSize) then
+      raise EWriteError.Create('Недостаточно места для журнала удаления. Архив не изменён.');
     Bytes := TEncoding.UTF8.GetBytes(FPlan.ToJSON);
     if Length(Bytes)>MaxPlanBytes then raise EWriteError.Create('Слишком большой журнал ZIP.');
-    FPlanHash := Digest(Bytes); SaveBytes(Bytes,TPath.Combine(FJob,PlanName));
-    if FWholeIdentity='' then SaveCheckpoint;
+    FPlanHash := Digest(Bytes);
+    var Job:=TPath.Combine(ExpandFileName(JournalParent),'zip-delete-'+TGUID.NewGuid.ToString);
+    if FStagingDirectory<>'' then
+    begin
+      if not SameFileName(ExtractFileDir(FStagingDirectory),ExpandFileName(JournalParent)) then
+        raise EWriteError.Create('Папка журнала 7z изменилась после подготовки.');
+      if not FlushFileBuffers(FReplacement.Handle) then RaiseLastOSError;
+      WriteStagedBytes(Bytes,TPath.Combine(FStagingDirectory,PlanName));
+      SaveCheckpoint(FStagingDirectory);
+      FreeAndNil(FReplacement);
+      // Recovery only sees the directory after all staged data is durable.
+      if not MoveFileEx(PChar(DeletionNativePath(FStagingDirectory)),PChar(DeletionNativePath(Job)),
+        MOVEFILE_WRITE_THROUGH) then RaiseLastOSError;
+      FJob:=Job;
+      FStagingDirectory:='';
+      DiscardStaging;
+      OpenReplacement(FJob);
+    end
+    else
+    begin
+      if not CreateDirectory(PChar(DeletionNativePath(Job)),nil) then RaiseLastOSError;
+      FJob:=Job;
+      SaveBytes(Bytes,TPath.Combine(FJob,PlanName));
+      if FWholeIdentity='' then SaveCheckpoint;
+    end;
   end;
   if FWholeIdentity<>'' then
   begin
@@ -748,6 +1198,7 @@ begin
   while FNext<Chunks.Count do
   begin
     Target := ChunkNumber(FNext,1); Count := Integer(ChunkNumber(FNext,2));
+    var Source:=(Chunks.Items[FNext] as TJSONArray).Items[0];
     if FPending then
     begin
       Pending := TFileStream.Create(DeletionNativePath(TPath.Combine(FJob,PendingName)),fmOpenRead or fmShareDenyWrite);
@@ -756,10 +1207,11 @@ begin
         SetLength(Bytes,Count); Pending.ReadBuffer(Bytes[0],Count);
       finally Pending.Free; end;
     end
-    else Bytes := ReadAt(ChunkNumber(FNext,0),Count);
+    else if (Source is TJSONNumber) and (Number(Source)=-1) then Bytes:=ChunkReplacement(FNext)
+    else Bytes:=ReadChunkSource(Source,Count);
     if (Length(Bytes)<>Count) or (Digest(Bytes)<>ChunkHash(FNext)) then
       raise EReadError.Create('Исходный блок ZIP не совпадает с планом. Удаление не продолжено.');
-    if ChunkNumber(FNext,0)<>Target then
+    if (Source is TJSONArray) or (Number(Source)<>Target) then
     begin
       if not FPending then
       begin SaveBytes(Bytes,TPath.Combine(FJob,PendingName)); FPending := True; SaveCheckpoint; end;
@@ -825,7 +1277,8 @@ begin
     (GetLastError<>ERROR_FILE_NOT_FOUND) then
     raise EReadError.Create('Путь архива изменился после удаления. Журнал сохранён.');
   if Assigned(BeforeForget) then BeforeForget();
-  for var Name in [PendingName,CheckpointName,PlanName] do
+  FreeAndNil(FReplacement);
+  for var Name in [PendingName,ReplacementName,CheckpointName,PlanName] do
   begin
     Path := DeletionNativePath(TPath.Combine(FJob,Name));
     if FileExists(Path) and not System.SysUtils.DeleteFile(Path) then RaiseLastOSError;

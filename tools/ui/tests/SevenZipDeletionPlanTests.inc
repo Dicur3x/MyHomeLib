@@ -1,4 +1,95 @@
-﻿procedure TestSevenZipDeletionPlan;
+﻿procedure TestLargeSevenZipStaging(const Root:string);
+var Seed, ArchivePath, Journal, Job, Sidecar, BeforeHash, InterruptedHash:string;
+  Deletion:TZipMemberDeletion; Rejected, ProgressSeen:Boolean;
+
+  procedure KillAfterPartialWrite(const Report:string);
+  var Startup:TStartupInfo; Info:TProcessInformation; Command:string; ExitCode:DWORD;
+  begin
+    Command:='"'+ParamStr(0)+'" zip-member-crash-child "'+ArchivePath+'" "'+Journal+
+      '" half-written "'+Report+'" selected/one.fb2 staged-repack';
+    UniqueString(Command); ZeroMemory(@Startup,SizeOf(Startup)); Startup.cb:=SizeOf(Startup);
+    ZeroMemory(@Info,SizeOf(Info));
+    Win32Check(CreateProcess(PChar(ParamStr(0)),PChar(Command),nil,nil,False,CREATE_NO_WINDOW,nil,
+      PChar(Settings.AppPath),Startup,Info));
+    try
+      if WaitForSingleObject(Info.hProcess,30000)<>WAIT_OBJECT_0 then
+      begin TerminateProcess(Info.hProcess,74); raise Exception.Create('Owned large 7z worker exceeded its guard'); end;
+      Win32Check(GetExitCodeProcess(Info.hProcess,ExitCode));
+      Require((ExitCode=73) and FileExists(Report),'Large 7z worker did not reach its crash point');
+    finally CloseHandle(Info.hThread); CloseHandle(Info.hProcess); end;
+    Job:=TFile.ReadAllText(Report,TEncoding.UTF8);
+    Require(StartsText(IncludeTrailingPathDelimiter(Journal),Job),'Large 7z journal escaped the fixture');
+  end;
+
+  procedure FlipLastByte;
+  var Stream:TFileStream; Value:Byte;
+  begin
+    Stream:=TFileStream.Create(Sidecar,fmOpenReadWrite or fmShareExclusive);
+    try
+      Stream.Position:=Stream.Size-1;
+      Stream.ReadBuffer(Value,1);
+      Value:=Value xor $80;
+      Stream.Position:=Stream.Size-1;
+      Stream.WriteBuffer(Value,1);
+    finally Stream.Free; end;
+  end;
+
+begin
+  Seed:=Root+'solid-limit.7z';
+  var Owned:=Settings.AppPath+'zip-member-delete\large-solid\';
+  ArchivePath:=Owned+'book.7z'; Journal:=Owned+'journal';
+  ForceDirectories(Journal);
+  TFile.Copy(Seed,ArchivePath,True); BeforeHash:=THashSHA2.GetHashStringFromFile(ArchivePath);
+  ProgressSeen:=False;
+  Deletion:=TZipMemberDeletion.Prepare(ArchivePath,['selected/one.fb2'],
+    procedure(const Stage:string; Done,Total:Int64)
+    begin ProgressSeen:=ProgressSeen or ((Stage=ArchiveDeletionRepackStage) and (Total>0)); end,
+    nil,'',True,Journal);
+  try
+    Require(ProgressSeen and (Deletion.JournalBytes>16*1024*1024) and (Deletion.JobDirectory='') and
+      not DiscardUnpublishedDeletionStages(Journal),'Large staged journal is not protected while awaiting confirmation');
+  finally Deletion.Free; end;
+  Require((Length(TDirectory.GetFileSystemEntries(Journal))=0) and
+    (THashSHA2.GetHashStringFromFile(ArchivePath)=BeforeHash),'Cancelling large staging changed the archive or left temporary data');
+
+  var Orphan:=TPath.Combine(Journal,'zip-stage-'+TGUID.NewGuid.ToString);
+  ForceDirectories(Orphan);
+  TFile.WriteAllText(TPath.Combine(Orphan,'replacement.bin'),'Unpublished data');
+  Require(DiscardUnpublishedDeletionStages(Journal) and not DirectoryExists(Orphan),
+    'An unpublished stage was not removed');
+
+  KillAfterPartialWrite(Owned+'crash.txt');
+  Sidecar:=TPath.Combine(Job,'replacement.bin');
+  Require((TFile.GetSize(Sidecar)>16*1024*1024) and
+    (TFile.GetSize(TPath.Combine(Job,'plan.json'))<1024*1024),'Large replacement is missing or stored in JSON');
+  InterruptedHash:=THashSHA2.GetHashStringFromFile(ArchivePath);
+  FlipLastByte;
+  Rejected:=False;
+  Deletion:=TZipMemberDeletion.Recover(ArchivePath,Job);
+  try
+    try Deletion.Execute(Journal); except on E:EReadError do Rejected:=True; end;
+  finally Deletion.Free; end;
+  Require(Rejected and (THashSHA2.GetHashStringFromFile(ArchivePath)=InterruptedHash),
+    'Damaged large replacement did not stop recovery before writing');
+  FlipLastByte;
+  Deletion:=TZipMemberDeletion.Recover(ArchivePath,Job);
+  try
+    Deletion.Execute(Journal);
+    Require(Deletion.Finished,'Could not resume a large solid block');
+  finally Deletion.Free; end;
+  TFile.Delete(Sidecar); // A crash can interrupt acknowledgement after deleting its payload.
+  Deletion:=TZipMemberDeletion.Recover(ArchivePath,Job);
+  try
+    Deletion.Execute(Journal);
+    Deletion.Acknowledge;
+  finally Deletion.Free; end;
+  Require((Length(TDirectory.GetFileSystemEntries(Journal))=0) and
+    (TFile.GetSize(ArchivePath)<TFile.GetSize(Seed)),'Large solid deletion left its journal or failed to shrink');
+  TFile.Move(ArchivePath,Root+'repacked-large.7z');
+  Writeln('PASS large solid 7z streams its journal, rejects corruption and recovers interrupted deletion'); Flush(Output);
+end;
+
+procedure TestSevenZipDeletionPlan;
 var Root, ArchivePath, BeforeHash: string; Source, Target:TFileStream;
   Layout:TSevenZipDeletionLayout; Bytes:TBytes; Hash:THashSHA2; Rejected:Boolean;
 begin
@@ -51,11 +142,79 @@ begin
   try
     Rejected:=False;
     try Layout:=PlanSevenZipDeletion(Source,['selected/one.fb2']);
-    except on E:ENotSupportedException do Rejected:=Pos('solid',E.Message)>0; end;
+    except on E:ESevenZipDeletionUnsupported do Rejected:=True; end;
     Require(Rejected,'7z planner silently re-encoded a partial solid block');
   finally Source.Free; end;
   Require(THashSHA2.GetHashStringFromFile(ArchivePath)=BeforeHash,'Rejected solid plan changed the archive');
   Writeln('PASS partial solid 7z removal is rejected before any source mutation'); Flush(Output);
+  var ResultPath:=Root+'repacked-solid.7z';
+  var Journal:=Root+'solid-journal';
+  TFile.Copy(ArchivePath,ResultPath,True);
+  var Interrupted:=False;
+  var Deletion:=TZipMemberDeletion.Prepare(ResultPath,['selected/one.fb2'],nil,nil,'',True);
+  var Job:string;
+  try
+    Require(THashSHA2.GetHashStringFromFile(ArchivePath)=BeforeHash,'Solid planning touched the seed');
+    try
+      Deletion.Execute(Journal,nil,procedure(const Stage:string; Chunk:Integer)
+        begin
+          if Stage='half-written' then begin Interrupted:=True; raise EAbort.Create('Owned solid interruption'); end;
+        end);
+    except on E:EAbort do if not Interrupted then raise; end;
+    Job:=Deletion.JobDirectory;
+    Require(Interrupted,'Solid repack did not use a recoverable payload block');
+  finally Deletion.Free; end;
+  Deletion:=TZipMemberDeletion.Recover(ResultPath,Job);
+  try
+    Deletion.Execute(Journal);
+    Require(Deletion.Finished,'Could not resume a partial solid block');
+    Deletion.Acknowledge;
+  finally Deletion.Free; end;
+  Require(not DirectoryExists(Job) and (TFile.GetSize(ResultPath)<TFile.GetSize(ArchivePath)),
+    'Solid removal did not clean its journal or reduce the archive size');
+  Writeln('PASS partial solid 7z removal shrinks the archive and recovers a half-written block'); Flush(Output);
+  TestLargeSevenZipStaging(Root);
+end;
+
+procedure TestGroupedSevenZipDeletionRecovery;
+var Root, Archive, Journal, Job:string; Deletion:TZipMemberDeletion; Interrupted:Boolean;
+begin
+  RequireIsolatedRegression;
+  Root:=Settings.AppPath+'sevenzip-delete-plan\';
+  Archive:=Root+'recovered-grouped-solid.7z'; Journal:=Root+'grouped-journal';
+  TFile.Copy(Root+'grouped-solid.7z',Archive,True);
+  Deletion:=TZipMemberDeletion.Prepare(Archive,
+    ['book00.fb2','book04.fb2','book05.fb2','book08.fb2','book09.fb2'],nil,nil,'',True,Journal);
+  try
+    Interrupted:=False;
+    try
+      Deletion.Execute(Journal,nil,
+        procedure(const Stage:string; Chunk:Integer)
+        begin
+          if Stage<>'half-written' then Exit;
+          var Plan:=TJSONObject.ParseJSONValue(TFile.ReadAllText(
+            TPath.Combine(Deletion.JobDirectory,'plan.json'),TEncoding.UTF8)) as TJSONObject;
+          try
+            Require(Plan.GetValue<Integer>('schema')=6,'7z did not group retained blocks');
+            Require(Plan.GetValue<Int64>('replacementBytes')>0,'Fixture did not stage a solid block');
+            var Entry:=(Plan.GetValue('chunks') as TJSONArray).Items[Chunk] as TJSONArray;
+            if not (Entry.Items[0] is TJSONArray) then Exit;
+          finally Plan.Free; end;
+          Interrupted:=True;
+          raise EAbort.Create('Owned grouped 7z interruption');
+        end);
+    except on E:EAbort do if not Interrupted then raise; end;
+    Job:=Deletion.JobDirectory;
+  finally Deletion.Free; end;
+  Require(Interrupted and DirectoryExists(Job),'Grouped 7z interruption was not reached');
+  Deletion:=TZipMemberDeletion.Recover(Archive,Job);
+  try
+    Deletion.Execute(Journal);
+    Require(Deletion.Finished,'Grouped 7z recovery did not finish');
+    Deletion.Acknowledge;
+  finally Deletion.Free; end;
+  Require(not DirectoryExists(Job),'Grouped 7z recovery left an acknowledged journal');
+  Writeln('PASS grouped 7z recovers a half-written borrowed group with staged solid data'); Flush(Output);
 end;
 
 procedure TestSevenZipDeletionRecovery;
@@ -132,6 +291,7 @@ begin
   TFile.WriteAllText(Settings.AppPath+'sevenzip-recovery-proof.json',
     '{"archive":"zip-member-delete/sevenzip-recovery/source.7z","files":["selected/two.fb2","unselected/keep.fb2"]}',TEncoding.UTF8);
   Writeln('PASS in-place PPMd and LZMA2 removal recovers ten interruption phases and killed workers without an archive clone'); Flush(Output);
+  TestGroupedSevenZipDeletionRecovery;
 
   var Tasks:TArray<TArchiveDeletionTask>; SetLength(Tasks,2);
   for var I:=0 to 1 do

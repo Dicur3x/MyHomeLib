@@ -4,7 +4,20 @@ interface
 
 uses System.SysUtils, System.Classes, unit_Globals, unit_ReaderAnnotations;
 
+const READER_CATALOGUE_RECENT_LIMIT = 10;
+
 type
+  TReaderCatalogueRecent = record
+    Key: TBookKey;
+    Identity, Caption: string;
+  end;
+
+  TReaderCatalogueVolume = record
+    Book: TReaderCatalogueRecent;
+    SeriesID, Sequence: Integer;
+  end;
+  PReaderCatalogueVolume = ^TReaderCatalogueVolume;
+
   // The reader receives a resolved locator, never a connection to a catalogue.
   // HistoryIdentity is exactly the identity used by the existing reader.
   TReaderSessionRequest = record
@@ -12,6 +25,8 @@ type
       OriginalMember: string;
     Book: TBookRecord;
     RequirePersonalProgress: Boolean;
+    CatalogueRecent: TArray<TReaderCatalogueRecent>;
+    NextVolume: TReaderCatalogueVolume;
   end;
   TReaderSessionReply = record
     State, RequiredComponent, ErrorText: string;
@@ -19,6 +34,8 @@ type
     HasProgress, Opened: Boolean;
     Progress: Integer;
     RequestedNote: TReaderAnnotation;
+    RequestedCatalogueRecent: Integer; // 1-based index in this request
+    RequestedNextVolume: Boolean;
   end;
   TReaderSessionLease = class
   private
@@ -31,7 +48,9 @@ type
 
 function CreateReaderSession(const Directory: string; const Book: TBookRecord;
   const HistoryIdentity, SettingsFile: string; RequirePersonalProgress: Boolean = False;
-  const OriginalSource: string = ''; const OriginalMember: string = ''): TReaderSessionRequest;
+  const OriginalSource: string = ''; const OriginalMember: string = '';
+  const CatalogueRecent: TArray<TReaderCatalogueRecent> = nil;
+  NextVolume: PReaderCatalogueVolume = nil): TReaderSessionRequest;
 function LoadReaderSession(const RequestFile: string): TReaderSessionRequest;
 procedure WriteReaderSessionReply(const Request: TReaderSessionRequest;
   const Reply: TReaderSessionReply);
@@ -104,8 +123,23 @@ begin
   Result:=TPath.GetFullPath(Value);
 end;
 
+procedure AddCatalogueBook(Entry: TJSONObject; const Book: TReaderCatalogueRecent);
+begin
+  Entry.AddPair('collection_id',TJSONNumber.Create(Book.Key.DatabaseID));
+  Entry.AddPair('book_id',TJSONNumber.Create(Book.Key.BookID));
+  Entry.AddPair('identity',Book.Identity);
+  Entry.AddPair('caption',Book.Caption);
+end;
+
+function ReadCatalogueBook(Entry: TJSONObject): TReaderCatalogueRecent;
+begin
+  Result.Key:=CreateBookKey(Number(Entry,'book_id',1,MaxInt),Number(Entry,'collection_id',0,MaxInt));
+  Result.Identity:=Text(Entry,'identity',40);
+  Result.Caption:=Text(Entry,'caption',240);
+end;
+
 function RequestObject(const Request: TReaderSessionRequest): TJSONObject;
-var Locator: TJSONObject;
+var Locator, Entry: TJSONObject; Recent: TJSONArray;
 begin
   Result:=TJSONObject.Create;
   Result.AddPair('format',TJSONNumber.Create(1));
@@ -124,10 +158,26 @@ begin
   Locator.AddPair('size',TJSONNumber.Create(Request.Book.Size));
   Locator.AddPair('lib_id',Request.Book.LibID); Locator.AddPair('title',Request.Book.Title);
   Locator.AddPair('language',Request.Book.Lang);
+  if Length(Request.CatalogueRecent)>0 then
+  begin
+    Recent:=TJSONArray.Create; Result.AddPair('catalogue_recent',Recent);
+    for var Book in Request.CatalogueRecent do
+    begin
+      Entry:=TJSONObject.Create; Recent.AddElement(Entry);
+      AddCatalogueBook(Entry,Book);
+    end;
+  end;
+  if Request.NextVolume.Book.Key.BookID>0 then
+  begin
+    Entry:=TJSONObject.Create; Result.AddPair('next_volume',Entry);
+    AddCatalogueBook(Entry,Request.NextVolume.Book);
+    Entry.AddPair('series_id',TJSONNumber.Create(Request.NextVolume.SeriesID));
+    Entry.AddPair('sequence',TJSONNumber.Create(Request.NextVolume.Sequence));
+  end;
 end;
 
 function LoadReaderSession(const RequestFile: string): TReaderSessionRequest;
-var Root, Locator: TJSONObject; Value: TJSONValue;
+var Root, Locator, Entry: TJSONObject; Value: TJSONValue; Recent: TJSONArray;
 begin
   Result:=Default(TReaderSessionRequest); Result.RequestFile:=AbsoluteFile(RequestFile);
   Root:=ReadObject(Result.RequestFile);
@@ -169,12 +219,44 @@ begin
     Include(Result.Book.BookProps,bpIsLocal);
     if not SameFileName(AbsoluteFile(Result.Book.GetBookFileName),Result.SourceFile) then
       raise Exception.Create('Путь книги не совпадает с данными выбранной записи.');
+    Value:=Root.GetValue('catalogue_recent');
+    if Assigned(Value) then
+    begin
+      if not (Value is TJSONArray) then
+        raise Exception.Create('Некорректный список недавних книг каталога.');
+      Recent:=TJSONArray(Value);
+      if Recent.Count>READER_CATALOGUE_RECENT_LIMIT then
+        raise Exception.Create('Слишком много недавних книг каталога.');
+      SetLength(Result.CatalogueRecent,Recent.Count);
+      for var I:=0 to Recent.Count-1 do
+      begin
+        if not (Recent.Items[I] is TJSONObject) then
+          raise Exception.Create('Некорректная запись недавней книги.');
+        Entry:=TJSONObject(Recent.Items[I]);
+        Result.CatalogueRecent[I]:=ReadCatalogueBook(Entry);
+      end;
+    end;
+    Value:=Root.GetValue('next_volume');
+    if Assigned(Value) then
+    begin
+      if not (Value is TJSONObject) then raise Exception.Create('Некорректная запись следующего тома.');
+      Entry:=TJSONObject(Value);
+      Result.NextVolume.Book:=ReadCatalogueBook(Entry);
+      Result.NextVolume.SeriesID:=Number(Entry,'series_id',1,MaxInt);
+      Result.NextVolume.Sequence:=Number(Entry,'sequence',1,MaxInt);
+      if (Result.Book.BookKey.BookID<=0) or Result.NextVolume.Book.Key.IsSameAs(Result.Book.BookKey) or
+        (Result.NextVolume.Book.Key.DatabaseID<>Result.Book.BookKey.DatabaseID) or
+        (Length(Result.NextVolume.Book.Identity)<>40) then
+        raise Exception.Create('Следующий том не относится к коллекции открытой книги.');
+    end;
   finally Root.Free; end;
 end;
 
 function CreateReaderSession(const Directory: string; const Book: TBookRecord;
   const HistoryIdentity, SettingsFile: string; RequirePersonalProgress: Boolean;
-  const OriginalSource, OriginalMember: string): TReaderSessionRequest;
+  const OriginalSource, OriginalMember: string;
+  const CatalogueRecent: TArray<TReaderCatalogueRecent>;
+  NextVolume: PReaderCatalogueVolume): TReaderSessionRequest;
 var Folder: string; Value: TJSONObject;
 begin
   Result:=Default(TReaderSessionRequest);
@@ -183,7 +265,8 @@ begin
   Result.RequirePersonalProgress:=RequirePersonalProgress;
   Result.HistoryIdentity:=HistoryIdentity; Result.SettingsFile:=AbsoluteFile(SettingsFile);
   if OriginalSource<>'' then Result.OriginalSource:=AbsoluteFile(OriginalSource);
-  Result.OriginalMember:=OriginalMember;
+  Result.OriginalMember:=OriginalMember; Result.CatalogueRecent:=CatalogueRecent;
+  if Assigned(NextVolume) then Result.NextVolume:=NextVolume^;
   Folder:=TPath.Combine(AbsoluteFile(Directory),'HomeLibReader-session-'+Result.ID);
   if DirectoryExists(UpdateIOPath(Folder)) then raise Exception.Create('Папка сеанса чтения уже существует.');
   if not ForceDirectories(UpdateIOPath(Folder)) then
@@ -210,7 +293,11 @@ procedure WriteReaderSessionReply(const Request: TReaderSessionRequest;
 var Value, Note: TJSONObject;
 begin
   if not ValidState(Reply.State) or (Reply.ProcessID=0) or
-    (Reply.HasProgress and ((Reply.Progress<0) or (Reply.Progress>100))) then
+    (Reply.HasProgress and ((Reply.Progress<0) or (Reply.Progress>100))) or
+    (Reply.RequestedCatalogueRecent<0) or
+    (Reply.RequestedCatalogueRecent>Length(Request.CatalogueRecent)) or
+    (Reply.RequestedNextVolume and ((Reply.State<>'closed') or (Request.NextVolume.Book.Key.BookID<=0) or
+      (Reply.RequestedCatalogueRecent<>0) or (Reply.RequestedNote.ID<>''))) then
     raise Exception.Create('Некорректный результат чтения книги.');
   Value:=TJSONObject.Create;
   try
@@ -221,6 +308,9 @@ begin
     if Reply.Opened then Value.AddPair('opened',TJSONTrue.Create);
     if Reply.RequiredComponent<>'' then Value.AddPair('component',Reply.RequiredComponent);
     if Reply.ErrorText<>'' then Value.AddPair('error',Copy(Reply.ErrorText,1,4096));
+    if Reply.RequestedCatalogueRecent>0 then
+      Value.AddPair('catalogue_recent',TJSONNumber.Create(Reply.RequestedCatalogueRecent));
+    if Reply.RequestedNextVolume then Value.AddPair('next_volume',TJSONTrue.Create);
     if Reply.RequestedNote.ID<>'' then
     begin
       Note:=TJSONObject.Create; Value.AddPair('note',Note);
@@ -254,6 +344,8 @@ begin
       Pending.Opened:=(Value is TJSONBool) and TJSONBool(Value).AsBoolean;
       Pending.RequiredComponent:=Text(Root,'component',128,False);
       Pending.ErrorText:=Text(Root,'error',4096,False);
+      if Assigned(Root.GetValue('catalogue_recent')) then
+        Pending.RequestedCatalogueRecent:=Number(Root,'catalogue_recent',1,Length(Request.CatalogueRecent));
       Value:=Root.GetValue('note');
       if Assigned(Value) then
       begin
@@ -262,6 +354,14 @@ begin
         Pending.RequestedNote.BookID:=Text(Note,'book_id',8192);
         Pending.RequestedNote.BookTitle:=Text(Note,'book_title',16384,False);
         Pending.RequestedNote.Position:=Number(Note,'position',0,MaxInt);
+      end;
+      Value:=Root.GetValue('next_volume');
+      if Assigned(Value) then
+      begin
+        if not (Value is TJSONBool) or not TJSONBool(Value).AsBoolean or
+          (Pending.State<>'closed') or (Request.NextVolume.Book.Key.BookID<=0) or
+          (Pending.RequestedCatalogueRecent<>0) or (Pending.RequestedNote.ID<>'') then Exit;
+        Pending.RequestedNextVolume:=True;
       end;
       Reply:=Pending; Result:=True;
     except on E: Exception do begin Reply:=Default(TReaderSessionReply); Result:=False; end; end;

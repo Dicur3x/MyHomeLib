@@ -3,7 +3,7 @@
 interface
 
 uses System.Classes, System.SysUtils, unit_Interfaces, unit_Globals,
-  unit_BookDeletionBinding, unit_ArchiveDeletionQueue, unit_BookDuplicates;
+  unit_BookDeletionBinding, unit_ArchiveDeletionQueue, unit_BookDuplicates, unit_BookDeletionSpace;
 
 type
   TBookDeletionOperationStatus = record
@@ -18,7 +18,9 @@ type
     Stopping, Finished, AwaitingArchiveConfirmation: Boolean;
     AffectedCollections: TArray<Integer>;
     SkippedDuplicateDetails, SkippedArchiveDetails: TArray<string>;
+    SpaceByVolume: TArray<TDeletionVolumeSpace>;
     function CatalogueChanged: Boolean;
+    function DuplicateSkipReport: string;
     function AffectsCollection(CollectionID: Integer): Boolean;
   end;
 
@@ -52,6 +54,8 @@ type
       Offset, Count: Integer);
     procedure RunRemoval(const User: ISystemData);
     procedure CheckDuplicateSources(const User: ISystemData);
+    procedure KeepUnsupportedArchive(const Archive, CatalogueBinding, Reason: string);
+    procedure AccountSpace(const Changes: TArray<TDeletionVolumeSpace>);
     procedure RunBatch(const User: ISystemData);
     procedure RunDuplicateBatches(const User: ISystemData);
     procedure RunRecovery(const User: ISystemData);
@@ -94,6 +98,19 @@ end;
 function TBookDeletionOperationStatus.CatalogueChanged: Boolean;
 begin
   Result:=Length(AffectedCollections)>0;
+end;
+
+function TBookDeletionOperationStatus.DuplicateSkipReport: string;
+begin
+  if SkippedDuplicates=0 then Exit('');
+  Result:=Format('Оставлено из отмеченных копий: %d.',[SkippedDuplicates]);
+  if Length(SkippedDuplicateDetails)>0 then
+    Result:=Result+sLineBreak+string.Join(sLineBreak,SkippedDuplicateDetails);
+  if SkippedArchiveCopies>0 then
+    Result:=Result+sLineBreak+Format('Не удалось удалить %d копий из архивов 7z. Причины по архивам:',
+      [SkippedArchiveCopies])+sLineBreak+string.Join(sLineBreak,SkippedArchiveDetails);
+  if SkippedArchiveRelatedRecords>0 then
+    Result:=Result+sLineBreak+Format('Сохранено карточек этих книг: %d.',[SkippedArchiveRelatedRecords]);
 end;
 
 function TBookDeletionOperationStatus.AffectsCollection(CollectionID: Integer): Boolean;
@@ -249,13 +266,8 @@ begin
   TMonitor.Enter(FLock);
   try FState.SelectedDuplicates:=RegularCount+LinkedCount;
   finally TMonitor.Exit(FLock); end;
-  if LinkedCount>0 then
-  begin
-    Report('Проверка отмеченных дополнительных файлов','',0,0);
-    FLinkedDuplicatePlan.PrepareLinkedBatches(Info,function:Boolean begin Result:=Stopping; end,
-      procedure(Current,Total: Integer)
-      begin Report('Проверка отмеченных дополнительных файлов','',0,0,Current,Total); end);
-  end;
+  // Validate ordinary cards against the original catalogue. Their prepared
+  // bindings expect any promoted file by the time physical deletion starts.
   if RegularCount>0 then
   begin
     Report('Проверка повторных карточек и личных данных','',0,0);
@@ -268,6 +280,22 @@ begin
       FState.SkippedDuplicates:=FDuplicatePlan.SkippedCopies;
       FState.SkippedDuplicateDetails:=FDuplicatePlan.SkippedDetails;
     finally TMonitor.Exit(FLock); end;
+  end;
+  if LinkedCount>0 then
+  begin
+    Report('Проверка отмеченных дополнительных файлов','',0,0);
+    FLinkedDuplicatePlan.CheckCombinedSelection(FDuplicatePlan,function:Boolean begin Result:=Stopping; end);
+    try
+      FLinkedDuplicatePlan.PrepareLinkedBatches(Info,function:Boolean begin Result:=Stopping; end,
+        procedure(Current,Total: Integer)
+        begin Report('Проверка отмеченных дополнительных файлов','',0,0,Current,Total); end);
+    finally
+      if FLinkedDuplicatePlan.Committed then
+      begin
+        TMonitor.Enter(FLock);
+        try FState.AffectedCollections:=[FDuplicateCollectionID]; finally TMonitor.Exit(FLock); end;
+      end;
+    end;
   end;
   // Remove explicitly selected alternatives before their owning cards. Each
   // binding is checked again against the live catalogue before changing a file.
@@ -298,9 +326,17 @@ end;
 procedure TBookDeletionOperation.CheckDuplicateSources(const User: ISystemData);
 var Retained: TDictionary<string,Byte>; Containers: TDictionary<string,Byte>;
   PrimaryIDs: TDictionary<Integer,Byte>;
-  LastInventory: TArray<string>; LastSource: string;
+  CheckedCopies, CopiesToCheck: Integer;
+  MemberIndex: TBookDeletionMemberIndex; LastSource: string;
   Personal, Catalogue: TSQLiteDatabase;
   Collection: IBookCollection;
+  procedure ReportCheckedCopy;
+  begin
+    Inc(CheckedCopies);
+    if (CheckedCopies mod 32=0) or (CheckedCopies=CopiesToCheck) then
+      Report('Проверка файлов дублей','',0,0,CheckedCopies,CopiesToCheck);
+  end;
+
   procedure Locate(const Book: TBookRecord; Kept: Boolean);
   var Path, Source, Key: string; Members: TArray<string>;
   begin
@@ -336,10 +372,12 @@ var Retained: TDictionary<string,Byte>; Containers: TDictionary<string,Byte>;
     begin
       if Source<>LastSource then
       begin
-        LastInventory:=ReadBookDeletionInventory(Path,Source,function:Boolean begin Result:=Stopping; end);
+        FreeAndNil(MemberIndex);
+        MemberIndex:=TBookDeletionMemberIndex.Create(ReadBookDeletionInventory(Path,Source,
+          function:Boolean begin Result:=Stopping; end));
         LastSource:=Source;
       end;
-      Members:=ExactBookDeletionMembers(Book,LastInventory);
+      Members:=MemberIndex.Resolve(Book);
     end
     else Members:=TArray<string>.Create('');
     for var Member in Members do
@@ -353,8 +391,11 @@ var Retained: TDictionary<string,Byte>; Containers: TDictionary<string,Byte>;
   end;
 begin
   if (FRetainedDuplicates.CollectionID=0) and not FBinding.RemovesCopies then Exit;
-  Report('Проверка сохраняемых копий дублей','',0,0);
-  Retained:=nil; Containers:=nil; Personal:=nil; Catalogue:=nil; PrimaryIDs:=nil;
+  CheckedCopies:=0;
+  CopiesToCheck:=Length(FBinding.ExpectedBooks);
+  if not FBinding.RemovesCopies then Inc(CopiesToCheck,Length(FRetainedDuplicates.ExpectedBooks));
+  Report('Проверка файлов дублей','',0,0,0,CopiesToCheck);
+  Retained:=nil; Containers:=nil; Personal:=nil; Catalogue:=nil; PrimaryIDs:=nil; MemberIndex:=nil;
   try
     Retained:=TDictionary<string,Byte>.Create;
     Containers:=TDictionary<string,Byte>.Create;
@@ -374,13 +415,24 @@ begin
       Personal:=TSQLiteDatabase.CreateReadOnly(FUserFile);
       Catalogue:=TSQLiteDatabase.CreateReadOnly(User.GetCollectionInfo(FBinding.CollectionID).DBFileName);
       Collection:=User.GetCollection(FBinding.CollectionID);
-      for var Book in FRetainedDuplicates.ExpectedBooks do Locate(Book,True);
+      for var Book in FRetainedDuplicates.ExpectedBooks do
+      begin
+        Locate(Book,True);
+        ReportCheckedCopy;
+      end;
     end;
-    for var Book in FBinding.ExpectedBooks do Locate(Book,False);
+    for var Book in FBinding.ExpectedBooks do
+    begin
+      Locate(Book,False);
+      ReportCheckedCopy;
+    end;
     if not FBinding.RemovesCopies then
+    begin
+      Report('Проверка ссылок на отдельные файлы','',0,0);
       CheckLooseDuplicateReferences(User,FBinding.CollectionID,FBinding.ExpectedBooks,
         function:Boolean begin Result:=Stopping; end);
-  finally PrimaryIDs.Free; Catalogue.Free; Personal.Free; Containers.Free; Retained.Free; end;
+    end;
+  finally MemberIndex.Free; PrimaryIDs.Free; Catalogue.Free; Personal.Free; Containers.Free; Retained.Free; end;
 end;
 
 constructor TBookDeletionOperation.Recover(const UserFile,JournalRoot:string);
@@ -473,8 +525,18 @@ end;
 function TBookDeletionOperation.Status:TBookDeletionOperationStatus;
 begin
   TMonitor.Enter(FLock);
-  try Result:=FState; finally TMonitor.Exit(FLock); end;
+  try
+    Result:=FState;
+    Result.SpaceByVolume:=Copy(FState.SpaceByVolume);
+  finally TMonitor.Exit(FLock); end;
   Result.Stopping:=Stopping;
+end;
+
+procedure TBookDeletionOperation.AccountSpace(const Changes: TArray<TDeletionVolumeSpace>);
+begin
+  TMonitor.Enter(FLock);
+  try AddDeletionSpace(FState.SpaceByVolume,Changes);
+  finally TMonitor.Exit(FLock); end;
 end;
 
 procedure TBookDeletionOperation.Report(const Stage,Archive:string; Index,Count:Integer;
@@ -490,7 +552,17 @@ end;
 
 procedure TBookDeletionOperation.CompleteBinding(const Binding:TBookDeletionBinding;
   const User:ISystemData);
+var Notify:TProc<Integer,Integer>;
 begin
+  Notify:=procedure(Done,Total:Integer)
+    var Archive:string; Index,Count:Integer;
+    begin
+      TMonitor.Enter(FLock);
+      try
+        Archive:=FState.Archive; Index:=FState.ArchiveIndex; Count:=FState.ArchiveCount;
+      finally TMonitor.Exit(FLock); end;
+      Report('Обновление коллекции',Archive,Index,Count,Done,Total);
+    end;
   // Two durable stores may commit separately. Even on failure the owner must
   // refresh the view and keep the receipt so the remaining phase can replay.
   TMonitor.Enter(FLock);
@@ -500,10 +572,10 @@ begin
   finally TMonitor.Exit(FLock); end;
   if Binding.RemovesCopies then
   begin
-    Binding.CommitCopies(User);
+    Binding.CommitCopies(User,Notify);
     Exit;
   end;
-  if Binding.RemoveRecords then Binding.CommitRecords(User)
+  if Binding.RemoveRecords then Binding.CommitRecords(User,Notify)
   else Binding.CommitSourceMissing(User);
   var Count:=Length(Binding.ExpectedBooks);
   TMonitor.Enter(FLock);
@@ -512,9 +584,18 @@ end;
 
 procedure TBookDeletionOperation.RunQueue(Queue:TArchiveDeletionQueue; const User:ISystemData;
   Offset,Count:Integer);
-var Submitted:Integer; Progress:TArchiveDeletionStatus; Receipts:TArray<TArchiveDeletionResult>;
+var Submitted, Accounted:Integer; Progress:TArchiveDeletionStatus; Receipts:TArray<TArchiveDeletionResult>;
+  procedure AccountReady(const Values:TArray<TArchiveDeletionResult>);
+  begin
+    while (Accounted<Length(Values)) and Values[Accounted].SpaceFinalized do
+    begin
+      AccountSpace(Values[Accounted].SpaceChanges);
+      Inc(Accounted);
+    end;
+  end;
 begin
-  Submitted:=0; Queue.Start;
+  Submitted:=0; Accounted:=0; Queue.Start;
+  try
   repeat
     if Stopping then Queue.StopAfterCurrentArchive;
     Progress:=Queue.Status;
@@ -539,21 +620,26 @@ begin
       end;
       Inc(Submitted);
     end;
+    AccountReady(Receipts);
     // Wake for the receipt or end of the queue instead of sleeping for each
     // small archive. The timeout still refreshes progress and checks Stop.
     if not Progress.Finished then Queue.WaitForResult(25);
   until Progress.Finished;
-  Queue.WaitFor;
+  finally
+    Queue.WaitFor;
+    AccountReady(Queue.Results);
+  end;
   if Assigned(Queue.FatalException) then
     raise EInvalidOperation.Create(Exception(Queue.FatalException).Message);
   for var Receipt in Queue.Results do
+  begin
     if Receipt.Acknowledged then
     begin
       var Copies:=0;
       if FBinding.RemovesCopies or FRecovery then
       begin
         var Binding:=TBookDeletionBinding.Parse(Receipt.CatalogueBinding);
-        if Binding.RemovesCopies then Copies:=Length(Binding.SourceKeys);
+        if Binding.RemovesCopies then Copies:=Binding.PhysicalCopyCount;
       end;
       TMonitor.Enter(FLock);
       try
@@ -572,29 +658,35 @@ begin
       if FDuplicateCleanup and Receipt.UnsupportedLayout and (Receipt.WorkDirectory='') and
         (Receipt.JournalDirectory='') then
       begin
-        var Binding:=TBookDeletionBinding.Parse(Receipt.CatalogueBinding);
-        var Copies:=Length(Binding.ExpectedBooks);
-        var RecordsKept := 0;
-        if Binding.RemovesCopies then
-        begin
-          Copies := Length(Binding.SourceKeys);
-          if Assigned(FDuplicatePlan) and FDuplicatePlan.Ready then
-            RecordsKept := FDuplicatePlan.KeepRecordsWithSkippedFiles(Binding.PrimaryBooks);
-        end;
-        TMonitor.Enter(FLock);
-        try
-          Inc(FState.SkippedDuplicates, Copies + RecordsKept);
-          Inc(FState.SkippedArchiveRelatedRecords, RecordsKept);
-          Inc(FState.SkippedArchiveCopies,Copies);
-          if Length(FState.SkippedArchiveDetails)<8 then
-            FState.SkippedArchiveDetails:=FState.SkippedArchiveDetails+
-              [ExtractFileName(Receipt.Archive)+' — '+Receipt.Error];
-        finally TMonitor.Exit(FLock); end;
+        KeepUnsupportedArchive(Receipt.Archive,Receipt.CatalogueBinding,Receipt.Error);
         Continue;
       end;
       if Receipt.Error<>'' then raise EInOutError.Create(ExtractFileName(Receipt.Archive)+': '+Receipt.Error);
       raise EInOutError.Create('Не удалось подтвердить удаление из архива.');
     end;
+  end;
+end;
+
+procedure TBookDeletionOperation.KeepUnsupportedArchive(const Archive, CatalogueBinding, Reason:string);
+var Binding:TBookDeletionBinding; Copies, RecordsKept:Integer;
+begin
+  Binding:=TBookDeletionBinding.Parse(CatalogueBinding);
+  RecordsKept:=0;
+  if Binding.RemovesCopies then
+  begin
+    Copies:=Binding.PhysicalCopyCount;
+    if Assigned(FDuplicatePlan) and FDuplicatePlan.Ready then
+      RecordsKept:=FDuplicatePlan.KeepRecordsWithSkippedFiles(Binding.PrimaryBooks);
+  end
+  else Copies:=Length(Binding.ExpectedBooks);
+  TMonitor.Enter(FLock);
+  try
+    Inc(FState.SkippedDuplicates,Copies+RecordsKept);
+    Inc(FState.SkippedArchiveRelatedRecords,RecordsKept);
+    Inc(FState.SkippedArchiveCopies,Copies);
+    if Length(FState.SkippedArchiveDetails)<8 then
+      FState.SkippedArchiveDetails:=FState.SkippedArchiveDetails+[ExtractFileName(Archive)+' — '+Reason];
+  finally TMonitor.Exit(FLock); end;
 end;
 
 procedure DeleteLooseBook(const Book:TBookRecord);
@@ -658,7 +750,7 @@ begin
       CheckLinkedLooseReferences(User,Books,function:Boolean begin Result:=Stopping; end);
     if Archives.Count>0 then
     begin
-      Preparation:=TBookDeletionPreparation.Create(FBinding.Slice(Archives.ToArray));
+      Preparation:=TBookDeletionPreparation.Create(FBinding.Slice(Archives.ToArray),FDuplicateCleanup);
       try
         Preparation.Start;
         repeat
@@ -681,7 +773,9 @@ begin
       finally Preparation.Free; end;
 
       Report('Проверка других записей в этих архивах','',0,Length(Tasks));
-      CheckArchiveDeletionReferences(User,Tasks,function:Boolean begin Result:=Stopping; end);
+      CheckArchiveDeletionReferences(User,Tasks,function:Boolean begin Result:=Stopping; end,
+        procedure(CheckedRows:Int64)
+        begin Report('Проверка других записей в этих архивах','',0,Length(Tasks),CheckedRows,0); end);
       Review:=nil;
       if FReviewArchives then
       begin
@@ -721,9 +815,12 @@ begin
       Binding.CheckBeforePhysicalRemoval(User);
       // Preserve the existing loose-file contract: a failed catalogue
       // delete must never remove a source that still belongs to that row.
-      if Binding.RemoveRecords then
-      begin CompleteBinding(Binding,User); DeleteLooseBook(Books[I]); end
-      else begin DeleteLooseBook(Books[I]); CompleteBinding(Binding,User); end;
+      var SpaceBefore:=CaptureDeletionSpace([Books[I].GetBookFileName]);
+      try
+        if Binding.RemoveRecords then
+        begin CompleteBinding(Binding,User); DeleteLooseBook(Books[I]); end
+        else begin DeleteLooseBook(Books[I]); CompleteBinding(Binding,User); end;
+      finally AccountSpace(MeasureDeletionSpace(SpaceBefore)); end;
     end;
     if (Linked.Count>0) and not Stopping then
     begin
@@ -768,12 +865,23 @@ begin
       if Stopping then Exit;
       var OperationDir := TPath.Combine(FJournalRoot, ExtractFileName(NativeOperation));
       if not OrdinaryDirectory(OperationDir) then Continue;
+      var CleanedStage:=False;
       for var NativeTask in TDirectory.GetDirectories(NativeOperation,'archive-*') do
-        if OrdinaryDirectory(NativeTask) and (Length(TDirectory.GetDirectories(NativeTask,'zip-delete-*'))>0) then
+        if OrdinaryDirectory(NativeTask) then
         begin
-          if Jobs.Count>=10000 then raise EReadError.Create('Слишком много незавершённых удалений.');
-          Jobs.Add(TPath.Combine(OperationDir, ExtractFileName(NativeTask)));
+          var Discarded:=DiscardUnpublishedDeletionStages(NativeTask);
+          if Length(TDirectory.GetDirectories(NativeTask,'zip-delete-*'))>0 then
+          begin
+            if Jobs.Count>=10000 then raise EReadError.Create('Слишком много незавершённых удалений.');
+            Jobs.Add(TPath.Combine(OperationDir, ExtractFileName(NativeTask)));
+          end
+          else if Discarded and (Length(TDirectory.GetDirectories(NativeTask))=0) then
+          begin
+            System.SysUtils.DeleteFile(TPath.Combine(NativeTask,'binding.json'));
+            CleanedStage:=RemoveDirectory(PChar(NativeTask)) or CleanedStage;
+          end;
         end;
+      if CleanedStage then RemoveDirectory(PChar(NativeOperation));
     end;
     if Stopping or (Jobs.Count=0) then Exit;
     Report('Проверка журналов удаления','',0,Jobs.Count);

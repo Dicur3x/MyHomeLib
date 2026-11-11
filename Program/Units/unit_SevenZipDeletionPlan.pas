@@ -4,6 +4,8 @@ interface
 
 uses System.SysUtils, System.Classes;
 
+const MaxSevenZipInlineReplacementBytes = 16 * 1024 * 1024;
+
 type
   ESevenZipDeletionUnsupported = class(ENotSupportedException);
 
@@ -11,6 +13,8 @@ type
     Source, Target: Int64;
     Bytes: Integer;
     SHA256: string;
+    Replacement: TBytes;
+    ReplacementOffset: Int64;
   end;
   TSevenZipDeletionLayout = record
     Header, Tail: TBytes;
@@ -21,10 +25,12 @@ type
 
 // Ask the installed 7-Zip SDK to serialize a deletion into a virtual output.
 // This never writes the source or a complete output archive. Only unchanged
-// compressed blocks may be borrowed; re-encoding a partial solid block fails
-// closed. The caller owns Source and keeps it exclusively open throughout.
+// compressed blocks may be borrowed. When explicitly enabled, retain only
+// bounded regenerated data. The caller keeps Source exclusively open.
 function PlanSevenZipDeletion(Source: TStream; const Remove: TArray<string>;
-  const Cancel: TFunc<Boolean> = nil): TSevenZipDeletionLayout;
+  const Cancel: TFunc<Boolean> = nil; AllowRepack: Boolean = False;
+  ReplacementStream: TStream = nil; const Progress: TProc<Int64,Int64> = nil): TSevenZipDeletionLayout;
+function SevenZipRecoveryBlockBytes(ArchiveSize: Int64): Integer;
 procedure VerifySevenZipInventory(Source: TStream; const Names: TArray<string>);
 function ReadSevenZipInventory(Source: TStream;
   const Cancel: TFunc<Boolean> = nil): TArray<string>;
@@ -106,15 +112,18 @@ type
   private
     FPendingRange: TSevenZipRetainedRange;
     FPendingHash: THashSHA2;
-    FRangeLimit: Int64;
+    FRangeLimit, FDataEnd, FReplacementBytes: Int64;
+    FReplacementChunks: Integer;
+    FReplacementStream: TStream;
+    procedure StageReplacement(Data: Pointer; Count: Cardinal);
   public
     Input:TSzBorrowedInput;
     Position, Size, TailStart:Int64;
     Header,Tail:TMemoryStream;
-    UnsupportedLayout:Boolean;
+    UnsupportedLayout, AllowRepack, Repacking:Boolean;
     Ranges:TList<TSevenZipRetainedRange>;
     Error:string;
-    constructor Create(Borrowed:TSzBorrowedInput);
+    constructor Create(Borrowed:TSzBorrowedInput; ReplacementStream:TStream);
     destructor Destroy; override;
     procedure FinishRange;
     function Write(Data:Pointer; Count:Cardinal; Processed:PCardinal):HRESULT; stdcall;
@@ -122,10 +131,15 @@ type
     function SetSize(NewSize:UInt64):HRESULT; stdcall;
   end;
   TSzKeepCallback = class(TInterfacedObject,ISzProgress,ISzUpdate,ISzUpdateFile)
+  private
+    FTotal:Int64;
+    FLastReport:UInt64;
   public
     Keep:TArray<Cardinal>;
     Cancel:TFunc<Boolean>;
+    Progress:TProc<Int64,Int64>;
     RepackRequested:Boolean;
+    Output:TSzPlannedOutput;
     function SetTotal(Total:UInt64):HRESULT; stdcall;
     function SetCompleted(Value:PUInt64):HRESULT; stdcall;
     function GetUpdateItemInfo(Index:Cardinal; NewData,NewProps:PInteger; OldIndex:PCardinal):HRESULT; stdcall;
@@ -143,10 +157,18 @@ function TSzBorrowedInput.Read(Data:Pointer; Size:Cardinal; Processed:PCardinal)
 begin
   if Assigned(Processed) then Processed^:=0;
   if Assigned(Cancel) and Cancel() then Exit(E_ABORT);
+  // 7-Zip 26.06's exact-size copier finishes a short buffer with Read(...,0)
+  // before writing that buffer. This is not a new input span: replacing the
+  // last successful read here would misclassify retained data as a header.
+  if Size=0 then Exit(S_OK);
   try
-    LastOffset:=Source.Position; LastPointer:=NativeUInt(Data);
+    var Offset:=Source.Position;
     var N:=Source.Read(Data^,Integer(Min(Size,Cardinal(MaxRangeBytes))));
-    SetLength(LastBytes,N); if N>0 then Move(Data^,LastBytes[0],N);
+    if N>0 then
+    begin
+      LastOffset:=Offset; LastPointer:=NativeUInt(Data);
+      SetLength(LastBytes,N); Move(Data^,LastBytes[0],N);
+    end;
     if Assigned(Processed) then Processed^:=N;
     Result:=S_OK;
   except on E:Exception do begin Error:=E.Message; Result:=E_FAIL; end; end;
@@ -162,12 +184,18 @@ begin
   except on E:Exception do begin Error:=E.Message; Result:=E_FAIL; end; end;
 end;
 
-constructor TSzPlannedOutput.Create(Borrowed:TSzBorrowedInput);
+function SevenZipRecoveryBlockBytes(ArchiveSize: Int64): Integer;
+begin
+  Result:=Integer(Min(Int64(MaxRangeBytes),Max(Int64(128*1024),(ArchiveSize-65536) div 2)));
+end;
+
+constructor TSzPlannedOutput.Create(Borrowed:TSzBorrowedInput; ReplacementStream:TStream);
 begin
   inherited Create; Input:=Borrowed; TailStart:=-1;
+  FReplacementStream:=ReplacementStream;
   // The free-space check reserves two blocks and room for journal metadata.
   // Keep the larger blocks for archives that benefit from batching writes.
-  FRangeLimit:=Min(Int64(MaxRangeBytes),Max(Int64(128*1024),(Borrowed.Source.Size-65536) div 2));
+  FRangeLimit:=SevenZipRecoveryBlockBytes(Borrowed.Source.Size);
   Header:=TMemoryStream.Create; Tail:=TMemoryStream.Create;
   Ranges:=TList<TSevenZipRetainedRange>.Create;
 end;
@@ -180,6 +208,49 @@ begin
   FPendingRange.SHA256:=FPendingHash.HashAsString;
   Ranges.Add(FPendingRange);
   FPendingRange.Bytes:=0;
+end;
+
+procedure TSzPlannedOutput.StageReplacement(Data:Pointer; Count:Cardinal);
+var Range:TSevenZipRetainedRange; Hash:THashSHA2;
+begin
+  if Assigned(FReplacementStream) then
+  begin
+    if FReplacementBytes+Count>Input.Source.Size-32 then
+    begin
+      UnsupportedLayout:=True;
+      raise EWriteError.Create('Пересжатые данные 7z больше исходного архива.');
+    end;
+    if (FPendingRange.Bytes>0) and ((FPendingRange.Source<>-1) or
+      (FPendingRange.Bytes+Int64(Count)>MaxRangeBytes)) then FinishRange;
+    if FPendingRange.Bytes=0 then
+    begin
+      FPendingRange.Source:=-1;
+      FPendingRange.Target:=Position;
+      FPendingRange.ReplacementOffset:=FReplacementBytes;
+      FPendingHash:=THashSHA2.Create;
+      Inc(FReplacementChunks);
+    end;
+    FReplacementStream.WriteBuffer(Data^,Count);
+    FPendingHash.Update(Data^,Count);
+    Inc(FPendingRange.Bytes,Count);
+    Inc(FReplacementBytes,Count);
+    Exit;
+  end;
+  if (FReplacementBytes+Count>MaxSevenZipInlineReplacementBytes) or (FReplacementChunks>=4096) then
+  begin
+    UnsupportedLayout:=True;
+    raise EWriteError.Create('Для затронутых блоков 7z нужно больше места в журнале пересжатия.');
+  end;
+  FinishRange;
+  Range:=Default(TSevenZipRetainedRange);
+  Range.Source:=-1; Range.Target:=Position; Range.Bytes:=Integer(Count);
+  SetLength(Range.Replacement,Count);
+  Move(Data^,Range.Replacement[0],Count);
+  Hash:=THashSHA2.Create; Hash.Update(Range.Replacement);
+  Range.SHA256:=Hash.HashAsString;
+  Ranges.Add(Range);
+  Inc(FReplacementBytes,Count);
+  Inc(FReplacementChunks);
 end;
 
 function TSzPlannedOutput.Write(Data:Pointer; Count:Cardinal; Processed:PCardinal):HRESULT;
@@ -198,46 +269,61 @@ begin
     else
     begin
       Borrow:=False; Delta:=0;
-      if NativeUInt(Data)>=Input.LastPointer then
+      if not Repacking and (NativeUInt(Data)>=Input.LastPointer) then
       begin
         Delta:=NativeUInt(Data)-Input.LastPointer;
         if (Delta<NativeUInt(Length(Input.LastBytes))) and
           (Count<=NativeUInt(Length(Input.LastBytes))-Delta) then
           Borrow:=CompareMem(Data,@Input.LastBytes[Integer(Delta)],Count);
       end;
-      if Borrow then
+      if FDataEnd=0 then FDataEnd:=32;
+      if Repacking or Borrow then
       begin
-        if TailStart>=0 then
+        if (TailStart>=0) or (Position<>FDataEnd) then
         begin
           UnsupportedLayout:=True;
           raise EWriteError.Create('Расположение блоков 7z требует перепаковки архива.');
         end;
-        RangeSource:=Input.LastOffset+Int64(Delta);
-        if (RangeSource<Position) or (RangeSource<32) or
-          (RangeSource>Input.Source.Size-Int64(Count)) then
-          raise EWriteError.Create('Требуется неподдерживаемое перемещение блока 7z.');
-        if FPendingRange.Bytes>0 then
+        if Repacking then StageReplacement(Data,Count)
+        else
         begin
-          var PreviousEnd:=FPendingRange.Source+FPendingRange.Bytes;
-          if (Position<>FPendingRange.Target+FPendingRange.Bytes) or (RangeSource<PreviousEnd) then
-            raise EWriteError.Create('7-Zip изменил физический порядок блоков.');
-          // One journal checkpoint can protect adjacent ranges with the same
-          // displacement. A gap or the journal limit starts the next block.
-          if (RangeSource<>PreviousEnd) or (FPendingRange.Bytes+Int64(Count)>FRangeLimit) then
-            FinishRange;
-        end else if Position<>32 then raise EWriteError.Create('Пропущено начало данных 7z.');
-        if FPendingRange.Bytes=0 then
-        begin
-          FPendingRange.Source:=RangeSource;
-          FPendingRange.Target:=Position;
-          FPendingHash:=THashSHA2.Create;
+          RangeSource:=Input.LastOffset+Int64(Delta);
+          if (RangeSource<32) or (RangeSource>Input.Source.Size-Int64(Count)) then
+            raise EWriteError.Create('Неверный исходный диапазон блока 7z.');
+          if RangeSource<Position then
+          begin
+            if not AllowRepack then
+              raise EWriteError.Create('Требуется неподдерживаемое перемещение блока 7z.');
+            StageReplacement(Data,Count);
+          end
+          else
+          begin
+            if FPendingRange.Bytes>0 then
+            begin
+              var PreviousEnd:=FPendingRange.Source+FPendingRange.Bytes;
+              if (FPendingRange.Source<0) or (RangeSource<>PreviousEnd) or
+                (FPendingRange.Bytes+Int64(Count)>FRangeLimit) then
+                FinishRange;
+            end;
+            if FPendingRange.Bytes=0 then
+            begin
+              FPendingRange.Source:=RangeSource;
+              FPendingRange.Target:=Position;
+              FPendingHash:=THashSHA2.Create;
+            end;
+            FPendingHash.Update(Data^,Count);
+            Inc(FPendingRange.Bytes,Count);
+          end;
         end;
-        FPendingHash.Update(Data^,Count);
-        Inc(FPendingRange.Bytes,Count);
+        Inc(FDataEnd,Count);
       end
       else
       begin
-        if TailStart<0 then TailStart:=Position;
+        if TailStart<0 then
+        begin
+          if Position<>FDataEnd then raise EWriteError.Create('Пропущены данные 7z.');
+          TailStart:=Position;
+        end;
         if (Position<>TailStart+Tail.Size) or (Tail.Size+Count>64*1024*1024) then
           raise EWriteError.Create('Слишком большой или непоследовательный заголовок 7z.');
         Tail.WriteBuffer(Data^,Count);
@@ -265,9 +351,22 @@ begin
 end;
 
 function TSzKeepCallback.SetTotal(Total:UInt64):HRESULT;
-begin if Assigned(Cancel) and Cancel() then Result:=E_ABORT else Result:=S_OK; end;
+begin
+  if Assigned(Cancel) and Cancel() then Exit(E_ABORT);
+  if (Total>0) and (Total<=UInt64(High(Int64))) then FTotal:=Int64(Total);
+  Result:=S_OK;
+end;
 function TSzKeepCallback.SetCompleted(Value:PUInt64):HRESULT;
-begin Result:=SetTotal(0); end;
+begin
+  Result:=SetTotal(0);
+  if (Result<>S_OK) or not Assigned(Progress) or not Assigned(Value) or
+    (Value^>UInt64(High(Int64))) then Exit;
+  var Tick:=GetTickCount64;
+  if (FLastReport<>0) and (Tick-FLastReport<200) then Exit;
+  FLastReport:=Tick;
+  try Progress(Int64(Value^),FTotal);
+  except on E:Exception do begin Output.Error:=E.Message; Result:=E_FAIL; end; end;
+end;
 function TSzKeepCallback.GetUpdateItemInfo(Index:Cardinal; NewData,NewProps:PInteger; OldIndex:PCardinal):HRESULT;
 begin
   if Index>=Cardinal(Length(Keep)) then Exit(E_INVALIDARG);
@@ -283,16 +382,23 @@ function TSzKeepCallback.GetStream2(Index:Cardinal; out Stream:ISzSeqIn; Operati
 begin Stream:=nil; Result:=E_NOTIMPL; end;
 function TSzKeepCallback.ReportOperation(IndexType,Index,Operation:Cardinal):HRESULT;
 begin
-  // SDK NUpdateNotifyOp::kRepack = 4. Never silently re-encode a solid block.
-  if Operation=4 then begin RepackRequested:=True; Exit(E_NOTIMPL); end;
+  // IArchive.h: kBlockIndex=2, kReplicate=3, kRepack=4, kHeader=7.
+  if (Operation=4) and not Output.AllowRepack then
+  begin
+    RepackRequested:=True;
+    Exit(E_NOTIMPL);
+  end;
+  if (IndexType=2) and (Operation in [3,4]) then Output.Repacking:=Operation=4;
+  if Operation=7 then Output.Repacking:=False;
   Result:=SetTotal(0);
 end;
 
 function OpenSevenZip(Source:TStream; out Module:HMODULE; out Input:ISzIn;
   out Archive:ISzArchive; const Cancel:TFunc<Boolean>):TSzBorrowedInput;
 const ClassID:TGUID='{23170F69-40C1-278A-1000-000110070000}';
-var DLL:string; Factory:TSzFactory; MaxCheck:UInt64;
+var DLL:string; Factory:TSzFactory; MaxCheck:UInt64; Code:HRESULT;
 begin
+  if Assigned(Cancel) and Cancel() then Abort;
   DLL:=FindExternalTool('7z.dll','7zip');
   if DLL='' then raise EMHLComponentRequired.Create('7-Zip','Для удаления книги из 7z нужен модуль 7-Zip.');
   Module:=LoadLibraryEx(PChar(TPath.GetFullPath(DLL)),0,$100 or $800);
@@ -301,10 +407,13 @@ begin
   if not Assigned(Factory) then raise ENotSupportedException.Create('Нет интерфейса 7-Zip.');
   Check(Factory(ClassID,ISzArchive,Archive),'создание читателя 7z');
   Result:=TSzBorrowedInput.Create; Result.Source:=Source; Result.Cancel:=Cancel; Input:=Result;
-  MaxCheck:=0; Source.Position:=0; Check(Archive.Open(Input,@MaxCheck,nil),'чтение каталога 7z');
+  MaxCheck:=0; Source.Position:=0;
+  Code:=Archive.Open(Input,@MaxCheck,nil);
+  if Assigned(Cancel) and Cancel() then Abort;
+  Check(Code,'чтение каталога 7z');
 end;
 
-function NamesIn(const Archive:ISzArchive):TArray<string>;
+function NamesIn(const Archive:ISzArchive; const Cancel:TFunc<Boolean> = nil):TArray<string>;
 var Count:Cardinal; Value:OleVariant; Characters:Int64;
 begin
   Check(Archive.GetNumberOfItems(Count),'список файлов');
@@ -312,6 +421,7 @@ begin
   SetLength(Result,Count); Characters:=0;
   for var I:=0 to Integer(Count)-1 do
   begin
+    if Assigned(Cancel) and Cancel() then Abort;
     Value:=Unassigned; Check(Archive.GetProperty(I,3,Value),'имя файла');
     Result[I]:=VarToStr(Value); Inc(Characters,Length(Result[I]));
     if (Result[I]='') or (Characters>8*1024*1024) then raise EReadError.Create('Неверный список имён 7z.');
@@ -326,7 +436,7 @@ begin
     OpenSevenZip(Source,Module,Input,Archive,Cancel);
     Value:=Unassigned; Check(Archive.GetArchiveProperty(71,Value),'проверка ошибок 7z');
     if not VarIsEmpty(Value) and (Value<>0) then raise EReadError.Create('7z содержит ошибки заголовка.');
-    Result:=NamesIn(Archive);
+    Result:=NamesIn(Archive,Cancel);
   finally
     if Assigned(Archive) then Archive.Close;
     Archive:=nil; Input:=nil;
@@ -335,7 +445,8 @@ begin
 end;
 
 function PlanSevenZipDeletion(Source:TStream; const Remove:TArray<string>;
-  const Cancel:TFunc<Boolean>):TSevenZipDeletionLayout;
+  const Cancel:TFunc<Boolean>; AllowRepack:Boolean; ReplacementStream:TStream;
+  const Progress:TProc<Int64,Int64>):TSevenZipDeletionLayout;
 var Module:HMODULE; Input:ISzIn; Archive:ISzArchive; Writer:ISzWriter;
   InputObject:TSzBorrowedInput; OutputObject:TSzPlannedOutput;
   Output:ISzOut; CallbackObject:TSzKeepCallback; Callback:ISzUpdate;
@@ -346,10 +457,12 @@ begin
   Index:=TDictionary<string,Integer>.Create; Keep:=TList<Cardinal>.Create; Remaining:=TList<string>.Create;
   try
     if Length(Remove)=0 then raise EArgumentException.Create('Не выбраны файлы внутри 7z.');
+    if Assigned(ReplacementStream) and ((ReplacementStream.Size<>0) or (ReplacementStream.Position<>0)) then
+      raise EArgumentException.Create('Для пересжатия 7z нужен пустой файл журнала.');
     InputObject:=OpenSevenZip(Source,Module,Input,Archive,Cancel);
     Value:=Unassigned; Check(Archive.GetArchiveProperty(71,Value),'проверка ошибок 7z');
     if not VarIsEmpty(Value) and (Value<>0) then raise EReadError.Create('7z содержит ошибки заголовка.');
-    Names:=NamesIn(Archive); SetLength(Deleted,Length(Names));
+    Names:=NamesIn(Archive,Cancel); SetLength(Deleted,Length(Names));
     for var I:=0 to High(Names) do
     begin
       var Name:=Names[I].Replace('\','/');
@@ -370,7 +483,10 @@ begin
     if not Supports(Archive,ISzWriter,Writer) then raise ENotSupportedException.Create('Модуль 7-Zip не поддерживает изменение архива.');
     CallbackObject:=TSzKeepCallback.Create; Callback:=CallbackObject;
     CallbackObject.Keep:=Keep.ToArray; CallbackObject.Cancel:=Cancel;
-    OutputObject:=TSzPlannedOutput.Create(InputObject); Output:=OutputObject;
+    CallbackObject.Progress:=Progress;
+    OutputObject:=TSzPlannedOutput.Create(InputObject,ReplacementStream); Output:=OutputObject;
+    OutputObject.AllowRepack:=AllowRepack;
+    CallbackObject.Output:=OutputObject;
     Code:=Writer.UpdateItems(Output,Keep.Count,Callback);
     if Assigned(Cancel) and Cancel() then Abort;
     if CallbackObject.RepackRequested then
@@ -380,6 +496,8 @@ begin
     if InputObject.Error<>'' then raise EReadError.Create(InputObject.Error);
     Check(Code,'подготовка удаления из 7z');
     OutputObject.FinishRange;
+    if (OutputObject.FReplacementChunks>0) and (OutputObject.Size>=Source.Size) then
+      raise ESevenZipDeletionUnsupported.Create('Пересжатие 7z не уменьшит размер архива.');
     if (OutputObject.TailStart<0) and (OutputObject.Size=32) and (OutputObject.Ranges.Count=0) then
       OutputObject.TailStart:=32;
     if (OutputObject.Header.Size<>32) or (OutputObject.TailStart<32) or

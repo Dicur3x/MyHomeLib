@@ -148,9 +148,14 @@
     {
       "id": "HomeLibReader",
       "platform": "Win32",
-      "version": "3.0.0.12",
-      "archive": "HomeLibRu-HomeLibReader-3.0.0.12-Win32.zip",
+      "version": "3.0.0.13",
+      "archive": "HomeLibRu-HomeLibReader-3.0.0.13-Win32.zip",
       "history": [
+        {
+          "version": "3.0.0.13",
+          "date": "2026-11-11",
+          "notes": "Шрифты читалки, недавние книги, исправления EPUB и журналов; настройка открытия файлов в Windows."
+        },
         {
           "version": "3.0.0.12",
           "notes": "После загрузки обновления окно ждёт явного подтверждения установки. В управлении модулями можно выделить все позиции и увидеть, какие из них требуют проверки."
@@ -228,9 +233,14 @@
     {
       "id": "HomeLibReader",
       "platform": "Win64",
-      "version": "3.0.0.12",
-      "archive": "HomeLibRu-HomeLibReader-3.0.0.12-Win64.zip",
+      "version": "3.0.0.13",
+      "archive": "HomeLibRu-HomeLibReader-3.0.0.13-Win64.zip",
       "history": [
+        {
+          "version": "3.0.0.13",
+          "date": "2026-11-11",
+          "notes": "Шрифты читалки, недавние книги, исправления EPUB и журналов; настройка открытия файлов в Windows."
+        },
         {
           "version": "3.0.0.12",
           "notes": "После загрузки обновления окно ждёт явного подтверждения установки. В управлении модулями можно выделить все позиции и увидеть, какие из них требуют проверки."
@@ -308,9 +318,14 @@
     {
       "id": "BookProcessing",
       "platform": "Win32",
-      "version": "3.0.0.11",
-      "archive": "HomeLibRu-BookProcessing-3.0.0.11-Win32.zip",
+      "version": "3.0.0.13",
+      "archive": "HomeLibRu-BookProcessing-3.0.0.13-Win32.zip",
       "history": [
+        {
+          "version": "3.0.0.13",
+          "date": "2026-11-11",
+          "notes": "Исправлены ошибки подготовки и экспорта книг; восстановление поддерживаемой повреждённой разметки."
+        },
         {
           "version": "3.0.0.11",
           "notes": "Устойчивее сохраняются большие PDF и DOCX. Обработка изображений в смешанных PDF и DjVu учитывает выбранный режим, а оценка размера показывает диапазон для больших файлов."
@@ -448,9 +463,14 @@
     {
       "id": "BookProcessing",
       "platform": "Win64",
-      "version": "3.0.0.11",
-      "archive": "HomeLibRu-BookProcessing-3.0.0.11-Win64.zip",
+      "version": "3.0.0.13",
+      "archive": "HomeLibRu-BookProcessing-3.0.0.13-Win64.zip",
       "history": [
+        {
+          "version": "3.0.0.13",
+          "date": "2026-11-11",
+          "notes": "Исправлены ошибки подготовки и экспорта книг; восстановление поддерживаемой повреждённой разметки."
+        },
         {
           "version": "3.0.0.11",
           "notes": "Устойчивее сохраняются большие PDF и DOCX. Обработка изображений в смешанных PDF и DjVu учитывает выбранный режим, а оценка размера показывает диапазон для больших файлов."
@@ -700,9 +720,14 @@
     {
       "id": "FB2Export",
       "platform": "Win32",
-      "version": "3.0.0.5",
-      "archive": "HomeLibRu-FB2Export-3.0.0.5-Win32.zip",
+      "version": "3.0.0.13",
+      "archive": "HomeLibRu-FB2Export-3.0.0.13-Win32.zip",
       "history": [
+        {
+          "version": "3.0.0.13",
+          "date": "2026-11-11",
+          "notes": "Исправлено оглавление и сноски при сохранении FB2 в KFX/AZW8."
+        },
         {
           "version": "3.0.0.5",
           "notes": "fb2cng — сохранение FB2 в EPUB 2, EPUB 3, KEPUB, KFX, AZW8, PDF и Markdown."
@@ -716,9 +741,14 @@
     {
       "id": "FB2Export",
       "platform": "Win64",
-      "version": "3.0.0.5",
-      "archive": "HomeLibRu-FB2Export-3.0.0.5-Win64.zip",
+      "version": "3.0.0.13",
+      "archive": "HomeLibRu-FB2Export-3.0.0.13-Win64.zip",
       "history": [
+        {
+          "version": "3.0.0.13",
+          "date": "2026-11-11",
+          "notes": "Исправлено оглавление и сноски при сохранении FB2 в KFX/AZW8."
+        },
         {
           "version": "3.0.0.5",
           "notes": "fb2cng — сохранение FB2 в EPUB 2, EPUB 3, KEPUB, KFX, AZW8, PDF и Markdown."

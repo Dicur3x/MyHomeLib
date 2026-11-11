@@ -267,7 +267,7 @@ begin
 end;
 
 procedure AuditLoadingPreferences;
-var Reader: TfrmBuiltinReader; Ini: TMemIniFile; Section: string;
+var Reader, Earlier: TfrmBuiltinReader; Ini: TMemIniFile; Section: string;
 begin
   Section:='Book.'+Copy(THashSHA2.GetHashString('loading-preferences'),1,40);
   Ini:=TMemIniFile.Create('loading-preferences.ini',TEncoding.UTF8);
@@ -277,7 +277,12 @@ begin
     Ini.WriteInteger('Reader','Margin',32); Ini.WriteInteger(Section,'Position',123); Ini.UpdateFile;
   finally Ini.Free; end;
   Reader:=TfrmBuiltinReader.Create(nil);
+  Earlier:=nil;
   try
+    Earlier:=TfrmBuiltinReader.Create(nil);
+    Earlier.Show;
+    Earlier.OpenBook('sample.fb2','Earlier book','earlier-book','loading-preferences.ini','pdfium.dll');
+    WaitReady(Earlier);
     Reader.Show; Reader.OpenBook('sample.fb2','Loading preferences','loading-preferences','loading-preferences.ini','pdfium.dll');
     Require(not Reader.Ready,'Preference fixture already loaded');
     Reader.SetTheme(4); Reader.ChangeSize(2); Reader.SetTypography('Arial',140,48);
@@ -287,13 +292,15 @@ begin
     Require((Reader.ReaderFontName='Arial') and (Reader.ReaderLinePercent=140) and (Reader.ReaderMargin=48),'Background load reset text preferences');
     Require(Reader.HighlightColor=clLime,'Background load reset highlight color');
     Require(Reader.TextPosition=123,'Preserving preferences lost saved book position');
+    Earlier.Close;
     Reader.Close;
-  finally Reader.Free; end;
+  finally Earlier.Free; Reader.Free; end;
   Ini:=TMemIniFile.Create('loading-preferences.ini',TEncoding.UTF8);
   try
     Require(Ini.ReadBool('Reader','SearchCase',False) and Ini.ReadBool('Reader','SearchWord',False) and
       Ini.ReadBool('Reader','SearchAll',False),'Background load reset search preferences');
     Require(Ini.ReadInteger(Section,'Position',-1)=123,'Closing reader lost restored position');
+    Require(Ini.ReadString('Reader','FontName','')='Arial','Closing an older book overwrote the shared font');
   finally Ini.Free; end;
   Reader:=TfrmBuiltinReader.Create(nil);
   try

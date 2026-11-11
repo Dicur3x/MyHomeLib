@@ -277,6 +277,64 @@ begin
   end;
 end;
 
+function FormatDiagnosticLog(const Content: string): string;
+var Lines: TStringList; Display: TStringBuilder; Row: TJSONValue; MessageText: TJSONValue;
+  Line, Stamp, Level: string; Timestamp: TDateTime; HeaderStart, Unreadable: Integer;
+
+  function TextField(const Name: string): string;
+  begin
+    var Value:=TJSONObject(Row).GetValue(Name);
+    if Value is TJSONString then Result:=Value.Value else Result:='';
+  end;
+
+  procedure AddHeading(const Value: string);
+  begin
+    if Value='' then Exit;
+    if Display.Length>HeaderStart then Display.Append(' · ');
+    Display.Append(Value);
+  end;
+
+begin
+  Lines:=TStringList.Create;
+  Display:=TStringBuilder.Create;
+  try
+    Lines.Text:=Content;
+    Unreadable:=0;
+    for var I:=0 to Lines.Count-1 do
+    begin
+      Line:=Lines[I];
+      if (I=0) and Line.StartsWith(#$FEFF) then Delete(Line,1,1);
+      if Line.Trim='' then Continue;
+      Row:=TJSONObject.ParseJSONValue(Line);
+      try
+        if not (Row is TJSONObject) then
+        begin Inc(Unreadable); Continue; end;
+        MessageText:=TJSONObject(Row).GetValue('message');
+        if not (MessageText is TJSONString) then
+        begin Inc(Unreadable); Continue; end;
+        Stamp:=TextField('time');
+        if TryISO8601ToDate(Stamp,Timestamp,False) then Stamp:=FormatDateTime('dd.mm.yyyy hh:nn:ss',Timestamp);
+        Level:=TextField('level');
+        if Level='error' then Level:='Ошибка'
+        else if Level='info' then Level:='Событие'
+        else if Level='trace' then Level:='Подробности';
+        HeaderStart:=Display.Length;
+        AddHeading(Stamp);
+        AddHeading(Level);
+        AddHeading(TextField('operation'));
+        AddHeading(TextField('format'));
+        AddHeading(TextField('exception'));
+        if Display.Length>HeaderStart then Display.AppendLine;
+        Display.AppendLine(AdjustLineBreaks(MessageText.Value));
+        Display.AppendLine;
+      finally Row.Free; end;
+    end;
+    if Unreadable>0 then Display.AppendLine(Format('Пропущено повреждённых записей: %d.',[Unreadable]));
+    Result:=Display.ToString;
+    if Result='' then Result:='Сегодня ошибок ещё не записано.';
+  finally Display.Free; Lines.Free; end;
+end;
+
 constructor TDiagnosticForm.Create(AOwner: TComponent);
 var Text: TLabel; Memo: TMemo; Button: TButton; Input: TFileStream; Bytes: TBytes; Count: Integer; Detailed: TCheckBox;
   Folder: TEdit;
@@ -298,14 +356,14 @@ begin
   Detailed.Hint:='Включите перед повторением ошибки, затем сохраните отчёт. Текст книг в журнал не записывается.';
   Detailed.ShowHint:=True;
   Memo:=TMemo.Create(Self); Memo.Name:='DiagnosticsText'; Memo.Parent:=Self; Memo.SetBounds(12,140,656,224);
-  Memo.ReadOnly:=True; Memo.ScrollBars:=ssBoth; Memo.WordWrap:=False; Memo.Anchors:=[akLeft,akTop,akRight,akBottom];
+  Memo.ReadOnly:=True; Memo.ScrollBars:=ssVertical; Memo.WordWrap:=True; Memo.Anchors:=[akLeft,akTop,akRight,akBottom];
   try if FileExists(DiagnosticLogFile) then
     begin
       Input:=TFileStream.Create(DiagnosticLogFile,fmOpenRead or fmShareDenyNone);
       try
         Count:=MAX_DAILY_LOG; if Input.Size<Count then Count:=Input.Size;
         SetLength(Bytes,Count); if Count>0 then Input.ReadBuffer(Bytes[0],Count);
-        Memo.Text:=TEncoding.UTF8.GetString(Bytes);
+        Memo.Text:=FormatDiagnosticLog(TEncoding.UTF8.GetString(Bytes));
       finally Input.Free; end;
     end
     else Memo.Text:='Сегодня ошибок ещё не записано.';
