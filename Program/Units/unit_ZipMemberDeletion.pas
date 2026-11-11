@@ -21,7 +21,7 @@ type
     FReplacementSize: Int64;
     FPlan: TJSONObject;
     FArchive, FJob, FPlanHash: string;
-    FMetadata, FHeader: TBytes;
+    FMetadata, FHeader, FOriginalMetadata: TBytes;
     FNext: Integer;
     FPending, FFinished: Boolean;
     FWholeIdentity: string;
@@ -78,6 +78,8 @@ type
     // Bind the catalogue receipt before the first destructive write. The
     // persisted plan/checkpoint then protects this association on recovery.
     procedure BindContext(const SHA256: string);
+    procedure CheckReplacementReceipt(const FileName, ExpectedFileKey,
+      SourceSHA256, ResultSHA256, ContextSHA256: string);
     property ContextHash: string read GetContextHash;
     property FileKey: string read GetFileKey;
     property WholeSourceIdentity: string read FWholeIdentity;
@@ -187,12 +189,17 @@ var Data: TBytes; Info: PArchiveRenameInfo; Name: string; NameOffset: NativeUInt
 begin
   Name:=DeletionNativePath(Target);
   NameOffset:=NativeUInt(@PArchiveRenameInfo(nil)^.FileName);
-  SetLength(Data,NameOffset+NativeUInt(Length(Name))*SizeOf(WideChar));
+  // FILE_RENAME_INFO has trailing record padding on Win64. Supply the full
+  // record plus a zero-terminated filename, not only the bare member offset.
+  // Otherwise some Windows paths can acquire the next heap character.
+  SetLength(Data,SizeOf(TArchiveRenameInfo)+NativeUInt(Length(Name))*SizeOf(WideChar));
   Info:=PArchiveRenameInfo(@Data[0]);
   Info.Flags:=0; // Never replace an existing journal file.
   Info.RootDirectory:=0;
   Info.FileNameLength:=Length(Name)*SizeOf(WideChar);
   Move(PChar(Name)^,Info.FileName[0],Info.FileNameLength);
+  Data[NameOffset+Info.FileNameLength]:=0;
+  Data[NameOffset+Info.FileNameLength+1]:=0;
   if not SetArchiveFileInformation(Handle,3,Info,Length(Data)) then RaiseLastOSError;
 end;
 
@@ -585,6 +592,21 @@ begin
   FPlan.AddPair('contextHash',SHA256);
 end;
 
+procedure TZipMemberDeletion.CheckReplacementReceipt(const FileName, ExpectedFileKey,
+  SourceSHA256, ResultSHA256, ContextSHA256: string);
+begin
+  if not Assigned(FPlan) or not FFinished then
+    raise EReadError.Create('Применение сжатого файла ещё не завершено.');
+  if (FieldNumber(FPlan,'schema')<>VerifiedReplacementSchema) or
+    not SameFileName(FArchive,ExpandFileName(FileName)) or
+    not SameText(FileKey,ExpectedFileKey) or
+    not SameText(TextField(FPlan,'originalSHA256'),SourceSHA256) or
+    not SameText(TextField(FPlan,'finalSHA256'),ResultSHA256) or (ContextHash<>ContextSHA256) then
+    raise EReadError.Create('Сжатый файл не соответствует журналу обновления каталога.');
+  CheckPlan;
+  VerifyFinished;
+end;
+
 procedure TZipMemberDeletion.CheckIdentity;
 begin
   if TextField(FPlan,'archive')<>FArchive then
@@ -695,6 +717,12 @@ begin
       (Digest(ReadAt(Offset,Count))<>Part.Items[2].Value) then
       raise EReadError.Create('Исходный файл изменён после прерывания сжатия. Продолжение остановлено.');
   end;
+  // The bounded footer can be partly old and partly new after a torn write.
+  // A third value is an external edit, not an interrupted approved write.
+  var Actual:=ReadAt(FieldNumber(FPlan,'metadataOffset'),Length(FMetadata));
+  for var I:=0 to High(Actual) do
+    if (Actual[I]<>FMetadata[I]) and (Actual[I]<>FOriginalMetadata[I]) then
+      raise EReadError.Create('Файл изменён после прерывания сжатия. Продолжение остановлено.');
 end;
 
 procedure TZipMemberDeletion.CheckPlan;
@@ -719,6 +747,7 @@ begin
     (Chunks.Count > 1048576) then raise EReadError.Create('Неподдерживаемый журнал удаления ZIP.');
   FMetadata := TNetEncoding.Base64.DecodeStringToBytes(TextField(FPlan,'metadata'));
   FHeader:=nil;
+  FOriginalMetadata:=nil;
   if Schema=VerifiedReplacementSchema then
   begin
     if (TextField(FPlan,'kind')<>'collection-compression') or
@@ -729,6 +758,23 @@ begin
       (FieldNumber(FPlan,'originalSize')<=FieldNumber(FPlan,'finalSize')) then
       raise EReadError.Create('Повреждён журнал применения сжатого файла.');
     CheckReplacementOriginalRanges;
+    FOriginalMetadata:=TNetEncoding.Base64.DecodeStringToBytes(TextField(FPlan,'originalMetadata'));
+    if Length(FOriginalMetadata)<>Length(FMetadata) then
+      raise EReadError.Create('Нет проверки исходного конца сжимаемого файла.');
+    var FooterFound:=False;
+    for var Value in TJSONArray(FPlan.GetValue('originalRanges')) do
+    begin
+      var Part:=TJSONArray(Value);
+      if Number(Part.Items[0])=FieldNumber(FPlan,'metadataOffset') then
+      begin
+        if (Number(Part.Items[1])<>Length(FOriginalMetadata)) or
+          (Part.Items[2].Value<>Digest(FOriginalMetadata)) then
+          raise EReadError.Create('Проверка исходного конца файла не совпадает с журналом.');
+        FooterFound:=True;
+        Break;
+      end;
+    end;
+    if not FooterFound then raise EReadError.Create('Нет исходного конца файла в журнале сжатия.');
   end;
   if Schema in [2,3,4,SevenZipGroupedRangesSchema] then
   begin
@@ -887,6 +933,8 @@ begin
       SetLength(Bytes,Count);
       FSource.ReadBuffer(Bytes[0],Count);
       Hash.Update(Bytes);
+      if Offset=TailOffset then
+        FPlan.AddPair('originalMetadata',TNetEncoding.Base64.EncodeBytesToString(Bytes));
       Item:=TJSONArray.Create;
       OriginalRanges.AddElement(Item);
       Item.AddElement(TJSONNumber.Create(Offset));
@@ -1444,7 +1492,11 @@ begin
       FJob:=Job;
       FStagingDirectory:='';
       DiscardStaging;
-      OpenReplacement(FJob);
+      Signal('journal-published');
+      // Small verified replacements fit entirely in journal metadata. Their
+      // empty payload file is not a recovery dependency (nor is it reopened
+      // by RecoverReplacement). Only nonempty replacement data need a handle.
+      if FReplacementSize>0 then OpenReplacement(FJob);
     end
     else
     begin

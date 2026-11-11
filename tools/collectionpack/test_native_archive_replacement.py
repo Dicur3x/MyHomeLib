@@ -68,6 +68,11 @@ class NativeArchiveReplacementTests(unittest.TestCase):
         self.require_success(self.run_worker())
         self.require_finished()
 
+    def test_small_result_does_not_depend_on_empty_payload_file(self):
+        self.fixture(small=True)
+        self.require_success(self.run_worker('discard-empty-payload'))
+        self.require_finished()
+
     def test_unicode_paths_and_separate_compression_journal(self):
         self.fixture()
         source = self.root / 'Подборка ё.bin'
@@ -95,7 +100,7 @@ class NativeArchiveReplacementTests(unittest.TestCase):
         self.assertEqual(sha(self.source), self.input_hash)
 
     def test_actual_process_crash_recovery_at_each_durable_boundary(self):
-        for stage in ['pending', 'half-written', 'written', 'checkpoint', 'half-metadata',
+        for stage in ['journal-published', 'pending', 'half-written', 'written', 'checkpoint', 'half-metadata',
                       'metadata', 'truncated', 'finished']:
             with self.subTest(stage=stage):
                 self.fixture()
@@ -170,6 +175,36 @@ class NativeArchiveReplacementTests(unittest.TestCase):
         data = bytearray(correct)
         data[-1] ^= 255
         self.source.write_bytes(data)
+        before = sha(self.source)
+        self.assertNotEqual(self.run_worker('recover').returncode, 0)
+        self.assertEqual(sha(self.source), before)
+        self.source.write_bytes(correct)
+        self.require_success(self.run_worker('recover'))
+        self.require_finished()
+
+    def test_rejects_foreign_bytes_in_small_unfinished_result(self):
+        self.fixture(small=True)
+        old, new = self.source.read_bytes(), self.candidate.read_bytes()
+        self.assertEqual(self.run_worker(fault='journal-published').returncode, 73)
+        changed = bytearray(old)
+        changed[0] = next(v for v in range(256) if v not in (old[0], new[0]))
+        self.source.write_bytes(changed)
+        before = sha(self.source)
+        self.assertNotEqual(self.run_worker('recover').returncode, 0)
+        self.assertEqual(sha(self.source), before)
+        self.source.write_bytes(old)
+        self.require_success(self.run_worker('recover'))
+        self.require_finished()
+
+    def test_rejects_foreign_bytes_in_partially_written_footer(self):
+        self.fixture()
+        old, new = self.source.read_bytes(), self.candidate.read_bytes()
+        self.assertEqual(self.run_worker(fault='half-metadata').returncode, 73)
+        correct = self.source.read_bytes()
+        changed = bytearray(correct)
+        offset = len(new) - 65536
+        changed[offset] = next(v for v in range(256) if v not in (old[offset], new[offset]))
+        self.source.write_bytes(changed)
         before = sha(self.source)
         self.assertNotEqual(self.run_worker('recover').returncode, 0)
         self.assertEqual(sha(self.source), before)

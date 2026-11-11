@@ -25,6 +25,12 @@ end;
 
 procedure Fault(const Stage: string; Chunk: Integer);
 begin
+  if (Mode='discard-empty-payload') and (Stage='journal-published') then
+  begin
+    var Path:=TPath.Combine(Engine.JobDirectory,'replacement.bin');
+    Require(TFile.GetSize(Path)=0,'Fixture tried to discard nonempty recovery data');
+    TFile.Delete(Path);
+  end;
   if Stage<>FaultAt then Exit;
   TFile.WriteAllText(Report,Engine.JobDirectory,TEncoding.UTF8);
   // Do not run destructors: recovery must survive an actual process loss.
