@@ -164,6 +164,36 @@ def reserve_space(directory, bytes_needed):
         raise PackingError('Недостаточно свободного места в выбранной папке для текущего архива. Исходники сохранены; готовые архивы доступны для продолжения.')
 
 
+@contextmanager
+def temporary_work_directory(parent, prefix):
+    parent = Path(parent).resolve(strict=True)
+    directory = Path(tempfile.mkdtemp(prefix=prefix, dir=parent))
+    owned = directory.resolve(strict=True)
+    identity = directory.stat(follow_symlinks=False)
+    try:
+        yield directory
+    finally:
+        for attempt in range(6):
+            # Never follow a replaced directory/junction during cleanup.
+            try:
+                current = directory.stat(follow_symlinks=False)
+            except FileNotFoundError:
+                break
+            if (directory.resolve() != owned or directory.parent != parent or
+                    (current.st_dev, current.st_ino) != (identity.st_dev, identity.st_ino)):
+                raise PackingError('Временная папка изменила расположение; автоматическая очистка остановлена.')
+            try:
+                shutil.rmtree(directory)
+                break
+            except OSError as error:
+                # After a cancelled external process has exited, Windows can
+                # briefly retain its working-directory handle. Retry only that
+                # bounded sharing/access failure; retain persistent errors.
+                if getattr(error, 'winerror', None) not in (5, 32, 33) or attempt == 5:
+                    raise
+                time.sleep(.05 * (attempt + 1))
+
+
 class SevenZip:
     def __init__(self, executable, check):
         self.executable = Path(executable).absolute()
@@ -866,12 +896,11 @@ class Packer:
 
     @contextmanager
     def working_stage(self):
-        with tempfile.TemporaryDirectory(prefix='.packing-', dir=self.root) as directory:
-            stage = Path(directory)
+        with temporary_work_directory(self.root, '.packing-') as stage:
             atomic_json(stage / 'HomeLibRu-stage.json', dict(dataset=self.dataset))
             with self.db:
                 self.db.execute('INSERT INTO stages VALUES(?,?)', (stage.name, self.dataset))
-            # The TemporaryDirectory context closes before we remove its
+            # The temporary directory closes before we remove its
             # registry row, so hard process termination remains recoverable.
             yield stage
         with self.db:

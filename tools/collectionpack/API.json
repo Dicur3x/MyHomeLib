@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "status": "native_catalogue_command_integrated_release_pending",
+  "status": "native_copy_command_released_inplace_compression_in_development",
   "entrypoint": "pack_collection.py --job <job.json> [--cancel <cancel-file>]",
   "job": {
     "version": 1,
@@ -78,5 +78,17 @@
     "1": "Error; no collection published",
     "2": "No sources processed",
     "3": "Canceled; completed sources remain resumable"
-  }
+  },
+  "archive_replacement_preparation": {
+    "status": "local_development_not_wired_to_catalogue_or_source_commit",
+    "module": "archive_replacement.py",
+    "call": "prepare_archive_replacement(source, replacements, workspace, seven_zip, method=None, canceled=...)",
+    "inputs": "One ZIP or 7z source, a mapping of exact member names to already transformed files, and an empty private workspace. No book-format conversion is performed by this primitive.",
+    "source_preservation": "7-Zip -u- creates a separate candidate; the base archive and transformed input files remain untouched. Unselected members remain present with matching size and CRC; the candidate is fully tested by the codec. Selected members are additionally extracted and checked by SHA-256.",
+    "metadata": "ZIP comments are restored by rewriting central metadata only. Encoded filenames, UTF-8 flags and Unicode-path extras stay unchanged. ZIP64 size and locator offsets are updated. Duplicate/ambiguous logical names, unsafe replacement paths and encrypted entries are refused before any source mutation.",
+    "no_growth": "A candidate not smaller than the source is discarded and returns candidate=None. This does not alter the source.",
+    "pending_commit": "The caller must still exclusively revalidate the source identity, durably apply the verified result, refresh catalogue sizes and caches, preserve personal data, handle recovery, and provide the optional backup and UI workflow. PreparedArchive is never proof that a source was changed.",
+    "verification": "10 real ZIP/solid-7z scenarios and 3 cleanup/ownership cases passed on Windows. Primary codec: 7-Zip 26.06 x64; additional full 13-case run: 7-Zip 26.05 x86 from the installed runtime, hosted by x64 Python. Synthetic inputs only; this is not an x86 catalogue workflow test."
+  },
+  "workspace_cleanup": "Owned work directories validate canonical location and file identity before removal. Bounded retries handle transient Windows sharing errors after an external process exits; persistent failures remain errors. A replaced directory is preserved."
 }
