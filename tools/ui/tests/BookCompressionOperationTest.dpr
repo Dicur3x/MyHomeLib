@@ -1,0 +1,118 @@
+﻿program BookCompressionOperationTest;
+
+{$APPTYPE CONSOLE}
+
+uses System.SysUtils, System.Classes, System.IOUtils, System.JSON, System.Hash,
+  Winapi.Windows, unit_BookCompressionPlan, unit_BookCompressionOperation,
+  unit_BookCompressionJob, unit_CollectionPacking, unit_Globals, unit_Settings, dm_user;
+
+function Text(Obj:TJSONObject; const Name:string):string;
+begin Result:=Obj.GetValue<string>(Name,''); end;
+
+function Digest(const FileName:string):string;
+var Stream:TFileStream;
+begin
+  Stream:=TFileStream.Create(FileName,fmOpenRead or fmShareDenyWrite);
+  try Result:=THashSHA2.GetHashString(Stream); finally Stream.Free; end;
+end;
+
+var Data, Entry, Output:TJSONObject; Info:TCollectionInfo;
+    Books:TArray<TBookRecord>; Options:TBookCompressionOperationOptions;
+    Operation:TBookCompressionOperation; State:TBookCompressionOperationStatus;
+    Mode, BeforeReview:string; Started:UInt64; SeenReview, Disposed:Boolean;
+begin
+  try
+    Data:=TJSONObject.ParseJSONValue(TFile.ReadAllText(ParamStr(1),TEncoding.UTF8)) as TJSONObject;
+    if Data=nil then raise EReadError.Create('Invalid operation fixture request');
+    try
+      Entry:=Data.GetValue<TJSONObject>('options');
+      Info:=Default(TCollectionInfo); Info.ID:=Entry.GetValue<Integer>('collection_id');
+      Info.RootFolder:=Text(Entry,'base_root'); Info.DBFileName:=Text(Entry,'catalogue');
+      var Rows:=Data.GetValue<TJSONArray>('selected');
+      SetLength(Books,Rows.Count);
+      for var I:=0 to Rows.Count-1 do
+      begin
+        var Row:=Rows.Items[I] as TJSONObject;
+        Books[I]:=Default(TBookRecord);
+        Books[I].BookKey:=CreateBookKey(Row.GetValue<Integer>('id'),Info.ID);
+        Books[I].LibID:=Text(Row,'lib_id'); Books[I].Folder:=Text(Row,'folder');
+        Books[I].FileName:=Text(Row,'file_name'); Books[I].FileExt:=Text(Row,'ext');
+        Books[I].InsideNo:=Row.GetValue<Integer>('inside_no',0);
+        Books[I].CollectionRoot:=Text(Entry,'root');
+      end;
+      Options:=Default(TBookCompressionOperationOptions);
+      Options.WorkRoot:=Text(Data,'work_root'); Options.Python:=Text(Data,'python');
+      Options.Script:=Text(Data,'script'); Options.SevenZip:=Text(Data,'seven_zip');
+      Options.ToolsRoot:=Text(Data,'tools_root'); Options.Profile:=Text(Data,'profile');
+      Options.Grayscale:=Data.GetValue<Boolean>('grayscale',False);
+      Mode:=Text(Data,'operation_mode'); Options.ReviewResults:=Mode.StartsWith('review') or Mode.StartsWith('dispose');
+      ConfigureMHLHostProfile(TPath.GetDirectoryName(ParamStr(1)),'operation-test.ini','operation-test.dbs2');
+      DMUser:=TDMUser.Create(nil);
+      try
+        if Mode='recover' then Operation:=TBookCompressionOperation.Recover(Options)
+        else Operation:=TBookCompressionOperation.Create(Options,
+          function(const Cancelled:TFunc<Boolean>; const Progress:TProc<Int64>):TBookCompressionPlan
+          begin Result:=BuildSelectedCompressionPlan(Info,Text(Entry,'personal'),Books,Cancelled,Progress); end);
+        try
+          if Mode='stop-before' then Operation.RequestStop;
+          Started:=GetTickCount64; SeenReview:=False; BeforeReview:=''; Disposed:=False;
+          Operation.Start;
+          repeat
+            State:=Operation.Status;
+            if State.AwaitingReview then
+            begin
+              if not SeenReview then BeforeReview:=Digest(State.Source);
+              SeenReview:=True;
+              if Mode='review-skip' then Operation.Approve(crSkip)
+              else if Mode='review-stop' then Operation.RequestStop
+              else if Mode='review-all' then Operation.Approve(crApplyRemaining)
+              else if Mode='dispose-at-review' then
+              begin FreeAndNil(Operation); Disposed:=True; Break; end
+              else Operation.Approve(crApply);
+            end;
+            if Mode='stop-producer' then
+              if State.Stage='slow-worker' then Operation.RequestStop;
+            if State.Finished then Break;
+            if GetTickCount64-Started>30000 then
+              raise Exception.Create('Operation fixture timed out');
+            Sleep(10);
+          until False;
+          if Assigned(Operation) then Operation.WaitFor;
+          Output:=TJSONObject.Create;
+          try
+            Output.AddPair('disposed',TJSONBool.Create(Disposed));
+            Output.AddPair('review_seen',TJSONBool.Create(SeenReview));
+            Output.AddPair('before_review_sha256',BeforeReview);
+            if Assigned(Operation) then
+            begin
+              var PendingBefore:=Length(TBookCompressionJob.Pending(Operation.QueueRoot));
+              if Data.GetValue<Boolean>('acknowledge',True) then Operation.AcknowledgeCompletedJobs;
+              State:=Operation.Status;
+              Output.AddPair('error',State.Error); Output.AddPair('warning',State.Warning);
+              Output.AddPair('stage',State.Stage); Output.AddPair('pending_job',State.PendingJob);
+              Output.AddPair('finished',TJSONBool.Create(State.Finished));
+              Output.AddPair('stopping',TJSONBool.Create(State.Stopping));
+              Output.AddPair('savings_known',TJSONBool.Create(State.SavingsKnown));
+              Output.AddPair('files_done',TJSONNumber.Create(State.FilesDone));
+              Output.AddPair('files_total',TJSONNumber.Create(State.FilesTotal));
+              Output.AddPair('books_done',TJSONNumber.Create(State.BooksDone));
+              Output.AddPair('books_total',TJSONNumber.Create(State.BooksTotal));
+              Output.AddPair('changed_files',TJSONNumber.Create(State.ChangedFiles));
+              Output.AddPair('unchanged_files',TJSONNumber.Create(State.UnchangedFiles));
+              Output.AddPair('skipped_files',TJSONNumber.Create(State.SkippedFiles));
+              Output.AddPair('saved_bytes',TJSONNumber.Create(State.SavedBytes));
+              Output.AddPair('pending_before_ack',TJSONNumber.Create(PendingBefore));
+              Output.AddPair('pending_after_ack',TJSONNumber.Create(Length(TBookCompressionJob.Pending(Operation.QueueRoot))));
+            end;
+            TFile.WriteAllText(ParamStr(2),Output.ToJSON,TEncoding.UTF8);
+          finally Output.Free; end;
+        finally Operation.Free; end;
+      finally FreeAndNil(DMUser); end;
+    finally Data.Free; end;
+  except on E:Exception do
+    begin
+      var Bytes:=TEncoding.UTF8.GetBytes(E.ClassName+': '+E.Message+sLineBreak); var Written:DWORD;
+      WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),Bytes[0],Length(Bytes),Written,nil); Halt(1);
+    end;
+  end;
+end.
