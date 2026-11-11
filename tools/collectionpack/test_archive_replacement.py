@@ -214,6 +214,57 @@ class ArchiveReplacementTests(unittest.TestCase):
         self.assertFalse(list(self.work.glob('prepared.*')))
 
 
+    def test_owned_staged_payload_is_transferred_without_an_extra_full_copy(self):
+        source = self.source_zip({'one.fb2': os.urandom(128 * 1024)})
+        original = sha(source)
+        owner = self.root / 'owned'; owner.mkdir()
+        work = owner / 'archive'; work.mkdir()
+        replacement = owner / 'input.fb2'
+        replacement.write_bytes(b'Prepared book contents ' * 1000)
+        identity = replacement.stat().st_ino
+        body = replacement.read_bytes()
+        result = prepare_archive_replacement(source, {'one.fb2': replacement}, work, SEVEN,
+            owned_replacements_root=owner, expected_payload_sha256={'one.fb2': sha(replacement)})
+        self.assertIsNotNone(result.candidate)
+        self.assertFalse(replacement.exists())
+        self.assertEqual((work / 'members/one.fb2').stat().st_ino, identity)
+        self.assertEqual(self.extracted(result.candidate, 'one.fb2'), body)
+        self.assertEqual(sha(source), original)
+
+    def test_transfer_cannot_take_an_input_from_outside_its_private_root(self):
+        source = self.source_zip({'one.fb2': os.urandom(128 * 1024)})
+        original = sha(source)
+        owner = self.root / 'owned'; owner.mkdir()
+        work = owner / 'archive'; work.mkdir()
+        replacement = self.updated()
+        before = sha(replacement)
+        with self.assertRaisesRegex(PackingError, 'временные'):
+            prepare_archive_replacement(source, {'one.fb2': replacement}, work, SEVEN,
+                                        owned_replacements_root=owner)
+        self.assertEqual(sha(source), original)
+        self.assertEqual(sha(replacement), before)
+
+    def test_source_archive_is_never_a_disposable_transfer_input(self):
+        source = self.source_zip({'one.fb2': os.urandom(128 * 1024)})
+        original = sha(source)
+        with self.assertRaisesRegex(PackingError, 'Исходный архив'):
+            prepare_archive_replacement(source, {'one.fb2': source}, self.work, SEVEN,
+                                        owned_replacements_root=self.root)
+        self.assertEqual(sha(source), original)
+
+    def test_changed_transferred_payload_is_refused_before_archive_creation(self):
+        source = self.source_zip({'one.fb2': os.urandom(128 * 1024)})
+        original = sha(source)
+        owner = self.root / 'owned'; owner.mkdir()
+        work = owner / 'archive'; work.mkdir()
+        replacement = owner / 'input.fb2'; replacement.write_bytes(b'Prepared content')
+        with self.assertRaisesRegex(PackingError, 'изменилась'):
+            prepare_archive_replacement(source, {'one.fb2': replacement}, work, SEVEN,
+                owned_replacements_root=owner, expected_payload_sha256={'one.fb2': '0' * 64})
+        self.assertFalse(list(work.glob('prepared.*')))
+        self.assertEqual(sha(source), original)
+
+
 class TemporaryWorkTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='HomeLibre-workspace-test-')

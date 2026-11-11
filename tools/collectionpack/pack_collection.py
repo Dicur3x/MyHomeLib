@@ -203,6 +203,9 @@ class SevenZip:
 
     def run(self, arguments, cwd=None, output=None, limit=MAX_BOOK):
         self.check()
+        arguments = list(arguments)
+        if not any(argument.lower().startswith('-scc') for argument in arguments[1:]):
+            arguments.insert(1, '-sccUTF-8')
         # File-backed output is bounded and avoids pipe deadlock. Temporary
         # data lives on the selected destination drive, never in the C: cache.
         with tempfile.TemporaryFile(dir=cwd) as log:
@@ -618,7 +621,8 @@ class Packer:
             raise PackingError('Неизвестная версия или режим сжатия коллекции.')
         if self.engine in ('reversible-ppmd', JPEG_XL_ENGINE) and self.images != 'original':
             raise PackingError('Этот режим сохраняет изображения без изменений. Для изменения качества нужен соответствующий режим сжатия.')
-        if self.engine in IMAGE_ENGINES and self.images not in ('balanced', 'economy', 'maximum'):
+        if (self.engine in IMAGE_ENGINES and self.images not in ('balanced', 'economy', 'maximum')
+                and not (self.engine == 'illustrations-gray-ppmd' and self.images == 'original')):
             raise PackingError('Выберите качество иллюстраций для сжатой копии.')
         self.grayscale = self.engine == 'illustrations-gray-ppmd'
         self.keep_loose = job.get('keep_loose') is True
@@ -712,7 +716,8 @@ class Packer:
             converter.convert_book(target, candidate, image_quality=self.images,
                                    image_container='fb2-zip' if target.suffix == '.fb2' else None,
                                    tools_root=self.tools_root, cancel_check=self.check,
-                                   packing_grayscale=self.grayscale)
+                                   packing_grayscale=self.grayscale and self.images != 'original',
+                                   grayscale=self.grayscale and self.images == 'original')
             self.check()
             if candidate.stat().st_size >= size:
                 return {}

@@ -297,8 +297,10 @@ def payload_for(platform, component, kindle_export_root=None, advanced_export_ro
                              'epub_pdf_output.py', 'COMPONENT.json')))
         # The installed path is within the existing BookProcessing allowlist,
         # so older updater helpers can install the same component ZIP.
-        worker = 'tools/bookconvert/pack_collection.py'
-        payload[worker] = (REPO/'tools/collectionpack/pack_collection.py').read_bytes()
+        packing_workers = ['tools/bookconvert/' + name for name in
+                           ('pack_collection.py', 'archive_replacement.py', 'prepare_book_compression.py')]
+        for worker in packing_workers:
+            payload[worker] = (REPO/'tools/collectionpack'/Path(worker).name).read_bytes()
         sql_workers = ['tools/bookconvert/catalogdump/' + name for name in ('build_index.py', 'mysql_dump.py')]
         for name in sql_workers:
             payload[name] = (REPO/'tools/catalogdump'/Path(name).name).read_bytes()
@@ -309,7 +311,7 @@ def payload_for(platform, component, kindle_export_root=None, advanced_export_ro
                     'tools/bookconvert/ADVANCED_EXPORT_API.txt', 'tools/bookconvert/advanced_output.py',
                     'tools/bookconvert/markdown_output.py', 'tools/bookconvert/epub2_output.py', 'tools/bookconvert/epub3_output.py',
                     'tools/bookconvert/epub_kfx_output.py', 'tools/bookconvert/kfx_image_input.py',
-                    'tools/bookconvert/image_quality.py', worker, *sql_workers]
+                    'tools/bookconvert/image_quality.py', *packing_workers, *sql_workers]
         helper.binary_platform(payload['tools/python/python.exe'], platform)
     elif component == 'ImageProcessing':
         payload = tree(runtime/'images', 'tools/images', ('COMPONENT.json',))

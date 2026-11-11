@@ -152,12 +152,15 @@ def restore_zip_comments(source, candidate):
 
 
 def prepare_archive_replacement(source, replacements, workspace, seven_zip,
-                                *, method=None, canceled=lambda: False):
+                                *, method=None, canceled=lambda: False,
+                                owned_replacements_root=None, expected_payload_sha256=None):
     """Return a verified smaller candidate, or candidate=None when it cannot win.
 
     ``replacements`` maps exact archive names to already prepared book files.
     Workspace must be empty, private, and outside the source archive. It is not
-    a backup directory. The source and all input replacement files stay intact.
+    a backup directory. The source stays intact. Input replacements stay intact
+    by default; a caller may explicitly transfer disposable files from its own
+    private staging root instead of duplicating all selected book payloads.
     """
     source, work = Path(source).absolute(), Path(workspace).absolute()
     if not source.is_file() or source.is_symlink():
@@ -166,6 +169,15 @@ def prepare_archive_replacement(source, replacements, workspace, seven_zip,
         raise PackingError('Для подготовки архива нужна пустая временная папка.')
     if not replacements or len(replacements) > 100000:
         raise PackingError('Не выбраны книги для сжатия.')
+    owner = None
+    if owned_replacements_root is not None:
+        owner = Path(canonical(owned_replacements_root))
+        if (not owner.is_dir() or Path(owned_replacements_root).is_symlink()
+                or not Path(canonical(work)).is_relative_to(owner)
+                or Path(canonical(source)).is_relative_to(owner)):
+            raise PackingError('Исходный архив нельзя переносить во временные файлы сжатия.')
+    if expected_payload_sha256 is not None and set(expected_payload_sha256) != set(replacements):
+        raise PackingError('Не совпал проверенный список подготовленных книг.')
 
     def check():
         if canceled():
@@ -192,7 +204,10 @@ def prepare_archive_replacement(source, replacements, workspace, seven_zip,
     copied, folded = {}, set()
     candidate = work / ('prepared.' + kind)
     try:
-        reserve_space(work, before_stat.st_size + sum(Path(p).stat().st_size for p in replacements.values()))
+        sizes = [Path(p).stat().st_size for p in replacements.values()]
+        # Transferred inputs already occupy the same private drive. The
+        # additional large files are the candidate and one decoded check book.
+        reserve_space(work, before_stat.st_size + (max(sizes) if owner else sum(sizes)))
         for member, prepared in replacements.items():
             check()
             target = member_path(updates, member)
@@ -207,8 +222,22 @@ def prepare_archive_replacement(source, replacements, workspace, seven_zip,
                     not 0 < prepared.stat().st_size <= MAX_BOOK):
                 raise PackingError('Подготовленный файл книги недоступен или слишком велик: ' + member)
             target.parent.mkdir(parents=True, exist_ok=True)
-            copy_exact(prepared, target, check)
+            if owner is None:
+                copy_exact(prepared, target, check)
+            else:
+                if (not Path(canonical(prepared)).is_relative_to(owner)
+                        or prepared.stat().st_nlink != 1):
+                    raise PackingError('Для переноса разрешены только собственные временные книги.')
+                identity = prepared.stat()
+                prepared.rename(target)
+                moved = target.stat()
+                if (target.is_symlink() or (moved.st_dev, moved.st_ino) !=
+                        (identity.st_dev, identity.st_ino)):
+                    raise PackingError('Подготовленная книга изменилась при переносе.')
             copied[member] = book_signature(target, check)
+            if (expected_payload_sha256 is not None and
+                    copied[member]['payload_sha256'] != expected_payload_sha256[member]):
+                raise PackingError('Подготовленная книга изменилась после проверки: ' + member)
         listing = work / 'replace.txt'
         listing.write_text('\n'.join(copied) + '\n', encoding='utf-8')
         # -u- forbids changing the base archive. Unselected members are copied

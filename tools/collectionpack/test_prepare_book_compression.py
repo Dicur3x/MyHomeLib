@@ -1,0 +1,358 @@
+"""Selected books through actual image processing, 7-Zip and native commit."""
+import base64
+import io
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import unittest
+from unittest.mock import patch
+from xml.etree import ElementTree
+import zipfile
+
+from archive_replacement import archive_inventory
+from pack_collection import Canceled, PackingError, SevenZip, temporary_work_directory
+import prepare_book_compression as preparation
+from prepare_book_compression import PreparedBookCompression, prepare_selected_file, profile_digest, verify_non_image_content
+from test_pack_collection import image_fixture, illustrated_fb2, sha
+import test_native_compression_receipt as native
+
+
+SEVEN = Path(os.environ.get('HLRU_PACK_7ZIP', '../../Program/Out/Bin64/tools/7zip/7za.exe')).absolute()
+TOOLS = os.environ.get('HLRU_PACK_IMAGE_TOOLS')
+CLI_SCRIPT = os.environ.get('HL_SELECTED_PREPARER', preparation.__file__)
+
+
+def epub(picture):
+    result = io.BytesIO()
+    with zipfile.ZipFile(result, 'w', zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr('mimetype', 'application/epub+zip', compress_type=zipfile.ZIP_STORED)
+        archive.writestr('META-INF/container.xml',
+            '<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles>'
+            '<rootfile full-path="book.opf"/></rootfiles></container>')
+        archive.writestr('book.opf', '''<package xmlns="http://www.idpf.org/2007/opf" version="2.0">
+<manifest><item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/>
+<item id="pic" href="picture.png" media-type="image/png"/><item id="style" href="book.css" media-type="text/css"/>
+<item id="font" href="font.ttf" media-type="application/x-font-truetype"/>
+<item id="svg" href="drawing.svg" media-type="image/svg+xml"/></manifest><spine><itemref idref="chapter"/></spine></package>''')
+        archive.writestr('chapter.xhtml', '<html xmlns="http://www.w3.org/1999/xhtml"><body><p id="chapter">'
+                         'Keep <em>this text</em> and <a href="#note">footnote</a>.</p><p id="note">Note</p>'
+                         '<img src="picture.png"/><img src="drawing.svg"/></body></html>')
+        archive.writestr('book.css', '@font-face {font-family: Book;src: url(font.ttf)} p {line-height:1.25}')
+        archive.writestr('font.ttf', b'Preserve embedded font bytes exactly')
+        archive.writestr('drawing.svg', '<svg xmlns="http://www.w3.org/2000/svg"><text>Keep vector text</text></svg>')
+        archive.writestr('picture.png', picture)
+    return result.getvalue()
+
+
+class SelectedPreparationTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = temporary_work_directory(tempfile.gettempdir(), 'HomeLibre-selected-compression-')
+        self.root = self.temp.__enter__()
+        self.work = self.root / 'work'
+        self.work.mkdir()
+        self.decoder = SevenZip(SEVEN, lambda: None)
+
+    def tearDown(self):
+        self.temp.__exit__(None, None, None)
+
+    def source_zip(self, books):
+        source = self.root / 'Книги ё.zip'
+        with zipfile.ZipFile(source, 'w', zipfile.ZIP_STORED) as archive:
+            archive.comment = b'Keep archive comments'
+            for name, data in books.items():
+                entry = zipfile.ZipInfo(name)
+                entry.comment = b'Keep member comments'
+                archive.writestr(entry, data)
+        return source
+
+    def decoded(self, candidate, name):
+        target = self.root / ('decoded-' + str(len(list(self.root.glob('decoded-*')))))
+        self.decoder.extract(candidate, name, target, self.root)
+        return target.read_bytes()
+
+    def prepare(self, source, members, **options):
+        return prepare_selected_file(source, members, self.work, SEVEN, tools_root=TOOLS, **options)
+
+    def test_selected_reversible_books_preserve_all_payloads_names_and_comments(self):
+        bodies = {'Русская книга.fb2': b'Keep all book bytes ' * 5000,
+                  'next.txt': b'Keep the second selected book ' * 10000,
+                  'neighbor.dat': os.urandom(100000)}
+        source = self.source_zip(bodies)
+        before = sha(source)
+        events = []
+        prepared = self.prepare(source, {'Русская книга.fb2': '.fb2', 'next.txt': '.txt'}, notify=events.append)
+        space = next(e for e in events if e['stage'] == 'Оцениваем временное место')
+        self.assertEqual(space['selected_bytes'], len(bodies['Русская книга.fb2']) + len(bodies['next.txt']))
+        self.assertEqual(space['working_bytes'], prepared.working_bytes)
+        self.assertIsNotNone(prepared.candidate)
+        self.assertGreater(prepared.savings, 0)
+        for name, body in bodies.items():
+            self.assertEqual(self.decoded(prepared.candidate, name), body)
+        with zipfile.ZipFile(prepared.candidate) as archive:
+            self.assertEqual(archive.comment, b'Keep archive comments')
+            self.assertTrue(all(entry.comment == b'Keep member comments' for entry in archive.infolist()))
+        self.assertEqual(sha(source), before)
+        self.assertEqual({p['member'] for p in prepared.payloads}, {'Русская книга.fb2', 'next.txt'})
+        self.assertEqual(list(self.work.iterdir()), [Path(prepared.candidate)])
+
+    @unittest.skipUnless(TOOLS, 'Real HomeLibre Images runtime required')
+    def test_solid_archive_changes_only_selected_book(self):
+        inputs = self.root / 'inputs'; inputs.mkdir()
+        (inputs / 'one.fb2').write_bytes(illustrated_fb2(image_fixture()))
+        neighbor = os.urandom(10000)
+        (inputs / 'neighbor.txt').write_bytes(neighbor)
+        source = self.root / 'solid.7z'
+        self.decoder.run(['a', '-t7z', '-m0=LZMA2', '-ms=on', '-mmt=2', str(source),
+                          'one.fb2', 'neighbor.txt'], cwd=inputs)
+        before = sha(source)
+        prepared = self.prepare(source, {'one.fb2': '.fb2'}, profile='economy')
+        self.assertIsNotNone(prepared.candidate, prepared.books)
+        self.assertTrue(prepared.books[0]['optimized'])
+        self.assertEqual(self.decoded(prepared.candidate, 'neighbor.txt'), neighbor)
+        self.assertEqual(sha(source), before)
+
+    def test_random_payload_without_savings_does_not_leave_a_candidate(self):
+        source = self.source_zip({'one.bin': os.urandom(128 * 1024)})
+        before = sha(source)
+        prepared = self.prepare(source, {'one.bin': '.bin'})
+        self.assertIsNone(prepared.candidate)
+        self.assertEqual(prepared.savings, 0)
+        self.assertEqual(list(self.work.iterdir()), [])
+        self.assertEqual(sha(source), before)
+
+    @unittest.skipUnless(TOOLS, 'Real HomeLibre Images runtime required')
+    def test_two_formats_keep_text_metadata_css_fonts_svg_and_neighbor(self):
+        picture = image_fixture()
+        fb2, ebook = illustrated_fb2(picture), epub(picture)
+        source = self.source_zip({'one.fb2': fb2, 'two.epub': ebook, 'keep.txt': b'Neighbor stays'})
+        prepared = self.prepare(source, {'one.fb2': '.fb2', 'two.epub': '.epub'}, profile='economy')
+        self.assertEqual([b['optimized'] for b in prepared.books], [True, True], prepared.books)
+        for name, original, extension in [('one.fb2', fb2, '.fb2'), ('two.epub', ebook, '.epub')]:
+            decoded = self.root / ('result' + extension)
+            decoded.write_bytes(self.decoded(prepared.candidate, name))
+            before = self.root / ('before' + extension)
+            before.write_bytes(original)
+            verify_non_image_content(before, decoded, extension)
+        self.assertEqual(self.decoded(prepared.candidate, 'keep.txt'), b'Neighbor stays')
+
+    @unittest.skipUnless(TOOLS, 'Real HomeLibre Images runtime required')
+    def test_mistyped_extension_uses_actual_epub_without_format_roundtrip(self):
+        body = epub(image_fixture())
+        source = self.source_zip({'wrong.fb2': body})
+        prepared = self.prepare(source, {'wrong.fb2': '.fb2'}, profile='balanced')
+        self.assertEqual(prepared.books[0]['format'], '.epub')
+        self.assertTrue(prepared.books[0]['optimized'], prepared.books)
+        output = self.decoded(prepared.candidate, 'wrong.fb2')
+        with zipfile.ZipFile(io.BytesIO(output)) as archive:
+            self.assertIn('chapter.xhtml', archive.namelist())
+            self.assertEqual(archive.read('font.ttf'), b'Preserve embedded font bytes exactly')
+
+    @unittest.skipUnless(TOOLS, 'Real HomeLibre Images runtime required')
+    def test_original_quality_with_gray_keeps_dimensions_and_text(self):
+        body = illustrated_fb2(image_fixture(transparent=True))
+        source = self.root / 'Book.fb2'
+        source.write_bytes(body)
+        prepared = self.prepare(source, {'': '.fb2'}, profile='original', grayscale=True)
+        self.assertIsNotNone(prepared.candidate, prepared.books)
+        image = base64.b64decode(ElementTree.parse(prepared.candidate).find('.//{*}binary').text)
+        import struct
+        self.assertEqual(struct.unpack_from('>II', image, 16), (128, 96))
+        self.assertEqual(''.join(ElementTree.parse(prepared.candidate).find('.//{*}p').itertext()), 'Keep this text.')
+        self.assertEqual(source.read_bytes(), body)
+        self.assertLess(prepared.output_bytes, prepared.input_bytes)
+
+    @unittest.skipUnless(TOOLS, 'Real HomeLibre Images runtime required')
+    def test_same_profile_reuses_image_bytes_and_only_processes_new_book(self):
+        source = self.source_zip({'one.fb2': illustrated_fb2(image_fixture())})
+        first = self.prepare(source, {'one.fb2': '.fb2'}, profile='maximum')
+        optimized = self.decoded(first.candidate, 'one.fb2')
+        ledger = {'one.fb2': dict(profile_sha256=first.profile_sha256,
+                                   output_sha256=first.payloads[0]['output_sha256'])}
+        second_source = self.root / 'updated.zip'
+        with zipfile.ZipFile(second_source, 'w') as archive:
+            archive.writestr('one.fb2', optimized)
+            archive.writestr('new.fb2', illustrated_fb2(image_fixture()))
+        second_work = self.root / 'second'; second_work.mkdir()
+        second = prepare_selected_file(second_source, {'one.fb2': '.fb2', 'new.fb2': '.fb2'}, second_work,
+                                       SEVEN, profile='maximum', tools_root=TOOLS, previous=ledger)
+        self.assertTrue(second.books[0]['reused'])
+        self.assertTrue(second.books[1]['optimized'])
+        self.assertEqual(self.decoded(second.candidate, 'one.fb2'), optimized)
+
+    def test_source_change_during_book_preparation_discards_candidate(self):
+        source = self.source_zip({'one.txt': b'Book' * 40000})
+        changed = False
+        def notify(event):
+            nonlocal changed
+            if event['stage'] == 'Подготавливаем выбранную книгу' and not changed:
+                changed = True
+                with source.open('ab') as stream: stream.write(b'external change')
+        with self.assertRaisesRegex(PackingError, 'изменил'):
+            self.prepare(source, {'one.txt': '.txt'}, notify=notify)
+        self.assertEqual(list(self.work.iterdir()), [])
+
+    def test_cancel_before_preparation_keeps_source_and_workspace(self):
+        source = self.source_zip({'one.txt': b'Book' * 40000})
+        before = sha(source)
+        with self.assertRaises(Canceled):
+            self.prepare(source, {'one.txt': '.txt'}, canceled=lambda: True)
+        self.assertEqual(sha(source), before)
+        self.assertEqual(list(self.work.iterdir()), [])
+
+    @unittest.skipUnless(TOOLS, 'Real HomeLibre Images runtime required')
+    def test_one_shot_image_cancel_is_not_swallowed_as_a_warning(self):
+        source = self.source_zip({'one.fb2': illustrated_fb2(image_fixture())})
+        before = sha(source)
+        with patch('prepare_book_compression.Packer.optimize_book', side_effect=Canceled('stop once')):
+            with self.assertRaises(Canceled):
+                self.prepare(source, {'one.fb2': '.fb2'}, profile='economy')
+        self.assertEqual(sha(source), before)
+        self.assertEqual(list(self.work.iterdir()), [])
+
+    def test_non_image_formats_are_preserved_without_claiming_image_compression(self):
+        body = b'%PDF-1.4\n' + os.urandom(10000)
+        source = self.source_zip({'scan.pdf': body, 'keep.txt': b'Keep neighbor'})
+        prepared = self.prepare(source, {'scan.pdf': '.pdf'})
+        if prepared.candidate:
+            self.assertEqual(self.decoded(prepared.candidate, 'scan.pdf'), body)
+        self.assertFalse(prepared.books[0]['optimized'])
+        self.assertEqual(prepared.payloads[0]['input_sha256'], prepared.payloads[0]['output_sha256'])
+
+    def test_loose_original_file_does_not_grow_or_change_its_format(self):
+        source = self.root / 'small.txt'
+        source.write_text('Короткая книга ё', encoding='utf-8')
+        before = source.read_bytes()
+        prepared = self.prepare(source, {'': '.txt'})
+        self.assertIsNone(prepared.candidate)
+        self.assertEqual(prepared.input_bytes, prepared.output_bytes)
+        self.assertEqual(source.read_bytes(), before)
+        self.assertEqual(list(self.work.iterdir()), [])
+
+    @unittest.skipUnless(TOOLS, 'Real HomeLibre Images runtime required')
+    def test_text_change_by_processor_keeps_original_book(self):
+        body = illustrated_fb2(image_fixture())
+        source = self.source_zip({'one.fb2': body})
+        def tamper(processor, target, *_):
+            target.write_bytes(body.replace(b'Keep ', b'Changed '))
+            return {'image_result': 'optimized'}
+        with patch('prepare_book_compression.Packer.optimize_book', tamper):
+            prepared = self.prepare(source, {'one.fb2': '.fb2'}, profile='maximum')
+        self.assertFalse(prepared.books[0]['optimized'])
+        self.assertIn('текст', prepared.books[0]['reason'])
+        if prepared.candidate:
+            self.assertEqual(self.decoded(prepared.candidate, 'one.fb2'), body)
+
+    def test_profile_and_receipt_cannot_select_other_book_or_source(self):
+        with self.assertRaises(PackingError): profile_digest('jpeg-xl', False)
+        source = self.source_zip({'one.txt': b'Book' * 40000})
+        prepared = self.prepare(source, {'one.txt': '.txt'})
+        with self.assertRaises(PackingError):
+            prepared.receipt(dict(schema=1, kind='HomeLibre book compression', source=str(source),
+                                  rows=[dict(member='other.txt')]))
+
+    def test_fb2_vector_graphics_are_not_exempted_from_content_preservation(self):
+        first, second = self.root / 'before.fb2', self.root / 'after.fb2'
+        body = illustrated_fb2(image_fixture()).replace(b'</FictionBook>',
+            b'<binary id="vector" content-type="image/svg+xml">' +
+            base64.b64encode(b'<svg>Keep vector text</svg>') + b'</binary></FictionBook>')
+        first.write_bytes(body)
+        second.write_bytes(body.replace(base64.b64encode(b'<svg>Keep vector text</svg>'),
+                                        base64.b64encode(b'<svg>Lost vector text</svg>')))
+        with self.assertRaises(PackingError): verify_non_image_content(first, second, '.fb2')
+
+    def test_archive_error_retains_readable_russian_path(self):
+        with self.assertRaises(PackingError) as error:
+            self.decoder.run(['l', str(self.root / 'Нет архива ё.zip')], cwd=self.root)
+        self.assertIn('Нет архива ё.zip', str(error.exception))
+
+    def test_bad_cli_receipt_does_not_publish_or_leave_a_candidate(self):
+        source = self.source_zip({'one.txt': b'Book' * 40000})
+        before = sha(source)
+        request = self.root / 'request.json'
+        report = self.root / 'report.json'
+        request.write_text(json.dumps(dict(version=1, source=str(source), members={'one.txt': '.txt'},
+            workspace=str(self.work), seven_zip=str(SEVEN), report=str(report),
+            receipt_template=dict(schema=1, kind='HomeLibre book compression', source=str(source),
+                                  rows=[dict(member='wrong.txt')]))), encoding='utf-8')
+        failed = subprocess.run([sys.executable, '-I', '-B', '-X', 'utf8', CLI_SCRIPT, '--job', str(request)],
+                                capture_output=True, text=True, encoding='utf-8', timeout=30)
+        self.assertEqual(failed.returncode, 1, failed.stdout + failed.stderr)
+        self.assertEqual(json.loads(failed.stdout.splitlines()[-1])['stage'], 'error')
+        self.assertFalse(report.exists())
+        self.assertEqual(list(self.work.iterdir()), [])
+        self.assertEqual(sha(source), before)
+
+    def test_cli_cancel_leaves_no_report_or_book_change(self):
+        source = self.source_zip({'one.txt': b'Book' * 40000})
+        before = sha(source)
+        request, cancel, report = [self.root / name for name in ['job.json', 'cancel', 'report.json']]
+        request.write_text(json.dumps(dict(version=1, source=str(source), members={'one.txt': '.txt'},
+            workspace=str(self.work), seven_zip=str(SEVEN), report=str(report))), encoding='utf-8')
+        cancel.touch()
+        failed = subprocess.run([sys.executable, '-I', '-B', '-X', 'utf8', CLI_SCRIPT, '--job', str(request), '--cancel', str(cancel)],
+                                capture_output=True, text=True, encoding='utf-8', timeout=30)
+        self.assertEqual(failed.returncode, 2, failed.stdout + failed.stderr)
+        self.assertEqual(json.loads(failed.stdout.splitlines()[-1])['stage'], 'cancelled')
+        self.assertFalse(report.exists())
+        self.assertEqual(sha(source), before)
+
+
+@unittest.skipUnless(TOOLS and native.NATIVE and native.NATIVE.is_file(), 'Native writer and image runtime required')
+class NativeSelectedPipelineTests(unittest.TestCase):
+    setUp = native.NativeCompressionReceiptTests.setUp
+    tearDown = native.NativeCompressionReceiptTests.tearDown
+    write_template = native.NativeCompressionReceiptTests.write_template
+    snapshot = native.NativeCompressionReceiptTests.snapshot
+    require_success = native.NativeCompressionReceiptTests.require_success
+
+    def test_real_image_processing_archive_preparation_and_native_catalogue_apply(self):
+        self.original_book = illustrated_fb2(image_fixture())
+        with zipfile.ZipFile(self.source, 'w', zipfile.ZIP_STORED) as archive:
+            archive.writestr('one.fb2', self.original_book)
+            archive.writestr('neighbor.fb2', self.neighbor)
+        for path in [self.catalogue, self.personal]:
+            with native.database(path) as db:
+                db.execute('UPDATE Books SET BookSize=? WHERE BookID=101', (len(self.original_book),))
+                if path == self.catalogue:
+                    db.execute('UPDATE CatalogBookCopies SET BookSize=?', (len(self.original_book),))
+        for row in self.template['rows']: row['old_size'] = len(self.original_book)
+        before_c, before_p = self.snapshot(self.catalogue, False), self.snapshot(self.personal, False)
+        work = self.root / 'prepared'; work.mkdir()
+        request, report = self.root / 'request.json', self.root / 'prepared.json'
+        request.write_text(json.dumps(dict(version=1, source=str(self.source), members={'one.fb2': '.fb2'},
+            workspace=str(work), seven_zip=str(SEVEN), profile='economy', tools_root=TOOLS,
+            receipt_template=self.template, report=str(report)), ensure_ascii=False), encoding='utf-8')
+        process = subprocess.run([sys.executable, '-I', '-B', '-X', 'utf8', CLI_SCRIPT, '--job', str(request)],
+                                 capture_output=True, text=True, encoding='utf-8', timeout=30)
+        self.require_success(process)
+        data = json.loads(report.read_text('utf-8'))
+        receipt = data.pop('receipt')
+        prepared = PreparedBookCompression(**data)
+        self.assertTrue(prepared.books[0]['optimized'], prepared.books)
+        self.template = receipt
+        self.write_template()
+        self.candidate.unlink()
+        Path(prepared.candidate).rename(self.candidate)
+        source_key = self.source.stat().st_ino
+        applied = subprocess.run([str(native.NATIVE), str(self.root), 'job-apply', '-'],
+                                 capture_output=True, text=True, encoding='utf-8', timeout=30)
+        self.require_success(applied)
+        self.assertEqual(self.source.stat().st_ino, source_key)
+        self.assertEqual(sha(self.source), prepared.result_sha256)
+        self.assertEqual(self.snapshot(self.catalogue, False), before_c)
+        self.assertEqual(self.snapshot(self.personal, False), before_p)
+        with native.database(self.catalogue) as db:
+            self.assertEqual(db.execute('SELECT BookSize FROM Books WHERE BookID=101').fetchone()[0],
+                             prepared.payloads[0]['size'])
+        decoder = SevenZip(SEVEN, lambda: None)
+        neighbor = self.root / 'checked-neighbor.fb2'
+        decoder.extract(self.source, 'neighbor.fb2', neighbor, self.root)
+        self.assertEqual(neighbor.read_bytes(), self.neighbor)
+        self.assertFalse(list((self.root / 'queue').iterdir()))
+
+
+if __name__ == '__main__':
+    unittest.main(verbosity=2)

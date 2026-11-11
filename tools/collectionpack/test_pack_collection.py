@@ -1112,7 +1112,7 @@ Packer(json.loads(open(sys.argv[2],encoding='utf-8').read()),notify).execute()
         self.add(1, book, '')
         self.job.update(engine='illustrations-gray-ppmd', tools_root=IMAGE_TOOLS)
 
-        for profile in ('balanced', 'economy', 'maximum'):
+        for profile in ('original', 'balanced', 'economy', 'maximum'):
             with self.subTest(profile=profile), patch.object(self, 'output', self.root / profile):
                 job = dict(self.job, output=str(self.output), images=profile)
                 packed = Packer(job).execute()
@@ -1137,7 +1137,7 @@ Packer(json.loads(open(sys.argv[2],encoding='utf-8').read()),notify).execute()
                 self.assertLess(len(raster), len(picture))
                 self.assertEqual(Packer(job).execute().reused, 1)
                 with self.assertRaisesRegex(PackingError, 'другие настройки'):
-                    Packer(dict(job, engine='illustrations-ppmd')).execute()
+                    Packer(dict(job, engine='reversible-ppmd' if profile == 'original' else 'illustrations-ppmd')).execute()
         self.assertEqual(book.read_bytes(), original)
 
     def test_large_zip_member_is_preserved_without_decoding_or_size_inflation(self):
