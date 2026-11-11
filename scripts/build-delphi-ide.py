@@ -40,10 +40,31 @@ def build(project, platform, binary, logs, ide, required_text=(), visible=False,
         startup = subprocess.STARTUPINFO()
         startup.dwFlags |= subprocess.STARTF_USESHOWWINDOW
         startup.wShowWindow = 5 if visible else 0
-        completed = subprocess.run([str(ide), '-ns', '-b', '-o' + str(log), str(clone or project)],
-                                   startupinfo=startup, timeout=timeout)
-        if completed.returncode or not log.is_file():
-            raise RuntimeError(f'IDE build failed ({completed.returncode}); log: {log}')
+        process = subprocess.Popen([str(ide), '-ns', '-b', '-o' + str(log), str(clone or project)],
+                                   startupinfo=startup)
+        try:
+            deadline = time.monotonic() + timeout
+            while process.poll() is None:
+                if log.is_file():
+                    text = log.read_text(encoding='utf-8', errors='replace')
+                    # AutoBuild can leave its own IDE open after the compiler
+                    # has finished. The fresh log and executable, rather than
+                    # editor shutdown, are the completion authority.
+                    if (re.search(r'(?m)^Success\r?$', text) and
+                            re.search(r'(?m)^Elapsed time:', text) and
+                            binary.is_file() and binary.stat().st_mtime_ns >= started):
+                        break
+                if time.monotonic() >= deadline:
+                    raise subprocess.TimeoutExpired(process.args, timeout)
+                time.sleep(.25)
+            if not log.is_file():
+                raise RuntimeError(f'IDE build failed ({process.returncode}); log: {log}')
+        finally:
+            # This is only the process started above, never an existing IDE.
+            # Reap it before checking project immutability or removing a clone.
+            if process.poll() is None:
+                process.terminate()
+            process.wait(timeout=10)
         text = log.read_text(encoding='utf-8', errors='replace')
         if not re.search(r'(?m)^Success\r?$', text):
             raise RuntimeError('IDE did not report a successful build; log: ' + str(log))
