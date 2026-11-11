@@ -7,11 +7,12 @@ procedure RunCompressionReceiptFixture;
 implementation
 
 uses System.SysUtils, System.Classes, System.IOUtils, System.JSON, Winapi.Windows,
-  unit_ZipMemberDeletion, unit_BookCompressionReceipt, unit_AtomicIniFile;
+  unit_ZipMemberDeletion, unit_BookCompressionReceipt, unit_AtomicIniFile, unit_BookCompressionJob;
 
-var Root, Mode, FaultAt, ReceiptFile, Report: string;
+var Root, Mode, FaultAt, ReceiptFile, Report, LastStage: string;
     Receipt: TBookCompressionReceipt;
     Engine: TZipMemberDeletion;
+    Job: TBookCompressionJob;
 
 procedure Require(Value: Boolean; const MessageText: string);
 begin if not Value then raise Exception.Create(MessageText); end;
@@ -25,8 +26,10 @@ end;
 
 procedure CrashAt(Stage: string);
 begin
+  LastStage:=Stage;
   if Stage<>FaultAt then Exit;
-  TFile.WriteAllText(Report,Engine.JobDirectory,TEncoding.UTF8);
+  if Assigned(Job) then TFile.WriteAllText(Report,Job.Directory,TEncoding.UTF8)
+  else TFile.WriteAllText(Report,Engine.JobDirectory,TEncoding.UTF8);
   if not TerminateProcess(GetCurrentProcess,73) then RaiseLastOSError;
 end;
 
@@ -56,6 +59,49 @@ begin
   finally Data.Free; end;
 end;
 
+procedure RunJob;
+begin
+  LastStage:='open-job';
+  if Mode='job-list' then
+  begin
+    var Names:=TBookCompressionJob.Pending(Root+'queue');
+    var List:=TJSONArray.Create;
+    try
+      for var Name in Names do List.Add(Name);
+      TFile.WriteAllText(Root+'pending.json',List.ToJSON,TEncoding.UTF8);
+    finally List.Free; end;
+    Exit;
+  end;
+  if Mode='job-recover' then
+  begin
+    var Names:=TBookCompressionJob.Pending(Root+'queue');
+    Require(Length(Names)=1,'Expected exactly one pending compression job');
+    Job:=TBookCompressionJob.OpenExisting(Names[0]);
+  end
+  else
+  begin
+    Receipt:=LoadReceipt;
+    try Job:=TBookCompressionJob.CreatePrepared(Root+'queue',Receipt.ToJSON,Root+'candidate.bin');
+    finally Receipt.Free; Receipt:=nil; end;
+  end;
+  try
+    TFile.WriteAllText(Report,Job.Directory,TEncoding.UTF8);
+    if Mode='job-hold' then
+    begin
+      TFile.WriteAllText(Root+'hold-ready','ready');
+      while not FileExists(Root+'release-hold') do Sleep(25);
+    end;
+    CrashAt('job-prepared');
+    LastStage:='execute-job';
+    if FaultAt='-' then
+      Job.Execute(function:Boolean begin Result:=Mode='job-cancel'; end)
+    else Job.Execute(function:Boolean begin Result:=Mode='job-cancel'; end,nil,CrashAt);
+    LastStage:='forget-job';
+    Job.Forget;
+    Writeln('PASS durable compression job');
+  finally FreeAndNil(Job); end;
+end;
+
 procedure RunTest;
 begin
     Require(ParamCount=3,'Expected fixture root, mode and fault stage');
@@ -64,6 +110,7 @@ begin
       'No owned fixture marker');
     Mode:=ParamStr(2); FaultAt:=ParamStr(3);
     ReceiptFile:=Root+'receipt.json'; Report:=Root+'job.txt';
+    if Mode.StartsWith('job-') then begin RunJob; Exit; end;
     Receipt:=LoadReceipt;
     try
       if Mode='preflight' then
@@ -99,7 +146,7 @@ procedure RunCompressionReceiptFixture;
 begin
   SetTextCodePage(Output,CP_UTF8);
   try RunTest;
-  except on E:Exception do begin ErrorUTF8('FAIL '+E.ClassName+': '+E.Message); Halt(1); end; end;
+  except on E:Exception do begin ErrorUTF8('FAIL '+E.ClassName+' ['+LastStage+']: '+E.Message); Halt(1); end; end;
 end;
 
 end.

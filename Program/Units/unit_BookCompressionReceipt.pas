@@ -15,7 +15,8 @@ type
     procedure Validate;
     function Text(const Name: string): string;
     function Payload(const Member: string): TJSONObject;
-    function ProcessRows(DB: TSQLiteDatabase; Personal, Commit: Boolean): Integer;
+    function ProcessRows(DB: TSQLiteDatabase; Personal, Commit: Boolean;
+      RequireApplied: Boolean = False): Integer;
     procedure CheckEngine(Engine: TZipMemberDeletion);
   public
     constructor Create(const JSON: string);
@@ -23,6 +24,7 @@ type
     function ToJSON: string;
     function SHA256: string;
     procedure CheckBeforeWrite;
+    procedure CheckApplied;
     function Apply(Engine: TZipMemberDeletion; const Fault: TProc<string> = nil): Integer;
   end;
 
@@ -208,7 +210,8 @@ begin
   finally Seen.Free; end;
 end;
 
-function TBookCompressionReceipt.ProcessRows(DB: TSQLiteDatabase; Personal, Commit: Boolean): Integer;
+function TBookCompressionReceipt.ProcessRows(DB: TSQLiteDatabase; Personal, Commit,
+  RequireApplied: Boolean): Integer;
 var Query: TSQLiteQuery; SQL, Table: string;
     Item: TJSONObject; Kind, NewSize, CurrentSize: Int64; Matches: Boolean;
 begin
@@ -268,6 +271,8 @@ begin
           raise EReadError.Create('Книга в каталоге изменилась. Обновление размеров остановлено, журнал сохранён.');
         Continue; // A historical personal card can refer to another source.
       end;
+      if RequireApplied and (CurrentSize<>NewSize) then
+        raise EReadError.Create('Размер книги ещё не сохранён. Задание сжатия нельзя считать завершённым.');
       if Commit and (CurrentSize<>NewSize) then
       begin
         SQL:='UPDATE '+Table+' SET BookSize=?';
@@ -302,6 +307,41 @@ begin
       end;
     end;
   finally DB.EndQueryBatch; end;
+end;
+
+procedure TBookCompressionReceipt.CheckApplied;
+var Catalogue, Personal: TSQLiteDatabase; CatalogueLease, PersonalLease: IInterface;
+begin
+  CatalogueLease:=TCompressionDatabaseLease.Create(Text('catalogue'),Text('catalogue_key'));
+  PersonalLease:=TCompressionDatabaseLease.Create(Text('personal'),Text('personal_key'));
+  Catalogue:=TSQLiteDatabase.CreateReadOnly(Text('catalogue'));
+  try
+    Personal:=TSQLiteDatabase.CreateReadOnly(Text('personal'));
+    try
+      Catalogue.Start; Personal.Start;
+      ProcessRows(Catalogue,False,False,True);
+      ProcessRows(Personal,True,False,True);
+      for var Value in JSONArray(FData,'payloads') do
+      begin
+        var Item:=TJSONObject(Value);
+        var Query:=Catalogue.NewQuery('SELECT ProfileSHA256,InputSHA256,OutputSHA256,BookSize '+
+          'FROM HomeLibreBookCompression WHERE FileKey=? AND Member=?',
+          [UpperCase(Text('source_file_key')),JSONText(Item,'member')]);
+        try
+          Query.Open;
+          if Query.Eof or (Query.FieldAsString(0)<>LowerCase(Text('profile_sha256'))) or
+            (Query.FieldAsString(1)<>LowerCase(JSONText(Item,'input_sha256'))) or
+            (Query.FieldAsString(2)<>LowerCase(JSONText(Item,'output_sha256'))) or
+            (Query.FieldAsInt(3)<>JSONNumber(Item,'size')) then
+            raise EReadError.Create('Нет подтверждения обновления каталога после сжатия.');
+        finally Query.Free; end;
+      end;
+    finally
+      try if Personal.InTransaction then Personal.Rollback; finally Personal.Free; end;
+    end;
+  finally
+    try if Catalogue.InTransaction then Catalogue.Rollback; finally Catalogue.Free; end;
+  end;
 end;
 
 procedure TBookCompressionReceipt.CheckBeforeWrite;
