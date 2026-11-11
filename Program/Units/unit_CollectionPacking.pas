@@ -3,7 +3,7 @@
 interface
 
 uses System.SysUtils, System.Classes, System.JSON, Winapi.Windows, SQLiteWrap, unit_Interfaces,
-  unit_Globals, unit_CollectionBackup;
+  unit_Globals, unit_CollectionBackup, unit_BookCompressionPlan;
 
 const
   PACKING_RESUME_SWITCH = '--resume-collection-packing=';
@@ -94,13 +94,16 @@ function PackingReducesImageQuality(Profile: TPackingImageProfile): Boolean;
 function ResolvePackingTools(const AppPath: string; var Options: TCollectionPackingOptions): TArray<string>;
 function StorePackingContinuation(const SettingsFile: string; const Request: TCollectionPackingRequest): string;
 function TakePackingContinuation(const SettingsFile, Argument: string; out Request: TCollectionPackingRequest): Boolean;
+function BuildSelectedCompressionPlan(const Info: TCollectionInfo; const PersonalFile: string;
+  const Books: TArray<TBookRecord>; const Cancelled: TFunc<Boolean> = nil;
+  const Progress: TProc<Int64> = nil): TBookCompressionPlan;
 
 implementation
 
 uses System.IOUtils, System.Hash, System.Math, System.StrUtils,
   System.Generics.Collections, SQLite3, unit_MHLArchiveHelpers, unit_CollectionSpace,
   unit_MHLExternalTools, unit_AtomicIniFile, System.DateUtils,
-  unit_FormatComponents, unit_ProgramUpdateInstaller;
+  unit_FormatComponents, unit_ProgramUpdateInstaller, dm_user, unit_ReaderCache;
 
 const
   PACKING_LEASE = 'HomeLibRu-native-packing.lock';
@@ -122,6 +125,92 @@ type
     function Write(const Buffer; Count: Longint): Longint; override;
     function Seek(const Offset: Int64; Origin: TSeekOrigin): Int64; override;
   end;
+
+function CompressionBookFor(const Row: TCompressionLocator; const Info: TCollectionInfo): TBookRecord;
+begin
+  Result:=Default(TBookRecord);
+  Result.BookKey:=CreateBookKey(Row.BookID,Info.ID); Result.LibID:=Row.LibID;
+  Result.CollectionRoot:=Info.GetRootPath;
+  if Row.Root<>'' then Result.CollectionRoot:=IncludeTrailingPathDelimiter(Row.Root);
+  Result.Folder:=Row.Folder; Result.FileName:=Row.FileName;
+  Result.FileExt:=Row.Extension; Result.InsideNo:=Row.InsideNo;
+end;
+
+function CompressionContainerFor(const Book: TBookRecord;
+  Containers: TDictionary<string,string>): string;
+var Key: string;
+begin
+  // GetBookContainer probes for the legacy ZIP-to-7z fallback. Resolve it
+  // once per root/folder, not once for every catalogue row in that archive.
+  Key:=Book.CollectionRoot+#0+Book.Folder+#0+BoolToStr(Book.IsLinkedSource,True);
+  if not Containers.TryGetValue(Key,Result) then
+  begin Result:=Book.GetBookContainer; Containers.Add(Key,Result); end;
+end;
+
+function BuildSelectedCompressionPlan(const Info: TCollectionInfo; const PersonalFile: string;
+  const Books: TArray<TBookRecord>; const Cancelled: TFunc<Boolean>;
+  const Progress: TProc<Int64>): TBookCompressionPlan;
+var Options: TCompressionPlanOptions; Selected: TArray<TCompressionLocator>;
+    UserDB: TSQLiteDatabase; Query: TSQLiteQuery;
+    Archives: TObjectDictionary<string,TMHLZip>;
+    Containers: TDictionary<string,string>;
+begin
+  Options:=Default(TCompressionPlanOptions);
+  Options.CollectionID:=Info.ID; Options.Catalogue:=Info.DBFileName;
+  Options.Personal:=PersonalFile; Options.CollectionRoot:=Info.GetRootPath;
+  UserDB:=TSQLiteDatabase.CreateReadOnly(PersonalFile);
+  try
+    Query:=UserDB.NewQuery('SELECT RootFolder,DBFileName FROM Bases WHERE DatabaseID=?',[Info.ID]);
+    try
+      Query.Open;
+      if Query.Eof then raise EReadError.Create('Коллекция больше не подключена.');
+      Options.BaseRoot:=Query.FieldAsString(0); Options.BaseCatalogue:=Query.FieldAsString(1);
+      if not SameFileName(ExcludeTrailingPathDelimiter(Settings.ExpandCollectionRoot(Options.BaseRoot)),
+        ExcludeTrailingPathDelimiter(Info.RootFolder)) or
+        not SameFileName(Settings.ExpandCollectionFileName(Options.BaseCatalogue),ExpandFileName(Info.DBFileName)) then
+        raise EReadError.Create('Подключение коллекции изменилось. Выберите книги заново.');
+    finally Query.Free; end;
+  finally UserDB.Free; end;
+  SetLength(Selected,Length(Books));
+  for var I:=0 to High(Books) do
+  begin
+    if Books[I].BookKey.DatabaseID<>Info.ID then
+      raise EReadError.Create('Выбранные книги относятся к разным коллекциям.');
+    Selected[I].BookID:=Books[I].BookKey.BookID;
+    Selected[I].LibID:=Books[I].LibID; Selected[I].Folder:=Books[I].Folder;
+    Selected[I].FileName:=Books[I].FileName; Selected[I].Extension:=Books[I].FileExt;
+    Selected[I].InsideNo:=Books[I].InsideNo;
+    if (ReaderBookPhysicalIdentity(Books[I])='') or
+      (ReaderBookPhysicalIdentity(Books[I])<>
+       ReaderBookPhysicalIdentity(CompressionBookFor(Selected[I],Info))) then
+      raise EReadError.Create('Путь выбранной книги изменился. Выберите её заново.');
+  end;
+  Archives:=TObjectDictionary<string,TMHLZip>.Create([doOwnsValues]);
+  Containers:=TDictionary<string,string>.Create;
+  try
+    Result:=TBookCompressionPlan.Create(Options,Selected,
+      function(const Row: TCompressionLocator):string
+      var Book: TBookRecord;
+      begin
+        Book:=CompressionBookFor(Row,Info);
+        Result:=Book.GetBookFileName(CompressionContainerFor(Book,Containers));
+      end,
+      function(const Source:string; const Row:TCompressionLocator):string
+      var Book:TBookRecord; Container, Key:string; Archive:TMHLZip;
+      begin
+        Book:=CompressionBookFor(Row,Info);
+        Container:=CompressionContainerFor(Book,Containers); Result:='';
+        if not (Book.GetBookFormat(Container) in [bfFb2Archive,bfRawArchive,bfFbd]) then Exit;
+        Key:=LowerCase(ExpandFileName(Source));
+        if not Archives.TryGetValue(Key,Archive) then
+        begin
+          Archive:=TMHLZip.Create(Source,True,False,Cancelled);
+          Archives.Add(Key,Archive);
+        end;
+        Result:=Archive.ResolveBookName(Book.FileName+Book.FileExt,Book.InsideNo,True);
+      end,Cancelled,Progress);
+  finally Containers.Free; Archives.Free; end;
+end;
 
 procedure PackingTriggers(pCtx: TSQLite3Context; nArgs: Integer; Args: TSQLite3Value); cdecl;
 begin SQLite3_Result_Int(pCtx,1); end;
