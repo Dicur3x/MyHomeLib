@@ -46,6 +46,7 @@ begin
       Options.Script:=Text(Data,'script'); Options.SevenZip:=Text(Data,'seven_zip');
       Options.ToolsRoot:=Text(Data,'tools_root'); Options.Profile:=Text(Data,'profile');
       Options.Grayscale:=Data.GetValue<Boolean>('grayscale',False);
+      Options.EstimateFirst:=Data.GetValue<Boolean>('estimate_first',False);
       Options.BackupOriginals:=Data.GetValue<Boolean>('backup_originals',False);
       Options.BackupFolder:=Text(Data,'backup_folder');
       Mode:=Text(Data,'operation_mode'); Options.ReviewResults:=Mode.StartsWith('review') or Mode.StartsWith('dispose');
@@ -69,7 +70,7 @@ begin
             begin
               if not SeenReview then
               begin
-                BeforeReview:=Digest(State.Source);
+                if not State.AwaitingEstimate then BeforeReview:=Digest(State.Source);
                 if Mode='review-backup-missing' then
                   if not RemoveDirectory(PChar(Options.BackupFolder)) then RaiseLastOSError;
                 if Mode='review-backup-corrupt' then
@@ -84,7 +85,7 @@ begin
                 end;
               end;
               SeenReview:=True;
-              if Mode='review-skip' then Operation.Approve(crSkip)
+              if (Mode='review-skip') or ((Mode='estimate-only') and State.AwaitingEstimate) then Operation.Approve(crSkip)
               else if Mode='review-stop' then Operation.RequestStop
               else if Mode='review-all' then Operation.Approve(crApplyRemaining)
               else if Mode='dispose-at-review' then
@@ -122,6 +123,12 @@ begin
               Output.AddPair('unchanged_files',TJSONNumber.Create(State.UnchangedFiles));
               Output.AddPair('skipped_files',TJSONNumber.Create(State.SkippedFiles));
               Output.AddPair('saved_bytes',TJSONNumber.Create(State.SavedBytes));
+              Output.AddPair('estimate_only',TJSONBool.Create(State.EstimateOnly));
+              Output.AddPair('estimate_input_bytes',TJSONNumber.Create(State.EstimateInputBytes));
+              Output.AddPair('estimate_known_input_bytes',TJSONNumber.Create(State.EstimateKnownInputBytes));
+              Output.AddPair('estimate_output_bytes',TJSONNumber.Create(State.EstimateOutputBytes));
+              Output.AddPair('estimate_archive_bytes',TJSONNumber.Create(State.EstimateArchiveBytes));
+              Output.AddPair('estimate_unknown_books',TJSONNumber.Create(State.EstimateUnknownBooks));
               Output.AddPair('backup_files',TJSONNumber.Create(State.BackupFiles));
               Output.AddPair('backup_folder',State.BackupFolder);
               Output.AddPair('pending_before_ack',TJSONNumber.Create(PendingBefore));

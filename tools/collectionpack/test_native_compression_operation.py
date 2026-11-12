@@ -87,6 +87,29 @@ class NativeCompressionOperationTests(unittest.TestCase):
         self.assertEqual(result['before_review_sha256'], self.before[self.fixture.source])
         self.assert_applied(result)
 
+    def test_estimate_only_finishes_without_book_database_backup_or_job_writes(self):
+        folder = self.enable_backup()
+        self.config.update(estimate_first=True, operation_mode='estimate-only')
+        self.config['script'] = self.config['script'].replace('\\', '/')
+        result = self.run_operation()
+        self.assertEqual(result['error'], '', result)
+        self.assertTrue(result['estimate_only'])
+        self.assertTrue(result['review_seen'])
+        self.assertGreater(result['estimate_input_bytes'], result['estimate_output_bytes'])
+        self.assertEqual(result['estimate_unknown_books'], 0)
+        self.assertEqual(result['estimate_archive_bytes'], self.fixture.source.stat().st_size)
+        self.assertEqual(result['changed_files'], 0)
+        self.assertEqual(result['pending_before_ack'], 0)
+        self.assertEqual(list(folder.iterdir()), [])
+        self.unchanged()
+
+    def test_estimate_can_continue_to_normal_compression_without_implicit_review_all(self):
+        self.config.update(estimate_first=True, operation_mode='review-apply')
+        result = self.run_operation()
+        self.assertFalse(result['estimate_only'])
+        self.assertGreater(result['estimate_input_bytes'], 0)
+        self.assert_applied(result)
+
     def test_preview_skip_preserves_both_stores_and_source(self):
         self.config['operation_mode'] = 'review-skip'
         result = self.run_operation()

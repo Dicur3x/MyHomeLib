@@ -6,7 +6,7 @@ type
     Mode, OriginalSHA, Source, BackupFolder: string;
     ProfileIndex: Integer;
     Grayscale: Boolean;
-    InspectComparison: Boolean;
+    InspectComparison, EstimateFirst, EstimateSeen: Boolean;
     InspectionDeadline: UInt64;
     OptionsSeen, ReviewSeen, ResultSeen, DecisionSent, ComparisonSeen: Boolean;
     procedure Tick(Sender: TObject);
@@ -63,13 +63,28 @@ begin
       TEdit(Form.FindComponent('CompressionWorkFolder')).Text:=Settings.AppPath+'compression-work';
       TCheckBox(Form.FindComponent('CompressionBackup')).Checked:=True;
       TEdit(Form.FindComponent('CompressionBackupFolder')).Text:=BackupFolder;
-      TButton(Form.FindComponent('CompressionStart')).Click;
+      if EstimateFirst then TButton(Form.FindComponent('CompressionEstimate')).Click
+      else TButton(Form.FindComponent('CompressionStart')).Click;
       Exit;
     end;
   for var I:=0 to Screen.FormCount-1 do
     if (Screen.Forms[I] is TfrmBookCompressionProgress) and Screen.Forms[I].Visible then
     begin
       var Form:=TfrmBookCompressionProgress(Screen.Forms[I]);
+      if TButton(Form.FindComponent('CompressionApply')).Visible and
+        (TButton(Form.FindComponent('CompressionApply')).Caption='Начать сжатие') then
+      begin
+        if EstimateSeen then Exit;
+        EstimateSeen:=True; ReviewSeen:=True;
+        Require(THashSHA2.GetHashStringFromFile(Source)=OriginalSHA,'Estimate changed original archive');
+        Require(Length(TDirectory.GetFiles(BackupFolder,'*.zip'))=0,'Estimate published a backup');
+        Require(not TButton(Form.FindComponent('CompressionApplyAll')).Visible,'Estimate applies later quality choices implicitly');
+        Require(Pos('до внешней упаковки',TLabel(Form.FindComponent('CompressionNote')).Caption)>0,
+          'Estimate confused payload sizes with disk savings');
+        if Mode='estimate' then TButton(Form.FindComponent('CompressionSkip')).Click
+        else TButton(Form.FindComponent('CompressionApply')).Click;
+        Exit;
+      end;
       if TButton(Form.FindComponent('CompressionApply')).Visible and not DecisionSent then
       begin
         // Browsing pumps VCL messages. Mark this decision before that pump so
@@ -106,6 +121,7 @@ begin
       begin
         ResultSeen:=True; Timer.Enabled:=False;
         var Note:string:=TLabel(Form.FindComponent('CompressionNote')).Caption;
+        Writeln('TRACE compression result ',TLabel(Form.FindComponent('CompressionStage')).Caption,' · ',Note); Flush(Output);
         Require(not Note.Contains('Не удалось') and not Note.Contains('исходник'),
           'Compression result error: '+Note);
         TButton(Form.FindComponent('CompressionStop')).Click;
@@ -123,7 +139,7 @@ var Driver:TCompressionCatalogueDriver; After:TBookRecord;
     Members:TArray<string>; Config:TJSONObject;
 begin
   Mode:=ParamStr(2);
-  Require(MatchText(Mode,['apply','skip','stop']),'Expected apply, skip or stop');
+  Require(MatchText(Mode,['apply','skip','stop','estimate']),'Expected apply, skip, stop or estimate');
   Source:=Settings.AppPath+'books\shared.zip';
   Require(FileExists(Source),'Missing isolated book archive');
   Driver:=TCompressionCatalogueDriver.Create;
@@ -139,10 +155,12 @@ begin
       Members[1]:=Config.GetValue<string>('second','two.fb2');
       Driver.Grayscale:=Config.GetValue<Boolean>('grayscale',True);
       Driver.InspectComparison:=Config.GetValue<Boolean>('inspect_comparison',False);
+      Driver.EstimateFirst:=Config.GetValue<Boolean>('estimate_first',False);
       Timeout:=Config.GetValue<UInt64>('timeout_ms',45000);
       Require((Timeout>=1000) and (Timeout<=300000),'Invalid bounded fixture timeout');
     end;
     Driver.Mode:=Mode; Driver.Source:=Source;
+    if Mode='estimate' then Driver.EstimateFirst:=True;
     Driver.OriginalSHA:=THashSHA2.GetHashStringFromFile(Source);
     Driver.BackupFolder:=Settings.AppPath+'originals'; ForceDirectories(Driver.BackupFolder);
     SetLength(Books,2); Zip:=TZipFile.Create;
@@ -195,7 +213,8 @@ begin
     Started:=GetTickCount64;
     while not Driver.ResultSeen and (GetTickCount64-Started<Timeout) do
     begin Application.ProcessMessages; Sleep(10); end;
-    Require(Driver.OptionsSeen and Driver.ReviewSeen and Driver.ResultSeen and Driver.ComparisonSeen,
+    Require(Driver.OptionsSeen and Driver.ReviewSeen and Driver.ResultSeen and
+      ((Mode='estimate') or Driver.ComparisonSeen) and (not Driver.EstimateFirst or Driver.EstimateSeen),
       'Normal catalogue compression did not reach options, review and result');
     var CurrentCollection:=SystemDB.GetCollection(Collection.CollectionID);
     CurrentCollection.GetBookRecord(Books[0].BookKey,After,False);

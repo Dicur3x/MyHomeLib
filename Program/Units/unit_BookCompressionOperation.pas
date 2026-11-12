@@ -11,7 +11,7 @@ type
     const Progress:TProc<Int64>):TBookCompressionPlan;
   TBookCompressionOperationOptions = record
     WorkRoot, QueueName, Python, Script, SevenZip, ToolsRoot, Profile, BackupFolder: string;
-    Grayscale, ReviewResults, BackupOriginals: Boolean;
+    Grayscale, ReviewResults, BackupOriginals, EstimateFirst: Boolean;
   end;
   TBookCompressionOperationStatus = record
     Stage, Source, Member, Error, Warning, ReportFile, PendingJob, BackupFolder: string;
@@ -21,6 +21,9 @@ type
     InputBytes, OutputBytes, WorkingBytes: Int64;
     BackupFiles: Int64;
     ImageChanges: Int64;
+    EstimateInputBytes, EstimateKnownInputBytes, EstimateOutputBytes, EstimateArchiveBytes: Int64;
+    EstimateUnknownBooks: Int64;
+    Estimating, AwaitingEstimate, EstimateOnly: Boolean;
     Finished, Stopping, AwaitingReview, Recovery, SavingsKnown: Boolean;
   end;
 
@@ -48,7 +51,8 @@ type
     function CancelProducer: Boolean;
     procedure CreateWork;
     procedure CleanWork;
-    function Review: Boolean;
+    function Review(Estimate: Boolean = False): Boolean;
+    procedure EstimateFile(FilePlan: TCompressionFilePlan);
     procedure RunFile(FilePlan: TCompressionFilePlan);
     procedure RunRecovery;
   protected
@@ -325,14 +329,17 @@ begin
   FReviewEvent.SetEvent;
 end;
 
-function TBookCompressionOperation.Review:Boolean;
+function TBookCompressionOperation.Review(Estimate:Boolean):Boolean;
 var Decision:Integer;
 begin
   Result:=True;
-  if not FOptions.ReviewResults or FReviewRemaining then Exit;
+  if not Estimate and (not FOptions.ReviewResults or FReviewRemaining) then Exit;
   TInterlocked.Exchange(FDecision,Ord(crNone)); FReviewEvent.ResetEvent;
   TMonitor.Enter(FLock);
-  try FState.AwaitingReview:=True; FState.Stage:='Сжатая копия готова к проверке. Исходник ещё не изменён.';
+  try
+    FState.AwaitingReview:=True; FState.AwaitingEstimate:=Estimate;
+    if Estimate then FState.Stage:='Предварительная оценка готова. Книги ещё не изменены.'
+    else FState.Stage:='Сжатая копия готова к проверке. Исходник ещё не изменён.';
   finally TMonitor.Exit(FLock); end;
   try
     repeat
@@ -342,11 +349,66 @@ begin
       FReviewEvent.WaitFor(50);
     until False;
     Result:=Decision<>Ord(crSkip);
-    FReviewRemaining:=Decision=Ord(crApplyRemaining);
+    if not Estimate then FReviewRemaining:=Decision=Ord(crApplyRemaining);
   finally
     TMonitor.Enter(FLock);
-    try FState.AwaitingReview:=False; finally TMonitor.Exit(FLock); end;
+    try FState.AwaitingReview:=False; FState.AwaitingEstimate:=False;
+    finally TMonitor.Exit(FLock); end;
   end;
+end;
+
+procedure TBookCompressionOperation.EstimateFile(FilePlan:TCompressionFilePlan);
+var Request,Report:TJSONObject; Output:TCompressionEventStream;
+    Script,ReportFile:string; Input,KnownInput,KnownOutput,Unknown,ArchiveSize:Int64;
+begin
+  CheckStop;
+  try
+    CreateWork;
+    TMonitor.Enter(FLock);
+    try FState.Source:=FilePlan.Source; FState.Member:='';
+    finally TMonitor.Exit(FLock); end;
+    ReportFile:=TPath.Combine(FWork,'report.json');
+    Request:=FilePlan.CreateRequest(TPath.Combine(FWork,'payload'),ReportFile,
+      FOptions.SevenZip,FOptions.ToolsRoot,FOptions.Profile,FOptions.Grayscale);
+    try SaveText(TPath.Combine(FWork,'request.json'),Request.ToJSON);
+    finally Request.Free; end;
+    // The module namespace uses '/' in paths; ExtractFileDir on Windows
+    // does not reliably treat those as separators. ToolsRoot is canonical.
+    Script:=TPath.Combine(FOptions.ToolsRoot,'bookconvert\estimate_book_compression.py');
+    Output:=TCompressionEventStream.Create(Self);
+    try
+      try
+        RunExternalToolToStream(FOptions.Python,
+          ['-I','-B','-X','utf8',Script,'--job',TPath.Combine(FWork,'request.json'),'--cancel',FCancelFile],
+          Output,CancelProducer,0,True,NativeUInt(512)*1024*1024);
+      except on E:EMHLExternalToolError do
+        begin CheckStop; if FLastError<>'' then raise EReadError.Create(FLastError); raise; end;
+      end;
+    finally Output.Free; end;
+    CheckStop; FilePlan.CheckSource;
+    Report:=ReadObject(ReportFile);
+    try
+      Input:=Report.GetValue<Int64>('input_bytes'); KnownInput:=Report.GetValue<Int64>('known_input_bytes');
+      KnownOutput:=Report.GetValue<Int64>('known_output_bytes'); Unknown:=Report.GetValue<Int64>('unknown_books');
+      ArchiveSize:=Report.GetValue<Int64>('archive_bytes');
+      if (Report.GetValue<Integer>('schema',0)<>1) or
+        (Report.GetValue<string>('size_basis','')<>'selected-book-payloads') or
+        not SameFileName(Report.GetValue<string>('source',''),FilePlan.Source) or
+        (Input<0) or (KnownInput<0) or (KnownInput>Input) or (KnownOutput<0) or (KnownOutput>KnownInput) or
+        (Unknown<0) or (Unknown>FilePlan.MemberCount) or
+        not (Report.GetValue('books') is TJSONArray) or
+        (Report.GetValue<TJSONArray>('books').Count<>FilePlan.MemberCount) or
+        (ArchiveSize<>TFile.GetSize(DeletionNativePath(FilePlan.Source))) then
+        raise EReadError.Create('Отчёт оценки не соответствует выбранным книгам.');
+      TMonitor.Enter(FLock);
+      try
+        Inc(FState.EstimateInputBytes,Input); Inc(FState.EstimateKnownInputBytes,KnownInput);
+        Inc(FState.EstimateOutputBytes,KnownOutput); Inc(FState.EstimateUnknownBooks,Unknown);
+        Inc(FState.EstimateArchiveBytes,ArchiveSize);
+        Inc(FState.FilesDone); Inc(FState.BooksDone,FilePlan.MemberCount);
+      finally TMonitor.Exit(FLock); end;
+    finally Report.Free; end;
+  finally CleanWork; end;
 end;
 
 procedure TBookCompressionOperation.RunFile(FilePlan:TCompressionFilePlan);
@@ -504,7 +566,7 @@ begin
 end;
 
 procedure TBookCompressionOperation.Execute;
-var Plan:TBookCompressionPlan;
+var Plan:TBookCompressionPlan; ApplyCompression:Boolean;
 begin
   try
     if FRecovery then RunRecovery
@@ -524,16 +586,37 @@ begin
           FState.FilesTotal:=Plan.Files.Count;
           for var FilePlan in Plan.Files do Inc(FState.BooksTotal,FilePlan.MemberCount);
         finally TMonitor.Exit(FLock); end;
-        for var FilePlan in Plan.Files do
+        ApplyCompression:=True;
+        if FOptions.EstimateFirst then
         begin
-          RunFile(FilePlan);
           TMonitor.Enter(FLock);
-          try Inc(FState.FilesDone); Inc(FState.BooksDone,FilePlan.MemberCount);
+          try FState.Estimating:=True; finally TMonitor.Exit(FLock); end;
+          for var FilePlan in Plan.Files do EstimateFile(FilePlan);
+          TMonitor.Enter(FLock);
+          try FState.Estimating:=False; FState.Source:=''; FState.Member:='';
           finally TMonitor.Exit(FLock); end;
+          ApplyCompression:=Review(True);
+          TMonitor.Enter(FLock);
+          try FState.FilesDone:=0; FState.BooksDone:=0;
+          finally TMonitor.Exit(FLock); end;
+          if not ApplyCompression then
+          begin
+            TMonitor.Enter(FLock);
+            try FState.EstimateOnly:=True; finally TMonitor.Exit(FLock); end;
+            SetStage('Оценка завершена. Книги не изменены.');
+          end;
         end;
+        if ApplyCompression then
+          for var FilePlan in Plan.Files do
+          begin
+            RunFile(FilePlan);
+            TMonitor.Enter(FLock);
+            try Inc(FState.FilesDone); Inc(FState.BooksDone,FilePlan.MemberCount);
+            finally TMonitor.Exit(FLock); end;
+          end;
       finally Plan.Free; end;
     end;
-    SetStage('Сжатие завершено');
+    if not FState.EstimateOnly then SetStage('Сжатие завершено');
   except
     on E:EAbort do SetStage('Сжатие остановлено. Выполненные изменения сохранены.');
     on E:Exception do
@@ -545,6 +628,7 @@ begin
   end;
   TMonitor.Enter(FLock);
   try FState.Finished:=True; FState.Stopping:=Stopping; FState.AwaitingReview:=False;
+    FState.AwaitingEstimate:=False; FState.Estimating:=False;
   finally TMonitor.Exit(FLock); end;
 end;
 

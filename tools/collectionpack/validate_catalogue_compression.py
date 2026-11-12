@@ -68,7 +68,7 @@ def install_processing_package(package, root, platform):
 
 
 def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_books=None, inspect_comparison=False,
-        processing_package=None):
+        processing_package=None, estimate_first=False):
     with temporary_work_directory(stage, 'HomeLibRu-native-') as root:
         root = Path(root)
         shutil.copy2(binary, root / 'CollectionViewsTest.exe')
@@ -81,7 +81,8 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
         if processing_package:
             install_processing_package(processing_package, root, platform)
         else:
-            for file in ('prepare_book_compression.py', 'archive_replacement.py', 'pack_collection.py', 'compression_preview.py'):
+            for file in ('prepare_book_compression.py', 'archive_replacement.py', 'pack_collection.py', 'compression_preview.py',
+                         'estimate_book_compression.py'):
                 shutil.copy2(repo / 'tools/collectionpack' / file, root / 'tools/bookconvert' / file)
         for marker in ('uselocaldata', 'uselocaltemp'):
             (root / marker).touch()
@@ -93,7 +94,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
             'tools/bookconvert/pack_collection.py', 'tools/bookconvert/image_quality.py',
             'tools/bookconvert/catalogdump/build_index.py', 'tools/bookconvert/catalogdump/mysql_dump.py',
             'tools/bookconvert/prepare_book_compression.py', 'tools/bookconvert/archive_replacement.py',
-                'tools/bookconvert/compression_preview.py'])
+                'tools/bookconvert/compression_preview.py', 'tools/bookconvert/estimate_book_compression.py'])
         descriptor(root, platform, 'ImageProcessing', '3.0.0.8', 'tools/images/COMPONENT.json', [
             'tools/images/HomeLibImages.exe', 'tools/images/RUNTIME.json', 'tools/images/HomeLibImages-MIT.txt'])
         originals = {'one.fb2': illustrated_fb2(image_fixture(True)),
@@ -119,6 +120,11 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
             (root / 'compression-fixture.json').write_text(json.dumps(dict(
                 first='one.fb2', second='two.fb2', grayscale=True, timeout_ms=90000,
                 inspect_comparison=True)), encoding='utf-8')
+        if estimate_first:
+            fixture_file = root / 'compression-fixture.json'
+            config = json.loads(fixture_file.read_text(encoding='utf-8')) if fixture_file.exists() else {}
+            config['estimate_first'] = True
+            fixture_file.write_text(json.dumps(config), encoding='utf-8')
         (root / 'books').mkdir()
         source = root / 'books/shared.zip'
         with zipfile.ZipFile(source, 'w', compression=zipfile.ZIP_STORED) as archive:
@@ -199,10 +205,11 @@ if __name__ == '__main__':
     for name in ('binary', 'runtime', 'sqlite', 'icons', 'genres', 'stage'):
         parser.add_argument('--' + name, type=Path, required=True)
     parser.add_argument('--platform', choices=['Win32', 'Win64'], required=True)
-    parser.add_argument('--mode', choices=['apply', 'skip', 'stop'], required=True)
+    parser.add_argument('--mode', choices=['apply', 'skip', 'stop', 'estimate'], required=True)
     parser.add_argument('--real-books', type=Path)
     parser.add_argument('--inspect-comparison', action='store_true')
     parser.add_argument('--processing-package', type=Path)
+    parser.add_argument('--estimate-first', action='store_true')
     args = parser.parse_args()
     result = run(**vars(args))
     (args.stage / f'catalogue-{args.platform}-{args.mode}.json').write_text(json.dumps(result, indent=2), encoding='utf-8')

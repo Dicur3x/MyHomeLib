@@ -118,6 +118,10 @@ begin
             Check(Abs(Dialog.ClientHeight-InitialHeight)<=MulDiv(4,PPI,96),Format('Disabled backup collapses again: %d PPI %d → %d',
               [Dialog.CurrentPPI,InitialHeight,Dialog.ClientHeight]));
             CheckButtons(Dialog);
+            TButton(Dialog.FindComponent('CompressionEstimate')).Click;
+            Check(Dialog.SelectedOptions.EstimateFirst,'Estimate is an explicit read-only first step');
+            TButton(Dialog.FindComponent('CompressionStart')).Click;
+            Check(not Dialog.SelectedOptions.EstimateFirst,'Direct start does not force duplicate measurement');
           finally Dialog.Free; end;
           View:=TfrmBookCompressionProgress.CreateProgress(nil,Probe.Stop,Probe.Review);
           try
@@ -139,6 +143,18 @@ begin
             TButton(View.FindComponent('CompressionSkip')).Click; Check(Probe.Decision=crSkip,'Skip event');
             View.UpdateProgress(State); TButton(View.FindComponent('CompressionApplyAll')).Click;
             Check(Probe.Decision=crApplyRemaining,'Apply remaining event');
+            State.AwaitingEstimate:=True; State.EstimateInputBytes:=30000000;
+            State.EstimateKnownInputBytes:=30000000; State.EstimateOutputBytes:=10000000;
+            State.EstimateArchiveBytes:=5000000; View.UpdateProgress(State);
+            Check(not TButton(View.FindComponent('CompressionCompare')).Visible,'No stale images in job estimate');
+            Check(not TButton(View.FindComponent('CompressionApplyAll')).Visible,'Estimate cannot skip later quality reviews');
+            Check(TButton(View.FindComponent('CompressionApply')).Caption='Начать сжатие','Clear estimate confirmation');
+            Check(Pos('до внешней упаковки',TLabel(View.FindComponent('CompressionNote')).Caption)>0,
+              'Do not confuse book payload and space on disk');
+            State.EstimateUnknownBooks:=1; View.UpdateProgress(State);
+            Check(Pos('Без оценки: 1',TLabel(View.FindComponent('CompressionSizes')).Caption)>0,
+              'Unknown book is not counted as zero'); CheckButtons(View);
+            State.AwaitingEstimate:=False;
             State.AwaitingReview:=False; View.UpdateProgress(State);
             TButton(View.FindComponent('CompressionStop')).Click;
             Check(Probe.Stops>0,'Stop event');

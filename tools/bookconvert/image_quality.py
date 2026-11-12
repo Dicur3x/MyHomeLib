@@ -424,7 +424,7 @@ def run(api, tool, pictures, directory, profile, progress, layout=None, storage=
     return select_container_profiles(result,profile,storage)
 
 
-def apply(api, book, target_extension, profile, tools_root, progress, options_file=None, choice_file=None, warnings=None, container=None, check=None, grayscale=False):
+def apply(api, book, target_extension, profile, tools_root, progress, options_file=None, choice_file=None, warnings=None, container=None, check=None, grayscale=False, measurement=None):
     storage = image_storage(target_extension,container)
     if profile == 'original':
         if not grayscale: return
@@ -487,7 +487,8 @@ def apply(api, book, target_extension, profile, tools_root, progress, options_fi
             except NoTextContent:
                 text_only_size = 0
                 if small: return
-            if not options_file or not choice_file: raise api.ConversionError('Не указан канал выбора качества.')
+            if measurement is None and (not options_file or not choice_file):
+                raise api.ConversionError('Не указан канал выбора качества.')
             sample_indices, weights = estimate_image_samples(pictures)
             samples = ({p:[pictures[i] for i in sample_indices] for p in PACKING_PROFILES} if small else
                        run(api, tool, [pictures[i] for i in sample_indices], directory, 'estimate-maximum', progress, storage=storage, check=check, grayscale=grayscale))
@@ -512,10 +513,14 @@ def apply(api, book, target_extension, profile, tools_root, progress, options_fi
             if grayscale: zip_sizes['original'] = zip_sizes['high']
             sizes['none'] = text_only_size
             zip_sizes['none'] = 512+deflated_size(candidate) if text_only_size else 0
+            measured = {'format': target_extension[1:].upper(), 'images': len(pictures) or removed,
+                        'sampled': len(sample_indices), 'sizes': sizes, 'zip_sizes': zip_sizes}
+            if measurement is not None:
+                measurement(measured)
+                return
             options = Path(options_file); choice = Path(choice_file)
             if options.exists() or choice.exists(): raise api.ConversionError('Канал выбора качества уже занят.')
-            payload = json.dumps({'format': target_extension[1:].upper(), 'images': len(pictures) or removed,
-                                  'sampled': len(sample_indices), 'sizes': sizes, 'zip_sizes': zip_sizes}, ensure_ascii=False)
+            payload = json.dumps(measured, ensure_ascii=False)
             pending = options.with_suffix('.new'); pending.write_text(payload, encoding='utf-8'); pending.rename(options)
             started = time.monotonic()
             while not choice.is_file():
