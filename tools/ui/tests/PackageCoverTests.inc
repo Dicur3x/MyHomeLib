@@ -49,17 +49,27 @@ var Host:TForm; Panel:TInfoPanel; Preview:TBookInfoPreview; Book:TBookRecord;
     Require(not Preview.Busy,'Package preview did not finish');
   end;
   procedure ReadCover(const Source,Member:string; Width:Integer);
+  var Direct:TStream; DirectGraphic:TGraphic;
   begin
     Panel.Clear; Book:=Default(TBookRecord); Book.CollectionRoot:=Folder;
     if Member='' then
     begin Book.FileName:=ChangeFileExt(Source,''); Book.FileExt:=ExtractFileExt(Source); end
     else
     begin Book.Folder:=Source; Book.FileName:=ChangeFileExt(Member,''); Book.FileExt:=ExtractFileExt(Member); end;
+    if Source.StartsWith('flibrary/') then
+    begin
+      Direct:=Book.GetBookPreviewCoverStream;
+      Require(Assigned(Direct),'Missing direct FLibrary side cover: '+Book.GetBookFileName+' member='+Member);
+      try DirectGraphic:=CreateGraphicFromStream(Direct,64*1024*1024); finally Direct.Free; end;
+      try Require(Assigned(DirectGraphic),'Undecodable direct FLibrary side cover: '+Member);
+      finally DirectGraphic.Free; end;
+    end;
     OriginalHash:=THashSHA2.GetHashStringFromFile(Folder+Source);
     Started:=GetTickCount64; Preview.Load(Book,True,False,False);
     Require(GetTickCount64-Started<100,'Package cover blocks selection'); WaitPreview;
     Require(Assigned(Image.Picture.Graphic) and (Image.Picture.Width=Width),
-      'Package preview missing: '+Source+' '+Panel.PreviewStatusText);
+      Format('Package preview missing: %s member=%s width=%d expected=%d %s',
+        [Source,Member,Image.Picture.Width,Width,Panel.PreviewStatusText]));
     Require(THashSHA2.GetHashStringFromFile(Folder+Source)=OriginalHash,'Preview changed source');
     Writeln('PASS catalogue cover ',Source,' ',Member); Flush(Output);
   end;

@@ -130,12 +130,14 @@ end;
 
 function ArchiveBaseName(const ContainerFileName: string): string;
 begin
-  Result := ChangeFileExt(ExtractFileName(ContainerFileName), '');
+  Result := ChangeFileExt(ExtractFileName(StringReplace(ContainerFileName,
+    '/', PathDelim, [rfReplaceAll])), '');
 end;
 
 function BookBaseName(const BookEntryName: string): string;
 begin
-  Result := ChangeFileExt(ExtractFileName(BookEntryName), '');
+  Result := ChangeFileExt(ExtractFileName(StringReplace(BookEntryName,
+    '/', PathDelim, [rfReplaceAll])), '');
 end;
 
 function ArchiveLeafName(const EntryName: string): string;
@@ -155,7 +157,9 @@ var
   Candidate: string;
   Root: string;
 begin
-  Root := ExtractFileDir(ContainerFileName);
+  // INPX and archive members can use either separator. SysUtils' Windows
+  // filename helpers recognize only PathDelim, unlike the file-opening APIs.
+  Root := ExtractFileDir(StringReplace(ContainerFileName, '/', PathDelim, [rfReplaceAll]));
   Candidate := TPath.Combine(Root, TPath.Combine(SubFolder,
     ArchiveBaseName(ContainerFileName) + ZIP_EXTENSION));
   if FileExists(Candidate) then
@@ -412,18 +416,10 @@ begin
   end;
 end;
 
-function ConvertJpegXL(const Bytes: TBytes; const IsCanceled:TFunc<Boolean> = nil;
-  Preview:Boolean = False): TBytes;
-var
-  Decoder: string;
-  InputFile: string;
-  OutputFile: string;
-  JpegFile: string;
-  Sink: TMemoryStream;
-  Started:UInt64;
-  procedure Check;
-  var Attributes:TWin32FileAttributeData;
-  begin
+procedure CheckJpegXLPreview(const IsCanceled:TFunc<Boolean>; Preview:Boolean;
+  Started:UInt64; const OutputFile,JpegFile:string);
+var Attributes:TWin32FileAttributeData;
+begin
     if Assigned(IsCanceled) and IsCanceled() then Abort;
     if not Preview then Exit;
     if GetTickCount64-Started>15000 then raise EReadError.Create('Предпросмотр обложки JPEG XL занял больше 15 секунд.');
@@ -431,21 +427,30 @@ var
       if GetFileAttributesEx(PChar(Name),GetFileExInfoStandard,@Attributes) and
         ((Attributes.nFileSizeHigh<>0) or (Attributes.nFileSizeLow>128*1024*1024)) then
         raise EReadError.Create('Декодированная обложка JPEG XL слишком велика.');
-  end;
+end;
+
+function ConvertJpegXL(const Bytes: TBytes; const IsCanceled:TFunc<Boolean> = nil;
+  Preview:Boolean = False): TBytes;
+var
+  Decoder,InputFile,OutputFile,JpegFile: string;
+  Sink: TMemoryStream;
+  Started:UInt64;
   procedure Decode(const Destination:string; Reconstruct:Boolean);
   var Arguments:TArray<string>;
   begin
     Arguments:=[InputFile,Destination];
     if Reconstruct then Arguments:=Arguments+['--reconstruct_jpeg'];
     if Preview then Arguments:=Arguments+['--num_threads=1'];
-    Started:=GetTickCount64; Check;
+    Started:=GetTickCount64;
+    CheckJpegXLPreview(IsCanceled,Preview,Started,OutputFile,JpegFile);
     // Only covers opt into one CPU thread and bounded time, output and memory.
     // Full-book reconstruction keeps its existing decoder behaviour.
     if Preview then
-      RunExternalToolToStream(Decoder,Arguments,Sink,function:Boolean begin Check; Result:=False; end,
+      RunExternalToolToStream(Decoder,Arguments,Sink,function:Boolean
+        begin CheckJpegXLPreview(IsCanceled,Preview,Started,OutputFile,JpegFile); Result:=False; end,
         0,True,NativeUInt(512)*1024*1024)
     else RunExternalToolToStream(Decoder,Arguments,Sink,IsCanceled);
-    Check;
+    CheckJpegXLPreview(IsCanceled,Preview,Started,OutputFile,JpegFile);
   end;
 begin
   Decoder := FindExternalTool('djxl.exe', 'jpeg-xl');
@@ -487,11 +492,11 @@ begin
     Result := TFile.ReadAllBytes(OutputFile);
   finally
     if FileExists(InputFile) then
-      DeleteFile(InputFile);
+      System.SysUtils.DeleteFile(InputFile);
     if FileExists(OutputFile) then
-      DeleteFile(OutputFile);
+      System.SysUtils.DeleteFile(OutputFile);
     if FileExists(JpegFile) then
-      DeleteFile(JpegFile);
+      System.SysUtils.DeleteFile(JpegFile);
   end;
 end;
 
@@ -571,8 +576,8 @@ begin
           Output.CopyFrom(Chunk, Part.JpegSize);
         finally Chunk.Free; end;
       finally
-        DeleteFile(EncodedFile);
-        DeleteFile(JpegFile);
+        System.SysUtils.DeleteFile(EncodedFile);
+        System.SysUtils.DeleteFile(JpegFile);
       end;
     end;
     TailSize := Source.Size - Source.Position;
@@ -1168,9 +1173,9 @@ begin
     Zip.Free;
     Archive.Free;
     if FileExists(InputFile) then
-      DeleteFile(InputFile);
+      System.SysUtils.DeleteFile(InputFile);
     if FileExists(OutputFile) then
-      DeleteFile(OutputFile);
+      System.SysUtils.DeleteFile(OutputFile);
     if (ExtractedRoot <> '') and TDirectory.Exists(ExtractedRoot) then
       TDirectory.Delete(ExtractedRoot, True);
   end;
