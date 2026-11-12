@@ -475,10 +475,16 @@ begin
         raise Exception.Create('Официальная контрольная сумма распаковщика 7-Zip не совпадает.');
       FRelease.SHA256 := UpdateSHA256(Archive);
       PrepareOfficialComponent(Archive, FJob, FRelease.ComponentID, FRelease.ComponentVersion, ProgramUpdatePlatform,SecondaryArchive,FRuntimePath,AdditionalArchives,AdapterPath);
+      // The generated installation manifest identifies an official component
+      // by its component version, not its author's release label (e.g. v0.12.0).
+      // Persist and launch exactly that prepared identity; keep the author URL.
+      FRelease.Tag := FRelease.ComponentVersion;
     end
     else PrepareProgramUpdate(Archive, FRelease.SHA256, FRelease.Tag, ProgramUpdatePlatform, FJob,
       True, FRelease.ComponentID, FRelease.ComponentVersion);
     if AdapterPath<>'' then MergePreparedReaderAdapter(FJob,FRelease.ComponentID,AdapterPath);
+    // Fail before offering installation, while the application is still open.
+    VerifyPreparedProgramUpdate(FJob,FRelease.Tag,ProgramUpdatePlatform);
     if Terminated then Abort;
     FSuccessful := True;
   except

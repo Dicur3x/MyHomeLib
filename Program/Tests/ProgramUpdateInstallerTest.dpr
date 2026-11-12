@@ -26,6 +26,7 @@ end;
 
 {$I ComponentCheckFixture.inc}
 {$I RelatedInstanceFixture.inc}
+{$I OfficialImageDownloadFixture.inc}
 
 procedure InstallWithLateLock(const Job, Target, Name: string; HoldMS: Integer);
 var Released: TThread; Held: THandle; Started: Boolean; LockFile: string;
@@ -69,6 +70,9 @@ begin
   SetTextCodePage(Output,CP_UTF8); SetTextCodePage(ErrOutput,CP_UTF8);
   try
     Mode := ParamStr(1);
+    if Mode='--download-image-fixture' then begin RunOfficialImageDownloadFixture; Halt(0); end;
+    if Mode='--verify' then
+    begin Guard(ParamStr(2)); VerifyPreparedProgramUpdate(ParamStr(2),ParamStr(3),ProgramUpdatePlatform); Halt(0); end;
     if Mode='--related-fixture' then begin RunRelatedInstanceFixture; Halt(0); end;
     if Mode='--related-cycle' then
     begin RunRelatedInstanceCycle(ParamStr(2),ParamStr(3),StrToInt(ParamStr(4))); Halt(0); end;

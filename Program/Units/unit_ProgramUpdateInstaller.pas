@@ -229,7 +229,8 @@ function InstalledComponentVersion(const AppPath, ID: string): string;
 var Root: TJSONValue; Metadata, Hashes: TJSONObject; HashValue: TJSONValue;
   FileName, MetadataFile, Version, Hash: string; Comparison: Integer;
 begin
-  FileName:=IncludeTrailingPathDelimiter(AppPath)+StringReplace(ComponentFileName(ID),'/',PathDelim,[rfReplaceAll]);
+  FileName:=UpdateIOPath(IncludeTrailingPathDelimiter(AppPath)+
+    StringReplace(ComponentFileName(ID),'/',PathDelim,[rfReplaceAll]));
   Result:=UpdateFileVersion(FileName);
   if IsFormatComponent(ID) then Exit(FormatComponentVersion(AppPath,ID));
   if ID='Zstandard' then Exit(ZstdRuntimeVersion(AppPath));
@@ -1267,13 +1268,16 @@ var Stage, Raw, Source, Destination, Tools, RuntimePath, AdapterRuntime, CodecFo
   Manifest, Entry, Metadata, Hashes: TJSONObject; Files: TJSONArray;
   Zip: TZipFile; Bytes: TBytes; Log: TStringStream; Started: UInt64;
   procedure AddFile(const Name, SourceFile: string);
+  var TargetFile: string;
   begin
     if not SafeComponentFile(ID,Name) or not FileExists(SourceFile) or (TFile.GetSize(SourceFile)>128*1024*1024) then
       raise Exception.Create('В официальном комплекте отсутствует файл: '+Name);
-    Destination:=ChildPath(Stage,Name); ForceDirectories(ExtractFileDir(Destination));
-    if not SameText(SourceFile,Destination) then TFile.Copy(SourceFile,Destination,False);
-    Entry:=TJSONObject.Create; Entry.AddPair('path',Name); Entry.AddPair('size',TJSONNumber.Create(TFile.GetSize(Destination)));
-    Entry.AddPair('sha256',UpdateSHA256(Destination)); Files.AddElement(Entry);
+    // Callers can pass the outer Destination as this const string argument.
+    // Reassigning that variable here can free SourceFile's borrowed buffer.
+    TargetFile:=ChildPath(Stage,Name); ForceDirectories(ExtractFileDir(TargetFile));
+    if not SameText(SourceFile,TargetFile) then TFile.Copy(SourceFile,TargetFile,False);
+    Entry:=TJSONObject.Create; Entry.AddPair('path',Name); Entry.AddPair('size',TJSONNumber.Create(TFile.GetSize(TargetFile)));
+    Entry.AddPair('sha256',UpdateSHA256(TargetFile)); Files.AddElement(Entry);
   end;
   procedure NuGetDLL(const PackageFile, AssemblyName: string);
   var Text: string;

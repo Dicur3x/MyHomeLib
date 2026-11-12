@@ -78,6 +78,7 @@ type
     FQueueBytes, FQueueTotal: Int64;
     FRelease: TProgramRelease;
     FJob, FCache: string;
+    FInstallerProcess: THandle;
     FReady, FPendingInstall, FNeedsCheck, FRecovery: Boolean;
     FRestart, FCheck, FComponentCancelled: TNotifyEvent;
     procedure NotificationChanged(Sender: TObject);
@@ -128,6 +129,7 @@ type
     procedure ClearQueueJobs;
   protected
     function InstallationHelperSource: string;
+    function StartInstallationHelper(const Helper, Parameters, Directory: string): THandle; virtual;
     procedure Resize; override;
     procedure ChangeScale(M, D: Integer; isDpiChange: Boolean); override;
     function CreateComponentWorker(Window: HWND): TComponentUpdateThread; virtual;
@@ -359,6 +361,8 @@ destructor TfrmProgramUpdate.Destroy;
 var Message: TMsg;
 begin
   Inc(FUIUpdateCount); // Child destruction must not run layout on released controls.
+  // The installer is allowed to outlive this form and wait for normal shutdown.
+  if FInstallerProcess<>0 then CloseHandle(FInstallerProcess);
   if Assigned(FComponentsView) then FComponentsView.OnSelectItem:=nil;
   if Assigned(FTabs) then FTabs.OnChange:=nil;
   if Assigned(FHistorySelector) then FHistorySelector.OnChange:=nil;
@@ -1963,6 +1967,7 @@ function TfrmProgramUpdate.RestoreReady: Boolean;
 var Root, Journal, Prepared: TJSONValue;
   FileName, Job, Tag, Digest, State, Notes, Component, Version, SavedURL, PreparedComponent: string;
   Comparison, I: Integer; Bundle: TJSONArray; ReadyVersions: TArray<string>;
+  PreparedTag: string; Official, CorrectedIdentity: Boolean;
   procedure RememberReadyComponent(const ID, ReadyVersion: string);
   var Index, VersionComparison: Integer;
   begin
@@ -1974,6 +1979,7 @@ var Root, Journal, Prepared: TJSONValue;
   end;
 begin
   Result := False; FileName := IncludeTrailingPathDelimiter(FCache) + 'ready.json';
+  CorrectedIdentity:=False;
   if not FileExists(FileName) then Exit;
   Root := nil; Journal := nil; Prepared:=nil;
   try
@@ -2037,6 +2043,31 @@ begin
     begin CleanProgramUpdate(Job); TFile.Delete(FileName); Exit; end;
     if not FRecovery and (not FileExists(IncludeTrailingPathDelimiter(Job) + 'manifest.json') or
        not SameText(UpdateSHA256(IncludeTrailingPathDelimiter(Job) + 'release.zip'), Digest)) then Exit;
+    if not FRecovery then
+    begin
+      if not Assigned(Prepared) then
+        Prepared:=TJSONObject.ParseJSONValue(TFile.ReadAllText(TPath.Combine(Job,'manifest.json'),TEncoding.UTF8));
+      if not (Prepared is TJSONObject) then Exit;
+      PreparedTag:=''; Official:=False;
+      TJSONObject(Prepared).TryGetValue<string>('release',PreparedTag);
+      TJSONObject(Prepared).TryGetValue<Boolean>('official',Official);
+      // Earlier clients persisted the author's v-prefixed JPEG XL label even
+      // though official preparation records the numeric component version.
+      // Repair only this exact known mismatch, after checking the downloaded
+      // archive hash. Other wrong versions/platforms must still be rejected.
+      if Official and ((Component='JPEG XL') or (Component=JPEG_XL_ENCODER_COMPONENT)) and
+        (Tag='v'+Version) and (PreparedTag=Version) and
+        (TJSONObject(Prepared).GetValue<string>('component','')=Component) and
+        (TJSONObject(Prepared).GetValue<string>('version','')=Version) then
+      begin Tag:=PreparedTag; CorrectedIdentity:=True; end;
+      VerifyPreparedProgramUpdate(Job,Tag,ProgramUpdatePlatform);
+      if CorrectedIdentity then
+      begin
+        TJSONObject(Root).RemovePair('tag').Free;
+        TJSONObject(Root).AddPair('tag',Tag);
+        TFile.WriteAllText(FileName,Root.ToJSON,TEncoding.UTF8);
+      end;
+    end;
     FJob := Job; FRelease.Tag := Tag; FRelease.SHA256 := Digest;
     FRelease.ComponentID := Component; FRelease.ComponentVersion := Version;
     if Component = 'batch' then FVersion.Caption := 'Обновления компонентов HomeLibre'
@@ -2085,12 +2116,34 @@ begin
     raise Exception.Create('Не найден механизм обновления. Выполните проверку и восстановление HomeLibre.');
 end;
 
+function TfrmProgramUpdate.StartInstallationHelper(const Helper, Parameters, Directory: string): THandle;
+var Info: TShellExecuteInfo;
+begin
+  Info:=Default(TShellExecuteInfo); Info.cbSize:=SizeOf(Info);
+  Info.fMask:=SEE_MASK_NOCLOSEPROCESS or SEE_MASK_FLAG_NO_UI;
+  Info.Wnd:=Handle; Info.lpVerb:='open'; Info.lpFile:=PChar(Helper);
+  Info.lpParameters:=PChar(Parameters); Info.lpDirectory:=PChar(Directory); Info.nShow:=SW_HIDE;
+  if not ShellExecuteEx(@Info) then RaiseLastOSError;
+  if Info.hProcess=0 then raise Exception.Create('Не удалось получить состояние механизма обновления.');
+  Result:=Info.hProcess;
+end;
+
 function TfrmProgramUpdate.LaunchInstallation: Boolean;
-var Root: TJSONObject; Helper, Parameters, SourceHelper, Argument, CommandLine: string; Code: HINST;
+var Root: TJSONObject; Helper, Parameters, SourceHelper, Argument, CommandLine: string; State: DWORD;
   I: Integer; Args: TJSONArray; ResumeOperation: Boolean;
 begin
   Result := False;
   try
+    if FInstallerProcess<>0 then
+    begin
+      State:=WaitForSingleObject(FInstallerProcess,0);
+      if State=WAIT_FAILED then RaiseLastOSError;
+      // Closing can be deferred by a startup worker after this helper has
+      // already started. Reentering CloseQuery must not copy over its running
+      // EXE, rewrite its request, or start a second installer.
+      if State=WAIT_TIMEOUT then Exit(True);
+      CloseHandle(FInstallerProcess); FInstallerProcess:=0;
+    end;
     if not IsProgramUpdateApplicationName(ExtractFileName(ParamStr(0))) then
       raise Exception.Create('Файл программы переименован: '+ExtractFileName(ParamStr(0))+'. '+
         'Для встроенного обновления верните имя HomeLibRu.exe или HomeLibReader.exe.');
@@ -2099,7 +2152,10 @@ begin
     if not FRecovery or not FileExists(Helper) then
     begin
       SourceHelper := InstallationHelperSource;
-      if not Winapi.Windows.CopyFile(PChar(SourceHelper),PChar(Helper),False) then RaiseLastOSError;
+      // A previous attempt may have just exited while Windows still holds its
+      // image mapping. Reuse only byte-identical verified helper contents.
+      if not FileExists(Helper) or not SameText(UpdateSHA256(Helper),UpdateSHA256(SourceHelper)) then
+        if not Winapi.Windows.CopyFile(PChar(SourceHelper),PChar(Helper),False) then RaiseLastOSError;
     end;
     CommandLine:=string(GetCommandLine); Argument:='';
     ResumeOperation:=Assigned(FComponentRestartArgument) and not FRecovery and
@@ -2128,8 +2184,7 @@ begin
     finally Root.Free; end;
     Parameters := '--job "' + FJob + '"';
     ArmBookSaveContinuation(Settings.SettingsFileName,FRequestedComponent);
-    Code := ShellExecute(Handle, 'open', PChar(Helper), PChar(Parameters), PChar(FJob), SW_HIDE);
-    if NativeInt(Code) <= 32 then raise Exception.Create('Не удалось запустить механизм обновления.');
+    FInstallerProcess:=StartInstallationHelper(Helper,Parameters,FJob);
     Result := True;
   except
     on E: Exception do

@@ -6108,6 +6108,7 @@ end;
 {$I MainLiveInputFavoriteTests.inc}
 {$I UpdateFormNotifierTests.inc}
 {$I UpdateRepairTests.inc}
+{$I UpdateImageIdentityTests.inc}
 {$I MetadataFillUiTests.inc}
 {$I BookInfoPanelFooterTests.inc}
 {$I BookInfoPanelAdaptiveTests.inc}
@@ -6259,6 +6260,7 @@ begin
       if ParamStr(1) = 'display-labels' then begin BenchmarkDisplayLabels; Halt(0); end;
       if ParamStr(1) = 'book-output-reset' then begin BenchmarkBookOutputReset; Halt(0); end;
       if ParamStr(1) = 'update-theme' then begin TestUpdateNotesTheme; Halt(0); end;
+      if ParamStr(1) = 'update-image-identity' then begin TestImageUpdateIdentity; Flush(Output); Halt(0); end;
       if ParamStr(1) = 'fbd-editor-save' then begin TestFBDEditorSave; Halt(0); end;
       if ParamStr(1) = 'packing-fbd' then begin TestPackingFbd; Halt(0); end;
       if ParamStr(1) = 'packing-inpx-result-child' then
