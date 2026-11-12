@@ -35,7 +35,8 @@ type
   private
     FStage, FSource, FMember, FCounts, FSizes, FNote: TLabel;
     FProgress: TProgressBar;
-    FStop, FApply, FApplyAll, FSkip, FPin: TButton;
+    FStop, FApply, FApplyAll, FSkip, FPin, FCompare: TButton;
+    FPreviewFile, FPreviewSHA256: string;
     FOnStop: TNotifyEvent;
     FOnReview: TCompressionReviewEvent;
     FFinished: Boolean;
@@ -43,6 +44,7 @@ type
     procedure ReviewClick(Sender: TObject);
     procedure PinClick(Sender: TObject);
     procedure CloseView(Sender: TObject; var Action: TCloseAction);
+    procedure CompareClick(Sender: TObject);
   protected
     procedure CreateParams(var Params: TCreateParams); override;
   public
@@ -59,7 +61,7 @@ function ChooseSelectedCompressionOptions(Owner: TForm; BookCount: Integer;
 implementation
 
 uses Winapi.Windows, System.Math, System.IOUtils, Vcl.Dialogs, Vcl.Graphics,
-  unit_MHLTheme, unit_CollectionSpace;
+  unit_MHLTheme, unit_CollectionSpace, frm_BookCompressionCompare;
 
 const Profiles: array[0..3] of string = ('original','balanced','economy','maximum');
 
@@ -233,7 +235,7 @@ begin
   inherited CreateNew(AOwner); Name:='BookCompressionProgress'; Caption:='Сжатие книг';
   Position:=poOwnerFormCenter; BorderStyle:=bsSizeable;
   PixelsPerInch:=96; Font.PixelsPerInch:=96; Font.Name:='Segoe UI'; Font.Size:=9;
-  ClientWidth:=700; ClientHeight:=420; Constraints.MinWidth:=650; Constraints.MinHeight:=440;
+  ClientWidth:=700; ClientHeight:=460; Constraints.MinWidth:=650; Constraints.MinHeight:=480;
   FOnStop:=Stop; FOnReview:=Review;
   FStage:=MakeLabel(Self,'CompressionStage',16,44); FStage.Font.Style:=[fsBold];
   FSource:=MakeLabel(Self,'CompressionSource',68,24); FSource.WordWrap:=False;
@@ -244,14 +246,16 @@ begin
   FProgress.SetBounds(16,138,668,18); FProgress.Anchors:=[akLeft,akTop,akRight]; FProgress.Max:=1000;
   FCounts:=MakeLabel(Self,'CompressionCounts',170,30);
   FSizes:=MakeLabel(Self,'CompressionSizes',206,44);
-  FNote:=MakeLabel(Self,'CompressionNote',258,98);
-  FApply:=MakeButton(Self,'CompressionApply','Применить',16,374,126,ReviewClick); FApply.Tag:=Ord(crApply);
+  FNote:=MakeLabel(Self,'CompressionNote',258,86);
+  FCompare:=MakeButton(Self,'CompressionCompare','Сравнить изображения…',16,354,220,CompareClick);
+  FCompare.Anchors:=[akLeft,akBottom];
+  FApply:=MakeButton(Self,'CompressionApply','Применить',16,414,126,ReviewClick); FApply.Tag:=Ord(crApply);
   FApply.Anchors:=[akLeft,akBottom];
-  FApplyAll:=MakeButton(Self,'CompressionApplyAll','Применять остальные',150,374,184,ReviewClick); FApplyAll.Tag:=Ord(crApplyRemaining);
+  FApplyAll:=MakeButton(Self,'CompressionApplyAll','Применять остальные',150,414,184,ReviewClick); FApplyAll.Tag:=Ord(crApplyRemaining);
   FApplyAll.Anchors:=[akLeft,akBottom];
-  FSkip:=MakeButton(Self,'CompressionSkip','Пропустить',342,374,126,ReviewClick); FSkip.Tag:=Ord(crSkip);
+  FSkip:=MakeButton(Self,'CompressionSkip','Пропустить',342,414,126,ReviewClick); FSkip.Tag:=Ord(crSkip);
   FSkip.Anchors:=[akLeft,akBottom];
-  FStop:=MakeButton(Self,'CompressionStop','Остановить',558,374,126,StopClick);
+  FStop:=MakeButton(Self,'CompressionStop','Остановить',558,414,126,StopClick);
   FPin:=MakeButton(Self,'CompressionPin','Поверх окон',558,12,126,PinClick); FPin.Anchors:=[akTop,akRight];
   FStage.Width:=526; FStage.Anchors:=[akLeft,akTop,akRight];
   OnClose:=CloseView;
@@ -286,6 +290,17 @@ begin
   if Assigned(FOnReview) then FOnReview(TCompressionReview(TButton(Sender).Tag));
 end;
 
+procedure TfrmBookCompressionProgress.CompareClick(Sender:TObject);
+var Dialog:TfrmBookCompressionCompare;
+begin
+  try
+    Dialog:=TfrmBookCompressionCompare.CreateComparison(Self,FPreviewFile,FPreviewSHA256);
+    try Dialog.ShowModal; finally Dialog.Free; end;
+  except on E:Exception do
+    MessageDlg('Не удалось открыть сравнение. '+E.Message,mtWarning,[mbOK],0);
+  end;
+end;
+
 procedure TfrmBookCompressionProgress.UpdateProgress(const State: TBookCompressionOperationStatus);
 begin
   FFinished:=State.Finished; FStage.Caption:=State.Stage;
@@ -311,6 +326,9 @@ begin
   if State.WorkingBytes>0 then FSizes.Caption:=FSizes.Caption+sLineBreak+
     'Ориентир временного места для текущего файла: '+SizeText(State.WorkingBytes);
   FApply.Visible:=State.AwaitingReview; FApplyAll.Visible:=State.AwaitingReview; FSkip.Visible:=State.AwaitingReview;
+  FPreviewFile:=State.PreviewFile; FPreviewSHA256:=State.PreviewSHA256;
+  FCompare.Visible:=State.AwaitingReview and (FPreviewFile<>'');
+  FCompare.Enabled:=FCompare.Visible and not State.Stopping;
   FApply.Enabled:=State.AwaitingReview and not State.Stopping;
   FApplyAll.Enabled:=FApply.Enabled; FSkip.Enabled:=FApply.Enabled;
   FStop.Enabled:=not State.Stopping or State.Finished;
@@ -321,6 +339,10 @@ begin
     FNote.Caption:='Исходный файл ещё не изменён. «Применить» заменит его подготовленным результатом. '+
       '«Пропустить» сохранит исходник. Текст и остальные книги проверены автоматически.'
   else FNote.Caption:='Можно продолжать работу с каталогом. Закрытие этого окна не останавливает сжатие.';
+  if State.AwaitingReview and (State.ImageChanges=0) then
+    FNote.Caption:=FNote.Caption+sLineBreak+'Изображения не изменялись; меняется только упаковка.'
+  else if State.AwaitingReview and (FPreviewFile='') then
+    FNote.Caption:=FNote.Caption+sLineBreak+'Визуальное сравнение для этих изображений пока недоступно.';
   if State.Finished then
   begin
     FNote.Caption:=Format('Уменьшено файлов: %d · Без уменьшения: %d · Пропущено по вашему выбору: %d.',

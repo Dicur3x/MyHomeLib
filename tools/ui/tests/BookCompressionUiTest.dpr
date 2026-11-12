@@ -129,6 +129,13 @@ begin
             State.Member:='Автор/Выбранная книга.fb2'; View.UpdateProgress(State);
             Check(TButton(View.FindComponent('CompressionApply')).Visible,'Review actions visible');
             Check(Pos('→',TLabel(View.FindComponent('CompressionSizes')).Caption)>0,'Before and after sizes shown');
+            Check(not TButton(View.FindComponent('CompressionCompare')).Visible,'No fake comparison when images were unchanged');
+            State.ImageChanges:=1; View.UpdateProgress(State);
+            Check(Pos('пока недоступно',TLabel(View.FindComponent('CompressionNote')).Caption)>0,
+              'Explain when this image format has no visual preview');
+            State.PreviewFile:=TPath.Combine(Root,'comparison.zip'); View.UpdateProgress(State);
+            Check(TButton(View.FindComponent('CompressionCompare')).Visible,'Ready comparison is discoverable');
+            CheckButtons(View);
             TButton(View.FindComponent('CompressionSkip')).Click; Check(Probe.Decision=crSkip,'Skip event');
             View.UpdateProgress(State); TButton(View.FindComponent('CompressionApplyAll')).Click;
             Check(Probe.Decision=crApplyRemaining,'Apply remaining event');

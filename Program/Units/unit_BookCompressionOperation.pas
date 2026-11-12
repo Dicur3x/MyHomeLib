@@ -15,10 +15,12 @@ type
   end;
   TBookCompressionOperationStatus = record
     Stage, Source, Member, Error, Warning, ReportFile, PendingJob, BackupFolder: string;
+    PreviewFile, PreviewSHA256: string;
     Current, Total, FilesDone, FilesTotal, BooksDone, BooksTotal: Int64;
     ChangedFiles, UnchangedFiles, SkippedFiles, SavedBytes: Int64;
     InputBytes, OutputBytes, WorkingBytes: Int64;
     BackupFiles: Int64;
+    ImageChanges: Int64;
     Finished, Stopping, AwaitingReview, Recovery, SavingsKnown: Boolean;
   end;
 
@@ -300,11 +302,11 @@ begin
     begin
       Name:=ExtractFileName(Path);
       Attr:=GetFileAttributes(PChar(Path));
-      if not MatchText(Name,['prepared-book.bin','prepared-archive.bin','original-books.zip']) or
+      if not MatchText(Name,['prepared-book.bin','prepared-archive.bin','original-books.zip','comparison.zip']) or
         (Attr=INVALID_FILE_ATTRIBUTES) or (Attr and (FILE_ATTRIBUTE_DIRECTORY or FILE_ATTRIBUTE_REPARSE_POINT)<>0) then
         raise EReadError.Create('Незавершённые рабочие файлы сохранены для проверки.');
     end;
-    for Name in ['prepared-book.bin','prepared-archive.bin','original-books.zip'] do RemoveFile(TPath.Combine(Payload,Name));
+    for Name in ['prepared-book.bin','prepared-archive.bin','original-books.zip','comparison.zip'] do RemoveFile(TPath.Combine(Payload,Name));
     if not RemoveDirectory(PChar(DeletionNativePath(Payload))) then RaiseLastOSError;
     for Name in ['request.json','report.json','cancel.marker','owner.txt'] do RemoveFile(TPath.Combine(FWork,Name));
     if not RemoveDirectory(PChar(DeletionNativePath(FWork))) then RaiseLastOSError;
@@ -358,6 +360,7 @@ begin
   try
     FState.Source:=FilePlan.Source; FState.Member:='';
     FState.InputBytes:=0; FState.OutputBytes:=0; FState.WorkingBytes:=0;
+    FState.PreviewFile:=''; FState.PreviewSHA256:=''; FState.ImageChanges:=0;
   finally TMonitor.Exit(FLock); end;
   try
     CreateWork;
@@ -366,6 +369,7 @@ begin
       FOptions.SevenZip,FOptions.ToolsRoot,FOptions.Profile,FOptions.Grayscale);
     try
       Request.AddPair('backup_originals',TJSONBool.Create(FOptions.BackupOriginals));
+      Request.AddPair('preview_images',TJSONBool.Create(FOptions.ReviewResults and not FReviewRemaining));
       SaveText(TPath.Combine(FWork,'request.json'),Request.ToJSON);
     finally Request.Free; end;
     Output:=TCompressionEventStream.Create(Self);
@@ -390,6 +394,18 @@ begin
         FState.InputBytes:=InputBytes; FState.OutputBytes:=OutputBytes;
         FState.WorkingBytes:=Report.GetValue<Int64>('working_bytes',FState.WorkingBytes);
         FState.ReportFile:=ReportFile;
+        if Report.GetValue('books') is TJSONArray then
+          for var Book in Report.GetValue<TJSONArray>('books') do
+            if Book.GetValue<Boolean>('optimized',False) then Inc(FState.ImageChanges);
+        if Report.GetValue('preview') is TJSONObject then
+        begin
+          var Preview:=Report.GetValue<TJSONObject>('preview');
+          var PreviewPath:=Preview.GetValue<string>('path','');
+          if not SameFileName(PreviewPath,TPath.Combine(TPath.Combine(FWork,'payload'),'comparison.zip')) then
+            raise EReadError.Create('Некорректный путь сравнения изображений.');
+          FState.PreviewFile:=PreviewPath;
+          FState.PreviewSHA256:=Preview.GetValue<string>('sha256','');
+        end;
       finally TMonitor.Exit(FLock); end;
       Candidate:='';
       if Report.GetValue('candidate') is TJSONString then Candidate:=Report.GetValue<string>('candidate');

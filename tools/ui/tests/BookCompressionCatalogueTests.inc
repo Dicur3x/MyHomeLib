@@ -4,7 +4,11 @@ type
   TCompressionCatalogueDriver = class
     Timer: TTimer;
     Mode, OriginalSHA, Source, BackupFolder: string;
-    OptionsSeen, ReviewSeen, ResultSeen, DecisionSent: Boolean;
+    ProfileIndex: Integer;
+    Grayscale: Boolean;
+    InspectComparison: Boolean;
+    InspectionDeadline: UInt64;
+    OptionsSeen, ReviewSeen, ResultSeen, DecisionSent, ComparisonSeen: Boolean;
     procedure Tick(Sender: TObject);
   end;
 
@@ -17,13 +21,44 @@ end;
 procedure TCompressionCatalogueDriver.Tick(Sender: TObject);
 begin
   for var I:=0 to Screen.FormCount-1 do
+    if (Screen.Forms[I] is TfrmBookCompressionCompare) and Screen.Forms[I].Visible then
+    begin
+      var Form:=TfrmBookCompressionCompare(Screen.Forms[I]);
+      if InspectComparison then
+      begin
+        if InspectionDeadline=0 then
+        begin InspectionDeadline:=GetTickCount64+40000; Writeln('TRACE comparison visible for visual inspection'); Flush(Output); end;
+        if GetTickCount64<InspectionDeadline then Exit;
+      end;
+      Require(not TCheckBox(Form.FindComponent('ComparisonFit')).Checked,'Comparison must start at actual 100 percent');
+      var Before:=TImage(Form.FindComponent('ComparisonBeforeImage'));
+      Require((Before.Picture.Graphic=nil) or (Before.Width=Before.Picture.Width),'Comparison changed original pixel size');
+      if Grayscale then Require(Assigned(Before.Picture.Graphic),'Original preview failed to decode');
+      for var Dark in [False,True] do
+      begin
+        SetMHLTheme(Dark); ApplyMHLControlTheme(Form);
+        Require(Form.Color=MHLThemeBackground,'Comparison theme differs from catalogue');
+        for var PPI in [96,144,192,288] do
+        begin
+          Form.ScaleForPPI(PPI);
+          var Close:=TButton(Form.FindComponent('ComparisonClose'));
+          Require((Close.Left>=0) and (Close.Top>=0) and (Close.Left+Close.Width<=Form.ClientWidth) and
+            (Close.Top+Close.Height<=Form.ClientHeight),'Comparison close button clipped after scaling');
+          Require((Before.Picture.Graphic=nil) or (Before.Width=Before.Picture.Width),'100 percent changed when DPI changed');
+        end;
+      end;
+      ComparisonSeen:=True;
+      TButton(Form.FindComponent('ComparisonClose')).Click;
+      Exit;
+    end;
+  for var I:=0 to Screen.FormCount-1 do
     if (Screen.Forms[I] is TfrmBookCompressionOptions) and Screen.Forms[I].Visible then
     begin
       var Form:=TfrmBookCompressionOptions(Screen.Forms[I]);
       if OptionsSeen then Exit;
       OptionsSeen:=True;
-      TComboBox(Form.FindComponent('CompressionProfile')).ItemIndex:=2;
-      TCheckBox(Form.FindComponent('CompressionGrayscale')).Checked:=True;
+      TComboBox(Form.FindComponent('CompressionProfile')).ItemIndex:=ProfileIndex;
+      TCheckBox(Form.FindComponent('CompressionGrayscale')).Checked:=Grayscale;
       TCheckBox(Form.FindComponent('CompressionReview')).Checked:=True;
       TEdit(Form.FindComponent('CompressionWorkFolder')).Text:=Settings.AppPath+'compression-work';
       TCheckBox(Form.FindComponent('CompressionBackup')).Checked:=True;
@@ -60,6 +95,9 @@ begin
         frmMain.DeleteCollectionExecute(nil);
         Require(Screen.FormCount=FormsBefore,'Concurrent catalogue edit opened a second workflow');
         Require(THashSHA2.GetHashStringFromFile(Source)=OriginalSHA,'Concurrent action changed compressed books');
+        var Compare:=TButton(Form.FindComponent('CompressionCompare'));
+        if Compare.Visible then Compare.Click;
+        Require(ComparisonSeen,'Quality comparison was unavailable for the illustrated test books');
         if Mode='skip' then TButton(Form.FindComponent('CompressionSkip')).Click
         else if Mode='stop' then TButton(Form.FindComponent('CompressionStop')).Click
         else TButton(Form.FindComponent('CompressionApply')).Click;
@@ -81,14 +119,29 @@ var Driver:TCompressionCatalogueDriver; After:TBookRecord;
     OldSize, NewSize:Int64; Data:PBookRecord; Node:PVirtualNode;
     Action:TAction; Source, Cached, Mode, Registry:string;
     Options:TBookCompressionOperationOptions; Zip:TZipFile;
-    Books:TArray<TBookRecord>; OriginalBody, OutputBody:TBytes; Started:UInt64;
+    Books:TArray<TBookRecord>; OriginalBody, OutputBody:TBytes; Started, Timeout:UInt64;
+    Members:TArray<string>; Config:TJSONObject;
 begin
   Mode:=ParamStr(2);
   Require(MatchText(Mode,['apply','skip','stop']),'Expected apply, skip or stop');
   Source:=Settings.AppPath+'books\shared.zip';
   Require(FileExists(Source),'Missing isolated book archive');
   Driver:=TCompressionCatalogueDriver.Create;
+  Config:=nil;
   try
+    Members:=TArray<string>.Create('one.fb2','two.fb2'); Timeout:=45000;
+    Driver.ProfileIndex:=2; Driver.Grayscale:=True;
+    if FileExists(Settings.AppPath+'compression-fixture.json') then
+    begin
+      Config:=TJSONObject.ParseJSONValue(TFile.ReadAllText(Settings.AppPath+'compression-fixture.json',TEncoding.UTF8)) as TJSONObject;
+      Require(Assigned(Config),'Invalid isolated compression fixture');
+      Members[0]:=Config.GetValue<string>('first','one.fb2');
+      Members[1]:=Config.GetValue<string>('second','two.fb2');
+      Driver.Grayscale:=Config.GetValue<Boolean>('grayscale',True);
+      Driver.InspectComparison:=Config.GetValue<Boolean>('inspect_comparison',False);
+      Timeout:=Config.GetValue<UInt64>('timeout_ms',45000);
+      Require((Timeout>=1000) and (Timeout<=300000),'Invalid bounded fixture timeout');
+    end;
     Driver.Mode:=Mode; Driver.Source:=Source;
     Driver.OriginalSHA:=THashSHA2.GetHashStringFromFile(Source);
     Driver.BackupFolder:=Settings.AppPath+'originals'; ForceDirectories(Driver.BackupFolder);
@@ -99,13 +152,13 @@ begin
       begin
         var ID:=FirstID; if I=1 then ID:=SecondID;
         Collection.GetBookRecord(CreateBookKey(ID,Collection.CollectionID),Books[I],True);
-        Books[I].Folder:='books\shared.zip'; Books[I].FileName:='one';
-        if I=1 then Books[I].FileName:='two';
-        Books[I].FileExt:='.fb2'; Books[I].InsideNo:=I;
-        Books[I].Size:=Zip.FileInfo[Zip.IndexOf(Books[I].FileName+'.fb2')].UncompressedSize;
+        Require((ExtractFileName(Members[I])=Members[I]) and (Zip.IndexOf(Members[I])>=0),'Missing exact selected fixture member');
+        Books[I].Folder:='books\shared.zip'; Books[I].FileName:=ChangeFileExt(Members[I],'');
+        Books[I].FileExt:=ExtractFileExt(Members[I]); Books[I].InsideNo:=I;
+        Books[I].Size:=Zip.FileInfo[Zip.IndexOf(Members[I])].UncompressedSize;
         Collection.UpdateBook(Books[I]);
       end;
-      Zip.Read('one.fb2',OriginalBody);
+      Zip.Read(Members[0],OriginalBody);
     finally Zip.Free; end;
     Require(TryStoreReaderBookProgress(Collection,Books[0],37),'Cannot seed personal progress');
     Cached:=PrepareReaderFile(Books[0],True);
@@ -131,7 +184,7 @@ begin
     end;
     Require(Selected=2,'Select exactly two visible books');
     Options:=Default(TBookCompressionOperationOptions);
-    Options.Profile:='economy'; Options.Grayscale:=True;
+    Options.Profile:='economy'; Options.Grayscale:=Driver.Grayscale;
     Require(Length(ResolveSelectedCompressionTools(Settings.AppPath,Options))=0,'Incomplete private compression runtime');
     Action:=frmMain.FindComponent('acCompressSelectedBooks') as TAction;
     Require(Assigned(Action),'Normal compression command is missing');
@@ -140,9 +193,9 @@ begin
     Driver.Timer.Interval:=50; Driver.Timer.OnTimer:=Driver.Tick; Driver.Timer.Enabled:=True;
     Action.Execute;
     Started:=GetTickCount64;
-    while not Driver.ResultSeen and (GetTickCount64-Started<45000) do
+    while not Driver.ResultSeen and (GetTickCount64-Started<Timeout) do
     begin Application.ProcessMessages; Sleep(10); end;
-    Require(Driver.OptionsSeen and Driver.ReviewSeen and Driver.ResultSeen,
+    Require(Driver.OptionsSeen and Driver.ReviewSeen and Driver.ResultSeen and Driver.ComparisonSeen,
       'Normal catalogue compression did not reach options, review and result');
     var CurrentCollection:=SystemDB.GetCollection(Collection.CollectionID);
     CurrentCollection.GetBookRecord(Books[0].BookKey,After,False);
@@ -173,7 +226,7 @@ begin
       Zip:=TZipFile.Create;
       try
         Zip.Open(TDirectory.GetFiles(Driver.BackupFolder,'*.zip')[0],zmRead);
-        Zip.Read('books/one.fb2',OutputBody);
+        Zip.Read('books/'+Members[0],OutputBody);
         Require(CompressionBodyHash(OutputBody)=CompressionBodyHash(OriginalBody),'Backup lost original book bytes');
       finally Zip.Free; end;
     end
@@ -190,5 +243,5 @@ begin
     LoadCompressionPreferences(Registry,'',Options);
     Require(Length(TBookCompressionJob.Pending(CompressionQueueRoot(Options)))=0,'Completed GUI action left a pending job');
     Writeln('PASS selected compression normal catalogue ',Mode,' preserves neighbors, personal progress, originals and refreshed Reader cache');
-  finally Driver.Timer.Free; Driver.Free; end;
+  finally Config.Free; Driver.Timer.Free; Driver.Free; end;
 end;

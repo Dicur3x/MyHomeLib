@@ -25,6 +25,7 @@ if __package__ in (None, ''):
     sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from archive_replacement import archive_inventory, member_path, prepare_archive_replacement
+from compression_preview import ComparisonPreview, MAX_BYTES as MAX_COMPARISON_BYTES
 from pack_collection import (Canceled, IMAGE_SUFFIXES, MAX_BOOK, MAX_IMAGE_BOOK,
                              Packer, PackingError, SevenZip, atomic_json,
                              book_signature, canonical, copy_exact, digest_file,
@@ -133,6 +134,7 @@ class PreparedBookCompression:
     books: list[dict]
     working_bytes: int = 0
     originals: dict | None = None
+    preview: dict | None = None
 
     @property
     def savings(self):
@@ -265,6 +267,8 @@ def _discard_prepared(result):
         Path(result.candidate).unlink(missing_ok=True)
     if result.originals:
         Path(result.originals['path']).unlink(missing_ok=True)
+    if result.preview:
+        Path(result.preview['path']).unlink(missing_ok=True)
 
 
 @contextmanager
@@ -277,7 +281,7 @@ def _candidate_cleanup(result):
 
 
 def prepare_selected_file(source, members, workspace, seven_zip, *, profile='original',
-                          grayscale=False, tools_root=None, previous=None, backup_originals=False,
+                          grayscale=False, tools_root=None, previous=None, backup_originals=False, preview_images=False,
                           canceled=lambda: False, notify=lambda value: None):
     """Prepare exactly the selected members, never modify originals.
 
@@ -289,6 +293,8 @@ def prepare_selected_file(source, members, workspace, seven_zip, *, profile='ori
     settings_sha = profile_digest(profile, grayscale)
     if not isinstance(backup_originals, bool):
         raise PackingError('Выберите, нужно ли сохранять оригиналы книг.')
+    if not isinstance(preview_images, bool):
+        raise PackingError('Некорректный выбор сравнения изображений.')
     if (not isinstance(members, dict) or not 0 < len(members) <= MAX_MEMBERS
             or any(not isinstance(name, str) or not isinstance(ext, str) for name, ext in members.items())
             or ('' in members and len(members) != 1)):
@@ -335,14 +341,17 @@ def prepare_selected_file(source, members, workspace, seven_zip, *, profile='ori
     result.working_bytes = selected_bytes + max(codec_extra, before[2] + largest) + 16 * 1024 * 1024
     if backup_originals:
         result.working_bytes += selected_bytes + 16 * 1024 * 1024
-        reserve_space(workspace, result.working_bytes)
+    if preview_images and processor.converter is not None:
+        result.working_bytes += MAX_COMPARISON_BYTES + 1024 * 1024
+    reserve_space(workspace, result.working_bytes)
+    preview_context = ComparisonPreview(workspace, check) if preview_images else nullcontext()
     notify(dict(stage='Оцениваем временное место', working_bytes=result.working_bytes,
                 selected_bytes=selected_bytes, archive_bytes=before[2]))
     # Selected payloads survive only in a verified complete candidate. All
     # extraction/codec files use a guarded owned temporary directory.
     with _candidate_cleanup(result), temporary_work_directory(workspace, '.selected-') as staging, \
             (OriginalBookBackup(workspace, source, source_sha, before, check)
-             if backup_originals else nullcontext()) as originals:
+             if backup_originals else nullcontext()) as originals, preview_context as preview:
         replacements = {}
         for number, (member, hint) in enumerate(members.items()):
             check()
@@ -406,6 +415,11 @@ def prepare_selected_file(source, members, workspace, seven_zip, *, profile='ori
                                         output_sha256=final['payload_sha256'], size=final['payload_size']))
             result.books.append(dict(member=member, format=extension, optimized=optimized, reused=reuse,
                                      input_bytes=initial['payload_size'], output_bytes=final['payload_size'], reason=reason))
+            if preview is not None and optimized:
+                try:
+                    preview.add_book(original, current, extension, member)
+                except (ValueError, ElementTree.ParseError, zipfile.BadZipFile):
+                    preview.limited = True
             replacements[member] = current
             # The source archive remains intact. Once its semantic comparison
             # and digests are captured, this extra extracted original is no
@@ -438,6 +452,12 @@ def prepare_selected_file(source, members, workspace, seven_zip, *, profile='ori
         if originals is not None and result.candidate is not None:
             result.originals = originals.finish(result.payloads)
             originals.keep = True
+        if preview is not None:
+            result.preview = preview.finish()
+            if result.candidate is None and result.preview:
+                Path(result.preview['path']).unlink(missing_ok=True)
+                result.preview = None
+            preview.keep = result.preview is not None
     try:
         check()
         if _source_stamp(source) != before or digest_file(source, check) != source_sha:
@@ -471,6 +491,7 @@ def main():
                                          grayscale=request.get('grayscale', False), tools_root=request.get('tools_root'),
                                          previous=request.get('previous'),
                                          backup_originals=request.get('backup_originals', False),
+                                         preview_images=request.get('preview_images', False),
                                          canceled=lambda: arguments.cancel is not None and arguments.cancel.exists(),
                                          notify=emit)
         result = asdict(prepared)

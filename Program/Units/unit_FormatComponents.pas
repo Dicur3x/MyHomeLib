@@ -83,7 +83,8 @@ begin
       Result:=Result+[PACKING_WORKER_FILE,'tools/bookconvert/image_quality.py',
         SQL_CATALOGUE_WORKER,SQL_DUMP_PARSER];
     if CompareComponentVersions(Version,SELECTED_COMPRESSION_VERSION,Comparison) and (Comparison>=0) then
-      Result:=Result+[SELECTED_COMPRESSION_WORKER,'tools/bookconvert/archive_replacement.py'];
+      Result:=Result+[SELECTED_COMPRESSION_WORKER,'tools/bookconvert/archive_replacement.py',
+        'tools/bookconvert/compression_preview.py'];
   end;
   if ID='ImageProcessing' then Result:=TArray<string>.Create('tools/images/HomeLibImages.exe',
     'tools/images/RUNTIME.json','tools/images/HomeLibImages-MIT.txt');
