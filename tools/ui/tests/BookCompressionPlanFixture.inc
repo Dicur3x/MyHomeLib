@@ -2,7 +2,7 @@
 
 uses System.SysUtils, System.Classes, System.IOUtils, System.JSON,
   System.Generics.Collections, Winapi.Windows, unit_BookCompressionPlan,
-  unit_MHLArchiveHelpers
+  unit_MHLArchiveHelpers, unit_BookCompressionPlanStore, SQLiteWrap
 {$IFDEF HL_APPLICATION_PATHS}
   , unit_CollectionPacking, unit_Globals, unit_Settings, dm_user
 {$ENDIF}
@@ -25,7 +25,7 @@ end;
 var Data, Entry, Output, Request:TJSONObject; Selected:TArray<TCompressionLocator>;
     Options:TCompressionPlanOptions; Plan:TBookCompressionPlan;
     Archives:TObjectDictionary<string,TMHLZip>; Files:TJSONArray;
-    Mode:string; Examined:Int64; Cancel:Boolean;
+    Mode:string; Examined:Int64; Cancel,Whole:Boolean;
 {$IFDEF HL_APPLICATION_PATHS}
     Info:TCollectionInfo; Books:TArray<TBookRecord>;
 {$ENDIF}
@@ -34,6 +34,32 @@ begin
     Data:=TJSONObject.ParseJSONValue(TFile.ReadAllText(ParamStr(1),TEncoding.UTF8)) as TJSONObject;
     if Data=nil then raise EReadError.Create('Invalid fixture request');
     try
+      Mode:=Text(Data,'mode');
+      if Mode.StartsWith('store-') then
+      begin
+        var Root:=Text(Data,'work_root');
+        Output:=TJSONObject.Create;
+        try
+          if Mode='store-clean' then
+            Output.AddPair('removed',TJSONNumber.Create(TCompressionPlanStore.CleanAbandoned(Root)))
+          else
+          begin
+            var Store:=TCompressionPlanStore.Create(Root);
+            try
+              Output.AddPair('folder',Store.Folder);
+              if Mode='store-leave' then
+              begin
+                TFile.WriteAllText(ParamStr(2),Output.ToJSON,TEncoding.UTF8);
+                Halt(0); // Simulate process loss: no destructor runs.
+              end;
+              Output.AddPair('removed_live',TJSONNumber.Create(TCompressionPlanStore.CleanAbandoned(Root)));
+              Store.Seal;
+            finally Store.Free; end;
+          end;
+          TFile.WriteAllText(ParamStr(2),Output.ToJSON,TEncoding.UTF8);
+        finally Output.Free; end;
+        Exit;
+      end;
       Entry:=Data.GetValue<TJSONObject>('options');
       Options:=Default(TCompressionPlanOptions);
       Options.CollectionID:=Entry.GetValue<Integer>('collection_id');
@@ -43,7 +69,8 @@ begin
       var Rows:=Data.GetValue<TJSONArray>('selected');
       SetLength(Selected,Rows.Count);
       for var I:=0 to Rows.Count-1 do Selected[I]:=Locator(Rows.Items[I] as TJSONObject);
-      Mode:=Text(Data,'mode'); Examined:=0; Cancel:=Mode='cancel';
+      Whole:=Data.GetValue<Boolean>('whole',False);
+      Examined:=0; Cancel:=Mode='cancel';
 {$IFDEF HL_APPLICATION_PATHS}
       ConfigureMHLHostProfile(TPath.GetDirectoryName(ParamStr(1)),'selection-test.ini','selection-test.dbs2');
       DMUser:=TDMUser.Create(nil);
@@ -63,10 +90,16 @@ begin
           Books[I].InsideNo:=Selected[I].InsideNo;
           Books[I].CollectionRoot:=Data.GetValue<string>('selected_root',Options.CollectionRoot);
         end;
-        Plan:=BuildSelectedCompressionPlan(Info,Options.Personal,Books,
-          function:Boolean begin Result:=Cancel; end,
-          procedure(Done:Int64)
-          begin Examined:=Done; if Mode='cancel-scan' then Cancel:=True; end);
+        if Whole then
+          Plan:=BuildCollectionCompressionPlan(Info,Options.Personal,Text(Data,'work_root'),
+            function:Boolean begin Result:=Cancel; end,
+            procedure(Done:Int64)
+            begin Examined:=Done; if Mode='cancel-scan' then Cancel:=True; end)
+        else
+          Plan:=BuildSelectedCompressionPlan(Info,Options.Personal,Books,
+            function:Boolean begin Result:=Cancel; end,
+            procedure(Done:Int64)
+            begin Examined:=Done; if Mode='cancel-scan' then Cancel:=True; end);
 {$ELSE}
         Plan:=TBookCompressionPlan.Create(Options,Selected,
           function(const Row:TCompressionLocator):string
@@ -96,19 +129,33 @@ begin
           Archives.Clear;
           if Mode='change-source' then
           begin
-            var Stream:=TFileStream.Create(Plan.Files[0].Source,fmOpenWrite or fmShareDenyWrite);
+            var Source:string;
+            if Whole then Source:=Text(Data,'change_path') else Source:=Plan.Files[0].Source;
+            var Stream:=TFileStream.Create(Source,fmOpenWrite or fmShareDenyWrite);
             try Stream.Size:=Stream.Size+1; finally Stream.Free; end;
           end;
           Output:=TJSONObject.Create; Files:=TJSONArray.Create;
           try
             Output.AddPair('files',Files); Output.AddPair('examined',TJSONNumber.Create(Examined));
-            for var FilePlan in Plan.Files do
-            begin
-              Request:=FilePlan.CreateRequest(Text(Data,'workspace'),Text(Data,'report'),
-                Text(Data,'seven_zip'),Text(Data,'tools_root'),Text(Data,'profile'),
-                Data.GetValue<Boolean>('grayscale',False));
-              Files.AddElement(Request);
-            end;
+            Output.AddPair('file_count',TJSONNumber.Create(Plan.FileCount));
+            Output.AddPair('book_count',TJSONNumber.Create(Plan.BookCount));
+            Output.AddPair('skipped_rows',TJSONNumber.Create(Plan.SkippedRows));
+            Output.AddPair('warning',Plan.Warning);
+            if not Data.GetValue<Boolean>('summary_only',False) then Plan.ForEachFile(
+              procedure(FilePlan:TCompressionFilePlan)
+              begin
+                if Mode='write-during-visit' then
+                begin
+                  var DB:=TSQLiteDatabase.Create(Options.Catalogue);
+                  try DB.ExecSQL('BEGIN EXCLUSIVE'); DB.ExecSQL('ROLLBACK'); finally DB.Free; end;
+                  DB:=TSQLiteDatabase.Create(Options.Personal);
+                  try DB.ExecSQL('BEGIN EXCLUSIVE'); DB.ExecSQL('ROLLBACK'); finally DB.Free; end;
+                end;
+                Request:=FilePlan.CreateRequest(Text(Data,'workspace'),Text(Data,'report'),
+                  Text(Data,'seven_zip'),Text(Data,'tools_root'),Text(Data,'profile'),
+                  Data.GetValue<Boolean>('grayscale',False));
+                Files.AddElement(Request);
+              end);
             TFile.WriteAllText(ParamStr(2),Output.ToJSON,TEncoding.UTF8);
           finally Output.Free; end;
         finally Plan.Free; end;

@@ -4696,8 +4696,42 @@ begin
 end;
 
 procedure TfrmMain.PackCurrentCollection(Sender: TObject);
+var Info:TCollectionInfo; Options:TBookCompressionOperationOptions;
+    Personal,Registry,WorkRoot:string; Required:TArray<string>;
+    Operation:TBookCompressionOperation;
 begin
-  PackCollection(False);
+  if Assigned(FBookCompressionOperation) then
+  begin FBookCompressionProgress.Show; Exit; end;
+  if not Assigned(FCollection) or FFormBusy or FStartupLoading or FBookListLoading then Exit;
+  if Assigned(FBookDeletionOperation) or FBookDeletionNeedsRecovery or FCompressionNeedsRecovery then
+  begin MHLShowInfo('Сначала завершите текущую операцию с файлами книг.'); Exit; end;
+  if CheckActiveDownloads then
+  begin MHLShowInfo('Дождитесь завершения скачивания книг, затем повторите сжатие.'); Exit; end;
+  try
+    Info:=FSystemData.GetCollectionInfo(FCollection.CollectionID);
+    Personal:=Settings.SystemFileName[sfSystemDB];
+    Registry:=TPath.Combine(Settings.DataPath,'compression-work.ini');
+    Options:=Default(TBookCompressionOperationOptions);
+    LoadCompressionPreferences(Registry,TPath.Combine(Info.GetRootPath,'HomeLibre-compression-work'),Options);
+    if not ChooseSelectedCompressionOptions(Self,0,Options) then Exit;
+    Required:=ResolveSelectedCompressionTools(Settings.AppPath,Options);
+    if Length(Required)>0 then
+    begin
+      EnsureProgramUpdateForm;
+      FProgramUpdateForm.RequestComponents(Required,
+        'Для сжатия текущей коллекции нужны эти компоненты. После установки повторите команду.',True);
+      Exit;
+    end;
+    RememberCompressionWork(Registry,Options); WorkRoot:=Options.WorkRoot;
+    Operation:=TBookCompressionOperation.Create(Options,
+      function(const Cancelled:TFunc<Boolean>; const Progress:TProc<Int64>):TBookCompressionPlan
+      begin Result:=BuildCollectionCompressionPlan(Info,Personal,WorkRoot,Cancelled,Progress); end);
+    StartBookCompression(Operation);
+    RecordComponentUse('BookProcessing'); RecordComponentUse('7-Zip');
+    if Options.Grayscale or (Options.Profile<>'original') then RecordComponentUse('ImageProcessing');
+  except on E:Exception do
+    begin LogDiagnosticError('collection-compression-start',E); MHLShowWarning(E.Message); end;
+  end;
 end;
 
 procedure TfrmMain.CompressionActionUpdate(Sender: TObject);
@@ -5582,7 +5616,7 @@ begin
   FilterMenu.OnClick:=ShowBookDuplicates; N2.Insert(N6.MenuIndex,FilterMenu);
 
   FilterMenu:=TMenuItem.Create(Self); FilterMenu.Name:='miPackCollection';
-  FilterMenu.Caption:='Сжать файлы книг…';
+  FilterMenu.Caption:='Сжать текущую коллекцию…';
   FilterMenu.OnClick:=PackCurrentCollection; N2.Insert(N6.MenuIndex,FilterMenu);
   FBookCompressionAction:=TAction.Create(Self); FBookCompressionAction.Name:='acCompressSelectedBooks';
   FBookCompressionAction.ActionList:=Actions; FBookCompressionAction.Category:='Книга';

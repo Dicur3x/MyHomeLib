@@ -97,6 +97,8 @@ function TakePackingContinuation(const SettingsFile, Argument: string; out Reque
 function BuildSelectedCompressionPlan(const Info: TCollectionInfo; const PersonalFile: string;
   const Books: TArray<TBookRecord>; const Cancelled: TFunc<Boolean> = nil;
   const Progress: TProc<Int64> = nil): TBookCompressionPlan;
+function BuildCollectionCompressionPlan(const Info: TCollectionInfo; const PersonalFile, WorkRoot: string;
+  const Cancelled: TFunc<Boolean> = nil; const Progress: TProc<Int64> = nil): TBookCompressionPlan;
 
 implementation
 
@@ -144,33 +146,82 @@ begin
   // once per root/folder, not once for every catalogue row in that archive.
   Key:=Book.CollectionRoot+#0+Book.Folder+#0+BoolToStr(Book.IsLinkedSource,True);
   if not Containers.TryGetValue(Key,Result) then
-  begin Result:=Book.GetBookContainer; Containers.Add(Key,Result); end;
+  begin
+    Result:=Book.GetBookContainer;
+    if Containers.Count>=4096 then Containers.Clear;
+    Containers.Add(Key,Result);
+  end;
 end;
 
-function BuildSelectedCompressionPlan(const Info: TCollectionInfo; const PersonalFile: string;
-  const Books: TArray<TBookRecord>; const Cancelled: TFunc<Boolean>;
-  const Progress: TProc<Int64>): TBookCompressionPlan;
-var Options: TCompressionPlanOptions; Selected: TArray<TCompressionLocator>;
-    UserDB: TSQLiteDatabase; Query: TSQLiteQuery;
-    Archives: TObjectDictionary<string,TMHLZip>;
-    Containers: TDictionary<string,string>;
+function CollectionCompressionOptions(const Info:TCollectionInfo; const PersonalFile:string):TCompressionPlanOptions;
+var UserDB:TSQLiteDatabase; Query:TSQLiteQuery;
 begin
-  Options:=Default(TCompressionPlanOptions);
-  Options.CollectionID:=Info.ID; Options.Catalogue:=Info.DBFileName;
-  Options.Personal:=PersonalFile; Options.CollectionRoot:=Info.GetRootPath;
+  Result:=Default(TCompressionPlanOptions);
+  Result.CollectionID:=Info.ID; Result.Catalogue:=Info.DBFileName;
+  Result.Personal:=PersonalFile; Result.CollectionRoot:=Info.GetRootPath;
   UserDB:=TSQLiteDatabase.CreateReadOnly(PersonalFile);
   try
     Query:=UserDB.NewQuery('SELECT RootFolder,DBFileName FROM Bases WHERE DatabaseID=?',[Info.ID]);
     try
       Query.Open;
       if Query.Eof then raise EReadError.Create('Коллекция больше не подключена.');
-      Options.BaseRoot:=Query.FieldAsString(0); Options.BaseCatalogue:=Query.FieldAsString(1);
-      if not SameFileName(ExcludeTrailingPathDelimiter(Settings.ExpandCollectionRoot(Options.BaseRoot)),
+      Result.BaseRoot:=Query.FieldAsString(0); Result.BaseCatalogue:=Query.FieldAsString(1);
+      if not SameFileName(ExcludeTrailingPathDelimiter(Settings.ExpandCollectionRoot(Result.BaseRoot)),
         ExcludeTrailingPathDelimiter(Info.RootFolder)) or
-        not SameFileName(Settings.ExpandCollectionFileName(Options.BaseCatalogue),ExpandFileName(Info.DBFileName)) then
+        not SameFileName(Settings.ExpandCollectionFileName(Result.BaseCatalogue),ExpandFileName(Info.DBFileName)) then
         raise EReadError.Create('Подключение коллекции изменилось. Выберите книги заново.');
     finally Query.Free; end;
   finally UserDB.Free; end;
+end;
+
+function BuildCollectionCompressionPlan(const Info:TCollectionInfo; const PersonalFile,WorkRoot:string;
+  const Cancelled:TFunc<Boolean>; const Progress:TProc<Int64>):TBookCompressionPlan;
+var Options:TCompressionPlanOptions; Containers:TDictionary<string,string>;
+    Archive:TMHLZip; ArchivePath,ArchiveError:string;
+begin
+  Options:=CollectionCompressionOptions(Info,PersonalFile);
+  Containers:=TDictionary<string,string>.Create; Archive:=nil; ArchivePath:=''; ArchiveError:='';
+  try
+    Result:=TBookCompressionPlan.CreateCollection(Options,WorkRoot,
+      function(const Row:TCompressionLocator):string
+      var Book:TBookRecord;
+      begin
+        Book:=CompressionBookFor(Row,Info);
+        Result:=Book.GetBookFileName(CompressionContainerFor(Book,Containers));
+      end,
+      function(const Source:string; const Row:TCompressionLocator):string
+      var Book:TBookRecord; Container:string;
+      begin
+        Book:=CompressionBookFor(Row,Info);
+        Container:=CompressionContainerFor(Book,Containers); Result:='';
+        if not (Book.GetBookFormat(Container) in [bfFb2Archive,bfRawArchive,bfFbd]) then Exit;
+        if ArchivePath<>Source then
+        begin
+          FreeAndNil(Archive); ArchivePath:=Source; ArchiveError:='';
+          try Archive:=TMHLZip.Create(Source,True,False,Cancelled);
+          except
+            on E:EAbort do raise;
+            on E:Exception do
+            begin
+              if (E is EExternalException) or (E is EOutOfMemory) then raise;
+              ArchiveError:=E.Message;
+            end;
+          end;
+        end;
+        if Archive=nil then raise EReadError.Create(ArchiveError);
+        Result:=Archive.ResolveBookName(Book.FileName+Book.FileExt,Book.InsideNo,True);
+      end,Cancelled,Progress);
+  finally Archive.Free; Containers.Free; end;
+end;
+
+function BuildSelectedCompressionPlan(const Info: TCollectionInfo; const PersonalFile: string;
+  const Books: TArray<TBookRecord>; const Cancelled: TFunc<Boolean>;
+  const Progress: TProc<Int64>): TBookCompressionPlan;
+var Options: TCompressionPlanOptions; Selected: TArray<TCompressionLocator>;
+    Archives: TObjectDictionary<string,TMHLZip>;
+    Containers: TDictionary<string,string>;
+begin
+  Options:=CollectionCompressionOptions(Info,PersonalFile);
   SetLength(Selected,Length(Books));
   for var I:=0 to High(Books) do
   begin

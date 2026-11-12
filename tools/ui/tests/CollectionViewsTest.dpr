@@ -2983,7 +2983,7 @@ begin
   var Duplicates:=frmMain.FindComponent('miBookDuplicates') as TMenuItem;
   var Restore:=frmMain.FindComponent('miRestoreCollectionSnapshot') as TMenuItem;
   Require(Assigned(Pack) and Assigned(Duplicates) and (Pack.Parent=frmMain.N2) and (Duplicates.Parent=frmMain.N2) and
-    Pack.Caption.Contains('файлы книг') and frmMain.miCompactDataBase.Caption.Contains('базу каталога'),
+    Pack.Caption.Contains('текущую коллекцию') and frmMain.miCompactDataBase.Caption.Contains('базу каталога'),
     'Book compression, database maintenance or duplicate review is ambiguous');
   Require(Assigned(Restore) and (Restore.Parent=frmMain.N6) and
     frmMain.N6.Caption.Contains('каталога') and

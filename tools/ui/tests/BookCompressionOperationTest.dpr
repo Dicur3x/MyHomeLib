@@ -59,7 +59,11 @@ begin
         if Mode='recover' then Operation:=TBookCompressionOperation.Recover(Options)
         else Operation:=TBookCompressionOperation.Create(Options,
           function(const Cancelled:TFunc<Boolean>; const Progress:TProc<Int64>):TBookCompressionPlan
-          begin Result:=BuildSelectedCompressionPlan(Info,Text(Entry,'personal'),Books,Cancelled,Progress); end);
+          begin
+            if Data.GetValue<Boolean>('whole',False) then
+              Result:=BuildCollectionCompressionPlan(Info,Text(Entry,'personal'),Options.WorkRoot,Cancelled,Progress)
+            else Result:=BuildSelectedCompressionPlan(Info,Text(Entry,'personal'),Books,Cancelled,Progress);
+          end);
         try
           if Mode='stop-before' then Operation.RequestStop;
           Started:=GetTickCount64; SeenReview:=False; BeforeReview:=''; Disposed:=False;

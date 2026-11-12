@@ -6,7 +6,7 @@ type
     Mode, OriginalSHA, Source, BackupFolder: string;
     ProfileIndex: Integer;
     Grayscale: Boolean;
-    InspectComparison, EstimateFirst, EstimateSeen: Boolean;
+    InspectComparison, EstimateFirst, EstimateSeen, Whole: Boolean;
     InspectionDeadline: UInt64;
     OptionsSeen, ReviewSeen, ResultSeen, DecisionSent, ComparisonSeen: Boolean;
     procedure Tick(Sender: TObject);
@@ -57,6 +57,7 @@ begin
       var Form:=TfrmBookCompressionOptions(Screen.Forms[I]);
       if OptionsSeen then Exit;
       OptionsSeen:=True;
+      if Whole then Require(Form.Caption='Сжать текущую коллекцию','Whole collection opens the old copy wizard');
       TComboBox(Form.FindComponent('CompressionProfile')).ItemIndex:=ProfileIndex;
       TCheckBox(Form.FindComponent('CompressionGrayscale')).Checked:=Grayscale;
       TCheckBox(Form.FindComponent('CompressionReview')).Checked:=True;
@@ -156,6 +157,7 @@ begin
       Driver.Grayscale:=Config.GetValue<Boolean>('grayscale',True);
       Driver.InspectComparison:=Config.GetValue<Boolean>('inspect_comparison',False);
       Driver.EstimateFirst:=Config.GetValue<Boolean>('estimate_first',False);
+      Driver.Whole:=Config.GetValue<Boolean>('whole',False);
       Timeout:=Config.GetValue<UInt64>('timeout_ms',45000);
       Require((Timeout>=1000) and (Timeout<=300000),'Invalid bounded fixture timeout');
     end;
@@ -209,7 +211,13 @@ begin
     Action.Update; Require(Action.Enabled,'Normal compression command is disabled for selected books');
     Driver.Timer:=TTimer.Create(nil); Driver.Timer.Enabled:=False;
     Driver.Timer.Interval:=50; Driver.Timer.OnTimer:=Driver.Tick; Driver.Timer.Enabled:=True;
-    Action.Execute;
+    if Driver.Whole then
+    begin
+      var Menu:=frmMain.FindComponent('miPackCollection') as TMenuItem;
+      Require(Assigned(Menu),'Whole collection compression command is missing');
+      Menu.Click;
+    end
+    else Action.Execute;
     Started:=GetTickCount64;
     while not Driver.ResultSeen and (GetTickCount64-Started<Timeout) do
     begin Application.ProcessMessages; Sleep(10); end;

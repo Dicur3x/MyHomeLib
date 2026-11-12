@@ -576,22 +576,25 @@ begin
         raise EInvalidOperation.Create('Сначала нужно завершить прежнее сжатие из сохранённого журнала.');
       CheckStop;
       if not Assigned(FFactory) then raise EArgumentException.Create('Не задан выбор книг для сжатия.');
-      SetStage('Проверяем расположение выбранных книг');
+      SetStage('Проверяем расположение книг');
       Plan:=FFactory(Stopping,
-        procedure(Done:Int64) begin SetStage('Проверяем расположение выбранных книг',Done,0); end);
+        procedure(Done:Int64) begin SetStage('Проверяем расположение книг',Done,0); end);
       try
         if Plan=nil then raise EReadError.Create('Не удалось подготовить выбор книг для сжатия.');
         TMonitor.Enter(FLock);
         try
-          FState.FilesTotal:=Plan.Files.Count;
-          for var FilePlan in Plan.Files do Inc(FState.BooksTotal,FilePlan.MemberCount);
+          FState.FilesTotal:=Plan.FileCount;
+          FState.BooksTotal:=Plan.BookCount;
         finally TMonitor.Exit(FLock); end;
+        if Plan.Warning<>'' then Warn(Plan.Warning);
+        if FState.FilesTotal=0 then
+          raise EReadError.Create('В коллекции не найдены доступные местные файлы книг. Проверьте папки её источников.');
         ApplyCompression:=True;
         if FOptions.EstimateFirst then
         begin
           TMonitor.Enter(FLock);
           try FState.Estimating:=True; finally TMonitor.Exit(FLock); end;
-          for var FilePlan in Plan.Files do EstimateFile(FilePlan);
+          Plan.ForEachFile(procedure(FilePlan:TCompressionFilePlan) begin EstimateFile(FilePlan); end);
           TMonitor.Enter(FLock);
           try FState.Estimating:=False; FState.Source:=''; FState.Member:='';
           finally TMonitor.Exit(FLock); end;
@@ -607,13 +610,14 @@ begin
           end;
         end;
         if ApplyCompression then
-          for var FilePlan in Plan.Files do
-          begin
-            RunFile(FilePlan);
-            TMonitor.Enter(FLock);
-            try Inc(FState.FilesDone); Inc(FState.BooksDone,FilePlan.MemberCount);
-            finally TMonitor.Exit(FLock); end;
-          end;
+          Plan.ForEachFile(
+            procedure(FilePlan:TCompressionFilePlan)
+            begin
+              RunFile(FilePlan);
+              TMonitor.Enter(FLock);
+              try Inc(FState.FilesDone); Inc(FState.BooksDone,FilePlan.MemberCount);
+              finally TMonitor.Exit(FLock); end;
+            end);
       finally Plan.Free; end;
     end;
     if not FState.EstimateOnly then SetStage('Сжатие завершено');

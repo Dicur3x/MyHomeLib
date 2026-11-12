@@ -2,7 +2,8 @@
 
 interface
 
-uses System.SysUtils, System.JSON, System.Generics.Collections, SQLiteWrap;
+uses System.SysUtils, System.JSON, System.Generics.Collections, SQLiteWrap,
+  unit_BookCompressionPlanStore;
 
 type
   TCompressionLocator = record
@@ -55,6 +56,13 @@ type
     FFiles: TObjectList<TCompressionFilePlan>;
     FOptions: TCompressionPlanOptions;
     FCatalogueKey, FPersonalKey: string;
+    FStore: TCompressionPlanStore;
+    FCancelled: TFunc<Boolean>;
+    FWarning: string;
+    FSkippedRows: Int64;
+    function NewTemplate: TJSONObject;
+    procedure CompleteFile(FilePlan: TCompressionFilePlan);
+    procedure CheckCancelled;
   public
     constructor Create(const Options: TCompressionPlanOptions;
       const Selected: TArray<TCompressionLocator>;
@@ -62,8 +70,16 @@ type
       const MemberFor: TCompressionMemberResolver;
       const Cancelled: TFunc<Boolean> = nil;
       const Progress: TProc<Int64> = nil);
+    constructor CreateCollection(const Options: TCompressionPlanOptions; const WorkRoot: string;
+      const SourceFor: TCompressionSourceResolver; const MemberFor: TCompressionMemberResolver;
+      const Cancelled: TFunc<Boolean> = nil; const Progress: TProc<Int64> = nil);
     destructor Destroy; override;
+    function FileCount: Int64;
+    function BookCount: Int64;
+    procedure ForEachFile(const Visit: TProc<TCompressionFilePlan>);
     property Files: TObjectList<TCompressionFilePlan> read FFiles;
+    property Warning: string read FWarning;
+    property SkippedRows: Int64 read FSkippedRows;
   end;
 
 implementation
@@ -206,6 +222,48 @@ begin
     raise EReadError.Create('Некорректная запись книги при подготовке сжатия.');
 end;
 
+function TBookCompressionPlan.NewTemplate:TJSONObject;
+begin
+  Result:=TJSONObject.Create;
+  Result.AddPair('schema',TJSONNumber.Create(1));
+  Result.AddPair('kind','HomeLibre book compression');
+  Result.AddPair('collection_id',TJSONNumber.Create(FOptions.CollectionID));
+  Result.AddPair('catalogue',FOptions.Catalogue); Result.AddPair('personal',FOptions.Personal);
+  Result.AddPair('catalogue_key',FCatalogueKey); Result.AddPair('personal_key',FPersonalKey);
+  Result.AddPair('base_root',FOptions.BaseRoot); Result.AddPair('base_catalogue',FOptions.BaseCatalogue);
+end;
+
+procedure TBookCompressionPlan.CheckCancelled;
+begin
+  if Assigned(FCancelled) and FCancelled() then
+    raise EAbort.Create('Сжатие остановлено. Исходные книги не изменены.');
+end;
+
+procedure TBookCompressionPlan.CompleteFile(FilePlan:TCompressionFilePlan);
+var Catalogue:TSQLiteDatabase; Query:TSQLiteQuery;
+begin
+  CheckCancelled; FilePlan.CheckSource; FilePlan.AddFuturePersonalRows;
+  if FilePlan.RowCount=0 then raise EReadError.Create('В каталоге не осталось выбранных книг.');
+  Catalogue:=TSQLiteDatabase.CreateReadOnly(FOptions.Catalogue);
+  try
+    if Catalogue.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE type=''table'' AND name=''HomeLibreBookCompression''')=0 then Exit;
+    Query:=Catalogue.NewQuery('SELECT Member,ProfileSHA256,OutputSHA256 FROM HomeLibreBookCompression WHERE FileKey=?',
+      [FilePlan.FileKey]);
+    try
+      Query.Open;
+      while not Query.Eof do
+      begin
+        CheckCancelled;
+        var Previous:=TJSONObject.Create;
+        Previous.AddPair('profile_sha256',Query.FieldAsString(1));
+        Previous.AddPair('output_sha256',Query.FieldAsString(2));
+        FilePlan.FPrevious.AddPair(Query.FieldAsString(0),Previous);
+        Query.Next;
+      end;
+    finally Query.Free; end;
+  finally Catalogue.Free; end;
+end;
+
 constructor TBookCompressionPlan.Create(const Options: TCompressionPlanOptions;
   const Selected: TArray<TCompressionLocator>;
   const SourceFor: TCompressionSourceResolver;
@@ -221,19 +279,6 @@ var Catalogue, Personal: TSQLiteDatabase; Query: TSQLiteQuery;
   begin
     if Assigned(Cancelled) and Cancelled() then
       raise EAbort.Create('Сжатие остановлено. Исходные книги не изменены.');
-  end;
-  function NewTemplate: TJSONObject;
-  begin
-    Result:=TJSONObject.Create;
-    Result.AddPair('schema',TJSONNumber.Create(1));
-    Result.AddPair('kind','HomeLibre book compression');
-    Result.AddPair('collection_id',TJSONNumber.Create(FOptions.CollectionID));
-    Result.AddPair('catalogue',FOptions.Catalogue);
-    Result.AddPair('personal',FOptions.Personal);
-    Result.AddPair('catalogue_key',FCatalogueKey);
-    Result.AddPair('personal_key',FPersonalKey);
-    Result.AddPair('base_root',FOptions.BaseRoot);
-    Result.AddPair('base_catalogue',FOptions.BaseCatalogue);
   end;
   procedure Scan(DB: TSQLiteDatabase; const SQL: string; Kind: Integer);
   var Q: TSQLiteQuery; Locator: TCompressionLocator; Path, Physical, Exact: string;
@@ -277,6 +322,7 @@ var Catalogue, Personal: TSQLiteDatabase; Query: TSQLiteQuery;
   end;
 begin
   inherited Create;
+  FCancelled:=Cancelled;
   FFiles:=TObjectList<TCompressionFilePlan>.Create(True);
   if (Options.CollectionID<=0) or (Length(Selected)=0) or
     not Assigned(SourceFor) or not Assigned(MemberFor) or
@@ -369,7 +415,250 @@ begin
   end;
 end;
 
+constructor TBookCompressionPlan.CreateCollection(const Options:TCompressionPlanOptions;
+  const WorkRoot:string; const SourceFor:TCompressionSourceResolver;
+  const MemberFor:TCompressionMemberResolver; const Cancelled:TFunc<Boolean>;
+  const Progress:TProc<Int64>);
+const Columns='BookID,LibID,Folder,FileName,Ext,InsideNo,BookSize';
+var Catalogue,Personal:TSQLiteDatabase; Query,Paths,Rows:TSQLiteQuery;
+    Cache:TDictionary<string,Int64>; Done,Pending:Int64; Examples:Integer;
+  procedure ReportProgress;
+  begin
+    CheckCancelled;
+    if Assigned(Progress) and (Done mod 1024=0) then Progress(Done);
+  end;
+  procedure Skipped(const Where,Reason:string; Count:Int64=1);
+  begin
+    Inc(FSkippedRows,Count);
+    if Examples<8 then
+    begin Inc(Examples); FWarning:=FWarning+sLineBreak+Copy(Where,1,160)+': '+Copy(Reason,1,200); end;
+  end;
+  procedure FlushChunk;
+  begin
+    Inc(Pending);
+    if Pending>=5000 then
+    begin FStore.DB.ExecSQL('COMMIT'); FStore.DB.ExecSQL('BEGIN'); Pending:=0; end;
+  end;
+  procedure Scan(DB:TSQLiteDatabase; const SQL:string; Kind:Integer);
+  var Q:TSQLiteQuery; Row:TCompressionLocator; Source,Key:string; CandidateID:Int64;
+      Valid:Boolean;
+  begin
+    Q:=DB.NewQuery(SQL);
+    try
+      Q.Open;
+      while not Q.Eof do
+      begin
+        Inc(Done); ReportProgress; Valid:=False;
+        try
+          Row:=ReadLocator(Q,Kind);
+          if Row.FileName<>'' then
+          begin
+            Source:=SourceFor(Row);
+            if Source='' then raise EReadError.Create('Не указан путь книги.');
+            Source:=ExpandFileName(StringReplace(Source,'/','\',[rfReplaceAll]));
+            // Keep spelling until physical identity is available: Windows
+            // directories can explicitly be case-sensitive.
+            Key:=Source; Valid:=True;
+          end
+          else if Kind<>1 then Skipped('Запись '+IntToStr(Row.BookID),'Не указано имя файла.');
+        except
+          on E:EAbort do raise;
+          on E:Exception do
+          begin
+            if (E is EExternalException) or (E is EOutOfMemory) then raise;
+            if Kind<>1 then Skipped('Запись '+IntToStr(Q.FieldAsInt(0)),E.Message);
+          end;
+        end;
+        if Valid then
+        begin
+          if not Cache.TryGetValue(Key,CandidateID) then
+          begin
+            FStore.DB.ExecSQL('INSERT INTO Candidates(PathKey,Source,Active) VALUES(?,?,?) '+
+              'ON CONFLICT(PathKey) DO UPDATE SET Active=max(Active,excluded.Active)',
+              [Key,Source,Ord(Kind<>1)]);
+            CandidateID:=FStore.DB.QuerySingleInt('SELECT ID FROM Candidates WHERE PathKey=?',[Key]);
+            if Cache.Count>=4096 then Cache.Clear;
+            Cache.Add(Key,CandidateID);
+          end;
+          FStore.DB.ExecSQL('INSERT INTO Locators(CandidateID,Kind,BookID,LibID,Folder,FileName,Ext,'+
+            'InsideNo,BookSize,Root,SourceKey) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
+            [CandidateID,Row.Kind,Row.BookID,Row.LibID,Row.Folder,Row.FileName,Row.Extension,
+             Row.InsideNo,Row.OldSize,Row.Root,Row.SourceKey]);
+          FlushChunk;
+        end;
+        Q.Next;
+      end;
+    finally Q.Free; end;
+  end;
+begin
+  inherited Create; FFiles:=TObjectList<TCompressionFilePlan>.Create(True);
+  FCancelled:=Cancelled;
+  if (Options.CollectionID<=0) or not Assigned(SourceFor) or not Assigned(MemberFor) or
+    (Options.BaseCatalogue='') then raise EArgumentException.Create('Нужна подключённая коллекция для сжатия.');
+  FOptions:=Options; FOptions.Catalogue:=ExpandFileName(Options.Catalogue);
+  FOptions.Personal:=ExpandFileName(Options.Personal);
+  FCatalogueKey:=CompressionFileKey(FOptions.Catalogue); FPersonalKey:=CompressionFileKey(FOptions.Personal);
+  if SameText(FCatalogueKey,FPersonalKey) then raise EReadError.Create('Каталог и личные данные должны храниться в разных базах.');
+  Catalogue:=nil; Personal:=nil; Query:=nil; Paths:=nil; Rows:=nil;
+  Cache:=TDictionary<string,Int64>.Create;
+  try
+    CheckCancelled;
+    FStore:=TCompressionPlanStore.Create(WorkRoot);
+    Catalogue:=TSQLiteDatabase.CreateReadOnly(FOptions.Catalogue);
+    Personal:=TSQLiteDatabase.CreateReadOnly(FOptions.Personal);
+    Query:=Personal.NewQuery('SELECT RootFolder,DBFileName FROM Bases WHERE DatabaseID=?',[FOptions.CollectionID]);
+    Query.Open;
+    if Query.Eof or (Query.FieldAsString(0)<>FOptions.BaseRoot) or
+      (Query.FieldAsString(1)<>FOptions.BaseCatalogue) then
+      raise EReadError.Create('Подключение коллекции изменилось. Начните сжатие заново.');
+    FreeAndNil(Query);
+    Done:=0; Pending:=0; Examples:=0;
+    FStore.DB.ExecSQL('BEGIN');
+    Scan(Catalogue,'SELECT '+Columns+' FROM Books',0);
+    if Catalogue.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE type=''table'' AND name=''CatalogBookCopies''')<>0 then
+      Scan(Catalogue,'SELECT C.BookID,C.LibID,C.Folder,C.FileName,C.Ext,C.InsideNo,C.BookSize,C.Root,C.SourceKey '+
+        'FROM CatalogBookCopies C WHERE EXISTS(SELECT 1 FROM Books B WHERE B.BookID=C.BookID)',2);
+    Scan(Personal,'SELECT '+Columns+' FROM Books WHERE DatabaseID='+IntToStr(FOptions.CollectionID),1);
+    FreeAndNil(Personal); FreeAndNil(Catalogue); Cache.Clear;
+    FStore.DB.ExecSQL('COMMIT'); FStore.DB.ExecSQL('BEGIN'); Pending:=0;
+    // Source and member resolution is grouped by candidate path. The adapter
+    // needs only one archive inventory at a time, even for millions of rows.
+    Paths:=FStore.DB.NewQuery('SELECT ID,Source,Active FROM Candidates ORDER BY Active DESC,ID');
+    Paths.Open;
+    while not Paths.Eof do
+    begin
+      CheckCancelled;
+      var CandidateID:=Paths.FieldAsInt(0); var Source:=Paths.FieldAsString(1);
+      var Active:=Paths.FieldAsBoolean(2); var Identity,Key,Failure:string;
+      Identity:=''; Key:=''; Failure:='';
+      if FileExists(DeletionNativePath(Source)) then
+        try
+          Identity:=ArchiveDeletionSourceIdentity(Source); Key:=Copy(Identity,1,25);
+        except
+          on E:EAbort do raise;
+          on E:Exception do
+          begin
+            if (E is EExternalException) or (E is EOutOfMemory) then raise;
+            Failure:=E.Message;
+          end;
+        end
+      else Failure:='Файл не найден.';
+      if Identity='' then
+      begin
+        if Active then
+          Skipped(Source,Failure,FStore.DB.QuerySingleInt('SELECT count(*) FROM Locators WHERE CandidateID=? AND Kind<>1',[CandidateID]));
+      end
+      else
+      begin
+        if Active then FStore.DB.ExecSQL('INSERT OR IGNORE INTO Sources(Source,FileKey,Identity) VALUES(?,?,?)',[Source,Key,Identity]);
+        Query:=FStore.DB.NewQuery('SELECT ID,Identity FROM Sources WHERE FileKey=?',[Key]); Query.Open;
+        var FileID:Int64:=0;
+        if not Query.Eof then
+        begin
+          FileID:=Query.FieldAsInt(0);
+          if Query.FieldAsString(1)<>Identity then raise EReadError.Create('Файл изменился при подготовке плана: '+Source);
+        end;
+        FreeAndNil(Query);
+        if FileID<>0 then
+        begin
+          Rows:=FStore.DB.NewQuery('SELECT '+Columns+',Root,SourceKey,Kind,rowid FROM Locators WHERE CandidateID=? ORDER BY rowid',[CandidateID]);
+          Rows.Open;
+          while not Rows.Eof do
+          begin
+            Inc(Done); ReportProgress;
+            var Kind:=Integer(Rows.FieldAsInt(9)); var Row:=ReadLocator(Rows,Kind);
+            var Exact:string; var Valid:=False;
+            try Exact:=MemberFor(Source,Row); Valid:=True;
+            except
+              on E:EAbort do raise;
+              on E:Exception do
+              begin
+                if (E is EExternalException) or (E is EOutOfMemory) then raise;
+                if Kind<>1 then Skipped(Source+' / '+Row.FileName+Row.Extension,E.Message);
+              end;
+            end;
+            if Valid then
+            begin
+              if Kind<>1 then FStore.DB.ExecSQL('INSERT OR IGNORE INTO Members VALUES(?,?,?)',[FileID,Exact,Row.Extension]);
+              FStore.DB.ExecSQL('UPDATE Locators SET FileID=?,Member=? WHERE rowid=?',[FileID,Exact,Rows.FieldAsInt(10)]);
+              FlushChunk;
+            end;
+            Rows.Next;
+          end;
+          FreeAndNil(Rows);
+        end;
+      end;
+      Paths.Next;
+    end;
+    FreeAndNil(Paths); FStore.DB.ExecSQL('COMMIT');
+    if (CompressionFileKey(FOptions.Catalogue)<>FCatalogueKey) or
+      (CompressionFileKey(FOptions.Personal)<>FPersonalKey) then
+      raise EReadError.Create('База коллекции заменена при подготовке сжатия.');
+    if FSkippedRows>0 then FWarning:=Format('Некоторые локальные файлы недоступны; пропущено записей: %d. Первые причины:',[FSkippedRows])+FWarning;
+    FStore.Seal;
+    if Assigned(Progress) then Progress(Done);
+  finally
+    Rows.Free; Paths.Free; Query.Free; Personal.Free; Catalogue.Free; Cache.Free;
+  end;
+end;
+
+function TBookCompressionPlan.FileCount:Int64;
+begin
+  if FStore=nil then Exit(FFiles.Count);
+  Result:=FStore.DB.QuerySingleInt('SELECT count(*) FROM Sources S WHERE EXISTS(SELECT 1 FROM Members M WHERE M.FileID=S.ID)');
+end;
+
+function TBookCompressionPlan.BookCount:Int64;
+begin
+  Result:=0;
+  if FStore<>nil then Exit(FStore.DB.QuerySingleInt('SELECT count(*) FROM Members'));
+  for var FilePlan in FFiles do Inc(Result,FilePlan.MemberCount);
+end;
+
+procedure TBookCompressionPlan.ForEachFile(const Visit:TProc<TCompressionFilePlan>);
+var Sources,Query:TSQLiteQuery; FilePlan:TCompressionFilePlan;
+begin
+  if not Assigned(Visit) then raise EArgumentException.Create('Не задан обработчик файлов плана сжатия.');
+  if FStore=nil then
+  begin for FilePlan in FFiles do begin CheckCancelled; Visit(FilePlan); end; Exit; end;
+  Sources:=FStore.DB.NewQuery('SELECT S.ID,S.Source,S.Identity FROM Sources S '+
+    'WHERE EXISTS(SELECT 1 FROM Members M WHERE M.FileID=S.ID) ORDER BY S.ID');
+  try
+    Sources.Open;
+    while not Sources.Eof do
+    begin
+      CheckCancelled;
+      var FileID:=Sources.FieldAsInt(0);
+      FilePlan:=TCompressionFilePlan.Create(Sources.FieldAsString(1),NewTemplate);
+      try
+        if FilePlan.FSourceIdentity<>Sources.FieldAsString(2) then
+          raise EReadError.Create('Файл изменился после подготовки плана: '+FilePlan.Source);
+        Query:=FStore.DB.NewQuery('SELECT Member,Ext FROM Members WHERE FileID=? ORDER BY Member',[FileID]);
+        try
+          Query.Open;
+          while not Query.Eof do
+          begin CheckCancelled; FilePlan.AddMember(Query.FieldAsString(0),Query.FieldAsString(1)); Query.Next; end;
+        finally Query.Free; end;
+        Query:=FStore.DB.NewQuery('SELECT '+
+          'L.BookID,L.LibID,L.Folder,L.FileName,L.Ext,L.InsideNo,L.BookSize,L.Root,L.SourceKey,L.Kind,L.Member '+
+          'FROM Locators L WHERE L.FileID=? AND EXISTS(SELECT 1 FROM Members M WHERE M.FileID=L.FileID AND M.Member=L.Member) ORDER BY L.rowid',[FileID]);
+        try
+          Query.Open;
+          while not Query.Eof do
+          begin
+            CheckCancelled;
+            FilePlan.AddRow(ReadLocator(Query,Integer(Query.FieldAsInt(9))),Query.FieldAsString(10));
+            Query.Next;
+          end;
+        finally Query.Free; end;
+        CompleteFile(FilePlan); Visit(FilePlan);
+      finally FilePlan.Free; end;
+      Sources.Next;
+    end;
+  finally Sources.Free; end;
+end;
+
 destructor TBookCompressionPlan.Destroy;
-begin FFiles.Free; inherited; end;
+begin FStore.Free; FFiles.Free; inherited; end;
 
 end.

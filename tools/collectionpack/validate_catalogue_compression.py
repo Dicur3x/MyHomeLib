@@ -68,7 +68,7 @@ def install_processing_package(package, root, platform):
 
 
 def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_books=None, inspect_comparison=False,
-        processing_package=None, estimate_first=False):
+        processing_package=None, estimate_first=False, whole=False):
     with temporary_work_directory(stage, 'HomeLibRu-native-') as root:
         root = Path(root)
         shutil.copy2(binary, root / 'CollectionViewsTest.exe')
@@ -120,10 +120,11 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
             (root / 'compression-fixture.json').write_text(json.dumps(dict(
                 first='one.fb2', second='two.fb2', grayscale=True, timeout_ms=90000,
                 inspect_comparison=True)), encoding='utf-8')
-        if estimate_first:
+        if estimate_first or whole:
             fixture_file = root / 'compression-fixture.json'
             config = json.loads(fixture_file.read_text(encoding='utf-8')) if fixture_file.exists() else {}
-            config['estimate_first'] = True
+            config['estimate_first'] = estimate_first
+            config['whole'] = whole
             fixture_file.write_text(json.dumps(config), encoding='utf-8')
         (root / 'books').mkdir()
         source = root / 'books/shared.zip'
@@ -151,7 +152,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
             raise AssertionError(f'Catalogue {platform} {mode}: exit {process.returncode}\n{output}')
         with zipfile.ZipFile(source) as archive:
             assert set(archive.namelist()) == set(originals)
-            assert archive.read('neighbor.fb2') == originals['neighbor.fb2']
+            assert archive_body(source, 'neighbor.fb2', root / 'tools/7zip/7za.exe') == originals['neighbor.fb2']
             if mode == 'apply':
                 assert source.stat().st_size < size
                 for name in selected:
@@ -196,6 +197,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
                     processing_package_sha256=digest(processing_package) if processing_package else None,
                     input_sha256={name: hashlib.sha256(body).hexdigest() for name, body in originals.items()},
                     real_source_stamps={str(path): stamp for path, stamp in real_stamps.items()},
+                    whole=whole,
                     scope='Ordinary catalogue command; real payloads in a private shared ZIP, original archives read only'
                         if real_books else 'Ordinary menu action and controls; isolated synthetic shared ZIP only')
 
@@ -210,6 +212,7 @@ if __name__ == '__main__':
     parser.add_argument('--inspect-comparison', action='store_true')
     parser.add_argument('--processing-package', type=Path)
     parser.add_argument('--estimate-first', action='store_true')
+    parser.add_argument('--whole', action='store_true')
     args = parser.parse_args()
     result = run(**vars(args))
     (args.stage / f'catalogue-{args.platform}-{args.mode}.json').write_text(json.dumps(result, indent=2), encoding='utf-8')

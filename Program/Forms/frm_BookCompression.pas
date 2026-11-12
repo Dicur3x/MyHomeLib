@@ -93,13 +93,17 @@ constructor TfrmBookCompressionOptions.CreateOptions(AOwner: TComponent;
   BookCount: Integer; const Options: TBookCompressionOperationOptions);
 begin
   inherited CreateNew(AOwner); Name:='BookCompressionOptions';
-  Caption:=Format('Сжать выбранные книги · %d',[BookCount]);
+  if BookCount=0 then Caption:='Сжать текущую коллекцию'
+  else Caption:=Format('Сжать выбранные книги · %d',[BookCount]);
   Position:=poOwnerFormCenter; BorderStyle:=bsDialog;
   PixelsPerInch:=96; Font.PixelsPerInch:=96; Font.Name:='Segoe UI'; Font.Size:=9;
   ClientWidth:=640; ClientHeight:=412; FOptions:=Options; FLayoutScale:=96;
   MakeLabel(Self,'CompressionOptionsIntro',16,46).Caption:=
     'Книги останутся на прежних местах. Соседние книги в общих архивах не меняются. '+
     'Результат заменит исходный файл, только если станет меньше.';
+  if BookCount=0 then TLabel(FindComponent('CompressionOptionsIntro')).Caption:=
+    'Доступные книги текущей коллекции и её источников останутся на прежних местах. '+
+    'Архив или файл заменится, только если станет меньше.';
   MakeLabel(Self,'CompressionProfileLabel',72,20).Caption:='Как сжимать';
   FProfile:=TComboBox.Create(Self); FProfile.Parent:=Self; FProfile.Name:='CompressionProfile';
   FProfile.SetBounds(16,96,608,26); FProfile.Style:=csDropDownList;
@@ -117,6 +121,7 @@ begin
   FReview.Checked:=Options.ReviewResults;
   FBackup:=TCheckBox.Create(Self); FBackup.Parent:=Self; FBackup.Name:='CompressionBackup';
   FBackup.SetBounds(16,240,608,24); FBackup.Caption:='Сохранить оригиналы выбранных книг';
+  if BookCount=0 then FBackup.Caption:='Сохранить оригиналы обрабатываемых книг';
   FBackup.Checked:=Options.BackupOriginals; FBackup.OnClick:=BackupChanged;
   FBackupFolder:=TEdit.Create(Self); FBackupFolder.Parent:=Self; FBackupFolder.Name:='CompressionBackupFolder';
   FBackupFolder.ReadOnly:=True; FBackupFolder.SetBounds(16,270,484,25);
