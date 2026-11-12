@@ -128,6 +128,7 @@ type
     procedure StartQueuedDownload;
     procedure ClearQueueJobs;
   protected
+    procedure InitializeLogicalFont; virtual;
     function InstallationHelperSource: string;
     function StartInstallationHelper(const Helper, Parameters, Directory: string): THandle; virtual;
     procedure Resize; override;
@@ -286,7 +287,7 @@ begin
   Constraints.MinWidth := 760; Constraints.MinHeight := 560;
   DoubleBuffered := True;
   OnShow:=LayoutShown;
-  Font.Assign(Screen.MessageFont);
+  InitializeLogicalFont;
   FVersion := TLabel.Create(Self); FVersion.Parent := Self;
   FVersion.AutoSize:=False; FVersion.EllipsisPosition:=epEndEllipsis; FVersion.ShowHint:=True;
   FVersion.SetBounds(20, 16, 700, 20); FVersion.Font.Style := [fsBold];
@@ -382,6 +383,14 @@ begin
   if MHLThemeDark then FComponentsView.Color:=RGB(30,31,34) else FComponentsView.Color:=clWindow;
   LayoutWindow;
   LogDiagnosticTrace('program-update-window','initialized');
+end;
+
+procedure TfrmProgramUpdate.InitializeLogicalFont;
+begin
+  // The form starts at logical DPI, while the system font may already carry
+  // high-DPI pixels. Normalize before the form scales its child controls.
+  Font.PixelsPerInch:=CurrentPPI;
+  Font.Assign(Screen.MessageFont);
 end;
 
 destructor TfrmProgramUpdate.Destroy;

@@ -352,6 +352,7 @@ begin
 end;
 
 {$I UpdateComponentTableTests.inc}
+{$I UpdateInitialDpiTests.inc}
 
 procedure TestUpdateManualReopen;
 var Cycle: TfrmProgramUpdate; Current: TProgramRelease; Components: TComponentReleases;
@@ -6300,6 +6301,7 @@ begin
       if ParamStr(1) = 'display-labels' then begin BenchmarkDisplayLabels; Halt(0); end;
       if ParamStr(1) = 'book-output-reset' then begin BenchmarkBookOutputReset; Halt(0); end;
       if ParamStr(1) = 'update-theme' then begin TestUpdateNotesTheme; Halt(0); end;
+      if ParamStr(1) = 'update-initial-dpi' then begin TestUpdateInitialDPI; Flush(Output); Halt(0); end;
       if ParamStr(1)='raster-preview' then begin TestRasterPreview; Flush(Output); Halt(0); end;
       if ParamStr(1)='package-covers' then begin TestPackageCovers; Flush(Output); Halt(0); end;
       if ParamStr(1)='package-preview' then begin TestPackagePreview; Flush(Output); Halt(0); end;

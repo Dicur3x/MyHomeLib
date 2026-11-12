@@ -263,6 +263,7 @@ end;
 constructor TUpdateNotesView.Create(AOwner: TComponent);
 begin
   inherited;
+  Font.PixelsPerInch:=CurrentPPI;
   FZoomPercent := 100; FShownLimit := 3;
   Color := clWindow;
   DoubleBuffered := True;

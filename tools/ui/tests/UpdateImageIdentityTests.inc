@@ -69,7 +69,7 @@ begin
   Fixture:=TPath.Combine(Settings.AppPath,'image-fixtures');
   Require(ParseImageComponent(TFile.ReadAllText(TPath.Combine(Fixture,'release.json'),TEncoding.UTF8),
     'JPEG XL',Info),'Image fixture metadata failed');
-  Require(Info.Tag='v0.12.0','Expected the upstream v-prefixed identity');
+  Require(Info.Tag='v'+Info.ComponentVersion,'Expected the upstream v-prefixed identity');
   Require(not FileExists(Settings.AppPath+'HomeLibRuUpdater.exe'),'Fixture must not replace an installed helper');
   TFile.Copy(TPath.Combine(Fixture,'native-helper.exe'),Settings.AppPath+'HomeLibRuUpdater.exe');
   HelperHash:=UpdateSHA256(Settings.AppPath+'HomeLibRuUpdater.exe');
@@ -90,8 +90,8 @@ begin
     ReadReady;
     try
       Job:=Root.GetValue<string>('job'); Digest:=Root.GetValue<string>('sha256');
-      Require(Root.GetValue<string>('tag')='0.12.0','Normal download saved the author label instead of prepared version');
-      VerifyPreparedProgramUpdate(Job,'0.12.0',ProgramUpdatePlatform);
+      Require(Root.GetValue<string>('tag')=Info.ComponentVersion,'Normal download saved the author label instead of prepared version');
+      VerifyPreparedProgramUpdate(Job,Info.ComponentVersion,ProgramUpdatePlatform);
       Root.RemovePair('tag').Free; Root.AddPair('tag',Info.Tag);
       TFile.WriteAllText(ReadyName,Root.ToJSON,TEncoding.UTF8);
     finally Root.Free; end;
@@ -101,7 +101,7 @@ begin
     Require(Dialog.RestoreReady,'An old official JPEG XL download could not be restored');
     ReadReady;
     try
-      Require((Root.GetValue<string>('tag')='0.12.0') and
+      Require((Root.GetValue<string>('tag')=Info.ComponentVersion) and
         (Root.GetValue<string>('sha256')=Digest),'Cache repair changed the source checksum or retained the wrong version');
     finally Root.Free; end;
     Require(Server.Requests=1,'Cache repair unexpectedly downloaded the package again');

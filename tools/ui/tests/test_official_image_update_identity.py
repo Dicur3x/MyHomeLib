@@ -21,7 +21,15 @@ def main():
     parser.add_argument('--release', type=Path, required=True)
     parser.add_argument('--packages', type=Path, required=True)
     parser.add_argument('--result', type=Path, required=True)
+    parser.add_argument('--reported-manifest', type=Path)
+    parser.add_argument('--reported-request', type=Path)
     args = parser.parse_args()
+    if bool(args.reported_manifest) != bool(args.reported_request):
+        parser.error('Both reported files are required together')
+    reported = (json.loads(args.reported_manifest.read_text(encoding='utf-8-sig')),
+                json.loads(args.reported_request.read_text(encoding='utf-8-sig'))) if args.reported_manifest else None
+    reported_hashes = [hashlib.sha256(path.read_bytes()).hexdigest() for path in
+                       (args.reported_manifest,args.reported_request)] if reported else None
     metadata = json.loads(args.release.read_text(encoding='utf-8-sig'))
     results = []
     server = None
@@ -54,12 +62,12 @@ def main():
         thread.start()
         started = time.monotonic()
 
-        def run(*params, expected=0):
+        def run(*params, expected=0, include_error=False):
             result = subprocess.run([str(args.native), *map(str, params)],
                                     capture_output=True, encoding='utf-8', timeout=90,
                                     creationflags=subprocess.CREATE_NO_WINDOW)
             assert result.returncode == expected, (params, result.returncode, result.stdout, result.stderr)
-            return result.stdout
+            return result.stdout+result.stderr if include_error else result.stdout
 
         try:
             machine = args.native.read_bytes()
@@ -82,6 +90,16 @@ def main():
                 assert detail['prepared_tag'] == manifest['release'] == detail['version']
                 assert detail['requests'] == 1 and detail['sha256'] == asset['digest'][7:]
                 assert detail['url'] == 'https://github.com/libjxl/libjxl/releases'
+                if reported and component == 'JPEG XL':
+                    old_manifest, old_request = reported
+                    assert old_request['sha256'] == detail['sha256']
+                    for field in ('format','release','platform','component','version','official'):
+                        assert old_manifest[field] == manifest[field], (field,old_manifest[field],manifest[field])
+                    assert {item['path']:(item['size'],item['sha256']) for item in old_manifest['files']} == {
+                        item['path']:(item['size'],item['sha256']) for item in manifest['files']}
+                    rejected = run('--verify', job, old_request['tag'], expected=1, include_error=True)
+                    assert 'Подготовленное обновление не подходит этой программе.' in rejected
+                    run('--verify', job, detail['prepared_tag'])
                 target = root / ('installed-' + job.name)
                 target.mkdir()
                 shutil.copy2(args.native, target / 'HomeLibRu.exe')
@@ -125,10 +143,16 @@ def main():
             assert requests == [name, name]
             report = dict(status='PASS', architecture=architecture, results=results,
                           combined_install=True, wrong_release_rejected=True,
+                          reported_manifest_matched=bool(reported),
+                          reported_tag_rejection_reproduced=bool(reported),
                           deep_prepare_install=True, longest_prepared_path=longest_path,
                           seconds=round(time.monotonic()-started, 3), requests=requests,
                           native_sha256=hashlib.sha256(machine).hexdigest(),
                           source_release=metadata['html_url'], package_sha256=asset['digest'][7:])
+            if reported:
+                assert reported_hashes == [hashlib.sha256(path.read_bytes()).hexdigest() for path in
+                                          (args.reported_manifest,args.reported_request)]
+                report['reported_inputs_unchanged'] = True
         finally:
             server.shutdown()
             server.server_close()
