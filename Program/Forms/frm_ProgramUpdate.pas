@@ -177,7 +177,34 @@ uses System.StrUtils, System.IOUtils, System.JSON, System.RegularExpressions, Sy
   System.Types, Winapi.ShellAPI,
   Vcl.Graphics, Vcl.Menus, Vcl.Clipbrd, dm_user, unit_Settings, unit_Globals,
   unit_ProgramUpdateInstaller, unit_MHLHttpClient, unit_UpdateTextCache, unit_BookSaveContinuation,
-  unit_MHLExternalTools, unit_Diagnostics, frm_ComponentMaintenance;
+  unit_MHLExternalTools, unit_Diagnostics, frm_ComponentMaintenance, Vcl.Themes;
+
+type
+  TUpdateTabs = class(TTabControl);
+  TUpdateTabsStyleHook = class(TTabControlStyleHook)
+  strict protected
+    procedure PaintBackground(Canvas: TCanvas); override;
+  end;
+  TUpdateNotifyCheckBox = class(TCheckBox);
+  TUpdateNotifyStyleHook = class(TCheckBoxStyleHook)
+  strict protected
+    procedure PaintBackground(Canvas: TCanvas); override;
+  end;
+
+procedure TUpdateNotifyStyleHook.PaintBackground(Canvas: TCanvas);
+begin
+  Canvas.Brush.Color := MHLThemeBackground;
+  Canvas.FillRect(Control.ClientRect);
+end;
+
+procedure TUpdateTabsStyleHook.PaintBackground(Canvas: TCanvas);
+begin
+  // Drawing the parent's native background ignores its explicit dark palette.
+  // Paint the unused tab strip from the same palette as the update window.
+  Canvas.Brush.Color := MHLThemeBackground;
+  Canvas.FillRect(Control.ClientRect);
+end;
+
 
 function ComponentDownloadSize(Bytes: Int64): string;
 begin
@@ -265,7 +292,7 @@ begin
   FVersion.SetBounds(20, 16, 700, 20); FVersion.Font.Style := [fsBold];
   FVersion.Caption := 'Текущая версия: ' + ReleaseDisplayVersion(PROGRAM_RELEASE_VERSION);
   FStatus := TLabel.Create(Self); FStatus.Parent := Self; FStatus.Name := 'UpdateStatus';
-  FTabs:=TTabControl.Create(Self); FTabs.Parent:=Self; FTabs.Name:='UpdateTabs';
+  FTabs:=TUpdateTabs.Create(Self); FTabs.Parent:=Self; FTabs.Name:='UpdateTabs';
   FTabs.Tabs.Add('Обновления'); FTabs.Tabs.Add('Список изменений'); FTabs.TabIndex:=0;
   FTabs.OnChange:=ViewTabChanged;
   FHistorySelector:=TComboBox.Create(Self); FHistorySelector.Parent:=Self;
@@ -302,7 +329,7 @@ begin
   FComponentCheck.OnClick := ComponentCheckClick;
   FManageComponents:=TButton.Create(Self); FManageComponents.Parent:=Self; FManageComponents.Name:='ManageOptionalComponents';
   FManageComponents.Caption:='Модули…'; FManageComponents.OnClick:=ManageComponentsClick;
-  FNotifyOptional:=TCheckBox.Create(Self); FNotifyOptional.Parent:=Self;
+  FNotifyOptional:=TUpdateNotifyCheckBox.Create(Self); FNotifyOptional.Parent:=Self;
   FNotifyOptional.Name:='NotifyOptionalComponent';
   FNotifyOptional.Caption:='Сообщать об обновлениях этого компонента'; FNotifyOptional.OnClick:=NotificationChanged;
   RefreshInstalledComponents; UpdateComponentList; SelectRow(0);
@@ -2204,5 +2231,13 @@ end;
 
 procedure TfrmProgramUpdate.CancelInstallation;
 begin FPendingInstall := False; end;
+
+initialization
+  TCustomStyleEngine.RegisterStyleHook(TUpdateTabs, TUpdateTabsStyleHook);
+  TCustomStyleEngine.RegisterStyleHook(TUpdateNotifyCheckBox, TUpdateNotifyStyleHook);
+
+finalization
+  TCustomStyleEngine.UnRegisterStyleHook(TUpdateTabs, TUpdateTabsStyleHook);
+  TCustomStyleEngine.UnRegisterStyleHook(TUpdateNotifyCheckBox, TUpdateNotifyStyleHook);
 
 end.

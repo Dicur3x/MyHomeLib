@@ -30,7 +30,8 @@ type
 implementation
 
 uses Winapi.Windows, Winapi.ActiveX, Vcl.Graphics, FictionBook_21, unit_FB2Utils,
-  unit_Interfaces, unit_ReaderCache, unit_Consts, System.Variants, dm_user;
+  unit_Interfaces, unit_ReaderCache, unit_Consts, System.Variants, dm_user,
+  unit_BookMetadataCache, unit_PackageBookCover;
 
 type
   TPreviewThread = class(TThread)
@@ -53,6 +54,7 @@ begin Cover.Free; inherited; end;
 procedure TPreviewThread.Execute;
 var Stream: TStream; Document: IXMLFictionBook; HR: HRESULT; NeedFileAnnotation: Boolean;
   User: ISystemData; Collection: IBookCollection; Stored: TBookRecord;
+  CoverBytes:TBytes; CoverStatus:string; Image:TBytesStream;
 begin
   HR:=CoInitializeEx(nil,COINIT_APARTMENTTHREADED);
   try
@@ -89,6 +91,28 @@ begin
         end;
       end;
       if Terminated then Exit;
+      if LocalSource and NeedCover and not Assigned(Cover) and IsBookCoverPackage(Book.FileExt) then
+      begin
+        try
+          Stream:=OpenRawBookSource(Book,nil,function:Boolean begin Result:=Terminated; end);
+          try
+            CoverBytes:=ReadPackageBookCover(Stream,Book.FileExt,CoverStatus,
+              function:Boolean begin Result:=Terminated; end);
+          finally Stream.Free; end;
+          if Terminated then Exit;
+          if Length(CoverBytes)>0 then
+          begin
+            CoverAssigned:=True; Image:=TBytesStream.Create(CoverBytes);
+            try Cover:=CreateGraphicFromStream(Image,64*1024*1024); finally Image.Free; end;
+            if not Assigned(Cover) then CoverStatus:='Формат встроенной обложки пока недоступен для предпросмотра.';
+          end;
+          CoverBytes:=nil;
+        except
+          on E:EAbort do Exit;
+          on E:Exception do CoverStatus:='Не удалось прочитать встроенную обложку: '+E.Message;
+        end;
+      end;
+      if Terminated then Exit;
       if LocalSource and (NeedFileAnnotation or NeedMetadata or (NeedCover and not Assigned(Cover))) then
       begin
         Stream:=Book.GetBookDescriptorStream(False);
@@ -119,7 +143,8 @@ begin
       if NeedCover and not Assigned(Cover) then
       begin
         if Status<>'' then Status:=Status+sLineBreak;
-        if CoverAssigned then Status:=Status+'Не удалось прочитать обложку из файла.'
+        if CoverStatus<>'' then Status:=Status+CoverStatus
+        else if CoverAssigned then Status:=Status+'Не удалось прочитать обложку из файла.'
         else if HasDescriptor then Status:=Status+'Обложка в метаданных не задана.'
         else Status:=Status+'Обложка для этого файла недоступна.';
       end;

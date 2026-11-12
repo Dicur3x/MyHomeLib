@@ -14,7 +14,7 @@ uses
   VirtualTrees, VirtualTrees.Types, VirtualTrees.BaseTree, BookTreeView, BookInfoPanel, unit_MHLTheme, unit_MHLThemePalette, frm_InterfaceColors, unit_BookGallery, unit_UpdateNotes, unit_UpdateTextCache,
   System.SyncObjs, System.Zip, System.Hash, System.NetEncoding, System.Diagnostics, System.Math, System.DateUtils, Vcl.Imaging.pngimage,
   unit_BookDeletionReferences, unit_BookDeletionOperation, unit_BookDeletionDialog, unit_BookDeletionSpace,
-  unit_MHLArchiveBusy, unit_BookDeletionPreparation, unit_BookDeletionInventory, unit_BookDeletionMembers, unit_BookDeletionBinding, unit_SevenZipDeletionPlan, unit_ArchiveDeletionQueue, unit_ZipMemberDeletion, unit_ImageBounds, unit_BookCache, unit_MHLOperationStatus, unit_Globals, unit_Consts, unit_Interfaces, unit_Localization, unit_TreeUtils, unit_Settings, unit_ReaderCache, unit_BookMetadataCache, unit_FB2Utils, unit_MHLGenerics, FictionBook_21, unit_BookColumnFilters, unit_BookInfoPreview, unit_CollectionMerge, unit_BookDuplicates, frm_BookDuplicates, frm_CollectionBackup, unit_CollectionBackup, unit_SeriesAliases, unit_CatalogSources, frm_CatalogSources, unit_CollectionSpace, unit_Database_SQLite, SQLiteWrap, SQLite3, SQLiteProfile,
+  unit_MHLArchiveBusy, unit_BookDeletionPreparation, unit_BookDeletionInventory, unit_BookDeletionMembers, unit_BookDeletionBinding, unit_SevenZipDeletionPlan, unit_ArchiveDeletionQueue, unit_ZipMemberDeletion, unit_ImageBounds, unit_BookCache, unit_MHLOperationStatus, unit_Globals, unit_Consts, unit_Interfaces, unit_Localization, unit_TreeUtils, unit_Settings, unit_ReaderCache, unit_BookMetadataCache, unit_FB2Utils, unit_MHLGenerics, FictionBook_21, unit_BookColumnFilters, unit_BookInfoPreview, unit_PackageBookCover, unit_CollectionMerge, unit_BookDuplicates, frm_BookDuplicates, frm_CollectionBackup, unit_CollectionBackup, unit_SeriesAliases, unit_CatalogSources, frm_CatalogSources, unit_CollectionSpace, unit_Database_SQLite, SQLiteWrap, SQLite3, SQLiteProfile,
   unit_MHLHttpClient, unit_MHLExternalTools, unit_MHLArchiveHelpers, unit_WebPCompat, unit_ExportToDeviceThread, unit_AuthorInfo, unit_Helpers,
   unit_Scripts, frm_edit_script, Vcl.ToolWin, unit_ImportOldUserData,
   unit_Events, unit_BookExportResults, unit_BookExportSelection, unit_BookExportPlan,
@@ -3072,6 +3072,32 @@ end;
 procedure TestUpdateNotesTheme;
 var Popup: TfrmProgramUpdate; View: TUpdateNotesView; Info: TProgramRelease;
   SavedDark: Boolean; I, SelectedStart, SelectedCount: Integer; Text: string;
+  procedure RequireTabBackground;
+  var Tabs: TTabControl; DC: HDC; Bounds: TRect; Pixel: TColor; Notify:TCheckBox;
+  begin
+    Tabs := Popup.FindComponent('UpdateTabs') as TTabControl;
+    Popup.Show; Popup.Update; Tabs.Invalidate; Tabs.Update;
+    Bounds := Tabs.TabRect(Tabs.Tabs.Count - 1);
+    Require(Tabs.ClientWidth > Bounds.Right + 10, 'Missing unused tab strip for theme check');
+    DC := GetDC(Tabs.Handle);
+    try Pixel := GetPixel(DC, Tabs.ClientWidth - 8, Max(1, Bounds.Bottom div 2));
+    finally ReleaseDC(Tabs.Handle, DC); end;
+    Require(ColorToRGB(Pixel) = ColorToRGB(MHLThemeBackground),
+      'Update tab strip paints a foreign background after native WM_PAINT');
+    Notify:=Popup.FindComponent('NotifyOptionalComponent') as TCheckBox;
+    Notify.Visible:=True;
+    Notify.SetBounds(Tabs.Left,Tabs.Top+Tabs.Height+8,Tabs.Width,24*Popup.CurrentPPI div 96);
+    for var Enabled in [False,True] do
+    begin
+      Notify.Enabled:=Enabled; Notify.Invalidate; Notify.Update;
+      DC:=GetDC(Notify.Handle);
+      try Pixel:=GetPixel(DC,Notify.ClientWidth-8,Notify.ClientHeight div 2);
+      finally ReleaseDC(Notify.Handle,DC); end;
+      Require(ColorToRGB(Pixel)=ColorToRGB(MHLThemeBackground),
+        'Update notification checkbox paints a foreign background');
+    end;
+    Notify.Visible:=False;
+  end;
   procedure RequireForeground(Body: TRichEdit);
   begin
     Body.SelStart := Body.FindText('Проверяемый',0,MaxInt,[]); Body.SelLength := 5;
@@ -3080,6 +3106,12 @@ var Popup: TfrmProgramUpdate; View: TUpdateNotesView; Info: TProgramRelease;
       'Formatted update text ignores the current foreground');
   end;
 begin
+  Require(UpdateReleasePageCaption('HomeLibReader',
+    'https://github.com/Dicur3x/MyHomeLib/releases/tag/'+ALREADER_FIXED_TAG)='Компоненты на GitHub',
+    'Reader link misrepresents shared components page');
+  Require(UpdateReleasePageCaption('HomeLibReader',
+    'https://github.com/Dicur3x/MyHomeLib/releases')='Выпуски HomeLibre',
+    'Reader link misrepresents common releases list');
   SavedDark := MHLThemeDark; SetMHLTheme(True);
   Popup := CreateTestProgramUpdate;
   try
@@ -3112,6 +3144,13 @@ begin
     Info.ComponentID := 'SQLite'; Info.ComponentVersion := '3.54.0';
     Info.History := '3.54.0'+#10+'Проверяемый текст другого компонента';
     Popup.SetCurrent(Info); RequireForeground(View.PrimaryNotes);
+    for var DPI in [96,144,192,288] do
+    begin
+      Popup.ScaleForPPI(DPI); RequireTabBackground;
+      SetMHLTheme(False); SetMHLTheme(True); RequireTabBackground;
+    end;
+    Popup.UseReaderComponents; RequireTabBackground;
+    Writeln('PASS catalogue and reader update strips paint the dark palette with enabled and disabled checkbox at 100 to 300 percent');
     Writeln('PASS update notes retain visible dark/light foreground, content, selection, emphasis, zoom and component switching');
     View.Load('3.0 beta 3 — 04.11.2026'+#10+#10+'# HomeLibre 3.0 beta 3'+#10+#10+
       '## Читалка'+#10+'- Восстановленный текст beta 3'+#10+#10+
@@ -6206,6 +6245,7 @@ end;
 {$I CollectionPackingRestartTests.inc}
 {$I SqlCatalogueRestartTests.inc}
 {$I BookCompressionCatalogueTests.inc}
+{$I PackageCoverTests.inc}
 
 var
   One, Two, Online: IBookCollection;
@@ -6260,6 +6300,8 @@ begin
       if ParamStr(1) = 'display-labels' then begin BenchmarkDisplayLabels; Halt(0); end;
       if ParamStr(1) = 'book-output-reset' then begin BenchmarkBookOutputReset; Halt(0); end;
       if ParamStr(1) = 'update-theme' then begin TestUpdateNotesTheme; Halt(0); end;
+      if ParamStr(1)='package-covers' then begin TestPackageCovers; Flush(Output); Halt(0); end;
+      if ParamStr(1)='package-preview' then begin TestPackagePreview; Flush(Output); Halt(0); end;
       if ParamStr(1) = 'update-image-identity' then begin TestImageUpdateIdentity; Flush(Output); Halt(0); end;
       if ParamStr(1) = 'fbd-editor-save' then begin TestFBDEditorSave; Halt(0); end;
       if ParamStr(1) = 'packing-fbd' then begin TestPackingFbd; Halt(0); end;

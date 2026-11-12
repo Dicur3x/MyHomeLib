@@ -292,13 +292,16 @@ end;
 function UpdateReleasePageCaption(const Component, URL: string): string;
 var Info: TUpdateComponent;
 begin
+  // The reader's package lives on the shared components release, not on a
+  // reader-only releases page. Describe the actual destination of the link.
+  if URL='https://github.com/Dicur3x/MyHomeLib/releases/tag/'+ALREADER_FIXED_TAG then
+    Exit('Компоненты на GitHub');
+  if URL='https://github.com/Dicur3x/MyHomeLib/releases' then Exit('Выпуски HomeLibre');
   if Component = 'batch' then
   begin
     if URL='https://github.com/Dicur3x/MyHomeLib/releases' then Exit('Выпуски HomeLibre');
     if URL='https://www.bestfree.ru/soft/office/bookreader-en-downloader.php' then
       Exit('Источник исходного пакета ICE Reader');
-    if URL='https://github.com/Dicur3x/MyHomeLib/releases/tag/'+ALREADER_FIXED_TAG then
-      Exit('Постоянные компоненты HomeLibre');
     for Info in UPDATE_COMPONENTS do
       if URL = Info.URL then Exit('Сайт автора: ' + Info.ID);
     Exit('Выпуски HomeLibre');
@@ -307,8 +310,6 @@ begin
   if Component='WebP' then Exit('Постоянный архив WebP');
   if Component='HomeLibReader' then Exit('Выпуски HomeLibre Reader');
   if Component='BookConverter' then Exit('Выпуски модуля конвертации');
-  if URL='https://github.com/Dicur3x/MyHomeLib/releases/tag/'+ALREADER_FIXED_TAG then
-    Exit('Компоненты на GitHub');
   if Component='IBK' then Exit('Источник исходного пакета ICE Reader');
   if Component <> '' then Result := 'Сайт автора'
   else Result := 'Открыть GitHub';
