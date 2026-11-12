@@ -30,6 +30,7 @@ from pack_collection import (Canceled, IMAGE_SUFFIXES, MAX_BOOK, MAX_IMAGE_BOOK,
                              Packer, PackingError, SevenZip, atomic_json,
                              book_signature, canonical, copy_exact, digest_file,
                              reserve_space, temporary_work_directory)
+from compression_image_history import CompressedImageHistory
 
 
 PREPARATION_API = 1
@@ -282,6 +283,7 @@ def _candidate_cleanup(result):
 
 def prepare_selected_file(source, members, workspace, seven_zip, *, profile='original',
                           grayscale=False, tools_root=None, previous=None, backup_originals=False, preview_images=False,
+                          image_history_database=None,
                           canceled=lambda: False, notify=lambda value: None):
     """Prepare exactly the selected members, never modify originals.
 
@@ -317,6 +319,8 @@ def prepare_selected_file(source, members, workspace, seven_zip, *, profile='ori
                             tools_root=str(tools_root) if tools_root else None), notify, canceled)
     if profile != 'original' or grayscale:
         processor.load_image_processor()
+        if getattr(processor.converter, 'PACKING_IMAGE_API', 0) < 3:
+            raise PackingError('Для досжатия без повторной обработки изображений обновите HomeLibre BookProcessing.')
     previous = previous or {}
     result = PreparedBookCompression(str(source), None, source_sha, source_sha, settings_sha,
                                      before[2], before[2], [], [])
@@ -349,7 +353,8 @@ def prepare_selected_file(source, members, workspace, seven_zip, *, profile='ori
                 selected_bytes=selected_bytes, archive_bytes=before[2]))
     # Selected payloads survive only in a verified complete candidate. All
     # extraction/codec files use a guarded owned temporary directory.
-    with _candidate_cleanup(result), temporary_work_directory(workspace, '.selected-') as staging, \
+    with CompressedImageHistory(image_history_database if processor.converter is not None else None, settings_sha, check) as image_history, \
+            _candidate_cleanup(result), temporary_work_directory(workspace, '.selected-') as staging, \
             (OriginalBookBackup(workspace, source, source_sha, before, check)
              if backup_originals else nullcontext()) as originals, preview_context as preview:
         replacements = {}
@@ -377,7 +382,8 @@ def prepare_selected_file(source, members, workspace, seven_zip, *, profile='ori
             ledger = previous.get(member, {})
             reuse = (ledger.get('profile_sha256') == settings_sha
                      and ledger.get('output_sha256') == initial['payload_sha256'])
-            reason, optimized = '', False
+            reason, optimized, image_outputs = '', False, []
+            images_reused = images_processed = 0
             if reuse:
                 reason = 'Уже сжата с этими настройками; повторная обработка изображений не нужна.'
             elif processor.converter is not None:
@@ -391,9 +397,15 @@ def prepare_selected_file(source, members, workspace, seven_zip, *, profile='ori
                         if extension in IMAGE_SUFFIXES and original.stat().st_size > MAX_IMAGE_BOOK:
                             reason = 'Книга слишком велика для изменения иллюстраций; содержимое сохранено.'
                         else:
-                            status = processor.optimize_book(current, book_dir)
+                            status = processor.optimize_book(current, book_dir,
+                                image_history=image_history.contains, collect_image_history=extension in IMAGE_SUFFIXES)
+                            image_outputs = status.get('image_outputs', [])
+                            images_reused = status.get('images_reused', 0)
+                            images_processed = status.get('images_processed', 0)
                             optimized = status.get('image_result') == 'optimized'
                             reason = status.get('image_reason', '')
+                            if images_reused and not reason:
+                                reason = f'Уже обработанные изображения сохранены без пересжатия: {images_reused}. Новых обработано: {images_processed}.'
                             if status.get('image_result') == 'skipped' and not reason:
                                 reason = 'Иллюстрации не обработаны; исходное содержимое сохранено.'
                             if optimized:
@@ -408,13 +420,17 @@ def prepare_selected_file(source, members, workspace, seven_zip, *, profile='ori
                     current = book_dir / ('kept' + extension)
                     copy_exact(original, current, check)
                     optimized, reason = False, str(error)[:500]
+                    image_outputs = []
+                    images_reused = images_processed = 0
             final = book_signature(current, check)
             if final['payload_size'] > initial['payload_size']:
                 raise PackingError('Подготовленная книга стала больше исходной.')
             result.payloads.append(dict(member=member, input_sha256=initial['payload_sha256'],
-                                        output_sha256=final['payload_sha256'], size=final['payload_size']))
+                                        output_sha256=final['payload_sha256'], size=final['payload_size'],
+                                        image_outputs=image_outputs))
             result.books.append(dict(member=member, format=extension, optimized=optimized, reused=reuse,
-                                     input_bytes=initial['payload_size'], output_bytes=final['payload_size'], reason=reason))
+                                     input_bytes=initial['payload_size'], output_bytes=final['payload_size'], reason=reason,
+                                     images_reused=images_reused, images_processed=images_processed))
             if preview is not None and optimized:
                 try:
                     preview.add_book(original, current, extension, member)
@@ -486,12 +502,16 @@ def main():
         request = json.loads(arguments.job.read_text('utf-8-sig'))
         if not isinstance(request, dict) or request.get('version') != PREPARATION_API:
             raise PackingError('Неизвестная версия задания сжатия выбранных книг.')
+        template = request.get('receipt_template') or {}
+        if not isinstance(template, dict):
+            raise PackingError('Некорректное описание каталога сжатия.')
         prepared = prepare_selected_file(request['source'], request['members'], request['workspace'],
                                          request['seven_zip'], profile=request.get('profile', 'original'),
                                          grayscale=request.get('grayscale', False), tools_root=request.get('tools_root'),
                                          previous=request.get('previous'),
                                          backup_originals=request.get('backup_originals', False),
                                          preview_images=request.get('preview_images', False),
+                                         image_history_database=template.get('catalogue'),
                                          canceled=lambda: arguments.cancel is not None and arguments.cancel.exists(),
                                          notify=emit)
         result = asdict(prepared)

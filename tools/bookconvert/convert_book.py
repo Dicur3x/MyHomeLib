@@ -1853,7 +1853,7 @@ def rewrite_epub_version(source, output, version, transform, warnings, check):
         archive.close()
 
 
-PACKING_IMAGE_API = 2
+PACKING_IMAGE_API = 3
 
 
 def convert_book(source, destination, **metadata):
@@ -1883,6 +1883,8 @@ def _convert_book(source, destination, **metadata):
     image_choice = metadata.pop('image_choice', None)
     measure_scans = metadata.pop('measure_scans', False) and image_quality == 'ask'
     packing_grayscale = metadata.pop('packing_grayscale', False)
+    packing_image_history = metadata.pop('packing_image_history', None)
+    packing_image_report = metadata.pop('packing_image_report', None)
     grayscale = metadata.pop('grayscale', False) and image_quality != 'none'
     scan_layout = metadata.pop('scan_layout', 'keep')
     scan_exclude = metadata.pop('scan_exclude', '')
@@ -1906,6 +1908,12 @@ def _convert_book(source, destination, **metadata):
     if packing_grayscale and (metadata.get('reading') or output_profile or extension != target_extension or
                               extension not in {'.fb2', '.epub'} or image_quality not in {'balanced', 'economy', 'maximum'}):
         raise ConversionError('Чёрно-белый режим предназначен для сжатых копий FB2 и EPUB.')
+    if packing_image_history is not None or packing_image_report is not None:
+        if ((packing_image_history is not None and not callable(packing_image_history)) or
+                (packing_image_report is not None and not callable(packing_image_report)) or
+                metadata.get('reading') or output_profile or extension != target_extension or
+                extension not in {'.fb2', '.epub'} or image_quality not in {'original','balanced','economy','maximum'}):
+            raise ConversionError('История изображений доступна только для сжатия книги в её исходном формате.')
     grayscale = grayscale or packing_grayscale
     if image_container not in (None,'raw','fb2-zip') or (image_container == 'fb2-zip' and target_extension != '.fb2'):
         raise ConversionError('Неверный контейнер обработки изображений.')
@@ -2040,7 +2048,8 @@ def _convert_book(source, destination, **metadata):
             api = type('ConversionAPI', (), {name: value for name, value in globals().items() if not name.startswith('__')})
             module.apply(api, temporary, target_extension, image_quality, metadata.get('tools_root'),
                          metadata.get('progress') or (lambda *_: None), image_options, image_choice,
-                         warnings, image_container, check=cancel_check, grayscale=grayscale)
+                         warnings, image_container, check=cancel_check, grayscale=grayscale,
+                         preserve_image=packing_image_history, image_history_report=packing_image_report)
         # Ensure the generated artifact is readable before publishing its name.
         if destination.suffix.lower() == '.epub':
             validate_epub_output(temporary)

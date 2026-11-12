@@ -385,7 +385,7 @@ class SelectedPreparationTests(unittest.TestCase):
     def test_text_change_by_processor_keeps_original_book(self):
         body = illustrated_fb2(image_fixture())
         source = self.source_zip({'one.fb2': body})
-        def tamper(processor, target, *_):
+        def tamper(processor, target, *_, **__):
             target.write_bytes(body.replace(b'Keep ', b'Changed '))
             return {'image_result': 'optimized'}
         with patch('prepare_book_compression.Packer.optimize_book', tamper):
@@ -502,6 +502,52 @@ class NativeSelectedPipelineTests(unittest.TestCase):
         decoder.extract(self.source, 'neighbor.fb2', neighbor, self.root)
         self.assertEqual(neighbor.read_bytes(), self.neighbor)
         self.assertFalse(list((self.root / 'queue').iterdir()))
+
+    def test_native_history_keeps_old_picture_after_text_change_and_added_picture(self):
+        self.test_real_image_processing_archive_preparation_and_native_catalogue_apply()
+        decoder = SevenZip(SEVEN, lambda: None)
+        extracted = self.root/'first-applied.fb2'
+        decoder.extract(self.source,'one.fb2',extracted,self.root)
+        compressed = extracted.read_bytes()
+        root = ElementTree.fromstring(compressed)
+        original_image = base64.b64decode(root.find('{*}binary').text)
+        root.find('.//{*}p').text = 'Updated book text; keep the previous image bytes.'
+        ElementTree.SubElement(root.find('.//{*}section'),'{http://www.gribuser.ru/xml/fictionbook/2.0}image',
+            {'{http://www.w3.org/1999/xlink}href':'#new-picture'})
+        ElementTree.SubElement(root,'{http://www.gribuser.ru/xml/fictionbook/2.0}binary',
+            {'id':'new-picture','content-type':'image/png'}).text = base64.b64encode(image_fixture()).decode()
+        changed = ElementTree.tostring(root,encoding='utf-8',xml_declaration=True)
+        with zipfile.ZipFile(self.source,'w',zipfile.ZIP_STORED) as archive:
+            archive.writestr('one.fb2',changed); archive.writestr('neighbor.fb2',self.neighbor)
+        with native.database(self.catalogue) as db:
+            db.execute('UPDATE Books SET BookSize=? WHERE BookID=101',(len(changed),))
+            db.execute('UPDATE CatalogBookCopies SET BookSize=?',(len(changed),))
+        with native.database(self.personal) as db:
+            db.execute('UPDATE Books SET BookSize=? WHERE BookID=101 AND DatabaseID=7',(len(changed),))
+        for row in self.template['rows']: row['old_size']=len(changed)
+        before_c,before_p=self.snapshot(self.catalogue,False),self.snapshot(self.personal,False)
+        workspace=self.root/'second-preparation'; workspace.mkdir()
+        result=prepare_selected_file(self.source,{'one.fb2':'.fb2'},workspace,SEVEN,
+            tools_root=TOOLS,profile='economy',image_history_database=self.catalogue)
+        self.assertIsNotNone(result.candidate,result.books)
+        self.assertEqual(result.books[0]['images_reused'],1)
+        self.assertEqual(result.books[0]['images_processed'],1)
+        self.template=result.receipt(self.template); self.write_template()
+        self.candidate.unlink(missing_ok=True); Path(result.candidate).rename(self.candidate)
+        applied=subprocess.run([str(native.NATIVE),str(self.root),'job-apply','-'],
+            capture_output=True,text=True,encoding='utf-8',timeout=30)
+        self.require_success(applied)
+        self.assertEqual(self.snapshot(self.catalogue,False),before_c)
+        self.assertEqual(self.snapshot(self.personal,False),before_p)
+        extracted = self.root/'second-applied.fb2'
+        decoder.extract(self.source,'one.fb2',extracted,self.root)
+        final=ElementTree.fromstring(extracted.read_bytes())
+        neighbor=self.root/'second-neighbor.fb2'
+        decoder.extract(self.source,'neighbor.fb2',neighbor,self.root)
+        self.assertEqual(neighbor.read_bytes(),self.neighbor)
+        self.assertEqual(base64.b64decode(final.find('{*}binary').text),original_image)
+        self.assertIn('Updated book text',final.find('.//{*}p').text)
+        self.assertFalse(list((self.root/'queue').iterdir()))
 
 
 if __name__ == '__main__':

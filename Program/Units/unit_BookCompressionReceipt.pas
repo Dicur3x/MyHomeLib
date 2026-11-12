@@ -185,6 +185,14 @@ begin
         raise EReadError.Create('Результаты сжатия книги неполны или повторяются.');
       Seen.Add(Key,0);
       FPayloads.Add(Key,Item);
+      if Item.GetValue('image_outputs')<>nil then
+      begin
+        var Images:=JSONArray(Item,'image_outputs');
+        if Images.Count>5000 then raise EReadError.Create('Слишком много изображений в журнале сжатия книги.');
+        for var Image in Images do
+          if not (Image is TJSONString) or not HexString(Image.Value,64) then
+            raise EReadError.Create('Неверная контрольная сумма обработанного изображения.');
+      end;
     end;
     Seen.Clear;
     for var Value in JSONArray(FData,'rows') do
@@ -213,7 +221,7 @@ end;
 function TBookCompressionReceipt.ProcessRows(DB: TSQLiteDatabase; Personal, Commit,
   RequireApplied: Boolean): Integer;
 var Query: TSQLiteQuery; SQL, Table: string;
-    Item: TJSONObject; Kind, NewSize, CurrentSize: Int64; Matches: Boolean;
+    Item: TJSONObject; Kind, NewSize, CurrentSize: Int64; Matches, ImageTableReady: Boolean;
 begin
   Result:=0;
   if Personal then
@@ -300,6 +308,7 @@ begin
         'FileKey TEXT NOT NULL,Member TEXT NOT NULL,ProfileSHA256 TEXT NOT NULL,'+
         'InputSHA256 TEXT NOT NULL,OutputSHA256 TEXT NOT NULL,BookSize INTEGER NOT NULL,'+
         'PRIMARY KEY(FileKey,Member))');
+      ImageTableReady:=False;
       for var Value in JSONArray(FData,'payloads') do
       begin
         Item:=TJSONObject(Value);
@@ -308,6 +317,19 @@ begin
           'InputSHA256=excluded.InputSHA256,OutputSHA256=excluded.OutputSHA256,BookSize=excluded.BookSize',
           [UpperCase(Text('source_file_key')),JSONText(Item,'member'),LowerCase(Text('profile_sha256')),
            LowerCase(JSONText(Item,'input_sha256')),LowerCase(JSONText(Item,'output_sha256')),JSONNumber(Item,'size')]);
+        if Item.GetValue('image_outputs')<>nil then
+          for var Image in JSONArray(Item,'image_outputs') do
+          begin
+            if not ImageTableReady then
+            begin
+              DB.ExecSQL('CREATE TABLE IF NOT EXISTS HomeLibreCompressedImages('+
+                'ProfileSHA256 TEXT NOT NULL,ImageSHA256 TEXT NOT NULL,'+
+                'PRIMARY KEY(ProfileSHA256,ImageSHA256)) WITHOUT ROWID');
+              ImageTableReady:=True;
+            end;
+            DB.ExecSQL('INSERT OR IGNORE INTO HomeLibreCompressedImages(ProfileSHA256,ImageSHA256) VALUES(?,?)',
+              [LowerCase(Text('profile_sha256')),LowerCase(Image.Value)]);
+          end;
       end;
     end;
   finally DB.EndQueryBatch; end;
@@ -339,6 +361,16 @@ begin
             (Query.FieldAsInt(3)<>JSONNumber(Item,'size')) then
             raise EReadError.Create('Нет подтверждения обновления каталога после сжатия.');
         finally Query.Free; end;
+        if Item.GetValue('image_outputs')<>nil then
+          for var Image in JSONArray(Item,'image_outputs') do
+          begin
+            var ImageQuery:=Catalogue.NewQuery('SELECT 1 FROM HomeLibreCompressedImages WHERE ProfileSHA256=? AND ImageSHA256=?',
+              [LowerCase(Text('profile_sha256')),LowerCase(Image.Value)]);
+            try
+              ImageQuery.Open;
+              if ImageQuery.Eof then raise EReadError.Create('Нет подтверждения сохранения истории изображений.');
+            finally ImageQuery.Free; end;
+          end;
       end;
     finally
       try if Personal.InTransaction then Personal.Rollback; finally Personal.Free; end;

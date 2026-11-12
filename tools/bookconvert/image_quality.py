@@ -1,6 +1,7 @@
 """Optional export image compression; local Windows codec, no source changes (MIT)."""
 import base64
 import copy
+import hashlib
 import json
 from pathlib import Path
 import posixpath
@@ -424,7 +425,8 @@ def run(api, tool, pictures, directory, profile, progress, layout=None, storage=
     return select_container_profiles(result,profile,storage)
 
 
-def apply(api, book, target_extension, profile, tools_root, progress, options_file=None, choice_file=None, warnings=None, container=None, check=None, grayscale=False, measurement=None):
+def apply(api, book, target_extension, profile, tools_root, progress, options_file=None, choice_file=None, warnings=None, container=None, check=None, grayscale=False, measurement=None,
+          preserve_image=None, image_history_report=None):
     storage = image_storage(target_extension,container)
     if profile == 'original':
         if not grayscale: return
@@ -467,8 +469,31 @@ def apply(api, book, target_extension, profile, tools_root, progress, options_fi
                 with archive.open(entry) as stream: header = stream.read(12)
                 if mime(header): pictures.append(archive.read(entry)); identities.append(entry.filename)
             overhead = book.stat().st_size - sum(archive.getinfo(name).compress_size for name in identities)
+    if preserve_image is not None and profile == 'ask' and measurement is None:
+        raise api.ConversionError('История сжатия изображений требует выбранного режима качества.')
+    image_digests = [hashlib.sha256(data).hexdigest() for data in pictures] if image_history_report is not None or preserve_image is not None else []
+    preserved = []
+    for digest in image_digests:
+        if check is not None: check()
+        preserved.append(preserve_image is not None and preserve_image(digest))
+    def report_history(encoded, processed):
+        if image_history_report is None: return
+        outputs, retained = set(), set()
+        for i, data in enumerate(encoded):
+            if not (preserved[i] or i in processed): continue
+            digest = hashlib.sha256(data).hexdigest()
+            outputs.add(digest)
+            if data == pictures[i]: retained.add(digest)
+        image_history_report(dict(outputs=sorted(outputs), retained_outputs=sorted(retained),
+                                  reused=sum(preserved), processed=len(processed)))
     small = not pictures or (not grayscale and sum(map(len, pictures)) < 128*1024)
-    if small and profile != 'ask': return
+    if (small and profile != 'ask') or (pictures and preserved and all(preserved)):
+        report_history(pictures, set())
+        if measurement is not None and profile == 'ask':
+            measurement(dict(format=target_extension[1:].upper(), images=len(pictures),
+                sampled=0, preserved=len(pictures), exact=True,
+                sizes={p:book.stat().st_size for p in ('original',*PACKING_PROFILES)}))
+        return
     if sum(map(len, pictures)) > api.MAX_TOTAL or len(pictures) > 5000:
         raise api.ConversionError('Изображения превышают предел экспорта.')
     runtime_root = Path(tools_root or Path(__file__).resolve().parents[1])
@@ -489,7 +514,17 @@ def apply(api, book, target_extension, profile, tools_root, progress, options_fi
                 if small: return
             if measurement is None and (not options_file or not choice_file):
                 raise api.ConversionError('Не указан канал выбора качества.')
-            sample_indices, weights = estimate_image_samples(pictures)
+            # A compression-history lookup describes images that this operation
+            # must preserve. Measure only new images and add the exact cost of
+            # retained bytes; a later profile selection supplies its own lookup.
+            sample_pool = [i for i in range(len(pictures)) if not (preserved and preserved[i])]
+            indices, weights = estimate_image_samples([pictures[i] for i in sample_pool])
+            sample_indices = [sample_pool[i] for i in indices]
+            retained = [pictures[i] for i,keep in enumerate(preserved) if keep]
+            retained_cost = sum(4*((len(data)+2)//3) if target_extension == '.fb2'
+                                else len(zlib.compress(data)) for data in retained)
+            retained_packed = (sum(deflated_size(base64.b64encode(data)) for data in retained)
+                               if target_extension == '.fb2' else 0)
             samples = ({p:[pictures[i] for i in sample_indices] for p in PACKING_PROFILES} if small else
                        run(api, tool, [pictures[i] for i in sample_indices], directory, 'estimate-maximum', progress, storage=storage, check=check, grayscale=grayscale))
             sizes = {'original': book.stat().st_size}
@@ -498,13 +533,13 @@ def apply(api, book, target_extension, profile, tools_root, progress, options_fi
             zip_sizes = {'original': 512 + deflated_size(book)}
             for p in PACKING_PROFILES:
                 costs = [4*((len(data)+2)//3) if target_extension == '.fb2' else len(zlib.compress(data)) for data in samples[p]]
-                sizes[p] = book.stat().st_size if small else max(1, overhead + round(sum(a*b for a,b in zip(costs,weights))))
+                sizes[p] = book.stat().st_size if small else max(1, overhead + retained_cost + round(sum(a*b for a,b in zip(costs,weights))))
                 if p == 'high' and grayscale: sizes['original'] = sizes[p]
                 if small:
                     zip_sizes[p] = zip_sizes['original']
                 elif target_extension == '.fb2':
                     packed = [deflated_size(base64.b64encode(data)) for data in samples[p]]
-                    zip_sizes[p] = max(1,512+zip_overhead+round(sum(a*b for a,b in zip(packed,weights))))
+                    zip_sizes[p] = max(1,512+zip_overhead+retained_packed+round(sum(a*b for a,b in zip(packed,weights))))
                 else:
                     # EPUB already deflates each member. The outer archive
                     # usually has little additional image compression to do.
@@ -514,7 +549,8 @@ def apply(api, book, target_extension, profile, tools_root, progress, options_fi
             sizes['none'] = text_only_size
             zip_sizes['none'] = 512+deflated_size(candidate) if text_only_size else 0
             measured = {'format': target_extension[1:].upper(), 'images': len(pictures) or removed,
-                        'sampled': len(sample_indices), 'sizes': sizes, 'zip_sizes': zip_sizes}
+                        'sampled': len(sample_indices), 'sizes': sizes, 'zip_sizes': zip_sizes,
+                        'preserved': sum(preserved)}
             if measurement is not None:
                 measurement(measured)
                 return
@@ -541,7 +577,10 @@ def apply(api, book, target_extension, profile, tools_root, progress, options_fi
         if small: return
         # Reuse already encoded samples; do not decode them a second time.
         encoded = [None]*len(pictures)
+        processed = set()
         if profile == 'high' and not grayscale: encoded = list(pictures)
+        for index, keep in enumerate(preserved):
+            if keep: encoded[index] = pictures[index]
         if samples is not None:
             for index, data in zip(sample_indices, samples[profile]): encoded[index] = data
         remaining = [i for i,data in enumerate(encoded) if data is None]
@@ -552,8 +591,11 @@ def apply(api, book, target_extension, profile, tools_root, progress, options_fi
             result = run(api, tool, [pictures[i] for i in indices], directory, profile,
                          lambda *_: None, storage=storage, check=check, grayscale=grayscale)[profile]
             for index,data in zip(indices,result): encoded[index] = data
+            processed.update(indices)
             progress('optimizing-images', min(len(pictures), at+len(indices)+len(sample_indices)), len(pictures))
-        if all(original == changed for original,changed in zip(pictures,encoded)): return
+        if all(original == changed for original,changed in zip(pictures,encoded)):
+            report_history(encoded, processed)
+            return
         if target_extension == '.fb2':
             for node,data in zip(identities,encoded):
                 node.text = base64.b64encode(data).decode('ascii'); node.set('content-type', mime(data))
@@ -574,6 +616,7 @@ def apply(api, book, target_extension, profile, tools_root, progress, options_fi
                             data = api.serialized(package)
                     output.writestr(entry.filename,data,compress_type=zipfile.ZIP_STORED if entry.filename=='mimetype' else zipfile.ZIP_DEFLATED)
             rewritten.replace(book)
+        report_history(encoded, processed)
         if warnings is not None: warnings.add('Изображения подготовлены для экспорта: '+{'high':'высокое качество','balanced':'сбалансированный режим','economy':'экономный режим','maximum':'максимальная экономия'}[profile]+'. Исходная книга сохранена.')
 
 

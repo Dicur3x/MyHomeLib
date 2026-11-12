@@ -698,7 +698,7 @@ class Packer:
         finally:
             candidate.unlink(missing_ok=True)
 
-    def optimize_book(self, target, stage, entry=None):
+    def optimize_book(self, target, stage, entry=None, *, image_history=None, collect_image_history=False):
         if self.images == 'maximum' and target.suffix in DJVU_SUFFIXES:
             return self.optimize_djvu(target, stage, entry)
         if self.converter is None or target.suffix not in IMAGE_SUFFIXES:
@@ -708,22 +708,32 @@ class Packer:
             return dict(image_result='skipped')
         self.check()
         converter = self.converter
+        history_updates = []
+        if collect_image_history and getattr(converter, 'PACKING_IMAGE_API', 0) < 3:
+            raise PackingError('Для досжатия без повторной обработки изображений обновите HomeLibre BookProcessing.')
+        def history_result(retained=False):
+            if not history_updates: return {}
+            report = history_updates[-1]
+            return dict(image_outputs=report['retained_outputs' if retained else 'outputs'],
+                        images_reused=report['reused'], images_processed=report['processed'])
         candidate = stage / ('image-candidate' + target.suffix)
         try:
             if converter.detect_input(target) != target.suffix:
                 return dict(image_result='skipped')
             reserve_space(stage, 3 * size)
+            history_options = (dict(packing_image_history=image_history, packing_image_report=history_updates.append)
+                               if collect_image_history else {})
             converter.convert_book(target, candidate, image_quality=self.images,
                                    image_container='fb2-zip' if target.suffix == '.fb2' else None,
                                    tools_root=self.tools_root, cancel_check=self.check,
                                    packing_grayscale=self.grayscale and self.images != 'original',
-                                   grayscale=self.grayscale and self.images == 'original')
+                                   grayscale=self.grayscale and self.images == 'original', **history_options)
             self.check()
             if candidate.stat().st_size >= size:
-                return {}
+                return history_result(retained=True)
             original_sha256 = digest_file(target, self.check)
             candidate.replace(target)
-            return dict(image_result='optimized', original_sha256=original_sha256)
+            return dict(image_result='optimized', original_sha256=original_sha256, **history_result())
         except converter.ComponentRequired as error:
             raise PackingError(str(error)) from error
         except (converter.ConversionError, binascii.Error, zipfile.BadZipFile) as error:

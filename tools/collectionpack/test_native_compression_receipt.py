@@ -129,7 +129,7 @@ class NativeCompressionReceiptTests(unittest.TestCase):
 
     def snapshot(self, path, sizes=True):
         with database(path) as db:
-            names = [row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name<>'HomeLibreBookCompression' ORDER BY name")]
+            names = [row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT IN ('HomeLibreBookCompression','HomeLibreCompressedImages') ORDER BY name")]
             result = {}
             for name in names:
                 fields = [row[1] for row in db.execute('PRAGMA table_info(' + name + ')')]
@@ -160,6 +160,31 @@ class NativeCompressionReceiptTests(unittest.TestCase):
         before_c, before_p = self.snapshot(self.catalogue, sizes=False), self.snapshot(self.personal, sizes=False)
         self.require_success(self.run_worker())
         self.require_finished(before_c, before_p)
+
+    def test_image_history_commits_and_replays_without_touching_personal_data(self):
+        image_hash = sha(self.new_book)
+        self.template['payloads'][0]['image_outputs'] = [image_hash, image_hash]
+        self.write_template()
+        before_c, before_p = self.snapshot(self.catalogue, sizes=False), self.snapshot(self.personal, sizes=False)
+        self.assertEqual(self.run_worker(fault='catalogue-committed').returncode, 73)
+        self.require_success(self.run_worker('recover'))
+        self.require_finished(before_c, before_p)
+        with database(self.catalogue) as db:
+            self.assertEqual(db.execute('SELECT ProfileSHA256,ImageSHA256 FROM HomeLibreCompressedImages').fetchall(),
+                             [(self.template['profile_sha256'], image_hash)])
+        with database(self.personal) as db:
+            self.assertEqual(db.execute("SELECT name FROM sqlite_master WHERE name='HomeLibreCompressedImages'").fetchall(), [])
+
+    def test_invalid_image_history_is_rejected_before_mutation(self):
+        before_c, before_p = self.snapshot(self.catalogue), self.snapshot(self.personal)
+        for hashes in ([None], [123], ['g'*64], ['f'*63], ['f'*64]*5001, 'f'*64):
+            with self.subTest(hashes=str(hashes)[:70]):
+                self.template['payloads'][0]['image_outputs'] = hashes
+                self.write_template()
+                self.assertNotEqual(self.run_worker('preflight').returncode, 0)
+                self.assertEqual(self.snapshot(self.catalogue), before_c)
+                self.assertEqual(self.snapshot(self.personal), before_p)
+                self.assertEqual(sha(self.source.read_bytes()), self.original_hash)
 
     def test_read_only_preflight_preserves_databases_and_book(self):
         before_c, before_p = self.snapshot(self.catalogue), self.snapshot(self.personal)

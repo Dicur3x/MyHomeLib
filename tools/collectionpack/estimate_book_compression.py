@@ -20,13 +20,14 @@ from pack_collection import (Canceled, IMAGE_SUFFIXES, MAX_BOOK, MAX_IMAGE_BOOK,
     Packer, PackingError, SevenZip, atomic_json, canonical, copy_exact, digest_file,
     reserve_space, temporary_work_directory)
 from prepare_book_compression import MAX_MEMBERS, _source_stamp, profile_digest
+from compression_image_history import CompressedImageHistory
 
 
 class MeasurementBudget(Exception):
     pass
 
 
-def measure_book(processor, book, extension, grayscale, check):
+def measure_book(processor, book, extension, grayscale, check, image_history=None):
     """Use the export sampler, stopping before any book rewrite or full encode."""
     spec = importlib.util.spec_from_file_location('homelibre_compression_measurement',
         processor.tools_root / 'bookconvert/image_quality.py')
@@ -35,7 +36,8 @@ def measure_book(processor, book, extension, grayscale, check):
     measured = []
     quality.apply(processor.converter, book, extension, 'ask', processor.tools_root,
         lambda *_: check(), container='fb2-zip' if extension == '.fb2' else None,
-        check=check, grayscale=grayscale, measurement=measured.append)
+        check=check, grayscale=grayscale, measurement=measured.append,
+        preserve_image=image_history)
     check()
     if not measured:
         return dict(output_bytes=book.stat().st_size, sampled=0, images=0, exact=True)
@@ -43,11 +45,13 @@ def measure_book(processor, book, extension, grayscale, check):
     profile = 'original' if processor.images == 'original' else processor.images
     # The preparer retains the original whenever its transformed book is larger.
     return dict(output_bytes=min(book.stat().st_size, result['sizes'][profile]),
-        sampled=result['sampled'], images=result['images'], exact=False)
+        sampled=result['sampled'], images=result['images'], exact=result.get('exact',False),
+        images_reused=result.get('preserved',0))
 
 
 def estimate_selected_file(source, members, workspace, seven_zip, *, profile='balanced',
         grayscale=False, tools_root=None, previous=None, book_seconds=10,
+        image_history_database=None,
         canceled=lambda: False, notify=lambda value: None):
     settings_sha = profile_digest(profile, grayscale)
     if (isinstance(book_seconds, bool) or not isinstance(book_seconds, (int, float))
@@ -78,6 +82,8 @@ def estimate_selected_file(source, members, workspace, seven_zip, *, profile='ba
     processor.check = check
     if profile != 'original' or grayscale:
         processor.load_image_processor()
+        if image_history_database and getattr(processor.converter,'PACKING_IMAGE_API',0)<3:
+            raise PackingError('Для оценки досжатия обновите HomeLibre BookProcessing.')
     measurement_errors = (MeasurementBudget, PackingError, ValueError, OSError)
     if processor.converter is not None:
         measurement_errors += (processor.converter.ConversionError,)
@@ -85,7 +91,8 @@ def estimate_selected_file(source, members, workspace, seven_zip, *, profile='ba
     result = dict(schema=1, source=str(source), archive_bytes=before[2], books=[],
         size_basis='selected-book-payloads', archive_output_bytes=None,
         note='Размеры выбранных книг до внешней упаковки. Экономия на диске зависит от общего архива.')
-    with temporary_work_directory(workspace, '.estimate-') as staging:
+    with CompressedImageHistory(image_history_database if processor.converter is not None else None, settings_sha, check) as image_history, \
+            temporary_work_directory(workspace, '.estimate-') as staging:
         if '' in members:
             sizes = {'': before[2]}
         else:
@@ -129,7 +136,10 @@ def estimate_selected_file(source, members, workspace, seven_zip, *, profile='ba
                         row.update(output_bytes=sizes[member], exact=True,
                             reason='Уже сжата с этими настройками; изображения повторно не обрабатываются.')
                     elif extension in IMAGE_SUFFIXES and sizes[member] <= MAX_IMAGE_BOOK:
-                        row.update(measure_book(processor, book, extension, grayscale, check))
+                        row.update(measure_book(processor, book, extension, grayscale, check,
+                            image_history.contains if image_history_database else None))
+                        if row.get('images_reused'):
+                            row['reason'] = f"Уже сжатые изображения сохраняются без изменений: {row['images_reused']}. Оцениваем только новые."
                     elif extension in ('.djvu', '.djv', '.dju', '.djm', '.djvm') and profile == 'maximum':
                         row['reason'] = 'Размер фона DjVu будет известен после подготовки; файл не изменён.'
                     else:
@@ -188,10 +198,14 @@ def main():
         request = json.loads(arguments.job.read_text(encoding='utf-8-sig'))
         if not isinstance(request, dict) or request.get('version') != 1:
             raise PackingError('Неизвестная версия задания оценки.')
+        template = request.get('receipt_template') or {}
+        if not isinstance(template,dict):
+            raise PackingError('Некорректное описание каталога сжатия.')
         result = estimate_selected_file(request['source'], request['members'], request['workspace'], request['seven_zip'],
             profile=request.get('profile', 'balanced'), grayscale=request.get('grayscale', False),
             tools_root=request.get('tools_root'), previous=request.get('previous'),
             book_seconds=request.get('book_seconds', 10),
+            image_history_database=template.get('catalogue'),
             canceled=lambda: arguments.cancel is not None and arguments.cancel.exists(), notify=emit)
         atomic_json(request['report'], result, replace=False)
         emit(dict(stage='ready', unknown_books=result['unknown_books']))
