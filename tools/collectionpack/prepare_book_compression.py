@@ -5,7 +5,7 @@ catalogue receipt template. This module never changes a source or a database.
 The returned candidate is applied only by TBookCompressionJob.
 """
 from dataclasses import asdict, dataclass
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 import argparse
 import copy
 import hashlib
@@ -17,6 +17,7 @@ import sys
 from urllib.parse import unquote, urlsplit
 from xml.etree import ElementTree
 import zipfile
+import zlib
 
 # The shipped embedded Python uses -I and an isolated ._pth file. Import
 # only this verified component's sibling modules, never the process cwd.
@@ -131,6 +132,7 @@ class PreparedBookCompression:
     payloads: list[dict]
     books: list[dict]
     working_bytes: int = 0
+    originals: dict | None = None
 
     @property
     def savings(self):
@@ -161,18 +163,121 @@ def _source_stamp(path):
     return info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns
 
 
+class OriginalBookBackup:
+    """Prepare selected original payloads only, never a whole source archive.
+
+    The verified ZIP stays in the private preparation workspace. The native
+    caller publishes it to the user's backup folder only after approval and
+    before changing the source. Skipping/cancelling needs no persistent copy.
+    """
+    MANIFEST = 'HomeLibre-originals.json'
+
+    def __init__(self, workspace, source, source_sha, before, check):
+        self.path = Path(workspace) / 'original-books.zip'
+        self.source, self.source_sha, self.before = Path(source), source_sha, before
+        self.check = check
+        self.archive, self.owned, self.keep = None, False, False
+        self.books = []
+
+    def __enter__(self):
+        try:
+            self.archive = zipfile.ZipFile(self.path, 'x', compression=zipfile.ZIP_DEFLATED, compresslevel=6)
+        except FileExistsError as error:
+            raise PackingError('Файл подготовки оригиналов уже существует.') from error
+        self.owned = True
+        return self
+
+    def add(self, original, member, expected):
+        self.check()
+        name = 'books/' + (member or self.source.name)
+        digest, size = hashlib.sha256(), 0
+        # Stream every original directly into the backup, then release its
+        # extracted file as usual. Memory does not grow with the selection.
+        with Path(original).open('rb') as incoming, self.archive.open(name, 'w', force_zip64=True) as outgoing:
+            while True:
+                self.check()
+                chunk = incoming.read(1024 * 1024)
+                if not chunk:
+                    break
+                outgoing.write(chunk)
+                digest.update(chunk)
+                size += len(chunk)
+        if digest.hexdigest() != expected['payload_sha256'] or size != expected['payload_size']:
+            raise PackingError('Не удалось сохранить точный оригинал выбранной книги.')
+        self.books.append(dict(member=member, file=name, sha256=digest.hexdigest(), bytes=size))
+
+    def finish(self, payloads):
+        expected = {item['member']: item['input_sha256'] for item in payloads}
+        if (len(self.books) != len(expected) or
+                {item['member'] for item in self.books} != set(expected) or
+                any(book['sha256'] != expected[book['member']] for book in self.books)):
+            raise PackingError('Список оригиналов не соответствует выбранным книгам.')
+        manifest = dict(version=1, kind='HomeLibre selected book originals', source=str(self.source),
+                        source_sha256=self.source_sha, source_bytes=self.before[2],
+                        source_mtime_ns=self.before[3], books=self.books)
+        raw = json.dumps(manifest, ensure_ascii=False, sort_keys=True, indent=2).encode('utf-8')
+        if len(raw) > 16 * 1024 * 1024:
+            raise PackingError('Слишком большой список оригиналов выбранных книг.')
+        self.archive.writestr(self.MANIFEST, raw)
+        self.archive.close()
+        self.archive = None
+        try:
+            self.validate(manifest)
+        except (zipfile.BadZipFile, zlib.error, ValueError) as error:
+            raise PackingError('Не удалось проверить сохранённые оригиналы. Исходные книги не изменены.') from error
+        return dict(path=str(self.path), sha256=digest_file(self.path, self.check),
+                    bytes=self.path.stat().st_size, books=len(self.books),
+                    manifest_sha256=hashlib.sha256(raw).hexdigest())
+
+    def validate(self, manifest):
+        self.check()
+        with zipfile.ZipFile(self.path) as archive:
+            expected = {self.MANIFEST, *(item['file'] for item in manifest['books'])}
+            if set(archive.namelist()) != expected or len(archive.infolist()) != len(expected):
+                raise PackingError('Подготовленный ZIP содержит неверный список оригиналов.')
+            if json.loads(archive.read(self.MANIFEST)) != manifest:
+                raise PackingError('Описание сохранённых оригиналов изменилось.')
+            for book in manifest['books']:
+                digest, size = hashlib.sha256(), 0
+                with archive.open(book['file']) as incoming:
+                    while True:
+                        self.check()
+                        chunk = incoming.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        digest.update(chunk)
+                        size += len(chunk)
+                if digest.hexdigest() != book['sha256'] or size != book['bytes']:
+                    raise PackingError('Не прошла проверка сохранённого оригинала книги.')
+
+    def __exit__(self, kind, value, traceback):
+        try:
+            if self.archive is not None:
+                self.archive.close()
+                self.archive = None
+        finally:
+            if self.owned and (kind is not None or not self.keep):
+                self.path.unlink(missing_ok=True)
+
+
+def _discard_prepared(result):
+    if result.candidate:
+        Path(result.candidate).unlink(missing_ok=True)
+    if result.originals:
+        Path(result.originals['path']).unlink(missing_ok=True)
+
+
 @contextmanager
 def _candidate_cleanup(result):
     try:
         yield
     except BaseException:
-        if result.candidate:
-            Path(result.candidate).unlink(missing_ok=True)
+        _discard_prepared(result)
         raise
 
 
 def prepare_selected_file(source, members, workspace, seven_zip, *, profile='original',
-                          grayscale=False, tools_root=None, previous=None,
+                          grayscale=False, tools_root=None, previous=None, backup_originals=False,
                           canceled=lambda: False, notify=lambda value: None):
     """Prepare exactly the selected members, never modify originals.
 
@@ -182,6 +287,8 @@ def prepare_selected_file(source, members, workspace, seven_zip, *, profile='ori
     Workspace is an empty owned directory on the native queue's volume.
     """
     settings_sha = profile_digest(profile, grayscale)
+    if not isinstance(backup_originals, bool):
+        raise PackingError('Выберите, нужно ли сохранять оригиналы книг.')
     if (not isinstance(members, dict) or not 0 < len(members) <= MAX_MEMBERS
             or any(not isinstance(name, str) or not isinstance(ext, str) for name, ext in members.items())
             or ('' in members and len(members) != 1)):
@@ -226,11 +333,16 @@ def prepare_selected_file(source, members, workspace, seven_zip, *, profile='ori
     selected_bytes, largest = sum(sizes.values()), max(sizes.values())
     codec_extra = 4 * largest if processor.converter is not None else largest
     result.working_bytes = selected_bytes + max(codec_extra, before[2] + largest) + 16 * 1024 * 1024
+    if backup_originals:
+        result.working_bytes += selected_bytes + 16 * 1024 * 1024
+        reserve_space(workspace, result.working_bytes)
     notify(dict(stage='Оцениваем временное место', working_bytes=result.working_bytes,
                 selected_bytes=selected_bytes, archive_bytes=before[2]))
     # Selected payloads survive only in a verified complete candidate. All
     # extraction/codec files use a guarded owned temporary directory.
-    with _candidate_cleanup(result), temporary_work_directory(workspace, '.selected-') as staging:
+    with _candidate_cleanup(result), temporary_work_directory(workspace, '.selected-') as staging, \
+            (OriginalBookBackup(workspace, source, source_sha, before, check)
+             if backup_originals else nullcontext()) as originals:
         replacements = {}
         for number, (member, hint) in enumerate(members.items()):
             check()
@@ -248,6 +360,9 @@ def prepare_selected_file(source, members, workspace, seven_zip, *, profile='ori
                     raise PackingError('Одна книга превышает предел обработки 512 МБ.')
                 copy_exact(source, original, check)
             initial = book_signature(original, check)
+            if originals is not None:
+                notify(dict(stage='Сохраняем оригинал выбранной книги', current=number, total=len(members), member=member))
+                originals.add(original, member, initial)
             current = book_dir / ('book' + extension)
             copy_exact(original, current, check)
             ledger = previous.get(member, {})
@@ -320,6 +435,9 @@ def prepare_selected_file(source, members, workspace, seven_zip, *, profile='ori
                 prepared.candidate.rename(candidate)
                 result.candidate, result.result_sha256 = str(candidate), prepared.prepared_sha256
                 result.output_bytes = prepared.output_bytes
+        if originals is not None and result.candidate is not None:
+            result.originals = originals.finish(result.payloads)
+            originals.keep = True
     try:
         check()
         if _source_stamp(source) != before or digest_file(source, check) != source_sha:
@@ -328,7 +446,7 @@ def prepare_selected_file(source, members, workspace, seven_zip, *, profile='ori
                     input_bytes=result.input_bytes, output_bytes=result.output_bytes))
         return result
     except BaseException:
-        if result.candidate: Path(result.candidate).unlink(missing_ok=True)
+        _discard_prepared(result)
         raise
 
 
@@ -352,6 +470,7 @@ def main():
                                          request['seven_zip'], profile=request.get('profile', 'original'),
                                          grayscale=request.get('grayscale', False), tools_root=request.get('tools_root'),
                                          previous=request.get('previous'),
+                                         backup_originals=request.get('backup_originals', False),
                                          canceled=lambda: arguments.cancel is not None and arguments.cancel.exists(),
                                          notify=emit)
         result = asdict(prepared)
@@ -363,11 +482,11 @@ def main():
         emit(dict(stage='ready', candidate=bool(prepared.candidate), savings=prepared.savings))
         return 0
     except Canceled as error:
-        if prepared and prepared.candidate: Path(prepared.candidate).unlink(missing_ok=True)
+        if prepared: _discard_prepared(prepared)
         emit(dict(stage='cancelled', message=str(error)))
         return 2
     except (PackingError, OSError, ValueError, KeyError, TypeError) as error:
-        if prepared and prepared.candidate: Path(prepared.candidate).unlink(missing_ok=True)
+        if prepared: _discard_prepared(prepared)
         emit(dict(stage='error', message=str(error)))
         return 1
 

@@ -19,7 +19,7 @@ end;
 var Data, Entry, Output:TJSONObject; Info:TCollectionInfo;
     Books:TArray<TBookRecord>; Options:TBookCompressionOperationOptions;
     Operation:TBookCompressionOperation; State:TBookCompressionOperationStatus;
-    Mode, BeforeReview:string; Started:UInt64; SeenReview, Disposed:Boolean;
+    Mode, BeforeReview:string; Started, TimeLimit:UInt64; SeenReview, Disposed:Boolean;
 begin
   try
     Data:=TJSONObject.ParseJSONValue(TFile.ReadAllText(ParamStr(1),TEncoding.UTF8)) as TJSONObject;
@@ -42,10 +42,16 @@ begin
       end;
       Options:=Default(TBookCompressionOperationOptions);
       Options.WorkRoot:=Text(Data,'work_root'); Options.Python:=Text(Data,'python');
+      Options.QueueName:=Text(Data,'queue_name');
       Options.Script:=Text(Data,'script'); Options.SevenZip:=Text(Data,'seven_zip');
       Options.ToolsRoot:=Text(Data,'tools_root'); Options.Profile:=Text(Data,'profile');
       Options.Grayscale:=Data.GetValue<Boolean>('grayscale',False);
+      Options.BackupOriginals:=Data.GetValue<Boolean>('backup_originals',False);
+      Options.BackupFolder:=Text(Data,'backup_folder');
       Mode:=Text(Data,'operation_mode'); Options.ReviewResults:=Mode.StartsWith('review') or Mode.StartsWith('dispose');
+      TimeLimit:=Data.GetValue<UInt64>('timeout_ms',30000);
+      if (TimeLimit<1000) or (TimeLimit>300000) then
+        raise EArgumentException.Create('Invalid bounded operation test timeout');
       ConfigureMHLHostProfile(TPath.GetDirectoryName(ParamStr(1)),'operation-test.ini','operation-test.dbs2');
       DMUser:=TDMUser.Create(nil);
       try
@@ -61,7 +67,22 @@ begin
             State:=Operation.Status;
             if State.AwaitingReview then
             begin
-              if not SeenReview then BeforeReview:=Digest(State.Source);
+              if not SeenReview then
+              begin
+                BeforeReview:=Digest(State.Source);
+                if Mode='review-backup-missing' then
+                  if not RemoveDirectory(PChar(Options.BackupFolder)) then RaiseLastOSError;
+                if Mode='review-backup-corrupt' then
+                begin
+                  var Prepared:=TJSONObject.ParseJSONValue(TFile.ReadAllText(State.ReportFile,TEncoding.UTF8)) as TJSONObject;
+                  try
+                    var Backup:=Prepared.GetValue<TJSONObject>('originals').GetValue<string>('path');
+                    var Stream:=TFileStream.Create(Backup,fmOpenReadWrite);
+                    var Damage:UInt32:=$FFFF0000;
+                    try Stream.Position:=45; Stream.WriteBuffer(Damage,SizeOf(Damage)); finally Stream.Free; end;
+                  finally Prepared.Free; end;
+                end;
+              end;
               SeenReview:=True;
               if Mode='review-skip' then Operation.Approve(crSkip)
               else if Mode='review-stop' then Operation.RequestStop
@@ -73,8 +94,8 @@ begin
             if Mode='stop-producer' then
               if State.Stage='slow-worker' then Operation.RequestStop;
             if State.Finished then Break;
-            if GetTickCount64-Started>30000 then
-              raise Exception.Create('Operation fixture timed out');
+            if GetTickCount64-Started>TimeLimit then
+              raise Exception.Create('Operation fixture timed out: '+State.Stage+' '+State.Member);
             Sleep(10);
           until False;
           if Assigned(Operation) then Operation.WaitFor;
@@ -101,6 +122,8 @@ begin
               Output.AddPair('unchanged_files',TJSONNumber.Create(State.UnchangedFiles));
               Output.AddPair('skipped_files',TJSONNumber.Create(State.SkippedFiles));
               Output.AddPair('saved_bytes',TJSONNumber.Create(State.SavedBytes));
+              Output.AddPair('backup_files',TJSONNumber.Create(State.BackupFiles));
+              Output.AddPair('backup_folder',State.BackupFolder);
               Output.AddPair('pending_before_ack',TJSONNumber.Create(PendingBefore));
               Output.AddPair('pending_after_ack',TJSONNumber.Create(Length(TBookCompressionJob.Pending(Operation.QueueRoot))));
             end;

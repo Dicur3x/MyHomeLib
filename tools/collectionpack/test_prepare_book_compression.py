@@ -231,6 +231,156 @@ class SelectedPreparationTests(unittest.TestCase):
         self.assertEqual(source.read_bytes(), before)
         self.assertEqual(list(self.work.iterdir()), [])
 
+    def check_original_backup(self, prepared, bodies):
+        saved = prepared.originals
+        self.assertIsNotNone(saved)
+        self.assertEqual(saved['sha256'], sha(Path(saved['path'])))
+        self.assertEqual(saved['bytes'], Path(saved['path']).stat().st_size)
+        self.assertEqual(saved['books'], len(bodies))
+        with zipfile.ZipFile(saved['path']) as archive:
+            raw = archive.read(preparation.OriginalBookBackup.MANIFEST)
+            self.assertEqual(saved['manifest_sha256'], preparation.hashlib.sha256(raw).hexdigest())
+            manifest = json.loads(raw)
+            self.assertEqual(manifest['source_sha256'], prepared.source_sha256)
+            self.assertEqual(manifest['source_bytes'], prepared.input_bytes)
+            self.assertEqual({book['member'] for book in manifest['books']}, set(bodies))
+            self.assertEqual(len(archive.infolist()), len(bodies) + 1)
+            for book in manifest['books']:
+                original = bodies[book['member']]
+                self.assertEqual(archive.read(book['file']), original)
+                self.assertEqual(book['sha256'], preparation.hashlib.sha256(original).hexdigest())
+                self.assertEqual(book['bytes'], len(original))
+        return manifest
+
+    def test_backup_contains_exact_selected_originals_and_no_neighbor(self):
+        bodies = {'Папка Ё/Book.txt': b'Upper case book' * 3000,
+                  'Папка Ё/other.txt': b'Second selected book' * 3000,
+                  'HomeLibre-originals.json': b'An actual book with a reserved-looking name' * 1000}
+        source = self.source_zip(dict(bodies, **{'neighbor.bin': os.urandom(10000)}))
+        before = sha(source)
+        prepared = self.prepare(source, {name: '.txt' for name in bodies}, backup_originals=True)
+        self.assertIsNotNone(prepared.candidate)
+        manifest = self.check_original_backup(prepared, bodies)
+        self.assertTrue(all(book['file'].startswith('books/') for book in manifest['books']))
+        self.assertEqual(set(self.work.iterdir()), {Path(prepared.candidate), Path(prepared.originals['path'])})
+        self.assertEqual(self.decoded(prepared.candidate, 'neighbor.bin'), self.decoded(source, 'neighbor.bin'))
+        self.assertEqual(sha(source), before)
+
+    def test_original_backup_keeps_case_sensitive_member_names_separate(self):
+        source = self.root / 'original.txt'
+        source.write_bytes(b'Exact book bytes')
+        signature = preparation.book_signature(source, lambda: None)
+        members = ['Part/Book.txt', 'Part/book.txt']
+        with preparation.OriginalBookBackup(self.work, source, sha(source),
+                                             preparation._source_stamp(source), lambda: None) as backup:
+            for member in members:
+                backup.add(source, member, signature)
+            saved = backup.finish([dict(member=member, input_sha256=signature['payload_sha256'])
+                                   for member in members])
+            with zipfile.ZipFile(saved['path']) as archive:
+                self.assertEqual(set(archive.namelist()),
+                    {'books/Part/Book.txt', 'books/Part/book.txt', preparation.OriginalBookBackup.MANIFEST})
+                self.assertEqual(archive.read('books/Part/Book.txt'), source.read_bytes())
+                self.assertEqual(archive.read('books/Part/book.txt'), source.read_bytes())
+        self.assertEqual(list(self.work.iterdir()), [])
+
+    @unittest.skipUnless(TOOLS, 'Real HomeLibre Images runtime required')
+    def test_backup_retains_color_originals_before_real_grayscale_compression(self):
+        picture = image_fixture(transparent=True)
+        bodies = {'one.fb2': illustrated_fb2(picture), 'two.epub': epub(picture)}
+        source = self.source_zip(bodies)
+        before = sha(source)
+        prepared = self.prepare(source, {'one.fb2': '.fb2', 'two.epub': '.epub'},
+                                profile='economy', grayscale=True, backup_originals=True)
+        self.assertIsNotNone(prepared.candidate, prepared.books)
+        self.check_original_backup(prepared, bodies)
+        for name, body in bodies.items():
+            self.assertNotEqual(self.decoded(prepared.candidate, name), body)
+            initial, final = self.root / ('input-' + name), self.root / ('output-' + name)
+            initial.write_bytes(body)
+            final.write_bytes(self.decoded(prepared.candidate, name))
+            verify_non_image_content(initial, final, Path(name).suffix)
+        self.assertEqual(sha(source), before)
+
+    def test_unnecessary_backup_and_candidate_are_discarded_when_no_gain(self):
+        source = self.root / 'small.txt'
+        source.write_text('Короткая книга ё', encoding='utf-8')
+        before = sha(source)
+        prepared = self.prepare(source, {'': '.txt'}, backup_originals=True)
+        self.assertIsNone(prepared.candidate)
+        self.assertIsNone(prepared.originals)
+        self.assertEqual(list(self.work.iterdir()), [])
+        self.assertEqual(sha(source), before)
+
+    def test_cancel_during_original_copy_removes_partial_backup(self):
+        source = self.source_zip({'one.txt': b'Book' * (1024 * 1024)})
+        before, copying, checks = sha(source), False, 0
+        def notify(event):
+            nonlocal copying
+            copying |= event['stage'] == 'Сохраняем оригинал выбранной книги'
+        def canceled():
+            nonlocal checks
+            if copying:
+                checks += 1
+            return checks >= 4  # Stop after real ZIP payload bytes were written.
+        with self.assertRaises(Canceled):
+            self.prepare(source, {'one.txt': '.txt'}, backup_originals=True, notify=notify, canceled=canceled)
+        self.assertEqual(sha(source), before)
+        self.assertEqual(list(self.work.iterdir()), [])
+
+    def test_backup_write_failure_and_corruption_leave_source_unchanged(self):
+        source = self.source_zip({'one.txt': b'Book' * 40000})
+        before = sha(source)
+        for corruption in [False, True]:
+            with self.subTest(corruption=corruption):
+                original_validate = preparation.OriginalBookBackup.validate
+                def validate(backup, manifest):
+                    if corruption:
+                        with Path(backup.path).open('r+b') as stream:
+                            stream.seek(45)
+                            stream.write(b'Corrupted backup entry')
+                        return original_validate(backup, manifest)
+                    raise OSError('Simulated full backup disk')
+                with patch.object(preparation.OriginalBookBackup, 'validate', validate):
+                    with self.assertRaises((OSError, PackingError, zipfile.BadZipFile)):
+                        self.prepare(source, {'one.txt': '.txt'}, backup_originals=True)
+                self.assertEqual(sha(source), before)
+                self.assertEqual(list(self.work.iterdir()), [])
+
+    def test_cli_backup_report_and_failed_publication_cleanup(self):
+        source = self.source_zip({'one.txt': b'Book' * 40000})
+        before = sha(source)
+        request, report = self.root / 'job.json', self.root / 'report.json'
+        job = dict(version=1, source=str(source), members={'one.txt': '.txt'},
+                   workspace=str(self.work), seven_zip=str(SEVEN), report=str(report), backup_originals=True,
+                   receipt_template=dict(schema=1, kind='HomeLibre book compression', source=str(source),
+                                         rows=[dict(member='one.txt')]))
+        request.write_text(json.dumps(job), encoding='utf-8')
+        process = subprocess.run([sys.executable, '-I', '-B', '-X', 'utf8', CLI_SCRIPT, '--job', str(request)],
+                                 capture_output=True, text=True, encoding='utf-8', timeout=30)
+        self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
+        data = json.loads(report.read_text('utf-8'))
+        data.pop('receipt')
+        prepared = PreparedBookCompression(**data)
+        self.check_original_backup(prepared, {'one.txt': b'Book' * 40000})
+        preparation._discard_prepared(prepared)
+        # A previous report must never be overwritten. The rejected second
+        # publication must clean both its new archive and original-book backup.
+        report_bytes = report.read_bytes()
+        process = subprocess.run([sys.executable, '-I', '-B', '-X', 'utf8', CLI_SCRIPT, '--job', str(request)],
+                                 capture_output=True, text=True, encoding='utf-8', timeout=30)
+        self.assertEqual(process.returncode, 1, process.stdout + process.stderr)
+        self.assertEqual(report.read_bytes(), report_bytes)
+        self.assertEqual(list(self.work.iterdir()), [])
+        self.assertEqual(sha(source), before)
+
+    def test_backup_selection_requires_a_boolean_before_creating_files(self):
+        source = self.source_zip({'one.txt': b'Book' * 40000})
+        for invalid in [1, 'yes', None]:
+            with self.subTest(invalid=invalid), self.assertRaises(PackingError):
+                self.prepare(source, {'one.txt': '.txt'}, backup_originals=invalid)
+            self.assertEqual(list(self.work.iterdir()), [])
+
     @unittest.skipUnless(TOOLS, 'Real HomeLibre Images runtime required')
     def test_text_change_by_processor_keeps_original_book(self):
         body = illustrated_fb2(image_fixture())

@@ -97,6 +97,96 @@ class NativeCompressionOperationTests(unittest.TestCase):
         self.assertEqual(result['pending_after_ack'], 0)
         self.unchanged()
 
+    def enable_backup(self):
+        folder = self.root / 'originals'
+        folder.mkdir()
+        self.config.update(backup_originals=True, backup_folder=str(folder))
+        return folder
+
+    def test_optional_backup_saves_only_selected_original_before_real_replacement(self):
+        folder = self.enable_backup()
+        result = self.run_operation()
+        self.assert_applied(result)
+        self.assertEqual(result['backup_files'], 1)
+        self.assertEqual(result['backup_folder'], str(folder))
+        files = list(folder.iterdir())
+        self.assertEqual(len(files), 1)
+        self.assertEqual(files[0].suffix, '.zip')
+        with zipfile.ZipFile(files[0]) as archive:
+            self.assertEqual(set(archive.namelist()), {'books/one.fb2', 'HomeLibre-originals.json'})
+            self.assertEqual(archive.read('books/one.fb2'), self.fixture.original_book)
+            manifest = json.loads(archive.read('HomeLibre-originals.json'))
+            self.assertEqual(manifest['source_sha256'], self.before[self.fixture.source])
+
+    def test_preview_skip_does_not_publish_unnecessary_originals(self):
+        folder = self.enable_backup()
+        self.config['operation_mode'] = 'review-skip'
+        result = self.run_operation()
+        self.assertEqual(result['error'], '', result)
+        self.assertEqual(result['backup_files'], 0)
+        self.assertEqual(list(folder.iterdir()), [])
+        self.unchanged()
+
+    def test_backup_folder_disappearing_after_review_does_not_change_book(self):
+        folder = self.enable_backup()
+        self.config['operation_mode'] = 'review-backup-missing'
+        result = self.run_operation()
+        self.assertNotEqual(result['error'], '')
+        self.assertFalse(folder.exists())
+        self.assertEqual(result['changed_files'], 0)
+        self.assertEqual(result['pending_before_ack'], 0)
+        self.unchanged()
+
+    def test_corrupt_prepared_original_prevents_source_replacement(self):
+        folder = self.enable_backup()
+        self.config['operation_mode'] = 'review-backup-corrupt'
+        result = self.run_operation()
+        self.assertIn('сумма', result['error'])
+        self.assertEqual(result['changed_files'], 0)
+        self.assertEqual(list(folder.iterdir()), [])
+        self.unchanged()
+
+    def test_backup_content_is_checked_even_if_preparer_rehashes_a_wrong_zip(self):
+        folder = self.enable_backup()
+        worker = self.root / 'wrong-original.py'
+        worker.write_text('import runpy,sys,json,zipfile,hashlib\nfrom pathlib import Path\n'
+                          'worker=runpy.run_path(' + repr(self.config['script']) + ',run_name="test_worker")\n'
+                          'code=worker["main"]()\n'
+                          'if code==0:\n'
+                          ' job=json.loads(Path(sys.argv[sys.argv.index("--job")+1]).read_text("utf-8-sig"))\n'
+                          ' report=Path(job["report"])\n value=json.loads(report.read_text("utf-8"))\n'
+                          ' backup=Path(value["originals"]["path"])\n'
+                          ' with zipfile.ZipFile(backup) as z: manifest=z.read("HomeLibre-originals.json")\n'
+                          ' with zipfile.ZipFile(backup,"w",zipfile.ZIP_DEFLATED) as z:\n'
+                          '  z.writestr("HomeLibre-originals.json",manifest)\n'
+                          '  z.writestr("books/one.fb2",b"Different book bytes")\n'
+                          ' value["originals"].update(sha256=hashlib.sha256(backup.read_bytes()).hexdigest(),bytes=backup.stat().st_size)\n'
+                          ' report.write_text(json.dumps(value),encoding="utf-8")\n'
+                          'sys.exit(code)\n', encoding='utf-8')
+        self.config['script'] = str(worker)
+        result = self.run_operation()
+        self.assertIn('содержимого', result['error'])
+        self.assertEqual(result['changed_files'], 0)
+        self.assertEqual(list(folder.iterdir()), [])
+        self.unchanged()
+
+    def test_completed_backup_reference_survives_job_recovery_and_acknowledgement(self):
+        folder = self.enable_backup()
+        self.config['acknowledge'] = False
+        first = self.run_operation()
+        self.assertEqual(first['error'], '', first)
+        saved = {p: sha(p.read_bytes()) for p in folder.iterdir()}
+        self.assertEqual(len(saved), 1)
+        jobs = list((Path(self.config['work_root']) / 'jobs').glob('compress-*'))
+        binding = json.loads((jobs[0] / 'job.json').read_text('utf-8-sig'))
+        self.assertEqual(binding['originals']['path'], str(next(iter(saved))))
+        self.config.update(operation_mode='recover', acknowledge=True,
+                           backup_folder=str(self.root / 'new-backup-preference-no-longer-available'))
+        recovered = self.run_operation()
+        self.assertEqual(recovered['error'], '', recovered)
+        self.assertEqual(recovered['pending_after_ack'], 0)
+        self.assertEqual({p: sha(p.read_bytes()) for p in saved}, saved)
+
     def test_stop_while_reviewing_removes_candidate_without_changes(self):
         self.config['operation_mode'] = 'review-stop'
         result = self.run_operation()
@@ -169,6 +259,26 @@ class NativeCompressionOperationTests(unittest.TestCase):
         self.assertEqual(recovered['error'], '')
         self.assertFalse(recovered['savings_known'])
         self.assertEqual(recovered['pending_after_ack'], 0)
+        self.assertEqual({p: sha(p.read_bytes()) for p in before}, before)
+
+    def test_profiles_sharing_work_folder_recover_only_their_own_jobs(self):
+        self.config.update(queue_name='{8D53EE44-764E-4EB3-88EF-EAA41A60DF05}', acknowledge=False)
+        first = self.run_operation()
+        self.assertEqual(first['error'], '')
+        self.assertEqual(first['pending_after_ack'], 1)
+        before = {p: sha(p.read_bytes()) for p in self.before}
+        self.config.update(queue_name='{8384C23B-49B7-4D2F-A240-A49331D51974}',
+                           operation_mode='recover', acknowledge=True)
+        other = self.run_operation()
+        self.assertEqual(other['error'], '')
+        self.assertEqual(other['changed_files'], 0)
+        self.assertEqual(other['pending_before_ack'], 0)
+        self.assertEqual({p: sha(p.read_bytes()) for p in before}, before)
+        self.config['queue_name'] = '{8D53EE44-764E-4EB3-88EF-EAA41A60DF05}'
+        own = self.run_operation()
+        self.assertEqual(own['error'], '')
+        self.assertEqual(own['changed_files'], 1)
+        self.assertEqual(own['pending_after_ack'], 0)
         self.assertEqual({p: sha(p.read_bytes()) for p in before}, before)
 
     @unittest.skipUnless(receipt_fixtures.NATIVE and receipt_fixtures.NATIVE.is_file(), 'Native crash fixture required')

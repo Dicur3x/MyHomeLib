@@ -2,7 +2,8 @@
 
 interface
 
-uses System.SysUtils, System.JSON, unit_ZipMemberDeletion, unit_BookCompressionReceipt;
+uses System.SysUtils, System.JSON, unit_ZipMemberDeletion, unit_BookCompressionReceipt,
+  unit_BookCompressionBackup;
 
 type
   // One physical file, one immutable catalogue receipt. The job survives until
@@ -14,6 +15,8 @@ type
     FData: TJSONObject;
     FLease, FDirectoryGuard: THandle;
     FCompleted: Boolean;
+    FOriginalsJSON: string;
+    FOriginals: TCompressionOriginalBackup;
     procedure OpenDirectoryGuard;
     procedure OpenLease;
     procedure ReadBinding;
@@ -23,7 +26,7 @@ type
     function Field(const Name: string): string;
   public
     constructor CreatePrepared(const QueueRoot, ReceiptJSON, Candidate: string;
-      const Fault: TProc<string> = nil);
+      const Fault: TProc<string> = nil; const OriginalsJSON: string = '');
     constructor OpenExisting(const Directory: string);
     destructor Destroy; override;
     procedure Execute(const Cancelled: TFunc<Boolean> = nil;
@@ -143,13 +146,16 @@ begin
 end;
 
 constructor TBookCompressionJob.CreatePrepared(const QueueRoot, ReceiptJSON, Candidate: string;
-  const Fault:TProc<string>);
+  const Fault:TProc<string>; const OriginalsJSON:string);
 var Binding: TJSONObject; Name:string;
 begin
   inherited Create;
   FReceipt:=TBookCompressionReceipt.Create(ReceiptJSON);
   FData:=TJSONObject.ParseJSONValue(FReceipt.ToJSON) as TJSONObject;
   FSource:=Field('source'); FCandidate:=ExpandFileName(Candidate);
+  FOriginalsJSON:=OriginalsJSON;
+  if FOriginalsJSON<>'' then
+    FOriginals:=TCompressionOriginalBackup.OpenExisting(FOriginalsJSON,FReceipt.ToJSON,nil);
   if SameFileName(FSource,FCandidate) then
     raise EArgumentException.Create('Результат сжатия должен быть отдельным подготовленным файлом.');
   FReceipt.CheckBeforeWrite;
@@ -168,6 +174,7 @@ begin
     Binding.AddPair('kind',JobKind); Binding.AddPair('job',Name);
     Binding.AddPair('receipt_sha256',FReceipt.SHA256);
     Binding.AddPair('source_identity',FIdentity); Binding.AddPair('candidate',FCandidate);
+    if FOriginalsJSON<>'' then Binding.AddPair('originals',TJSONObject.ParseJSONValue(FOriginalsJSON));
     if Assigned(Fault) then Fault('binding-prepared');
     // job.json is the last atomic publication, after the immutable receipt.
     // Pending ignores an unstarted directory until this file is durable.
@@ -192,6 +199,12 @@ begin
     FData:=TJSONObject.ParseJSONValue(FReceipt.ToJSON) as TJSONObject;
     FSource:=Field('source'); FIdentity:=Binding.GetValue<string>('source_identity','');
     FCandidate:=Binding.GetValue<string>('candidate','');
+    if Binding.GetValue('originals')<>nil then
+    begin
+      if not (Binding.GetValue('originals') is TJSONObject) then
+        raise EReadError.Create('Повреждены сведения об оригиналах книг.');
+      FOriginalsJSON:=Binding.GetValue('originals').ToJSON;
+    end;
     if (Length(FIdentity)<>59) or (Copy(FIdentity,1,25)<>Field('source_file_key')) or
       (FCandidate='') or (FCandidate<>ExpandFileName(FCandidate)) or SameFileName(FSource,FCandidate) then
       raise EReadError.Create('Неполная привязка файла в задании сжатия.');
@@ -212,6 +225,7 @@ destructor TBookCompressionJob.Destroy;
 begin
   if FLease<>0 then CloseHandle(FLease);
   if FDirectoryGuard<>0 then CloseHandle(FDirectoryGuard);
+  FOriginals.Free;
   FReceipt.Free; FData.Free; inherited;
 end;
 
@@ -264,6 +278,8 @@ begin
   else
   begin
     if Assigned(Cancelled) and Cancelled() then Abort;
+    if (FOriginalsJSON<>'') and not Assigned(FOriginals) then
+      FOriginals:=TCompressionOriginalBackup.OpenExisting(FOriginalsJSON,FReceipt.ToJSON,Cancelled);
     // A crash before publication leaves the original intact. Abandoned
     // staging may be discarded, but never guessed at as a recovery plan.
     if DirectoryExists(DeletionNativePath(FJournalRoot)) then

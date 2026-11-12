@@ -10,14 +10,15 @@ type
   TCompressionPlanFactory = reference to function(const Cancelled:TFunc<Boolean>;
     const Progress:TProc<Int64>):TBookCompressionPlan;
   TBookCompressionOperationOptions = record
-    WorkRoot, Python, Script, SevenZip, ToolsRoot, Profile: string;
-    Grayscale, ReviewResults: Boolean;
+    WorkRoot, QueueName, Python, Script, SevenZip, ToolsRoot, Profile, BackupFolder: string;
+    Grayscale, ReviewResults, BackupOriginals: Boolean;
   end;
   TBookCompressionOperationStatus = record
-    Stage, Source, Member, Error, Warning, ReportFile, PendingJob: string;
+    Stage, Source, Member, Error, Warning, ReportFile, PendingJob, BackupFolder: string;
     Current, Total, FilesDone, FilesTotal, BooksDone, BooksTotal: Int64;
     ChangedFiles, UnchangedFiles, SkippedFiles, SavedBytes: Int64;
     InputBytes, OutputBytes, WorkingBytes: Int64;
+    BackupFiles: Int64;
     Finished, Stopping, AwaitingReview, Recovery, SavingsKnown: Boolean;
   end;
 
@@ -63,10 +64,12 @@ type
     procedure AcknowledgeCompletedJobs;
   end;
 
+function CompressionQueueRoot(const Options: TBookCompressionOperationOptions): string;
+
 implementation
 
 uses Winapi.Windows, System.IOUtils, System.JSON, System.StrUtils, unit_AtomicIniFile,
-  unit_MHLExternalTools, unit_ZipMemberDeletion;
+  unit_MHLExternalTools, unit_ZipMemberDeletion, unit_BookCompressionBackup;
 
 const WorkMarker='HomeLibre selected compression work v1';
 
@@ -128,6 +131,19 @@ begin
   try SaveStreamAtomically(Stream,DeletionNativePath(FileName)); finally Stream.Free; end;
 end;
 
+function CompressionQueueRoot(const Options:TBookCompressionOperationOptions):string;
+var ID:TGUID;
+begin
+  Result:=TPath.Combine(Options.WorkRoot,'jobs');
+  if Options.QueueName='' then Exit; // Existing isolated native callers.
+  try ID:=StringToGUID(Options.QueueName);
+  except on E:EConvertError do
+    raise EArgumentException.Create('Некорректный идентификатор профиля сжатия.'); end;
+  if GUIDToString(ID)<>Options.QueueName then
+    raise EArgumentException.Create('Некорректный идентификатор профиля сжатия.');
+  Result:=Result+'-'+Options.QueueName;
+end;
+
 constructor TBookCompressionOperation.Create(const Options:TBookCompressionOperationOptions;
   const Factory:TCompressionPlanFactory);
 begin
@@ -138,12 +154,21 @@ begin
   if (Options.WorkRoot='') or not TPath.IsPathRooted(Options.WorkRoot) then
     raise EArgumentException.Create('Нужна папка для временных файлов сжатия.');
   FOptions.WorkRoot:=ExcludeTrailingPathDelimiter(ExpandFileName(Options.WorkRoot));
+  CompressionQueueRoot(FOptions);
+  if Options.BackupOriginals and
+    ((Options.BackupFolder='') or not TPath.IsPathRooted(Options.BackupFolder) or
+      not DirectoryExists(DeletionNativePath(Options.BackupFolder))) then
+    raise EArgumentException.Create('Выберите существующую папку для оригиналов книг.');
   FState.SavingsKnown:=True;
 end;
 
 constructor TBookCompressionOperation.Recover(const Options:TBookCompressionOperationOptions);
+var RecoveryOptions:TBookCompressionOperationOptions;
 begin
-  Create(Options,nil); FRecovery:=True;
+  // Recovery uses the original job's durable backup reference. A later
+  // preference for new backups must not prevent finishing an old file job.
+  RecoveryOptions:=Options; RecoveryOptions.BackupOriginals:=False;
+  Create(RecoveryOptions,nil); FRecovery:=True;
   FState.Recovery:=True; FState.SavingsKnown:=False;
 end;
 
@@ -158,7 +183,7 @@ begin
 end;
 
 function TBookCompressionOperation.QueueRoot:string;
-begin Result:=TPath.Combine(FOptions.WorkRoot,'jobs'); end;
+begin Result:=CompressionQueueRoot(FOptions); end;
 
 function TBookCompressionOperation.Stopping:Boolean;
 begin Result:=TInterlocked.CompareExchange(FStop,0,0)<>0; end;
@@ -275,11 +300,11 @@ begin
     begin
       Name:=ExtractFileName(Path);
       Attr:=GetFileAttributes(PChar(Path));
-      if not MatchText(Name,['prepared-book.bin','prepared-archive.bin']) or
+      if not MatchText(Name,['prepared-book.bin','prepared-archive.bin','original-books.zip']) or
         (Attr=INVALID_FILE_ATTRIBUTES) or (Attr and (FILE_ATTRIBUTE_DIRECTORY or FILE_ATTRIBUTE_REPARSE_POINT)<>0) then
         raise EReadError.Create('Незавершённые рабочие файлы сохранены для проверки.');
     end;
-    for Name in ['prepared-book.bin','prepared-archive.bin'] do RemoveFile(TPath.Combine(Payload,Name));
+    for Name in ['prepared-book.bin','prepared-archive.bin','original-books.zip'] do RemoveFile(TPath.Combine(Payload,Name));
     if not RemoveDirectory(PChar(DeletionNativePath(Payload))) then RaiseLastOSError;
     for Name in ['request.json','report.json','cancel.marker','owner.txt'] do RemoveFile(TPath.Combine(FWork,Name));
     if not RemoveDirectory(PChar(DeletionNativePath(FWork))) then RaiseLastOSError;
@@ -326,8 +351,9 @@ procedure TBookCompressionOperation.RunFile(FilePlan:TCompressionFilePlan);
 var Request, Report, Receipt, Expected:TJSONObject; Output:TCompressionEventStream;
     Job:TBookCompressionJob; Candidate, ReportFile:string; KeepWork:Boolean;
     InputBytes, OutputBytes:Int64;
+    Backup:TCompressionOriginalBackup; BackupJSON:string;
 begin
-  CheckStop; Job:=nil; KeepWork:=False;
+  CheckStop; Job:=nil; Backup:=nil; KeepWork:=False;
   TMonitor.Enter(FLock);
   try
     FState.Source:=FilePlan.Source; FState.Member:='';
@@ -338,7 +364,10 @@ begin
     ReportFile:=TPath.Combine(FWork,'report.json');
     Request:=FilePlan.CreateRequest(TPath.Combine(FWork,'payload'),ReportFile,
       FOptions.SevenZip,FOptions.ToolsRoot,FOptions.Profile,FOptions.Grayscale);
-    try SaveText(TPath.Combine(FWork,'request.json'),Request.ToJSON); finally Request.Free; end;
+    try
+      Request.AddPair('backup_originals',TJSONBool.Create(FOptions.BackupOriginals));
+      SaveText(TPath.Combine(FWork,'request.json'),Request.ToJSON);
+    finally Request.Free; end;
     Output:=TCompressionEventStream.Create(Self);
     try
       try
@@ -392,10 +421,25 @@ begin
         Exit;
       end;
       CheckStop;
+      BackupJSON:='';
+      if FOptions.BackupOriginals then
+      begin
+        SetStage('Сохраняем выбранные оригиналы перед заменой');
+        if not (Report.GetValue('originals') is TJSONObject) then
+          raise EReadError.Create('Обработчик не подготовил оригиналы. Книги не изменены.');
+        Backup:=TCompressionOriginalBackup.Publish(Report.GetValue('originals').ToJSON,
+          Receipt.ToJSON,TPath.Combine(FWork,'payload'),FOptions.BackupFolder,Stopping);
+        BackupJSON:=Backup.ReferenceJSON;
+        TMonitor.Enter(FLock);
+        try
+          Inc(FState.BackupFiles); FState.BackupFolder:=FOptions.BackupFolder;
+        finally TMonitor.Exit(FLock); end;
+      end;
+      CheckStop;
       // Publication can have succeeded even if a subsequent constructor
       // check fails. Keep its candidate for recovery, never remove it here.
       KeepWork:=True;
-      Job:=TBookCompressionJob.CreatePrepared(QueueRoot,Receipt.ToJSON,Candidate);
+      Job:=TBookCompressionJob.CreatePrepared(QueueRoot,Receipt.ToJSON,Candidate,nil,BackupJSON);
       TMonitor.Enter(FLock);
       try FState.PendingJob:=Job.Directory; finally TMonitor.Exit(FLock); end;
       Job.Execute(Stopping,
@@ -409,7 +453,7 @@ begin
       finally TMonitor.Exit(FLock); end;
     finally Report.Free; end;
   finally
-    Job.Free;
+    Job.Free; Backup.Free;
     if KeepWork then
     begin
       if FWorkGuard<>0 then begin CloseHandle(FWorkGuard); FWorkGuard:=0; end;
