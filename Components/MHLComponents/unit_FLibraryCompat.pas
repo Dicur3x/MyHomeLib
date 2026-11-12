@@ -11,7 +11,7 @@ unit unit_FLibraryCompat;
 interface
 
 uses
-  System.Classes;
+  System.Classes, System.SysUtils;
 
 // Returns nil when no reconstruction was needed.  The caller retains ownership
 // of Source in every case and owns the returned stream when it is assigned.
@@ -20,9 +20,11 @@ function RestoreFLibraryBook(const ContainerFileName, BookEntryName: string;
 
 // Extracts and decodes only the cover used by the information panel.  Unlike
 // RestoreFLibraryBook, this does not touch the book text or its illustrations.
+// Encoded covers are limited to 16 MiB; cancellation reaches archive reading
+// and the isolated JPEG XL preview decoder.
 // The caller owns the returned stream.  Nil means that no cover was found.
 function ExtractFLibraryBookCover(const ContainerFileName,
-  BookEntryName: string): TStream;
+  BookEntryName: string; const IsCanceled: TFunc<Boolean> = nil): TStream;
 
 function FLibraryImageSourceFiles(const ContainerFileName: string): TArray<string>;
 
@@ -32,7 +34,6 @@ uses
   Winapi.Windows,
   Winapi.ActiveX,
   Winapi.MSXML,
-  System.SysUtils,
   System.Hash,
   System.IOUtils,
   System.StrUtils,
@@ -54,6 +55,11 @@ const
   PDF_JPEG_LIMIT = 256;
 
 type
+  TCoverBytesStream = class(TMemoryStream)
+  public
+    function Write(const Buffer; Count: Longint): Longint; override;
+  end;
+
   TExternalBookImage = record
     Name: string;
     IsCover: Boolean;
@@ -78,6 +84,13 @@ type
   public
     destructor Destroy; override;
   end;
+
+function TCoverBytesStream.Write(const Buffer; Count: Longint): Longint;
+begin
+  if (Count<0) or (Position>16*1024*1024-Int64(Count)) then
+    raise EReadError.Create('Отдельная обложка превышает 16 МБ.');
+  Result:=inherited Write(Buffer,Count);
+end;
 
 destructor TTemporaryPdfStream.Destroy;
 begin
@@ -399,18 +412,46 @@ begin
   end;
 end;
 
-function ConvertJpegXL(const Bytes: TBytes): TBytes;
+function ConvertJpegXL(const Bytes: TBytes; const IsCanceled:TFunc<Boolean> = nil;
+  Preview:Boolean = False): TBytes;
 var
   Decoder: string;
   InputFile: string;
   OutputFile: string;
   JpegFile: string;
   Sink: TMemoryStream;
+  Started:UInt64;
+  procedure Check;
+  var Attributes:TWin32FileAttributeData;
+  begin
+    if Assigned(IsCanceled) and IsCanceled() then Abort;
+    if not Preview then Exit;
+    if GetTickCount64-Started>15000 then raise EReadError.Create('Предпросмотр обложки JPEG XL занял больше 15 секунд.');
+    for var Name in TArray<string>.Create(OutputFile,JpegFile) do
+      if GetFileAttributesEx(PChar(Name),GetFileExInfoStandard,@Attributes) and
+        ((Attributes.nFileSizeHigh<>0) or (Attributes.nFileSizeLow>128*1024*1024)) then
+        raise EReadError.Create('Декодированная обложка JPEG XL слишком велика.');
+  end;
+  procedure Decode(const Destination:string; Reconstruct:Boolean);
+  var Arguments:TArray<string>;
+  begin
+    Arguments:=[InputFile,Destination];
+    if Reconstruct then Arguments:=Arguments+['--reconstruct_jpeg'];
+    if Preview then Arguments:=Arguments+['--num_threads=1'];
+    Started:=GetTickCount64; Check;
+    // Only covers opt into one CPU thread and bounded time, output and memory.
+    // Full-book reconstruction keeps its existing decoder behaviour.
+    if Preview then
+      RunExternalToolToStream(Decoder,Arguments,Sink,function:Boolean begin Check; Result:=False; end,
+        0,True,NativeUInt(512)*1024*1024)
+    else RunExternalToolToStream(Decoder,Arguments,Sink,IsCanceled);
+    Check;
+  end;
 begin
   Decoder := FindExternalTool('djxl.exe', 'jpeg-xl');
   if Decoder = '' then
     raise EMHLComponentRequired.Create('JPEG XL',
-      'Для иллюстраций этой книги нужен декодер JPEG XL. Его можно скачать в окне обновлений HomeLib Ru.');
+        'Для иллюстраций этой книги нужен декодер JPEG XL. Его можно скачать в окне обновлений HomeLibre.');
 
   // Reconstruct the original JPEG bitstream only when the container carries
   // its recovery data. The general PNG path preserves alpha and also works
@@ -425,7 +466,7 @@ begin
       if HasJpegReconstruction(Bytes) then
       begin
         try
-          RunExternalToolToStream(Decoder, [InputFile, JpegFile, '--reconstruct_jpeg'], Sink);
+          Decode(JpegFile,True);
           if FileExists(JpegFile) then
           begin
             Result := TFile.ReadAllBytes(JpegFile);
@@ -436,7 +477,7 @@ begin
           on E: EMHLExternalToolError do ;
         end;
       end;
-      RunExternalToolToStream(Decoder, [InputFile, OutputFile], Sink);
+      Decode(OutputFile,False);
     finally
       Sink.Free;
     end;
@@ -556,7 +597,7 @@ begin
 end;
 
 function TryExtractExternalImage(const ArchiveFileName,
-  EntryName: string; out Bytes: TBytes): Boolean;
+  EntryName: string; out Bytes: TBytes; const IsCanceled:TFunc<Boolean>): Boolean;
 var
   Archive: TMHLZip;
   I: Integer;
@@ -572,16 +613,21 @@ begin
   Stream := nil;
   try
     try
-      Archive := TMHLZip.Create(ArchiveFileName, True);
+      Archive := TMHLZip.Create(ArchiveFileName, True, False, IsCanceled);
       WantedName := NormalizeArchiveName(EntryName);
       for I := 0 to Archive.FileCount - 1 do
+      begin
+        if (I mod 256=0) and Assigned(IsCanceled) and IsCanceled() then Abort;
         if SameText(NormalizeArchiveName(Archive.FileNameAt(I)), WantedName) then
         begin
-          Stream := TMemoryStream.Create;
+          if (Archive.FileSizes[I]<0) or (Archive.FileSizes[I]>16*1024*1024) then
+            raise EReadError.Create('Отдельная обложка превышает 16 МБ.');
+          Stream := TCoverBytesStream.Create;
           Archive.ExtractToStream(I, Stream);
           Bytes := StreamToBytes(Stream);
           Exit(Length(Bytes) > 0);
         end;
+      end;
     except
       // Partially downloaded torrents can expose an incomplete side archive.
       // A missing preview must not prevent the book list from being used.
@@ -599,19 +645,20 @@ begin
 end;
 
 function ExtractFLibraryBookCover(const ContainerFileName,
-  BookEntryName: string): TStream;
+  BookEntryName: string; const IsCanceled:TFunc<Boolean>): TStream;
 var
   ArchiveName: string;
   Bytes: TBytes;
 begin
   Result := nil;
+  if Assigned(IsCanceled) and IsCanceled() then Abort;
   if not IsSevenZipArchive(ContainerFileName) then
     Exit;
 
   // FB2 covers are normally stored in covers\<archive>.zip under the book's
   // base name.  Prefer this explicit cover for every supported book format.
   ArchiveName := FindSiblingArchive(ContainerFileName, 'covers');
-  if not TryExtractExternalImage(ArchiveName, BookBaseName(BookEntryName), Bytes) then
+  if not TryExtractExternalImage(ArchiveName, BookBaseName(BookEntryName), Bytes, IsCanceled) then
   begin
     // FLibrary moves an EPUB cover to image number zero before generating its
     // image index.  Reading this one side-archive member avoids unpacking and
@@ -620,12 +667,12 @@ begin
       Exit;
     ArchiveName := FindSiblingArchive(ContainerFileName, 'images');
     if not TryExtractExternalImage(ArchiveName,
-      BookBaseName(BookEntryName) + '/0', Bytes) then
+      BookBaseName(BookEntryName) + '/0', Bytes, IsCanceled) then
       Exit;
   end;
 
   if IsJpegXL(Bytes) then
-    Bytes := ConvertJpegXL(Bytes);
+    Bytes := ConvertJpegXL(Bytes,IsCanceled,True);
   if ImageMediaType(Bytes) = 'application/octet-stream' then
     Exit;
   Result := BytesToStream(Bytes);

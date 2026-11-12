@@ -121,10 +121,58 @@ begin
         try Graphic:=CreateGraphicFromStream(Expected,64*1024*1024); finally Expected.Free; end;
         try
           Require(Assigned(Graphic),'Real cover cannot be decoded');
-          ReadCover(TJSONObject(Item).GetValue<string>('name'),'',Graphic.Width);
+          ReadCover(TJSONObject(Item).GetValue<string>('name'),
+            TJSONObject(Item).GetValue<string>('member',''),Graphic.Width);
+          if TJSONObject(Item).GetValue<Boolean>('sidecar',False) then
+          begin
+            var Pixels:=TBitmap.Create;
+            try
+              Pixels.Assign(Image.Picture.Graphic);
+              for var Sample in TJSONObject(Item).GetValue<TJSONArray>('samples') do
+              begin
+                var PointColor:=ColorToRGB(Pixels.Canvas.Pixels[TJSONObject(Sample).GetValue<Integer>('x'),TJSONObject(Sample).GetValue<Integer>('y')]);
+                var RGBValues:=TJSONObject(Sample).GetValue<TJSONArray>('rgb');
+                Require((Abs(Integer(GetRValue(PointColor))-RGBValues.Items[0].GetValue<Integer>)<=10) and
+                  (Abs(Integer(GetGValue(PointColor))-RGBValues.Items[1].GetValue<Integer>)<=10) and
+                  (Abs(Integer(GetBValue(PointColor))-RGBValues.Items[2].GetValue<Integer>)<=10),
+                  'Real sidecar cover pixels differ from the independent reference');
+              end;
+            finally Pixels.Free; end;
+            Require(Length(TDirectory.GetFiles(BookCachePath,'homelib-metadata-*.fb2'))=0,
+              'Sidecar cover unnecessarily extracted the whole FB2');
+            Writeln('PASS sidecar cover avoids full FB2 extraction');
+          end;
+          if TJSONObject(Item).GetValue<Boolean>('cancel_jxl',False) then
+          begin
+            var BeforeTemps:=TDirectory.GetFiles(Settings.TempDir);
+            var DecoderStarted:=False; var SavedHeartbeat:=MHLExternalToolHeartbeat;
+            MHLExternalToolHeartbeat:=procedure begin DecoderStarted:=True; end;
+            try
+              try
+                Expected:=Book.GetBookPreviewCoverStream(function:Boolean begin Result:=DecoderStarted; end);
+                Expected.Free; Require(False,'JPEG XL cover ignored cancellation');
+              except on E:EAbort do Require(DecoderStarted,'Cancellation did not reach the active JPEG XL decoder'); end;
+            finally MHLExternalToolHeartbeat:=SavedHeartbeat; end;
+            Require(Length(TDirectory.GetFiles(Settings.TempDir))=Length(BeforeTemps),
+              'Canceled JPEG XL cover left temporary files');
+            Writeln('PASS JPEG XL cover cancels its active decoder and cleans working files');
+          end;
         finally Graphic.Free; end;
       end;
     finally Cases.Free; end;
+    for var Stem in TArray<string>.Create('oversized-cover','forged-cover') do
+      if FileExists(Folder+'flibrary/'+Stem+'.7z') then
+      begin
+        Book:=Default(TBookRecord); Book.CollectionRoot:=Folder;
+        Book.Folder:='flibrary/'+Stem+'.7z'; Book.FileName:='too-large'; Book.FileExt:='.fb2';
+        Expected:=nil; var Rejected:=False;
+        try
+          try Expected:=Book.GetBookPreviewCoverStream; Rejected:=not Assigned(Expected);
+          except on E:EReadError do Rejected:=True; end;
+        finally Expected.Free; end;
+        Require(Rejected,'Oversized or forged sidecar cover was accepted');
+        Writeln('PASS sidecar rejects ',Stem);
+      end;
     // Switch while the previous reader is running: only the latest result may land.
     Book.FileName:='epub3'; Book.FileExt:='.epub'; Book.Folder:='';
     Preview.Load(Book,True,False,False); Sleep(120); Application.ProcessMessages;

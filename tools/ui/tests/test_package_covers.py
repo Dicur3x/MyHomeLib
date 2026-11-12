@@ -131,6 +131,9 @@ def main():
     p.add_argument('--pdf-real',type=Path)
     p.add_argument('--pdf-reference',type=Path,help='PDFium DLL matching Python bitness, for the independent real-file size check')
     p.add_argument('--full-7zip',type=Path)
+    p.add_argument('--webp-dir',type=Path)
+    p.add_argument('--jxl-dir',type=Path)
+    p.add_argument('--flibrary-archive',type=Path)
     p.add_argument('--comic-real',type=Path)
     p.add_argument('--modes',nargs='+',default=['package-covers','package-preview','book-preview','update-theme'])
     p.add_argument('--real',type=Path,action='append',default=[])
@@ -291,6 +294,77 @@ def main():
             rp=root/'cover-fixtures/raster-cases.json'; rc=json.loads(rp.read_bytes())
             rc.append(dict(name=target.name,cover=True,width=max(1,int(w*scale)),height=max(1,int(h*scale)),check_color=False,dimension_tolerance=1))
             rp.write_text(json.dumps(rc),encoding='utf-8')
+        if a.webp_dir or 'raster-preview' in a.modes:
+            from PIL import Image
+            source=root/'cover-fixtures/webp-image.webp'
+            Image.new('RGB',(24,32),(34,136,204)).save(source,format='WEBP',lossless=True)
+            if 'raster-preview' in a.modes:
+                shutil.copy2(source,root/'cover-fixtures/webp-as-jpg.jpg')
+                with zipfile.ZipFile(root/'cover-fixtures/webp-comic.cbz','w',compression=zipfile.ZIP_DEFLATED) as z: z.write(source,'page.webp')
+                rp=root/'cover-fixtures/raster-cases.json'; rc=json.loads(rp.read_bytes())
+                rc.extend(dict(name=n,cover=bool(a.webp_dir),width=24,height=32,color=[34,136,204]) for n in ('webp-image.webp','webp-as-jpg.jpg','webp-comic.cbz'))
+                rp.write_text(json.dumps(rc),encoding='utf-8')
+            with zipfile.ZipFile(root/'cover-fixtures/epub3.epub') as z:
+                with zipfile.ZipFile(root/'cover-fixtures/webp-cover.epub','w',compression=zipfile.ZIP_DEFLATED) as out:
+                    for name in z.namelist(): out.writestr(name,source.read_bytes() if name=='OPS/images/cover.png' else z.read(name))
+            cases.append(dict(name='webp-cover.epub',cover=True,expected=source.name))
+            if a.webp_dir:
+                (root/'cover-fixtures/webp-reference.png').write_bytes(png(24))
+                real.append(dict(name='webp-cover.epub',expected='webp-reference.png'))
+        for src,tool,subdir in [(a.webp_dir,'libwebp.dll','webp'),(a.jxl_dir,'djxl.exe','jpeg-xl')]:
+            if not src: continue
+            dest=root/'tools'/subdir; dest.mkdir(parents=True,exist_ok=True)
+            data=(src/tool).read_bytes()
+            binary_machine=struct.unpack_from('<H',data,struct.unpack_from('<I',data,0x3c)[0]+4)[0]
+            native_machine=struct.unpack_from('<H',machine,struct.unpack_from('<I',machine,0x3c)[0]+4)[0]
+            assert binary_machine==native_machine, 'Codec architecture differs from native test'
+            originals[str(src/tool)]=hashlib.sha256(data).hexdigest(); shutil.copy2(src/tool,dest/tool)
+        if a.flibrary_archive:
+            assert a.full_7zip
+            from PIL import Image
+            source=a.flibrary_archive; companion=source.parent/'covers'/(source.stem+'.zip')
+            assert source.stat().st_size<128*1024*1024 and companion.stat().st_size<128*1024*1024
+            dest=root/'cover-fixtures/flibrary'; (dest/'covers').mkdir(parents=True)
+            for src,target in [(source,dest/source.name),(companion,dest/'covers'/companion.name)]:
+                originals[str(src)]=hashlib.sha256(src.read_bytes()).hexdigest(); shutil.copy2(src,target)
+            listing=subprocess.check_output([str(a.full_7zip/'7z.exe'),'l','-slt','-sccUTF-8','--',str(dest/source.name)],timeout=20,creationflags=subprocess.CREATE_NO_WINDOW).decode('utf-8')
+            names=[line[7:] for line in listing.split('----------',1)[1].splitlines() if line.startswith('Path = ') and line.lower().endswith('.fb2')]
+            found=set()
+            with zipfile.ZipFile(dest/'covers'/companion.name) as z:
+                members=set(z.namelist())
+                for name in names:
+                    key=Path(name.replace('\\','/')).stem
+                    if key not in members or z.getinfo(key).file_size>16*1024*1024: continue
+                    data=z.read(key); is_jxl=data.startswith(b'\xff\x0a') or data.startswith(b'\0\0\0\x0cJXL ')
+                    kind='jxl' if is_jxl else 'raster'
+                    if kind in found or (is_jxl and not a.jxl_dir): continue
+                    expected=root/'cover-fixtures'/('flibrary-'+kind+'-reference.png')
+                    if is_jxl:
+                        encoded=root/'cover-fixtures/flibrary-reference.jxl'; encoded.write_bytes(data)
+                        r=subprocess.run([str(a.jxl_dir/'djxl.exe'),str(encoded),str(expected),'--num_threads=1'],capture_output=True,timeout=15,creationflags=subprocess.CREATE_NO_WINDOW)
+                        assert r.returncode==0,(r.stdout+r.stderr).decode('utf-8')
+                    else:
+                        try:
+                            with Image.open(io.BytesIO(data)) as im: im.convert('RGB').save(expected)
+                        except Exception: continue
+                    with Image.open(expected) as im:
+                        im=im.convert('RGB'); w,h=im.size
+                        samples=[dict(x=w*x//4,y=h*y//4,rgb=im.getpixel((w*x//4,h*y//4))) for x,y in ((1,1),(2,1),(2,2),(1,3),(3,3))]
+                    real.append(dict(name='flibrary/'+source.name,member=name,expected=expected.name,sidecar=True,cancel_jxl=is_jxl,samples=samples))
+                    found.add(kind)
+            assert 'raster' in found and (not a.jxl_dir or 'jxl' in found),'No matching real FLibrary cover samples'
+            for stem in ('oversized-cover','forged-cover'):
+                shutil.copy2(dest/source.name,dest/(stem+'.7z'))
+                target=dest/'covers'/(stem+'.zip')
+                with zipfile.ZipFile(target,'w',compression=zipfile.ZIP_DEFLATED) as z:
+                    with z.open('too-large','w') as out:
+                        for _ in range(256): out.write(b'x'*65536)
+                        out.write(b'x')
+                if stem=='forged-cover':
+                    data=bytearray(target.read_bytes()); central=data.index(b'PK\x01\x02')
+                    struct.pack_into('<I',data,22,1); struct.pack_into('<I',data,central+24,1); target.write_bytes(data)
+        (root/'cover-fixtures/cases.json').write_text(json.dumps(cases),encoding='utf-8'); count=len(cases)
+        (root/'cover-fixtures/real-preview.json').write_text(json.dumps(real),encoding='utf-8')
         if a.pdf_dir:
             dest=root/'tools/pdfium'; dest.mkdir(parents=True)
             worker=json.loads((a.pdf_dir/'WORKER_RUNTIME.json').read_bytes())
@@ -303,7 +377,7 @@ def main():
             assert struct.unpack_from('<H',data,struct.unpack_from('<I',data,0x3c)[0]+4)[0]==worker_machine
             shutil.copy2(a.pdf_dir/'pdfium.dll',dest/'pdfium.dll')
             shutil.copy2(a.pdf_dir/'HomeLibPDF.exe',dest/'HomeLibPDF.exe')
-        hashes={x.name:hashlib.sha256(x.read_bytes()).hexdigest() for x in (root/'cover-fixtures').iterdir() if x.is_file()}
+        hashes={str(x.relative_to(root/'cover-fixtures')):hashlib.sha256(x.read_bytes()).hexdigest() for x in (root/'cover-fixtures').rglob('*') if x.is_file()}
         env=os.environ.copy(); env['LOCALAPPDATA']=str(root/'local')
         for mode in a.modes:
             with subprocess.Popen([str(root/'CollectionViewsTest.exe')]+mode.split(),cwd=root,env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,creationflags=subprocess.CREATE_NO_WINDOW) as r:
@@ -321,7 +395,7 @@ def main():
             if mode=='raster-preview' and a.large_raster:
                 assert memory[mode]['peak_working_set_bytes']<96*1024*1024, memory[mode]
         assert originals=={name:hashlib.sha256(Path(name).read_bytes()).hexdigest() for name in originals}
-        assert hashes=={x.name:hashlib.sha256(x.read_bytes()).hexdigest() for x in (root/'cover-fixtures').iterdir() if x.is_file()}
+        assert hashes=={str(x.relative_to(root/'cover-fixtures')):hashlib.sha256(x.read_bytes()).hexdigest() for x in (root/'cover-fixtures').rglob('*') if x.is_file()}
     report=dict(status='PASS',native_sha256=hashlib.sha256(machine).hexdigest(),package_cases=count if 'package-covers' in a.modes else 0,source_hashes_preserved=True,private_runtime_removed=not Path(raw).exists(),memory=memory,original_source_sha256=originals,large_scan_dimensions=[4000,24000] if a.large_raster else None,checks={k:v.count('PASS ') for k,v in logs.items()})
     a.result.write_text(json.dumps(report,indent=2),encoding='utf-8'); print(json.dumps(report))
 if __name__=='__main__': main()

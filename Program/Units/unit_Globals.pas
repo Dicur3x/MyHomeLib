@@ -280,7 +280,7 @@ type
     function GetBookStream(const PreserveWebP: Boolean = False;
       const RestoreOriginalImages: Boolean = True; const IsCanceled: TFunc<Boolean> = nil): TStream;
     function GetBookDescriptorStream(const RestoreImages: Boolean = True): TStream;
-    function GetBookPreviewCoverStream: TStream;
+    function GetBookPreviewCoverStream(const IsCanceled: TFunc<Boolean> = nil): TStream;
     procedure SaveBookToFile(const DestFileName: String);
     function SaveBookToStream:TStream;
   end;
@@ -1586,7 +1586,7 @@ begin
 
 end;
 
-function TBookRecord.GetBookPreviewCoverStream: TStream;
+function TBookRecord.GetBookPreviewCoverStream(const IsCanceled: TFunc<Boolean>): TStream;
 var
   ArchiveFileName: string;
   BookFormat: TBookFormat;
@@ -1599,7 +1599,7 @@ begin
   ArchiveFileName := TPath.Combine(Settings.ReadPath, GetBookFileName);
   if IsSevenZipArchive(ArchiveFileName) then
     Result := ExtractFLibraryBookCover(ArchiveFileName,
-      FileName + FileExt);
+      FileName + FileExt, IsCanceled);
 end;
 
 procedure TBookRecord.SaveBookToFile(const DestFileName: String);

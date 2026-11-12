@@ -87,9 +87,10 @@ begin
         // A broken optional sidecar cover must not suppress the book's own
         // description/cover or the annotation already obtained from the catalog.
         try
-          Stream:=Book.GetBookPreviewCoverStream;
-          try Cover:=CreateGraphicFromStream(Stream); finally Stream.Free; end;
-        except on E: Exception do
+          Stream:=Book.GetBookPreviewCoverStream(function:Boolean begin Result:=Terminated; end);
+          try Cover:=CreateGraphicFromStream(Stream,64*1024*1024); finally Stream.Free; end;
+        except on E:EAbort do Exit;
+          on E: Exception do
           Status:='Не удалось прочитать отдельную обложку: '+E.Message;
         end;
       end;

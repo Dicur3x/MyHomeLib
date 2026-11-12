@@ -53,4 +53,12 @@ Native updater checks sample actual window pixels for both white strips, enabled
 
 Reports and native build receipts: `G:\HomeLibRu-build-cache\HomeLibre-post13-covers-20261112`. Test binaries include pending local UI/Reader work and are not a clean production release cohort. Temporary runtime profiles were removed. Original user books, catalogue and Desktop installation were not modified.
 
+## Prepared FLibrary and codec follow-up — not yet natively validated
+
+Private copies of a real FLibrary 7z container and its companion cover ZIP supplied matching JPEG and JPEG XL covers. Both references were independently decoded; WebP fixtures include a standalone image, a mismatched JPG extension, a CBZ page and an EPUB cover. Native follow-up tests also check sampled pixels, no full FB2 extraction, cancellation after the JPEG XL child actually starts, temporary-file cleanup, oversized side covers and forged ZIP sizes.
+
+Pending source changes carry the cancellation callback through the catalogue, record helper and side archive, bound encoded covers at 16 MiB, and limit the cover-only JPEG XL process to one thread, 15 seconds, 512 MiB process memory and 128 MiB output. The full-book image-reconstruction path retains its existing options. Sidecar cover decoding in the catalogue uses the same 64 MiB pixel budget as embedded package covers.
+
+Four IDE AutoBuild attempts (three Win32, one Win64) timed out before creating a compiler log, even with a visible IDE request. Their own processes were reaped, no other application was stopped, and no compiler/licensing bypass was used. A pre-change binary passed 51 raw package cases plus cancellation with the new private fixtures; that baseline validates fixture preparation and WebP byte extraction, **not** the uncompiled changes or the new catalogue/JPEG XL cancellation assertions. These changes remain unverified and unpublished. See `codec-followup-pending.json` in the report directory; this is not a completed-format claim.
+
 FB3 sample source: [official FB3 examples](https://github.com/gribuser/FB3/tree/master/Examples), Git blob `e7e2714b3e1d9b1c6040f8b7914525f634030c8e` (verified before inspection).
