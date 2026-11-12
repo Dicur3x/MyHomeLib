@@ -63,6 +63,29 @@ var Host:TForm; Panel:TInfoPanel; Preview:TBookInfoPreview; Book:TBookRecord;
     Require(THashSHA2.GetHashStringFromFile(Folder+Source)=OriginalHash,'Preview changed source');
     Writeln('PASS catalogue cover ',Source,' ',Member); Flush(Output);
   end;
+  procedure ReadFBDPackage(const Source:string; Width:Integer);
+  var Raw:TStream; Zip:TZipFile;
+  begin
+    Panel.Clear; Book:=Default(TBookRecord); Book.CollectionRoot:=Folder;
+    Book.FileName:=Source; Book.FileExt:='.epub';
+    Require(Book.GetBookFormat=bfFbd,'Expected legacy FBD package locator');
+    OriginalHash:=THashSHA2.GetHashStringFromFile(Folder+Source);
+    Preview.Load(Book,True,False,False); WaitPreview;
+    if Width>0 then Require(Assigned(Image.Picture.Graphic) and (Image.Picture.Width=Width),
+      'FBD wrapper payload/cover selection failed: '+Source+' '+Panel.PreviewStatusText)
+    else Require(not Assigned(Image.Picture.Graphic) and (Panel.PreviewStatusText<>''),
+      'Ambiguous FBD wrapper selected an arbitrary payload');
+    if Width>0 then
+    begin
+      Raw:=OpenBookImageSource(Book); Zip:=TZipFile.Create;
+      try
+        Zip.Open(Raw,zmRead);
+        Require(Zip.IndexOf('META-INF/container.xml')>=0,'Image provider returned outer FBD ZIP instead of EPUB');
+      finally Zip.Free; Raw.Free; end;
+    end;
+    Require(OriginalHash=THashSHA2.GetHashStringFromFile(Folder+Source),'FBD wrapper modified');
+    Writeln('PASS FBD package ',Source); Flush(Output);
+  end;
 begin
   Folder:=Settings.AppPath+'cover-fixtures'+PathDelim;
   Host:=TForm.CreateNew(nil); Panel:=TInfoPanel.Create(Host); Panel.Parent:=Host;
@@ -77,6 +100,19 @@ begin
     ReadCover('outer.zip','books/epub3.epub',24);
     if TFile.Exists(Folder+'outer.7z') then ReadCover('outer.7z','books/epub3.epub',24);
     ReadCover('original.fb2','',24);
+    ReadFBDPackage('fbd-covered.zip',48); ReadFBDPackage('fbd-no-cover.zip',24);
+    ReadFBDPackage('fbd-descriptor-first.zip',24); ReadFBDPackage('fbd-ambiguous.zip',0);
+    Book:=Default(TBookRecord); Book.CollectionRoot:=Folder; Book.FileName:='fbd-html.zip'; Book.FileExt:='.html';
+    Expected:=OpenRawBookSource(Book);
+    try
+      var Bundle:=TZipFile.Create;
+      try
+        Bundle.Open(Expected,zmRead);
+        Require((Bundle.IndexOf('book.html')>=0) and (Bundle.IndexOf('images/page.png')>=0),
+          'FBD HTML wrapper lost linked resources');
+      finally Bundle.Free; end;
+    finally Expected.Free; end;
+    Writeln('PASS FBD HTML keeps its resource bundle');
     Cases:=TJSONObject.ParseJSONValue(TFile.ReadAllText(Folder+'real-preview.json',TEncoding.UTF8)) as TJSONArray;
     try
       for Item in Cases do
@@ -102,4 +138,83 @@ begin
     Require(not Assigned(Image.Picture.Graphic) and (Panel.PreviewStatusText<>''),'Damaged cover retained or unexplained');
     Writeln('PASS damaged cover reports status without stale image');
   finally Preview.Free; Host.Free; end;
+end;
+
+procedure TestRasterPreview;
+var Host:TForm; Panel:TInfoPanel; Preview:TBookInfoPreview; Book:TBookRecord;
+  Image:TImage; Cases:TJSONArray; Item:TJSONValue; C:TJSONObject; Bitmap:TBitmap;
+  Folder,Name,Hash:string; Started,Deadline:UInt64; Pixel:Cardinal; Expected:TJSONArray;
+begin
+  Folder:=Settings.AppPath+'cover-fixtures'+PathDelim;
+  Cases:=TJSONObject.ParseJSONValue(TFile.ReadAllText(Folder+'raster-cases.json',TEncoding.UTF8)) as TJSONArray;
+  Host:=TForm.CreateNew(nil); Panel:=TInfoPanel.Create(Host); Panel.Parent:=Host;
+  Host.SetBounds(80,90,850,450); Panel.Align:=alClient; Host.Show;
+  Preview:=TBookInfoPreview.CreateFor(Host,Panel);
+  try
+    Image:=nil;
+    for var I:=0 to Panel.ControlCount-1 do if Panel.Controls[I] is TImage then Image:=TImage(Panel.Controls[I]);
+    Require(Assigned(Image),'Raster cover control absent');
+    for Item in Cases do
+    begin
+      C:=TJSONObject(Item); Name:=C.GetValue<string>('name');
+      Book:=Default(TBookRecord); Book.CollectionRoot:=Folder;
+      Book.FileName:=ChangeFileExt(Name,''); Book.FileExt:=ExtractFileExt(Name);
+      if C.GetValue<string>('member','')<>'' then
+      begin
+        Book.Folder:=Name; Book.FileName:=ChangeFileExt(C.GetValue<string>('member'),'');
+        Book.FileExt:=ExtractFileExt(C.GetValue<string>('member'));
+      end;
+      Hash:=THashSHA2.GetHashStringFromFile(Folder+Name);
+      Started:=GetTickCount64; Preview.Load(Book,True,Name='sidecar-damaged.png',False);
+      Require(GetTickCount64-Started<100,'Raster preview blocks selection');
+      Deadline:=GetTickCount64+20000;
+      while Preview.Busy and (GetTickCount64<Deadline) do
+      begin Application.ProcessMessages; CheckSynchronize(5); Sleep(5); end;
+      Require(not Preview.Busy,'Raster preview timeout: '+Name);
+      if C.GetValue<Boolean>('cover') then
+      begin
+        Require(Image.Picture.Graphic is TBitmap,'Missing raster preview: '+Name+' '+Panel.PreviewStatusText);
+        Bitmap:=TBitmap(Image.Picture.Graphic);
+        Require((Abs(Bitmap.Width-C.GetValue<Integer>('width'))<=C.GetValue<Integer>('dimension_tolerance',0)) and (Abs(Bitmap.Height-C.GetValue<Integer>('height'))<=C.GetValue<Integer>('dimension_tolerance',0)),
+          'Wrong raster preview dimensions: '+Name);
+        if C.GetValue<Boolean>('check_color',True) then
+        begin
+        Pixel:=ColorToRGB(Bitmap.Canvas.Pixels[Bitmap.Width div 2,Bitmap.Height div 2]);
+        Expected:=C.GetValue<TJSONArray>('color');
+        Require((Abs(Integer(GetRValue(Pixel))-Expected.Items[0].GetValue<Integer>)<=8) and
+          (Abs(Integer(GetGValue(Pixel))-Expected.Items[1].GetValue<Integer>)<=8) and
+          (Abs(Integer(GetBValue(Pixel))-Expected.Items[2].GetValue<Integer>)<=8),
+          'Wrong first page: '+Name+' pixel='+IntToHex(Pixel,8));
+        end;
+        if C.TryGetValue<TJSONArray>('top_color',Expected) then
+        begin
+          Pixel:=ColorToRGB(Bitmap.Canvas.Pixels[Bitmap.Width div 2,1]);
+          Require(Pixel=RGB(Expected.Items[0].GetValue<Integer>,Expected.Items[1].GetValue<Integer>,Expected.Items[2].GetValue<Integer>),
+            'Raster preview is vertically flipped at top');
+          Expected:=C.GetValue<TJSONArray>('bottom_color');
+          Pixel:=ColorToRGB(Bitmap.Canvas.Pixels[Bitmap.Width div 2,Bitmap.Height-2]);
+          Require(Pixel=RGB(Expected.Items[0].GetValue<Integer>,Expected.Items[1].GetValue<Integer>,Expected.Items[2].GetValue<Integer>),
+            'Raster preview is vertically flipped at bottom');
+        end;
+        Require(Panel.PreviewStatusText.Contains('Предпросмотр первой страницы'),
+          'First-page preview is presented as an embedded cover');
+      end
+      else Require(not Assigned(Image.Picture.Graphic) and (Panel.PreviewStatusText<>''),
+        'Non-comic archive or damaged image got a stale preview: '+Name);
+      if Name='sidecar-damaged.png' then Require(Panel.PreviewStatusText.Contains('описание файла'),'Broken sidecar explanation lost');
+      Require(Hash=THashSHA2.GetHashStringFromFile(Folder+Name),'Raster preview changed source');
+      Writeln('PASS raster catalogue ',Name); Flush(Output);
+    end;
+    for var Cached in TDirectory.GetFiles(BookCachePath,'homelib-metadata-*.cbz') do
+    begin
+      var Data:=TFileStream.Create(Cached,fmOpenRead or fmShareDenyNone);
+      try Require(Data.Size>0,'Failed empty extraction poisoned the completed cache'); finally Data.Free; end;
+    end;
+    Writeln('PASS empty payload leaves no completed zero-byte cache');
+    // Teardown must not leave a background worker holding its source open.
+    Book.FileName:='comic'; Book.FileExt:='.cbz'; Preview.Load(Book,True,False,False);
+    Sleep(120); Application.ProcessMessages; FreeAndNil(Preview);
+    var Source:=TFileStream.Create(Folder+'comic.cbz',fmOpenRead or fmShareExclusive);
+    Source.Free; Writeln('PASS raster preview teardown releases source');
+  finally Preview.Free; Host.Free; Cases.Free; end;
 end;

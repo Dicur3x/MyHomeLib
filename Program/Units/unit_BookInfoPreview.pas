@@ -31,7 +31,7 @@ implementation
 
 uses Winapi.Windows, Winapi.ActiveX, Vcl.Graphics, FictionBook_21, unit_FB2Utils,
   unit_Interfaces, unit_ReaderCache, unit_Consts, System.Variants, dm_user,
-  unit_BookMetadataCache, unit_PackageBookCover;
+  unit_BookMetadataCache, unit_PackageBookCover, unit_ReaderRaster;
 
 type
   TPreviewThread = class(TThread)
@@ -45,6 +45,8 @@ type
     HasDescriptor, CoverAssigned, DamagedTitle, TitleDiffers: Boolean;
     MetadataTitle: string;
     Cover: TGraphic;
+    RasterPixels:TBytes;
+    RasterWidth,RasterHeight:Integer;
     destructor Destroy; override;
   end;
 
@@ -54,7 +56,8 @@ begin Cover.Free; inherited; end;
 procedure TPreviewThread.Execute;
 var Stream: TStream; Document: IXMLFictionBook; HR: HRESULT; NeedFileAnnotation: Boolean;
   User: ISystemData; Collection: IBookCollection; Stored: TBookRecord;
-  CoverBytes:TBytes; CoverStatus:string; Image:TBytesStream;
+  CoverBytes:TBytes; CoverStatus,PreviewKind:string; Image:TBytesStream;
+  Raster:TReaderRaster; GenericArchive:Boolean;
 begin
   HR:=CoInitializeEx(nil,COINIT_APARTMENTTHREADED);
   try
@@ -91,6 +94,37 @@ begin
         end;
       end;
       if Terminated then Exit;
+      if LocalSource and (NeedFileAnnotation or NeedMetadata or (NeedCover and not Assigned(Cover))) then
+      begin
+        try
+        Stream:=Book.GetBookDescriptorStream(False);
+        if Assigned(Stream) then
+        try
+          if Terminated then Exit;
+          Document:=LoadFB2Description(Stream,NeedCover and not Assigned(Cover));
+          if Terminated then Exit;
+          HasDescriptor:=True;
+          CoverAssigned:=Document.Description.Titleinfo.Coverpage.Count>0;
+          MetadataTitle:=Trim(Document.Description.Titleinfo.Booktitle.Text);
+          DamagedTitle:=Pos(Char($FFFD),MetadataTitle)>0;
+          TitleDiffers:=(MetadataTitle<>'') and (Trim(Book.Title)<>'') and
+            not SameText(MetadataTitle,Trim(Book.Title));
+          if NeedCover and not Assigned(Cover) then
+            try Cover:=GetBookCover(Document); except end;
+          if NeedFileAnnotation then
+            try Annotation:=GetBookAnnotation(Document); except Annotation:=''; end;
+          // COM nodes stay in the worker apartment. Only the small description
+          // and a raster image are handed to the UI; the full FB2 is released here.
+          if NeedMetadata then MetadataXML:='<FictionBook xmlns="'+TargetNamespace+'">'+
+            Document.Description.XML+'</FictionBook>';
+        finally Document:=nil; Stream.Free; end;
+        except
+          on E:EAbort do Exit;
+          on E:EOutOfMemory do raise;
+          on E:Exception do Status:='Не удалось прочитать описание файла: '+E.Message;
+        end;
+      end;
+      if Terminated then Exit;
       if LocalSource and NeedCover and not Assigned(Cover) and IsBookCoverPackage(Book.FileExt) then
       begin
         try
@@ -113,40 +147,48 @@ begin
         end;
       end;
       if Terminated then Exit;
-      if LocalSource and (NeedFileAnnotation or NeedMetadata or (NeedCover and not Assigned(Cover))) then
+      GenericArchive:=SameText(Book.FileExt,'.zip') or SameText(Book.FileExt,'.7z') or SameText(Book.FileExt,'.rar');
+      if LocalSource and NeedCover and not Assigned(Cover) and
+        (IsRasterReaderFormat(Book.FileExt) or GenericArchive) then
       begin
-        Stream:=Book.GetBookDescriptorStream(False);
-        if Assigned(Stream) then
+        // The raster reader owns its WIC/DjVu context and decodes only page 0.
+        // It does not enter PDFium or construct a Reader window. Keep the cache
+        // lease open while it reads a selected member from an outer archive.
         try
-          if Terminated then Exit;
-          Document:=LoadFB2Description(Stream,NeedCover and not Assigned(Cover));
-          if Terminated then Exit;
-          HasDescriptor:=True;
-          CoverAssigned:=Document.Description.Titleinfo.Coverpage.Count>0;
-          MetadataTitle:=Trim(Document.Description.Titleinfo.Booktitle.Text);
-          DamagedTitle:=Pos(Char($FFFD),MetadataTitle)>0;
-          TitleDiffers:=(MetadataTitle<>'') and (Trim(Book.Title)<>'') and
-            not SameText(MetadataTitle,Trim(Book.Title));
-          if NeedCover and not Assigned(Cover) then
-            try Cover:=GetBookCover(Document); except end;
-          if NeedFileAnnotation then
-            try Annotation:=GetBookAnnotation(Document); except Annotation:=''; end;
-          // COM nodes stay in the worker apartment. Only the small description
-          // and a raster image are handed to the UI; the full FB2 is released here.
-          if NeedMetadata then MetadataXML:='<FictionBook xmlns="'+TargetNamespace+'">'+
-            Document.Description.XML+'</FictionBook>';
-        finally Document:=nil; Stream.Free; end;
+          Stream:=OpenRawBookSource(Book,nil,function:Boolean begin Result:=Terminated; end);
+          try
+            if not (Stream is TFileStream) then raise EReadError.Create('Нет локального файла для предпросмотра.');
+            Raster:=TReaderRaster.Create(TFileStream(Stream).FileName,600,GenericArchive);
+            try
+              if Terminated then Exit;
+              RasterPixels:=Raster.PreparedPagePixels(0,RasterWidth,RasterHeight);
+              PreviewKind:='Предпросмотр первой страницы.';
+            finally Raster.Free; end;
+          finally Stream.Free; end;
+        except
+          on E:EAbort do Exit;
+          on E:Exception do CoverStatus:='Предпросмотр первой страницы недоступен: '+E.Message;
+        end;
       end;
+      if Terminated then Exit;
       if NeedAnnotation and (Trim(Annotation)='') then
-        if HasDescriptor then Status:='В файле нет аннотации.'
-        else Status:='Аннотация для этого файла недоступна.';
-      if NeedCover and not Assigned(Cover) then
+      begin
+        if Status<>'' then Status:=Status+sLineBreak;
+        if HasDescriptor then Status:=Status+'В файле нет аннотации.'
+        else Status:=Status+'Аннотация для этого файла недоступна.';
+      end;
+      if NeedCover and not Assigned(Cover) and (Length(RasterPixels)=0) then
       begin
         if Status<>'' then Status:=Status+sLineBreak;
         if CoverStatus<>'' then Status:=Status+CoverStatus
         else if CoverAssigned then Status:=Status+'Не удалось прочитать обложку из файла.'
         else if HasDescriptor then Status:=Status+'Обложка в метаданных не задана.'
         else Status:=Status+'Обложка для этого файла недоступна.';
+      end;
+      if (Length(RasterPixels)>0) and (PreviewKind<>'') then
+      begin
+        if Status<>'' then Status:=Status+sLineBreak;
+        Status:=Status+PreviewKind;
       end;
       if DamagedTitle then
       begin
@@ -231,6 +273,7 @@ end;
 
 procedure TBookInfoPreview.Completed(Sender: TObject);
 var Worker: TPreviewThread; Stream: TStringStream; Document: IXMLFictionBook;
+  Bitmap:TBitmap;
 begin
   FreeAndNil(FLoadStatus);
   Worker:=TPreviewThread(Sender);
@@ -239,7 +282,20 @@ begin
   try
     FPanel.SetPreviewStatus(Worker.Status);
     if Worker.HasDescriptor then FPanel.Gallery.UseDescriptorImages;
-    if Worker.NeedCover then FPanel.SetBookCover(Worker.Cover);
+    if Worker.NeedCover then
+      if Length(Worker.RasterPixels)>0 then
+      begin
+        Bitmap:=TBitmap.Create;
+        try
+          Bitmap.PixelFormat:=pf32bit; Bitmap.SetSize(Worker.RasterWidth,Worker.RasterHeight);
+          // VCL ScanLine already maps visual top-to-bottom rows to its DIB.
+          for var Y:=0 to Worker.RasterHeight-1 do
+            Move(Worker.RasterPixels[Y*Worker.RasterWidth*4],
+              Bitmap.ScanLine[Y]^,Worker.RasterWidth*4);
+          FPanel.SetBookCover(Bitmap);
+        finally Bitmap.Free; end;
+      end
+      else FPanel.SetBookCover(Worker.Cover);
     if Worker.NeedAnnotation then FPanel.SetBookAnnotationText(Worker.Annotation);
     if Worker.MetadataXML<>'' then
     begin

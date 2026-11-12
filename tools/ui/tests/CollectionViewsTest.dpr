@@ -6300,6 +6300,7 @@ begin
       if ParamStr(1) = 'display-labels' then begin BenchmarkDisplayLabels; Halt(0); end;
       if ParamStr(1) = 'book-output-reset' then begin BenchmarkBookOutputReset; Halt(0); end;
       if ParamStr(1) = 'update-theme' then begin TestUpdateNotesTheme; Halt(0); end;
+      if ParamStr(1)='raster-preview' then begin TestRasterPreview; Flush(Output); Halt(0); end;
       if ParamStr(1)='package-covers' then begin TestPackageCovers; Flush(Output); Halt(0); end;
       if ParamStr(1)='package-preview' then begin TestPackagePreview; Flush(Output); Halt(0); end;
       if ParamStr(1) = 'update-image-identity' then begin TestImageUpdateIdentity; Flush(Output); Halt(0); end;

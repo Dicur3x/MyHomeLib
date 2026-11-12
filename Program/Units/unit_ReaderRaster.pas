@@ -34,7 +34,8 @@ type
     function PreparedFor(const Page: TReaderRasterPage; MinEdge, MinWidth: Integer): Boolean;
     function CachedPage(Index: Integer; out Page: TReaderRasterPage; Visible: Boolean = False): Boolean;
   public
-    constructor Create(const FileName: string; RenderEdge: Integer = 4000);
+    constructor Create(const FileName: string; RenderEdge: Integer = 4000;
+      RequireImageOnly: Boolean = False);
     destructor Destroy; override;
     function AsyncPages: Boolean; override;
     procedure PreparePage(Index: Integer; Prefetch: Boolean = False; RenderEdge: Integer = 4000; TargetWidth: Integer = 0); override;
@@ -42,6 +43,7 @@ type
     procedure SetVisibleRange(First, Count: Integer); override;
     function PageSize(Index: Integer): TPoint; override;
     function SourcePageSize(Index: Integer): TPoint;
+    function PreparedPagePixels(Index: Integer; out Width, Height: Integer): TBytes;
     function FitsContinuousWidth: Boolean;
     procedure DrawVisiblePage(Index: Integer; Canvas: TCanvas; const Bounds, Clip: TRect);
     function Render(Index, Width, Height: Integer; Night: Boolean = False): TBitmap; override;
@@ -62,6 +64,17 @@ uses Winapi.Windows, Winapi.ActiveX, Winapi.Wincodec, System.Math, System.IOUtil
   unit_WebPCompat, unit_ReaderDjvu, unit_BookCache;
 
 type TBitmap = Vcl.Graphics.TBitmap;
+  TComicPageStream = class(TMemoryStream)
+  public
+    function Write(const Buffer; Count: Longint): Longint; override;
+  end;
+
+function TComicPageStream.Write(const Buffer; Count: Longint): Longint;
+begin
+  if (Count<0) or (Position>32*1024*1024-Int64(Count)) then
+    raise EReadError.Create('Распакованное изображение комикса превышает 32 МБ.');
+  Result:=inherited Write(Buffer,Count);
+end;
 
 function ImageExtension(const E: string): Boolean;
 begin Result:=Pos('|'+LowerCase(E)+'|','|.jpg|.jpeg|.png|.gif|.bmp|.webp|.tif|.tiff|')>0; end;
@@ -158,8 +171,8 @@ begin
   OleCheck(Factory.CreateDecoderFromFilename(PWideChar(FileName),GUID_NULL,GENERIC_READ,WICDecodeMetadataCacheOnDemand,Decoder));
 end;
 
-constructor TReaderRaster.Create(const FileName: string; RenderEdge: Integer);
-var Names: TList<Integer>; I: Integer; Name, E: string; Factory: IWICImagingFactory;
+constructor TReaderRaster.Create(const FileName: string; RenderEdge: Integer; RequireImageOnly: Boolean);
+var Names: TList<Integer>; I, SortChecks: Integer; Name, E: string; Factory: IWICImagingFactory;
   Decoder: IWICBitmapDecoder; Frames: Cardinal;
 begin
   inherited CreateEmpty; FFileName:=TPath.GetFullPath(FileName); FVisiblePage:=-1;
@@ -186,17 +199,25 @@ begin
   begin
     FArchive:=TMHLZip.Create(FFileName,True,False,
       function: Boolean begin Result:=(GetCurrentThreadID<>MainThreadID) and TThread.CheckTerminated; end,
-      E<>'.cbz');
+      (E<>'.cbz') and (E<>'.zip'));
+    if RequireImageOnly and not FArchive.IsImageOnlyComic then
+      raise ENotSupportedException.Create('Этот архив содержит документы, а не только страницы комикса.');
     Names:=TList<Integer>.Create;
     try
       for I:=0 to FArchive.FileCount-1 do
       begin
+        if (I mod 256=0) and (GetCurrentThreadID<>MainThreadID) and TThread.CheckTerminated then Abort;
         Name:=FArchive.FileNames[I].Replace('\','/');
         if IsComicPageName(Name) and (FArchive.FileSizes[I]>0) then Names.Add(I);
       end;
+      SortChecks:=0;
       Names.Sort(TComparer<Integer>.Construct(
         function(const A,B: Integer): Integer
-        begin Result:=PageCompare(FArchive.FileNames[A],FArchive.FileNames[B]); end));
+        begin
+          Inc(SortChecks);
+          if (SortChecks mod 1024=0) and (GetCurrentThreadID<>MainThreadID) and TThread.CheckTerminated then Abort;
+          Result:=PageCompare(FArchive.FileNames[A],FArchive.FileNames[B]);
+        end));
       FArchiveEntries:=Names.ToArray; SetLength(FNames,Length(FArchiveEntries));
       for I:=0 to High(FArchiveEntries) do FNames[I]:=FArchive.FileNames[FArchiveEntries[I]];
     finally Names.Free; end;
@@ -337,7 +358,7 @@ begin
         // than interpreting its literal filename as a wildcard search.
         var Entry:=FArchiveEntries[Index];
         if (FArchive.FileSizes[Entry]<0) or (FArchive.FileSizes[Entry]>32*1024*1024) then raise Exception.Create('Изображение комикса превышает 32 МБ.');
-        Stream:=TMemoryStream.Create; FArchive.ExtractToStream(Entry,Stream);
+        Stream:=TComicPageStream.Create; FArchive.ExtractToStream(Entry,Stream);
       end else Stream:=TFileStream.Create(FFileName,fmOpenRead or fmShareDenyNone);
       Stream.Position:=0; Converted:=ConvertWebPStreamToPNG(Stream);
       if Assigned(Converted) then Adapter:=TStreamAdapter.Create(Converted,soReference)
@@ -400,6 +421,16 @@ var Page: TReaderRasterPage;
 begin
   if not CachedPage(Index,Page,True) then raise Exception.Create('Страница ещё подготавливается.');
   Result:=Point(Page.SourceWidth,Page.SourceHeight);
+end;
+
+function TReaderRaster.PreparedPagePixels(Index: Integer; out Width, Height: Integer): TBytes;
+var Page: TReaderRasterPage;
+begin
+  if not CachedPage(Index,Page) then raise Exception.Create('Страница ещё подготавливается.');
+  Width:=Page.Width; Height:=Page.Height;
+  // Finished immutable BGRA storage can cross a worker boundary. A TBitmap
+  // canvas/DC created in a worker must not be retained by the UI after it exits.
+  Result:=Page.Pixels;
 end;
 
 function TReaderRaster.FitsContinuousWidth: Boolean;

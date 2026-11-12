@@ -32,6 +32,7 @@ end;
 function CachedSource(const Book: TBookRecord; Writer: TBookCacheWrite = nil;
   const IsCanceled: TFunc<Boolean> = nil): string;
 var Pending: string; Input: TStream; Output: TFileStream; OwnWriter: Boolean;
+  Archive:TMHLZip; StreamDirectly:Boolean;
 begin
   Result := CacheName(Book);
   if not (Book.GetBookFormat in [bfFb2Archive,bfRawArchive]) then Exit;
@@ -39,15 +40,33 @@ begin
   try
     if FileExists(Result) then Exit;
     OwnWriter:=Writer=nil; if OwnWriter then Writer:=TBookCacheWrite.Create(Book.GetBookFileName);
-    Input:=nil;
+    Input:=nil; Archive:=nil;
     try
       ForceDirectories(BookCachePath); Pending:=Writer.TemporaryName(Result);
-      Input := Book.GetBookStream(True,False,IsCanceled);
-      if not Assigned(Input) then raise EFileNotFoundException.Create('Файл книги недоступен.');
       Output := TFileStream.Create(Pending,fmCreate);
-      try Input.Position := 0; Output.CopyFrom(Input,0); finally Output.Free; end;
+      try
+        // Ordinary archived EPUB/office/comic payloads can be copied straight
+        // to their cache file. Do not materialize a large compressed book in
+        // TMemoryStream first. Preserve FLibrary's FB2/image reconstruction and
+        // its special 7z PDF restoration through the existing book reader.
+        StreamDirectly:=(Book.GetBookFormat in [bfRawArchive,bfFb2Archive]) and
+          not (IsSevenZipArchive(Book.GetBookFileName) and
+            ((Book.GetBookFormat=bfFb2Archive) or SameText(Book.FileExt,'.pdf')));
+        if StreamDirectly then
+        begin
+          Archive:=TMHLZip.Create(Book.GetBookFileName,True,False,IsCanceled);
+          Archive.ExtractBookToStream(Book.FileName+Book.FileExt,Book.InsideNo,Output);
+        end
+        else
+        begin
+          Input:=Book.GetBookStream(True,False,IsCanceled);
+          if not Assigned(Input) then raise EFileNotFoundException.Create('Файл книги недоступен.');
+          Input.Position:=0; Output.CopyFrom(Input,0);
+        end;
+        if Output.Size=0 then raise EBookNotFound.Create('Файл книги пуст.');
+      finally Output.Free; end;
       Writer.Publish(Pending,Result);
-    finally Input.Free; if OwnWriter then Writer.Free; end;
+    finally Archive.Free; Input.Free; if OwnWriter then Writer.Free; end;
   finally TMonitor.Exit(CacheLock); end;
 end;
 
@@ -196,6 +215,9 @@ begin
   Corrected:=ResolveArchivedBook(Book);
   if (Corrected.FileName<>Book.FileName) or (Corrected.FileExt<>Book.FileExt) then
     Exit(OpenBookImageSource(Corrected));
+  if (Book.GetBookFormat=bfFbd) and
+    (SameText(Book.FileExt,FB2_EXTENSION) or SameText(Book.FileExt,'.epub')) then
+    Exit(OpenRawBookSource(Book));
   // FLibrary keeps illustrations in companion image archives; preserve its
   // reconstruction. Ordinary FB2 is shared with the metadata reader as-is.
   if (Book.GetBookFormat = bfFb2Archive) and IsSevenZipArchive(Book.GetBookFileName) then
@@ -207,7 +229,31 @@ end;
 
 function OpenRawBookSource(const Book: TBookRecord; const Writer: TBookCacheWrite;
   const IsCanceled: TFunc<Boolean>): TStream;
+var Corrected:TBookRecord; Archive:TMHLZip; Member:string; Matches:Integer;
 begin
+  if (Book.GetBookFormat=bfFbd) and not SameText(Book.FileExt,'.html') and
+    not SameText(Book.FileExt,'.htm') and not SameText(Book.FileExt,'.xhtml') then
+  begin
+    // Older local books keep the outer ZIP name in FileName. Its descriptor
+    // remains metadata, while a raw reader needs the actual payload, not ZIP.
+    Archive:=TMHLZip.Create(Book.GetBookFileName,True,False,IsCanceled);
+    try
+      Member:=''; Matches:=0;
+      for var I:=0 to Archive.FileCount-1 do
+      begin
+        if Assigned(IsCanceled) and IsCanceled() then Abort;
+        if not SameText(ExtractFileExt(Archive.FileNames[I]),Book.FileExt) then Continue;
+        Member:=Archive.FileNames[I]; Inc(Matches);
+      end;
+      // Composite/ambiguous packages keep their complete container for the
+      // normal reader to resolve. Never guess a book or discard its resources.
+      if Matches<>1 then Exit(OpenCachedBookFile(Book.GetBookFileName));
+    finally Archive.Free; end;
+    Corrected:=Book; Corrected.Folder:=Book.GetBookFileName;
+    Corrected.FileExt:=ExtractFileExt(Member);
+    Corrected.FileName:=Copy(Member,1,Length(Member)-Length(Corrected.FileExt));
+    Exit(OpenRawBookSource(Corrected,Writer,IsCanceled));
+  end;
   Result := OpenCachedBookFile(CachedSource(Book,Writer,IsCanceled));
   if Result.Size=0 then
   begin
