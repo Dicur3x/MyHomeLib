@@ -51,6 +51,8 @@ uses
   frame_NCWCollectionNameAndLocation, frame_NCWCollectionFileTypes,
   frame_NCWFinish, frame_WizardPageBase, frm_ConverToFBD, unit_FileMutex,
   unit_CollectionPacking in '..\..\..\Program\Units\unit_CollectionPacking.pas',
+  unit_BookCompressionRuntime, unit_BookCompressionOperation, unit_BookCompressionJob,
+  frm_BookCompression,
   frm_CollectionPackingProgress in '..\..\..\Program\Forms\frm_CollectionPackingProgress.pas',
   unit_CollectionPackingInpx in '..\..\..\Program\Units\unit_CollectionPackingInpx.pas',
   unit_OPDSServer;
@@ -6202,6 +6204,7 @@ end;
 {$I CollectionPackingFbdTests.inc}
 {$I CollectionPackingRestartTests.inc}
 {$I SqlCatalogueRestartTests.inc}
+{$I BookCompressionCatalogueTests.inc}
 
 var
   One, Two, Online: IBookCollection;
@@ -6403,6 +6406,15 @@ begin
       begin TestDeferredStartupEarlyClose; Halt(0); end;
       Application.CreateForm(TfrmMain, frmMain);
       if ParamStr(1).StartsWith('startup-deferred') then CompleteDeferredStartup;
+      if ParamStr(1)='selected-compression-ui' then
+      begin
+        TestSelectedCompressionCatalogue(One,FirstBook,LastBook);
+        Flush(Output);
+        FreeAndNil(frmMain); FreeAndNil(dmImages); One:=nil; Two:=nil;
+        FreeAndNil(DMUser); FreeAndNil(frmSplash);
+        Application.OnException:=nil; ExceptionHandler.Free;
+        Halt(0);
+      end;
       if ParamStr(1) = 'search-startup-layout' then TestSearchStartupLayout;
       TestHeaderMenuTags;
       Trace('genre form');

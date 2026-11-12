@@ -10,6 +10,8 @@ const
   PACKING_COMPONENT_VERSION = '3.0.0.5';
   PACKING_USR_COMPONENT_VERSION = '3.0.0.8';
   PACKING_WORKER_FILE = 'tools/bookconvert/pack_collection.py';
+  SELECTED_COMPRESSION_VERSION = '3.0.0.14';
+  SELECTED_COMPRESSION_WORKER = 'tools/bookconvert/prepare_book_compression.py';
   SQL_CATALOGUE_WORKER = 'tools/bookconvert/catalogdump/build_index.py';
   SQL_DUMP_PARSER = 'tools/bookconvert/catalogdump/mysql_dump.py';
 
@@ -80,6 +82,8 @@ begin
     if CompareComponentVersions(Version,PACKING_COMPONENT_VERSION,Comparison) and (Comparison>=0) then
       Result:=Result+[PACKING_WORKER_FILE,'tools/bookconvert/image_quality.py',
         SQL_CATALOGUE_WORKER,SQL_DUMP_PARSER];
+    if CompareComponentVersions(Version,SELECTED_COMPRESSION_VERSION,Comparison) and (Comparison>=0) then
+      Result:=Result+[SELECTED_COMPRESSION_WORKER,'tools/bookconvert/archive_replacement.py'];
   end;
   if ID='ImageProcessing' then Result:=TArray<string>.Create('tools/images/HomeLibImages.exe',
     'tools/images/RUNTIME.json','tools/images/HomeLibImages-MIT.txt');

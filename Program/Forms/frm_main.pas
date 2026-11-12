@@ -81,7 +81,8 @@ uses
   VirtualTrees.AncestorVCL,
   unit_Localization, unit_BookInfoPreview, unit_MHLTheme, System.Generics.Collections,
   unit_AuthorFavorites, unit_AuthorFavoriteRefresh, unit_ReaderAnnotations, unit_ReaderSession,
-  unit_BookSaveContinuation, unit_BookReviewPreview, unit_CollectionPacking;
+  unit_BookSaveContinuation, unit_BookReviewPreview, unit_CollectionPacking,
+  unit_BookCompressionOperation, frm_BookCompression;
 
 const
   WM_RESUME_SQL_CATALOGUE = $8000+372;
@@ -977,6 +978,14 @@ type
     procedure RestoreCollectionSnapshot(Sender: TObject);
     procedure PackCurrentCollection(Sender: TObject);
     procedure PackCollection(UpdateFromInpx: Boolean; Resume: PCollectionPackingRequest = nil);
+    procedure CompressSelectedBooks(Sender: TObject);
+    procedure CompressionActionUpdate(Sender: TObject);
+    procedure StartBookCompression(Operation: TBookCompressionOperation);
+    procedure BookCompressionTick(Sender: TObject);
+    procedure StopBookCompression(Sender: TObject);
+    procedure ReviewBookCompression(Decision: TCompressionReview);
+    procedure CheckCompressionRecovery;
+    function CompressionBlocksCatalogChange: Boolean;
     procedure ResumePacking(var Message: TMessage); message WM_RESUME_COLLECTION_PACKING;
     procedure ResumeSqlCatalogue(var Message: TMessage); message WM_RESUME_SQL_CATALOGUE;
     procedure ShowBookDuplicates(Sender: TObject);
@@ -1019,6 +1028,12 @@ type
     FBookDeletionOperation: TBookDeletionOperation;
     FBookDeletionProgress: TBookDeletionProgress;
     FBookDeletionTimer: TTimer;
+    FBookCompressionOperation: TBookCompressionOperation;
+    FBookCompressionProgress: TfrmBookCompressionProgress;
+    FBookCompressionTimer: TTimer;
+    FBookCompressionAction: TAction;
+    FCloseAfterCompression, FCompressionNeedsRecovery: Boolean;
+    FCompressionRecoveryAttempted: TArray<string>;
     FExplorerImportTimer: TTimer;
     FExplorerImportFiles: TArray<string>;
     FCloseAfterBookDeletion, FBookDeletionNeedsRecovery: Boolean;
@@ -1294,7 +1309,8 @@ const
 implementation
 
 uses
-  SQLiteWrap, SQLiteProfile,
+  SQLiteWrap, SQLiteProfile, unit_BookCompressionPlan, unit_BookCompressionRuntime,
+  unit_BookCompressionJob,
   StrUtils,
   DateUtils,
   IOUtils,
@@ -2217,6 +2233,7 @@ var
   ChangesCommitted: Boolean;
   Required: string;
 begin
+  if CompressionBlocksCatalogChange then Exit;
   Required:='';
   if not Assigned(FCollection) or FFormBusy then Exit;
   IndexedCID := FCollection.CollectionID;
@@ -2271,6 +2288,7 @@ end;
 procedure TfrmMain.FillBookMetadataExecute(Sender: TObject);
 var CollectionID: Integer; Changed: Boolean; Required: string;
 begin
+  if CompressionBlocksCatalogChange then Exit;
   Required:='';
   if not Assigned(FCollection) or FFormBusy then Exit;
   CollectionID:=FCollection.CollectionID; Changed:=False; UpdatePositions;
@@ -3351,6 +3369,7 @@ var
   Source, URL, Folder, Version, WorkDir, IndexFile: string;
   ActiveID: Integer; Id: TGUID;
 begin
+  if CompressionBlocksCatalogChange then Exit;
   if FFormBusy or FStartupLoading or FBookListLoading then Exit;
   if not FileExists(TPath.Combine(Settings.AppPath,FormatComponentFile('BookProcessing'))) or
      not FileExists(TPath.Combine(Settings.AppPath,SQL_CATALOGUE_WORKER)) or
@@ -3916,6 +3935,7 @@ end;
 procedure TfrmMain.StartLibUpdate;
 var ChangedCollections: TArray<Integer>;
 begin
+  if CompressionBlocksCatalogChange then Exit;
   if Assigned(FOPDSForm) then FOPDSForm.StopServer;
   unit_Utils.LibrusecUpdate(Settings.SystemFileName[sfUpdateLog], ChangedCollections);
   NotifyFavoriteCatalogChanged(ChangedCollections);
@@ -4600,6 +4620,10 @@ end;
 
 procedure TfrmMain.CheckBookDuplicateApply(Sender: TObject);
 begin
+  if Assigned(FBookCompressionOperation) or FCompressionNeedsRecovery then
+  begin
+    MessageDlg('Сначала завершите сжатие книг.',mtInformation,[mbOK],0); Abort;
+  end;
   if Assigned(FBookDeletionOperation) or FBookDeletionNeedsRecovery then
   begin
     MessageDlg('Сначала завершите текущее удаление книг.',mtInformation,[mbOK],0); Abort;
@@ -4676,6 +4700,170 @@ begin
   PackCollection(False);
 end;
 
+procedure TfrmMain.CompressionActionUpdate(Sender: TObject);
+begin
+  TAction(Sender).Enabled:=Assigned(FBookCompressionOperation) or
+    (not FFormBusy and not FCompressionNeedsRecovery and not Assigned(FBookDeletionOperation) and
+    (SelectedBookForFileAction<>nil));
+end;
+
+procedure TfrmMain.CompressSelectedBooks(Sender: TObject);
+var Tree: TBookTree; IDs: TBookIdList; Books: TArray<TBookRecord>;
+  Info: TCollectionInfo; Options: TBookCompressionOperationOptions;
+  Personal, Registry: string; Required: TArray<string>; Operation: TBookCompressionOperation;
+begin
+  if Assigned(FBookCompressionOperation) then
+  begin FBookCompressionProgress.Show; Exit; end;
+  if not Assigned(FCollection) or FFormBusy or FStartupLoading or FBookListLoading then Exit;
+  if Assigned(FBookDeletionOperation) or FBookDeletionNeedsRecovery or FCompressionNeedsRecovery then
+  begin MHLShowInfo('Сначала завершите текущую операцию с файлами книг.'); Exit; end;
+  if CheckActiveDownloads then
+  begin MHLShowInfo('Дождитесь завершения скачивания книг, затем повторите сжатие.'); Exit; end;
+  GetActiveTree(Tree); if not Assigned(Tree) then Exit;
+  FillBookIdList(Tree,IDs,False); if Length(IDs)=0 then Exit;
+  try
+    Info:=FSystemData.GetCollectionInfo(FCollection.CollectionID);
+    SetLength(Books,Length(IDs));
+    for var I:=0 to High(IDs) do
+    begin
+      if IDs[I].BookKey.DatabaseID<>Info.ID then
+        raise EReadError.Create('Для этого сжатия выберите книги одной коллекции.');
+      FCollection.GetBookRecord(IDs[I].BookKey,Books[I],False);
+      if IDs[I].HasExpectedIdentity and not ReaderBookMatchesExpectedIdentity(
+        IDs[I].ExpectedLibID,IDs[I].ExpectedPhysicalIdentity,Books[I],
+        VarToStr(FCollection.GetProperty(PROP_SOURCE_LIBRARY))) then
+        raise EReadError.Create('Выбранная книга изменилась. Повторите выбор перед сжатием.');
+    end;
+    Personal:=Settings.SystemFileName[sfSystemDB];
+    Registry:=TPath.Combine(Settings.DataPath,'compression-work.ini');
+    Options:=Default(TBookCompressionOperationOptions);
+    LoadCompressionPreferences(Registry,TPath.Combine(ExtractFileDir(Books[0].GetBookFileName),
+      'HomeLibre-compression-work'),Options);
+    if not ChooseSelectedCompressionOptions(Self,Length(Books),Options) then Exit;
+    Required:=ResolveSelectedCompressionTools(Settings.AppPath,Options);
+    if Length(Required)>0 then
+    begin
+      EnsureProgramUpdateForm;
+      FProgramUpdateForm.RequestComponents(Required,
+        'Для сжатия выбранных книг нужны эти компоненты. После установки повторите команду; отметки книг сохранены.',True);
+      Exit;
+    end;
+    // Remember every possible recovery queue before a worker can publish a
+    // job. This small registry lives in the profile; large work stays in the
+    // selected folder and can be on another drive than Windows or the books.
+    RememberCompressionWork(Registry,Options);
+    Operation:=TBookCompressionOperation.Create(Options,
+      function(const Cancelled: TFunc<Boolean>; const Progress: TProc<Int64>): TBookCompressionPlan
+      begin Result:=BuildSelectedCompressionPlan(Info,Personal,Books,Cancelled,Progress); end);
+    StartBookCompression(Operation);
+    RecordComponentUse('BookProcessing'); RecordComponentUse('7-Zip');
+    if Options.Grayscale or (Options.Profile<>'original') then RecordComponentUse('ImageProcessing');
+  except on E:Exception do
+    begin LogDiagnosticError('book-compression-start',E); MHLShowWarning(E.Message); end;
+  end;
+end;
+
+procedure TfrmMain.StartBookCompression(Operation: TBookCompressionOperation);
+begin
+  FBookCompressionOperation:=Operation;
+  try
+    FreeAndNil(FBookCompressionProgress);
+    FBookCompressionProgress:=TfrmBookCompressionProgress.CreateProgress(Self,StopBookCompression,ReviewBookCompression);
+    if not Assigned(FBookCompressionTimer) then
+    begin
+      FBookCompressionTimer:=TTimer.Create(Self); FBookCompressionTimer.Enabled:=False;
+      FBookCompressionTimer.Interval:=120; FBookCompressionTimer.OnTimer:=BookCompressionTick;
+    end;
+    FBookCompressionProgress.Show;
+    Operation.Start; FBookCompressionTimer.Enabled:=True;
+  except
+    FreeAndNil(FBookCompressionProgress); FreeAndNil(FBookCompressionOperation); raise;
+  end;
+end;
+
+procedure TfrmMain.StopBookCompression(Sender: TObject);
+begin
+  if not Assigned(FBookCompressionOperation) then Exit;
+  FBookCompressionOperation.RequestStop;
+  FBookCompressionProgress.UpdateProgress(FBookCompressionOperation.Status);
+end;
+
+procedure TfrmMain.ReviewBookCompression(Decision: TCompressionReview);
+begin
+  if Assigned(FBookCompressionOperation) then FBookCompressionOperation.Approve(Decision);
+end;
+
+function TfrmMain.CompressionBlocksCatalogChange: Boolean;
+begin
+  Result:=Assigned(FBookCompressionOperation) or FCompressionNeedsRecovery;
+  if not Result then Exit;
+  StatusMessage:='Сначала завершите сжатие книг. Просматривать каталог и читать книги можно.';
+  if Assigned(FBookCompressionProgress) then
+  begin FBookCompressionProgress.Show; FBookCompressionProgress.BringToFront; end;
+end;
+
+procedure TfrmMain.CheckCompressionRecovery;
+var Options: TBookCompressionOperationOptions; Seen: Boolean;
+begin
+  if Assigned(FBookCompressionOperation) or Assigned(FBookDeletionOperation) then Exit;
+  try
+    Options:=Default(TBookCompressionOperationOptions);
+    LoadCompressionPreferences(TPath.Combine(Settings.DataPath,'compression-work.ini'),'',Options);
+    for var Root in CompressionWorkRoots(TPath.Combine(Settings.DataPath,'compression-work.ini')) do
+    begin
+      Options.WorkRoot:=Root;
+      Seen:=False;
+      for var Attempt in FCompressionRecoveryAttempted do if Attempt=Root then Seen:=True;
+      if Seen or (Length(TBookCompressionJob.Pending(CompressionQueueRoot(Options)))=0) then Continue;
+      FCompressionRecoveryAttempted:=FCompressionRecoveryAttempted+[Root];
+      StartBookCompression(TBookCompressionOperation.Recover(Options)); Exit;
+    end;
+  except on E:Exception do
+    begin FCompressionNeedsRecovery:=True; LogDiagnosticError('book-compression-recovery',E); end;
+  end;
+end;
+
+procedure TfrmMain.BookCompressionTick(Sender: TObject);
+var State: TBookCompressionOperationStatus; RefreshError: string;
+begin
+  if not Assigned(FBookCompressionOperation) then Exit;
+  State:=FBookCompressionOperation.Status;
+  FBookCompressionProgress.UpdateProgress(State);
+  if not State.Finished then Exit;
+  if FStartupLoading or FBookListLoading or FFormBusy then Exit;
+  FBookCompressionTimer.Enabled:=False;
+  FBookCompressionOperation.WaitFor;
+  RefreshError:='';
+  try
+    if State.ChangedFiles>0 then
+    begin
+      FSystemData.ClearCollectionCache;
+      if Assigned(FCollection) then
+      begin
+        FCollection:=FSystemData.GetCollection(FCollection.CollectionID,True);
+        RefreshBookMetadataViews(FCollection.CollectionID);
+      end;
+    end;
+    FBookCompressionOperation.AcknowledgeCompletedJobs;
+  except on E:Exception do
+    begin
+      RefreshError:='Файлы обработаны, но обновление окна не завершено. Журнал сохранён для следующего запуска. '+E.Message;
+      LogDiagnosticError('book-compression-refresh',E);
+    end;
+  end;
+  State:=FBookCompressionOperation.Status;
+  FCompressionNeedsRecovery:=(Length(TBookCompressionJob.Pending(FBookCompressionOperation.QueueRoot))>0) or
+    (State.PendingJob<>'') or (RefreshError<>'');
+  if State.Error<>'' then LogDiagnosticMessage('book-compression',State.Error);
+  if State.Warning<>'' then LogDiagnosticMessage('book-compression-warning',State.Warning);
+  FreeAndNil(FBookCompressionOperation);
+  FBookCompressionProgress.ShowResult(State,RefreshError);
+  StatusMessage:=State.Stage+' Освобождено: '+BookCacheSizeText(State.SavedBytes);
+  if FCloseAfterCompression then
+  begin FCloseAfterCompression:=False; PostMessage(Handle,WM_CLOSE,0,0); end
+  else if State.Error='' then CheckCompressionRecovery;
+end;
+
 function ChoosePackingImageProfile(Owner: TForm; out Profile: TPackingImageProfile; out Grayscale: Boolean): Boolean;
 const ChoiceBase = 100;
 var Dialog: TTaskDialog; Button: TTaskDialogButtonItem;
@@ -4726,6 +4914,8 @@ var Options: TCollectionPackingOptions; Required: TArray<string>;
   Source: IBookCollection; Request: TCollectionPackingRequest;
   SavedProfile: TPackingImageProfile; SavedGrayscale, OpenUpdatedBooks: Boolean;
 begin
+  if Assigned(FBookCompressionOperation) or FCompressionNeedsRecovery then
+  begin MHLShowInfo('Сначала завершите сжатие выбранных книг.'); Exit; end;
   if ((Resume=nil) and not Assigned(FCollection)) or FFormBusy or FStartupLoading or FBookListLoading then Exit;
   if CheckActiveDownloads then
   begin
@@ -4921,6 +5111,7 @@ procedure TfrmMain.ShowCatalogSources(Sender: TObject);
 var Dialog: TfrmCatalogSources; Changed, MetadataChanged: Boolean; CollectionID: Integer;
   Required: string;
 begin
+  if CompressionBlocksCatalogChange then Exit;
   if not Assigned(FCollection) then Exit;
   if isOnlineCollection(FCollection.CollectionCode) then
   begin
@@ -5392,6 +5583,16 @@ begin
   FilterMenu:=TMenuItem.Create(Self); FilterMenu.Name:='miPackCollection';
   FilterMenu.Caption:='Сжать файлы книг…';
   FilterMenu.OnClick:=PackCurrentCollection; N2.Insert(N6.MenuIndex,FilterMenu);
+  FBookCompressionAction:=TAction.Create(Self); FBookCompressionAction.Name:='acCompressSelectedBooks';
+  FBookCompressionAction.ActionList:=Actions; FBookCompressionAction.Category:='Книга';
+  FBookCompressionAction.Caption:='Сжать выбранные книги…';
+  FBookCompressionAction.Hint:='Уменьшить выбранные файлы на прежних местах. Соседние книги в архивах сохраняются.';
+  FBookCompressionAction.OnExecute:=CompressSelectedBooks;
+  FBookCompressionAction.OnUpdate:=CompressionActionUpdate;
+  FilterMenu:=TMenuItem.Create(Self); FilterMenu.Name:='miCompressSelectedBooks';
+  FilterMenu.Action:=FBookCompressionAction; miBook.Add(FilterMenu);
+  FilterMenu:=TMenuItem.Create(Self); FilterMenu.Name:='pmiCompressSelectedBooks';
+  FilterMenu.Action:=FBookCompressionAction; pmMain.Items.Insert(pmiSendToDevice.MenuIndex+1,FilterMenu);
   FilterMenu:=TMenuItem.Create(Self); FilterMenu.Name:='miRestoreCollectionSnapshot';
   FilterMenu.Caption:='Восстановить из резервной копии…';
   FilterMenu.OnClick:=RestoreCollectionSnapshot; N6.Add(FilterMenu);
@@ -5527,6 +5728,7 @@ begin
   if HasArchiveDeletionJournals(BookDeletionJournalRoot) then
     StartBookDeletion(TBookDeletionOperation.Recover(Settings.SystemFileName[sfSystemDB],
       BookDeletionJournalRoot),False);
+  CheckCompressionRecovery;
 end;
 
 procedure TfrmMain.StartInitialCatalogRead(View: TView);
@@ -5729,6 +5931,10 @@ end;
 
 procedure TfrmMain.FormCloseQuery(Sender: TObject; var CanClose: Boolean);
 begin
+  if Assigned(FBookCompressionOperation) then
+  begin
+    CanClose:=False; FCloseAfterCompression:=True; StopBookCompression(nil); Exit;
+  end;
   if FStartupCloseRequested then
   begin
     CanClose := not StartupWorkersRunning;
@@ -5803,6 +6009,9 @@ end;
 procedure TfrmMain.FormDestroy(Sender: TObject);
 var I: Integer; Message: TMsg;
 begin
+  FreeAndNil(FBookCompressionTimer);
+  FreeAndNil(FBookCompressionOperation);
+  FreeAndNil(FBookCompressionProgress);
   FreeAndNil(FBookDeletionTimer);
   Application.UnhookMainWindow(ReceiveExplorerImport);
   FreeAndNil(FExplorerImportTimer);
@@ -6813,6 +7022,7 @@ var
   bookIDList: TBookIdList;
   bookIDStruct: TBookIdStruct;
 begin
+  if CompressionBlocksCatalogChange then Exit;
   Assert(Assigned(FCollection));
   SavedCursor := Screen.Cursor;
   Screen.Cursor := crHourGlass;
@@ -9002,6 +9212,8 @@ procedure TfrmMain.StartBookDeletion(Operation: TBookDeletionOperation; ShowProg
 begin
   FBookDeletionOperation:=Operation;
   try
+    if Assigned(FBookCompressionOperation) or FCompressionNeedsRecovery then
+      raise EInvalidOperation.Create('Сначала завершите сжатие книг; сейчас их файлы могут изменяться.');
     FBookDeletionOperation.ReviewArchives:=ShowProgress and ReviewArchives;
     if not Assigned(FBookDeletionTimer) then
     begin
@@ -9133,6 +9345,7 @@ begin
   end
   else if State.Stopping then StatusMessage:=Format('Удаление остановлено. Обработано книг: %d.',[State.CompletedBooks])
   else if State.CompletedBooks>0 then StatusMessage:=Format('Обработано книг: %d.',[State.CompletedBooks]);
+  if not FCloseAfterBookDeletion and not FBookDeletionNeedsRecovery then CheckCompressionRecovery;
 end;
 
 procedure TfrmMain.RefreshAfterBookDeletion(const CollectionID: Integer; RemoveRecords, GroupsOnly: Boolean);
@@ -9401,6 +9614,7 @@ var Tree: TBookTree; Node: PVirtualNode; Data: PBookRecord;
   SavedCursor: TCursor; CollectionName: string;
   Writer: IBookIdentityDeletionWriter; Match: TBookIdentityPredicate;
 begin
+  if CompressionBlocksCatalogChange then Exit;
   if Assigned(FBookDeletionOperation) then
   begin
     if Assigned(FBookDeletionProgress) then FBookDeletionProgress.Show;
@@ -9532,6 +9746,7 @@ var
   CollectionInfoIterator: ICollectionInfoIterator;
   CollectionInfo: TCollectionInfo;
 begin
+  if CompressionBlocksCatalogChange then Exit;
   Assert(Assigned(FCollection));
 
   deleteAction := AskDeleteCollectionAction;
@@ -9682,6 +9897,7 @@ procedure TfrmMain.EditAuthorExecute(Sender: TObject);
 var
   Data: PAuthorData;
 begin
+  if CompressionBlocksCatalogChange then Exit;
   Data := tvAuthors.GetNodeData(tvAuthors.GetFirstSelected);
   try
     frmEditAuthorData := TfrmEditAuthorData.Create(Self);
@@ -9734,6 +9950,7 @@ var
   frmEditBook: TfrmEditBookInfo;
   BookCollection: IBookCollection;
 begin
+  if CompressionBlocksCatalogChange then Exit;
   Assert(Assigned(FCollection));
   if (ActiveView = DownloadView) then
   begin
@@ -9788,6 +10005,7 @@ var
   DataB: PBookRecord;
   Tree: TBookTree;
 begin
+  if CompressionBlocksCatalogChange then Exit;
   Assert(Assigned(FCollection));
   if ActiveView = FavoritesView then
   begin
@@ -9838,6 +10056,7 @@ var
   S: string;
   SeriesID: Integer;
 begin
+  if CompressionBlocksCatalogChange then Exit;
   Assert(Assigned(FCollection));
   if ActiveView = FavoritesView then
   begin
@@ -10631,7 +10850,8 @@ end;
 procedure TfrmMain.ImportSelectedBookUpdate(Sender: TObject);
 begin
   TAction(Sender).Enabled := Assigned(FCollection) and isLocalCollection(FCollection.CollectionCode) and
-    not FFormBusy and not FStartupLoading and not FBookListLoading;
+    not FFormBusy and not FStartupLoading and not FBookListLoading and
+    not Assigned(FBookCompressionOperation) and not FCompressionNeedsRecovery;
 end;
 
 procedure TfrmMain.ImportSelectedBookExecute(Sender: TObject);
@@ -10665,6 +10885,7 @@ var Committed, KeepSource: Boolean;
   Prompt, DisplayName: string;
   ExtraHeight: Integer;
 begin
+  if CompressionBlocksCatalogChange then Exit;
   if Length(FileNames)=0 then Exit;
   DisplayName := FSystemData.GetCollectionInfo(CollectionID).DisplayName;
   if Length(FileNames)=1 then
@@ -10779,6 +11000,7 @@ var
   FileNames: TArray<string>;
 begin
   if FStartupLoading or FFormBusy or FBookListLoading or
+    Assigned(FBookCompressionOperation) or FCompressionNeedsRecovery or
     (Application.ModalLevel > 0) or not Enabled then Exit;
   FExplorerImportTimer.Enabled := False;
   FileNames := FExplorerImportFiles;
@@ -10810,6 +11032,7 @@ end;
 procedure TfrmMain.ImportFb2Execute(Sender: TObject);
 var CommittedChanges: Boolean;
 begin
+  if CompressionBlocksCatalogChange then Exit;
   Assert(Assigned(FCollection));
   unit_Import.ImportFB2(FCollection.CollectionID, afZip, CommittedChanges);
   if CommittedChanges then NotifyFavoriteCatalogChanged(TArray<Integer>.Create(FCollection.CollectionID));
@@ -10831,6 +11054,7 @@ end;
 procedure TfrmMain.ImportFBDExecute(Sender: TObject);
 var CommittedChanges: Boolean;
 begin
+  if CompressionBlocksCatalogChange then Exit;
   Assert(Assigned(FCollection));
   unit_Import.ImportFBD(FCollection.CollectionID, CommittedChanges);
   if CommittedChanges then NotifyFavoriteCatalogChanged(TArray<Integer>.Create(FCollection.CollectionID));
@@ -11751,10 +11975,10 @@ begin
   if not Assigned(FSearchFavoriteCheck) then Exit;
   PPI := edFFullName.Font.PixelsPerInch;
   if PPI <= 0 then PPI := CurrentPPI;
-  Size := MulDiv(18, PPI, 96);
+  Size := MulDiv(20, PPI, 96);
   Gap := MulDiv(2, PPI, 96);
-  FSearchFavoriteCheck.SetBounds(edFFullName.ClientWidth - Size - Gap, Gap,
-    Size, Max(1, edFFullName.ClientHeight - 2 * Gap));
+  FSearchFavoriteCheck.SetBounds(edFFullName.ClientWidth - Size - Gap, 0,
+    Size, Max(1, edFFullName.ClientHeight));
   RightWidth := 0;
   for var I := 0 to edFFullName.ControlCount - 1 do
   begin
@@ -12725,6 +12949,7 @@ procedure TfrmMain.UpdateOnlineCollectionExecute(Sender: TObject);
 var
   ActiveCollectionID: Integer;
 begin
+  if CompressionBlocksCatalogChange then Exit;
   Assert(Assigned(FCollection));
   if CheckLibUpdates(False) then
   begin
@@ -12742,6 +12967,7 @@ var
   ActiveCollectionID: Integer;
   Succeeded, CommittedChanges, OpenUpdatedBooks: Boolean;
 begin
+  if CompressionBlocksCatalogChange then Exit;
   if not Assigned(FCollection) or FFormBusy or FStartupLoading or FBookListLoading then Exit;
   try
     if IsPackedCollectionCatalog(FCollection.GetProperty(PROP_DATAFILE)) then
@@ -12801,6 +13027,7 @@ end;
 
 procedure TfrmMain.CompactDataBaseExecute(Sender: TObject);
 begin
+  if CompressionBlocksCatalogChange then Exit;
   if Assigned(FOPDSForm) then FOPDSForm.StopServer;
   Assert(Assigned(FCollection));
   FCollection.CompactDatabase;
@@ -12813,6 +13040,7 @@ var
   Data: PBookRecord;
   frmConvert: TfrmConvertToFBD;
 begin
+  if CompressionBlocksCatalogChange then Exit;
   if (ActiveView = DownloadView) then
   begin
     MHLShowWarning(rstrNotFromDownloadsError);
@@ -13102,6 +13330,7 @@ procedure TfrmMain.ShowCollectionSettingsExecute(Sender: TObject);
 var
   frmBases: TfrmBases;
 begin
+  if CompressionBlocksCatalogChange then Exit;
   Assert(Assigned(FCollection));
   frmBases := TfrmBases.Create(Application);
   try
@@ -13167,6 +13396,7 @@ procedure TfrmMain.UpdateGenresExecute(Sender: TObject);
 var
   AFileName: string;
 begin
+  if CompressionBlocksCatalogChange then Exit;
   Assert(Assigned(FCollection));
   if isFB2Collection(FCollection.CollectionCode) then
     FCollection.ReloadGenres(Settings.SystemFileName[sfGenresFB2])
@@ -13344,6 +13574,7 @@ procedure TfrmMain.ImportNonFB2Execute(Sender: TObject);
 var
   frmAddBooks: TfrmAddnonfb2;
 begin
+  if CompressionBlocksCatalogChange then Exit;
   Assert(Assigned(FCollection));
   frmAddBooks := TfrmAddnonfb2.Create(Application);
   try
