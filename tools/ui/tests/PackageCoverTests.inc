@@ -211,6 +211,12 @@ begin
       try Require(Data.Size>0,'Failed empty extraction poisoned the completed cache'); finally Data.Free; end;
     end;
     Writeln('PASS empty payload leaves no completed zero-byte cache');
+    for var Source in TDirectory.GetFiles(Folder,'*.pdf') do
+    begin
+      var Exclusive:=TFileStream.Create(Source,fmOpenRead or fmShareExclusive);
+      Exclusive.Free;
+    end;
+    Writeln('PASS PDF previews release their source handles');
     // Teardown must not leave a background worker holding its source open.
     Book.FileName:='comic'; Book.FileExt:='.cbz'; Preview.Load(Book,True,False,False);
     Sleep(120); Application.ProcessMessages; FreeAndNil(Preview);

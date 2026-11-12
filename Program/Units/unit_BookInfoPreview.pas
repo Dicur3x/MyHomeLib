@@ -31,7 +31,7 @@ implementation
 
 uses Winapi.Windows, Winapi.ActiveX, Vcl.Graphics, FictionBook_21, unit_FB2Utils,
   unit_Interfaces, unit_ReaderCache, unit_Consts, System.Variants, dm_user,
-  unit_BookMetadataCache, unit_PackageBookCover, unit_ReaderRaster;
+  unit_BookMetadataCache, unit_PackageBookCover, unit_ReaderRaster, unit_ReaderPDFWorker;
 
 type
   TPreviewThread = class(TThread)
@@ -57,7 +57,7 @@ procedure TPreviewThread.Execute;
 var Stream: TStream; Document: IXMLFictionBook; HR: HRESULT; NeedFileAnnotation: Boolean;
   User: ISystemData; Collection: IBookCollection; Stored: TBookRecord;
   CoverBytes:TBytes; CoverStatus,PreviewKind:string; Image:TBytesStream;
-  Raster:TReaderRaster; GenericArchive:Boolean;
+  Raster:TReaderRaster; PDF:TReaderPDFWorker; GenericArchive,IsPDF:Boolean;
 begin
   HR:=CoInitializeEx(nil,COINIT_APARTMENTTHREADED);
   try
@@ -148,22 +148,34 @@ begin
       end;
       if Terminated then Exit;
       GenericArchive:=SameText(Book.FileExt,'.zip') or SameText(Book.FileExt,'.7z') or SameText(Book.FileExt,'.rar');
+      IsPDF:=SameText(Book.FileExt,'.pdf');
       if LocalSource and NeedCover and not Assigned(Cover) and
-        (IsRasterReaderFormat(Book.FileExt) or GenericArchive) then
+        (IsRasterReaderFormat(Book.FileExt) or GenericArchive or IsPDF) then
       begin
-        // The raster reader owns its WIC/DjVu context and decodes only page 0.
-        // It does not enter PDFium or construct a Reader window. Keep the cache
-        // lease open while it reads a selected member from an outer archive.
+        // Decode only page 0. PDFium stays in its existing isolated worker,
+        // never in the catalogue's background apartment or Reader UI state.
+        // Keep the cache lease open while reading an outer archive's member.
         try
+          if IsPDF and not PDFWorkerAvailable then
+            raise EReadError.Create('Для предпросмотра PDF нужен модуль чтения PDF (PDFium).');
           Stream:=OpenRawBookSource(Book,nil,function:Boolean begin Result:=Terminated; end);
           try
             if not (Stream is TFileStream) then raise EReadError.Create('Нет локального файла для предпросмотра.');
-            Raster:=TReaderRaster.Create(TFileStream(Stream).FileName,600,GenericArchive);
-            try
-              if Terminated then Exit;
-              RasterPixels:=Raster.PreparedPagePixels(0,RasterWidth,RasterHeight);
-              PreviewKind:='Предпросмотр первой страницы.';
-            finally Raster.Free; end;
+            if IsPDF then
+            begin
+              PDF:=TReaderPDFWorker.Create(TFileStream(Stream).FileName);
+              try PDF.RenderPage(0,RasterPixels,RasterWidth,RasterHeight,600);
+              finally PDF.Free; end;
+            end
+            else
+            begin
+              Raster:=TReaderRaster.Create(TFileStream(Stream).FileName,600,GenericArchive);
+              try
+                if Terminated then Exit;
+                RasterPixels:=Raster.PreparedPagePixels(0,RasterWidth,RasterHeight);
+              finally Raster.Free; end;
+            end;
+            PreviewKind:='Предпросмотр первой страницы.';
           finally Stream.Free; end;
         except
           on E:EAbort do Exit;

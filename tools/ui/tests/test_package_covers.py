@@ -9,6 +9,23 @@ def png(width):
     def chunk(t,b): return struct.pack('>I',len(b))+t+b+struct.pack('>I',zlib.crc32(t+b)&0xffffffff)
     return b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('>IIBBBBB',width,32,8,2,0,0,0))+chunk(b'IDAT',zlib.compress((b'\0'+b'\x22\x88\xcc'*width)*32))+chunk(b'IEND',b'')
 
+def pdf(pages=2):
+    # Independent minimal PDF: blue middle, red top, green bottom on page one.
+    # Later pages are red, making a wrong page or upside-down result visible.
+    objects=[b'<< /Type /Catalog /Pages 2 0 R >>',
+        ('<< /Type /Pages /Count %d /Kids [%s] >>'%(pages,' '.join(f'{3+2*i} 0 R' for i in range(pages)))).encode()]
+    for i in range(pages):
+        content=(b'0.133333333 0.533333333 0.8 rg 0 0 800 1200 re f\n1 0 0 rg 0 1000 800 200 re f\n0 1 0 rg 0 0 800 200 re f' if i==0 else b'1 0 0 rg 0 0 800 1200 re f')
+        objects.extend([f'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 800 1200] /Resources << >> /Contents {4+2*i} 0 R >>'.encode(),
+            b'<< /Length '+str(len(content)).encode()+b' >>\nstream\n'+content+b'\nendstream'])
+    result=bytearray(b'%PDF-1.4\n'); offsets=[]
+    for i,body in enumerate(objects,1):
+        offsets.append(len(result)); result.extend(f'{i} 0 obj\n'.encode()+body+b'\nendobj\n')
+    xref=len(result); result.extend(f'xref\n0 {len(objects)+1}\n0000000000 65535 f \n'.encode())
+    for offset in offsets: result.extend(f'{offset:010} 00000 n \n'.encode())
+    result.extend(f'trailer\n<< /Size {len(objects)+1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n'.encode())
+    return bytes(result)
+
 def fixtures(root, official, modes):
     root.mkdir(); cases=[]
     image=png(24); (root/'expected.png').write_bytes(image)
@@ -110,6 +127,9 @@ def main():
     p.add_argument('--large-raster',action='store_true')
     p.add_argument('--without-tools',action='store_true')
     p.add_argument('--djvu-dir',type=Path)
+    p.add_argument('--pdf-dir',type=Path)
+    p.add_argument('--pdf-real',type=Path)
+    p.add_argument('--pdf-reference',type=Path,help='PDFium DLL matching Python bitness, for the independent real-file size check')
     p.add_argument('--full-7zip',type=Path)
     p.add_argument('--comic-real',type=Path)
     p.add_argument('--modes',nargs='+',default=['package-covers','package-preview','book-preview','update-theme'])
@@ -238,6 +258,51 @@ def main():
         if a.full_7zip:
             (root/'tools/7zip').mkdir(parents=True,exist_ok=True)
             for name in ('7z.exe','7z.dll'): shutil.copy2(a.full_7zip/name,root/'tools/7zip'/name)
+        if 'raster-preview' in a.modes:
+            rp=root/'cover-fixtures/raster-cases.json'; rc=json.loads(rp.read_bytes())
+            for name,pages in [('first-page.pdf',2),('many-pages.pdf',500)]:
+                (root/'cover-fixtures'/name).write_bytes(pdf(pages))
+                case=dict(name=name,cover=bool(a.pdf_dir),width=400,height=600,color=[34,136,204])
+                if a.pdf_dir: case.update(top_color=[255,0,0],bottom_color=[0,255,0])
+                rc.append(case)
+            with zipfile.ZipFile(root/'cover-fixtures/pdf-outer.zip','w',compression=zipfile.ZIP_DEFLATED) as z: z.writestr('books/first.pdf',pdf())
+            rc.append(dict(name='pdf-outer.zip',member='books/first.pdf',cover=bool(a.pdf_dir),width=400,height=600,color=[34,136,204]))
+            (root/'cover-fixtures/damaged.pdf').write_bytes(b'%PDF-1.7 incomplete source')
+            rc.append(dict(name='damaged.pdf',cover=False))
+            rp.write_text(json.dumps(rc),encoding='utf-8')
+        if a.pdf_real and 'raster-preview' in a.modes:
+            assert a.pdf_dir and a.pdf_reference
+            source=a.pdf_real; originals[str(source)]=hashlib.sha256(source.read_bytes()).hexdigest()
+            target=root/'cover-fixtures/real-book.pdf'; shutil.copy2(source,target)
+            dll=ctypes.CDLL(str(a.pdf_reference.resolve()))
+            dll.FPDF_InitLibrary.argtypes=[]; dll.FPDF_InitLibrary.restype=None; dll.FPDF_InitLibrary()
+            dll.FPDF_LoadDocument.argtypes=[ctypes.c_char_p,ctypes.c_char_p]; dll.FPDF_LoadDocument.restype=ctypes.c_void_p
+            dll.FPDF_LoadPage.argtypes=[ctypes.c_void_p,ctypes.c_int]; dll.FPDF_LoadPage.restype=ctypes.c_void_p
+            dll.FPDF_GetPageWidthF.argtypes=[ctypes.c_void_p]; dll.FPDF_GetPageWidthF.restype=ctypes.c_float
+            dll.FPDF_GetPageHeightF.argtypes=[ctypes.c_void_p]; dll.FPDF_GetPageHeightF.restype=ctypes.c_float
+            dll.FPDF_ClosePage.argtypes=[ctypes.c_void_p]; dll.FPDF_CloseDocument.argtypes=[ctypes.c_void_p]
+            document=dll.FPDF_LoadDocument(str(target).encode('utf-8'),None); assert document
+            try:
+                page=dll.FPDF_LoadPage(document,0); assert page
+                try: w,h=dll.FPDF_GetPageWidthF(page),dll.FPDF_GetPageHeightF(page)
+                finally: dll.FPDF_ClosePage(page)
+            finally: dll.FPDF_CloseDocument(document)
+            scale=600/max(w,h)
+            rp=root/'cover-fixtures/raster-cases.json'; rc=json.loads(rp.read_bytes())
+            rc.append(dict(name=target.name,cover=True,width=max(1,int(w*scale)),height=max(1,int(h*scale)),check_color=False,dimension_tolerance=1))
+            rp.write_text(json.dumps(rc),encoding='utf-8')
+        if a.pdf_dir:
+            dest=root/'tools/pdfium'; dest.mkdir(parents=True)
+            worker=json.loads((a.pdf_dir/'WORKER_RUNTIME.json').read_bytes())
+            data=(a.pdf_dir/'HomeLibPDF.exe').read_bytes(); worker_machine=struct.unpack_from('<H',data,struct.unpack_from('<I',data,0x3c)[0]+4)[0]
+            arch='Win32' if worker_machine==0x14c else 'Win64'
+            assert hashlib.sha256(data).hexdigest()==worker[arch]['sha256']
+            runtime=json.loads((a.pdf_dir/'RUNTIME.json').read_bytes())
+            data=(a.pdf_dir/'pdfium.dll').read_bytes()
+            assert hashlib.sha256(data).hexdigest()==runtime[arch]['dll_sha256']
+            assert struct.unpack_from('<H',data,struct.unpack_from('<I',data,0x3c)[0]+4)[0]==worker_machine
+            shutil.copy2(a.pdf_dir/'pdfium.dll',dest/'pdfium.dll')
+            shutil.copy2(a.pdf_dir/'HomeLibPDF.exe',dest/'HomeLibPDF.exe')
         hashes={x.name:hashlib.sha256(x.read_bytes()).hexdigest() for x in (root/'cover-fixtures').iterdir() if x.is_file()}
         env=os.environ.copy(); env['LOCALAPPDATA']=str(root/'local')
         for mode in a.modes:
