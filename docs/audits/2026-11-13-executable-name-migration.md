@@ -65,9 +65,30 @@ With the corrected observer, the unchanged published client completed the normal
 
 The smoke runner now understands canonical and bridge payload names, watches only exact owned executable paths, and refuses to launch while the production catalogue's global single-instance mapping is occupied. It can seed a known normal/maximized private layout, record actual saved geometry and verify a pre-existing Windows shortcut. All private GUI runtime directories and the temporary placement build-project files were removed; binaries and evidence remain for release work. No user installation was launched or modified.
 
+## Coordinated catalogue and Reader restart
+
+The freshly compiled production Reader was packaged independently for each architecture. Its Windows version resource was regenerated from the existing beta 13 project identity; the tracked resource had still said beta 12. The first Win32 IDE attempt failed to write an old DCU, without changing the Pascal source. A task-specific DCU directory on G allowed the same Reader sources to compile normally. The temporary project and resource files were removed after validation.
+
+| Platform | Exact Reader ZIP SHA-256 | Installed Reader EXE SHA-256 |
+|---|---|---|
+| Win32 | `51e2d2bf5eb16f82d2bde276da7f70d5ec4d0f77f8563f441af2eef897beabb4` | `887df63ca90754e3cd2ab1d243c3ce3199d61358b47555321c4f88c11f650a69` |
+| Win64 | `2a1566971fa0818dd99b1d431c3c3877f94f5d355173852019dc1e50c572d00a` | `9c647acfa302e3db6aa4b8d3c2b2515aa7bd40ba766de96d3baa1a55e98081c9` |
+
+`reader_update_runtime_probe.py` now also runs the real canonical catalogue alongside two real Reader processes in the same owned installation. Each Reader has a private profile: one opens a plain FB2 and the other selects the second FB2 inside a two-book ZIP using the production catalogue-session format. The catalogue displays a private seven-book collection. These Readers are started by the harness, not by clicking Read in the catalogue; the test does not claim to exercise the catalogue's reading-progress callback.
+
+An initial x64 run passed the process, package, source and catalogue assertions, but did not independently witness both pre-update text positions. Screenshots showed a change in the caller's position during a sequence that included interrupted keyboard input. Its report (`Win64-state.json`) retains PASS for the original structural assertions only; it is **partial evidence for visible reading-position preservation**, not a complete success. No product cause was established from that observation, and no speculative Reader change was made.
+
+The strengthened x64 repeat and the x86 run use a fresh ordinary bookmark in each visible book before installation. The harness records the actual bookmarked character position and SHA-256 of its page quote, then requires the restarted Reader's saved position, identity, bookmark position, title and quote to match exactly. The GUI was separately observed before and after restart: both books remained at 3%, with paragraphs 5–11 visible. Exact positions were 475 for the plain FB2 and 498 for the second ZIP member, on both architectures.
+
+The production helper received its normal `--job` request after the caller Reader was closed normally. It discovered the open `HomeLibre.exe` and the peer Reader, pinned the ZIP member's input, closed both normally, installed the exact Reader package, and restored all three processes. All original PIDs were replaced. Related-instance state reached `restored` with the catalogue and peer window placements acknowledged. The catalogue again displayed `Fixture publisher`, `Alpha ru`, language `ru`; all seven book rows, the personal sentinel and the settings sentinel were unchanged. The canonical catalogue EXE was not replaced by this Reader-component update. The selected ZIP member and all original source hashes survived, while an unused owned BookCache entry was cleaned on exit.
+
+This is a local production-helper coordination test. To require actual EXE replacement without falsifying a release version, the running development Reader contained an owned appended overlay; the installed package itself was unchanged. It is **not** a published beta 13-to-beta 14 GUI/download test. Package names still carry beta 13 identity and must be rebuilt for the final release.
+
+Reports: `G:/HomeLibRu-build-cache/HomeLibre-post13-reader-coordination-20261113/Win64-r2-state.json` and `Win32-state.json`, both PASS for the strengthened checks. Exact ZIPs and `reader-component-report.json` remain in that stage's `packages` directory. All three private runtime directories, including the initial partial attempt, were closed normally and removed. No Desktop installation or user books were changed.
+
 ## Remaining release gates
 
-The Todo item remains open. Before claiming the full transition: exercise the unchanged published update UI against the final beta 14 package; check coordinated catalogue/Reader restart; prepare the final beta 14 identities and repeat the relevant final-package checks; update all four README languages and explain the portable/bridge assets on the release page. The old Windows shortcut is now proven with the current real candidate on both architectures, but must still remain compatible in the final release. No publication has happened in this task.
+The Todo item remains open. Before claiming the full transition: exercise the unchanged published update UI against the final beta 14 package; prepare the final beta 14 identities and repeat the relevant final-package checks, including coordinated catalogue/Reader restart; update all four README languages and explain the portable/bridge assets on the release page. The old Windows shortcut and local production-helper coordination are now proven with the current real candidates on both architectures, but must still remain compatible in the final release. No publication has happened in this task.
 
 ## Retained failed-run folder
 

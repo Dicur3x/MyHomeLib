@@ -8,15 +8,20 @@ With --baseline-reader-package, the published Reader launches the prepared
 update from its Components window and uses its own installed helper.
 """
 import argparse
+import base64
+import configparser
 import hashlib
 import json
 import os
 from pathlib import Path
 import shutil
+import sqlite3
 import subprocess
 import tempfile
 import uuid
 import zipfile
+
+from published_updater_smoke import read_live_settings, require_free_catalogue_slot
 
 REPO = Path(__file__).resolve().parents[3]
 WORK = Path('G:/HomeLibRu-build-cache')
@@ -55,12 +60,37 @@ def extract_reader(package, destination, platform):
     return manifest
 
 
+def extract_catalogue(package, destination, platform):
+    with zipfile.ZipFile(package) as archive:
+        assert archive.testzip() is None
+        manifest = json.loads(archive.read('HomeLibRu.update.json'))
+        assert not manifest.get('component') and manifest['platform'] == platform
+        paths = {entry['path'] for entry in manifest['files']}
+        assert {'HomeLibre.exe', 'HomeLibRuUpdater.exe', 'sqlite3.dll'} <= paths
+        assert paths | {'HomeLibRu.update.json'} == set(archive.namelist())
+        for name in archive.namelist():
+            assert not name.startswith('/') and ':' not in name and '\\' not in name and '..' not in name.split('/')
+        archive.extractall(destination)
+    for entry in manifest['files']:
+        path = destination / entry['path']
+        assert path.stat().st_size == entry['size'] and sha(path) == entry['sha256']
+    return manifest
+
+
+def catalogue_books(app):
+    connection = sqlite3.connect((app / 'Data/one.hlc2').as_uri() + '?mode=ro', uri=True)
+    try:
+        return connection.execute('SELECT * FROM Books ORDER BY BookID').fetchall()
+    finally:
+        connection.close()
+
+
 def processes(root):
     # Only executable identity and PID are needed. Avoid the WMI provider,
     # which can cancel enumeration during repeated process exit/restart.
     # Restart arguments are checked separately against the helper's request.
     query = ("[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); "
-             "@(Get-Process HomeLibReader,HomeLibRuUpdater -ErrorAction SilentlyContinue | "
+             "@(Get-Process HomeLibre,HomeLibRu,HomeLibReader,HomeLibRuUpdater -ErrorAction SilentlyContinue | "
              "ForEach-Object {[pscustomobject]@{ProcessId=$_.Id;ExecutablePath=$_.Path}}) | ConvertTo-Json -Compress")
     raw = subprocess.check_output(['powershell', '-NoProfile', '-NonInteractive', '-Command', query],
         encoding='utf-8-sig', stderr=subprocess.STDOUT, timeout=30,
@@ -72,7 +102,7 @@ def processes(root):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('prepare', 'seed-image-update', 'refresh-reader', 'launch', 'inspect', 'record-selection', 'record-ui-install', 'install', 'check', 'check-saved-copy', 'cleanup', 'cleanup-incomplete'))
+    parser.add_argument('action', choices=('prepare', 'seed-image-update', 'refresh-reader', 'launch', 'launch-catalogue', 'inspect', 'record-selection', 'record-position', 'record-ui-install', 'install', 'check', 'check-saved-copy', 'cleanup', 'cleanup-incomplete'))
     parser.add_argument('--state', required=True, type=Path)
     parser.add_argument('--platform', choices=PACKAGE_HASH)
     parser.add_argument('--reader-package', type=Path)
@@ -80,6 +110,12 @@ def main():
     parser.add_argument('--baseline-reader-package', type=Path,
                         help='Use an unchanged published Reader and seed its normal ready-update window')
     parser.add_argument('--baseline-reader-sha256')
+    parser.add_argument('--catalogue-package', type=Path,
+                        help='Also run the real canonical catalogue from this exact minimal portable ZIP')
+    parser.add_argument('--catalogue-sha256')
+    parser.add_argument('--catalogue-fixture', type=Path)
+    parser.add_argument('--require-moved-positions', action='store_true',
+                        help='Require both actual Readers to return to the exact position bookmarked before the update')
     parser.add_argument('--label', choices=('peer', 'caller'))
     parser.add_argument('--seed-recent', action='store_true', help='Seed own public recent-file settings for a File-menu change test')
     parser.add_argument('--seed-save-folder', action='store_true', help='Seed the own output folder through ordinary public settings')
@@ -90,12 +126,18 @@ def main():
     assert not args.reader_package or args.action == 'prepare'
     assert bool(args.baseline_reader_package) == bool(args.baseline_reader_sha256)
     assert not args.baseline_reader_package or args.reader_package
+    assert bool(args.catalogue_package) == bool(args.catalogue_sha256) == bool(args.catalogue_fixture)
+    assert not args.catalogue_package or args.action == 'prepare'
+    assert not args.require_moved_positions or args.action == 'prepare'
     state = json.loads(args.state.read_bytes()) if args.state.exists() else None
     if state is None:
         assert args.action == 'prepare' and args.platform
         root = Path(tempfile.mkdtemp(prefix='HomeLibRu-update-test-real-readers-', dir=WORK)).resolve()
         state = dict(root=str(root), owner=OWNER, token=uuid.uuid4().hex, platform=args.platform,
                      status='INCOMPLETE', launches=[], temporary_root_removed=False)
+        if args.catalogue_package:
+            state['app_directory'] = 'HomeLibRu-native-installation'
+        state['require_moved_positions'] = args.require_moved_positions
         dump(root / 'owned-test.marker', {'owner': OWNER, 'token': state['token']})
         dump(args.state, state)
     root = Path(state['root']).resolve(strict=True)
@@ -105,7 +147,7 @@ def main():
     env = {**os.environ, 'TEMP': str(root), 'TMP': str(root), 'LOCALAPPDATA': str(root / 'Local'),
            'APPDATA': str(root / 'Roaming')}
     platform = state['platform']
-    app = root / 'installation'
+    app = root / state.get('app_directory', 'installation')
     job = Path(state['job_path']) if state.get('job_path') else root / state.get('job_name', 'HomeLibRu-update-' + state['token'])
     if args.action == 'prepare':
         assert not state['launches'] and not processes(root)
@@ -149,6 +191,40 @@ def main():
             shutil.copytree(candidate, app)
             with (app / 'HomeLibReader.exe').open('ab') as file:
                 file.write(b'\nOwned running development EXE overlay to require replacement\n')
+        if args.catalogue_package:
+            assert sha(args.catalogue_package) == args.catalogue_sha256
+            core = extract_catalogue(args.catalogue_package, app, platform)
+            assert sha(app / helper.name) == sha(helper)
+            (app / 'myhomelib2.ini').write_text(
+                '[SYSTEM]\nCheckUpdates=0\nCheckLibrusecUpdates=0\nProgramCheckMinutes=0\n'
+                '[INTERFACE]\nLocale=ru\nWindowState=0\nFormWidth=1100\nFormHeight=760\n'
+                'WindowsDarkThemeOfferDismissed=1\n[BEHAVIOR]\nCoverPanel=0\nShowCover=0\n'
+                'ShowAnnotation=0\nAutoLoadReview=0\nIgnoreAbsentArchives=1\n'
+                '[UpdateProbe]\nProtectedValue=Preserve coordinated catalogue settings\n', encoding='utf-8')
+            for marker in ('uselocaldata', 'uselocaltemp'):
+                (app / marker).touch()
+            (app / 'native-regression.marker').write_text('HomeLib Ru isolated native regression v1')
+            fixture = app / 'CollectionViewsTest.exe'
+            shutil.copyfile(args.catalogue_fixture, fixture)
+            genre_shim = app / 'genres_fb2.glst'
+            assert not genre_shim.exists()
+            shutil.copyfile(app / 'tools/genres/genres_fb2.glst', genre_shim)
+            try:
+                setup = subprocess.run([str(fixture), 'publisher-selection'], cwd=app, env=env,
+                    capture_output=True, timeout=90, creationflags=subprocess.CREATE_NO_WINDOW)
+                assert setup.returncode == 0, setup.stdout.decode('utf-8', errors='replace')
+            finally:
+                genre_shim.unlink()
+                fixture.unlink()
+            sentinel = app / 'Data/coordinated-personal-sentinel.txt'
+            sentinel.write_text('Preserve catalogue personal data ё', encoding='utf-8')
+            state['catalogue'] = dict(archive_sha256=args.catalogue_sha256,
+                main_sha256=sha(app / 'HomeLibre.exe'), fixture_sha256=sha(args.catalogue_fixture),
+                personal_sentinel_sha256=sha(sentinel), books=catalogue_books(app),
+                package_release=core['release'])
+            if args.baseline_reader_package:
+                # An already-updated catalogue supplies the shared current helper.
+                state['baseline_helper_sha256'] = sha(app / helper.name)
         for folder in ('books', 'Local', 'Roaming'):
             (root / folder).mkdir(exist_ok=True)
         def book(title):
@@ -209,6 +285,14 @@ def main():
         reader = REPO / f'Utils/HomeLibReader/Out/{platform}/HomeLibReader.exe'
         shutil.copyfile(reader, app / reader.name)
         state.update(reader_sha256=sha(reader), running_exe_sha256=sha(reader))
+    elif args.action == 'launch-catalogue':
+        assert state.get('catalogue') and not state['catalogue'].get('original_pid')
+        require_free_catalogue_slot()
+        command = [str(app / 'HomeLibre.exe')]
+        process = subprocess.Popen(command, cwd=app, env=env, stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            creationflags=subprocess.CREATE_NO_WINDOW | subprocess.BELOW_NORMAL_PRIORITY_CLASS)
+        state['catalogue'].update(original_pid=process.pid, command=command)
     elif args.action == 'launch':
         assert args.label and not any(x['label'] == args.label for x in state['launches'])
         profile = app / 'Data' / args.label
@@ -237,7 +321,8 @@ def main():
                       size=size, lib_id='owned-2', title='Вторая книга сборника', language='ru')))
             command[-1] = '--session=' + str(session)
         process = subprocess.Popen(command, cwd=app, env=env, stdin=subprocess.DEVNULL,
-                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=subprocess.CREATE_NO_WINDOW)
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                   creationflags=subprocess.CREATE_NO_WINDOW | subprocess.BELOW_NORMAL_PRIORITY_CLASS)
         state['launches'].append(dict(label=args.label, original_pid=process.pid, command=command, profile=str(profile)))
     elif args.action == 'inspect':
         receipts = []
@@ -264,6 +349,22 @@ def main():
             sentinel = source.parent / ('homelib-owned-cache-sentinel-' + state['token'] + '.fb2')
             sentinel.write_bytes(b'Owned cache cleanup sentinel; no reader holds this file.')
             state['cache_sentinel'] = str(sentinel)
+    elif args.action == 'record-position':
+        assert args.label and not state.get('helper_pid'), 'Record the actual visible bookmark before installing'
+        launch, = [entry for entry in state['launches'] if entry['label'] == args.label]
+        receipt, = list((Path(launch['profile']) / 'Data/ReaderInstances').glob('*.json'))
+        request = json.loads(Path(json.loads(receipt.read_bytes())['request']).read_bytes())
+        settings = configparser.ConfigParser(interpolation=None, strict=False)
+        settings.read_string(read_live_settings(Path(request['settings'])))
+        book_id = hashlib.sha256(request['identity'].encode('utf-8')).hexdigest()[:40]
+        section, = [name for name in settings.sections() if name.lower() == 'bookmarks.' + book_id]
+        assert settings[section].getint('Count') == 1, 'Use one fresh real UI bookmark as the position witness'
+        position = settings[section].getint('Position0')
+        quote = base64.b64decode(settings[section]['PageQuote0'], validate=True).decode('utf-8')
+        assert position > 0 and quote.strip()
+        state.setdefault('expected_reading_positions', {})[args.label] = dict(
+            position=position, identity=request['identity'], quote_sha256=hashlib.sha256(quote.encode('utf-8')).hexdigest(),
+            quote_prefix=quote[:180], bookmark_title=settings[section]['Title0'])
     elif args.action == 'record-ui-install':
         caller, = [x for x in state['launches'] if x['label'] == 'caller']
         request = json.loads((job / 'request.json').read_bytes())
@@ -285,7 +386,7 @@ def main():
              commandLine=subprocess.list2cmdline(caller['command'])))
         process = subprocess.Popen([str(job / 'HomeLibRuUpdater.exe'), '--job', str(job)], cwd=job, env=env,
                                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                   creationflags=subprocess.CREATE_NO_WINDOW)
+                                   creationflags=subprocess.CREATE_NO_WINDOW | subprocess.BELOW_NORMAL_PRIORITY_CLASS)
         state['helper_pid'] = process.pid
     elif args.action == 'check':
         active = processes(root)
@@ -306,9 +407,26 @@ def main():
                 for entry in manifest['files']:
                     assert sha(app / entry['path']) == entry['sha256']
         assert sha(app / 'HomeLibRuUpdater.exe') == state['helper_sha256']
-        assert len(active) == len(state['launches']) and not ({x['original_pid'] for x in state['launches']} & {p['ProcessId'] for p in active})
+        originals = {x['original_pid'] for x in state['launches']}
+        if state.get('catalogue'):
+            originals.add(state['catalogue']['original_pid'])
+        assert len(active) == len(state['launches']) + bool(state.get('catalogue'))
+        assert not (originals & {p['ProcessId'] for p in active})
         related = json.loads((job / 'restart-instances.json').read_text(encoding='utf-8-sig'))
         assert related['phase'] == 'restored', related
+        if core := state.get('catalogue'):
+            restarted, = [p for p in active if Path(p['ExecutablePath']) == app / 'HomeLibre.exe']
+            captured, = [p for p in related['instances'] if p['pid'] == core['original_pid']]
+            assert captured['executable'] == str(app / 'HomeLibre.exe')
+            assert captured['close_requested'] and captured['restarted'] and captured['placement_restored']
+            assert captured['restart_pid'] == restarted['ProcessId']
+            assert sha(app / 'HomeLibre.exe') == core['main_sha256']
+            assert sha(app / 'Data/coordinated-personal-sentinel.txt') == core['personal_sentinel_sha256']
+            assert catalogue_books(app) == [tuple(row) for row in core['books']]
+            settings = configparser.ConfigParser(interpolation=None, strict=False)
+            settings.read_string(read_live_settings(app / 'myhomelib2.ini'))
+            assert settings['UpdateProbe']['ProtectedValue'] == 'Preserve coordinated catalogue settings'
+            core.update(restarted_pid=restarted['ProcessId'], coordinated_restart_checked=True)
         if state.get('cache_sentinel'):
             assert not Path(state['cache_sentinel']).exists(), 'On-exit cleanup did not remove the unleased cache entry'
             state['on_exit_cache_cleanup_observed'] = True
@@ -322,6 +440,30 @@ def main():
             assert request['original_source'] == selected['original_source']
             assert request['identity'] == selected['identity']
             state['selected_archive_member_restored'] = True
+        if state.get('require_moved_positions'):
+            assert set(state.get('expected_reading_positions', {})) == {entry['label'] for entry in state['launches']}, \
+                'Bookmark and record both actual Reader positions before installing'
+            state['saved_reading_positions'] = {}
+            for launch in state['launches']:
+                receipt, = list((Path(launch['profile']) / 'Data/ReaderInstances').glob('*.json'))
+                request = json.loads(Path(json.loads(receipt.read_bytes())['request']).read_bytes())
+                settings = configparser.ConfigParser(interpolation=None, strict=False)
+                settings.read_string(read_live_settings(Path(request['settings'])))
+                section_name = 'Book.' + hashlib.sha256(request['identity'].encode('utf-8')).hexdigest()[:40]
+                section, = [name for name in settings.sections() if name.lower() == section_name.lower()]
+                position = int(settings[section]['Position'])
+                assert position > 0, 'Move the actual Reader before updating: ' + launch['label']
+                expected = state['expected_reading_positions'][launch['label']]
+                assert request['identity'] == expected['identity'] and position == expected['position'], \
+                    'Reading position changed across restart: ' + launch['label']
+                bookmark, = [name for name in settings.sections() if name.lower() == section_name.lower().replace('book.', 'bookmarks.', 1)]
+                quote = base64.b64decode(settings[bookmark]['PageQuote0'], validate=True).decode('utf-8')
+                assert settings[bookmark].getint('Position0') == position
+                assert settings[bookmark]['Title0'] == expected['bookmark_title']
+                assert hashlib.sha256(quote.encode('utf-8')).hexdigest() == expected['quote_sha256']
+                state['saved_reading_positions'][launch['label']] = dict(position=position,
+                    title=settings[section].get('Title'), identity=request['identity'],
+                    exact_bookmark_position_preserved=True, quote_prefix=expected['quote_prefix'])
         state.update(helper_installation_checked=True, related_state=related, restarted=active)
     elif args.action == 'check-saved-copy':
         assert state.get('selected_archive_member_restored')
