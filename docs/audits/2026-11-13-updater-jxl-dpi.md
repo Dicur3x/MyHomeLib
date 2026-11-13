@@ -25,3 +25,51 @@ The form creates logical-DPI child controls, but previously assigned an already 
 The regression models the initial system-font state and requested VCL DPI inside an isolated native process. It does not change Windows display settings and is not a physical test on a second 4K monitor at 225%. Existing real-window updater-theme checks remain separate. The final production packages and their initial display at the reporter's actual Windows configuration still need verification.
 
 Evidence directory: `G:\HomeLibRu-build-cache\HomeLibre-post13-covers-20261112`; reports `initial-dpi-Win32.json` and `initial-dpi-Win64.json` retain exact binary hashes and outputs.
+
+## Populated window and verified ready download
+
+The additional `update-populated-dpi` native mode now covers the remaining
+populated-window scenario. It uses the real updater and normal JPEG XL
+download/preparation worker. Only transport is redirected to an owned loopback
+server. The exact official 0.13.0 archive is checked against its release size
+and SHA-256 before staging and again by the production verifier.
+
+The private runtime also contains published Reader, BookProcessing,
+ImageProcessing, Kindle and FB2Export files. Their source ZIPs were verified
+against GitHub asset metadata fetched on 13 November. No installed user files
+or books are used as the target. The feed is parsed with the same verified,
+partial-feed flags used by the production component-mirror reader; it does not
+fabricate component versions or download URLs.
+
+Each architecture passed eight cases: light/dark themes at modeled 216 DPI,
+release-notes zoom 90/100/110%, and the history tab. The populated list has ten
+rows. Assertions cover font height, column-header widths, button-caption widths
+and client bounds, tab/button separation, room for at least four data rows and
+a useful notes area. Restored release text still contains the official
+`Security` section. One download supplies every case: no repeat download,
+changed manifest, installation request, or reopening after Close occurred.
+
+| Architecture | Final native executable SHA-256 | Result |
+| --- | --- | --- |
+| x64 | `40ca2f58efc1cfb3f2c7ad7a31627369f90803afe7679f256afa8a896e937387` | 8/8; exit 0 |
+| x86 | `7f37b79d857fa2f2659b7fd091e15335c531aaccba7e291e4641dd2b859e0e5f` | 8/8; exit 0 |
+
+Reports and client PNGs are in `populated-dpi-Win64/` and
+`populated-dpi-Win32/` under the same evidence directory. Private runtime
+directories were removed. Failed fixture attempts remain in each report's
+`history/`: early input selection confused the retained 0.12.0 archive with the
+0.13.0 one, and the first feed-metadata snapshot predated beta 13 publication.
+The final runner validates all actual inputs. These failures are not counted
+as passing UI checks.
+
+After the AMD driver interruption reported by the user, Computer Use again
+captured the actual dark ready-update window at the modeled 225% scale.
+Component headers, versions, action buttons and release text were visible.
+This supplements the client-image captures, which omit some native child
+painting. It remains a simulated initial VCL DPI on the available monitor;
+RichEdit renders using the monitor's real device DPI. It is not proof of a
+physical 4K-monitor configuration or a Windows display-setting change.
+
+The populated-window gate is locally verified. Installing the eventual
+beta 14 distribution, including its matching updater and final archive names,
+remains a separate release gate.

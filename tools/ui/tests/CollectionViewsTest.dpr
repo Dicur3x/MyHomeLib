@@ -6150,6 +6150,7 @@ end;
 {$I UpdateFormNotifierTests.inc}
 {$I UpdateRepairTests.inc}
 {$I UpdateImageIdentityTests.inc}
+{$I UpdatePopulatedDpiTests.inc}
 {$I MetadataFillUiTests.inc}
 {$I BookInfoPanelFooterTests.inc}
 {$I BookInfoPanelAdaptiveTests.inc}
@@ -6303,6 +6304,7 @@ begin
       if ParamStr(1) = 'book-output-reset' then begin BenchmarkBookOutputReset; Halt(0); end;
       if ParamStr(1) = 'update-theme' then begin TestUpdateNotesTheme; Halt(0); end;
       if ParamStr(1) = 'update-initial-dpi' then begin TestUpdateInitialDPI; Flush(Output); Halt(0); end;
+      if ParamStr(1) = 'update-populated-dpi' then begin TestUpdatePopulatedDPI; Flush(Output); Halt(0); end;
       if ParamStr(1)='raster-preview' then begin TestRasterPreview; Flush(Output); Halt(0); end;
       if ParamStr(1)='package-covers' then begin TestPackageCovers; Flush(Output); Halt(0); end;
       if ParamStr(1)='package-preview' then begin TestPackagePreview; Flush(Output); Halt(0); end;
