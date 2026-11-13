@@ -93,7 +93,8 @@ def process_working_directory(path):
     """Use a temporary directory junction when CreateProcess cannot use cwd.
 
     The alias contains no book copy. Its handle prevents replacement while the
-    child runs; cleanup removes only the junction itself, never its contents.
+    child runs. Windows deletes only this reparse point when the handle closes,
+    including process termination, without relying on Python's finally block.
     """
     if path is None or os.name != 'nt' or len(os.path.abspath(path)) < 248:
         yield path
@@ -117,10 +118,21 @@ def process_working_directory(path):
     control.restype = wintypes.BOOL
     close = kernel.CloseHandle
     close.argtypes, close.restype = [wintypes.HANDLE], wintypes.BOOL
-    handle = create(str(alias), 0x40000000, 3, None, 3, 0x02200000, None)
+    # DELETE access + FILE_FLAG_DELETE_ON_CLOSE apply to the opened reparse
+    # point, never its target (FILE_FLAG_OPEN_REPARSE_POINT). Denying delete
+    # sharing pins its identity until the child and this lease are finished.
+    handle = create(str(alias), 0x40010000, 3, None, 3, 0x06200000, None)
+    if handle == wintypes.HANDLE(-1).value:
+        error = ctypes.WinError(ctypes.get_last_error())
+        current = alias.stat(follow_symlinks=False)
+        if (current.st_dev, current.st_ino) != (owned.st_dev, owned.st_ino):
+            raise PackingError('Временный путь архиватора изменился; очистка остановлена.') from error
+        os.rmdir(alias)
+        raise error
     try:
-        if handle == wintypes.HANDLE(-1).value:
-            raise ctypes.WinError(ctypes.get_last_error())
+        current = alias.stat(follow_symlinks=False)
+        if (current.st_dev, current.st_ino) != (owned.st_dev, owned.st_ino):
+            raise PackingError('Временный путь архиватора изменился; обработка остановлена.')
         value = str(target)
         native = '\\??\\UNC\\' + value[2:] if value.startswith('\\\\') else '\\??\\' + value
         substitute, display = native.encode('utf-16-le'), str(target).encode('utf-16-le')
@@ -134,13 +146,8 @@ def process_working_directory(path):
             raise PackingError('Временный путь архиватора не соответствует рабочей папке.')
         yield str(alias)
     finally:
-        if handle != wintypes.HANDLE(-1).value:
-            close(handle)
-        current = alias.stat(follow_symlinks=False)
-        if (current.st_dev, current.st_ino) != (owned.st_dev, owned.st_ino):
-            raise PackingError('Временный путь архиватора изменился; очистка остановлена.')
-        # os.rmdir on Windows deletes a junction, not the target directory.
-        os.rmdir(alias)
+        if not close(handle):
+            raise ctypes.WinError(ctypes.get_last_error())
 
 
 def digest_file(path, check=lambda: None):

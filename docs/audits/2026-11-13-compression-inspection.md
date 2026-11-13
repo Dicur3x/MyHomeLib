@@ -66,6 +66,11 @@ replacement during the child process; normal and cooperative cancellation
 remove only that junction with `rmdir`, never recursively deleting its target.
 A direct Windows subprocess/cancellation test preserves the target exactly.
 
+That cooperative-only cleanup has subsequently been replaced by a Windows
+delete-on-close reparse-point lease. Forced termination and the exact newer
+local packages are recorded in
+[the termination audit](2026-11-13-compression-alias-termination.md).
+
 `inspection-Win64-long-r6` passed both the full native long-Unicode-workspace
 operation and the original normal packaged-pipeline case. Source content,
 neighbour, catalogue/personal sizes and acknowledgement assertions stayed in
@@ -163,8 +168,8 @@ The exact local BookProcessing archives used by the final runs are:
 ## Remaining gates
 
 - Validate final shipped image/XPS packages without new legacy-incompatible paths.
-- Verify cleanup after a forcibly terminated producer with an active alias,
-  and recovery through the normal application window.
+- Active-alias forced-termination cleanup is covered by the termination audit;
+  verify remaining preparation cleanup and recovery through the normal window.
 - Detect/offer new and changed books after INPX, Metabib and file/folder
   imports; add the manual new-books command, migrate older history, handle
   independent covers/images and refresh effective sizes after an INPX reset.

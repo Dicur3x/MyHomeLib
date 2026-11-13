@@ -151,6 +151,8 @@ class SelectedPreparationTests(unittest.TestCase):
                 alias = Path(child)
                 self.assertLess(len(str(alias)), 248)
                 self.assertEqual(alias.resolve(), target.resolve())
+                with self.assertRaises(PermissionError):
+                    os.rmdir(alias)
                 process = run_owned([sys.executable, '-I', '-B', '-c',
                     "from pathlib import Path; assert Path('kept.txt').read_text(encoding='utf-8') == 'Исходник ё'"],
                     cwd=child, capture_output=True, timeout=10)
@@ -158,6 +160,56 @@ class SelectedPreparationTests(unittest.TestCase):
                 raise Canceled('Owned test cancellation')
         self.assertFalse(alias.exists())
         self.assertEqual(original.read_text(encoding='utf-8'), 'Исходник ё')
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows kernel-owned alias cleanup')
+    def test_hard_terminated_producer_removes_alias_after_its_child_exits(self):
+        target = self.deep_image_folder()
+        original = target / 'kept.txt'
+        original.write_bytes(b'Keep the original source')
+        worker = self.root / 'hard-stop.py'
+        ready = self.root / 'child-ready.txt'
+        child_code = ("from pathlib import Path; import time; "
+                      "assert Path('kept.txt').read_bytes() == b'Keep the original source'; "
+                      'Path(' + repr(str(ready)) + ').write_text("ready"); time.sleep(30)')
+        worker.write_text(
+            'import ctypes,json,os,subprocess,sys,time\n'
+            'sys.path.insert(0,' + repr(str(Path(__file__).resolve().parent)) + ')\n'
+            'from pack_collection import process_working_directory\n'
+            'with process_working_directory(' + repr(str(target)) + ') as alias:\n'
+            ' child=subprocess.Popen([sys.executable,"-I","-B","-c",' + repr(child_code) + '],'
+            'cwd=alias,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)\n'
+            ' deadline=time.monotonic()+5\n'
+            ' while not os.path.exists(' + repr(str(ready)) + '):\n'
+            '  if child.poll() is not None or time.monotonic()>deadline: raise RuntimeError("Child did not enter alias")\n'
+            '  time.sleep(.01)\n'
+            ' print(json.dumps({"alias":alias,"child":child.pid}),flush=True)\n'
+            ' kernel=ctypes.WinDLL("kernel32",use_last_error=True)\n'
+            ' kernel.GetCurrentProcess.restype=ctypes.c_void_p\n'
+            ' kernel.TerminateProcess.argtypes=[ctypes.c_void_p,ctypes.c_uint]\n'
+            ' if not kernel.TerminateProcess(kernel.GetCurrentProcess(),73): raise ctypes.WinError(ctypes.get_last_error())\n',
+            encoding='utf-8')
+        process = run_owned([sys.executable, '-I', '-B', str(worker)], capture_output=True,
+                            encoding='utf-8', timeout=10)
+        self.assertEqual(process.returncode, 73, process.stdout + process.stderr)
+        observed = json.loads(process.stdout.strip())
+        # Closing the owned job terminates the child, which also held this cwd.
+        import ctypes
+        from ctypes import wintypes
+        kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+        kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel.OpenProcess.restype = wintypes.HANDLE
+        kernel.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+        child = kernel.OpenProcess(0x100000, False, observed['child'])
+        if child:
+            try:
+                self.assertEqual(kernel.WaitForSingleObject(child, 5000), 0, 'Owned child is still running')
+            finally:
+                kernel.CloseHandle(child)
+        else:
+            self.assertEqual(ctypes.get_last_error(), 87, 'Child termination could not be verified')
+        self.assertFalse(os.path.lexists(observed['alias']), 'Forced stop leaked its working-directory alias')
+        self.assertEqual(original.read_bytes(), b'Keep the original source')
 
     def test_selected_reversible_books_preserve_all_payloads_names_and_comments(self):
         bodies = {'Русская книга.fb2': b'Keep all book bytes ' * 5000,

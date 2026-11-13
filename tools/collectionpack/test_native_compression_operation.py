@@ -728,6 +728,55 @@ class NativeCompressionOperationTests(unittest.TestCase):
                 kernel.CloseHandle(process)
         self.unchanged()
 
+    def test_native_forced_stop_reclaims_long_alias_without_touching_the_target(self):
+        target = self.root / 'long-work'
+        while len(str(target)) < 310:
+            target /= 'long-working-directory'
+        target.mkdir(parents=True)
+        original = target / 'kept.txt'
+        original.write_bytes(b'Keep the source of this alias')
+        ready, observed = self.root / 'alias-child-ready', self.root / 'alias-child.json'
+        child_code = ("from pathlib import Path; import time; "
+                      "assert Path('kept.txt').read_bytes() == b'Keep the source of this alias'; "
+                      'Path(' + repr(str(ready)) + ').write_text("ready"); time.sleep(30)')
+        worker = self.root / 'uncooperative-alias-worker.py'
+        worker.write_text(
+            'import json,subprocess,sys,time\nfrom pathlib import Path\n'
+            'sys.path.insert(0,' + repr(str(self.tools / 'bookconvert')) + ')\n'
+            'from pack_collection import process_working_directory\n'
+            'with process_working_directory(' + repr(str(target)) + ') as alias:\n'
+            ' child=subprocess.Popen([sys.executable,"-I","-B","-c",' + repr(child_code) + '],'
+            'cwd=alias,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)\n'
+            ' deadline=time.monotonic()+5\n'
+            ' while not Path(' + repr(str(ready)) + ').exists():\n'
+            '  if child.poll() is not None or time.monotonic()>deadline: raise RuntimeError("Child did not enter alias")\n'
+            '  time.sleep(.01)\n'
+            ' Path(' + repr(str(observed)) + ').write_text(json.dumps({"alias":alias,"child":child.pid}))\n'
+            ' print(json.dumps({"stage":"slow-worker"}),flush=True)\n'
+            ' time.sleep(30)\n', encoding='utf-8')
+        self.config.update(script=str(worker), operation_mode='stop-producer')
+        result = self.run_operation()
+        self.assertTrue(result['stopping'])
+        self.assertEqual(result['error'], '', result)
+        self.assertEqual(result['pending_before_ack'], 0)
+        observation = json.loads(observed.read_text(encoding='utf-8'))
+        kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+        kernel.OpenProcess.argtypes = (ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32)
+        kernel.OpenProcess.restype = ctypes.c_void_p
+        kernel.WaitForSingleObject.argtypes = (ctypes.c_void_p, ctypes.c_uint32)
+        kernel.CloseHandle.argtypes = (ctypes.c_void_p,)
+        child = kernel.OpenProcess(0x100000, False, observation['child'])
+        if child:
+            try:
+                self.assertEqual(kernel.WaitForSingleObject(child, 5000), 0, 'Contained alias child is still running')
+            finally:
+                kernel.CloseHandle(child)
+        else:
+            self.assertEqual(ctypes.get_last_error(), 87, 'Alias child termination could not be verified')
+        self.assertFalse(os.path.lexists(observation['alias']), 'Native forced stop leaked its short alias')
+        self.assertEqual(original.read_bytes(), b'Keep the source of this alias')
+        self.unchanged()
+
 
 if __name__ == '__main__':
     unittest.main()
