@@ -7,7 +7,9 @@ type
     ProfileIndex: Integer;
     Grayscale: Boolean;
     InspectComparison, EstimateFirst, EstimateSeen, Whole: Boolean;
-    InspectionDeadline: UInt64;
+    ProducerStageSeen, EstimateStageSeen: Boolean;
+    InspectionDeadline, Started: UInt64;
+    LastStage: string;
     OptionsSeen, ReviewSeen, ResultSeen, DecisionSent, ComparisonSeen: Boolean;
     procedure Tick(Sender: TObject);
   end;
@@ -55,6 +57,7 @@ begin
     if (Screen.Forms[I] is TfrmBookCompressionOptions) and Screen.Forms[I].Visible then
     begin
       var Form:=TfrmBookCompressionOptions(Screen.Forms[I]);
+      if not OptionsSeen then begin Writeln('TRACE compression options ms=',GetTickCount64-Started); Flush(Output); end;
       if OptionsSeen then Exit;
       OptionsSeen:=True;
       if Whole then Require(Form.Caption='Сжать текущую коллекцию','Whole collection opens the old copy wizard');
@@ -72,6 +75,11 @@ begin
     if (Screen.Forms[I] is TfrmBookCompressionProgress) and Screen.Forms[I].Visible then
     begin
       var Form:=TfrmBookCompressionProgress(Screen.Forms[I]);
+      var Stage:=TLabel(Form.FindComponent('CompressionStage')).Caption;
+      if Stage='Подготавливаем выбранную книгу' then ProducerStageSeen:=True;
+      if Stage='Оцениваем выбранную книгу' then EstimateStageSeen:=True;
+      if Stage<>LastStage then
+      begin LastStage:=Stage; Writeln('TRACE compression ms=',GetTickCount64-Started,' stage=',Stage); Flush(Output); end;
       if TButton(Form.FindComponent('CompressionApply')).Visible and
         (TButton(Form.FindComponent('CompressionApply')).Caption='Начать сжатие') then
       begin
@@ -209,6 +217,7 @@ begin
     Action:=frmMain.FindComponent('acCompressSelectedBooks') as TAction;
     Require(Assigned(Action),'Normal compression command is missing');
     Action.Update; Require(Action.Enabled,'Normal compression command is disabled for selected books');
+    Driver.Started:=GetTickCount64;
     Driver.Timer:=TTimer.Create(nil); Driver.Timer.Enabled:=False;
     Driver.Timer.Interval:=50; Driver.Timer.OnTimer:=Driver.Tick; Driver.Timer.Enabled:=True;
     if Driver.Whole then
@@ -223,7 +232,13 @@ begin
     begin Application.ProcessMessages; Sleep(10); end;
     Require(Driver.OptionsSeen and Driver.ReviewSeen and Driver.ResultSeen and
       ((Mode='estimate') or Driver.ComparisonSeen) and (not Driver.EstimateFirst or Driver.EstimateSeen),
-      'Normal catalogue compression did not reach options, review and result');
+      'Normal catalogue compression did not reach options, review and result; last stage: '+Driver.LastStage);
+    // Real illustrated books keep producer stages visible long enough for the
+    // GUI timer. Tiny fixtures may complete between two timer ticks.
+    if Members[1]='two.epub' then
+      Require(((Mode='estimate') or Driver.ProducerStageSeen) and
+        (not Driver.EstimateFirst or Driver.EstimateStageSeen),
+        'Russian worker stages were lost or decoded incorrectly');
     var CurrentCollection:=SystemDB.GetCollection(Collection.CollectionID);
     CurrentCollection.GetBookRecord(Books[0].BookKey,After,False);
     ShowPage(PAGE_SEARCH);
@@ -267,7 +282,11 @@ begin
     Require(Personal.Progress=37,'Compression lost personal reading progress');
     Registry:=TPath.Combine(Settings.DataPath,'compression-work.ini');
     Options:=Default(TBookCompressionOperationOptions);
-    LoadCompressionPreferences(Registry,'',Options);
+    Require(LoadCollectionCompressionPreferences(Registry,'',CurrentCollection,Options)='',
+      'Normal catalogue command did not save valid collection-specific choices');
+    Require((Options.Profile='economy') and (Options.Grayscale=Driver.Grayscale) and
+      Options.ReviewResults and Options.BackupOriginals and (Options.BackupFolder=Driver.BackupFolder),
+      'Normal catalogue command lost its own selected compression choices');
     Require(Length(TBookCompressionJob.Pending(CompressionQueueRoot(Options)))=0,'Completed GUI action left a pending job');
     Writeln('PASS selected compression normal catalogue ',Mode,' preserves neighbors, personal progress, originals and refreshed Reader cache');
   finally Config.Free; Driver.Timer.Free; Driver.Free; end;

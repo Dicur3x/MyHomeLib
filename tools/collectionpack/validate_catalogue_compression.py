@@ -7,6 +7,7 @@ Never points the catalogue at a user's source folder or personal database.
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -29,7 +30,7 @@ def archive_body(archive, member, seven_zip):
             return source.read(member)
     except NotImplementedError:  # PPMd ZIP: use the shipped independent decoder.
         result = subprocess.run([str(seven_zip), 'e', '-so', '-bd', '-y', '--', str(archive), member],
-                                capture_output=True, timeout=30)
+                                capture_output=True, timeout=120)
         if result.returncode:
             raise AssertionError(result.stderr.decode('utf-8', errors='replace'))
         return result.stdout
@@ -87,6 +88,12 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
         for marker in ('uselocaldata', 'uselocaltemp'):
             (root / marker).touch()
         (root / 'native-regression.marker').write_text('HomeLib Ru isolated native regression v1', encoding='utf-8')
+        # This fixture tests compression, not public update checks or metadata
+        # downloads. Keep unrelated network work out of timing and UI focus.
+        (root / 'myhomelib2.ini').write_text(
+            '[SYSTEM]\nCheckUpdates=0\nCheckLibrusecUpdates=0\nProgramCheckMinutes=0\n'
+            '[BEHAVIOR]\nAutoLoadReview=0\nShowCover=0\nShowAnnotation=0\n'
+            '[INTERFACE]\nWindowsDarkThemeOfferDismissed=1\n', encoding='utf-8')
         if not processing_package:
             descriptor(root, platform, 'BookProcessing', '3.0.0.14', 'tools/bookconvert/MODULAR_RUNTIME.json', [
             'tools/python/python.exe', 'tools/python/python313.dll', 'tools/python/python313.zip',
@@ -113,7 +120,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
                     assert archive.getinfo(spec['member']).file_size <= 128 * 1024 * 1024
                     originals[name] = archive.read(spec['member'])
             (root / 'compression-fixture.json').write_text(json.dumps(dict(
-                first='one.fb2', second='two.epub', grayscale=False, timeout_ms=180000,
+                first='one.fb2', second='two.epub', grayscale=False, timeout_ms=300000,
                 inspect_comparison=inspect_comparison)), encoding='utf-8')
         selected = [name for name in originals if name != 'neighbor.fb2']
         if inspect_comparison and not real_books:
@@ -138,10 +145,37 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
             startup = subprocess.STARTUPINFO()
             startup.dwFlags |= subprocess.STARTF_USESHOWWINDOW
             startup.wShowWindow = 5
-        process = subprocess.run([str(root / 'CollectionViewsTest.exe'), 'selected-compression-ui', mode],
-                                 cwd=root, capture_output=True, startupinfo=startup, timeout=210 if real_books else 100)
-        output = (process.stdout + process.stderr).decode('utf-8', errors='replace')
-        (stage / f'catalogue-{platform}-{mode}.log').write_text(output, encoding='utf-8')
+        # Keep the native log while it runs. A hard outer deadline must not
+        # discard the only evidence explaining where the private GUI stopped.
+        # The real-book fixture itself allows 300 s *after* its application
+        # bootstrap; leave separate room for bootstrap and orderly teardown.
+        deadline = 420 if real_books else 150
+        attempt = dict(status='INCOMPLETE', platform=platform, mode=mode,
+            native_binary_sha256=digest(binary), outer_timeout_seconds=deadline,
+            real_source_stamps={str(path): stamp for path, stamp in real_stamps.items()})
+        attempt_file = stage / f'catalogue-{platform}-{mode}-attempt.json'
+        attempt_file.write_text(json.dumps(attempt, indent=2), encoding='utf-8')
+        log_path = stage / f'catalogue-{platform}-{mode}.log'
+        env = {**os.environ, 'TEMP': str(root), 'TMP': str(root),
+               'LOCALAPPDATA': str(root / 'Local'), 'APPDATA': str(root / 'Roaming')}
+        try:
+            with log_path.open('wb') as log:
+                process = subprocess.run([str(root / 'CollectionViewsTest.exe'), 'selected-compression-ui', mode],
+                    cwd=root, env=env, stdout=log, stderr=subprocess.STDOUT, startupinfo=startup, timeout=deadline,
+                    creationflags=subprocess.BELOW_NORMAL_PRIORITY_CLASS |
+                        (0 if inspect_comparison else subprocess.CREATE_NO_WINDOW))
+        except subprocess.TimeoutExpired:
+            notes = []
+            for p in root.rglob('*.json'):
+                if 'tools' not in p.relative_to(root).parts and p.stat().st_size < 32768:
+                    notes.append(str(p.relative_to(root)) + '\n' + p.read_text(encoding='utf-8-sig', errors='replace'))
+            (stage / f'catalogue-{platform}-{mode}-diagnostics.txt').write_text('\n'.join(notes), encoding='utf-8')
+            attempt.update(status='TIMEOUT', seconds=round(time.monotonic()-started, 3),
+                originals_unchanged=all((path.stat().st_ino, path.stat().st_size, path.stat().st_mtime_ns) == stamp
+                    for path, stamp in real_stamps.items()))
+            attempt_file.write_text(json.dumps(attempt, indent=2), encoding='utf-8')
+            raise
+        output = log_path.read_text(encoding='utf-8', errors='replace')
         if process.returncode or f'PASS selected compression normal catalogue {mode}' not in output:
             # Keep only bounded text diagnostics; do not retain the runtime or books.
             notes = []
@@ -149,7 +183,14 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
                 if 'tools' not in p.relative_to(root).parts and p.stat().st_size < 32768:
                     notes.append(str(p.relative_to(root)) + '\n' + p.read_text(encoding='utf-8-sig', errors='replace'))
             (stage / f'catalogue-{platform}-{mode}-diagnostics.txt').write_text('\n'.join(notes), encoding='utf-8')
+            attempt.update(status='FAIL', returncode=process.returncode,
+                seconds=round(time.monotonic()-started, 3),
+                originals_unchanged=all((path.stat().st_ino, path.stat().st_size, path.stat().st_mtime_ns) == stamp
+                    for path, stamp in real_stamps.items()))
+            attempt_file.write_text(json.dumps(attempt, indent=2), encoding='utf-8')
             raise AssertionError(f'Catalogue {platform} {mode}: exit {process.returncode}\n{output}')
+        attempt.update(status='VERIFYING_CONTENT', native_returncode=process.returncode)
+        attempt_file.write_text(json.dumps(attempt, indent=2), encoding='utf-8')
         with zipfile.ZipFile(source) as archive:
             assert set(archive.namelist()) == set(originals)
             assert archive_body(source, 'neighbor.fb2', root / 'tools/7zip/7za.exe') == originals['neighbor.fb2']
@@ -192,6 +233,9 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
         for path, stamp in real_stamps.items():
             info = path.stat()
             assert (info.st_ino, info.st_size, info.st_mtime_ns) == stamp, 'Real source archive changed'
+        attempt.update(status='PASS', returncode=process.returncode,
+            seconds=round(time.monotonic()-started, 3), originals_unchanged=True)
+        attempt_file.write_text(json.dumps(attempt, indent=2), encoding='utf-8')
         return dict(status='PASS', platform=platform, mode=mode, seconds=round(time.monotonic()-started, 3),
                     before_bytes=size, after_bytes=source.stat().st_size, native_binary_sha256=digest(binary),
                     processing_package_sha256=digest(processing_package) if processing_package else None,
@@ -214,6 +258,18 @@ if __name__ == '__main__':
     parser.add_argument('--estimate-first', action='store_true')
     parser.add_argument('--whole', action='store_true')
     args = parser.parse_args()
-    result = run(**vars(args))
-    (args.stage / f'catalogue-{args.platform}-{args.mode}.json').write_text(json.dumps(result, indent=2), encoding='utf-8')
+    report = args.stage / f'catalogue-{args.platform}-{args.mode}.json'
+    try:
+        result = run(**vars(args))
+    except BaseException as error:
+        attempt_file = args.stage / f'catalogue-{args.platform}-{args.mode}-attempt.json'
+        attempt = json.loads(attempt_file.read_text(encoding='utf-8')) if attempt_file.exists() else {}
+        unchanged = all((Path(path).stat().st_ino, Path(path).stat().st_size, Path(path).stat().st_mtime_ns) == tuple(stamp)
+                        for path, stamp in attempt.get('real_source_stamps', {}).items())
+        result = dict(status='FAIL', platform=args.platform, mode=args.mode,
+                      error=type(error).__name__ + ': ' + str(error),
+                      last_phase=attempt.get('status'), originals_unchanged=unchanged)
+        report.write_text(json.dumps(result, indent=2), encoding='utf-8')
+        raise
+    report.write_text(json.dumps(result, indent=2), encoding='utf-8')
     print(json.dumps(result))

@@ -2,7 +2,7 @@
 
 interface
 
-uses System.SysUtils, unit_BookCompressionOperation;
+uses System.SysUtils, unit_BookCompressionOperation, unit_Interfaces;
 
 function ResolveSelectedCompressionTools(const AppPath: string;
   var Options: TBookCompressionOperationOptions): TArray<string>;
@@ -10,13 +10,20 @@ procedure LoadCompressionPreferences(const RegistryFile, DefaultWorkRoot: string
   var Options: TBookCompressionOperationOptions);
 procedure RememberCompressionWork(const RegistryFile: string;
   const Options: TBookCompressionOperationOptions);
+// Work queues belong to the application profile. Quality and backup choices
+// belong to the collection, surviving rename, relocation and index imports.
+// A damaged preference returns a warning and safe choices for explicit review.
+function LoadCollectionCompressionPreferences(const RegistryFile, DefaultWorkRoot: string;
+  const Collection: IBookCollection; var Options: TBookCompressionOperationOptions): string;
+procedure RememberCollectionCompressionWork(const RegistryFile: string;
+  const Collection: IBookCollection; const Options: TBookCompressionOperationOptions);
 function CompressionWorkRoots(const RegistryFile: string): TArray<string>;
 
 implementation
 
-uses System.Classes, System.IniFiles, System.IOUtils, System.StrUtils,
+uses System.Classes, System.IniFiles, System.IOUtils, System.StrUtils, System.JSON, System.Variants,
   unit_FileMutex, unit_AtomicIniFile, unit_CollectionPacking, unit_FormatComponents,
-  unit_ComponentUpdates, unit_ProgramUpdateInstaller;
+  unit_ComponentUpdates, unit_ProgramUpdateInstaller, unit_Consts;
 
 function ResolveSelectedCompressionTools(const AppPath: string;
   var Options: TBookCompressionOperationOptions): TArray<string>;
@@ -115,6 +122,93 @@ begin
       SaveMemIniFileAtomically(Ini);
     finally Ini.Free; end;
   finally Lock.Free; end;
+end;
+
+function CompressionPreferenceJSON(const Options: TBookCompressionOperationOptions): string;
+var Data: TJSONObject;
+begin
+  if not MatchText(Options.Profile,['original','balanced','economy','maximum']) or
+    (Options.WorkRoot='') or not TPath.IsPathRooted(Options.WorkRoot) or
+    (Length(Options.WorkRoot)>32767) or (Length(Options.BackupFolder)>32767) or
+    ((Options.BackupFolder<>'') and not TPath.IsPathRooted(Options.BackupFolder)) or
+    (Options.BackupOriginals and (Options.BackupFolder='')) then
+    raise EArgumentException.Create('Проверьте режим сжатия и папки для временных файлов и оригиналов.');
+  Data:=TJSONObject.Create;
+  try
+    Data.AddPair('version',TJSONNumber.Create(1));
+    Data.AddPair('profile',LowerCase(Options.Profile));
+    Data.AddPair('grayscale',TJSONBool.Create(Options.Grayscale));
+    Data.AddPair('review',TJSONBool.Create(Options.ReviewResults));
+    Data.AddPair('backup',TJSONBool.Create(Options.BackupOriginals));
+    Data.AddPair('backup_folder',Options.BackupFolder);
+    Data.AddPair('work_root',Options.WorkRoot);
+    Result:=Data.ToJSON;
+  finally Data.Free; end;
+end;
+
+function LoadCollectionCompressionPreferences(const RegistryFile, DefaultWorkRoot: string;
+  const Collection: IBookCollection; var Options: TBookCompressionOperationOptions): string;
+var Stored: string; Data: TJSONValue; Choice: TBookCompressionOperationOptions;
+  function Text(const Name: string): string;
+  begin
+    var Value:=TJSONObject(Data).GetValue(Name);
+    if not (Value is TJSONString) then raise EConvertError.Create(Name);
+    Result:=Value.Value;
+  end;
+  function Flag(const Name: string): Boolean;
+  begin
+    var Value:=TJSONObject(Data).GetValue(Name);
+    if not (Value is TJSONBool) then raise EConvertError.Create(Name);
+    Result:=TJSONBool(Value).AsBoolean;
+  end;
+begin
+  if not Assigned(Collection) then raise EArgumentNilException.Create('Collection');
+  LoadCompressionPreferences(RegistryFile,DefaultWorkRoot,Options);
+  // Never inherit another collection's lossy or grayscale preference. Old
+  // global preferences remain available to recovery and older installations.
+  Options.Profile:='balanced'; Options.Grayscale:=False; Options.ReviewResults:=True;
+  Options.BackupOriginals:=False; Options.BackupFolder:=''; Options.EstimateFirst:=False;
+  Result:=''; Stored:=VarToStr(Collection.GetProperty(PROP_COMPRESSION_PREFERENCES));
+  if Stored='' then Exit;
+  Data:=nil;
+  try
+    try
+      if TEncoding.UTF8.GetByteCount(Stored)>256*1024 then raise EConvertError.Create('size');
+      Data:=TJSONObject.ParseJSONValue(Stored);
+      if not (Data is TJSONObject) then raise EConvertError.Create('object');
+      var Version:=TJSONObject(Data).GetValue('version');
+      if not (Version is TJSONNumber) or (Version.Value<>'1') then raise EConvertError.Create('version');
+      Choice:=Options;
+      Choice.Profile:=LowerCase(Text('profile')); Choice.Grayscale:=Flag('grayscale');
+      Choice.ReviewResults:=Flag('review'); Choice.BackupOriginals:=Flag('backup');
+      Choice.BackupFolder:=Text('backup_folder'); Choice.WorkRoot:=Text('work_root');
+      CompressionPreferenceJSON(Choice); // Validate the complete choice before assigning any field.
+      Options:=Choice;
+    except
+      on E: EConvertError do
+        Result:='Сохранённые настройки сжатия этой коллекции не удалось прочитать. Выбраны начальные параметры: проверьте их перед запуском.';
+      on E: EArgumentException do
+        Result:='Сохранённые настройки сжатия этой коллекции некорректны. Выбраны начальные параметры: проверьте их перед запуском.';
+    end;
+  finally Data.Free; end;
+end;
+
+procedure RememberCollectionCompressionWork(const RegistryFile: string;
+  const Collection: IBookCollection; const Options: TBookCompressionOperationOptions);
+var Stored: string;
+begin
+  if not Assigned(Collection) then raise EArgumentNilException.Create('Collection');
+  if Collection.InBulkOperation then
+    raise EInvalidOperation.Create('Дождитесь завершения изменения коллекции перед сжатием.');
+  Stored:=CompressionPreferenceJSON(Options);
+  // Publish recovery locations first. No file job can be published if either
+  // the profile registry or the collection preference cannot be saved.
+  RememberCompressionWork(RegistryFile,Options);
+  Collection.BeginBulkOperation;
+  try
+    Collection.SetProperty(PROP_COMPRESSION_PREFERENCES,Stored);
+  except Collection.EndBulkOperation(False); raise; end;
+  Collection.EndBulkOperation;
 end;
 
 end.

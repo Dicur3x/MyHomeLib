@@ -110,7 +110,8 @@ begin
     else
     begin
       if Length(FLine)>=65536 then raise EReadError.Create('Слишком длинный ответ обработчика сжатия.');
-      FLine:=FLine+AnsiChar(Bytes[I]);
+      // Append raw UTF-8 bytes; concatenating an ACP AnsiChar transcodes it.
+      SetLength(FLine,Length(FLine)+1); FLine[Length(FLine)]:=AnsiChar(Bytes[I]);
     end;
   Result:=Count;
 end;

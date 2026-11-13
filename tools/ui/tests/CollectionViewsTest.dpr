@@ -6250,6 +6250,7 @@ end;
 {$I CollectionPackingRestartTests.inc}
 {$I SqlCatalogueRestartTests.inc}
 {$I BookCompressionCatalogueTests.inc}
+{$I CompressionPreferenceTests.inc}
 {$I PackageCoverTests.inc}
 {$I CataloguePlacementTests.inc}
 
@@ -6469,9 +6470,10 @@ begin
         Halt(0);
       end;
       if ParamStr(1).StartsWith('startup-deferred') then CompleteDeferredStartup;
-      if ParamStr(1)='selected-compression-ui' then
+      if (ParamStr(1)='selected-compression-ui') or (ParamStr(1)='compression-preferences') then
       begin
-        TestSelectedCompressionCatalogue(One,FirstBook,LastBook);
+        if ParamStr(1)='compression-preferences' then TestCompressionPreferences(One,Two)
+        else TestSelectedCompressionCatalogue(One,FirstBook,LastBook);
         Flush(Output);
         FreeAndNil(frmMain); FreeAndNil(dmImages); One:=nil; Two:=nil;
         FreeAndNil(DMUser); FreeAndNil(frmSplash);

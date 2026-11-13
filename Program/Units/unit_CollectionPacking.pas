@@ -513,7 +513,8 @@ begin
     end
     else if Bytes^<>13 then
     begin
-      FLine:=FLine+AnsiChar(Bytes^);
+      // Keep pipe bytes intact until the complete UTF-8 JSON line arrives.
+      SetLength(FLine,Length(FLine)+1); FLine[Length(FLine)]:=AnsiChar(Bytes^);
       if Length(FLine)>16384 then raise Exception.Create('Слишком длинное сообщение модуля сжатия.');
     end;
     Inc(Bytes);

@@ -104,7 +104,7 @@ begin
   if BookCount=0 then TLabel(FindComponent('CompressionOptionsIntro')).Caption:=
     'Доступные книги текущей коллекции и её источников останутся на прежних местах. '+
     'Архив или файл заменится, только если станет меньше.';
-  MakeLabel(Self,'CompressionProfileLabel',72,20).Caption:='Как сжимать';
+  MakeLabel(Self,'CompressionProfileLabel',72,20).Caption:='Как сжимать (запоминается для этой коллекции)';
   FProfile:=TComboBox.Create(Self); FProfile.Parent:=Self; FProfile.Name:='CompressionProfile';
   FProfile.SetBounds(16,96,608,26); FProfile.Style:=csDropDownList;
   FProfile.Items.Add('Без изменения изображений');

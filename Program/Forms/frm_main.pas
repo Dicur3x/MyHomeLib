@@ -4709,7 +4709,7 @@ end;
 
 procedure TfrmMain.PackCurrentCollection(Sender: TObject);
 var Info:TCollectionInfo; Options:TBookCompressionOperationOptions;
-    Personal,Registry,WorkRoot:string; Required:TArray<string>;
+    Personal,Registry,WorkRoot,Warning:string; Required:TArray<string>;
     Operation:TBookCompressionOperation;
 begin
   if Assigned(FBookCompressionOperation) then
@@ -4724,8 +4724,11 @@ begin
     Personal:=Settings.SystemFileName[sfSystemDB];
     Registry:=TPath.Combine(Settings.DataPath,'compression-work.ini');
     Options:=Default(TBookCompressionOperationOptions);
-    LoadCompressionPreferences(Registry,TPath.Combine(Info.GetRootPath,'HomeLibre-compression-work'),Options);
+    Warning:=LoadCollectionCompressionPreferences(Registry,
+      TPath.Combine(Info.GetRootPath,'HomeLibre-compression-work'),FCollection,Options);
+    if Warning<>'' then MHLShowWarning(Warning);
     if not ChooseSelectedCompressionOptions(Self,0,Options) then Exit;
+    RememberCollectionCompressionWork(Registry,FCollection,Options);
     Required:=ResolveSelectedCompressionTools(Settings.AppPath,Options);
     if Length(Required)>0 then
     begin
@@ -4734,7 +4737,7 @@ begin
         'Для сжатия текущей коллекции нужны эти компоненты. После установки повторите команду.',True);
       Exit;
     end;
-    RememberCompressionWork(Registry,Options); WorkRoot:=Options.WorkRoot;
+    WorkRoot:=Options.WorkRoot;
     Operation:=TBookCompressionOperation.Create(Options,
       function(const Cancelled:TFunc<Boolean>; const Progress:TProc<Int64>):TBookCompressionPlan
       begin Result:=BuildCollectionCompressionPlan(Info,Personal,WorkRoot,Cancelled,Progress); end);
@@ -4756,7 +4759,7 @@ end;
 procedure TfrmMain.CompressSelectedBooks(Sender: TObject);
 var Tree: TBookTree; IDs: TBookIdList; Books: TArray<TBookRecord>;
   Info: TCollectionInfo; Options: TBookCompressionOperationOptions;
-  Personal, Registry: string; Required: TArray<string>; Operation: TBookCompressionOperation;
+  Personal, Registry, Warning: string; Required: TArray<string>; Operation: TBookCompressionOperation;
 begin
   if Assigned(FBookCompressionOperation) then
   begin FBookCompressionProgress.Show; Exit; end;
@@ -4783,9 +4786,13 @@ begin
     Personal:=Settings.SystemFileName[sfSystemDB];
     Registry:=TPath.Combine(Settings.DataPath,'compression-work.ini');
     Options:=Default(TBookCompressionOperationOptions);
-    LoadCompressionPreferences(Registry,TPath.Combine(ExtractFileDir(Books[0].GetBookFileName),
-      'HomeLibre-compression-work'),Options);
+    Warning:=LoadCollectionCompressionPreferences(Registry,
+      TPath.Combine(ExtractFileDir(Books[0].GetBookFileName),'HomeLibre-compression-work'),FCollection,Options);
+    if Warning<>'' then MHLShowWarning(Warning);
     if not ChooseSelectedCompressionOptions(Self,Length(Books),Options) then Exit;
+    // Remember recovery locations and the collection's explicit choices even
+    // when the next step needs to install a missing processing component.
+    RememberCollectionCompressionWork(Registry,FCollection,Options);
     Required:=ResolveSelectedCompressionTools(Settings.AppPath,Options);
     if Length(Required)>0 then
     begin
@@ -4794,10 +4801,6 @@ begin
         'Для сжатия выбранных книг нужны эти компоненты. После установки повторите команду; отметки книг сохранены.',True);
       Exit;
     end;
-    // Remember every possible recovery queue before a worker can publish a
-    // job. This small registry lives in the profile; large work stays in the
-    // selected folder and can be on another drive than Windows or the books.
-    RememberCompressionWork(Registry,Options);
     Operation:=TBookCompressionOperation.Create(Options,
       function(const Cancelled: TFunc<Boolean>; const Progress: TProc<Int64>): TBookCompressionPlan
       begin Result:=BuildSelectedCompressionPlan(Info,Personal,Books,Cancelled,Progress); end);
