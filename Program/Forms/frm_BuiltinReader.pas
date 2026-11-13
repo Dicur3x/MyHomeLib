@@ -14,6 +14,7 @@ type
   TReaderPageLayout = (rplSingle, rplDouble, rplAutomatic, rplContinuous);
   TReaderPageTurn = (rptSpread, rptSliding);
   TReaderPageAppearance = (rpaFlat, rpaBook);
+  TReaderInitialRasterScale = (rirFitWidth, rirOriginal, rirPrevious);
   TReaderNavigation = (rnPrevious, rnNext, rnNextAlternate, rnScrollUp, rnScrollDown,
     rnScreenUp, rnScreenDown, rnFirst, rnLast);
   TReaderNavigationKeys = array[TReaderNavigation] of Word;
@@ -85,6 +86,8 @@ type
     FOriginalRasterItem, FNavigationKeysItem, FFullScreenItem: TMenuItem;
     FNavigationKeys: TReaderNavigationKeys;
     FOriginalRasterScale: Boolean;
+    FInitialRasterScale: TReaderInitialRasterScale;
+    FInitialRasterScaleChanged, FStoredRasterScale: Boolean;
     FInterfaceMenu: TMainMenu;
     FStartPage: TPanel;
     FInterfaceSearch: Boolean;
@@ -226,6 +229,7 @@ type
     function DesiredRasterEdge: Integer;
     function DesiredRasterWidth: Integer;
     function RasterFitsScrollWidth: Boolean;
+    procedure ApplyInitialRasterScale;
     procedure PageLoaded(Sender: TObject);
     procedure ResetInspection;
     function CreateFormattingBuffer: TRichEdit;
@@ -1833,6 +1837,7 @@ begin
   if Assigned(FLoader.Pages) then
   begin
     FPDF:=FLoader.Pages; FLoader.Pages:=nil; FLength:=FPDF.PageCount;
+    ApplyInitialRasterScale;
     for Chapter in FPDF.Chapters do AddChapter(Chapter.Title,Chapter.Page,Chapter.Depth);
     RebuildChapterTitles;
     FReady:=True; RestoreSettings; SavedPage:=FPage; FPage:=0; FRequestedPage:=0;
@@ -1910,6 +1915,21 @@ end;
 function TfrmBuiltinReader.RasterFitsScrollWidth: Boolean;
 begin
   Result:=(FPDF is TReaderRaster) and TReaderRaster(FPDF).FitsContinuousWidth;
+end;
+
+procedure TfrmBuiltinReader.ApplyInitialRasterScale;
+var Ini: TMemIniFile;
+begin
+  // Detect the decoded document, not a manga title, genre or archive suffix.
+  // Existing books retain their own scale, including profiles from older readers.
+  if FStoredRasterScale or not RasterFitsScrollWidth then Exit;
+  FZoom:=100; FOriginalRasterScale:=FInitialRasterScale=rirOriginal;
+  if (FInitialRasterScale<>rirPrevious) or (FSettingsFile='') then Exit;
+  Ini:=TMemIniFile.Create(FSettingsFile,TEncoding.UTF8);
+  try
+    FZoom:=EnsureRange(Ini.ReadInteger('Reader','LastRasterZoom',100),50,300);
+    FOriginalRasterScale:=Ini.ReadBool('Reader','LastRasterOriginalScale',False);
+  finally Ini.Free; end;
 end;
 
 function TfrmBuiltinReader.DesiredRasterWidth: Integer;
@@ -5392,7 +5412,7 @@ end;
 procedure TfrmBuiltinReader.StyleClick(Sender: TObject);
 var Dialog: TForm; TextDialog: TReaderTextAppearanceDialog;
   FontBox, SizeBox, SpacingBox, MarginBox, WidthBox, ZoomBox, InitialBox, LayoutBox, TurnBox, AppearanceBox,
-    RasterScaleBox: TReaderPaletteCombo;
+    RasterScaleBox, InitialRasterScaleBox: TReaderPaletteCombo;
   FontNames: TStringList; LabelText: TLabel; Button: TButton; WidthText: string;
   FormattingBox, NotesBox, InitialCheck, HoldCheck, SelectionCheck: TCheckBox;
   ChapterTicksBox, FullScreenProgressBox: TCheckBox;
@@ -5459,8 +5479,8 @@ begin
       Dialog.Name:='ReaderAppearanceDialog';
       Dialog.PopupMode:=pmExplicit; Dialog.PopupParent:=Self;
       Dialog.Caption:='Вид страниц'; Dialog.BorderStyle:=bsDialog; Dialog.Position:=poOwnerFormCenter;
-      ExtraRow:=0; RasterScaleBox:=nil;
-      if RasterFitsScrollWidth then ExtraRow:=38;
+      ExtraRow:=0; RasterScaleBox:=nil; InitialRasterScaleBox:=nil;
+      if RasterFitsScrollWidth then ExtraRow:=88;
       Dialog.ClientWidth:=350; Dialog.ClientHeight:=348+ExtraRow; Dialog.Font.Assign(Font);
       AddLabel('Режим чтения',20); LayoutBox:=Choice(16); LayoutBox.Name:='cbReaderPageLayout';
       LayoutBox.Items.Text:='Одна страница'+#13+'Две страницы'+#13+'Автоматически по ширине'+#13+'Плавная прокрутка';
@@ -5475,6 +5495,13 @@ begin
         if ReadingZoom<>100 then RasterScaleBox.Items.Add(Format('%d%% ширины окна',[ReadingZoom]));
         if FOriginalRasterScale then RasterScaleBox.ItemIndex:=1
         else if ReadingZoom<>100 then RasterScaleBox.ItemIndex:=2 else RasterScaleBox.ItemIndex:=0;
+        AddLabel('Новые изображения',92);
+        LabelText.AutoSize:=False; LabelText.WordWrap:=True; LabelText.SetBounds(16,92,100,34);
+        InitialRasterScaleBox:=Choice(92); InitialRasterScaleBox.Name:='ReaderInitialRasterScale';
+        InitialRasterScaleBox.Items.Text:='По ширине окна'+#13+'Исходный (100%)'+#13+'Как в предыдущей книге';
+        InitialRasterScaleBox.ItemIndex:=Ord(FInitialRasterScale);
+        InitialRasterScaleBox.ShowHint:=True;
+        InitialRasterScaleBox.Hint:='Начальный масштаб новых комиксов и отдельных изображений в плавной прокрутке. Уже открывавшиеся книги сохраняют свой масштаб.';
       end;
       AddLabel('Временный зум',58+ExtraRow); ZoomBox:=Choice(54+ExtraRow);
       ZoomBox.Name:='ReaderInspectionPercent'; ZoomBox.ShowHint:=True;
@@ -5487,7 +5514,7 @@ begin
       LabelText:=TLabel.Create(Dialog); LabelText.Parent:=Dialog; LabelText.AutoSize:=False;
       LabelText.SetBounds(16,166+ExtraRow,318,54); LabelText.WordWrap:=True;
       if Assigned(RasterScaleBox) then
-        LabelText.Caption:='Масштаб действует в плавной прокрутке. Временный зум доступен при чтении по страницам.'
+        LabelText.Caption:='Масштаб изображений — для плавной прокрутки. У уже открывавшейся книги остаётся её масштаб. Временный зум — для чтения по страницам.'
       else LabelText.Caption:='Временный зум доступен при чтении по страницам. На странице с текстом мышь выделяет текст для копирования.';
       HoldCheck:=TReaderPaletteCheckBox.Create(Dialog); HoldCheck.Parent:=Dialog;
       HoldCheck.Name:='ReaderInspectionHold'; HoldCheck.SetBounds(16,224+ExtraRow,320,28);
@@ -5503,6 +5530,12 @@ begin
       if Dialog.ShowModal=mrOk then
       begin
         ApplyProgressChecks;
+        if Assigned(InitialRasterScaleBox) and (InitialRasterScaleBox.ItemIndex>=0) then
+        begin
+          FInitialRasterScaleChanged:=FInitialRasterScaleChanged or
+            (Ord(FInitialRasterScale)<>InitialRasterScaleBox.ItemIndex);
+          FInitialRasterScale:=TReaderInitialRasterScale(InitialRasterScaleBox.ItemIndex);
+        end;
         if ZoomBox.Enabled then
         begin
           SetInspectionPercent(StrToIntDef(ZoomBox.Text,150));
@@ -6149,7 +6182,11 @@ begin
       FInspectionPercent:=EnsureRange(Ini.ReadInteger('Reader','InspectionPercent',150),120,300);
       FInspectionHold:=Ini.ReadBool('Reader','InspectionHold',True);
       FSelectionEnabled:=Ini.ReadBool('Reader','SelectionEnabled',True);
-      // A new book always fits the window; zoom belongs to that book alone.
+      FInitialRasterScale:=TReaderInitialRasterScale(EnsureRange(
+        Ini.ReadInteger('Reader','InitialRasterScale',Ord(rirFitWidth)),0,Ord(High(TReaderInitialRasterScale))));
+      FStoredRasterScale:=Ini.ValueExists('Book.'+FIdentity,'Zoom') or
+        Ini.ValueExists('Book.'+FIdentity,'OriginalRasterScale');
+      // A stored book scale takes precedence over the initial scale of new images.
       FZoom:=EnsureRange(Ini.ReadInteger('Book.'+FIdentity,'Zoom',100),50,300); FNight:=Ini.ReadBool('Reader','Night',False);
       FOriginalRasterScale:=Ini.ReadBool('Book.'+FIdentity,'OriginalRasterScale',False);
       FTheme:=EnsureRange(Ini.ReadInteger('Reader','Theme',IfThen(FNight,5,0)),0,ReaderCustomThemeIndex);
@@ -6228,6 +6265,8 @@ begin
     Ini.WriteInteger('Reader','InspectionPercent',FInspectionPercent);
     Ini.WriteBool('Reader','InspectionHold',FInspectionHold);
     Ini.WriteBool('Reader','SelectionEnabled',FSelectionEnabled);
+    if FInitialRasterScaleChanged then
+      Ini.WriteInteger('Reader','InitialRasterScale',Ord(FInitialRasterScale));
     if FInspect then Ini.WriteInteger('Reader','PDFZoom',FInspectZoom) else Ini.WriteInteger('Reader','PDFZoom',FZoom);
     Ini.WriteBool('Reader','Night',FNight);
     Ini.WriteInteger('Reader','Theme',FTheme);
@@ -6248,10 +6287,17 @@ begin
       else Ini.DeleteKey('Book.'+FIdentity,'ScrollFraction');
       if FInspect then Ini.WriteInteger('Book.'+FIdentity,'Zoom',FInspectZoom) else Ini.WriteInteger('Book.'+FIdentity,'Zoom',FZoom);
       Ini.WriteBool('Book.'+FIdentity,'OriginalRasterScale',FOriginalRasterScale);
+      if RasterFitsScrollWidth and ContinuousReading then
+      begin
+        if FInspect then Ini.WriteInteger('Reader','LastRasterZoom',FInspectZoom)
+        else Ini.WriteInteger('Reader','LastRasterZoom',FZoom);
+        Ini.WriteBool('Reader','LastRasterOriginalScale',FOriginalRasterScale);
+      end;
     end;
     SaveMemIniFileAtomically(Ini);
     FChangedThemeColors:=[];
     FCustomHeadingColorsDirty:=False;
+    FInitialRasterScaleChanged:=False;
   finally Ini.Free; end;
   if FReady and FReadingMoved and Assigned(FOnProgress) then
     FOnProgress(EnsureRange(Round(ReadingProgress*100),0,100));
