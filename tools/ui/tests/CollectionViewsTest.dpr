@@ -48,7 +48,7 @@ uses
   unit_ReaderAssociations, frm_ReaderAssociations, System.Win.Registry,
   frm_ProgramUpdate, frm_settings, frm_ReaderCacheSettings, frm_ReaderHost, unit_ProgramUpdates, unit_ComponentUpdates, unit_ProgramUpdateInstaller, unit_UpdateAuthenticity, unit_IBKRuntime,
   frm_ImportProgressFormEx, frm_UpdateFromFile, unit_IndexPublisherSeriesThread, unit_ImportInpxThread, frm_NewCollectionWizard,
-  frame_NCWCollectionNameAndLocation, frame_NCWCollectionFileTypes,
+  frame_NCWCollectionNameAndLocation, frame_NCWCollectionFileTypes, frame_NCWInpxSource,
   frame_NCWFinish, frame_WizardPageBase, frm_ConverToFBD, unit_FileMutex,
   unit_CollectionPacking in '..\..\..\Program\Units\unit_CollectionPacking.pas',
   unit_BookCompressionRuntime, unit_BookCompressionOperation, unit_BookCompressionJob,
@@ -6151,6 +6151,7 @@ end;
 {$I UpdateRepairTests.inc}
 {$I UpdateImageIdentityTests.inc}
 {$I UpdatePopulatedDpiTests.inc}
+{$I InpxWizardSourceTests.inc}
 {$I MetadataFillUiTests.inc}
 {$I BookInfoPanelFooterTests.inc}
 {$I BookInfoPanelAdaptiveTests.inc}
@@ -6305,6 +6306,7 @@ begin
       if ParamStr(1) = 'update-theme' then begin TestUpdateNotesTheme; Halt(0); end;
       if ParamStr(1) = 'update-initial-dpi' then begin TestUpdateInitialDPI; Flush(Output); Halt(0); end;
       if ParamStr(1) = 'update-populated-dpi' then begin TestUpdatePopulatedDPI; Flush(Output); Halt(0); end;
+      if ParamStr(1) = 'inpx-local-source' then begin TestInpxWizardLocalSource; Flush(Output); Halt(0); end;
       if ParamStr(1)='raster-preview' then begin TestRasterPreview; Flush(Output); Halt(0); end;
       if ParamStr(1)='package-covers' then begin TestPackageCovers; Flush(Output); Halt(0); end;
       if ParamStr(1)='package-preview' then begin TestPackagePreview; Flush(Output); Halt(0); end;

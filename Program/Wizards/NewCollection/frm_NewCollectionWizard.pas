@@ -196,7 +196,7 @@ begin
       Result := True;
 
     INPXSOURCE_PAGE_ID:
-      Result := FParams.Operation in [otInpx, otMetabib];
+      Result := FParams.Operation in [otInpx, otInpxDownload, otMetabib];
 
     DOWNLOAD_PAGE_ID:
       Result := (FParams.Operation = otInpxDownload);

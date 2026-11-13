@@ -109,6 +109,9 @@ var
   slHelper: TStringList;
   INIFile: TMemIniFile;
 begin
+  FGroups := nil;
+  FCollections := nil;
+  FCollection := Default(TCollectionDesc);
   INIFile := TMemIniFile.Create(Settings.SystemFileName[sfCollectionsStore]);
   try
     INIFile.Encoding := TEncoding.UTF8;
@@ -241,6 +244,7 @@ begin
 end;
 
 function TframeNCWInpxSource.Deactivate(CheckData: Boolean): Boolean;
+var SelectedIndex: Integer;
 begin
   if FPParams^.Operation = otMetabib then
   begin
@@ -249,17 +253,36 @@ begin
     Exit(True);
   end;
 
-  Assert(Assigned(lvCollections.Selected));
-
   if rbLocal.Checked then
   begin
-    FPParams^.INPXFile := edINPXPath.Text;
+    // A local index is independent of the optional server catalogue list.
+    if CheckData and not TFile.Exists(Trim(edINPXPath.Text)) then
+    begin
+      pageHint.Caption := 'Выберите существующий файл INPX на компьютере.';
+      if edINPXPath.CanFocus then edINPXPath.SetFocus;
+      Exit(False);
+    end;
+    FPParams^.Operation := otInpx;
+    FPParams^.INPXFile := Trim(edINPXPath.Text);
+    FPParams^.INPXUrl := '';
   end
   else
   begin
+    if not CheckData then Exit(True);
+    SelectedIndex := lvCollections.ItemIndex;
+    if (SelectedIndex < 0) or (SelectedIndex >= Length(FCollections)) then
+    begin
+      pageHint.Caption := 'Выберите каталог для загрузки или укажите локальный файл INPX.';
+      Exit(False);
+    end;
+    if Settings.InpxURL.Trim = '' then
+    begin
+      pageHint.Caption := 'Сервер INPX не задан. Укажите его в настройках или выберите локальный файл.';
+      Exit(False);
+    end;
+    FCollection := FCollections[SelectedIndex];
     FPParams^.Operation := otInpxDownload;
     FPParams^.INPXFile := TPath.Combine(Settings.WorkPath, FCollection.INPX);
-    if Settings.InpxURL.Trim = '' then Exit(False);
     FPParams^.INPXUrl := IncludeTrailingPathDelimiter(Settings.InpxURL).Replace('\','/') + FCollection.INPX;
   end;
 
@@ -284,7 +307,8 @@ end;
 
 procedure TframeNCWInpxSource.lvCollectionsChange(Sender: TObject; Item: TListItem; Change: TItemChange);
 begin
-  if (Change = ctState) and Assigned(lvCollections.Selected) then
+  if (Change = ctState) and Assigned(lvCollections.Selected) and
+    (lvCollections.ItemIndex >= 0) and (lvCollections.ItemIndex < Length(FCollections)) then
   begin
     FCollection := FCollections[lvCollections.ItemIndex];
     pageHint.Caption := FCollection.Desc;
@@ -293,18 +317,18 @@ end;
 
 procedure TframeNCWInpxSource.OnSetINPXSource(Sender: TObject);
 begin
-  if Sender = rbLocal then
+  if (Sender = rbLocal) or (lvCollections.Items.Count = 0) then
+  begin
+    if lvCollections.Items.Count = 0 then rbLocal.Checked := True;
     pageHint.Caption := rstrLocal
+  end
   else
   begin
-    Assert(lvCollections.Items.Count > 0);
-
     if not Assigned(lvCollections.Selected) then
       lvCollections.Selected := lvCollections.ItemFocused;
     if not Assigned(lvCollections.Selected) then
       lvCollections.Selected := lvCollections.Items[0];
 
-    Assert(Assigned(lvCollections.Selected));
     lvCollectionsChange(Self, lvCollections.Selected, ctState);
   end;
 
