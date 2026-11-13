@@ -339,6 +339,15 @@ var Folder, Profile, BookRoot, FB2Root, EmptyRoot, Index1, Index2, FullIndex, Ba
         ExpectTitles(frmMain.tvBooksSR,Expected);
       end
       else Require(frmMain.pgControl.ActivePage=frmMain.tsByAuthor,'Closing the update unexpectedly opened Search');
+      var Offer:=frmMain.FindComponent('pnCompressionOffer') as TPanel;
+      if ExpectAction then
+      begin
+        Require(Assigned(Offer) and Offer.Visible and frmMain.Enabled,'Committed index update has no nonmodal compression offer');
+        TButton(frmMain.FindComponent('btnCompressArrivalsLater')).Click;
+        frmMain.RefreshCollectionCompressionOffer;
+        Require(not Offer.Visible,'Postponed index compression reopened itself');
+      end
+      else Require(not Assigned(Offer) or not Offer.Visible,'Canceled or failed index update offered compression');
     finally Timer.Free; Probe.Free; end;
   end;
 
@@ -490,6 +499,11 @@ begin
     try TOORun(FBD); Require(FBD.Success and FBD.CommittedChanges,'Completed FBD lost outcome'); finally FBD.Free; end;
     RequireSeed;
     Require(THashSHA2.GetHashStringFromFile(Index1)=SourceHash,'Outcome notification rewrote input archive');
+    var UIOptions:=Default(TBookCompressionOperationOptions);
+    UIOptions.Profile:='economy'; UIOptions.Grayscale:=True; UIOptions.ReviewResults:=True;
+    UIOptions.WorkRoot:=Settings.AppPath+'compression-work';
+    RememberCollectionCompressionWork(TPath.Combine(Settings.DataPath,'compression-work.ini'),
+      SystemDB.GetCollection(Settings.ActiveCollection),UIOptions);
     CheckUpdateResult('',False,False,[]);
     CheckUpdateResult(BadIndex,False,False,[]);
     CheckUpdateResult(Index1,True,True,['Первая новая книга']);
@@ -500,6 +514,7 @@ begin
     CheckUpdateResult(Dataset,True,True,['New book']);
     Require(THashSHA2.GetHashStringFromFile(Index1)=SourceHash,'Update result menu changed the INPX');
     Writeln('PASS update result opens only new INPX and Metabib books and respects close, cancellation, failure and empty repeats');
+    Writeln('PASS actual INPX and Metabib menus offer compression after commit; cancel, failure and Later start no compression');
     Writeln('PASS update outcomes: invalid/cancel rollback, actual commit flags, postcommit failure, copied affected CIDs, private data preservation, FB2 partial phases and INPX/metabib/FBD workers');
   finally
     Collection:=nil; SystemData:=nil; Settings.EnableSort:=SavedSort;

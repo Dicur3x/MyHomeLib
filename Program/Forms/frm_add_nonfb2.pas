@@ -151,6 +151,7 @@ type
   private
     FCollection: IBookCollection;
     FRootPath: string;
+    FBooksAdded: Boolean;
 
     FBookRecord: TBookRecord;
 
@@ -169,6 +170,7 @@ type
 
   public
     property Collection: IBookCollection read FCollection write FCollection;
+    property BooksAdded: Boolean read FBooksAdded;
   end;
 
 var
@@ -388,7 +390,7 @@ var
 begin
   Assert(Assigned(FCollection));
 
-  FCollection.InsertBook(FBookRecord, True, True);
+  if FCollection.InsertBook(FBookRecord, True, True)>0 then FBooksAdded:=True;
 
   FBookRecord.Clear;
 

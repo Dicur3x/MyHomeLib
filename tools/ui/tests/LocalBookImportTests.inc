@@ -114,6 +114,15 @@ var
       Sleep(10);
     until Probe.PromptSeen or (GetTickCount64 >= Deadline);
     Require(Probe.PromptSeen, 'File drop did not ask to import into the selected collection');
+    var Offer:=frmMain.FindComponent('pnCompressionOffer') as TPanel;
+    if Reply=mrYes then
+    begin
+      Require(Assigned(Offer) and Offer.Visible and frmMain.Enabled,'Committed Explorer import has no nonmodal compression offer');
+      TButton(frmMain.FindComponent('btnCompressArrivalsLater')).Click;
+      frmMain.RefreshCollectionCompressionOffer;
+      Require(not Offer.Visible,'Postponed import compression reopened itself');
+    end
+    else Require(not Assigned(Offer) or not Offer.Visible,'Declined file drop offered compression');
   end;
 
 begin
@@ -128,6 +137,13 @@ begin
   TFile.WriteAllText(Second, 'Вторая тестовая книга.', TEncoding.UTF8);
   FirstHash := THashSHA2.GetHashStringFromFile(First);
   SecondHash := THashSHA2.GetHashStringFromFile(Second);
+  Require(VarToStr(Catalog.GetProperty(PROP_COMPRESSION_PREFERENCES))='', 'Explorer fixture is not fresh');
+  frmMain.QueueCollectionCompressionOffer(Catalog.CollectionID);
+  Require(not Assigned(frmMain.FindComponent('pnCompressionOffer')), 'Fresh collection received a compression offer');
+  var CompressionOptions:=Default(TBookCompressionOperationOptions);
+  CompressionOptions.Profile:='economy'; CompressionOptions.Grayscale:=True;
+  CompressionOptions.ReviewResults:=True; CompressionOptions.WorkRoot:=Settings.AppPath+'compression-work';
+  RememberCollectionCompressionWork(TPath.Combine(Settings.DataPath,'compression-work.ini'),Catalog,CompressionOptions);
   Name := VarToStr(Catalog.GetProperty(PROP_DISPLAYNAME));
   Probe := TFileDropPromptProbe.Create;
   Watch := TTimer.Create(nil);
@@ -205,6 +221,7 @@ begin
     Require((THashSHA2.GetHashStringFromFile(First)=FirstHash) and
       (THashSHA2.GetHashStringFromFile(LinkedArchive)=ArchiveHash),'Linked import changed the original files');
     Writeln('PASS Explorer links loose and archived books without copying and reports the unavailable original');
+    Writeln('PASS Explorer import offers compression only after accepted imports; Later leaves original files intact');
 
     Require(SystemDB.AddGroup('Linked book relocation'),'Could not create the linked book group');
     GroupID:=MHL_INVALID_ID;

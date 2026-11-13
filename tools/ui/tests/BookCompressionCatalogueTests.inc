@@ -5,7 +5,7 @@ type
     Timer: TTimer;
     Mode, OriginalSHA, Source, BackupFolder: string;
     ProfileIndex: Integer;
-    Grayscale: Boolean;
+    Grayscale, CancelOptions: Boolean;
     InspectComparison, EstimateFirst, EstimateSeen, Whole, OnlyNew: Boolean;
     ProducerStageSeen, EstimateStageSeen: Boolean;
     InspectionDeadline, Started: UInt64;
@@ -62,6 +62,13 @@ begin
       OptionsSeen:=True;
       if OnlyNew then Require(Form.Caption='Сжать новые книги','New-books command lost its distinct choices')
       else if Whole then Require(Form.Caption='Сжать текущую коллекцию','Whole collection opens the old copy wizard');
+      if OnlyNew then
+      begin
+        Require(TComboBox(Form.FindComponent('CompressionProfile')).ItemIndex=ProfileIndex,'Offer lost saved quality');
+        Require(TCheckBox(Form.FindComponent('CompressionGrayscale')).Checked=Grayscale,'Offer lost saved grayscale');
+      end;
+      if CancelOptions then
+      begin TButton(Form.FindComponent('CompressionCancel')).Click; Exit; end;
       TComboBox(Form.FindComponent('CompressionProfile')).ItemIndex:=ProfileIndex;
       TCheckBox(Form.FindComponent('CompressionGrayscale')).Checked:=Grayscale;
       TCheckBox(Form.FindComponent('CompressionReview')).Checked:=True;
@@ -200,6 +207,14 @@ begin
     Cached:=PrepareReaderFile(Books[0],True);
     Require(CompressionBodyHash(TFile.ReadAllBytes(Cached))=CompressionBodyHash(OriginalBody),
       'Initial Reader cache has wrong book');
+    if Assigned(Config) and Config.GetValue<Boolean>('repeat_offer',False) then
+    begin
+      Require(VarToStr(Collection.GetProperty(PROP_COMPRESSION_PREFERENCES))='',
+        'Fresh offer fixture already has compression preferences');
+      frmMain.QueueCollectionCompressionOffer(Collection.CollectionID);
+      var InitialOffer:=frmMain.FindComponent('pnCompressionOffer') as TPanel;
+      Require(not Assigned(InitialOffer) or not InitialOffer.Visible,'Fresh collection was offered another collection''s compression');
+    end;
     OldSize:=TFile.GetSize(Source);
     Settings.TreeModes[PAGE_SEARCH]:=tmFlat;
     ShowPage(PAGE_SEARCH);
@@ -296,7 +311,7 @@ begin
       Options.ReviewResults and Options.BackupOriginals and (Options.BackupFolder=Driver.BackupFolder),
       'Normal catalogue command lost its own selected compression choices');
     Require(Length(TBookCompressionJob.Pending(CompressionQueueRoot(Options)))=0,'Completed GUI action left a pending job');
-    if Assigned(Config) and Config.GetValue<Boolean>('repeat_new',False) then
+    if Assigned(Config) and (Config.GetValue<Boolean>('repeat_new',False) or Config.GetValue<Boolean>('repeat_offer',False)) then
     begin
       Require(Mode='apply','Repeat-new scenario requires an initial applied compression');
       var CompressedSHA:=THashSHA2.GetHashStringFromFile(Source);
@@ -306,7 +321,64 @@ begin
       Driver.Timer.Enabled:=True; Driver.Started:=GetTickCount64;
       var Menu:=frmMain.FindComponent('miCompressNewBooks') as TMenuItem;
       Require(Assigned(Menu),'New-books compression is missing from the normal menu');
-      Menu.Click;
+      if Config.GetValue<Boolean>('repeat_offer',False) then
+      begin
+        var FormsBefore:=Screen.FormCount;
+        var Choice:=VarToStr(CurrentCollection.GetProperty(PROP_COMPRESSION_PREFERENCES));
+        CurrentCollection.SetProperty(PROP_COMPRESSION_PREFERENCES,'broken');
+        frmMain.QueueCollectionCompressionOffer(CurrentCollection.CollectionID);
+        var Offer:=frmMain.FindComponent('pnCompressionOffer') as TPanel;
+        Require(not Assigned(Offer) or not Offer.Visible,'Malformed compression preferences opened an offer');
+        CurrentCollection.SetProperty(PROP_COMPRESSION_PREFERENCES,Choice);
+        CurrentCollection.BeginBulkOperation;
+        try
+          frmMain.QueueCollectionCompressionOffer(CurrentCollection.CollectionID);
+          Require(not Assigned(Offer) or not Offer.Visible,'Live import transaction opened an offer');
+        finally CurrentCollection.EndBulkOperation(False); end;
+        for var RepeatIndex:=1 to 3 do frmMain.QueueCollectionCompressionOffer(CurrentCollection.CollectionID);
+        Offer:=frmMain.FindComponent('pnCompressionOffer') as TPanel;
+        Require(Assigned(Offer) and Offer.Visible and frmMain.Enabled,'Committed arrivals have no nonmodal offer');
+        Require(Screen.FormCount=FormsBefore,'Offer opened another window without permission');
+        var Apply:=frmMain.FindComponent('btnCompressArrivals') as TButton;
+        var Later:=frmMain.FindComponent('btnCompressArrivalsLater') as TButton;
+        var Explanation:=frmMain.FindComponent('lblCompressionOffer') as TLabel;
+        var OriginalPPI:=frmMain.CurrentPPI; var OriginalWidth:=frmMain.Width; var OriginalHeight:=frmMain.Height;
+        var WasDark:=MHLThemeDark;
+        try
+          for var Dark in [False,True] do
+          begin
+            Writeln('TRACE arrival theme ms=',GetTickCount64-Driver.Started,' dark=',Dark); Flush(Output);
+            SetMHLTheme(Dark); ApplyMHLControlTheme(frmMain);
+            for var PPI in [96,144,192,216,288] do
+            begin
+              Writeln('TRACE arrival scale begin ms=',GetTickCount64-Driver.Started,' ppi=',PPI); Flush(Output);
+              frmMain.ScaleForPPI(PPI); frmMain.ClientWidth:=MulDiv(720,PPI,96);
+              Writeln('TRACE arrival scale end ms=',GetTickCount64-Driver.Started,' ppi=',PPI); Flush(Output);
+              Require((Apply.Left>=Explanation.BoundsRect.Right) and (Later.Left>=Apply.BoundsRect.Right) and
+                (Later.BoundsRect.Right<=Offer.ClientWidth) and (Apply.BoundsRect.Bottom<=Offer.ClientHeight),
+                'Arrival offer controls overlap or clip at '+IntToStr(PPI)+' DPI');
+              var TextBounds:=Rect(0,0,Explanation.Width,0); Explanation.Canvas.Font.Assign(Explanation.Font);
+              DrawText(Explanation.Canvas.Handle,PChar(Explanation.Caption),-1,TextBounds,DT_CALCRECT or DT_WORDBREAK or DT_NOPREFIX);
+              Require(TextBounds.Height<=Explanation.Height,'Arrival offer explanation clipped');
+              Require(Explanation.Font.Color=MHLThemeText,'Arrival offer did not follow the catalogue theme');
+            end;
+          end;
+        finally
+          frmMain.ScaleForPPI(OriginalPPI); frmMain.Width:=OriginalWidth; frmMain.Height:=OriginalHeight;
+          SetMHLTheme(WasDark); ApplyMHLControlTheme(frmMain); frmMain.RefreshCollectionCompressionOffer;
+        end;
+        Later.Click; frmMain.RefreshCollectionCompressionOffer;
+        Require(not Offer.Visible,'Later reopened an unsolicited compression offer');
+        Require(THashSHA2.GetHashStringFromFile(Source)=CompressedSHA,'Later changed books');
+        frmMain.QueueCollectionCompressionOffer(CurrentCollection.CollectionID);
+        Driver.CancelOptions:=True; Apply.Click;
+        Require(Driver.OptionsSeen and Offer.Visible and not Driver.ProducerStageSeen,'Canceling options started work or lost the offer');
+        Require(THashSHA2.GetHashStringFromFile(Source)=CompressedSHA,'Canceling arrival options changed books');
+        Driver.CancelOptions:=False; Driver.OptionsSeen:=False; Driver.Started:=GetTickCount64;
+        Apply.Click;
+        Require(not Offer.Visible,'Accepted compression offer stayed visible');
+      end
+      else Menu.Click;
       Started:=GetTickCount64;
       while not Driver.ResultSeen and (GetTickCount64-Started<Timeout) do
       begin Application.ProcessMessages; Sleep(10); end;

@@ -979,6 +979,12 @@ type
     procedure PackCurrentCollection(Sender: TObject);
     procedure CompressNewBooks(Sender: TObject);
     procedure StartCollectionCompression(OnlyNew: Boolean);
+    procedure QueueCollectionCompressionOffer(CollectionID: Integer);
+    procedure RefreshCollectionCompressionOffer;
+    procedure LayoutCollectionCompressionOffer(Sender: TObject);
+    procedure AcceptCollectionCompressionOffer(Sender: TObject);
+    procedure DismissCollectionCompressionOffer(Sender: TObject);
+    procedure CollectionCompressionOfferUpdate(Sender: TObject);
     procedure PackCollection(UpdateFromInpx: Boolean; Resume: PCollectionPackingRequest = nil);
     procedure CompressSelectedBooks(Sender: TObject);
     procedure CompressionActionUpdate(Sender: TObject);
@@ -1036,6 +1042,12 @@ type
     FBookCompressionAction: TAction;
     FCloseAfterCompression, FCompressionNeedsRecovery: Boolean;
     FCompressionRecoveryAttempted: TArray<string>;
+    FCompressionOffers: TDictionary<Integer,string>;
+    FCompressionOffer: TPanel;
+    FCompressionOfferText: TLabel;
+    FCompressionOfferApply, FCompressionOfferLater: TButton;
+    FCompressionOfferAction: TAction;
+    FCompressionOfferLayout: Boolean;
     FExplorerImportTimer: TTimer;
     FExplorerImportFiles: TArray<string>;
     FCloseAfterBookDeletion, FBookDeletionNeedsRecovery: Boolean;
@@ -1311,7 +1323,7 @@ const
 implementation
 
 uses
-  SQLiteWrap, SQLiteProfile, unit_BookCompressionPlan, unit_BookCompressionRuntime,
+  SQLiteWrap, SQLiteProfile, unit_BookCompressionPlan, unit_BookCompressionRuntime, unit_BookCompressionReceipt,
   unit_BookCompressionJob,
   StrUtils,
   DateUtils,
@@ -2427,6 +2439,7 @@ procedure TfrmMain.CloseCollection;
 var
   FCursor: TCursor; I: Integer;
 begin
+  if Assigned(FCompressionOffer) then FCompressionOffer.Visible:=False;
   SaveBookViewSession;
   FBookViewSessionCollection := 0;
   for I:=Low(FBookPreviews) to High(FBookPreviews) do
@@ -2826,6 +2839,7 @@ begin
     FIgnoreAuthorChange := False;
     Screen.Cursor := SavedCursor;
   end;
+  RefreshCollectionCompressionOffer;
 end;
 
 procedure TfrmMain.SeriesLinkClicked(Sender: TObject; const Link: string; LinkType: TSysLinkType);
@@ -3512,6 +3526,7 @@ begin
     UpdateSearchBookLayout;
     UpdateFavoriteSearchLayout;
     UpdateWindowsThemeOfferLayout;
+    LayoutCollectionCompressionOffer(nil);
     BookViewResize(nil);
   end;
   tmrCheckUpdates.Enabled := True;
@@ -3953,6 +3968,7 @@ begin
   if Assigned(FOPDSForm) then FOPDSForm.StopServer;
   unit_Utils.LibrusecUpdate(Settings.SystemFileName[sfUpdateLog], ChangedCollections);
   NotifyFavoriteCatalogChanged(ChangedCollections);
+  for var CollectionID in ChangedCollections do QueueCollectionCompressionOffer(CollectionID);
 end;
 
 function TfrmMain.GetShowStatusProgress: Boolean;
@@ -4709,6 +4725,118 @@ begin
   end;
 end;
 
+procedure TfrmMain.QueueCollectionCompressionOffer(CollectionID: Integer);
+var Collection:IBookCollection; Options:TBookCompressionOperationOptions; Key:string;
+begin
+  if (csDestroying in ComponentState) or FFormBusy then Exit;
+  if Assigned(FCollection) and (FCollection.CollectionID=CollectionID) and FCollection.InBulkOperation then Exit;
+  if Assigned(FCompressionOffers) then FCompressionOffers.Remove(CollectionID);
+  RefreshCollectionCompressionOffer;
+  try
+    Collection:=FSystemData.GetCollection(CollectionID,True);
+    if not Assigned(Collection) or Collection.InBulkOperation or
+      not (isPrivateCollection(Collection.CollectionCode) or isLocalCollection(Collection.CollectionCode)) then Exit;
+    // Offer only for a collection whose user already chose compression.
+    // Fresh collections never inherit another collection's lossy choice.
+    if VarToStr(Collection.GetProperty(PROP_COMPRESSION_PREFERENCES))='' then Exit;
+    Options:=Default(TBookCompressionOperationOptions);
+    if LoadCollectionCompressionPreferences(TPath.Combine(Settings.DataPath,'compression-work.ini'),'',Collection,Options)<>'' then Exit;
+    Key:=CompressionFileKey(VarToStr(Collection.GetProperty(PROP_DATAFILE)));
+    if not Assigned(FCompressionOffers) then FCompressionOffers:=TDictionary<Integer,string>.Create;
+    FCompressionOffers.AddOrSetValue(CollectionID,Key);
+  except on E:Exception do LogDiagnosticError('compression-arrival-offer',E); end;
+  RefreshCollectionCompressionOffer;
+end;
+
+procedure TfrmMain.RefreshCollectionCompressionOffer;
+var Expected:string;
+begin
+  if Assigned(FCompressionOffer) then FCompressionOffer.Visible:=False;
+  if (csDestroying in ComponentState) or not Assigned(FCollection) or
+    not Assigned(FCompressionOffers) then Exit;
+  if not FCompressionOffers.TryGetValue(FCollection.CollectionID,Expected) then Exit;
+  try
+    if not SameText(Expected,CompressionFileKey(VarToStr(FCollection.GetProperty(PROP_DATAFILE)))) then
+    begin FCompressionOffers.Remove(FCollection.CollectionID); Exit; end;
+  except on E:Exception do
+    begin FCompressionOffers.Remove(FCollection.CollectionID); LogDiagnosticError('compression-arrival-binding',E); Exit; end;
+  end;
+  if not Assigned(FCompressionOffer) then
+  begin
+    FCompressionOffer:=TPanel.Create(Self); FCompressionOffer.Name:='pnCompressionOffer';
+    FCompressionOffer.Parent:=Self; FCompressionOffer.BevelOuter:=bvNone; FCompressionOffer.Caption:='';
+    FCompressionOffer.Top:=tlbrMain.BoundsRect.Bottom+1; FCompressionOffer.Align:=alTop;
+    FCompressionOffer.OnResize:=LayoutCollectionCompressionOffer;
+    FCompressionOfferText:=TLabel.Create(Self); FCompressionOfferText.Parent:=FCompressionOffer;
+    FCompressionOfferText.Name:='lblCompressionOffer'; FCompressionOfferText.AutoSize:=False;
+    FCompressionOfferText.WordWrap:=True; FCompressionOfferText.Layout:=tlCenter;
+    FCompressionOfferText.ShowAccelChar:=False;
+    FCompressionOfferText.Caption:='Коллекция обновлена. Можно досжать новые и изменившиеся книги.';
+    FCompressionOfferAction:=TAction.Create(Self); FCompressionOfferAction.ActionList:=Actions;
+    FCompressionOfferAction.Name:='acCompressArrivals'; FCompressionOfferAction.Category:='Коллекция';
+    FCompressionOfferAction.Caption:='Сжать новые…';
+    FCompressionOfferAction.Hint:='Перед запуском откроются сохранённые настройки сжатия этой коллекции.';
+    FCompressionOfferAction.OnExecute:=AcceptCollectionCompressionOffer;
+    FCompressionOfferAction.OnUpdate:=CollectionCompressionOfferUpdate;
+    FCompressionOfferApply:=TButton.Create(Self); FCompressionOfferApply.Parent:=FCompressionOffer;
+    FCompressionOfferApply.Name:='btnCompressArrivals'; FCompressionOfferApply.Action:=FCompressionOfferAction;
+    FCompressionOfferApply.ShowHint:=True;
+    FCompressionOfferLater:=TButton.Create(Self); FCompressionOfferLater.Parent:=FCompressionOffer;
+    FCompressionOfferLater.Name:='btnCompressArrivalsLater'; FCompressionOfferLater.Caption:='Позже';
+    FCompressionOfferLater.Hint:='Команда «Сжать новые книги» останется в меню «Коллекция».';
+    FCompressionOfferLater.ShowHint:=True; FCompressionOfferLater.OnClick:=DismissCollectionCompressionOffer;
+    ApplyMHLControlTheme(FCompressionOffer);
+  end;
+  LayoutCollectionCompressionOffer(nil);
+  CollectionCompressionOfferUpdate(FCompressionOfferAction);
+  FCompressionOffer.Visible:=True;
+end;
+
+procedure TfrmMain.LayoutCollectionCompressionOffer(Sender:TObject);
+var Padding,Gap,RowHeight,ApplyWidth,LaterWidth,TextWidth:Integer; TextRect:TRect;
+begin
+  if FUpdatingSearchLayout or FCompressionOfferLayout or not Assigned(FCompressionOfferLater) then Exit;
+  FCompressionOfferLayout:=True;
+  try
+    Padding:=MulDiv(10,CurrentPPI,96); Gap:=MulDiv(6,CurrentPPI,96);
+    FCompressionOfferText.Canvas.Font.Assign(FCompressionOfferText.Font);
+    ApplyWidth:=Max(MulDiv(112,CurrentPPI,96),FCompressionOfferText.Canvas.TextWidth(FCompressionOfferApply.Caption)+2*Padding);
+    LaterWidth:=Max(MulDiv(62,CurrentPPI,96),FCompressionOfferText.Canvas.TextWidth(FCompressionOfferLater.Caption)+2*Padding);
+    TextWidth:=Max(1,FCompressionOffer.ClientWidth-2*Padding-2*Gap-ApplyWidth-LaterWidth);
+    TextRect:=Rect(0,0,TextWidth,0);
+    DrawText(FCompressionOfferText.Canvas.Handle,PChar(FCompressionOfferText.Caption),-1,TextRect,
+      DT_CALCRECT or DT_WORDBREAK or DT_NOPREFIX);
+    RowHeight:=Max(MulDiv(30,CurrentPPI,96),TextRect.Height);
+    FCompressionOffer.Height:=RowHeight+2*Gap;
+    FCompressionOfferText.SetBounds(Padding,Gap,TextWidth,RowHeight);
+    FCompressionOfferApply.SetBounds(Padding+TextWidth+Gap,(FCompressionOffer.Height-MulDiv(30,CurrentPPI,96)) div 2,
+      ApplyWidth,MulDiv(30,CurrentPPI,96));
+    FCompressionOfferLater.SetBounds(FCompressionOfferApply.BoundsRect.Right+Gap,FCompressionOfferApply.Top,
+      LaterWidth,FCompressionOfferApply.Height);
+  finally FCompressionOfferLayout:=False; end;
+end;
+
+procedure TfrmMain.CollectionCompressionOfferUpdate(Sender:TObject);
+begin
+  TAction(Sender).Enabled:=Assigned(FCollection) and not FCollection.InBulkOperation and
+    not (FFormBusy or FStartupLoading or FBookListLoading) and not Assigned(FBookCompressionOperation) and not Assigned(FBookDeletionOperation) and
+    not (FCompressionNeedsRecovery or FBookDeletionNeedsRecovery);
+end;
+
+procedure TfrmMain.AcceptCollectionCompressionOffer(Sender:TObject);
+begin
+  RefreshCollectionCompressionOffer;
+  if not Assigned(FCompressionOffer) or not FCompressionOffer.Visible then Exit;
+  CollectionCompressionOfferUpdate(FCompressionOfferAction);
+  if FCompressionOfferAction.Enabled then StartCollectionCompression(True);
+end;
+
+procedure TfrmMain.DismissCollectionCompressionOffer(Sender:TObject);
+begin
+  if Assigned(FCompressionOffers) and Assigned(FCollection) then FCompressionOffers.Remove(FCollection.CollectionID);
+  RefreshCollectionCompressionOffer;
+end;
+
 procedure TfrmMain.PackCurrentCollection(Sender: TObject);
 begin StartCollectionCompression(False); end;
 
@@ -4719,6 +4847,7 @@ procedure TfrmMain.StartCollectionCompression(OnlyNew: Boolean);
 var Info:TCollectionInfo; Options:TBookCompressionOperationOptions;
     Personal,Registry,WorkRoot,Warning:string; Required:TArray<string>;
     Operation:TBookCompressionOperation;
+    CollectionID:Integer;
 begin
   if Assigned(FBookCompressionOperation) then
   begin FBookCompressionProgress.Show; Exit; end;
@@ -4728,7 +4857,8 @@ begin
   if CheckActiveDownloads then
   begin MHLShowInfo('Дождитесь завершения скачивания книг, затем повторите сжатие.'); Exit; end;
   try
-    Info:=FSystemData.GetCollectionInfo(FCollection.CollectionID);
+    CollectionID:=FCollection.CollectionID;
+    Info:=FSystemData.GetCollectionInfo(CollectionID);
     Personal:=Settings.SystemFileName[sfSystemDB];
     Registry:=TPath.Combine(Settings.DataPath,'compression-work.ini');
     Options:=Default(TBookCompressionOperationOptions);
@@ -4751,6 +4881,8 @@ begin
       function(const Cancelled:TFunc<Boolean>; const Progress:TProc<Int64>):TBookCompressionPlan
       begin Result:=BuildCollectionCompressionPlan(Info,Personal,WorkRoot,Cancelled,Progress); end);
     StartBookCompression(Operation);
+    if Assigned(FCompressionOffers) then FCompressionOffers.Remove(CollectionID);
+    RefreshCollectionCompressionOffer;
     RecordComponentUse('BookProcessing'); RecordComponentUse('7-Zip');
     if Options.Grayscale or (Options.Profile<>'original') then RecordComponentUse('ImageProcessing');
   except on E:Exception do
@@ -5293,6 +5425,7 @@ begin
     UpdateSearchBookLayout;
     UpdateFavoriteSearchLayout;
     UpdateWindowsThemeOfferLayout;
+    LayoutCollectionCompressionOffer(nil);
     BookViewResize(nil);
   end;
 end;
@@ -5331,6 +5464,7 @@ begin
     UpdateSearchBookLayout;
     UpdateFavoriteSearchLayout;
     UpdateWindowsThemeOfferLayout;
+    LayoutCollectionCompressionOffer(nil);
     BookViewResize(nil);
   end;
 end;
@@ -6058,6 +6192,7 @@ begin
   UpdateThemeToolbar;
   UpdateSearchBookLayout;
   UpdateFavoriteSearchLayout;
+  LayoutCollectionCompressionOffer(nil);
   EnsureBookHeadersFit;
 end;
 
@@ -6072,6 +6207,7 @@ end;
 procedure TfrmMain.FormDestroy(Sender: TObject);
 var I: Integer; Message: TMsg;
 begin
+  FreeAndNil(FCompressionOffers);
   FreeAndNil(FBookCompressionTimer);
   FreeAndNil(FBookCompressionOperation);
   FreeAndNil(FBookCompressionProgress);
@@ -10996,6 +11132,7 @@ begin
   begin
     NotifyFavoriteCatalogChanged(TArray<Integer>.Create(CollectionID));
     InitCollection;
+    QueueCollectionCompressionOffer(CollectionID);
   end;
 end;
 
@@ -11097,10 +11234,12 @@ var CommittedChanges: Boolean;
 begin
   if CompressionBlocksCatalogChange then Exit;
   Assert(Assigned(FCollection));
-  unit_Import.ImportFB2(FCollection.CollectionID, afZip, CommittedChanges);
-  if CommittedChanges then NotifyFavoriteCatalogChanged(TArray<Integer>.Create(FCollection.CollectionID));
+  var CollectionID:=FCollection.CollectionID;
+  unit_Import.ImportFB2(CollectionID, afZip, CommittedChanges);
+  if CommittedChanges then NotifyFavoriteCatalogChanged(TArray<Integer>.Create(CollectionID));
 
   InitCollection;
+  if CommittedChanges then QueueCollectionCompressionOffer(CollectionID);
 end;
 
 procedure TfrmMain.ImportFb2Update(Sender: TObject);
@@ -11119,10 +11258,12 @@ var CommittedChanges: Boolean;
 begin
   if CompressionBlocksCatalogChange then Exit;
   Assert(Assigned(FCollection));
-  unit_Import.ImportFBD(FCollection.CollectionID, CommittedChanges);
-  if CommittedChanges then NotifyFavoriteCatalogChanged(TArray<Integer>.Create(FCollection.CollectionID));
+  var CollectionID:=FCollection.CollectionID;
+  unit_Import.ImportFBD(CollectionID, CommittedChanges);
+  if CommittedChanges then NotifyFavoriteCatalogChanged(TArray<Integer>.Create(CollectionID));
 
   InitCollection;
+  if CommittedChanges then QueueCollectionCompressionOffer(CollectionID);
 end;
 
 function TfrmMain.CatalogBookAvailable(const Book: TBookRecord; Notify: Boolean): Boolean;
@@ -13056,6 +13197,7 @@ begin
     Settings.ActiveCollection := ActiveCollectionID;
     InitCollection;
     if OpenUpdatedBooks then ShowUpdatedBooks(ActiveCollectionID);
+    if CommittedChanges then QueueCollectionCompressionOffer(ActiveCollectionID);
   end;
 end;
 
@@ -13644,6 +13786,7 @@ begin
     frmAddBooks.ShowModal;
     CheckFavoriteCollection;
     InitCollection;
+    if frmAddBooks.BooksAdded then QueueCollectionCompressionOffer(frmAddBooks.Collection.CollectionID);
   finally
     frmAddBooks.Free;
   end;

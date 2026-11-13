@@ -70,7 +70,7 @@ def install_processing_package(package, root, platform):
 
 
 def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_books=None, inspect_comparison=False,
-        processing_package=None, estimate_first=False, whole=False, repeat_new=False, images=None):
+        processing_package=None, estimate_first=False, whole=False, repeat_new=False, repeat_offer=False, images=None, scenario='selected-compression-ui'):
     with temporary_work_directory(stage, 'HomeLibRu-native-') as root:
         root = Path(root)
         shutil.copy2(binary, root / 'CollectionViewsTest.exe')
@@ -135,18 +135,21 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
             (root / 'compression-fixture.json').write_text(json.dumps(dict(
                 first='one.fb2', second='two.fb2', grayscale=True, timeout_ms=90000,
                 inspect_comparison=True)), encoding='utf-8')
-        if estimate_first or whole or repeat_new:
+        if estimate_first or whole or repeat_new or repeat_offer:
             fixture_file = root / 'compression-fixture.json'
             config = json.loads(fixture_file.read_text(encoding='utf-8')) if fixture_file.exists() else {}
             config['estimate_first'] = estimate_first
             config['whole'] = whole
             config['repeat_new'] = repeat_new
+            config['repeat_offer'] = repeat_offer
             fixture_file.write_text(json.dumps(config), encoding='utf-8')
         (root / 'books').mkdir()
         source = root / 'books/shared.zip'
         with zipfile.ZipFile(source, 'w', compression=zipfile.ZIP_STORED) as archive:
             for name, body in originals.items():
                 archive.writestr(name, body)
+        (root / 'conversion-fixtures').mkdir()
+        (root / 'conversion-fixtures/source.fb2').write_bytes(originals['one.fb2'])
         before, size = digest(source), source.stat().st_size
         started = time.monotonic()
         startup = None
@@ -170,7 +173,10 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
                'LOCALAPPDATA': str(root / 'Local'), 'APPDATA': str(root / 'Roaming')}
         try:
             with log_path.open('wb') as log:
-                process = run_owned([str(root / 'CollectionViewsTest.exe'), 'selected-compression-ui', mode],
+                command = [str(root / 'CollectionViewsTest.exe'), scenario]
+                if scenario == 'selected-compression-ui':
+                    command.append(mode)
+                process = run_owned(command,
                     cwd=root, env=env, stdout=log, stderr=subprocess.STDOUT, startupinfo=startup, timeout=deadline,
                     creationflags=subprocess.BELOW_NORMAL_PRIORITY_CLASS |
                         (0 if inspect_comparison else subprocess.CREATE_NO_WINDOW))
@@ -186,7 +192,12 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
             attempt_file.write_text(json.dumps(attempt, indent=2), encoding='utf-8')
             raise
         output = log_path.read_text(encoding='utf-8', errors='replace')
-        if process.returncode or f'PASS selected compression normal catalogue {mode}' not in output:
+        expected = {
+            'selected-compression-ui': f'PASS selected compression normal catalogue {mode}',
+            'explorer-file-drop': 'PASS Explorer import offers compression only after accepted imports',
+            'update-outcomes': 'PASS actual INPX and Metabib menus offer compression after commit',
+        }[scenario]
+        if process.returncode or expected not in output:
             # Keep only bounded text diagnostics; do not retain the runtime or books.
             notes = []
             for p in root.rglob('*.json'):
@@ -199,6 +210,17 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
                     for path, stamp in real_stamps.items()))
             attempt_file.write_text(json.dumps(attempt, indent=2), encoding='utf-8')
             raise AssertionError(f'Catalogue {platform} {mode}: exit {process.returncode}\n{output}')
+        if scenario != 'selected-compression-ui':
+            assert not real_books, 'Event fixtures must not borrow real collection books'
+            assert digest(source) == before, 'Import/update offer changed an unrelated shared ZIP'
+            return dict(status='PASS', platform=platform, mode=mode, scenario=scenario,
+                        seconds=round(time.monotonic()-started, 3),
+                        native_binary_sha256=digest(binary),
+                        processing_package_sha256=digest(processing_package) if processing_package else None,
+                        image_helper_sha256=digest(root / 'tools/images/HomeLibImages.exe'),
+                        private_runtime=str(root), real_source_stamps={},
+                        unrelated_archive_unchanged=True, native_log=str(log_path),
+                        scope='Native normal INPX/Metabib menu or Windows Shell import on a private synthetic catalogue; no real user data')
         attempt.update(status='VERIFYING_CONTENT', native_returncode=process.returncode)
         attempt_file.write_text(json.dumps(attempt, indent=2), encoding='utf-8')
         with zipfile.ZipFile(source) as archive:
@@ -253,6 +275,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
                     real_source_stamps={str(path): stamp for path, stamp in real_stamps.items()},
                     whole=whole,
                     repeat_new=repeat_new,
+                    repeat_offer=repeat_offer,
                     private_runtime=str(root),
                     image_helper_sha256=digest(root / 'tools/images/HomeLibImages.exe'),
                     scope='Ordinary catalogue command; real payloads in a private shared ZIP, original archives read only'
@@ -271,6 +294,8 @@ if __name__ == '__main__':
     parser.add_argument('--estimate-first', action='store_true')
     parser.add_argument('--whole', action='store_true')
     parser.add_argument('--repeat-new', action='store_true', help='After applying, invoke the normal new-books menu and verify no preparation')
+    parser.add_argument('--scenario', choices=['selected-compression-ui', 'explorer-file-drop', 'update-outcomes'], default='selected-compression-ui')
+    parser.add_argument('--repeat-offer', action='store_true', help='Exercise nonmodal arrivals offer, dismissal, canceled options and explicit start')
     parser.add_argument('--images', type=Path, help='Fresh image helper verified against the current C# source')
     args = parser.parse_args()
     report = args.stage / f'catalogue-{args.platform}-{args.mode}.json'
