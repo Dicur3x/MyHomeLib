@@ -22,8 +22,8 @@ The existing `catalogue-palettes` regression additionally exercises per-release 
 
 Reports and generated client images: `G:\HomeLibRu-build-cache\HomeLibre-post13-covers-20261112\scripts-settings-Win32` and `scripts-settings-Win64`. Native binaries: Win32 SHA256 `b2338f7c5694022283d6111c578bd35dc57e055d693998a6bd635c49239dfcde`; Win64 `56a7e8dbf5fa2025658b4caecfd59b79dfb03b206697efa297d1e47f3dd6e7f3`. Both were built with the licensed IDE's documented AutoBuild interface. Private test profiles were removed. These binaries also include other pending UI work and do not represent a clean production release cohort.
 
-## Separate theme-transition finding
+## Theme-transition follow-up
 
 An early test invoked Menu.Click synchronously immediately after SetMHLTheme, before VCL's queued style-window rebuilds were processed. In that sequence the Settings modal window remained visible but the main window kept native activation. The failed output is retained as `scripts-settings-Win64/immediate-theme-modal-failure.json` and `.log`.
 
-The passing menu regression processes the theme transition before sending the next independent menu input, matching the normal message-loop boundary between those user actions. It still asserts native activation of every settings dialog. This does not claim to fix the synchronous theme/modal race. Reproduction through ordinary input and a correction of that transition remain open; no arbitrary sleep was added to the application.
+The initial passing menu regression processed the theme transition before sending the next independent menu input. The subsequent correction now completes the pending style notifications before a modal caller disables its owner. The immediate-entry regression passes without that intervening message-loop step: 36 menu/dialog visits per architecture, including both transition directions, native activation and disabled/enabled owner state. A related deferred style-hook lifetime fault was also reproduced and corrected. See [theme transition validation](2026-11-13-theme-modal-transition.md) for the final binaries, preserved failure evidence and limits.

@@ -31,6 +31,38 @@ uses System.SysUtils, System.StrUtils, System.Classes, System.Types, System.Math
 type TControlAccess = class(TControl);
   TTreeAccess = class(TCustomVirtualStringTree);
 
+  TMHLStyleEngine = class(TStyleEngine)
+  private
+    class procedure ReleaseSystemStyleHooks;
+  public
+    class procedure Notification(Operation:TCustomStyleEngine.TStyleEngineNotification;
+      Data:Pointer); override;
+  end;
+
+class procedure TMHLStyleEngine.ReleaseSystemStyleHooks;
+begin
+  // A queued custom -> system release can arrive after a second toggle. Never
+  // retire the new custom style's hooks. VCL 13 FreeControlHooks also iterates
+  // hooks without extracting them: freeing a scrolling hook then frees child
+  // windows whose own hooks may already have been freed by that iteration.
+  // Removing each form through the normal control-destroyed notification
+  // extracts the parent/child hooks before freeing them, in the safe order.
+  if not StyleServices.IsSystemStyle then Exit;
+  for var I:=Screen.FormCount-1 downto 0 do
+    inherited Notification(snControlDestroyed,Screen.Forms[I]);
+end;
+
+class procedure TMHLStyleEngine.Notification(
+  Operation:TCustomStyleEngine.TStyleEngineNotification; Data:Pointer);
+begin
+  if Operation=snReleaseAllStyleHooks then
+  begin
+    if Application.ModalLevel=0 then
+      TThread.ForceQueue(nil,ReleaseSystemStyleHooks);
+  end
+  else inherited;
+end;
+
 const DarkStyleName = 'Charcoal Dark Slate';
 var DarkActive: Boolean;
 
@@ -504,12 +536,32 @@ begin
   end;
 end;
 
+procedure ApplyPendingStyleNotifications;
+var Message:TMsg; Count:Integer;
+begin
+  // SetStyle posts CM_CUSTOMSTYLECHANGED to existing forms. Finish only those
+  // notifications before a caller can open a modal dialog and disable its
+  // owner HWND: rebuilding that owner afterwards loses native modal state.
+  // This is deliberately not a general message pump (no input, timers or jobs).
+  for Count:=1 to Max(64,Screen.FormCount*2+16) do
+  begin
+    if not PeekMessage(Message,0,CM_CUSTOMSTYLECHANGED,CM_CUSTOMSTYLECHANGED,PM_NOREMOVE) then Exit;
+    // Windows returns WM_QUIT even through a message-range filter. Keep it
+    // for the application's ordinary loop rather than swallowing shutdown.
+    if Message.message=WM_QUIT then Exit;
+    if not PeekMessage(Message,0,CM_CUSTOMSTYLECHANGED,CM_CUSTOMSTYLECHANGED,PM_REMOVE) then Exit;
+    if Message.message=WM_QUIT then begin PostQuitMessage(Integer(Message.wParam)); Exit; end;
+    DispatchMessage(Message);
+  end;
+end;
+
 procedure SetMHLTheme(Dark: Boolean);
 var I: Integer; WasDark: Boolean; Focus, CallbackFocus: TThemeFocusSnapshot;
 begin
   // Modern Shell dialogs own their painting, including the address/search bar.
   // Leave them native in both themes; applying VCL's partial dialog skin breaks
   // that bar. Set this once with the theme, not while a modal owner is in use.
+  if TStyleManager.EngineClass=TStyleEngine then TStyleManager.EngineClass:=TMHLStyleEngine;
   TStyleManager.SystemHooks:=TStyleManager.SystemHooks-[shDialogs];
   WasDark:=DarkActive;
   if Dark=WasDark then Exit;
@@ -525,6 +577,7 @@ begin
     DarkActive:=Dark;
     try
       if Dark then TStyleManager.SetStyle(DarkStyleName) else TStyleManager.SetStyle('Windows');
+      ApplyPendingStyleNotifications;
     except DarkActive:=WasDark; raise; end;
     for I:=0 to Screen.FormCount-1 do
     begin

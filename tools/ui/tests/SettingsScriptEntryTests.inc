@@ -3,9 +3,18 @@ type
     Timer:TTimer;
     DPI, Visits:Integer;
     ExpectExpanded:Boolean;
+    UnrelatedMessages:Integer;
+    MessageWindow:HWND;
     Deadline:UInt64;
     procedure Tick(Sender:TObject);
+    procedure MessageProbe(var Message:TMessage);
   end;
+
+procedure TScriptSettingsEntryProbe.MessageProbe(var Message:TMessage);
+begin
+  if Message.Msg=WM_APP+$65 then begin Inc(UnrelatedMessages); Message.Result:=0; end
+  else Message.Result:=DefWindowProc(MessageWindow,Message.Msg,Message.WParam,Message.LParam);
+end;
 
 procedure TScriptSettingsEntryProbe.Tick(Sender:TObject);
 var Dialog:TfrmSettings; Guide:TFirstUseGuide; Details:TLabel;
@@ -29,6 +38,7 @@ begin
   Timer.Enabled:=False;
   Require(GetActiveWindow=Dialog.Handle,Format('Scripts dialog lost native activation: active=%d dialog=%d',
     [GetActiveWindow,Dialog.Handle]));
+  Require(not IsWindowEnabled(frmMain.Handle),'A theme rebuild re-enabled the modal settings owner');
   Require(Dialog.pcSetPages.ActivePage=Dialog.tsScripts,'External-tools command opened the wrong settings page');
   Require(Assigned(Dialog.tvSections.Selected) and (Dialog.tvSections.Selected.Index=Dialog.tsScripts.PageIndex),
     'Settings page and navigation selection disagree');
@@ -73,9 +83,9 @@ begin
   Inc(Visits); Dialog.ModalResult:=mrCancel;
 end;
 
-procedure TestSettingsScriptEntry;
+procedure TestSettingsScriptEntry(ImmediateTheme:Boolean=False);
 var Probe:TScriptSettingsEntryProbe; ParentMenu,Menu:TMenuItem; SavedDark:Boolean;
-  Ini:TMemIniFile; ScriptCount:Integer;
+  Ini:TMemIniFile; ScriptCount,BeforeMessages:Integer; Themes:TArray<Boolean>; QuitMessage:TMsg;
 begin
   RequireIsolatedRegression;
   SavedDark:=MHLThemeDark; ScriptCount:=Settings.Scripts.Count;
@@ -83,14 +93,21 @@ begin
   Probe:=TScriptSettingsEntryProbe.Create;
   Probe.Timer:=TTimer.Create(nil); Probe.Timer.Enabled:=False;
   Probe.Timer.Interval:=30; Probe.Timer.OnTimer:=Probe.Tick;
+  Probe.MessageWindow:=AllocateHWnd(Probe.MessageProbe);
+  if ImmediateTheme then Themes:=TArray<Boolean>.Create(False,True,False)
+  else Themes:=TArray<Boolean>.Create(False,True);
   try
-    for var Dark in [False,True] do
+    for var Dark in Themes do
       for var DPI in [96,144,192,216,240,288] do
       begin
+        BeforeMessages:=Probe.UnrelatedMessages;
+        if ImmediateTheme then Require(PostMessage(Probe.MessageWindow,WM_APP+$65,0,0),'Could not queue unrelated input probe');
         SetMHLTheme(Dark); RefreshMHLTheme;
+        if ImmediateTheme then
+          Require(Probe.UnrelatedMessages=BeforeMessages,'Theme change pumped unrelated queued work');
         // A user opens the next menu on a later message-loop turn. Let VCL's
         // queued style HWND rebuilds finish before that separate input action.
-        Application.ProcessMessages; CheckSynchronize(0);
+        if not ImmediateTheme then begin Application.ProcessMessages; CheckSynchronize(0); end;
         Ini:=TMemIniFile.Create(Settings.SettingsFileName,TEncoding.UTF8);
         try
           Ini.DeleteKey('ToolGuidesSeen','external-scripts');
@@ -107,6 +124,7 @@ begin
           Require(Assigned(Menu) and Assigned(Menu.OnClick),'Actual external-tools settings menu is missing');
           Probe.Timer.Enabled:=True; Menu.Click;
           Require(not Probe.Timer.Enabled,'External-tools menu did not visit the settings dialog');
+          Require(IsWindowEnabled(frmMain.Handle),'Closing Settings left its recreated main owner disabled');
           Require(Settings.Scripts.Count=ScriptCount,'Opening or canceling script settings changed configured commands');
         end;
         Ini:=TMemIniFile.Create(Settings.SettingsFileName,TEncoding.UTF8);
@@ -114,7 +132,28 @@ begin
         finally Ini.Free; end;
         Writeln(Format('PASS actual script-settings menu DPI=%d dark=%d opens Scripts and remembers inline help',
           [DPI,Ord(Dark)])); Flush(Output);
+        if ImmediateTheme then
+        begin
+          Require(Probe.UnrelatedMessages=BeforeMessages+1,'Unrelated message was lost instead of processed by the modal loop');
+          Writeln('PASS immediate theme/modal entry preserves activation, modal owner and unrelated queued work'); Flush(Output);
+        end;
       end;
-    Require(Probe.Visits=24,'Script settings entry cases were incomplete');
-  finally Probe.Timer.Free; Probe.Free; SetMHLTheme(SavedDark); RefreshMHLTheme; end;
+    Require(Probe.Visits=Length(Themes)*12,'Script settings entry cases were incomplete');
+    if ImmediateTheme then
+    begin
+      QuitMessage:=Default(TMsg);
+      PostQuitMessage(37); SetMHLTheme(not MHLThemeDark);
+      // WM_QUIT is synthesized after other posted work. Let the ordinary
+      // VCL loop finish that work before asserting shutdown was retained.
+      Application.ProcessMessages;
+      var PendingQuit:=PeekMessage(QuitMessage,0,WM_QUIT,WM_QUIT,PM_REMOVE);
+      // A VCL theme callback may already have passed WM_QUIT to its regular
+      // application loop. Otherwise our filtered drain must retain the code.
+      Require(Application.Terminated or (PendingQuit and
+        (QuitMessage.message=WM_QUIT) and (QuitMessage.wParam=37)),
+        Format('Theme transition swallowed pending shutdown: queued=%d message=%d code=%d terminated=%d',
+          [Ord(PendingQuit),QuitMessage.message,QuitMessage.wParam,Ord(Application.Terminated)]));
+      Writeln('PASS theme transition preserves pending application shutdown'); Flush(Output);
+    end;
+  finally DeallocateHWnd(Probe.MessageWindow); Probe.Timer.Free; Probe.Free; SetMHLTheme(SavedDark); RefreshMHLTheme; end;
 end;

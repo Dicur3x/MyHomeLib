@@ -6538,6 +6538,7 @@ begin
       else if ParamStr(1) = 'statistics-theme' then TestStatisticsGroupTheme
       else if ParamStr(1) = 'catalogue-palettes' then TestCataloguePalettes
       else if ParamStr(1) = 'settings-script-entry' then TestSettingsScriptEntry
+      else if ParamStr(1) = 'settings-script-immediate' then TestSettingsScriptEntry(True)
       else if ParamStr(1) = 'catalogue-source-index' then begin TestCatalogueSourceIndex(One); TestIndexedArchiveReferences; end
       else if ParamStr(1) = 'book-deletion' then TestBookDeletionSafety
       else if ParamStr(1) = 'book-deletion-lifecycle' then TestBookDeletionSafety(bdsLifecycle)

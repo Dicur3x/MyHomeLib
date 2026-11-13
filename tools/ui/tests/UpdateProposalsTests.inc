@@ -187,6 +187,9 @@ begin
         try
           Host.Caption:='HomeLibre update keyboard fixture PID '+IntToStr(GetCurrentProcessId)+
             ' theme='+IntToStr(Ord(Dark))+' PPI='+IntToStr(PPI);
+          // Make this temporary host independently selectable by an operator,
+          // rather than an owned window of the hidden console application.
+          Host.ShowInTaskBar:=True;
           Host.ClientWidth:=620; Host.ClientHeight:=420;
           Primary:=TButton.Create(Host); Primary.Parent:=Host; Primary.Align:=alBottom;
           Primary.Caption:='Do not activate while a release header has focus';
@@ -211,9 +214,10 @@ begin
           Host.BringToFront;
           Winapi.Windows.SetForegroundWindow(Host.Handle);
           Winapi.Windows.SetActiveWindow(Host.Handle);
-          if FirstActivation then
+          if FirstActivation or (GetForegroundWindow<>Host.Handle) then
           begin
             // A background wrapper cannot bypass the Windows foreground lock.
+            // Each newly created host may need ordinary desktop activation.
             // Give the operator time to activate only this named test window.
             Writeln('READY update keyboard fixture: ',Host.Caption,
               '; activate this window within 45 seconds; keep it foreground until PASS');
