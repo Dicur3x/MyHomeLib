@@ -330,8 +330,11 @@ begin
   begin FProgress.Style:=pbstNormal; FProgress.Position:=1000; end
   else FProgress.Style:=pbstMarquee;
   if State.FilesTotal>0 then
-    FCounts.Caption:=Format('Архивы и файлы: %d из %d · Книги: %d из %d',
-      [State.FilesDone,State.FilesTotal,State.BooksDone,State.BooksTotal])
+  begin
+    if State.Recovery then FCounts.Caption:=Format('Архивы и файлы: %d из %d',[State.FilesDone,State.FilesTotal])
+    else FCounts.Caption:=Format('Архивы и файлы: %d из %d · Книги: %d из %d',
+      [State.FilesDone,State.FilesTotal,State.BooksDone,State.BooksTotal]);
+  end
   else FCounts.Caption:='Проверяем выбранные книги…';
   if State.AwaitingEstimate or State.EstimateOnly then
   begin
@@ -346,6 +349,7 @@ begin
   else if State.AwaitingReview then FSizes.Caption:='Этот файл: '+SizeText(State.InputBytes)+' → '+
     SizeText(State.OutputBytes)+' · Уменьшение: '+SizeText(State.InputBytes-State.OutputBytes)
   else if State.SavingsKnown then FSizes.Caption:='Освобождено: '+SizeText(State.SavedBytes)
+  else if State.Finished then FSizes.Caption:='Экономия места при восстановлении не пересчитывалась.'
   else FSizes.Caption:='Завершаем ранее начатое сжатие. Размер экономии сейчас не подсчитывается.';
   if State.WorkingBytes>0 then FSizes.Caption:=FSizes.Caption+sLineBreak+
     'Ориентир временного места для текущего файла: '+SizeText(State.WorkingBytes);
@@ -383,6 +387,7 @@ begin
   begin
     if State.EstimateOnly then FNote.Caption:='Оценка завершена. Исходные книги, архивы и каталог не изменены. '+
       'Размеры книг показаны до внешней упаковки; итог на диске будет известен после подготовки.'
+    else if State.Recovery then FNote.Caption:=Format('Завершено операций из сохранённых журналов: %d.',[State.FilesDone])
     else FNote.Caption:=Format('Уменьшено файлов: %d · Без уменьшения: %d · Пропущено по вашему выбору: %d.',
       [State.ChangedFiles,State.UnchangedFiles,State.SkippedFiles]);
     if State.Error<>'' then FNote.Caption:=FNote.Caption+sLineBreak+State.Error;

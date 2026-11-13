@@ -5,6 +5,8 @@ physical shared ZIP and original-book backups independently after the UI exits.
 Never points the catalogue at a user's source folder or personal database.
 """
 import argparse
+from contextlib import contextmanager, nullcontext
+import ctypes
 import hashlib
 import json
 import os
@@ -69,8 +71,31 @@ def install_processing_package(package, root, platform):
             destination.write_bytes(archive.read(name))
 
 
+@contextmanager
+def exclusive_recovery_owner(path):
+    """Simulate another live preparation; never grant the child this handle."""
+    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+    kernel.CreateFileW.argtypes = [ctypes.c_wchar_p, ctypes.c_uint32, ctypes.c_uint32,
+                                  ctypes.c_void_p, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_void_p]
+    kernel.CreateFileW.restype = ctypes.c_void_p
+    kernel.CloseHandle.argtypes = [ctypes.c_void_p]
+    handle = kernel.CreateFileW(str(path), 0x80000000, 0, None, 3, 0x00200000, None)
+    if handle == ctypes.c_void_p(-1).value:
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        yield
+    finally:
+        if not kernel.CloseHandle(handle):
+            raise ctypes.WinError(ctypes.get_last_error())
+
+
 def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_books=None, inspect_comparison=False,
-        processing_package=None, estimate_first=False, whole=False, repeat_new=False, repeat_offer=False, images=None, scenario='selected-compression-ui'):
+        processing_package=None, estimate_first=False, whole=False, repeat_new=False, repeat_offer=False, images=None,
+        scenario='selected-compression-ui', recovery_fault=None, recovery_preserve=None):
+    if recovery_fault:
+        assert scenario == 'selected-compression-ui' and mode == 'apply' and not real_books
+    if recovery_preserve:
+        assert recovery_fault, 'Preservation checks require a real interrupted job'
     with temporary_work_directory(stage, 'HomeLibRu-native-') as root:
         root = Path(root)
         shutil.copy2(binary, root / 'CollectionViewsTest.exe')
@@ -135,13 +160,15 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
             (root / 'compression-fixture.json').write_text(json.dumps(dict(
                 first='one.fb2', second='two.fb2', grayscale=True, timeout_ms=90000,
                 inspect_comparison=True)), encoding='utf-8')
-        if estimate_first or whole or repeat_new or repeat_offer:
+        if estimate_first or whole or repeat_new or repeat_offer or recovery_fault:
             fixture_file = root / 'compression-fixture.json'
             config = json.loads(fixture_file.read_text(encoding='utf-8')) if fixture_file.exists() else {}
             config['estimate_first'] = estimate_first
             config['whole'] = whole
             config['repeat_new'] = repeat_new
             config['repeat_offer'] = repeat_offer
+            if recovery_fault:
+                config['recovery_fault'] = recovery_fault
             fixture_file.write_text(json.dumps(config), encoding='utf-8')
         (root / 'books').mkdir()
         source = root / 'books/shared.zip'
@@ -180,6 +207,39 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
                     cwd=root, env=env, stdout=log, stderr=subprocess.STDOUT, startupinfo=startup, timeout=deadline,
                     creationflags=subprocess.BELOW_NORMAL_PRIORITY_CLASS |
                         (0 if inspect_comparison else subprocess.CREATE_NO_WINDOW))
+                if recovery_fault:
+                    assert process.returncode == 73, 'Actual compression did not terminate at its requested durable stage'
+                    assert (root / 'compression-recovery-crash.txt').read_text(encoding='utf-8-sig') == recovery_fault
+                    attempt.update(status='RECOVERING_AFTER_CRASH', crash_returncode=process.returncode,
+                                   recovery_fault=recovery_fault)
+                    attempt_file.write_text(json.dumps(attempt, indent=2), encoding='utf-8')
+                    guard = nullcontext()
+                    if recovery_preserve:
+                        proof_file = root / 'compression-recovery-state.json'
+                        proof = json.loads(proof_file.read_text(encoding='utf-8-sig'))
+                        work_root = Path(proof['work_root']).resolve(strict=True)
+                        assert work_root.is_relative_to(root.resolve(strict=True))
+                        folders = list(work_root.glob('prepare-*'))
+                        assert len(folders) == 1 and not folders[0].is_symlink()
+                        if recovery_preserve == 'foreign-file':
+                            kept = folders[0] / 'unrelated.txt'
+                            kept.write_bytes(b'Keep unrelated preparation data')
+                        elif recovery_preserve == 'foreign-marker':
+                            kept = folders[0] / 'owner.txt'
+                            kept.write_bytes(b'This is a different owner')
+                        else:
+                            assert recovery_preserve == 'live-owner'
+                            # The approved transaction adopts its candidate into
+                            # the durable journal. Check cleanup against a file
+                            # that successful application does not consume.
+                            kept = folders[0] / 'report.json'
+                            guard = exclusive_recovery_owner(folders[0] / 'owner.txt')
+                        proof['preserved_work'] = dict(mode=recovery_preserve, path=str(kept), sha256=digest(kept))
+                        proof_file.write_text(json.dumps(proof), encoding='utf-8')
+                    with guard:
+                        process = run_owned([str(root / 'CollectionViewsTest.exe'), 'compression-recovery-open'],
+                            cwd=root, env=env, stdout=log, stderr=subprocess.STDOUT, startupinfo=startup, timeout=deadline,
+                            creationflags=subprocess.BELOW_NORMAL_PRIORITY_CLASS | subprocess.CREATE_NO_WINDOW)
         except subprocess.TimeoutExpired:
             notes = []
             for p in root.rglob('*.json'):
@@ -197,6 +257,8 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
             'explorer-file-drop': 'PASS Explorer import offers compression only after accepted imports',
             'update-outcomes': 'PASS actual INPX and Metabib menus offer compression after commit',
         }[scenario]
+        if recovery_fault:
+            expected = 'PASS actual compression crash and ordinary startup recovery ' + recovery_fault
         if process.returncode or expected not in output:
             # Keep only bounded text diagnostics; do not retain the runtime or books.
             notes = []
@@ -276,6 +338,8 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
                     whole=whole,
                     repeat_new=repeat_new,
                     repeat_offer=repeat_offer,
+                    recovery_fault=recovery_fault,
+                    recovery_preserve=recovery_preserve,
                     private_runtime=str(root),
                     image_helper_sha256=digest(root / 'tools/images/HomeLibImages.exe'),
                     scope='Ordinary catalogue command; real payloads in a private shared ZIP, original archives read only'
@@ -297,6 +361,11 @@ if __name__ == '__main__':
     parser.add_argument('--scenario', choices=['selected-compression-ui', 'explorer-file-drop', 'update-outcomes'], default='selected-compression-ui')
     parser.add_argument('--repeat-offer', action='store_true', help='Exercise nonmodal arrivals offer, dismissal, canceled options and explicit start')
     parser.add_argument('--images', type=Path, help='Fresh image helper verified against the current C# source')
+    parser.add_argument('--recovery-fault', choices=['job-published', 'file-committed', 'catalogue-committed',
+                        'personal-committed', 'completed-published', 'file-journal-forgotten'],
+                        help='Terminate the guarded test process at a durable compression stage, then restart ordinary Main')
+    parser.add_argument('--recovery-preserve', choices=['foreign-file', 'foreign-marker', 'live-owner'],
+                        help='Verify recovery retains foreign or externally leased preparation data')
     args = parser.parse_args()
     report = args.stage / f'catalogue-{args.platform}-{args.mode}.json'
     try:

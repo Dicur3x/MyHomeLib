@@ -6250,6 +6250,7 @@ end;
 {$I CollectionPackingRestartTests.inc}
 {$I SqlCatalogueRestartTests.inc}
 {$I BookCompressionCatalogueTests.inc}
+{$I CompressionRecoveryTests.inc}
 {$I CompressionPreferenceTests.inc}
 {$I PackageCoverTests.inc}
 {$I CataloguePlacementTests.inc}
@@ -6297,6 +6298,15 @@ begin
       Trace('isolated user module');
       Application.CreateForm(TDMUser, DMUser);
       DMUser.Init;
+      if ParamStr(1)='compression-recovery-open' then
+      begin
+        TestCompressionRecoveryStartup;
+        Flush(Output);
+        FreeAndNil(frmMain); FreeAndNil(dmImages);
+        FreeAndNil(DMUser); FreeAndNil(frmSplash);
+        Application.OnException:=nil; ExceptionHandler.Free;
+        Halt(0);
+      end;
       if ParamStr(1)='personal-author-reopen' then begin TestPersonalAuthorReopen; Halt(0); end;
       if ParamStr(1)='distribution-layout' then begin TestDistributionLayout; Flush(Output); Halt(0); end;
       if ParamStr(1)='flibrary-source-preparation' then begin TestFLibrarySourcePreparation; Flush(Output); Halt(0); end;

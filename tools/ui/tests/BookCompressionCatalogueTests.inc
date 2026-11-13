@@ -1,9 +1,11 @@
 ﻿// Exercises the real menu action, modal choices, background timer and visible
 // row refresh in the normal catalogue. All files belong to the guarded runtime.
+
+procedure ArmCompressionRecoveryCrash(const Fault, ReportFile: string); forward;
 type
   TCompressionCatalogueDriver = class
     Timer: TTimer;
-    Mode, OriginalSHA, Source, BackupFolder: string;
+    Mode, OriginalSHA, Source, BackupFolder, RecoveryFault, RecoveryIssues, ResultNote: string;
     ProfileIndex: Integer;
     Grayscale, CancelOptions: Boolean;
     InspectComparison, EstimateFirst, EstimateSeen, Whole, OnlyNew: Boolean;
@@ -108,6 +110,14 @@ begin
         // the driver's own timer cannot enter the same review a second time.
         DecisionSent:=True;
         ReviewSeen:=True;
+        if RecoveryFault<>'' then
+        begin
+          var Reports:=TDirectory.GetFiles(Settings.AppPath+'compression-work','report.json',TSearchOption.soAllDirectories);
+          Require(Length(Reports)=1,'Expected one actual producer report before crash');
+          ArmCompressionRecoveryCrash(RecoveryFault,Reports[0]);
+          TButton(Form.FindComponent('CompressionApply')).Click;
+          Exit;
+        end;
         Require(THashSHA2.GetHashStringFromFile(Source)=OriginalSHA,'Review changed the original before approval');
         Require(Length(TDirectory.GetFiles(BackupFolder,'*.zip'))=0,'Skipped review already published a backup');
         // Browsing remains available while the background operation waits.
@@ -138,9 +148,17 @@ begin
       begin
         ResultSeen:=True; Timer.Enabled:=False;
         var Note:string:=TLabel(Form.FindComponent('CompressionNote')).Caption;
+        ResultNote:=Note;
         Writeln('TRACE compression result ',TLabel(Form.FindComponent('CompressionStage')).Caption,' · ',Note); Flush(Output);
         Require(not Note.Contains('Не удалось') and not Note.Contains('исходник'),
           'Compression result error: '+Note);
+        if Mode='recovery' then
+        begin
+          if Pos('Книги: 0 из 0',TLabel(Form.FindComponent('CompressionCounts')).Caption)>0 then
+            RecoveryIssues:=RecoveryIssues+'Recovery shows zero-of-zero books. ';
+          if Pos('Освобождено: 0',frmMain.StatusMessage)>0 then
+            RecoveryIssues:=RecoveryIssues+'Recovery reports an unmeasured zero saving. ';
+        end;
         if OnlyNew then
         begin
           Require(Pos('Новых книг',TLabel(Form.FindComponent('CompressionStage')).Caption)>0,
@@ -181,6 +199,7 @@ begin
       Driver.InspectComparison:=Config.GetValue<Boolean>('inspect_comparison',False);
       Driver.EstimateFirst:=Config.GetValue<Boolean>('estimate_first',False);
       Driver.Whole:=Config.GetValue<Boolean>('whole',False);
+      Driver.RecoveryFault:=Config.GetValue<string>('recovery_fault','');
       Timeout:=Config.GetValue<UInt64>('timeout_ms',45000);
       Require((Timeout>=1000) and (Timeout<=300000),'Invalid bounded fixture timeout');
     end;

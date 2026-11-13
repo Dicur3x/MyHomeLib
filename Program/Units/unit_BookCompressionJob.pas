@@ -37,6 +37,7 @@ type
     class function Pending(const QueueRoot: string): TArray<string>; static;
     property Directory: string read FDirectory;
     property Source: string read FSource;
+    property PreparedCandidate: string read FCandidate;
     property Completed: Boolean read FCompleted;
   end;
 

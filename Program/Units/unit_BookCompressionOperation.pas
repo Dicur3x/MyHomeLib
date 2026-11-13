@@ -43,7 +43,7 @@ type
     FCompleted: TObjectList<TBookCompressionJob>;
     FWork, FCancelFile, FLastError, FEngineSHA256: string;
     FCancelStarted: UInt64;
-    FWorkGuard: THandle;
+    FWorkGuard, FWorkLease: THandle;
     function Stopping: Boolean;
     procedure CheckStop;
     procedure SetStage(const Stage: string; Current: Int64 = 0; Total: Int64 = 0);
@@ -51,7 +51,11 @@ type
     procedure ReceiveEvent(const Value: string);
     function CancelProducer: Boolean;
     procedure CreateWork;
+    procedure OpenWorkGuard;
+    procedure OpenWorkLease;
+    procedure ReleaseWorkHandles;
     procedure CleanWork;
+    procedure CleanRecoveredWork(const Candidate: string);
     function EngineFingerprint: string;
     function Review(Estimate: Boolean = False): Boolean;
     procedure EstimateFile(FilePlan: TCompressionFilePlan);
@@ -73,6 +77,12 @@ type
   end;
 
 function CompressionQueueRoot(const Options: TBookCompressionOperationOptions): string;
+
+{$IFDEF MHL_COMPRESSION_TEST}
+// Only the guarded native regression executable defines this symbol. Its
+// callback terminates that private process at an existing durable job stage.
+var CompressionOperationTestFault: TProc<string>;
+{$ENDIF}
 
 implementation
 
@@ -187,7 +197,7 @@ begin
   // Never forget a durable job merely because its window/owner is released.
   if Assigned(FLock) and Assigned(FReviewEvent) and not Finished then RequestStop;
   inherited;
-  if FWorkGuard<>0 then CloseHandle(FWorkGuard);
+  ReleaseWorkHandles;
   FCompleted.Free; FReviewEvent.Free; FLock.Free;
 end;
 
@@ -259,23 +269,62 @@ begin
   Result:=GetTickCount64-FCancelStarted>=3000;
 end;
 
-procedure TBookCompressionOperation.CreateWork;
-var Actual:string; Count:DWORD; Path:TArray<Char>;
+procedure TBookCompressionOperation.OpenWorkGuard;
+var Actual:string; Count:DWORD; Path:TArray<Char>; Info:TByHandleFileInformation;
 begin
-  ForceDirectories(DeletionNativePath(FOptions.WorkRoot));
-  FWork:=TPath.Combine(FOptions.WorkRoot,'prepare-'+TGUID.NewGuid.ToString);
-  if not CreateDirectory(PChar(DeletionNativePath(FWork)),nil) then RaiseLastOSError;
+  if FWorkGuard<>0 then Exit;
   FWorkGuard:=CreateFile(PChar(DeletionNativePath(FWork)),FILE_READ_ATTRIBUTES,
     FILE_SHARE_READ or FILE_SHARE_WRITE,nil,OPEN_EXISTING,
     FILE_FLAG_BACKUP_SEMANTICS or FILE_FLAG_OPEN_REPARSE_POINT,0);
   if FWorkGuard=INVALID_HANDLE_VALUE then begin FWorkGuard:=0; RaiseLastOSError; end;
+  if not GetFileInformationByHandle(FWorkGuard,Info) then RaiseLastOSError;
+  if (Info.dwFileAttributes and FILE_ATTRIBUTE_REPARSE_POINT<>0) or
+    (Info.dwFileAttributes and FILE_ATTRIBUTE_DIRECTORY=0) then
+    raise EReadError.Create('Рабочая папка сжатия заменена ссылкой или файлом.');
   SetLength(Path,32768);
   Count:=GetFinalPathNameByHandle(FWorkGuard,@Path[0],Length(Path),0);
   if (Count=0) or (Count>=DWORD(Length(Path))) then RaiseLastOSError;
   SetString(Actual,PChar(@Path[0]),Count);
   if not SameFileName(Actual,DeletionNativePath(FWork)) then
     raise EReadError.Create('Рабочая папка сжатия проходит через ссылку.');
+end;
+
+procedure TBookCompressionOperation.OpenWorkLease;
+var Info:TByHandleFileInformation; Bytes:TBytes; Count:DWORD; Marker:string;
+begin
+  if FWorkLease<>0 then Exit;
+  // An active worker owns the marker exclusively. Recovery cannot clean a
+  // second live preparation even when its result bytes happen to match.
+  FWorkLease:=CreateFile(PChar(DeletionNativePath(TPath.Combine(FWork,'owner.txt'))),
+    GENERIC_READ,0,nil,OPEN_EXISTING,FILE_FLAG_OPEN_REPARSE_POINT,0);
+  if FWorkLease=INVALID_HANDLE_VALUE then begin FWorkLease:=0; RaiseLastOSError; end;
+  if not GetFileInformationByHandle(FWorkLease,Info) then RaiseLastOSError;
+  if (Info.nNumberOfLinks<>1) or (Info.nFileSizeHigh<>0) or
+    (Info.nFileSizeLow=0) or (Info.nFileSizeLow>256) or
+    (Info.dwFileAttributes and (FILE_ATTRIBUTE_DIRECTORY or FILE_ATTRIBUTE_REPARSE_POINT)<>0) then
+    raise EReadError.Create('Некорректная метка рабочей папки сжатия.');
+  SetLength(Bytes,Info.nFileSizeLow);
+  if not ReadFile(FWorkLease,Bytes[0],Length(Bytes),Count,nil) then RaiseLastOSError;
+  if Count<>DWORD(Length(Bytes)) then raise EReadError.Create('Метка рабочей папки прочитана не полностью.');
+  Marker:=TEncoding.UTF8.GetString(Bytes);
+  if (Marker<>'') and (Marker[1]=#$FEFF) then Delete(Marker,1,1);
+  if Marker<>WorkMarker then raise EReadError.Create('Нет метки рабочей папки сжатия.');
+end;
+
+procedure TBookCompressionOperation.ReleaseWorkHandles;
+begin
+  if FWorkLease<>0 then begin CloseHandle(FWorkLease); FWorkLease:=0; end;
+  if FWorkGuard<>0 then begin CloseHandle(FWorkGuard); FWorkGuard:=0; end;
+end;
+
+procedure TBookCompressionOperation.CreateWork;
+begin
+  ForceDirectories(DeletionNativePath(FOptions.WorkRoot));
+  FWork:=TPath.Combine(FOptions.WorkRoot,'prepare-'+TGUID.NewGuid.ToString);
+  if not CreateDirectory(PChar(DeletionNativePath(FWork)),nil) then RaiseLastOSError;
+  OpenWorkGuard;
   SaveText(TPath.Combine(FWork,'owner.txt'),WorkMarker);
+  OpenWorkLease;
   if not CreateDirectory(PChar(DeletionNativePath(TPath.Combine(FWork,'payload'))),nil) then RaiseLastOSError;
   FCancelFile:=TPath.Combine(FWork,'cancel.marker'); FCancelStarted:=0; FLastError:='';
 end;
@@ -289,10 +338,8 @@ var Allowed:TArray<string>; Name, Payload:string; Attr:DWORD;
   end;
 begin
   if FWork='' then Exit;
-  if FWorkGuard<>0 then begin CloseHandle(FWorkGuard); FWorkGuard:=0; end;
   try
-    if TFile.ReadAllText(DeletionNativePath(TPath.Combine(FWork,'owner.txt')),TEncoding.UTF8)<>WorkMarker then
-      raise EReadError.Create('Нет метки рабочей папки сжатия.');
+    OpenWorkGuard; OpenWorkLease;
     Allowed:=TArray<string>.Create('owner.txt','request.json','report.json','cancel.marker','payload');
     for var Path in TDirectory.GetFileSystemEntries(DeletionNativePath(FWork)) do
     begin
@@ -305,20 +352,45 @@ begin
         raise EReadError.Create('Тип рабочего файла изменился.');
     end;
     Payload:=TPath.Combine(FWork,'payload');
-    for var Path in TDirectory.GetFileSystemEntries(DeletionNativePath(Payload)) do
+    if DirectoryExists(DeletionNativePath(Payload)) then
     begin
-      Name:=ExtractFileName(Path);
-      Attr:=GetFileAttributes(PChar(Path));
-      if not MatchText(Name,['prepared-book.bin','prepared-archive.bin','original-books.zip','comparison.zip']) or
-        (Attr=INVALID_FILE_ATTRIBUTES) or (Attr and (FILE_ATTRIBUTE_DIRECTORY or FILE_ATTRIBUTE_REPARSE_POINT)<>0) then
-        raise EReadError.Create('Незавершённые рабочие файлы сохранены для проверки.');
+      for var Path in TDirectory.GetFileSystemEntries(DeletionNativePath(Payload)) do
+      begin
+        Name:=ExtractFileName(Path);
+        Attr:=GetFileAttributes(PChar(Path));
+        if not MatchText(Name,['prepared-book.bin','prepared-archive.bin','original-books.zip','comparison.zip']) or
+          (Attr=INVALID_FILE_ATTRIBUTES) or (Attr and (FILE_ATTRIBUTE_DIRECTORY or FILE_ATTRIBUTE_REPARSE_POINT)<>0) then
+          raise EReadError.Create('Незавершённые рабочие файлы сохранены для проверки.');
+      end;
+      for Name in ['prepared-book.bin','prepared-archive.bin','original-books.zip','comparison.zip'] do RemoveFile(TPath.Combine(Payload,Name));
+      if not RemoveDirectory(PChar(DeletionNativePath(Payload))) then RaiseLastOSError;
     end;
-    for Name in ['prepared-book.bin','prepared-archive.bin','original-books.zip','comparison.zip'] do RemoveFile(TPath.Combine(Payload,Name));
-    if not RemoveDirectory(PChar(DeletionNativePath(Payload))) then RaiseLastOSError;
-    for Name in ['request.json','report.json','cancel.marker','owner.txt'] do RemoveFile(TPath.Combine(FWork,Name));
+    for Name in ['request.json','report.json','cancel.marker'] do RemoveFile(TPath.Combine(FWork,Name));
+    CloseHandle(FWorkLease); FWorkLease:=0;
+    RemoveFile(TPath.Combine(FWork,'owner.txt'));
+    CloseHandle(FWorkGuard); FWorkGuard:=0;
     if not RemoveDirectory(PChar(DeletionNativePath(FWork))) then RaiseLastOSError;
   except on E:Exception do Warn(E.Message+sLineBreak+'Рабочая папка: '+FWork); end;
+  ReleaseWorkHandles;
   FWork:=''; FCancelFile:='';
+end;
+
+procedure TBookCompressionOperation.CleanRecoveredWork(const Candidate:string);
+var Payload, Folder, Name:string; ID:TGUID;
+begin
+  // Only the completed job's exact native preparation is eligible. Never
+  // scan prefixes or infer ownership of arbitrary producer output folders.
+  if not MatchText(ExtractFileName(Candidate),['prepared-book.bin','prepared-archive.bin']) then Exit;
+  Payload:=ExtractFileDir(Candidate);
+  if not SameText(ExtractFileName(Payload),'payload') then Exit;
+  Folder:=ExtractFileDir(Payload); Name:=ExtractFileName(Folder);
+  if not SameFileName(ExtractFileDir(Folder),FOptions.WorkRoot) or not Name.StartsWith('prepare-') then Exit;
+  try ID:=StringToGUID(Copy(Name,9,MaxInt)); except on E:EConvertError do Exit; end;
+  if Name<>'prepare-'+GUIDToString(ID) then Exit;
+  if not DirectoryExists(DeletionNativePath(Folder)) then Exit;
+  if FWork<>'' then raise EInvalidOperation.Create('Рабочая папка сжатия ещё используется.');
+  FWork:=Folder;
+  CleanWork;
 end;
 
 procedure TBookCompressionOperation.Approve(Decision:TCompressionReview);
@@ -441,7 +513,7 @@ procedure TBookCompressionOperation.RunFile(FilePlan:TCompressionFilePlan);
 var Request, Report, Receipt, Expected:TJSONObject; Output:TCompressionEventStream;
     Job:TBookCompressionJob; Candidate, ReportFile:string; KeepWork:Boolean;
     InputBytes, OutputBytes:Int64;
-    Backup:TCompressionOriginalBackup; BackupJSON:string;
+    Backup:TCompressionOriginalBackup; BackupJSON:string; Fault:TProc<string>;
   procedure BindReceipt;
   var Choice:TJSONObject;
   begin
@@ -593,11 +665,15 @@ begin
       // Publication can have succeeded even if a subsequent constructor
       // check fails. Keep its candidate for recovery, never remove it here.
       KeepWork:=True;
-      Job:=TBookCompressionJob.CreatePrepared(QueueRoot,Receipt.ToJSON,Candidate,nil,BackupJSON);
+      Fault:=nil;
+{$IFDEF MHL_COMPRESSION_TEST}
+      Fault:=CompressionOperationTestFault;
+{$ENDIF}
+      Job:=TBookCompressionJob.CreatePrepared(QueueRoot,Receipt.ToJSON,Candidate,Fault,BackupJSON);
       TMonitor.Enter(FLock);
       try FState.PendingJob:=Job.Directory; finally TMonitor.Exit(FLock); end;
       Job.Execute(Stopping,
-        procedure(const Stage:string; Done,Total:Int64) begin SetStage(Stage,Done,Total); end);
+        procedure(const Stage:string; Done,Total:Int64) begin SetStage(Stage,Done,Total); end,Fault);
       KeepWork:=False;
       FCompleted.Add(Job); Job:=nil;
       TMonitor.Enter(FLock);
@@ -610,7 +686,7 @@ begin
     Job.Free; Backup.Free;
     if KeepWork then
     begin
-      if FWorkGuard<>0 then begin CloseHandle(FWorkGuard); FWorkGuard:=0; end;
+      ReleaseWorkHandles;
       Warn('Журнал и подготовленные файлы сохранены для продолжения: '+FWork);
       FWork:=''; FCancelFile:='';
     end
@@ -633,6 +709,7 @@ begin
       finally TMonitor.Exit(FLock); end;
       Job.Execute(Stopping,
         procedure(const Stage:string; Done,Total:Int64) begin SetStage(Stage,Done,Total); end);
+      CleanRecoveredWork(Job.PreparedCandidate);
       FCompleted.Add(Job); Job:=nil;
       TMonitor.Enter(FLock);
       try FState.PendingJob:=''; Inc(FState.FilesDone); Inc(FState.ChangedFiles);

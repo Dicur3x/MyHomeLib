@@ -5049,7 +5049,8 @@ begin
   FreeAndNil(FBookCompressionOperation);
   FBookCompressionProgress.ShowResult(State,RefreshError);
   StatusMessage:=State.Stage;
-  if not State.EstimateOnly then StatusMessage:=StatusMessage+' Освобождено: '+BookCacheSizeText(State.SavedBytes);
+  if not State.EstimateOnly and State.SavingsKnown then
+    StatusMessage:=StatusMessage+' Освобождено: '+BookCacheSizeText(State.SavedBytes);
   if FCloseAfterCompression then
   begin FCloseAfterCompression:=False; PostMessage(Handle,WM_CLOSE,0,0); end
   else if State.Error='' then CheckCompressionRecovery;
