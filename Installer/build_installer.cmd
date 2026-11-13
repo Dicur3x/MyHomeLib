@@ -47,21 +47,21 @@ if /i "%TARGET%"=="all" (
     if errorlevel 1 exit /b 1
 )
 
-if not exist "%BIN_DIR%\HomeLibRu.exe" (
+if not exist "%BIN_DIR%\HomeLibre.exe" (
     if /i not "%TARGET%"=="x64" (
-        echo ERROR: %BIN_DIR%\HomeLibRu.exe missing after build.
+        echo ERROR: %BIN_DIR%\HomeLibre.exe missing after build.
         exit /b 1
     )
 )
 if /i "%TARGET%"=="x64" (
-    if not exist "%BIN64_DIR%\HomeLibRu.exe" (
-        echo ERROR: %BIN64_DIR%\HomeLibRu.exe missing after build.
+    if not exist "%BIN64_DIR%\HomeLibre.exe" (
+        echo ERROR: %BIN64_DIR%\HomeLibre.exe missing after build.
         exit /b 1
     )
 )
 if /i "%TARGET%"=="all" (
-    if not exist "%BIN64_DIR%\HomeLibRu.exe" (
-        echo ERROR: %BIN64_DIR%\HomeLibRu.exe missing after build.
+    if not exist "%BIN64_DIR%\HomeLibre.exe" (
+        echo ERROR: %BIN64_DIR%\HomeLibre.exe missing after build.
         exit /b 1
     )
 )

@@ -58,8 +58,8 @@ resourcestring
   rstrIconResourceMissing =
     'Невозможно загрузить источник значков:'#13#10'%s'#13#10#13#10 +
     'Ошибка Windows %d: %s'#13#10#13#10 +
-    'Программа будет работать без значков. Переустановите HomeLib Ru или ' +
-    'скопируйте папку Icons рядом с HomeLibRu.exe.';
+    'Программа будет работать без значков. Переустановите HomeLibre или ' +
+    'скопируйте папку Icons рядом с HomeLibre.exe.';
 
 const
   CIconResFile = 'Icons\MHLIcons.dll';

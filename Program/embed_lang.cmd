@@ -4,7 +4,7 @@ setlocal
 pushd "%~dp0" || exit /b 1
 :: ============================================================================
 :: Pre-build step: regenerate lang.rc from Program\Lang and compile it to
-:: lang.res, which HomeLibRu.dpr links.
+:: lang.res, which HomeLibre.dpr links.
 ::
 :: Usage: embed_lang.cmd <BDS-directory>
 ::

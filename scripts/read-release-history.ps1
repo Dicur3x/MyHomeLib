@@ -31,6 +31,8 @@ if ($current.Display -cne $CurrentDisplay) { throw 'Release-history display iden
 $currentPath = Join-Path $NotesDirectory ("RELEASE_NOTES_$CurrentTag.md")
 if (-not (Test-Path -LiteralPath $currentPath -PathType Leaf)) { throw "Current release notes are missing: $currentPath" }
 $entries = @(foreach ($file in Get-ChildItem -LiteralPath $NotesDirectory -Filter 'RELEASE_NOTES_*.md' -File) {
+    # The working draft is not a release tag and must never enter shipped history.
+    if ($file.BaseName -ceq 'RELEASE_NOTES_NEXT') { continue }
     $entry = Convert-ReleaseTag $file.BaseName.Substring('RELEASE_NOTES_'.Length)
     # Do not ship notes for future, unpublished releases from the working tree.
     if ($entry.Base -gt $current.Base -or

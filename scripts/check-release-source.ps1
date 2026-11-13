@@ -43,6 +43,7 @@ $componentTag = $componentParts[0..2] -join '.'
 if ([int]$componentParts[3] -lt 65535) { $componentTag += '_pre1.' + $componentParts[3] }
 $projects = @{
     'Program/MyhomeLib.dproj' = $false
+    'Utils/HomeLibRuLauncher/HomeLibRu.dproj' = $false
     'Utils/HomeLibRuUpdater/HomeLibRuUpdater.dproj' = $false
     'Utils/HomeLibReader/HomeLibReader.dproj' = $false
     'Utils/MHLMcpServer/MHLMcpServer.dproj' = $true

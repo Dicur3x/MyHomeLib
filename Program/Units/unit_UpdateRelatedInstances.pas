@@ -42,7 +42,7 @@ implementation
 
 uses System.IOUtils, System.StrUtils, System.Variants, System.Win.ComObj, System.IniFiles,
   Winapi.ActiveX, Winapi.TlHelp32, Winapi.Messages, Winapi.ShellAPI,
-  unit_ProgramUpdateInstaller, unit_ReaderStartup, unit_ReaderRestartState;
+  unit_ProgramUpdateInstaller, unit_ReaderStartup, unit_ReaderRestartState, unit_ApplicationIdentity;
 
 const RELATED_QUERY_LIMITED = $1000;
 function RelatedProcessImage(Process: THandle; Flags: DWORD;
@@ -150,7 +150,8 @@ begin
     Entry:=Default(TProcessEntry32); Entry.dwSize:=SizeOf(Entry);
     if Process32First(Snapshot,Entry) then repeat
       if (Entry.th32ProcessID=ExcludedPID) or (Entry.th32ProcessID=GetCurrentProcessId) then Continue;
-      if not SameText(Entry.szExeFile,'HomeLibRu.exe') and
+      if not SameText(Entry.szExeFile,'HomeLibre.exe') and
+         not SameText(Entry.szExeFile,'HomeLibRu.exe') and
          not SameText(Entry.szExeFile,'HomeLibReader.exe') then Continue;
       Process:=OpenProcess(SYNCHRONIZE or RELATED_QUERY_LIMITED,False,Entry.th32ProcessID);
       if Process=0 then Continue;
@@ -180,7 +181,7 @@ var Initialized: HRESULT;
     Locator:=CreateOleObject('WbemScripting.SWbemLocator');
     Service:=Locator.ConnectServer('.', 'root\cimv2');
     Rows:=Service.ExecQuery('SELECT ProcessId,CommandLine FROM Win32_Process WHERE '+
-      'Name=''HomeLibReader.exe'' OR Name=''HomeLibRu.exe''','WQL',48);
+      'Name=''HomeLibReader.exe'' OR Name=''HomeLibRu.exe'' OR Name=''HomeLibre.exe''','WQL',48);
     Enumerator:=IUnknown(Rows._NewEnum) as IEnumVARIANT;
     while Enumerator.Next(1,Row,Fetched)=S_OK do
     begin
@@ -353,7 +354,7 @@ begin
 end;
 
 procedure TUpdateRelatedInstances.RestartClosed(WaitMS: Cardinal);
-var Startup: TStartupInfo; Process: TProcessInformation; Command: string;
+var Startup: TStartupInfo; Process: TProcessInformation; Command, Executable: string;
   Context: TWindowContext; Deadline: UInt64;
 begin
   if WaitMS>60000 then raise Exception.Create('Некорректный срок восстановления окон.');
@@ -362,12 +363,13 @@ begin
   begin
     if not Instance.CloseRequested or not Instance.HasWindow or Instance.Restarted or
       (WaitForSingleObject(Instance.ProcessHandle,0)<>WAIT_OBJECT_0) then Continue;
-    Command:=Instance.CommandLine; UniqueString(Command);
+    Executable:=TPath.Combine(FTarget,InstalledApplicationName(FTarget,ExtractFileName(Instance.Executable)));
+    Command:=ForwardApplicationCommandLine(Executable,Instance.CommandLine); UniqueString(Command);
     Startup:=Default(TStartupInfo); Startup.cb:=SizeOf(Startup);
     // Let VCL decide which startup window to show. STARTF_USESHOWWINDOW can
     // apply to its hidden application window before the actual book exists.
     // The catalogue receives its placement below; books use their saved settings.
-    if not CreateProcess(PChar(Instance.Executable),PChar(Command),nil,nil,False,
+    if not CreateProcess(PChar(Executable),PChar(Command),nil,nil,False,
       CREATE_NO_WINDOW,nil,PChar(FTarget),Startup,Process) then RaiseLastOSError;
     CloseHandle(Process.hThread); Instance.RestartHandle:=Process.hProcess;
     Instance.RestartPID:=Process.dwProcessId; Instance.Restarted:=True; SaveState;

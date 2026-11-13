@@ -41,7 +41,7 @@ begin Result:=(Length(IDs)>0) and (Length(Blockers)=0); end;
 
 function ComponentRemovalCoreFile(const Name: string): Boolean;
 begin
-  Result:=SameText(Name,'HomeLibRu.exe') or SameText(Name,'HomeLibRuUpdater.exe') or
+  Result:=SameText(Name,'HomeLibre.exe') or SameText(Name,'HomeLibRu.exe') or SameText(Name,'HomeLibRuUpdater.exe') or
     SameText(Name,'sqlite3.dll') or SameText(Name,'LICENSE') or SameText(Name,'NOTICE') or
     Name.StartsWith('tools/fonts/',True);
 end;
@@ -90,7 +90,8 @@ var Requested: TDictionary<string,Boolean>; Names: TDictionary<string,Integer>; 
 begin
   Result:=Default(TComponentRemovalPlan);
   AssertUpdatePath(AppPath); Result.AppPath:=ExcludeTrailingPathDelimiter(TPath.GetFullPath(AppPath));
-  if not FileExists(CheckedUpdateChildPath(AppPath,'HomeLibRu.exe')) and
+  if not FileExists(CheckedUpdateChildPath(AppPath,'HomeLibre.exe')) and
+    not FileExists(CheckedUpdateChildPath(AppPath,'HomeLibRu.exe')) and
     not FileExists(CheckedUpdateChildPath(AppPath,'HomeLibReader.exe')) then
     raise Exception.Create('В выбранной папке нет HomeLibre или HomeLibre Reader.');
   Result.ManifestSources:=Copy(ManifestSources);

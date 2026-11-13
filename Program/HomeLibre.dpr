@@ -36,7 +36,7 @@
   *
   ****************************************************************************** *)
 
-program HomeLibRu;
+program HomeLibre;
 
 {$R 'MyhomeLib.dres'}
 

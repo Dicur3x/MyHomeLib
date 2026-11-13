@@ -20,7 +20,7 @@
 #define protected Revision
 #define protected Build
 #define protected MyAppName = 'HomeLibre'
-#define protected AppExeName = 'HomeLibRu.exe'
+#define protected AppExeName = 'HomeLibre.exe'
 #define ReleaseVersion = '2.7.0_pre5.12'
 #define protected FullSourcePath = SourceFolder + AppExeName
 

@@ -2182,7 +2182,7 @@ begin
     end;
     if not IsProgramUpdateApplicationName(ExtractFileName(ParamStr(0))) then
       raise Exception.Create('Файл программы переименован: '+ExtractFileName(ParamStr(0))+'. '+
-        'Для встроенного обновления верните имя HomeLibRu.exe или HomeLibReader.exe.');
+        'Для встроенного обновления верните имя HomeLibre.exe или HomeLibReader.exe.');
     AssertUpdatePath(FJob); AssertUpdatePath(Settings.AppPath);
     Helper := IncludeTrailingPathDelimiter(FJob) + 'HomeLibRuUpdater.exe';
     if not FRecovery or not FileExists(Helper) then

@@ -54,3 +54,6 @@ __pycache__/
 /Utils/HomeLibDjvu/*.identcache
 /Utils/HomeLibPDF/*.res
 /Utils/HomeLibPDF/*.identcache
+
+/Utils/HomeLibRuLauncher/*.res
+/Utils/HomeLibRuLauncher/*.identcache

@@ -18,15 +18,19 @@ $runtimeDirectory = Join-Path $repositoryRoot $outputSubdirectory
 # Beta 2 is the bridge for clients which only recognise HomeLibRu*.zip.
 # Its updated parser accepts HomeLibre*.zip, used from beta 3 onwards.
 $archiveBrand = if ([version]$releaseIdentity.version -lt [version]'3.0.0.3') { 'HomeLibRu' } else { 'HomeLibre' }
-$archiveName = if ($Platform -eq 'Win32') { "$archiveBrand.zip" } else { "${archiveBrand}_x64.zip" }
-if ($Full) { $archiveName = $archiveName.Replace('.zip', '_full.zip') }
+$baseArchiveName = if ($Platform -eq 'Win32') { "$archiveBrand.zip" } else { "${archiveBrand}_x64.zip" }
+$archiveName = $baseArchiveName.Replace('.zip', $(if ($Full) { '_full.zip' } else { '_portable.zip' }))
 if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
     $OutputDirectory = Join-Path $repositoryRoot "Installer\Out\$release"
 }
 $OutputDirectory = [System.IO.Path]::GetFullPath($OutputDirectory)
 $archivePath = Join-Path $OutputDirectory $archiveName
+$compatibilityArchivePath = if (-not $Full) { Join-Path $OutputDirectory $baseArchiveName } else { $null }
 if (Test-Path -LiteralPath $archivePath) {
     throw "Archive already exists; choose a new output directory: $archivePath"
+}
+if ($compatibilityArchivePath -and (Test-Path -LiteralPath $compatibilityArchivePath)) {
+    throw "Compatibility archive already exists: $compatibilityArchivePath"
 }
 
 # Preparation is explicit: this verifies the runtime without changing it.
@@ -37,7 +41,7 @@ $stagingRoot = Join-Path $temporaryDirectory ('homelibru-package-' + [guid]::New
 $payloadDirectory = Join-Path $stagingRoot 'payload'
 [System.IO.Directory]::CreateDirectory($payloadDirectory) | Out-Null
 try {
-    foreach ($name in @('HomeLibRu.exe', 'HomeLibRuUpdater.exe', 'sqlite3.dll', 'LICENSE', 'NOTICE')) {
+    foreach ($name in @('HomeLibre.exe', 'HomeLibRu.exe', 'HomeLibRuUpdater.exe', 'sqlite3.dll', 'LICENSE', 'NOTICE')) {
         Copy-Item -LiteralPath (Join-Path $runtimeDirectory $name) -Destination $payloadDirectory
     }
     if ($Full) {
@@ -170,12 +174,12 @@ try {
                     throw "Optional payload leaked into minimal catalogue archive: $($entry.FullName)"
                 }
                 if (-not $entry.FullName.Contains('/') -and $entry.FullName -notin @(
-                    'HomeLibRu.exe', 'HomeLibRuUpdater.exe', 'sqlite3.dll', 'LICENSE', 'NOTICE', 'HomeLibRu.update.json')) {
+                    'HomeLibre.exe', 'HomeLibRu.exe', 'HomeLibRuUpdater.exe', 'sqlite3.dll', 'LICENSE', 'NOTICE', 'HomeLibRu.update.json')) {
                     throw "Unexpected file in minimal catalogue root: $($entry.FullName)"
                 }
             }
         }
-        foreach ($name in @('HomeLibRu.exe', 'LICENSE', 'NOTICE')) {
+        foreach ($name in @('HomeLibre.exe', 'HomeLibRu.exe', 'LICENSE', 'NOTICE')) {
             if ($null -eq $archive.GetEntry($name)) {
                 throw "Release archive is missing $name"
             }
@@ -186,11 +190,40 @@ try {
     }
     [System.IO.Directory]::CreateDirectory($OutputDirectory) | Out-Null
     Move-Item -LiteralPath $temporaryArchive -Destination $archivePath
+    if (-not $Full) {
+        # Published clients through beta 13 reject unknown root EXE names.
+        # They still see the old-name compatibility launcher and transport the
+        # real catalogue under an accepted tools path. The matching updater
+        # journals its final destination as HomeLibre.exe; it is never run here.
+        $transportName = 'tools/updates/catalogue/HomeLibre.exe'
+        $transportPath = Join-Path $payloadDirectory $transportName
+        [IO.Directory]::CreateDirectory((Split-Path -Parent $transportPath)) | Out-Null
+        Move-Item -LiteralPath (Join-Path $payloadDirectory 'HomeLibre.exe') -Destination $transportPath
+        $applicationEntry = @($manifestFiles | Where-Object { $_.path -ceq 'HomeLibre.exe' })
+        if ($applicationEntry.Count -ne 1) { throw 'Missing canonical catalogue manifest entry.' }
+        $applicationEntry[0].path = $transportName
+        [IO.File]::WriteAllText((Join-Path $payloadDirectory 'HomeLibRu.update.json'),
+            ($manifest | ConvertTo-Json -Depth 5), [Text.UTF8Encoding]::new($false))
+        $temporaryBridge = Join-Path $stagingRoot $baseArchiveName
+        [IO.Compression.ZipFile]::CreateFromDirectory($payloadDirectory, $temporaryBridge,
+            [IO.Compression.CompressionLevel]::Optimal, $false)
+        $bridge = [IO.Compression.ZipFile]::OpenRead($temporaryBridge)
+        try {
+            if ($null -ne $bridge.GetEntry('HomeLibre.exe') -or
+                $null -eq $bridge.GetEntry($transportName) -or
+                $null -eq $bridge.GetEntry('HomeLibRu.exe')) { throw 'Invalid compatibility archive layout.' }
+        } finally { $bridge.Dispose() }
+        Move-Item -LiteralPath $temporaryBridge -Destination $compatibilityArchivePath
+    }
     [pscustomobject]@{
         Release = $release
         Platform = $Platform
         Archive = $archivePath
         SHA256 = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash
+        CompatibilityArchive = $compatibilityArchivePath
+        CompatibilitySHA256 = $(if ($compatibilityArchivePath) {
+            (Get-FileHash -LiteralPath $compatibilityArchivePath -Algorithm SHA256).Hash
+        } else { $null })
     }
 }
 finally {

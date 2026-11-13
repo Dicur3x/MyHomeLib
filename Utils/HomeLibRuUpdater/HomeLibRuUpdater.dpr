@@ -5,6 +5,7 @@
 
 uses System.SysUtils, System.Classes, System.IOUtils, System.JSON,
   Winapi.Windows, Winapi.ShellAPI,
+  unit_ApplicationIdentity in '..\..\Program\Units\unit_ApplicationIdentity.pas',
   unit_UpdateAuthenticity in '..\..\Program\Units\unit_UpdateAuthenticity.pas',
   unit_ProgramUpdateInstaller in '..\..\Program\Units\unit_ProgramUpdateInstaller.pas',
   unit_UpdateRelatedInstances in '..\..\Program\Units\unit_UpdateRelatedInstances.pas';
@@ -23,18 +24,20 @@ begin
 end;
 
 procedure Restart(const Target, ApplicationName: string; Args: TJSONArray; const OriginalCommandLine: string);
-var Command: string; Arg: TJSONValue; Startup: TStartupInfo; Process: TProcessInformation;
+var Command: string; Arg: TJSONValue; Startup: TStartupInfo; Process: TProcessInformation; RestartName: string;
 begin
-  Command := QuoteArgument(IncludeTrailingPathDelimiter(Target) + ApplicationName);
+  RestartName:=InstalledApplicationName(Target,ApplicationName);
+  Command := QuoteArgument(IncludeTrailingPathDelimiter(Target) + RestartName);
   for Arg in Args do
   begin
     if not (Arg is TJSONString) then raise Exception.Create('Повреждены параметры запуска.');
     Command := Command + ' ' + QuoteArgument(Arg.Value);
   end;
   // Reuse original quoting verbatim; the executable path remains explicit.
-  if OriginalCommandLine <> '' then Command := OriginalCommandLine;
+  if OriginalCommandLine <> '' then
+    Command:=ForwardApplicationCommandLine(IncludeTrailingPathDelimiter(Target)+RestartName,OriginalCommandLine);
   UniqueString(Command); Startup := Default(TStartupInfo); Startup.cb := SizeOf(Startup);
-  if not CreateProcess(PChar(IncludeTrailingPathDelimiter(Target) + ApplicationName), PChar(Command),
+  if not CreateProcess(PChar(IncludeTrailingPathDelimiter(Target) + RestartName), PChar(Command),
     nil, nil, False, 0, nil, PChar(Target), Startup, Process) then RaiseLastOSError;
   CloseHandle(Process.hThread); CloseHandle(Process.hProcess);
 end;

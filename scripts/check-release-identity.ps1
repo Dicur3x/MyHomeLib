@@ -8,13 +8,13 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-foreach ($name in @('HomeLibRu.exe', 'HomeLibRuUpdater.exe')) {
+foreach ($name in @('HomeLibre.exe', 'HomeLibRu.exe', 'HomeLibRuUpdater.exe')) {
     $file = Join-Path $RuntimeDirectory $name
     $info = [Diagnostics.FileVersionInfo]::GetVersionInfo($file)
     $numeric = '{0}.{1}.{2}.{3}' -f $info.FileMajorPart, $info.FileMinorPart,
         $info.FileBuildPart, $info.FilePrivatePart
     if ($info.ProductVersion -cne $Release -or $numeric -cne $Version) {
-        throw "Release identity mismatch in ${name}: expected $Release / $Version, found $($info.ProductVersion) / $numeric. Rebuild BOTH application and updater."
+        throw "Release identity mismatch in ${name}: expected $Release / $Version, found $($info.ProductVersion) / $numeric. Rebuild the catalogue, compatibility launcher and updater."
     }
     if ($info.OriginalFilename -cne $name -or
         $info.InternalName -cne [IO.Path]::GetFileNameWithoutExtension($name) -or
@@ -36,4 +36,4 @@ foreach ($name in @('HomeLibRu.exe', 'HomeLibRuUpdater.exe')) {
     }
     finally { $reader.Dispose() }
 }
-Write-Host "Verified application AND updater: $Release / $Version / $Platform"
+Write-Host "Verified catalogue, compatibility launcher AND updater: $Release / $Version / $Platform"

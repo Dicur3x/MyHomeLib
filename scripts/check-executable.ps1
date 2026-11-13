@@ -53,13 +53,13 @@ if ($ExpectedVersion -and ([version]$actualVersion -ne [version]$ExpectedVersion
     throw "Expected version $ExpectedVersion, found ${actualVersion}: $resolvedPath"
 }
 
-if ([System.IO.Path]::GetFileName($resolvedPath) -ine 'HomeLibRu.exe') {
-    throw "The distributed application must be named HomeLibRu.exe: $resolvedPath"
+if ([System.IO.Path]::GetFileName($resolvedPath) -ine 'HomeLibre.exe') {
+    throw "The distributed application must be named HomeLibre.exe: $resolvedPath"
 }
 $expectedFields = @{
     ProductName = 'HomeLibre'
-    InternalName = 'HomeLibRu'
-    OriginalFilename = 'HomeLibRu.exe'
+    InternalName = 'HomeLibre'
+    OriginalFilename = 'HomeLibre.exe'
     LegalCopyright = 'Copyright (c) 2008-2026 Oleksiy Penkov'
 }
 foreach ($field in $expectedFields.Keys) {

@@ -1,0 +1,37 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <ProjectGuid>{5E5A6755-BF30-4F70-ACD5-40FCC5D4EE79}</ProjectGuid>
+    <MainSource>HomeLibRu.dpr</MainSource>
+    <OutputName>HomeLibRu</OutputName>
+    <ProjectVersion>20.3</ProjectVersion>
+    <AppType>Application</AppType>
+    <Manifest_File>HomeLibRu.manifest</Manifest_File>
+    <VerInfo_PreRelease>true</VerInfo_PreRelease>
+    <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
+    <VerInfo_Locale>1049</VerInfo_Locale>
+    <VerInfo_MajorVer>3</VerInfo_MajorVer>
+    <VerInfo_MinorVer>0</VerInfo_MinorVer>
+    <VerInfo_Release>0</VerInfo_Release>
+    <VerInfo_Build>13</VerInfo_Build>
+    <VerInfo_Keys>FileDescription=HomeLibre compatibility launcher;ProductName=HomeLibre;ProductVersion=3.0.0_pre1.13;FileVersion=3.0.0.13;InternalName=HomeLibRu;OriginalFilename=HomeLibRu.exe</VerInfo_Keys>
+    <Base>True</Base>
+    <Config Condition="'$(Config)'==''">Release</Config>
+    <Platform Condition="'$(Platform)'==''">Win32</Platform>
+    <TargetedPlatforms>3</TargetedPlatforms>
+    <DCC_Namespace>System;Winapi;$(DCC_Namespace)</DCC_Namespace>
+    <DCC_DcuOutput>Out\$(Platform)</DCC_DcuOutput>
+    <DCC_ExeOutput Condition="'$(Platform)'=='Win32'">..\..\Program\Out\Bin</DCC_ExeOutput>
+    <DCC_ExeOutput Condition="'$(Platform)'=='Win64'">..\..\Program\Out\Bin64</DCC_ExeOutput>
+    <DCC_RangeChecking>true</DCC_RangeChecking>
+    <DCC_Assertions>true</DCC_Assertions>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Config)'=='Base' or '$(Base)'!=''"><Base>true</Base></PropertyGroup>
+  <PropertyGroup Condition="'$(Config)'=='Release' or '$(Cfg_1)'!=''"><Cfg_1>true</Cfg_1><CfgParent>Base</CfgParent><Base>true</Base></PropertyGroup>
+  <ItemGroup>
+    <DelphiCompile Include="$(MainSource)"><MainSource>MainSource</MainSource></DelphiCompile>
+    <BuildConfiguration Include="Base"><Key>Base</Key></BuildConfiguration>
+    <BuildConfiguration Include="Release"><Key>Cfg_1</Key><CfgParent>Base</CfgParent></BuildConfiguration>
+  </ItemGroup>
+  <Import Project="$(BDS)\Bin\CodeGear.Delphi.Targets" />
+  <ProjectExtensions><Borland.Personality>Delphi.Personality.12</Borland.Personality><Borland.ProjectType>Application</Borland.ProjectType><BorlandProject><Platforms><Platform value="Win32">True</Platform><Platform value="Win64">True</Platform></Platforms></BorlandProject></ProjectExtensions>
+</Project>

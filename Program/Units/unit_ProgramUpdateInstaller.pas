@@ -4,17 +4,18 @@
 // to a recursive copy/delete operation. The journal is written before changes.
 interface
 
-uses System.SysUtils, System.Classes, System.JSON;
+uses System.SysUtils, System.Classes, System.JSON, unit_ApplicationIdentity;
 
 const
   UPDATE_MANIFEST = 'HomeLibRu.update.json';
   UPDATE_MAX_ARCHIVE = 256 * 1024 * 1024;
   COMPONENT_RECEIPT_FOLDER = 'tools/component-state/';
   JPEG_XL_ENCODER_COMPONENT = 'JpegXLEncoder';
+  CATALOGUE_COMPATIBILITY_PAYLOAD = CATALOGUE_TRANSPORT_PATH;
 
 type
   TUpdateFile = record
-    Name, SHA256: string;
+    Name, SHA256, SourceName: string;
     Size: Int64;
     KeepExisting, Skip, Unchanged, GeneratedReceipt: Boolean;
   end;
@@ -67,9 +68,9 @@ uses System.IOUtils, System.Hash, System.Zip, System.DateUtils, System.SyncObjs,
 
 function IsProgramUpdateApplicationName(const Value: string): Boolean;
 begin
-  // Windows filenames are case insensitive. Keep the two application names
+  // Windows filenames are case insensitive. Keep the supported application names
   // explicit: accepting an arbitrary renamed EXE could restart an old binary.
-  Result:=SameText(Value,'HomeLibRu.exe') or SameText(Value,'HomeLibReader.exe');
+  Result:=SameText(Value,'HomeLibre.exe') or SameText(Value,'HomeLibRu.exe') or SameText(Value,'HomeLibReader.exe');
 end;
 
 function ReadProgramUpdateApplication(const Request: TJSONObject): string;
@@ -430,7 +431,7 @@ begin
   end;
   Lower := LowerCase(Name);
   if Length(Parts) = 1 then
-    Result := (Lower = 'homelibru.exe') or (Lower = 'homelibreader.exe') or
+    Result := (Lower = 'homelibre.exe') or (Lower = 'homelibru.exe') or (Lower = 'homelibreader.exe') or
       (Lower = 'homelibreader-license.txt') or (Lower = 'homelibruupdater.exe') or
       (Lower = 'mhlmcpserver.exe') or (Lower = 'mhlmcpserver-license.txt') or
       (Lower = 'mhlmcpserver-readme.txt') or (Lower = 'sqlite3.dll') or
@@ -672,7 +673,10 @@ begin
       Names.Add(LowerCase(FileInfo.Name), True);
       Result[I] := FileInfo; Inc(I);
     end;
-    if ((Component = '') and (not Names.ContainsKey('homelibru.exe') or
+    if Names.ContainsKey('homelibre.exe') and Names.ContainsKey(LowerCase(CATALOGUE_COMPATIBILITY_PAYLOAD)) then
+      raise Exception.Create('В обновлении указаны два пути для HomeLibre.exe.');
+    if ((Component = '') and ((not Names.ContainsKey('homelibru.exe') and
+       not Names.ContainsKey('homelibre.exe')) or
        not Names.ContainsKey('license') or not Names.ContainsKey('notice'))) or
        ((Component <> '') and (Component <> 'batch') and not Names.ContainsKey(LowerCase(ComponentFileName(Component)))) then
       raise Exception.Create('В обновлении отсутствуют обязательные файлы.');
@@ -929,7 +933,7 @@ end;
 
 procedure VerifyPreparedProgramUpdateIdentity(Manifest: TJSONObject;
   const Stage, Tag, Platform: string);
-var Component, Version, Architecture: string; Official: Boolean; Bundle: TJSONArray; Part: TJSONValue;
+var Component, Version, Architecture, ApplicationFile: string; Official: Boolean; Bundle: TJSONArray; Part: TJSONValue;
 begin
   Component := ''; Manifest.TryGetValue<string>('component', Component);
   if Manifest.TryGetValue<TJSONArray>('bundle', Bundle) then
@@ -937,7 +941,17 @@ begin
       VerifyPreparedProgramUpdateIdentity(TJSONObject(Part), Stage, Tag, Platform);
   if Component = 'batch' then Exit;
   if Component = '' then
-    VerifyUpdateExecutable(ChildPath(Stage, 'HomeLibRu.exe'), Tag, Platform)
+  begin
+    // The old-name launcher lets existing clients verify and install this
+    // release; the new executable contains the only catalogue implementation.
+    if FileExists(ChildPath(Stage, 'HomeLibre.exe')) then ApplicationFile:='HomeLibre.exe'
+    else if FileExists(ChildPath(Stage, CATALOGUE_COMPATIBILITY_PAYLOAD)) then
+      ApplicationFile:=CATALOGUE_COMPATIBILITY_PAYLOAD
+    else ApplicationFile:='HomeLibRu.exe';
+    VerifyUpdateExecutable(ChildPath(Stage, ApplicationFile), Tag, Platform);
+    if (ApplicationFile<>'HomeLibRu.exe') and FileExists(ChildPath(Stage, 'HomeLibRu.exe')) then
+      VerifyUpdateExecutable(ChildPath(Stage, 'HomeLibRu.exe'), Tag, Platform);
+  end
   else
   begin
     if (ComponentFileName(Component) = '') or not Manifest.TryGetValue<string>('version', Version) then
@@ -1689,6 +1703,7 @@ var Manifest, Journal, Entry: TJSONObject; Files: TUpdateFiles; List: TJSONArray
   function SourceFor(const Value: TUpdateFile): string;
   begin
     if Value.GeneratedReceipt then Result:=ChildPath(Job,'receipt-payload/'+Value.Name)
+    else if Value.SourceName<>'' then Result:=ChildPath(Job,'payload/'+Value.SourceName)
     else Result:=ChildPath(Job,'payload/'+Value.Name);
   end;
   function MatchesInstalled(const FileName: string; const Item: TUpdateFile): Boolean;
@@ -1704,7 +1719,8 @@ var Manifest, Journal, Entry: TJSONObject; Files: TUpdateFiles; List: TJSONArray
   end;
 begin
   AssertUpdatePath(Target); AssertUpdatePath(Job);
-  if not FileExists(ChildPath(Target,'HomeLibRu.exe')) and not FileExists(ChildPath(Target,'HomeLibReader.exe')) then
+  if not FileExists(ChildPath(Target,'HomeLibre.exe')) and
+    not FileExists(ChildPath(Target,'HomeLibRu.exe')) and not FileExists(ChildPath(Target,'HomeLibReader.exe')) then
     raise Exception.Create('В выбранной папке нет HomeLibre или HomeLibre Reader.');
   TargetLock:=AcquireUpdateTarget(Target);
   try
@@ -1725,6 +1741,12 @@ begin
     if Assigned(Manifest.GetValue('bundle')) then
       VerifyPreparedProgramUpdate(Job, Manifest.GetValue<string>('release'), ProgramUpdatePlatform);
     Files := ManifestFiles(Manifest);
+    // Older clients reject unfamiliar EXE names at the ZIP root. Their bridge
+    // package transports the canonical binary in an already accepted folder;
+    // installation still journals and writes only the canonical destination.
+    for I:=0 to High(Files) do
+      if Files[I].Name=CATALOGUE_COMPATIBILITY_PAYLOAD then
+      begin Files[I].SourceName:=Files[I].Name; Files[I].Name:='HomeLibre.exe'; end;
   // A full application archive can bundle an older component than the user
   // has already installed independently. Preserve that whole component.
   for ComponentID in ComponentNames do
@@ -1747,7 +1769,9 @@ begin
   finally Manifest.Free; end;
   // Update the main EXE last. The earlier EXE remains available during copying.
   for I := 0 to High(Files) do
-    if SameText(Files[I].Name, 'HomeLibRu.exe') or SameText(Files[I].Name, 'HomeLibReader.exe') then
+    if SameText(Files[I].Name, 'HomeLibre.exe') or SameText(Files[I].Name, 'HomeLibReader.exe') or
+      (SameText(Files[I].Name, 'HomeLibRu.exe') and not FileExists(ChildPath(Job,'payload/HomeLibre.exe')) and
+       not FileExists(ChildPath(Job,'payload/'+CATALOGUE_COMPATIBILITY_PAYLOAD))) then
     begin Info := Files[High(Files)]; Files[High(Files)] := Files[I]; Files[I] := Info; Break; end;
   // Preflight every destination and back up every original before changing any.
   // Keep staged files on the destination volume and scope them to one journal.

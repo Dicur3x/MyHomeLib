@@ -199,7 +199,7 @@ if ($Force -and (-not $Copy)) {
 $programDirectory = Join-Path $repositoryRoot 'Program'
 $outputSubdirectory = if ($Platform -eq 'Win32') { 'Out\Bin' } else { 'Out\Bin64' }
 $outputDirectory = Join-Path $programDirectory $outputSubdirectory
-$exePath = Join-Path $outputDirectory 'HomeLibRu.exe'
+$exePath = Join-Path $outputDirectory 'HomeLibre.exe'
 $sqliteDestination = Join-Path $outputDirectory 'sqlite3.dll'
 $zstdDestination = Join-Path $outputDirectory 'libzstd.dll'
 $sevenZipDestination = Join-Path $outputDirectory 'tools\7zip\7za.exe'
