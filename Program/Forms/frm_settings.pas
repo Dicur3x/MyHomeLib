@@ -286,6 +286,7 @@ type
 
     procedure EditReader(AItem: TListItem);
     procedure EditScript(AItem: TListItem);
+    procedure ScriptGuideHelp(Sender: TObject);
 
     procedure SaveReaders;
     procedure SaveScripts;
@@ -318,7 +319,7 @@ uses
   unit_Helpers,
   frm_create_mask,
   unit_Templater,
-  unit_Localization, Vcl.FileCtrl, unit_BookSavePolicy, frm_InterfaceColors;
+  unit_Localization, Vcl.FileCtrl, unit_BookSavePolicy, frm_InterfaceColors, unit_FirstUseGuide, unit_ProgramUpdates;
 
 type
   TCachePageControlAccess = class(TPageControl);
@@ -345,7 +346,7 @@ resourcestring
 {$R *.dfm}
 
 procedure TfrmSettings.DoCreate;
-var CaptionLabel: TLabel; ClearButton: TButton; ReaderPanel: TPanel; FolderItem: TMenuItem; CacheControl: TControl; I, CachePPI: Integer; InterfaceScroll: TScrollBox; ColorsButton: TButton;
+var CaptionLabel: TLabel; ClearButton: TButton; ReaderPanel: TPanel; FolderItem: TMenuItem; CacheControl: TControl; I, CachePPI: Integer; InterfaceScroll: TScrollBox; ColorsButton: TButton; Guide: TFirstUseGuide;
 begin
   inherited;
 
@@ -358,6 +359,18 @@ begin
   ColorsButton.SetBounds(9,202,289,28); ColorsButton.OnClick:=InterfaceColorsClick;
 
   with lvScripts.Columns.Add do begin Caption := 'Режим'; Width := 130; end;
+  Label12.Visible := False;
+  lvScripts.GridLines := False;
+  Guide := TFirstUseGuide.CreateGuide(Self, tsScripts, 'external-scripts',
+    PROGRAM_RELEASE_VERSION, Settings.SettingsFileName,
+    'Внешние команды — по желанию. Для чтения и обычного сохранения книг они не нужны.',
+    'Здесь можно подключить свою программу: например, генератор INPX или обработку после сохранения книг.'+
+    sLineBreak+sLineBreak+
+    'Нажмите «Добавить», укажите название, путь к программе и параметры. Пустой список означает, что своих команд пока нет.'+
+    sLineBreak+sLineBreak+
+    'Команды запускаются только по вашему выбору. Удаление команды из списка не удаляет саму программу.');
+  Guide.Name := 'ScriptsFirstUseGuide'; Guide.OnMore := ScriptGuideHelp;
+
   // Do not persist this list as TTreeView.Items.NodeData in the DFM. That
   // opaque binary format is VCL-version-dependent and Delphi 13 cannot read
   // the stream written by the older IDE. The order is load-bearing:
@@ -538,6 +551,8 @@ begin
     'для каждой вкладки и коллекции.' + sLineBreak + sLineBreak +
     'Выбранный режим применяется со следующего запуска. Восстановленные фильтры ' +
     'можно отключить кнопкой «Сбросить фильтры столбцов» над списком книг.';
+  // Finish style/handle changes before VCL enters its OnShow transition.
+  if MHLThemeDark or MHLThemeCustomized then ApplyMHLControlTheme(Self);
 end;
 
 procedure TfrmSettings.LayoutCacheControls(TargetPPI: Integer);
@@ -1238,8 +1253,14 @@ end;
 
 procedure TfrmSettings.FormShow(Sender: TObject);
 begin
-  if MHLThemeDark or MHLThemeCustomized then ApplyMHLControlTheme(Self);
-  tvSections.Select(tvSections.Items[0], [ssLeft]);
+  // Callers may have selected Scripts (or another page) before ShowModal.
+  if not Assigned(tvSections.Selected) and (tvSections.Items.Count > 0) then
+    tvSections.Select(tvSections.Items[0], [ssLeft]);
+end;
+
+procedure TfrmSettings.ScriptGuideHelp(Sender: TObject);
+begin
+  ShowHelpTopic(140);
 end;
 
 procedure TfrmSettings.btnAddScriptClick(Sender: TObject);

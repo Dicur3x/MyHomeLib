@@ -34,6 +34,58 @@ type TPaletteBookTree = class(TBookTree)
 procedure TPaletteBookTree.PaintSelected(Node:PVirtualNode; const Target:TCanvas);
 begin DoPaintText(Node,Target,0,ttNormal); end;
 
+procedure TestInlineFirstUseGuide;
+var Host:TForm; Guide:TFirstUseGuide; FileName:string; Ini:TMemIniFile;
+  function Open(const Version:string):TFirstUseGuide;
+  begin
+    Result:=TFirstUseGuide.CreateGuide(Host,Host,'test-tool',Version,FileName,
+      'Краткое пояснение инструмента.',
+      'Сначала выберите источник и проверьте результат.'+sLineBreak+
+      'Обычный текст подсказки переносится при узком окне, без поля ввода.');
+  end;
+begin
+  FileName:=Settings.AppPath+'first-use-guide.ini';
+  Ini:=TMemIniFile.Create(FileName,TEncoding.UTF8);
+  try Ini.WriteString('SYSTEM','Sentinel','Оставить ё'); SaveMemIniFileAtomically(Ini);
+  finally Ini.Free; end;
+  Host:=TForm.CreateNew(nil);
+  try
+    Host.ClientWidth:=420; Host.ClientHeight:=400; Guide:=Open('beta-a');
+    try
+      Require(Guide.Expanded,'First use has no inline explanation');
+      for var DPI in [96,144,192,288] do
+      begin
+        Host.ScaleForPPI(DPI); Guide.Realign;
+        var Button:=TButton(Guide.FindComponent('GuideToggle'));
+        Require((Button.BoundsRect.Bottom<=Guide.ClientHeight) and
+          (Button.BoundsRect.Right<=Guide.ClientWidth),'First-use buttons are clipped after scaling');
+      end;
+      TButton(Guide.FindComponent('GuideToggle')).Click;
+      Require(not Guide.Expanded,'Acknowledged explanation remains expanded');
+    finally Guide.Free; end;
+    Guide:=Open('beta-a');
+    try Require(not Guide.Expanded,'Acknowledged explanation repeats in the same beta');
+    finally Guide.Free; end;
+    Guide:=Open('beta-b');
+    try
+      Require(Guide.Expanded,'New beta did not offer the explanation');
+      TCheckBox(Guide.FindComponent('GuideNever')).Checked:=True;
+      TButton(Guide.FindComponent('GuideToggle')).Click;
+    finally Guide.Free; end;
+    Guide:=Open('beta-c');
+    try
+      Require(not Guide.Expanded,'Do-not-show preference was ignored');
+      TButton(Guide.FindComponent('GuideContextHelp')).Click;
+      Require(Guide.Expanded,'Explanation cannot be reopened explicitly');
+      Require(TCheckBox(Guide.FindComponent('GuideNever')).Checked,'Explicit opening loses do-not-show preference');
+    finally Guide.Free; end;
+    Ini:=TMemIniFile.Create(FileName,TEncoding.UTF8);
+    try Require(Ini.ReadString('SYSTEM','Sentinel','')='Оставить ё','Guide overwrote unrelated settings');
+    finally Ini.Free; end;
+  finally Host.Free; end;
+  Writeln('PASS inline first-use guidance acknowledges per beta retains opt-out reopens explicitly and preserves settings');
+end;
+
 procedure TestCataloguePalettes;
 var Saved, Values, Loaded: TMHLThemePalettes; OldDark: Boolean;
   Ini: TMemIniFile; Host: TForm; Edit: TEdit; Tree: TPaletteBookTree;
@@ -42,6 +94,7 @@ var Saved, Values, Loaded: TMHLThemePalettes; OldDark: Boolean;
   Preferences:TfrmSettings; Driver:TPaletteEditorProbe;
 begin
   RequireIsolatedRegression;
+  TestInlineFirstUseGuide;
   Saved:=MHLThemePalettes; OldDark:=MHLThemeDark;
   LegacyFont:=Settings.FontColor; LegacyLocal:=Settings.LocalColor; LegacyDeleted:=Settings.DeletedColor;
   Host:=TForm.CreateNew(nil); Ini:=TMemIniFile.Create(''); Bitmap:=TBitmap.Create;
@@ -116,6 +169,23 @@ begin
         finally Dialog.Free; end;
       end;
     end;
+    for var Dark in [True,False,True] do
+    begin
+      SetMHLTheme(Dark);
+      Preferences:=TfrmSettings.Create(nil);
+      try
+        Preferences.LoadSetting;
+        Preferences.tvSections.Selected:=Preferences.tvSections.Items[5];
+        for var DPI in [96,144,192,288] do
+        begin
+          Preferences.ScaleForPPI(DPI); Preferences.Show; Application.ProcessMessages;
+          Require(Preferences.pcSetPages.ActivePage=Preferences.tsScripts,
+            'Opening settings overrides the Scripts page selected by the menu');
+          Preferences.Hide;
+        end;
+      finally Preferences.Free; end;
+    end;
+    Writeln('PASS external script settings show without lifecycle errors and retain the requested page');
     Driver:=TPaletteEditorProbe.Create;
     Driver.Timer:=TTimer.Create(nil); Driver.Timer.Enabled:=False;
     Driver.Timer.Interval:=10; Driver.Timer.OnTimer:=Driver.Tick;

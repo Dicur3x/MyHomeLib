@@ -11,7 +11,7 @@ uses
   unit_CatalogComponents, unit_MetabibReader, unit_FormatComponents, unit_ComponentRemoval, unit_ComponentUsage, frm_ComponentMaintenance,
   unit_StartupCatalog, unit_FLibraryCompat, unit_BookViewSessions, NativeRegressionGuard, System.SysUtils, System.StrUtils, System.Classes, System.Types, System.IOUtils, System.IniFiles, System.JSON, System.Net.HttpClient, System.Net.URLClient, System.Generics.Collections, System.Variants, Winapi.Windows, Winapi.Messages, Winapi.CommCtrl, Winapi.RichEdit, Winapi.ActiveX, Winapi.ShlObj,
   Vcl.Forms, Vcl.Dialogs, Vcl.Themes, Vcl.Styles, Vcl.Clipbrd, Vcl.CheckLst, Vcl.Graphics, Vcl.Menus, Vcl.ComCtrls, Vcl.ExtCtrls, Vcl.Controls, Vcl.StdCtrls, Vcl.ActnList,
-  VirtualTrees, VirtualTrees.Types, VirtualTrees.BaseTree, BookTreeView, BookInfoPanel, unit_MHLTheme, unit_MHLThemePalette, frm_InterfaceColors, unit_BookGallery, unit_UpdateNotes, unit_UpdateTextCache,
+  VirtualTrees, VirtualTrees.Types, VirtualTrees.BaseTree, BookTreeView, BookInfoPanel, unit_MHLTheme, unit_FirstUseGuide, unit_MHLThemePalette, frm_InterfaceColors, unit_BookGallery, unit_UpdateNotes, unit_UpdateTextCache,
   System.SyncObjs, System.Zip, System.Hash, System.NetEncoding, System.Diagnostics, System.Math, System.DateUtils, Vcl.Imaging.pngimage,
   unit_BookDeletionReferences, unit_BookDeletionOperation, unit_BookDeletionDialog, unit_BookDeletionSpace,
   unit_MHLArchiveBusy, unit_BookDeletionPreparation, unit_BookDeletionInventory, unit_BookDeletionMembers, unit_BookDeletionBinding, unit_SevenZipDeletionPlan, unit_ArchiveDeletionQueue, unit_ZipMemberDeletion, unit_ImageBounds, unit_BookCache, unit_MHLOperationStatus, unit_Globals, unit_Consts, unit_Interfaces, unit_Localization, unit_TreeUtils, unit_Settings, unit_ReaderCache, unit_BookMetadataCache, unit_FB2Utils, unit_MHLGenerics, FictionBook_21, unit_BookColumnFilters, unit_BookInfoPreview, unit_PackageBookCover, unit_CollectionMerge, unit_BookDuplicates, frm_BookDuplicates, frm_CollectionBackup, unit_CollectionBackup, unit_SeriesAliases, unit_CatalogSources, frm_CatalogSources, unit_CollectionSpace, unit_Database_SQLite, SQLiteWrap, SQLite3, SQLiteProfile,
@@ -6139,6 +6139,7 @@ end;
 {$I BookDeletionSpaceTests.inc}
 {$I StatisticsThemeTests.inc}
 {$I CataloguePaletteTests.inc}
+{$I SettingsScriptEntryTests.inc}
 {$I CatalogueSourceIndexTests.inc}
 {$I DownloadQueueSerializationTests.inc}
 {$I QueuePersistenceTests.inc}
@@ -6536,6 +6537,7 @@ begin
       else if ParamStr(1) = 'book-deletion-space' then TestBookDeletionSpace
       else if ParamStr(1) = 'statistics-theme' then TestStatisticsGroupTheme
       else if ParamStr(1) = 'catalogue-palettes' then TestCataloguePalettes
+      else if ParamStr(1) = 'settings-script-entry' then TestSettingsScriptEntry
       else if ParamStr(1) = 'catalogue-source-index' then begin TestCatalogueSourceIndex(One); TestIndexedArchiveReferences; end
       else if ParamStr(1) = 'book-deletion' then TestBookDeletionSafety
       else if ParamStr(1) = 'book-deletion-lifecycle' then TestBookDeletionSafety(bdsLifecycle)
