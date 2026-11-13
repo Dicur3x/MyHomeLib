@@ -111,6 +111,28 @@ The successful return occurs after guarded removal of its private runtime.
 The earlier partial/failed runs above remain separate evidence. This new run
 does not turn them into passes and does not prove final x86 GUI integration.
 
+## Complete x86 real-book follow-up
+
+`catalogue-Win32-whole/catalogue-Win32-apply.json` is **PASS** using the
+ordinary **current-collection** command with estimate-first, explicit review
+and optional original backups. It checks the same two real book payloads,
+unselected neighbour, complete text/style/font preservation, cache refresh,
+personal progress and saved choices as the x64 follow-up. Missing unrelated
+default fixture rows are reported as unavailable; this is not a claim to have
+compressed a production collection in full.
+
+The private archive is again 28,622,902 → 20,230,333 bytes. Wall time 169.704 s
+includes the full regression/verification sequence rather than just size
+estimation. The native Russian preparation/estimate caption assertions pass.
+The wrapper returned successfully after removal of its private runtime.
+
+Native EXE SHA-256:
+`1eafc5358fc1c0ca922c1a9d0e06317b17d82ab3e553b1f9a07f9e7f22df83e3`.
+Exact local BookProcessing 3.0.0.14 ZIP SHA-256:
+`61c7545cd7f7c72e38e60c2ea0f61da5896cfede82085d2e041f5b8559a08c4d`.
+The temporary build project and its generated local/resource siblings are
+removed after the build process and GUI fixture have terminated.
+
 ## Remaining incremental work
 
 The complete task stays open: detect new/changed books after INPX, Metabib and
