@@ -4,7 +4,7 @@ interface
 
 uses Winapi.Windows, Winapi.Messages, System.SysUtils, System.Classes, System.Types, System.UITypes,
   System.Generics.Collections, Vcl.Forms, Vcl.Controls, Vcl.StdCtrls,
-  Vcl.ExtCtrls, Vcl.ComCtrls, Vcl.Graphics, Vcl.Menus, unit_MHLOperationStatus, unit_ReaderDocument, unit_ReaderPDF,
+  Vcl.ExtCtrls, Vcl.ComCtrls, Vcl.Graphics, Vcl.Menus, unit_MHLOperationStatus, unit_ReaderProgressMarks, unit_ReaderDocument, unit_ReaderPDF,
   unit_ReaderBookSkin, unit_ReaderRaster, unit_ReaderPDFAsync, unit_ReaderFonts, unit_ReaderFontDownloads, unit_ReaderFontFallback, unit_ReaderAnnotations, unit_ReaderPageSelection;
 
 const ReaderCustomThemeIndex = 6;
@@ -5811,8 +5811,8 @@ var
   Brush: HBRUSH;
   OldBrushColor: COLORREF;
   TrackColor, FillColor, TrackTick, FillTick: TColor;
-  Filled, X, TickWidth, TickHeight, Spacing, Slot: Integer;
-  Ticks: TArray<Integer>;
+  Filled, X, TickWidth, TickHeight, Slot, PreviousTick, NextTick, DenseGap: Integer;
+  Ticks: TReaderProgressTicks;
   procedure FillArea(const Area: TRect; Color: TColor);
   begin
     SetDCBrushColor(DC,ColorToRGB(Color));
@@ -5824,22 +5824,7 @@ var
       Result:=clWhite
     else Result:=clBlack;
   end;
-  procedure PlaceTicks(Parts: Boolean);
-  begin
-    for var I:=0 to Min(FChapters.Items.Count,FChapterDepths.Count)-1 do
-    begin
-      var Depth:=FChapterDepths[I];
-      if (Depth>1) or ((Depth<=0)<>Parts) then Continue;
-      var Position:=NativeInt(FChapters.Items.Objects[I]);
-      if (Position<=0) or (Position>=FLength) then Continue;
-      var Mark:=MulDiv(FProgressLine.Width-1,Position,FLength)+1;
-      var Bucket:=(Mark-1) div Spacing;
-      if (Ticks[Bucket]<>0) or
-        ((Bucket>0) and (Ticks[Bucket-1]<>0) and (Mark-Abs(Ticks[Bucket-1])<Spacing)) or
-        ((Bucket<High(Ticks)) and (Ticks[Bucket+1]<>0) and (Abs(Ticks[Bucket+1])-Mark<Spacing)) then Continue;
-      if Parts then Ticks[Bucket]:=-Mark else Ticks[Bucket]:=Mark;
-    end;
-  end;
+
 begin
   // Keep every layer on the same device context, including off-screen paints.
   DC:=FProgressLine.Canvas.Handle;
@@ -5855,20 +5840,28 @@ begin
     FillArea(Rect(0,0,Filled,FProgressLine.Height),FillColor);
 
     if not FReady or not FShowChapterTicks or (FLength<=0) or (FProgressLine.Width<2) then Exit;
-    // Preserve room between marks even for very dense tables of contents.
-    // Reserve the space for major sections before considering chapters.
-    Spacing:=Max(MulDiv(24,CurrentPPI,96),(FProgressLine.Width+31) div 32);
-    SetLength(Ticks,(FProgressLine.Width+Spacing-1) div Spacing);
-    TrackTick:=TickColor(TrackColor);
-    FillTick:=TickColor(FillColor);
-    PlaceTicks(True);
-    PlaceTicks(False);
+    // Keep every distinguishable chapter. Dense minor marks become shorter;
+    // dropping one chapter in a fixed 1/32-width bucket loses real navigation.
+    SetLength(Ticks,FProgressLine.Width);
+    for var I:=0 to Min(FChapters.Items.Count,FChapterDepths.Count)-1 do
+      IncludeReaderProgressTick(Ticks,NativeInt(FChapters.Items.Objects[I]),FLength,FChapterDepths[I]);
+    TrackTick:=TickColor(TrackColor); FillTick:=TickColor(FillColor);
+    DenseGap:=Max(3,MulDiv(6,CurrentPPI,96)); PreviousTick:=-DenseGap;
     for Slot:=0 to High(Ticks) do
     begin
       if Ticks[Slot]=0 then Continue;
-      X:=Abs(Ticks[Slot])-1;
+      X:=Slot; NextTick:=Slot+1;
+      while (NextTick<=High(Ticks)) and (Ticks[NextTick]=0) do Inc(NextTick);
       TickWidth:=Max(1,MulDiv(1+Ord(Ticks[Slot]<0),CurrentPPI,96));
+      if NextTick<=High(Ticks) then TickWidth:=Min(TickWidth,NextTick-Slot);
       TickHeight:=MulDiv(FProgressLine.Height,1+Ord(Ticks[Slot]<0),3);
+      if (Slot-PreviousTick<DenseGap) or
+        ((NextTick<=High(Ticks)) and (NextTick-Slot<DenseGap)) then
+      begin
+        TickWidth:=Max(1,TickWidth div 2);
+        TickHeight:=Max(1,TickHeight div 2);
+      end;
+      PreviousTick:=Slot;
       var Area:=Rect(X,0,Min(X+TickWidth,FProgressLine.Width),Max(1,TickHeight));
       if X<Filled then FillArea(Area,ReaderBlendColor(FillColor,FillTick,165))
       else FillArea(Area,ReaderBlendColor(TrackColor,TrackTick,165));
