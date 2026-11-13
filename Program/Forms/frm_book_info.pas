@@ -45,6 +45,7 @@ uses
 type
   TReviewDownloadThread = class;
   TBookTextSource = (btsReviews, btsSiteAnnotation, btsFileAnnotation);
+  TDescriptionOrigin = (doSaved, doFile, doSite, doEdited, doEmpty);
 
   TfrmBookDetails = class(TForm)
     pcBookInfo: TPageControl;
@@ -95,6 +96,11 @@ type
     FReviewReadOnly, FAnnotationReadOnly, FHasFileSource: Boolean;
     FAnnotationBook: TBookRecord;
     FFileAnnotation: string;
+    FFileAnnotationRead, FAutomaticDescription, FPendingReview: Boolean;
+    FInitialAnnotation: string;
+    FDescriptionOrigin, FInitialDescriptionOrigin: TDescriptionOrigin;
+    FDescriptionSelected: Boolean;
+    FSaveDescription, FRestoreDescription: TButton;
     FRelinkButton: TButton;
     FRelinkAction: TProc;
     FInfoNotify, FFileNotify: TWndMethod;
@@ -102,6 +108,11 @@ type
     procedure StartBookTextRequest(Source: TBookTextSource);
     function RequestStatus: TLabel;
     procedure RefreshAnnotationButtons;
+    procedure LayoutButtons(Sender: TObject);
+    procedure RefreshDescriptionState;
+    procedure DescriptionChanged(Sender: TObject);
+    procedure RestoreDescription(Sender: TObject);
+    function GetAnnotationChanged: Boolean;
     procedure FinishDownload(Sender: TObject);
     procedure ReviewProgress(Sender: TObject);
     procedure PageChanged(Sender: TObject);
@@ -125,6 +136,7 @@ type
     procedure AllowOnlineReview(const URL: string);
     procedure Download;
     procedure ConfigureDescription(const Book: TBookRecord; Editable, HasLocalSource: Boolean);
+    procedure LoadDescription(const SavedText: string);
     procedure FocusDescription;
     procedure ConfigureRelink(const Action: TProc);
 
@@ -132,6 +144,7 @@ type
 
     property Review: string read GetReview write SetReview;
     property Annotation: string read GetAnnotation write SetAnnotation;
+    property AnnotationChanged: Boolean read GetAnnotationChanged;
     property ReviewChanged: Boolean read FReviewChanged write FReviewChanged;
     property URL: string read FUrl write FUrl;
   end;
@@ -165,6 +178,7 @@ var
 implementation
 
 uses
+  System.Math,
   Clipbrd,
   FictionBook_21,
   unit_Helpers,
@@ -209,6 +223,9 @@ begin
   FInfoNotify := tsInfo.WindowProc; tsInfo.WindowProc := InfoNotify;
   FFileNotify := tsFileInfo.WindowProc; tsFileInfo.WindowProc := FileNotify;
   FReviewChanged := False;
+  pnButtons.OnResize:=LayoutButtons;
+  mmoAnnotation.OnChange:=DescriptionChanged;
+  lblAnnotationState.Caption:='Описание в HomeLibre. Файл книги не меняется.';
 
 end;
 
@@ -272,27 +289,85 @@ begin
   FAnnotationBook := Book;
   FHasFileSource := HasLocalSource;
   mmoAnnotation.ReadOnly := not Editable;
-  if not Editable then lblAnnotationState.Caption := 'Описание доступно только для чтения.';
+  if Editable and not Assigned(FSaveDescription) then
+  begin
+    FSaveDescription := TButton.Create(Self); FSaveDescription.Name := 'btnSaveDescription';
+    FSaveDescription.Parent := btnClose.Parent;
+    FSaveDescription.SetBounds(btnClose.Left-btnClose.Width-MulDiv(8,PixelsPerInch,96),
+      btnClose.Top,btnClose.Width,btnClose.Height);
+    FSaveDescription.Anchors := btnClose.Anchors; FSaveDescription.Caption := 'Сохранить';
+    FSaveDescription.ModalResult := mrOk; FSaveDescription.Default := True;
+    ApplyMHLControlTheme(FSaveDescription);
+    FRestoreDescription := TButton.Create(Self); FRestoreDescription.Name := 'btnRestoreDescription';
+    FRestoreDescription.Parent := pnAnnotationSources;
+    FRestoreDescription.SetBounds(MulDiv(248,PixelsPerInch,96),btnAnnotationFile.Top,
+      MulDiv(152,PixelsPerInch,96),btnAnnotationFile.Height);
+    FRestoreDescription.Caption := 'Отменить правки'; FRestoreDescription.OnClick := RestoreDescription;
+    FRestoreDescription.ShowHint := True;
+    FRestoreDescription.Hint := 'Вернуть описание, с которым открыли это окно. Отзывы не меняются.';
+    ApplyMHLControlTheme(FRestoreDescription);
+  end;
+  if Assigned(FSaveDescription) then FSaveDescription.Visible := Editable;
+  if Assigned(FRestoreDescription) then FRestoreDescription.Visible := Editable;
+  if Editable then btnClose.Caption := 'Отмена' else btnClose.Caption := 'Закрыть';
+  RefreshDescriptionState;
   RefreshAnnotationButtons;
 end;
 
+procedure TfrmBookDetails.LoadDescription(const SavedText: string);
+begin
+  FDescriptionSelected := False;
+  if Trim(SavedText)<>'' then
+  begin Annotation:=SavedText; FDescriptionOrigin:=doSaved; end
+  else
+  begin
+    Annotation:=FFileAnnotation;
+    if Trim(FFileAnnotation)<>'' then FDescriptionOrigin:=doFile else FDescriptionOrigin:=doEmpty;
+  end;
+  FInitialAnnotation:=Annotation; FInitialDescriptionOrigin:=FDescriptionOrigin;
+  RefreshDescriptionState; RefreshAnnotationButtons;
+  if (Trim(SavedText)='') and FHasFileSource and not FFileAnnotationRead then
+  begin
+    FAutomaticDescription:=True;
+    StartBookTextRequest(btsFileAnnotation);
+  end;
+end;
+
+function TfrmBookDetails.GetAnnotationChanged: Boolean;
+begin Result:=FDescriptionSelected or (Annotation<>FInitialAnnotation); end;
+
+procedure TfrmBookDetails.DescriptionChanged(Sender: TObject);
+begin
+  FReviewChanged:=True; FDescriptionOrigin:=doEdited;
+  RefreshDescriptionState; RefreshAnnotationButtons;
+end;
+
+procedure TfrmBookDetails.RefreshDescriptionState;
+var Source: string;
+begin
+  case FDescriptionOrigin of
+    doSaved: Source:='Описание, сохранённое в HomeLibre.';
+    doFile: Source:='Описание из файла книги.';
+    doSite: Source:='Описание с сайта коллекции.';
+    doEdited: Source:='Ваш текст описания.';
+    else Source:='Описание пока не задано. Можно написать своё или взять из файла либо с сайта.';
+  end;
+  if mmoAnnotation.ReadOnly then lblAnnotationState.Caption:=Source+' Только для чтения.'
+  else lblAnnotationState.Caption:=Source+' Изменения — по кнопке «Сохранить». Файл книги не меняется.';
+end;
+
+procedure TfrmBookDetails.RestoreDescription(Sender: TObject);
+begin
+  if mmoAnnotation.ReadOnly or Assigned(FWorker) then Exit;
+  Annotation:=FInitialAnnotation; FDescriptionOrigin:=FInitialDescriptionOrigin;
+  FDescriptionSelected:=False;
+  RefreshDescriptionState; RefreshAnnotationButtons;
+end;
+
 procedure TfrmBookDetails.FocusDescription;
-var SaveButton: TButton;
 begin
   pcBookInfo.ActivePage := tsAnnotation;
   ActiveControl := mmoAnnotation;
-  if mmoAnnotation.ReadOnly then Exit;
-  if Trim(Annotation) = '' then Annotation := FFileAnnotation;
-  lblAnnotationState.Caption := 'Ваше описание сохранится в HomeLibre. Его можно снова взять из файла или с сайта.';
-  btnClose.Caption := 'Отмена';
-  SaveButton := TButton.Create(Self);
-  SaveButton.Name := 'btnSaveDescription';
-  SaveButton.Parent := btnClose.Parent;
-  SaveButton.SetBounds(btnClose.Left - btnClose.Width - 8, btnClose.Top, btnClose.Width, btnClose.Height);
-  SaveButton.Anchors := btnClose.Anchors;
-  SaveButton.Caption := 'Сохранить';
-  SaveButton.ModalResult := mrOk;
-  SaveButton.Default := True;
 end;
 
 procedure TfrmBookDetails.RefreshAnnotationButtons;
@@ -301,11 +376,17 @@ begin
   btnAnnotationSite.Enabled := not mmoAnnotation.ReadOnly and IsLibraryReviewURL(FUrl);
   btnAnnotationFile.Caption := 'Из файла';
   btnAnnotationSite.Caption := 'С сайта';
+  if Assigned(FSaveDescription) then FSaveDescription.Enabled:=not mmoAnnotation.ReadOnly and not Assigned(FWorker);
+  if Assigned(FRestoreDescription) then
+    FRestoreDescription.Enabled:=not mmoAnnotation.ReadOnly and not Assigned(FWorker) and AnnotationChanged;
   if Assigned(FWorker) and (FWorker.Source <> btsReviews) then
+  begin
+    btnAnnotationFile.Enabled:=False; btnAnnotationSite.Enabled:=False;
     if FWorker.Source = btsFileAnnotation then
     begin btnAnnotationFile.Enabled := True; btnAnnotationFile.Caption := 'Отменить'; end
     else
     begin btnAnnotationSite.Enabled := True; btnAnnotationSite.Caption := 'Отменить'; end;
+  end;
 end;
 
 function TfrmBookDetails.RequestStatus: TLabel;
@@ -321,14 +402,19 @@ end;
 
 procedure TfrmBookDetails.StartBookTextRequest(Source: TBookTextSource);
 begin
-  if Assigned(FWorker) then Exit;
+  if Assigned(FWorker) then
+  begin
+    if FAutomaticDescription and (Source=btsReviews) then FPendingReview:=True;
+    Exit;
+  end;
   if Source = btsFileAnnotation then
   begin
-    if mmoAnnotation.ReadOnly or not FHasFileSource then Exit;
+    if (mmoAnnotation.ReadOnly and not FAutomaticDescription) or not FHasFileSource then Exit;
     if FFileAnnotation <> '' then
     begin
       mmoAnnotation.Lines.Text := FFileAnnotation;
-      lblAnnotationState.Caption := 'Описание взято из файла. Его можно отредактировать.';
+      FDescriptionOrigin:=doFile; FDescriptionSelected:=True;
+      RefreshDescriptionState; RefreshAnnotationButtons;
       Exit;
     end;
     FWorker := TReviewDownloadThread.CreateFromFile(FAnnotationBook);
@@ -363,11 +449,12 @@ begin
 end;
 
 procedure TfrmBookDetails.FinishDownload(Sender: TObject);
-var Worker: TReviewDownloadThread; Status: TLabel;
+var Worker: TReviewDownloadThread; Status: TLabel; Automatic: Boolean;
 begin
   FReviewTimer.Enabled := False;
   Status := RequestStatus;
   Worker := FWorker; FWorker := nil;
+  Automatic:=FAutomaticDescription; FAutomaticDescription:=False;
   if Worker.Cancelled then
   begin
     if Assigned(Worker.Parser) and (Worker.Parser.Expired <> 0) then
@@ -386,7 +473,7 @@ begin
       if FReviewReadOnly then Review := Worker.Review.Text
       else mmReview.Lines := Worker.Review;
     if not FAnnotationReadOnly and (Annotation.Trim = '') and (Worker.Annotation.Count > 0) then
-      mmoAnnotation.Lines := Worker.Annotation;
+    begin mmoAnnotation.Lines := Worker.Annotation; FDescriptionOrigin:=doSite; end;
     if Worker.Review.Count = 0 then
       Status.Caption := 'На странице книги нет отзывов. Сохранённый текст оставлен.'
     else Status.Caption := 'Отзывы загружены с сайта коллекции.';
@@ -398,15 +485,27 @@ begin
   end
   else
   begin
-    mmoAnnotation.Lines := Worker.Annotation;
+    if Automatic then
+    begin
+      Annotation:=Worker.Annotation.Text; FInitialAnnotation:=Annotation;
+      FInitialDescriptionOrigin:=doFile;
+    end
+    else
+    begin mmoAnnotation.Lines:=Worker.Annotation; FDescriptionSelected:=True; end;
     if Worker.Source = btsFileAnnotation then
-      Status.Caption := 'Описание взято из файла. Его можно отредактировать.'
-    else Status.Caption := 'Описание взято с сайта. Его можно отредактировать.';
+    begin
+      FFileAnnotation:=Worker.Annotation.Text; FFileAnnotationRead:=True; FDescriptionOrigin:=doFile;
+    end
+    else FDescriptionOrigin:=doSite;
   end;
   mmReview.ReadOnly := FReviewReadOnly; mmoAnnotation.ReadOnly := FAnnotationReadOnly;
   btnLoadReview.Enabled := IsLibraryReviewURL(FUrl); btnClearReview.Enabled := True;
   btnLoadReview.Caption := 'Повторить';
+  if (Worker.Annotation.Count>0) and not Worker.Cancelled and (Worker.ErrorText='') then
+    RefreshDescriptionState;
   RefreshAnnotationButtons;
+  if FPendingReview then
+  begin FPendingReview:=False; Download; end;
 end;
 
 function TfrmBookDetails.DrawInfoGroup(var Message: TMessage; List: TListView): Boolean;
@@ -462,10 +561,22 @@ end;
 
 procedure TfrmBookDetails.FormShow(Sender: TObject);
 begin
+  LayoutButtons(nil);
   lvFileInfo.AutosizeColumn(0);
   lvFileInfo.AutosizeColumn(1);
   lvInfo.AutosizeColumn(0);
   lvInfo.AutosizeColumn(1);
+end;
+
+procedure TfrmBookDetails.LayoutButtons(Sender: TObject);
+begin
+  btnClose.Left:=Max(0,pnButtons.ClientWidth-btnClose.Width-MulDiv(12,PixelsPerInch,96));
+  btnClose.Top:=Max(0,(pnButtons.ClientHeight-btnClose.Height) div 2);
+  if Assigned(FSaveDescription) then
+  begin
+    FSaveDescription.Left:=btnClose.Left-FSaveDescription.Width-MulDiv(8,PixelsPerInch,96);
+    FSaveDescription.Top:=btnClose.Top;
+  end;
 end;
 
 function TfrmBookDetails.GetAnnotation: string;
@@ -518,7 +629,7 @@ procedure TfrmBookDetails.SetAnnotation(const Value: string);
 begin
   mmoAnnotation.OnChange := nil;
   try mmoAnnotation.Lines.Text := Value;
-  finally mmoAnnotation.OnChange := mmReviewChange; end;
+  finally mmoAnnotation.OnChange := DescriptionChanged; end;
 end;
 
 procedure TfrmBookDetails.SetReview(const Value: string);
@@ -623,6 +734,7 @@ begin
   try
     book := LoadFB2Description(bookStream);
     FFileAnnotation := GetBookAnnotation(book);
+    FFileAnnotationRead := True;
 
     imgBookCover := GetBookCover(book);
     if Assigned(imgBookCover) then

@@ -12609,7 +12609,7 @@ var
 
   URL: string;
 
-  strReview, strAnnotation, PreviousReview, PreviousAnnotation: string;
+  strReview, strAnnotation, PreviousReview: string;
   ChangedFields: TBookPersonalFields;
   Saved, Stored, DetailsBook, Changed: TBookRecord;
   PersonalOnly, RetrySave, Relinked: Boolean;
@@ -12718,11 +12718,10 @@ begin
       end;
 
       frmBookDetails.Review := Stored.Review;
-      frmBookDetails.Annotation := Stored.Annotation;
+      frmBookDetails.LoadDescription(Stored.Annotation);
       if Assigned(EditDescription) then
         frmBookDetails.FocusDescription;
       PreviousReview := frmBookDetails.Review;
-      PreviousAnnotation := frmBookDetails.Annotation;
       if not Assigned(EditDescription) and not PersonalOnly and (Stored.Review = '') and
         IsOnline and ReviewEditable and Settings.AutoLoadReview then
         DownloadReview(frmBookDetails, URL);
@@ -12737,12 +12736,12 @@ begin
         if RetrySave and (Modal = mrCancel) then
           if MHLShowWarning('Изменения пока не сохранены. Закрыть редактор и отказаться от них?', mbYesNo) = mrYes then Exit
           else Continue;
-        if Assigned(EditDescription) and (Modal <> mrOk) then Exit;
+        if ReviewEditable and (Modal <> mrOk) then Exit;
         if not frmBookDetails.ReviewChanged then Exit;
         strReview := frmBookDetails.Review; strAnnotation := frmBookDetails.Annotation;
         ChangedFields := [];
         if strReview <> PreviousReview then Include(ChangedFields, bpfReview);
-        if strAnnotation <> PreviousAnnotation then Include(ChangedFields, bpfAnnotation);
+        if frmBookDetails.AnnotationChanged then Include(ChangedFields, bpfAnnotation);
         if ChangedFields = [] then Exit;
         Changed := Saved; Changed.Review := strReview; Changed.Annotation := strAnnotation;
         Outcome := rpwRejected;

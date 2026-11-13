@@ -41,7 +41,8 @@ begin
       except
         on E: Exception do Failure:=E.Message;
       end;
-      Details.Close;
+      if Failure='' then TButton(Details.FindComponent('btnSaveDescription')).Click
+      else Details.Close;
       Exit;
     end;
 end;

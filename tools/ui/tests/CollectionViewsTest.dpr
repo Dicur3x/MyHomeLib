@@ -6116,6 +6116,7 @@ end;
 {$I DeletedFilterTests.inc}
 {$I PublisherSearchTests.inc}
 {$I Feedback20Tests.inc}
+{$I UnifiedDescriptionTests.inc}
 {$I Feedback21Tests.inc}
 {$I MetadataArchiveCodecTests.inc}
 {$I PublisherColumnTests.inc}
@@ -6629,6 +6630,8 @@ begin
       else if ParamStr(1) = 'feedback21' then TestFeedback21
       else if ParamStr(1) = 'catalogue-description' then
       begin TestCatalogueDescription(One,OneID); TestFB2DescriptionPriority(One,OneID); end
+      else if ParamStr(1) = 'description-unified' then
+      begin TestUnifiedDescription(One,OneID); TestDescriptionPackagePreview; TestDescriptionSiteAndLayout; end
       else if ParamStr(1) = 'feedback20-main' then
         TestFeedback20(One,Two,OneID,TwoID)
       else if ParamStr(1) = 'compact-search-filters' then TestCompactSearchFilters
