@@ -1372,6 +1372,12 @@ uses
 
 type
   TBookTreeAccess = class(TBookTree);
+  TSearchFavoriteAuthorCheck = class(TCheckBox);
+  TFavoriteAuthorCheckStyleHook = class(TCheckBoxStyleHook)
+  strict protected
+    procedure PaintBackground(Canvas: TCanvas); override;
+  end;
+
   TFavoriteEditAccess = class(TMHLButtonedEdit)
   public
     property OnResize;
@@ -1480,6 +1486,12 @@ begin
     end;
     Node := tvDownloadList.GetNext(Node);
   end;
+end;
+
+procedure TFavoriteAuthorCheckStyleHook.PaintBackground(Canvas: TCanvas);
+begin
+  Canvas.Brush.Color := MHLThemeField;
+  Canvas.FillRect(Control.ClientRect);
 end;
 
 procedure TfrmMain.PurgeDownloadsForCollection(const DatabaseID: Integer);
@@ -12037,7 +12049,7 @@ begin
   if PPI <= 0 then PPI := CurrentPPI;
   FFavoriteQueue := TQueue<TAuthorFavoriteCollection>.Create;
   FFavoriteDirtyCollections := TDictionary<Integer, Cardinal>.Create;
-  FSearchFavoriteCheck := TCheckBox.Create(Self);
+  FSearchFavoriteCheck := TSearchFavoriteAuthorCheck.Create(Self);
   FSearchFavoriteCheck.Name := 'cbSearchFavoriteAuthorsOnly';
   FSearchFavoriteCheck.Parent := edFFullName;
   FSearchFavoriteCheck.Caption := '';
@@ -14363,5 +14375,11 @@ begin
   FillBooksTree(tvBooksG, cbLangSelectG,
         function: IBookIterator begin Result := FCollection.GetBookIterator(Mode, False, @FilterValue); end, True, True, @FLastGenreBookID);
 end;
+
+initialization
+  TCustomStyleEngine.RegisterStyleHook(TSearchFavoriteAuthorCheck, TFavoriteAuthorCheckStyleHook);
+
+finalization
+  TCustomStyleEngine.UnRegisterStyleHook(TSearchFavoriteAuthorCheck, TFavoriteAuthorCheckStyleHook);
 
 end.

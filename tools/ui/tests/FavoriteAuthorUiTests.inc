@@ -343,6 +343,15 @@ var
     end;
     Margins := SendMessage(frmMain.edFFullName.Handle, EM_GETMARGINS, 0, 0);
     Require(HiWord(Margins) >= SearchCheck.Width, 'Text can extend underneath the favorite checkbox');
+    if MHLThemeDark then
+    begin
+      SearchCheck.Invalidate; SearchCheck.Update;
+      var DC:=GetDC(SearchCheck.Handle);
+      try
+        Require(GetPixel(DC,SearchCheck.ClientWidth-2,1)=ColorToRGB(MHLThemeField),
+          'Favorite-author checkbox has a white backing inside the dark author field');
+      finally ReleaseDC(SearchCheck.Handle,DC); end;
+    end;
   end;
 
 begin
@@ -518,7 +527,7 @@ begin
     Writeln('TRACE favorite DPI sweep before search page'); Flush(Output);
     ShowPage(PAGE_SEARCH); OriginalPPI := frmMain.CurrentPPI;
     Writeln('TRACE favorite DPI sweep search page ready ppi=',OriginalPPI); Flush(Output);
-    for var DPI in TArray<Integer>.Create(96, 144, 192) do
+    for var DPI in TArray<Integer>.Create(96, 144, 192, 216, 288) do
     begin
       Writeln('TRACE favorite DPI before ScaleForPPI ppi=',DPI,' tick_ms=',GetTickCount64); Flush(Output);
       frmMain.ScaleForPPI(DPI);
@@ -527,7 +536,12 @@ begin
       Writeln('TRACE favorite DPI after monitor callback ppi=',DPI); Flush(Output);
       Application.ProcessMessages;
       Writeln('TRACE favorite DPI after messages ppi=',DPI); Flush(Output);
-      CheckInlineLayout;
+      var DarkBefore:=MHLThemeDark;
+      try
+        SetMHLTheme(True); Application.ProcessMessages; CheckInlineLayout;
+        SearchCheck.Checked:=not SearchCheck.Checked; Application.ProcessMessages; CheckInlineLayout;
+        SetMHLTheme(False); Application.ProcessMessages; CheckInlineLayout;
+      finally SetMHLTheme(DarkBefore); end;
       SearchHeight := frmMain.ctpBook.Height; SearchWidth := frmMain.ctpBook.Width;
       Writeln('TRACE favorite DPI before toggle ppi=',DPI); Flush(Output);
       SearchCheck.Checked := not SearchCheck.Checked; Application.ProcessMessages;
@@ -541,7 +555,7 @@ begin
     frmMain.FormAfterMonitorDpiChanged(nil, OriginalPPI, 96); Application.ProcessMessages;
     Writeln('TRACE favorite DPI sweep before protected data check'); Flush(Output);
     CheckProtected;
-    Writeln('PASS inline favorite condition fits actual 100%, 150%, 200% DPI without covering expression controls or expanding search');
+    Writeln('PASS inline favorite condition fits 100 to 300 percent including 225 percent without covering expression controls or expanding search');
     Store.SetFavorite('Васильев [#168147]','Андрей','Александрович',True);
     Store.SetFavorite('Васильев','Андрей','Александрович [#168147]',True);
     var AllAuthors:=frmMain.FindComponent('miAllFavoriteAuthors') as TMenuItem;

@@ -1,0 +1,9 @@
+# Favorite-author condition in the Search input
+
+Local beta 14 change. The inline favorite-author checkbox now has its own VCL style-hook class. Its background paints with the current theme's field colour, retaining the styled checkbox glyph and ordinary checked/keyboard behaviour. The white backing inside the dark author input is removed without changing general Windows checkbox painting.
+
+The native `favorite-ui` mode passed on x86 and x64. At 96, 144, 192, 216 and 288 DPI it checks both checkbox states in the dark theme, the actual native-control background pixel, bounds within the author input, separation from the expression button, reserved text margins and unchanged search-panel dimensions. It switches back to the light theme in each case. These are VCL layout-scale tests on the available Windows installation, not a separate 4K monitor test.
+
+The same run verifies intersection with explicit search criteria, preservation of unsaved drafts, no automatic book query from a draft checkbox change, favorite-profile updates, cached collection switches, long/malformed author names, and the real favorite-author manager. Book rows, groups, positions and notes in the guarded fixture remain unchanged. Temporary runtimes were removed. The component hook is registered only for the dedicated Search checkbox subclass and unregistered at shutdown.
+
+Evidence directory: `G:\HomeLibRu-build-cache\HomeLibre-post13-covers-20261112\favorite-ui-Win32` and `favorite-ui-Win64`; each contains its native output and result JSON. Final native SHA256: Win32 `80f42f918b9f5e2ba33480418761bac7cebc7195150984bc135b4369f2184d85`; Win64 `63f8fbbd7497dff97c3ca14151e8401c19aaa360339a48e1c2b6582615bceaeb`. Licensed IDE AutoBuild produced both. Production packages and the Desktop application have not been replaced; other pending Reader/UI changes are present in these test binaries.
