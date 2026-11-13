@@ -8,6 +8,9 @@ uses System.SysUtils, System.Classes, System.IOUtils, System.JSON,
 {$ENDIF}
   ;
 
+procedure Require(Value:Boolean; const MessageText:string);
+begin if not Value then raise Exception.Create(MessageText); end;
+
 function Text(Obj:TJSONObject; const Name:string):string;
 begin Result:=Obj.GetValue<string>(Name,''); end;
 
@@ -47,6 +50,36 @@ begin
             var Store:=TCompressionPlanStore.Create(Root);
             try
               Output.AddPair('folder',Store.Folder);
+              if (Mode='store-edit-leave') or (Mode='store-edit-rollback') then
+              begin
+                Store.Seal;
+                try
+                  Store.Edit(
+                    procedure(DB:TSQLiteDatabase)
+                    begin
+                      Require(DB.QuerySingleString('PRAGMA journal_mode')='delete','Scratch edit must retain DELETE journal mode');
+                      DB.ExecSQL('INSERT INTO Candidates(PathKey,Source,Active) VALUES(''fixture'',''fixture'',1)');
+                      if Mode='store-edit-leave' then
+                      begin
+                        TFile.WriteAllText(ParamStr(2),Output.ToJSON,TEncoding.UTF8);
+                        Halt(0); // Lose the process during the scratch transaction.
+                      end;
+                      raise EAbort.Create('Intentional scratch cancellation');
+                    end);
+                except on E:EAbort do ; end;
+                Require(Store.Sealed,'Cancelled scratch edit was not sealed again');
+                Output.AddPair('candidates',TJSONNumber.Create(Store.DB.QuerySingleInt('SELECT count(*) FROM Candidates')));
+              end;
+              if Mode='store-wal-leave' then
+              begin
+                // A process can die after the generic SQLite constructor
+                // enables WAL but before this scratch store switches to DELETE.
+                Store.DB.QuerySingleString('PRAGMA journal_mode=WAL');
+                Store.DB.ExecSQL('BEGIN');
+                Store.DB.ExecSQL('INSERT INTO Candidates(PathKey,Source,Active) VALUES(''fixture'',''fixture'',1)');
+                TFile.WriteAllText(ParamStr(2),Output.ToJSON,TEncoding.UTF8);
+                Halt(0);
+              end;
               if Mode='store-leave' then
               begin
                 TFile.WriteAllText(ParamStr(2),Output.ToJSON,TEncoding.UTF8);

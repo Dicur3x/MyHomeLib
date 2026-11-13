@@ -95,6 +95,7 @@ begin
   inherited CreateNew(AOwner); Name:='BookCompressionOptions';
   if BookCount=0 then Caption:='Сжать текущую коллекцию'
   else Caption:=Format('Сжать выбранные книги · %d',[BookCount]);
+  if Options.OnlyNew then Caption:='Сжать новые книги';
   Position:=poOwnerFormCenter; BorderStyle:=bsDialog;
   PixelsPerInch:=96; Font.PixelsPerInch:=96; Font.Name:='Segoe UI'; Font.Size:=9;
   ClientWidth:=640; ClientHeight:=412; FOptions:=Options; FLayoutScale:=96;
@@ -104,6 +105,9 @@ begin
   if BookCount=0 then TLabel(FindComponent('CompressionOptionsIntro')).Caption:=
     'Доступные книги текущей коллекции и её источников останутся на прежних местах. '+
     'Архив или файл заменится, только если станет меньше.';
+  if Options.OnlyNew then TLabel(FindComponent('CompressionOptionsIntro')).Caption:=
+    'Проверим новые и изменившиеся файлы. Уже проверенные с теми же настройками пропускаются. '+
+    'При смене качества могут проверяться и прежние книги.';
   MakeLabel(Self,'CompressionProfileLabel',72,20).Caption:='Как сжимать (запоминается для этой коллекции)';
   FProfile:=TComboBox.Create(Self); FProfile.Parent:=Self; FProfile.Name:='CompressionProfile';
   FProfile.SetBounds(16,96,608,26); FProfile.Style:=csDropDownList;
@@ -384,6 +388,8 @@ begin
     if State.Error<>'' then FNote.Caption:=FNote.Caption+sLineBreak+State.Error;
     if State.Warning<>'' then FNote.Caption:=FNote.Caption+sLineBreak+State.Warning;
   end;
+  if State.PreviouslyProcessedBooks>0 then FNote.Caption:=FNote.Caption+sLineBreak+
+    Format('Ранее проверено книг с этими настройками: %d.',[State.PreviouslyProcessedBooks]);
   if State.BackupFiles>0 then FNote.Caption:=FNote.Caption+sLineBreak+
     Format('Оригиналы сохранены: %d ZIP · %s',[State.BackupFiles,State.BackupFolder]);
   FNote.Hint:=FNote.Caption; FNote.ShowHint:=True;

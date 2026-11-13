@@ -63,6 +63,7 @@ type
     FCancelled: TFunc<Boolean>;
     FWarning: string;
     FSkippedRows: Int64;
+    FPreviouslyProcessedBooks: Int64;
     function NewTemplate: TJSONObject;
     procedure CompleteFile(FilePlan: TCompressionFilePlan);
     procedure CheckCancelled;
@@ -80,9 +81,12 @@ type
     function FileCount: Int64;
     function BookCount: Int64;
     procedure ForEachFile(const Visit: TProc<TCompressionFilePlan>);
+    procedure SelectUnprocessed(const Profile: string; Grayscale: Boolean;
+      const EngineSHA256: string; const Progress: TProc<Int64,Int64> = nil);
     property Files: TObjectList<TCompressionFilePlan> read FFiles;
     property Warning: string read FWarning;
     property SkippedRows: Int64 read FSkippedRows;
+    property PreviouslyProcessedBooks: Int64 read FPreviouslyProcessedBooks;
   end;
 
 implementation
@@ -666,6 +670,65 @@ begin
   finally
     Rows.Free; Paths.Free; Query.Free; Personal.Free; Catalogue.Free; Cache.Free;
   end;
+end;
+
+procedure TBookCompressionPlan.SelectUnprocessed(const Profile:string; Grayscale:Boolean;
+  const EngineSHA256:string; const Progress:TProc<Int64,Int64>);
+var Catalogue:TSQLiteDatabase; Sources,Checks:TSQLiteQuery; Source:TFileStream;
+    Done,Total:Int64;
+begin
+  if FStore=nil then
+    raise EInvalidOperation.Create('Для поиска новых книг нужен план текущей коллекции.');
+  CheckCancelled;
+  if CompressionFileKey(FOptions.Catalogue)<>FCatalogueKey then
+    raise EReadError.Create('Каталог изменился после выбора книг. Повторите сжатие.');
+  Catalogue:=TSQLiteDatabase.CreateReadOnly(FOptions.Catalogue);
+  try
+    if Catalogue.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE type=''table'' '+
+      'AND name=''HomeLibreCompressionChecks''')=0 then Exit;
+    // Candidate selection is a metadata pass, not an integrity scan of every
+    // packed byte in a multi-terabyte library. Full collection compression
+    // keeps AlreadyChecked's SHA-256 check; selected candidates still undergo
+    // all existing content/identity checks before any physical replacement.
+    FStore.Edit(
+      procedure(DB:TSQLiteDatabase)
+      begin
+        Sources:=DB.NewQuery('SELECT ID,Source,FileKey,Identity FROM Sources ORDER BY ID');
+        try
+          Total:=DB.QuerySingleInt('SELECT count(*) FROM Sources'); Done:=0;
+          Sources.Open;
+          while not Sources.Eof do
+          begin
+            CheckCancelled;
+            Source:=TFileStream.Create(DeletionNativePath(Sources.FieldAsString(1)),fmOpenRead or fmShareDenyWrite);
+            try
+              if ArchiveDeletionSourceIdentity(Sources.FieldAsString(1))<>Sources.FieldAsString(3) then
+                raise EReadError.Create('Файл изменился при поиске новых книг: '+Sources.FieldAsString(1));
+              Checks:=Catalogue.NewQuery('SELECT Member FROM HomeLibreCompressionChecks WHERE '+
+                'FileKey=? AND Profile=? AND Grayscale=? AND EngineSHA256=? AND SourceIdentity=?',
+                [UpperCase(Sources.FieldAsString(2)),Profile,Ord(Grayscale),EngineSHA256,Sources.FieldAsString(3)]);
+              try
+                Checks.Open;
+                while not Checks.Eof do
+                begin
+                  CheckCancelled;
+                  DB.ExecSQL('DELETE FROM Members WHERE FileID=? AND Member=?',
+                    [Sources.FieldAsInt(0),Checks.FieldAsString(0)]);
+                  Inc(FPreviouslyProcessedBooks,DB.QuerySingleInt('SELECT changes()'));
+                  Checks.Next;
+                end;
+              finally Checks.Free; end;
+            finally Source.Free; end;
+            Inc(Done);
+            if Assigned(Progress) then Progress(Done,Total);
+            Sources.Next;
+          end;
+          CheckCancelled;
+          if CompressionFileKey(FOptions.Catalogue)<>FCatalogueKey then
+            raise EReadError.Create('Каталог заменён при поиске новых книг. Повторите сжатие.');
+        finally Sources.Free; end;
+      end);
+  finally Catalogue.Free; end;
 end;
 
 function TBookCompressionPlan.FileCount:Int64;

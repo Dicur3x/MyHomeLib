@@ -17,6 +17,7 @@ type
     constructor Create(const Root: string);
     destructor Destroy; override;
     procedure Seal;
+    procedure Edit(const Change: TProc<TSQLiteDatabase>);
     property DB: TSQLiteDatabase read FDB;
     property Folder: string read FFolder;
     property Sealed: Boolean read FSealed;
@@ -77,11 +78,11 @@ begin
       for var Path in TDirectory.GetFileSystemEntries(DeletionNativePath(Folder)) do
       begin
         Name:=ExtractFileName(Path); Attr:=GetFileAttributes(PChar(Path));
-        if not MatchText(Name,['owner.txt','plan.sqlite','plan.sqlite-journal']) or
+        if not MatchText(Name,['owner.txt','plan.sqlite','plan.sqlite-journal','plan.sqlite-wal','plan.sqlite-shm']) or
           (Attr=INVALID_FILE_ATTRIBUTES) or
           (Attr and (FILE_ATTRIBUTE_DIRECTORY or FILE_ATTRIBUTE_REPARSE_POINT)<>0) then Exit;
       end;
-      for Name in ['plan.sqlite-journal','plan.sqlite','owner.txt'] do
+      for Name in ['plan.sqlite-journal','plan.sqlite-wal','plan.sqlite-shm','plan.sqlite','owner.txt'] do
       begin
         var Path:=DeletionNativePath(TPath.Combine(Folder,Name));
         if FileExists(Path) and not Winapi.Windows.DeleteFile(PChar(Path)) then Exit;
@@ -153,6 +154,22 @@ begin
   FreeAndNil(FDB);
   FDB:=TSQLiteDatabase.CreateReadOnly(TPath.Combine(FFolder,'plan.sqlite'));
   FSealed:=True;
+end;
+
+procedure TCompressionPlanStore.Edit(const Change: TProc<TSQLiteDatabase>);
+begin
+  if not FSealed or not Assigned(Change) then
+    raise EInvalidOperation.Create('План сжатия ещё не готов к отбору новых книг.');
+  FreeAndNil(FDB); FSealed:=False;
+  try
+    FDB:=TSQLiteDatabase.Create(TPath.Combine(FFolder,'plan.sqlite'));
+    FDB.QuerySingleString('PRAGMA journal_mode=DELETE');
+    FDB.ExecSQL('PRAGMA cache_size=-4096');
+    FDB.ExecSQL('PRAGMA temp_store=FILE');
+    FDB.ExecSQL('BEGIN');
+    try Change(FDB); FDB.Commit;
+    except FDB.Rollback; raise; end;
+  finally Seal; end;
 end;
 
 destructor TCompressionPlanStore.Destroy;

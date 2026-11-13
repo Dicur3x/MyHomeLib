@@ -334,6 +334,93 @@ class NativeCompressionOperationTests(unittest.TestCase):
         self.assertEqual(again['unchanged_files'], 1)
         self.assertEqual({p: sha(p.read_bytes()) for p in before}, before)
 
+    def inspected_collection(self):
+        self.config.update(whole=True, profile='original', grayscale=False)
+        result = self.run_operation()
+        self.assertEqual(result['error'], '', result)
+        self.assertEqual(result['books_total'], 2)
+        with database(self.fixture.catalogue) as db:
+            self.assertEqual(db.execute('SELECT count(*) FROM HomeLibreCompressionChecks').fetchone()[0], 2)
+        self.config['only_new'] = True
+
+    def test_new_books_mode_with_no_arrivals_keeps_all_authoritative_bytes_and_needs_no_encoder(self):
+        self.inspected_collection()
+        before = {p: sha(p.read_bytes()) for p in self.before}
+        self.forbid_encoder()
+        result = self.run_operation()
+        self.assertEqual(result['error'], '', result)
+        self.assertEqual((result['files_total'], result['books_total']), (0, 0))
+        self.assertEqual(result['previously_processed_books'], 2)
+        self.assertEqual(result['pending_before_ack'], 0)
+        self.assertIn('Новых книг', result['stage'])
+        self.assertEqual({p: sha(p.read_bytes()) for p in before}, before)
+
+    def test_new_books_mode_selects_an_added_archive_and_preserves_the_previous_archive(self):
+        self.inspected_collection()
+        previous_archive = sha(self.fixture.source.read_bytes())
+        personal_before = self.fixture.snapshot(self.fixture.personal)
+        arriving = self.root / 'new-books.zip'
+        with zipfile.ZipFile(arriving, 'w', zipfile.ZIP_STORED) as archive:
+            archive.writestr('one.fb2', self.fixture.original_book)
+        with database(self.fixture.catalogue) as db:
+            row = list(self.fixture.main_row)
+            row[0], row[1], row[2] = 103, 'local:new-book', arriving.name
+            db.execute('INSERT INTO Books VALUES(' + ','.join('?' * len(row)) + ')', row)
+        initial_size = arriving.stat().st_size
+        result = self.run_operation()
+        self.assertEqual(result['error'], '', result)
+        self.assertEqual((result['files_total'], result['books_total'], result['previously_processed_books']), (1, 1, 2))
+        self.assertEqual(result['changed_files'], 1)
+        self.assertLess(arriving.stat().st_size, initial_size)
+        self.assertEqual(sha(self.fixture.source.read_bytes()), previous_archive)
+        # The first physical commit opens the personal store's writer lock and
+        # enables the application's WAL mode. Pages/header can change without
+        # changing a single personal value; verify every table's actual data.
+        self.assertEqual(self.fixture.snapshot(self.fixture.personal), personal_before)
+        with database(self.fixture.personal) as db:
+            self.assertEqual(db.execute('PRAGMA journal_mode').fetchone()[0], 'wal')
+        with database(self.fixture.catalogue) as db:
+            self.assertEqual(db.execute('SELECT BookSize FROM Books WHERE BookID=103').fetchone()[0], len(self.fixture.original_book))
+
+    def test_new_books_mode_rechecks_changed_source_metadata_with_content_verification(self):
+        self.inspected_collection()
+        source = self.fixture.source
+        stamp = source.stat()
+        os.utime(source, ns=(stamp.st_atime_ns, stamp.st_mtime_ns + 10_000_000_000))
+        before = {p: sha(p.read_bytes()) for p in self.before}
+        self.forbid_encoder()
+        result = self.run_operation()
+        self.assertEqual(result['error'], '', result)
+        self.assertEqual((result['books_total'], result['previously_processed_books']), (2, 0))
+        self.assertEqual(result['unchanged_files'], 1)  # Packed SHA-256 still matches.
+        self.assertEqual({p: sha(p.read_bytes()) for p in before}, before)
+
+    def test_new_books_mode_without_history_does_not_treat_unprocessed_books_as_done(self):
+        self.config.update(whole=True, only_new=True, profile='original', grayscale=False)
+        result = self.run_operation()
+        self.assertEqual(result['error'], '', result)
+        self.assertEqual((result['books_total'], result['previously_processed_books']), (2, 0))
+
+    def test_new_books_mode_keeps_history_when_import_reassigns_catalogue_ids(self):
+        self.inspected_collection()
+        with database(self.fixture.catalogue) as db:
+            db.execute('UPDATE Books SET BookID=201 WHERE BookID=101')
+            for table in ('Author_List', 'Series_List', 'Genre_List', 'CatalogBookCopies', 'CatalogSourceBooks'):
+                db.execute('UPDATE ' + table + ' SET BookID=201 WHERE BookID=101')
+        before = {p: sha(p.read_bytes()) for p in self.before}
+        self.forbid_encoder()
+        result = self.run_operation()
+        self.assertEqual(result['error'], '', result)
+        self.assertEqual((result['books_total'], result['previously_processed_books']), (0, 2))
+        self.assertEqual({p: sha(p.read_bytes()) for p in before}, before)
+
+    def test_new_books_mode_does_not_apply_another_quality_choices_history(self):
+        self.inspected_collection()
+        self.config['profile'] = 'economy'
+        result = self.run_operation()
+        self.assertEqual(result['error'], '', result)
+        self.assertEqual((result['books_total'], result['previously_processed_books']), (2, 0))
+
     def test_temporary_image_failure_is_not_cached_as_a_completed_inspection(self):
         source = self.root / 'one.fb2'
         source.write_bytes(self.fixture.original_book)
@@ -406,9 +493,11 @@ class NativeCompressionOperationTests(unittest.TestCase):
         with database(self.fixture.catalogue) as db:
             self.assertEqual(db.execute('SELECT Member FROM HomeLibreCompressionChecks').fetchall(), [('neighbor.fb2',)])
         allowed.touch()
+        self.config.update(whole=True, only_new=True)
         second = self.run_operation()
         self.assertEqual(second['error'], '', second)
         self.assertEqual(second['changed_files'], 1)
+        self.assertEqual((second['books_total'], second['previously_processed_books']), (1, 1))
         self.assertLess(len(read_book('one.fb2')), len(original))
         self.assertEqual(read_book('neighbor.fb2'), kept_neighbor)
         with database(self.fixture.catalogue) as db:

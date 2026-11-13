@@ -977,6 +977,8 @@ type
     procedure ShowCatalogSources(Sender: TObject);
     procedure RestoreCollectionSnapshot(Sender: TObject);
     procedure PackCurrentCollection(Sender: TObject);
+    procedure CompressNewBooks(Sender: TObject);
+    procedure StartCollectionCompression(OnlyNew: Boolean);
     procedure PackCollection(UpdateFromInpx: Boolean; Resume: PCollectionPackingRequest = nil);
     procedure CompressSelectedBooks(Sender: TObject);
     procedure CompressionActionUpdate(Sender: TObject);
@@ -4708,6 +4710,12 @@ begin
 end;
 
 procedure TfrmMain.PackCurrentCollection(Sender: TObject);
+begin StartCollectionCompression(False); end;
+
+procedure TfrmMain.CompressNewBooks(Sender: TObject);
+begin StartCollectionCompression(True); end;
+
+procedure TfrmMain.StartCollectionCompression(OnlyNew: Boolean);
 var Info:TCollectionInfo; Options:TBookCompressionOperationOptions;
     Personal,Registry,WorkRoot,Warning:string; Required:TArray<string>;
     Operation:TBookCompressionOperation;
@@ -4727,6 +4735,7 @@ begin
     Warning:=LoadCollectionCompressionPreferences(Registry,
       TPath.Combine(Info.GetRootPath,'HomeLibre-compression-work'),FCollection,Options);
     if Warning<>'' then MHLShowWarning(Warning);
+    Options.OnlyNew:=OnlyNew;
     if not ChooseSelectedCompressionOptions(Self,0,Options) then Exit;
     RememberCollectionCompressionWork(Registry,FCollection,Options);
     Required:=ResolveSelectedCompressionTools(Settings.AppPath,Options);
@@ -5633,6 +5642,10 @@ begin
   FilterMenu:=TMenuItem.Create(Self); FilterMenu.Name:='miPackCollection';
   FilterMenu.Caption:='Сжать текущую коллекцию…';
   FilterMenu.OnClick:=PackCurrentCollection; N2.Insert(N6.MenuIndex,FilterMenu);
+  FilterMenu:=TMenuItem.Create(Self); FilterMenu.Name:='miCompressNewBooks';
+  FilterMenu.Caption:='Сжать новые книги…';
+  FilterMenu.Hint:='Проверить ещё не обработанные и изменившиеся файлы текущей коллекции и её источников.';
+  FilterMenu.OnClick:=CompressNewBooks; N2.Insert(N6.MenuIndex,FilterMenu);
   FBookCompressionAction:=TAction.Create(Self); FBookCompressionAction.Name:='acCompressSelectedBooks';
   FBookCompressionAction.ActionList:=Actions; FBookCompressionAction.Category:='Книга';
   FBookCompressionAction.Caption:='Сжать выбранные книги…';

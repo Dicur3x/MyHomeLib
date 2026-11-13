@@ -54,6 +54,8 @@ def run(args):
     started = time.monotonic()
     result = dict(status='INCOMPLETE', platform=args.platform,
                   inputs={str(p): identity(p) for p in (args.receipt, args.operation, args.package)})
+    if args.planner:
+        result['inputs'][str(args.planner)] = identity(args.planner)
     report.write_text(json.dumps(result, indent=2), encoding='utf-8')
     try:
         with temporary_work_directory(stage, 'HomeLibre-inspection-runtime-') as root:
@@ -72,7 +74,7 @@ def run(args):
                 assert not (image.parent / 'HomeLibImages.exe.config').exists(), 'The legacy installer allows only the original image component paths'
             seven = root / 'tools/7zip/7za.exe'
             binaries = [image, seven, root / 'tools/python/python.exe']
-            for source in (args.receipt, args.operation, args.sqlite):
+            for source in (args.receipt, args.operation, args.sqlite, *([args.planner] if args.planner else [])):
                 target = root / source.name
                 shutil.copy2(source, target)
                 assert identity(target) == identity(source)
@@ -88,6 +90,8 @@ def run(args):
                        HLRU_PACK_7ZIP=str(seven), HL_SELECTED_PREPARER=str(root / 'tools/bookconvert/prepare_book_compression.py'),
                        TEMP=str(root / 'temp'), TMP=str(root / 'temp'),
                        LOCALAPPDATA=str(root / 'profile/local'), APPDATA=str(root / 'profile/roaming'))
+            if args.planner:
+                env['HL_NATIVE_COMPRESSION_PLAN'] = str(root / args.planner.name)
             for name in ('temp', 'profile/local', 'profile/roaming'):
                 (root / name).mkdir(parents=True, exist_ok=True)
             previous = {key: os.environ.get(key) for key in env}
@@ -126,5 +130,6 @@ if __name__ == '__main__':
         parser.add_argument('--' + name, type=Path, required=True)
     parser.add_argument('--platform', choices=('Win32', 'Win64'), required=True)
     parser.add_argument('--images', type=Path, help='Fresh verified image helper, without replacing another runtime')
+    parser.add_argument('--planner', type=Path, help='Optional native planning and scratch-recovery fixture')
     parser.add_argument('--test', action='append', help='Specific diagnostic cases; default is the complete suite')
     run(parser.parse_args())

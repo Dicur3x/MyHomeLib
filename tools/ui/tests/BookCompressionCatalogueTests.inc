@@ -6,7 +6,7 @@ type
     Mode, OriginalSHA, Source, BackupFolder: string;
     ProfileIndex: Integer;
     Grayscale: Boolean;
-    InspectComparison, EstimateFirst, EstimateSeen, Whole: Boolean;
+    InspectComparison, EstimateFirst, EstimateSeen, Whole, OnlyNew: Boolean;
     ProducerStageSeen, EstimateStageSeen: Boolean;
     InspectionDeadline, Started: UInt64;
     LastStage: string;
@@ -60,7 +60,8 @@ begin
       if not OptionsSeen then begin Writeln('TRACE compression options ms=',GetTickCount64-Started); Flush(Output); end;
       if OptionsSeen then Exit;
       OptionsSeen:=True;
-      if Whole then Require(Form.Caption='Сжать текущую коллекцию','Whole collection opens the old copy wizard');
+      if OnlyNew then Require(Form.Caption='Сжать новые книги','New-books command lost its distinct choices')
+      else if Whole then Require(Form.Caption='Сжать текущую коллекцию','Whole collection opens the old copy wizard');
       TComboBox(Form.FindComponent('CompressionProfile')).ItemIndex:=ProfileIndex;
       TCheckBox(Form.FindComponent('CompressionGrayscale')).Checked:=Grayscale;
       TCheckBox(Form.FindComponent('CompressionReview')).Checked:=True;
@@ -133,6 +134,13 @@ begin
         Writeln('TRACE compression result ',TLabel(Form.FindComponent('CompressionStage')).Caption,' · ',Note); Flush(Output);
         Require(not Note.Contains('Не удалось') and not Note.Contains('исходник'),
           'Compression result error: '+Note);
+        if OnlyNew then
+        begin
+          Require(Pos('Новых книг',TLabel(Form.FindComponent('CompressionStage')).Caption)>0,
+            'Unchanged collection did not finish with a clear no-arrivals result');
+          Require(Note.Contains('Ранее проверено книг с этими настройками: 2.'),
+            'Already processed books disappeared from the result');
+        end;
         TButton(Form.FindComponent('CompressionStop')).Click;
       end;
     end;
@@ -288,6 +296,28 @@ begin
       Options.ReviewResults and Options.BackupOriginals and (Options.BackupFolder=Driver.BackupFolder),
       'Normal catalogue command lost its own selected compression choices');
     Require(Length(TBookCompressionJob.Pending(CompressionQueueRoot(Options)))=0,'Completed GUI action left a pending job');
+    if Assigned(Config) and Config.GetValue<Boolean>('repeat_new',False) then
+    begin
+      Require(Mode='apply','Repeat-new scenario requires an initial applied compression');
+      var CompressedSHA:=THashSHA2.GetHashStringFromFile(Source);
+      Driver.OnlyNew:=True; Driver.Whole:=True;
+      Driver.OptionsSeen:=False; Driver.ReviewSeen:=False; Driver.ResultSeen:=False;
+      Driver.DecisionSent:=False; Driver.ProducerStageSeen:=False; Driver.OriginalSHA:=CompressedSHA;
+      Driver.Timer.Enabled:=True; Driver.Started:=GetTickCount64;
+      var Menu:=frmMain.FindComponent('miCompressNewBooks') as TMenuItem;
+      Require(Assigned(Menu),'New-books compression is missing from the normal menu');
+      Menu.Click;
+      Started:=GetTickCount64;
+      while not Driver.ResultSeen and (GetTickCount64-Started<Timeout) do
+      begin Application.ProcessMessages; Sleep(10); end;
+      Require(Driver.OptionsSeen and Driver.ResultSeen and not Driver.ReviewSeen and not Driver.ProducerStageSeen,
+        'No-arrivals menu command repeated preparation or failed to finish; last stage: '+Driver.LastStage);
+      Require(THashSHA2.GetHashStringFromFile(Source)=CompressedSHA,'No-arrivals command changed compressed books');
+      Require(Length(TDirectory.GetFiles(Driver.BackupFolder,'*.zip'))=1,'No-arrivals command added an unnecessary backup');
+      SystemDB.GetBookRecord(Books[0].BookKey,Personal);
+      Require(Personal.Progress=37,'No-arrivals command changed personal progress');
+      Writeln('PASS normal new-books menu preserved the compressed archive and did not run the producer');
+    end;
     Writeln('PASS selected compression normal catalogue ',Mode,' preserves neighbors, personal progress, originals and refreshed Reader cache');
   finally Config.Free; Driver.Timer.Free; Driver.Free; end;
 end;

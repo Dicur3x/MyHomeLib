@@ -160,6 +160,23 @@ class NativeCompressionCollectionTests(unittest.TestCase):
         self.assertEqual(result['removed_live'], 0)
         self.assertFalse(Path(result['folder']).exists())
 
+    def test_cancelled_scratch_filter_rolls_back_and_reseals_without_changing_authoritative_data(self):
+        result = self.store('store-edit-rollback')
+        self.assertEqual(result['candidates'], 0)
+        self.assertEqual(result['removed_live'], 0)
+        self.assertFalse(Path(result['folder']).exists())
+        self.unchanged()
+
+    def test_process_loss_during_scratch_filter_has_only_owned_recoverable_metadata(self):
+        for mode, journal in (('store-edit-leave', 'plan.sqlite-journal'), ('store-wal-leave', 'plan.sqlite-wal')):
+            with self.subTest(mode=mode):
+                result = self.store(mode)
+                folder = Path(result['folder'])
+                self.assertTrue((folder / journal).is_file())
+                self.assertEqual(self.store('store-clean')['removed'], 1)
+                self.assertFalse(folder.exists())
+                self.unchanged()
+
     def test_crash_scratch_can_be_cleaned_but_foreign_files_remain(self):
         result = self.store('store-leave')
         self.assertTrue(Path(result['folder']).is_dir())

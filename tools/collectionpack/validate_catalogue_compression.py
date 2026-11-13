@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+from supervised_test_process import run_owned
 import time
 import zipfile
 from xml.etree import ElementTree as ET
@@ -29,7 +30,7 @@ def archive_body(archive, member, seven_zip):
         with zipfile.ZipFile(archive) as source:
             return source.read(member)
     except NotImplementedError:  # PPMd ZIP: use the shipped independent decoder.
-        result = subprocess.run([str(seven_zip), 'e', '-so', '-bd', '-y', '--', str(archive), member],
+        result = run_owned([str(seven_zip), 'e', '-so', '-bd', '-y', '--', str(archive), member],
                                 capture_output=True, timeout=120)
         if result.returncode:
             raise AssertionError(result.stderr.decode('utf-8', errors='replace'))
@@ -69,7 +70,7 @@ def install_processing_package(package, root, platform):
 
 
 def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_books=None, inspect_comparison=False,
-        processing_package=None, estimate_first=False, whole=False):
+        processing_package=None, estimate_first=False, whole=False, repeat_new=False, images=None):
     with temporary_work_directory(stage, 'HomeLibRu-native-') as root:
         root = Path(root)
         shutil.copy2(binary, root / 'CollectionViewsTest.exe')
@@ -79,6 +80,13 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
         shutil.copy2(genres, root / 'genres_fb2.glst')
         shutil.copytree(runtime / 'tools', root / 'tools')
         repo = Path(__file__).resolve().parents[2]
+        if images:
+            info = json.loads((images / 'RUNTIME.json').read_text(encoding='utf-8-sig'))
+            assert info['platform'] == platform
+            assert info['source_sha256'] == digest(repo / 'Utils/HomeLibXps/HomeLibXps.cs')
+            assert info['sha256'] == digest(images / 'HomeLibImages.exe')
+            assert not (root / 'tools/images/HomeLibImages.exe.config').exists()
+            shutil.copytree(images, root / 'tools/images', dirs_exist_ok=True)
         if processing_package:
             install_processing_package(processing_package, root, platform)
         else:
@@ -127,11 +135,12 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
             (root / 'compression-fixture.json').write_text(json.dumps(dict(
                 first='one.fb2', second='two.fb2', grayscale=True, timeout_ms=90000,
                 inspect_comparison=True)), encoding='utf-8')
-        if estimate_first or whole:
+        if estimate_first or whole or repeat_new:
             fixture_file = root / 'compression-fixture.json'
             config = json.loads(fixture_file.read_text(encoding='utf-8')) if fixture_file.exists() else {}
             config['estimate_first'] = estimate_first
             config['whole'] = whole
+            config['repeat_new'] = repeat_new
             fixture_file.write_text(json.dumps(config), encoding='utf-8')
         (root / 'books').mkdir()
         source = root / 'books/shared.zip'
@@ -152,6 +161,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
         deadline = 420 if real_books else 150
         attempt = dict(status='INCOMPLETE', platform=platform, mode=mode,
             native_binary_sha256=digest(binary), outer_timeout_seconds=deadline,
+            private_runtime=str(root),
             real_source_stamps={str(path): stamp for path, stamp in real_stamps.items()})
         attempt_file = stage / f'catalogue-{platform}-{mode}-attempt.json'
         attempt_file.write_text(json.dumps(attempt, indent=2), encoding='utf-8')
@@ -160,7 +170,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
                'LOCALAPPDATA': str(root / 'Local'), 'APPDATA': str(root / 'Roaming')}
         try:
             with log_path.open('wb') as log:
-                process = subprocess.run([str(root / 'CollectionViewsTest.exe'), 'selected-compression-ui', mode],
+                process = run_owned([str(root / 'CollectionViewsTest.exe'), 'selected-compression-ui', mode],
                     cwd=root, env=env, stdout=log, stderr=subprocess.STDOUT, startupinfo=startup, timeout=deadline,
                     creationflags=subprocess.BELOW_NORMAL_PRIORITY_CLASS |
                         (0 if inspect_comparison else subprocess.CREATE_NO_WINDOW))
@@ -242,6 +252,9 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
                     input_sha256={name: hashlib.sha256(body).hexdigest() for name, body in originals.items()},
                     real_source_stamps={str(path): stamp for path, stamp in real_stamps.items()},
                     whole=whole,
+                    repeat_new=repeat_new,
+                    private_runtime=str(root),
+                    image_helper_sha256=digest(root / 'tools/images/HomeLibImages.exe'),
                     scope='Ordinary catalogue command; real payloads in a private shared ZIP, original archives read only'
                         if real_books else 'Ordinary menu action and controls; isolated synthetic shared ZIP only')
 
@@ -257,10 +270,14 @@ if __name__ == '__main__':
     parser.add_argument('--processing-package', type=Path)
     parser.add_argument('--estimate-first', action='store_true')
     parser.add_argument('--whole', action='store_true')
+    parser.add_argument('--repeat-new', action='store_true', help='After applying, invoke the normal new-books menu and verify no preparation')
+    parser.add_argument('--images', type=Path, help='Fresh image helper verified against the current C# source')
     args = parser.parse_args()
     report = args.stage / f'catalogue-{args.platform}-{args.mode}.json'
     try:
         result = run(**vars(args))
+        result['private_runtime_removed'] = not Path(result['private_runtime']).exists()
+        assert result['private_runtime_removed'], 'Owned catalogue fixture runtime was not removed'
     except BaseException as error:
         attempt_file = args.stage / f'catalogue-{args.platform}-{args.mode}-attempt.json'
         attempt = json.loads(attempt_file.read_text(encoding='utf-8')) if attempt_file.exists() else {}

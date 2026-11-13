@@ -11,13 +11,14 @@ type
     const Progress:TProc<Int64>):TBookCompressionPlan;
   TBookCompressionOperationOptions = record
     WorkRoot, QueueName, Python, Script, SevenZip, ToolsRoot, Profile, BackupFolder: string;
-    Grayscale, ReviewResults, BackupOriginals, EstimateFirst: Boolean;
+    Grayscale, ReviewResults, BackupOriginals, EstimateFirst, OnlyNew: Boolean;
   end;
   TBookCompressionOperationStatus = record
     Stage, Source, Member, Error, Warning, ReportFile, PendingJob, BackupFolder: string;
     PreviewFile, PreviewSHA256: string;
     Current, Total, FilesDone, FilesTotal, BooksDone, BooksTotal: Int64;
     ChangedFiles, UnchangedFiles, SkippedFiles, SavedBytes: Int64;
+    PreviouslyProcessedBooks: Int64;
     InputBytes, OutputBytes, WorkingBytes: Int64;
     BackupFiles: Int64;
     ImageChanges: Int64;
@@ -641,8 +642,9 @@ begin
 end;
 
 procedure TBookCompressionOperation.Execute;
-var Plan:TBookCompressionPlan; ApplyCompression:Boolean;
+var Plan:TBookCompressionPlan; ApplyCompression,NoNew:Boolean;
 begin
+  NoNew:=False;
   try
     if FRecovery then RunRecovery
     else
@@ -656,16 +658,24 @@ begin
         procedure(Done:Int64) begin SetStage('Проверяем расположение книг',Done,0); end);
       try
         if Plan=nil then raise EReadError.Create('Не удалось подготовить выбор книг для сжатия.');
+        if FOptions.OnlyNew then
+        begin
+          SetStage('Находим новые и изменившиеся книги');
+          Plan.SelectUnprocessed(FOptions.Profile,FOptions.Grayscale,EngineFingerprint,
+            procedure(Done,Total:Int64) begin SetStage('Находим новые и изменившиеся книги',Done,Total); end);
+        end;
         TMonitor.Enter(FLock);
         try
           FState.FilesTotal:=Plan.FileCount;
           FState.BooksTotal:=Plan.BookCount;
+          FState.PreviouslyProcessedBooks:=Plan.PreviouslyProcessedBooks;
         finally TMonitor.Exit(FLock); end;
         if Plan.Warning<>'' then Warn(Plan.Warning);
         if FState.FilesTotal=0 then
-          raise EReadError.Create('В коллекции не найдены доступные местные файлы книг. Проверьте папки её источников.');
-        ApplyCompression:=True;
-        if FOptions.EstimateFirst then
+          if FOptions.OnlyNew and (FState.PreviouslyProcessedBooks>0) then NoNew:=True
+          else raise EReadError.Create('В коллекции не найдены доступные местные файлы книг. Проверьте папки её источников.');
+        ApplyCompression:=not NoNew;
+        if FOptions.EstimateFirst and ApplyCompression then
         begin
           TMonitor.Enter(FLock);
           try FState.Estimating:=True; finally TMonitor.Exit(FLock); end;
@@ -695,7 +705,8 @@ begin
             end);
       finally Plan.Free; end;
     end;
-    if not FState.EstimateOnly then SetStage('Сжатие завершено');
+    if NoNew then SetStage('Новых книг для сжатия не найдено. Полная проверка — «Сжать текущую коллекцию».')
+    else if not FState.EstimateOnly then SetStage('Сжатие завершено');
   except
     on E:EAbort do SetStage('Сжатие остановлено. Выполненные изменения сохранены.');
     on E:Exception do

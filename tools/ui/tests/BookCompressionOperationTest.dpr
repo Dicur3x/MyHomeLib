@@ -47,6 +47,7 @@ begin
       Options.ToolsRoot:=Text(Data,'tools_root'); Options.Profile:=Text(Data,'profile');
       Options.Grayscale:=Data.GetValue<Boolean>('grayscale',False);
       Options.EstimateFirst:=Data.GetValue<Boolean>('estimate_first',False);
+      Options.OnlyNew:=Data.GetValue<Boolean>('only_new',False);
       Options.BackupOriginals:=Data.GetValue<Boolean>('backup_originals',False);
       Options.BackupFolder:=Text(Data,'backup_folder');
       Mode:=Text(Data,'operation_mode'); Options.ReviewResults:=Mode.StartsWith('review') or Mode.StartsWith('dispose');
@@ -137,6 +138,7 @@ begin
               Output.AddPair('changed_files',TJSONNumber.Create(State.ChangedFiles));
               Output.AddPair('unchanged_files',TJSONNumber.Create(State.UnchangedFiles));
               Output.AddPair('skipped_files',TJSONNumber.Create(State.SkippedFiles));
+              Output.AddPair('previously_processed_books',TJSONNumber.Create(State.PreviouslyProcessedBooks));
               Output.AddPair('saved_bytes',TJSONNumber.Create(State.SavedBytes));
               Output.AddPair('estimate_only',TJSONBool.Create(State.EstimateOnly));
               Output.AddPair('estimate_input_bytes',TJSONNumber.Create(State.EstimateInputBytes));
