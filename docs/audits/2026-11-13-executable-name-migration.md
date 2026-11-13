@@ -47,9 +47,19 @@ The packaging run also found a separate defect: `RELEASE_NOTES_NEXT.md` was pars
 
 Reports: `G:/HomeLibRu-build-cache/HomeLibre-post13-executable-20261113/native-final-Win32/identity-Win32.json`, corresponding Win64 report, and `real-packages.json`. Successful private runtime folders were removed. Compiler caches, packages and validation reports remain for release work.
 
+## Published-client GUI checks
+
+The exact published beta 12 ZIPs were independently downloaded and checked against GitHub asset SHA-256 metadata. Both unchanged catalogue clients restored a privately prepared candidate package, chose the matching new helper, wrote their own original-process update request, exited normally, and restarted the real canonical `HomeLibre.exe`. The candidate still has beta 13 identity; this deliberately tests a genuinely newer release without falsifying version resources. It is not the final beta 13-to-beta 14 gate, nor a network/download-frontend test.
+
+On x64 the full GUI run passed: the reopened One collection displayed the same publisher-series selection and `Alpha ru`, then all 241 installed payloads, all seven fixture book rows, the personal sentinel and settings passed validation after normal close. Report: `gui-beta12-Win64.json` in the stage directory above.
+
+On x86 installation, canonical restart, payload hashes and fixture preservation passed, but the complete test is **FAIL**: a seeded maximized catalogue reopens in normal state and saves `WindowState=0`, bounds `808 x 831` at `0,0`. The first run forced `SW_SHOWNORMAL` on the old client. A second controlled run removed that startup override and observed the old client's Restore title-bar button before installation; the new client still lost the maximized state. Report: `gui-beta12-Win32-r2.json`. The first failure is also retained as `gui-beta12-Win32.json`. No claim is made yet about the exact cause or which shutdown/startup side loses placement.
+
+The smoke runner now understands canonical and bridge payload names, watches only exact owned executable paths, and refuses to launch while the production catalogue's global single-instance mapping is occupied. It can seed a known normal/maximized private layout and records actual saved geometry. All three GUI runtime directories were removed after normal catalogue closure. No user installation was launched or modified.
+
 ## Remaining release gates
 
-The Todo item remains open. Before claiming the full transition: exercise the unchanged published update UI against the final beta 14 package; check coordinated catalogue/Reader restart and the visible old shortcut; prepare the final beta 14 identities and repeat the relevant final-package checks; update all four README languages and explain the portable/bridge assets on the release page. No publication has happened in this task.
+The Todo item remains open. Before claiming the full transition: diagnose and fix the reproduced catalogue-placement failure; exercise the unchanged published update UI against the final beta 14 package; check coordinated catalogue/Reader restart and the visible old shortcut; prepare the final beta 14 identities and repeat the relevant final-package checks; update all four README languages and explain the portable/bridge assets on the release page. No publication has happened in this task.
 
 ## Retained failed-run folder
 

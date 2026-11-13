@@ -11,6 +11,8 @@ verify an independent upgrade without replacing the catalogue executable.
 """
 import argparse
 import configparser
+import ctypes
+from ctypes import wintypes
 import hashlib
 import json
 import os
@@ -50,8 +52,8 @@ def books(path):
 
 def own_processes(target, environment, stop=False):
     command = ("$ErrorActionPreference='Stop'; "
-               "$owned=@(Get-Process HomeLibRu,HomeLibRuUpdater -ErrorAction SilentlyContinue | ForEach-Object {"
-               "$path=$_.Path; if($path -eq $env:HOMELIBRE_TEST_MAIN -or $path -eq $env:HOMELIBRE_TEST_HELPER){"
+               "$owned=@(Get-Process HomeLibre,HomeLibRu,HomeLibRuUpdater -ErrorAction SilentlyContinue | ForEach-Object {"
+               "$path=$_.Path; if($path -eq $env:HOMELIBRE_TEST_MAIN -or $path -eq $env:HOMELIBRE_TEST_CANONICAL_MAIN -or $path -eq $env:HOMELIBRE_TEST_HELPER){"
                "[pscustomobject]@{Id=$_.Id;Path=$path;Process=$_}}}); ")
     if stop:
         command += ("foreach($item in $owned){if(-not $item.Process.HasExited){"
@@ -64,6 +66,21 @@ def own_processes(target, environment, stop=False):
         creationflags=subprocess.CREATE_NO_WINDOW)
     assert result.returncode == 0, result.stderr
     return None if stop else json.loads(result.stdout)
+
+
+def require_free_catalogue_slot():
+    # The production catalogue still has one process-wide instance key across
+    # installations. Do not let a private GUI test focus somebody else's window.
+    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+    kernel.OpenFileMappingW.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.LPCWSTR]
+    kernel.OpenFileMappingW.restype = wintypes.HANDLE
+    kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+    handle = kernel.OpenFileMappingW(4, False, 'MyHomeLib.exe')
+    if handle:
+        kernel.CloseHandle(handle)
+        raise RuntimeError('A catalogue is already running; the private GUI test was not launched')
+    if ctypes.get_last_error() != 2:
+        raise ctypes.WinError(ctypes.get_last_error())
 
 
 def main():
@@ -89,13 +106,18 @@ def main():
     parser.add_argument('--trace-frontend', action='store_true',
                         help='Include update-window diagnostics from the isolated client')
     parser.add_argument('--notes-file', type=Path, help='Show the candidate release notes in the ready update window')
+    parser.add_argument('--catalogue-window-state', choices=('normal', 'maximized'),
+                        help='Seed a known private catalogue layout after native fixture setup')
     args = parser.parse_args()
     assert not (args.candidate_client or args.trace_frontend or args.notes_file) or args.frontend
+    require_free_catalogue_slot()
     assert sha(args.old_archive) == args.old_sha256
     assert sha(args.new_archive) == args.new_sha256
     assert not args.report.exists()
     with zipfile.ZipFile(args.new_archive) as package:
         manifest = json.loads(package.read('HomeLibRu.update.json'))
+    transport_executable = 'tools/updates/catalogue/HomeLibre.exe'
+    canonical_payload = any(f['path'] in ('HomeLibre.exe', transport_executable) for f in manifest['files'])
     component = manifest.get('component', '')
     assert bool(component) == bool(args.baseline_component)
     if component:
@@ -134,6 +156,7 @@ def main():
     local_temp = root / 'Temp'
     environment = dict(os.environ, LOCALAPPDATA=str(root / 'LocalAppData'),
                        HOMELIBRE_TEST_MAIN=str(target / 'HomeLibRu.exe'),
+                       HOMELIBRE_TEST_CANONICAL_MAIN=str(target / 'HomeLibre.exe'),
                        HOMELIBRE_TEST_HELPER=str(helper))
     frontend_environment = environment
     if args.trace_frontend:
@@ -151,10 +174,12 @@ def main():
     try:
         target.mkdir()
         extract(args.old_archive, target)
-        old_main = version(target / 'HomeLibRu.exe')
+        initial_main = 'HomeLibre.exe' if (target / 'HomeLibre.exe').exists() else 'HomeLibRu.exe'
+        restarted_main = 'HomeLibre.exe' if canonical_payload else initial_main
+        old_main = version(target / initial_main)
         assert old_main['product'] == args.old_tag, old_main
         report['old_main_version'] = old_main
-        old_main_hash = sha(target / 'HomeLibRu.exe')
+        old_main_hash = sha(target / initial_main)
         old_helper = (target / 'HomeLibRuUpdater.exe').read_bytes()
         report['old_helper_sha256'] = hashlib.sha256(old_helper).hexdigest()
         report['old_helper_version'] = version(target / 'HomeLibRuUpdater.exe')
@@ -181,6 +206,16 @@ def main():
         finally:
             if shim:
                 genres.unlink()
+        if args.catalogue_window_state:
+            options = configparser.ConfigParser(interpolation=None, strict=False)
+            options.optionxform = str
+            options.read_string(ini.read_text('utf-8-sig'))
+            geometry = dict(WindowState='2' if args.catalogue_window_state == 'maximized' else '0',
+                            FormWidth='1000', FormHeight='740', FormTop='60', FormLeft='80')
+            options['INTERFACE'].update(geometry)
+            with ini.open('w', encoding='utf-8') as stream:
+                options.write(stream)
+            report['seeded_catalogue_geometry'] = geometry
         profile_hashes = {}
         unrelated_paths = ()
         if component:
@@ -239,10 +274,16 @@ def main():
                 component=component, version=manifest.get('version', ''), size=archive.stat().st_size)
             (cache / 'ready.json').write_text(json.dumps(ready, ensure_ascii=False), encoding='utf-8')
             startup = subprocess.STARTUPINFO()
-            startup.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            startup.wShowWindow = 1  # Win32 SW_SHOWNORMAL; subprocess only exposes SW_HIDE.
-            report['frontend_startup_show'] = 'SW_SHOWNORMAL'
-            process = subprocess.Popen([str(target / 'HomeLibRu.exe')], cwd=target,
+            if args.catalogue_window_state:
+                # A forced startup show state overrides the persisted VCL layout
+                # on its first ShowWindow, invalidating a geometry preservation test.
+                report['frontend_startup_show'] = 'application decides from saved settings'
+            else:
+                startup.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                startup.wShowWindow = 1  # Win32 SW_SHOWNORMAL; subprocess only exposes SW_HIDE.
+                report['frontend_startup_show'] = 'SW_SHOWNORMAL'
+            require_free_catalogue_slot()
+            process = subprocess.Popen([str(target / initial_main)], cwd=target,
                 env=frontend_environment,
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, startupinfo=startup)
             old_pid, request = process.pid, None
@@ -268,7 +309,7 @@ def main():
                 assert time.monotonic() - started < args.timeout, 'Install the ready update from the old Main UI'
                 time.sleep(.1)
             assert process.returncode == 0 and request is not None, 'Old Main closed without requesting installation'
-            assert request['pid'] == old_pid and request['application'] == 'HomeLibRu.exe'
+            assert request['pid'] == old_pid and request['application'] == initial_main
             assert request['tag'] == manifest['release'] and request['sha256'] == args.new_sha256
             assert Path(request['target']).resolve() == target
             expected_helper = report['installed_helper_source_sha256'] if component else next(
@@ -296,27 +337,37 @@ def main():
         restart_deadline = time.monotonic() + 30
         while True:
             running = [item for item in own_processes(target, environment)
-                       if Path(item['Path']) == target / 'HomeLibRu.exe']
+                       if Path(item['Path']) == target / restarted_main]
             if len(running) == 1:
                 break
             assert time.monotonic() < restart_deadline, 'Updated catalogue did not restart'
             time.sleep(.1)
         report['restarted_main_pid'] = running[0]['Id']
+        report['restarted_main_name'] = restarted_main
         print(json.dumps(dict(stage='inspect-restarted-catalogue', **report)), flush=True)
         started = time.monotonic()
         while own_processes(target, environment):
             assert time.monotonic() - started < args.timeout, 'Close the restarted test catalogue normally'
             time.sleep(1)
         for entry in manifest['files']:
-            path = target / entry['path']
+            installed = 'HomeLibre.exe' if entry['path'] == transport_executable else entry['path']
+            path = target / installed
             assert path.stat().st_size == entry['size'] and sha(path) == entry['sha256'], entry['path']
+        if canonical_payload:
+            assert not (target / transport_executable).exists()
         assert sha(protected) == protected_hash
         assert books(target / 'Data/one.hlc2') == before_books
         options = configparser.ConfigParser(interpolation=None, strict=False)
         options.read_string(ini.read_text('utf-8-sig'))
         assert options['UpdateProbe']['ProtectedValue'] == 'Preserve personal settings ё'
+        if args.catalogue_window_state:
+            report['saved_catalogue_geometry'] = {
+                key: options['INTERFACE'].get(key) for key in report['seeded_catalogue_geometry']}
+            assert options['INTERFACE']['WindowState'] == report['seeded_catalogue_geometry']['WindowState'], (
+                report['seeded_catalogue_geometry'], report['saved_catalogue_geometry'])
+            report['catalogue_window_state_preserved'] = True
         if component:
-            assert sha(target / 'HomeLibRu.exe') == old_main_hash
+            assert sha(target / initial_main) == old_main_hash
             assert all(sha(target / name) == digest for name, digest in profile_hashes.items())
             assert all(not (target / name).exists() for name in unrelated_paths)
             response = run_native('--component-needs-repair', target, component)
@@ -327,7 +378,7 @@ def main():
                 report['unrelated_modules_absent'] = list(unrelated_paths)
         report.update(status='PASS', managed_files_verified=len(manifest['files']),
             catalogue_books_preserved=len(before_books['rows']), personal_sentinel_preserved=True,
-            personal_settings_preserved=True, new_main_version=version(target / 'HomeLibRu.exe'))
+            personal_settings_preserved=True, new_main_version=version(target / restarted_main))
     except BaseException as error:
         report.update(status='FAIL', error=repr(error))
         raise
