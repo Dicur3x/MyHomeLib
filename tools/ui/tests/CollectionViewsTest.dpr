@@ -6251,6 +6251,7 @@ end;
 {$I SqlCatalogueRestartTests.inc}
 {$I BookCompressionCatalogueTests.inc}
 {$I PackageCoverTests.inc}
+{$I CataloguePlacementTests.inc}
 
 var
   One, Two, Online: IBookCollection;
@@ -6458,6 +6459,15 @@ begin
       if ParamStr(1) = 'startup-deferred-close' then
       begin TestDeferredStartupEarlyClose; Halt(0); end;
       Application.CreateForm(TfrmMain, frmMain);
+      if ParamStr(1)='catalogue-placement-shutdown' then
+      begin
+        TestCataloguePlacementShutdown;
+        FreeAndNil(dmImages); One:=nil; Two:=nil;
+        FreeAndNil(DMUser); FreeAndNil(frmSplash);
+        FinalizeMHLTheme;
+        Application.OnException:=nil; ExceptionHandler.Free;
+        Halt(0);
+      end;
       if ParamStr(1).StartsWith('startup-deferred') then CompleteDeferredStartup;
       if ParamStr(1)='selected-compression-ui' then
       begin

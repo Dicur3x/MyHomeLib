@@ -15,6 +15,7 @@ import ctypes
 from ctypes import wintypes
 import hashlib
 import json
+import msvcrt
 import os
 from pathlib import Path
 import shutil
@@ -29,6 +30,26 @@ from verify_update_archive import version
 
 def sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def read_live_settings(path):
+    # A diagnostic reader must not block the application's atomic INI replace.
+    # Python's ordinary file open does not grant FILE_SHARE_DELETE on Windows.
+    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+    kernel.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
+                                  wintypes.LPVOID, wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+    kernel.CreateFileW.restype = wintypes.HANDLE
+    kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+    handle = kernel.CreateFileW(str(path), 0x80000000, 7, None, 3, 0, None)
+    if handle == wintypes.HANDLE(-1).value:
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        descriptor = msvcrt.open_osfhandle(int(handle), os.O_RDONLY)
+    except BaseException:
+        kernel.CloseHandle(handle)
+        raise
+    with os.fdopen(descriptor, 'r', encoding='utf-8-sig') as stream:
+        return stream.read()
 
 
 def extract(archive, target):
@@ -108,6 +129,8 @@ def main():
     parser.add_argument('--notes-file', type=Path, help='Show the candidate release notes in the ready update window')
     parser.add_argument('--catalogue-window-state', choices=('normal', 'maximized'),
                         help='Seed a known private catalogue layout after native fixture setup')
+    parser.add_argument('--check-legacy-shortcut', action='store_true',
+                        help='Reopen the updated real catalogue through an unchanged pre-update Windows shortcut')
     args = parser.parse_args()
     assert not (args.candidate_client or args.trace_frontend or args.notes_file) or args.frontend
     require_free_catalogue_slot()
@@ -163,6 +186,7 @@ def main():
         local_temp.mkdir()
         frontend_environment = dict(environment, TEMP=str(local_temp), TMP=str(local_temp))
     process = None
+    probe_started = time.monotonic()
 
     def run_native(*parameters):
         result = subprocess.run([str(args.native.resolve()), *map(str, parameters)], cwd=root,
@@ -170,6 +194,19 @@ def main():
             creationflags=subprocess.CREATE_NO_WINDOW)
         assert result.returncode == 0, result.stdout + result.stderr
         return result.stdout.strip()
+
+    def record_geometry(phase):
+        if not args.catalogue_window_state:
+            return
+        options = configparser.ConfigParser(interpolation=None, strict=False)
+        try:
+            options.read_string(read_live_settings(ini))
+        except (OSError, configparser.Error):
+            return  # A normal settings commit can briefly replace the INI.
+        value = {key: options['INTERFACE'].get(key) for key in report['seeded_catalogue_geometry']}
+        history = report.setdefault('geometry_history', [])
+        if not history or history[-1]['value'] != value:
+            history.append(dict(phase=phase, elapsed_seconds=round(time.monotonic()-probe_started,3), value=value))
 
     try:
         target.mkdir()
@@ -180,6 +217,16 @@ def main():
         assert old_main['product'] == args.old_tag, old_main
         report['old_main_version'] = old_main
         old_main_hash = sha(target / initial_main)
+        shortcut = root / 'Old catalogue shortcut.lnk'
+        if args.check_legacy_shortcut:
+            shortcut_env = dict(environment, HOMELIBRE_TEST_SHORTCUT=str(shortcut))
+            result = subprocess.run(['powershell', '-NoProfile', '-Command',
+                "$ErrorActionPreference='Stop'; $link=(New-Object -ComObject WScript.Shell).CreateShortcut($env:HOMELIBRE_TEST_SHORTCUT); "
+                "$link.TargetPath=$env:HOMELIBRE_TEST_MAIN; $link.WorkingDirectory=[System.IO.Path]::GetDirectoryName($env:HOMELIBRE_TEST_MAIN); $link.Save()"],
+                env=shortcut_env, capture_output=True, timeout=30, creationflags=subprocess.CREATE_NO_WINDOW)
+            assert result.returncode == 0, result.stderr
+            assert initial_main == 'HomeLibRu.exe' and shortcut.is_file()
+            report['legacy_shortcut_sha256'] = sha(shortcut)
         old_helper = (target / 'HomeLibRuUpdater.exe').read_bytes()
         report['old_helper_sha256'] = hashlib.sha256(old_helper).hexdigest()
         report['old_helper_version'] = version(target / 'HomeLibRuUpdater.exe')
@@ -216,6 +263,7 @@ def main():
             with ini.open('w', encoding='utf-8') as stream:
                 options.write(stream)
             report['seeded_catalogue_geometry'] = geometry
+            record_geometry('fixture-ready')
         profile_hashes = {}
         unrelated_paths = ()
         if component:
@@ -292,6 +340,7 @@ def main():
             started = time.monotonic()
             path = job / 'request.json'
             while True:
+                record_geometry('published-client-running')
                 # The installer stages these files and can briefly hold an exclusive write handle.
                 if request is None:
                     try:
@@ -308,7 +357,8 @@ def main():
                     break
                 assert time.monotonic() - started < args.timeout, 'Install the ready update from the old Main UI'
                 time.sleep(.1)
-            assert process.returncode == 0 and request is not None, 'Old Main closed without requesting installation'
+            assert process.returncode == 0, f'Old Main did not finish normal shutdown (exit {process.returncode})'
+            assert request is not None, 'Old Main closed without requesting installation'
             assert request['pid'] == old_pid and request['application'] == initial_main
             assert request['tag'] == manifest['release'] and request['sha256'] == args.new_sha256
             assert Path(request['target']).resolve() == target
@@ -316,6 +366,7 @@ def main():
                 x['sha256'] for x in manifest['files'] if x['path'] == 'HomeLibRuUpdater.exe')
             assert report.get('launched_helper_sha256') == expected_helper
             report.update(published_main_exit=0, original_frontend_request_verified=True)
+            record_geometry('published-client-exited')
             deadline = time.monotonic() + 180
             while not (cache / 'result.txt').is_file():
                 assert time.monotonic() < deadline, 'Prepared helper has not reported installation'
@@ -344,11 +395,40 @@ def main():
             time.sleep(.1)
         report['restarted_main_pid'] = running[0]['Id']
         report['restarted_main_name'] = restarted_main
+        record_geometry('candidate-restarted')
         print(json.dumps(dict(stage='inspect-restarted-catalogue', **report)), flush=True)
         started = time.monotonic()
         while own_processes(target, environment):
             assert time.monotonic() - started < args.timeout, 'Close the restarted test catalogue normally'
             time.sleep(1)
+        if args.check_legacy_shortcut:
+            require_free_catalogue_slot()
+            assert sha(shortcut) == report['legacy_shortcut_sha256']
+            previous_local = os.environ.get('LOCALAPPDATA')
+            try:
+                os.environ['LOCALAPPDATA'] = environment['LOCALAPPDATA']
+                os.startfile(shortcut)
+            finally:
+                if previous_local is None:
+                    os.environ.pop('LOCALAPPDATA', None)
+                else:
+                    os.environ['LOCALAPPDATA'] = previous_local
+            deadline = time.monotonic() + 30
+            while True:
+                running = [item for item in own_processes(target, environment)
+                           if Path(item['Path']) == target / restarted_main]
+                if len(running) == 1:
+                    break
+                assert time.monotonic() < deadline, 'The old Windows shortcut did not open the updated catalogue'
+                time.sleep(.1)
+            report['legacy_shortcut_canonical_pid'] = running[0]['Id']
+            print(json.dumps(dict(stage='inspect-legacy-shortcut', **report)), flush=True)
+            started = time.monotonic()
+            while own_processes(target, environment):
+                assert time.monotonic() - started < args.timeout, 'Close the catalogue opened by the old shortcut normally'
+                time.sleep(1)
+            assert sha(shortcut) == report['legacy_shortcut_sha256']
+            report['legacy_shortcut_unchanged_and_working'] = True
         for entry in manifest['files']:
             installed = 'HomeLibre.exe' if entry['path'] == transport_executable else entry['path']
             path = target / installed
@@ -365,6 +445,9 @@ def main():
                 key: options['INTERFACE'].get(key) for key in report['seeded_catalogue_geometry']}
             assert options['INTERFACE']['WindowState'] == report['seeded_catalogue_geometry']['WindowState'], (
                 report['seeded_catalogue_geometry'], report['saved_catalogue_geometry'])
+            if args.catalogue_window_state == 'normal':
+                assert report['saved_catalogue_geometry'] == report['seeded_catalogue_geometry'], (
+                    report['seeded_catalogue_geometry'], report['saved_catalogue_geometry'])
             report['catalogue_window_state_preserved'] = True
         if component:
             assert sha(target / initial_main) == old_main_hash

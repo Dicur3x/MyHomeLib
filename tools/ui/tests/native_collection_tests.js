@@ -86,6 +86,7 @@ if (machine(path.join(runtime, "sqlite3.dll")) !== architecture) throw new Error
 let post530Fixtures;
 const modes = ["book-deletion", "sqlite-mapping", "reader-open-choice", "reader-host-session", "reader-session-context", "reader-cache-settings", "reader-packages", "reader-components", "minimal-first-install", "post530", "update-mounts", "reader-spread", "reader-scroll", "optional-components", "feedback529", "view-sessions", "startup-deferred", "startup-deferred-publisher", "startup-deferred-fallback", "startup-deferred-close", "reader-resource-idle", "post525-update", "update-repair", "reader-cache-performance", "compact-book-views", "release23-filters", "metadata-book-columns", "author-display-setting", "export-results-audit", "search-query-modes", "legacy-import-preview", "inp-streaming", "inp-streaming-memory", "reader-notes-proposals", "update-keyboard-accessibility", "update-source-failures", "reader-conversion-audit", "settings-workflow-audit", "catalog-audit", "export-preparation", "feedback22", "feedback21", "metadata-archive-codecs", "feedback20-main", "update-form-notifier", "book-preview-layout", "metadata-fill-layout", "metadata-fill-ui", "collection-metadata-sync", "metabib-size","reader-pipeline-cache","conversion-menu","publisher-metadata-index","main-toolbar-states", "main-publisher-index-cache", "feedback19-main","catalog-sources-workflow","search-startup-layout","queue-serialization","queue-persistence","queue-load-negative","queue-load-truncated","queue-load-zero","search-preset-transfer","external-reader-names","metadata-prefix-bounds","ordinary-book-export-identity","atomic-ini","group-book-identity","reader-copy-identity","favorite-ui","update-outcomes","system-remap","favorite-columns","author-favorites","favorite-dao","publisher-search","publisher-columns","filter-captions","deleted-filter","cache-presets","search-presets","builtin-export","series-stream","fbd-editor-save","update-theme","bulk-writes","query-batch","oct11-ui","merge-scale","audit-new","persistent-cache","feedback14","book-preview","large-inpx","genre-order", "", "language-isolation", "favorites-add", "genre-link", "source-genres", "publisher-selection", "adjacent-series", "publisher-startup", "publisher-links", "publisher-error-log", "reader-compatibility", "builtin-reader", "loose-archive", "book-gallery", "book-information", "book-information-external", "column-filters", "list-performance", "collection-merge", "catalog-sources", "read-folder-cleanup", "temp-exit-cleanup", "program-update-ui", "first-run", "first-run-cancel"];
 modes.push('book-deletion-space');
+modes.push('catalogue-placement-shutdown');
 modes.push('statistics-theme', 'catalogue-palettes', 'catalogue-source-index');
 modes.push('reader-following-comic','favorite-book-menu','reader-catalogue-recent','reader-catalogue-volume','catalogue-description','flibrary-real-deletion','book-deletion-lifecycle','book-deletion-filtered','selector-book-deletion','grouped-book-deletion','book-deletion-batch','local-book-import','fb2-encoding','archive-member-engines','archive-deletion-owner','book-deletion-preparation','book-deletion-identity','zip-member-deletion','flibrary-deletion','reader-small-fb2', 'reader-session-process', 'book-preview-adaptive', 'book-preview-reviews', 'review-preview-http', 'review-http', 'review-deadline', 'compact-search-filters');
 modes.push('update-manual-reopen','feedback529-series');
@@ -336,6 +337,7 @@ function filterCaptionPasses(subcase) {
     `PASS annotation caption complete theme=${dark}`];
 }
 function requiredPasses(executable, mode) {
+  if (mode==='catalogue-placement-shutdown') return ['PASS maximized catalogue placement survives actual shutdown order'];
   if (mode === 'reading-progress-column') return ['PASS reading progress from catalogue and group sorts numerically and restores optional column', ...[96,144,192].map(dpi => `PASS compact reading progress fits 100% and reloads at DPI ${dpi}`)];
   if (mode==='flibrary-source-preparation' || mode==='packed-pdf-preparation' || mode==='packed-usr-zip') return requiredViews[mode];
   if (mode==='distribution-layout') return requiredViews[mode];
@@ -1240,6 +1242,10 @@ with zipfile.ZipFile(sys.argv[2]+'/reader-spread.epub','w') as z:
 // Native geometry assertions and explicit speed budgets remain unchanged.
 // No subcase marker is optional: all fourteen are required by the default suite.
 function runView(mode) {
+  if (mode==='catalogue-placement-shutdown') {
+    for (const order of ['native-order','finalize-first']) run(tests[2],mode,order);
+    return;
+  }
   if (mode==='save-module-restart') {
     if(process.argv.includes('--sql-module-restart')) return run(tests[2],mode,'sql');
     if(process.argv.includes('--save-kindle-restart')) return run(tests[2],mode,'kindle');
