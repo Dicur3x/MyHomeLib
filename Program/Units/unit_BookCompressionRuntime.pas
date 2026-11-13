@@ -44,11 +44,11 @@ begin
     (Comparison<0) or not FileExists(Options.Script) or
     not FileExists(TPath.Combine(AppPath,'tools/bookconvert/archive_replacement.py')) then
     if not MatchText('BookProcessing',Result) then Result:=Result+['BookProcessing'];
-  if Options.Grayscale and (Packing.ImageProfile=pipOriginal) then
+  if Options.Grayscale or (Packing.ImageProfile<>pipOriginal) then
   begin
     Version:=InstalledComponentVersion(AppPath,'ImageProcessing');
     if (ComponentNeedsRepair(AppPath,'ImageProcessing') or
-      not CompareComponentVersions(Version,PACKING_COMPONENT_VERSION,Comparison) or (Comparison<0)) and
+      not CompareComponentVersions(Version,SELECTED_COMPRESSION_IMAGE_VERSION,Comparison) or (Comparison<0)) and
       not MatchText('ImageProcessing',Result) then Result:=Result+['ImageProcessing'];
   end;
 end;

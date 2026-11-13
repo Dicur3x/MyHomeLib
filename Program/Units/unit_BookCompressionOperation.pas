@@ -40,7 +40,7 @@ type
     FReviewRemaining, FRecovery: Boolean;
     FState: TBookCompressionOperationStatus;
     FCompleted: TObjectList<TBookCompressionJob>;
-    FWork, FCancelFile, FLastError: string;
+    FWork, FCancelFile, FLastError, FEngineSHA256: string;
     FCancelStarted: UInt64;
     FWorkGuard: THandle;
     function Stopping: Boolean;
@@ -51,6 +51,7 @@ type
     function CancelProducer: Boolean;
     procedure CreateWork;
     procedure CleanWork;
+    function EngineFingerprint: string;
     function Review(Estimate: Boolean = False): Boolean;
     procedure EstimateFile(FilePlan: TCompressionFilePlan);
     procedure RunFile(FilePlan: TCompressionFilePlan);
@@ -74,8 +75,8 @@ function CompressionQueueRoot(const Options: TBookCompressionOperationOptions): 
 
 implementation
 
-uses Winapi.Windows, System.IOUtils, System.JSON, System.StrUtils, unit_AtomicIniFile,
-  unit_MHLExternalTools, unit_ZipMemberDeletion, unit_BookCompressionBackup;
+uses Winapi.Windows, System.IOUtils, System.JSON, System.StrUtils, System.Hash, unit_AtomicIniFile,
+  unit_MHLExternalTools, unit_ZipMemberDeletion, unit_BookCompressionBackup, unit_BookCompressionReceipt;
 
 const WorkMarker='HomeLibre selected compression work v1';
 
@@ -412,11 +413,78 @@ begin
   finally CleanWork; end;
 end;
 
+function TBookCompressionOperation.EngineFingerprint: string;
+var Hash: THashSHA2;
+  procedure Add(const Tag, FileName: string);
+  var Digest: string;
+  begin
+    CheckStop; Digest:='missing';
+    if FileExists(FileName) then Digest:=THashSHA2.GetHashStringFromFile(FileName);
+    Hash.Update(TEncoding.UTF8.GetBytes(Tag+#0+Digest+#10));
+  end;
+begin
+  if FEngineSHA256<>'' then Exit(FEngineSHA256);
+  Hash:=THashSHA2.Create;
+  Add('worker',FOptions.Script); Add('archive-engine',FOptions.SevenZip);
+  for var Name in ['convert_book.py','pack_collection.py','image_quality.py','MODULAR_RUNTIME.json'] do
+    Add('bookconvert/'+Name,TPath.Combine(FOptions.ToolsRoot,'bookconvert/'+Name));
+  Add('image-engine',TPath.Combine(FOptions.ToolsRoot,'images/HomeLibImages.exe'));
+  Add('image-config',TPath.Combine(FOptions.ToolsRoot,'images/HomeLibImages.exe.config'));
+  for var Folder in ['images','pdfium','djvu','jpegxl','kindle'] do
+    for var Name in ['RUNTIME.json','COMPONENT.json','MODULAR_RUNTIME.json'] do
+      Add(Folder+'/'+Name,TPath.Combine(FOptions.ToolsRoot,Folder+'/'+Name));
+  FEngineSHA256:=Hash.HashAsString; Result:=FEngineSHA256;
+end;
+
 procedure TBookCompressionOperation.RunFile(FilePlan:TCompressionFilePlan);
 var Request, Report, Receipt, Expected:TJSONObject; Output:TCompressionEventStream;
     Job:TBookCompressionJob; Candidate, ReportFile:string; KeepWork:Boolean;
     InputBytes, OutputBytes:Int64;
     Backup:TCompressionOriginalBackup; BackupJSON:string;
+  procedure BindReceipt;
+  var Choice:TJSONObject;
+  begin
+    Expected:=TJSONObject.ParseJSONValue(FilePlan.ReceiptTemplate) as TJSONObject;
+    try
+      for var Pair in Expected do
+      begin
+        var Captured:=Receipt.GetValue(Pair.JsonString.Value);
+        if (Captured=nil) or (Captured.ToJSON<>Pair.JsonValue.ToJSON) then
+          raise EReadError.Create('Обработчик изменил привязку выбранной книги. Исходный файл сохранён.');
+      end;
+    finally Expected.Free; end;
+    if Receipt.GetValue('compression_options')<>nil then
+      raise EReadError.Create('Обработчик вернул посторонние настройки сжатия.');
+    Choice:=TJSONObject.Create;
+    Choice.AddPair('version',TJSONNumber.Create(1));
+    Choice.AddPair('profile',FOptions.Profile);
+    Choice.AddPair('grayscale',TJSONBool.Create(FOptions.Grayscale));
+    Choice.AddPair('source_identity',FilePlan.SourceIdentity);
+    Choice.AddPair('engine_sha256',EngineFingerprint);
+    Receipt.AddPair('compression_options',Choice);
+  end;
+  procedure WarnIncompleteBooks;
+  var Count: Integer; Details, Name, Reason: string;
+  begin
+    if not (Report.GetValue('books') is TJSONArray) then Exit;
+    Count:=0; Details:='';
+    for var Value in Report.GetValue<TJSONArray>('books') do
+      if (Value is TJSONObject) and not Value.GetValue<Boolean>('checked',True) then
+      begin
+        Inc(Count);
+        if Count>8 then Continue;
+        Name:=Value.GetValue<string>('member','');
+        if Name='' then Name:=ExtractFileName(FilePlan.Source);
+        Reason:=Value.GetValue<string>('reason','Обработка не завершена.');
+        Details:=Details+sLineBreak+Copy(Name,1,160)+': '+Copy(Reason,1,240);
+      end;
+    if Count>0 then
+    begin
+      if Count>8 then Details:=Details+sLineBreak+'Ещё книг: '+IntToStr(Count-8)+'.';
+      Warn('Не удалось обработать иллюстрации в '+IntToStr(Count)+
+        ' книгах. Их содержимое сохранено. Повторите сжатие после устранения причины.'+Details);
+    end;
+  end;
 begin
   CheckStop; Job:=nil; Backup:=nil; KeepWork:=False;
   TMonitor.Enter(FLock);
@@ -426,6 +494,15 @@ begin
     FState.PreviewFile:=''; FState.PreviewSHA256:=''; FState.ImageChanges:=0;
   finally TMonitor.Exit(FLock); end;
   try
+    SetStage('Проверяем ранее обработанный файл');
+    if FilePlan.AlreadyChecked(FOptions.Profile,FOptions.Grayscale,EngineFingerprint,Stopping,
+      procedure(Done,Total:Int64) begin SetStage('Проверяем ранее обработанный файл',Done,Total); end) then
+    begin
+      SetStage('Уже проверено с этими настройками. Файл не изменился.');
+      TMonitor.Enter(FLock);
+      try Inc(FState.UnchangedFiles); finally TMonitor.Exit(FLock); end;
+      Exit;
+    end;
     CreateWork;
     ReportFile:=TPath.Combine(FWork,'report.json');
     Request:=FilePlan.CreateRequest(TPath.Combine(FWork,'payload'),ReportFile,
@@ -470,12 +547,17 @@ begin
           FState.PreviewSHA256:=Preview.GetValue<string>('sha256','');
         end;
       finally TMonitor.Exit(FLock); end;
+      WarnIncompleteBooks;
       Candidate:='';
       if Report.GetValue('candidate') is TJSONString then Candidate:=Report.GetValue<string>('candidate');
       if Candidate='' then
       begin
         if OutputBytes<>InputBytes then
           raise EReadError.Create('В отчёте указан выигрыш, но нет подготовленного файла.');
+        Receipt:=Report.GetValue<TJSONObject>('inspection_receipt'); BindReceipt;
+        SetStage('Запоминаем проверенные книги');
+        var Inspection:=TBookCompressionReceipt.Create(Receipt.ToJSON);
+        try Inspection.RecordInspection(Stopping); finally Inspection.Free; end;
         TMonitor.Enter(FLock);
         try Inc(FState.UnchangedFiles); finally TMonitor.Exit(FLock); end;
         Exit;
@@ -484,15 +566,7 @@ begin
         not MatchText(ExtractFileName(Candidate),['prepared-book.bin','prepared-archive.bin']) or
         (OutputBytes>=InputBytes) then raise EReadError.Create('Неверный путь подготовленного файла сжатия.');
       Receipt:=Report.GetValue<TJSONObject>('receipt');
-      Expected:=TJSONObject.ParseJSONValue(FilePlan.ReceiptTemplate) as TJSONObject;
-      try
-        for var Pair in Expected do
-        begin
-          var Captured:=Receipt.GetValue(Pair.JsonString.Value);
-          if (Captured=nil) or (Captured.ToJSON<>Pair.JsonValue.ToJSON) then
-            raise EReadError.Create('Обработчик изменил привязку выбранной книги. Исходный файл сохранён.');
-        end;
-      finally Expected.Free; end;
+      BindReceipt;
       if not Review then
       begin
         TMonitor.Enter(FLock);

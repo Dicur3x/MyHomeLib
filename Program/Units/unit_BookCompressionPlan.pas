@@ -39,6 +39,8 @@ type
     constructor Create(const Source: string; Template: TJSONObject);
     destructor Destroy; override;
     procedure CheckSource;
+    function AlreadyChecked(const Profile: string; Grayscale: Boolean; const EngineSHA256: string;
+      const Cancelled: TFunc<Boolean> = nil; const Progress: TProc<Int64,Int64> = nil): Boolean;
     function CreateRequest(const Workspace, ReportFile, SevenZip, ToolsRoot,
       Profile: string; Grayscale: Boolean): TJSONObject;
     function ReceiptTemplate: string;
@@ -46,6 +48,7 @@ type
     function RowCount: Integer;
     property Source: string read FSource;
     property FileKey: string read FFileKey;
+    property SourceIdentity: string read FSourceIdentity;
   end;
 
   // Captures all matching main/personal/copy rows in one read-only scan.
@@ -84,7 +87,7 @@ type
 
 implementation
 
-uses System.IOUtils, System.Classes, unit_BookCompressionReceipt,
+uses System.IOUtils, System.Classes, System.Hash, unit_BookCompressionReceipt,
   unit_ZipMemberDeletion;
 
 function TCompressionLocator.SameBook(const Other: TCompressionLocator): Boolean;
@@ -132,6 +135,56 @@ procedure TCompressionFilePlan.CheckSource;
 begin
   if ArchiveDeletionSourceIdentity(FSource)<>FSourceIdentity then
     raise EReadError.Create('Файл книги изменился после выбора. Начните сжатие заново: '+FSource);
+end;
+
+function TCompressionFilePlan.AlreadyChecked(const Profile: string; Grayscale: Boolean; const EngineSHA256: string;
+  const Cancelled: TFunc<Boolean>; const Progress: TProc<Int64,Int64>): Boolean;
+var DB: TSQLiteDatabase; Query: TSQLiteQuery; Source: TFileStream;
+    Expected: string; Hash: THashSHA2; Bytes: TBytes; Count: Integer;
+begin
+  Result:=False; CheckSource;
+  if CompressionFileKey(FTemplate.GetValue<string>('catalogue'))<>
+    FTemplate.GetValue<string>('catalogue_key') then
+    raise EReadError.Create('Каталог изменился после выбора книг. Повторите сжатие.');
+  DB:=TSQLiteDatabase.CreateReadOnly(FTemplate.GetValue<string>('catalogue'));
+  try
+    if DB.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE type=''table'' AND '+
+      'name=''HomeLibreCompressionChecks''')=0 then Exit;
+    Expected:='';
+    for var Pair in FMembers do
+    begin
+      if Assigned(Cancelled) and Cancelled() then Abort;
+      Query:=DB.NewQuery('SELECT SourceIdentity,SourceSHA256 FROM HomeLibreCompressionChecks '+
+        'WHERE FileKey=? AND Member=? AND Profile=? AND Grayscale=? AND EngineSHA256=?',
+        [UpperCase(FFileKey),Pair.JsonString.Value,LowerCase(Profile),Ord(Grayscale),EngineSHA256]);
+      try
+        Query.Open;
+        // Size/key changes cannot be a hit. Timestamp-only changes still use
+        // the checksum below, which can prove that no payload changed.
+        if Query.Eof or (Copy(Query.FieldAsString(0),1,43)<>Copy(FSourceIdentity,1,43)) then Exit;
+        if Expected='' then Expected:=Query.FieldAsString(1)
+        else if Expected<>Query.FieldAsString(1) then Exit;
+      finally Query.Free; end;
+    end;
+  finally DB.Free; end;
+  if (FMembers.Count=0) or (Length(Expected)<>64) then Exit;
+  // A restored timestamp or same-sized changed archive must not yield a hit.
+  // This reads packed bytes only, without extraction, re-encoding or writes.
+  Source:=TFileStream.Create(DeletionNativePath(FSource),fmOpenRead or fmShareDenyWrite);
+  try
+    CheckSource; Hash:=THashSHA2.Create; SetLength(Bytes,1024*1024);
+    repeat
+      if Assigned(Cancelled) and Cancelled() then Abort;
+      Count:=Source.Read(Bytes[0],Length(Bytes));
+      if Count>0 then Hash.Update(Bytes[0],Count);
+      if Assigned(Progress) then Progress(Source.Position,Source.Size);
+    until Count=0;
+    CheckSource;
+    if CompressionFileKey(FTemplate.GetValue<string>('catalogue'))<>
+      FTemplate.GetValue<string>('catalogue_key') then
+      raise EReadError.Create('Каталог изменился после выбора книг. Повторите сжатие.');
+    Result:=SameText(Hash.HashAsString,Expected);
+  finally Source.Free; end;
 end;
 
 procedure TCompressionFilePlan.AddMember(const Member, Extension: string);
@@ -239,6 +292,17 @@ begin
     raise EAbort.Create('Сжатие остановлено. Исходные книги не изменены.');
 end;
 
+function CompressionLedgerSQL(DB:TSQLiteDatabase):string;
+begin
+  if DB.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE type=''table'' AND '+
+    'name=''HomeLibreCompressionOutcomes''')<>0 then
+    Result:='SELECT h.Member,h.ProfileSHA256,h.OutputSHA256,coalesce(o.RetryOriginal,0) '+
+      'FROM HomeLibreBookCompression h LEFT JOIN HomeLibreCompressionOutcomes o ON '+
+      'o.FileKey=h.FileKey AND o.Member=h.Member AND o.ProfileSHA256=h.ProfileSHA256 '+
+      'AND o.OutputSHA256=h.OutputSHA256 WHERE h.FileKey=?'
+  else Result:='SELECT Member,ProfileSHA256,OutputSHA256,0 FROM HomeLibreBookCompression WHERE FileKey=?';
+end;
+
 procedure TBookCompressionPlan.CompleteFile(FilePlan:TCompressionFilePlan);
 var Catalogue:TSQLiteDatabase; Query:TSQLiteQuery;
 begin
@@ -247,7 +311,7 @@ begin
   Catalogue:=TSQLiteDatabase.CreateReadOnly(FOptions.Catalogue);
   try
     if Catalogue.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE type=''table'' AND name=''HomeLibreBookCompression''')=0 then Exit;
-    Query:=Catalogue.NewQuery('SELECT Member,ProfileSHA256,OutputSHA256 FROM HomeLibreBookCompression WHERE FileKey=?',
+    Query:=Catalogue.NewQuery(CompressionLedgerSQL(Catalogue),
       [FilePlan.FileKey]);
     try
       Query.Open;
@@ -257,6 +321,7 @@ begin
         var Previous:=TJSONObject.Create;
         Previous.AddPair('profile_sha256',Query.FieldAsString(1));
         Previous.AddPair('output_sha256',Query.FieldAsString(2));
+        Previous.AddPair('retry_original',TJSONBool.Create(Query.FieldAsInt(3)<>0));
         FilePlan.FPrevious.AddPair(Query.FieldAsString(0),Previous);
         Query.Next;
       end;
@@ -391,7 +456,7 @@ begin
       if FilePlan.RowCount=0 then raise EReadError.Create('В каталоге не осталось выбранных книг.');
       if Catalogue.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE type=''table'' AND name=''HomeLibreBookCompression''')<>0 then
       begin
-        Query:=Catalogue.NewQuery('SELECT Member,ProfileSHA256,OutputSHA256 FROM HomeLibreBookCompression WHERE FileKey=?',
+        Query:=Catalogue.NewQuery(CompressionLedgerSQL(Catalogue),
           [FilePlan.FileKey]);
         Query.Open;
         while not Query.Eof do
@@ -399,6 +464,7 @@ begin
           var Previous:=TJSONObject.Create;
           Previous.AddPair('profile_sha256',Query.FieldAsString(1));
           Previous.AddPair('output_sha256',Query.FieldAsString(2));
+          Previous.AddPair('retry_original',TJSONBool.Create(Query.FieldAsInt(3)<>0));
           FilePlan.FPrevious.AddPair(Query.FieldAsString(0),Previous);
           Query.Next;
         end;

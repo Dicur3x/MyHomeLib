@@ -4,7 +4,7 @@
 
 uses System.SysUtils, System.Classes, System.IOUtils, System.JSON, System.Hash,
   Winapi.Windows, unit_BookCompressionPlan, unit_BookCompressionOperation,
-  unit_BookCompressionJob, unit_CollectionPacking, unit_Globals, unit_Settings, dm_user;
+  unit_BookCompressionJob, unit_BookCompressionRuntime, unit_CollectionPacking, unit_Globals, unit_Settings, dm_user;
 
 function Text(Obj:TJSONObject; const Name:string):string;
 begin Result:=Obj.GetValue<string>(Name,''); end;
@@ -54,6 +54,17 @@ begin
       if (TimeLimit<1000) or (TimeLimit>300000) then
         raise EArgumentException.Create('Invalid bounded operation test timeout');
       ConfigureMHLHostProfile(TPath.GetDirectoryName(ParamStr(1)),'operation-test.ini','operation-test.dbs2');
+      if Mode='resolve-tools' then
+      begin
+        Output:=TJSONObject.Create;
+        try
+          var Missing:=TJSONArray.Create;
+          for var ID in ResolveSelectedCompressionTools(Text(Data,'app_path'),Options) do Missing.Add(ID);
+          Output.AddPair('missing',Missing);
+          TFile.WriteAllText(ParamStr(2),Output.ToJSON,TEncoding.UTF8);
+        finally Output.Free; end;
+        Exit;
+      end;
       DMUser:=TDMUser.Create(nil);
       try
         if Mode='recover' then Operation:=TBookCompressionOperation.Recover(Options)

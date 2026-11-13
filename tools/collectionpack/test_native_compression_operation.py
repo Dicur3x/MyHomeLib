@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+from supervised_test_process import run_owned
 import unittest
 import zipfile
 
@@ -41,14 +42,15 @@ class NativeCompressionOperationTests(unittest.TestCase):
     def tearDown(self):
         self.fixture.tearDown()
 
-    def run_operation(self):
+    def run_operation(self, allow_warning=False):
         self.result.unlink(missing_ok=True)
         self.request.write_text(json.dumps(self.config, ensure_ascii=False), encoding='utf-8')
-        process = subprocess.run([str(OPERATOR), str(self.request), str(self.result)], capture_output=True,
+        process = run_owned([str(OPERATOR), str(self.request), str(self.result)], capture_output=True,
                                  encoding='utf-8', errors='strict', timeout=45)
         self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
         result = json.loads(self.result.read_text(encoding='utf-8-sig'))
-        self.assertEqual(result.get('warning', ''), '', result)
+        if not allow_warning:
+            self.assertEqual(result.get('warning', ''), '', result)
         self.assertFalse(list(Path(self.config['work_root']).glob('prepare-*')), result)
         return result
 
@@ -79,6 +81,50 @@ class NativeCompressionOperationTests(unittest.TestCase):
         self.assertFalse(result['stopping'])
         self.assertEqual((result['books_done'], result['books_total']), (1, 1))
         self.assertEqual(result['saved_bytes'], before_size - self.fixture.source.stat().st_size)
+
+    def test_new_compression_requests_current_images_only_when_the_choice_uses_images(self):
+        from validate_catalogue_compression import descriptor
+        app = self.root / 'module-probe'
+        images = app / 'tools/images'
+        images.parent.mkdir(parents=True)
+        shutil.copytree(self.tools / 'images', images)
+        platform = json.loads((images / 'RUNTIME.json').read_text(encoding='utf-8-sig'))['platform']
+        required = ['tools/images/HomeLibImages.exe', 'tools/images/RUNTIME.json', 'tools/images/HomeLibImages-MIT.txt']
+        self.config.update(app_path=str(app), operation_mode='resolve-tools')
+
+        def probe(version, profile, gray):
+            descriptor(app, platform, 'ImageProcessing', version, 'tools/images/COMPONENT.json', required)
+            self.config.update(profile=profile, grayscale=gray)
+            self.request.write_text(json.dumps(self.config), encoding='utf-8')
+            process = run_owned([str(OPERATOR), str(self.request), str(self.result)],
+                                capture_output=True, encoding='utf-8', timeout=30)
+            self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
+            return json.loads(self.result.read_text(encoding='utf-8-sig'))['missing']
+
+        self.assertIn('ImageProcessing', probe('3.0.0.8', 'balanced', False))
+        self.assertIn('ImageProcessing', probe('3.0.0.8', 'original', True))
+        self.assertNotIn('ImageProcessing', probe('3.0.0.8', 'original', False))
+        self.assertNotIn('ImageProcessing', probe('3.0.0.14', 'economy', False))
+        self.assertNotIn('ImageProcessing', probe('3.0.0.14', 'original', True))
+        (images / 'HomeLibImages.exe').unlink()
+        self.config.update(profile='balanced', grayscale=False)
+        self.request.write_text(json.dumps(self.config), encoding='utf-8')
+        process = run_owned([str(OPERATOR), str(self.request), str(self.result)],
+                            capture_output=True, encoding='utf-8', timeout=30)
+        self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
+        self.assertIn('ImageProcessing', json.loads(self.result.read_text(encoding='utf-8-sig'))['missing'])
+        self.unchanged()
+
+    def test_long_unicode_workspace_still_processes_images_and_commits(self):
+        work = self.root / 'Рабочая папка ё'
+        self.config['work_root'] = str(work)
+        image = work / 'prepare-{01234567-0123-0123-0123-012345678901}/payload/books/1/homelib-image-quality-01234567/images.zip'
+        self.assertGreater(len(str(image)), 260)
+        observed = self.observe_updated_engine()
+        result = self.run_operation()
+        if observed.is_file():
+            result['preparation_books'] = json.loads(observed.read_text(encoding='utf-8'))
+        self.assert_applied(result)
 
     def test_preview_does_not_change_original_before_approval(self):
         self.config['operation_mode'] = 'review-apply'
@@ -249,6 +295,214 @@ class NativeCompressionOperationTests(unittest.TestCase):
         self.assertEqual(result['pending_before_ack'], 0)
         self.assertEqual(source.read_bytes(), self.fixture.original_book)
 
+    def forbid_encoder(self):
+        # Keep the actual engine files unchanged: only a required subprocess
+        # would need this interpreter. A verified cache hit must not launch it.
+        self.config['python'] = str(self.root / 'interpreter-must-not-be-needed.exe')
+
+    def test_second_operation_checks_archive_without_repeating_preparation_or_database_writes(self):
+        self.assert_applied(self.run_operation())
+        before = {p: sha(p.read_bytes()) for p in self.before}
+        self.forbid_encoder()
+        result = self.run_operation()
+        self.assertEqual(result['error'], '', result)
+        self.assertEqual((result['changed_files'], result['unchanged_files'], result['pending_before_ack']), (0, 1, 0))
+        self.assertEqual({p: sha(p.read_bytes()) for p in before}, before)
+
+    def test_no_gain_is_remembered_but_original_and_personal_data_stay_byte_exact(self):
+        source = self.root / 'one.fb2'
+        source.write_bytes(self.fixture.original_book)
+        with database(self.fixture.catalogue) as db:
+            db.execute("UPDATE Books SET Folder='' WHERE BookID=101")
+        self.config['selected'][0]['folder'] = ''
+        self.config['grayscale'] = False
+        rows_before = self.fixture.snapshot(self.fixture.catalogue)
+        personal_before = sha(self.fixture.personal.read_bytes())
+        result = self.run_operation()
+        self.assertEqual(result['error'], '', result)
+        self.assertEqual(result['unchanged_files'], 1)
+        self.assertEqual(source.read_bytes(), self.fixture.original_book)
+        self.assertEqual(sha(self.fixture.personal.read_bytes()), personal_before)
+        self.assertEqual(self.fixture.snapshot(self.fixture.catalogue), rows_before)
+        with database(self.fixture.catalogue) as db:
+            self.assertEqual(db.execute('SELECT Member,Profile,Grayscale,PayloadSHA256 FROM HomeLibreCompressionChecks').fetchall(),
+                             [('', 'original', 0, sha(self.fixture.original_book))])
+        before = {p: sha(p.read_bytes()) for p in (source, self.fixture.catalogue, self.fixture.personal)}
+        self.forbid_encoder()
+        again = self.run_operation()
+        self.assertEqual(again['error'], '', again)
+        self.assertEqual(again['unchanged_files'], 1)
+        self.assertEqual({p: sha(p.read_bytes()) for p in before}, before)
+
+    def test_temporary_image_failure_is_not_cached_as_a_completed_inspection(self):
+        source = self.root / 'one.fb2'
+        source.write_bytes(self.fixture.original_book)
+        with database(self.fixture.catalogue) as db:
+            db.execute("UPDATE Books SET Folder='' WHERE BookID=101")
+        self.config['selected'][0]['folder'] = ''
+        allowed = self.root / 'decode-is-available'
+        worker = self.root / 'temporarily-unavailable-images.py'
+        worker.write_text('import runpy,sys\nfrom pathlib import Path\n'
+            'engine=runpy.run_path(' + repr(self.config['script']) + ',run_name="test_worker")\n'
+            'if not Path(' + repr(str(allowed)) + ').exists():\n'
+            ' def unavailable(self,*args,**kwargs): raise engine["PackingError"]("temporary image failure")\n'
+            ' engine["Packer"].optimize_book=unavailable\n'
+            'raise SystemExit(engine["main"]())\n', encoding='utf-8')
+        self.config['script'] = str(worker)
+        before = {p: sha(p.read_bytes()) for p in (source, self.fixture.personal)}
+        first = self.run_operation(allow_warning=True)
+        self.assertEqual(first['error'], '', first)
+        self.assertEqual((first['changed_files'], first['unchanged_files']), (0, 1))
+        self.assertEqual({p: sha(p.read_bytes()) for p in before}, before)
+        with database(self.fixture.catalogue) as db:
+            self.assertEqual(db.execute('SELECT count(*) FROM HomeLibreCompressionChecks').fetchone()[0], 0)
+        self.assertIn('temporary image failure', first['warning'])
+        # Same source, settings and worker bytes: clearing a temporary problem
+        # must allow a real retry without an engine update or touching the book.
+        allowed.touch()
+        second = self.run_operation()
+        self.assertEqual(second['error'], '', second)
+        self.assertEqual((second['changed_files'], second['unchanged_files']), (1, 0))
+        self.assertLess(source.stat().st_size, len(self.fixture.original_book))
+
+    def test_shared_archive_commits_good_book_and_retries_only_failed_images(self):
+        from pack_collection import SevenZip
+        original = self.fixture.original_book
+        neighbor = original.replace(b'Same book text', b'Other book text')
+        with zipfile.ZipFile(self.fixture.source, 'w', zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr('one.fb2', original)
+            archive.writestr('neighbor.fb2', neighbor)
+        with database(self.fixture.catalogue) as db:
+            db.execute('UPDATE Books SET BookSize=? WHERE BookID=102', (len(neighbor),))
+        self.config['selected'].append(dict(self.config['selected'][0], id=102, lib_id='flibusta:102',
+            file_name='neighbor', inside_no=1, old_size=len(neighbor), member='neighbor.fb2'))
+        allowed = self.root / 'decode-is-available'
+        worker = self.root / 'partially-unavailable-images.py'
+        worker.write_text('import runpy,sys\nfrom pathlib import Path\n'
+            'engine=runpy.run_path(' + repr(self.config['script']) + ',run_name="test_worker")\n'
+            'original=engine["Packer"].optimize_book\n'
+            'def optimize(self,target,*args,**kwargs):\n'
+            ' if b"Same book text" in target.read_bytes() and not Path(' + repr(str(allowed)) + ').exists():\n'
+            '  raise engine["PackingError"]("temporary image failure")\n'
+            ' return original(self,target,*args,**kwargs)\n'
+            'engine["Packer"].optimize_book=optimize\n'
+            'raise SystemExit(engine["main"]())\n', encoding='utf-8')
+        self.config['script'] = str(worker)
+        decoder = SevenZip(self.config['seven_zip'], lambda: None)
+        def read_book(member):
+            # The real writer may select ZIP/PPMd; Python's zipfile cannot
+            # decode that valid method. Verify with the official 7-Zip codec.
+            output = self.root / ('verified-' + member)
+            output.unlink(missing_ok=True)
+            decoder.extract(self.fixture.source, member, output, self.root)
+            return output.read_bytes()
+        first = self.run_operation(allow_warning=True)
+        self.assertEqual(first['error'], '', first)
+        self.assertEqual(first['changed_files'], 1)
+        self.assertIn('one.fb2: temporary image failure', first['warning'])
+        self.assertEqual(read_book('one.fb2'), original)
+        kept_neighbor = read_book('neighbor.fb2')
+        self.assertLess(len(kept_neighbor), len(neighbor))
+        with database(self.fixture.catalogue) as db:
+            self.assertEqual(db.execute('SELECT Member FROM HomeLibreCompressionChecks').fetchall(), [('neighbor.fb2',)])
+        allowed.touch()
+        second = self.run_operation()
+        self.assertEqual(second['error'], '', second)
+        self.assertEqual(second['changed_files'], 1)
+        self.assertLess(len(read_book('one.fb2')), len(original))
+        self.assertEqual(read_book('neighbor.fb2'), kept_neighbor)
+        with database(self.fixture.catalogue) as db:
+            self.assertEqual(db.execute('SELECT Member FROM HomeLibreCompressionChecks ORDER BY Member').fetchall(),
+                             [('neighbor.fb2',), ('one.fb2',)])
+
+    def test_changed_archive_with_restored_timestamp_and_same_size_is_not_skipped(self):
+        self.assert_applied(self.run_operation())
+        source = self.fixture.source
+        stamp = source.stat()
+        before = sha(source.read_bytes())
+        with zipfile.ZipFile(source, 'a') as archive:
+            archive.comment = b'X' * len(archive.comment)
+        os.utime(source, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
+        self.assertEqual((source.stat().st_ino, source.stat().st_size, source.stat().st_mtime_ns),
+                         (stamp.st_ino, stamp.st_size, stamp.st_mtime_ns))
+        changed = sha(source.read_bytes())
+        self.assertNotEqual(changed, before)
+        self.forbid_encoder()
+        result = self.run_operation()
+        self.assertNotEqual(result['error'], '', result)
+        self.assertEqual(sha(source.read_bytes()), changed)
+
+    def test_timestamp_only_change_can_still_use_verified_packed_bytes(self):
+        self.assert_applied(self.run_operation())
+        source = self.fixture.source
+        stamp = source.stat()
+        os.utime(source, ns=(stamp.st_atime_ns, stamp.st_mtime_ns + 10_000_000_000))
+        self.forbid_encoder()
+        result = self.run_operation()
+        self.assertEqual(result['error'], '', result)
+        self.assertEqual(result['unchanged_files'], 1)
+
+    def test_changed_quality_or_new_selected_member_requires_preparation(self):
+        self.assert_applied(self.run_operation())
+        self.forbid_encoder()
+        self.config['grayscale'] = False
+        self.assertNotEqual(self.run_operation()['error'], '')
+        self.config['grayscale'] = True
+        self.config['selected'].append(dict(self.config['selected'][0], id=102, lib_id='flibusta:102',
+                                            file_name='neighbor', inside_no=1))
+        self.assertNotEqual(self.run_operation()['error'], '')
+
+    def test_updated_engine_does_not_reuse_a_previous_inspection(self):
+        self.assert_applied(self.run_operation())
+        worker = self.root / 'updated-worker.py'
+        worker.write_bytes(Path(self.config['script']).read_bytes() + b'\n# New engine revision\n')
+        self.config['script'] = str(worker)
+        self.forbid_encoder()
+        self.assertNotEqual(self.run_operation()['error'], '')
+
+    def observe_updated_engine(self):
+        # Change only the worker revision. Run the actual packaged preparation
+        # and record its reuse decisions before the operation cleans its work.
+        actual = self.config['script']
+        marker = self.root / 'updated-engine-books.json'
+        worker = self.root / 'updated-engine-observer.py'
+        worker.write_text(
+            'import json, pathlib, runpy, sys\n'
+            f'engine = runpy.run_path({actual!r}, run_name="compression_revision")\n'
+            'result = engine["main"]()\n'
+            'job = json.loads(pathlib.Path(sys.argv[sys.argv.index("--job") + 1]).read_text(encoding="utf-8-sig"))\n'
+            'report = json.loads(pathlib.Path(job["report"]).read_text(encoding="utf-8-sig"))\n'
+            f'pathlib.Path({str(marker)!r}).write_text(json.dumps(report["books"]), encoding="utf-8")\n'
+            'raise SystemExit(result)\n', encoding='utf-8')
+        self.config['script'] = str(worker)
+        return marker
+
+    def test_updated_engine_preserves_already_transformed_payload(self):
+        self.assert_applied(self.run_operation())
+        before = {p: sha(p.read_bytes()) for p in (self.fixture.source, self.fixture.personal)}
+        marker = self.observe_updated_engine()
+        result = self.run_operation()
+        self.assertEqual(result['error'], '', result)
+        self.assertEqual((result['changed_files'], result['unchanged_files']), (0, 1))
+        self.assertTrue(json.loads(marker.read_text(encoding='utf-8'))[0]['reused'])
+        self.assertEqual({p: sha(p.read_bytes()) for p in before}, before)
+
+    def test_updated_engine_rechecks_original_that_did_not_shrink(self):
+        source = self.root / 'one.fb2'
+        source.write_bytes(self.fixture.original_book)
+        with database(self.fixture.catalogue) as db:
+            db.execute("UPDATE Books SET Folder='' WHERE BookID=101")
+        self.config['selected'][0]['folder'] = ''
+        self.config['grayscale'] = False
+        self.assertEqual(self.run_operation()['unchanged_files'], 1)
+        before = {p: sha(p.read_bytes()) for p in (source, self.fixture.personal)}
+        marker = self.observe_updated_engine()
+        result = self.run_operation()
+        self.assertEqual(result['error'], '', result)
+        self.assertEqual((result['changed_files'], result['unchanged_files']), (0, 1))
+        self.assertFalse(json.loads(marker.read_text(encoding='utf-8'))[0]['reused'])
+        self.assertEqual({p: sha(p.read_bytes()) for p in before}, before)
+
     def test_two_archives_are_processed_in_one_operation_with_cumulative_savings(self):
         second = self.root / 'second.zip'
         shutil.copyfile(self.fixture.source, second)
@@ -352,7 +606,7 @@ class NativeCompressionOperationTests(unittest.TestCase):
     def test_invalid_work_root_destroys_an_unstarted_thread_safely(self):
         self.config['work_root'] = ''
         self.request.write_text(json.dumps(self.config), encoding='utf-8')
-        process = subprocess.run([str(OPERATOR), str(self.request), str(self.result)], capture_output=True,
+        process = run_owned([str(OPERATOR), str(self.request), str(self.result)], capture_output=True,
                                  encoding='utf-8', errors='strict', timeout=15)
         self.assertEqual(process.returncode, 1, process.stdout + process.stderr)
         self.assertIn('Нужна папка', process.stdout)

@@ -88,6 +88,61 @@ def canonical(path):
     return os.path.normcase(os.path.realpath(path))
 
 
+@contextmanager
+def process_working_directory(path):
+    """Use a temporary directory junction when CreateProcess cannot use cwd.
+
+    The alias contains no book copy. Its handle prevents replacement while the
+    child runs; cleanup removes only the junction itself, never its contents.
+    """
+    if path is None or os.name != 'nt' or len(os.path.abspath(path)) < 248:
+        yield path
+        return
+    import ctypes
+    from ctypes import wintypes
+    target = Path(path).resolve(strict=True)
+    parent = target
+    while len(str(parent)) > 160:
+        parent = parent.parent
+    alias = Path(tempfile.mkdtemp(prefix='HomeLibre-cwd-', dir=parent))
+    owned = alias.stat(follow_symlinks=False)
+    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+    create = kernel.CreateFileW
+    create.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID,
+                       wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+    create.restype = wintypes.HANDLE
+    control = kernel.DeviceIoControl
+    control.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.LPVOID, wintypes.DWORD,
+                        wintypes.LPVOID, wintypes.DWORD, ctypes.POINTER(wintypes.DWORD), wintypes.LPVOID]
+    control.restype = wintypes.BOOL
+    close = kernel.CloseHandle
+    close.argtypes, close.restype = [wintypes.HANDLE], wintypes.BOOL
+    handle = create(str(alias), 0x40000000, 3, None, 3, 0x02200000, None)
+    try:
+        if handle == wintypes.HANDLE(-1).value:
+            raise ctypes.WinError(ctypes.get_last_error())
+        value = str(target)
+        native = '\\??\\UNC\\' + value[2:] if value.startswith('\\\\') else '\\??\\' + value
+        substitute, display = native.encode('utf-16-le'), str(target).encode('utf-16-le')
+        paths = substitute + b'\0\0' + display + b'\0\0'
+        body = struct.pack('<HHHH', 0, len(substitute), len(substitute) + 2, len(display)) + paths
+        data = struct.pack('<IHH', 0xA0000003, len(body), 0) + body
+        buffer, returned = ctypes.create_string_buffer(data), wintypes.DWORD()
+        if not control(handle, 0x900A4, buffer, len(data), None, 0, ctypes.byref(returned), None):
+            raise ctypes.WinError(ctypes.get_last_error())
+        if alias.resolve(strict=True) != target:
+            raise PackingError('Временный путь архиватора не соответствует рабочей папке.')
+        yield str(alias)
+    finally:
+        if handle != wintypes.HANDLE(-1).value:
+            close(handle)
+        current = alias.stat(follow_symlinks=False)
+        if (current.st_dev, current.st_ino) != (owned.st_dev, owned.st_ino):
+            raise PackingError('Временный путь архиватора изменился; очистка остановлена.')
+        # os.rmdir on Windows deletes a junction, not the target directory.
+        os.rmdir(alias)
+
+
 def digest_file(path, check=lambda: None):
     digest = hashlib.sha256()
     with Path(path).open('rb') as stream:
@@ -208,9 +263,9 @@ class SevenZip:
             arguments.insert(1, '-sccUTF-8')
         # File-backed output is bounded and avoids pipe deadlock. Temporary
         # data lives on the selected destination drive, never in the C: cache.
-        with tempfile.TemporaryFile(dir=cwd) as log:
+        with tempfile.TemporaryFile(dir=cwd) as log, process_working_directory(cwd) as child_cwd:
             process = subprocess.Popen(
-                [str(self.executable), *arguments], cwd=cwd,
+                [str(self.executable), *arguments], cwd=child_cwd,
                 stdin=subprocess.DEVNULL, stdout=output if output is not None else log, stderr=log,
                 creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
             )
@@ -430,7 +485,7 @@ class JpegXL:
 
     def run(self, executable, arguments, directory, output, limit):
         self.check()
-        with subprocess.Popen([str(executable), *arguments], cwd=directory,
+        with process_working_directory(directory) as child_cwd, subprocess.Popen([str(executable), *arguments], cwd=child_cwd,
                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                               creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)) as process:
             started = time.monotonic()

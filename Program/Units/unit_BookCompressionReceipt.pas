@@ -18,6 +18,8 @@ type
     function ProcessRows(DB: TSQLiteDatabase; Personal, Commit: Boolean;
       RequireApplied: Boolean = False): Integer;
     procedure CheckEngine(Engine: TZipMemberDeletion);
+    procedure WriteHistory(DB: TSQLiteDatabase; PreserveKnownInput: Boolean = False);
+    procedure WriteChecks(DB: TSQLiteDatabase);
   public
     constructor Create(const JSON: string);
     destructor Destroy; override;
@@ -25,6 +27,7 @@ type
     function SHA256: string;
     procedure CheckBeforeWrite;
     procedure CheckApplied;
+    procedure RecordInspection(const Cancelled: TFunc<Boolean> = nil);
     function Apply(Engine: TZipMemberDeletion; const Fault: TProc<string> = nil): Integer;
   end;
 
@@ -172,6 +175,22 @@ begin
   if (JSONArray(FData,'rows').Count=0) or (JSONArray(FData,'rows').Count>MaxReceiptRows) or
     (JSONArray(FData,'payloads').Count=0) or (JSONArray(FData,'payloads').Count>MaxReceiptRows) then
     raise EReadError.Create('Неверное число книг в журнале сжатия.');
+  if FData.GetValue('compression_options')<>nil then
+  begin
+    if not (FData.GetValue('compression_options') is TJSONObject) then
+      raise EReadError.Create('Неверные настройки проверки сжатия.');
+    var Options:=TJSONObject(FData.GetValue('compression_options'));
+    var Profile:=JSONText(Options,'profile');
+    var Identity:=JSONText(Options,'source_identity');
+    JSONBool(Options,'grayscale');
+    if (JSONNumber(Options,'version')<>1) or
+      not HexString(JSONText(Options,'engine_sha256'),64) or
+      not ((Profile='original') or (Profile='balanced') or (Profile='economy') or (Profile='maximum')) or
+      (Length(Identity)<>59) or (Copy(Identity,1,25)<>Text('source_file_key')) or
+      (Identity[26]<>':') or (Identity[43]<>':') or
+      not HexString(Copy(Identity,27,16),16) or not HexString(Copy(Identity,44,16),16) then
+      raise EReadError.Create('Неверные настройки или исходный файл проверки сжатия.');
+  end;
   Seen:=TDictionary<string,Byte>.Create;
   try
     for var Value in JSONArray(FData,'payloads') do
@@ -185,6 +204,8 @@ begin
         raise EReadError.Create('Результаты сжатия книги неполны или повторяются.');
       Seen.Add(Key,0);
       FPayloads.Add(Key,Item);
+      if Item.GetValue('retry_original')<>nil then JSONBool(Item,'retry_original');
+      if Item.GetValue('checked')<>nil then JSONBool(Item,'checked');
       if Item.GetValue('image_outputs')<>nil then
       begin
         var Images:=JSONArray(Item,'image_outputs');
@@ -218,10 +239,104 @@ begin
   finally Seen.Free; end;
 end;
 
+procedure TBookCompressionReceipt.WriteChecks(DB: TSQLiteDatabase);
+var Options, Item: TJSONObject; Current, Key, Profile, Engine: string; Gray: Integer;
+begin
+  // Older durable receipts remain replayable, without inventing cache proof.
+  if FData.GetValue('compression_options')=nil then Exit;
+  Options:=TJSONObject(FData.GetValue('compression_options'));
+  Current:=ArchiveDeletionSourceIdentity(Text('source'));
+  Key:=UpperCase(Text('source_file_key'));
+  Profile:=JSONText(Options,'profile'); Gray:=Ord(JSONBool(Options,'grayscale'));
+  Engine:=JSONText(Options,'engine_sha256');
+  DB.ExecSQL('CREATE TABLE IF NOT EXISTS HomeLibreCompressionChecks('+
+    'FileKey TEXT NOT NULL,Member TEXT NOT NULL,Profile TEXT NOT NULL,Grayscale INTEGER NOT NULL,'+
+    'EngineSHA256 TEXT NOT NULL,SourceIdentity TEXT NOT NULL,SourceSHA256 TEXT NOT NULL,PayloadSHA256 TEXT NOT NULL,'+
+    'PRIMARY KEY(FileKey,Member,Profile,Grayscale,EngineSHA256)) WITHOUT ROWID');
+  if Text('source_sha256')<>Text('result_sha256') then
+    for var Value in JSONArray(FData,'payloads') do
+      DB.ExecSQL('DELETE FROM HomeLibreCompressionChecks WHERE FileKey=? AND Member=?',
+        [Key,JSONText(TJSONObject(Value),'member')]);
+  // Other members were preserved byte-exact. Advance only witnesses for the
+  // verified input checksum, including when only its timestamp had changed.
+  DB.ExecSQL('UPDATE HomeLibreCompressionChecks SET SourceIdentity=?,SourceSHA256=? '+
+    'WHERE FileKey=? AND SourceSHA256=?',
+    [Current,LowerCase(Text('result_sha256')),Key,LowerCase(Text('source_sha256'))]);
+  for var Value in JSONArray(FData,'payloads') do
+  begin
+    Item:=TJSONObject(Value);
+    // A failed attempt must invalidate this choice's earlier proof, including
+    // the same engine. Other quality choices still have their own witnesses.
+    DB.ExecSQL('DELETE FROM HomeLibreCompressionChecks WHERE FileKey=? AND Member=? '+
+      'AND Profile=? AND Grayscale=?',
+      [Key,JSONText(Item,'member'),Profile,Gray]);
+    if (Item.GetValue('checked')<>nil) and not JSONBool(Item,'checked') then Continue;
+    DB.ExecSQL('INSERT INTO HomeLibreCompressionChecks VALUES(?,?,?,?,?,?,?,?) '+
+      'ON CONFLICT(FileKey,Member,Profile,Grayscale,EngineSHA256) DO UPDATE SET '+
+      'SourceIdentity=excluded.SourceIdentity,SourceSHA256=excluded.SourceSHA256,PayloadSHA256=excluded.PayloadSHA256',
+      [Key,JSONText(TJSONObject(Value),'member'),Profile,Gray,Engine,Current,LowerCase(Text('result_sha256')),
+       LowerCase(JSONText(TJSONObject(Value),'output_sha256'))]);
+  end;
+end;
+
+procedure TBookCompressionReceipt.WriteHistory(DB: TSQLiteDatabase; PreserveKnownInput: Boolean);
+var Item: TJSONObject; ImageTableReady, OutcomesReady: Boolean; InputSQL: string;
+begin
+  DB.ExecSQL('CREATE TABLE IF NOT EXISTS HomeLibreBookCompression('+
+    'FileKey TEXT NOT NULL,Member TEXT NOT NULL,ProfileSHA256 TEXT NOT NULL,'+
+    'InputSHA256 TEXT NOT NULL,OutputSHA256 TEXT NOT NULL,BookSize INTEGER NOT NULL,'+
+    'PRIMARY KEY(FileKey,Member))');
+  ImageTableReady:=False;
+  OutcomesReady:=False; InputSQL:='excluded.InputSHA256';
+  if PreserveKnownInput then
+    InputSQL:='CASE WHEN HomeLibreBookCompression.ProfileSHA256=excluded.ProfileSHA256 '+
+      'AND HomeLibreBookCompression.OutputSHA256=excluded.OutputSHA256 '+
+      'THEN HomeLibreBookCompression.InputSHA256 ELSE excluded.InputSHA256 END';
+  for var Value in JSONArray(FData,'payloads') do
+  begin
+    Item:=TJSONObject(Value);
+    DB.ExecSQL('INSERT INTO HomeLibreBookCompression VALUES(?,?,?,?,?,?) '+
+      'ON CONFLICT(FileKey,Member) DO UPDATE SET ProfileSHA256=excluded.ProfileSHA256,'+
+      'InputSHA256='+InputSQL+','+
+      'OutputSHA256=excluded.OutputSHA256,BookSize=excluded.BookSize',
+      [UpperCase(Text('source_file_key')),JSONText(Item,'member'),LowerCase(Text('profile_sha256')),
+       LowerCase(JSONText(Item,'input_sha256')),LowerCase(JSONText(Item,'output_sha256')),JSONNumber(Item,'size')]);
+    if Item.GetValue('retry_original')<>nil then
+    begin
+      if not OutcomesReady then
+      begin
+        DB.ExecSQL('CREATE TABLE IF NOT EXISTS HomeLibreCompressionOutcomes('+
+          'FileKey TEXT NOT NULL,Member TEXT NOT NULL,ProfileSHA256 TEXT NOT NULL,'+
+          'OutputSHA256 TEXT NOT NULL,RetryOriginal INTEGER NOT NULL,PRIMARY KEY(FileKey,Member)) WITHOUT ROWID');
+        OutcomesReady:=True;
+      end;
+      DB.ExecSQL('INSERT INTO HomeLibreCompressionOutcomes VALUES(?,?,?,?,?) '+
+        'ON CONFLICT(FileKey,Member) DO UPDATE SET ProfileSHA256=excluded.ProfileSHA256,'+
+        'OutputSHA256=excluded.OutputSHA256,RetryOriginal=excluded.RetryOriginal',
+        [UpperCase(Text('source_file_key')),JSONText(Item,'member'),LowerCase(Text('profile_sha256')),
+         LowerCase(JSONText(Item,'output_sha256')),Ord(JSONBool(Item,'retry_original'))]);
+    end;
+    if Item.GetValue('image_outputs')<>nil then
+      for var Image in JSONArray(Item,'image_outputs') do
+      begin
+        if not ImageTableReady then
+        begin
+          DB.ExecSQL('CREATE TABLE IF NOT EXISTS HomeLibreCompressedImages('+
+            'ProfileSHA256 TEXT NOT NULL,ImageSHA256 TEXT NOT NULL,'+
+            'PRIMARY KEY(ProfileSHA256,ImageSHA256)) WITHOUT ROWID');
+          ImageTableReady:=True;
+        end;
+        DB.ExecSQL('INSERT OR IGNORE INTO HomeLibreCompressedImages(ProfileSHA256,ImageSHA256) VALUES(?,?)',
+          [LowerCase(Text('profile_sha256')),LowerCase(Image.Value)]);
+      end;
+  end;
+  WriteChecks(DB);
+end;
+
 function TBookCompressionReceipt.ProcessRows(DB: TSQLiteDatabase; Personal, Commit,
   RequireApplied: Boolean): Integer;
 var Query: TSQLiteQuery; SQL, Table: string;
-    Item: TJSONObject; Kind, NewSize, CurrentSize: Int64; Matches, ImageTableReady: Boolean;
+    Item: TJSONObject; Kind, NewSize, CurrentSize: Int64; Matches: Boolean;
 begin
   Result:=0;
   if Personal then
@@ -302,36 +417,7 @@ begin
         finally Query.Free; end;
       end;
     end;
-    if Commit and not Personal then
-    begin
-      DB.ExecSQL('CREATE TABLE IF NOT EXISTS HomeLibreBookCompression('+
-        'FileKey TEXT NOT NULL,Member TEXT NOT NULL,ProfileSHA256 TEXT NOT NULL,'+
-        'InputSHA256 TEXT NOT NULL,OutputSHA256 TEXT NOT NULL,BookSize INTEGER NOT NULL,'+
-        'PRIMARY KEY(FileKey,Member))');
-      ImageTableReady:=False;
-      for var Value in JSONArray(FData,'payloads') do
-      begin
-        Item:=TJSONObject(Value);
-        DB.ExecSQL('INSERT INTO HomeLibreBookCompression VALUES(?,?,?,?,?,?) '+
-          'ON CONFLICT(FileKey,Member) DO UPDATE SET ProfileSHA256=excluded.ProfileSHA256,'+
-          'InputSHA256=excluded.InputSHA256,OutputSHA256=excluded.OutputSHA256,BookSize=excluded.BookSize',
-          [UpperCase(Text('source_file_key')),JSONText(Item,'member'),LowerCase(Text('profile_sha256')),
-           LowerCase(JSONText(Item,'input_sha256')),LowerCase(JSONText(Item,'output_sha256')),JSONNumber(Item,'size')]);
-        if Item.GetValue('image_outputs')<>nil then
-          for var Image in JSONArray(Item,'image_outputs') do
-          begin
-            if not ImageTableReady then
-            begin
-              DB.ExecSQL('CREATE TABLE IF NOT EXISTS HomeLibreCompressedImages('+
-                'ProfileSHA256 TEXT NOT NULL,ImageSHA256 TEXT NOT NULL,'+
-                'PRIMARY KEY(ProfileSHA256,ImageSHA256)) WITHOUT ROWID');
-              ImageTableReady:=True;
-            end;
-            DB.ExecSQL('INSERT OR IGNORE INTO HomeLibreCompressedImages(ProfileSHA256,ImageSHA256) VALUES(?,?)',
-              [LowerCase(Text('profile_sha256')),LowerCase(Image.Value)]);
-          end;
-      end;
-    end;
+    if Commit and not Personal then WriteHistory(DB);
   finally DB.EndQueryBatch; end;
 end;
 
@@ -398,6 +484,53 @@ begin
   finally
     try if Catalogue.InTransaction then Catalogue.Rollback; finally Catalogue.Free; end;
   end;
+end;
+
+procedure TBookCompressionReceipt.RecordInspection(const Cancelled: TFunc<Boolean>);
+var Source: TFileStream; Catalogue, Personal: TSQLiteDatabase;
+    CatalogueLease, PersonalLease: IInterface; Buffer: TBytes; Count: Integer; Hash: THashSHA2;
+begin
+  if (Text('source_sha256')<>Text('result_sha256')) or
+    (FData.GetValue('compression_options')=nil) then
+    raise EReadError.Create('Отметка проверки не должна менять исходную книгу.');
+  for var Value in JSONArray(FData,'payloads') do
+  begin
+    var Item:=TJSONObject(Value);
+    if (JSONText(Item,'input_sha256')<>JSONText(Item,'output_sha256')) or
+      ((Item.GetValue('image_outputs')<>nil) and (JSONArray(Item,'image_outputs').Count<>0)) then
+      raise EReadError.Create('Нельзя запомнить отброшенные изображения как сохранённый результат.');
+  end;
+  // Hash before acquiring SQLite writer locks. Keep the source unwritable
+  // until this metadata-only inspection has committed; personal data is read.
+  Source:=TFileStream.Create(DeletionNativePath(Text('source')),fmOpenRead or fmShareDenyWrite);
+  try
+    if CompressionFileKey(Text('source'))<>Text('source_file_key') then
+      raise EReadError.Create('Исходная книга изменилась перед сохранением проверки.');
+    Hash:=THashSHA2.Create; SetLength(Buffer,1024*1024);
+    repeat
+      if Assigned(Cancelled) and Cancelled() then Abort;
+      Count:=Source.Read(Buffer[0],Length(Buffer));
+      if Count>0 then Hash.Update(Buffer[0],Count);
+    until Count=0;
+    if not SameText(Hash.HashAsString,Text('source_sha256')) then
+      raise EReadError.Create('Исходная книга изменилась; проверка не сохранена.');
+    CatalogueLease:=TCompressionDatabaseLease.Create(Text('catalogue'),Text('catalogue_key'));
+    PersonalLease:=TCompressionDatabaseLease.Create(Text('personal'),Text('personal_key'));
+    Catalogue:=TSQLiteDatabase.Create(Text('catalogue'));
+    try
+      Personal:=TSQLiteDatabase.CreateReadOnly(Text('personal'));
+      try
+        Catalogue.SetTimeout(2000); Catalogue.Start('','IMMEDIATE'); Personal.Start;
+        ProcessRows(Catalogue,False,False); ProcessRows(Personal,True,False);
+        if Assigned(Cancelled) and Cancelled() then Abort;
+        WriteHistory(Catalogue,True); Catalogue.Commit;
+      finally
+        try if Personal.InTransaction then Personal.Rollback; finally Personal.Free; end;
+      end;
+    finally
+      try if Catalogue.InTransaction then Catalogue.Rollback; finally Catalogue.Free; end;
+    end;
+  finally Source.Free; end;
 end;
 
 procedure TBookCompressionReceipt.CheckEngine(Engine: TZipMemberDeletion);

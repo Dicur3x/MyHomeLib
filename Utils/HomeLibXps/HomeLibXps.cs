@@ -4,6 +4,9 @@ using System;
 using System.IO;
 using System.IO.Compression;
 using System.IO.Packaging;
+using System.Runtime.InteropServices;
+using System.Text;
+using Microsoft.Win32.SafeHandles;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using System.Xml;
@@ -19,6 +22,59 @@ using System.Windows.Xps.Packaging;
 
 internal static class HomeLibXps
 {
+    private static string ImageFilePath(string path)
+    {
+        // Use Windows normalization without changing the helper's Framework
+        // target or requiring a new .config file in older component installers.
+        var buffer = new StringBuilder(32768);
+        uint length = GetFullPathName(path, (uint)buffer.Capacity, buffer, IntPtr.Zero);
+        if (length == 0 || length >= buffer.Capacity) throw new IOException("Invalid image file path.");
+        string full = buffer.ToString();
+        if (full.Length < 248 || full.StartsWith(@"\\?\", StringComparison.Ordinal)) return full;
+        return full.StartsWith(@"\\", StringComparison.Ordinal) ? @"\\?\UNC\" + full.Substring(2) : @"\\?\" + full;
+    }
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern uint GetFullPathName(string path, uint size, StringBuilder result, IntPtr lastPart);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern SafeFileHandle CreateFile(string path, uint access, uint share, IntPtr security,
+        uint creation, uint flags, IntPtr template);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern uint GetFileAttributes(string path);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern bool DeleteFile(string path);
+
+    private static FileStream ImageFileStream(string path, bool create)
+    {
+        if (path.Length < 248)
+            return create ? new FileStream(path, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None) : File.OpenRead(path);
+        SafeFileHandle handle = CreateFile(path, create ? 0xC0000000u : 0x80000000u, create ? 0u : 1u,
+            IntPtr.Zero, create ? 1u : 3u, 0x80, IntPtr.Zero);
+        if (handle.IsInvalid) {
+            int code = Marshal.GetLastWin32Error(); handle.Dispose();
+            throw new IOException("Cannot open image file: " + new System.ComponentModel.Win32Exception(code).Message);
+        }
+        try { return new FileStream(handle, create ? FileAccess.ReadWrite : FileAccess.Read); }
+        catch { handle.Dispose(); throw; }
+    }
+
+    private static long ImageFileLength(string path)
+    {
+        if (path.Length < 248) return new FileInfo(path).Length;
+        using (var stream = ImageFileStream(path, false)) return stream.Length;
+    }
+
+    private static bool ImageFileExists(string path)
+    {
+        return path.Length < 248 ? File.Exists(path) : GetFileAttributes(path) != 0xffffffff;
+    }
+
+    private static void DeleteImageFile(string path)
+    {
+        if (path.Length < 248) File.Delete(path);
+        else if (!DeleteFile(path)) throw new IOException("Cannot remove incomplete image output.");
+    }
+
     private const long MaxInput = 64L * 1024 * 1024, MaxTotal = 256L * 1024 * 1024;
 #if !HOMELIB_IMAGES_ONLY
     private const string XpsNamespace = "http://schemas.microsoft.com/xps/2005/06";
@@ -122,7 +178,11 @@ internal static class HomeLibXps
         catch (Exception error)
         {
             if (ownsOutput) { try { File.Delete(output); } catch { } }
+#if HOMELIB_IMAGES_ONLY
+            Console.Error.WriteLine("Images: " + error.GetType().Name + ": " + error.Message); return 1;
+#else
             Console.Error.WriteLine("XPS: " + error.GetType().Name + ": " + error.Message); return 1;
+#endif
         }
     }
 
@@ -289,14 +349,14 @@ internal static class HomeLibXps
         string[] profiles = extendedEstimate || profile == "maximum"
             ? new string[] { "high", "balanced", "economy", "maximum" }
             : new string[] { "high", "balanced", "economy" };
-        string input = Path.GetFullPath(source), output = Path.GetFullPath(destination); bool owns = false;
-        if (String.Equals(input, output, StringComparison.OrdinalIgnoreCase) || File.Exists(output)) throw new IOException("Output must be new.");
-        if (new FileInfo(input).Length > MaxTotal) throw new IOException("Export images exceed 256 MB.");
+        string input = ImageFilePath(source), output = ImageFilePath(destination); bool owns = false;
+        if (String.Equals(input, output, StringComparison.OrdinalIgnoreCase) || ImageFileExists(output)) throw new IOException("Output must be new.");
+        if (ImageFileLength(input) > MaxTotal) throw new IOException("Export images exceed 256 MB.");
         try
         {
-            using (var inputFile = File.OpenRead(input))
+            using (var inputFile = ImageFileStream(input, false))
             using (var archive = new ZipArchive(inputFile, ZipArchiveMode.Read))
-            using (var outputFile = new FileStream(output, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None))
+            using (var outputFile = ImageFileStream(output, true))
             {
                 owns = true; long total = 0, written = 0; int index = 0;
                 if (archive.Entries.Count == 0 || archive.Entries.Count > (estimate ? 9 : 5000)) throw new IOException("Invalid image count.");
@@ -339,7 +399,7 @@ internal static class HomeLibXps
             }
             return 0;
         }
-        catch { if (owns) { try { File.Delete(output); } catch { } } throw; }
+        catch { if (owns) { try { DeleteImageFile(output); } catch { } } throw; }
     }
 
     private static int ScanOrientation(BitmapFrame frame, byte[] data)
@@ -469,13 +529,13 @@ internal static class HomeLibXps
             ? new string[] { "original", "high", "balanced", "economy", "maximum" }
             : new string[] { "original", "high", "balanced", "economy" };
         if(layout!="keep" && layout!="split" && layout!="auto") throw new ArgumentException("Unknown scan layout.");
-        string input=Path.GetFullPath(source),output=Path.GetFullPath(destination); bool owns=false;
-        if(String.Equals(input,output,StringComparison.OrdinalIgnoreCase) || File.Exists(output)) throw new IOException("Output must be new.");
-        if(new FileInfo(input).Length>MaxTotal) throw new IOException("Scan batch exceeds 256 MB.");
+        string input=ImageFilePath(source),output=ImageFilePath(destination); bool owns=false;
+        if(String.Equals(input,output,StringComparison.OrdinalIgnoreCase) || ImageFileExists(output)) throw new IOException("Output must be new.");
+        if(ImageFileLength(input)>MaxTotal) throw new IOException("Scan batch exceeds 256 MB.");
         try
         {
-            using(var incoming=File.OpenRead(input)) using(var archive=new ZipArchive(incoming,ZipArchiveMode.Read))
-            using(var file=new FileStream(output,FileMode.CreateNew,FileAccess.ReadWrite,FileShare.None))
+            using(var incoming=ImageFileStream(input, false)) using(var archive=new ZipArchive(incoming,ZipArchiveMode.Read))
+            using(var file=ImageFileStream(output,true))
             {
                 owns=true; long total=0; int index=0;
                 if(archive.Entries.Count==0 || archive.Entries.Count>12) throw new IOException("Invalid scan batch.");
@@ -538,18 +598,18 @@ internal static class HomeLibXps
             }
             return 0;
         }
-        catch { if(owns) { try { File.Delete(output); } catch { } } throw; }
+        catch { if(owns) { try { DeleteImageFile(output); } catch { } } throw; }
     }
 
     private static int ImagePages(string source, string destination)
     {
-        string input = Path.GetFullPath(source), output = Path.GetFullPath(destination); bool owns = false;
-        if (String.Equals(input, output, StringComparison.OrdinalIgnoreCase) || File.Exists(output)) throw new IOException("Output must be new.");
-        long length = new FileInfo(input).Length;
+        string input = ImageFilePath(source), output = ImageFilePath(destination); bool owns = false;
+        if (String.Equals(input, output, StringComparison.OrdinalIgnoreCase) || ImageFileExists(output)) throw new IOException("Output must be new.");
+        long length = ImageFileLength(input);
         if (length <= 0 || length > MaxTotal) throw new IOException("Image size exceeds 256 MB or is empty.");
         try
         {
-            using (var stream = File.OpenRead(input))
+            using (var stream = ImageFileStream(input, false))
             {
                 int declaredFrames = ValidateTiffFrames(stream);
                 stream.Position = 0;
@@ -559,7 +619,7 @@ internal static class HomeLibXps
                 int count = decoder.Frames.Count;
                 if (count <= 0 || count > 5000) throw new IOException("Invalid image page count.");
                 if (declaredFrames != 0 && count != declaredFrames) throw new IOException("TIFF decoder did not return every declared page.");
-                using (var file = new FileStream(output, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None))
+                using (var file = ImageFileStream(output, true))
                 {
                     owns = true; long total = 0;
                     using (var archive = new ZipArchive(file, ZipArchiveMode.Create, true))
@@ -583,7 +643,7 @@ internal static class HomeLibXps
             }
             return 0;
         }
-        catch { if (owns) { try { File.Delete(output); } catch { } } throw; }
+        catch { if (owns) { try { DeleteImageFile(output); } catch { } } throw; }
     }
 
     // WIC can silently stop at an invalid later IFD. Validate the complete page

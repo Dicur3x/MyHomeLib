@@ -369,6 +369,13 @@ def payload_for(platform, component, kindle_export_root=None, advanced_export_ro
     for name in required:
         if name not in payload or not payload[name]:
             raise ValueError('Missing required component payload: '+name)
+    if component in ('ImageProcessing', 'XPS'):
+        prefix = 'tools/images/' if component == 'ImageProcessing' else 'tools/xps/'
+        runtime_info = json.loads(payload[prefix + 'RUNTIME.json'])
+        if (runtime_info.get('platform') != platform or
+                runtime_info.get('source_sha256') != helper.digest((REPO / 'Utils/HomeLibXps/HomeLibXps.cs').read_bytes()) or
+                runtime_info.get('sha256') != helper.digest(payload[required[0]])):
+            raise ValueError('Rebuild the image/XPS helper from the current source before packaging it')
     # Components must be independently installable; no two new archives own
     # the same file, including generated runtime descriptors.
     return payload, required

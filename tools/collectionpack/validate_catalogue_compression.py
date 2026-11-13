@@ -102,7 +102,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
             'tools/bookconvert/catalogdump/build_index.py', 'tools/bookconvert/catalogdump/mysql_dump.py',
             'tools/bookconvert/prepare_book_compression.py', 'tools/bookconvert/archive_replacement.py',
                 'tools/bookconvert/compression_preview.py', 'tools/bookconvert/estimate_book_compression.py'])
-        descriptor(root, platform, 'ImageProcessing', '3.0.0.8', 'tools/images/COMPONENT.json', [
+        descriptor(root, platform, 'ImageProcessing', '3.0.0.14', 'tools/images/COMPONENT.json', [
             'tools/images/HomeLibImages.exe', 'tools/images/RUNTIME.json', 'tools/images/HomeLibImages-MIT.txt'])
         originals = {'one.fb2': illustrated_fb2(image_fixture(True)),
                      'two.fb2': illustrated_fb2(image_fixture(False)).replace(b'this text', b'the second text'),

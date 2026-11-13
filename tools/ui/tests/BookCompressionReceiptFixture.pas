@@ -49,7 +49,7 @@ end;
 function LoadReceipt: TBookCompressionReceipt;
 var Data: TJSONObject; Value: TJSONValue; Stream: TStringStream;
 begin
-  if (Mode='recover') or (Mode='captured-apply') then
+  if (Mode='recover') or (Mode='captured-apply') or (Mode='captured-inspection') then
     Exit(TBookCompressionReceipt.Create(TFile.ReadAllText(ReceiptFile,TEncoding.UTF8)));
   Value:=TJSONObject.ParseJSONValue(TFile.ReadAllText(Root+'receipt-template.json',TEncoding.UTF8));
   Require(Value is TJSONObject,'Invalid fixture template');
@@ -63,6 +63,15 @@ begin
       if Name='source' then Key:='source_file_key';
       Data.RemovePair(Key).Free;
       Data.AddPair(Key,CompressionFileKey(Path));
+    end;
+    if Data.GetValue('compression_options') is TJSONObject then
+    begin
+      var Options:=Data.GetValue<TJSONObject>('compression_options');
+      if Options.GetValue<string>('source_identity','')='@source' then
+      begin
+        Options.RemovePair('source_identity').Free;
+        Options.AddPair('source_identity',ArchiveDeletionSourceIdentity(Data.GetValue<string>('source')));
+      end;
     end;
     Result:=TBookCompressionReceipt.Create(Data.ToJSON);
     try
@@ -131,6 +140,11 @@ begin
     try
       if Mode='preflight' then
       begin Receipt.CheckBeforeWrite; Writeln('PASS read-only compression preflight'); Halt(0); end;
+      if (Mode='inspection') or (Mode='captured-inspection') or (Mode='inspection-cancel') then
+      begin
+        Receipt.RecordInspection(function:Boolean begin Result:=Mode='inspection-cancel'; end);
+        Writeln('PASS unchanged book inspection'); Exit;
+      end;
       var Data:=TJSONObject.ParseJSONValue(Receipt.ToJSON) as TJSONObject;
       try
         if Mode='recover' then

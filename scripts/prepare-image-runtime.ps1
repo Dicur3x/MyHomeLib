@@ -1,5 +1,6 @@
 [CmdletBinding()]
-param([Parameter(Mandatory=$true)][ValidateSet('Win32','Win64')][string]$Platform)
+param([Parameter(Mandatory=$true)][ValidateSet('Win32','Win64')][string]$Platform,
+      [string]$OutputDirectory)
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 $repository=Split-Path -Parent $PSScriptRoot
@@ -8,7 +9,7 @@ $wpf=Join-Path $framework 'WPF'
 $bin=if($Platform -eq 'Win64'){'Bin64'}else{'Bin'}
 $architecture=if($Platform -eq 'Win64'){'x64'}else{'x86'}
 $source=Join-Path $repository 'Utils/HomeLibXps/HomeLibXps.cs'
-$runtime=Join-Path $repository "Program/Out/$bin/tools/images"
+$runtime=if($OutputDirectory){[IO.Path]::GetFullPath($OutputDirectory)}else{Join-Path $repository "Program/Out/$bin/tools/images"}
 [IO.Directory]::CreateDirectory($runtime) | Out-Null
 $target=Join-Path $runtime 'HomeLibImages.exe'
 $references=@('WindowsBase.dll','PresentationCore.dll','PresentationFramework.dll') | ForEach-Object { '/reference:'+(Join-Path $wpf $_) }

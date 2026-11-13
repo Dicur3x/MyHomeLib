@@ -10,6 +10,7 @@ import random
 import sqlite3
 import struct
 import subprocess
+from supervised_test_process import run_owned
 import tempfile
 import unittest
 import zlib
@@ -117,7 +118,7 @@ class NativeCompressionReceiptTests(unittest.TestCase):
         (self.root / 'receipt-template.json').write_text(json.dumps(self.template, ensure_ascii=False), encoding='utf-8')
 
     def run_worker(self, mode='apply', fault='-'):
-        result = subprocess.run([str(NATIVE), str(self.root), mode, fault], capture_output=True,
+        result = run_owned([str(NATIVE), str(self.root), mode, fault], capture_output=True,
                                 text=True, encoding='utf-8', errors='replace', timeout=30)
         if result.returncode not in (0, 73):
             result.stderr += '\nRemaining fixture files: ' + repr([
@@ -129,7 +130,7 @@ class NativeCompressionReceiptTests(unittest.TestCase):
 
     def snapshot(self, path, sizes=True):
         with database(path) as db:
-            names = [row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT IN ('HomeLibreBookCompression','HomeLibreCompressedImages') ORDER BY name")]
+            names = [row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT IN ('HomeLibreBookCompression','HomeLibreCompressedImages','HomeLibreCompressionChecks','HomeLibreCompressionOutcomes') ORDER BY name")]
             result = {}
             for name in names:
                 fields = [row[1] for row in db.execute('PRAGMA table_info(' + name + ')')]
@@ -160,6 +161,193 @@ class NativeCompressionReceiptTests(unittest.TestCase):
         before_c, before_p = self.snapshot(self.catalogue, sizes=False), self.snapshot(self.personal, sizes=False)
         self.require_success(self.run_worker())
         self.require_finished(before_c, before_p)
+
+    def inspection_template(self):
+        self.template.update(result_sha256=self.original_hash, compression_options=dict(
+            version=1, profile='economy', grayscale=False, source_identity='@source', engine_sha256=sha(b'fixture engine')))
+        self.template['payloads'][0].update(output_sha256=sha(self.original_book),
+                                           size=len(self.original_book), image_outputs=[], retry_original=True)
+        self.write_template()
+
+    def test_inspection_records_original_bytes_without_changing_books_or_personal_store(self):
+        self.inspection_template()
+        before = self.snapshot(self.catalogue)
+        personal = sha(self.personal.read_bytes())
+        self.require_success(self.run_worker('inspection'))
+        self.assertEqual(self.snapshot(self.catalogue), before)
+        self.assertEqual(sha(self.personal.read_bytes()), personal)
+        self.assertEqual(sha(self.source.read_bytes()), self.original_hash)
+        with database(self.catalogue) as db:
+            self.assertEqual(db.execute('SELECT InputSHA256,OutputSHA256,BookSize FROM HomeLibreBookCompression').fetchall(),
+                             [(sha(self.original_book), sha(self.original_book), len(self.original_book))])
+            checks = db.execute('SELECT Member,Profile,Grayscale,PayloadSHA256 FROM HomeLibreCompressionChecks').fetchall()
+            self.assertEqual(checks, [('one.fb2', 'economy', 0, sha(self.original_book))])
+            self.assertEqual(db.execute('SELECT Member,ProfileSHA256,OutputSHA256,RetryOriginal '
+                                        'FROM HomeLibreCompressionOutcomes').fetchall(),
+                             [('one.fb2', self.template['profile_sha256'], sha(self.original_book), 1)])
+            self.assertEqual(db.execute("SELECT name FROM sqlite_master WHERE name='HomeLibreCompressedImages'").fetchall(), [])
+        with database(self.personal) as db:
+            self.assertEqual(db.execute("SELECT name FROM sqlite_master WHERE name='HomeLibreCompressionOutcomes'").fetchall(), [])
+        self.require_success(self.run_worker('inspection'))
+        with database(self.catalogue) as db:
+            self.assertEqual(db.execute('SELECT count(*) FROM HomeLibreCompressionChecks').fetchone()[0], 1)
+
+    def test_inspection_rejects_discarded_output_and_does_not_write_any_store(self):
+        self.inspection_template()
+        for value in [dict(output_sha256=sha(self.new_book)), dict(image_outputs=[sha(self.new_book)])]:
+            saved = copy.deepcopy(self.template)
+            self.template['payloads'][0].update(value)
+            self.write_template()
+            before = {p: sha(p.read_bytes()) for p in (self.catalogue, self.personal, self.source)}
+            self.assertNotEqual(self.run_worker('inspection').returncode, 0)
+            self.assertEqual({p: sha(p.read_bytes()) for p in before}, before)
+            self.template = saved
+
+    def test_engine_revisions_do_not_accumulate_a_check_per_revision_and_book(self):
+        self.inspection_template()
+        self.template['compression_options']['profile'] = 'balanced'
+        self.write_template()
+        self.require_success(self.run_worker('inspection'))
+        self.template['compression_options']['profile'] = 'economy'
+        for version in range(3):
+            engine = sha(('fixture engine ' + str(version)).encode())
+            self.template['compression_options']['engine_sha256'] = engine
+            self.write_template()
+            self.require_success(self.run_worker('inspection'))
+            with database(self.catalogue) as db:
+                rows = db.execute('SELECT Profile,EngineSHA256 FROM HomeLibreCompressionChecks ORDER BY Profile').fetchall()
+                self.assertEqual(rows, [('balanced', sha(b'fixture engine')), ('economy', engine)])
+        self.assertEqual(sha(self.source.read_bytes()), self.original_hash)
+
+    def test_incomplete_inspection_removes_only_its_choice_checks_and_can_be_retried(self):
+        self.inspection_template()
+        personal_before = sha(self.personal.read_bytes())
+        for profile in ('balanced', 'economy'):
+            self.template['compression_options']['profile'] = profile
+            self.write_template()
+            self.require_success(self.run_worker('inspection'))
+        self.template['payloads'][0]['checked'] = False
+        self.write_template()
+        self.require_success(self.run_worker('inspection'))
+        with database(self.catalogue) as db:
+            self.assertEqual(db.execute('SELECT Profile FROM HomeLibreCompressionChecks').fetchall(), [('balanced',)])
+            self.assertEqual(db.execute('SELECT RetryOriginal FROM HomeLibreCompressionOutcomes').fetchall(), [(1,)])
+        self.template['payloads'][0]['checked'] = True
+        self.write_template()
+        self.require_success(self.run_worker('inspection'))
+        with database(self.catalogue) as db:
+            self.assertEqual(db.execute('SELECT Profile FROM HomeLibreCompressionChecks ORDER BY Profile').fetchall(),
+                             [('balanced',), ('economy',)])
+        self.assertEqual(sha(self.source.read_bytes()), self.original_hash)
+        self.assertEqual(sha(self.personal.read_bytes()), personal_before)
+
+    def test_physical_replacement_does_not_cache_an_incomplete_selected_neighbor(self):
+        self.template['compression_options'] = dict(version=1, profile='economy', grayscale=False,
+            source_identity='@source', engine_sha256=sha(b'fixture engine'))
+        self.template['payloads'].append(dict(member='neighbor.fb2', input_sha256=sha(self.neighbor),
+            output_sha256=sha(self.neighbor), size=len(self.neighbor), image_outputs=[], retry_original=True, checked=False))
+        self.template['rows'].append(dict(self.template['rows'][0], id=102, lib_id='flibusta:102',
+            file_name='neighbor', member='neighbor.fb2', inside_no=1, old_size=len(self.neighbor)))
+        self.write_template()
+        before_c = self.snapshot(self.catalogue, sizes=False)
+        before_p = self.snapshot(self.personal, sizes=False)
+        self.require_success(self.run_worker())
+        self.assertEqual(sha(self.source.read_bytes()), self.output_hash)
+        self.assertEqual(self.snapshot(self.catalogue, sizes=False), before_c)
+        self.assertEqual(self.snapshot(self.personal, sizes=False), before_p)
+        with database(self.catalogue) as db:
+            self.assertEqual(db.execute('SELECT Member FROM HomeLibreCompressionChecks').fetchall(), [('one.fb2',)])
+            self.assertEqual(db.execute('SELECT Member,RetryOriginal FROM HomeLibreCompressionOutcomes').fetchall(),
+                             [('neighbor.fb2', 1)])
+
+    def test_inspection_cancel_or_changed_source_has_no_ledger_or_personal_write(self):
+        self.inspection_template()
+        before = {p: sha(p.read_bytes()) for p in (self.catalogue, self.personal, self.source)}
+        self.assertNotEqual(self.run_worker('inspection-cancel').returncode, 0)
+        self.assertEqual({p: sha(p.read_bytes()) for p in before}, before)
+        # Capture the original identity and checksum without writing a store.
+        self.require_success(self.run_worker('preflight'))
+        self.source.write_bytes(self.source.read_bytes() + b'changed source')
+        before[self.source] = sha(self.source.read_bytes())
+        self.assertNotEqual(self.run_worker('captured-inspection').returncode, 0)
+        self.assertEqual({p: sha(p.read_bytes()) for p in before}, before)
+
+    def test_invalid_inspection_choices_are_rejected_without_database_writes(self):
+        self.inspection_template()
+        original = copy.deepcopy(self.template['compression_options'])
+        for field, value in [('version', 2), ('grayscale', 'false'), ('profile', 'unknown'),
+                             ('source_identity', 'broken'), ('engine_sha256', 'not-a-digest')]:
+            self.template['compression_options'] = dict(original, **{field: value})
+            self.write_template()
+            before = {p: sha(p.read_bytes()) for p in (self.catalogue, self.personal, self.source)}
+            self.assertNotEqual(self.run_worker('inspection').returncode, 0)
+            self.assertEqual({p: sha(p.read_bytes()) for p in before}, before)
+
+    def test_replacement_advances_only_verified_neighbor_witnesses_and_replaces_selected_profiles(self):
+        engine = sha(b'fixture engine')
+        self.template['compression_options'] = dict(version=1, profile='economy', grayscale=False, source_identity='@source', engine_sha256=engine)
+        self.write_template()
+        self.require_success(self.run_worker('preflight'))
+        receipt = json.loads((self.root / 'receipt.json').read_text(encoding='utf-8-sig'))
+        key = receipt['source_file_key']
+        identity = receipt['compression_options']['source_identity']
+        with database(self.catalogue) as db:
+            db.execute('CREATE TABLE HomeLibreCompressionChecks(FileKey TEXT,Member TEXT,Profile TEXT,Grayscale INTEGER,'
+                       'EngineSHA256 TEXT,SourceIdentity TEXT,SourceSHA256 TEXT,PayloadSHA256 TEXT,'
+                       'PRIMARY KEY(FileKey,Member,Profile,Grayscale,EngineSHA256)) WITHOUT ROWID')
+            db.executemany('INSERT INTO HomeLibreCompressionChecks VALUES(?,?,?,?,?,?,?,?)', [
+                (key, 'one.fb2', 'balanced', 0, engine, identity, self.original_hash, sha(self.original_book)),
+                (key, 'neighbor.fb2', 'balanced', 0, engine, identity, self.original_hash, sha(self.neighbor)),
+                # Same path/stamp is insufficient: this witness belongs to old content.
+                (key, 'stale.fb2', 'balanced', 0, engine, identity, 'f' * 64, 'e' * 64),
+            ])
+        before_c, before_p = self.snapshot(self.catalogue, sizes=False), self.snapshot(self.personal, sizes=False)
+        self.require_success(self.run_worker())
+        self.require_finished(before_c, before_p)
+        with database(self.catalogue) as db:
+            rows = {r[0]: r[1:] for r in db.execute('SELECT Member,Profile,SourceIdentity,SourceSHA256,PayloadSHA256 '
+                                                  'FROM HomeLibreCompressionChecks')}
+        self.assertEqual(rows['one.fb2'][0], 'economy')
+        self.assertEqual(rows['one.fb2'][2:], (self.output_hash, sha(self.new_book)))
+        self.assertEqual(rows['neighbor.fb2'][1:3], (rows['one.fb2'][1], self.output_hash))
+        self.assertEqual(rows['stale.fb2'][1:3], (identity, 'f' * 64))
+
+    def test_invalid_retry_original_is_rejected_before_any_database_write(self):
+        self.inspection_template()
+        for invalid in ('true', 1, None, [], {}):
+            with self.subTest(value=invalid):
+                self.template['payloads'][0]['retry_original'] = invalid
+                self.write_template()
+                before = {p: sha(p.read_bytes()) for p in (self.catalogue, self.personal, self.source)}
+                self.assertNotEqual(self.run_worker('inspection').returncode, 0)
+                self.assertEqual({p: sha(p.read_bytes()) for p in before}, before)
+
+    def test_invalid_checked_flag_is_rejected_before_any_database_write(self):
+        self.inspection_template()
+        template = copy.deepcopy(self.template)
+        for invalid in ('false', 0, None, [], {}):
+            with self.subTest(value=invalid):
+                self.template = copy.deepcopy(template)
+                self.template['payloads'][0]['checked'] = invalid
+                self.write_template()
+                before = {p: sha(p.read_bytes()) for p in (self.catalogue, self.personal, self.source)}
+                self.assertNotEqual(self.run_worker('inspection').returncode, 0)
+                self.assertEqual({p: sha(p.read_bytes()) for p in before}, before)
+
+    def test_inspection_does_not_forget_the_original_input_of_a_previously_compressed_book(self):
+        before_c, before_p = self.snapshot(self.catalogue, sizes=False), self.snapshot(self.personal, sizes=False)
+        self.require_success(self.run_worker())
+        self.template.update(source_sha256=self.output_hash, result_sha256=self.output_hash,
+            compression_options=dict(version=1, profile='economy', grayscale=False, source_identity='@source',
+                                     engine_sha256=sha(b'fixture engine')))
+        self.template['payloads'][0].update(input_sha256=sha(self.new_book), output_sha256=sha(self.new_book),
+                                           size=len(self.new_book), image_outputs=[], retry_original=False)
+        self.write_template()
+        self.require_success(self.run_worker('inspection'))
+        self.require_finished(before_c, before_p)
+        with database(self.catalogue) as db:
+            self.assertEqual(db.execute('SELECT Member,OutputSHA256,RetryOriginal FROM HomeLibreCompressionOutcomes').fetchall(),
+                             [('one.fb2', sha(self.new_book), 0)])
 
     def test_image_history_commits_and_replays_without_touching_personal_data(self):
         image_hash = sha(self.new_book)

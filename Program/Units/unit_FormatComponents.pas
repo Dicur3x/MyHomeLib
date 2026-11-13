@@ -11,6 +11,7 @@ const
   PACKING_USR_COMPONENT_VERSION = '3.0.0.8';
   PACKING_WORKER_FILE = 'tools/bookconvert/pack_collection.py';
   SELECTED_COMPRESSION_VERSION = '3.0.0.14';
+  SELECTED_COMPRESSION_IMAGE_VERSION = '3.0.0.14';
   SELECTED_COMPRESSION_WORKER = 'tools/bookconvert/prepare_book_compression.py';
   SQL_CATALOGUE_WORKER = 'tools/bookconvert/catalogdump/build_index.py';
   SQL_DUMP_PARSER = 'tools/bookconvert/catalogdump/mysql_dump.py';

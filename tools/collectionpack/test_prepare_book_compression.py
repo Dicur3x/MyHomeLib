@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+from supervised_test_process import run_owned
 import sys
 import tempfile
 import unittest
@@ -13,7 +14,7 @@ from xml.etree import ElementTree
 import zipfile
 
 from archive_replacement import archive_inventory
-from pack_collection import Canceled, PackingError, SevenZip, temporary_work_directory
+from pack_collection import Canceled, PackingError, SevenZip, temporary_work_directory, process_working_directory
 import prepare_book_compression as preparation
 from prepare_book_compression import PreparedBookCompression, prepare_selected_file, profile_digest, verify_non_image_content
 from test_pack_collection import image_fixture, illustrated_fb2, sha
@@ -75,6 +76,88 @@ class SelectedPreparationTests(unittest.TestCase):
 
     def prepare(self, source, members, **options):
         return prepare_selected_file(source, members, self.work, SEVEN, tools_root=TOOLS, **options)
+
+    def deep_image_folder(self):
+        folder = self.root / 'Проверка изображений ё'
+        while len(str(folder)) < 310:
+            folder /= 'Длинный путь с кириллицей ё'
+        folder.mkdir(parents=True)
+        return folder
+
+    @unittest.skipUnless(os.name == 'nt' and TOOLS, 'Real Windows image helper required')
+    def test_all_image_helper_modes_keep_short_and_long_path_results_equivalent(self):
+        deep = self.deep_image_folder()
+        helper = Path(TOOLS) / 'images/HomeLibImages.exe'
+        picture = image_fixture()
+        direct = self.root / 'picture.png'
+        direct.write_bytes(picture)
+        batch = self.root / 'pictures.zip'
+        with zipfile.ZipFile(batch, 'w') as archive:
+            archive.writestr('00000', picture)
+        for number, (mode, source, options) in enumerate([
+                ('--export-images', batch, ['balanced']),
+                ('--scan-images', batch, ['balanced', 'keep']),
+                ('--image-pages', direct, [])]):
+            with self.subTest(mode=mode):
+                long_source = deep / source.name
+                long_source.write_bytes(source.read_bytes())
+                results = []
+                for folder, incoming in ((self.root, source), (deep, long_source)):
+                    output = folder / ('image-result-' + str(number) + '.zip')
+                    process = run_owned([str(helper), mode, str(incoming), str(output), *options],
+                                        capture_output=True, encoding='utf-8', timeout=15)
+                    self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
+                    with zipfile.ZipFile(output) as archive:
+                        results.append({name: archive.read(name) for name in archive.namelist()})
+                    self.assertEqual(incoming.read_bytes(), source.read_bytes())
+                self.assertTrue(results[0])
+                self.assertEqual(results[0], results[1])
+
+    @unittest.skipUnless(os.name == 'nt' and TOOLS, 'Real Windows image helper required')
+    def test_long_path_failed_image_output_is_removed_and_existing_output_is_kept(self):
+        deep = self.deep_image_folder()
+        helper = Path(TOOLS) / 'images/HomeLibImages.exe'
+        source = deep / 'pictures.zip'
+        with zipfile.ZipFile(source, 'w') as archive:
+            archive.writestr('00000', image_fixture())
+            archive.writestr('00001', b'A broken second image')
+        before = source.read_bytes()
+        output = deep / 'incomplete.zip'
+        for mode, options in (('--export-images', ['balanced']), ('--scan-images', ['balanced', 'keep'])):
+            with self.subTest(mode=mode):
+                process = run_owned([str(helper), mode, str(source), str(output), *options],
+                                    capture_output=True, encoding='utf-8', timeout=15)
+                self.assertNotEqual(process.returncode, 0)
+                self.assertIn('IMAGE 1 2', process.stdout)
+                self.assertFalse(output.exists(), process.stderr)
+                output.write_bytes(b'Keep this pre-existing output')
+                process = run_owned([str(helper), mode, str(source), str(output), *options],
+                                    capture_output=True, encoding='utf-8', timeout=15)
+                self.assertNotEqual(process.returncode, 0)
+                self.assertEqual(output.read_bytes(), b'Keep this pre-existing output')
+                output.unlink()
+                self.assertEqual(source.read_bytes(), before)
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows CreateProcess directory contract')
+    def test_long_process_directory_alias_is_removed_without_touching_its_target(self):
+        target = self.root
+        while len(str(target)) < 310:
+            target = target / ('Вложенная папка ё ' * 2 + 'конец')
+        target.mkdir(parents=True)
+        original = target / 'kept.txt'
+        original.write_text('Исходник ё', encoding='utf-8')
+        with self.assertRaises(Canceled):
+            with process_working_directory(target) as child:
+                alias = Path(child)
+                self.assertLess(len(str(alias)), 248)
+                self.assertEqual(alias.resolve(), target.resolve())
+                process = run_owned([sys.executable, '-I', '-B', '-c',
+                    "from pathlib import Path; assert Path('kept.txt').read_text(encoding='utf-8') == 'Исходник ё'"],
+                    cwd=child, capture_output=True, timeout=10)
+                self.assertEqual(process.returncode, 0, process.stderr)
+                raise Canceled('Owned test cancellation')
+        self.assertFalse(alias.exists())
+        self.assertEqual(original.read_text(encoding='utf-8'), 'Исходник ё')
 
     def test_selected_reversible_books_preserve_all_payloads_names_and_comments(self):
         bodies = {'Русская книга.fb2': b'Keep all book bytes ' * 5000,
@@ -312,6 +395,52 @@ class SelectedPreparationTests(unittest.TestCase):
         self.assertEqual(list(self.work.iterdir()), [])
         self.assertEqual(sha(source), before)
 
+    def test_inspection_receipt_keeps_original_hash_size_and_no_discarded_image_history(self):
+        source = self.root / 'small.txt'
+        source.write_text('Checked original book ё', encoding='utf-8')
+        prepared = self.prepare(source, {'': '.txt'})
+        template = dict(schema=1, kind='HomeLibre book compression', source=str(source), rows=[dict(member='')])
+        # A transformed image can have been discarded with a larger archive.
+        prepared.payloads[0].update(output_sha256='f' * 64, size=1, image_outputs=['e' * 64])
+        receipt = prepared.inspection_receipt(template)
+        self.assertEqual(receipt['source_sha256'], receipt['result_sha256'])
+        payload = receipt['payloads'][0]
+        self.assertEqual(payload['input_sha256'], sha(source))
+        self.assertEqual(payload['output_sha256'], sha(source))
+        self.assertEqual(payload['size'], source.stat().st_size)
+        self.assertEqual(payload['image_outputs'], [])
+        self.assertTrue(payload['checked'])
+        self.assertEqual(prepared.payloads[0]['image_outputs'], ['e' * 64])
+        with self.assertRaises(PackingError):
+            prepared.receipt(template)
+        prepared.candidate = str(self.root / 'not-published.bin')
+        with self.assertRaises(PackingError):
+            prepared.inspection_receipt(template)
+
+    def test_inspection_receipt_rejects_missing_original_sizes_or_wrong_selection(self):
+        source = self.root / 'small.txt'
+        source.write_text('Checked source', encoding='utf-8')
+        prepared = self.prepare(source, {'': '.txt'})
+        template = dict(schema=1, kind='HomeLibre book compression', source=str(source), rows=[dict(member='wrong')])
+        with self.assertRaises(PackingError):
+            prepared.inspection_receipt(template)
+        template['rows'][0]['member'] = ''
+        prepared.books.clear()
+        with self.assertRaises(PackingError):
+            prepared.inspection_receipt(template)
+
+    def test_copied_original_is_not_mistaken_for_a_transformed_book(self):
+        source = self.root / 'small.txt'
+        source.write_text('Still original content', encoding='utf-8')
+        body_sha = sha(source)
+        ledger = {'': dict(profile_sha256=profile_digest('original', False),
+                           retry_original=True, output_sha256=body_sha)}
+        prepared = self.prepare(source, {'': '.txt'}, previous=ledger)
+        self.assertFalse(prepared.books[0]['reused'])
+        ledger['']['retry_original'] = False
+        prepared = self.prepare(source, {'': '.txt'}, previous=ledger)
+        self.assertTrue(prepared.books[0]['reused'])
+
     def test_cancel_during_original_copy_removes_partial_backup(self):
         source = self.source_zip({'one.txt': b'Book' * (1024 * 1024)})
         before, copying, checks = sha(source), False, 0
@@ -356,7 +485,7 @@ class SelectedPreparationTests(unittest.TestCase):
                    receipt_template=dict(schema=1, kind='HomeLibre book compression', source=str(source),
                                          rows=[dict(member='one.txt')]))
         request.write_text(json.dumps(job), encoding='utf-8')
-        process = subprocess.run([sys.executable, '-I', '-B', '-X', 'utf8', CLI_SCRIPT, '--job', str(request)],
+        process = run_owned([sys.executable, '-I', '-B', '-X', 'utf8', CLI_SCRIPT, '--job', str(request)],
                                  capture_output=True, text=True, encoding='utf-8', timeout=30)
         self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
         data = json.loads(report.read_text('utf-8'))
@@ -367,7 +496,7 @@ class SelectedPreparationTests(unittest.TestCase):
         # A previous report must never be overwritten. The rejected second
         # publication must clean both its new archive and original-book backup.
         report_bytes = report.read_bytes()
-        process = subprocess.run([sys.executable, '-I', '-B', '-X', 'utf8', CLI_SCRIPT, '--job', str(request)],
+        process = run_owned([sys.executable, '-I', '-B', '-X', 'utf8', CLI_SCRIPT, '--job', str(request)],
                                  capture_output=True, text=True, encoding='utf-8', timeout=30)
         self.assertEqual(process.returncode, 1, process.stdout + process.stderr)
         self.assertEqual(report.read_bytes(), report_bytes)
@@ -391,9 +520,33 @@ class SelectedPreparationTests(unittest.TestCase):
         with patch('prepare_book_compression.Packer.optimize_book', tamper):
             prepared = self.prepare(source, {'one.fb2': '.fb2'}, profile='maximum')
         self.assertFalse(prepared.books[0]['optimized'])
+        self.assertFalse(prepared.books[0]['checked'])
+        self.assertFalse(prepared.payloads[0]['checked'])
+        self.assertTrue(prepared.payloads[0]['retry_original'])
         self.assertIn('текст', prepared.books[0]['reason'])
         if prepared.candidate:
             self.assertEqual(self.decoded(prepared.candidate, 'one.fb2'), body)
+
+    @unittest.skipUnless(TOOLS, 'Real HomeLibre Images runtime required')
+    def test_skipped_image_result_preserves_original_and_remains_retryable(self):
+        body = illustrated_fb2(image_fixture())
+        source = self.root / 'one.fb2'
+        source.write_bytes(body)
+        def skipped(processor, target, *_, **__):
+            target.write_bytes(b'An incomplete output must not survive')
+            return dict(image_result='skipped', image_reason='temporary image failure')
+        with patch('prepare_book_compression.Packer.optimize_book', skipped):
+            prepared = self.prepare(source, {'': '.fb2'}, profile='maximum')
+        self.assertIsNone(prepared.candidate)
+        self.assertEqual(source.read_bytes(), body)
+        self.assertFalse(prepared.books[0]['checked'])
+        self.assertIn('temporary image failure', prepared.books[0]['reason'])
+        template = dict(schema=1, kind='HomeLibre book compression', source=str(source), rows=[dict(member='')])
+        payload = prepared.inspection_receipt(template)['payloads'][0]
+        self.assertFalse(payload['checked'])
+        self.assertTrue(payload['retry_original'])
+        self.assertEqual(payload['output_sha256'], sha(source))
+        self.assertEqual(payload['image_outputs'], [])
 
     def test_profile_and_receipt_cannot_select_other_book_or_source(self):
         with self.assertRaises(PackingError): profile_digest('jpeg-xl', False)
@@ -427,7 +580,7 @@ class SelectedPreparationTests(unittest.TestCase):
             workspace=str(self.work), seven_zip=str(SEVEN), report=str(report),
             receipt_template=dict(schema=1, kind='HomeLibre book compression', source=str(source),
                                   rows=[dict(member='wrong.txt')]))), encoding='utf-8')
-        failed = subprocess.run([sys.executable, '-I', '-B', '-X', 'utf8', CLI_SCRIPT, '--job', str(request)],
+        failed = run_owned([sys.executable, '-I', '-B', '-X', 'utf8', CLI_SCRIPT, '--job', str(request)],
                                 capture_output=True, text=True, encoding='utf-8', timeout=30)
         self.assertEqual(failed.returncode, 1, failed.stdout + failed.stderr)
         self.assertEqual(json.loads(failed.stdout.splitlines()[-1])['stage'], 'error')
@@ -442,7 +595,7 @@ class SelectedPreparationTests(unittest.TestCase):
         request.write_text(json.dumps(dict(version=1, source=str(source), members={'one.txt': '.txt'},
             workspace=str(self.work), seven_zip=str(SEVEN), report=str(report))), encoding='utf-8')
         cancel.touch()
-        failed = subprocess.run([sys.executable, '-I', '-B', '-X', 'utf8', CLI_SCRIPT, '--job', str(request), '--cancel', str(cancel)],
+        failed = run_owned([sys.executable, '-I', '-B', '-X', 'utf8', CLI_SCRIPT, '--job', str(request), '--cancel', str(cancel)],
                                 capture_output=True, text=True, encoding='utf-8', timeout=30)
         self.assertEqual(failed.returncode, 2, failed.stdout + failed.stderr)
         self.assertEqual(json.loads(failed.stdout.splitlines()[-1])['stage'], 'cancelled')
@@ -475,7 +628,7 @@ class NativeSelectedPipelineTests(unittest.TestCase):
         request.write_text(json.dumps(dict(version=1, source=str(self.source), members={'one.fb2': '.fb2'},
             workspace=str(work), seven_zip=str(SEVEN), profile='economy', tools_root=TOOLS,
             receipt_template=self.template, report=str(report)), ensure_ascii=False), encoding='utf-8')
-        process = subprocess.run([sys.executable, '-I', '-B', '-X', 'utf8', CLI_SCRIPT, '--job', str(request)],
+        process = run_owned([sys.executable, '-I', '-B', '-X', 'utf8', CLI_SCRIPT, '--job', str(request)],
                                  capture_output=True, text=True, encoding='utf-8', timeout=30)
         self.require_success(process)
         data = json.loads(report.read_text('utf-8'))
@@ -487,7 +640,7 @@ class NativeSelectedPipelineTests(unittest.TestCase):
         self.candidate.unlink()
         Path(prepared.candidate).rename(self.candidate)
         source_key = self.source.stat().st_ino
-        applied = subprocess.run([str(native.NATIVE), str(self.root), 'job-apply', '-'],
+        applied = run_owned([str(native.NATIVE), str(self.root), 'job-apply', '-'],
                                  capture_output=True, text=True, encoding='utf-8', timeout=30)
         self.require_success(applied)
         self.assertEqual(self.source.stat().st_ino, source_key)
@@ -534,7 +687,7 @@ class NativeSelectedPipelineTests(unittest.TestCase):
         self.assertEqual(result.books[0]['images_processed'],1)
         self.template=result.receipt(self.template); self.write_template()
         self.candidate.unlink(missing_ok=True); Path(result.candidate).rename(self.candidate)
-        applied=subprocess.run([str(native.NATIVE),str(self.root),'job-apply','-'],
+        applied=run_owned([str(native.NATIVE),str(self.root),'job-apply','-'],
             capture_output=True,text=True,encoding='utf-8',timeout=30)
         self.require_success(applied)
         self.assertEqual(self.snapshot(self.catalogue,False),before_c)

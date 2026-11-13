@@ -141,7 +141,7 @@ class PreparedBookCompression:
     def savings(self):
         return self.input_bytes - self.output_bytes
 
-    def receipt(self, template):
+    def _receipt_template(self, template):
         value = copy.deepcopy(template)
         selected = {item['member'] for item in self.payloads}
         if (value.get('schema') != 1 or value.get('kind') != 'HomeLibre book compression'
@@ -149,10 +149,31 @@ class PreparedBookCompression:
                 or not value.get('rows') or
                 {row.get('member') for row in value['rows']} != selected):
             raise PackingError('Список выбранных книг не соответствует подготовленному результату.')
+        return value
+
+    def receipt(self, template):
+        value = self._receipt_template(template)
         if not self.candidate:
             raise PackingError('Сжатый результат не стал меньше. Исходник оставлен без изменений.')
         value.update(source_sha256=self.source_sha256, result_sha256=self.result_sha256,
                      profile_sha256=self.profile_sha256, payloads=copy.deepcopy(self.payloads))
+        return value
+
+    def inspection_receipt(self, template):
+        """Remember checked original bytes, never a discarded transformation."""
+        value = self._receipt_template(template)
+        if self.candidate or self.result_sha256 != self.source_sha256 or self.output_bytes != self.input_bytes:
+            raise PackingError('Для отметки без изменения нужен сохранённый исходный файл.')
+        sizes = {book['member']: book['input_bytes'] for book in self.books}
+        if len(sizes) != len(self.payloads) or set(sizes) != {p['member'] for p in self.payloads}:
+            raise PackingError('Нет исходных размеров проверенных книг.')
+        reused = {book['member']: book['reused'] for book in self.books}
+        payloads = [dict(member=p['member'], input_sha256=p['input_sha256'],
+                         output_sha256=p['input_sha256'], size=sizes[p['member']], image_outputs=[],
+                         retry_original=not reused[p['member']], checked=p.get('checked', True))
+                    for p in self.payloads]
+        value.update(source_sha256=self.source_sha256, result_sha256=self.source_sha256,
+                     profile_sha256=self.profile_sha256, payloads=payloads)
         return value
 
     def publish(self, report):
@@ -380,9 +401,12 @@ def prepare_selected_file(source, members, workspace, seven_zip, *, profile='ori
             current = book_dir / ('book' + extension)
             copy_exact(original, current, check)
             ledger = previous.get(member, {})
+            # An explicitly unchanged original may need a new handler after
+            # an engine update. Keep legacy/transformed outputs byte-exact.
             reuse = (ledger.get('profile_sha256') == settings_sha
-                     and ledger.get('output_sha256') == initial['payload_sha256'])
-            reason, optimized, image_outputs = '', False, []
+                     and ledger.get('output_sha256') == initial['payload_sha256']
+                     and not ledger.get('retry_original', False))
+            reason, optimized, image_outputs, checked = '', False, [], True
             images_reused = images_processed = 0
             if reuse:
                 reason = 'Уже сжата с этими настройками; повторная обработка изображений не нужна.'
@@ -406,8 +430,8 @@ def prepare_selected_file(source, members, workspace, seven_zip, *, profile='ori
                             reason = status.get('image_reason', '')
                             if images_reused and not reason:
                                 reason = f'Уже обработанные изображения сохранены без пересжатия: {images_reused}. Новых обработано: {images_processed}.'
-                            if status.get('image_result') == 'skipped' and not reason:
-                                reason = 'Иллюстрации не обработаны; исходное содержимое сохранено.'
+                            if status.get('image_result') == 'skipped':
+                                raise PackingError(reason or 'Иллюстрации не обработаны; исходное содержимое сохранено.')
                             if optimized:
                                 verify_non_image_content(original, current, extension)
                     else:
@@ -419,7 +443,7 @@ def prepare_selected_file(source, members, workspace, seven_zip, *, profile='ori
                     current.unlink(missing_ok=True)
                     current = book_dir / ('kept' + extension)
                     copy_exact(original, current, check)
-                    optimized, reason = False, str(error)[:500]
+                    optimized, reason, checked = False, str(error)[:500], False
                     image_outputs = []
                     images_reused = images_processed = 0
             final = book_signature(current, check)
@@ -427,10 +451,10 @@ def prepare_selected_file(source, members, workspace, seven_zip, *, profile='ori
                 raise PackingError('Подготовленная книга стала больше исходной.')
             result.payloads.append(dict(member=member, input_sha256=initial['payload_sha256'],
                                         output_sha256=final['payload_sha256'], size=final['payload_size'],
-                                        image_outputs=image_outputs))
+                                        image_outputs=image_outputs, retry_original=not (optimized or reuse), checked=checked))
             result.books.append(dict(member=member, format=extension, optimized=optimized, reused=reuse,
                                      input_bytes=initial['payload_size'], output_bytes=final['payload_size'], reason=reason,
-                                     images_reused=images_reused, images_processed=images_processed))
+                                     images_reused=images_reused, images_processed=images_processed, checked=checked))
             if preview is not None and optimized:
                 try:
                     preview.add_book(original, current, extension, member)
@@ -519,6 +543,8 @@ def main():
         # exact native receipt. No half-published second receipt file is used.
         if prepared.candidate:
             result['receipt'] = prepared.receipt(request['receipt_template'])
+        else:
+            result['inspection_receipt'] = prepared.inspection_receipt(request['receipt_template'])
         atomic_json(request['report'], result, replace=False)
         emit(dict(stage='ready', candidate=bool(prepared.candidate), savings=prepared.savings))
         return 0
