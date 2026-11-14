@@ -29,7 +29,7 @@ uses
   unit_Database_Abstract;
 
 type
-  TBookCollection_SQLite = class(TBookCollection, IBookCollection, IBookSeriesStreamProvider, IBookMergeMetadataUpdater, IBookMergeMetadataDeltaUpdater, IBookMergeOriginalCopyRecorder, IAuthorFavoriteCollectionView, IBookIdentityDeletionWriter, IBookIdentityProgressWriter, IBookIdentityPersonalWriter, IBookMetadataFillWriter, ICatalogUserDataRestorer)
+  TBookCollection_SQLite = class(TBookCollection, IBookCollection, IBookSeriesStreamProvider, IBookMergeMetadataUpdater, IBookMergeMetadataDeltaUpdater, IBookImportedLocationWriter, IBookMergeOriginalCopyRecorder, IAuthorFavoriteCollectionView, IBookIdentityDeletionWriter, IBookIdentityProgressWriter, IBookIdentityPersonalWriter, IBookMetadataFillWriter, ICatalogUserDataRestorer)
   strict private type
     TStreamAuthor = record
       Data: TAuthorData;
@@ -241,6 +241,7 @@ type
       const Fields: TMetadataSyncFields; const SourceStillMatches: TFunc<Boolean>;
       out Updated: TMetadataSyncFields): TMetadataFillResult;
     function GetCatalogRevision: string;
+    procedure SetImportedBookLocation(BookID: Integer; const Folder: string; InsideNo: Integer);
     procedure RestoreCollectionBackup(const FileName: string);
     function GetCatalogBookID(const SourceKey: string): Integer;
     procedure SetCatalogBookID(const SourceKey: string; BookID: Integer);
@@ -3719,6 +3720,13 @@ begin
   finally
     if OwnRootGuard then RootGuard.EndMetadataRootGuard;
   end;
+end;
+
+procedure TBookCollection_SQLite.SetImportedBookLocation(BookID: Integer; const Folder: string; InsideNo: Integer);
+begin
+  if not InBulkOperation then raise EInvalidOperation.Create('Путь импорта сохраняется внутри обновления каталога.');
+  FDatabase.ExecSQL('UPDATE Books SET Folder=?,InsideNo=? WHERE BookID=? AND (Folder IS NOT ? OR InsideNo IS NOT ?)',
+    [Folder,InsideNo,BookID,Folder,InsideNo]);
 end;
 
 function TBookCollection_SQLite.GetCatalogRevision: string;

@@ -372,7 +372,8 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
         # discard the only evidence explaining where the private GUI stopped.
         # The real-book fixture itself allows 300 s *after* its application
         # bootstrap; leave separate room for bootstrap and orderly teardown.
-        deadline = 420 if real_books or scenario in ('packing-fbd', 'packed-jxl-formats', 'packed-flibrary-sidecars', 'compression-continuation') else 150
+        deadline = 420 if real_books or scenario in ('packing-fbd', 'packed-jxl-formats', 'packed-flibrary-sidecars',
+            'compression-continuation', 'library-update-sources', 'library-update-apply') else 150
         attempt = dict(status='INCOMPLETE', platform=platform, mode=mode,
             native_binary_sha256=digest(binary), outer_timeout_seconds=deadline,
             refresh_index=refresh_index,
@@ -447,6 +448,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
             raise
         output = log_path.read_text(encoding='utf-8', errors='replace')
         expected = {
+            'library-update-apply': 'PASS reviewed whole update keeps literal metadata personal data favourites and roots, skips missing members, continues the same index and retains removed books as excluded',
             'library-update-sources': 'PASS source settings window edits, persists stable bindings, checks a frozen local index, exports, reviews disabled legacy templates and survives collection rename',
             'selected-compression-ui': f'PASS selected compression normal catalogue {mode}',
             'explorer-file-drop': 'PASS Explorer import offers compression only after accepted imports',
@@ -460,6 +462,9 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
         if recovery_fault:
             expected = 'PASS actual compression crash and ordinary startup recovery ' + recovery_fault
         expected_lines = [expected]
+        if scenario == 'library-update-apply':
+            expected_lines.append('PASS reviewed merged-source update preserves priorities personal data and removed copies, adds verified members from a second root and repeats without duplicate cards')
+            expected_lines.append('PASS reviewed updates retain exclusions across omitted indexes, distinguish publisher omissions and roll back catalogues personal fields source links and baseline publication on a late failure')
         if scenario == 'library-update-sources':
             expected_lines += [
                 'PASS legacy library updates request individual and default URLs, keep individual URLs with no global server, reset stale versions and reject HTTP errors',
@@ -557,7 +562,9 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
                         text_only_repack=text_repack,
                         flibrary_sidecar_inputs=sidecar_inputs,
                         unrelated_archive_unchanged=True, native_log=str(log_path),
-                        scope=('Native source settings and INPX/Metabib review, archive names/roots, date changes, deleted and malformed rows, cancellation, unchanged live catalogues, actual legacy individual/default HTTP version requests, rename and theme/DPI layout; no update application'
+                        scope=('Native reviewed whole and merged-source updates on small private ZIP/INPX fixtures: metadata, personal data, priorities, removed copies across omitted indexes, exact member availability, separate download root, same-index continuation and late SQL-failure rollback; no production-scale or packed/online application gate'
+                               if scenario == 'library-update-apply' else
+                               'Native source settings and INPX/Metabib review, archive names/roots, date changes, deleted and malformed rows, cancellation, unchanged live catalogues, actual legacy individual/default HTTP version requests, rename and theme/DPI layout; no update application'
                                if scenario == 'library-update-sources' else
                                'Native full packed-copy publication and actual INPX update without originals; '
                                'catalogue, personal card and alternate-copy sizes, legacy/unknown sizes and invalid-size rejection'
@@ -656,7 +663,7 @@ if __name__ == '__main__':
     parser.add_argument('--estimate-first', action='store_true')
     parser.add_argument('--whole', action='store_true')
     parser.add_argument('--repeat-new', action='store_true', help='After applying, invoke the normal new-books menu and verify no preparation')
-    parser.add_argument('--scenario', choices=['selected-compression-ui', 'explorer-file-drop', 'update-outcomes', 'library-update-sources',
+    parser.add_argument('--scenario', choices=['selected-compression-ui', 'explorer-file-drop', 'update-outcomes', 'library-update-sources', 'library-update-apply',
                         'packed-catalogue-sizes', 'packing-fbd', 'packed-jxl-formats', 'packed-flibrary-sidecars', 'compression-continuation'], default='selected-compression-ui')
     parser.add_argument('--packing-codec', type=Path, help='Exact official JPEG XL archive for the native packed INPX installer/reader scenario')
     parser.add_argument('--packing-codec-release', type=Path, help='Official GitHub release metadata used to verify the codec archive')

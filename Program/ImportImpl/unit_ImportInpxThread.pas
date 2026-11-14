@@ -580,7 +580,10 @@ begin
         ImportedBooks.Clear;
         ArchiveEntries.Clear;
         Reader := TInpLineReader.Create(Zip, InpEntries[i].Index, Settings.TempPath,
-          function: Boolean begin Result := Canceled; end);
+          function: Boolean begin
+            if Assigned(FImportCheck) then FImportCheck;
+            Result := Canceled;
+          end);
         while not Canceled and Reader.ReadLine(InputLine) do
         begin
           if Assigned(FImportCheck) then FImportCheck;

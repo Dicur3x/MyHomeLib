@@ -638,6 +638,7 @@ type
     procedure UpdateOnlineCollectionExecute(Sender: TObject);
     procedure UpdateCollectionFromFileExecute(Sender: TObject);
     procedure LibraryUpdateSourcesExecute(Sender: TObject);
+    procedure LibraryUpdateSourcesBeginApply(Sender: TObject);
     procedure UpdateCollectionFromFileUpdate(Sender: TObject);
     procedure ClearReadFolderExecute(Sender: TObject);
     procedure BookCacheActionUpdate(Sender: TObject);
@@ -13237,12 +13238,28 @@ begin
 end;
 
 procedure TfrmMain.LibraryUpdateSourcesExecute(Sender: TObject);
-var Dialog: TfrmLibraryUpdateSources;
+var Dialog: TfrmLibraryUpdateSources; CollectionID: Integer; Changed: Boolean;
 begin
   if not Assigned(FCollection) or FFormBusy or FStartupLoading or FBookListLoading then Exit;
   if CompressionBlocksCatalogChange then Exit;
+  CollectionID:=FCollection.CollectionID; Changed:=False;
   Dialog:=TfrmLibraryUpdateSources.CreateForCollection(Self,FCollection);
-  try Dialog.ShowModal; finally Dialog.Free; end;
+  FFormBusy:=True;
+  try
+    Dialog.BeforeApply:=LibraryUpdateSourcesBeginApply;
+    Dialog.ShowModal; Changed:=Dialog.Committed;
+  finally Dialog.Free; FFormBusy:=False; end;
+  if Changed then
+  begin
+    NotifyFavoriteCatalogChanged(TArray<Integer>.Create(CollectionID));
+    Settings.ActiveCollection:=CollectionID; InitCollection; QueueCollectionCompressionOffer(CollectionID);
+  end;
+end;
+
+procedure TfrmMain.LibraryUpdateSourcesBeginApply(Sender: TObject);
+begin
+  if Assigned(FOPDSForm) then FOPDSForm.StopServer;
+  UpdatePositions;
 end;
 
 procedure TfrmMain.UpdateCollectionFromFileExecute(Sender: TObject);

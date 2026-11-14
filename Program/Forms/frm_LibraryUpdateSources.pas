@@ -39,6 +39,8 @@ type
     FReview: TLibraryUpdateReview;
     FSelectedIndex: Integer;
     FRebuilding, FLayoutBusy: Boolean;
+    FCommitted: Boolean;
+    FBeforeApply: TNotifyEvent;
     procedure Rebuild(Index: Integer);
     procedure Selected(Sender: TObject; Item: TListItem; Selected: Boolean);
     procedure AddSource(Sender: TObject);
@@ -48,9 +50,11 @@ type
     procedure ExportClick(Sender: TObject);
     procedure SaveClick(Sender: TObject);
     procedure CheckClick(Sender: TObject);
+    procedure ApplyClick(Sender: TObject);
     procedure CopyReport(Sender: TObject);
     procedure CopyNeeded(Sender: TObject);
     procedure InvalidatePrepared;
+    procedure UpdateApplyAction;
     procedure ReviewIndex;
     procedure Help(Sender: TObject);
     procedure Layout;
@@ -68,9 +72,13 @@ type
     procedure ExportFile(const FileName: string);
     procedure SaveSources;
     procedure CheckSource;
+    procedure ApplyReviewed(PreferNewRoot: Boolean);
+    procedure SelectProfile(const ID: string);
     property Sources: TLibraryUpdateSources read GetSources;
     property Prepared: TStagedLibraryIndex read FPrepared;
     property Review: TLibraryUpdateReview read FReview;
+    property Committed: Boolean read FCommitted;
+    property BeforeApply: TNotifyEvent read FBeforeApply write FBeforeApply;
   end;
 
 implementation
@@ -269,6 +277,7 @@ begin
   Button('btnImportUpdateSources','Импорт настроек…',ImportClick);
   Button('btnExportUpdateSources','Экспорт настроек…',ExportClick);
   Button('btnCheckUpdateSource','Проверить обновление',CheckClick);
+  Button('btnApplyUpdateSource','Применить обновление…',ApplyClick); B.Enabled:=False;
   Button('btnSaveUpdateSources','Сохранить',SaveClick);
   Button('btnCopyUpdateSourceReport','Копировать отчёт',CopyReport);
   Button('btnCopyNeededUpdateArchives','Копировать список',CopyNeeded);
@@ -280,7 +289,14 @@ destructor TfrmLibraryUpdateSources.Destroy;
 begin InvalidatePrepared; inherited; end;
 
 procedure TfrmLibraryUpdateSources.InvalidatePrepared;
-begin FreeAndNil(FReview); FreeAndNil(FPrepared); end;
+begin FreeAndNil(FReview); FreeAndNil(FPrepared); UpdateApplyAction; end;
+
+procedure TfrmLibraryUpdateSources.UpdateApplyAction;
+var Button: TComponent;
+begin
+  Button:=FindComponent('btnApplyUpdateSource');
+  if Button is TButton then TButton(Button).Enabled:=Assigned(FReview) and FReview.Ready and not FReview.Applied;
+end;
 
 function TfrmLibraryUpdateSources.GetSources: TLibraryUpdateSources;
 begin Result:=Copy(FSources); end;
@@ -325,7 +341,7 @@ procedure TfrmLibraryUpdateSources.Resize;
 begin inherited; Layout; end;
 
 procedure TfrmLibraryUpdateSources.SetReport(const Text: string);
-begin FReport.Caption:=Text; Layout; end;
+begin FReport.Caption:=Text; UpdateApplyAction; Layout; end;
 
 procedure TfrmLibraryUpdateSources.Rebuild(Index: Integer);
 begin
@@ -459,6 +475,7 @@ procedure TfrmLibraryUpdateSources.ReviewIndex;
 var Worker: TCollectionWorker; Progress: TImportProgressFormEx;
 begin
   FReview:=TLibraryUpdateReview.Create(FSources[SelectionIndex],FPrepared);
+  FReview.SetSourceProfiles(FSources);
   try
     Worker:=CreateLibraryReviewWorker(FCollection.CollectionID,FReview);
     try
@@ -505,6 +522,64 @@ begin try CheckSource; except on E:Exception do SetReport(E.Message); end; end;
 procedure TfrmLibraryUpdateSources.CopyReport(Sender: TObject);
 begin Clipboard.AsText:=FReport.Caption; end;
 
+procedure TfrmLibraryUpdateSources.SelectProfile(const ID: string);
+begin
+  for var I:=0 to High(FSources) do
+    if SameText(FSources[I].ID,ID) then begin Rebuild(I); Exit; end;
+end;
+
+procedure TfrmLibraryUpdateSources.ApplyReviewed(PreferNewRoot: Boolean);
+var Worker: TCollectionWorker; Progress: TImportProgressFormEx; Succeeded: Boolean; Failure, Details: string; LineEnd: Integer;
+begin
+  if not Assigned(FReview) or not FReview.Ready or FReview.Applied then raise EReadError.Create('Сначала проверьте обновление.');
+  if Assigned(FBeforeApply) then FBeforeApply(Self);
+  Worker:=CreateLibraryApplyWorker(FCollection.CollectionID,FReview,PreferNewRoot);
+  try
+    Progress:=TImportProgressFormEx.Create(Self);
+    try
+      Progress.Caption:='Обновление библиотеки'; Progress.WorkerThread:=Worker;
+      Progress.CloseOnTimer:=True; Progress.PopupMode:=pmExplicit; Progress.PopupParent:=Self; Progress.Timer.Interval:=1;
+      Progress.ShowModal; Worker.WaitFor;
+      if Worker.CommittedChanges then FCommitted:=True;
+      Succeeded:=Worker.Success;
+      if Assigned(Worker.FatalException) then Failure:=Exception(Worker.FatalException).Message;
+      if Worker.CommittedChanges then
+        FCollection:=SystemDB.GetCollection(FCollection.CollectionID,True);
+    finally Progress.Free; end;
+  finally Worker.Free; end;
+  if Failure<>'' then
+  begin
+    if FReview.Applied then SetReport('Каталог уже обновлён. Завершение потребовало внимания: '+Failure)
+    else SetReport('Обновление не применено: '+Failure);
+    Exit;
+  end;
+  if Succeeded then
+  begin
+    Details:=FReview.ApplySummary; LineEnd:=Pos(sLineBreak,Details);
+    if LineEnd>0 then Delete(Details,1,LineEnd+Length(sLineBreak)-1);
+    SetReport('Обновление применено. Сохранены настройки источника и его новый индекс. '+
+      'Сами книги и архивы не менялись.'+sLineBreak+Details);
+  end
+  else SetReport('Обновление отменено. Текущий каталог не изменён.');
+end;
+
+procedure TfrmLibraryUpdateSources.ApplyClick(Sender: TObject);
+var PreferNew: Boolean; Choice: Integer;
+begin
+  try
+    PreferNew:=False;
+    if Assigned(FReview) and (FReview.AmbiguousArchives.Count>0) then
+    begin
+      Choice:=MessageDlg('Одноимённые архивы есть в прежней папке и папке докачки.'+sLineBreak+
+        'Использовать версии из папки докачки?'+sLineBreak+'«Нет» — использовать прежние файлы.',
+        mtConfirmation,[mbYes,mbNo,mbCancel],0);
+      if Choice=mrCancel then Exit;
+      PreferNew:=Choice=mrYes;
+    end;
+    ApplyReviewed(PreferNew);
+  except on E:Exception do SetReport(E.Message); end;
+end;
+
 procedure TfrmLibraryUpdateSources.CopyNeeded(Sender: TObject);
 begin
   if Assigned(FReview) and FReview.Ready then Clipboard.AsText:=FReview.NeededArchives.Text
@@ -516,6 +591,7 @@ begin
   SetReport('1. Добавьте папку с новым индексом или адрес сервера и имя файла.'+sLineBreak+
     '2. Укажите, какую коллекцию или подключённый источник обновлять и где лежат архивы книг.'+sLineBreak+
     '3. Нажмите «Проверить обновление»: появятся число новых записей и имена недостающих файлов. Список можно скопировать.'+sLineBreak+
+    '4. Нажмите «Применить обновление» и проверьте итоговый план. До подтверждения каталог не меняется; перед сохранением создаётся его резервная копия.'+sLineBreak+
     'Импорт показывает настройки до сохранения. Записи из другого INI сначала отключены. '+
     'Индекс содержит список книг; адресов для загрузки любых книжных архивов в нём может не быть.');
 end;

@@ -86,6 +86,14 @@ type
     procedure UpdateBookMetadataDelta(const Before: TBookRecord; BookRecord: TBookRecord; UpdateUserCard: Boolean = True);
   end;
 
+  // A private/bulk import can retain a verified physical locator without
+  // rewriting metadata, series or personal cards. Derived search fields use
+  // the catalogue writer's normal triggers.
+  IBookImportedLocationWriter = interface
+    ['{E932D17A-3E17-4A78-8727-61169863B986}']
+    procedure SetImportedBookLocation(BookID: Integer; const Folder: string; InsideNo: Integer);
+  end;
+
   // Capture the pre-merge file provenance once, without replacing original
   // metadata with the preferred source selected by a later or repeated merge.
   IBookMergeOriginalCopyRecorder = interface

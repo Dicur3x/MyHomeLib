@@ -107,6 +107,7 @@ begin
   Dialog:=TfrmLibraryUpdateSources.CreateForCollection(frmMain,Target);
   try
     Dialog.AppendSource(Source); Dialog.SaveSources;
+    Require(not TButton(Dialog.FindComponent('btnApplyUpdateSource')).Enabled,'Unreviewed source can be applied');
     Sources:=ReadLibraryUpdateSources(VarToStr(Target.GetProperty(PROP_LIBRARY_UPDATE_SOURCES)));
     Require((Length(Sources)=1) and (Sources[0].ID=Source.ID),'Source settings were not stored in this catalogue');
     OldTheme:=MHLThemeDark;
@@ -118,6 +119,7 @@ begin
     OriginalHash:=THashSHA2.GetHashStringFromFile(IndexFile);
     Revision:=Target.GetCatalogRevision;
     Dialog.CheckSource;
+    Require(TButton(Dialog.FindComponent('btnApplyUpdateSource')).Enabled,'Reviewed source does not offer application');
     Require(Assigned(Dialog.Prepared),'Source check did not retain its frozen index');
     Require(Dialog.Prepared.SHA256=OriginalHash,'Source check changed the index bytes');
     Require(Assigned(Dialog.Review) and Dialog.Review.Ready and Dialog.Review.PreviousIndex,
@@ -203,6 +205,7 @@ begin
       'Update9="Second";"";"";"second.inpx";"1";"0";',TEncoding.UTF8);
     Dialog.ImportFile(Legacy);
     Require(not Assigned(Dialog.Prepared),'Import did not invalidate the prior file check');
+    Require(not TButton(Dialog.FindComponent('btnApplyUpdateSource')).Enabled,'Imported settings retain an obsolete apply action');
     Require(not DirectoryExists(Staging),'Invalidated file check retained its owned staging');
     Loaded:=Dialog.Sources;
     Require((Length(Loaded)=2) and not Loaded[0].Enabled and not Loaded[1].Enabled,

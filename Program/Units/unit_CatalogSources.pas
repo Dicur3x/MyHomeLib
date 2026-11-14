@@ -7,7 +7,7 @@ uses System.SysUtils, System.Classes, unit_Globals, unit_Interfaces,
 
 type
   TCatalogSource = record
-    ID, Name, INPXFile, Root, CollectionFile, LibraryNamespace: string;
+    ID, Name, INPXFile, Root, CollectionFile, LibraryNamespace, CacheVersion, UpdateProfileID: string;
     CollectionID: Integer;
     class function NewID: string; static;
     function IsINPX: Boolean;
@@ -26,6 +26,7 @@ type
     constructor Create(const Source: TCatalogSource);
     property Success: Boolean read FSuccess;
     property Error: string read FError;
+    property Source: TCatalogSource read FSource;
   end;
 
   TCatalogMergeWorker = class(TCollectionWorker)
@@ -99,12 +100,19 @@ function TCatalogSource.IsINPX: Boolean;
 begin Result := INPXFile <> ''; end;
 
 function TCatalogSource.CacheFile: string;
-var IDValue: TGUID;
+var IDValue, Version: TGUID; Folder: string;
 begin
   // Only validated GUIDs form writable paths; JSON cannot redirect snapshots.
   try IDValue := StringToGUID(ID);
   except on E: EConvertError do raise Exception.Create('Неверный идентификатор источника.'); end;
-  Result := TPath.Combine(Settings.DataPath, 'CatalogSources\' + GUIDToString(IDValue) + '\catalog.hlc2');
+  Folder:=TPath.Combine(Settings.DataPath,'CatalogSources\'+GUIDToString(IDValue));
+  if CacheVersion<>'' then
+  begin
+    try Version:=StringToGUID(CacheVersion);
+    except on E:EConvertError do raise Exception.Create('Неверная версия сохранённого источника.'); end;
+    Folder:=TPath.Combine(Folder,GUIDToString(Version));
+  end;
+  Result:=TPath.Combine(Folder,'catalog.hlc2');
 end;
 
 function LoadCatalogSources(const Collection: IBookCollection): TCatalogSources;
@@ -129,6 +137,8 @@ begin
       Result[I].CollectionFile := Obj.GetValue<string>('file', '');
       Result[I].CollectionID := Obj.GetValue<Integer>('collection', INVALID_COLLECTION_ID);
       Result[I].LibraryNamespace := Obj.GetValue<string>('library', '');
+      Result[I].CacheVersion := Obj.GetValue<string>('cache_version', '');
+      Result[I].UpdateProfileID := Obj.GetValue<string>('update_profile', '');
     end;
   finally JSON.Free; end;
 end;
@@ -146,6 +156,8 @@ begin
       Obj.AddPair('file', Source.CollectionFile);
       Obj.AddPair('collection', TJSONNumber.Create(Source.CollectionID));
       Obj.AddPair('library', Source.LibraryNamespace);
+      Obj.AddPair('cache_version',Source.CacheVersion);
+      Obj.AddPair('update_profile',Source.UpdateProfileID);
     end;
     Collection.SetProperty(PROP_CATALOG_SOURCES, JSON.ToJSON);
   finally JSON.Free; end;
@@ -199,6 +211,9 @@ begin
     if not FSource.IsINPX then raise Exception.Create('Обновление INPX доступно для источника с файлом индекса.');
     if not FileExists(FSource.INPXFile) then raise Exception.Create('Файл INPX не найден: ' + FSource.INPXFile);
     if not DirectoryExists(FSource.Root) then raise Exception.Create('Папка книг не найдена: ' + FSource.Root);
+    // Scoped versions may be referenced by a copied catalogue. Refresh by
+    // creating a fresh generation, never replacing that shared input.
+    if FSource.CacheVersion<>'' then FSource.CacheVersion:=TCatalogSource.NewID;
     Cache := FSource.CacheFile; ForceDirectories(TPath.GetDirectoryName(Cache));
     Pending := TPath.Combine(TPath.GetDirectoryName(Cache), TCatalogSource.NewID + '.pending.hlc2');
     TBookCollection_SQLite.CreateCollection(FSystemData, Pending, CT_EXTERNAL_LOCAL_FB, Settings.SystemFileName[sfGenresFB2]);

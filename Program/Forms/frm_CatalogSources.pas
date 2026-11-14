@@ -107,7 +107,7 @@ implementation
 uses System.SysUtils, System.IOUtils, System.Variants, Winapi.Windows, Vcl.Graphics,
   Vcl.Dialogs, Vcl.FileCtrl, unit_Consts, unit_Settings, unit_Globals,
   frm_ImportProgressFormEx, unit_BookCache, dm_user, unit_CollectionSpace, System.Math, frm_BookMetadataFill,
-  System.IniFiles, unit_AtomicIniFile;
+  System.IniFiles, unit_AtomicIniFile, frm_LibraryUpdateSources, unit_LibraryUpdateSources;
 
 function TSourceScrollBox.ScrollWheel(WheelDelta: Integer): Boolean;
 var Lines: Cardinal; Step, Delta: Integer;
@@ -666,13 +666,36 @@ begin
 end;
 
 procedure TfrmCatalogSources.RefreshSource(Sender: TObject);
-var Worker: TCatalogRefreshWorker; Index: Integer;
+var Worker: TCatalogRefreshWorker; Index: Integer; Dialog: TfrmLibraryUpdateSources; Found: Boolean;
 begin
   Index := FList.ItemIndex; if (Index < 0) or not FSources[Index].IsINPX then Exit;
+  if FSources[Index].UpdateProfileID<>'' then
+  begin
+    Found:=False;
+    for var Profile in ReadLibraryUpdateSources(VarToStr(FTarget.GetProperty(PROP_LIBRARY_UPDATE_SOURCES))) do
+      if SameText(Profile.ID,FSources[Index].UpdateProfileID) then Found:=True;
+    if not Found then
+    begin FReport.Lines.Text:='Настройка обновления этого источника удалена. Добавьте её через «Настроить источники обновлений…».'; Exit; end;
+    InvalidatePreview('Обновление выбранного источника.');
+    Dialog:=TfrmLibraryUpdateSources.CreateForCollection(Self,FTarget);
+    try
+      Dialog.SelectProfile(FSources[Index].UpdateProfileID); Dialog.ShowModal;
+      if Dialog.Committed then
+      begin
+        FChanged:=True; FSources:=LoadCatalogSources(FTarget); RebuildList(Index);
+        FReport.Lines.Text:='Источник обновлён через сохранённую настройку.';
+      end;
+    finally Dialog.Free; end;
+    Exit;
+  end;
   InvalidatePreview('Список выбранного источника перечитывается.'); Worker := TCatalogRefreshWorker.Create(FSources[Index]);
   try
     RunWorker(Worker,'Обновление источника — ' + FSources[Index].Name);
-    if Worker.Success then FReport.Lines.Text := 'Источник обновлён. Выполните предпросмотр объединения.'
+    if Worker.Success then
+    begin
+      FSources[Index]:=Worker.Source; SaveCatalogSources(FTarget,FSources);
+      FReport.Lines.Text := 'Источник обновлён. Выполните предпросмотр объединения.';
+    end
     else FReport.Lines.Text := Worker.Error;
   finally Worker.Free; RebuildList(Index); end;
 end;

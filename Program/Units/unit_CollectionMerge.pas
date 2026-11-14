@@ -15,6 +15,10 @@ type
   TMergeProgress = reference to procedure(Current, Total: Integer);
   TMergeStageProgress = reference to procedure(const Stage: string; Current, Total: Integer);
   TMergeCanceled = reference to function: Boolean;
+  TMergeBookLookup = reference to function(const Source: TMergeSource; const Book: TBookRecord): Integer;
+  TMergeBookChoice = reference to procedure(const Source: TMergeSource; const Incoming, Existing: TBookRecord;
+    var KeepFile, KeepMetadata: Boolean);
+  TMergeTransactionHook = reference to procedure(const Collection: IBookCollection);
   TMergeUserValues = record Rate, Progress: Integer; end;
 
   TCollectionMergePlan = class
@@ -37,6 +41,10 @@ type
     FReadCacheHits, FReadCacheBooks, FSourceLookupCount: Integer;
     FHasStableSourceLinks: Boolean;
     FStageProgress: TMergeStageProgress;
+    FBookLookup: TMergeBookLookup;
+    FBookChoice: TMergeBookChoice;
+    FAfterBegin, FBeforeCommit: TMergeTransactionHook;
+    FCommitted: Boolean;
     function ResolvedContainer(const Book: TBookRecord): string;
     procedure LoadTarget(const Canceled: TMergeCanceled = nil);
     procedure AddReport(const Text: string);
@@ -60,10 +68,20 @@ type
     property ReadCacheBooks: Integer read FReadCacheBooks;
     property SourceLookupCount: Integer read FSourceLookupCount;
     property StageProgress: TMergeStageProgress read FStageProgress write FStageProgress;
+    // A reviewed update supplies a bounded on-disk mapping for its changed
+    // records, avoiding a second whole-library identity dictionary.
+    property BookLookup: TMergeBookLookup read FBookLookup write FBookLookup;
+    property BookChoice: TMergeBookChoice read FBookChoice write FBookChoice;
+    property AfterBegin: TMergeTransactionHook read FAfterBegin write FAfterBegin;
+    property BeforeCommit: TMergeTransactionHook read FBeforeCommit write FBeforeCommit;
+    property Committed: Boolean read FCommitted;
   end;
 
 function BookPhysicalIdentity(const Book: TBookRecord): string;
+function BookPhysicalIdentityAtLocation(const Book: TBookRecord; const Location: string): string;
 function MergeSourceKey(const Source: TMergeSource; const Book: TBookRecord): string;
+function MergeSourceKeyAtLocation(const Source: TMergeSource; const Book: TBookRecord;
+  const Location: string): string;
 function BookLibraryIdentity(const Book: TBookRecord; const LibraryNamespace: string): string;
 procedure BackupCollectionFile(const SourceFile, BackupFile: string);
 
@@ -137,8 +155,15 @@ end;
 function BookPhysicalIdentity(const Book: TBookRecord): string;
 begin Result:=PhysicalIdentityAt(Book,TPath.GetFullPath(Book.GetBookContainer)); end;
 
+function BookPhysicalIdentityAtLocation(const Book: TBookRecord; const Location: string): string;
+begin Result:=PhysicalIdentityAt(Book,TPath.GetFullPath(Location)); end;
+
 function MergeSourceKey(const Source: TMergeSource; const Book: TBookRecord): string;
 begin Result:=SourceKeyAt(Source,Book,TPath.GetFullPath(Book.GetBookContainer)); end;
+
+function MergeSourceKeyAtLocation(const Source: TMergeSource; const Book: TBookRecord;
+  const Location: string): string;
+begin Result:=SourceKeyAt(Source,Book,TPath.GetFullPath(Location)); end;
 
 function TCollectionMergePlan.ResolvedContainer(const Book: TBookRecord): string;
 var Key: string;
@@ -307,7 +332,10 @@ var Source: TMergeSource; Iterator: IPublisherSeriesIndexIterator; Book: TBookRe
   DB: TSQLiteDatabase; Lookup: TSQLiteQuery; Summaries: TStringList;
 begin
   FReady := False; FNewBooks := 0; FDuplicates := 0; FConflicts := 0; FTotal := 0; Count := 0;
-  FReport.Clear; FSourceLookupCount:=0; CaptureStamps; LoadTarget(Canceled);
+  FReport.Clear; FSourceLookupCount:=0; CaptureStamps;
+  if Assigned(FBookLookup) then
+  begin FResolvedContainers.Clear; FLocations.Clear; FIdentities.Clear; FTargetUserValues.Clear; end
+  else LoadTarget(Canceled);
   if (FFullReportFile <> '') and FileExists(FFullReportFile) then TFile.Delete(FFullReportFile);
   CreateGUID(ReportID); ForceDirectories(Settings.TempPath);
   FFullReportFile := TPath.Combine(Settings.TempPath, 'merge-preview-' + GUIDToString(ReportID) + '.txt');
@@ -354,7 +382,8 @@ begin
         if Assigned(Canceled) and Canceled() then raise EAbort.Create('Предпросмотр отменён.');
         Key := PhysicalIdentityAt(Book,ResolvedContainer(Book));
         ID:=0;
-        if FHasStableSourceLinks then
+        if Assigned(FBookLookup) then ID:=FBookLookup(Source,Book)
+        else if FHasStableSourceLinks then
         begin
           Inc(FSourceLookupCount);
           Lookup.Reset; Lookup.SetParam(0,SourceKeyAt(Source,Book,ResolvedContainer(Book))); Lookup.Open;
@@ -362,6 +391,13 @@ begin
           Lookup.Reset;
         end;
         AlreadyLinked := ID <> 0;
+        if Assigned(FBookLookup) and (ID>0) and not FTargetUserValues.ContainsKey(ID) then
+        begin
+          var Current: TBookRecord;
+          FTarget.GetBookRecord(CreateBookKey(ID,FTarget.CollectionID),Current,False);
+          Values.Rate:=Current.Rate; Values.Progress:=Current.Progress;
+          FTargetUserValues.Add(ID,Values);
+        end;
         if ID = 0 then Locations.TryGetValue(Key, ID);
         if ID = 0 then FLocations.TryGetValue(Key, ID);
         Identity := '';
@@ -440,7 +476,7 @@ procedure TCollectionMergePlan.Apply(const BackupFolder: string; const Progress:
   const Canceled: TMergeCanceled);
 var Source: TMergeSource; Iterator: IBookIterator; Book, Existing: TBookRecord;
   ID, I, Count, OriginalID: Integer; Physical, SourceKey, Identity: string; DestinationKey: TBookKey;
-  IncomingCopy, UserFields: TBookRecord; KeepExistingFile, Changed, AuthorsChanged, GenresChanged: Boolean;
+  IncomingCopy, UserFields: TBookRecord; KeepExistingFile, KeepExistingMetadata, Changed, AuthorsChanged, GenresChanged: Boolean;
   Seen: TDictionary<Integer, Boolean>; Remap: TDictionary<string, Integer>;
   Series, Publishers, OldSeries, OldPublishers: TBookSeries; Sequence: TBookSeriesData; Genre: TGenreData;
   UserData, Mapped: TUserData; Group, NewGroup: TBookGroup; GroupBook: TGroupBook;
@@ -599,7 +635,7 @@ var Source: TMergeSource; Iterator: IBookIterator; Book, Existing: TBookRecord;
   end;
 begin
   if not FReady then raise Exception.Create('Сначала выполните предпросмотр объединения.');
-  CheckStamps; CheckResolvedContainers;
+  FCommitted:=False; CheckStamps; CheckResolvedContainers;
   if Assigned(Canceled) and Canceled() then raise EAbort.Create('Объединение отменено.');
   if DirectoryExists(BackupFolder) then raise Exception.Create('Для резервной копии требуется новая папка.');
   ForceDirectories(BackupFolder);
@@ -636,8 +672,10 @@ begin
   try
     FTarget.BeginBulkOperation;
     try
+      if Assigned(FAfterBegin) then FAfterBegin(FTarget);
       FSystem.BeginDataUpdate; SystemStarted := True;
-      PhaseStarted:=SQLiteProfileClock; PrepareReadSnapshot;
+      PhaseStarted:=SQLiteProfileClock;
+      if not Assigned(FBookLookup) then PrepareReadSnapshot;
       RecordSQLiteProfile('merge','phase','prepare-target-read-snapshot',PhaseStarted);
       if Supports(FSystem, ISystemBookPresence, BookPresence) then
       begin
@@ -663,7 +701,8 @@ begin
           OriginalID := Book.BookKey.BookID;
           Physical := PhysicalIdentityAt(Book,ResolvedContainer(Book)); SourceKey := SourceKeyAt(Source,Book,ResolvedContainer(Book));
           ID:=0;
-          if FHasStableSourceLinks then
+          if Assigned(FBookLookup) then ID:=FBookLookup(Source,Book)
+          else if FHasStableSourceLinks then
           begin Inc(FSourceLookupCount); ID:=FTarget.GetCatalogBookID(SourceKey); end;
           if ID = 0 then FLocations.TryGetValue(Physical, ID);
           Identity := '';
@@ -740,6 +779,10 @@ begin
             KeepExistingFile := ((FPolicy = mpSourcePriority) and Seen.ContainsKey(ID)) or
               ((FPolicy = mpSmallestFile) and (Existing.Size > 0) and
                 ((Book.Size <= 0) or (Book.Size >= Existing.Size)));
+            KeepExistingMetadata:=False;
+            if Assigned(FBookChoice) then FBookChoice(Source,IncomingCopy,Existing,KeepExistingFile,KeepExistingMetadata);
+            if KeepExistingMetadata then
+            begin Book:=Existing; KeepExistingFile:=True; end;
             if KeepExistingFile then
             begin
               Book.Folder := Existing.Folder; Book.FileName := Existing.FileName;
@@ -759,6 +802,7 @@ begin
             if Book.ISBN = '' then Book.ISBN := Existing.ISBN;
             OldSeries := ReadExistingSeries(ID);
             OldPublishers := Existing.PublisherSeries;
+            if KeepExistingMetadata then begin Series:=Copy(OldSeries); Publishers:=Copy(OldPublishers); end;
             AuthorsChanged := not HasAuthors(Existing.Authors, Book.Authors);
             GenresChanged := not HasGenres(Existing.Genres, Book.Genres);
             if AuthorsChanged then FTarget.SetBookAuthors(ID, Book.Authors, False);
@@ -886,12 +930,14 @@ begin
     for Group in Mapped.Groups do
       for GroupBook in Group do
         FTarget.AddBookToGroup(CreateBookKey(GroupBook.BookID,FTarget.CollectionID),Group.GroupID);
+      if Assigned(FBeforeCommit) then FBeforeCommit(FTarget);
       if Assigned(Canceled) and Canceled() then raise EAbort.Create('Объединение отменено.');
       TFile.WriteAllText(TPath.Combine(BackupFolder, 'status.txt'), 'Сохранение: при аварийном завершении проверьте обе резервные копии.', TEncoding.UTF8);
       RecordSQLiteProfile('merge','phase','merge-groups',PhaseStarted);
       PhaseStarted := SQLiteProfileClock;
       FTarget.EndBulkOperation(True); TargetCommitted := True;
       FSystem.EndDataUpdate(True); SystemStarted := False;
+      FCommitted:=True;
       RecordSQLiteProfile('merge','phase','commit',PhaseStarted);
       FReady := False;
     except
