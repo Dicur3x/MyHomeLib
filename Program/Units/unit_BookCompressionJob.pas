@@ -3,7 +3,7 @@
 interface
 
 uses System.SysUtils, System.JSON, unit_ZipMemberDeletion, unit_BookCompressionReceipt,
-  unit_BookCompressionBackup;
+  unit_BookCompressionBackup, unit_BookCompressionFileGroup;
 
 type
   // One physical file, one immutable catalogue receipt. The job survives until
@@ -17,6 +17,8 @@ type
     FCompleted: Boolean;
     FOriginalsJSON: string;
     FOriginals: TCompressionOriginalBackup;
+    FGroup: TBookCompressionFileGroup;
+    FGroupSHA256: string;
     constructor CreateEmpty;
     procedure OpenDirectoryGuard;
     procedure OpenLease;
@@ -24,6 +26,9 @@ type
     function FindJournal: string;
     procedure CheckCompleted;
     procedure SaveCompleted;
+    procedure BindFileGroup;
+    procedure ExecuteFileGroup(const Cancelled: TFunc<Boolean>; const Progress: TZipDeleteProgress;
+      const Fault: TProc<string>);
     function Field(const Name: string): string;
   public
     constructor CreatePrepared(const QueueRoot, ReceiptJSON, Candidate: string;
@@ -130,6 +135,26 @@ begin
   Result:=Value.Value;
 end;
 
+procedure TBookCompressionJob.BindFileGroup;
+var Files: TJSONArray; First: TJSONObject;
+begin
+  FGroupSHA256:='';
+  if FData.GetValue('group_files')=nil then Exit;
+  if not (FData.GetValue('group_files') is TJSONArray) then
+    raise EReadError.Create('Некорректный список связанных файлов.');
+  Files:=FData.GetValue<TJSONArray>('group_files');
+  if (Files.Count<1) or (Files.Count>3) or not (Files.Items[0] is TJSONObject) then
+    raise EReadError.Create('Неполный список связанных файлов.');
+  First:=TJSONObject(Files.Items[0]);
+  if not SameFileName(First.GetValue<string>('source',''),FSource) or
+    not SameFileName(First.GetValue<string>('candidate',''),FCandidate) or
+    (First.GetValue<string>('source_identity','')<>FIdentity) or
+    (First.GetValue<string>('source_sha256','')<>Field('source_sha256')) or
+    (First.GetValue<string>('result_sha256','')<>Field('result_sha256')) then
+    raise EReadError.Create('Связанная группа не соответствует выбранному архиву.');
+  FGroupSHA256:=TBookCompressionFileGroup.ComputeManifestSHA256(Files.ToJSON,FReceipt.SHA256);
+end;
+
 procedure TBookCompressionJob.OpenDirectoryGuard;
 var Path: string; FinalPath: TArray<Char>; Count: DWORD;
 begin
@@ -178,6 +203,7 @@ begin
   FIdentity:=ArchiveDeletionSourceIdentity(FSource);
   if Copy(FIdentity,1,25)<>Field('source_file_key') then
     raise EReadError.Create('Исходный файл изменился до создания задания.');
+  BindFileGroup;
   ForceDirectories(DeletionNativePath(QueueRoot)); CheckDirectory(QueueRoot);
   Name:=PreparedName;
   if Name='' then Name:=JobPrefix+TGUID.NewGuid.ToString
@@ -192,6 +218,7 @@ begin
     Binding.AddPair('kind',JobKind); Binding.AddPair('job',Name);
     Binding.AddPair('receipt_sha256',FReceipt.SHA256);
     Binding.AddPair('source_identity',FIdentity); Binding.AddPair('candidate',FCandidate);
+    if FGroupSHA256<>'' then Binding.AddPair('file_group_sha256',FGroupSHA256);
     if FOriginalsJSON<>'' then Binding.AddPair('originals',TJSONObject.ParseJSONValue(FOriginalsJSON));
     if Assigned(Fault) then Fault('binding-prepared');
     // job.json is the last atomic publication, after the immutable receipt.
@@ -226,6 +253,9 @@ begin
     if (Length(FIdentity)<>59) or (Copy(FIdentity,1,25)<>Field('source_file_key')) or
       (FCandidate='') or (FCandidate<>ExpandFileName(FCandidate)) or SameFileName(FSource,FCandidate) then
       raise EReadError.Create('Неполная привязка файла в задании сжатия.');
+    BindFileGroup;
+    if Binding.GetValue<string>('file_group_sha256','')<>FGroupSHA256 then
+      raise EReadError.Create('Изменилась привязка связанных файлов сжатия.');
     FJournalRoot:=TPath.Combine(FDirectory,'file');
   finally Binding.Free; end;
 end;
@@ -241,6 +271,7 @@ end;
 
 destructor TBookCompressionJob.Destroy;
 begin
+  FGroup.Free;
   if FLease<>0 then CloseHandle(FLease);
   if FDirectoryGuard<>0 then CloseHandle(FDirectoryGuard);
   FOriginals.Free;
@@ -276,7 +307,43 @@ begin
     (CompressionFileKey(FSource)<>Field('source_file_key')) or
     (FileDigest(FSource)<>Field('result_sha256')) then
     raise EReadError.Create('Завершённое задание сжатия или его файл изменены. Журнал сохранён.');
+  if FGroupSHA256<>'' then
+    for var Value in FData.GetValue<TJSONArray>('group_files') do
+    begin
+      var Data:=TJSONObject(Value);
+      var Source:=Data.GetValue<string>('source');
+      if (CompressionFileKey(Source)<>Copy(Data.GetValue<string>('source_identity'),1,25)) or
+        (FileDigest(Source)<>Data.GetValue<string>('result_sha256')) then
+        raise EReadError.Create('Завершённый связанный файл изменился. Журнал сохранён.');
+    end;
   FReceipt.CheckApplied;
+  FCompleted:=True;
+end;
+
+procedure TBookCompressionJob.ExecuteFileGroup(const Cancelled: TFunc<Boolean>;
+  const Progress: TZipDeleteProgress; const Fault: TProc<string>);
+var Root: string;
+begin
+  if FileExists(DeletionNativePath(TPath.Combine(FDirectory,'completed.json'))) then
+  begin CheckCompleted; Exit; end;
+  Root:=TPath.Combine(FDirectory,'files');
+  if not Assigned(FGroup) then
+    if DirectoryExists(DeletionNativePath(Root)) then
+      FGroup:=TBookCompressionFileGroup.OpenExisting(Root,FGroupSHA256,FReceipt.SHA256)
+    else
+    begin
+      if (FOriginalsJSON<>'') and not Assigned(FOriginals) then
+        FOriginals:=TCompressionOriginalBackup.OpenExisting(FOriginalsJSON,FReceipt.ToJSON,Cancelled);
+      FReceipt.CheckBeforeWrite;
+      FGroup:=TBookCompressionFileGroup.CreatePrepared(Root,FData.GetValue<TJSONArray>('group_files').ToJSON,
+        FReceipt.SHA256,Cancelled,Progress,Fault);
+    end;
+  if not FileExists(DeletionNativePath(TPath.Combine(Root,'started'))) then FReceipt.CheckBeforeWrite;
+  FGroup.Execute(
+    procedure(Engines: TArray<TZipMemberDeletion>) begin FReceipt.Apply(Engines[0],Fault); end,
+    procedure begin FReceipt.CheckApplied; end,Cancelled,Progress,Fault);
+  SaveCompleted;
+  if Assigned(Fault) then Fault('completed-published');
   FCompleted:=True;
 end;
 
@@ -287,6 +354,7 @@ var Engine: TZipMemberDeletion; Journal: string; ChangeLease: IInterface; Engine
   begin if Assigned(Fault) then Fault(Stage); end;
 begin
   if not Assigned(FReceipt) then raise EInvalidOperation.Create('Задание сжатия уже закрыто.');
+  if FGroupSHA256<>'' then begin ExecuteFileGroup(Cancelled,Progress,Fault); Exit; end;
   ChangeLease:=AcquireArchiveChange(FSource);
   if FileExists(DeletionNativePath(TPath.Combine(FDirectory,'completed.json'))) then
   begin CheckCompleted; Exit; end;
@@ -349,6 +417,7 @@ begin
   // own receipt. A changed completion marker still prevents cleanup.
   if ReadText(TPath.Combine(FDirectory,'completed.json'),128)<>FReceipt.SHA256 then
     raise EReadError.Create('Подтверждение сжатия изменилось. Задание сохранено.');
+  FreeAndNil(FGroup);
   // Stop advertising the job atomically before removing any receipt bytes.
   // A cleanup crash may leave a small done-* directory, never a half-deleted
   // pending job that could be mistaken for another compression operation.
@@ -361,6 +430,32 @@ begin
   if not MoveFileEx(PChar(DeletionNativePath(FDirectory)),PChar(DeletionNativePath(Tombstone)),
     MOVEFILE_WRITE_THROUGH) then RaiseLastOSError;
   FDirectory:=Tombstone; FJournalRoot:=TPath.Combine(FDirectory,'file');
+  if FGroupSHA256<>'' then
+  begin
+    var GroupRoot:=TPath.Combine(FDirectory,'files');
+    if DirectoryExists(DeletionNativePath(GroupRoot)) then
+    begin
+      CheckDirectory(GroupRoot);
+      for var I:=0 to FData.GetValue<TJSONArray>('group_files').Count-1 do
+      begin
+        FJournalRoot:=TPath.Combine(GroupRoot,'file-'+IntToStr(I));
+        if DirectoryExists(DeletionNativePath(FJournalRoot)) then
+        begin
+          CheckDirectory(FJournalRoot); Journal:=FindJournal;
+          if Journal<>'' then
+          begin
+            for var Name in ['pending.bin','replacement.bin','checkpoint.json','plan.json'] do
+              RemoveFile(TPath.Combine(Journal,Name));
+            if not RemoveDirectory(PChar(DeletionNativePath(Journal))) then RaiseLastOSError;
+          end;
+          if not RemoveDirectory(PChar(DeletionNativePath(FJournalRoot))) then RaiseLastOSError;
+        end;
+      end;
+      for var Name in ['group.json','group.lock','ready','started','complete'] do RemoveFile(TPath.Combine(GroupRoot,Name));
+      if not RemoveDirectory(PChar(DeletionNativePath(GroupRoot))) then RaiseLastOSError;
+    end;
+    FJournalRoot:=TPath.Combine(FDirectory,'file');
+  end;
   // After the durable completion marker, a crash halfway through engine
   // cleanup must not trigger a second database update. Only fixed owned
   // recovery filenames are disposable; an unknown file keeps the directory.
@@ -440,6 +535,7 @@ begin
         // its file journal or completion marker still requires attention.
         if FileExists(TPath.Combine(Path,'job.json')) or
           DirectoryExists(TPath.Combine(Path,'file')) or
+          DirectoryExists(TPath.Combine(Path,'files')) or
           FileExists(TPath.Combine(Path,'completed.json')) then
           Items.Add(ExpandFileName(Path));
       end;

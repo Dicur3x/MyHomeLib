@@ -7,7 +7,8 @@ procedure RunCompressionReceiptFixture;
 implementation
 
 uses System.SysUtils, System.Classes, System.IOUtils, System.JSON, Winapi.Windows,
-  unit_ZipMemberDeletion, unit_BookCompressionReceipt, unit_AtomicIniFile, unit_BookCompressionJob;
+  unit_ZipMemberDeletion, unit_BookCompressionReceipt, unit_AtomicIniFile, unit_BookCompressionJob,
+  unit_BookCompressionFileGroup, SQLiteWrap;
 
 var Root, Mode, FaultAt, ReceiptFile, Report, LastStage: string;
     Receipt: TBookCompressionReceipt;
@@ -27,6 +28,11 @@ end;
 procedure CrashAt(Stage: string);
 begin
   LastStage:=Stage;
+  if (Mode='job-group-change-row') and (Stage='group-ready') then
+  begin
+    var DB:=TSQLiteDatabase.Create(Root+'catalog.hlc2');
+    try DB.ExecSQL('UPDATE Books SET FileName=''moved'' WHERE BookID=101'); finally DB.Free; end;
+  end;
   if Stage<>FaultAt then Exit;
   if Assigned(Job) then TFile.WriteAllText(Report,Job.Directory,TEncoding.UTF8)
   else TFile.WriteAllText(Report,Engine.JobDirectory,TEncoding.UTF8);
@@ -49,7 +55,7 @@ end;
 function LoadReceipt: TBookCompressionReceipt;
 var Data: TJSONObject; Value: TJSONValue; Stream: TStringStream;
 begin
-  if (Mode='recover') or (Mode='captured-apply') or (Mode='captured-inspection') then
+  if (Mode='recover') or Mode.StartsWith('group-recover') or (Mode='captured-apply') or (Mode='captured-inspection') then
     Exit(TBookCompressionReceipt.Create(TFile.ReadAllText(ReceiptFile,TEncoding.UTF8)));
   Value:=TJSONObject.ParseJSONValue(TFile.ReadAllText(Root+'receipt-template.json',TEncoding.UTF8));
   Require(Value is TJSONObject,'Invalid fixture template');
@@ -73,6 +79,15 @@ begin
         Options.AddPair('source_identity',ArchiveDeletionSourceIdentity(Data.GetValue<string>('source')));
       end;
     end;
+    if Data.GetValue('group_files') is TJSONArray then
+      for var FileValue in Data.GetValue<TJSONArray>('group_files') do
+      begin
+        var FileData:=TJSONObject(FileValue);
+        Require(ExpandFileName(FileData.GetValue<string>('source')).StartsWith(Root,True),'Group source escaped fixture');
+        Require(ExpandFileName(FileData.GetValue<string>('candidate')).StartsWith(Root,True),'Group candidate escaped fixture');
+        FileData.RemovePair('source_identity').Free;
+        FileData.AddPair('source_identity',ArchiveDeletionSourceIdentity(FileData.GetValue<string>('source')));
+      end;
     Result:=TBookCompressionReceipt.Create(Data.ToJSON);
     try
       Stream:=TStringStream.Create(Result.ToJSON,TEncoding.UTF8);
@@ -94,7 +109,7 @@ begin
     finally List.Free; end;
     Exit;
   end;
-  if Mode='job-recover' then
+  if (Mode='job-recover') or (Mode='job-group-recover') then
   begin
     var Names:=TBookCompressionJob.Pending(Root+'queue');
     Require(Length(Names)=1,'Expected exactly one pending compression job');
@@ -118,13 +133,54 @@ begin
     end;
     CrashAt('job-prepared');
     LastStage:='execute-job';
-    if FaultAt='-' then
+    if (FaultAt='-') and (Mode<>'job-group-change-row') then
       Job.Execute(function:Boolean begin Result:=Mode='job-cancel'; end)
     else Job.Execute(function:Boolean begin Result:=Mode='job-cancel'; end,nil,CrashAt);
     LastStage:='forget-job';
     Job.Forget;
     Writeln('PASS durable compression job');
   finally FreeAndNil(Job); end;
+end;
+
+procedure RunGroup;
+var Group: TBookCompressionFileGroup; Data: TJSONObject; FilesJSON, Binding: string; StopRequested: Boolean;
+    GroupFault: TProc<string>;
+begin
+  StopRequested:=False;
+  GroupFault:=procedure(Stage: string)
+    begin
+      LastStage:=Stage;
+      if (Mode='group-stop-after-first') and (Stage='group-file-committed-0') then StopRequested:=True;
+      if Stage=FaultAt then
+        if not TerminateProcess(GetCurrentProcess,73) then RaiseLastOSError;
+    end;
+  Receipt:=LoadReceipt;
+  try
+    Data:=TJSONObject.ParseJSONValue(Receipt.ToJSON) as TJSONObject;
+    try
+      FilesJSON:=Data.GetValue<TJSONArray>('group_files').ToJSON;
+      Binding:=TBookCompressionFileGroup.ComputeManifestSHA256(FilesJSON,Receipt.SHA256);
+      if Mode.StartsWith('group-recover') then
+      begin
+        Require(TFile.ReadAllText(Root+'group-binding.txt',TEncoding.UTF8)=Binding,'Group binding changed');
+        Group:=TBookCompressionFileGroup.OpenExisting(Root+'group',Binding,Receipt.SHA256);
+      end
+      else
+      begin
+        Receipt.CheckBeforeWrite;
+        TFile.WriteAllText(Root+'group-binding.txt',Binding,TEncoding.UTF8);
+        Group:=TBookCompressionFileGroup.CreatePrepared(Root+'group',FilesJSON,Receipt.SHA256,nil,nil,GroupFault);
+      end;
+      try
+        Group.Execute(
+          procedure(Engines: TArray<TZipMemberDeletion>) begin Receipt.Apply(Engines[0],GroupFault); end,
+          procedure begin Receipt.CheckApplied; end,
+          function:Boolean begin Result:=(Mode='group-cancel') or (Mode='group-recover-stopping') or StopRequested; end,nil,GroupFault);
+        Group.Forget;
+        Writeln('PASS linked archive group commits all files before catalogue and recovers through cleanup');
+      finally Group.Free; end;
+    finally Data.Free; end;
+  finally FreeAndNil(Receipt); end;
 end;
 
 procedure RunTest;
@@ -135,6 +191,7 @@ begin
       'No owned fixture marker');
     Mode:=ParamStr(2); FaultAt:=ParamStr(3);
     ReceiptFile:=Root+'receipt.json'; Report:=Root+'job.txt';
+    if Mode.StartsWith('group-') then begin RunGroup; Exit; end;
     if Mode.StartsWith('job-') then begin RunJob; Exit; end;
     Receipt:=LoadReceipt;
     try
