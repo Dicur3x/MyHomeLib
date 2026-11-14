@@ -66,6 +66,9 @@ type
     constructor Recover(const Archive, Job: string);
     constructor RecoverReplacement(const FileName, Job: string);
     destructor Destroy; override;
+    // Make recovery data durable without writing any source bytes. A file
+    // group publishes every journal before starting its first replacement.
+    procedure PublishJournal(const JournalParent: string; const Fault: TZipDeleteFault = nil);
     procedure Execute(const JournalParent: string; const Progress: TZipDeleteProgress = nil;
       const Fault: TZipDeleteFault = nil);
     // The caller acknowledges only after its catalogue changes are durable.
@@ -1454,13 +1457,10 @@ begin
   if not GetDiskFreeSpaceEx(PChar(DeletionNativePath(Directory)),Result,Capacity,nil) then RaiseLastOSError;
 end;
 
-procedure TZipMemberDeletion.Execute(const JournalParent: string; const Progress: TZipDeleteProgress;
-  const Fault: TZipDeleteFault);
-var Bytes, Actual: TBytes; Target, Done: Int64; Count: Integer; Pending: TFileStream;
+procedure TZipMemberDeletion.PublishJournal(const JournalParent: string; const Fault: TZipDeleteFault);
+var Bytes: TBytes;
   procedure Signal(const Stage: string);
   begin if Assigned(Fault) then Fault(Stage,FNext); end;
-  procedure Flush;
-  begin if not FlushFileBuffers(FSource.Handle) then RaiseLastOSError; end;
 begin
   CheckPlan;
   if FJob<>'' then VerifyReplacementUntouched;
@@ -1506,6 +1506,17 @@ begin
       if FWholeIdentity='' then SaveCheckpoint;
     end;
   end;
+end;
+
+procedure TZipMemberDeletion.Execute(const JournalParent: string; const Progress: TZipDeleteProgress;
+  const Fault: TZipDeleteFault);
+var Bytes, Actual: TBytes; Target, Done: Int64; Count: Integer; Pending: TFileStream;
+  procedure Signal(const Stage: string);
+  begin if Assigned(Fault) then Fault(Stage,FNext); end;
+  procedure Flush;
+  begin if not FlushFileBuffers(FSource.Handle) then RaiseLastOSError; end;
+begin
+  PublishJournal(JournalParent,Fault);
   if FWholeIdentity<>'' then
   begin
     // The complete, immutable plan is the receipt. The source remains intact

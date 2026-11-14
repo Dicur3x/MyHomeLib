@@ -60,6 +60,18 @@ class NativeCompressionPublicationTests(unittest.TestCase):
         self.fixture.require_success(self.fixture.run_worker('job-recover'))
         self.applied()
 
+    def test_file_journal_can_be_published_without_writes_and_recovered_in_a_new_process(self):
+        before_c = self.fixture.snapshot(self.fixture.catalogue, False)
+        before_p = self.fixture.snapshot(self.fixture.personal, False)
+        self.fixture.require_success(self.fixture.run_worker('publish-only'))
+        self.unchanged()
+        journal = Path((self.root/'job.txt').read_text(encoding='utf-8-sig'))
+        self.assertTrue((journal/'plan.json').is_file())
+        self.assertTrue((journal/'checkpoint.json').is_file())
+        self.fixture.require_success(self.fixture.run_worker('recover'))
+        self.fixture.require_finished(before_c, before_p)
+        self.assertFalse(journal.exists())
+
     def test_atomic_publication_keeps_exclusive_lease_held(self):
         process = subprocess.Popen([str(fixtures.NATIVE), str(self.root), 'job-prepare-hold', '-'],
                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE)

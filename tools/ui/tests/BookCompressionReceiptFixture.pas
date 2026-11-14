@@ -162,6 +162,13 @@ begin
           Engine.BindContext(Receipt.SHA256);
         end;
         try
+          if Mode='publish-only' then
+          begin
+            Engine.PublishJournal(Root+'journal');
+            TFile.WriteAllText(Report,Engine.JobDirectory,TEncoding.UTF8);
+            Writeln('PASS durable file journal published before source writes');
+            Exit;
+          end;
           Engine.Execute(Root+'journal');
           CrashAt('file-committed');
           var Changed:=Receipt.Apply(Engine,CrashAt);
