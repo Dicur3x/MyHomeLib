@@ -53,6 +53,7 @@ type
     procedure ApplyClick(Sender: TObject);
     procedure CopyReport(Sender: TObject);
     procedure CopyNeeded(Sender: TObject);
+    procedure SaveMissing(Sender: TObject);
     procedure InvalidatePrepared;
     procedure UpdateApplyAction;
     procedure ReviewIndex;
@@ -281,6 +282,7 @@ begin
   Button('btnSaveUpdateSources','Сохранить',SaveClick);
   Button('btnCopyUpdateSourceReport','Копировать отчёт',CopyReport);
   Button('btnCopyNeededUpdateArchives','Копировать список',CopyNeeded);
+  Button('btnSaveMissingUpdateBooks','Сохранить пропуски…',SaveMissing); B.Enabled:=False;
   Button('btnCloseUpdateSources','Закрыть',nil); B.Cancel:=True; B.ModalResult:=mrCancel;
   Help(nil); Rebuild(0); ScaleForPPI(Screen.PixelsPerInch); FitWindow(Self); Layout;
 end;
@@ -296,6 +298,9 @@ var Button: TComponent;
 begin
   Button:=FindComponent('btnApplyUpdateSource');
   if Button is TButton then TButton(Button).Enabled:=Assigned(FReview) and FReview.Ready and not FReview.Applied;
+  Button:=FindComponent('btnSaveMissingUpdateBooks');
+  if Button is TButton then TButton(Button).Enabled:=Assigned(FReview) and
+    FReview.MissingReportReady and (FReview.MissingBooks>0);
 end;
 
 function TfrmLibraryUpdateSources.GetSources: TLibraryUpdateSources;
@@ -529,7 +534,7 @@ begin
 end;
 
 procedure TfrmLibraryUpdateSources.ApplyReviewed(PreferNewRoot: Boolean);
-var Worker: TCollectionWorker; Progress: TImportProgressFormEx; Succeeded: Boolean; Failure, Details: string; LineEnd: Integer;
+var Worker: TCollectionWorker; Progress: TImportProgressFormEx; Succeeded: Boolean; Failure, Details, Missing: string; LineEnd: Integer;
 begin
   if not Assigned(FReview) or not FReview.Ready or FReview.Applied then raise EReadError.Create('Сначала проверьте обновление.');
   if Assigned(FBeforeApply) then FBeforeApply(Self);
@@ -547,10 +552,12 @@ begin
         FCollection:=SystemDB.GetCollection(FCollection.CollectionID,True);
     finally Progress.Free; end;
   finally Worker.Free; end;
+  Missing:=FReview.MissingDetails;
+  if Missing<>'' then Missing:=sLineBreak+sLineBreak+Missing;
   if Failure<>'' then
   begin
-    if FReview.Applied then SetReport('Каталог уже обновлён. Завершение потребовало внимания: '+Failure)
-    else SetReport('Обновление не применено: '+Failure);
+    if FReview.Applied then SetReport('Каталог уже обновлён. Завершение потребовало внимания: '+Failure+Missing)
+    else SetReport('Обновление не применено: '+Failure+Missing);
     Exit;
   end;
   if Succeeded then
@@ -558,9 +565,9 @@ begin
     Details:=FReview.ApplySummary; LineEnd:=Pos(sLineBreak,Details);
     if LineEnd>0 then Delete(Details,1,LineEnd+Length(sLineBreak)-1);
     SetReport('Обновление применено. Сохранены настройки источника и его новый индекс. '+
-      'Сами книги и архивы не менялись.'+sLineBreak+Details);
+      'Сами книги и архивы не менялись.'+sLineBreak+Details+Missing);
   end
-  else SetReport('Обновление отменено. Текущий каталог не изменён.');
+  else SetReport('Обновление отменено. Текущий каталог не изменён.'+Missing);
 end;
 
 procedure TfrmLibraryUpdateSources.ApplyClick(Sender: TObject);
@@ -584,6 +591,24 @@ procedure TfrmLibraryUpdateSources.CopyNeeded(Sender: TObject);
 begin
   if Assigned(FReview) and FReview.Ready then Clipboard.AsText:=FReview.NeededArchives.Text
   else SetReport('Сначала проверьте обновление. Список будет содержать точные имена отсутствующих файлов с новыми или изменёнными записями.');
+end;
+
+procedure TfrmLibraryUpdateSources.SaveMissing(Sender: TObject);
+var Dialog: TSaveDialog;
+begin
+  if not Assigned(FReview) or not FReview.MissingReportReady or (FReview.MissingBooks=0) then Exit;
+  Dialog:=TSaveDialog.Create(Self);
+  try
+    Dialog.Title:='Сохранить полный список пропущенных книг';
+    Dialog.DefaultExt:='txt'; Dialog.Filter:='Текстовые файлы (*.txt)|*.txt';
+    Dialog.FileName:='HomeLibre-пропущенные-книги.txt';
+    Dialog.Options:=Dialog.Options+[ofOverwritePrompt,ofPathMustExist];
+    if Dialog.Execute then
+      try
+        FReview.SaveMissingReport(Dialog.FileName);
+        SetReport(string(FReport.Caption)+sLineBreak+'Полный список сохранён: '+Dialog.FileName);
+      except on E:Exception do SetReport('Не удалось сохранить список: '+E.Message+sLineBreak+FReview.MissingDetails); end;
+  finally Dialog.Free; end;
 end;
 
 procedure TfrmLibraryUpdateSources.Help(Sender: TObject);

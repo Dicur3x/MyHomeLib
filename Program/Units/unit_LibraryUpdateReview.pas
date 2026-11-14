@@ -27,7 +27,7 @@ type
     FActionLookup: TSQLiteQuery;
     FInventory: TLibraryUpdateInventory;
     FPublishedSource: TCatalogSource;
-    FCacheOwned, FCachePublished, FApplicationReady, FApplied: Boolean;
+    FCacheOwned, FCachePublished, FApplicationReady, FApplied, FIssuesReady: Boolean;
     FRemovedCount, FMissingCount, FNewCards, FUpdateCards, FPreviousLastID, FUnlistedCount: Integer;
     FLastSpaceCheck: UInt64;
     procedure Analyze(const Target, Previous: IBookCollection; const Check: TProc;
@@ -46,6 +46,8 @@ type
     destructor Destroy; override;
     procedure CheckSpace;
     procedure SetSourceProfiles(const Profiles: TLibraryUpdateSources);
+    function MissingDetails(Maximum: Integer = 5): string;
+    procedure SaveMissingReport(const FileName: string);
     procedure Build(const Target: IBookCollection; const SystemData: ISystemData;
       const Import: TProc<IBookCollection>; const Check: TProc;
       const Progress: TLibraryReviewProgress);
@@ -64,6 +66,8 @@ type
     property Snapshot: IBookCollection read FSnapshot;
     property ApplySummary: string read FApplySummary;
     property Applied: Boolean read FApplied;
+    property MissingReportReady: Boolean read FIssuesReady;
+    property MissingBooks: Integer read FMissingCount;
   end;
 
 function CreateLibraryReviewWorker(CollectionID: Integer; Review: TLibraryUpdateReview): TCollectionWorker;
@@ -76,7 +80,7 @@ var LibraryUpdateTestPoint: TProc<string>;
 
 implementation
 
-uses Winapi.Windows, Vcl.ComCtrls, System.IOUtils, System.Hash, System.Variants, System.JSON, System.StrUtils,
+uses Winapi.Windows, Vcl.ComCtrls, System.IOUtils, System.Hash, System.Variants, System.JSON, System.StrUtils, System.Math,
   unit_Consts, unit_Database_SQLite, unit_LibrarySourceID, unit_UserData,
   unit_ImportInpxThread, unit_ImportMetabibThread, unit_MetabibReader,
   unit_MHLArchiveHelpers, unit_Settings, unit_LibraryUpdateHistory, unit_CollectionPacking, dm_user;
@@ -440,7 +444,7 @@ procedure TLibraryUpdateReview.PrepareApplication(const Target: IBookCollection;
   const Progress: TLibraryReviewProgress);
 var DB, CopyDB: TSQLiteDatabase; Rows, Put, Lookup, Copies, CurrentLocation: TSQLiteQuery;
   Iterator: IPublisherSeriesIndexIterator; Item, Current, Resolved, CopyBook: TBookRecord;
-  Key, Stamp, Namespace, Identity, Physical, Reason, State, Name, ExpectedKey: string;
+  Key, Stamp, Namespace, Identity, Physical, Reason, State, Name, ExpectedKey, CheckedFile: string;
   Bound, Known, Changed, Eligible, KeepMetadata, OwnsFile, Verified: Boolean;
   ID, Matches, Done, DeltaID: Integer; Sources: TMergeSources;
   Cache: TImportCache; Genres: TDictionary<string,TGenreData>;
@@ -469,7 +473,8 @@ begin
   FreeAndNil(FPlan); FreeAndNil(FActionLookup); FreeAndNil(FActionDB); FreeAndNil(FInventory);
   FDelta:=nil;
   if (FDeltaFile<>'') and FileExists(FDeltaFile) then TFile.Delete(FDeltaFile);
-  FDeltaFile:=''; FApplicationReady:=False; FNewCards:=0; FUpdateCards:=0; FRemovedCount:=0; FMissingCount:=0; FUnlistedCount:=0;
+  FDeltaFile:=''; FApplicationReady:=False; FIssuesReady:=False;
+  FNewCards:=0; FUpdateCards:=0; FRemovedCount:=0; FMissingCount:=0; FUnlistedCount:=0;
   FInventory:=TLibraryUpdateInventory.Create(Check);
   FActionDB:=TSQLiteDatabase.Create(FAnalysisFile); DB:=FActionDB;
   DB.ExecSQL('DROP TABLE IF EXISTS ApplyActions'); DB.ExecSQL('DROP TABLE IF EXISTS ApplyLive');
@@ -512,14 +517,14 @@ begin
     DB.ExecSQL('INSERT OR IGNORE INTO ApplyExcluded SELECT p.Key FROM ReviewPrevious p '+
       'WHERE p.State=''excluded'' OR (p.State<>''missing'' AND NOT EXISTS (SELECT 1 FROM ApplyLive l WHERE l.Key=p.Key))');
   DB.ExecSQL('CREATE TABLE ApplyActions(BookID INTEGER PRIMARY KEY,TargetID INTEGER,Eligible INTEGER,Changed INTEGER,'+
-    'KeepMetadata INTEGER,State TEXT,Folder TEXT,InsideNo INTEGER,SourceKey TEXT)');
+    'KeepMetadata INTEGER,State TEXT,Folder TEXT,InsideNo INTEGER,SourceKey TEXT,MissingReason TEXT)');
   DB.ExecSQL('CREATE TABLE ApplyDeltaInput(DeltaID INTEGER PRIMARY KEY,InputID INTEGER)');
   Rows:=DB.NewQuery('SELECT r.BookID,r.Key,p.Key IS NOT NULL,coalesce(p.State,''known''),'+
     '(p.Key IS NULL OR p.Stamp<>r.Stamp OR p.Physical<>r.Physical OR p.State=''missing''),'+
     'coalesce(p.SourceKey,''''),coalesce(p.Physical,''''),coalesce(p.Copies,1),coalesce(p.Container,''''),coalesce(p.InsideNo,0),'+
     'EXISTS(SELECT 1 FROM ApplyExcluded e WHERE e.Key=r.Key) '+
     'FROM ReviewRows r LEFT JOIN ReviewPrevious p ON p.Key=r.Key ORDER BY r.Location,r.BookID');
-  Put:=DB.NewQuery('INSERT INTO ApplyActions VALUES(?,?,?,?,?,?,?,?,?)');
+  Put:=DB.NewQuery('INSERT INTO ApplyActions VALUES(?,?,?,?,?,?,?,?,?,?)');
   Copies:=nil; CopyDB:=nil; CurrentLocation:=nil;
   try
     CopyDB:=TSQLiteDatabase.CreateReadOnly(FTargetFile);
@@ -533,7 +538,7 @@ begin
       while not Rows.Eof do
       begin
         Check; CheckSpace; ID:=0; Known:=Rows.FieldAsBoolean(2); State:=Rows.FieldAsString(3);
-        Changed:=Rows.FieldAsBoolean(4); Eligible:=True; KeepMetadata:=False;
+        Changed:=Rows.FieldAsBoolean(4); Eligible:=True; KeepMetadata:=False; Reason:=''; CheckedFile:='';
         if Rows.FieldAsInt(7)>1 then raise EReadError.Create('В прежнем индексе повторяются идентификаторы файлов. Обновление неоднозначно.');
         FSnapshot.GetBookRecord(CreateBookKey(Rows.FieldAsInt(0),FSnapshot.CollectionID),Item,True);
         if Bound then
@@ -584,12 +589,16 @@ begin
         if Eligible and Changed and not (bpIsDeleted in Item.BookProps) then
         begin
           Verified:=False;
-          try Verified:=FInventory.Resolve(Resolved,FSource.BooksRoot,PreferNewRoot,Reason);
+          try Verified:=FInventory.Resolve(Resolved,FSource.BooksRoot,PreferNewRoot,Reason,CheckedFile);
           except on E:EAbort do raise; on E:Exception do Reason:=E.Message; end;
           Check;
           if not Verified then
           begin
             State:='missing'; Inc(FMissingCount);
+            Name:=Item.FileName;
+            if not SameText(ExtractFileExt(Name),Item.FileExt) then Name:=Name+Item.FileExt;
+            if CheckedFile='' then CheckedFile:=Resolved.GetBookFileName;
+            Reason:=CheckedFile+' | '+Name+' | '+Reason;
             if ID=0 then Eligible:=False
             else if not KeepMetadata then begin KeepMetadata:=True; Changed:=False; end;
           end
@@ -615,13 +624,14 @@ begin
         end;
         Put.Reset; Put.SetParam(0,Item.BookKey.BookID); Put.SetParam(1,ID); Put.SetParam(2,Eligible);
         Put.SetParam(3,Changed); Put.SetParam(4,KeepMetadata); Put.SetParam(5,State);
-        Put.SetParam(6,Resolved.Folder); Put.SetParam(7,Resolved.InsideNo); Put.SetParam(8,ExpectedKey); Put.ExecSQL;
+        Put.SetParam(6,Resolved.Folder); Put.SetParam(7,Resolved.InsideNo); Put.SetParam(8,ExpectedKey);
+        Put.SetParam(9,Reason); Put.ExecSQL;
         if Eligible and Changed then
           if ID=0 then Inc(FNewCards) else Inc(FUpdateCards);
         Inc(Done); if Assigned(Progress) and (Done mod 100=0) then Progress('Проверка книг в архивах',Done,FTotal);
         Rows.Next;
       end;
-      DB.Commit;
+      DB.Commit; FIssuesReady:=True;
     except DB.Rollback; raise; end;
   finally Rows.Free; Put.Free; Copies.Free; CurrentLocation.Free; CopyDB.Free; end;
   DB.ExecSQL('INSERT OR IGNORE INTO ApplyExcluded SELECT r.Key FROM ReviewRows r JOIN ApplyActions a ON a.BookID=r.BookID WHERE a.State=''excluded''');
@@ -697,6 +707,49 @@ begin
   if FUnlistedCount>0 then FApplySummary:=FApplySummary+sLineBreak+
     Format('Прежних записей, которых нет в полном новом индексе: %d. Они исчезнут из каталога; файлы останутся на месте.',[FUnlistedCount]);
   FApplicationReady:=True;
+end;
+
+procedure CheckReviewOutputSpace(const Folder: string; Needed: UInt64); forward;
+
+function TLibraryUpdateReview.MissingDetails(Maximum: Integer): string;
+var Rows: TSQLiteQuery; Count: Integer;
+begin
+  Result:='';
+  if not FIssuesReady or (FMissingCount=0) or not Assigned(FActionDB) then Exit;
+  Maximum:=System.Math.EnsureRange(Maximum,1,20);
+  Result:=Format('Не удалось добавить или обновить книг: %d. Архив | книга | причина:',[FMissingCount]);
+  Rows:=FActionDB.NewQuery('SELECT MissingReason FROM ApplyActions WHERE MissingReason<>'''' ORDER BY BookID LIMIT ?',[Maximum]);
+  try
+    Rows.Open; Count:=0;
+    while not Rows.Eof do
+    begin Result:=Result+sLineBreak+Rows.FieldAsString(0); Inc(Count); Rows.Next; end;
+    if Count<FMissingCount then Result:=Result+sLineBreak+Format('Ещё: %d. Нажмите «Сохранить пропуски…» для полного списка.',[FMissingCount-Count]);
+  finally Rows.Free; end;
+end;
+
+procedure TLibraryUpdateReview.SaveMissingReport(const FileName: string);
+var Rows: TSQLiteQuery; Writer: TStreamWriter; Count: Integer;
+begin
+  if not FIssuesReady or (FMissingCount=0) or not Assigned(FActionDB) then
+    raise EInvalidOperation.Create('Нет подготовленного списка пропущенных книг.');
+  CheckSpace;
+  var OutputFolder:=TPath.GetDirectoryName(TPath.GetFullPath(FileName));
+  CheckReviewOutputSpace(OutputFolder,0);
+  Rows:=FActionDB.NewQuery('SELECT MissingReason FROM ApplyActions WHERE MissingReason<>'''' ORDER BY BookID');
+  try
+    Rows.Open; Writer:=TStreamWriter.Create(FileName,False,TEncoding.UTF8);
+    try
+      Writer.WriteLine('Пропущенные книги при проверке обновления «'+FSource.Name+'».');
+      Writer.WriteLine('Архив | книга | причина. В этом списке нет намеренно исключённых записей.');
+      Writer.WriteLine(Format('Всего: %d.',[FMissingCount])); Count:=0;
+      while not Rows.Eof do
+      begin
+        if Count mod 1000=0 then begin CheckSpace; CheckReviewOutputSpace(OutputFolder,0); end;
+        Writer.WriteLine(Rows.FieldAsString(0)); Inc(Count); Rows.Next;
+      end;
+      Writer.WriteLine(Format('Конец списка. Записей: %d.',[Count]));
+    finally Writer.Free; end;
+  finally Rows.Free; end;
 end;
 
 procedure CheckReviewOutputSpace(const Folder: string; Needed: UInt64);

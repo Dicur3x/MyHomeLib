@@ -465,6 +465,8 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
         if recovery_fault:
             expected = 'PASS actual compression crash and ordinary startup recovery ' + recovery_fault
         expected_lines = [expected]
+        if scenario == 'library-update-window':
+            expected_lines.append('PASS reviewed update missing-member report previews bounded details and saves complete archive/member reasons after decline or apply')
         if scenario == 'library-update-apply':
             expected_lines.append('PASS reviewed merged-source update preserves priorities personal data and removed copies, adds verified members from a second root and repeats without duplicate cards')
             expected_lines.append('PASS reviewed updates retain exclusions across omitted indexes, distinguish publisher omissions and roll back catalogues personal fields source links and baseline publication on a late failure')

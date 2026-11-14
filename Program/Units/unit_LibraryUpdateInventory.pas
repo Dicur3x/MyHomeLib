@@ -24,7 +24,7 @@ type
     // Header/name verification only; never reads all book payloads or writes
     // their archives. Duplicate names are ambiguous, not ordinal fallbacks.
     function Resolve(var Book: TBookRecord; const DownloadRoot: string;
-      PreferNew: Boolean; out Reason: string): Boolean;
+      PreferNew: Boolean; out Reason, CheckedFile: string): Boolean;
   end;
 
 implementation
@@ -82,11 +82,11 @@ begin
 end;
 
 function TLibraryUpdateInventory.Resolve(var Book: TBookRecord; const DownloadRoot: string;
-  PreferNew: Boolean; out Reason: string): Boolean;
+  PreferNew: Boolean; out Reason, CheckedFile: string): Boolean;
 var Candidate: TBookRecord; Old, NewPath, Path, Container, Wanted, Key: string;
   Archive: TArchive; Index: Integer;
 begin
-  Result:=False; Reason:=''; FCheck;
+  Result:=False; Reason:=''; CheckedFile:=''; FCheck;
   Old:=Book.GetBookFileName; Path:=Old; Container:=Book.GetBookContainer;
   if (DownloadRoot<>'') and not TPath.IsPathRooted(Book.Folder) then
   begin
@@ -95,6 +95,7 @@ begin
     if FileExists(NewPath) and (PreferNew or not FileExists(Old)) then
     begin Path:=NewPath; Container:=Candidate.GetBookContainer; end;
   end;
+  CheckedFile:=Path;
   if not FileExists(Path) then begin Reason:='Файл не найден: '+Path; Exit; end;
   Lease(Path);
   if Book.GetBookFormat(Container) in [bfFb2Archive,bfRawArchive] then

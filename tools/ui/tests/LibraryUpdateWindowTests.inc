@@ -43,6 +43,8 @@ begin
         Dialog.SelectProfile(Profile.ID);
         TButton(Dialog.FindComponent('btnCheckUpdateSource')).Click;
         Require(Assigned(Dialog.Review) and Dialog.Review.Ready,'Window review failed: '+TLabel(Dialog.FindComponent('lblUpdateSourceReport')).Caption);
+        Require(not TButton(Dialog.FindComponent('btnSaveMissingUpdateBooks')).Enabled,
+          'Source window offers an obsolete missing-member report before verification');
         Checked:=True; Applying:=True;
         try TButton(Dialog.FindComponent('btnApplyUpdateSource')).Click;
         finally Applying:=False; end;
@@ -50,6 +52,26 @@ begin
         Require(Confirmed and (Committed=Accept),'Unexpected window application outcome: '+Report);
         Require(TButton(Dialog.FindComponent('btnApplyUpdateSource')).Enabled<>Accept,
           'Source window retained an obsolete apply state');
+        var SaveButton:=TButton(Dialog.FindComponent('btnSaveMissingUpdateBooks'));
+        Require(SaveButton.Enabled and Assigned(SaveButton.OnClick) and Dialog.Review.MissingReportReady and
+          (Dialog.Review.MissingBooks=9),'Source window cannot save its verified missing members');
+        Require(Report.Contains('503.fb2') and Report.Contains('books.zip') and
+          Report.Contains('В архиве нет книги') and not Report.Contains('511.fb2') and
+          Report.Contains('Сохранить пропуски'),'Missing-member preview is absent or is not bounded');
+        var ReportFile:=TPath.Combine(Settings.AppPath,'missing-'+BoolToStr(Accept,True)+'.txt');
+        Dialog.Review.SaveMissingReport(ReportFile);
+        var Complete:=TFile.ReadAllText(ReportFile,TEncoding.UTF8);
+        for var Number:=503 to 511 do Require(Complete.Contains(IntToStr(Number)+'.fb2'),
+          'Complete missing-member report lost '+IntToStr(Number));
+        Require(Complete.Contains('Неоднозначное имя книги') and Complete.Contains('Записей: 9.') and
+          not Complete.Contains('501.fb2') and not Complete.Contains('502.fb2'),
+          'Complete missing-member report omits the reason or includes available books');
+        if not Accept then
+        begin
+          TButton(Dialog.FindComponent('btnCheckUpdateSource')).Click;
+          Require(not SaveButton.Enabled and (Dialog.Review.MissingDetails=''),
+            'Rechecking the index retained an obsolete missing-member report');
+        end;
       except on E:Exception do Failure:=E.Message; end;
       Timer.Enabled:=False; Dialog.ModalResult:=mrCancel; Exit;
     end;
@@ -67,14 +89,19 @@ begin
     Zip.Open(TPath.Combine(Root,'books.zip'),zmWrite);
     for var Number in TArray<string>.Create('501','502') do
       Zip.Add(TEncoding.UTF8.GetBytes('<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0"><body><section><p>'+Number+'</p></section></body></FictionBook>'),Number+'.fb2');
+    Zip.Add(TEncoding.UTF8.GetBytes('first duplicate'),'a/511.fb2');
+    Zip.Add(TEncoding.UTF8.GetBytes('second duplicate'),'b/511.fb2');
   finally Zip.Free; end;
   ArchiveHash:=THashSHA2.GetHashStringFromFile(TPath.Combine(Root,'books.zip'));
   IndexFile:=TPath.Combine(Root,'new.inpx'); Zip:=TZipFile.Create;
   try
     Zip.Open(IndexFile,zmWrite);
     Zip.Add(TEncoding.UTF8.GetBytes('AUTHOR;GENRE;TITLE;SERIES;SERNO;FILE;SIZE;LIBID;DEL;EXT;DATE;LANG'),'structure.info');
-    Zip.Add(TEncoding.UTF8.GetBytes('Author,Test:'#4'prose_contemporary:'#4'Updated 501'#4#4#4'501'#4'100'#4'501'#4'0'#4'fb2'#4'2026-11-15'#4'ru'+sLineBreak+
-      'Author,Test:'#4'prose_contemporary:'#4'New 502'#4#4#4'502'#4'100'#4'502'#4'0'#4'fb2'#4'2026-11-15'#4'ru'),'books.inp');
+    var Rows:='Author,Test:'#4'prose_contemporary:'#4'Updated 501'#4#4#4'501'#4'100'#4'501'#4'0'#4'fb2'#4'2026-11-15'#4'ru'+sLineBreak+
+      'Author,Test:'#4'prose_contemporary:'#4'New 502'#4#4#4'502'#4'100'#4'502'#4'0'#4'fb2'#4'2026-11-15'#4'ru'+sLineBreak;
+    for var Number:=503 to 511 do Rows:=Rows+'Author,Test:'#4'prose_contemporary:'#4'Pending '+IntToStr(Number)+#4#4#4+
+      IntToStr(Number)+#4'100'#4+IntToStr(Number)+#4'0'#4'fb2'#4'2026-11-15'#4'ru'+sLineBreak;
+    Zip.Add(TEncoding.UTF8.GetBytes(Rows),'books.inp');
   finally Zip.Free; end;
   IndexHash:=THashSHA2.GetHashStringFromFile(IndexFile);
   ID:=SystemDB.CreateCollection('Window source update',Root,TPath.Combine(Root,'target.hlc2'),CT_EXTERNAL_LOCAL_FB,Settings.SystemFileName[sfGenresFB2]);
@@ -141,4 +168,5 @@ begin
     (THashSHA2.GetHashStringFromFile(TPath.Combine(Root,'books.zip'))=ArchiveHash),
     'Window update changed its source index or book archive');
   Writeln('PASS library update menu and toolbar run reviewed confirmation, keep declined data, refresh the actual book view and offer incremental compression; both theme glyphs remain available');
+  Writeln('PASS reviewed update missing-member report previews bounded details and saves complete archive/member reasons after decline or apply');
 end;
