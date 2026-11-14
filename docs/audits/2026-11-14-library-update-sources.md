@@ -6,11 +6,17 @@ The legacy importer reads physical lines instead of INI keys so repeated keys ca
 
 `LibraryUpdateSourcesTest` ran successfully on x86 and x64 with the real supplied file, which remained byte-exact. Evidence: `G:/HL-b14-external/update-sources-model-r207.json`; native binaries `dea39e81e621c3b865ae02e05ab020ebf16660f22ab366ce2c29af182a274618` (x64) and `49360b0a022e901999b1e42b513caeb2a885870e18802d143b19549b13227a52` (x86). These are settings/parser checks, not HTTP, UI or catalogue updates. The diagnostic has an `asInvoker` manifest and needs no administrator access. Build the default Win64 target first when regenerating its project resources, then Win32, as required by the existing IDE build wrapper.
 
+## Index acquisition checkpoint
+
+`unit_LibraryUpdateFetch.pas` now prepares an owned, frozen index snapshot from a local/network folder or HTTP/HTTPS endpoint. The original is opened read-only with writes denied while copying; the staged result remains read-locked and has a SHA-256 witness. Remote filenames are encoded by path segment, and HTTP errors are rejected. Transfers check cancellation, the 8 GiB system reserve, 512 MiB workspace margin and a 1 GiB input ceiling. The private directory is held open and resolved through its handle. Cleanup removes its own index and only an empty directory; unexpected files are retained.
+
+The actual native implementation passed on x64 (`G:/HL-b14-external/index-fetch-Win64-r212/report.json`, 1.781 s) and x86 (`G:/HL-b14-external/index-fetch-Win32-r214/report.json`, 1.546 s). Both ordinary Unicode paths and paths of 343 characters are checked: exact local/remote bytes, original and staged write leases, cancellation, HTTP 404, an individual base URL with escaped Unicode/spaces, retention of unexpected staged data, retention of other cache files, and owned cleanup. All fixtures were private copies on G: and were removed. These runs do not constitute a real library import, UI flow, TLS/server authentication matrix or a hard-crash orphan-cleanup check.
+
 Remaining integration:
 
 - One understandable source editor, attached to the current collection, with explicit binding to a merged source. Imported legacy templates must not all become enabled updates of the current collection.
 - Correct/bypass the old `TUpdateInfoList.Add` global-URL substitution. Its existing path is unchanged by this pure model checkpoint.
-- Immutable, owned staging for remote and local indexes; cancellation/free-space checks and cleanup must never delete a user-selected original. The old update thread's blanket cache cleanup must not be reused for arbitrary external paths.
+- Connect the new staging lifetime/cancellation to the window and importer; handle abandoned staging after process death. The old update thread's blanket cache cleanup must not be reused for arbitrary external paths.
 - Preview version, actual additions and exact relevant missing archive names using previous state where available. Do not treat intentionally removed old duplicates as downloads, and do not infer correctness from date or numeric archive ranges alone.
 - Apply through the existing INPX/Metabib/import/merged-source paths, retain personal/compression state, then offer incremental compression. Add the separate library-update toolbar entry and context help.
 - End-to-end x86/x64 application checks and final production/package/release gates. No Desktop replacement or publication has been performed.
