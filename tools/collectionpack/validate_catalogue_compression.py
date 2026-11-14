@@ -373,7 +373,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
         # The real-book fixture itself allows 300 s *after* its application
         # bootstrap; leave separate room for bootstrap and orderly teardown.
         deadline = 420 if real_books or scenario in ('packing-fbd', 'packed-jxl-formats', 'packed-flibrary-sidecars',
-            'compression-continuation', 'library-update-sources', 'library-update-apply') else 150
+            'compression-continuation', 'library-update-sources', 'library-update-apply', 'library-update-cancel', 'library-update-window') else 150
         attempt = dict(status='INCOMPLETE', platform=platform, mode=mode,
             native_binary_sha256=digest(binary), outer_timeout_seconds=deadline,
             refresh_index=refresh_index,
@@ -448,6 +448,8 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
             raise
         output = log_path.read_text(encoding='utf-8', errors='replace')
         expected = {
+            'library-update-window': 'PASS library update menu and toolbar run reviewed confirmation, keep declined data, refresh the actual book view and offer incremental compression; both theme glyphs remain available',
+            'library-update-cancel': 'PASS reviewed update cancellation rolls back before commit, finishes late saves, protects rollback and retains published baselines after post-commit errors',
             'library-update-apply': 'PASS reviewed whole update keeps literal metadata personal data favourites and roots, skips missing members, continues the same index and retains removed books as excluded',
             'library-update-sources': 'PASS source settings window edits, persists stable bindings, checks a frozen local index, exports, reviews disabled legacy templates and survives collection rename',
             'selected-compression-ui': f'PASS selected compression normal catalogue {mode}',
@@ -562,7 +564,11 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
                         text_only_repack=text_repack,
                         flibrary_sidecar_inputs=sidecar_inputs,
                         unrelated_archive_unchanged=True, native_log=str(log_path),
-                        scope=('Native reviewed whole and merged-source updates on small private ZIP/INPX fixtures: metadata, personal data, priorities, removed copies across omitted indexes, exact member availability, separate download root, same-index continuation and late SQL-failure rollback; no production-scale or packed/online application gate'
+                        scope=('Actual main collection menu and toolbar, source-window review and apply controls, progress window, prepared worker confirmation, declined/committed views and incremental-compression offer; theme glyphs, private ZIP/INPX fixture, automatic confirmation answer'
+                               if scenario == 'library-update-window' else
+                               'Native full and bound-source update cancellation at row writes, pre-commit, commit start, first-store commit and completion, including forced cancellation during rollback and post-commit errors; private fixtures, no process-death proof'
+                               if scenario == 'library-update-cancel' else
+                               'Native reviewed whole and merged-source updates on small private ZIP/INPX fixtures: metadata, personal data, priorities, removed copies across omitted indexes, exact member availability, separate download root, same-index continuation and late SQL-failure rollback; no production-scale or packed/online application gate'
                                if scenario == 'library-update-apply' else
                                'Native source settings and INPX/Metabib review, archive names/roots, date changes, deleted and malformed rows, cancellation, unchanged live catalogues, actual legacy individual/default HTTP version requests, rename and theme/DPI layout; no update application'
                                if scenario == 'library-update-sources' else
@@ -663,7 +669,7 @@ if __name__ == '__main__':
     parser.add_argument('--estimate-first', action='store_true')
     parser.add_argument('--whole', action='store_true')
     parser.add_argument('--repeat-new', action='store_true', help='After applying, invoke the normal new-books menu and verify no preparation')
-    parser.add_argument('--scenario', choices=['selected-compression-ui', 'explorer-file-drop', 'update-outcomes', 'library-update-sources', 'library-update-apply',
+    parser.add_argument('--scenario', choices=['selected-compression-ui', 'explorer-file-drop', 'update-outcomes', 'library-update-sources', 'library-update-apply', 'library-update-cancel', 'library-update-window',
                         'packed-catalogue-sizes', 'packing-fbd', 'packed-jxl-formats', 'packed-flibrary-sidecars', 'compression-continuation'], default='selected-compression-ui')
     parser.add_argument('--packing-codec', type=Path, help='Exact official JPEG XL archive for the native packed INPX installer/reader scenario')
     parser.add_argument('--packing-codec-release', type=Path, help='Official GitHub release metadata used to verify the codec archive')

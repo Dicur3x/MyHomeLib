@@ -3977,6 +3977,7 @@ end;
 {$I BookDuplicateTests.inc}
 {$I Feedback529Tests.inc}
 {$I LibraryUpdateApplyTests.inc}
+{$I LibraryUpdateCancelTests.inc}
 {$I LibraryUpdateSourcesTests.inc}
 
 procedure TestCatalogSources;
@@ -4224,6 +4225,8 @@ begin
   end;
   frmMain.pgControlChange(nil);
 end;
+
+{$I LibraryUpdateWindowTests.inc}
 
 procedure TestAdjacentSeriesSelection(const Collection: IBookCollection; OneID, TwoID: Integer);
 var Node, FirstBook: PVirtualNode; Data: PSeriesData; Book: PBookRecord;
@@ -6758,6 +6761,8 @@ begin
       else if ParamStr(1) = 'book-gallery' then
         TestBookGallery
       else if ParamStr(1) = 'library-update-apply' then TestLibraryUpdateApplication
+      else if ParamStr(1) = 'library-update-cancel' then TestLibraryUpdateCancellation
+      else if ParamStr(1) = 'library-update-window' then TestLibraryUpdateWindow
       else if (ParamStr(1) = 'catalog-sources') or (ParamStr(1) = 'catalog-sources-ui') or
         (ParamStr(1) = 'library-update-sources') then
         TestCatalogSources

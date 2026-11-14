@@ -87,7 +87,7 @@ const
     '',                   // 18 (separator)
     '', '', '', '',
     'delete',             // 23 — tbtnDownloadList_Add swaps to this on the Downloads tab
-    '', 'theme-switch',   // 24 unused; 25 application theme
+    'sync', 'theme-switch', // 24 collection update; 25 application theme
     'help',
     ''                    // 27 (separator)
   );
@@ -246,6 +246,10 @@ begin
       if ANames[I] <> '' then
       begin
         ResName := AResPrefix + SanitizeName(ANames[I]);
+        // Reuse the installed menu resource; older icon packages already
+        // contain both theme variants of sync.
+        if (ACollection=ToolbarImageCollection) and (ANames[I]='sync') then
+          ResName:=AResPrefix.Replace('TOOLBAR_','MENU_')+SanitizeName(ANames[I]);
         try
           RS := TResourceStream.Create(FResModule, ResName, RT_RCDATA);
           try

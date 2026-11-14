@@ -639,6 +639,7 @@ type
     procedure UpdateCollectionFromFileExecute(Sender: TObject);
     procedure LibraryUpdateSourcesExecute(Sender: TObject);
     procedure LibraryUpdateSourcesBeginApply(Sender: TObject);
+    procedure LibraryUpdateActionUpdate(Sender: TObject);
     procedure UpdateCollectionFromFileUpdate(Sender: TObject);
     procedure ClearReadFolderExecute(Sender: TObject);
     procedure BookCacheActionUpdate(Sender: TObject);
@@ -1125,6 +1126,9 @@ type
     FExternalToolsMenu: TPopupMenu;
     FExternalToolsItem: TMenuItem;
     FExternalToolsButton: TToolButton;
+    FUpdateLibraryButton: TToolButton;
+    FUpdateLibraryAction: TAction;
+    FUpdateLibraryMenu: TPopupMenu;
     FFavoriteDescriptor: TAuthorFavoriteCollection;
     FFavoriteGeneration: Cardinal;
     FFavoriteDirtyCollections: TDictionary<Integer, Cardinal>;
@@ -5825,6 +5829,24 @@ begin
   FilterMenu:=TMenuItem.Create(Self); FilterMenu.Name:='miLibraryUpdateSources';
   FilterMenu.Caption:='Настроить источники обновлений…'; FilterMenu.OnClick:=LibraryUpdateSourcesExecute;
   Section.Add(FilterMenu);
+  FUpdateLibraryMenu:=TPopupMenu.Create(Self); FUpdateLibraryMenu.Name:='pmUpdateLibrary';
+  FUpdateLibraryMenu.Items.Add(NewItem('Настроить источники обновлений…',0,False,True,LibraryUpdateSourcesExecute,0,'miToolbarUpdateSources'));
+  FUpdateLibraryMenu.Items.Add(NewItem('Из файла INPX или Metabib…',0,False,True,UpdateCollectionFromFileExecute,0,'miToolbarUpdateFile'));
+  FUpdateLibraryAction:=TAction.Create(Self); FUpdateLibraryAction.ActionList:=Actions;
+  FUpdateLibraryAction.Name:='acUpdateLibrary'; FUpdateLibraryAction.Category:='Коллекция';
+  FUpdateLibraryAction.Caption:='Обновить библиотеку';
+  FUpdateLibraryAction.Hint:='Проверка и применение обновления коллекции. Источники и обновление из файла — в меню кнопки.';
+  FUpdateLibraryAction.OnExecute:=LibraryUpdateSourcesExecute;
+  FUpdateLibraryAction.OnUpdate:=LibraryUpdateActionUpdate;
+  FUpdateLibraryButton:=TToolButton.Create(Self); FUpdateLibraryButton.Name:='btnUpdateLibrary';
+  FUpdateLibraryButton.Parent:=tlbrMain; FUpdateLibraryButton.Style:=tbsDropDown;
+  FUpdateLibraryButton.Action:=FUpdateLibraryAction; FUpdateLibraryButton.DropdownMenu:=FUpdateLibraryMenu;
+  // Actions use the menu image list, whose index/name mapping is different.
+  // Bind this glyph directly to the toolbar list, as the designed buttons do.
+  FUpdateLibraryButton.ImageIndex:=24;
+  FUpdateLibraryButton.ShowHint:=True;
+  FUpdateLibraryButton.SetBounds(tbtnWizard.BoundsRect.Right+1,tbtnWizard.Top,
+    FUpdateLibraryButton.Width,FUpdateLibraryButton.Height);
 
   Section:=AddMenuSection(N39,'Специальный импорт',miPdfdjvu.MenuIndex);
   Section.Name:='miSpecialImport';
@@ -13260,6 +13282,11 @@ procedure TfrmMain.LibraryUpdateSourcesBeginApply(Sender: TObject);
 begin
   if Assigned(FOPDSForm) then FOPDSForm.StopServer;
   UpdatePositions;
+end;
+
+procedure TfrmMain.LibraryUpdateActionUpdate(Sender: TObject);
+begin
+  TAction(Sender).Enabled:=Assigned(FCollection) and not FFormBusy and not FStartupLoading and not FBookListLoading;
 end;
 
 procedure TfrmMain.UpdateCollectionFromFileExecute(Sender: TObject);

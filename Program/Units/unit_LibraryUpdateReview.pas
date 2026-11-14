@@ -70,12 +70,23 @@ function CreateLibraryReviewWorker(CollectionID: Integer; Review: TLibraryUpdate
 function CreateLibraryApplyWorker(CollectionID: Integer; Review: TLibraryUpdateReview;
   PreferNewRoot: Boolean): TCollectionWorker;
 
+{$IFDEF MHL_COMPRESSION_TEST}
+var LibraryUpdateTestPoint: TProc<string>;
+{$ENDIF}
+
 implementation
 
 uses Winapi.Windows, Vcl.ComCtrls, System.IOUtils, System.Hash, System.Variants, System.JSON, System.StrUtils,
   unit_Consts, unit_Database_SQLite, unit_LibrarySourceID, unit_UserData,
   unit_ImportInpxThread, unit_ImportMetabibThread, unit_MetabibReader,
   unit_MHLArchiveHelpers, unit_Settings, unit_LibraryUpdateHistory, unit_CollectionPacking, dm_user;
+
+procedure NotifyLibraryUpdateTestPoint(const Stage: string); inline;
+begin
+{$IFDEF MHL_COMPRESSION_TEST}
+  if Assigned(LibraryUpdateTestPoint) then LibraryUpdateTestPoint(Stage);
+{$ENDIF}
+end;
 
 constructor TLibraryUpdateReview.Create(const Source: TLibraryUpdateSource; Prepared: TStagedLibraryIndex);
 begin
@@ -920,9 +931,15 @@ begin
     end;
     Folder:=TPath.Combine(Settings.DataPath,'LibraryUpdateBackups'); ForceDirectories(Folder);
     Backup:=TPath.Combine(Folder,TGUID.NewGuid.ToString);
-    try FPlan.Apply(Backup,nil,function:Boolean begin Check; Result:=False; end);
+    FPlan.StageProgress:=procedure(const Stage:string; Done,Total:Integer) begin
+      if Assigned(Progress) then Progress(Stage,Done,Total);
+    end;
+    try FPlan.Apply(Backup,procedure(Done,Total:Integer) begin
+      if Assigned(Progress) then Progress('Обновление источника',Done,Total);
+    end,function:Boolean begin Check; Result:=False; end);
     finally
-      Committed:=FPlan.Committed; FCachePublished:=Committed; FApplied:=Committed;
+      FPlan.StageProgress:=nil;
+      Committed:=FPlan.CatalogCommitted; FCachePublished:=Committed; FApplied:=Committed;
     end;
     if Committed then
     begin
@@ -943,6 +960,7 @@ begin
     end);
   finally BackupDB.Free; end;
   Cache:=TImportCache.Create; Genres:=TDictionary<string,TGenreData>.Create; Rows:=nil;
+  SavedSQL:=SQLiteCancelCallback;
   try
     Target.BeginBulkOperation;
     try
@@ -985,7 +1003,8 @@ begin
             else CopyReviewBook(FSnapshot,Target,Book,Cache,Genres);
           end
           else CopyReviewBook(FDelta,Target,Book,Cache,Genres,True);
-          Inc(Done); if Assigned(Progress) and (Done mod 100=0) then Progress('Обновление каталога',Done,FTotal);
+          Inc(Done); NotifyLibraryUpdateTestPoint('rows-written');
+          if Assigned(Progress) and (Done mod 100=0) then Progress('Обновление каталога',Done,FTotal);
         end;
         Books:=nil; Target.AfterBatchUpdate;
       finally Target.FinishBatchUpdate; end;
@@ -995,13 +1014,21 @@ begin
       Target.FinishCatalogUpdateTracking(FSource.Full,FPreviousLastID);
       if FSource.Full then
         Target.RestoreLocalBooks(LocalBooks);
-      Check; StoreAppliedState(Target); Target.EndBulkOperation(True);
+      Check; StoreAppliedState(Target); NotifyLibraryUpdateTestPoint('before-commit'); Check;
+      SQLiteCancelCallback:=nil;
+      if Assigned(Progress) then Progress('Сохранение каталога',Done,FTotal);
+      NotifyLibraryUpdateTestPoint('commit-start');
+      Target.EndBulkOperation(True);
       Committed:=True; FCachePublished:=True; FApplied:=True;
-    except if Target.InBulkOperation then Target.EndBulkOperation(False); raise; end;
-    SavedSQL:=SQLiteCancelCallback; SQLiteCancelCallback:=nil;
-    try SystemData.RemapCollectionBookIDs(Target.CollectionID,FSource.Full);
-    finally SQLiteCancelCallback:=SavedSQL; end;
-  finally Books:=nil; Rows.Free; Genres.Free; Cache.Free; end;
+      NotifyLibraryUpdateTestPoint('catalogue-committed');
+    except
+      SQLiteCancelCallback:=nil;
+      if Target.InBulkOperation then Target.EndBulkOperation(False); raise;
+    end;
+    SQLiteCancelCallback:=nil;
+    SystemData.RemapCollectionBookIDs(Target.CollectionID,FSource.Full);
+    NotifyLibraryUpdateTestPoint('stores-committed');
+  finally SQLiteCancelCallback:=SavedSQL; Books:=nil; Rows.Free; Genres.Free; Cache.Free; end;
 end;
 
 type

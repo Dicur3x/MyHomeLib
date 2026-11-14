@@ -44,7 +44,7 @@ type
     FBookLookup: TMergeBookLookup;
     FBookChoice: TMergeBookChoice;
     FAfterBegin, FBeforeCommit: TMergeTransactionHook;
-    FCommitted: Boolean;
+    FCommitted, FCatalogCommitted: Boolean;
     function ResolvedContainer(const Book: TBookRecord): string;
     procedure LoadTarget(const Canceled: TMergeCanceled = nil);
     procedure AddReport(const Text: string);
@@ -75,6 +75,7 @@ type
     property AfterBegin: TMergeTransactionHook read FAfterBegin write FAfterBegin;
     property BeforeCommit: TMergeTransactionHook read FBeforeCommit write FBeforeCommit;
     property Committed: Boolean read FCommitted;
+    property CatalogCommitted: Boolean read FCatalogCommitted;
   end;
 
 function BookPhysicalIdentity(const Book: TBookRecord): string;
@@ -85,10 +86,21 @@ function MergeSourceKeyAtLocation(const Source: TMergeSource; const Book: TBookR
 function BookLibraryIdentity(const Book: TBookRecord; const LibraryNamespace: string): string;
 procedure BackupCollectionFile(const SourceFile, BackupFile: string);
 
+{$IFDEF MHL_COMPRESSION_TEST}
+var MergeApplyTestPoint: TProc<string>;
+{$ENDIF}
+
 implementation
 
 uses Winapi.Windows, System.IOUtils, System.Hash, System.Variants, System.Math, System.DateUtils,
   unit_Consts, unit_Settings, unit_UserData, SQLiteWrap, dm_user, unit_LibrarySourceID, SQLiteProfile, unit_CollectionBackup;
+
+procedure NotifyMergeTestPoint(const Stage: string); inline;
+begin
+{$IFDEF MHL_COMPRESSION_TEST}
+  if Assigned(MergeApplyTestPoint) then MergeApplyTestPoint(Stage);
+{$ENDIF}
+end;
 
 function BookLibraryIdentity(const Book: TBookRecord; const LibraryNamespace: string): string;
 var ID, Namespace, OriginalID: string; C: Char; P: Integer;
@@ -480,7 +492,8 @@ var Source: TMergeSource; Iterator: IBookIterator; Book, Existing: TBookRecord;
   Seen: TDictionary<Integer, Boolean>; Remap: TDictionary<string, Integer>;
   Series, Publishers, OldSeries, OldPublishers: TBookSeries; Sequence: TBookSeriesData; Genre: TGenreData;
   UserData, Mapped: TUserData; Group, NewGroup: TBookGroup; GroupBook: TGroupBook;
-  SavedHide, SavedLocal, TargetCommitted, SystemStarted: Boolean; TargetFile: string; Manifest: TStringList;
+  SavedHide, SavedLocal, SystemStarted: Boolean; TargetFile: string; Manifest: TStringList;
+  SavedCancel: TSQLiteCancelCallback;
   AuthorCache: TDictionary<Integer, TAuthorData>;
   GenreCache: TDictionary<string, TGenreData>; Author: TAuthorData;
   ImportCache: TImportCache;
@@ -635,7 +648,7 @@ var Source: TMergeSource; Iterator: IBookIterator; Book, Existing: TBookRecord;
   end;
 begin
   if not FReady then raise Exception.Create('Сначала выполните предпросмотр объединения.');
-  FCommitted:=False; CheckStamps; CheckResolvedContainers;
+  FCommitted:=False; FCatalogCommitted:=False; CheckStamps; CheckResolvedContainers;
   if Assigned(Canceled) and Canceled() then raise EAbort.Create('Объединение отменено.');
   if DirectoryExists(BackupFolder) then raise Exception.Create('Для резервной копии требуется новая папка.');
   ForceDirectories(BackupFolder);
@@ -665,10 +678,11 @@ begin
   GenreCache := TDictionary<string, TGenreData>.Create;
   ImportCache := TImportCache.Create;
   Mapped := TUserData.Create; StoredBooks := nil; CachedBooks := nil; CachedSeries:=nil;
-  FReadCacheHits:=0; FReadCacheBooks:=0; Count := 0; TargetCommitted := False; SystemStarted := False;
+  FReadCacheHits:=0; FReadCacheBooks:=0; Count := 0; SystemStarted := False;
   Supports(FTarget,IBookMergeOriginalCopyRecorder,OriginalCopyRecorder);
   SavedHide := FTarget.GetHideDeleted; SavedLocal := FTarget.GetShowLocalOnly;
   FTarget.SetHideDeleted(False); FTarget.SetShowLocalOnly(False);
+  SavedCancel:=SQLiteCancelCallback;
   try
     FTarget.BeginBulkOperation;
     try
@@ -896,7 +910,8 @@ begin
           PhaseStarted := SQLiteProfileClock;
           FTarget.SetCatalogBookID(SourceKey, ID); FLocations.AddOrSetValue(Physical, ID); Seen.AddOrSetValue(ID, True);
           Remap.AddOrSetValue(Source.ID + ':' + IntToStr(OriginalID), ID);
-          Inc(Count); if Assigned(Progress) and (Count mod 100 = 0) then Progress(Count, FTotal);
+          Inc(Count); NotifyMergeTestPoint('rows-written');
+          if Assigned(Progress) and (Count mod 100 = 0) then Progress(Count, FTotal);
           RecordSQLiteProfile('merge','phase','source-map-and-progress',PhaseStarted);
         end;
       end;
@@ -931,26 +946,40 @@ begin
       for GroupBook in Group do
         FTarget.AddBookToGroup(CreateBookKey(GroupBook.BookID,FTarget.CollectionID),Group.GroupID);
       if Assigned(FBeforeCommit) then FBeforeCommit(FTarget);
+      NotifyMergeTestPoint('before-commit');
       if Assigned(Canceled) and Canceled() then raise EAbort.Create('Объединение отменено.');
+      // Once saving starts, finish both stores. A late stop must not interrupt
+      // COMMIT or the restoration needed if the other store fails.
+      SQLiteCancelCallback:=nil;
+      if Assigned(FStageProgress) then FStageProgress('Сохранение каталогов',Count,FTotal);
+      NotifyMergeTestPoint('commit-start');
       TFile.WriteAllText(TPath.Combine(BackupFolder, 'status.txt'), 'Сохранение: при аварийном завершении проверьте обе резервные копии.', TEncoding.UTF8);
       RecordSQLiteProfile('merge','phase','merge-groups',PhaseStarted);
       PhaseStarted := SQLiteProfileClock;
-      FTarget.EndBulkOperation(True); TargetCommitted := True;
+      FTarget.EndBulkOperation(True); FCatalogCommitted := True;
+      NotifyMergeTestPoint('catalogue-committed');
       FSystem.EndDataUpdate(True); SystemStarted := False;
       FCommitted:=True;
-      RecordSQLiteProfile('merge','phase','commit',PhaseStarted);
       FReady := False;
     except
+      SQLiteCancelCallback:=nil;
       if FTarget.InBulkOperation then FTarget.EndBulkOperation(False);
       if SystemStarted then FSystem.EndDataUpdate(False);
-      if TargetCommitted then FTarget.RestoreCollectionBackup(TPath.Combine(BackupFolder, 'destination.hlc2'));
+      if FCatalogCommitted then
+      begin
+        FTarget.RestoreCollectionBackup(TPath.Combine(BackupFolder, 'destination.hlc2'));
+        FCatalogCommitted:=False;
+      end;
       TFile.WriteAllText(TPath.Combine(BackupFolder, 'status.txt'), 'Отменено: изменения отменены.', TEncoding.UTF8);
       FReady := False;
       raise;
     end;
+    RecordSQLiteProfile('merge','phase','commit',PhaseStarted);
+    NotifyMergeTestPoint('stores-committed');
     TFile.WriteAllText(TPath.Combine(BackupFolder, 'status.txt'), 'Завершено', TEncoding.UTF8);
     if Assigned(Progress) then Progress(FTotal, FTotal);
   finally
+    SQLiteCancelCallback:=SavedCancel;
     FTarget.SetHideDeleted(SavedHide); FTarget.SetShowLocalOnly(SavedLocal);
     SourceSeriesStream:=nil; SourceSeriesProvider:=nil;
     CachedSeries.Free; CachedBooks.Free; StoredBooks.Free; ImportCache.Free; GenreCache.Free; AuthorCache.Free;
