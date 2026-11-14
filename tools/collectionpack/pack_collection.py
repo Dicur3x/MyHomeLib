@@ -496,12 +496,13 @@ def write_pdf_range(pdf, output, start, end, check):
 
 
 class JpegXL:
-    def __init__(self, encoder, decoder, check):
+    def __init__(self, encoder, decoder, check, reader_fb2_namespaces=False):
         self.encoder = Path(encoder).absolute() if encoder else None
         self.decoder = Path(decoder).absolute() if decoder else None
         if not all(tool and tool.is_file() for tool in (self.encoder, self.decoder)):
             raise PackingError('Для этого режима нужен JPEG XL с кодировщиком и декодером.')
         self.check = check
+        self.reader_fb2_namespaces = reader_fb2_namespaces is True
 
     def run(self, executable, arguments, directory, output, limit):
         self.check()
@@ -618,6 +619,10 @@ class JpegXL:
         closing = root_close.match(data, root_end) if root_end is not None else None
         if closing is None or data[closing.end():].strip():
             return {}
+        # Older hosts can install a newer Python module independently. Only a
+        # reader that advertises qualified FB2 reconstruction may strip these.
+        if not self.reader_fb2_namespaces and closing[0] != b'</FictionBook>':
+            return {}
         binary_open = re.compile(rb'<((?:[^\s<>/:]+:)?binary)(?=[\t\r\n />])')
         binary_close = re.compile(rb'</((?:[^\s<>/:]+:)?binary)[\t\r\n ]*>')
         images, cursor = {}, 0
@@ -721,7 +726,8 @@ class Packer:
         self.last_event = None
         self.progress = {}
         self.seven = SevenZip(job['seven_zip'], self.check)
-        self.jpeg_xl = JpegXL(job.get('jpeg_xl_encoder'), job.get('jpeg_xl_decoder'), self.check) if self.engine == JPEG_XL_ENGINE else None
+        self.jpeg_xl = JpegXL(job.get('jpeg_xl_encoder'), job.get('jpeg_xl_decoder'), self.check,
+                             job.get('reader_fb2_namespaces')) if self.engine == JPEG_XL_ENGINE else None
         self.pack_pdf_jpeg_xl = self.jpeg_xl is not None and job.get('pdf_jpeg_xl') is True
         self.converter = None
         self.tools_root = Path(job.get('tools_root') or Path(__file__).resolve().parents[1]).resolve()

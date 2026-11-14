@@ -990,6 +990,7 @@ begin
       Job.AddPair('jpeg_xl_encoder',FOptions.JpegXLEncoder);
       Job.AddPair('jpeg_xl_decoder',FOptions.JpegXLDecoder);
       Job.AddPair('pdf_jpeg_xl',TJSONBool.Create(True));
+      Job.AddPair('reader_fb2_namespaces',TJSONBool.Create(True));
     end;
     Job.AddPair('plan',FPlanFile); Job.AddPair('output',FOptions.OutputRoot); Job.AddPair('seven_zip',FOptions.SevenZip);
     Job.AddPair('verify_sources',TJSONBool.Create(FOptions.VerifySources));

@@ -99,3 +99,7 @@ existing FLibrary sidecars, user-data copies and final distributions still need
 their respective remaining checks.
 The final component feed must keep the new Packer paired with the beta-14
 reader; publishing this Python module alone to an older host is not validated.
+
+Follow-up: `2026-11-14-jpeg-xl-host-capability.md` adds and verifies an explicit
+reader capability. Its guarded `packages-r63` candidates supersede `r54`; an
+old-style job now keeps the complete prefixed book even with a new Python module.

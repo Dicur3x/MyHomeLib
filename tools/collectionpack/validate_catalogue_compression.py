@@ -13,6 +13,7 @@ import io
 import json
 import os
 import random
+import re
 from pathlib import Path
 import shutil
 import sqlite3
@@ -49,7 +50,9 @@ def jpeg_xl_inpx_fixture():
         ET.SubElement(book, ns + 'binary', {'id': name, 'content-type': 'image/jpeg'}).text = base64.b64encode(data).decode()
         if index:
             ET.SubElement(section, ns + 'image', {'{http://www.w3.org/1999/xlink}href': '#' + name})
-    return ET.tostring(book, encoding='utf-8', xml_declaration=True)
+    section.append(ET.Comment('Literal </FictionBook> inside a comment must remain unchanged.'))
+    data = ET.tostring(book, encoding='utf-8', xml_declaration=True)
+    return re.sub(rb'</([^\s<>/]+)>(\s*)$', rb'</\1 >\2', data)
 
 
 def archive_body(archive, member, seven_zip):

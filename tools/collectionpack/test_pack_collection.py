@@ -198,10 +198,35 @@ class PackingTests(unittest.TestCase):
         source, target = self.source / 'prefixed.fb2', self.root / 'stripped.fb2'
         source.write_bytes(body)
         codec = JpegXL(sys.executable, sys.executable, lambda: None)
+        with patch.object(codec, 'encode') as encode:
+            self.assertEqual(codec.separate(source, target, self.root), {})
+            encode.assert_not_called()
+        self.assertFalse(target.exists(), 'An older reader must keep the complete prefixed book')
+        codec = JpegXL(sys.executable, sys.executable, lambda: None, reader_fb2_namespaces=True)
         with patch.object(codec, 'encode', return_value=b'lossless-jxl') as encode:
             self.assertEqual(codec.separate(source, target, self.root), {'photo': b'lossless-jxl'})
             encode.assert_called_once_with(image, self.root)
         self.assertEqual(target.read_bytes(), body.replace(binary, b''))
+        self.assertEqual(source.read_bytes(), body)
+
+    def test_old_host_job_keeps_prefixed_fb2_images_without_reader_capability(self):
+        body = illustrated_fb2(b'\xff\xd8\xff' + b'JPEG fixture bytes' * 5000)
+        body = body.replace(b'<FictionBook xmlns=', b'<f:FictionBook xmlns:f=')
+        body = body.replace(b'</FictionBook>', b'</f:FictionBook>')
+        # The other elements retain the FB2 namespace under this prefixed root.
+        body = body.replace(b'xmlns:f="http://www.gribuser.ru/xml/fictionbook/2.0"',
+                            b'xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:f="http://www.gribuser.ru/xml/fictionbook/2.0"')
+        body = body.replace(b'image/png', b'image/jpeg')
+        source = self.source / 'old-host.fb2'
+        source.write_bytes(body)
+        self.add(1, source, '')
+        job = dict(self.job, engine=JPEG_XL_ENGINE,
+                   jpeg_xl_encoder=sys.executable, jpeg_xl_decoder=sys.executable)
+        with patch.object(JpegXL, 'encode') as encode:
+            result = Packer(job).execute()
+            encode.assert_not_called()
+        self.assertEqual(self.packed_book(result, 1), body)
+        self.assertEqual(result.image_books_optimized, 0)
         self.assertEqual(source.read_bytes(), body)
 
     def test_packed_pdf_reconstructs_exact_layout_and_can_be_retained(self):
