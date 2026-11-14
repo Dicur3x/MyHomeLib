@@ -56,6 +56,26 @@ begin
       if (TimeLimit<1000) or (TimeLimit>300000) then
         raise EArgumentException.Create('Invalid bounded operation test timeout');
       ConfigureMHLHostProfile(TPath.GetDirectoryName(ParamStr(1)),'operation-test.ini','operation-test.dbs2');
+      if Mode='book-stream' then
+      begin
+        if Length(Books)<>1 then raise EReadError.Create('Select exactly one reading fixture');
+        DMUser:=TDMUser.Create(nil);
+        var Stream:TStream:=nil;
+        try
+          Stream:=Books[0].GetBookStream;
+          if Stream=nil then raise EReadError.Create('The selected book cannot be restored');
+          var Name:=TPath.Combine(ExtractFileDir(ParamStr(1)),'restored-book.bin');
+          var Target:=TFileStream.Create(Name,fmCreate);
+          try Stream.Position:=0; Target.CopyFrom(Stream,Stream.Size); finally Target.Free; end;
+          Output:=TJSONObject.Create;
+          try
+            Output.AddPair('error',''); Output.AddPair('warning',''); Output.AddPair('book_stream',Name);
+            Output.AddPair('book_size',TJSONNumber.Create(Stream.Size));
+            TFile.WriteAllText(ParamStr(2),Output.ToJSON,TEncoding.UTF8);
+          finally Output.Free; end;
+        finally Stream.Free; FreeAndNil(DMUser); end;
+        Exit;
+      end;
       if Mode.StartsWith('index-') then
       begin
         var DB:=TSQLiteDatabase.Create(Info.DBFileName);

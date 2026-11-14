@@ -349,11 +349,13 @@ def prepare_selected_file(source, members, workspace, seven_zip, *, profile='ori
     previous = previous or {}
     result = PreparedBookCompression(str(source), None, source_sha, source_sha, settings_sha,
                                      before[2], before[2], [], [])
+    container_sevenzip = False
     if '' in members:
         sizes = {'': before[2]}
     else:
         with source.open('rb') as stream:
             signature = stream.read(8)
+        container_sevenzip = signature.startswith(b"7z\xbc\xaf'\x1c")
         if not signature.startswith((b'PK\x03\x04', b"7z\xbc\xaf'\x1c")):
             raise PackingError('Изменение на месте пока поддерживает общие архивы ZIP и 7z.')
         inventory = archive_inventory(decoder, source, workspace)
@@ -435,8 +437,16 @@ def prepare_selected_file(source, members, workspace, seven_zip, *, profile='ori
                         if extension in IMAGE_SUFFIXES and original.stat().st_size > MAX_IMAGE_BOOK:
                             reason = 'Книга слишком велика для изменения иллюстраций; содержимое сохранено.'
                         else:
-                            status = processor.optimize_book(current, book_dir,
-                                image_history=image_history.contains, collect_image_history=extension in IMAGE_SUFFIXES)
+                            with current.open('rb') as stream:
+                                nested_epub = (container_sevenzip and extension == '.epub' and
+                                               stream.read(6) == b"7z\xbc\xaf'\x1c")
+                            if nested_epub:
+                                from nested_epub_compression import optimize_nested_epub
+                                status = optimize_nested_epub(current, book_dir, processor, decoder,
+                                    image_history.contains, verify_non_image_content, check)
+                            else:
+                                status = processor.optimize_book(current, book_dir,
+                                    image_history=image_history.contains, collect_image_history=extension in IMAGE_SUFFIXES)
                             image_outputs = status.get('image_outputs', [])
                             images_reused = status.get('images_reused', 0)
                             images_processed = status.get('images_processed', 0)
@@ -446,7 +456,7 @@ def prepare_selected_file(source, members, workspace, seven_zip, *, profile='ori
                                 reason = f'Уже обработанные изображения сохранены без пересжатия: {images_reused}. Новых обработано: {images_processed}.'
                             if status.get('image_result') == 'skipped':
                                 raise PackingError(reason or 'Иллюстрации не обработаны; исходное содержимое сохранено.')
-                            if optimized:
+                            if optimized and not status.get('nested_epub_verified', False):
                                 verify_non_image_content(original, current, extension)
                     else:
                         reason = 'Для этого формата пока меняется только упаковка, содержимое сохранено.'
@@ -548,7 +558,7 @@ def prepare_request(request, *, canceled=lambda: False, notify=lambda value: Non
                     grayscale=request.get('grayscale', False), tools_root=request.get('tools_root'),
                     jpeg_xl_decoder=request.get('jpeg_xl_decoder'), preserve_image=history.contains,
                     canceled=canceled, notify=notify)
-            if external_prepared.supported and external_prepared.dependencies:
+            if external_prepared.supported:
                 external = dict(version=1, kind='HomeLibre external image preparation',
                     **asdict(external_prepared), members=request['members'],
                     original_image_sources=reader_sources(external_prepared, candidates=False),

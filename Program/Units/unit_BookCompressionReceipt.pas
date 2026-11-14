@@ -321,8 +321,12 @@ begin
   Key:=UpperCase(Text('source_file_key'));
   Profile:=JSONText(Options,'profile'); Gray:=Ord(JSONBool(Options,'grayscale'));
   Engine:=JSONText(Options,'engine_sha256');
-  ImageStamp:=CompressionImageStamp(Text('source'));
-  ImageSnapshot:=CompressionImageSnapshot(Text('source'),FData.GetValue<TJSONArray>('image_dependencies',nil));
+  ImageStamp:=''; ImageSnapshot:='';
+  if (FData.GetValue('image_dependencies')<>nil) or SameText(ExtractFileExt(Text('source')),'.7z') then
+  begin
+    ImageStamp:=CompressionImageStamp(Text('source'),True);
+    ImageSnapshot:=CompressionImageSnapshot(Text('source'),FData.GetValue<TJSONArray>('image_dependencies',nil));
+  end;
   DB.ExecSQL('CREATE TABLE IF NOT EXISTS HomeLibreCompressionImageSets('+
     'FileKey TEXT NOT NULL,Stamp TEXT NOT NULL,SourcesJSON TEXT NOT NULL,'+
     'PRIMARY KEY(FileKey,Stamp)) WITHOUT ROWID');
@@ -375,7 +379,9 @@ begin
     'InputSHA256 TEXT NOT NULL,OutputSHA256 TEXT NOT NULL,BookSize INTEGER NOT NULL,'+
     'PRIMARY KEY(FileKey,Member))');
   Current:=ArchiveDeletionSourceIdentity(Text('source'));
-  ImageStamp:=CompressionImageStamp(Text('source'));
+  ImageStamp:='';
+  if (FData.GetValue('image_dependencies')<>nil) or SameText(ExtractFileExt(Text('source')),'.7z') then
+    ImageStamp:=CompressionImageStamp(Text('source'),True);
   DB.ExecSQL('CREATE TABLE IF NOT EXISTS HomeLibreRestoredBookSizes('+
     'FileKey TEXT NOT NULL,Member TEXT NOT NULL,PayloadSHA256 TEXT NOT NULL,BookSize INTEGER NOT NULL,'+
     'FullInputSHA256 TEXT NOT NULL,FullOutputSHA256 TEXT NOT NULL,ImageStamp TEXT NOT NULL,'+

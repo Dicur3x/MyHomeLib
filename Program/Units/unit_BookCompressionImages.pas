@@ -4,10 +4,10 @@ interface
 
 uses System.SysUtils, System.Classes, System.JSON;
 
-function CompressionImageStamp(const Source: string): string;
+function CompressionImageStamp(const Source: string; KnownSevenZip:Boolean=False): string;
 function CompressionImageSnapshot(const Source: string; Data:TJSONArray): string;
 function CompressionImageSnapshotMatches(const Source, Snapshot:string; Hashes:Boolean): Boolean;
-function CaptureCompressionImageSources(const Source: string): TJSONArray;
+function CaptureCompressionImageSources(const Source: string; KnownSevenZip:Boolean=False): TJSONArray;
 procedure CheckCompressionImageSources(const Source: string; Data: TJSONArray; Applied: Boolean;
   VerifiedFiles:TJSONArray=nil);
 function GuardCompressionImageSources(const Source: string; Data, Changed: TJSONArray): TArray<TFileStream>;
@@ -16,14 +16,14 @@ implementation
 
 uses System.Hash, unit_FLibraryCompat, unit_MHLArchiveHelpers, unit_ZipMemberDeletion;
 
-function CaptureCompressionImageSources(const Source: string): TJSONArray;
+function CaptureCompressionImageSources(const Source: string; KnownSevenZip:Boolean): TJSONArray;
 begin
   Result:=TJSONArray.Create;
   try
+    // The metadata owner already bound this container before taking its
+    // exclusive replacement handle. Other readers inspect actual magic.
+    if not KnownSevenZip and not IsSevenZipArchive(Source) then Exit;
     var Paths:=FLibraryImageSourceFiles(Source);
-    // Metadata commit can still hold an exclusive source handle. Discovery
-    // needs paths and identities, never a second data open of that source.
-    if not SameText(ExtractFileExt(Source),'.7z') and (Paths[0]='') and (Paths[1]='') then Exit;
     for var I:=0 to 1 do
     begin
       if Paths[I]<>'' then Paths[I]:=ExpandFileName(Paths[I]);
@@ -37,9 +37,9 @@ begin
   except Result.Free; raise; end;
 end;
 
-function CompressionImageStamp(const Source: string): string;
+function CompressionImageStamp(const Source: string; KnownSevenZip:Boolean): string;
 begin
-  var Data:=CaptureCompressionImageSources(Source);
+  var Data:=CaptureCompressionImageSources(Source,KnownSevenZip);
   try
     Result:='';
     if Data.Count>0 then Result:=THashSHA2.GetHashString(Data.ToJSON);
@@ -49,7 +49,7 @@ end;
 function CompressionImageSnapshot(const Source: string; Data:TJSONArray): string;
 begin
   Result:='';
-  var Current:=CaptureCompressionImageSources(Source);
+  var Current:=CaptureCompressionImageSources(Source,True);
   try
     if Current.Count=0 then Exit;
     if (Data<>nil) and (Data.Count<>Current.Count) then

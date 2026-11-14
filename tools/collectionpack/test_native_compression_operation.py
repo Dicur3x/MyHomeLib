@@ -47,7 +47,7 @@ class NativeCompressionOperationTests(unittest.TestCase):
         self.result.unlink(missing_ok=True)
         self.request.write_text(json.dumps(self.config, ensure_ascii=False), encoding='utf-8')
         process = run_owned([str(OPERATOR), str(self.request), str(self.result)], capture_output=True,
-                                 encoding='utf-8', errors='strict', timeout=45)
+                                 encoding='utf-8', errors='strict', timeout=15+self.config.get('timeout_ms',30000)/1000)
         self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
         result = json.loads(self.result.read_text(encoding='utf-8-sig'))
         if not allow_warning:

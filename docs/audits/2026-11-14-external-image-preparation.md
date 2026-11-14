@@ -1,9 +1,11 @@
 # Read-only preparation of selected FLibrary image archives
 
-This is a beta-14 implementation step, not a completed catalogue operation.
-`external_image_preparation.py` is packaged but the normal compression command
-does not call it yet. No user collection, Desktop executable, feed or GitHub
-release was changed.
+This audit records the staged beta-14 implementation. The ordinary compression
+command now submits external-image groups, verifies complete books and recovers
+interrupted work. The sections below retain evidence from each stage; the latest
+sections describe current coverage and remaining release gates. Production
+collections were read only for selected real-copy checks. The Desktop executable,
+feed and GitHub release have not been replaced.
 
 ## Prepared operation
 
@@ -175,3 +177,15 @@ Six focused cases passed on x64 and x86, including five crash boundaries from di
 ## Application-thread recovery with complete measurements
 
 The isolated application-operation test executable now enables the existing test-only fault hook when a fixture explicitly requests it. Three process-termination cases passed per architecture: after one component journal is prepared, halfway through an image archive's metadata write, and between catalogue and personal-store commits. A new operation process resumes each durable job and validates the completed image archives, self-contained original backup, complete catalogue/copy/personal sizes, image history and empty acknowledged queue. Reports: `G:/HL-b14-external/full-recovery-Win64-r173/report.json` (31.843 s) and `G:/HL-b14-external/full-recovery-Win32-r174/report.json` (36.984 s); owned runtimes removed. The fault hook remains excluded from production builds. Next: actual EPUB/other-format application paths, the complete INPX UI/import gate, and final application/package/release validation.
+
+## EPUB containers and actual reading
+
+Nested 7z EPUBs no longer enter the ZIP-only image converter. Their embedded resources are streamed into bounded private files; batch stream ordering is checked by per-member CRC, with exact-name extraction as fallback. Non-image resources are compared before republishing verified smaller inner and outer candidates. Existing FLibrary image mappings and separate images remain in place. Outer 7z books without sidecars also receive complete restoration, measured sizes and self-contained original backups. Native image-source discovery follows actual archive magic, including a 7z named `.zip`; ordinary ZIPs do not acquire unrelated sibling-image dependencies. JPEG XL decoder lookup and engine fingerprint use the installed `jpeg-xl` path.
+
+Four application-operation cases passed per architecture: stripped ZIP EPUB, nested 7z EPUB, embedded plus external images, and nested EPUB without sidecars inside a misnamed outer archive. The normal catalogue book stream was reopened after publication; actual stream size equals catalogue/copy/personal sizes, text/CSS/fonts/SVG are byte-exact, originals are complete, and repeat runs do not rewrite files or databases. Reports: `G:/HL-b14-external/epub-Win64-r181/report.json` (33.406 s), `G:/HL-b14-external/epub-Win32-r183/report.json` (41.250 s). Packaged worker: `packages-r177`.
+
+A selected copy of real retained `699624.epub` from `F:/fb2.flibusta.lib.rus.ec.7z/f.usr-699612-704034.7z` passed on both architectures with the verified official JPEG XL decoder. The book has a nested 7z stream, 82 resources and 31 separate image slots (one cover, 30 illustrations). Native complete reading, self-contained original, non-image equivalence and all catalogue sizes were checked. The canonical reading stream changed from 6,247,298 to 990,933 bytes; physical archive savings were 90,195 bytes, a different measurement because the source already uses FLibrary compression. Source archive SHA-256, sizes and timestamps matched before/after. Reports: `G:/HL-b14-external/real-epub-Win64-r185/report.json` (37.843 s), `G:/HL-b14-external/real-epub-Win32-r186/report.json` (35.719 s), with companion `.real-epub.json` evidence. Owned book copies/runtimes were removed.
+
+## Full index import through the normal application
+
+The actual selected-compression menu, modal options, background operation and `TManualUpdateThread` full INPX import passed on x64 and x86. Compressed sizes and personal progress survived the full import; eleven identity/rollback boundaries also passed. Reports: `G:/HL-b14-external/inpx-ui-Win64-r182/catalogue-Win64-apply.json` (27.375 s) and `G:/HL-b14-external/inpx-ui-Win32-r184/catalogue-Win32-apply.json` (29.219 s). This integration fixture uses a synthetic shared ZIP; external-image witness boundaries are covered by the dedicated index/EPUB checks above. All runs used the exact local BookProcessing package and isolated application profile; no production catalogue was opened for writing. Remaining: other accepted format/module/release gates and the final production applications/packages/Desktop/release, along with the other open beta-14 tasks.

@@ -84,7 +84,7 @@ def run(args):
             for binary in binaries:
                 check_pe(binary, args.platform)
             if args.jpeg_xl_decoder:
-                codec = root / 'tools/jpegxl/djxl.exe'
+                codec = root / 'tools/jpeg-xl/djxl.exe'
                 codec.parent.mkdir(parents=True)
                 shutil.copy2(args.jpeg_xl_decoder, codec)
                 assert identity(codec) == identity(args.jpeg_xl_decoder)
@@ -104,6 +104,12 @@ def run(args):
             if args.jpeg_xl_decoder:
                 env['HL_EXTERNAL_IMAGE_DECODER'] = str(codec)
                 env['HL_EXTERNAL_IMAGE_EVIDENCE'] = str(report.with_suffix('.external-images.json'))
+            if args.real_epub_archive:
+                if not args.real_epub_entry:
+                    raise ValueError('Select the exact real EPUB member')
+                env['HL_REAL_EPUB_ARCHIVE'] = str(args.real_epub_archive.resolve(strict=True))
+                env['HL_REAL_EPUB_ENTRY'] = args.real_epub_entry
+                env['HL_REAL_EPUB_EVIDENCE'] = str(report.with_suffix('.real-epub.json'))
             for name in ('temp', 'profile/local', 'profile/roaming'):
                 (root / name).mkdir(parents=True, exist_ok=True)
             previous = {key: os.environ.get(key) for key in env}
@@ -144,5 +150,7 @@ if __name__ == '__main__':
     parser.add_argument('--images', type=Path, help='Fresh verified image helper, without replacing another runtime')
     parser.add_argument('--planner', type=Path, help='Optional native planning and scratch-recovery fixture')
     parser.add_argument('--jpeg-xl-decoder', type=Path, help='Verified decoder for external-image preparation diagnostics')
+    parser.add_argument('--real-epub-archive', type=Path, help='Read-only source for an isolated selected real EPUB check')
+    parser.add_argument('--real-epub-entry', help='Exact EPUB archive member, never a catalogue path guess')
     parser.add_argument('--test', action='append', help='Specific diagnostic cases; default is the complete suite')
     run(parser.parse_args())
