@@ -92,7 +92,7 @@ type
 implementation
 
 uses System.IOUtils, System.Classes, System.Hash, unit_BookCompressionReceipt,
-  unit_ZipMemberDeletion;
+  unit_ZipMemberDeletion, unit_BookCompressionImages;
 
 function TCompressionLocator.SameBook(const Other: TCompressionLocator): Boolean;
 begin
@@ -144,7 +144,7 @@ end;
 function TCompressionFilePlan.AlreadyChecked(const Profile: string; Grayscale: Boolean; const EngineSHA256: string;
   const Cancelled: TFunc<Boolean>; const Progress: TProc<Int64,Int64>): Boolean;
 var DB: TSQLiteDatabase; Query: TSQLiteQuery; Source: TFileStream;
-    Expected: string; Hash: THashSHA2; Bytes: TBytes; Count: Integer;
+    Expected, ImageStamp: string; Hash: THashSHA2; Bytes: TBytes; Count: Integer;
 begin
   Result:=False; CheckSource;
   if CompressionFileKey(FTemplate.GetValue<string>('catalogue'))<>
@@ -154,10 +154,15 @@ begin
   try
     if DB.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE type=''table'' AND '+
       'name=''HomeLibreCompressionChecks''')=0 then Exit;
-    Expected:='';
+    Expected:=''; ImageStamp:=CompressionImageStamp(FSource);
+    if (ImageStamp<>'') and (DB.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE type=''table'' '+
+      'AND name=''HomeLibreCompressionDependencies''')=0) then Exit;
     for var Pair in FMembers do
     begin
       if Assigned(Cancelled) and Cancelled() then Abort;
+      if (ImageStamp<>'') and (DB.QuerySingleInt('SELECT count(*) FROM HomeLibreCompressionDependencies '+
+        'WHERE FileKey=? AND Member=? AND Profile=? AND Grayscale=? AND EngineSHA256=? AND Stamp=?',
+        [UpperCase(FFileKey),Pair.JsonString.Value,LowerCase(Profile),Ord(Grayscale),EngineSHA256,ImageStamp])<>1) then Exit;
       Query:=DB.NewQuery('SELECT SourceIdentity,SourceSHA256 FROM HomeLibreCompressionChecks '+
         'WHERE FileKey=? AND Member=? AND Profile=? AND Grayscale=? AND EngineSHA256=?',
         [UpperCase(FFileKey),Pair.JsonString.Value,LowerCase(Profile),Ord(Grayscale),EngineSHA256]);
@@ -683,7 +688,7 @@ end;
 procedure TBookCompressionPlan.SelectUnprocessed(const Profile:string; Grayscale:Boolean;
   const EngineSHA256:string; const Progress:TProc<Int64,Int64>);
 var Catalogue:TSQLiteDatabase; Sources,Checks:TSQLiteQuery; Source:TFileStream;
-    Done,Total:Int64;
+    Done,Total:Int64; ImageStamp:string; HasImageChecks:Boolean;
 begin
   if FStore=nil then
     raise EInvalidOperation.Create('Для поиска новых книг нужен план текущей коллекции.');
@@ -694,6 +699,8 @@ begin
   try
     if Catalogue.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE type=''table'' '+
       'AND name=''HomeLibreCompressionChecks''')=0 then Exit;
+    HasImageChecks:=Catalogue.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE type=''table'' '+
+      'AND name=''HomeLibreCompressionDependencies''')<>0;
     // Candidate selection is a metadata pass, not an integrity scan of every
     // packed byte in a multi-terabyte library. Full collection compression
     // keeps AlreadyChecked's SHA-256 check; selected candidates still undergo
@@ -712,6 +719,7 @@ begin
             try
               if ArchiveDeletionSourceIdentity(Sources.FieldAsString(1))<>Sources.FieldAsString(3) then
                 raise EReadError.Create('Файл изменился при поиске новых книг: '+Sources.FieldAsString(1));
+              ImageStamp:=CompressionImageStamp(Sources.FieldAsString(1));
               Checks:=Catalogue.NewQuery('SELECT Member FROM HomeLibreCompressionChecks WHERE '+
                 'FileKey=? AND Profile=? AND Grayscale=? AND EngineSHA256=? AND SourceIdentity=?',
                 [UpperCase(Sources.FieldAsString(2)),Profile,Ord(Grayscale),EngineSHA256,Sources.FieldAsString(3)]);
@@ -720,6 +728,14 @@ begin
                 while not Checks.Eof do
                 begin
                   CheckCancelled;
+                  if ImageStamp<>'' then
+                  begin
+                    if not HasImageChecks then begin Checks.Next; Continue; end;
+                    if Catalogue.QuerySingleInt('SELECT count(*) FROM HomeLibreCompressionDependencies '+
+                      'WHERE FileKey=? AND Member=? AND Profile=? AND Grayscale=? AND EngineSHA256=? AND Stamp=?',
+                      [UpperCase(Sources.FieldAsString(2)),Checks.FieldAsString(0),Profile,Ord(Grayscale),EngineSHA256,ImageStamp])<>1 then
+                    begin Checks.Next; Continue; end;
+                  end;
                   DB.ExecSQL('DELETE FROM Members WHERE FileID=? AND Member=?',
                     [Sources.FieldAsInt(0),Checks.FieldAsString(0)]);
                   Inc(FPreviouslyProcessedBooks,DB.QuerySingleInt('SELECT changes()'));

@@ -122,6 +122,34 @@ begin
               Changed:=Changed or TJSONObject(Image).GetValue<Boolean>('changed');
           Require(not Changed or (AgainImages<>BeforeImages),'Prepared image changes did not reach the restored book');
         finally CandidateStream.Free; end;
+        var Platform: string;
+        if SizeOf(Pointer)=8 then Platform:='Win64' else Platform:='Win32';
+        var MeasurementRoot:=TPath.Combine(ExtractFileDir(TJSONObject(Prepared).GetValue<string>('source')),
+          'measured-'+Platform);
+        ForceDirectories(MeasurementRoot);
+        var Payloads:=TJSONArray.Create;
+        var Books:=TJSONArray.Create;
+        try
+          var Payload:=TJSONObject.Create; Payloads.AddElement(Payload);
+          Payload.AddPair('member',EntryName); Payload.AddPair('input_sha256',SourceHash);
+          Payload.AddPair('output_sha256',SourceHash);
+          var Item:=TJSONObject.Create; Books.AddElement(Item);
+          Item.AddPair('member',EntryName); Item.AddPair('format','.fb2');
+          var Captured:=CaptureRestoredCompressionBooks(Folder+'source.7z','',MeasurementRoot,Payloads,Books,
+            FLibraryImageSourceFiles(Folder+'source.7z'),CandidateSources);
+          var Request:=TJSONObject.Create;
+          try
+            Request.AddPair('version',TJSONNumber.Create(1)); Request.AddPair('kind','HomeLibre restored book validation');
+            Request.AddPair('source',TJSONObject(Prepared).GetValue<string>('source'));
+            Request.AddPair('source_sha256',TJSONObject(Prepared).GetValue<TJSONObject>('source_witness').GetValue<string>('sha256'));
+            Request.AddPair('workspace',MeasurementRoot); Request.AddPair('books',Captured);
+            Request.AddPair('backup_originals',TJSONBool.Create(True));
+            Request.AddPair('preview_images',TJSONBool.Create(True));
+            Request.AddPair('report',TPath.Combine(MeasurementRoot,'report.json'));
+            TFile.WriteAllText(TPath.Combine(MeasurementRoot,'request.json'),Request.ToJSON,TEncoding.UTF8);
+          finally Request.Free; end;
+        finally Books.Free; Payloads.Free; end;
+        Writeln('PASS native complete-book snapshots capture restored before and after image bytes');
       finally Prepared.Free; end;
       Writeln('PASS actual processed external images restore a complete book with every image link and unchanged text');
     end;

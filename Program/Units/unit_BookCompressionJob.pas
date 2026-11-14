@@ -21,6 +21,7 @@ type
     FGroupSHA256: string;
     FGroupReplacesSource: Boolean;
     FSourceGuard: TFileStream;
+    FImageGuards: TArray<TFileStream>;
     FSourceChangeLease: IInterface;
     constructor CreateEmpty;
     procedure OpenDirectoryGuard;
@@ -56,7 +57,7 @@ type
 implementation
 
 uses Winapi.Windows, System.IOUtils, System.Hash,
-  System.Generics.Collections, unit_AtomicIniFile, unit_MHLArchiveBusy;
+  System.Generics.Collections, unit_AtomicIniFile, unit_MHLArchiveBusy, unit_BookCompressionImages;
 
 const
   JobPrefix = 'compress-';
@@ -187,10 +188,12 @@ procedure TBookCompressionJob.GuardUnchangedBookSource;
 begin
   if FGroupReplacesSource or Assigned(FSourceGuard) then Exit;
   FSourceChangeLease:=AcquireArchiveChange(FSource);
-  FSourceGuard:=TFileStream.Create(DeletionNativePath(FSource),fmOpenRead or fmShareDenyWrite);
-  if (CompressionFileKey(FSource)<>Field('source_file_key')) or
-    not SameText(THashSHA2.GetHashString(FSourceGuard),Field('source_sha256')) then
-    raise EReadError.Create('Архив книг изменился перед обработкой отдельных картинок.');
+  try
+    FSourceGuard:=TFileStream.Create(DeletionNativePath(FSource),fmOpenRead or fmShareDenyWrite);
+    if (CompressionFileKey(FSource)<>Field('source_file_key')) or
+      not SameText(THashSHA2.GetHashString(FSourceGuard),Field('source_sha256')) then
+      raise EReadError.Create('Архив книг изменился перед обработкой отдельных картинок.');
+  except FreeAndNil(FSourceGuard); FSourceChangeLease:=nil; raise; end;
 end;
 
 procedure TBookCompressionJob.OpenDirectoryGuard;
@@ -311,6 +314,7 @@ end;
 destructor TBookCompressionJob.Destroy;
 begin
   FGroup.Free;
+  for var Guard in FImageGuards do Guard.Free;
   FSourceGuard.Free; FSourceChangeLease:=nil;
   if FLease<>0 then CloseHandle(FLease);
   if FDirectoryGuard<>0 then CloseHandle(FDirectoryGuard);
@@ -367,7 +371,13 @@ begin
   if FileExists(DeletionNativePath(TPath.Combine(FDirectory,'completed.json'))) then
   begin CheckCompleted; Exit; end;
   Root:=TPath.Combine(FDirectory,'files');
-  if not FileExists(DeletionNativePath(TPath.Combine(Root,'started'))) then GuardUnchangedBookSource;
+  if not FileExists(DeletionNativePath(TPath.Combine(Root,'started'))) then
+  begin
+    GuardUnchangedBookSource;
+    if Length(FImageGuards)=0 then
+      FImageGuards:=GuardCompressionImageSources(FSource,
+        FData.GetValue<TJSONArray>('image_dependencies',nil),FData.GetValue<TJSONArray>('group_files'));
+  end;
   if not Assigned(FGroup) then
     if DirectoryExists(DeletionNativePath(Root)) then
       FGroup:=TBookCompressionFileGroup.OpenExisting(Root,FGroupSHA256,FReceipt.SHA256)
@@ -379,10 +389,10 @@ begin
       FGroup:=TBookCompressionFileGroup.CreatePrepared(Root,FData.GetValue<TJSONArray>('group_files').ToJSON,
         FReceipt.SHA256,Cancelled,Progress,Fault);
     end;
-  if not FileExists(DeletionNativePath(TPath.Combine(Root,'started'))) then FReceipt.CheckBeforeWrite;
+  if not FileExists(DeletionNativePath(TPath.Combine(Root,'started'))) then FReceipt.CheckBeforeWrite(True);
   FGroup.Execute(
     procedure(Engines: TArray<TZipMemberDeletion>) begin FReceipt.ApplyFileGroup(Engines,Fault); end,
-    procedure begin FReceipt.CheckApplied; end,Cancelled,Progress,Fault);
+    procedure begin FReceipt.CheckApplied(True); end,Cancelled,Progress,Fault);
   SaveCompleted;
   if Assigned(Fault) then Fault('completed-published');
   FCompleted:=True;

@@ -70,7 +70,9 @@ begin
     for var Value in Receipt.GetValue<TJSONArray>('payloads') do
     begin
       var Item:=Value as TJSONObject;
-      Expected.Add(Item.GetValue<string>('member'),Item.GetValue<string>('input_sha256'));
+      var Full:=Item.GetValue<TJSONObject>('restored',nil);
+      if Full<>nil then Expected.Add(Item.GetValue<string>('member'),Full.GetValue<string>('input_sha256'))
+      else Expected.Add(Item.GetValue<string>('member'),Item.GetValue<string>('input_sha256'));
     end;
     if (Expected.Count=0) or (Expected.Count>100000) then
       raise EReadError.Create('Некорректный список оригиналов книг.');

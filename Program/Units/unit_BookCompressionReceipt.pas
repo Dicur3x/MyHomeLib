@@ -19,7 +19,7 @@ type
     function ProcessRows(DB: TSQLiteDatabase; Personal, Commit: Boolean;
       RequireApplied: Boolean = False): Integer;
     procedure CheckEngine(Engine: TZipMemberDeletion);
-    function ApplyRows(const Fault: TProc<string>): Integer;
+    function ApplyRows(const Fault: TProc<string>; VerifiedGroup:Boolean=False): Integer;
     procedure WriteHistory(DB: TSQLiteDatabase; Inspection: Boolean = False);
     procedure WriteChecks(DB: TSQLiteDatabase);
   public
@@ -27,8 +27,8 @@ type
     destructor Destroy; override;
     function ToJSON: string;
     function SHA256: string;
-    procedure CheckBeforeWrite;
-    procedure CheckApplied;
+    procedure CheckBeforeWrite(VerifiedGroup:Boolean=False);
+    procedure CheckApplied(VerifiedGroup:Boolean=False);
     procedure RecordInspection(const Cancelled: TFunc<Boolean> = nil);
     function Apply(Engine: TZipMemberDeletion; const Fault: TProc<string> = nil): Integer;
     function ApplyFileGroup(const Engines: TArray<TZipMemberDeletion>;
@@ -39,7 +39,7 @@ function CompressionFileKey(const FileName: string): string;
 
 implementation
 
-uses Winapi.Windows, System.Classes, System.Hash;
+uses Winapi.Windows, System.Classes, System.Hash, unit_BookCompressionImages;
 
 const
   MaxReceiptBytes = 16 * 1024 * 1024;
@@ -73,6 +73,8 @@ end;
 // does not measure the restored book. -1 is ledger-only and never a Books size.
 function PayloadBookSize(Item: TJSONObject): Int64;
 begin
+  if Item.GetValue('restored') is TJSONObject then
+    Exit(JSONNumber(Item.GetValue<TJSONObject>('restored',nil),'size'));
   if SameText(JSONText(Item,'input_sha256'),JSONText(Item,'output_sha256')) then Exit(-1);
   Result:=JSONNumber(Item,'size');
 end;
@@ -217,6 +219,16 @@ begin
         raise EReadError.Create('Результаты сжатия книги неполны или повторяются.');
       Seen.Add(Key,0);
       FPayloads.Add(Key,Item);
+      if Item.GetValue('restored')<>nil then
+      begin
+        var Full:=Item.GetValue('restored') as TJSONObject;
+        if (FData.GetValue('image_dependencies')=nil) or
+          not HexString(JSONText(Full,'input_sha256'),64) or
+          not HexString(JSONText(Full,'output_sha256'),64) or
+          (JSONNumber(Full,'input_size')<=0) or (JSONNumber(Full,'size')<=0) or
+          (JSONNumber(Full,'size')>Int64(512)*1024*1024) then
+          raise EReadError.Create('Неполное измерение восстановленной книги.');
+      end;
       if Item.GetValue('retry_original')<>nil then JSONBool(Item,'retry_original');
       if Item.GetValue('checked')<>nil then JSONBool(Item,'checked');
       for var ImageField in ['image_outputs','source_image_outputs'] do
@@ -300,7 +312,7 @@ begin
 end;
 
 procedure TBookCompressionReceipt.WriteChecks(DB: TSQLiteDatabase);
-var Options, Item: TJSONObject; Current, Key, Profile, Engine: string; Gray: Integer;
+var Options, Item: TJSONObject; Current, Key, Profile, Engine, ImageStamp: string; Gray: Integer;
 begin
   // Older durable receipts remain replayable, without inventing cache proof.
   if FData.GetValue('compression_options')=nil then Exit;
@@ -309,6 +321,11 @@ begin
   Key:=UpperCase(Text('source_file_key'));
   Profile:=JSONText(Options,'profile'); Gray:=Ord(JSONBool(Options,'grayscale'));
   Engine:=JSONText(Options,'engine_sha256');
+  ImageStamp:=CompressionImageStamp(Text('source'));
+  DB.ExecSQL('CREATE TABLE IF NOT EXISTS HomeLibreCompressionDependencies('+
+    'FileKey TEXT NOT NULL,Member TEXT NOT NULL,Profile TEXT NOT NULL,Grayscale INTEGER NOT NULL,'+
+    'EngineSHA256 TEXT NOT NULL,Stamp TEXT NOT NULL,'+
+    'PRIMARY KEY(FileKey,Member,Profile,Grayscale,EngineSHA256)) WITHOUT ROWID');
   DB.ExecSQL('CREATE TABLE IF NOT EXISTS HomeLibreCompressionChecks('+
     'FileKey TEXT NOT NULL,Member TEXT NOT NULL,Profile TEXT NOT NULL,Grayscale INTEGER NOT NULL,'+
     'EngineSHA256 TEXT NOT NULL,SourceIdentity TEXT NOT NULL,SourceSHA256 TEXT NOT NULL,PayloadSHA256 TEXT NOT NULL,'+
@@ -336,6 +353,8 @@ begin
       'SourceIdentity=excluded.SourceIdentity,SourceSHA256=excluded.SourceSHA256,PayloadSHA256=excluded.PayloadSHA256',
       [Key,JSONText(TJSONObject(Value),'member'),Profile,Gray,Engine,Current,LowerCase(Text('result_sha256')),
        LowerCase(JSONText(TJSONObject(Value),'output_sha256'))]);
+    DB.ExecSQL('INSERT OR REPLACE INTO HomeLibreCompressionDependencies VALUES(?,?,?,?,?,?)',
+      [Key,JSONText(Item,'member'),Profile,Gray,Engine,ImageStamp]);
   end;
 end;
 
@@ -456,7 +475,7 @@ begin
             // The exact library/book locator still has to match; only its
             // BookSize is updated and the newly written notes stay intact.
             ((Kind=1) or (CurrentSize=JSONNumber(Item,'old_size')) or
-              (CurrentSize=JSONNumber(Payload(JSONText(Item,'member')),'size')));
+              (CurrentSize=NewSize));
           if Matches and (Kind=2) then
             Matches:=(Query.FieldAsString(6)=JSONText(Item,'root')) and
               (Query.FieldAsInt(7)=JSONNumber(Item,'id'));
@@ -491,9 +510,12 @@ begin
   finally DB.EndQueryBatch; end;
 end;
 
-procedure TBookCompressionReceipt.CheckApplied;
+procedure TBookCompressionReceipt.CheckApplied(VerifiedGroup:Boolean);
 var Catalogue, Personal: TSQLiteDatabase; CatalogueLease, PersonalLease: IInterface;
 begin
+  var Verified:TJSONArray:=nil;
+  if VerifiedGroup then Verified:=FData.GetValue<TJSONArray>('group_files');
+  CheckCompressionImageSources(Text('source'),FData.GetValue<TJSONArray>('image_dependencies',nil),True,Verified);
   CatalogueLease:=TCompressionDatabaseLease.Create(Text('catalogue'),Text('catalogue_key'));
   PersonalLease:=TCompressionDatabaseLease.Create(Text('personal'),Text('personal_key'));
   Catalogue:=TSQLiteDatabase.CreateReadOnly(Text('catalogue'));
@@ -538,9 +560,12 @@ begin
   end;
 end;
 
-procedure TBookCompressionReceipt.CheckBeforeWrite;
+procedure TBookCompressionReceipt.CheckBeforeWrite(VerifiedGroup:Boolean);
 var Catalogue, Personal: TSQLiteDatabase; CatalogueLease, PersonalLease: IInterface;
 begin
+  var Verified:TJSONArray:=nil;
+  if VerifiedGroup then Verified:=FData.GetValue<TJSONArray>('group_files');
+  CheckCompressionImageSources(Text('source'),FData.GetValue<TJSONArray>('image_dependencies',nil),False,Verified);
   CatalogueLease:=TCompressionDatabaseLease.Create(Text('catalogue'),Text('catalogue_key'));
   PersonalLease:=TCompressionDatabaseLease.Create(Text('personal'),Text('personal_key'));
   Catalogue:=TSQLiteDatabase.CreateReadOnly(Text('catalogue'));
@@ -561,6 +586,7 @@ end;
 procedure TBookCompressionReceipt.RecordInspection(const Cancelled: TFunc<Boolean>);
 var Source: TFileStream; Catalogue, Personal: TSQLiteDatabase;
     CatalogueLease, PersonalLease: IInterface; Buffer: TBytes; Count: Integer; Hash: THashSHA2;
+    ImageGuards:TArray<TFileStream>;
 begin
   if (Text('source_sha256')<>Text('result_sha256')) or
     (FData.GetValue('compression_options')=nil) then
@@ -574,8 +600,10 @@ begin
   end;
   // Hash before acquiring SQLite writer locks. Keep the source unwritable
   // until this metadata-only inspection has committed; personal data is read.
-  Source:=TFileStream.Create(DeletionNativePath(Text('source')),fmOpenRead or fmShareDenyWrite);
+  Source:=nil;
+  ImageGuards:=GuardCompressionImageSources(Text('source'),FData.GetValue<TJSONArray>('image_dependencies',nil),nil);
   try
+    Source:=TFileStream.Create(DeletionNativePath(Text('source')),fmOpenRead or fmShareDenyWrite);
     if CompressionFileKey(Text('source'))<>Text('source_file_key') then
       raise EReadError.Create('Исходная книга изменилась перед сохранением проверки.');
     Hash:=THashSHA2.Create; SetLength(Buffer,1024*1024);
@@ -602,7 +630,10 @@ begin
     finally
       try if Catalogue.InTransaction then Catalogue.Rollback; finally Catalogue.Free; end;
     end;
-  finally Source.Free; end;
+  finally
+    Source.Free;
+    for var Guard in ImageGuards do Guard.Free;
+  end;
 end;
 
 procedure TBookCompressionReceipt.CheckEngine(Engine: TZipMemberDeletion);
@@ -649,13 +680,16 @@ begin
         not SameText(THashSHA2.GetHashString(Root),Text('source_sha256')) then
         raise EReadError.Create('Архив книг изменился во время сжатия отдельных картинок.');
     end;
-    Result:=ApplyRows(Fault);
+    Result:=ApplyRows(Fault,True);
   finally Root.Free; end;
 end;
 
-function TBookCompressionReceipt.ApplyRows(const Fault: TProc<string>): Integer;
+function TBookCompressionReceipt.ApplyRows(const Fault: TProc<string>; VerifiedGroup:Boolean): Integer;
 var Catalogue, Personal: TSQLiteDatabase; CatalogueLease, PersonalLease: IInterface;
 begin
+  var Verified:TJSONArray:=nil;
+  if VerifiedGroup then Verified:=FData.GetValue<TJSONArray>('group_files');
+  CheckCompressionImageSources(Text('source'),FData.GetValue<TJSONArray>('image_dependencies',nil),True,Verified);
   CatalogueLease:=TCompressionDatabaseLease.Create(Text('catalogue'),Text('catalogue_key'));
   PersonalLease:=TCompressionDatabaseLease.Create(Text('personal'),Text('personal_key'));
   Catalogue:=TSQLiteDatabase.Create(Text('catalogue'));

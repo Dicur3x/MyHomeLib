@@ -131,7 +131,7 @@ class NativeCompressionReceiptTests(unittest.TestCase):
 
     def snapshot(self, path, sizes=True):
         with database(path) as db:
-            names = [row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT IN ('HomeLibreBookCompression','HomeLibreCompressedImages','HomeLibreCompressionChecks','HomeLibreCompressionOutcomes') ORDER BY name")]
+            names = [row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT IN ('HomeLibreBookCompression','HomeLibreCompressedImages','HomeLibreCompressionChecks','HomeLibreCompressionOutcomes','HomeLibreCompressionDependencies') ORDER BY name")]
             result = {}
             for name in names:
                 fields = [row[1] for row in db.execute('PRAGMA table_info(' + name + ')')]

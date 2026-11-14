@@ -299,7 +299,8 @@ def payload_for(platform, component, kindle_export_root=None, advanced_export_ro
         # so older updater helpers can install the same component ZIP.
         packing_workers = ['tools/bookconvert/' + name for name in
                            ('pack_collection.py', 'archive_replacement.py', 'prepare_book_compression.py', 'compression_image_history.py',
-                            'compression_preview.py', 'estimate_book_compression.py', 'external_image_preparation.py')]
+                            'compression_preview.py', 'estimate_book_compression.py', 'external_image_preparation.py',
+                            'restored_book_validation.py')]
         for worker in packing_workers:
             payload[worker] = (REPO/'tools/collectionpack'/Path(worker).name).read_bytes()
         sql_workers = ['tools/bookconvert/catalogdump/' + name for name in ('build_index.py', 'mysql_dump.py')]

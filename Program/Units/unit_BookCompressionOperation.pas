@@ -2,7 +2,7 @@
 
 interface
 
-uses System.Classes, System.SysUtils, System.SyncObjs, System.Generics.Collections,
+uses System.Classes, System.SysUtils, System.SyncObjs, System.JSON, System.Generics.Collections,
   unit_BookCompressionPlan, unit_BookCompressionJob;
 
 type
@@ -60,6 +60,7 @@ type
     function EngineFingerprint: string;
     function Review(Estimate: Boolean = False): Boolean;
     procedure EstimateFile(FilePlan: TCompressionFilePlan);
+    function ValidateRestored(JobRequest: TJSONObject): TJSONObject;
     procedure RunFile(FilePlan: TCompressionFilePlan);
     procedure RunRecovery;
   protected
@@ -88,8 +89,9 @@ var CompressionOperationTestFault: TProc<string>;
 
 implementation
 
-uses Winapi.Windows, System.IOUtils, System.JSON, System.StrUtils, System.Hash, unit_AtomicIniFile,
-  unit_MHLExternalTools, unit_ZipMemberDeletion, unit_BookCompressionBackup, unit_BookCompressionReceipt;
+uses Winapi.Windows, System.IOUtils, System.StrUtils, System.Hash, unit_AtomicIniFile,
+  unit_MHLExternalTools, unit_ZipMemberDeletion, unit_BookCompressionBackup, unit_BookCompressionReceipt,
+  unit_BookCompressionImages, unit_BookCompressionRestored;
 
 const WorkMarker='HomeLibre selected compression work v1';
   RegisteredWorkKind='HomeLibre compression preparation';
@@ -514,7 +516,8 @@ begin
   if FWork='' then Exit;
   try
     OpenWorkGuard; OpenWorkLease;
-    Allowed:=TArray<string>.Create('owner.txt','request.json','report.json','cancel.marker','payload'); Partials:=nil;
+    Allowed:=TArray<string>.Create('owner.txt','request.json','report.json','restored-request.json',
+      'restored-report.json','cancel.marker','payload','external-images'); Partials:=nil;
     for var Path in TDirectory.GetFileSystemEntries(DeletionNativePath(FWork)) do
     begin
       Name:=ExtractFileName(Path);
@@ -524,7 +527,7 @@ begin
       Attr:=GetFileAttributes(PChar(Path));
       if (Attr=INVALID_FILE_ATTRIBUTES) or (Attr and FILE_ATTRIBUTE_REPARSE_POINT<>0) then
         raise EReadError.Create('Рабочий файл заменён ссылкой.');
-      if ((Attr and FILE_ATTRIBUTE_DIRECTORY)<>0)<>(Name='payload') then
+      if ((Attr and FILE_ATTRIBUTE_DIRECTORY)<>0)<>MatchText(Name,['payload','external-images']) then
         raise EReadError.Create('Тип рабочего файла изменился.');
     end;
     Payload:=TPath.Combine(FWork,'payload');
@@ -535,7 +538,7 @@ begin
       begin
         Name:=ExtractFileName(Path);
         Attr:=GetFileAttributes(PChar(Path));
-        if FWorkRegistered and IsPreparationScratch(Name) and (Attr<>INVALID_FILE_ATTRIBUTES) and
+        if FWorkRegistered and (IsPreparationScratch(Name) or (Name='full-books')) and (Attr<>INVALID_FILE_ATTRIBUTES) and
           (Attr and (FILE_ATTRIBUTE_DIRECTORY or FILE_ATTRIBUTE_REPARSE_POINT)=FILE_ATTRIBUTE_DIRECTORY) then
         begin WalkPreparationScratch(Path,False,0,ScratchEntries); Continue; end;
         if not MatchText(Name,['prepared-book.bin','prepared-archive.bin','original-books.zip','comparison.zip']) or
@@ -547,13 +550,36 @@ begin
       if FWorkRegistered then
         for var Path in TDirectory.GetDirectories(DeletionNativePath(Payload)) do
         begin
-          if not IsPreparationScratch(ExtractFileName(Path)) then
+          if not (IsPreparationScratch(ExtractFileName(Path)) or (ExtractFileName(Path)='full-books')) then
             raise EReadError.Create('В рабочей папке появились посторонние данные. Они сохранены.');
           WalkPreparationScratch(Path,True,0,ScratchEntries);
         end;
       if not RemoveDirectory(PChar(DeletionNativePath(Payload))) then RaiseLastOSError;
     end;
-    for Name in ['request.json','report.json','cancel.marker'] do RemoveFile(TPath.Combine(FWork,Name));
+    var Images:=TPath.Combine(FWork,'external-images');
+    if DirectoryExists(DeletionNativePath(Images)) then
+    begin
+      ScratchEntries:=0;
+      for var Path in TDirectory.GetFileSystemEntries(DeletionNativePath(Images)) do
+      begin
+        Name:=ExtractFileName(Path); Attr:=GetFileAttributes(PChar(Path));
+        if (Attr=INVALID_FILE_ATTRIBUTES) or (Attr and FILE_ATTRIBUTE_REPARSE_POINT<>0) then
+          raise EReadError.Create('Рабочие изображения заменены ссылкой.');
+        if ((Attr and FILE_ATTRIBUTE_DIRECTORY)<>0) then
+        begin
+          if not Name.StartsWith('.external-images-') then raise EReadError.Create('Посторонние рабочие изображения сохранены.');
+          WalkPreparationScratch(Path,False,0,ScratchEntries);
+        end
+        else if not MatchText(Name,['prepared-covers.bin','prepared-images.bin']) then
+          raise EReadError.Create('Посторонний файл среди подготовленных изображений.');
+      end;
+      for Name in ['prepared-covers.bin','prepared-images.bin'] do RemoveFile(TPath.Combine(Images,Name));
+      ScratchEntries:=0;
+      for var Path in TDirectory.GetDirectories(DeletionNativePath(Images)) do
+        WalkPreparationScratch(Path,True,0,ScratchEntries);
+      if not RemoveDirectory(PChar(DeletionNativePath(Images))) then RaiseLastOSError;
+    end;
+    for Name in ['request.json','report.json','restored-request.json','restored-report.json','cancel.marker'] do RemoveFile(TPath.Combine(FWork,Name));
     for var Path in Partials do RemoveFile(Path);
     CloseHandle(FWorkLease); FWorkLease:=0;
     RemoveFile(TPath.Combine(FWork,'owner.txt'));
@@ -569,9 +595,9 @@ var Payload, Folder, Name:string; ID:TGUID;
 begin
   // Only the completed job's exact native preparation is eligible. Never
   // scan prefixes or infer ownership of arbitrary producer output folders.
-  if not MatchText(ExtractFileName(Candidate),['prepared-book.bin','prepared-archive.bin']) then Exit;
+  if not MatchText(ExtractFileName(Candidate),['prepared-book.bin','prepared-archive.bin','prepared-covers.bin','prepared-images.bin']) then Exit;
   Payload:=ExtractFileDir(Candidate);
-  if not SameText(ExtractFileName(Payload),'payload') then Exit;
+  if not MatchText(ExtractFileName(Payload),['payload','external-images']) then Exit;
   Folder:=ExtractFileDir(Payload); Name:=ExtractFileName(Folder);
   if not SameFileName(ExtractFileDir(Folder),FOptions.WorkRoot) or not Name.StartsWith('prepare-') then Exit;
   try ID:=StringToGUID(Copy(Name,9,MaxInt)); except on E:EConvertError do Exit; end;
@@ -718,7 +744,8 @@ begin
   if FEngineSHA256<>'' then Exit(FEngineSHA256);
   Hash:=THashSHA2.Create;
   Add('worker',FOptions.Script); Add('archive-engine',FOptions.SevenZip);
-  for var Name in ['convert_book.py','pack_collection.py','image_quality.py','MODULAR_RUNTIME.json'] do
+  for var Name in ['convert_book.py','pack_collection.py','image_quality.py','external_image_preparation.py',
+    'restored_book_validation.py','MODULAR_RUNTIME.json'] do
     Add('bookconvert/'+Name,TPath.Combine(FOptions.ToolsRoot,'bookconvert/'+Name));
   Add('image-engine',TPath.Combine(FOptions.ToolsRoot,'images/HomeLibImages.exe'));
   Add('image-config',TPath.Combine(FOptions.ToolsRoot,'images/HomeLibImages.exe.config'));
@@ -728,11 +755,32 @@ begin
   FEngineSHA256:=Hash.HashAsString; Result:=FEngineSHA256;
 end;
 
+function TBookCompressionOperation.ValidateRestored(JobRequest:TJSONObject):TJSONObject;
+  var Events:TCompressionEventStream; Name:string;
+  begin
+    Name:=TPath.Combine(FWork,'restored-report.json');
+    JobRequest.AddPair('report',Name);
+    SaveText(TPath.Combine(FWork,'restored-request.json'),JobRequest.ToJSON);
+    Events:=TCompressionEventStream.Create(Self);
+    try
+      try
+        RunExternalToolToStream(FOptions.Python,
+          ['-I','-B','-X','utf8',TPath.Combine(ExtractFileDir(FOptions.Script),'restored_book_validation.py'),
+           '--job',TPath.Combine(FWork,'restored-request.json'),'--cancel',FCancelFile],
+          Events,CancelProducer,0,True,NativeUInt(512)*1024*1024);
+      except on E:EMHLExternalToolError do
+        begin CheckStop; if FLastError<>'' then raise EReadError.Create(FLastError); raise; end;
+      end;
+    finally Events.Free; end;
+    CheckStop; Result:=ReadObject(Name);
+  end;
+
 procedure TBookCompressionOperation.RunFile(FilePlan:TCompressionFilePlan);
 var Request, Report, Receipt, Expected:TJSONObject; Output:TCompressionEventStream;
     Job:TBookCompressionJob; Candidate, ReportFile:string; KeepWork:Boolean;
     InputBytes, OutputBytes:Int64;
     Backup:TCompressionOriginalBackup; BackupJSON:string; Fault:TProc<string>;
+    CapturedImages:TJSONArray;
   procedure BindReceipt;
   var Choice:TJSONObject;
   begin
@@ -778,7 +826,7 @@ var Request, Report, Receipt, Expected:TJSONObject; Output:TCompressionEventStre
     end;
   end;
 begin
-  CheckStop; Job:=nil; Backup:=nil; KeepWork:=False;
+  CheckStop; Job:=nil; Backup:=nil; KeepWork:=False; CapturedImages:=nil;
   TMonitor.Enter(FLock);
   try
     FState.Source:=FilePlan.Source; FState.Member:='';
@@ -796,12 +844,15 @@ begin
       Exit;
     end;
     CreateWork;
+    CapturedImages:=CaptureCompressionImageSources(FilePlan.Source);
     ReportFile:=TPath.Combine(FWork,'report.json');
     Request:=FilePlan.CreateRequest(TPath.Combine(FWork,'payload'),ReportFile,
       FOptions.SevenZip,FOptions.ToolsRoot,FOptions.Profile,FOptions.Grayscale);
     try
       Request.AddPair('backup_originals',TJSONBool.Create(FOptions.BackupOriginals));
       Request.AddPair('preview_images',TJSONBool.Create(FOptions.ReviewResults and not FReviewRemaining));
+      Request.AddPair('external_images',TJSONBool.Create(True));
+      Request.AddPair('jpeg_xl_decoder',FindExternalTool('djxl.exe','jpeg-xl'));
       SaveText(TPath.Combine(FWork,'request.json'),Request.ToJSON);
     finally Request.Free; end;
     Output:=TCompressionEventStream.Create(Self);
@@ -821,6 +872,11 @@ begin
       if not SameFileName(Report.GetValue<string>('source'),FilePlan.Source) or
         (InputBytes<=0) or (OutputBytes<=0) or (OutputBytes>InputBytes) then
         raise EReadError.Create('Отчёт не соответствует исходному файлу сжатия.');
+      CompleteExternalCompressionReport(FilePlan.Source,FilePlan.SourceIdentity,TPath.Combine(FWork,'payload'),
+        CapturedImages,Report,FOptions.BackupOriginals,FOptions.ReviewResults and not FReviewRemaining,
+        function(JobRequest:TJSONObject):TJSONObject begin Result:=ValidateRestored(JobRequest); end,
+        Stopping,procedure(Done,Total:Int64) begin SetStage('Проверяем полные книги с иллюстрациями',Done,Total); end);
+      InputBytes:=Report.GetValue<Int64>('input_bytes'); OutputBytes:=Report.GetValue<Int64>('output_bytes');
       TMonitor.Enter(FLock);
       try
         FState.InputBytes:=InputBytes; FState.OutputBytes:=OutputBytes;
@@ -842,7 +898,7 @@ begin
       WarnIncompleteBooks;
       Candidate:='';
       if Report.GetValue('candidate') is TJSONString then Candidate:=Report.GetValue<string>('candidate');
-      if Candidate='' then
+      if (Candidate='') and (Report.GetValue<TJSONObject>('receipt',nil)=nil) then
       begin
         if OutputBytes<>InputBytes then
           raise EReadError.Create('В отчёте указан выигрыш, но нет подготовленного файла.');
@@ -854,8 +910,8 @@ begin
         try Inc(FState.UnchangedFiles); finally TMonitor.Exit(FLock); end;
         Exit;
       end;
-      if not SameFileName(ExtractFileDir(Candidate),TPath.Combine(FWork,'payload')) or
-        not MatchText(ExtractFileName(Candidate),['prepared-book.bin','prepared-archive.bin']) or
+      if ((Candidate<>'') and (not SameFileName(ExtractFileDir(Candidate),TPath.Combine(FWork,'payload')) or
+        not MatchText(ExtractFileName(Candidate),['prepared-book.bin','prepared-archive.bin']))) or
         (OutputBytes>=InputBytes) then raise EReadError.Create('Неверный путь подготовленного файла сжатия.');
       Receipt:=Report.GetValue<TJSONObject>('receipt');
       BindReceipt;
@@ -902,7 +958,7 @@ begin
       finally TMonitor.Exit(FLock); end;
     finally Report.Free; end;
   finally
-    Job.Free; Backup.Free;
+    Job.Free; Backup.Free; CapturedImages.Free;
     if KeepWork then
     begin
       ReleaseWorkHandles;

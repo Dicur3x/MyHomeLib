@@ -102,6 +102,20 @@ def main():
             if args.processing_package and not any('processed external images restore a complete book' in line for line in passes):
                 raise ValueError('Native test did not validate the actual prepared images')
             report['platforms'][platform] = {'native_passes':passes, 'passed':True}
+            if args.processing_package:
+                measurement = fixture/('measured-'+platform)
+                run([runtime/'tools/python/python.exe','-I','-B','-X','utf8',
+                    runtime/'tools/bookconvert/restored_book_validation.py','--job',measurement/'request.json'])
+                measured = json.loads((measurement/'report.json').read_text('utf-8'))
+                payload = measured['restored_payloads'][0]
+                assert payload['member']==entry and payload['input_size']>len(data)
+                assert payload['input_sha256']!=payload['output_sha256']
+                assert measured['originals'] and measured['preview']
+                with zipfile.ZipFile(measured['originals']['path']) as backup:
+                    full = backup.read('books/'+entry)
+                    assert hashlib.sha256(full).hexdigest()==payload['input_sha256']
+                report['platforms'][platform]['complete_book'] = payload
+                report['platforms'][platform]['self_contained_original_verified'] = True
             print(platform+': '+ '\n'.join(passes), flush=True)
         assert hashlib.sha256((fixture/entry).read_bytes()).hexdigest()==source_sha
     assert before==[(f.stat().st_size, f.stat().st_mtime_ns) for f in archives]

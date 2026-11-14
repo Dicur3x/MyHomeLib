@@ -170,8 +170,17 @@ begin
 end;
 
 function IsSevenZipArchive(const FileName: string): Boolean;
+const Magic:array[0..5] of Byte=($37,$7A,$BC,$AF,$27,$1C);
+var Stream:TFileStream; Header:array[0..5] of Byte;
 begin
   Result := SameText(ExtractFileExt(FileName), SEVENZIP_ARCHIVE_EXTENSION);
+  if Result or not FileExists(FileName) then Exit;
+  // FLibrary and private compression candidates may use .zip or .bin for
+  // actual 7z bytes. The decoder must follow the container, not its suffix.
+  Stream:=TFileStream.Create(FileName,fmOpenRead or fmShareDenyNone);
+  try
+    Result:=(Stream.Read(Header,SizeOf(Header))=SizeOf(Header)) and CompareMem(@Header,@Magic,SizeOf(Magic));
+  finally Stream.Free; end;
 end;
 
 function IsArchiveExt(const FileName: string): Boolean;

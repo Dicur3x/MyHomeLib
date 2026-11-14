@@ -524,6 +524,99 @@ def prepare_selected_file(source, members, workspace, seven_zip, *, profile='ori
         raise
 
 
+def prepare_request(request, *, canceled=lambda: False, notify=lambda value: None):
+    """Prepare the ordinary book and its native FLibrary dependencies together.
+
+    Publication remains native. Complete-book backups and previews for stripped
+    books are deferred until the native reader has restored both versions.
+    """
+    template = request.get('receipt_template') or {}
+    if not isinstance(template, dict):
+        raise PackingError('Некорректное описание каталога сжатия.')
+    external = None
+    prepared = None
+    if request.get('external_images', False) and '' not in request['members']:
+        from external_image_preparation import prepare_external_images, reader_sources
+        folder = Path(request['workspace']).parent / 'external-images'
+        folder.mkdir()
+        try:
+            with CompressedImageHistory(template.get('catalogue'),
+                    profile_digest(request.get('profile', 'original'), request.get('grayscale', False)),
+                    lambda: _check_canceled(canceled)) as history:
+                external_prepared = prepare_external_images(request['source'], request['members'], folder,
+                    request['seven_zip'], profile=request.get('profile', 'original'),
+                    grayscale=request.get('grayscale', False), tools_root=request.get('tools_root'),
+                    jpeg_xl_decoder=request.get('jpeg_xl_decoder'), preserve_image=history.contains,
+                    canceled=canceled, notify=notify)
+            if external_prepared.supported and external_prepared.dependencies:
+                external = dict(version=1, kind='HomeLibre external image preparation',
+                    **asdict(external_prepared), members=request['members'],
+                    original_image_sources=reader_sources(external_prepared, candidates=False),
+                    prepared_image_sources=reader_sources(external_prepared, candidates=True))
+        except BaseException:
+            for path in folder.glob('prepared-*.bin'):
+                path.unlink(missing_ok=True)
+            raise
+    try:
+        prepared = prepare_selected_file(request['source'], request['members'], request['workspace'],
+            request['seven_zip'], profile=request.get('profile', 'original'),
+            grayscale=request.get('grayscale', False), tools_root=request.get('tools_root'),
+            previous=request.get('previous'),
+            backup_originals=request.get('backup_originals', False) and external is None,
+            preview_images=request.get('preview_images', False) and external is None,
+            image_history_database=template.get('catalogue'), canceled=canceled, notify=notify)
+        result = asdict(prepared)
+        changed = prepared.candidate or (external and any(a['candidate'] for a in external['archives']))
+        receipt = (prepared.receipt(template) if prepared.candidate else prepared.inspection_receipt(template))
+        if external:
+            if external['source_witness']['sha256'] != prepared.source_sha256:
+                raise PackingError('Архив книг изменился между подготовкой текста и картинок.')
+            result['external_images'] = external
+            # Only outputs actually retained in the prepared archives enter
+            # history. Discarded encodings never suppress a later retry.
+            by_id = {}
+            from external_image_preparation import _book_id
+            for payload in receipt['payloads']:
+                by_id.setdefault(_book_id(payload['member']), []).append(payload)
+            for archive in external['archives']:
+                for image in archive['images']:
+                    identity = image['member'].split('/', 1)[0].casefold()
+                    for payload in by_id.get(identity, []):
+                        if image['changed'] or image['reused']:
+                            payload.setdefault('image_outputs', []).append(image['output_sha256'])
+                        if image['changed']:
+                            for book in result['books']:
+                                if book['member'] == payload['member']:
+                                    book['optimized'] = True
+                        if not image['checked']:
+                            payload['checked'] = False
+                            for book in result['books']:
+                                if book['member'] == payload['member']:
+                                    book.update(checked=False, reason=image['reason'])
+            if not changed:
+                for payload in receipt['payloads']:
+                    retained = payload.get('image_outputs', [])
+                    if retained and payload.get('checked', True):
+                        payload.setdefault('source_image_outputs', []).extend(retained)
+                        payload['retry_original'] = False
+                    payload['image_outputs'] = []
+        result['receipt' if changed else 'inspection_receipt'] = receipt
+        return result, prepared
+    except BaseException:
+        if prepared is not None:
+            _discard_prepared(prepared)
+        if external:
+            for archive in external['archives']:
+                if archive['candidate']:
+                    Path(archive['candidate']).unlink(missing_ok=True)
+        raise
+
+
+def _check_canceled(canceled):
+    if canceled():
+        raise Canceled('Сжатие остановлено. Исходные книги не изменены.')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--job', type=Path, required=True)
@@ -540,25 +633,8 @@ def main():
         request = json.loads(arguments.job.read_text('utf-8-sig'))
         if not isinstance(request, dict) or request.get('version') != PREPARATION_API:
             raise PackingError('Неизвестная версия задания сжатия выбранных книг.')
-        template = request.get('receipt_template') or {}
-        if not isinstance(template, dict):
-            raise PackingError('Некорректное описание каталога сжатия.')
-        prepared = prepare_selected_file(request['source'], request['members'], request['workspace'],
-                                         request['seven_zip'], profile=request.get('profile', 'original'),
-                                         grayscale=request.get('grayscale', False), tools_root=request.get('tools_root'),
-                                         previous=request.get('previous'),
-                                         backup_originals=request.get('backup_originals', False),
-                                         preview_images=request.get('preview_images', False),
-                                         image_history_database=template.get('catalogue'),
-                                         canceled=lambda: arguments.cancel is not None and arguments.cancel.exists(),
-                                         notify=emit)
-        result = asdict(prepared)
-        # A single atomic publication binds the filesystem candidate and the
-        # exact native receipt. No half-published second receipt file is used.
-        if prepared.candidate:
-            result['receipt'] = prepared.receipt(request['receipt_template'])
-        else:
-            result['inspection_receipt'] = prepared.inspection_receipt(request['receipt_template'])
+        result, prepared = prepare_request(request,
+            canceled=lambda: arguments.cancel is not None and arguments.cancel.exists(), notify=emit)
         atomic_json(request['report'], result, replace=False)
         emit(dict(stage='ready', candidate=bool(prepared.candidate), savings=prepared.savings))
         return 0
