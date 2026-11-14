@@ -9,15 +9,19 @@ Build the default platform first after changing project version resources.
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import secrets
+import shutil
 import struct
 import subprocess
 import time
 
 
 def build(project, platform, binary, logs, ide, required_text=(), visible=False, timeout=180):
+    if os.name == 'nt' and shutil.disk_usage(os.environ.get('SystemDrive', 'C:') + '\\').free < 8*1024**3:
+        raise OSError('Build stopped: keep at least 8 GiB free on the system drive.')
     project, binary, logs, ide = [Path(p).resolve() for p in (project, binary, logs, ide)]
     if project.suffix != '.dproj' or not ide.is_file():
         raise ValueError('A Delphi project and installed IDE are required')
@@ -47,6 +51,8 @@ def build(project, platform, binary, logs, ide, required_text=(), visible=False,
         try:
             deadline = time.monotonic() + timeout
             while process.poll() is None:
+                if os.name == 'nt' and shutil.disk_usage(os.environ.get('SystemDrive', 'C:') + '\\').free < 8*1024**3:
+                    raise OSError('Build stopped: system drive reserve fell below 8 GiB.')
                 if log.is_file():
                     text = log.read_text(encoding='utf-8', errors='replace')
                     # AutoBuild can leave its own IDE open after the compiler

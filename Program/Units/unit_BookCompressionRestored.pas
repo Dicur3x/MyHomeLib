@@ -58,11 +58,15 @@ var BeforeArchive, AfterArchive: TMHLZip; Folder: string;
     finally Raw.Free; end;
   end;
   function SaveBook(Stream: TStream; const Name: string): TJSONObject;
-  var FileName: string; Output: TFileStream; Available, Capacity: UInt64;
+  var FileName, SystemRoot: string; Output: TFileStream; Available, Capacity: UInt64;
   begin
     CheckStop;
+    SystemRoot:=GetEnvironmentVariable('SystemDrive')+'\';
+    if not GetDiskFreeSpaceEx(PChar(SystemRoot),Available,Capacity,nil) then RaiseLastOSError;
+    if Available<UInt64(8)*1024*1024*1024 then
+      raise EWriteError.Create('На системном диске осталось меньше 8 ГБ. Проверка остановлена; исходники не изменены.');
     if not GetDiskFreeSpaceEx(PChar(DeletionNativePath(Folder)),Available,Capacity,nil) then RaiseLastOSError;
-    if Available<UInt64(Stream.Size)+64*1024*1024 then
+    if Available<UInt64(Stream.Size)+512*1024*1024 then
       raise EWriteError.Create('Недостаточно места для проверки полной книги. Исходники не изменены.');
     FileName:=TPath.Combine(Folder,Name); Stream.Position:=0;
     var Hash:=THashSHA2.GetHashString(Stream); Stream.Position:=0;

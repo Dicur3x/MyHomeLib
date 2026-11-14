@@ -138,9 +138,15 @@ def prepare_external_images(source, members, workspace, seven_zip, *, profile='o
             any(work.iterdir()) or Path(canonical(source)).is_relative_to(Path(canonical(work)))):
         raise PackingError('Нужны исходный архив и пустая отдельная рабочая папка.')
 
+    last_space_check = 0.0
     def check():
+        nonlocal last_space_check
         if canceled():
             raise Canceled('Сжатие внешних изображений остановлено. Исходники не изменены.')
+        now = time.monotonic()
+        if now-last_space_check >= 1:
+            reserve_space(work, 0)
+            last_space_check = now
 
     check()
     with source.open('rb') as stream:

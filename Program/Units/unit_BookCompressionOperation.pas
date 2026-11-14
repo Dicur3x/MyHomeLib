@@ -744,13 +744,14 @@ begin
   if FEngineSHA256<>'' then Exit(FEngineSHA256);
   Hash:=THashSHA2.Create;
   Add('worker',FOptions.Script); Add('archive-engine',FOptions.SevenZip);
-  for var Name in ['convert_book.py','pack_collection.py','image_quality.py','external_image_preparation.py',
+  for var Name in ['convert_book.py','pack_collection.py','image_quality.py','image_input.py','external_image_preparation.py',
     'restored_book_validation.py','nested_epub_compression.py','MODULAR_RUNTIME.json'] do
     Add('bookconvert/'+Name,TPath.Combine(FOptions.ToolsRoot,'bookconvert/'+Name));
   Add('image-engine',TPath.Combine(FOptions.ToolsRoot,'images/HomeLibImages.exe'));
   Add('image-config',TPath.Combine(FOptions.ToolsRoot,'images/HomeLibImages.exe.config'));
   Add('jpeg-xl-decoder',TPath.Combine(FOptions.ToolsRoot,'jpeg-xl/djxl.exe'));
-  for var Folder in ['images','pdfium','djvu','jpeg-xl','jpegxl','kindle'] do
+  Add('webp-decoder',TPath.Combine(FOptions.ToolsRoot,'webp/libwebp.dll'));
+  for var Folder in ['images','pdfium','djvu','jpeg-xl','jpegxl','webp','kindle'] do
     for var Name in ['RUNTIME.json','COMPONENT.json','MODULAR_RUNTIME.json'] do
       Add(Folder+'/'+Name,TPath.Combine(FOptions.ToolsRoot,Folder+'/'+Name));
   FEngineSHA256:=Hash.HashAsString; Result:=FEngineSHA256;

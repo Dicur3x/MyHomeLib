@@ -703,6 +703,11 @@ begin
   if (Length(Bytes) >= 6) and (Bytes[0] = Ord('G')) and
     (Bytes[1] = Ord('I')) and (Bytes[2] = Ord('F')) then
     Exit('image/gif');
+  if (Length(Bytes) >= 12) and (Bytes[0] = Ord('R')) and
+    (Bytes[1] = Ord('I')) and (Bytes[2] = Ord('F')) and (Bytes[3] = Ord('F')) and
+    (Bytes[8] = Ord('W')) and (Bytes[9] = Ord('E')) and
+    (Bytes[10] = Ord('B')) and (Bytes[11] = Ord('P')) then
+    Exit('image/webp');
   Result := 'application/octet-stream';
 end;
 

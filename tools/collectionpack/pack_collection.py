@@ -244,13 +244,20 @@ def copy_exact(source, target, check):
 
 
 def reserve_space(directory, bytes_needed):
-    if shutil.disk_usage(directory).free < bytes_needed + 16 * 1024 * 1024:
+    # Leave room for the OS and other applications even when a book workspace
+    # is on another drive. Never use the last free megabytes as working space.
+    if os.name == 'nt':
+        system_root = os.environ.get('SystemDrive', 'C:') + '\\'
+        if shutil.disk_usage(system_root).free < 8 * 1024**3:
+            raise PackingError('Недостаточно свободного места на системном диске: осталось меньше 8 ГБ. Обработка остановлена; освободите место или перенесите временные данные.')
+    if shutil.disk_usage(directory).free < bytes_needed + 512 * 1024 * 1024:
         raise PackingError('Недостаточно свободного места в выбранной папке для текущего архива. Исходники сохранены; готовые архивы доступны для продолжения.')
 
 
 @contextmanager
 def temporary_work_directory(parent, prefix):
     parent = Path(parent).resolve(strict=True)
+    reserve_space(parent, 0)
     directory = Path(tempfile.mkdtemp(prefix=prefix, dir=parent))
     owned = directory.resolve(strict=True)
     identity = directory.stat(follow_symlinks=False)
@@ -733,6 +740,7 @@ class Packer:
         self.result = Result(generation=uuid.uuid4().hex)
         self.db = None
         self.started = time.monotonic()
+        self.next_space_check = 0.0
         self.last_sent = 0.0
         self.last_event = None
         self.progress = {}
@@ -852,6 +860,11 @@ class Packer:
         # Long archive operations and streaming copies still report activity.
         # The UI must not guess a percentage while 7-Zip is compressing.
         now = time.monotonic()
+        if now >= self.next_space_check:
+            directory = self.root
+            while not directory.exists(): directory = directory.parent
+            reserve_space(directory, 0)
+            self.next_space_check = now+1
         if self.last_event is not None and now - self.last_sent >= 1.0:
             self.last_sent = now
             self.notify(dict(self.last_event, elapsed_seconds=now - self.started))

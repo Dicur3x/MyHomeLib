@@ -250,6 +250,65 @@ class ExternalImagePreparationTests(unittest.TestCase):
             self.assertEqual(rgba.getpixel((187, 0))[3], 255)
         self.assertEqual(self.snapshot(), before)
 
+    def test_webp_color_no_gain_and_grayscale_transparency_use_the_embedded_runtime(self):
+        from PIL import Image, ImageChops
+        import random
+        for gray in (False, True):
+            stream = io.BytesIO()
+            if gray:
+                bitmap = Image.frombytes('RGBA', (256,256), random.Random(369).randbytes(256*256*4))
+                bitmap.putalpha(Image.new('L',(256,256),255))
+                for y in range(32):
+                    for x in range(32): bitmap.putpixel((x,y),(0,0,0,0))
+                bitmap.save(stream,'WEBP',lossless=True)
+            else:
+                Image.new('RGB',(4,4),(220,60,20)).save(stream,'WEBP',quality=40)
+            original = stream.getvalue()
+            self.pictures.unlink()
+            self.archive(self.pictures, dict(self.picture_entries, **{'one/1':original}), '7z')
+            before = self.snapshot()
+            self.work = self.root/('webp-'+str(gray))
+            self.work.mkdir()
+            process, report = self.run_worker(profile='maximum',grayscale=gray)
+            self.assertEqual(process.returncode,0,process.stdout+process.stderr)
+            result = json.loads(report.read_text(encoding='utf-8'))
+            report.unlink()
+            group = next(row for row in result['archives'] if row['kind']=='images')
+            record = next(row for row in group['images'] if row['member']=='one/1')
+            self.assertTrue(record['checked'],record)
+            actual = self.read(group['candidate'] or self.pictures,'one/1')
+            if gray:
+                self.assertLess(len(actual),len(original))
+                with Image.open(io.BytesIO(actual)) as rendered:
+                    rgba = rendered.convert('RGBA')
+                    red,green,blue,_ = rgba.split()
+                    self.assertIsNone(ImageChops.difference(red,green).getbbox())
+                    self.assertIsNone(ImageChops.difference(red,blue).getbbox())
+                    self.assertEqual(rgba.getpixel((0,0))[3],0)
+                    self.assertEqual(rgba.getpixel((200,200))[3],255)
+            else:
+                self.assertEqual(actual,original)
+            self.assertEqual(self.snapshot(),before)
+
+    def test_animated_webp_is_retained_with_a_reason_instead_of_losing_frames(self):
+        from PIL import Image
+        stream = io.BytesIO()
+        Image.new('RGB',(64,64),'red').save(stream,'WEBP',save_all=True,
+            append_images=[Image.new('RGB',(64,64),'blue')],duration=100,loop=0)
+        original = stream.getvalue()
+        self.pictures.unlink()
+        self.archive(self.pictures,dict(self.picture_entries,**{'one/1':original}),'7z')
+        before = self.snapshot()
+        process, report = self.run_worker(profile='maximum',grayscale=True)
+        self.assertEqual(process.returncode,0,process.stdout+process.stderr)
+        result = json.loads(report.read_text(encoding='utf-8'))
+        group = next(row for row in result['archives'] if row['kind']=='images')
+        record = next(row for row in group['images'] if row['member']=='one/1')
+        self.assertFalse(record['checked'],record)
+        self.assertIn('кадры',record['reason'])
+        self.assertEqual(self.read(group['candidate'] or self.pictures,'one/1'),original)
+        self.assertEqual(self.snapshot(),before)
+
     def test_balanced_economy_and_original_grayscale_produce_checked_candidates(self):
         for index, (profile, gray) in enumerate((('balanced', False), ('economy', False), ('original', True))):
             with self.subTest(profile=profile, grayscale=gray):

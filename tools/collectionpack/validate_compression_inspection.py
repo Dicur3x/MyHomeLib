@@ -83,6 +83,15 @@ def run(args):
                 binaries.append(target)
             for binary in binaries:
                 check_pe(binary, args.platform)
+            webp = args.runtime / 'tools/webp'
+            if not (webp / 'libwebp.dll').is_file():
+                webp = repo / 'Program/Out' / ('Bin64' if args.platform == 'Win64' else 'Bin') / 'tools/webp'
+            if (webp / 'libwebp.dll').is_file():
+                shutil.copytree(webp, root / 'tools/webp')
+                library = root / 'tools/webp/libwebp.dll'
+                assert identity(library) == identity(webp / 'libwebp.dll')
+                check_pe(library, args.platform)
+                binaries.append(library)
             if args.jpeg_xl_decoder:
                 codec = root / 'tools/jpeg-xl/djxl.exe'
                 codec.parent.mkdir(parents=True)

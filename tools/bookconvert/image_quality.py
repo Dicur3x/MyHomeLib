@@ -2,6 +2,7 @@
 import base64
 import copy
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 import posixpath
@@ -280,7 +281,26 @@ def without_images(api, book, destination, target_extension, warnings=None):
 def mime(data):
     if data.startswith(b'\xff\xd8\xff'): return 'image/jpeg'
     if data.startswith(b'\x89PNG\r\n\x1a\n'): return 'image/png'
+    if data.startswith(b'RIFF') and data[8:12] == b'WEBP': return 'image/webp'
     return None
+
+
+def native_image(api, data, tools_root):
+    """Decode WebP explicitly, without depending on Windows WIC extensions."""
+    if mime(data) != 'image/webp': return data
+    if data[12:16] == b'VP8X' and len(data) > 20 and data[20] & 2:
+        raise api.ConversionError('Анимированный WebP сохранён без изменения; сжатие не должно удалять кадры.')
+    class DecoderContext:
+        def __init__(self): self.tools_root = Path(tools_root)
+        def fail(self, reason): raise api.ConversionError(reason)
+        def require(self, component, reason): raise api.ComponentRequired(component, reason)
+    spec = importlib.util.spec_from_file_location('homelibre_quality_webp', Path(__file__).with_name('image_input.py'))
+    decoder = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(decoder)
+    decoded = decoder.decode_webp(DecoderContext(), data)
+    if len(decoded) > 16*1024*1024:
+        raise api.ConversionError('Декодированное изображение WebP превышает 16 МБ.')
+    return decoded
 
 
 def estimate_image_samples(pictures):
@@ -352,7 +372,7 @@ def select_container_profiles(result, profile, storage, layout=False):
     return chosen
 
 
-def run(api, tool, pictures, directory, profile, progress, layout=None, storage='raw', check=None, grayscale=False):
+def run(api, tool, pictures, directory, profile, progress, layout=None, storage='raw', check=None, grayscale=False, tools_root=None):
     native_profile = 'estimate' if storage != 'raw' and profile in ('balanced','economy') else profile
     if storage != 'raw' and profile == 'maximum':
         native_profile = 'estimate-maximum'
@@ -364,7 +384,9 @@ def run(api, tool, pictures, directory, profile, progress, layout=None, storage=
     source, output, log = directory/'images.zip', directory/'encoded.zip', directory/'codec.log'
     source.unlink(missing_ok=True); output.unlink(missing_ok=True)
     with zipfile.ZipFile(source, 'w', compression=zipfile.ZIP_STORED) as archive:
-        for index, data in enumerate(pictures): archive.writestr(f'{index:05d}', data)
+        for index, data in enumerate(pictures):
+            if check is not None: check()
+            archive.writestr(f'{index:05d}', native_image(api, data, tools_root or Path(tool).parent.parent))
     with log.open('wb') as stream:
         arguments = [str(tool), '--scan-images' if layout else '--export-images', str(source), str(output), native_profile]
         if layout: arguments.append(layout)
@@ -436,7 +458,8 @@ def run(api, tool, pictures, directory, profile, progress, layout=None, storage=
             result[p] = []
             for i, original in enumerate(pictures):
                 entry = archive.getinfo(f'{p}/{i:05d}')
-                limit = 16*1024*1024 if grayscale else len(original)
+                webp = mime(original) == 'image/webp'
+                limit = 16*1024*1024 if grayscale or webp else len(original)
                 if not 0 < entry.file_size <= limit: raise api.ConversionError('Некорректный размер сжатого изображения.')
                 if p == 'high' and entry.file_size == len(original):
                     # Reuse an exact source candidate without keeping another
@@ -452,6 +475,8 @@ def run(api, tool, pictures, directory, profile, progress, layout=None, storage=
                     data = original if identical and position == len(original) else archive.read(entry)
                 else: data = archive.read(entry)
                 if not mime(data): raise api.ConversionError('Некорректное сжатое изображение.')
+                if webp and not grayscale and (p == 'high' or len(data) >= len(original)):
+                    data = original
                 result[p].append(data)
     return select_container_profiles(result,profile,storage)
 

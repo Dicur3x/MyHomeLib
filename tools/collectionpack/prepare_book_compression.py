@@ -14,6 +14,7 @@ from pathlib import Path
 import posixpath
 import stat
 import sys
+import time
 from urllib.parse import unquote, urlsplit
 from xml.etree import ElementTree
 import zipfile
@@ -329,9 +330,15 @@ def prepare_selected_file(source, members, workspace, seven_zip, *, profile='ori
     source, workspace = Path(source).absolute(), Path(workspace).absolute()
     if not source.is_file() or not workspace.is_dir() or workspace.is_symlink() or any(workspace.iterdir()):
         raise PackingError('Нужны исходный файл и пустая рабочая папка сжатия.')
+    last_space_check = 0.0
     def check():
+        nonlocal last_space_check
         if canceled():
             raise Canceled('Сжатие остановлено. Исходные книги не изменены.')
+        now = time.monotonic()
+        if now-last_space_check >= 1:
+            reserve_space(workspace, 0)
+            last_space_check = now
 
     check()
     before = _source_stamp(source)

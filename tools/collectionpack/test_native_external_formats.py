@@ -29,6 +29,12 @@ class NativeExternalFormatTests(NativeCompressionOperationTests):
     def test_nested_epub_without_sidecars_restores_full_backup_and_size(self):
         self.check_epub(True, embedded=True, separated=False, container='books.zip')
 
+    def test_nested_epub_processes_embedded_and_external_webp_by_content(self):
+        from PIL import Image
+        output = io.BytesIO()
+        Image.frombytes('RGB',(256,256),random.Random(367).randbytes(256*256*3)).save(output,'WEBP',quality=75)
+        self.check_epub(True,embedded=True,picture=output.getvalue())
+
     def check_real_flibrary_epub(self):
         archive = Path(os.environ['HL_REAL_EPUB_ARCHIVE'])
         member = os.environ['HL_REAL_EPUB_ENTRY']
@@ -113,8 +119,8 @@ class NativeExternalFormatTests(NativeCompressionOperationTests):
                 sha256=digest_file(p, lambda: None)) for p in sources})
         Path(os.environ['HL_REAL_EPUB_EVIDENCE']).write_text(json.dumps(evidence,ensure_ascii=False,indent=2),encoding='utf-8')
 
-    def check_epub(self, nested, embedded=False, separated=True, container='books.7z'):
-        picture = png(False, random.Random(175).randbytes(128*128))
+    def check_epub(self, nested, embedded=False, separated=True, container='books.7z', picture=None):
+        if picture is None: picture = png(False, random.Random(175).randbytes(128*128))
         original = epub(picture)
         stage = self.root/'outer-input'
         stage.mkdir()
