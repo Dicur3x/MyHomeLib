@@ -2,6 +2,120 @@
 // row refresh in the normal catalogue. All files belong to the guarded runtime.
 
 procedure ArmCompressionRecoveryCrash(const Fault, ReportFile: string); forward;
+function CompressionBodyHash(const Body:TBytes):string; forward;
+
+procedure TestCompressionIndexBoundaries;
+var Root,Source,Identity,Member,Key,Digest:string; DB:TSQLiteDatabase; Zip:TZipFile; Body:TBytes;
+  procedure Seed(Archived:Boolean);
+  begin
+    DB.ExecSQL('DELETE FROM Books'); DB.ExecSQL('DELETE FROM HomeLibreBookCompression');
+    DB.ExecSQL('DELETE FROM HomeLibreCompressionChecks');
+    Source:=Root+'one.txt'; Member:='';
+    if Archived then
+    begin
+      Source:=Root+'one.zip'; Member:='one.txt'; Zip:=TZipFile.Create;
+      try Zip.Open(Source,zmWrite); Zip.Add(Body,Member); finally Zip.Free; end;
+    end
+    else TFile.WriteAllBytes(Source,Body);
+    Identity:=ArchiveDeletionSourceIdentity(Source); Key:=UpperCase(Copy(Identity,1,25));
+    Digest:=CompressionBodyHash(Body);
+    DB.ExecSQL('INSERT INTO Books VALUES(1,''same-library-id'',?,''one'',''.txt'',0,?)',
+      [IfThen(Archived,'one.zip',''),Length(Body)]);
+    DB.ExecSQL('INSERT INTO HomeLibreBookCompression VALUES(?,?,?,?)',[Key,Member,Length(Body),Digest]);
+    DB.ExecSQL('INSERT INTO HomeLibreCompressionChecks VALUES(?,?,?,?)',[Key,Member,Identity,Digest]);
+  end;
+  procedure BeginRefresh;
+  begin CaptureCompressionIndexSizes(DB,Root,'LibID'); DB.ExecSQL('UPDATE Books SET BookSize=999,BookID=101'); end;
+  procedure FinishRefresh(Expected:Integer; const Name:string);
+  begin
+    RestoreCompressionIndexSizes(DB,Root,'LibID');
+    Require(DB.QuerySingleInt('SELECT BookSize FROM Books')=Expected,'Compressed size boundary failed: '+Name);
+    Require(DB.QuerySingleInt('SELECT count(*) FROM sqlite_temp_master WHERE name LIKE ''InpxCompress%''')=0,
+      'Compression size snapshots leaked after '+Name);
+  end;
+begin
+  Root:=Settings.AppPath+'compression-index-boundaries\'; ForceDirectories(Root);
+  Body:=TEncoding.UTF8.GetBytes('A verified compressed book.');
+  DB:=TSQLiteDatabase.Create(Root+'index.sqlite');
+  try
+    DB.ExecSQL('CREATE TABLE Books(BookID INTEGER PRIMARY KEY,LibID TEXT,Folder TEXT,FileName TEXT,Ext TEXT,InsideNo INTEGER,BookSize INTEGER)');
+    DB.ExecSQL('CREATE TABLE HomeLibreBookCompression(FileKey TEXT,Member TEXT,BookSize INTEGER,OutputSHA256 TEXT)');
+    DB.ExecSQL('CREATE TABLE HomeLibreCompressionChecks(FileKey TEXT,Member TEXT,SourceIdentity TEXT,PayloadSHA256 TEXT)');
+    Seed(False); BeginRefresh; FinishRefresh(Length(Body),'standalone file and renumbered ID');
+    Seed(True); BeginRefresh; FinishRefresh(Length(Body),'archive member and renumbered ID');
+    Seed(True); BeginRefresh; DB.ExecSQL('UPDATE Books SET Folder=''.\one.zip''');
+    FinishRefresh(Length(Body),'same physical archive through another locator spelling');
+    Seed(False); BeginRefresh; TFile.AppendAllText(Source,'changed',TEncoding.UTF8);
+    FinishRefresh(999,'source changed during import');
+    Seed(False); TFile.AppendAllText(Source,'changed',TEncoding.UTF8); BeginRefresh;
+    FinishRefresh(999,'stale proof before import');
+    Seed(False); BeginRefresh; DB.ExecSQL('UPDATE Books SET Folder=''another-folder\''');
+    FinishRefresh(999,'reused library ID at another path');
+    Seed(True); TFile.Copy(Source,Root+'another.zip',True);
+    DB.ExecSQL('UPDATE Books SET Folder=''another.zip'''); BeginRefresh;
+    FinishRefresh(999,'same member in another physical archive');
+    Seed(False); DB.ExecSQL('UPDATE HomeLibreCompressionChecks SET PayloadSHA256=''different''');
+    BeginRefresh; FinishRefresh(999,'no matching payload proof');
+    Seed(False); DB.Start;
+    CaptureCompressionIndexSizes(DB,Root,'LibID'); DB.ExecSQL('DELETE FROM Books'); DB.Rollback;
+    Require(DB.QuerySingleInt('SELECT BookSize FROM Books')=Length(Body),'Canceled index import changed book size');
+    Require(DB.QuerySingleInt('SELECT count(*) FROM sqlite_temp_master WHERE name LIKE ''InpxCompress%''')=0,
+      'Canceled index import leaked compression snapshots');
+    Writeln('PASS nine compressed-size boundaries preserve physical identity and rollback');
+  finally DB.Free; end;
+end;
+
+procedure CheckCompressionSizesAfterFullInpx(const Collection:IBookCollection;
+  const Books:TArray<TBookRecord>);
+var Archive:TZipFile; Input, Row, Name, SourceHash:string; Worker:TManualUpdateThread;
+    Reader:TSQLiteDatabase; Reloaded:IBookCollection; Book, Personal:TBookRecord;
+    Expected:TArray<Int64>;
+begin
+  Input:=Settings.AppPath+'compression-refresh.inpx'; Name:=''; SetLength(Expected,Length(Books));
+  Reloaded:=SystemDB.GetCollection(Collection.CollectionID,True);
+  for var I:=0 to High(Books) do
+  begin
+    Reloaded.GetBookRecord(Books[I].BookKey,Book,False); Expected[I]:=Book.Size;
+    Require(Book.Size<Books[I].Size,'Compression fixture did not reduce its selected book');
+    Row:='Автор,Тест:'#4'prose_contemporary:'#4+Book.Title+#4#4#4+Book.FileName+#4+
+      IntToStr(Books[I].Size)+#4+Book.LibID+#4'0'#4'fb2'#4'2026-11-14'#4'ru';
+    Name:=Name+Row+sLineBreak;
+  end;
+  Archive:=TZipFile.Create;
+  try
+    Archive.Open(Input,zmWrite);
+    Archive.Add(TEncoding.UTF8.GetBytes(Name),'books/shared.inp');
+    Archive.Add(TEncoding.UTF8.GetBytes('20261114'),'version.info');
+  finally Archive.Free; end;
+  SourceHash:=THashSHA2.GetHashStringFromFile(Settings.AppPath+'books\shared.zip');
+  Worker:=TManualUpdateThread.Create(Collection.CollectionID,Input,True,gtFb2);
+  try
+    Worker.Start; Worker.WaitFor;
+    Require(Worker.Success and Worker.CommittedChanges,'Actual full INPX update failed; see worker diagnostics');
+  finally Worker.Free; end;
+  Require(THashSHA2.GetHashStringFromFile(Settings.AppPath+'books\shared.zip')=SourceHash,
+    'Index refresh changed the compressed physical archive');
+  Reloaded:=SystemDB.GetCollection(Collection.CollectionID,True);
+  Reader:=TSQLiteDatabase.CreateReadOnly(Reloaded.GetProperty(PROP_DATAFILE));
+  try
+    for var I:=0 to High(Books) do
+    begin
+      var ID:=Reader.QuerySingleInt('SELECT BookID FROM Books WHERE LibID=?',[Books[I].LibID]);
+      Require(ID>0,'Full refresh lost the selected compressed book');
+      Reloaded.GetBookRecord(CreateBookKey(ID,Collection.CollectionID),Book,False);
+      Require(Book.Size=Expected[I],Format('Full INPX replaced compressed size %d with index size %d; folder "%s" -> "%s"',
+        [Expected[I],Book.Size,Books[I].Folder,Book.Folder]));
+      if I=0 then
+      begin
+        SystemDB.GetBookRecord(Book.BookKey,Personal);
+        Require(Personal.Progress=37,'Full INPX update lost reading progress');
+      end;
+    end;
+  finally Reader.Free; end;
+  Writeln('PASS actual full INPX refresh keeps verified compressed sizes and personal progress');
+  TestCompressionIndexBoundaries;
+end;
+
 type
   TCompressionCatalogueDriver = class
     Timer: TTimer;
@@ -218,6 +332,8 @@ begin
         Books[I].Folder:='books\shared.zip'; Books[I].FileName:=ChangeFileExt(Members[I],'');
         Books[I].FileExt:=ExtractFileExt(Members[I]); Books[I].InsideNo:=I;
         Books[I].Size:=Zip.FileInfo[Zip.IndexOf(Members[I])].UncompressedSize;
+        if FileExists(Settings.AppPath+'compression-refresh.marker') then
+          Books[I].LibID:='compression-refresh-'+IntToStr(I+1);
         Collection.UpdateBook(Books[I]);
       end;
       Zip.Read(Members[0],OriginalBody);
@@ -330,6 +446,11 @@ begin
       Options.ReviewResults and Options.BackupOriginals and (Options.BackupFolder=Driver.BackupFolder),
       'Normal catalogue command lost its own selected compression choices');
     Require(Length(TBookCompressionJob.Pending(CompressionQueueRoot(Options)))=0,'Completed GUI action left a pending job');
+    if FileExists(Settings.AppPath+'compression-refresh.marker') then
+    begin
+      Require(Mode='apply','Index-refresh case requires applied compression');
+      CheckCompressionSizesAfterFullInpx(CurrentCollection,Books);
+    end;
     if Assigned(Config) and (Config.GetValue<Boolean>('repeat_new',False) or Config.GetValue<Boolean>('repeat_offer',False)) then
     begin
       Require(Mode='apply','Repeat-new scenario requires an initial applied compression');

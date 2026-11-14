@@ -91,7 +91,7 @@ def exclusive_recovery_owner(path):
 
 def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_books=None, inspect_comparison=False,
         processing_package=None, estimate_first=False, whole=False, repeat_new=False, repeat_offer=False, images=None,
-        scenario='selected-compression-ui', recovery_fault=None, recovery_preserve=None):
+        scenario='selected-compression-ui', recovery_fault=None, recovery_preserve=None, refresh_index=False):
     if recovery_fault:
         assert scenario == 'selected-compression-ui' and mode == 'apply' and not real_books
     if recovery_preserve:
@@ -120,6 +120,9 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
                 shutil.copy2(repo / 'tools/collectionpack' / file, root / 'tools/bookconvert' / file)
         for marker in ('uselocaldata', 'uselocaltemp'):
             (root / marker).touch()
+        if refresh_index:
+            assert mode == 'apply' and not recovery_fault
+            (root / 'compression-refresh.marker').touch()
         (root / 'native-regression.marker').write_text('HomeLib Ru isolated native regression v1', encoding='utf-8')
         # This fixture tests compression, not public update checks or metadata
         # downloads. Keep unrelated network work out of timing and UI focus.
@@ -191,6 +194,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
         deadline = 420 if real_books else 150
         attempt = dict(status='INCOMPLETE', platform=platform, mode=mode,
             native_binary_sha256=digest(binary), outer_timeout_seconds=deadline,
+            refresh_index=refresh_index,
             private_runtime=str(root),
             real_source_stamps={str(path): stamp for path, stamp in real_stamps.items()})
         attempt_file = stage / f'catalogue-{platform}-{mode}-attempt.json'
@@ -259,7 +263,13 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
         }[scenario]
         if recovery_fault:
             expected = 'PASS actual compression crash and ordinary startup recovery ' + recovery_fault
-        if process.returncode or expected not in output:
+        expected_lines = [expected]
+        if refresh_index:
+            expected_lines.extend([
+                'PASS actual full INPX refresh keeps verified compressed sizes and personal progress',
+                'PASS nine compressed-size boundaries preserve physical identity and rollback',
+            ])
+        if process.returncode or any(line not in output for line in expected_lines):
             # Keep only bounded text diagnostics; do not retain the runtime or books.
             notes = []
             for p in root.rglob('*.json'):
@@ -338,6 +348,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
                     whole=whole,
                     repeat_new=repeat_new,
                     repeat_offer=repeat_offer,
+                    refresh_index=refresh_index,
                     recovery_fault=recovery_fault,
                     recovery_preserve=recovery_preserve,
                     private_runtime=str(root),
@@ -367,6 +378,8 @@ if __name__ == '__main__':
                         help='Terminate the guarded test process at a durable compression stage, then restart ordinary Main')
     parser.add_argument('--recovery-preserve', choices=['foreign-file', 'foreign-marker', 'live-owner'],
                         help='Verify recovery retains foreign or externally leased preparation data')
+    parser.add_argument('--refresh-index', action='store_true',
+                        help='After compression, run actual full INPX refresh and verify physical sizes')
     args = parser.parse_args()
     report = args.stage / f'catalogue-{args.platform}-{args.mode}.json'
     try:

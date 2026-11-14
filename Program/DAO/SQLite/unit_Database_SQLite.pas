@@ -370,6 +370,7 @@ uses
   unit_Logger,
   unit_LibrarySourceID,
   unit_SearchUtils,
+  unit_BookCompressionIndex,
   dm_user,
   unit_Errors,
   unit_SQLiteUtils;
@@ -4733,6 +4734,7 @@ function TBookCollection_SQLite.StartCatalogUpdateTracking(FullReimport: Boolean
 begin
   Assert(InBulkOperation);
   if not FullReimport then Exit(FDatabase.QuerySingleInt('SELECT coalesce(max(BookID),0) FROM Books'));
+  CaptureCompressionIndexSizes(FDatabase,FCollectionInfo.GetRootPath,InpxBookIdentitySQL);
   FDatabase.ExecSQL('CREATE TEMP TABLE InpxPreviousBooks(Identity TEXT PRIMARY KEY) WITHOUT ROWID');
   FDatabase.ExecSQL('INSERT OR IGNORE INTO temp.InpxPreviousBooks SELECT '+InpxBookIdentitySQL+' FROM Books');
   Result:=0;
@@ -4741,6 +4743,7 @@ end;
 procedure TBookCollection_SQLite.FinishCatalogUpdateTracking(FullReimport: Boolean; PreviousLastID: Integer);
 begin
   Assert(InBulkOperation);
+  if FullReimport then RestoreCompressionIndexSizes(FDatabase,FCollectionInfo.GetRootPath,InpxBookIdentitySQL);
   FDatabase.ExecSQL('CREATE TABLE IF NOT EXISTS LastInpxBooks(BookID INTEGER PRIMARY KEY)');
   FDatabase.ExecSQL('DELETE FROM LastInpxBooks');
   if FullReimport then
