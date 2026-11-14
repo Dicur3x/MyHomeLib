@@ -56,6 +56,8 @@ def run(args):
                   inputs={str(p): identity(p) for p in (args.receipt, args.operation, args.package)})
     if args.planner:
         result['inputs'][str(args.planner)] = identity(args.planner)
+    if args.jpeg_xl_decoder:
+        result['inputs'][str(args.jpeg_xl_decoder)] = identity(args.jpeg_xl_decoder)
     report.write_text(json.dumps(result, indent=2), encoding='utf-8')
     try:
         with temporary_work_directory(stage, 'HomeLibre-inspection-runtime-') as root:
@@ -81,6 +83,13 @@ def run(args):
                 binaries.append(target)
             for binary in binaries:
                 check_pe(binary, args.platform)
+            if args.jpeg_xl_decoder:
+                codec = root / 'tools/jpegxl/djxl.exe'
+                codec.parent.mkdir(parents=True)
+                shutil.copy2(args.jpeg_xl_decoder, codec)
+                assert identity(codec) == identity(args.jpeg_xl_decoder)
+                check_pe(codec, args.platform)
+                binaries.append(codec)
             result['runtime'] = {str(p.relative_to(root)): identity(p) for p in binaries}
             if (image.parent / 'HomeLibImages.exe.config').is_file():
                 result['runtime']['tools/images/HomeLibImages.exe.config'] = identity(image.parent / 'HomeLibImages.exe.config')
@@ -92,6 +101,9 @@ def run(args):
                        LOCALAPPDATA=str(root / 'profile/local'), APPDATA=str(root / 'profile/roaming'))
             if args.planner:
                 env['HL_NATIVE_COMPRESSION_PLAN'] = str(root / args.planner.name)
+            if args.jpeg_xl_decoder:
+                env['HL_EXTERNAL_IMAGE_DECODER'] = str(codec)
+                env['HL_EXTERNAL_IMAGE_EVIDENCE'] = str(report.with_suffix('.external-images.json'))
             for name in ('temp', 'profile/local', 'profile/roaming'):
                 (root / name).mkdir(parents=True, exist_ok=True)
             previous = {key: os.environ.get(key) for key in env}
@@ -131,5 +143,6 @@ if __name__ == '__main__':
     parser.add_argument('--platform', choices=('Win32', 'Win64'), required=True)
     parser.add_argument('--images', type=Path, help='Fresh verified image helper, without replacing another runtime')
     parser.add_argument('--planner', type=Path, help='Optional native planning and scratch-recovery fixture')
+    parser.add_argument('--jpeg-xl-decoder', type=Path, help='Verified decoder for external-image preparation diagnostics')
     parser.add_argument('--test', action='append', help='Specific diagnostic cases; default is the complete suite')
     run(parser.parse_args())

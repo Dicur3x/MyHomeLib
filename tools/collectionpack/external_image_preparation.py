@@ -1,0 +1,292 @@
+"""Prepare selected FLibrary image archives; publishing belongs to the native job.
+
+The outer book archive and all image sources remain read-only. An image
+candidate is not a completed edit, and must never be published without the
+book/dependency witnesses and the native recovery/backup transaction.
+"""
+from dataclasses import dataclass, field
+import hashlib
+import importlib.util
+from pathlib import Path
+import posixpath
+import subprocess
+import time
+
+from archive_replacement import archive_inventory, prepare_archive_replacement
+from pack_collection import (Canceled, Packer, PackingError, SEVENZIP_MAGIC,
+    SevenZip, canonical, digest_file, process_working_directory, reserve_space,
+    temporary_work_directory)
+
+MAX_IMAGE = 16 * 1024 * 1024
+MAX_SELECTED_IMAGES = 100000
+PROFILES = {'original', 'balanced', 'economy', 'maximum'}
+JXL_CONTAINER = b'\0\0\0\x0cJXL \r\n\x87\n'
+
+
+class ImageComponentRequired(PackingError):
+    component = 'JPEGXL'
+
+
+@dataclass
+class PreparedExternalImages:
+    source: str
+    source_witness: dict
+    dependencies: list
+    blocked_members: list = field(default_factory=list)
+    archives: list = field(default_factory=list)
+    supported: bool = True
+
+
+def _stamp(path):
+    stat = path.stat()
+    return stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns
+
+
+def _witness(path, check):
+    check()
+    before, resolved = _stamp(path), canonical(path)
+    value = dict(path=str(path), resolved=resolved, stamp=list(before), sha256=digest_file(path, check))
+    if _stamp(path) != before or canonical(path) != resolved:
+        raise PackingError('Файл изменился при проверке внешних изображений: ' + str(path))
+    return value
+
+
+def _dependencies(source, check):
+    # Match FindSiblingArchive: ZIP has priority, including a 7z named .zip.
+    result = []
+    for kind in ('covers', 'images'):
+        for suffix in ('.zip', '.7z'):
+            path = source.parent / kind / (_stem(source.name) + suffix)
+            if path.is_file():
+                result.append(dict(kind=kind, **_witness(path, check)))
+                break
+    return result
+
+
+def _stem(name):
+    # Delphi ChangeFileExt also removes a leading-dot extension or final dot.
+    leaf = posixpath.basename(name.replace('\\', '/'))
+    dot = leaf.rfind('.')
+    return leaf[:dot] if dot >= 0 else leaf
+
+
+def _book_id(member):
+    return _stem(member).casefold()
+
+
+def _jpeg_xl(data):
+    return data.startswith((b'\xff\x0a', JXL_CONTAINER))
+
+
+def _decode_jpeg_xl(data, decoder, directory, check, mime):
+    if decoder is None or not Path(decoder).is_file():
+        raise ImageComponentRequired('Для сжатия отдельных изображений JPEG XL нужен компонент чтения JPEG XL.')
+    source = directory / 'input.jxl'
+    source.write_bytes(data)
+    reserve_space(directory, MAX_IMAGE)
+    # First recover the original JPEG. Raw JPEG XL falls back to PNG.
+    for extension, extra in (('.jpg', ['--reconstruct_jpeg']), ('.png', [])):
+        output = directory / ('decoded' + extension)
+        with process_working_directory(directory) as cwd:
+            with subprocess.Popen([str(Path(decoder).absolute()), source.name, output.name,
+                    '--num_threads=1', *extra], cwd=cwd, stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)) as process:
+                started = time.monotonic()
+                try:
+                    while process.poll() is None:
+                        check()
+                        if (time.monotonic() - started > 60 or
+                                (output.exists() and output.stat().st_size > MAX_IMAGE)):
+                            raise PackingError('Декодирование отдельной картинки превысило предел времени или размера.')
+                        time.sleep(.025)
+                    check()
+                    if process.returncode == 0 and output.is_file() and 0 < output.stat().st_size <= MAX_IMAGE:
+                        restored = output.read_bytes()
+                        if mime(restored):
+                            return restored
+                finally:
+                    if process.poll() is None:
+                        process.kill()
+                    process.wait()
+    raise PackingError('Не удалось восстановить отдельную картинку JPEG XL.')
+
+
+def prepare_external_images(source, members, workspace, seven_zip, *, profile='original',
+        grayscale=False, tools_root=None, jpeg_xl_decoder=None, preserve_image=lambda digest: False,
+        canceled=lambda: False, notify=lambda event: None):
+    """Return independent, verified, smaller side-archive candidates.
+
+    ``members`` names exact selected outer book members and their extensions.
+    A shared book basename is blocked unless every referring member is selected.
+    Only native publication may change files or acknowledge image history.
+    """
+    if not isinstance(profile, str) or profile not in PROFILES or not isinstance(grayscale, bool):
+        raise PackingError('Неверный режим сжатия внешних изображений.')
+    if (not isinstance(members, dict) or not 0 < len(members) <= 100000 or
+            any(not isinstance(k, str) or not isinstance(v, str) for k, v in members.items())):
+        raise PackingError('Нужен точный список выбранных книг для внешних изображений.')
+    source, work = Path(source).absolute(), Path(workspace).absolute()
+    if (not source.is_file() or source.is_symlink() or ':' in source.name or not work.is_dir() or work.is_symlink() or
+            any(work.iterdir()) or Path(canonical(source)).is_relative_to(Path(canonical(work)))):
+        raise PackingError('Нужны исходный архив и пустая отдельная рабочая папка.')
+
+    def check():
+        if canceled():
+            raise Canceled('Сжатие внешних изображений остановлено. Исходники не изменены.')
+
+    check()
+    with source.open('rb') as stream:
+        supported = stream.read(len(SEVENZIP_MAGIC)) == SEVENZIP_MAGIC
+    source_witness = _witness(source, check) if supported else {}
+    result = PreparedExternalImages(str(source), source_witness, [], supported=supported)
+    if not supported:
+        return result
+    result.dependencies = _dependencies(source, check)
+    if any(Path(dep['path']).stat().st_nlink != 1 for dep in result.dependencies):
+        raise PackingError('Архив внешних изображений имеет несколько жёстких ссылок; нужен общий план его использования.')
+    if any(Path(canonical(dep['path'])).is_relative_to(Path(canonical(work))) for dep in result.dependencies):
+        raise PackingError('Архив изображений находится внутри рабочей папки.')
+
+    decoder = SevenZip(seven_zip, check)
+    candidates = []
+    try:
+        with temporary_work_directory(work, '.external-images-') as stage:
+            outer = archive_inventory(decoder, source, stage)
+            if any(name not in outer or outer[name]['directory'] for name in members):
+                raise PackingError('Выбранная книга не найдена по точному имени во внешнем архиве.')
+            identities = {}
+            for name, entry in outer.items():
+                if not entry['directory']:
+                    identities.setdefault(_book_id(name), set()).add(name)
+            selected = set(members)
+            blocked = {key for key, names in identities.items() if names & selected and names - selected}
+            result.blocked_members = sorted(name for name in members if _book_id(name) in blocked)
+            ids = {_book_id(name) for name in members if _book_id(name) not in blocked}
+            image_ids = {_book_id(name) for name, hint in members.items()
+                         if hint.lower() in ('.fb2', '.epub') and _book_id(name) not in blocked}
+            quality = None
+            engine = ('illustrations-gray-ppmd' if grayscale else
+                      'illustrations-ppmd' if profile != 'original' else 'reversible-ppmd')
+            processor = Packer(dict(version=1, engine=engine,
+                images=profile, output=str(work), plan=str(stage / 'unused.sqlite'), dataset='external-images',
+                seven_zip=str(seven_zip), tools_root=str(tools_root) if tools_root else None), notify, canceled)
+            if ids and result.dependencies and (profile != 'original' or grayscale):
+                processor.load_image_processor()
+                quality_path = processor.tools_root / 'bookconvert/image_quality.py'
+                spec = importlib.util.spec_from_file_location('homelibre_external_image_quality', quality_path)
+                quality = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(quality)
+
+            for dependency in result.dependencies:
+                check()
+                kind, archive = dependency['kind'], Path(dependency['path'])
+                folder = stage / kind
+                folder.mkdir()
+                inventory = archive_inventory(decoder, archive, folder)
+                chosen = [name for name, entry in inventory.items() if not entry['directory'] and
+                    ((kind == 'covers' and '/' not in name and name.casefold() in ids) or
+                     (kind == 'images' and '/' in name and name.split('/', 1)[0].casefold() in image_ids))]
+                if len(chosen) > MAX_SELECTED_IMAGES:
+                    raise PackingError('Слишком много отдельных изображений в выбранной порции.')
+                if not chosen:
+                    continue
+                records, replacements, pending = [], {}, []
+                batch_number = 0
+
+                def encode_batch():
+                    nonlocal batch_number
+                    if not pending:
+                        return
+                    check()
+                    batch_dir = folder / ('encoding-' + str(batch_number))
+                    batch_number += 1
+                    batch_dir.mkdir()
+                    profile_name = 'high' if profile == 'original' else profile
+                    try:
+                        with process_working_directory(batch_dir) as local_batch:
+                            encoded = quality.run(processor.converter,
+                                processor.converter.image_processor_path(processor.tools_root),
+                                [raster for _, raster, _ in pending], Path(local_batch), profile_name,
+                                lambda phase, done, total: notify(dict(stage=phase, kind=kind,
+                                    members=[item['member'] for item, _, _ in pending], current=done, total=total)),
+                                check=check, grayscale=grayscale)[profile_name]
+                        for (item, _, target), data in zip(pending, encoded, strict=True):
+                            if grayscale or len(data) < item['input_bytes']:
+                                target.write_bytes(data)
+                                item.update(proposed_sha256=hashlib.sha256(data).hexdigest(), proposed_bytes=len(data))
+                    except Canceled:
+                        raise
+                    except (PackingError, processor.converter.ConversionError, OSError) as error:
+                        for item, _, target in pending:
+                            target.write_bytes((target.parent / 'original.bin').read_bytes())
+                            item.update(proposed_sha256=item['input_sha256'], proposed_bytes=item['input_bytes'],
+                                        checked=False, reason=str(error)[:500])
+                    pending.clear()
+
+                for index, name in enumerate(chosen):
+                    check()
+                    if not 0 < inventory[name]['size'] <= MAX_IMAGE:
+                        raise PackingError('Отдельное изображение пусто или превышает 16 МБ: ' + name)
+                    image_dir = folder / str(index)
+                    image_dir.mkdir()
+                    raw = image_dir / 'original.bin'
+                    with raw.open('xb') as output:
+                        decoder.run(['x', '-so', '-spd', '-ssc', '-y', '--', str(archive), name],
+                                    cwd=image_dir, output=output, limit=MAX_IMAGE)
+                    if raw.stat().st_size != inventory[name]['size']:
+                        raise PackingError('Размер внешней картинки изменился при извлечении: ' + name)
+                    original = raw.read_bytes()
+                    digest = hashlib.sha256(original).hexdigest()
+                    target = image_dir / 'prepared.bin'
+                    target.write_bytes(original)
+                    replacements[name] = target
+                    item = dict(member=name, input_sha256=digest, proposed_sha256=digest,
+                        input_bytes=len(original), proposed_bytes=len(original), reused=False,
+                        checked=True, reason='', decoded_sha256=None)
+                    records.append(item)
+                    if quality is not None:
+                        if preserve_image(digest):
+                            item['reused'] = True
+                        else:
+                            try:
+                                raster = original
+                                if _jpeg_xl(raster):
+                                    raster = _decode_jpeg_xl(raster, jpeg_xl_decoder, image_dir, check, quality.mime)
+                                    item['decoded_sha256'] = hashlib.sha256(raster).hexdigest()
+                                if quality.mime(raster):
+                                    if len(pending) >= 9 or sum(len(data) for _, data, _ in pending) + len(raster) > 64*1024*1024:
+                                        encode_batch()
+                                    pending.append((item, raster, target))
+                                else:
+                                    item['reason'] = 'Формат изображения сохранён без изменения.'
+                            except (Canceled, ImageComponentRequired):
+                                raise
+                            except (PackingError, processor.converter.ConversionError, OSError) as error:
+                                item.update(checked=False, reason=str(error)[:500])
+                encode_batch()
+                archive_work = folder / 'archive'
+                archive_work.mkdir()
+                prepared = prepare_archive_replacement(archive, replacements, archive_work, seven_zip,
+                    canceled=canceled, owned_replacements_root=stage,
+                    expected_payload_sha256={item['member']: item['proposed_sha256'] for item in records})
+                candidate = None
+                if prepared.candidate is not None:
+                    candidate = work / ('prepared-' + kind + '.bin')
+                    prepared.candidate.rename(candidate)
+                    candidates.append(candidate)
+                for item in records:
+                    item['output_sha256'] = item['proposed_sha256'] if candidate else item['input_sha256']
+                    item['output_bytes'] = item['proposed_bytes'] if candidate else item['input_bytes']
+                    item['changed'] = item['input_sha256'] != item['output_sha256']
+                result.archives.append(dict(kind=kind, source=str(archive), candidate=str(candidate) if candidate else None,
+                    source_sha256=prepared.original_sha256, result_sha256=prepared.prepared_sha256,
+                    input_bytes=prepared.input_bytes, output_bytes=prepared.output_bytes, images=records))
+                notify(dict(stage='external-archive-prepared', kind=kind, candidate=bool(candidate)))
+            if _witness(source, check) != source_witness or _dependencies(source, check) != result.dependencies:
+                raise PackingError('Книга или внешние изображения изменились во время подготовки.')
+        return result
+    except BaseException:
+        for candidate in candidates:
+            candidate.unlink(missing_ok=True)
+        raise
