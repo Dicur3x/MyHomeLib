@@ -99,6 +99,17 @@ begin
       end;
       DMUser:=TDMUser.Create(nil);
       try
+{$IFDEF MHL_COMPRESSION_TEST}
+        CompressionOperationTestFault:=nil;
+        if Text(Data,'fault_at')<>'' then CompressionOperationTestFault:=procedure(Stage:string)
+          begin
+            if (Text(Data,'fault_at')<>'') and (Stage=Text(Data,'fault_at')) then
+            begin
+              Writeln('TRACE terminated at ',Stage); Flush(System.Output);
+              if not TerminateProcess(GetCurrentProcess,73) then RaiseLastOSError;
+            end;
+          end;
+{$ENDIF}
         if Mode='recover' then Operation:=TBookCompressionOperation.Recover(Options)
         else Operation:=TBookCompressionOperation.Create(Options,
           function(const Cancelled:TFunc<Boolean>; const Progress:TProc<Int64>):TBookCompressionPlan

@@ -8,7 +8,7 @@ from xml.etree import ElementTree as ET
 import zipfile
 
 from supervised_test_process import run_owned
-from test_native_compression_operation import NativeCompressionOperationTests
+from test_native_compression_operation import NativeCompressionOperationTests, OPERATOR
 from test_native_compression_receipt import database, png, sha
 
 
@@ -20,7 +20,16 @@ class NativeExternalCompressionTests(NativeCompressionOperationTests):
     def test_flibrary_7z_named_zip_uses_the_same_complete_pipeline(self):
         self.check_flibrary_pipeline('books.zip')
 
-    def check_flibrary_pipeline(self, container_name):
+    def test_full_book_recovers_after_partial_group_preparation(self):
+        self.check_flibrary_pipeline('books.7z', 'group-file-prepared-0')
+
+    def test_full_book_recovers_after_a_partial_image_write(self):
+        self.check_flibrary_pipeline('books.7z', 'group-file-1-half-metadata')
+
+    def test_full_book_recovers_after_catalogue_commit(self):
+        self.check_flibrary_pipeline('books.7z', 'catalogue-committed')
+
+    def check_flibrary_pipeline(self, container_name, fault_stage=None):
         original = (b'<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" '
             b'xmlns:l="http://www.w3.org/1999/xlink"><description><title-info><book-title>Book</book-title>'
             b'<coverpage><image l:href="#cover"/></coverpage></title-info></description>'
@@ -56,11 +65,22 @@ class NativeExternalCompressionTests(NativeCompressionOperationTests):
         before_size = sum(p.stat().st_size for p in [self.fixture.source, *sides])
         backup = self.enable_backup()
         self.config.update(profile='maximum', grayscale=True)
+        if fault_stage:
+            self.config['fault_at'] = fault_stage
+            self.request.write_text(json.dumps(self.config), encoding='utf-8')
+            crashed = run_owned([str(OPERATOR), str(self.request), str(self.result)], capture_output=True,
+                                encoding='utf-8', timeout=45)
+            self.assertEqual(crashed.returncode, 73, crashed.stdout+crashed.stderr)
+            self.assertIn('TRACE terminated at '+fault_stage, crashed.stdout)
+            self.config.pop('fault_at')
+            self.config['operation_mode'] = 'recover'
         result = self.run_operation()
+        self.config['operation_mode'] = 'apply'
         self.assertEqual(result['error'], '', result)
         self.assertEqual(result['changed_files'], 1, result)
         self.assertEqual(result['pending_after_ack'], 0, result)
-        self.assertEqual(result['saved_bytes'], before_size-sum(p.stat().st_size for p in [self.fixture.source, *sides]))
+        if not fault_stage:
+            self.assertEqual(result['saved_bytes'], before_size-sum(p.stat().st_size for p in [self.fixture.source, *sides]))
         for path in sides:
             with zipfile.ZipFile(path) as archive:
                 name = 'neighbor' if path.parent.name == 'covers' else 'neighbor/1'
@@ -81,6 +101,8 @@ class NativeExternalCompressionTests(NativeCompressionOperationTests):
             self.assertEqual(db.execute('SELECT count(*) FROM HomeLibreCompressedImages').fetchone()[0], 1)
         with database(self.fixture.personal) as db:
             self.assertEqual(db.execute('SELECT BookSize FROM Books WHERE DatabaseID=7').fetchone()[0], size)
+        if fault_stage:
+            return
         checked = {path: sha(path.read_bytes()) for path in
                    (self.fixture.catalogue, self.fixture.personal, self.fixture.source, *sides)}
         second = self.run_operation()
