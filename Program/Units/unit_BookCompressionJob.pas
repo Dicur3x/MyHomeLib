@@ -380,7 +380,8 @@ begin
   end;
   if not Assigned(FGroup) then
     if DirectoryExists(DeletionNativePath(Root)) then
-      FGroup:=TBookCompressionFileGroup.OpenExisting(Root,FGroupSHA256,FReceipt.SHA256)
+      FGroup:=TBookCompressionFileGroup.OpenExisting(Root,FGroupSHA256,FReceipt.SHA256,
+        FData.GetValue<TJSONArray>('group_files').ToJSON,Cancelled,Progress,Fault)
     else
     begin
       if (FOriginalsJSON<>'') and not Assigned(FOriginals) then

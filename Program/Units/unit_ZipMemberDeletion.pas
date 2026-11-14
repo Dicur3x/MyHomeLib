@@ -83,6 +83,8 @@ type
     procedure BindContext(const SHA256: string);
     procedure CheckReplacementReceipt(const FileName, ExpectedFileKey,
       SourceSHA256, ResultSHA256, ContextSHA256: string);
+    procedure CheckUnwrittenReplacement(const FileName, ExpectedIdentity,
+      SourceSHA256, ResultSHA256, ContextSHA256:string; const Cancelled:TFunc<Boolean>=nil);
     property ContextHash: string read GetContextHash;
     property FileKey: string read GetFileKey;
     property WholeSourceIdentity: string read FWholeIdentity;
@@ -608,6 +610,28 @@ begin
     raise EReadError.Create('Сжатый файл не соответствует журналу обновления каталога.');
   CheckPlan;
   VerifyFinished;
+end;
+
+procedure TZipMemberDeletion.CheckUnwrittenReplacement(const FileName, ExpectedIdentity,
+  SourceSHA256, ResultSHA256, ContextSHA256:string; const Cancelled:TFunc<Boolean>);
+var Hash:THashSHA2; Bytes:TBytes; Count:Integer;
+begin
+  if not Assigned(FPlan) or not Assigned(FSource) or FFinished or FPending or (FNext<>0) or
+    (FieldNumber(FPlan,'schema')<>VerifiedReplacementSchema) or
+    not SameFileName(FArchive,ExpandFileName(FileName)) or
+    (SourceIdentity(FSource.Handle)<>ExpectedIdentity) or
+    not SameText(TextField(FPlan,'originalSHA256'),SourceSHA256) or
+    not SameText(TextField(FPlan,'finalSHA256'),ResultSHA256) or (ContextHash<>ContextSHA256) then
+    raise EReadError.Create('Незавершённая подготовка не соответствует неизменённому исходнику.');
+  CheckPlan; CheckIdentity;
+  Hash:=THashSHA2.Create; SetLength(Bytes,1024*1024); FSource.Position:=0;
+  repeat
+    if Assigned(Cancelled) and Cancelled() then Abort;
+    Count:=FSource.Read(Bytes[0],Length(Bytes));
+    if Count>0 then Hash.Update(Bytes[0],Count);
+  until Count=0;
+  if not SameText(Hash.HashAsString,SourceSHA256) then
+    raise EReadError.Create('Исходный файл изменился после прерывания подготовки.');
 end;
 
 procedure TZipMemberDeletion.CheckIdentity;

@@ -26,12 +26,17 @@ type
     procedure OpenEngines(Completed: Boolean);
     procedure CheckResults;
     procedure Acknowledge(const Fault: TProc<string> = nil);
+    procedure CleanPreparationPartials(MissingManifest:Boolean);
+    procedure ResumePreparation(const Cancelled:TFunc<Boolean>; const Progress:TZipDeleteProgress;
+      const Fault:TProc<string>);
     class function Manifest(const FilesJSON, ContextSHA256: string): TJSONObject; static;
   public
     constructor CreatePrepared(const Directory, FilesJSON, ContextSHA256: string;
       const Cancelled: TFunc<Boolean> = nil; const Progress: TZipDeleteProgress = nil;
       const Fault: TProc<string> = nil);
-    constructor OpenExisting(const Directory, ExpectedManifestSHA256, ContextSHA256: string);
+    constructor OpenExisting(const Directory, ExpectedManifestSHA256, ContextSHA256: string;
+      const FilesJSON:string=''; const Cancelled:TFunc<Boolean>=nil;
+      const Progress:TZipDeleteProgress=nil; const Fault:TProc<string>=nil);
     destructor Destroy; override;
     class function ComputeManifestSHA256(const FilesJSON, ContextSHA256: string): string; static;
     procedure Execute(const CommitMetadata: TProc<TArray<TZipMemberDeletion>>;
@@ -169,7 +174,6 @@ end;
 
 constructor TBookCompressionFileGroup.CreatePrepared(const Directory, FilesJSON, ContextSHA256: string;
   const Cancelled: TFunc<Boolean>; const Progress: TZipDeleteProgress; const Fault: TProc<string>);
-var Data: TJSONObject;
 begin
   inherited Create;
   FDirectory:=ExcludeTrailingPathDelimiter(ExpandFileName(Directory)); FContext:=ContextSHA256;
@@ -178,22 +182,84 @@ begin
   FManifestSHA256:=THashSHA2.GetHashString(FData.ToJSON);
   if not CreateDirectory(PChar(DeletionNativePath(FDirectory)),nil) then RaiseLastOSError;
   OpenLease;
+  if Assigned(Fault) then Fault('group-directory-created');
   SaveText(TPath.Combine(FDirectory,'group.json'),FData.ToJSON);
+  if Assigned(Fault) then Fault('group-manifest-published');
+  ResumePreparation(Cancelled,Progress,Fault);
+end;
+
+procedure TBookCompressionFileGroup.ResumePreparation(const Cancelled:TFunc<Boolean>;
+  const Progress:TZipDeleteProgress; const Fault:TProc<string>);
+var Data:TJSONObject; Journal:string;
+begin
   SetLength(FEngines,Files.Count); SetLength(FReadLeases,Files.Count); SetLength(FChangeLeases,Files.Count);
   for var I:=0 to Files.Count-1 do
   begin
     if Assigned(Cancelled) and Cancelled() then Abort;
     Data:=Item(I); FChangeLeases[I]:=AcquireArchiveChange(Text(Data,'source'));
-    FEngines[I]:=TZipMemberDeletion.PrepareReplacement(Text(Data,'source'),Text(Data,'candidate'),
-      Text(Data,'source_identity'),Text(Data,'source_sha256'),Text(Data,'result_sha256'),
-      JournalRoot(I),Cancelled,Progress);
-    FEngines[I].BindContext(FContext);
+    Journal:=FindJournal(I);
+    if Journal<>'' then
+    begin
+      FEngines[I]:=TZipMemberDeletion.RecoverReplacement(Text(Data,'source'),Journal);
+      FEngines[I].CheckUnwrittenReplacement(Text(Data,'source'),Text(Data,'source_identity'),
+        Text(Data,'source_sha256'),Text(Data,'result_sha256'),FContext,Cancelled);
+    end
+    else
+    begin
+      if DirectoryExists(DeletionNativePath(JournalRoot(I))) then
+        DiscardUnpublishedDeletionStages(JournalRoot(I));
+      FEngines[I]:=TZipMemberDeletion.PrepareReplacement(Text(Data,'source'),Text(Data,'candidate'),
+        Text(Data,'source_identity'),Text(Data,'source_sha256'),Text(Data,'result_sha256'),
+        JournalRoot(I),Cancelled,Progress);
+      FEngines[I].BindContext(FContext);
+    end;
     FEngines[I].PublishJournal(JournalRoot(I));
     if Assigned(Fault) then Fault('group-file-prepared-'+IntToStr(I));
   end;
   if Assigned(Cancelled) and Cancelled() then Abort;
   SaveText(TPath.Combine(FDirectory,'ready'),FManifestSHA256);
   if Assigned(Fault) then Fault('group-ready');
+end;
+
+procedure TBookCompressionFileGroup.CleanPreparationPartials(MissingManifest:Boolean);
+var DeletePaths:TList<string>; Info:TByHandleFileInformation; Stream:TFileStream;
+    DataBytes,ManifestBytes,MarkerBytes:TBytes; ID:TGUID; Token,Extension,Name:string;
+begin
+  ManifestBytes:=TEncoding.UTF8.GetBytes(FData.ToJSON);
+  MarkerBytes:=TEncoding.UTF8.GetBytes(FManifestSHA256);
+  DeletePaths:=TList<string>.Create;
+  try
+    for var Path in TDirectory.GetFileSystemEntries(DeletionNativePath(FDirectory)) do
+    begin
+      Name:=ExtractFileName(Path);
+      if Name='group.lock' then Continue;
+      if not MissingManifest then
+      begin
+        if Name='group.json' then Continue;
+        var Known:=False;
+        for var I:=0 to Files.Count-1 do if Name='file-'+IntToStr(I) then Known:=True;
+        if Known then Continue;
+      end;
+      Extension:=ExtractFileExt(Name);
+      if not Name.StartsWith('.homelib-data-') or not ((Extension='.tmp') or (Extension='.bak')) then
+        raise EReadError.Create('Посторонние файлы подготовки группы сохранены.');
+      Token:=Copy(Name,15,Length(Name)-14-Length(Extension));
+      try ID:=StringToGUID(Token); except on E:EConvertError do raise EReadError.Create('Неизвестный временный файл группы.'); end;
+      if Token<>GUIDToString(ID) then raise EReadError.Create('Неизвестный временный файл группы.');
+      Stream:=TFileStream.Create(Path,fmOpenRead or fmShareDenyWrite);
+      try
+        if not GetFileInformationByHandle(Stream.Handle,Info) then RaiseLastOSError;
+        if (Info.nNumberOfLinks<>1) or ((Info.dwFileAttributes and (FILE_ATTRIBUTE_DIRECTORY or FILE_ATTRIBUTE_REPARSE_POINT))<>0) or
+          (Stream.Size>Length(ManifestBytes)) then raise EReadError.Create('Временный файл группы заменён посторонними данными.');
+        SetLength(DataBytes,Integer(Stream.Size)); if Length(DataBytes)>0 then Stream.ReadBuffer(DataBytes[0],Length(DataBytes));
+        if (Length(DataBytes)>0) and not CompareMem(@DataBytes[0],@ManifestBytes[0],Length(DataBytes)) and
+          not ((Length(DataBytes)<=Length(MarkerBytes)) and CompareMem(@DataBytes[0],@MarkerBytes[0],Length(DataBytes))) then
+          raise EReadError.Create('Неизвестное содержимое временного файла группы сохранено.');
+      finally Stream.Free; end;
+      DeletePaths.Add(Path);
+    end;
+    for var Path in DeletePaths do if not Winapi.Windows.DeleteFile(PChar(Path)) then RaiseLastOSError;
+  finally DeletePaths.Free; end;
 end;
 
 procedure TBookCompressionFileGroup.CheckMarker(const Name: string);
@@ -236,19 +302,38 @@ begin
   end;
 end;
 
-constructor TBookCompressionFileGroup.OpenExisting(const Directory, ExpectedManifestSHA256, ContextSHA256: string);
+constructor TBookCompressionFileGroup.OpenExisting(const Directory, ExpectedManifestSHA256, ContextSHA256: string;
+  const FilesJSON:string; const Cancelled:TFunc<Boolean>; const Progress:TZipDeleteProgress; const Fault:TProc<string>);
 var Value: TJSONValue; Raw: string;
 begin
   inherited Create;
   FDirectory:=ExcludeTrailingPathDelimiter(ExpandFileName(Directory)); FContext:=ContextSHA256;
   OpenLease;
+  if not FileExists(DeletionNativePath(TPath.Combine(FDirectory,'group.json'))) then
+  begin
+    if FilesJSON='' then raise EReadError.Create('Не хватает описания прерванной подготовки группы.');
+    FData:=Manifest(FilesJSON,ContextSHA256); Validate;
+    FManifestSHA256:=THashSHA2.GetHashString(FData.ToJSON);
+    if FManifestSHA256<>ExpectedManifestSHA256 then raise EReadError.Create('Изменилось задание подготовки группы.');
+    CleanPreparationPartials(True);
+    SaveText(TPath.Combine(FDirectory,'group.json'),FData.ToJSON);
+  end;
   Raw:=ReadText(TPath.Combine(FDirectory,'group.json'));
   FManifestSHA256:=THashSHA2.GetHashString(Raw);
   if not IsHash(ExpectedManifestSHA256) or (FManifestSHA256<>ExpectedManifestSHA256) then
     raise EReadError.Create('Группа файлов не соответствует сохранённому заданию.');
   Value:=TJSONObject.ParseJSONValue(Raw);
   if not (Value is TJSONObject) then begin Value.Free; raise EReadError.Create('Повреждён журнал связанных файлов.'); end;
-  FData:=TJSONObject(Value); Validate; CheckMarker('ready');
+  FreeAndNil(FData); FData:=TJSONObject(Value); Validate;
+  if not FileExists(DeletionNativePath(TPath.Combine(FDirectory,'ready'))) then
+  begin
+    if FileExists(DeletionNativePath(TPath.Combine(FDirectory,'started'))) or
+      FileExists(DeletionNativePath(TPath.Combine(FDirectory,'complete'))) then
+      raise EReadError.Create('Начатая группа потеряла подтверждение готовности. Журналы сохранены.');
+    CleanPreparationPartials(False);
+    ResumePreparation(Cancelled,Progress,Fault); Exit;
+  end;
+  CheckMarker('ready');
   var Complete:=FileExists(DeletionNativePath(TPath.Combine(FDirectory,'complete')));
   if FileExists(DeletionNativePath(TPath.Combine(FDirectory,'started'))) then CheckMarker('started')
   else if Complete then raise EReadError.Create('Нет подтверждения начала связанной операции.');

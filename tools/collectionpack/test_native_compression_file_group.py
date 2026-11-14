@@ -87,6 +87,53 @@ class NativeCompressionFileGroupTests(unittest.TestCase):
             value.require_success(value.run_worker('group-apply'))
             self.finished(value)
 
+    def test_persistent_job_resumes_every_incomplete_preparation_boundary(self):
+        for stage in ('group-directory-created', 'group-manifest-published',
+                      'group-file-prepared-0', 'group-file-prepared-1', 'group-file-prepared-2'):
+            with self.subTest(stage=stage), group_fixture() as value:
+                self.assertEqual(value.run_worker('job-group-apply', stage).returncode, 73)
+                self.unchanged(value)
+                value.require_success(value.run_worker('job-group-recover'))
+                self.finished(value)
+                self.require_empty_queue(value)
+
+    def test_stop_during_incomplete_preparation_recovery_keeps_originals_then_resumes(self):
+        with group_fixture() as value:
+            self.assertEqual(value.run_worker('group-apply', 'group-file-prepared-0').returncode, 73)
+            self.assertNotEqual(value.run_worker('group-recover-stopping').returncode, 0)
+            self.unchanged(value)
+            value.require_success(value.run_worker('group-recover'))
+            self.finished(value)
+
+    def test_changed_prepared_original_is_rejected_even_with_the_same_length_and_time(self):
+        with group_fixture() as value:
+            self.assertEqual(value.run_worker('group-apply', 'group-file-prepared-0').returncode, 73)
+            stat = value.source.stat()
+            damaged = bytearray(value.source.read_bytes())
+            damaged[len(damaged)//2] ^= 128
+            value.source.write_bytes(damaged)
+            os.utime(value.source, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+            value.before_files[value.source] = fixture.sha(damaged)
+            self.assertNotEqual(value.run_worker('group-recover').returncode, 0)
+            self.unchanged(value)
+
+    def test_missing_manifest_removes_only_matching_atomic_prefixes(self):
+        for foreign in (False, True):
+            with self.subTest(foreign=foreign), group_fixture() as value:
+                self.assertEqual(value.run_worker('job-group-apply', 'group-directory-created').returncode, 73)
+                groups = list((value.root/'queue').glob('compress-*/files'))
+                self.assertEqual(len(groups), 1)
+                path = groups[0]/'.homelib-data-{01234567-0123-0123-0123-012345678901}.tmp'
+                path.write_bytes(b'Unrelated user data' if foreign else b'{"version":1,')
+                if foreign:
+                    self.assertNotEqual(value.run_worker('job-group-recover').returncode, 0)
+                    self.unchanged(value)
+                    self.assertEqual(path.read_bytes(), b'Unrelated user data')
+                else:
+                    value.require_success(value.run_worker('job-group-recover'))
+                    self.finished(value)
+                    self.require_empty_queue(value)
+
     def test_stop_before_first_write_keeps_all_originals_and_can_resume(self):
         with group_fixture() as value:
             self.assertNotEqual(value.run_worker('group-cancel').returncode, 0)

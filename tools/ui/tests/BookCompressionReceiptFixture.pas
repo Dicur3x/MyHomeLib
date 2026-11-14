@@ -170,7 +170,8 @@ begin
       if Mode.StartsWith('group-recover') then
       begin
         Require(TFile.ReadAllText(Root+'group-binding.txt',TEncoding.UTF8)=Binding,'Group binding changed');
-        Group:=TBookCompressionFileGroup.OpenExisting(Root+'group',Binding,Receipt.SHA256);
+        Group:=TBookCompressionFileGroup.OpenExisting(Root+'group',Binding,Receipt.SHA256,FilesJSON,
+          function:Boolean begin Result:=Mode='group-recover-stopping'; end);
       end
       else
       begin
