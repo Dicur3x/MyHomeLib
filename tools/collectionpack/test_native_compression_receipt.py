@@ -163,6 +163,116 @@ class NativeCompressionReceiptTests(unittest.TestCase):
         self.require_success(self.run_worker())
         self.require_finished(before_c, before_p)
 
+    def prepare_flibrary_replacement(self):
+        from packing_flibrary_fixtures import build
+        from prepare_book_compression import prepare_selected_file
+        seven = Path(os.environ['HLRU_PACK_7ZIP'])
+        build(self.root, seven, Path(__file__).resolve().parents[2])
+        manifest = json.loads((self.root / 'packing-flibrary-epub/manifest.json').read_text(encoding='utf-8'))
+        selected = next(row for row in manifest['books'] if row['id'] == '101')
+        self.source = self.root / 'packing-flibrary-epub/source' / selected['archive']
+        work = self.root / 'prepare'
+        work.mkdir()
+        prepared = prepare_selected_file(self.source, {selected['wanted']: '.epub'}, work, seven,
+            profile='original', tools_root=Path(os.environ['HL_COMPRESSION_RUNTIME']) / 'tools')
+        self.assertIsNotNone(prepared.candidate)
+        self.assertLess(prepared.output_bytes, prepared.input_bytes)
+        self.assertEqual(prepared.payloads[0]['input_sha256'], prepared.payloads[0]['output_sha256'])
+        self.assertLess(prepared.payloads[0]['size'], selected['size'])
+        self.candidate.write_bytes(Path(prepared.candidate).read_bytes())
+        folder = self.source.relative_to(self.root).as_posix()
+        sizes = {0: selected['size'], 1: selected['size'] + 321, 2: selected['size'] + 123}
+        for path, kind, table in [(self.catalogue, 0, 'Books'), (self.personal, 1, 'Books'),
+                                  (self.catalogue, 2, 'CatalogBookCopies')]:
+            with database(path) as db:
+                db.execute('UPDATE ' + table + ' SET Folder=?,FileName=?,Ext=?,BookSize=? WHERE BookID=101' +
+                           (' AND DatabaseID=7' if kind == 1 else ''),
+                           (folder, '101', '.epub', sizes[kind]))
+        for row in self.template['rows']:
+            row.update(folder=folder, file_name='101', ext='.epub', old_size=sizes[row['kind']], member='101.epub')
+        self.original_hash, self.output_hash = prepared.source_sha256, prepared.result_sha256
+        self.template.update(source=str(self.source), source_sha256=self.original_hash,
+            result_sha256=self.output_hash, profile_sha256=prepared.profile_sha256, payloads=prepared.payloads,
+            compression_options=dict(version=1, profile='original', grayscale=False,
+                source_identity='@source', engine_sha256=sha(b'fixture engine')))
+        self.write_template()
+        return {str(path): sha(path.read_bytes()) for path in self.source.parent.rglob('*')
+                if path.is_file() and path != self.source}
+
+    def require_unchanged_logical_sizes(self, before_c, before_p, sidecars):
+        self.assertEqual(self.snapshot(self.catalogue), before_c)
+        self.assertEqual(self.snapshot(self.personal), before_p)
+        self.assertEqual(sha(self.source.read_bytes()), self.output_hash)
+        self.assertEqual({name: sha(Path(name).read_bytes()) for name in sidecars}, sidecars)
+        with database(self.catalogue) as db:
+            self.assertEqual(db.execute('SELECT Member,BookSize FROM HomeLibreBookCompression').fetchall(),
+                             [('101.epub', -1)])
+            self.assertEqual(db.execute('SELECT Member FROM HomeLibreCompressionChecks').fetchall(), [('101.epub',)])
+
+    def test_flibrary_repacking_keeps_each_logical_size_and_external_images(self):
+        sidecars = self.prepare_flibrary_replacement()
+        before_c, before_p = self.snapshot(self.catalogue), self.snapshot(self.personal)
+        self.require_success(self.run_worker('job-apply'))
+        self.require_unchanged_logical_sizes(before_c, before_p, sidecars)
+        self.assertFalse(list((self.root / 'queue').rglob('job.json')))
+
+    def test_flibrary_repacking_crash_keeps_logical_sizes_and_replays(self):
+        sidecars = self.prepare_flibrary_replacement()
+        before_c, before_p = self.snapshot(self.catalogue), self.snapshot(self.personal)
+        self.assertEqual(self.run_worker(fault='catalogue-committed').returncode, 73)
+        self.require_success(self.run_worker('recover'))
+        self.require_unchanged_logical_sizes(before_c, before_p, sidecars)
+
+    def test_flibrary_inspection_does_not_promote_surrogate_length_to_a_known_book_size(self):
+        sidecars = self.prepare_flibrary_replacement()
+        self.template['result_sha256'] = self.original_hash
+        self.write_template()
+        before_c, before_p = self.snapshot(self.catalogue), self.snapshot(self.personal)
+        self.require_success(self.run_worker('inspection'))
+        self.assertEqual(self.snapshot(self.catalogue), before_c)
+        self.assertEqual(self.snapshot(self.personal), before_p)
+        self.assertEqual(sha(self.source.read_bytes()), self.original_hash)
+        self.assertEqual({name: sha(Path(name).read_bytes()) for name in sidecars}, sidecars)
+        with database(self.catalogue) as db:
+            self.assertEqual(db.execute('SELECT BookSize FROM HomeLibreBookCompression').fetchall(), [(-1,)])
+
+    def test_flibrary_inspection_invalidates_a_legacy_surrogate_size_witness(self):
+        self.prepare_flibrary_replacement()
+        self.template['result_sha256'] = self.original_hash
+        self.write_template()
+        self.require_success(self.run_worker('preflight'))
+        receipt = json.loads((self.root / 'receipt.json').read_text(encoding='utf-8-sig'))
+        payload = self.template['payloads'][0]
+        with database(self.catalogue) as db:
+            db.execute('CREATE TABLE HomeLibreBookCompression(FileKey TEXT,Member TEXT,ProfileSHA256 TEXT,'
+                       'InputSHA256 TEXT,OutputSHA256 TEXT,BookSize INTEGER,PRIMARY KEY(FileKey,Member))')
+            db.execute('INSERT INTO HomeLibreBookCompression VALUES(?,?,?,?,?,?)',
+                (receipt['source_file_key'], payload['member'], self.template['profile_sha256'],
+                 payload['input_sha256'], payload['output_sha256'], payload['size']))
+        self.require_success(self.run_worker('inspection'))
+        with database(self.catalogue) as db:
+            self.assertEqual(db.execute('SELECT BookSize FROM HomeLibreBookCompression').fetchall(), [(-1,)])
+
+    def test_flibrary_repacking_retains_a_previous_measured_size_across_profiles(self):
+        sidecars = self.prepare_flibrary_replacement()
+        self.require_success(self.run_worker('preflight'))
+        receipt = json.loads((self.root / 'receipt.json').read_text(encoding='utf-8-sig'))
+        payload = self.template['payloads'][0]
+        with database(self.catalogue) as db:
+            db.execute('CREATE TABLE HomeLibreBookCompression(FileKey TEXT,Member TEXT,ProfileSHA256 TEXT,'
+                       'InputSHA256 TEXT,OutputSHA256 TEXT,BookSize INTEGER,PRIMARY KEY(FileKey,Member))')
+            db.execute('INSERT INTO HomeLibreBookCompression VALUES(?,?,?,?,?,?)',
+                (receipt['source_file_key'], payload['member'], sha(b'previous profile'),
+                 sha(b'previous complete book'), payload['output_sha256'], 48121))
+        before_c, before_p = self.snapshot(self.catalogue), self.snapshot(self.personal)
+        self.require_success(self.run_worker('job-apply'))
+        self.assertEqual(self.snapshot(self.catalogue), before_c)
+        self.assertEqual(self.snapshot(self.personal), before_p)
+        self.assertEqual({name: sha(Path(name).read_bytes()) for name in sidecars}, sidecars)
+        with database(self.catalogue) as db:
+            self.assertEqual(db.execute('SELECT InputSHA256,BookSize FROM HomeLibreBookCompression').fetchall(),
+                             [(sha(b'previous complete book'), 48121)])
+
     def inspection_template(self):
         self.template.update(result_sha256=self.original_hash, compression_options=dict(
             version=1, profile='economy', grayscale=False, source_identity='@source', engine_sha256=sha(b'fixture engine')))
@@ -180,7 +290,7 @@ class NativeCompressionReceiptTests(unittest.TestCase):
         self.assertEqual(sha(self.source.read_bytes()), self.original_hash)
         with database(self.catalogue) as db:
             self.assertEqual(db.execute('SELECT InputSHA256,OutputSHA256,BookSize FROM HomeLibreBookCompression').fetchall(),
-                             [(sha(self.original_book), sha(self.original_book), len(self.original_book))])
+                             [(sha(self.original_book), sha(self.original_book), -1)])
             checks = db.execute('SELECT Member,Profile,Grayscale,PayloadSHA256 FROM HomeLibreCompressionChecks').fetchall()
             self.assertEqual(checks, [('one.fb2', 'economy', 0, sha(self.original_book))])
             self.assertEqual(db.execute('SELECT Member,ProfileSHA256,OutputSHA256,RetryOriginal '
@@ -377,6 +487,24 @@ class NativeCompressionReceiptTests(unittest.TestCase):
         with database(self.catalogue) as db:
             self.assertEqual(db.execute('SELECT Member,OutputSHA256,RetryOriginal FROM HomeLibreCompressionOutcomes').fetchall(),
                              [('one.fb2', sha(self.new_book), 0)])
+
+    def test_unchanged_inspection_keeps_known_size_only_for_the_same_payload(self):
+        self.inspection_template()
+        self.require_success(self.run_worker('preflight'))
+        receipt = json.loads((self.root / 'receipt.json').read_text(encoding='utf-8-sig'))
+        with database(self.catalogue) as db:
+            db.execute('CREATE TABLE HomeLibreBookCompression(FileKey TEXT,Member TEXT,ProfileSHA256 TEXT,'
+                       'InputSHA256 TEXT,OutputSHA256 TEXT,BookSize INTEGER,PRIMARY KEY(FileKey,Member))')
+            db.execute('INSERT INTO HomeLibreBookCompression VALUES(?,?,?,?,?,?)',
+                (receipt['source_file_key'], 'one.fb2', sha(b'previous profile'), sha(b'earlier input'),
+                 sha(self.original_book), 123456))
+        self.require_success(self.run_worker('inspection'))
+        with database(self.catalogue) as db:
+            self.assertEqual(db.execute('SELECT BookSize FROM HomeLibreBookCompression').fetchall(), [(123456,)])
+            db.execute('UPDATE HomeLibreBookCompression SET OutputSHA256=?', (sha(b'different payload'),))
+        self.require_success(self.run_worker('inspection'))
+        with database(self.catalogue) as db:
+            self.assertEqual(db.execute('SELECT BookSize FROM HomeLibreBookCompression').fetchall(), [(-1,)])
 
     def test_image_history_commits_and_replays_without_touching_personal_data(self):
         image_hash = sha(self.new_book)

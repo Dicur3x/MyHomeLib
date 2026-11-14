@@ -18,7 +18,7 @@ type
     function ProcessRows(DB: TSQLiteDatabase; Personal, Commit: Boolean;
       RequireApplied: Boolean = False): Integer;
     procedure CheckEngine(Engine: TZipMemberDeletion);
-    procedure WriteHistory(DB: TSQLiteDatabase; PreserveKnownInput: Boolean = False);
+    procedure WriteHistory(DB: TSQLiteDatabase; Inspection: Boolean = False);
     procedure WriteChecks(DB: TSQLiteDatabase);
   public
     constructor Create(const JSON: string);
@@ -62,6 +62,15 @@ begin
   var Value:=Obj.GetValue(Name);
   if not (Value is TJSONNumber) or not TryStrToInt64(Value.Value,Result) then
     raise EReadError.Create('Неверное число в журнале сжатия книг.');
+end;
+
+// The payload length is a physical verification value. Unchanged FLibrary
+// books can be small surrogates with external images or nested archives; it
+// does not measure the restored book. -1 is ledger-only and never a Books size.
+function PayloadBookSize(Item: TJSONObject): Int64;
+begin
+  if SameText(JSONText(Item,'input_sha256'),JSONText(Item,'output_sha256')) then Exit(-1);
+  Result:=JSONNumber(Item,'size');
 end;
 
 function JSONBool(Obj: TJSONObject; const Name: string): Boolean;
@@ -287,28 +296,35 @@ begin
   end;
 end;
 
-procedure TBookCompressionReceipt.WriteHistory(DB: TSQLiteDatabase; PreserveKnownInput: Boolean);
-var Item: TJSONObject; ImageTableReady, OutcomesReady: Boolean; InputSQL, ImagesField: string;
+procedure TBookCompressionReceipt.WriteHistory(DB: TSQLiteDatabase; Inspection: Boolean);
+var Item: TJSONObject; ImageTableReady, OutcomesReady: Boolean; ImagesField: string;
 begin
   DB.ExecSQL('CREATE TABLE IF NOT EXISTS HomeLibreBookCompression('+
     'FileKey TEXT NOT NULL,Member TEXT NOT NULL,ProfileSHA256 TEXT NOT NULL,'+
     'InputSHA256 TEXT NOT NULL,OutputSHA256 TEXT NOT NULL,BookSize INTEGER NOT NULL,'+
     'PRIMARY KEY(FileKey,Member))');
   ImageTableReady:=False;
-  OutcomesReady:=False; InputSQL:='excluded.InputSHA256';
-  if PreserveKnownInput then
-    InputSQL:='CASE WHEN HomeLibreBookCompression.ProfileSHA256=excluded.ProfileSHA256 '+
-      'AND HomeLibreBookCompression.OutputSHA256=excluded.OutputSHA256 '+
-      'THEN HomeLibreBookCompression.InputSHA256 ELSE excluded.InputSHA256 END';
+  OutcomesReady:=False;
   for var Value in JSONArray(FData,'payloads') do
   begin
     Item:=TJSONObject(Value);
     DB.ExecSQL('INSERT INTO HomeLibreBookCompression VALUES(?,?,?,?,?,?) '+
       'ON CONFLICT(FileKey,Member) DO UPDATE SET ProfileSHA256=excluded.ProfileSHA256,'+
-      'InputSHA256='+InputSQL+','+
-      'OutputSHA256=excluded.OutputSHA256,BookSize=excluded.BookSize',
+      // Retain a measured size only with its original transformation witness.
+      // Old unchanged inspections stored the surrogate's byte length as if it
+      // measured the restored book; those entries must become unknown.
+      'InputSHA256=CASE WHEN excluded.BookSize=-1 '+
+      'AND HomeLibreBookCompression.OutputSHA256=excluded.OutputSHA256 '+
+      'AND HomeLibreBookCompression.InputSHA256<>HomeLibreBookCompression.OutputSHA256 '+
+      'AND HomeLibreBookCompression.BookSize>=0 THEN HomeLibreBookCompression.InputSHA256 '+
+      'ELSE excluded.InputSHA256 END,'+
+      'OutputSHA256=excluded.OutputSHA256,BookSize=CASE '+
+      'WHEN excluded.BookSize=-1 AND HomeLibreBookCompression.OutputSHA256=excluded.OutputSHA256 '+
+      'AND HomeLibreBookCompression.InputSHA256<>HomeLibreBookCompression.OutputSHA256 '+
+      'AND HomeLibreBookCompression.BookSize>=0 '+
+      'THEN HomeLibreBookCompression.BookSize ELSE excluded.BookSize END',
       [UpperCase(Text('source_file_key')),JSONText(Item,'member'),LowerCase(Text('profile_sha256')),
-       LowerCase(JSONText(Item,'input_sha256')),LowerCase(JSONText(Item,'output_sha256')),JSONNumber(Item,'size')]);
+       LowerCase(JSONText(Item,'input_sha256')),LowerCase(JSONText(Item,'output_sha256')),PayloadBookSize(Item)]);
     if Item.GetValue('retry_original')<>nil then
     begin
       if not OutcomesReady then
@@ -325,7 +341,7 @@ begin
          LowerCase(JSONText(Item,'output_sha256')),Ord(JSONBool(Item,'retry_original'))]);
     end;
     ImagesField:='image_outputs';
-    if PreserveKnownInput then ImagesField:='source_image_outputs';
+    if Inspection then ImagesField:='source_image_outputs';
     if Item.GetValue(ImagesField)<>nil then
       for var Image in JSONArray(Item,ImagesField) do
       begin
@@ -381,7 +397,7 @@ begin
         else Query.SetParam(0,JSONNumber(Item,'id'));
         if Personal then Query.SetParam(1,JSONNumber(FData,'collection_id'));
         Query.Open;
-        NewSize:=JSONNumber(Payload(JSONText(Item,'member')),'size');
+        NewSize:=PayloadBookSize(Payload(JSONText(Item,'member')));
         Matches:=not Query.Eof;
         CurrentSize:=-1;
         if Matches then
@@ -396,7 +412,8 @@ begin
             // running, with a corrected actual size instead of INPX's size.
             // The exact library/book locator still has to match; only its
             // BookSize is updated and the newly written notes stay intact.
-            ((Kind=1) or (CurrentSize=JSONNumber(Item,'old_size')) or (CurrentSize=NewSize));
+            ((Kind=1) or (CurrentSize=JSONNumber(Item,'old_size')) or
+              (CurrentSize=JSONNumber(Payload(JSONText(Item,'member')),'size')));
           if Matches and (Kind=2) then
             Matches:=(Query.FieldAsString(6)=JSONText(Item,'root')) and
               (Query.FieldAsInt(7)=JSONNumber(Item,'id'));
@@ -408,9 +425,9 @@ begin
           raise EReadError.Create('Книга в каталоге изменилась. Обновление размеров остановлено, журнал сохранён.');
         Continue; // A historical personal card can refer to another source.
       end;
-      if RequireApplied and (CurrentSize<>NewSize) then
+      if RequireApplied and (NewSize>=0) and (CurrentSize<>NewSize) then
         raise EReadError.Create('Размер книги ещё не сохранён. Задание сжатия нельзя считать завершённым.');
-      if Commit and (CurrentSize<>NewSize) then
+      if Commit and (NewSize>=0) and (CurrentSize<>NewSize) then
       begin
         SQL:='UPDATE '+Table+' SET BookSize=?';
         if Kind=2 then SQL:=SQL+' WHERE SourceKey=?' else SQL:=SQL+' WHERE BookID=?';
@@ -452,9 +469,11 @@ begin
         try
           Query.Open;
           if Query.Eof or (Query.FieldAsString(0)<>LowerCase(Text('profile_sha256'))) or
-            (Query.FieldAsString(1)<>LowerCase(JSONText(Item,'input_sha256'))) or
+            (((PayloadBookSize(Item)>=0) or (Query.FieldAsInt(3)<0)) and
+              (Query.FieldAsString(1)<>LowerCase(JSONText(Item,'input_sha256')))) or
             (Query.FieldAsString(2)<>LowerCase(JSONText(Item,'output_sha256'))) or
-            (Query.FieldAsInt(3)<>JSONNumber(Item,'size')) then
+            ((PayloadBookSize(Item)>=0) and (Query.FieldAsInt(3)<>PayloadBookSize(Item))) or
+            (Query.FieldAsInt(3)<-1) then
             raise EReadError.Create('Нет подтверждения обновления каталога после сжатия.');
         finally Query.Free; end;
         if Item.GetValue('image_outputs')<>nil then

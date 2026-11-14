@@ -32,7 +32,8 @@ begin
   DB.ExecSQL('CREATE TEMP TABLE InpxCompressionWitness AS SELECT DISTINCT '+
     'h.FileKey,h.Member,h.BookSize,c.SourceIdentity FROM HomeLibreBookCompression h '+
     'JOIN HomeLibreCompressionChecks c ON c.FileKey=h.FileKey AND c.Member=h.Member '+
-    'AND c.PayloadSHA256=h.OutputSHA256 WHERE h.BookSize>0');
+    'AND c.PayloadSHA256=h.OutputSHA256 WHERE h.BookSize>0 '+
+    'AND h.InputSHA256<>h.OutputSHA256');
   DB.ExecSQL('CREATE INDEX temp.InpxCompressionWitnessFile ON InpxCompressionWitness(FileKey,SourceIdentity,Member)');
   DB.ExecSQL('CREATE INDEX temp.InpxCompressionWitnessMember ON InpxCompressionWitness(Member)');
   DB.ExecSQL('CREATE INDEX temp.InpxCompressionWitnessSize ON InpxCompressionWitness(BookSize) WHERE Member=''''');

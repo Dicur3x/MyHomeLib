@@ -492,7 +492,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
         if refresh_index:
             expected_lines.extend([
                 'PASS actual full INPX refresh keeps verified compressed sizes and personal progress',
-                'PASS nine compressed-size boundaries preserve physical identity and rollback',
+                'PASS eleven compressed-size boundaries preserve physical identity and rollback',
             ])
         if legacy_history:
             expected_lines.append('PASS normal catalogue migrated legacy FB2 EPUB history without rewriting archive')

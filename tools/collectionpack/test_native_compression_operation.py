@@ -119,8 +119,11 @@ class NativeCompressionOperationTests(unittest.TestCase):
 
     def test_long_unicode_workspace_still_processes_images_and_commits(self):
         work = self.root / 'Рабочая папка ё'
+        suffix = 'prepare-{01234567-0123-0123-0123-012345678901}/payload/books/1/homelib-image-quality-01234567/images.zip'
+        while len(str(work / suffix)) <= 280:
+            work /= 'Вложенная рабочая папка ё'
         self.config['work_root'] = str(work)
-        image = work / 'prepare-{01234567-0123-0123-0123-012345678901}/payload/books/1/homelib-image-quality-01234567/images.zip'
+        image = work / suffix
         self.assertGreater(len(str(image)), 260)
         observed = self.observe_updated_engine()
         result = self.run_operation()

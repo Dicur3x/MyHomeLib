@@ -21,7 +21,8 @@ var Root,Source,Identity,Member,Key,Digest:string; DB:TSQLiteDatabase; Zip:TZipF
     Digest:=CompressionBodyHash(Body);
     DB.ExecSQL('INSERT INTO Books VALUES(1,''same-library-id'',?,''one'',''.txt'',0,?)',
       [IfThen(Archived,'one.zip',''),Length(Body)]);
-    DB.ExecSQL('INSERT INTO HomeLibreBookCompression VALUES(?,?,?,?)',[Key,Member,Length(Body),Digest]);
+    DB.ExecSQL('INSERT INTO HomeLibreBookCompression VALUES(?,?,?,?,?)',
+      [Key,Member,Length(Body),Digest,CompressionBodyHash(TEncoding.UTF8.GetBytes('Original book before compression'))]);
     DB.ExecSQL('INSERT INTO HomeLibreCompressionChecks VALUES(?,?,?,?)',[Key,Member,Identity,Digest]);
   end;
   procedure BeginRefresh;
@@ -39,7 +40,7 @@ begin
   DB:=TSQLiteDatabase.Create(Root+'index.sqlite');
   try
     DB.ExecSQL('CREATE TABLE Books(BookID INTEGER PRIMARY KEY,LibID TEXT,Folder TEXT,FileName TEXT,Ext TEXT,InsideNo INTEGER,BookSize INTEGER)');
-    DB.ExecSQL('CREATE TABLE HomeLibreBookCompression(FileKey TEXT,Member TEXT,BookSize INTEGER,OutputSHA256 TEXT)');
+    DB.ExecSQL('CREATE TABLE HomeLibreBookCompression(FileKey TEXT,Member TEXT,BookSize INTEGER,OutputSHA256 TEXT,InputSHA256 TEXT)');
     DB.ExecSQL('CREATE TABLE HomeLibreCompressionChecks(FileKey TEXT,Member TEXT,SourceIdentity TEXT,PayloadSHA256 TEXT)');
     Seed(False); BeginRefresh; FinishRefresh(Length(Body),'standalone file and renumbered ID');
     Seed(True); BeginRefresh; FinishRefresh(Length(Body),'archive member and renumbered ID');
@@ -56,12 +57,16 @@ begin
     FinishRefresh(999,'same member in another physical archive');
     Seed(False); DB.ExecSQL('UPDATE HomeLibreCompressionChecks SET PayloadSHA256=''different''');
     BeginRefresh; FinishRefresh(999,'no matching payload proof');
+    Seed(True); DB.ExecSQL('UPDATE HomeLibreBookCompression SET BookSize=-1');
+    BeginRefresh; FinishRefresh(999,'unknown restored size must not replace publisher size');
+    Seed(True); DB.ExecSQL('UPDATE HomeLibreBookCompression SET InputSHA256=OutputSHA256');
+    BeginRefresh; FinishRefresh(999,'legacy unchanged inspection is not a measured restored size');
     Seed(False); DB.Start;
     CaptureCompressionIndexSizes(DB,Root,'LibID'); DB.ExecSQL('DELETE FROM Books'); DB.Rollback;
     Require(DB.QuerySingleInt('SELECT BookSize FROM Books')=Length(Body),'Canceled index import changed book size');
     Require(DB.QuerySingleInt('SELECT count(*) FROM sqlite_temp_master WHERE name LIKE ''InpxCompress%''')=0,
       'Canceled index import leaked compression snapshots');
-    Writeln('PASS nine compressed-size boundaries preserve physical identity and rollback');
+    Writeln('PASS eleven compressed-size boundaries preserve physical identity and rollback');
   finally DB.Free; end;
 end;
 
