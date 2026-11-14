@@ -119,3 +119,9 @@ missing-decoder continuation and partial-failure reporting. User-data copies,
 final applications/distributions and the rest of beta 14 remain separate gates.
 The Python preparation layer does not prove native publication or full-book
 readability; current diagnostic book bodies serve only as resource identifiers.
+
+## Worker request bridge
+
+The installed `external_image_preparation.py --job ... --cancel ...` now accepts an explicit versioned external-image preparation request. Its atomic report includes the exact selected members and explicit original/prepared covers/images slots for native complete-book restoration. It is not a publication receipt. Missing JPEG XL is identified as component `JPEGXL`; cancellation, request-version refusal and report collision leave source bytes unchanged and remove owned candidates.
+
+Four focused installed embedded-Python cases passed on each architecture; no unchanged archive/core suites were repeated. Reports: `G:/HL-b14-external/protocol-Win64-r141/report.json` (22.5 s) and `G:/HL-b14-external/protocol-Win32-r142/report.json` (27.282 s). Both private runtimes were removed. Packages-r140 are local candidates, not published or deployed. Native grouped publication remains outstanding.

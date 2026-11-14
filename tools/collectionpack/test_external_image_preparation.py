@@ -138,22 +138,15 @@ class ExternalImagePreparationTests(unittest.TestCase):
                     self.assertEqual(self.read(group['candidate'], name), body)
 
     def test_embedded_python_prepares_images_with_matching_native_codecs(self):
-        driver = self.root / 'embedded-preparation.py'
-        driver.write_text('import sys,json\nfrom dataclasses import asdict\nfrom pathlib import Path\n'
-            'sys.path.insert(0,' + repr(str(RUNTIME / 'tools/bookconvert')) + ')\n'
-            'from external_image_preparation import prepare_external_images\n'
-            'from pack_collection import atomic_json\n'
-            'request=json.loads(Path(sys.argv[1]).read_text("utf-8"))\n'
-            'result=prepare_external_images(**request)\n'
-            'atomic_json(sys.argv[2],asdict(result),replace=False)\n', encoding='utf-8')
-        request, report = self.root / 'request.json', self.root / 'embedded-result.json'
-        request.write_text(json.dumps(dict(source=str(self.source), members={'one.fb2': '.fb2'},
-            workspace=str(self.work), seven_zip=str(SEVEN), profile='maximum', grayscale=True,
-            tools_root=str(RUNTIME / 'tools'), jpeg_xl_decoder=str(DECODER))), encoding='utf-8')
-        process = run_owned([str(RUNTIME / 'tools/python/python.exe'), '-I', '-B', '-X', 'utf8',
-            str(driver), str(request), str(report)], capture_output=True, timeout=45)
+        process, report = self.run_worker(profile='maximum', grayscale=True)
         self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
         result = json.loads(report.read_text(encoding='utf-8'))
+        self.assertEqual(result['kind'], 'HomeLibre external image preparation')
+        self.assertNotIn('receipt', result)
+        self.assertEqual(result['members'], {'one.fb2': '.fb2'})
+        self.assertEqual(result['original_image_sources'], [str(self.cover), str(self.pictures)])
+        prepared_paths = {item['kind']: item['candidate'] or item['source'] for item in result['archives']}
+        self.assertEqual(result['prepared_image_sources'], [prepared_paths['covers'], prepared_paths['images']])
         self.assertEqual(self.snapshot(), self.before)
         pictures = next(row for row in result['archives'] if row['kind'] == 'images')
         self.assertIsNotNone(pictures['candidate'])
@@ -172,6 +165,50 @@ class ExternalImagePreparationTests(unittest.TestCase):
                     for group in result['archives']])
             with Path(evidence).open('x', encoding='utf-8') as stream:
                 json.dump(summary, stream, indent=2)
+
+    def run_worker(self, cancel=False, **options):
+        request, report = self.root / 'request.json', self.root / 'embedded-result.json'
+        value = dict(version=1, kind='HomeLibre external image preparation', source=str(self.source),
+            members={'one.fb2': '.fb2'}, workspace=str(self.work), seven_zip=str(SEVEN), report=str(report),
+            profile='original', tools_root=str(RUNTIME / 'tools'), jpeg_xl_decoder=str(DECODER))
+        value.update(options)
+        request.write_text(json.dumps(value), encoding='utf-8')
+        arguments = [str(RUNTIME / 'tools/python/python.exe'), '-I', '-B', '-X', 'utf8',
+                     str(RUNTIME / 'tools/bookconvert/external_image_preparation.py'), '--job', str(request)]
+        if cancel:
+            marker = self.root / 'cancel'
+            marker.touch()
+            arguments.extend(['--cancel', str(marker)])
+        return run_owned(arguments, capture_output=True, timeout=45), report
+
+    def test_worker_reports_required_decoder_and_removes_candidates(self):
+        process, report = self.run_worker(profile='maximum', jpeg_xl_decoder=None)
+        self.assertEqual(process.returncode, 1, process.stdout + process.stderr)
+        event = json.loads(process.stdout.decode('utf-8').splitlines()[-1])
+        self.assertEqual(event['component'], 'JPEGXL')
+        self.assertFalse(report.exists())
+        self.assertEqual(list(self.work.iterdir()), [])
+        self.assertEqual(self.snapshot(), self.before)
+
+    def test_worker_cancel_and_unsupported_request_leave_sources_exact(self):
+        process, report = self.run_worker(cancel=True)
+        self.assertEqual(process.returncode, 2, process.stdout + process.stderr)
+        self.assertEqual(json.loads(process.stdout.decode('utf-8'))['stage'], 'cancelled')
+        self.assertFalse(report.exists())
+        process, report = self.run_worker(version=2)
+        self.assertEqual(process.returncode, 1, process.stdout + process.stderr)
+        self.assertFalse(report.exists())
+        self.assertEqual(list(self.work.iterdir()), [])
+        self.assertEqual(self.snapshot(), self.before)
+
+    def test_worker_report_collision_removes_prepared_candidates(self):
+        report = self.root / 'embedded-result.json'
+        report.write_bytes(b'keep prior evidence')
+        process, _ = self.run_worker()
+        self.assertEqual(process.returncode, 1, process.stdout + process.stderr)
+        self.assertEqual(report.read_bytes(), b'keep prior evidence')
+        self.assertEqual(list(self.work.iterdir()), [])
+        self.assertEqual(self.snapshot(), self.before)
 
     def test_grayscale_outputs_have_equal_channels_and_leave_sources_exact(self):
         from PIL import Image, ImageChops

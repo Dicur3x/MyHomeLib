@@ -4,17 +4,24 @@ The outer book archive and all image sources remain read-only. An image
 candidate is not a completed edit, and must never be published without the
 book/dependency witnesses and the native recovery/backup transaction.
 """
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
+import argparse
 import hashlib
 import importlib.util
+import json
 from pathlib import Path
 import posixpath
 import subprocess
+import sys
 import time
+
+# The installed embedded interpreter is isolated; load only this component.
+if __package__ in (None, ''):
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from archive_replacement import archive_inventory, prepare_archive_replacement
 from pack_collection import (Canceled, Packer, PackingError, SEVENZIP_MAGIC,
-    SevenZip, canonical, digest_file, process_working_directory, reserve_space,
+    SevenZip, atomic_json, canonical, digest_file, process_working_directory, reserve_space,
     temporary_work_directory)
 
 MAX_IMAGE = 16 * 1024 * 1024
@@ -290,3 +297,75 @@ def prepare_external_images(source, members, workspace, seven_zip, *, profile='o
         for candidate in candidates:
             candidate.unlink(missing_ok=True)
         raise
+
+
+def reader_sources(prepared, *, candidates):
+    """Explicit covers/images slots for strict, complete-book validation.
+
+    Empty slots are intentional: the native reader must not discover an
+    archive that appeared after preparation. Never substitute a rejected
+    proposed image for the bytes actually retained by the archive preparer.
+    """
+    sources = {item['kind']: item['path'] for item in prepared.dependencies}
+    if candidates:
+        sources.update({item['kind']: item['candidate'] for item in prepared.archives
+                        if item['candidate'] is not None})
+    return [sources.get(kind, '') for kind in ('covers', 'images')]
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--job', type=Path, required=True)
+    parser.add_argument('--cancel', type=Path)
+    arguments = parser.parse_args()
+    prepared = None
+
+    def emit(value):
+        print(json.dumps(value, ensure_ascii=False), flush=True)
+
+    def canceled():
+        return arguments.cancel is not None and arguments.cancel.exists()
+
+    try:
+        if not 0 < arguments.job.stat().st_size <= 16 * 1024 * 1024:
+            raise PackingError('Неверный размер задания внешних изображений.')
+        request = json.loads(arguments.job.read_text(encoding='utf-8-sig'))
+        if (not isinstance(request, dict) or type(request.get('version')) is not int or
+                request['version'] != 1 or request.get('kind') != 'HomeLibre external image preparation'):
+            raise PackingError('Неизвестное задание внешних изображений.')
+        prepared = prepare_external_images(request['source'], request['members'], request['workspace'],
+            request['seven_zip'], profile=request.get('profile', 'original'),
+            grayscale=request.get('grayscale', False), tools_root=request.get('tools_root'),
+            jpeg_xl_decoder=request.get('jpeg_xl_decoder'), canceled=canceled, notify=emit)
+        if canceled():
+            raise Canceled('Сжатие внешних изображений остановлено. Исходники не изменены.')
+        result = dict(version=1, kind='HomeLibre external image preparation',
+            **asdict(prepared), members=request['members'],
+            original_image_sources=reader_sources(prepared, candidates=False),
+            prepared_image_sources=reader_sources(prepared, candidates=True))
+        # This is preparation evidence, deliberately not a publication receipt.
+        # The native caller must restore/validate complete selected books and
+        # durably bind every dependency before applying any candidate.
+        atomic_json(request['report'], result, replace=False)
+        emit(dict(stage='ready', candidates=sum(item['candidate'] is not None for item in prepared.archives)))
+        return 0
+    except Canceled as error:
+        emit(dict(stage='cancelled', message=str(error)))
+        status = 2
+    except (PackingError, OSError, ValueError, KeyError, TypeError) as error:
+        event = dict(stage='error', message=str(error))
+        if isinstance(error, ImageComponentRequired):
+            event['component'] = error.component
+        emit(event)
+        status = 1
+    if prepared is not None:
+        for item in prepared.archives:
+            if item['candidate'] is not None:
+                Path(item['candidate']).unlink(missing_ok=True)
+    return status
+
+
+if __name__ == '__main__':
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8')
+    sys.exit(main())
