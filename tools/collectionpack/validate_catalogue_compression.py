@@ -21,7 +21,6 @@ import zipfile
 from xml.etree import ElementTree as ET
 
 from pack_collection import temporary_work_directory
-from test_pack_collection import illustrated_fb2, image_fixture
 from prepare_book_compression import verify_non_image_content
 
 
@@ -78,6 +77,7 @@ def legacy_gui_inputs(root, stage, platform):
     # Import only for this scenario: that fixture module captures native-worker
     # environment at import time, after the inspection runner sets its runtime.
     from test_prepare_book_compression import epub
+    from test_pack_collection import illustrated_fb2, image_fixture
     original = {'one.fb2': illustrated_fb2(image_fixture()),
                 'two.epub': epub(image_fixture())}
     source = root / 'legacy-input.zip'
@@ -164,6 +164,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
         processing_package=None, estimate_first=False, whole=False, repeat_new=False, repeat_offer=False, images=None,
         scenario='selected-compression-ui', recovery_fault=None, recovery_preserve=None, refresh_index=False,
         legacy_history=False):
+    from test_pack_collection import illustrated_fb2, image_fixture
     if recovery_fault:
         assert scenario == 'selected-compression-ui' and mode == 'apply' and not real_books
     if recovery_preserve:
@@ -216,6 +217,11 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
                      'two.fb2': illustrated_fb2(image_fixture(False)).replace(b'this text', b'the second text'),
                      'neighbor.fb2': b'Unselected neighbor must remain byte-exact.\x00\xff'}
         real_stamps = {}
+        if scenario == 'packed-catalogue-sizes':
+            from test_prepare_book_compression import epub
+            assert not any((real_books, legacy_history, recovery_fault, refresh_index))
+            originals = {'one.fb2': illustrated_fb2(image_fixture()), 'two.epub': epub(image_fixture()),
+                         'neighbor.fb2': originals['neighbor.fb2']}
         legacy_stamps, legacy_image_hash = {}, None
         if legacy_history:
             assert mode == 'apply' and scenario == 'selected-compression-ui' and not any((real_books,
@@ -339,6 +345,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
             'selected-compression-ui': f'PASS selected compression normal catalogue {mode}',
             'explorer-file-drop': 'PASS Explorer import offers compression only after accepted imports',
             'update-outcomes': 'PASS actual INPX and Metabib menus offer compression after commit',
+            'packed-catalogue-sizes': 'PASS packed publication and actual INPX retain book copy and personal sizes without originals',
         }[scenario]
         if recovery_fault:
             expected = 'PASS actual compression crash and ordinary startup recovery ' + recovery_fault
@@ -366,14 +373,43 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
         if scenario != 'selected-compression-ui':
             assert not real_books, 'Event fixtures must not borrow real collection books'
             assert digest(source) == before, 'Import/update offer changed an unrelated shared ZIP'
+            publication = {}
+            if scenario == 'packed-catalogue-sizes':
+                output_root = root / 'packed-size-output'
+                catalogues = list(output_root.glob('*.hlc2'))
+                assert len(catalogues) == 2, 'Publication and its INPX update must both retain their own catalogue'
+                retained = {}
+                for catalogue in catalogues:
+                    sizes = {}
+                    with closing(sqlite3.connect(catalogue.as_uri() + '?mode=ro', uri=True)) as db:
+                        rows = db.execute('SELECT BookID,LibID,Folder,FileName,Ext,BookSize FROM Books '
+                                          "WHERE LibID COLLATE BINARY IN ('101','102')").fetchall()
+                        assert len(rows) == 2
+                        for book_id, lib_id, folder, filename, ext, size in rows:
+                            name = 'one.fb2' if str(lib_id) == '101' else 'two.epub'
+                            body = archive_body(output_root / folder, filename + ext, root / 'tools/7zip/7za.exe')
+                            assert size == len(body) < len(originals[name]), (catalogue.name, name, size, len(body))
+                            old, new = root / ('before-' + name), root / ('after-' + name)
+                            old.write_bytes(originals[name]); new.write_bytes(body)
+                            verify_non_image_content(old, new, ext)
+                            book_hash = hashlib.sha256(body).hexdigest()
+                            assert retained.setdefault(name, book_hash) == book_hash, 'INPX changed retained book bytes'
+                            sizes[name] = size
+                            for copy_size, in db.execute('SELECT BookSize FROM CatalogBookCopies WHERE BookID=?', (book_id,)):
+                                assert copy_size == size, 'Alternate copy size differs from the actual book'
+                    publication[catalogue.name] = sizes
             return dict(status='PASS', platform=platform, mode=mode, scenario=scenario,
                         seconds=round(time.monotonic()-started, 3),
                         native_binary_sha256=digest(binary),
                         processing_package_sha256=digest(processing_package) if processing_package else None,
                         image_helper_sha256=digest(root / 'tools/images/HomeLibImages.exe'),
                         private_runtime=str(root), real_source_stamps={},
+                        packed_catalogue_sizes=publication,
                         unrelated_archive_unchanged=True, native_log=str(log_path),
-                        scope='Native normal INPX/Metabib menu or Windows Shell import on a private synthetic catalogue; no real user data')
+                        scope=('Native full packed-copy publication and actual INPX update without originals; '
+                               'catalogue, personal card and alternate-copy sizes, legacy/unknown sizes and invalid-size rejection'
+                               if scenario == 'packed-catalogue-sizes' else
+                               'Native normal INPX/Metabib menu or Windows Shell import on a private synthetic catalogue; no real user data'))
         attempt.update(status='VERIFYING_CONTENT', native_returncode=process.returncode)
         attempt_file.write_text(json.dumps(attempt, indent=2), encoding='utf-8')
         with zipfile.ZipFile(source) as archive:
@@ -455,7 +491,8 @@ if __name__ == '__main__':
     parser.add_argument('--estimate-first', action='store_true')
     parser.add_argument('--whole', action='store_true')
     parser.add_argument('--repeat-new', action='store_true', help='After applying, invoke the normal new-books menu and verify no preparation')
-    parser.add_argument('--scenario', choices=['selected-compression-ui', 'explorer-file-drop', 'update-outcomes'], default='selected-compression-ui')
+    parser.add_argument('--scenario', choices=['selected-compression-ui', 'explorer-file-drop', 'update-outcomes',
+                        'packed-catalogue-sizes'], default='selected-compression-ui')
     parser.add_argument('--repeat-offer', action='store_true', help='Exercise nonmodal arrivals offer, dismissal, canceled options and explicit start')
     parser.add_argument('--images', type=Path, help='Fresh image helper verified against the current C# source')
     parser.add_argument('--recovery-fault', choices=['job-published', 'file-committed', 'catalogue-committed',

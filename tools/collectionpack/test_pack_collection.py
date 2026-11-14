@@ -129,11 +129,16 @@ class PackingTests(unittest.TestCase):
 
     def retain(self, result, identities):
         with database(self.output / 'generations' / result.generation / 'locations.sqlite') as locations:
-            rows = [locations.execute('SELECT * FROM locations WHERE book_id=?', (identity,)).fetchone() for identity in identities]
+            rows = [locations.execute('SELECT book_id,folder,filename,ext,inside_no FROM locations WHERE book_id=?',
+                                      (identity,)).fetchone() for identity in identities]
         with database(self.plan) as plan:
             plan.execute('CREATE TABLE IF NOT EXISTS retained(book_id INTEGER PRIMARY KEY,folder TEXT,filename TEXT,ext TEXT,inside_no INTEGER)')
             plan.executemany('INSERT OR REPLACE INTO retained VALUES(?,?,?,?,?)', rows)
             plan.executemany('DELETE FROM books WHERE book_id=?', [(identity,) for identity in identities])
+
+    def mapped_size(self, result, identity):
+        with database(self.output / 'generations' / result.generation / 'locations.sqlite') as db:
+            return db.execute('SELECT book_size FROM locations WHERE book_id=?', (identity,)).fetchone()[0]
 
     def test_separated_jpeg_mode_requires_both_tools_before_creating_destination(self):
         job = dict(self.job, engine=JPEG_XL_ENGINE)
@@ -216,9 +221,24 @@ class PackingTests(unittest.TestCase):
         restored.extend(envelope[position:])
         self.assertEqual(restored, data)
         self.assertEqual(source.read_bytes(), data)
+        self.assertEqual(self.mapped_size(packed, 1), len(data))
+        self.assertNotEqual(len(envelope), len(data))
         self.retain(packed, [1])
         repeated = Packer(job).execute()
         self.assertEqual((repeated.reused, self.packed_book(repeated, 1)), (1, envelope))
+        self.assertEqual(self.mapped_size(repeated, 1), len(data))
+        # Historical JPEG XL journals have only the surrogate payload size.
+        # An incremental run must preserve the catalogue's logical size.
+        with database(self.output / 'packing.sqlite') as db:
+            for table in ('sources', 'payloads'):
+                row = db.execute('SELECT members FROM ' + table).fetchone()
+                members = json.loads(row[0])
+                for item in members.values():
+                    item.pop('book_size', None)
+                db.execute('UPDATE ' + table + ' SET members=?', (json.dumps(members),))
+        historical = Packer(job).execute()
+        self.assertIsNone(self.mapped_size(historical, 1))
+        self.assertEqual(self.packed_book(historical, 1), envelope)
 
     def test_packed_pdf_ignores_jpeg_bytes_outside_a_direct_pdf_stream(self):
         data = b'%PDF-1.4\n% not a stream\n\xff\xd8\xff' + b'a' * 40_000 + b'\xff\xd9\n%%EOF'
@@ -328,7 +348,8 @@ class PackingTests(unittest.TestCase):
         self.assertEqual((result.sources, result.books, result.opaque_sources), (1, 2, 1))
         with database(self.output / 'generations' / result.generation / 'locations.sqlite') as db:
             rows = db.execute('SELECT * FROM locations ORDER BY book_id').fetchall()
-        self.assertEqual(rows[0][2:], (source.name, '.pdf', 0))
+        self.assertEqual(rows[0][2:5], (source.name, '.pdf', 0))
+        self.assertTrue(all(row[5] is None for row in rows))
         self.assertTrue(rows[0][1].endswith(os.sep))
         payload = rows[0][1] + rows[0][2]
         self.assertEqual(rows[1][1], payload)
@@ -340,7 +361,7 @@ class PackingTests(unittest.TestCase):
             db.execute('DELETE FROM books')
             db.execute('CREATE TABLE retained(book_id INTEGER PRIMARY KEY,folder TEXT NOT NULL,filename TEXT NOT NULL,'
                        'ext TEXT NOT NULL,inside_no INTEGER NOT NULL,payload TEXT NOT NULL)')
-            db.executemany('INSERT INTO retained VALUES(?,?,?,?,?,?)', [(*row, payload) for row in rows])
+            db.executemany('INSERT INTO retained VALUES(?,?,?,?,?,?)', [(*row[:5], payload) for row in rows])
         source.unlink()
         retained = Packer(self.job).execute()
         self.assertEqual((retained.sources, retained.books, retained.reused), (1, 2, 1))
@@ -679,7 +700,7 @@ class PackingTests(unittest.TestCase):
         self.assertEqual((row[2], row[3]), (source.stem, source.suffix))
         with database(self.plan) as db:
             db.execute('CREATE TABLE retained(book_id,folder,filename,ext,inside_no,payload)')
-            db.execute('INSERT INTO retained VALUES(?,?,?,?,?,?)', (*row, row[1] + row[2] + row[3]))
+            db.execute('INSERT INTO retained VALUES(?,?,?,?,?,?)', (*row[:5], row[1] + row[2] + row[3]))
             db.execute('DELETE FROM books')
         self.assertEqual(source.read_bytes(), body)
         source.rename(source.with_suffix('.held'))
@@ -979,6 +1000,8 @@ Packer(json.loads(open(sys.argv[2],encoding='utf-8').read()),notify).execute()
 
         result = Packer(self.job).execute()
         self.assertEqual((result.image_books_optimized, result.image_books_skipped), (2, 1))
+        for identity in range(1, len(books) + 1):
+            self.assertEqual(self.mapped_size(result, identity), len(self.packed_book(result, identity)))
         fb2_copy = self.packed_book(result, 1)
         xml = ElementTree.fromstring(fb2_copy)
         self.assertEqual(''.join(xml.find('.//{*}p').itertext()), 'Keep this text.')

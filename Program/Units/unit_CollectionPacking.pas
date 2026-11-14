@@ -1027,7 +1027,7 @@ end;
 
 procedure TCollectionPackingSnapshot.ApplyPrepared;
 var Plan, Locations, Catalog, Personal: TSQLiteDatabase; Q, Target, Deferred: TSQLiteQuery;
-  Folder, Filename, Ext, SourceKey: string; ID, Total, Done: Int64; Kind, BookID, Inside: Integer;
+  Folder, Filename, Ext, SourceKey, SizeColumn, SizeSQL: string; ID, Total, Done: Int64; Kind, BookID, Inside: Integer;
 begin
   if FApplied or (FPrepared='') then raise Exception.Create('Нет подготовленного результата сжатия.');
   Plan:=nil; Locations:=nil; Catalog:=nil; Personal:=nil; Q:=nil; Target:=nil; Deferred:=nil;
@@ -1049,7 +1049,15 @@ begin
     Catalog.ExecSQL('CREATE TABLE IF NOT EXISTS HomeLibPackingOrigins(Folder TEXT NOT NULL,FileName TEXT NOT NULL,Ext TEXT NOT NULL,'+
       'Source TEXT NOT NULL,Member TEXT NOT NULL,OriginalFileName TEXT NOT NULL,OriginalInsideNo INTEGER NOT NULL,PRIMARY KEY(Folder,FileName,Ext))');
     Target:=Plan.NewQuery('SELECT kind,book_id,source_key,source,member,filename,inside_no,fbd FROM targets WHERE plan_id=?');
-    Q:=Locations.NewQuery('SELECT book_id,folder,filename,ext,inside_no FROM locations ORDER BY book_id');
+    SizeColumn:='NULL';
+    if Locations.QuerySingleInt('SELECT count(*) FROM pragma_table_info(''locations'') WHERE name=''book_size''')>0 then
+    begin
+      SizeColumn:='book_size';
+      if Locations.QuerySingleInt('SELECT count(*) FROM locations WHERE book_size IS NOT NULL '+
+        'AND (typeof(book_size)<>''integer'' OR book_size<0)')<>0 then
+        raise Exception.Create('Модуль вернул некорректный размер книги.');
+    end;
+    Q:=Locations.NewQuery('SELECT book_id,folder,filename,ext,inside_no,'+SizeColumn+' FROM locations ORDER BY book_id');
     Deferred:=Plan.NewQuery('SELECT kind,book_id,source_key,folder,filename,ext,inside_no,root FROM deferred ORDER BY kind,book_id');
     Catalog.Start; Personal.Start;
     try
@@ -1058,6 +1066,8 @@ begin
       begin
         CheckCanceled; ID:=Q.FieldAsInt(0); Folder:=Q.FieldAsString(1);
         Filename:=Q.FieldAsString(2); Ext:=Q.FieldAsString(3); Inside:=Q.FieldAsInt(4);
+        SizeSQL:='';
+        if not Q.FieldIsNull(5) then SizeSQL:=',BookSize='+IntToStr(Q.FieldAsInt(5));
         Target.Reset; Target.SetParam(0,ID); Target.Open;
         if Target.Eof then raise Exception.Create('Не найдено исходное назначение книги.');
         if Target.FieldAsBoolean(7) then
@@ -1077,11 +1087,11 @@ begin
         else CheckedOutputFile(Folder);
         Kind:=Target.FieldAsInt(0); BookID:=Target.FieldAsInt(1); SourceKey:=Target.FieldAsString(2);
         case Kind of
-          0: Catalog.ExecSQL('UPDATE Books SET Folder=?,FileName=?,Ext=?,InsideNo=?,IsLocal=1 WHERE BookID=?',
+          0: Catalog.ExecSQL('UPDATE Books SET Folder=?,FileName=?,Ext=?,InsideNo=?'+SizeSQL+',IsLocal=1 WHERE BookID=?',
                [Folder,Filename,Ext,Inside,BookID]);
-          1: Personal.ExecSQL('UPDATE Books SET Folder=?,FileName=?,Ext=?,InsideNo=?,IsLocal=1 WHERE BookID=? AND DatabaseID=?',
+          1: Personal.ExecSQL('UPDATE Books SET Folder=?,FileName=?,Ext=?,InsideNo=?'+SizeSQL+',IsLocal=1 WHERE BookID=? AND DatabaseID=?',
                [Folder,Filename,Ext,Inside,BookID,FOptions.SourceID]);
-          2: Catalog.ExecSQL('UPDATE CatalogBookCopies SET Root=?,Folder=?,FileName=?,Ext=?,InsideNo=? WHERE SourceKey=?',
+          2: Catalog.ExecSQL('UPDATE CatalogBookCopies SET Root=?,Folder=?,FileName=?,Ext=?,InsideNo=?'+SizeSQL+' WHERE SourceKey=?',
                [FOptions.OutputRoot,Folder,Filename,Ext,Inside,SourceKey]);
         else raise Exception.Create('Неизвестное назначение книги.'); end;
         Catalog.ExecSQL('INSERT OR IGNORE INTO HomeLibPackingOrigins VALUES(?,?,?,?,?,?,?)',

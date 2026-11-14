@@ -6251,6 +6251,7 @@ end;
 {$I CollectionPackingRestartTests.inc}
 {$I SqlCatalogueRestartTests.inc}
 {$I BookCompressionCatalogueTests.inc}
+{$I PackedCatalogueSizeTests.inc}
 {$I CompressionRecoveryTests.inc}
 {$I CompressionPreferenceTests.inc}
 {$I PackageCoverTests.inc}
@@ -6326,6 +6327,7 @@ begin
       if ParamStr(1)='package-preview' then begin TestPackagePreview; Flush(Output); Halt(0); end;
       if ParamStr(1) = 'update-image-identity' then begin TestImageUpdateIdentity; Flush(Output); Halt(0); end;
       if ParamStr(1) = 'fbd-editor-save' then begin TestFBDEditorSave; Halt(0); end;
+      if ParamStr(1) = 'packed-catalogue-sizes' then begin TestPackedCatalogueSizes; Halt(0); end;
       if ParamStr(1) = 'packing-fbd' then begin TestPackingFbd; Halt(0); end;
       if ParamStr(1) = 'packing-inpx-result-child' then
       begin

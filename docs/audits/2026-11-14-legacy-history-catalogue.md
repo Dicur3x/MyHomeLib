@@ -99,3 +99,9 @@ actual decoded book sizes; the old native publication currently rewrites paths
 without `BookSize` (`unit_CollectionPacking.pas`, `ApplyPrepared`). Verify that
 older stored-size case next, along with old FBD and packed updates. Separated
 JPEG XL layouts and tests on user collection copies also remain open.
+
+Follow-up: the publication-size defect and a direct native packed INPX update
+without originals are now covered by
+`docs/audits/2026-11-14-packed-catalogue-sizes.md`. The earlier results above
+retain their original, narrower scope; ordinary-window FBD/legacy workflows
+still need their own final check.

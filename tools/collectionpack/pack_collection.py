@@ -201,6 +201,19 @@ def book_location(archive, item):
     return folder, item['filename'], item['ext'], item['inside_no']
 
 
+def catalogue_book_size(item, engine):
+    # A separated JPEG XL payload is a storage surrogate. Its size must not
+    # replace the size of the complete book reconstructed by the reader.
+    size = item.get('book_size')
+    if size is None and not (engine == JPEG_XL_ENGINE and item.get('image_result') == 'optimized'):
+        size = item.get('payload_size')
+    # Old byte-exact/opaque journal entries have no per-book measurement.
+    # NULL keeps the existing catalogue size instead of inventing one.
+    if size is not None and (type(size) is not int or not 0 <= size <= 2**63 - 1):
+        raise PackingError('Некорректный размер книги в журнале сжатия.')
+    return size
+
+
 def can_stage_extension(extension):
     # The generated member starts with 32 ASCII characters. Allow unusual
     # catalogue extensions as long as the resulting Windows filename is safe.
@@ -918,15 +931,17 @@ class Packer:
             if invalid is not None:
                 raise PackingError('Ранее созданный архив или его иллюстрации не прошли проверку: ' +
                                    str(self.root / (invalid or folder)))
-            members = {book_location(folder, item): item.get('image_result') for item in json.loads(row[0]).values()}
+            members = {book_location(folder, item): item for item in json.loads(row[0]).values()}
             count = 0
             with mapping:
                 for book in plan.execute(f'SELECT book_id,folder,filename,ext,inside_no FROM retained WHERE {payload_column}=? ORDER BY book_id', (folder,)):
                     self.check()
                     if tuple(book)[1:] not in members:
                         raise PackingError('Расположение книги не совпадает с готовым архивом: ' + folder)
-                    mapping.execute('INSERT INTO locations VALUES(?,?,?,?,?)', tuple(book))
-                    self.count_image_result(members[tuple(book)[1:]])
+                    item = members[tuple(book)[1:]]
+                    mapping.execute('INSERT INTO locations VALUES(?,?,?,?,?,?)',
+                                    (*book, catalogue_book_size(item, self.engine)))
+                    self.count_image_result(item.get('image_result'))
                     count += 1
             self.result.sources += 1; self.result.reused += 1; self.result.books += count
             self.result.input_bytes += row[2]
@@ -1142,7 +1157,8 @@ class Packer:
                     untouched.append(name)
                     continue
                 replacements[locator] = dict(item, **book_signature(candidate, self.check),
-                    image_result='optimized', original_sha256=item['payload_sha256'])
+                    image_result='optimized', original_sha256=item['payload_sha256'],
+                    book_size=item['payload_size'])
                 for identity, encoded in images.items():
                     self.check()
                     entry = item['filename'] + '/' + identity
@@ -1491,7 +1507,7 @@ class Packer:
                 generation.mkdir(parents=True)
                 mapping = sqlite3.connect(generation / 'locations.sqlite')
                 try:
-                    mapping.execute('CREATE TABLE locations(book_id INTEGER PRIMARY KEY,folder TEXT NOT NULL,filename TEXT NOT NULL,ext TEXT NOT NULL,inside_no INTEGER NOT NULL)')
+                    mapping.execute('CREATE TABLE locations(book_id INTEGER PRIMARY KEY,folder TEXT NOT NULL,filename TEXT NOT NULL,ext TEXT NOT NULL,inside_no INTEGER NOT NULL,book_size INTEGER CHECK(book_size>=0))')
                     retained_sources = plan.execute(f'SELECT count(DISTINCT {payload_column}) FROM retained').fetchone()[0] if retained else 0
                     retained_books = plan.execute('SELECT count(*) FROM retained').fetchone()[0] if retained else 0
                     if retained and plan.execute('SELECT 1 FROM books JOIN retained USING(book_id) LIMIT 1').fetchone():
@@ -1537,8 +1553,9 @@ class Packer:
                         with mapping:
                             for row in rows:
                                 item = members[row['locator']]
-                                mapping.execute('INSERT INTO locations VALUES(?,?,?,?,?)',
-                                                (row['book_id'], *book_location(folder, item)))
+                                mapping.execute('INSERT INTO locations VALUES(?,?,?,?,?,?)',
+                                                (row['book_id'], *book_location(folder, item),
+                                                 catalogue_book_size(item, self.engine)))
                                 self.count_image_result(item.get('image_result'))
                         self.result.sources += 1; self.result.books += len(rows)
                         self.result.input_bytes += input_bytes
