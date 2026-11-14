@@ -81,7 +81,7 @@ uses
   VirtualTrees.AncestorVCL,
   unit_Localization, unit_BookInfoPreview, unit_MHLTheme, System.Generics.Collections,
   unit_AuthorFavorites, unit_AuthorFavoriteRefresh, unit_ReaderAnnotations, unit_ReaderSession,
-  unit_BookSaveContinuation, unit_BookReviewPreview, unit_CollectionPacking,
+  unit_BookSaveContinuation, unit_BookReviewPreview, unit_CollectionPacking, unit_BookCompressionContinuation,
   unit_BookCompressionOperation, frm_BookCompression;
 
 const
@@ -978,7 +978,7 @@ type
     procedure RestoreCollectionSnapshot(Sender: TObject);
     procedure PackCurrentCollection(Sender: TObject);
     procedure CompressNewBooks(Sender: TObject);
-    procedure StartCollectionCompression(OnlyNew: Boolean);
+    procedure StartCollectionCompression(OnlyNew: Boolean; Resume: PBookCompressionContinuation = nil);
     procedure QueueCollectionCompressionOffer(CollectionID: Integer);
     procedure RefreshCollectionCompressionOffer;
     procedure LayoutCollectionCompressionOffer(Sender: TObject);
@@ -987,6 +987,7 @@ type
     procedure CollectionCompressionOfferUpdate(Sender: TObject);
     procedure PackCollection(UpdateFromInpx: Boolean; Resume: PCollectionPackingRequest = nil);
     procedure CompressSelectedBooks(Sender: TObject);
+    procedure StartSelectedCompression(Resume: PBookCompressionContinuation = nil);
     procedure CompressionActionUpdate(Sender: TObject);
     procedure StartBookCompression(Operation: TBookCompressionOperation);
     procedure BookCompressionTick(Sender: TObject);
@@ -995,6 +996,7 @@ type
     procedure CheckCompressionRecovery;
     function CompressionBlocksCatalogChange: Boolean;
     procedure ResumePacking(var Message: TMessage); message WM_RESUME_COLLECTION_PACKING;
+    procedure ResumeBookCompression(var Message: TMessage); message WM_RESUME_BOOK_COMPRESSION;
     procedure ResumeSqlCatalogue(var Message: TMessage); message WM_RESUME_SQL_CATALOGUE;
     procedure ShowBookDuplicates(Sender: TObject);
     procedure CheckBookDuplicateApply(Sender: TObject);
@@ -4843,11 +4845,22 @@ begin StartCollectionCompression(False); end;
 procedure TfrmMain.CompressNewBooks(Sender: TObject);
 begin StartCollectionCompression(True); end;
 
-procedure TfrmMain.StartCollectionCompression(OnlyNew: Boolean);
+function CompressionContinuationFor(const Collection: IBookCollection; const Info: TCollectionInfo;
+  Scope: TCompressionResumeScope; const Options: TBookCompressionOperationOptions;
+  const Books: TArray<TBookRecord>): TBookCompressionContinuation;
+var Identity: TCollectionPackingRequest;
+begin
+  Identity:=Default(TCollectionPackingRequest); Identity.SourceID:=Info.ID;
+  Identity.CatalogFile:=Settings.ExpandCollectionFileName(VarToStr(Collection.GetProperty(PROP_DATAFILE)));
+  Identity.SourceRoot:=Info.GetRootPath;
+  Result:=CaptureCompressionContinuation(Identity,Scope,Options,Books);
+end;
+
+procedure TfrmMain.StartCollectionCompression(OnlyNew: Boolean; Resume: PBookCompressionContinuation);
 var Info:TCollectionInfo; Options:TBookCompressionOperationOptions;
     Personal,Registry,WorkRoot,Warning:string; Required:TArray<string>;
     Operation:TBookCompressionOperation;
-    CollectionID:Integer;
+    CollectionID:Integer; Request:TBookCompressionContinuation;
 begin
   if Assigned(FBookCompressionOperation) then
   begin FBookCompressionProgress.Show; Exit; end;
@@ -4865,15 +4878,24 @@ begin
     Warning:=LoadCollectionCompressionPreferences(Registry,
       TPath.Combine(Info.GetRootPath,'HomeLibre-compression-work'),FCollection,Options);
     if Warning<>'' then MHLShowWarning(Warning);
+    if Resume<>nil then
+    begin
+      Resume^.Identity.CheckIdentity(Settings.ExpandCollectionFileName(
+        VarToStr(FCollection.GetProperty(PROP_DATAFILE))),Info.GetRootPath,Info.ID);
+      Options:=Resume^.Options;
+    end;
     Options.OnlyNew:=OnlyNew;
-    if not ChooseSelectedCompressionOptions(Self,0,Options) then Exit;
+    if not ChooseSelectedCompressionOptions(Self,0,Options,Resume<>nil) then Exit;
     RememberCollectionCompressionWork(Registry,FCollection,Options);
     Required:=ResolveSelectedCompressionTools(Settings.AppPath,Options);
     if Length(Required)>0 then
     begin
       EnsureProgramUpdateForm;
+      var Scope:=crsCollection; if OnlyNew then Scope:=crsNew;
+      Request:=CompressionContinuationFor(FCollection,Info,Scope,Options,nil);
       FProgramUpdateForm.RequestComponents(Required,
-        'Для сжатия текущей коллекции нужны эти компоненты. После установки повторите команду.',True);
+        'Для сжатия текущей коллекции нужны эти компоненты. После установки вернёмся к выбранным настройкам.',True,
+        function:string begin Result:=StoreCompressionContinuation(Settings.SettingsFileName,Request); end);
       Exit;
     end;
     WorkRoot:=Options.WorkRoot;
@@ -4898,9 +4920,13 @@ begin
 end;
 
 procedure TfrmMain.CompressSelectedBooks(Sender: TObject);
+begin StartSelectedCompression; end;
+
+procedure TfrmMain.StartSelectedCompression(Resume: PBookCompressionContinuation);
 var Tree: TBookTree; IDs: TBookIdList; Books: TArray<TBookRecord>;
   Info: TCollectionInfo; Options: TBookCompressionOperationOptions;
   Personal, Registry, Warning: string; Required: TArray<string>; Operation: TBookCompressionOperation;
+  Request:TBookCompressionContinuation;
 begin
   if Assigned(FBookCompressionOperation) then
   begin FBookCompressionProgress.Show; Exit; end;
@@ -4909,20 +4935,32 @@ begin
   begin MHLShowInfo('Сначала завершите текущую операцию с файлами книг.'); Exit; end;
   if CheckActiveDownloads then
   begin MHLShowInfo('Дождитесь завершения скачивания книг, затем повторите сжатие.'); Exit; end;
-  GetActiveTree(Tree); if not Assigned(Tree) then Exit;
-  FillBookIdList(Tree,IDs,False); if Length(IDs)=0 then Exit;
+  if Resume=nil then
+  begin
+    GetActiveTree(Tree); if not Assigned(Tree) then Exit;
+    FillBookIdList(Tree,IDs,False); if Length(IDs)=0 then Exit;
+  end;
   try
     Info:=FSystemData.GetCollectionInfo(FCollection.CollectionID);
-    SetLength(Books,Length(IDs));
-    for var I:=0 to High(IDs) do
+    if Resume<>nil then
     begin
-      if IDs[I].BookKey.DatabaseID<>Info.ID then
-        raise EReadError.Create('Для этого сжатия выберите книги одной коллекции.');
-      FCollection.GetBookRecord(IDs[I].BookKey,Books[I],False);
-      if IDs[I].HasExpectedIdentity and not ReaderBookMatchesExpectedIdentity(
-        IDs[I].ExpectedLibID,IDs[I].ExpectedPhysicalIdentity,Books[I],
-        VarToStr(FCollection.GetProperty(PROP_SOURCE_LIBRARY))) then
-        raise EReadError.Create('Выбранная книга изменилась. Повторите выбор перед сжатием.');
+      Resume^.Identity.CheckIdentity(Settings.ExpandCollectionFileName(
+        VarToStr(FCollection.GetProperty(PROP_DATAFILE))),Info.GetRootPath,Info.ID);
+      Books:=ResolveCompressionContinuationBooks(Resume^,FCollection);
+    end
+    else
+    begin
+      SetLength(Books,Length(IDs));
+      for var I:=0 to High(IDs) do
+      begin
+        if IDs[I].BookKey.DatabaseID<>Info.ID then
+          raise EReadError.Create('Для этого сжатия выберите книги одной коллекции.');
+        FCollection.GetBookRecord(IDs[I].BookKey,Books[I],False);
+        if IDs[I].HasExpectedIdentity and not ReaderBookMatchesExpectedIdentity(
+          IDs[I].ExpectedLibID,IDs[I].ExpectedPhysicalIdentity,Books[I],
+          VarToStr(FCollection.GetProperty(PROP_SOURCE_LIBRARY))) then
+          raise EReadError.Create('Выбранная книга изменилась. Повторите выбор перед сжатием.');
+      end;
     end;
     Personal:=Settings.SystemFileName[sfSystemDB];
     Registry:=TPath.Combine(Settings.DataPath,'compression-work.ini');
@@ -4930,7 +4968,8 @@ begin
     Warning:=LoadCollectionCompressionPreferences(Registry,
       TPath.Combine(ExtractFileDir(Books[0].GetBookFileName),'HomeLibre-compression-work'),FCollection,Options);
     if Warning<>'' then MHLShowWarning(Warning);
-    if not ChooseSelectedCompressionOptions(Self,Length(Books),Options) then Exit;
+    if Resume<>nil then Options:=Resume^.Options;
+    if not ChooseSelectedCompressionOptions(Self,Length(Books),Options,Resume<>nil) then Exit;
     // Remember recovery locations and the collection's explicit choices even
     // when the next step needs to install a missing processing component.
     RememberCollectionCompressionWork(Registry,FCollection,Options);
@@ -4938,8 +4977,10 @@ begin
     if Length(Required)>0 then
     begin
       EnsureProgramUpdateForm;
+      Request:=CompressionContinuationFor(FCollection,Info,crsSelected,Options,Books);
       FProgramUpdateForm.RequestComponents(Required,
-        'Для сжатия выбранных книг нужны эти компоненты. После установки повторите команду; отметки книг сохранены.',True);
+        'Для сжатия выбранных книг нужны эти компоненты. После установки вернёмся к этим книгам и настройкам.',True,
+        function:string begin Result:=StoreCompressionContinuation(Settings.SettingsFileName,Request); end);
       Exit;
     end;
     Operation:=TBookCompressionOperation.Create(Options,
@@ -5290,6 +5331,27 @@ begin
   except
     on E: Exception do
     begin LogDiagnosticError('packing-resume',E); MHLShowError(E.Message); end;
+  end;
+end;
+
+procedure TfrmMain.ResumeBookCompression(var Message: TMessage);
+var Request:TBookCompressionContinuation;
+begin
+  if Application.Terminated or (csDestroying in ComponentState) then Exit;
+  try
+    for var I:=ParamCount downto 1 do
+      if ParamStr(I).StartsWith(BOOK_COMPRESSION_RESUME_SWITCH) then
+      begin
+        if TakeCompressionContinuation(Settings.SettingsFileName,ParamStr(I),Request) then
+          case Request.Scope of
+            crsCollection:StartCollectionCompression(False,@Request);
+            crsNew:StartCollectionCompression(True,@Request);
+            crsSelected:StartSelectedCompression(@Request);
+          end;
+        Break;
+      end;
+  except on E:Exception do
+    begin LogDiagnosticError('book-compression-resume',E); MHLShowError(E.Message); end;
   end;
 end;
 
@@ -6011,6 +6073,9 @@ begin
   for var I:=1 to ParamCount do
     if ParamStr(I).StartsWith(PACKING_RESUME_SWITCH) then
     begin PostMessage(Handle,WM_RESUME_COLLECTION_PACKING,0,0); Break; end;
+  for var I:=1 to ParamCount do
+    if ParamStr(I).StartsWith(BOOK_COMPRESSION_RESUME_SWITCH) then
+    begin PostMessage(Handle,WM_RESUME_BOOK_COMPRESSION,0,0); Break; end;
   if not FSqlCatalogueResumed then
     for var I:=1 to ParamCount do
       if SameText(ParamStr(I),SQL_CATALOGUE_RESUME_SWITCH) then

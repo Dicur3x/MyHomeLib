@@ -56,7 +56,7 @@ type
   end;
 
 function ChooseSelectedCompressionOptions(Owner: TForm; BookCount: Integer;
-  var Options: TBookCompressionOperationOptions): Boolean;
+  var Options: TBookCompressionOperationOptions; AfterInstall: Boolean = False): Boolean;
 
 implementation
 
@@ -233,10 +233,11 @@ begin
 end;
 
 function ChooseSelectedCompressionOptions(Owner: TForm; BookCount: Integer;
-  var Options: TBookCompressionOperationOptions): Boolean;
+  var Options: TBookCompressionOperationOptions; AfterInstall: Boolean): Boolean;
 var Dialog: TfrmBookCompressionOptions;
 begin
   Dialog:=TfrmBookCompressionOptions.CreateOptions(Owner,BookCount,Options);
+  if AfterInstall then Dialog.Caption:=Dialog.Caption+' — после установки компонентов';
   try
     Result:=Dialog.ShowModal=mrOk;
     if Result then Options:=Dialog.SelectedOptions;

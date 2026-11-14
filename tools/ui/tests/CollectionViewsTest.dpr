@@ -52,7 +52,7 @@ uses
   frame_NCWCollectionNameAndLocation, frame_NCWCollectionFileTypes, frame_NCWInpxSource,
   frame_NCWFinish, frame_WizardPageBase, frm_ConverToFBD, unit_FileMutex,
   unit_CollectionPacking in '..\..\..\Program\Units\unit_CollectionPacking.pas',
-  unit_BookCompressionRuntime, unit_BookCompressionOperation, unit_BookCompressionJob,
+  unit_BookCompressionRuntime, unit_BookCompressionOperation, unit_BookCompressionJob, unit_BookCompressionContinuation,
   frm_BookCompression, frm_BookCompressionCompare,
   frm_CollectionPackingProgress in '..\..\..\Program\Forms\frm_CollectionPackingProgress.pas',
   unit_CollectionPackingInpx in '..\..\..\Program\Units\unit_CollectionPackingInpx.pas',
@@ -6255,6 +6255,7 @@ end;
 {$I PackingJpegXLFormatsTests.inc}
 {$I CompressionRecoveryTests.inc}
 {$I CompressionPreferenceTests.inc}
+{$I CompressionContinuationTests.inc}
 {$I PackageCoverTests.inc}
 {$I CataloguePlacementTests.inc}
 
@@ -6330,6 +6331,8 @@ begin
       if ParamStr(1) = 'fbd-editor-save' then begin TestFBDEditorSave; Halt(0); end;
       if ParamStr(1) = 'packed-jxl-formats' then begin TestPackingJpegXLFormats; Halt(0); end;
       if ParamStr(1) = 'packed-flibrary-sidecars' then begin TestPackedFLibraryEpub; Halt(0); end;
+      if ParamStr(1) = 'compression-continuation' then begin TestCompressionContinuation; Halt(0); end;
+      if ParamStr(1) = 'compression-resume-review-child' then begin TestCompressionResumeReviewChild; Halt(0); end;
       if ParamStr(1) = 'packed-catalogue-sizes' then begin TestPackedCatalogueSizes; Halt(0); end;
       if ParamStr(1) = 'packing-fbd' then begin TestPackingFbd; Halt(0); end;
       if ParamStr(1) = 'packing-inpx-result-child' then
