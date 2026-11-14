@@ -712,31 +712,39 @@ begin
 end;
 
 function FindClosingFictionBook(const Bytes: TBytes): Integer;
-const
-  TOKEN: AnsiString = '</fictionbook>';
-var
-  B: Byte;
-  I: Integer;
-  J: Integer;
-begin
-  for I := Length(Bytes) - Length(TOKEN) downto 0 do
+var I,J,NameEnd:Integer; Name:string; Marker:AnsiString;
+  function EndsAt(const Token:AnsiString; At:Integer):Boolean;
   begin
-    Result := I;
-    for J := 1 to Length(TOKEN) do
-    begin
-      B := Bytes[I + J - 1];
-      if (B >= Ord('A')) and (B <= Ord('Z')) then
-        Inc(B, Ord('a') - Ord('A'));
-      if B <> Ord(TOKEN[J]) then
-      begin
-        Result := -1;
-        Break;
-      end;
-    end;
-    if Result >= 0 then
-      Exit;
+    Result:=False;
+    if At<Length(Token)-1 then Exit;
+    for var N:=1 to Length(Token) do
+      if Bytes[At-Length(Token)+N]<>Ord(Token[N]) then Exit;
+    Result:=True;
   end;
-  Result := -1;
+begin
+  Result:=-1; I:=Length(Bytes)-1;
+  // Inspect the actual final closing tag, allowing trailing XML comments/PIs.
+  // A literal closing tag inside a comment must not receive the illustrations.
+  while I>=0 do
+  begin
+    while (I>=0) and (Bytes[I] in [9,10,13,32]) do Dec(I);
+    if EndsAt('-->',I) then Marker:='<!--'
+    else if EndsAt('?>',I) then Marker:='<?'
+    else Break;
+    J:=I-Length(Marker)+1;
+    while (J>=0) and not EndsAt(Marker,J) do Dec(J);
+    if J<0 then Exit;
+    I:=J-Length(Marker);
+  end;
+  if (I<0) or (Bytes[I]<>Ord('>')) then Exit;
+  J:=I-1;
+  while (J>=0) and (Bytes[J] in [9,10,13,32]) do Dec(J);
+  NameEnd:=J;
+  while (J>=0) and not (Bytes[J] in [9,10,13,32,Ord('<'),Ord('>'),Ord('/')]) do Dec(J);
+  if (J<1) or (NameEnd<=J) or (Bytes[J]<>Ord('/')) or (Bytes[J-1]<>Ord('<')) then Exit;
+  Name:=TEncoding.UTF8.GetString(Bytes,J+1,NameEnd-J);
+  Name:=Copy(Name,LastDelimiter(':',Name)+1,MaxInt);
+  if SameText(Name,'FictionBook') then Result:=J-1;
 end;
 
 function XmlEscapeAttribute(const Value: string): string;
@@ -776,7 +784,7 @@ begin
     begin
       if Pos('id="' + Images[I].Name + '"', ExistingText) > 0 then
         Continue;
-      InsertText.Append('<binary id="');
+      InsertText.Append('<binary xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" id="');
       InsertText.Append(XmlEscapeAttribute(Images[I].Name));
       InsertText.Append('" content-type="');
       InsertText.Append(ImageMediaType(Images[I].Data));

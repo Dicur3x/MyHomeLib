@@ -131,38 +131,36 @@ var Source, PackedSource, Updated: IBookCollection; Book, Card: TBookRecord;
   end;
 
   procedure InstallPackingCodecs;
-  var Job, FileName, DecoderHash, Arch, JSON: string; Info: TProgramRelease;
+  var Job, FileName, DecoderHash, JSON, CodecVersion: string; Info: TProgramRelease;
   begin
     FileName:=Settings.AppPath+'official-jxl.zip';
-    if ProgramUpdatePlatform='Win64' then Arch:='x64' else Arch:='x86';
-    JSON:='{"tag_name":"v0.12.0","assets":[{"name":"jxl-'+Arch+'-windows-static.zip",'+
-      '"browser_download_url":"https://github.com/libjxl/libjxl/releases/download/v0.12.0/jxl-'+Arch+'-windows-static.zip",'+
-      '"digest":"sha256:'+UpdateSHA256(FileName)+'","size":'+IntToStr(TFile.GetSize(FileName))+'}]}';
+    JSON:=TFile.ReadAllText(Settings.AppPath+'official-jxl-release.json',TEncoding.UTF8);
     Require(IsOptionalComponent(JPEG_XL_ENCODER_COMPONENT) and ParseImageComponent(JSON,JPEG_XL_ENCODER_COMPONENT,Info) and
-      Info.OfficialComponent and (Info.ComponentVersion='0.12.0') and
+      Info.OfficialComponent and (Info.ComponentVersion<>'') and
       IsOfficialComponentURL(JPEG_XL_ENCODER_COMPONENT,Info.ComponentVersion,Info.DownloadURL,ProgramUpdatePlatform,False),
       'Official encoder metadata was not accepted');
-    TFile.Copy(ParamStr(0),Settings.AppPath+'HomeLibRu.exe');
+    CodecVersion:=Info.ComponentVersion;
+    TFile.Copy(ParamStr(0),Settings.AppPath+'HomeLibre.exe');
     Options.JpegXLEncoder:=TPath.Combine(Settings.AppPath,ComponentFileName(JPEG_XL_ENCODER_COMPONENT));
     Options.JpegXLDecoder:=TPath.Combine(Settings.AppPath,ComponentFileName('JPEG XL'));
     Job:=Settings.AppPath+'packing-decoder-job';
-    PrepareOfficialComponent(FileName,Job,'JPEG XL','0.12.0',ProgramUpdatePlatform);
+    PrepareOfficialComponent(FileName,Job,'JPEG XL',CodecVersion,ProgramUpdatePlatform);
     InstallProgramUpdate(Job,Settings.AppPath);
     Require(not ComponentNeedsRepair(Settings.AppPath,'JPEG XL') and not FileExists(Options.JpegXLEncoder),
       'Reading module installed the encoder');
     DecoderHash:=UpdateSHA256(Options.JpegXLDecoder);
     Job:=Settings.AppPath+'packing-encoder-job';
-    PrepareOfficialComponent(FileName,Job,JPEG_XL_ENCODER_COMPONENT,'0.12.0',ProgramUpdatePlatform);
+    PrepareOfficialComponent(FileName,Job,JPEG_XL_ENCODER_COMPONENT,CodecVersion,ProgramUpdatePlatform);
     InstallProgramUpdate(Job,Settings.AppPath);
     Require(not ComponentNeedsRepair(Settings.AppPath,JPEG_XL_ENCODER_COMPONENT) and
-      (InstalledComponentVersion(Settings.AppPath,JPEG_XL_ENCODER_COMPONENT)='0.12.0') and
+      (InstalledComponentVersion(Settings.AppPath,JPEG_XL_ENCODER_COMPONENT)=CodecVersion) and
       (UpdateSHA256(Options.JpegXLDecoder)=DecoderHash), 'Installing the encoder changed the decoder or left an incomplete module');
     Writeln('PASS official JPEG XL encoder installs separately from the reading component');
   end;
 
   procedure CheckRecoveredPictures(Stream: TStream);
   var SourceStream: TFileStream; Hashes: TDictionary<string,string>; BookXML: IXMLFictionBook;
-    Image: IXMLBinary; Expected: string;
+    Image: IXMLBinary; Expected,ExpectedBody:string;
     function ImageHash(const Picture: IXMLBinary): string;
     var Bytes: TBytesStream;
     begin
@@ -174,6 +172,7 @@ var Source, PackedSource, Updated: IBookCollection; Book, Card: TBookRecord;
     try
       SourceStream:=TFileStream.Create(ImageFixture,fmOpenRead or fmShareDenyWrite);
       try BookXML:=LoadFictionBook(SourceStream); finally SourceStream.Free; end;
+      ExpectedBody:=BookXML.ChildNodes.FindNode('body','http://www.gribuser.ru/xml/fictionbook/2.0').XML;
       for var I:=0 to BookXML.Binary.Count-1 do
       begin
         Image:=BookXML.Binary[I]; Hashes.Add(Image.ID,ImageHash(Image));
@@ -181,6 +180,8 @@ var Source, PackedSource, Updated: IBookCollection; Book, Card: TBookRecord;
       Image:=nil; BookXML:=nil;
       Stream.Position:=0;
       BookXML:=LoadFictionBook(Stream);
+      Require(BookXML.ChildNodes.FindNode('body','http://www.gribuser.ru/xml/fictionbook/2.0').XML=ExpectedBody,
+        'JPEG XL reconstruction changed the book text');
       Require((Hashes.Count>256) and (BookXML.Binary.Count=Hashes.Count),
         Format('Native INPX read returned %d of %d illustrations',[BookXML.Binary.Count,Hashes.Count]));
       for var I:=0 to BookXML.Binary.Count-1 do

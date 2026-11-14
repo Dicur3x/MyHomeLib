@@ -189,6 +189,21 @@ class PackingTests(unittest.TestCase):
             encode.assert_not_called()
         self.assertFalse(destination.exists())
 
+    def test_separated_jpeg_prefixed_fb2_preserves_namespace_and_unrelated_bytes(self):
+        image = b'\xff\xd8\xff namespaced JPEG fixture'
+        binary = b'<f:binary id="photo" content-type="image/jpeg">' + base64.b64encode(image) + b'</f:binary >'
+        body = (b'<?xml version="1.0"?><f:FictionBook xmlns:f="http://www.gribuser.ru/xml/fictionbook/2.0">'
+                b'<!-- untouched --><f:body><f:section><f:p>Exact <![CDATA[text]]>.</f:p></f:section></f:body>'
+                + binary + b'</f:FictionBook >\n')
+        source, target = self.source / 'prefixed.fb2', self.root / 'stripped.fb2'
+        source.write_bytes(body)
+        codec = JpegXL(sys.executable, sys.executable, lambda: None)
+        with patch.object(codec, 'encode', return_value=b'lossless-jxl') as encode:
+            self.assertEqual(codec.separate(source, target, self.root), {'photo': b'lossless-jxl'})
+            encode.assert_called_once_with(image, self.root)
+        self.assertEqual(target.read_bytes(), body.replace(binary, b''))
+        self.assertEqual(source.read_bytes(), body)
+
     def test_packed_pdf_reconstructs_exact_layout_and_can_be_retained(self):
         first = b'\xff\xd8\xff' + b'a' * 40_000 + b'\xff\xd9'
         second = b'\xff\xd8\xff' + b'b' * 40_000 + b'\xff\xd9'

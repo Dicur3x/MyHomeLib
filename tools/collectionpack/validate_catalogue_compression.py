@@ -9,8 +9,10 @@ import base64
 from contextlib import closing, contextmanager, nullcontext
 import ctypes
 import hashlib
+import io
 import json
 import os
+import random
 from pathlib import Path
 import shutil
 import sqlite3
@@ -26,6 +28,28 @@ from prepare_book_compression import verify_non_image_content
 
 def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def jpeg_xl_inpx_fixture():
+    """Over 256 distinct small JPEGs exercise native sidecar reconstruction."""
+    from PIL import Image
+    from test_pack_collection import illustrated_fb2
+    ns = '{http://www.gribuser.ru/xml/fictionbook/2.0}'
+    book = ET.fromstring(illustrated_fb2(b''))
+    for binary in book.findall(ns + 'binary'):
+        book.remove(binary)
+    section = book.find('.//' + ns + 'section')
+    rng = random.Random(14013)
+    for index in range(258):
+        name = 'picture' if index == 0 else f'picture-{index}'
+        image = Image.frombytes('RGB', (256, 192), rng.randbytes(256 * 192 * 3))
+        with io.BytesIO() as stream:
+            image.save(stream, format='JPEG', quality=92, optimize=True)
+            data = stream.getvalue()
+        ET.SubElement(book, ns + 'binary', {'id': name, 'content-type': 'image/jpeg'}).text = base64.b64encode(data).decode()
+        if index:
+            ET.SubElement(section, ns + 'image', {'{http://www.w3.org/1999/xlink}href': '#' + name})
+    return ET.tostring(book, encoding='utf-8', xml_declaration=True)
 
 
 def archive_body(archive, member, seven_zip):
@@ -163,8 +187,11 @@ def exclusive_recovery_owner(path):
 def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_books=None, inspect_comparison=False,
         processing_package=None, estimate_first=False, whole=False, repeat_new=False, repeat_offer=False, images=None,
         scenario='selected-compression-ui', recovery_fault=None, recovery_preserve=None, refresh_index=False,
-        legacy_history=False):
+        legacy_history=False, packing_codec=None, packing_codec_release=None):
     from test_pack_collection import illustrated_fb2, image_fixture
+    assert bool(packing_codec) == bool(packing_codec_release), 'Codec archive and official release metadata must be paired'
+    if packing_codec:
+        assert scenario == 'packing-fbd', 'Codec installation belongs to the packed INPX scenario'
     if recovery_fault:
         assert scenario == 'selected-compression-ui' and mode == 'apply' and not real_books
     if recovery_preserve:
@@ -219,7 +246,16 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
         real_stamps = {}
         if scenario == 'packing-fbd':
             assert not any((real_books, legacy_history, recovery_fault, refresh_index))
-            (root / 'packing-inpx-illustration.fb2').write_bytes(illustrated_fb2(image_fixture()))
+            (root / 'packing-inpx-illustration.fb2').write_bytes(
+                jpeg_xl_inpx_fixture() if packing_codec else illustrated_fb2(image_fixture()))
+            if packing_codec:
+                release = json.loads(packing_codec_release.read_text(encoding='utf-8-sig'))
+                arch = 'x64' if platform == 'Win64' else 'x86'
+                asset, = [asset for asset in release['assets'] if asset['name'] == f'jxl-{arch}-windows-static.zip']
+                assert asset['digest'] == 'sha256:' + digest(packing_codec)
+                assert asset['size'] == packing_codec.stat().st_size
+                shutil.copy2(packing_codec, root / 'official-jxl.zip')
+                shutil.copy2(packing_codec_release, root / 'official-jxl-release.json')
         if scenario == 'packed-catalogue-sizes':
             from test_prepare_book_compression import epub
             assert not any((real_books, legacy_history, recovery_fault, refresh_index))
@@ -377,6 +413,11 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
                 'PASS selected INPX estimate cancels and continues, and legacy full import refuses a packed catalogue',
                 'PASS packed INPX result opens only new books from the registered generation',
             ]
+            if packing_codec:
+                expected_lines += [
+                    'PASS official JPEG XL encoder installs separately from the reading component',
+                    'PASS native INPX retains the JPEG XL profile and reconstructs every image exactly',
+                ]
         if refresh_index:
             expected_lines.extend([
                 'PASS actual full INPX refresh keeps verified compressed sizes and personal progress',
@@ -429,6 +470,8 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
                         seconds=round(time.monotonic()-started, 3),
                         native_binary_sha256=digest(binary),
                         processing_package_sha256=digest(processing_package) if processing_package else None,
+                        packing_codec_sha256=digest(packing_codec) if packing_codec else None,
+                        packing_codec_version=release['tag_name'] if packing_codec else None,
                         image_helper_sha256=digest(root / 'tools/images/HomeLibImages.exe'),
                         private_runtime=str(root), real_source_stamps={},
                         packed_catalogue_sizes=publication,
@@ -523,6 +566,8 @@ if __name__ == '__main__':
     parser.add_argument('--repeat-new', action='store_true', help='After applying, invoke the normal new-books menu and verify no preparation')
     parser.add_argument('--scenario', choices=['selected-compression-ui', 'explorer-file-drop', 'update-outcomes',
                         'packed-catalogue-sizes', 'packing-fbd'], default='selected-compression-ui')
+    parser.add_argument('--packing-codec', type=Path, help='Exact official JPEG XL archive for the native packed INPX installer/reader scenario')
+    parser.add_argument('--packing-codec-release', type=Path, help='Official GitHub release metadata used to verify the codec archive')
     parser.add_argument('--repeat-offer', action='store_true', help='Exercise nonmodal arrivals offer, dismissal, canceled options and explicit start')
     parser.add_argument('--images', type=Path, help='Fresh image helper verified against the current C# source')
     parser.add_argument('--recovery-fault', choices=['job-published', 'file-committed', 'catalogue-committed',

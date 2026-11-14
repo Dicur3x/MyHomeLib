@@ -612,16 +612,23 @@ class JpegXL:
             parser.Parse(data, True)
         except (expat.ExpatError, LookupError):
             return {}
-        closing = b'</FictionBook>'
-        if root_end is None or data[root_end:root_end + len(closing)] != closing or data[root_end + len(closing):].strip():
+        # Expat has already checked names and namespaces. Locate the exact
+        # qualified tags in the source instead of assuming an unprefixed FB2.
+        root_close = re.compile(rb'</(?:[^\s<>/:]+:)?FictionBook[\t\r\n ]*>')
+        closing = root_close.match(data, root_end) if root_end is not None else None
+        if closing is None or data[closing.end():].strip():
             return {}
+        binary_open = re.compile(rb'<((?:[^\s<>/:]+:)?binary)(?=[\t\r\n />])')
+        binary_close = re.compile(rb'</((?:[^\s<>/:]+:)?binary)[\t\r\n ]*>')
         images, cursor = {}, 0
         with destination.open('xb') as output:
             for identity, begin, end_at in binaries:
                 self.check()
                 if (identity.casefold() in covers or identity.casefold() == 'cover' or
-                        used_ids[identity.casefold()] != 1 or end_at is None or
-                        not data.startswith(b'</binary>', end_at) or not data.startswith(b'<binary', begin)):
+                        used_ids[identity.casefold()] != 1 or end_at is None):
+                    continue
+                opening, closing = binary_open.match(data, begin, end_at), binary_close.match(data, end_at)
+                if opening is None or closing is None or opening[1] != closing[1]:
                     continue
                 body_at = data.find(b'>', begin, end_at)
                 if body_at < 0:
@@ -637,7 +644,7 @@ class JpegXL:
                 if encoded is not None:
                     images[identity] = encoded
                     output.write(data[cursor:begin])
-                    cursor = end_at + len(b'</binary>')
+                    cursor = closing.end()
             output.write(data[cursor:])
         if images:
             remaining = destination.read_bytes()
