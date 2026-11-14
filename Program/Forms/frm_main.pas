@@ -637,6 +637,7 @@ type
     procedure CatalogSearchUpdate(Sender: TObject);
     procedure UpdateOnlineCollectionExecute(Sender: TObject);
     procedure UpdateCollectionFromFileExecute(Sender: TObject);
+    procedure LibraryUpdateSourcesExecute(Sender: TObject);
     procedure UpdateCollectionFromFileUpdate(Sender: TObject);
     procedure ClearReadFolderExecute(Sender: TObject);
     procedure BookCacheActionUpdate(Sender: TObject);
@@ -1384,7 +1385,7 @@ uses
   unit_SystemDatabase_Abstract,
   unit_MHLArchiveHelpers, unit_MHLExternalTools, unit_FormatComponents,
   unit_BookCache, unit_MHLOperationStatus, frm_DeleteCollection, unit_ImportOldUserData, unit_BookColumnFilters, frm_CatalogSources, frm_CollectionBackup, frm_BookDuplicates, unit_ComponentUpdates, unit_ProgramUpdateInstaller, unit_Diagnostics, unit_ComponentUsage, unit_ComponentRemoval, frm_ComponentMaintenance,
-  frm_CollectionPackingProgress;
+  frm_CollectionPackingProgress, frm_LibraryUpdateSources;
 
 type
   TBookTreeAccess = class(TBookTree);
@@ -5820,6 +5821,9 @@ begin
   Section:=AddMenuSection(N2,'Обновить коллекцию',miUpdateFromFile.MenuIndex);
   MoveMenuItem(miUpdateFromFile,Section);
   MoveMenuItem(miUpdate,Section);
+  FilterMenu:=TMenuItem.Create(Self); FilterMenu.Name:='miLibraryUpdateSources';
+  FilterMenu.Caption:='Настроить источники обновлений…'; FilterMenu.OnClick:=LibraryUpdateSourcesExecute;
+  Section.Add(FilterMenu);
 
   Section:=AddMenuSection(N39,'Специальный импорт',miPdfdjvu.MenuIndex);
   Section.Name:='miSpecialImport';
@@ -13230,6 +13234,15 @@ begin
     Settings.ActiveCollection := ActiveCollectionID;
     InitCollection;
   end;
+end;
+
+procedure TfrmMain.LibraryUpdateSourcesExecute(Sender: TObject);
+var Dialog: TfrmLibraryUpdateSources;
+begin
+  if not Assigned(FCollection) or FFormBusy or FStartupLoading or FBookListLoading then Exit;
+  if CompressionBlocksCatalogChange then Exit;
+  Dialog:=TfrmLibraryUpdateSources.CreateForCollection(Self,FCollection);
+  try Dialog.ShowModal; finally Dialog.Free; end;
 end;
 
 procedure TfrmMain.UpdateCollectionFromFileExecute(Sender: TObject);

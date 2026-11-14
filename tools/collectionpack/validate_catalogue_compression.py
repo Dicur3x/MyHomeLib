@@ -447,6 +447,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
             raise
         output = log_path.read_text(encoding='utf-8', errors='replace')
         expected = {
+            'library-update-sources': 'PASS source settings window edits, persists stable bindings, checks a frozen local index, exports, reviews disabled legacy templates and survives collection rename',
             'selected-compression-ui': f'PASS selected compression normal catalogue {mode}',
             'explorer-file-drop': 'PASS Explorer import offers compression only after accepted imports',
             'update-outcomes': 'PASS actual INPX and Metabib menus offer compression after commit',
@@ -550,7 +551,9 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
                         text_only_repack=text_repack,
                         flibrary_sidecar_inputs=sidecar_inputs,
                         unrelated_archive_unchanged=True, native_log=str(log_path),
-                        scope=('Native full packed-copy publication and actual INPX update without originals; '
+                        scope=('Native source editor/settings persistence, local index fetch, disabled INI review, rename stability and theme/DPI layout; no update application'
+                               if scenario == 'library-update-sources' else
+                               'Native full packed-copy publication and actual INPX update without originals; '
                                'catalogue, personal card and alternate-copy sizes, legacy/unknown sizes and invalid-size rejection'
                                if scenario == 'packed-catalogue-sizes' else
                                'Native JPEG XL PDF byte-exact read/preparation, EPUB all resources/text/images, '
@@ -647,7 +650,7 @@ if __name__ == '__main__':
     parser.add_argument('--estimate-first', action='store_true')
     parser.add_argument('--whole', action='store_true')
     parser.add_argument('--repeat-new', action='store_true', help='After applying, invoke the normal new-books menu and verify no preparation')
-    parser.add_argument('--scenario', choices=['selected-compression-ui', 'explorer-file-drop', 'update-outcomes',
+    parser.add_argument('--scenario', choices=['selected-compression-ui', 'explorer-file-drop', 'update-outcomes', 'library-update-sources',
                         'packed-catalogue-sizes', 'packing-fbd', 'packed-jxl-formats', 'packed-flibrary-sidecars', 'compression-continuation'], default='selected-compression-ui')
     parser.add_argument('--packing-codec', type=Path, help='Exact official JPEG XL archive for the native packed INPX installer/reader scenario')
     parser.add_argument('--packing-codec-release', type=Path, help='Official GitHub release metadata used to verify the codec archive')

@@ -10,7 +10,9 @@ uses
   unit_BookCompressionIndex,
   unit_Utils, frm_search, frm_MCPSetup, Xml.XMLDoc, Xml.XMLIntf,
   unit_CatalogComponents, unit_MetabibReader, unit_FormatComponents, unit_ComponentRemoval, unit_ComponentUsage, frm_ComponentMaintenance,
-  unit_StartupCatalog, unit_FLibraryCompat, unit_BookCompressionRestored, unit_BookViewSessions, NativeRegressionGuard, System.SysUtils, System.StrUtils, System.Classes, System.Types, System.IOUtils, System.IniFiles, System.JSON, System.Net.HttpClient, System.Net.URLClient, System.Generics.Collections, System.Variants, Winapi.Windows, Winapi.Messages, Winapi.CommCtrl, Winapi.RichEdit, Winapi.ActiveX, Winapi.ShlObj,
+  unit_StartupCatalog, unit_FLibraryCompat, unit_BookCompressionRestored, unit_BookViewSessions,
+  unit_LibraryUpdateSources, unit_LibraryUpdateFetch, frm_LibraryUpdateSources,
+  NativeRegressionGuard, System.SysUtils, System.StrUtils, System.Classes, System.Types, System.IOUtils, System.IniFiles, System.JSON, System.Net.HttpClient, System.Net.URLClient, System.Generics.Collections, System.Variants, Winapi.Windows, Winapi.Messages, Winapi.CommCtrl, Winapi.RichEdit, Winapi.ActiveX, Winapi.ShlObj,
   Vcl.Forms, Vcl.Dialogs, Vcl.Themes, Vcl.Styles, Vcl.Clipbrd, Vcl.CheckLst, Vcl.Graphics, Vcl.Menus, Vcl.ComCtrls, Vcl.ExtCtrls, Vcl.Controls, Vcl.StdCtrls, Vcl.ActnList,
   VirtualTrees, VirtualTrees.Types, VirtualTrees.BaseTree, BookTreeView, BookInfoPanel, unit_MHLTheme, unit_FirstUseGuide, unit_MHLThemePalette, frm_InterfaceColors, unit_BookGallery, unit_UpdateNotes, unit_UpdateTextCache,
   System.SyncObjs, System.Zip, System.Hash, System.NetEncoding, System.Diagnostics, System.Math, System.DateUtils, Vcl.Imaging.pngimage,
@@ -3974,6 +3976,7 @@ end;
 {$I CollectionBackupCleanupTests.inc}
 {$I BookDuplicateTests.inc}
 {$I Feedback529Tests.inc}
+{$I LibraryUpdateSourcesTests.inc}
 
 procedure TestCatalogSources;
 var Sources, Loaded: TCatalogSources; Target, SourceCollection: IBookCollection;
@@ -4158,6 +4161,7 @@ begin
     frmMain.Show; Dialog := TfrmCatalogSources.CreateForCollection(frmMain,Target);
     try Dialog.ShowModal; finally Dialog.Free; end;
   end;
+  if ParamStr(1)='library-update-sources' then TestLibraryUpdateSources(Target);
   Writeln('PASS multiple INPX sources keep separate roots and IDs, persist priority, refresh independently and merge in worker');
 end;
 
@@ -6752,7 +6756,8 @@ begin
         TestBookInformation(ParamStr(1) = 'book-information-external')
       else if ParamStr(1) = 'book-gallery' then
         TestBookGallery
-      else if (ParamStr(1) = 'catalog-sources') or (ParamStr(1) = 'catalog-sources-ui') then
+      else if (ParamStr(1) = 'catalog-sources') or (ParamStr(1) = 'catalog-sources-ui') or
+        (ParamStr(1) = 'library-update-sources') then
         TestCatalogSources
       else if ParamStr(1) = 'collection-merge' then
         TestCollectionMerge
