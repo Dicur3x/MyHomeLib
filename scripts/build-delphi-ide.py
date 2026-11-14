@@ -40,7 +40,9 @@ def build(project, platform, binary, logs, ide, required_text=(), visible=False,
         startup = subprocess.STARTUPINFO()
         startup.dwFlags |= subprocess.STARTF_USESHOWWINDOW
         startup.wShowWindow = 5 if visible else 0
-        process = subprocess.Popen([str(ide), '-ns', '-b', '-o' + str(log), str(clone or project)],
+        # These are Delphi projects; do not inherit another IDE personality
+        # from a user's last interactive session.
+        process = subprocess.Popen([str(ide), '-pDelphi', '-ns', '-b', '-o' + str(log), str(clone or project)],
                                    startupinfo=startup)
         try:
             deadline = time.monotonic() + timeout
