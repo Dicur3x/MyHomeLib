@@ -11,7 +11,8 @@ begin
   raise Exception.Create('Compression recovery fixture requires its explicit test build symbol');
 {$ELSE}
   Require(MatchText(Fault,['job-published','file-committed','catalogue-committed',
-    'personal-committed','completed-published','file-journal-forgotten']),'Unknown recovery crash stage');
+    'personal-committed','completed-published','file-journal-forgotten',
+    'preparation-ready','receipt-prepared','binding-prepared']),'Unknown recovery crash stage');
   Require(ExpandFileName(ReportFile).StartsWith(Settings.AppPath+'compression-work\',True),
     'Recovery report escaped the private workspace');
   Report:=TJSONObject.ParseJSONValue(TFile.ReadAllText(ReportFile,TEncoding.UTF8)) as TJSONObject;
@@ -50,6 +51,12 @@ begin
     finally Proof.Free; end;
     Settings.SaveSettings;
     FaultStage:=Fault; CrashFile:=Settings.AppPath+'compression-recovery-crash.txt';
+    if Fault='preparation-ready' then
+    begin
+      TFile.WriteAllText(CrashFile,Fault,TEncoding.UTF8);
+      Writeln('TRACE actual compression terminated at ',Fault); Flush(Output);
+      if not TerminateProcess(GetCurrentProcess,73) then RaiseLastOSError;
+    end;
     CompressionOperationTestFault:=procedure(Stage:string)
       begin
         if Stage<>FaultStage then Exit;
@@ -65,8 +72,9 @@ procedure TestCompressionRecoveryStartup;
 var Proof:TJSONObject; Options:TBookCompressionOperationOptions;
     Driver:TCompressionCatalogueDriver; Collection:IBookCollection;
     Rows,Payloads:TJSONArray; After,Personal:TBookRecord;
-    Started:UInt64; BookID,Found,SelectedCount:Integer; Body:TBytes;
+    Started:UInt64; BookID,Found,SelectedCount,ExpectedBackups:Integer; Body:TBytes;
     ExpectedHash, Member, BeforeTwo:string; Node:PVirtualNode; Data:PBookRecord;
+    PreparationOnly:Boolean;
 begin
   Proof:=TJSONObject.ParseJSONValue(TFile.ReadAllText(Settings.AppPath+'compression-recovery-state.json',TEncoding.UTF8)) as TJSONObject;
   Require(Assigned(Proof),'Missing persisted recovery fixture');
@@ -76,7 +84,13 @@ begin
       'Previous process did not reach the selected crash point');
     Options:=Default(TBookCompressionOperationOptions);
     Options.WorkRoot:=Proof.GetValue<string>('work_root'); Options.QueueName:=Proof.GetValue<string>('queue_name');
-    Require(Length(TBookCompressionJob.Pending(CompressionQueueRoot(Options)))=1,'No durable job survived actual termination');
+    PreparationOnly:=MatchText(Proof.GetValue<string>('fault'),['preparation-ready','receipt-prepared','binding-prepared']);
+    if PreparationOnly then
+    begin
+      Require(Length(TBookCompressionJob.Pending(CompressionQueueRoot(Options)))=0,'Unapproved preparation published a durable job');
+      Require(CompressionHasAbandonedPreparation(Options),'Ordinary startup cannot discover abandoned preparation');
+    end
+    else Require(Length(TBookCompressionJob.Pending(CompressionQueueRoot(Options)))=1,'No durable job survived actual termination');
     Collection:=SystemDB.GetCollection(Proof.GetValue<Integer>('collection_id'));
     Require(Settings.ActiveCollection=Collection.CollectionID,'Restart lost the selected collection');
     Require(ExpandFileName(Proof.GetValue<string>('other_catalogue')).StartsWith(Settings.AppPath,True),
@@ -97,8 +111,10 @@ begin
       'Ordinary startup failed to recover an already-approved job: '+Driver.LastStage);
     Require(frmMain.Enabled,'Recovered catalogue is blocked behind another window');
     Require(Length(TBookCompressionJob.Pending(CompressionQueueRoot(Options)))=0,'Normal UI failed to acknowledge recovery');
-    Require(THashSHA2.GetHashStringFromFile(Settings.AppPath+'books\shared.zip')=Proof.GetValue<string>('result_sha256'),
-      'Recovered archive differs from the approved candidate');
+    if PreparationOnly then ExpectedHash:=Proof.GetValue<string>('source_sha256')
+    else ExpectedHash:=Proof.GetValue<string>('result_sha256');
+    Require(THashSHA2.GetHashStringFromFile(Settings.AppPath+'books\shared.zip')=ExpectedHash,
+      'Recovered archive differs from the expected original or approved candidate');
     Require(THashSHA2.GetHashStringFromFile(Proof.GetValue<string>('other_catalogue'))=BeforeTwo,'Recovery changed another collection');
     Rows:=Proof.GetValue<TJSONArray>('rows'); Payloads:=Proof.GetValue<TJSONArray>('payloads'); SelectedCount:=0;
     Collection:=SystemDB.GetCollection(Collection.CollectionID,True);
@@ -109,7 +125,11 @@ begin
         Inc(SelectedCount); BookID:=Row.GetValue<Integer>('id'); Member:=Row.GetValue<string>('member');
         ExpectedHash:='';
         for var Payload in Payloads do
-          if Payload.GetValue<string>('member')=Member then ExpectedHash:=Payload.GetValue<string>('output_sha256');
+          if Payload.GetValue<string>('member')=Member then
+          begin
+            if PreparationOnly then ExpectedHash:=Payload.GetValue<string>('input_sha256')
+            else ExpectedHash:=Payload.GetValue<string>('output_sha256');
+          end;
         Require(ExpectedHash<>'','Selected recovery member lost its output proof');
         Collection.GetBookRecord(CreateBookKey(BookID,Collection.CollectionID),After,True);
         SystemDB.GetBookRecord(After.BookKey,Personal);
@@ -129,8 +149,12 @@ begin
         Require(Found=1,'Recovered selected book disappeared or duplicated in the ordinary list');
       end;
     Require(SelectedCount=2,'Recovery did not verify both selected books');
-    Require(Length(TDirectory.GetFiles(Proof.GetValue<string>('backup_folder'),'*.zip'))=1,
+    ExpectedBackups:=1;
+    if Proof.GetValue<string>('fault')='preparation-ready' then ExpectedBackups:=0;
+    Require(Length(TDirectory.GetFiles(Proof.GetValue<string>('backup_folder'),'*.zip'))=ExpectedBackups,
       'Recovery lost or duplicated the original backup');
+    if PreparationOnly then Require(Pos('Убрано незавершённых подготовок: 1.',Driver.ResultNote)>0,
+      'Preparation cleanup result is missing from the ordinary window');
     if Proof.GetValue('preserved_work') is TJSONObject then
     begin
       var Preserved:=Proof.GetValue<TJSONObject>('preserved_work');

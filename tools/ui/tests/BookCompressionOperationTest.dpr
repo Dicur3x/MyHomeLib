@@ -101,6 +101,11 @@ begin
                 end;
               end;
               SeenReview:=True;
+              if Mode='review-crash' then
+              begin
+                Writeln('TRACE terminated before compression approval'); Flush(System.Output);
+                if not TerminateProcess(GetCurrentProcess,73) then RaiseLastOSError;
+              end;
               if (Mode='review-skip') or ((Mode='estimate-only') and State.AwaitingEstimate) then Operation.Approve(crSkip)
               else if Mode='review-stop' then Operation.RequestStop
               else if Mode='review-all' then Operation.Approve(crApplyRemaining)
@@ -110,6 +115,11 @@ begin
             end;
             if Mode='stop-producer' then
               if State.Stage='slow-worker' then Operation.RequestStop;
+            if (Mode='crash-producer') and (State.Stage='scratch-ready') then
+            begin
+              Writeln('TRACE terminated during compression preparation'); Flush(System.Output);
+              if not TerminateProcess(GetCurrentProcess,73) then RaiseLastOSError;
+            end;
             if State.Finished then Break;
             if GetTickCount64-Started>TimeLimit then
               raise Exception.Create('Operation fixture timed out: '+State.Stage+' '+State.Member);
@@ -147,6 +157,7 @@ begin
               Output.AddPair('estimate_archive_bytes',TJSONNumber.Create(State.EstimateArchiveBytes));
               Output.AddPair('estimate_unknown_books',TJSONNumber.Create(State.EstimateUnknownBooks));
               Output.AddPair('backup_files',TJSONNumber.Create(State.BackupFiles));
+              Output.AddPair('discarded_preparations',TJSONNumber.Create(State.DiscardedPreparations));
               Output.AddPair('backup_folder',State.BackupFolder);
               Output.AddPair('pending_before_ack',TJSONNumber.Create(PendingBefore));
               Output.AddPair('pending_after_ack',TJSONNumber.Create(Length(TBookCompressionJob.Pending(Operation.QueueRoot))));

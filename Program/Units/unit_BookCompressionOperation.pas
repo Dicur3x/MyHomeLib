@@ -20,7 +20,7 @@ type
     ChangedFiles, UnchangedFiles, SkippedFiles, SavedBytes: Int64;
     PreviouslyProcessedBooks: Int64;
     InputBytes, OutputBytes, WorkingBytes: Int64;
-    BackupFiles: Int64;
+    BackupFiles, DiscardedPreparations: Int64;
     ImageChanges: Int64;
     EstimateInputBytes, EstimateKnownInputBytes, EstimateOutputBytes, EstimateArchiveBytes: Int64;
     EstimateUnknownBooks: Int64;
@@ -38,7 +38,7 @@ type
     FLock: TObject;
     FReviewEvent: TEvent;
     FStop, FDecision: Integer;
-    FReviewRemaining, FRecovery: Boolean;
+    FReviewRemaining, FRecovery, FWorkRegistered: Boolean;
     FState: TBookCompressionOperationStatus;
     FCompleted: TObjectList<TBookCompressionJob>;
     FWork, FCancelFile, FLastError, FEngineSHA256: string;
@@ -56,6 +56,7 @@ type
     procedure ReleaseWorkHandles;
     procedure CleanWork;
     procedure CleanRecoveredWork(const Candidate: string);
+    procedure CleanAbandonedWork;
     function EngineFingerprint: string;
     function Review(Estimate: Boolean = False): Boolean;
     procedure EstimateFile(FilePlan: TCompressionFilePlan);
@@ -77,6 +78,7 @@ type
   end;
 
 function CompressionQueueRoot(const Options: TBookCompressionOperationOptions): string;
+function CompressionHasAbandonedPreparation(const Options: TBookCompressionOperationOptions): Boolean;
 
 {$IFDEF MHL_COMPRESSION_TEST}
 // Only the guarded native regression executable defines this symbol. Its
@@ -90,6 +92,7 @@ uses Winapi.Windows, System.IOUtils, System.JSON, System.StrUtils, System.Hash, 
   unit_MHLExternalTools, unit_ZipMemberDeletion, unit_BookCompressionBackup, unit_BookCompressionReceipt;
 
 const WorkMarker='HomeLibre selected compression work v1';
+  RegisteredWorkKind='HomeLibre compression preparation';
 
 type
   TCompressionEventStream = class(TStream)
@@ -162,6 +165,132 @@ begin
     raise EArgumentException.Create('Некорректный идентификатор профиля сжатия.');
   Result:=Result+'-'+Options.QueueName;
 end;
+
+function IsPreparationName(const Name:string):Boolean;
+var ID:TGUID;
+begin
+  Result:=False;
+  if not Name.StartsWith('prepare-') then Exit;
+  try ID:=StringToGUID(Copy(Name,9,MaxInt)); except on E:EConvertError do Exit; end;
+  Result:=Name='prepare-'+GUIDToString(ID);
+end;
+
+function PreparationJobName(const Folder:string):string;
+begin
+  if not IsPreparationName(ExtractFileName(Folder)) then
+    raise EReadError.Create('Некорректная папка подготовки сжатия.');
+  Result:='compress-'+Copy(ExtractFileName(Folder),9,MaxInt);
+end;
+
+function PreparationDirectoryKey(Handle:THandle):string;
+var Info:TByHandleFileInformation;
+begin
+  if not GetFileInformationByHandle(Handle,Info) then RaiseLastOSError;
+  Result:=Format('%.8x:%.8x%.8x',[Info.dwVolumeSerialNumber,Info.nFileIndexHigh,Info.nFileIndexLow]);
+end;
+
+function GuardPreparationDirectory(const Folder:string):THandle;
+var Info:TByHandleFileInformation; Actual:string; Count:DWORD; Path:TArray<Char>;
+begin
+  Result:=CreateFile(PChar(DeletionNativePath(Folder)),FILE_READ_ATTRIBUTES,
+    FILE_SHARE_READ or FILE_SHARE_WRITE,nil,OPEN_EXISTING,
+    FILE_FLAG_BACKUP_SEMANTICS or FILE_FLAG_OPEN_REPARSE_POINT,0);
+  if Result=INVALID_HANDLE_VALUE then begin Result:=0; RaiseLastOSError; end;
+  try
+    if not GetFileInformationByHandle(Result,Info) then RaiseLastOSError;
+    if (Info.dwFileAttributes and FILE_ATTRIBUTE_REPARSE_POINT<>0) or
+      (Info.dwFileAttributes and FILE_ATTRIBUTE_DIRECTORY=0) then
+      raise EReadError.Create('Рабочая папка сжатия заменена ссылкой или файлом.');
+    SetLength(Path,32768);
+    Count:=GetFinalPathNameByHandle(Result,@Path[0],Length(Path),0);
+    if (Count=0) or (Count>=DWORD(Length(Path))) then RaiseLastOSError;
+    SetString(Actual,PChar(@Path[0]),Count);
+    if not SameFileName(Actual,DeletionNativePath(Folder)) then
+      raise EReadError.Create('Рабочая папка сжатия проходит через ссылку.');
+  except CloseHandle(Result); Result:=0; raise; end;
+end;
+
+function CheckPreparationMarker(Lease,Guard:THandle; const Folder,QueueName:string;
+  AllowLegacy:Boolean):Boolean;
+var Info:TByHandleFileInformation; Bytes:TBytes; Count:DWORD; Marker:string; Value:TJSONValue;
+begin
+  Result:=False;
+  if not GetFileInformationByHandle(Lease,Info) then RaiseLastOSError;
+  if (Info.nNumberOfLinks<>1) or (Info.nFileSizeHigh<>0) or
+    (Info.nFileSizeLow=0) or (Info.nFileSizeLow>4096) or
+    (Info.dwFileAttributes and (FILE_ATTRIBUTE_DIRECTORY or FILE_ATTRIBUTE_REPARSE_POINT)<>0) then
+    raise EReadError.Create('Некорректная метка рабочей папки сжатия.');
+  SetLength(Bytes,Info.nFileSizeLow);
+  if not ReadFile(Lease,Bytes[0],Length(Bytes),Count,nil) then RaiseLastOSError;
+  if Count<>DWORD(Length(Bytes)) then raise EReadError.Create('Метка рабочей папки прочитана не полностью.');
+  Marker:=TEncoding.UTF8.GetString(Bytes);
+  if (Marker<>'') and (Marker[1]=#$FEFF) then Delete(Marker,1,1);
+  if AllowLegacy and (Marker=WorkMarker) then Exit;
+  Value:=TJSONObject.ParseJSONValue(Marker);
+  try
+    if not (Value is TJSONObject) or
+      (Value.GetValue<string>('kind','')<>RegisteredWorkKind) or
+      (Value.GetValue<Integer>('version',0)<>2) or
+      (Value.GetValue<string>('folder','')<>ExtractFileName(Folder)) or
+      (Value.GetValue<string>('queue','')<>QueueName) or
+      (Value.GetValue<string>('job','')<>PreparationJobName(Folder)) or
+      (Value.GetValue<string>('directory_id','')<>PreparationDirectoryKey(Guard)) then
+      raise EReadError.Create('Нет проверенной метки этой рабочей папки сжатия.');
+    Result:=True;
+  finally Value.Free; end;
+end;
+
+function PreparationJobPublished(const Options:TBookCompressionOperationOptions; const Folder:string):Boolean;
+var Job,Path:string; Attr,Code:DWORD;
+begin
+  Job:=TPath.Combine(CompressionQueueRoot(Options),PreparationJobName(Folder));
+  Result:=False;
+  for var Name in ['job.json','file','completed.json'] do
+  begin
+    Path:=DeletionNativePath(TPath.Combine(Job,Name)); Attr:=GetFileAttributes(PChar(Path));
+    if Attr<>INVALID_FILE_ATTRIBUTES then Exit(True);
+    Code:=GetLastError;
+    if not (Code in [ERROR_FILE_NOT_FOUND,ERROR_PATH_NOT_FOUND]) then RaiseLastOSError(Code);
+  end;
+end;
+
+function RegisteredPreparations(const Options:TBookCompressionOperationOptions):TArray<string>;
+var Search:TSearchRec; Folder,Base:string; Guard,Lease:THandle; Items:TList<string>;
+begin
+  Result:=nil;
+  if (Options.WorkRoot='') or not TPath.IsPathRooted(Options.WorkRoot) then Exit;
+  Base:=ExcludeTrailingPathDelimiter(ExpandFileName(Options.WorkRoot));
+  if not DirectoryExists(DeletionNativePath(Base)) then Exit;
+  Items:=TList<string>.Create;
+  try
+    if FindFirst(DeletionNativePath(TPath.Combine(Base,'prepare-*')),faDirectory,Search)<>0 then Exit;
+    try
+      repeat
+        if (Search.Attr and faDirectory=0) or not IsPreparationName(Search.Name) then Continue;
+        Folder:=TPath.Combine(Base,Search.Name); Guard:=0; Lease:=0;
+        try
+          try
+            Guard:=GuardPreparationDirectory(Folder);
+            Lease:=CreateFile(PChar(DeletionNativePath(TPath.Combine(Folder,'owner.txt'))),GENERIC_READ,
+              0,nil,OPEN_EXISTING,FILE_FLAG_OPEN_REPARSE_POINT,0);
+            if Lease=INVALID_HANDLE_VALUE then begin Lease:=0; Continue; end;
+            if CheckPreparationMarker(Lease,Guard,Folder,Options.QueueName,False) and
+              not PreparationJobPublished(Options,Folder) then Items.Add(Folder);
+          except
+            // A name or old marker alone never authorizes abandoned cleanup.
+            // Busy, foreign, copied or damaged preparations stay untouched.
+            on E:Exception do Continue;
+          end;
+        finally if Lease<>0 then CloseHandle(Lease); if Guard<>0 then CloseHandle(Guard); end;
+        if Items.Count>=1024 then Break;
+      until FindNext(Search)<>0;
+    finally System.SysUtils.FindClose(Search); end;
+    Result:=Items.ToArray;
+  finally Items.Free; end;
+end;
+
+function CompressionHasAbandonedPreparation(const Options:TBookCompressionOperationOptions):Boolean;
+begin Result:=Length(RegisteredPreparations(Options))>0; end;
 
 constructor TBookCompressionOperation.Create(const Options:TBookCompressionOperationOptions;
   const Factory:TCompressionPlanFactory);
@@ -270,27 +399,12 @@ begin
 end;
 
 procedure TBookCompressionOperation.OpenWorkGuard;
-var Actual:string; Count:DWORD; Path:TArray<Char>; Info:TByHandleFileInformation;
 begin
   if FWorkGuard<>0 then Exit;
-  FWorkGuard:=CreateFile(PChar(DeletionNativePath(FWork)),FILE_READ_ATTRIBUTES,
-    FILE_SHARE_READ or FILE_SHARE_WRITE,nil,OPEN_EXISTING,
-    FILE_FLAG_BACKUP_SEMANTICS or FILE_FLAG_OPEN_REPARSE_POINT,0);
-  if FWorkGuard=INVALID_HANDLE_VALUE then begin FWorkGuard:=0; RaiseLastOSError; end;
-  if not GetFileInformationByHandle(FWorkGuard,Info) then RaiseLastOSError;
-  if (Info.dwFileAttributes and FILE_ATTRIBUTE_REPARSE_POINT<>0) or
-    (Info.dwFileAttributes and FILE_ATTRIBUTE_DIRECTORY=0) then
-    raise EReadError.Create('Рабочая папка сжатия заменена ссылкой или файлом.');
-  SetLength(Path,32768);
-  Count:=GetFinalPathNameByHandle(FWorkGuard,@Path[0],Length(Path),0);
-  if (Count=0) or (Count>=DWORD(Length(Path))) then RaiseLastOSError;
-  SetString(Actual,PChar(@Path[0]),Count);
-  if not SameFileName(Actual,DeletionNativePath(FWork)) then
-    raise EReadError.Create('Рабочая папка сжатия проходит через ссылку.');
+  FWorkGuard:=GuardPreparationDirectory(FWork);
 end;
 
 procedure TBookCompressionOperation.OpenWorkLease;
-var Info:TByHandleFileInformation; Bytes:TBytes; Count:DWORD; Marker:string;
 begin
   if FWorkLease<>0 then Exit;
   // An active worker owns the marker exclusively. Recovery cannot clean a
@@ -298,17 +412,8 @@ begin
   FWorkLease:=CreateFile(PChar(DeletionNativePath(TPath.Combine(FWork,'owner.txt'))),
     GENERIC_READ,0,nil,OPEN_EXISTING,FILE_FLAG_OPEN_REPARSE_POINT,0);
   if FWorkLease=INVALID_HANDLE_VALUE then begin FWorkLease:=0; RaiseLastOSError; end;
-  if not GetFileInformationByHandle(FWorkLease,Info) then RaiseLastOSError;
-  if (Info.nNumberOfLinks<>1) or (Info.nFileSizeHigh<>0) or
-    (Info.nFileSizeLow=0) or (Info.nFileSizeLow>256) or
-    (Info.dwFileAttributes and (FILE_ATTRIBUTE_DIRECTORY or FILE_ATTRIBUTE_REPARSE_POINT)<>0) then
-    raise EReadError.Create('Некорректная метка рабочей папки сжатия.');
-  SetLength(Bytes,Info.nFileSizeLow);
-  if not ReadFile(FWorkLease,Bytes[0],Length(Bytes),Count,nil) then RaiseLastOSError;
-  if Count<>DWORD(Length(Bytes)) then raise EReadError.Create('Метка рабочей папки прочитана не полностью.');
-  Marker:=TEncoding.UTF8.GetString(Bytes);
-  if (Marker<>'') and (Marker[1]=#$FEFF) then Delete(Marker,1,1);
-  if Marker<>WorkMarker then raise EReadError.Create('Нет метки рабочей папки сжатия.');
+  try FWorkRegistered:=CheckPreparationMarker(FWorkLease,FWorkGuard,FWork,FOptions.QueueName,True);
+  except CloseHandle(FWorkLease); FWorkLease:=0; raise; end;
 end;
 
 procedure TBookCompressionOperation.ReleaseWorkHandles;
@@ -318,19 +423,88 @@ begin
 end;
 
 procedure TBookCompressionOperation.CreateWork;
+var Marker:TJSONObject;
 begin
   ForceDirectories(DeletionNativePath(FOptions.WorkRoot));
   FWork:=TPath.Combine(FOptions.WorkRoot,'prepare-'+TGUID.NewGuid.ToString);
   if not CreateDirectory(PChar(DeletionNativePath(FWork)),nil) then RaiseLastOSError;
   OpenWorkGuard;
-  SaveText(TPath.Combine(FWork,'owner.txt'),WorkMarker);
+  Marker:=TJSONObject.Create;
+  try
+    Marker.AddPair('kind',RegisteredWorkKind); Marker.AddPair('version',TJSONNumber.Create(2));
+    Marker.AddPair('folder',ExtractFileName(FWork)); Marker.AddPair('queue',FOptions.QueueName);
+    Marker.AddPair('job',PreparationJobName(FWork));
+    Marker.AddPair('directory_id',PreparationDirectoryKey(FWorkGuard));
+    SaveText(TPath.Combine(FWork,'owner.txt'),Marker.ToJSON);
+  finally Marker.Free; end;
   OpenWorkLease;
   if not CreateDirectory(PChar(DeletionNativePath(TPath.Combine(FWork,'payload'))),nil) then RaiseLastOSError;
   FCancelFile:=TPath.Combine(FWork,'cancel.marker'); FCancelStarted:=0; FLastError:='';
 end;
 
+function IsPreparationScratch(const Name:string):Boolean;
+var Prefix:string;
+begin
+  Result:=False; Prefix:='';
+  if Name.StartsWith('.selected-') then Prefix:='.selected-'
+  else if Name.StartsWith('.estimate-') then Prefix:='.estimate-';
+  if (Prefix='') or (Length(Name)<>Length(Prefix)+8) then Exit;
+  for var I:=Length(Prefix)+1 to Length(Name) do
+    if not CharInSet(Name[I],['a'..'z','0'..'9','_']) then Exit;
+  Result:=True;
+end;
+
+function IsPreparationPartial(const Name:string):Boolean;
+const Prefix='.homelib-data-';
+var Token,Ext:string; ID:TGUID;
+begin
+  Result:=False; Ext:=ExtractFileExt(Name);
+  if Name.StartsWith(Prefix) and ((Ext='.tmp') or (Ext='.bak')) then
+  begin
+    Token:=Copy(Name,Length(Prefix)+1,Length(Name)-Length(Prefix)-Length(Ext));
+    try ID:=StringToGUID(Token); except on E:EConvertError do Exit; end;
+    Exit(Token=GUIDToString(ID));
+  end;
+  if (Length(Name)<>52) or not Name.StartsWith('report.json.') or not Name.EndsWith('.partial') then Exit;
+  for var I:=13 to 44 do if not CharInSet(Name[I],['a'..'f','0'..'9']) then Exit;
+  Result:=True;
+end;
+
+procedure WalkPreparationScratch(const Folder:string; Remove:Boolean; Depth:Integer; var Count:Integer);
+var Guard,FileHandle:THandle; Info:TByHandleFileInformation; Attr:DWORD; Entries:TArray<string>;
+begin
+  if Depth>64 then raise EReadError.Create('Слишком глубокая рабочая папка сжатия. Она сохранена.');
+  Guard:=GuardPreparationDirectory(Folder);
+  try
+    Entries:=TDirectory.GetFileSystemEntries(DeletionNativePath(Folder));
+    for var Path in Entries do
+    begin
+      Inc(Count);
+      if Count>1000000 then raise EReadError.Create('Слишком много временных файлов. Рабочая папка сохранена.');
+      Attr:=GetFileAttributes(PChar(Path));
+      if (Attr=INVALID_FILE_ATTRIBUTES) or (Attr and FILE_ATTRIBUTE_REPARSE_POINT<>0) then
+        raise EReadError.Create('Во временных файлах появилась ссылка. Рабочая папка сохранена.');
+      if Attr and FILE_ATTRIBUTE_DIRECTORY<>0 then WalkPreparationScratch(Path,Remove,Depth+1,Count)
+      else
+      begin
+        FileHandle:=CreateFile(PChar(Path),FILE_READ_ATTRIBUTES,FILE_SHARE_READ or FILE_SHARE_WRITE,
+          nil,OPEN_EXISTING,FILE_FLAG_OPEN_REPARSE_POINT,0);
+        if FileHandle=INVALID_HANDLE_VALUE then RaiseLastOSError;
+        try
+          if not GetFileInformationByHandle(FileHandle,Info) then RaiseLastOSError;
+          if (Info.nNumberOfLinks<>1) or
+            (Info.dwFileAttributes and (FILE_ATTRIBUTE_DIRECTORY or FILE_ATTRIBUTE_REPARSE_POINT)<>0) then
+            raise EReadError.Create('Тип временного файла изменился. Рабочая папка сохранена.');
+        finally CloseHandle(FileHandle); end;
+        if Remove and not Winapi.Windows.DeleteFile(PChar(Path)) then RaiseLastOSError;
+      end;
+    end;
+  finally CloseHandle(Guard); end;
+  if Remove and not RemoveDirectory(PChar(DeletionNativePath(Folder))) then RaiseLastOSError;
+end;
+
 procedure TBookCompressionOperation.CleanWork;
-var Allowed:TArray<string>; Name, Payload:string; Attr:DWORD;
+var Allowed,Partials:TArray<string>; Name, Payload:string; Attr:DWORD; ScratchEntries:Integer;
   procedure RemoveFile(const Path:string);
   begin
     if FileExists(DeletionNativePath(Path)) and
@@ -340,11 +514,13 @@ begin
   if FWork='' then Exit;
   try
     OpenWorkGuard; OpenWorkLease;
-    Allowed:=TArray<string>.Create('owner.txt','request.json','report.json','cancel.marker','payload');
+    Allowed:=TArray<string>.Create('owner.txt','request.json','report.json','cancel.marker','payload'); Partials:=nil;
     for var Path in TDirectory.GetFileSystemEntries(DeletionNativePath(FWork)) do
     begin
       Name:=ExtractFileName(Path);
-      if not MatchText(Name,Allowed) then raise EReadError.Create('В рабочей папке появился посторонний файл.');
+      if not MatchText(Name,Allowed) then
+        if FWorkRegistered and IsPreparationPartial(Name) then Partials:=Partials+[Path]
+        else raise EReadError.Create('В рабочей папке появился посторонний файл.');
       Attr:=GetFileAttributes(PChar(Path));
       if (Attr=INVALID_FILE_ATTRIBUTES) or (Attr and FILE_ATTRIBUTE_REPARSE_POINT<>0) then
         raise EReadError.Create('Рабочий файл заменён ссылкой.');
@@ -354,25 +530,38 @@ begin
     Payload:=TPath.Combine(FWork,'payload');
     if DirectoryExists(DeletionNativePath(Payload)) then
     begin
+      ScratchEntries:=0;
       for var Path in TDirectory.GetFileSystemEntries(DeletionNativePath(Payload)) do
       begin
         Name:=ExtractFileName(Path);
         Attr:=GetFileAttributes(PChar(Path));
+        if FWorkRegistered and IsPreparationScratch(Name) and (Attr<>INVALID_FILE_ATTRIBUTES) and
+          (Attr and (FILE_ATTRIBUTE_DIRECTORY or FILE_ATTRIBUTE_REPARSE_POINT)=FILE_ATTRIBUTE_DIRECTORY) then
+        begin WalkPreparationScratch(Path,False,0,ScratchEntries); Continue; end;
         if not MatchText(Name,['prepared-book.bin','prepared-archive.bin','original-books.zip','comparison.zip']) or
           (Attr=INVALID_FILE_ATTRIBUTES) or (Attr and (FILE_ATTRIBUTE_DIRECTORY or FILE_ATTRIBUTE_REPARSE_POINT)<>0) then
           raise EReadError.Create('Незавершённые рабочие файлы сохранены для проверки.');
       end;
       for Name in ['prepared-book.bin','prepared-archive.bin','original-books.zip','comparison.zip'] do RemoveFile(TPath.Combine(Payload,Name));
+      ScratchEntries:=0;
+      if FWorkRegistered then
+        for var Path in TDirectory.GetDirectories(DeletionNativePath(Payload)) do
+        begin
+          if not IsPreparationScratch(ExtractFileName(Path)) then
+            raise EReadError.Create('В рабочей папке появились посторонние данные. Они сохранены.');
+          WalkPreparationScratch(Path,True,0,ScratchEntries);
+        end;
       if not RemoveDirectory(PChar(DeletionNativePath(Payload))) then RaiseLastOSError;
     end;
     for Name in ['request.json','report.json','cancel.marker'] do RemoveFile(TPath.Combine(FWork,Name));
+    for var Path in Partials do RemoveFile(Path);
     CloseHandle(FWorkLease); FWorkLease:=0;
     RemoveFile(TPath.Combine(FWork,'owner.txt'));
     CloseHandle(FWorkGuard); FWorkGuard:=0;
     if not RemoveDirectory(PChar(DeletionNativePath(FWork))) then RaiseLastOSError;
   except on E:Exception do Warn(E.Message+sLineBreak+'Рабочая папка: '+FWork); end;
   ReleaseWorkHandles;
-  FWork:=''; FCancelFile:='';
+  FWork:=''; FCancelFile:=''; FWorkRegistered:=False;
 end;
 
 procedure TBookCompressionOperation.CleanRecoveredWork(const Candidate:string);
@@ -391,6 +580,36 @@ begin
   if FWork<>'' then raise EInvalidOperation.Create('Рабочая папка сжатия ещё используется.');
   FWork:=Folder;
   CleanWork;
+end;
+
+procedure TBookCompressionOperation.CleanAbandonedWork;
+var JobDirectory,Folder:string;
+begin
+  for Folder in RegisteredPreparations(FOptions) do
+  begin
+    CheckStop;
+    if FWork<>'' then raise EInvalidOperation.Create('Рабочая папка сжатия ещё используется.');
+    FWork:=Folder; FWorkRegistered:=False;
+    try
+      try
+        OpenWorkGuard; OpenWorkLease;
+        if not FWorkRegistered or PreparationJobPublished(FOptions,Folder) then Continue;
+        JobDirectory:=TPath.Combine(QueueRoot,PreparationJobName(Folder));
+        if DirectoryExists(DeletionNativePath(JobDirectory)) and
+          not TBookCompressionJob.DiscardUnpublished(JobDirectory) then
+          raise EReadError.Create('Незавершённое задание содержит неизвестные файлы. Подготовка сохранена.');
+        SetStage('Убираем незавершённую подготовку сжатия');
+        CleanWork;
+        if not DirectoryExists(DeletionNativePath(Folder)) then
+        begin
+          TMonitor.Enter(FLock);
+          try Inc(FState.DiscardedPreparations); finally TMonitor.Exit(FLock); end;
+        end;
+      except on E:Exception do Warn(E.Message+sLineBreak+'Рабочая папка: '+Folder); end;
+    finally
+      ReleaseWorkHandles; FWork:=''; FCancelFile:=''; FWorkRegistered:=False;
+    end;
+  end;
 end;
 
 procedure TBookCompressionOperation.Approve(Decision:TCompressionReview);
@@ -669,7 +888,7 @@ begin
 {$IFDEF MHL_COMPRESSION_TEST}
       Fault:=CompressionOperationTestFault;
 {$ENDIF}
-      Job:=TBookCompressionJob.CreatePrepared(QueueRoot,Receipt.ToJSON,Candidate,Fault,BackupJSON);
+      Job:=TBookCompressionJob.CreatePrepared(QueueRoot,Receipt.ToJSON,Candidate,Fault,BackupJSON,PreparationJobName(FWork));
       TMonitor.Enter(FLock);
       try FState.PendingJob:=Job.Directory; finally TMonitor.Exit(FLock); end;
       Job.Execute(Stopping,
@@ -716,6 +935,7 @@ begin
       finally TMonitor.Exit(FLock); end;
     finally Job.Free; end;
   end;
+  CleanAbandonedWork;
 end;
 
 procedure TBookCompressionOperation.Execute;
@@ -729,6 +949,7 @@ begin
       if Length(TBookCompressionJob.Pending(QueueRoot))>0 then
         raise EInvalidOperation.Create('Сначала нужно завершить прежнее сжатие из сохранённого журнала.');
       CheckStop;
+      CleanAbandonedWork;
       if not Assigned(FFactory) then raise EArgumentException.Create('Не задан выбор книг для сжатия.');
       SetStage('Проверяем расположение книг');
       Plan:=FFactory(Stopping,
@@ -783,6 +1004,8 @@ begin
       finally Plan.Free; end;
     end;
     if NoNew then SetStage('Новых книг для сжатия не найдено. Полная проверка — «Сжать текущую коллекцию».')
+    else if FRecovery and (FState.FilesDone=0) and (FState.DiscardedPreparations>0) then
+      SetStage('Незавершённая подготовка очищена. Книги не изменены.')
     else if not FState.EstimateOnly then SetStage('Сжатие завершено');
   except
     on E:EAbort do SetStage('Сжатие остановлено. Выполненные изменения сохранены.');

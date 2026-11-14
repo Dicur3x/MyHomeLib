@@ -288,7 +288,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
         with zipfile.ZipFile(source) as archive:
             assert set(archive.namelist()) == set(originals)
             assert archive_body(source, 'neighbor.fb2', root / 'tools/7zip/7za.exe') == originals['neighbor.fb2']
-            if mode == 'apply':
+            if mode == 'apply' and recovery_fault not in {'preparation-ready', 'receipt-prepared', 'binding-prepared'}:
                 assert source.stat().st_size < size
                 for name in selected:
                     body = archive_body(source, name, root / 'tools/7zip/7za.exe')
@@ -316,7 +316,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
             else:
                 assert digest(source) == before
         backups = list((root / 'originals').glob('*.zip'))
-        if mode == 'apply':
+        if mode == 'apply' and recovery_fault != 'preparation-ready':
             assert len(backups) == 1
             with zipfile.ZipFile(backups[0]) as backup:
                 assert set(backup.namelist()) == {'HomeLibre-originals.json'} | {'books/' + name for name in selected}
@@ -362,7 +362,8 @@ if __name__ == '__main__':
     parser.add_argument('--repeat-offer', action='store_true', help='Exercise nonmodal arrivals offer, dismissal, canceled options and explicit start')
     parser.add_argument('--images', type=Path, help='Fresh image helper verified against the current C# source')
     parser.add_argument('--recovery-fault', choices=['job-published', 'file-committed', 'catalogue-committed',
-                        'personal-committed', 'completed-published', 'file-journal-forgotten'],
+                        'personal-committed', 'completed-published', 'file-journal-forgotten',
+                        'preparation-ready', 'receipt-prepared', 'binding-prepared'],
                         help='Terminate the guarded test process at a durable compression stage, then restart ordinary Main')
     parser.add_argument('--recovery-preserve', choices=['foreign-file', 'foreign-marker', 'live-owner'],
                         help='Verify recovery retains foreign or externally leased preparation data')

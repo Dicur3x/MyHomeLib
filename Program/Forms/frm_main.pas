@@ -5004,7 +5004,8 @@ begin
       Options.WorkRoot:=Root;
       Seen:=False;
       for var Attempt in FCompressionRecoveryAttempted do if Attempt=Root then Seen:=True;
-      if Seen or (Length(TBookCompressionJob.Pending(CompressionQueueRoot(Options)))=0) then Continue;
+      if Seen or ((Length(TBookCompressionJob.Pending(CompressionQueueRoot(Options)))=0) and
+        not CompressionHasAbandonedPreparation(Options)) then Continue;
       FCompressionRecoveryAttempted:=FCompressionRecoveryAttempted+[Root];
       StartBookCompression(TBookCompressionOperation.Recover(Options)); Exit;
     end;

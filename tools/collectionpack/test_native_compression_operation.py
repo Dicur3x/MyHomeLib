@@ -8,6 +8,7 @@ import shutil
 import subprocess
 from supervised_test_process import run_owned
 import unittest
+import uuid
 import zipfile
 
 import test_native_compression_receipt as receipt_fixtures
@@ -42,7 +43,7 @@ class NativeCompressionOperationTests(unittest.TestCase):
     def tearDown(self):
         self.fixture.tearDown()
 
-    def run_operation(self, allow_warning=False):
+    def run_operation(self, allow_warning=False, allow_retained_work=False):
         self.result.unlink(missing_ok=True)
         self.request.write_text(json.dumps(self.config, ensure_ascii=False), encoding='utf-8')
         process = run_owned([str(OPERATOR), str(self.request), str(self.result)], capture_output=True,
@@ -51,7 +52,8 @@ class NativeCompressionOperationTests(unittest.TestCase):
         result = json.loads(self.result.read_text(encoding='utf-8-sig'))
         if not allow_warning:
             self.assertEqual(result.get('warning', ''), '', result)
-        self.assertFalse(list(Path(self.config['work_root']).glob('prepare-*')), result)
+        if not allow_retained_work:
+            self.assertFalse(list(Path(self.config['work_root']).glob('prepare-*')), result)
         return result
 
     def unchanged(self):
@@ -132,6 +134,238 @@ class NativeCompressionOperationTests(unittest.TestCase):
         self.assertTrue(result['review_seen'])
         self.assertEqual(result['before_review_sha256'], self.before[self.fixture.source])
         self.assert_applied(result)
+
+    def leave_unapproved_preparation(self):
+        folder = self.enable_backup()
+        self.config['operation_mode'] = 'review-crash'
+        self.request.write_text(json.dumps(self.config), encoding='utf-8')
+        crashed = run_owned([str(OPERATOR), str(self.request), str(self.result)],
+                            capture_output=True, encoding='utf-8', errors='strict', timeout=45)
+        self.assertEqual(crashed.returncode, 73, crashed.stdout + crashed.stderr)
+        self.assertIn('TRACE terminated before compression approval', crashed.stdout)
+        self.assertEqual(len(list(Path(self.config['work_root']).glob('prepare-*'))), 1)
+        self.assertFalse(list((Path(self.config['work_root']) / 'jobs').glob('compress-*')))
+        self.assertEqual(list(folder.iterdir()), [], 'Unapproved preparation published an original backup')
+        self.unchanged()
+        return next(Path(self.config['work_root']).glob('prepare-*')), folder
+
+    def test_restart_cleans_unapproved_preparation_without_changing_books(self):
+        preparation, folder = self.leave_unapproved_preparation()
+        self.config['operation_mode'] = 'recover'
+        # Check authoritative content before the final cleanup assertion, so
+        # a baseline failure distinguishes retained scratch data from damage.
+        recovered = self.run_operation(allow_retained_work=True)
+        self.assertEqual(recovered['error'], '', recovered)
+        self.assertEqual(recovered['discarded_preparations'], 1, recovered)
+        self.assertEqual(recovered['changed_files'], 0, recovered)
+        self.assertEqual(recovered['pending_after_ack'], 0, recovered)
+        self.assertEqual(list(folder.iterdir()), [])
+        self.unchanged()
+        self.assertFalse(list(Path(self.config['work_root']).glob('prepare-*')),
+                         'Unapproved preparation remained after restart; books and stores are unchanged')
+
+    def test_abandoned_preparation_keeps_foreign_marker_and_root_file(self):
+        preparation, folder = self.leave_unapproved_preparation()
+        marker = preparation / 'owner.txt'
+        original = marker.read_bytes()
+        marker.write_bytes(b'Foreign owner: keep this directory')
+        self.config['operation_mode'] = 'recover'
+        result = self.run_operation(allow_retained_work=True)
+        self.assertEqual(result['discarded_preparations'], 0, result)
+        self.assertEqual(marker.read_bytes(), b'Foreign owner: keep this directory')
+        self.unchanged()
+
+        marker.write_bytes(original)
+        foreign = preparation / 'unrelated.txt'
+        foreign.write_bytes(b'Keep unrelated user data')
+        result = self.run_operation(allow_warning=True, allow_retained_work=True)
+        self.assertEqual(result['discarded_preparations'], 0, result)
+        self.assertIn('посторонний файл', result['warning'])
+        self.assertEqual(foreign.read_bytes(), b'Keep unrelated user data')
+        self.unchanged()
+        foreign.unlink()
+        result = self.run_operation()
+        self.assertEqual(result['discarded_preparations'], 1, result)
+        self.assertEqual(list(folder.iterdir()), [])
+        self.unchanged()
+
+    def test_abandoned_cleanup_does_not_require_python_or_codecs(self):
+        preparation, folder = self.leave_unapproved_preparation()
+        missing = self.root / 'not-installed'
+        self.config.update(operation_mode='recover', python=str(missing / 'python.exe'),
+                           script=str(missing / 'prepare.py'), tools_root=str(missing),
+                           seven_zip=str(missing / '7za.exe'))
+        result = self.run_operation()
+        self.assertEqual(result['discarded_preparations'], 1, result)
+        self.assertEqual(result['error'], '', result)
+        self.assertEqual(list(folder.iterdir()), [])
+        self.unchanged()
+
+    def test_abandoned_preparation_keeps_live_owner_and_another_profile(self):
+        from validate_catalogue_compression import exclusive_recovery_owner
+        self.config['queue_name'] = '{B2A52CC5-B07D-4429-B570-8376F3BC80C0}'
+        preparation, folder = self.leave_unapproved_preparation()
+        self.config['operation_mode'] = 'recover'
+        before = (preparation / 'report.json').read_bytes()
+        with exclusive_recovery_owner(preparation / 'owner.txt'):
+            result = self.run_operation(allow_retained_work=True)
+        self.assertEqual(result['discarded_preparations'], 0, result)
+        self.assertEqual((preparation / 'report.json').read_bytes(), before)
+        self.config['queue_name'] = '{930DB3BD-B4CB-49DA-9C73-6241419E71CC}'
+        result = self.run_operation(allow_retained_work=True)
+        self.assertEqual(result['discarded_preparations'], 0, result)
+        self.assertTrue(preparation.is_dir())
+        self.unchanged()
+        self.config['queue_name'] = '{B2A52CC5-B07D-4429-B570-8376F3BC80C0}'
+        result = self.run_operation()
+        self.assertEqual(result['discarded_preparations'], 1, result)
+        self.assertEqual(list(folder.iterdir()), [])
+        self.unchanged()
+
+    def test_copied_preparation_marker_does_not_own_another_directory(self):
+        preparation, folder = self.leave_unapproved_preparation()
+        leaf = 'prepare-{' + str(uuid.uuid4()).upper() + '}'
+        foreign = preparation.parent / leaf
+        foreign.mkdir()
+        marker = json.loads((preparation / 'owner.txt').read_text(encoding='utf-8-sig'))
+        marker.update(folder=leaf, job='compress-' + leaf.removeprefix('prepare-'))
+        (foreign / 'owner.txt').write_text(json.dumps(marker), encoding='utf-8')
+        (foreign / 'unrelated.txt').write_bytes(b'Keep copied-marker directory')
+        self.config['operation_mode'] = 'recover'
+        result = self.run_operation(allow_retained_work=True)
+        self.assertEqual(result['discarded_preparations'], 1, result)
+        self.assertFalse(preparation.exists())
+        self.assertEqual((foreign / 'unrelated.txt').read_bytes(), b'Keep copied-marker directory')
+        self.assertEqual(list(folder.iterdir()), [])
+        self.unchanged()
+
+    def test_unpublished_preparation_job_metadata_and_atomic_partials_are_removed(self):
+        preparation, folder = self.leave_unapproved_preparation()
+        job = preparation.parent / 'jobs' / ('compress-' + preparation.name.removeprefix('prepare-'))
+        job.mkdir(parents=True)
+        (job / 'receipt.json').write_bytes(b'Not published; may be incomplete')
+        (job / ('.homelib-data-{' + str(uuid.uuid4()).upper() + '}.tmp')).write_bytes(b'partial metadata')
+        (preparation / ('report.json.' + uuid.uuid4().hex + '.partial')).write_bytes(b'partial report')
+        self.config['operation_mode'] = 'recover'
+        result = self.run_operation()
+        self.assertEqual(result['discarded_preparations'], 1, result)
+        self.assertFalse(job.exists())
+        self.assertEqual(list(folder.iterdir()), [])
+        self.unchanged()
+
+    def test_unpublished_job_with_unknown_file_keeps_preparation(self):
+        preparation, folder = self.leave_unapproved_preparation()
+        job = preparation.parent / 'jobs' / ('compress-' + preparation.name.removeprefix('prepare-'))
+        job.mkdir(parents=True)
+        (job / 'unrelated.txt').write_bytes(b'Keep unknown job data')
+        self.config['operation_mode'] = 'recover'
+        result = self.run_operation(allow_warning=True, allow_retained_work=True)
+        self.assertEqual(result['discarded_preparations'], 0, result)
+        self.assertTrue(preparation.is_dir())
+        self.assertEqual((job / 'unrelated.txt').read_bytes(), b'Keep unknown job data')
+        self.assertIn('неизвестные файлы', result['warning'])
+        self.unchanged()
+
+    def test_abandoned_nested_scratch_keeps_hardlinked_source(self):
+        preparation, folder = self.leave_unapproved_preparation()
+        scratch = preparation / 'payload/.selected-abcdefgh'
+        scratch.mkdir()
+        linked = scratch / 'linked-source.zip'
+        os.link(self.fixture.source, linked)
+        self.config['operation_mode'] = 'recover'
+        result = self.run_operation(allow_warning=True, allow_retained_work=True)
+        self.assertEqual(result['discarded_preparations'], 0, result)
+        self.assertTrue(linked.is_file())
+        self.assertIn('Тип временного файла', result['warning'])
+        self.unchanged()
+        linked.unlink()
+        result = self.run_operation()
+        self.assertEqual(result['discarded_preparations'], 1, result)
+        self.assertEqual(list(folder.iterdir()), [])
+        self.unchanged()
+
+    def test_abandoned_nested_scratch_never_follows_directory_junction(self):
+        import struct
+        preparation, folder = self.leave_unapproved_preparation()
+        outside = self.root / 'outside-preparation'
+        outside.mkdir()
+        kept = outside / 'kept.txt'
+        kept.write_bytes(b'Keep the directory outside native preparation')
+        scratch = preparation / 'payload/.selected-abcdefgh'
+        scratch.mkdir()
+        link = scratch / 'redirect'
+        link.mkdir()
+        kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+        kernel.CreateFileW.argtypes = [ctypes.c_wchar_p, ctypes.c_uint32, ctypes.c_uint32,
+                                      ctypes.c_void_p, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_void_p]
+        kernel.CreateFileW.restype = ctypes.c_void_p
+        kernel.DeviceIoControl.argtypes = [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_void_p,
+            ctypes.c_uint32, ctypes.c_void_p, ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32), ctypes.c_void_p]
+        kernel.DeviceIoControl.restype = ctypes.c_int
+        kernel.CloseHandle.argtypes = [ctypes.c_void_p]
+        handle = kernel.CreateFileW('\\\\?\\' + str(link), 0x40000000, 7, None, 3, 0x02200000, None)
+        self.assertNotEqual(handle, ctypes.c_void_p(-1).value)
+        try:
+            substitute = ('\\??\\' + str(outside)).encode('utf-16-le')
+            display = str(outside).encode('utf-16-le')
+            body = struct.pack('<HHHH', 0, len(substitute), len(substitute) + 2, len(display))
+            body += substitute + b'\0\0' + display + b'\0\0'
+            data = struct.pack('<IHH', 0xA0000003, len(body), 0) + body
+            buffer, returned = ctypes.create_string_buffer(data), ctypes.c_uint32()
+            self.assertTrue(kernel.DeviceIoControl(handle, 0x900A4, buffer, len(data), None, 0,
+                                                  ctypes.byref(returned), None), ctypes.get_last_error())
+        finally:
+            kernel.CloseHandle(handle)
+        self.assertEqual(link.resolve(strict=True), outside.resolve(strict=True))
+        self.config['operation_mode'] = 'recover'
+        result = self.run_operation(allow_warning=True, allow_retained_work=True)
+        self.assertEqual(result['discarded_preparations'], 0, result)
+        self.assertIn('ссылка', result['warning'])
+        self.assertEqual(kept.read_bytes(), b'Keep the directory outside native preparation')
+        self.unchanged()
+        link.rmdir()  # Only this verified test junction; never recurse into its target.
+        result = self.run_operation()
+        self.assertEqual(result['discarded_preparations'], 1, result)
+        self.assertEqual(kept.read_bytes(), b'Keep the directory outside native preparation')
+        self.assertEqual(list(folder.iterdir()), [])
+        self.unchanged()
+
+    def test_restart_after_terminating_actual_running_preparer_removes_nested_scratch(self):
+        folder = self.enable_backup()
+        worker = self.root / 'paused-actual-preparer.py'
+        worker.write_text(
+            'import json,runpy,sys,time\n'
+            'worker=runpy.run_path(' + repr(self.config['script']) + ',run_name="test_worker")\n'
+            'scope=worker["main"].__globals__\n'
+            'prepare=scope["prepare_selected_file"]\n'
+            'def paused(*args,**kwargs):\n'
+            ' original_notify=kwargs["notify"]\n'
+            ' def pause(event):\n'
+            '  if event.get("stage")=="Сохраняем оригинал выбранной книги":\n'
+            '   print(json.dumps({"stage":"scratch-ready"}),flush=True)\n'
+            '   time.sleep(60)\n'
+            '  original_notify(event)\n'
+            ' kwargs["notify"]=pause\n'
+            ' return prepare(*args,**kwargs)\n'
+            'scope["prepare_selected_file"]=paused\n'
+            'sys.exit(worker["main"]())\n', encoding='utf-8')
+        self.config.update(script=str(worker), operation_mode='crash-producer')
+        self.request.write_text(json.dumps(self.config), encoding='utf-8')
+        crashed = run_owned([str(OPERATOR), str(self.request), str(self.result)],
+                            capture_output=True, encoding='utf-8', errors='strict', timeout=45)
+        self.assertEqual(crashed.returncode, 73, crashed.stdout + crashed.stderr)
+        self.assertIn('TRACE terminated during compression preparation', crashed.stdout)
+        preparation = next(Path(self.config['work_root']).glob('prepare-*'))
+        extracted = list((preparation / 'payload').glob('.selected-*/*/original.fb2'))
+        self.assertEqual(len(extracted), 1)
+        self.assertEqual(extracted[0].read_bytes(), self.fixture.original_book)
+        self.unchanged()
+        self.config['operation_mode'] = 'recover'
+        result = self.run_operation()
+        self.assertEqual(result['discarded_preparations'], 1, result)
+        self.assertEqual(result['changed_files'], 0, result)
+        self.assertEqual(list(folder.iterdir()), [])
+        self.unchanged()
 
     def test_estimate_only_finishes_without_book_database_backup_or_job_writes(self):
         folder = self.enable_backup()

@@ -335,6 +335,11 @@ begin
     else FCounts.Caption:=Format('Архивы и файлы: %d из %d · Книги: %d из %d',
       [State.FilesDone,State.FilesTotal,State.BooksDone,State.BooksTotal]);
   end
+  else if State.Recovery then
+  begin
+    if State.Finished then FCounts.Caption:='Проверка незавершённого сжатия завершена.'
+    else FCounts.Caption:='Проверяем незавершённое сжатие…';
+  end
   else FCounts.Caption:='Проверяем выбранные книги…';
   if State.AwaitingEstimate or State.EstimateOnly then
   begin
@@ -387,7 +392,12 @@ begin
   begin
     if State.EstimateOnly then FNote.Caption:='Оценка завершена. Исходные книги, архивы и каталог не изменены. '+
       'Размеры книг показаны до внешней упаковки; итог на диске будет известен после подготовки.'
-    else if State.Recovery then FNote.Caption:=Format('Завершено операций из сохранённых журналов: %d.',[State.FilesDone])
+    else if State.Recovery then
+    begin
+      FNote.Caption:=Format('Завершено операций из сохранённых журналов: %d.',[State.FilesDone]);
+      if State.DiscardedPreparations>0 then
+        FNote.Caption:=FNote.Caption+sLineBreak+Format('Убрано незавершённых подготовок: %d.',[State.DiscardedPreparations]);
+    end
     else FNote.Caption:=Format('Уменьшено файлов: %d · Без уменьшения: %d · Пропущено по вашему выбору: %d.',
       [State.ChangedFiles,State.UnchangedFiles,State.SkippedFiles]);
     if State.Error<>'' then FNote.Caption:=FNote.Caption+sLineBreak+State.Error;

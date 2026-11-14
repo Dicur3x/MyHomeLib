@@ -17,6 +17,7 @@ type
     FCompleted: Boolean;
     FOriginalsJSON: string;
     FOriginals: TCompressionOriginalBackup;
+    constructor CreateEmpty;
     procedure OpenDirectoryGuard;
     procedure OpenLease;
     procedure ReadBinding;
@@ -26,7 +27,7 @@ type
     function Field(const Name: string): string;
   public
     constructor CreatePrepared(const QueueRoot, ReceiptJSON, Candidate: string;
-      const Fault: TProc<string> = nil; const OriginalsJSON: string = '');
+      const Fault: TProc<string> = nil; const OriginalsJSON: string = ''; const PreparedName: string = '');
     constructor OpenExisting(const Directory: string);
     destructor Destroy; override;
     procedure Execute(const Cancelled: TFunc<Boolean> = nil;
@@ -35,6 +36,7 @@ type
     // caches. A failed or interrupted operation must keep its recovery data.
     procedure Forget;
     class function Pending(const QueueRoot: string): TArray<string>; static;
+    class function DiscardUnpublished(const Directory: string): Boolean; static;
     property Directory: string read FDirectory;
     property Source: string read FSource;
     property PreparedCandidate: string read FCandidate;
@@ -84,6 +86,19 @@ begin
     TryGUID(Copy(Name,Length(JobPrefix)+1,MaxInt),ID) and
     (Name=JobPrefix+GUIDToString(ID));
 end;
+
+function IsAtomicPreparationFile(const Name:string):Boolean;
+const Prefix='.homelib-data-';
+var ID:TGUID; Extension,Token:string;
+begin
+  Result:=False; Extension:=ExtractFileExt(Name);
+  if not Name.StartsWith(Prefix) or not ((Extension='.tmp') or (Extension='.bak')) then Exit;
+  Token:=Copy(Name,Length(Prefix)+1,Length(Name)-Length(Prefix)-Length(Extension));
+  Result:=TryGUID(Token,ID) and (Token=GUIDToString(ID));
+end;
+
+constructor TBookCompressionJob.CreateEmpty;
+begin inherited Create; end;
 
 function FileDigest(const FileName: string): string;
 var Stream: TFileStream; Hash: THashSHA2; Bytes: TBytes; Count: Integer;
@@ -147,7 +162,7 @@ begin
 end;
 
 constructor TBookCompressionJob.CreatePrepared(const QueueRoot, ReceiptJSON, Candidate: string;
-  const Fault:TProc<string>; const OriginalsJSON:string);
+  const Fault:TProc<string>; const OriginalsJSON, PreparedName:string);
 var Binding: TJSONObject; Name:string;
 begin
   inherited Create;
@@ -164,7 +179,9 @@ begin
   if Copy(FIdentity,1,25)<>Field('source_file_key') then
     raise EReadError.Create('Исходный файл изменился до создания задания.');
   ForceDirectories(DeletionNativePath(QueueRoot)); CheckDirectory(QueueRoot);
-  Name:=JobPrefix+TGUID.NewGuid.ToString;
+  Name:=PreparedName;
+  if Name='' then Name:=JobPrefix+TGUID.NewGuid.ToString
+  else if not IsJobName(Name) then raise EArgumentException.Create('Некорректное имя задания подготовки.');
   FDirectory:=TPath.Combine(ExpandFileName(QueueRoot),Name);
   if not CreateDirectory(PChar(DeletionNativePath(FDirectory)),nil) then RaiseLastOSError;
   OpenLease;
@@ -363,6 +380,47 @@ begin
   FreeAndNil(FReceipt); FreeAndNil(FData);
   RemoveFile(TPath.Combine(FDirectory,'active.lock'));
   if not RemoveDirectory(PChar(DeletionNativePath(FDirectory))) then RaiseLastOSError;
+end;
+
+class function TBookCompressionJob.DiscardUnpublished(const Directory:string):Boolean;
+var Job:TBookCompressionJob; Info:TByHandleFileInformation; Handle:THandle; Name:string; Files:TArray<string>;
+begin
+  Result:=False;
+  if not IsJobName(ExtractFileName(Directory)) then Exit;
+  Job:=TBookCompressionJob.CreateEmpty;
+  try
+    Job.FDirectory:=ExcludeTrailingPathDelimiter(ExpandFileName(Directory));
+    Job.OpenLease;
+    // No source write is possible before publication. Any evidence that an
+    // operation started, including a damaged binding, forbids this cleanup.
+    for Name in ['job.json','file','completed.json'] do
+    begin
+      var Attr:=GetFileAttributes(PChar(DeletionNativePath(TPath.Combine(Job.FDirectory,Name))));
+      if Attr<>INVALID_FILE_ATTRIBUTES then Exit;
+      var Code:=GetLastError;
+      if not (Code in [ERROR_FILE_NOT_FOUND,ERROR_PATH_NOT_FOUND]) then RaiseLastOSError(Code);
+    end;
+    Files:=TDirectory.GetFileSystemEntries(DeletionNativePath(Job.FDirectory));
+    for var Path in Files do
+    begin
+      Name:=ExtractFileName(Path);
+      if not ((Name='active.lock') or (Name='receipt.json') or IsAtomicPreparationFile(Name)) then Exit;
+      if Name='active.lock' then Continue; // OpenLease already pins and validates it.
+      Handle:=CreateFile(PChar(Path),FILE_READ_ATTRIBUTES,FILE_SHARE_READ or FILE_SHARE_WRITE,
+        nil,OPEN_EXISTING,FILE_FLAG_OPEN_REPARSE_POINT,0);
+      if Handle=INVALID_HANDLE_VALUE then RaiseLastOSError;
+      try
+        if not GetFileInformationByHandle(Handle,Info) then RaiseLastOSError;
+        if (Info.nNumberOfLinks<>1) or
+          (Info.dwFileAttributes and (FILE_ATTRIBUTE_DIRECTORY or FILE_ATTRIBUTE_REPARSE_POINT)<>0) then Exit;
+      finally CloseHandle(Handle); end;
+    end;
+    for var Path in Files do
+      if not Winapi.Windows.DeleteFile(PChar(Path)) then RaiseLastOSError;
+    CloseHandle(Job.FLease); Job.FLease:=0;
+    CloseHandle(Job.FDirectoryGuard); Job.FDirectoryGuard:=0;
+    Result:=RemoveDirectory(PChar(DeletionNativePath(Job.FDirectory)));
+  finally Job.Free; end;
 end;
 
 class function TBookCompressionJob.Pending(const QueueRoot: string): TArray<string>;
