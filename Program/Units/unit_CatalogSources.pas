@@ -52,6 +52,8 @@ type
 
 function LoadCatalogSources(const Collection: IBookCollection): TCatalogSources;
 procedure SaveCatalogSources(const Collection: IBookCollection; const Sources: TCatalogSources);
+function OpenCatalogSnapshot(const Source: TCatalogSource; const FileName: string;
+  const SystemData: ISystemData): IBookCollection;
 function OpenCatalogSource(const Source: TCatalogSource; const SystemData: ISystemData): IBookCollection;
 
 implementation
@@ -149,7 +151,7 @@ begin
   finally JSON.Free; end;
 end;
 
-function OpenSnapshot(const Source: TCatalogSource; const FileName: string;
+function OpenCatalogSnapshot(const Source: TCatalogSource; const FileName: string;
   const SystemData: ISystemData): IBookCollection;
 var Info: TCollectionInfo;
 begin
@@ -165,7 +167,7 @@ begin
   if Source.IsINPX then
   begin
     if not FileExists(Source.CacheFile) then raise Exception.Create('Сначала обновите источник: ' + Source.Name);
-    Result := OpenSnapshot(Source, Source.CacheFile, SystemData);
+    Result := OpenCatalogSnapshot(Source, Source.CacheFile, SystemData);
   end
   else
   begin
@@ -200,7 +202,7 @@ begin
     Cache := FSource.CacheFile; ForceDirectories(TPath.GetDirectoryName(Cache));
     Pending := TPath.Combine(TPath.GetDirectoryName(Cache), TCatalogSource.NewID + '.pending.hlc2');
     TBookCollection_SQLite.CreateCollection(FSystemData, Pending, CT_EXTERNAL_LOCAL_FB, Settings.SystemFileName[sfGenresFB2]);
-    Snapshot := OpenSnapshot(FSource, Pending, FSystemData);
+    Snapshot := OpenCatalogSnapshot(FSource, Pending, FSystemData);
     Snapshot.BeginBulkOperation;
     try
       Import(FSource.INPXFile, False, Snapshot);

@@ -17,6 +17,7 @@ interface
 
 uses
   Windows,
+  System.SysUtils,
   unit_WorkerThread,
   unit_CollectionWorkerThread,
   unit_Globals,
@@ -27,6 +28,8 @@ type
   TImportMetabibThreadBase = class(TCollectionWorker)
   protected
     FGenresType: TGenresType;
+    FImportCheck: TProc;
+    FInvalidRows: Integer;
 
     procedure MapBook(const MB: TMetabibBook; var R: TBookRecord; const BookCollection: IBookCollection);
     procedure Import(const DatasetFileName: string; CheckFiles: Boolean;
@@ -47,7 +50,6 @@ implementation
 
 uses
   Classes,
-  SysUtils,
   IOUtils,
   ComCtrls,
   Variants,
@@ -174,6 +176,7 @@ var
   SourceLibrary: Variant;
 begin
   SetProgress(0);
+  FInvalidRows := 0;
   collectionCode := BookCollection.CollectionCode;
   IsOnline := isOnlineCollection(collectionCode);
   CollectionRoot := BookCollection.GetProperty(PROP_ROOTFOLDER);
@@ -204,6 +207,7 @@ begin
 
     while True do
     begin
+      if Assigned(FImportCheck) then FImportCheck;
       // Один зіпсований запис у сторонньому каталозі не сміє зірвати весь
       // імпорт: раніше виняток з розбору вилітав з Import і відкочував усю
       // транзакцію. Такий рядок іде шляхом mrBadLine - пропущений і полічений.
@@ -313,7 +317,10 @@ begin
               raise;
             end;
             on E: Exception do
+            begin
+              Inc(badLines);
               Teletype(E.Message, tsError);
+            end;
           end;
       end;
       if not BookCollection.InBulkOperation then
@@ -334,6 +341,7 @@ begin
     if Canceled then
       Exit;
 
+    FInvalidRows := badLines + skippedNoFile;
     Teletype(Format(rstrMbAddedBooks, [Cardinal(added)]), tsInfo);
     if skippedNoFile > 0 then
       Teletype(Format(rstrMbSkippedNoFile, [Cardinal(skippedNoFile)]), tsWarning);

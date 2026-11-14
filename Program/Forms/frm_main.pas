@@ -3685,7 +3685,7 @@ begin
   UpdatesInfo.URL := Settings.UpdateURL;
 
   // Local update packages can still be checked without a network server.
-  if Settings.UpdateURL.Trim <> '' then UpdatesInfo.UpdateExternalVersions;
+  UpdatesInfo.UpdateExternalVersions;
 
   CollectionInfoIterator := FSystemData.GetCollectionInfoIterator;
   while CollectionInfoIterator.Next(CollectionInfo) do

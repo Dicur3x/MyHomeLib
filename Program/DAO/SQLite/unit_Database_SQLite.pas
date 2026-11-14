@@ -672,7 +672,7 @@ constructor TBookCollection_SQLite.TPublisherSeriesIndexIterator.Create(
 const
   SQL =
     'SELECT b.BookID, b.Title, b.Folder, b.FileName, b.Ext, b.InsideNo, ' +
-    'b.LibID, b.IsLocal, b.IsDeleted, p.SourceKey, b.BookSize, b.Rate, b.Progress, b.Lang ' +
+    'b.LibID, b.IsLocal, b.IsDeleted, p.SourceKey, b.BookSize, b.Rate, b.Progress, b.Lang, b.UpdateDate ' +
     'FROM Books b LEFT JOIN PublisherSeries_Index p ON p.BookID = b.BookID ' +
     'ORDER BY b.Folder, b.BookID';
 begin
@@ -719,6 +719,7 @@ begin
   Book.Rate := FBooks.FieldAsInt(11);
   Book.Progress := FBooks.FieldAsInt(12);
   Book.Lang := FBooks.FieldAsString(13);
+  Book.Date := FBooks.FieldAsDateTime(14);
   FBooks.Next;
 end;
 

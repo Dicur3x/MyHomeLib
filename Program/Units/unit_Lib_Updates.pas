@@ -116,7 +116,8 @@ begin
     Update := AddUpdate;
     try
       Update.FName := Name;
-      Update.FURL := FURL;
+      if Trim(URL)='' then Update.FURL:=''
+      else Update.FURL:=IncludeUrlSlash(Trim(URL));
       Update.FVersionFile := VerFile;
       Update.FUpdateFile := UpdateFile;
       Update.FCode := Code;
@@ -144,10 +145,17 @@ var
   URL: string;
   HasVersionFiles: Boolean;
   GotAny: Boolean;
+  Response: IHTTPResponse;
 begin
   FConnectionError := False;
   HasVersionFiles := False;
   GotAny := False;
+  for i:=0 to Count-1 do
+  begin
+    Items[i].FExternalVersion:=0;
+    if (Items[i].FVersionFile<>'') and (Trim(Items[i].URL)<>'') then HasVersionFiles:=True;
+  end;
+  if not HasVersionFiles then Exit;
 
   LF := TMemoryStream.Create;
   try
@@ -155,7 +163,7 @@ begin
     try
       for i := 0 to Count - 1 do
       begin
-        if Items[i].FVersionFile = '' then
+        if (Items[i].FVersionFile = '') or (Trim(Items[i].URL)='') then
           Continue;
 
         HasVersionFiles := True;
@@ -163,7 +171,8 @@ begin
 
         try
           LF.Clear;
-          HTTP.Get(URL, LF);
+          Response:=HTTP.Get(URL, LF);
+          if (Response.StatusCode<200) or (Response.StatusCode>=300) then Continue;
           SL := TStringList.Create;
           try
             LF.Seek(0, soFromBeginning);

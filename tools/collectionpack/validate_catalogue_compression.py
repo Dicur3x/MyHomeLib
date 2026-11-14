@@ -460,6 +460,12 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
         if recovery_fault:
             expected = 'PASS actual compression crash and ordinary startup recovery ' + recovery_fault
         expected_lines = [expected]
+        if scenario == 'library-update-sources':
+            expected_lines += [
+                'PASS legacy library updates request individual and default URLs, keep individual URLs with no global server, reset stale versions and reject HTTP errors',
+                'PASS update review reads INPX and Metabib, separates historical missing archives, resolves downloaded 7z, diagnoses same names and library mismatches, rejects corrupt input and preserves live catalogues',
+                'PASS update review detects same-archive date changes, excludes deleted placeholders, reports partial input and rolls back canceled inspection',
+            ]
         if scenario == 'compression-continuation':
             expected_lines.append('PASS compression continuation rejects replay, wrong token, collection or reused book, changed archive and malformed choices')
             expected_lines.extend('PASS normal startup restored and canceled compression scope ' + str(scope) for scope in range(3))
@@ -551,7 +557,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
                         text_only_repack=text_repack,
                         flibrary_sidecar_inputs=sidecar_inputs,
                         unrelated_archive_unchanged=True, native_log=str(log_path),
-                        scope=('Native source editor/settings persistence, local index fetch, disabled INI review, rename stability and theme/DPI layout; no update application'
+                        scope=('Native source settings and INPX/Metabib review, archive names/roots, date changes, deleted and malformed rows, cancellation, unchanged live catalogues, actual legacy individual/default HTTP version requests, rename and theme/DPI layout; no update application'
                                if scenario == 'library-update-sources' else
                                'Native full packed-copy publication and actual INPX update without originals; '
                                'catalogue, personal card and alternate-copy sizes, legacy/unknown sizes and invalid-size rejection'

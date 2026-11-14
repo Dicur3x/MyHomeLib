@@ -54,7 +54,13 @@ def build(project, platform, binary, logs, ide, required_text=(), visible=False,
                 if os.name == 'nt' and shutil.disk_usage(os.environ.get('SystemDrive', 'C:') + '\\').free < 8*1024**3:
                     raise OSError('Build stopped: system drive reserve fell below 8 GiB.')
                 if log.is_file():
-                    text = log.read_text(encoding='utf-8', errors='replace')
+                    try:
+                        text = log.read_text(encoding='utf-8', errors='replace')
+                    except PermissionError:
+                        # AutoBuild briefly holds its log exclusively while
+                        # flushing it. Keep the same build alive and inspect
+                        # again under the existing deadline and disk guard.
+                        text = ''
                     # AutoBuild can leave its own IDE open after the compiler
                     # has finished. The fresh log and executable, rather than
                     # editor shutdown, are the completion authority.

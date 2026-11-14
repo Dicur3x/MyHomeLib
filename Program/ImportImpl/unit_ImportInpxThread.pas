@@ -24,6 +24,7 @@ interface
 uses
   Windows,
   Classes,
+  System.SysUtils,
   unit_InpxSeries,
   unit_WorkerThread,
   unit_CollectionWorkerThread,
@@ -70,6 +71,8 @@ type
     // True — свойства коллекции не изменяются: файл может быть чужим, и его
     // URL со скриптом подключения стер бы настройки пользователя.
     FKeepCollectionProps: Boolean;
+    FImportCheck: TProc;
+    FInvalidRows: Integer;
 
   protected
     procedure GetFields(const StructureInfo: string);
@@ -94,7 +97,6 @@ type
 implementation
 
 uses
-  SysUtils,
   Variants,
   IOUtils,
   ComCtrls,
@@ -479,6 +481,7 @@ var
 
 begin
   filesProcessed := 0;
+  FInvalidRows := 0;
   SetProgress(0);
   collectionCode := BookCollection.CollectionCode;
 
@@ -580,6 +583,7 @@ begin
           function: Boolean begin Result := Canceled; end);
         while not Canceled and Reader.ReadLine(InputLine) do
         begin
+          if Assigned(FImportCheck) then FImportCheck;
           j := Reader.LineNumber;
           try
             ParseData(InputLine, IsOnline, R, Params);
@@ -677,7 +681,10 @@ begin
 
           except
             on E: EConvertError do
+            begin
+              Inc(FInvalidRows);
               Teletype(Format(rstrErrorInpStructure, [CurrentFile, j]), tsError);
+            end;
             on E: EDBError do
             begin
               Teletype(Format(rstrDBErrorInp, [CurrentFile, j]), tsError);

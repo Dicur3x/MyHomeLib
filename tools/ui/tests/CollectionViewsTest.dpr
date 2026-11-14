@@ -11,7 +11,7 @@ uses
   unit_Utils, frm_search, frm_MCPSetup, Xml.XMLDoc, Xml.XMLIntf,
   unit_CatalogComponents, unit_MetabibReader, unit_FormatComponents, unit_ComponentRemoval, unit_ComponentUsage, frm_ComponentMaintenance,
   unit_StartupCatalog, unit_FLibraryCompat, unit_BookCompressionRestored, unit_BookViewSessions,
-  unit_LibraryUpdateSources, unit_LibraryUpdateFetch, frm_LibraryUpdateSources,
+  unit_LibraryUpdateSources, unit_LibraryUpdateFetch, unit_LibraryUpdateReview, unit_Lib_Updates, frm_LibraryUpdateSources,
   NativeRegressionGuard, System.SysUtils, System.StrUtils, System.Classes, System.Types, System.IOUtils, System.IniFiles, System.JSON, System.Net.HttpClient, System.Net.URLClient, System.Generics.Collections, System.Variants, Winapi.Windows, Winapi.Messages, Winapi.CommCtrl, Winapi.RichEdit, Winapi.ActiveX, Winapi.ShlObj,
   Vcl.Forms, Vcl.Dialogs, Vcl.Themes, Vcl.Styles, Vcl.Clipbrd, Vcl.CheckLst, Vcl.Graphics, Vcl.Menus, Vcl.ComCtrls, Vcl.ExtCtrls, Vcl.Controls, Vcl.StdCtrls, Vcl.ActnList,
   VirtualTrees, VirtualTrees.Types, VirtualTrees.BaseTree, BookTreeView, BookInfoPanel, unit_MHLTheme, unit_FirstUseGuide, unit_MHLThemePalette, frm_InterfaceColors, unit_BookGallery, unit_UpdateNotes, unit_UpdateTextCache,

@@ -4,6 +4,7 @@ interface
 
 uses System.Classes, Vcl.Forms, Vcl.Controls, Vcl.StdCtrls, Vcl.ComCtrls, Vcl.ExtCtrls,
   unit_Interfaces, unit_CatalogSources, unit_LibraryUpdateSources, unit_LibraryUpdateFetch,
+  unit_LibraryUpdateReview,
   frm_CatalogSources;
 
 type
@@ -35,6 +36,7 @@ type
     FList: TListView;
     FButtons: TArray<TButton>;
     FPrepared: TStagedLibraryIndex;
+    FReview: TLibraryUpdateReview;
     FSelectedIndex: Integer;
     FRebuilding, FLayoutBusy: Boolean;
     procedure Rebuild(Index: Integer);
@@ -47,6 +49,9 @@ type
     procedure SaveClick(Sender: TObject);
     procedure CheckClick(Sender: TObject);
     procedure CopyReport(Sender: TObject);
+    procedure CopyNeeded(Sender: TObject);
+    procedure InvalidatePrepared;
+    procedure ReviewIndex;
     procedure Help(Sender: TObject);
     procedure Layout;
     procedure Resize; override;
@@ -65,13 +70,14 @@ type
     procedure CheckSource;
     property Sources: TLibraryUpdateSources read GetSources;
     property Prepared: TStagedLibraryIndex read FPrepared;
+    property Review: TLibraryUpdateReview read FReview;
   end;
 
 implementation
 
 uses System.SysUtils, System.IOUtils, System.Math, System.Variants, System.Net.HttpClient,
   Winapi.Windows, Vcl.Dialogs, Vcl.FileCtrl, Vcl.Clipbrd,
-  unit_Consts, unit_Settings, unit_WorkerThread, unit_MHLHttpClient, dm_user,
+  unit_Consts, unit_Settings, unit_WorkerThread, unit_CollectionWorkerThread, unit_MHLHttpClient, dm_user,
   frm_ImportProgressFormEx;
 
 procedure FitWindow(Form: TCustomForm);
@@ -262,15 +268,19 @@ begin
   Button('btnRemoveUpdateSource','Убрать из списка',RemoveSource);
   Button('btnImportUpdateSources','Импорт настроек…',ImportClick);
   Button('btnExportUpdateSources','Экспорт настроек…',ExportClick);
-  Button('btnCheckUpdateSource','Проверить файл',CheckClick);
+  Button('btnCheckUpdateSource','Проверить обновление',CheckClick);
   Button('btnSaveUpdateSources','Сохранить',SaveClick);
   Button('btnCopyUpdateSourceReport','Копировать отчёт',CopyReport);
+  Button('btnCopyNeededUpdateArchives','Копировать список',CopyNeeded);
   Button('btnCloseUpdateSources','Закрыть',nil); B.Cancel:=True; B.ModalResult:=mrCancel;
   Help(nil); Rebuild(0); ScaleForPPI(Screen.PixelsPerInch); FitWindow(Self); Layout;
 end;
 
 destructor TfrmLibraryUpdateSources.Destroy;
-begin FPrepared.Free; inherited; end;
+begin InvalidatePrepared; inherited; end;
+
+procedure TfrmLibraryUpdateSources.InvalidatePrepared;
+begin FreeAndNil(FReview); FreeAndNil(FPrepared); end;
 
 function TfrmLibraryUpdateSources.GetSources: TLibraryUpdateSources;
 begin Result:=Copy(FSources); end;
@@ -295,6 +305,11 @@ begin
   try
     DPI:=Max(96,Font.PixelsPerInch); Gap:=MulDiv(10,DPI,96);
     Width:=MulDiv(146,DPI,96); Height:=MulDiv(32,DPI,96);
+    for I:=0 to High(FButtons) do
+    begin
+      Canvas.Font.Assign(FButtons[I].Font);
+      Width:=Max(Width,Canvas.TextWidth(FButtons[I].Caption)+2*Gap);
+    end;
     PerRow:=Max(1,(ClientWidth-Gap) div (Width+Gap)); Rows:=(Length(FButtons)+PerRow-1) div PerRow;
     FFooter.Height:=Rows*(Height+Gap)+Gap;
     for I:=0 to High(FButtons) do FButtons[I].SetBounds(Gap+(I mod PerRow)*(Width+Gap),
@@ -335,18 +350,18 @@ end;
 procedure TfrmLibraryUpdateSources.Selected(Sender: TObject; Item: TListItem; Selected: Boolean);
 begin
   if not FRebuilding and Selected and (Item.Index<>FSelectedIndex) then
-  begin FSelectedIndex:=Item.Index; FreeAndNil(FPrepared); end;
+  begin FSelectedIndex:=Item.Index; InvalidatePrepared; end;
 end;
 
 procedure TfrmLibraryUpdateSources.AppendSource(const Source: TLibraryUpdateSource);
-begin Source.Validate; FreeAndNil(FPrepared); FSources:=FSources+[Source]; Rebuild(High(FSources)); end;
+begin Source.Validate; InvalidatePrepared; FSources:=FSources+[Source]; Rebuild(High(FSources)); end;
 
 procedure TfrmLibraryUpdateSources.ReplaceSource(Index: Integer; const Source: TLibraryUpdateSource);
 begin
   if (Index<0) or (Index>=Length(FSources)) then raise EArgumentOutOfRangeException.Create('Index');
   Source.Validate;
   if Source.ID<>FSources[Index].ID then raise EArgumentException.Create('Идентификатор редактируемой записи изменён.');
-  FreeAndNil(FPrepared); FSources[Index]:=Source; Rebuild(Index);
+  InvalidatePrepared; FSources[Index]:=Source; Rebuild(Index);
 end;
 
 procedure TfrmLibraryUpdateSources.AddSource(Sender: TObject);
@@ -371,7 +386,7 @@ procedure TfrmLibraryUpdateSources.RemoveSource(Sender: TObject);
 var Index: Integer;
 begin
   Index:=SelectionIndex; if Index<0 then Exit;
-  FreeAndNil(FPrepared); Delete(FSources,Index,1); Rebuild(Index);
+  InvalidatePrepared; Delete(FSources,Index,1); Rebuild(Index);
   SetReport('Запись убрана из этого списка. Нажмите «Сохранить», чтобы сохранить настройки.');
 end;
 
@@ -387,7 +402,7 @@ begin
     FSources:=ImportLegacyUpdateSources(Text,DefaultLocation,Warnings);
   end;
   for var I:=0 to High(FSources) do FSources[I].Enabled:=False;
-  FreeAndNil(FPrepared); Rebuild(0);
+  InvalidatePrepared; Rebuild(0);
   SetReport(Format('Прочитано источников: %d. Импортированные записи отключены: выберите нужные, проверьте привязку '+
     'к этой коллекции и включите их через «Изменить». Затем нажмите «Сохранить».',[Length(FSources)])+sLineBreak+Warnings);
 end;
@@ -422,7 +437,7 @@ procedure TfrmLibraryUpdateSources.CheckSource;
 var Worker: TFetchIndexWorker; Progress: TImportProgressFormEx; Index: Integer;
 begin
   Index:=SelectionIndex; if Index<0 then raise EArgumentException.Create('Выберите источник для проверки.');
-  FreeAndNil(FPrepared); Worker:=TFetchIndexWorker.Create(FSources[Index]);
+  InvalidatePrepared; Worker:=TFetchIndexWorker.Create(FSources[Index]);
   try
     Progress:=TImportProgressFormEx.Create(Self);
     try
@@ -437,6 +452,27 @@ begin
         [FSources[Index].IndexFile,sLineBreak,TFile.GetSize(FPrepared.FileName)/1048576,sLineBreak]));
     finally Progress.Free; end;
   finally Worker.Free; end;
+  ReviewIndex;
+end;
+
+procedure TfrmLibraryUpdateSources.ReviewIndex;
+var Worker: TCollectionWorker; Progress: TImportProgressFormEx;
+begin
+  FReview:=TLibraryUpdateReview.Create(FSources[SelectionIndex],FPrepared);
+  try
+    Worker:=CreateLibraryReviewWorker(FCollection.CollectionID,FReview);
+    try
+      Progress:=TImportProgressFormEx.Create(Self);
+      try
+        Progress.Caption:='Проверка книг и архивов обновления'; Progress.WorkerThread:=Worker;
+        Progress.CloseOnTimer:=True; Progress.PopupMode:=pmExplicit; Progress.PopupParent:=Self; Progress.Timer.Interval:=1;
+        Progress.ShowModal; Worker.WaitFor;
+        if Assigned(Worker.FatalException) then raise EReadError.Create(Exception(Worker.FatalException).Message);
+        if not Worker.Success or not FReview.Ready then raise EReadError.Create('Проверка обновления не завершена.');
+        SetReport(FReview.Summary);
+      finally Progress.Free; end;
+    finally Worker.Free; end;
+  except FreeAndNil(FReview); raise; end;
 end;
 
 procedure TfrmLibraryUpdateSources.ImportClick(Sender: TObject);
@@ -469,11 +505,17 @@ begin try CheckSource; except on E:Exception do SetReport(E.Message); end; end;
 procedure TfrmLibraryUpdateSources.CopyReport(Sender: TObject);
 begin Clipboard.AsText:=FReport.Caption; end;
 
+procedure TfrmLibraryUpdateSources.CopyNeeded(Sender: TObject);
+begin
+  if Assigned(FReview) and FReview.Ready then Clipboard.AsText:=FReview.NeededArchives.Text
+  else SetReport('Сначала проверьте обновление. Список будет содержать точные имена отсутствующих файлов с новыми или изменёнными записями.');
+end;
+
 procedure TfrmLibraryUpdateSources.Help(Sender: TObject);
 begin
   SetReport('1. Добавьте папку с новым индексом или адрес сервера и имя файла.'+sLineBreak+
     '2. Укажите, какую коллекцию или подключённый источник обновлять и где лежат архивы книг.'+sLineBreak+
-    '3. Проверьте выбранный файл. Для применения нужен предпросмотр содержимого нового индекса.'+sLineBreak+
+    '3. Нажмите «Проверить обновление»: появятся число новых записей и имена недостающих файлов. Список можно скопировать.'+sLineBreak+
     'Импорт показывает настройки до сохранения. Записи из другого INI сначала отключены. '+
     'Индекс содержит список книг; адресов для загрузки любых книжных архивов в нём может не быть.');
 end;
