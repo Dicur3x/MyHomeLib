@@ -3,6 +3,7 @@ import base64
 import json
 import os
 import random
+import shutil
 from xml.etree import ElementTree as ET
 import zipfile
 
@@ -80,10 +81,16 @@ class NativeExternalCompressionTests(NativeCompressionOperationTests):
             self.assertEqual(db.execute('SELECT count(*) FROM HomeLibreCompressedImages').fetchone()[0], 1)
         with database(self.fixture.personal) as db:
             self.assertEqual(db.execute('SELECT BookSize FROM Books WHERE DatabaseID=7').fetchone()[0], size)
+        checked = {path: sha(path.read_bytes()) for path in
+                   (self.fixture.catalogue, self.fixture.personal, self.fixture.source, *sides)}
         second = self.run_operation()
         self.assertEqual(second['error'], '', second)
         self.assertEqual(second['changed_files'], 0, second)
         self.assertEqual(second['unchanged_files'], 1, second)
+        self.assertEqual(checked, {path: sha(path.read_bytes()) for path in checked},
+                         'A repeated compression rewrote the source or verification history')
+        self.check_index_sizes(size, sides[0], container_name)
+        self.check_same_stamp_damage_is_not_skipped(sides[0])
         stamp = sides[0].stat()
         os.utime(sides[0], ns=(stamp.st_atime_ns, stamp.st_mtime_ns+1000000000))
         rechecked = self.run_operation()
@@ -99,6 +106,61 @@ class NativeExternalCompressionTests(NativeCompressionOperationTests):
         third = self.run_operation()
         self.assertEqual(third['error'], '', third)
         self.assertEqual(third['changed_files'], 1, third)
+
+    def check_same_stamp_damage_is_not_skipped(self, image_archive):
+        saved = image_archive.read_bytes()
+        stamp = image_archive.stat()
+        with zipfile.ZipFile(image_archive) as archive:
+            entry = archive.getinfo('one')
+            # Damage selected compressed image bytes, preserving the ZIP
+            # directory, native file key, total length and last-write time.
+            start = entry.header_offset
+            name_size = int.from_bytes(saved[start+26:start+28], 'little')
+            extra_size = int.from_bytes(saved[start+28:start+30], 'little')
+            offset = start+30+name_size+extra_size+max(1, entry.compress_size//2)
+        bad = bytearray(saved)
+        bad[offset] ^= 128
+        image_archive.write_bytes(bad)
+        os.utime(image_archive, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
+        before = {path: sha(path.read_bytes()) for path in (self.fixture.catalogue, self.fixture.personal)}
+        try:
+            rejected = self.run_operation()
+            self.assertNotEqual(rejected['error'], '', rejected)
+            self.assertEqual(rejected['changed_files'], 0, rejected)
+            self.assertEqual(before, {path: sha(path.read_bytes()) for path in before})
+        finally:
+            image_archive.write_bytes(saved)
+            os.utime(image_archive, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
+
+    def check_index_sizes(self, expected, image_archive, container_name):
+        saved_config = self.config
+        saved = image_archive.read_bytes()
+        stamp = image_archive.stat()
+        other = self.root / 'other'
+        other.mkdir()
+        shutil.copy2(self.fixture.source, other / container_name)
+        def rebuild(name, mode='index-rebuild', folder=None):
+            target = self.root / (name+'.hlc2')
+            shutil.copy2(self.fixture.catalogue, target)
+            self.config = json.loads(json.dumps(saved_config))
+            self.config['options']['catalogue'] = str(target)
+            self.config['operation_mode'] = mode
+            if folder:
+                self.config['index_folder'] = folder
+            result = self.run_operation()
+            self.assertEqual(result['error'], '', result)
+            return result['index_size']
+        try:
+            self.assertEqual(rebuild('same-source'), expected)
+            self.assertEqual(rebuild('different-source', folder='other/'+container_name), 999)
+            # A sidecar changed during index import must invalidate the
+            # captured logical size even when the stripped archive is intact.
+            self.assertEqual(rebuild('image-during-import', 'index-after-image-change'), 999)
+            self.assertEqual(rebuild('image-before-import'), 999)
+        finally:
+            self.config = saved_config
+            image_archive.write_bytes(saved)
+            os.utime(image_archive, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
 
 
 # unittest normally collects inherited methods too. Retain the fixture helpers

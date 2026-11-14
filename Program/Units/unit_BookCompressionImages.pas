@@ -5,6 +5,8 @@ interface
 uses System.SysUtils, System.Classes, System.JSON;
 
 function CompressionImageStamp(const Source: string): string;
+function CompressionImageSnapshot(const Source: string; Data:TJSONArray): string;
+function CompressionImageSnapshotMatches(const Source, Snapshot:string; Hashes:Boolean): Boolean;
 function CaptureCompressionImageSources(const Source: string): TJSONArray;
 procedure CheckCompressionImageSources(const Source: string; Data: TJSONArray; Applied: Boolean;
   VerifiedFiles:TJSONArray=nil);
@@ -24,6 +26,7 @@ begin
     if not SameText(ExtractFileExt(Source),'.7z') and (Paths[0]='') and (Paths[1]='') then Exit;
     for var I:=0 to 1 do
     begin
+      if Paths[I]<>'' then Paths[I]:=ExpandFileName(Paths[I]);
       var Item:=TJSONObject.Create; Result.AddElement(Item);
       if I=0 then Item.AddPair('kind','covers') else Item.AddPair('kind','images');
       Item.AddPair('path',Paths[I]);
@@ -43,12 +46,63 @@ begin
   finally Data.Free; end;
 end;
 
+function CompressionImageSnapshot(const Source: string; Data:TJSONArray): string;
+begin
+  Result:='';
+  var Current:=CaptureCompressionImageSources(Source);
+  try
+    if Current.Count=0 then Exit;
+    if (Data<>nil) and (Data.Count<>Current.Count) then
+      raise EReadError.Create('Изменился набор источников изображений.');
+    for var I:=0 to Current.Count-1 do
+    begin
+      var Item:=Current.Items[I] as TJSONObject;
+      if Item.GetValue<string>('path')='' then Continue;
+      if Data=nil then Exit; // Legacy receipts cannot invent image checksums.
+      var Original:=Data.Items[I] as TJSONObject;
+      if not SameFileName(Item.GetValue<string>('path'),Original.GetValue<string>('path')) then
+        raise EReadError.Create('Изменился путь внешних изображений.');
+      var Hash:=Original.GetValue<string>('result_sha256');
+      Item.AddPair('source_sha256',Hash); Item.AddPair('result_sha256',Hash);
+    end;
+    Result:=Current.ToJSON;
+  finally Current.Free; end;
+end;
+
+function CompressionImageSnapshotMatches(const Source, Snapshot:string; Hashes:Boolean): Boolean;
+var Stored:TJSONArray;
+begin
+  Result:=False; Stored:=nil;
+  if Snapshot='' then Exit;
+  try
+    try
+      Stored:=TJSONObject.ParseJSONValue(Snapshot) as TJSONArray;
+      if Stored=nil then Exit;
+      var Current:=CaptureCompressionImageSources(Source);
+      try
+        if Current.Count<>Stored.Count then Exit;
+        for var I:=0 to Current.Count-1 do
+          for var Name in ['kind','path','source_identity'] do
+            if Current.Items[I].GetValue<string>(Name)<>Stored.Items[I].GetValue<string>(Name) then Exit;
+      finally Current.Free; end;
+      if Hashes then CheckCompressionImageSources(Source,Stored,False);
+      Result:=True;
+    except
+      on E:EOSError do Result:=False;
+      on E:EStreamError do Result:=False;
+      on E:EJSONException do Result:=False;
+      on E:EInvalidCast do Result:=False;
+    end;
+  finally Stored.Free; end;
+end;
+
 procedure CheckCompressionImageSources(const Source: string; Data: TJSONArray; Applied: Boolean;
   VerifiedFiles:TJSONArray);
 begin
   if Data=nil then Exit;
   if Data.Count<>2 then raise EReadError.Create('Неполная привязка внешних изображений.');
   var Paths:=FLibraryImageSourceFiles(Source);
+  for var I:=0 to 1 do if Paths[I]<>'' then Paths[I]:=ExpandFileName(Paths[I]);
   for var I:=0 to 1 do
   begin
     var Item:=Data.Items[I] as TJSONObject;

@@ -312,7 +312,7 @@ begin
 end;
 
 procedure TBookCompressionReceipt.WriteChecks(DB: TSQLiteDatabase);
-var Options, Item: TJSONObject; Current, Key, Profile, Engine, ImageStamp: string; Gray: Integer;
+var Options, Item: TJSONObject; Current, Key, Profile, Engine, ImageStamp, ImageSnapshot: string; Gray: Integer;
 begin
   // Older durable receipts remain replayable, without inventing cache proof.
   if FData.GetValue('compression_options')=nil then Exit;
@@ -322,6 +322,12 @@ begin
   Profile:=JSONText(Options,'profile'); Gray:=Ord(JSONBool(Options,'grayscale'));
   Engine:=JSONText(Options,'engine_sha256');
   ImageStamp:=CompressionImageStamp(Text('source'));
+  ImageSnapshot:=CompressionImageSnapshot(Text('source'),FData.GetValue<TJSONArray>('image_dependencies',nil));
+  DB.ExecSQL('CREATE TABLE IF NOT EXISTS HomeLibreCompressionImageSets('+
+    'FileKey TEXT NOT NULL,Stamp TEXT NOT NULL,SourcesJSON TEXT NOT NULL,'+
+    'PRIMARY KEY(FileKey,Stamp)) WITHOUT ROWID');
+  if ImageSnapshot<>'' then
+    DB.ExecSQL('INSERT OR REPLACE INTO HomeLibreCompressionImageSets VALUES(?,?,?)',[Key,ImageStamp,ImageSnapshot]);
   DB.ExecSQL('CREATE TABLE IF NOT EXISTS HomeLibreCompressionDependencies('+
     'FileKey TEXT NOT NULL,Member TEXT NOT NULL,Profile TEXT NOT NULL,Grayscale INTEGER NOT NULL,'+
     'EngineSHA256 TEXT NOT NULL,Stamp TEXT NOT NULL,'+
@@ -347,6 +353,9 @@ begin
     DB.ExecSQL('DELETE FROM HomeLibreCompressionChecks WHERE FileKey=? AND Member=? '+
       'AND Profile=? AND Grayscale=?',
       [Key,JSONText(Item,'member'),Profile,Gray]);
+    DB.ExecSQL('DELETE FROM HomeLibreCompressionDependencies WHERE FileKey=? AND Member=? '+
+      'AND Profile=? AND Grayscale=?',
+      [Key,JSONText(Item,'member'),Profile,Gray]);
     if (Item.GetValue('checked')<>nil) and not JSONBool(Item,'checked') then Continue;
     DB.ExecSQL('INSERT INTO HomeLibreCompressionChecks VALUES(?,?,?,?,?,?,?,?) '+
       'ON CONFLICT(FileKey,Member,Profile,Grayscale,EngineSHA256) DO UPDATE SET '+
@@ -359,17 +368,36 @@ begin
 end;
 
 procedure TBookCompressionReceipt.WriteHistory(DB: TSQLiteDatabase; Inspection: Boolean);
-var Item: TJSONObject; ImageTableReady, OutcomesReady: Boolean; ImagesField: string;
+var Item: TJSONObject; ImageTableReady, OutcomesReady: Boolean; ImagesField, Current, ImageStamp:string;
 begin
   DB.ExecSQL('CREATE TABLE IF NOT EXISTS HomeLibreBookCompression('+
     'FileKey TEXT NOT NULL,Member TEXT NOT NULL,ProfileSHA256 TEXT NOT NULL,'+
     'InputSHA256 TEXT NOT NULL,OutputSHA256 TEXT NOT NULL,BookSize INTEGER NOT NULL,'+
     'PRIMARY KEY(FileKey,Member))');
+  Current:=ArchiveDeletionSourceIdentity(Text('source'));
+  ImageStamp:=CompressionImageStamp(Text('source'));
+  DB.ExecSQL('CREATE TABLE IF NOT EXISTS HomeLibreRestoredBookSizes('+
+    'FileKey TEXT NOT NULL,Member TEXT NOT NULL,PayloadSHA256 TEXT NOT NULL,BookSize INTEGER NOT NULL,'+
+    'FullInputSHA256 TEXT NOT NULL,FullOutputSHA256 TEXT NOT NULL,ImageStamp TEXT NOT NULL,'+
+    'SourceIdentity TEXT NOT NULL,SourceSHA256 TEXT NOT NULL,PRIMARY KEY(FileKey,Member)) WITHOUT ROWID');
+  DB.ExecSQL('UPDATE HomeLibreRestoredBookSizes SET SourceIdentity=?,SourceSHA256=? '+
+    'WHERE FileKey=? AND SourceSHA256=?',
+    [Current,LowerCase(Text('result_sha256')),UpperCase(Text('source_file_key')),LowerCase(Text('source_sha256'))]);
   ImageTableReady:=False;
   OutcomesReady:=False;
   for var Value in JSONArray(FData,'payloads') do
   begin
     Item:=TJSONObject(Value);
+    var Full:=Item.GetValue<TJSONObject>('restored',nil);
+    if Full<>nil then
+      DB.ExecSQL('INSERT OR REPLACE INTO HomeLibreRestoredBookSizes VALUES(?,?,?,?,?,?,?,?,?)',
+        [UpperCase(Text('source_file_key')),JSONText(Item,'member'),LowerCase(JSONText(Item,'output_sha256')),
+         JSONNumber(Full,'size'),LowerCase(JSONText(Full,'input_sha256')),LowerCase(JSONText(Full,'output_sha256')),
+         ImageStamp,Current,LowerCase(Text('result_sha256'))])
+    else
+      DB.ExecSQL('DELETE FROM HomeLibreRestoredBookSizes WHERE FileKey=? AND Member=? AND '+
+        '(PayloadSHA256<>? OR ImageStamp<>?)',
+        [UpperCase(Text('source_file_key')),JSONText(Item,'member'),LowerCase(JSONText(Item,'output_sha256')),ImageStamp]);
     DB.ExecSQL('INSERT INTO HomeLibreBookCompression VALUES(?,?,?,?,?,?) '+
       'ON CONFLICT(FileKey,Member) DO UPDATE SET ProfileSHA256=excluded.ProfileSHA256,'+
       // Retain a measured size only with its original transformation witness.

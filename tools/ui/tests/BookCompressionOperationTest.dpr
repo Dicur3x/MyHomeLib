@@ -4,7 +4,8 @@
 
 uses System.SysUtils, System.Classes, System.IOUtils, System.JSON, System.Hash,
   Winapi.Windows, unit_BookCompressionPlan, unit_BookCompressionOperation,
-  unit_BookCompressionJob, unit_BookCompressionRuntime, unit_ZipMemberDeletion, unit_CollectionPacking, unit_Globals, unit_Settings, dm_user;
+  unit_BookCompressionJob, unit_BookCompressionRuntime, unit_ZipMemberDeletion, unit_CollectionPacking, unit_Globals, unit_Settings, dm_user,
+  SQLiteWrap, unit_BookCompressionIndex;
 
 function Text(Obj:TJSONObject; const Name:string):string;
 begin Result:=Obj.GetValue<string>(Name,''); end;
@@ -55,6 +56,36 @@ begin
       if (TimeLimit<1000) or (TimeLimit>300000) then
         raise EArgumentException.Create('Invalid bounded operation test timeout');
       ConfigureMHLHostProfile(TPath.GetDirectoryName(ParamStr(1)),'operation-test.ini','operation-test.dbs2');
+      if Mode.StartsWith('index-') then
+      begin
+        var DB:=TSQLiteDatabase.Create(Info.DBFileName);
+        try
+          DB.Start;
+          CaptureCompressionIndexSizes(DB,Info.RootFolder,'LibID');
+          DB.ExecSQL('UPDATE Books SET BookID=BookID+1000,BookSize=999');
+          if Mode='index-after-image-change' then
+          begin
+            var Image:=TPath.Combine(Info.RootFolder,'covers\books.zip');
+            var Changed:=TFileStream.Create(Image,fmOpenReadWrite);
+            try
+              Changed.Position:=Changed.Size;
+              var ByteValue:Byte:=1; Changed.WriteBuffer(ByteValue,1);
+            finally Changed.Free; end;
+          end;
+          if Text(Data,'index_folder')<>'' then
+            DB.ExecSQL('UPDATE Books SET Folder=?',[Text(Data,'index_folder')]);
+          RestoreCompressionIndexSizes(DB,Info.RootFolder,'LibID');
+          var Size:=DB.QuerySingleInt('SELECT BookSize FROM Books WHERE LibID=''flibusta:101''');
+          DB.Commit;
+          Output:=TJSONObject.Create;
+          try
+            Output.AddPair('error',''); Output.AddPair('warning','');
+            Output.AddPair('index_size',TJSONNumber.Create(Size));
+            TFile.WriteAllText(ParamStr(2),Output.ToJSON,TEncoding.UTF8);
+          finally Output.Free; end;
+        finally DB.Free; end;
+        Exit;
+      end;
       if Mode='resolve-tools' then
       begin
         Output:=TJSONObject.Create;

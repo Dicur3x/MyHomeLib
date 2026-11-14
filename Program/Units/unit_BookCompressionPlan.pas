@@ -144,7 +144,7 @@ end;
 function TCompressionFilePlan.AlreadyChecked(const Profile: string; Grayscale: Boolean; const EngineSHA256: string;
   const Cancelled: TFunc<Boolean>; const Progress: TProc<Int64,Int64>): Boolean;
 var DB: TSQLiteDatabase; Query: TSQLiteQuery; Source: TFileStream;
-    Expected, ImageStamp: string; Hash: THashSHA2; Bytes: TBytes; Count: Integer;
+    Expected, ImageStamp, ImageSnapshot: string; Hash: THashSHA2; Bytes: TBytes; Count: Integer;
 begin
   Result:=False; CheckSource;
   if CompressionFileKey(FTemplate.GetValue<string>('catalogue'))<>
@@ -154,9 +154,17 @@ begin
   try
     if DB.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE type=''table'' AND '+
       'name=''HomeLibreCompressionChecks''')=0 then Exit;
-    Expected:=''; ImageStamp:=CompressionImageStamp(FSource);
+    Expected:=''; ImageStamp:=CompressionImageStamp(FSource); ImageSnapshot:='';
     if (ImageStamp<>'') and (DB.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE type=''table'' '+
       'AND name=''HomeLibreCompressionDependencies''')=0) then Exit;
+    if ImageStamp<>'' then
+    begin
+      if DB.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE type=''table'' '+
+        'AND name=''HomeLibreCompressionImageSets''')=0 then Exit;
+      ImageSnapshot:=DB.QuerySingleString('SELECT SourcesJSON FROM HomeLibreCompressionImageSets WHERE FileKey=? AND Stamp=?',
+        [UpperCase(FFileKey),ImageStamp]);
+      if ImageSnapshot='' then Exit;
+    end;
     for var Pair in FMembers do
     begin
       if Assigned(Cancelled) and Cancelled() then Abort;
@@ -193,6 +201,8 @@ begin
       FTemplate.GetValue<string>('catalogue_key') then
       raise EReadError.Create('Каталог изменился после выбора книг. Повторите сжатие.');
     Result:=SameText(Hash.HashAsString,Expected);
+    if Result and (ImageStamp<>'') then
+      Result:=CompressionImageSnapshotMatches(FSource,ImageSnapshot,True);
   finally Source.Free; end;
 end;
 
