@@ -87,6 +87,10 @@ class LegacyCompressionHistoryTests(unittest.TestCase):
                 self.assertTrue(result.books[0]['reused'], result.books)
                 self.assertEqual(result.payloads[0]['input_sha256'], result.payloads[0]['output_sha256'])
                 self.assertTrue(result.payloads[0]['image_outputs'])
+                receipt = result.inspection_receipt(dict(schema=1, kind='HomeLibre book compression',
+                    source=str(archive), rows=[dict(member=member)]))
+                self.assertEqual(receipt['payloads'][0]['source_image_outputs'], result.payloads[0]['image_outputs'])
+                self.assertEqual(receipt['payloads'][0]['image_outputs'], [])
 
     def test_estimate_recognizes_legacy_output_without_processing_images(self):
         archive, member, catalogue = self.legacy_book('.epub')

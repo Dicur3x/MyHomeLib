@@ -461,6 +461,7 @@ class SelectedPreparationTests(unittest.TestCase):
         self.assertEqual(payload['output_sha256'], sha(source))
         self.assertEqual(payload['size'], source.stat().st_size)
         self.assertEqual(payload['image_outputs'], [])
+        self.assertEqual(payload['source_image_outputs'], [])
         self.assertTrue(payload['checked'])
         self.assertEqual(prepared.payloads[0]['image_outputs'], ['e' * 64])
         with self.assertRaises(PackingError):

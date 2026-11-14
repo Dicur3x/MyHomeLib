@@ -285,8 +285,97 @@ begin
     end;
 end;
 
+procedure TestLegacyCompressionHistoryCatalogue(const Collection:IBookCollection; FirstID,SecondID:Integer);
+var Config,Item:TJSONObject; Driver:TCompressionCatalogueDriver; DB:TSQLiteDatabase;
+    Books:TArray<TBookRecord>; Source,OriginalSHA,Path,Key,Cached,Catalogue:string;
+    Started:UInt64; Node:PVirtualNode; Data:PBookRecord; Selected:Integer; Action:TAction;
+begin
+  Config:=TJSONObject.ParseJSONValue(TFile.ReadAllText(Settings.AppPath+'legacy-compression-fixture.json',TEncoding.UTF8)) as TJSONObject;
+  Require(Assigned(Config),'Invalid old compression fixture');
+  Driver:=TCompressionCatalogueDriver.Create;
+  try
+    Catalogue:=Settings.ExpandCollectionFileName(VarToStr(Collection.GetProperty(PROP_DATAFILE)));
+    Require(SameFileName(ExtractFilePath(Catalogue),Settings.AppPath),
+      'Old payload witnesses must be beside their real registered catalogue');
+    DB:=TSQLiteDatabase.Create(Catalogue);
+    try
+      Require(DB.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE name=''HomeLibreBookCompression''')=0,
+        'Old catalogue already has native compression receipts');
+      DB.ExecSQL('CREATE TABLE HomeLibPackingState(Key TEXT PRIMARY KEY,Value TEXT NOT NULL)');
+      for var Pair in Config.GetValue<TJSONObject>('state') do
+        DB.ExecSQL('INSERT INTO HomeLibPackingState VALUES(?,?)',[Pair.JsonString.Value,Pair.JsonValue.Value]);
+    finally DB.Free; end;
+    SetLength(Books,2);
+    for var I:=0 to 1 do
+    begin
+      Item:=Config.GetValue<TJSONArray>('books').Items[I] as TJSONObject;
+      var ID:=FirstID; if I=1 then ID:=SecondID;
+      Collection.GetBookRecord(CreateBookKey(ID,Collection.CollectionID),Books[I],True);
+      Books[I].Folder:=Item.GetValue<string>('folder'); Books[I].FileName:=Item.GetValue<string>('filename');
+      Books[I].FileExt:=Item.GetValue<string>('ext'); Books[I].InsideNo:=Item.GetValue<Integer>('inside_no');
+      Path:=TPath.GetFullPath(Settings.AppPath+Item.GetValue<string>('decoded'));
+      Require(Path.StartsWith(Settings.AppPath,True) and FileExists(Path),'Missing private decoded old book');
+      Books[I].Size:=TFile.GetSize(Path); Collection.UpdateBook(Books[I]);
+    end;
+    Source:=Books[0].GetBookFileName;
+    Require(Source=Books[1].GetBookFileName,'Old fixture must share one real PPMd archive');
+    OriginalSHA:=THashSHA2.GetHashStringFromFile(Source);
+    Require(TryStoreReaderBookProgress(Collection,Books[0],37),'Cannot seed old collection reading progress');
+    Cached:=PrepareReaderFile(Books[0],True);
+    Item:=Config.GetValue<TJSONArray>('books').Items[0] as TJSONObject;
+    Require(THashSHA2.GetHashStringFromFile(Cached)=Item.GetValue<string>('sha256'),'Reader could not read old PPMd output');
+    Settings.TreeModes[PAGE_SEARCH]:=tmFlat; ShowPage(PAGE_SEARCH);
+    frmMain.btnClearFilterEdits.Click; frmMain.acApplyPreset.Execute;
+    Selected:=0; Node:=frmMain.tvBooksSR.GetFirst;
+    while Assigned(Node) do
+    begin
+      Data:=frmMain.tvBooksSR.GetNodeData(Node);
+      if Assigned(Data) and (Data^.nodeType=ntBookInfo) and
+        ((Data^.BookKey.BookID=FirstID) or (Data^.BookKey.BookID=SecondID)) then
+      begin
+        frmMain.tvBooksSR.CheckState[Node]:=csCheckedNormal; frmMain.tvBooksSR.FocusedNode:=Node;
+        frmMain.tvBooksSR.Selected[Node]:=True; Inc(Selected);
+      end;
+      Node:=frmMain.tvBooksSR.GetNext(Node);
+    end;
+    Require(Selected=2,'Select both legacy book formats in the actual catalogue');
+    Driver.Mode:='apply'; Driver.Source:=Source; Driver.OriginalSHA:=OriginalSHA;
+    Driver.ProfileIndex:=3; Driver.Grayscale:=False;
+    Driver.BackupFolder:=Settings.AppPath+'originals'; ForceDirectories(Driver.BackupFolder);
+    Driver.Started:=GetTickCount64;
+    Driver.Timer:=TTimer.Create(nil); Driver.Timer.Enabled:=False;
+    Driver.Timer.Interval:=50; Driver.Timer.OnTimer:=Driver.Tick; Driver.Timer.Enabled:=True;
+    Action:=frmMain.FindComponent('acCompressSelectedBooks') as TAction;
+    Require(Assigned(Action),'Missing normal selected-book command');
+    Action.Update; Require(Action.Enabled,'Normal command disabled for an old compressed catalogue');
+    Action.Execute; Started:=GetTickCount64;
+    while not Driver.ResultSeen and (GetTickCount64-Started<90000) do begin Application.ProcessMessages; Sleep(10); end;
+    Require(Driver.OptionsSeen and Driver.ResultSeen and not Driver.ReviewSeen,
+      'Verified old books were proposed for another lossy pass: '+Driver.LastStage);
+    Require(THashSHA2.GetHashStringFromFile(Source)=OriginalSHA,'Migration rewrote the old archive');
+    Require(Length(TDirectory.GetFiles(Driver.BackupFolder,'*.zip'))=0,'Unchanged old books created an unnecessary backup');
+    DB:=TSQLiteDatabase.CreateReadOnly(Catalogue);
+    try
+      Key:=UpperCase(Copy(ArchiveDeletionSourceIdentity(Source),1,25));
+      for var I:=0 to 1 do
+      begin
+        Item:=Config.GetValue<TJSONArray>('books').Items[I] as TJSONObject;
+        Require(DB.QuerySingleInt('SELECT count(*) FROM HomeLibreBookCompression WHERE FileKey=? AND Member=? AND OutputSHA256=?',
+          [Key,Books[I].FileName+Books[I].FileExt,Item.GetValue<string>('sha256')])=1,'Old member did not acquire a verified native receipt');
+        Require(DB.QuerySingleInt('SELECT count(*) FROM HomeLibreCompressionOutcomes WHERE FileKey=? AND Member=? AND RetryOriginal=0',
+          [Key,Books[I].FileName+Books[I].FileExt])=1,'Old format was not recognized as an already optimized book');
+      end;
+      Require(DB.QuerySingleInt('SELECT count(*) FROM HomeLibreCompressedImages')>=1,'Old raster history did not reach native storage');
+    finally DB.Free; end;
+    var Personal:TBookRecord; SystemDB.GetBookRecord(Books[0].BookKey,Personal);
+    Require(Personal.Progress=37,'Migrating old image history changed personal progress');
+    Writeln('PASS normal catalogue migrated legacy FB2 EPUB history without rewriting archive');
+  finally Driver.Timer.Free; Driver.Free; Config.Free; end;
+end;
+
 procedure TestSelectedCompressionCatalogue(const Collection: IBookCollection;
   FirstID, SecondID: Integer);
+const Profiles:array[0..3] of string=('original','balanced','economy','maximum');
 var Driver:TCompressionCatalogueDriver; After:TBookRecord;
     OldSize, NewSize:Int64; Data:PBookRecord; Node:PVirtualNode;
     Action:TAction; Source, Cached, Mode, Registry:string;
@@ -294,6 +383,8 @@ var Driver:TCompressionCatalogueDriver; After:TBookRecord;
     Books:TArray<TBookRecord>; OriginalBody, OutputBody:TBytes; Started, Timeout:UInt64;
     Members:TArray<string>; Config:TJSONObject;
 begin
+  if FileExists(Settings.AppPath+'legacy-compression-fixture.json') then
+    TestLegacyCompressionHistoryCatalogue(Collection,FirstID,SecondID);
   Mode:=ParamStr(2);
   Require(MatchText(Mode,['apply','skip','stop','estimate']),'Expected apply, skip, stop or estimate');
   Source:=Settings.AppPath+'books\shared.zip';
@@ -310,6 +401,8 @@ begin
       Members[0]:=Config.GetValue<string>('first','one.fb2');
       Members[1]:=Config.GetValue<string>('second','two.fb2');
       Driver.Grayscale:=Config.GetValue<Boolean>('grayscale',True);
+      Driver.ProfileIndex:=Config.GetValue<Integer>('profile_index',2);
+      Require(InRange(Driver.ProfileIndex,0,3),'Invalid fixture compression profile');
       Driver.InspectComparison:=Config.GetValue<Boolean>('inspect_comparison',False);
       Driver.EstimateFirst:=Config.GetValue<Boolean>('estimate_first',False);
       Driver.Whole:=Config.GetValue<Boolean>('whole',False);
@@ -370,7 +463,7 @@ begin
     end;
     Require(Selected=2,'Select exactly two visible books');
     Options:=Default(TBookCompressionOperationOptions);
-    Options.Profile:='economy'; Options.Grayscale:=Driver.Grayscale;
+    Options.Profile:=Profiles[Driver.ProfileIndex]; Options.Grayscale:=Driver.Grayscale;
     Require(Length(ResolveSelectedCompressionTools(Settings.AppPath,Options))=0,'Incomplete private compression runtime');
     Action:=frmMain.FindComponent('acCompressSelectedBooks') as TAction;
     Require(Assigned(Action),'Normal compression command is missing');
@@ -442,7 +535,7 @@ begin
     Options:=Default(TBookCompressionOperationOptions);
     Require(LoadCollectionCompressionPreferences(Registry,'',CurrentCollection,Options)='',
       'Normal catalogue command did not save valid collection-specific choices');
-    Require((Options.Profile='economy') and (Options.Grayscale=Driver.Grayscale) and
+    Require((Options.Profile=Profiles[Driver.ProfileIndex]) and (Options.Grayscale=Driver.Grayscale) and
       Options.ReviewResults and Options.BackupOriginals and (Options.BackupFolder=Driver.BackupFolder),
       'Normal catalogue command lost its own selected compression choices');
     Require(Length(TBookCompressionJob.Pending(CompressionQueueRoot(Options)))=0,'Completed GUI action left a pending job');

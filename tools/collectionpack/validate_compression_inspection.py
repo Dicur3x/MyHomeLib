@@ -104,7 +104,7 @@ def run(args):
                 with log.open('w', encoding='utf-8') as stream:
                     tested = unittest.TextTestRunner(stream=stream, verbosity=2, resultclass=LiveFailureResult).run(suite)
                 result.update(tests=tested.testsRun, failures=len(tested.failures), errors=len(tested.errors),
-                              skipped=tested.skipped, log=str(log))
+                              skipped=[dict(test=test.id(), reason=reason) for test,reason in tested.skipped], log=str(log))
                 if not tested.wasSuccessful() or tested.skipped:
                     raise AssertionError('Regression suite failed or skipped tests; see ' + str(log))
             finally:

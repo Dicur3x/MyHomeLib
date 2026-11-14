@@ -5,13 +5,15 @@ physical shared ZIP and original-book backups independently after the UI exits.
 Never points the catalogue at a user's source folder or personal database.
 """
 import argparse
-from contextlib import contextmanager, nullcontext
+import base64
+from contextlib import closing, contextmanager, nullcontext
 import ctypes
 import hashlib
 import json
 import os
 from pathlib import Path
 import shutil
+import sqlite3
 import subprocess
 from supervised_test_process import run_owned
 import time
@@ -71,6 +73,75 @@ def install_processing_package(package, root, platform):
             destination.write_bytes(archive.read(name))
 
 
+def legacy_gui_inputs(root, stage, platform):
+    """Create actual old Packer output, then an updated book with one new image."""
+    # Import only for this scenario: that fixture module captures native-worker
+    # environment at import time, after the inspection runner sets its runtime.
+    from test_prepare_book_compression import epub
+    original = {'one.fb2': illustrated_fb2(image_fixture()),
+                'two.epub': epub(image_fixture())}
+    source = root / 'legacy-input.zip'
+    with zipfile.ZipFile(source, 'w', compression=zipfile.ZIP_STORED) as archive:
+        for name, body in original.items():
+            archive.writestr(name, body)
+    plan = root / 'legacy-plan.sqlite'
+    with closing(sqlite3.connect(plan)) as db, db:
+        db.executescript('CREATE TABLE metadata(key TEXT PRIMARY KEY,value TEXT);'
+            'CREATE TABLE books(book_id INTEGER PRIMARY KEY,source TEXT,member TEXT,locator TEXT,'
+            'filename TEXT,ext TEXT,inside_no INTEGER);CREATE INDEX source_books ON books(source);')
+        db.executemany('INSERT INTO metadata VALUES(?,?)', [('api', '1'), ('dataset', 'legacy-ui-history')])
+        db.executemany('INSERT INTO books VALUES(?,?,?,?,?,?,?)', [
+            (i, str(source), name, name, Path(name).stem, Path(name).suffix, i-1)
+            for i, name in enumerate(original, 1)])
+    output = root / 'old-packer-output'
+    job = root / 'legacy-job.json'
+    job.write_text(json.dumps(dict(version=1, dataset='legacy-ui-history', engine='illustrations-ppmd',
+        images='maximum', plan=str(plan), output=str(output),
+        seven_zip=str(root / 'tools/7zip/7za.exe'), tools_root=str(root / 'tools'))), encoding='utf-8')
+    process = run_owned([str(root / 'tools/python/python.exe'), '-I', '-B', '-X', 'utf8',
+        str(root / 'tools/bookconvert/pack_collection.py'), '--job', str(job)],
+        capture_output=True, timeout=120, creationflags=subprocess.CREATE_NO_WINDOW)
+    (stage / f'legacy-packer-{platform}.log').write_bytes(process.stdout + process.stderr)
+    assert process.returncode == 0, 'Old Packer fixture failed: ' + process.stdout.decode('utf-8', errors='replace')
+    prepared = [json.loads(line) for line in process.stdout.decode('utf-8').splitlines()
+                if line.startswith('{') and json.loads(line).get('stage') == 'prepared']
+    assert len(prepared) == 1 and prepared[0]['books'] == 2 and prepared[0]['image_books_optimized'] == 2
+    generation = prepared[0]['generation']
+    with closing(sqlite3.connect(output / 'generations' / generation / 'locations.sqlite')) as db:
+        locations = db.execute('SELECT folder,filename,ext,inside_no FROM locations ORDER BY book_id').fetchall()
+    assert len(locations) == 2 and locations[0][0] == locations[1][0]
+    # A portable old collection can move as a whole. Its witnesses are relative
+    # to the catalogue, so copy that complete old storage layout into this root.
+    for folder in ('archives', 'generations'):
+        shutil.copytree(output / folder, root / folder)
+    for name in ('packing.sqlite', 'HomeLibRu-compressed.json'):
+        shutil.copy2(output / name, root / name)
+    old_archive = root / locations[0][0]
+    bodies = [archive_body(old_archive, filename + extension, root / 'tools/7zip/7za.exe')
+              for _, filename, extension, _ in locations]
+    books = []
+    for i, (location, body) in enumerate(zip(locations, bodies)):
+        decoded = f'legacy-decoded-{i}{location[2]}'
+        (root / decoded).write_bytes(body)
+        books.append(dict(folder=location[0], filename=location[1], ext=location[2],
+                          inside_no=location[3], decoded=decoded, sha256=hashlib.sha256(body).hexdigest()))
+    state = dict(dataset='legacy-ui-history', engine='illustrations-ppmd', images='maximum',
+                 generation=generation, source_catalog=str(root / 'original-catalogue.hlc2'), source_root=str(root))
+    (root / 'legacy-compression-fixture.json').write_text(json.dumps(dict(state=state, books=books)), encoding='utf-8')
+    changed = ET.fromstring(bodies[0])
+    old_image = base64.b64decode(changed.find('{*}binary').text)
+    changed.find('.//{*}p').text = 'New edition; keep the previously compressed picture.'
+    ns = '{http://www.gribuser.ru/xml/fictionbook/2.0}'
+    ET.SubElement(changed.find('.//{*}section'), ns + 'image', {'{http://www.w3.org/1999/xlink}href': '#new'})
+    ET.SubElement(changed, ns + 'binary', {'id': 'new', 'content-type': 'image/png'}).text = base64.b64encode(image_fixture()).decode()
+    watched = {path: digest(path) for path in (old_archive, root / 'packing.sqlite', root / 'HomeLibRu-compressed.json')}
+    result = {'one.fb2': ET.tostring(changed, encoding='utf-8', xml_declaration=True),
+              'two.epub': bodies[1], 'neighbor.fb2': b'Unselected neighbor must remain byte-exact.\x00\xff'}
+    (root / 'compression-fixture.json').write_text(json.dumps(dict(first='one.fb2', second='two.epub',
+        grayscale=False, profile_index=3, timeout_ms=90000)), encoding='utf-8')
+    return result, watched, hashlib.sha256(old_image).hexdigest()
+
+
 @contextmanager
 def exclusive_recovery_owner(path):
     """Simulate another live preparation; never grant the child this handle."""
@@ -91,7 +162,8 @@ def exclusive_recovery_owner(path):
 
 def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_books=None, inspect_comparison=False,
         processing_package=None, estimate_first=False, whole=False, repeat_new=False, repeat_offer=False, images=None,
-        scenario='selected-compression-ui', recovery_fault=None, recovery_preserve=None, refresh_index=False):
+        scenario='selected-compression-ui', recovery_fault=None, recovery_preserve=None, refresh_index=False,
+        legacy_history=False):
     if recovery_fault:
         assert scenario == 'selected-compression-ui' and mode == 'apply' and not real_books
     if recovery_preserve:
@@ -144,6 +216,12 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
                      'two.fb2': illustrated_fb2(image_fixture(False)).replace(b'this text', b'the second text'),
                      'neighbor.fb2': b'Unselected neighbor must remain byte-exact.\x00\xff'}
         real_stamps = {}
+        legacy_stamps, legacy_image_hash = {}, None
+        if legacy_history:
+            assert mode == 'apply' and scenario == 'selected-compression-ui' and not any((real_books,
+                inspect_comparison, estimate_first, whole, repeat_new, repeat_offer, recovery_fault, refresh_index))
+            assert processing_package, 'Legacy GUI must use the exact BookProcessing package'
+            originals, legacy_stamps, legacy_image_hash = legacy_gui_inputs(root, stage, platform)
         if real_books:
             manifest = json.loads(real_books.read_text(encoding='utf-8-sig'))
             assert set(manifest) == {'one.fb2', 'two.epub', 'neighbor.fb2'}
@@ -195,6 +273,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
         attempt = dict(status='INCOMPLETE', platform=platform, mode=mode,
             native_binary_sha256=digest(binary), outer_timeout_seconds=deadline,
             refresh_index=refresh_index,
+            legacy_history=legacy_history,
             private_runtime=str(root),
             real_source_stamps={str(path): stamp for path, stamp in real_stamps.items()})
         attempt_file = stage / f'catalogue-{platform}-{mode}-attempt.json'
@@ -269,6 +348,8 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
                 'PASS actual full INPX refresh keeps verified compressed sizes and personal progress',
                 'PASS nine compressed-size boundaries preserve physical identity and rollback',
             ])
+        if legacy_history:
+            expected_lines.append('PASS normal catalogue migrated legacy FB2 EPUB history without rewriting archive')
         if process.returncode or any(line not in output for line in expected_lines):
             # Keep only bounded text diagnostics; do not retain the runtime or books.
             notes = []
@@ -315,6 +396,9 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
                         continue
                     original = ET.fromstring(originals[name])
                     result = ET.fromstring(body)
+                    if legacy_history and name == 'one.fb2':
+                        old_picture = result.find('{*}binary')
+                        assert hashlib.sha256(base64.b64decode(old_picture.text)).hexdigest() == legacy_image_hash
                     # Full semantic text/formatting except deliberate image bytes.
                     for tree in (original, result):
                         for node in tree.iter('{http://www.gribuser.ru/xml/fictionbook/2.0}binary'):
@@ -337,6 +421,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
         for path, stamp in real_stamps.items():
             info = path.stat()
             assert (info.st_ino, info.st_size, info.st_mtime_ns) == stamp, 'Real source archive changed'
+        assert all(digest(path) == stamp for path, stamp in legacy_stamps.items()), 'Old archive or journal changed'
         attempt.update(status='PASS', returncode=process.returncode,
             seconds=round(time.monotonic()-started, 3), originals_unchanged=True)
         attempt_file.write_text(json.dumps(attempt, indent=2), encoding='utf-8')
@@ -349,6 +434,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
                     repeat_new=repeat_new,
                     repeat_offer=repeat_offer,
                     refresh_index=refresh_index,
+                    legacy_history=legacy_history,
                     recovery_fault=recovery_fault,
                     recovery_preserve=recovery_preserve,
                     private_runtime=str(root),
@@ -380,6 +466,8 @@ if __name__ == '__main__':
                         help='Verify recovery retains foreign or externally leased preparation data')
     parser.add_argument('--refresh-index', action='store_true',
                         help='After compression, run actual full INPX refresh and verify physical sizes')
+    parser.add_argument('--legacy-history', action='store_true',
+                        help='Migrate real old Packer FB2/EPUB witnesses through the normal catalogue command')
     args = parser.parse_args()
     report = args.stage / f'catalogue-{args.platform}-{args.mode}.json'
     try:

@@ -168,8 +168,12 @@ class PreparedBookCompression:
         if len(sizes) != len(self.payloads) or set(sizes) != {p['member'] for p in self.payloads}:
             raise PackingError('Нет исходных размеров проверенных книг.')
         reused = {book['member']: book['reused'] for book in self.books}
+        if any(reused[p['member']] and p['input_sha256'] != p['output_sha256'] for p in self.payloads):
+            raise PackingError('Проверенные прежние изображения не соответствуют сохранённой книге.')
         payloads = [dict(member=p['member'], input_sha256=p['input_sha256'],
                          output_sha256=p['input_sha256'], size=sizes[p['member']], image_outputs=[],
+                         source_image_outputs=copy.deepcopy(p.get('image_outputs', []))
+                            if reused[p['member']] and p.get('checked', True) else [],
                          retry_original=not reused[p['member']], checked=p.get('checked', True))
                     for p in self.payloads]
         value.update(source_sha256=self.source_sha256, result_sha256=self.source_sha256,

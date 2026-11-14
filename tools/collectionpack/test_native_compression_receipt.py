@@ -14,6 +14,7 @@ from supervised_test_process import run_owned
 import tempfile
 import unittest
 import zlib
+from xml.etree import ElementTree as ET
 
 from pack_collection import temporary_work_directory
 
@@ -197,6 +198,34 @@ class NativeCompressionReceiptTests(unittest.TestCase):
         for value in [dict(output_sha256=sha(self.new_book)), dict(image_outputs=[sha(self.new_book)])]:
             saved = copy.deepcopy(self.template)
             self.template['payloads'][0].update(value)
+            self.write_template()
+            before = {p: sha(p.read_bytes()) for p in (self.catalogue, self.personal, self.source)}
+            self.assertNotEqual(self.run_worker('inspection').returncode, 0)
+            self.assertEqual({p: sha(p.read_bytes()) for p in before}, before)
+            self.template = saved
+
+    def test_inspection_migrates_verified_current_image_hashes_without_changing_source_or_personal_data(self):
+        self.inspection_template()
+        current_image = sha(base64.b64decode(ET.fromstring(self.original_book).find('{*}binary').text))
+        self.template['payloads'][0].update(source_image_outputs=[current_image], checked=True, retry_original=False)
+        self.write_template()
+        before = self.snapshot(self.catalogue)
+        personal = sha(self.personal.read_bytes())
+        self.require_success(self.run_worker('inspection'))
+        self.assertEqual(self.snapshot(self.catalogue), before)
+        self.assertEqual(sha(self.personal.read_bytes()), personal)
+        self.assertEqual(sha(self.source.read_bytes()), self.original_hash)
+        with database(self.catalogue) as db:
+            self.assertEqual(db.execute('SELECT ProfileSHA256,ImageSHA256 FROM HomeLibreCompressedImages').fetchall(),
+                             [(self.template['profile_sha256'], current_image)])
+
+    def test_inspection_rejects_unverified_current_image_claims_without_writing_stores(self):
+        self.inspection_template()
+        self.template['payloads'][0].update(source_image_outputs=[sha(b'current image')], checked=True, retry_original=False)
+        for change in (dict(retry_original=True), dict(checked=False),
+                       dict(output_sha256=sha(self.new_book)), dict(source_image_outputs=['invalid'])):
+            saved = copy.deepcopy(self.template)
+            self.template['payloads'][0].update(change)
             self.write_template()
             before = {p: sha(p.read_bytes()) for p in (self.catalogue, self.personal, self.source)}
             self.assertNotEqual(self.run_worker('inspection').returncode, 0)

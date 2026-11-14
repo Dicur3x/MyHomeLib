@@ -6361,8 +6361,11 @@ begin
         Halt(0);
       end;
       Trace('tiny fixtures');
+      var FirstCatalogue:='one.hlc2';
+      if FileExists(Settings.AppPath+'legacy-compression-fixture.json') then
+        FirstCatalogue:=Settings.AppPath+'one.hlc2';
       OneID := SystemDB.CreateCollection('One', Settings.AppPath,
-        'one.hlc2', CT_EXTERNAL_LOCAL_FB, Settings.AppPath + 'genres_fb2.glst');
+        FirstCatalogue, CT_EXTERNAL_LOCAL_FB, Settings.AppPath + 'genres_fb2.glst');
       TwoID := SystemDB.CreateCollection('Two', Settings.AppPath,
         'two.hlc2', CT_EXTERNAL_LOCAL_FB, Settings.AppPath + 'genres_fb2.glst');
       One := SystemDB.GetCollection(OneID);

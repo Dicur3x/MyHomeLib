@@ -206,14 +206,22 @@ begin
       FPayloads.Add(Key,Item);
       if Item.GetValue('retry_original')<>nil then JSONBool(Item,'retry_original');
       if Item.GetValue('checked')<>nil then JSONBool(Item,'checked');
-      if Item.GetValue('image_outputs')<>nil then
-      begin
-        var Images:=JSONArray(Item,'image_outputs');
-        if Images.Count>5000 then raise EReadError.Create('Слишком много изображений в журнале сжатия книги.');
-        for var Image in Images do
-          if not (Image is TJSONString) or not HexString(Image.Value,64) then
-            raise EReadError.Create('Неверная контрольная сумма обработанного изображения.');
-      end;
+      for var ImageField in ['image_outputs','source_image_outputs'] do
+        if Item.GetValue(ImageField)<>nil then
+        begin
+          var Images:=JSONArray(Item,ImageField);
+          if Images.Count>5000 then raise EReadError.Create('Слишком много изображений в журнале сжатия книги.');
+          for var Image in Images do
+            if not (Image is TJSONString) or not HexString(Image.Value,64) then
+              raise EReadError.Create('Неверная контрольная сумма обработанного изображения.');
+        end;
+      if (Item.GetValue('source_image_outputs')<>nil) and (JSONArray(Item,'source_image_outputs').Count<>0) then
+        if (FData.GetValue('compression_options')=nil) or
+          (Text('source_sha256')<>Text('result_sha256')) or
+          (JSONText(Item,'input_sha256')<>JSONText(Item,'output_sha256')) or
+          (Item.GetValue('retry_original')=nil) or JSONBool(Item,'retry_original') or
+          (Item.GetValue('checked')=nil) or not JSONBool(Item,'checked') then
+          raise EReadError.Create('История прежних изображений требует проверенной неизменённой книги.');
     end;
     Seen.Clear;
     for var Value in JSONArray(FData,'rows') do
@@ -280,7 +288,7 @@ begin
 end;
 
 procedure TBookCompressionReceipt.WriteHistory(DB: TSQLiteDatabase; PreserveKnownInput: Boolean);
-var Item: TJSONObject; ImageTableReady, OutcomesReady: Boolean; InputSQL: string;
+var Item: TJSONObject; ImageTableReady, OutcomesReady: Boolean; InputSQL, ImagesField: string;
 begin
   DB.ExecSQL('CREATE TABLE IF NOT EXISTS HomeLibreBookCompression('+
     'FileKey TEXT NOT NULL,Member TEXT NOT NULL,ProfileSHA256 TEXT NOT NULL,'+
@@ -316,8 +324,10 @@ begin
         [UpperCase(Text('source_file_key')),JSONText(Item,'member'),LowerCase(Text('profile_sha256')),
          LowerCase(JSONText(Item,'output_sha256')),Ord(JSONBool(Item,'retry_original'))]);
     end;
-    if Item.GetValue('image_outputs')<>nil then
-      for var Image in JSONArray(Item,'image_outputs') do
+    ImagesField:='image_outputs';
+    if PreserveKnownInput then ImagesField:='source_image_outputs';
+    if Item.GetValue(ImagesField)<>nil then
+      for var Image in JSONArray(Item,ImagesField) do
       begin
         if not ImageTableReady then
         begin

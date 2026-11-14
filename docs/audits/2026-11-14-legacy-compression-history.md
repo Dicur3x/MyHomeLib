@@ -68,3 +68,24 @@ The native fixture binaries are unchanged from the prior recovery gate. Their
 generic receipt handling already verifies/commits per-image hashes. A final
 ordinary-window check against an actual old registered catalogue is still
 required; helper and native-unit checks do not replace it.
+
+Follow-up ordinary-window verification found the missing metadata-only receipt
+transition: it discarded raster witnesses from unchanged old books. That gap
+has now been corrected and checked on both architectures. The two-stage normal
+command keeps the old archive unchanged, then retains its raster bytes after
+text/new-image changes. See
+[`2026-11-14-legacy-history-catalogue.md`](2026-11-14-legacy-history-catalogue.md)
+for baseline, package hashes, 38 checks per architecture and the precise
+remaining old-publication/size/FBD scope.
+
+## Cleanup denial
+
+After final checks, automatic policy rejected process creation for a native
+PowerShell cleanup of this task's two superseded package directories. Neither
+deletion ran. The only reason returned was `blocked by policy`. Do not retry
+either removal through a different command, language or application:
+
+- `G:/HomeLibRu-build-cache/HomeLibre-post13-legacy-history-20261114/packages`
+- `G:/HomeLibRu-build-cache/HomeLibre-post13-legacy-history-20261114/packages-r22`
+
+Final `packages-r23` and the small verification reports remain intentionally.
