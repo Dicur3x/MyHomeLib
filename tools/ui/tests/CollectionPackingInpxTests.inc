@@ -213,9 +213,9 @@ begin
   Options.PersonalFile:=Settings.SystemFileName[sfSystemDB]; Options.SourceID:=SourceID;
   Options.SourceRoot:=Root; Options.OutputRoot:=Settings.AppPath+'packing-inpx-copy';
   Options.DisplayName:='Packed before INPX';
-  Options.Python:=Settings.AppPath+'tools\kindle\python\python.exe';
+  Options.Python:=Settings.AppPath+'tools\python\python.exe';
   Options.SevenZip:=Settings.AppPath+'tools\7zip\7za.exe';
-  Options.Script:=Settings.AppPath+'tools\collectionpack\pack_collection.py';
+  Options.Script:=Settings.AppPath+'tools\bookconvert\pack_collection.py';
   UseJpegXL:=FileExists(Settings.AppPath+'official-jxl.zip');
   if UseJpegXL then
   begin

@@ -217,6 +217,9 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
                      'two.fb2': illustrated_fb2(image_fixture(False)).replace(b'this text', b'the second text'),
                      'neighbor.fb2': b'Unselected neighbor must remain byte-exact.\x00\xff'}
         real_stamps = {}
+        if scenario == 'packing-fbd':
+            assert not any((real_books, legacy_history, recovery_fault, refresh_index))
+            (root / 'packing-inpx-illustration.fb2').write_bytes(illustrated_fb2(image_fixture()))
         if scenario == 'packed-catalogue-sizes':
             from test_prepare_book_compression import epub
             assert not any((real_books, legacy_history, recovery_fault, refresh_index))
@@ -275,7 +278,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
         # discard the only evidence explaining where the private GUI stopped.
         # The real-book fixture itself allows 300 s *after* its application
         # bootstrap; leave separate room for bootstrap and orderly teardown.
-        deadline = 420 if real_books else 150
+        deadline = 420 if real_books or scenario == 'packing-fbd' else 150
         attempt = dict(status='INCOMPLETE', platform=platform, mode=mode,
             native_binary_sha256=digest(binary), outer_timeout_seconds=deadline,
             refresh_index=refresh_index,
@@ -287,6 +290,8 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
         log_path = stage / f'catalogue-{platform}-{mode}.log'
         env = {**os.environ, 'TEMP': str(root), 'TMP': str(root),
                'LOCALAPPDATA': str(root / 'Local'), 'APPDATA': str(root / 'Roaming')}
+        if scenario == 'packing-fbd':
+            env['HOMELIB_PACKED_RESULT_COMPONENTS'] = '1'
         try:
             with log_path.open('wb') as log:
                 command = [str(root / 'CollectionViewsTest.exe'), scenario]
@@ -296,6 +301,12 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
                     cwd=root, env=env, stdout=log, stderr=subprocess.STDOUT, startupinfo=startup, timeout=deadline,
                     creationflags=subprocess.BELOW_NORMAL_PRIORITY_CLASS |
                         (0 if inspect_comparison else subprocess.CREATE_NO_WINDOW))
+                if scenario == 'packing-fbd' and process.returncode == 0:
+                    argument = (root / 'packing-inpx-result.argument').read_text(encoding='ascii').strip()
+                    assert argument.startswith('--resume-collection-packing=') and '\n' not in argument
+                    process = run_owned([str(root / 'CollectionViewsTest.exe'), 'packing-inpx-result-child', argument],
+                        cwd=root, env=env, stdout=log, stderr=subprocess.STDOUT, startupinfo=startup, timeout=120,
+                        creationflags=subprocess.BELOW_NORMAL_PRIORITY_CLASS | subprocess.CREATE_NO_WINDOW)
                 if recovery_fault:
                     assert process.returncode == 73, 'Actual compression did not terminate at its requested durable stage'
                     assert (root / 'compression-recovery-crash.txt').read_text(encoding='utf-8-sig') == recovery_fault
@@ -346,10 +357,26 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
             'explorer-file-drop': 'PASS Explorer import offers compression only after accepted imports',
             'update-outcomes': 'PASS actual INPX and Metabib menus offer compression after commit',
             'packed-catalogue-sizes': 'PASS packed publication and actual INPX retain book copy and personal sizes without originals',
+            'packing-fbd': 'PASS original FBD container, both native locator forms, exact book and descriptor, reuse without originals',
         }[scenario]
         if recovery_fault:
             expected = 'PASS actual compression crash and ordinary startup recovery ' + recovery_fault
         expected_lines = [expected]
+        if scenario == 'packing-fbd':
+            expected_lines += [
+                'PASS loose book does not grow and remains readable after retention without its original',
+                'PASS alternate copies with empty and NULL extensions survive packing and reuse without originals',
+                'PASS packing estimate review, cancellation, continuation and separate registration',
+                'PASS unavailable books remain in the catalogue, download into the copy, and become packable later',
+                'PASS empty archived book cannot be exported and becomes packable when the source is restored',
+                'PASS packing restart restores selected INPX and profile once and rejects changed inputs',
+                'PASS native packed INPX reuses the profile and opens the optimized FB2',
+                'PASS last INPX search in a packed catalogue selects only the new records',
+                'PASS selected INPX adds and replaces exact books, retains prior archives and IDs, and publishes a separate generation',
+                'PASS an empty INPX replacement retains the previously readable book',
+                'PASS selected INPX estimate cancels and continues, and legacy full import refuses a packed catalogue',
+                'PASS packed INPX result opens only new books from the registered generation',
+            ]
         if refresh_index:
             expected_lines.extend([
                 'PASS actual full INPX refresh keeps verified compressed sizes and personal progress',
@@ -409,6 +436,9 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
                         scope=('Native full packed-copy publication and actual INPX update without originals; '
                                'catalogue, personal card and alternate-copy sizes, legacy/unknown sizes and invalid-size rejection'
                                if scenario == 'packed-catalogue-sizes' else
+                               'Native FBD/loose/alternate retention without originals, unavailable-book restoration, '
+                               'estimate dialog and INPX continuation through an actual main window; synthetic books'
+                               if scenario == 'packing-fbd' else
                                'Native normal INPX/Metabib menu or Windows Shell import on a private synthetic catalogue; no real user data'))
         attempt.update(status='VERIFYING_CONTENT', native_returncode=process.returncode)
         attempt_file.write_text(json.dumps(attempt, indent=2), encoding='utf-8')
@@ -492,7 +522,7 @@ if __name__ == '__main__':
     parser.add_argument('--whole', action='store_true')
     parser.add_argument('--repeat-new', action='store_true', help='After applying, invoke the normal new-books menu and verify no preparation')
     parser.add_argument('--scenario', choices=['selected-compression-ui', 'explorer-file-drop', 'update-outcomes',
-                        'packed-catalogue-sizes'], default='selected-compression-ui')
+                        'packed-catalogue-sizes', 'packing-fbd'], default='selected-compression-ui')
     parser.add_argument('--repeat-offer', action='store_true', help='Exercise nonmodal arrivals offer, dismissal, canceled options and explicit start')
     parser.add_argument('--images', type=Path, help='Fresh image helper verified against the current C# source')
     parser.add_argument('--recovery-fault', choices=['job-published', 'file-committed', 'catalogue-committed',

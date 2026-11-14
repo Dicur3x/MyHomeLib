@@ -139,9 +139,9 @@ begin
   Options.SourceRoot:=SourceDir;
   Options.OutputRoot:=Settings.AppPath+'packing-fbd-copy';
   Options.DisplayName:='FBD copy';
-  Options.Python:=Settings.AppPath+'tools\kindle\python\python.exe';
+  Options.Python:=Settings.AppPath+'tools\python\python.exe';
   Options.SevenZip:=Settings.AppPath+'tools\7zip\7za.exe';
-  Options.Script:=Settings.AppPath+'tools\collectionpack\pack_collection.py';
+  Options.Script:=Settings.AppPath+'tools\bookconvert\pack_collection.py';
   PackedID:=CreateCopy(Options,0);
   VerifyCopy(PackedID);
   Require(THashSHA2.GetHashStringFromFile(Original)=SourceHash, 'Original FBD archive changed');
