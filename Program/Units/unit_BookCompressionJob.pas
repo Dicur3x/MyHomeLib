@@ -2,7 +2,7 @@
 
 interface
 
-uses System.SysUtils, System.JSON, unit_ZipMemberDeletion, unit_BookCompressionReceipt,
+uses System.SysUtils, System.Classes, System.JSON, unit_ZipMemberDeletion, unit_BookCompressionReceipt,
   unit_BookCompressionBackup, unit_BookCompressionFileGroup;
 
 type
@@ -19,6 +19,9 @@ type
     FOriginals: TCompressionOriginalBackup;
     FGroup: TBookCompressionFileGroup;
     FGroupSHA256: string;
+    FGroupReplacesSource: Boolean;
+    FSourceGuard: TFileStream;
+    FSourceChangeLease: IInterface;
     constructor CreateEmpty;
     procedure OpenDirectoryGuard;
     procedure OpenLease;
@@ -27,6 +30,8 @@ type
     procedure CheckCompleted;
     procedure SaveCompleted;
     procedure BindFileGroup;
+    function GetPreparedCandidate: string;
+    procedure GuardUnchangedBookSource;
     procedure ExecuteFileGroup(const Cancelled: TFunc<Boolean>; const Progress: TZipDeleteProgress;
       const Fault: TProc<string>);
     function Field(const Name: string): string;
@@ -44,13 +49,13 @@ type
     class function DiscardUnpublished(const Directory: string): Boolean; static;
     property Directory: string read FDirectory;
     property Source: string read FSource;
-    property PreparedCandidate: string read FCandidate;
+    property PreparedCandidate: string read GetPreparedCandidate;
     property Completed: Boolean read FCompleted;
   end;
 
 implementation
 
-uses Winapi.Windows, System.Classes, System.IOUtils, System.Hash,
+uses Winapi.Windows, System.IOUtils, System.Hash,
   System.Generics.Collections, unit_AtomicIniFile, unit_MHLArchiveBusy;
 
 const
@@ -136,23 +141,56 @@ begin
 end;
 
 procedure TBookCompressionJob.BindFileGroup;
-var Files: TJSONArray; First: TJSONObject;
+var Files: TJSONArray; Data: TJSONObject;
 begin
-  FGroupSHA256:='';
-  if FData.GetValue('group_files')=nil then Exit;
+  FGroupSHA256:=''; FGroupReplacesSource:=False;
+  if FData.GetValue('group_files')=nil then
+  begin
+    if FCandidate='' then raise EReadError.Create('Нет подготовленного файла сжатия.');
+    Exit;
+  end;
   if not (FData.GetValue('group_files') is TJSONArray) then
     raise EReadError.Create('Некорректный список связанных файлов.');
   Files:=FData.GetValue<TJSONArray>('group_files');
-  if (Files.Count<1) or (Files.Count>3) or not (Files.Items[0] is TJSONObject) then
+  if (Files.Count<1) or (Files.Count>3) then
     raise EReadError.Create('Неполный список связанных файлов.');
-  First:=TJSONObject(Files.Items[0]);
-  if not SameFileName(First.GetValue<string>('source',''),FSource) or
-    not SameFileName(First.GetValue<string>('candidate',''),FCandidate) or
-    (First.GetValue<string>('source_identity','')<>FIdentity) or
-    (First.GetValue<string>('source_sha256','')<>Field('source_sha256')) or
-    (First.GetValue<string>('result_sha256','')<>Field('result_sha256')) then
-    raise EReadError.Create('Связанная группа не соответствует выбранному архиву.');
+  for var Value in Files do
+  begin
+    if not (Value is TJSONObject) then raise EReadError.Create('Неверная запись связанного файла.');
+    Data:=TJSONObject(Value);
+    if SameFileName(Data.GetValue<string>('source',''),FSource) then
+    begin
+      if FGroupReplacesSource or (FCandidate='') or
+        not SameFileName(Data.GetValue<string>('candidate',''),FCandidate) or
+        (Data.GetValue<string>('source_identity','')<>FIdentity) or
+        (Data.GetValue<string>('source_sha256','')<>Field('source_sha256')) or
+        (Data.GetValue<string>('result_sha256','')<>Field('result_sha256')) then
+        raise EReadError.Create('Связанная группа не соответствует выбранному архиву.');
+      FGroupReplacesSource:=True;
+    end
+    else if SameText(Copy(Data.GetValue<string>('source_identity',''),1,25),Copy(FIdentity,1,25)) then
+      raise EReadError.Create('Связанный файл ссылается на архив книг под другим именем.');
+  end;
+  if not FGroupReplacesSource and ((FCandidate<>'') or (Field('source_sha256')<>Field('result_sha256'))) then
+    raise EReadError.Create('Без замены архива книг его содержимое должно оставаться прежним.');
   FGroupSHA256:=TBookCompressionFileGroup.ComputeManifestSHA256(Files.ToJSON,FReceipt.SHA256);
+end;
+
+function TBookCompressionJob.GetPreparedCandidate: string;
+begin
+  Result:=FCandidate;
+  if (Result='') and Assigned(FData) and (FGroupSHA256<>'') then
+    Result:=TJSONObject(FData.GetValue<TJSONArray>('group_files').Items[0]).GetValue<string>('candidate');
+end;
+
+procedure TBookCompressionJob.GuardUnchangedBookSource;
+begin
+  if FGroupReplacesSource or Assigned(FSourceGuard) then Exit;
+  FSourceChangeLease:=AcquireArchiveChange(FSource);
+  FSourceGuard:=TFileStream.Create(DeletionNativePath(FSource),fmOpenRead or fmShareDenyWrite);
+  if (CompressionFileKey(FSource)<>Field('source_file_key')) or
+    not SameText(THashSHA2.GetHashString(FSourceGuard),Field('source_sha256')) then
+    raise EReadError.Create('Архив книг изменился перед обработкой отдельных картинок.');
 end;
 
 procedure TBookCompressionJob.OpenDirectoryGuard;
@@ -193,7 +231,8 @@ begin
   inherited Create;
   FReceipt:=TBookCompressionReceipt.Create(ReceiptJSON);
   FData:=TJSONObject.ParseJSONValue(FReceipt.ToJSON) as TJSONObject;
-  FSource:=Field('source'); FCandidate:=ExpandFileName(Candidate);
+  FSource:=Field('source');
+  if Candidate<>'' then FCandidate:=ExpandFileName(Candidate);
   FOriginalsJSON:=OriginalsJSON;
   if FOriginalsJSON<>'' then
     FOriginals:=TCompressionOriginalBackup.OpenExisting(FOriginalsJSON,FReceipt.ToJSON,nil);
@@ -251,7 +290,7 @@ begin
       FOriginalsJSON:=Binding.GetValue('originals').ToJSON;
     end;
     if (Length(FIdentity)<>59) or (Copy(FIdentity,1,25)<>Field('source_file_key')) or
-      (FCandidate='') or (FCandidate<>ExpandFileName(FCandidate)) or SameFileName(FSource,FCandidate) then
+      ((FCandidate<>'') and ((FCandidate<>ExpandFileName(FCandidate)) or SameFileName(FSource,FCandidate))) then
       raise EReadError.Create('Неполная привязка файла в задании сжатия.');
     BindFileGroup;
     if Binding.GetValue<string>('file_group_sha256','')<>FGroupSHA256 then
@@ -272,6 +311,7 @@ end;
 destructor TBookCompressionJob.Destroy;
 begin
   FGroup.Free;
+  FSourceGuard.Free; FSourceChangeLease:=nil;
   if FLease<>0 then CloseHandle(FLease);
   if FDirectoryGuard<>0 then CloseHandle(FDirectoryGuard);
   FOriginals.Free;
@@ -327,6 +367,7 @@ begin
   if FileExists(DeletionNativePath(TPath.Combine(FDirectory,'completed.json'))) then
   begin CheckCompleted; Exit; end;
   Root:=TPath.Combine(FDirectory,'files');
+  if not FileExists(DeletionNativePath(TPath.Combine(Root,'started'))) then GuardUnchangedBookSource;
   if not Assigned(FGroup) then
     if DirectoryExists(DeletionNativePath(Root)) then
       FGroup:=TBookCompressionFileGroup.OpenExisting(Root,FGroupSHA256,FReceipt.SHA256)
@@ -340,7 +381,7 @@ begin
     end;
   if not FileExists(DeletionNativePath(TPath.Combine(Root,'started'))) then FReceipt.CheckBeforeWrite;
   FGroup.Execute(
-    procedure(Engines: TArray<TZipMemberDeletion>) begin FReceipt.Apply(Engines[0],Fault); end,
+    procedure(Engines: TArray<TZipMemberDeletion>) begin FReceipt.ApplyFileGroup(Engines,Fault); end,
     procedure begin FReceipt.CheckApplied; end,Cancelled,Progress,Fault);
   SaveCompleted;
   if Assigned(Fault) then Fault('completed-published');

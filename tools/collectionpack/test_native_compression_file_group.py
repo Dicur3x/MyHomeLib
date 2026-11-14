@@ -11,7 +11,7 @@ import test_native_compression_receipt as fixture
 
 
 @contextmanager
-def group_fixture():
+def group_fixture(image_only=False):
     value = fixture.NativeCompressionReceiptTests()
     value.setUp()
     try:
@@ -38,13 +38,22 @@ def group_fixture():
             files.append(dict(source=str(original), candidate=str(candidate), source_identity='@source',
                 source_sha256=fixture.sha(original.read_bytes()), result_sha256=fixture.sha(candidate.read_bytes())))
             value.side_files.append(original)
-        value.template['group_files'] = files
+        value.image_only = image_only
+        value.before_root_bytes = value.source.read_bytes()
+        if image_only:
+            value.template['result_sha256'] = value.original_hash
+            value.template['payloads'][0].update(output_sha256=fixture.sha(value.original_book), size=len(value.original_book))
+        value.template['group_files'] = files[1:] if image_only else files
         value.write_template()
         value.group = value.root/'group'
         value.before_files = {Path(item['source']): item['source_sha256'] for item in files}
         value.after_files = {Path(item['source']): item['result_sha256'] for item in files}
+        if image_only:
+            value.after_files[value.source] = value.original_hash
         value.before_c = value.snapshot(value.catalogue, False)
         value.before_p = value.snapshot(value.personal, False)
+        value.before_sizes_c = value.snapshot(value.catalogue)
+        value.before_sizes_p = value.snapshot(value.personal)
         yield value
     finally:
         value.tearDown()
@@ -59,7 +68,14 @@ class NativeCompressionFileGroupTests(unittest.TestCase):
         self.assertEqual(value.snapshot(value.personal, False), value.before_p)
 
     def finished(self, value):
-        value.require_finished(value.before_c, value.before_p)
+        if value.image_only:
+            self.assertEqual(value.source.read_bytes(), value.before_root_bytes)
+            self.assertEqual(value.snapshot(value.catalogue), value.before_sizes_c)
+            self.assertEqual(value.snapshot(value.personal), value.before_sizes_p)
+            with fixture.database(value.catalogue) as db:
+                self.assertEqual(db.execute('SELECT BookSize FROM HomeLibreBookCompression').fetchall(), [(-1,)])
+        else:
+            value.require_finished(value.before_c, value.before_p)
         self.assertEqual({path:fixture.sha(path.read_bytes()) for path in value.after_files}, value.after_files)
         for path in value.side_files:
             with zipfile.ZipFile(path) as archive:
@@ -171,3 +187,53 @@ class NativeCompressionFileGroupTests(unittest.TestCase):
             self.assertEqual(value.snapshot(value.personal, False), value.before_p)
             self.assertNotEqual(value.run_worker('job-group-recover').returncode, 0)
             self.assertEqual({path:fixture.sha(path.read_bytes()) for path in value.before_files}, value.before_files)
+
+    def test_image_only_job_preserves_the_entire_book_archive_and_existing_sizes(self):
+        with group_fixture(image_only=True) as value:
+            unused = value.candidate.read_bytes()
+            value.require_success(value.run_worker('job-group-apply'))
+            self.finished(value)
+            self.assertEqual(value.candidate.read_bytes(), unused)
+            self.require_empty_queue(value)
+
+    def test_image_only_job_recovers_after_each_archive_metadata_and_cleanup_boundary(self):
+        for stage in ('group-started', 'group-file-0-half-written', 'group-file-committed-0',
+                      'personal-committed', 'group-complete', 'completed-published'):
+            with self.subTest(stage=stage), group_fixture(image_only=True) as value:
+                self.assertEqual(value.run_worker('job-group-apply', stage).returncode, 73)
+                value.require_success(value.run_worker('job-group-recover'))
+                self.finished(value)
+                self.require_empty_queue(value)
+
+    def test_image_only_job_checks_the_unchanged_book_archive_before_any_picture_write(self):
+        with group_fixture(image_only=True) as value:
+            value.source.write_bytes(value.before_root_bytes+b'changed before pictures')
+            changed = value.source.read_bytes()
+            self.assertNotEqual(value.run_worker('job-group-apply').returncode, 0)
+            self.assertEqual(value.source.read_bytes(), changed)
+            for path in value.side_files:
+                self.assertEqual(fixture.sha(path.read_bytes()), value.before_files[path])
+            self.assertEqual(value.snapshot(value.catalogue), value.before_sizes_c)
+            self.assertEqual(value.snapshot(value.personal), value.before_sizes_p)
+
+    def test_started_image_recovery_finishes_pictures_before_refusing_a_changed_book_root(self):
+        with group_fixture(image_only=True) as value:
+            self.assertEqual(value.run_worker('job-group-apply', 'group-file-0-half-written').returncode, 73)
+            value.source.write_bytes(value.before_root_bytes+b'changed after interruption')
+            changed = value.source.read_bytes()
+            self.assertNotEqual(value.run_worker('job-group-recover').returncode, 0)
+            self.assertEqual(value.source.read_bytes(), changed)
+            for path in value.side_files:
+                self.assertEqual(fixture.sha(path.read_bytes()), value.after_files[path])
+            self.assertEqual(value.snapshot(value.catalogue), value.before_sizes_c)
+            value.source.write_bytes(value.before_root_bytes)
+            value.require_success(value.run_worker('job-group-recover'))
+            self.finished(value)
+            self.require_empty_queue(value)
+
+    def test_image_only_receipt_cannot_claim_changed_book_payloads(self):
+        with group_fixture(image_only=True) as value:
+            value.template['payloads'][0]['output_sha256'] = fixture.sha(value.new_book)
+            value.write_template()
+            self.assertNotEqual(value.run_worker('job-group-apply').returncode, 0)
+            self.unchanged(value)

@@ -13,11 +13,13 @@ type
     FJSON: string;
     FPayloads: TDictionary<string,TJSONObject>;
     procedure Validate;
+    procedure ValidateFileGroup;
     function Text(const Name: string): string;
     function Payload(const Member: string): TJSONObject;
     function ProcessRows(DB: TSQLiteDatabase; Personal, Commit: Boolean;
       RequireApplied: Boolean = False): Integer;
     procedure CheckEngine(Engine: TZipMemberDeletion);
+    function ApplyRows(const Fault: TProc<string>): Integer;
     procedure WriteHistory(DB: TSQLiteDatabase; Inspection: Boolean = False);
     procedure WriteChecks(DB: TSQLiteDatabase);
   public
@@ -29,6 +31,8 @@ type
     procedure CheckApplied;
     procedure RecordInspection(const Cancelled: TFunc<Boolean> = nil);
     function Apply(Engine: TZipMemberDeletion; const Fault: TProc<string> = nil): Integer;
+    function ApplyFileGroup(const Engines: TArray<TZipMemberDeletion>;
+      const Fault: TProc<string> = nil): Integer;
   end;
 
 function CompressionFileKey(const FileName: string): string;
@@ -254,6 +258,45 @@ begin
       Payload(JSONText(Item,'member'));
     end;
   finally Seen.Free; end;
+  ValidateFileGroup;
+end;
+
+procedure TBookCompressionReceipt.ValidateFileGroup;
+var Files: TJSONArray; Data: TJSONObject; RootReplaced: Boolean; Identity, Source, Candidate: string;
+begin
+  if FData.GetValue('group_files')=nil then Exit;
+  Files:=JSONArray(FData,'group_files');
+  if (Files.Count<1) or (Files.Count>3) then raise EReadError.Create('Неверное число связанных файлов.');
+  RootReplaced:=False;
+  for var Value in Files do
+  begin
+    if not (Value is TJSONObject) then raise EReadError.Create('Неполная запись связанного файла.');
+    Data:=TJSONObject(Value); Identity:=JSONText(Data,'source_identity');
+    Source:=JSONText(Data,'source'); Candidate:=JSONText(Data,'candidate');
+    if (Length(Identity)<>59) or not FileKeyValid(Copy(Identity,1,25)) or
+      not HexString(JSONText(Data,'source_sha256'),64) or not HexString(JSONText(Data,'result_sha256'),64) or
+      (Source='') or (Source<>ExpandFileName(Source)) or (Candidate='') or
+      (Candidate<>ExpandFileName(Candidate)) or SameFileName(Source,Candidate) then
+      raise EReadError.Create('Некорректная привязка связанного файла.');
+    if SameFileName(Source,Text('source')) then
+    begin
+      if RootReplaced or not SameText(Copy(Identity,1,25),Text('source_file_key')) or
+        (JSONText(Data,'source_sha256')<>Text('source_sha256')) or
+        (JSONText(Data,'result_sha256')<>Text('result_sha256')) then
+        raise EReadError.Create('Связанный архив книг не соответствует журналу каталога.');
+      RootReplaced:=True;
+    end
+    else if SameText(Copy(Identity,1,25),Text('source_file_key')) then
+      raise EReadError.Create('Архив книг указан как отдельный связанный файл.');
+  end;
+  if not RootReplaced then
+  begin
+    if Text('source_sha256')<>Text('result_sha256') then
+      raise EReadError.Create('Нет замены изменённого архива книг.');
+    for var Value in JSONArray(FData,'payloads') do
+      if JSONText(TJSONObject(Value),'input_sha256')<>JSONText(TJSONObject(Value),'output_sha256') then
+        raise EReadError.Create('Без замены архива содержимое книг должно оставаться прежним.');
+  end;
 end;
 
 procedure TBookCompressionReceipt.WriteChecks(DB: TSQLiteDatabase);
@@ -570,9 +613,49 @@ begin
 end;
 
 function TBookCompressionReceipt.Apply(Engine: TZipMemberDeletion; const Fault: TProc<string>): Integer;
+begin
+  CheckEngine(Engine); Result:=ApplyRows(Fault);
+end;
+
+function TBookCompressionReceipt.ApplyFileGroup(const Engines: TArray<TZipMemberDeletion>;
+  const Fault: TProc<string>): Integer;
+var Files: TJSONArray; Data: TJSONObject; RootReplaced: Boolean; Root: TFileStream;
+begin
+  Files:=JSONArray(FData,'group_files');
+  if (Files.Count<1) or (Files.Count>3) or (Length(Engines)<>Files.Count) then
+    raise EReadError.Create('Неполное подтверждение связанных файлов сжатия.');
+  RootReplaced:=False;
+  for var I:=0 to Files.Count-1 do
+  begin
+    if not (Files.Items[I] is TJSONObject) or not Assigned(Engines[I]) then
+      raise EReadError.Create('Не хватает результата связанного файла.');
+    Data:=TJSONObject(Files.Items[I]);
+    Engines[I].CheckReplacementReceipt(JSONText(Data,'source'),Copy(JSONText(Data,'source_identity'),1,25),
+      JSONText(Data,'source_sha256'),JSONText(Data,'result_sha256'),SHA256);
+    if SameFileName(JSONText(Data,'source'),Text('source')) then
+    begin CheckEngine(Engines[I]); RootReplaced:=True; end;
+  end;
+  Root:=nil;
+  try
+    if not RootReplaced then
+    begin
+      if Text('source_sha256')<>Text('result_sha256') then
+        raise EReadError.Create('Нет подтверждения замены архива книг.');
+      for var Value in JSONArray(FData,'payloads') do
+        if JSONText(TJSONObject(Value),'input_sha256')<>JSONText(TJSONObject(Value),'output_sha256') then
+          raise EReadError.Create('Без замены архива содержимое книг должно оставаться прежним.');
+      Root:=TFileStream.Create(DeletionNativePath(Text('source')),fmOpenRead or fmShareDenyWrite);
+      if (CompressionFileKey(Text('source'))<>Text('source_file_key')) or
+        not SameText(THashSHA2.GetHashString(Root),Text('source_sha256')) then
+        raise EReadError.Create('Архив книг изменился во время сжатия отдельных картинок.');
+    end;
+    Result:=ApplyRows(Fault);
+  finally Root.Free; end;
+end;
+
+function TBookCompressionReceipt.ApplyRows(const Fault: TProc<string>): Integer;
 var Catalogue, Personal: TSQLiteDatabase; CatalogueLease, PersonalLease: IInterface;
 begin
-  CheckEngine(Engine);
   CatalogueLease:=TCompressionDatabaseLease.Create(Text('catalogue'),Text('catalogue_key'));
   PersonalLease:=TCompressionDatabaseLease.Create(Text('personal'),Text('personal_key'));
   Catalogue:=TSQLiteDatabase.Create(Text('catalogue'));

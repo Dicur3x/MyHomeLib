@@ -97,6 +97,7 @@ begin
 end;
 
 procedure RunJob;
+var Prepared: string; Data: TJSONObject;
 begin
   LastStage:='open-job';
   if Mode='job-list' then
@@ -119,9 +120,15 @@ begin
   begin
     Receipt:=LoadReceipt;
     try
+      Prepared:=Root+'candidate.bin';
+      Data:=TJSONObject.ParseJSONValue(Receipt.ToJSON) as TJSONObject;
+      try
+        if (Data.GetValue('group_files')<>nil) and
+          (Data.GetValue<string>('source_sha256')=Data.GetValue<string>('result_sha256')) then Prepared:='';
+      finally Data.Free; end;
       if (Mode='job-prepare-crash') or (Mode='job-prepare-hold') then
-        Job:=TBookCompressionJob.CreatePrepared(Root+'queue',Receipt.ToJSON,Root+'candidate.bin',PreparationFault)
-      else Job:=TBookCompressionJob.CreatePrepared(Root+'queue',Receipt.ToJSON,Root+'candidate.bin');
+        Job:=TBookCompressionJob.CreatePrepared(Root+'queue',Receipt.ToJSON,Prepared,PreparationFault)
+      else Job:=TBookCompressionJob.CreatePrepared(Root+'queue',Receipt.ToJSON,Prepared);
     finally Receipt.Free; Receipt:=nil; end;
   end;
   try
@@ -173,7 +180,7 @@ begin
       end;
       try
         Group.Execute(
-          procedure(Engines: TArray<TZipMemberDeletion>) begin Receipt.Apply(Engines[0],GroupFault); end,
+          procedure(Engines: TArray<TZipMemberDeletion>) begin Receipt.ApplyFileGroup(Engines,GroupFault); end,
           procedure begin Receipt.CheckApplied; end,
           function:Boolean begin Result:=(Mode='group-cancel') or (Mode='group-recover-stopping') or StopRequested; end,nil,GroupFault);
         Group.Forget;
