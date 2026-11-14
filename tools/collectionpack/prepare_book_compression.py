@@ -378,6 +378,8 @@ def prepare_selected_file(source, members, workspace, seven_zip, *, profile='ori
             _candidate_cleanup(result), temporary_work_directory(workspace, '.selected-') as staging, \
             (OriginalBookBackup(workspace, source, source_sha, before, check)
              if backup_originals else nullcontext()) as originals, preview_context as preview:
+        legacy = image_history.legacy_books(source, members, profile, grayscale) if not all(
+            member in previous for member in members) else {}
         replacements = {}
         for number, (member, hint) in enumerate(members.items()):
             check()
@@ -400,7 +402,7 @@ def prepare_selected_file(source, members, workspace, seven_zip, *, profile='ori
                 originals.add(original, member, initial)
             current = book_dir / ('book' + extension)
             copy_exact(original, current, check)
-            ledger = previous.get(member, {})
+            ledger = previous.get(member, legacy.get(member, {}))
             # An explicitly unchanged original may need a new handler after
             # an engine update. Keep legacy/transformed outputs byte-exact.
             reuse = (ledger.get('profile_sha256') == settings_sha
@@ -410,6 +412,14 @@ def prepare_selected_file(source, members, workspace, seven_zip, *, profile='ori
             images_reused = images_processed = 0
             if reuse:
                 reason = 'Уже сжата с этими настройками; повторная обработка изображений не нужна.'
+                if member not in previous and member in legacy and processor.converter is not None:
+                    detected = processor.converter.detect_input(current)
+                    if detected in IMAGE_SUFFIXES and current.stat().st_size <= MAX_IMAGE_BOOK:
+                        collect = getattr(processor.converter, 'compressed_image_hashes', None)
+                        if not callable(collect):
+                            raise PackingError('Для переноса истории изображений обновите модуль подготовки книг.')
+                        image_outputs = collect(current, detected, check)
+                        images_reused = len(image_outputs)
             elif processor.converter is not None:
                 try:
                     detected = processor.converter.detect_input(current)

@@ -93,6 +93,8 @@ def estimate_selected_file(source, members, workspace, seven_zip, *, profile='ba
         note='Размеры выбранных книг до внешней упаковки. Экономия на диске зависит от общего архива.')
     with CompressedImageHistory(image_history_database if processor.converter is not None else None, settings_sha, check) as image_history, \
             temporary_work_directory(workspace, '.estimate-') as staging:
+        legacy = image_history.legacy_books(source, members, profile, grayscale) if not all(
+            member in (previous or {}) for member in members) else {}
         if '' in members:
             sizes = {'': before[2]}
         else:
@@ -130,9 +132,10 @@ def estimate_selected_file(source, members, workspace, seven_zip, *, profile='ba
                     if book.stat().st_size != sizes[member]:
                         raise PackingError('Размер исходной книги изменился во время оценки.')
                     extension = processor.converter.detect_input(book)
-                    old = (previous or {}).get(member, {})
+                    old = (previous or {}).get(member, legacy.get(member, {}))
                     if (old.get('profile_sha256') == settings_sha and
-                            old.get('output_sha256') == digest_file(book, check)):
+                            old.get('output_sha256') == digest_file(book, check) and
+                            not old.get('retry_original', False)):
                         row.update(output_bytes=sizes[member], exact=True,
                             reason='Уже сжата с этими настройками; изображения повторно не обрабатываются.')
                     elif extension in IMAGE_SUFFIXES and sizes[member] <= MAX_IMAGE_BOOK:

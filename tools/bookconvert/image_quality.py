@@ -425,6 +425,30 @@ def run(api, tool, pictures, directory, profile, progress, layout=None, storage=
     return select_container_profiles(result,profile,storage)
 
 
+def compressed_image_hashes(api, book, extension, check):
+    """Read raster witnesses from an already verified old compressed book."""
+    outputs = set()
+    if extension == '.fb2':
+        for node in api.xml(book.read_bytes()):
+            check()
+            if api.tag(node) != 'binary':
+                continue
+            data = base64.b64decode(''.join((node.text or '').split()), validate=True)
+            if mime(data):
+                outputs.add(hashlib.sha256(data).hexdigest())
+    elif extension == '.epub':
+        with zipfile.ZipFile(book) as archive:
+            for entry in archive.infolist():
+                check()
+                if not 0 < entry.file_size <= 16 * 1024 * 1024:
+                    continue
+                with archive.open(entry) as stream:
+                    if not mime(stream.read(12)):
+                        continue
+                outputs.add(hashlib.sha256(archive.read(entry)).hexdigest())
+    return sorted(outputs)
+
+
 def apply(api, book, target_extension, profile, tools_root, progress, options_file=None, choice_file=None, warnings=None, container=None, check=None, grayscale=False, measurement=None,
           preserve_image=None, image_history_report=None):
     storage = image_storage(target_extension,container)

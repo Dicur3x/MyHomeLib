@@ -1856,6 +1856,14 @@ def rewrite_epub_version(source, output, version, transform, warnings, check):
 PACKING_IMAGE_API = 3
 
 
+def compressed_image_hashes(book, extension, check):
+    spec = importlib.util.spec_from_file_location('homelib_image_quality', Path(__file__).with_name('image_quality.py'))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    api = type('ConversionAPI', (), {name: value for name, value in globals().items() if not name.startswith('__')})
+    return module.compressed_image_hashes(api, book, extension, check)
+
+
 def convert_book(source, destination, **metadata):
     skip_damaged_image = metadata.pop('skip_damaged_fb2_image', False)
     try:
