@@ -18,6 +18,11 @@ uses
 function RestoreFLibraryBook(const ContainerFileName, BookEntryName: string;
   const Source: TStream): TStream;
 
+// Read a private candidate without replacing any live image archive. Nil keeps
+// normal discovery; an explicit array has covers/images slots and is strict.
+function RestoreFLibraryBookWithImageSources(const ContainerFileName, BookEntryName: string;
+  const Source: TStream; const ImageSources: TArray<string>): TStream;
+
 // Extracts and decodes only the cover used by the information panel.  Unlike
 // RestoreFLibraryBook, this does not touch the book text or its illustrations.
 // Encoded covers are limited to 16 MiB; cancellation reaches archive reading
@@ -196,7 +201,7 @@ begin
 end;
 
 procedure CollectExternalImages(const ContainerFileName, BookEntryName: string;
-  const Images: TExternalBookImages);
+  const Images: TExternalBookImages; const ImageSources: TArray<string>);
 var
   KnownNames: TDictionary<string, Byte>;
 
@@ -206,7 +211,9 @@ var
     ArchiveName: string;
     Stream: TMemoryStream;
   begin
-    ArchiveName := FindSiblingArchive(ContainerFileName, 'covers');
+    if ImageSources=nil then
+      ArchiveName := FindSiblingArchive(ContainerFileName, 'covers')
+    else ArchiveName:=ImageSources[0];
     if ArchiveName = '' then
       Exit;
     Archive := nil;
@@ -227,11 +234,11 @@ var
         // During a torrent download a sparse, incomplete side archive may
         // already be visible.  Text must remain readable without pictures.
         on E: EZipException do
-          ;
+          if ImageSources<>nil then raise;
         on E: EFOpenError do
-          ;
+          if ImageSources<>nil then raise;
         on E: EMHLExternalToolError do
-          ;
+          if ImageSources<>nil then raise;
       end;
     finally
       Archive.Free;
@@ -245,7 +252,9 @@ var
     EntryName: string;
     Stream: TMemoryStream;
   begin
-    ArchiveName := FindSiblingArchive(ContainerFileName, 'images');
+    if ImageSources=nil then
+      ArchiveName := FindSiblingArchive(ContainerFileName, 'images')
+    else ArchiveName:=ImageSources[1];
     if ArchiveName = '' then
       Exit;
     Archive := nil;
@@ -266,11 +275,11 @@ var
         until not Archive.FindNext;
       except
         on E: EZipException do
-          ;
+          if ImageSources<>nil then raise;
         on E: EFOpenError do
-          ;
+          if ImageSources<>nil then raise;
         on E: EMHLExternalToolError do
-          ;
+          if ImageSources<>nil then raise;
       end;
     finally
       Archive.Free;
@@ -1191,10 +1200,23 @@ end;
 
 function RestoreFLibraryBook(const ContainerFileName, BookEntryName: string;
   const Source: TStream): TStream;
+begin
+  Result:=RestoreFLibraryBookWithImageSources(ContainerFileName,BookEntryName,Source,nil);
+end;
+
+function RestoreFLibraryBookWithImageSources(const ContainerFileName, BookEntryName: string;
+  const Source: TStream; const ImageSources: TArray<string>): TStream;
 var
   Images: TExternalBookImages;
 begin
   Result := nil;
+  if ImageSources<>nil then
+  begin
+    if Length(ImageSources)<>2 then raise EArgumentException.Create('Нужны отдельные источники обложек и иллюстраций.');
+    for var ImageSource in ImageSources do
+      if (ImageSource<>'') and not FileExists(ImageSource) then
+        raise EReadError.Create('Не найден подготовленный архив изображений: '+ImageSource);
+  end;
   if not IsSevenZipArchive(ContainerFileName) then
     Exit;
 
@@ -1203,7 +1225,7 @@ begin
 
   Images := TExternalBookImages.Create;
   try
-    CollectExternalImages(ContainerFileName, BookEntryName, Images);
+    CollectExternalImages(ContainerFileName, BookEntryName, Images, ImageSources);
     if SameText(ExtractFileExt(BookEntryName), '.fb2') then
       Result := RestoreFb2(Source, Images)
     else if SameText(ExtractFileExt(BookEntryName), '.epub') then

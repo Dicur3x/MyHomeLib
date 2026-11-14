@@ -1,11 +1,12 @@
 ﻿procedure TestFLibrarySourcePreparation;
 var Folder, SourceHash, BeforeImages, BeforeBody, AgainImages, AgainBody, SourceBody,
-  SavedTemplate: string;
+  SavedTemplate, EntryName: string;
+  ExpectedImageIDs: TArray<string>;
   Source: TMemoryStream; Restored, Repeated: TStream; Book: TBookRecord;
 
-  procedure Signature(const Input: TStream; out Images, Body: string; ExpectedImages: Integer=3;
+  procedure Signature(const Input: TStream; out Images, Body: string; ExpectedImages: Integer=-1;
     const ExpectedTitle: string='');
-  var Document: IXMLDocument; Values: TStringList; Text: TStringBuilder;
+  var Document: IXMLDocument; Values, References: TStringList; Text: TStringBuilder;
     procedure Walk(const Node: IXMLNode; InBody: Boolean);
     begin
       if Node.NodeType in [Xml.XMLIntf.ntText,Xml.XMLIntf.ntCData] then
@@ -13,6 +14,11 @@ var Folder, SourceHash, BeforeImages, BeforeBody, AgainImages, AgainBody, Source
         if InBody then for var C in VarToStr(Node.NodeValue) do
           if not CharInSet(C,[' ',#9,#10,#13]) then Text.Append(C);
         Exit;
+      end;
+      if Node.LocalName='image' then
+      begin
+        var Reference:=VarToStr(Node.Attributes['l:href']);
+        if Reference.StartsWith('#') then References.Add(Copy(Reference,2,MaxInt));
       end;
       if Node.LocalName='binary' then
       begin
@@ -27,7 +33,8 @@ var Folder, SourceHash, BeforeImages, BeforeBody, AgainImages, AgainBody, Source
         Walk(Node.ChildNodes[I],InBody or (Node.LocalName='body'));
     end;
   begin
-    Values:=TStringList.Create; Text:=TStringBuilder.Create;
+    if ExpectedImages<0 then ExpectedImages:=Length(ExpectedImageIDs);
+    Values:=TStringList.Create; References:=TStringList.Create; Text:=TStringBuilder.Create;
     try
       Input.Position:=0; Document:=NewXMLDocument;
       Document.ParseOptions:=[poPreserveWhiteSpace]; Document.LoadFromStream(Input);
@@ -37,9 +44,12 @@ var Folder, SourceHash, BeforeImages, BeforeBody, AgainImages, AgainBody, Source
       Walk(Document.DocumentElement,False); Values.Sort;
       Images:=Values.Text; Body:=Text.ToString;
       Require(Values.Count=ExpectedImages,'Unexpected number of image binaries from the compressed source');
-      if ExpectedImages>0 then Require((Values.IndexOfName('cover')>=0) and (Values.IndexOfName('1')>=0) and
-        (Values.IndexOfName('2')>=0),'Restored image identities differ from the compressed layout');
-    finally Document:=nil; Text.Free; Values.Free; end;
+      if ExpectedImages>0 then
+      begin
+        for var ID in ExpectedImageIDs do Require(Values.IndexOfName(ID)>=0,'Restored image identity is missing: '+ID);
+        for var ID in References do Require(Values.IndexOfName(ID)>=0,'Restored book has an unresolved image: '+ID);
+      end;
+    finally Document:=nil; Text.Free; References.Free; Values.Free; end;
   end;
 
 begin
@@ -47,22 +57,74 @@ begin
   Source:=TMemoryStream.Create; Restored:=nil;
   SavedTemplate:=Settings.BookHeaderTemplate;
   try
-    Source.LoadFromFile(Folder+'557950.fb2'); SourceHash:=UpdateSHA256(Folder+'557950.fb2');
-    Require(SameText(SourceHash,'efc28dc668f1d9971833a501baba6480e5a0775996652f6f921e6798118b3019'),
+    EntryName:=TFile.ReadAllText(Folder+'entry-name.txt',TEncoding.UTF8);
+    var ImageIDs:=TJSONObject.ParseJSONValue(TFile.ReadAllText(Folder+'expected-images.json',TEncoding.UTF8));
+    try
+      Require(ImageIDs is TJSONArray,'Missing real-book image inventory');
+      for var Value in TJSONArray(ImageIDs) do ExpectedImageIDs:=ExpectedImageIDs+[Value.Value];
+    finally ImageIDs.Free; end;
+    Source.LoadFromFile(Folder+EntryName); SourceHash:=UpdateSHA256(Folder+EntryName);
+    Require(SameText(SourceHash,TFile.ReadAllText(Folder+'source.sha256',TEncoding.UTF8)),
       'Actual compressed source fixture changed');
     Signature(Source,AgainImages,SourceBody,0);
     Source.Position:=17;
-    Restored:=RestoreFLibraryBook(Folder+'source.7z','557950.fb2',Source);
+    Restored:=RestoreFLibraryBook(Folder+'source.7z',EntryName,Source);
     Require((Restored<>nil) and (Source.Position=17),'Restoration lost images or changed borrowed source position');
     Signature(Restored,BeforeImages,BeforeBody);
     Require((Length(BeforeBody)>10000) and (BeforeBody=SourceBody),'Restoration changed readable body text');
-    Writeln('PASS actual FLibrary source restores one cover and two illustrations with unchanged borrowed bytes');
-    Repeated:=RestoreFLibraryBook(Folder+'source.7z','557950.fb2',Restored);
+    Writeln('PASS actual FLibrary source restores every cover and illustration with unchanged borrowed bytes');
+    Repeated:=RestoreFLibraryBook(Folder+'source.7z',EntryName,Restored);
     try Require(Repeated=nil,'Repeated restoration added already present image binaries');
     finally Repeated.Free; end;
     Signature(Restored,AgainImages,AgainBody);
     Require((AgainImages=BeforeImages) and (AgainBody=BeforeBody),'Repeated restoration changed text or image bytes');
     Writeln('PASS repeated FLibrary restoration does not create another cover or illustration');
+    var CandidateSources:=FLibraryImageSourceFiles(Folder+'source.7z');
+    for var I:=0 to High(CandidateSources) do
+    begin
+      Require(CandidateSources[I]<>'','Candidate source fixture is incomplete');
+      var Candidate:=Folder+'candidate-images-'+IntToStr(I)+'.bin';
+      TFile.Copy(CandidateSources[I],Candidate,False); CandidateSources[I]:=Candidate;
+    end;
+    var CandidateStream:=RestoreFLibraryBookWithImageSources(Folder+'source.7z',EntryName,Source,CandidateSources);
+    try
+      Require((CandidateStream<>nil) and (Source.Position=17),'Candidate restoration changed its borrowed source');
+      Signature(CandidateStream,AgainImages,AgainBody);
+      Require((AgainImages=BeforeImages) and (AgainBody=BeforeBody),'Candidate sources changed full book data');
+    finally CandidateStream.Free; end;
+    CandidateStream:=RestoreFLibraryBookWithImageSources(Folder+'source.7z',EntryName,Source,TArray<string>.Create('',''));
+    try Require(CandidateStream=nil,'Explicit empty sources silently used the live archives');
+    finally CandidateStream.Free; end;
+    var Rejected:=False;
+    try
+      CandidateStream:=RestoreFLibraryBookWithImageSources(Folder+'source.7z',EntryName,Source,
+        TArray<string>.Create(Folder+'missing-candidate.zip',CandidateSources[1]));
+      CandidateStream.Free;
+    except on E:EReadError do Rejected:=True; end;
+    Require(Rejected,'Missing candidate archive was silently accepted');
+    Writeln('PASS private FLibrary source overrides restore complete images and text without source replacement');
+    if FileExists(Folder+'prepared-external-images.json') then
+    begin
+      var Prepared:=TJSONObject.ParseJSONValue(TFile.ReadAllText(Folder+'prepared-external-images.json',TEncoding.UTF8));
+      try
+        Require(Prepared is TJSONObject,'Missing prepared external image report');
+        var Paths:=TJSONObject(Prepared).GetValue<TJSONArray>('prepared_image_sources');
+        Require(Paths.Count=2,'Prepared image sources have no explicit covers/images slots');
+        CandidateSources:=TArray<string>.Create(Paths.Items[0].Value,Paths.Items[1].Value);
+        CandidateStream:=RestoreFLibraryBookWithImageSources(Folder+'source.7z',EntryName,Source,CandidateSources);
+        try
+          Require((CandidateStream<>nil) and (Source.Position=17),'Prepared complete-book restoration failed');
+          Signature(CandidateStream,AgainImages,AgainBody);
+          Require(AgainBody=BeforeBody,'External image compression changed readable book text');
+          var Changed:=False;
+          for var Archive in TJSONObject(Prepared).GetValue<TJSONArray>('archives') do
+            for var Image in TJSONObject(Archive).GetValue<TJSONArray>('images') do
+              Changed:=Changed or TJSONObject(Image).GetValue<Boolean>('changed');
+          Require(not Changed or (AgainImages<>BeforeImages),'Prepared image changes did not reach the restored book');
+        finally CandidateStream.Free; end;
+      finally Prepared.Free; end;
+      Writeln('PASS actual processed external images restore a complete book with every image link and unchanged text');
+    end;
     Book.Clear; Book.Title:='Проверка сведений — Ярлинги поневоле';
     Book.Series:=NO_SERIES_TITLE; Settings.BookHeaderTemplate:='%t';
     for var Pass:=1 to 2 do
@@ -71,10 +133,10 @@ begin
       else Book.Title:='Короткое название';
       Restored.Position:=0;
       Require(WriteFb2InfoToStream(Book,Restored),'Metadata rewrite failed for the restored source');
-      Signature(Restored,AgainImages,AgainBody,3,Book.Title);
+      Signature(Restored,AgainImages,AgainBody,Length(ExpectedImageIDs),Book.Title);
       Require((AgainImages=BeforeImages) and (AgainBody=BeforeBody),'Metadata rewrite changed text or image binaries');
     end;
-    Require(UpdateSHA256(Folder+'557950.fb2')=SourceHash,'Preparation modified original fixture bytes');
+    Require(UpdateSHA256(Folder+EntryName)=SourceHash,'Preparation modified original fixture bytes');
     Writeln('PASS repeated native FB2 metadata rewrite preserves every restored image and readable body');
   finally Settings.BookHeaderTemplate:=SavedTemplate; Restored.Free; Source.Free; end;
 end;
