@@ -32,7 +32,7 @@ uses
   unit_Consts;
 
 type
-  TSystemData_SQLite = class(TSystemData, ISystemData, ISystemBookPresence, IBookIdentityDeletionWriter, IBookIdentityProgressWriter, IBookIdentityPersonalWriter, IMetadataCollectionRootGuard, IAtomicLegacyUserDataImporter, ISnapshotCollectionRestorer)
+  TSystemData_SQLite = class(TSystemData, ISystemData, ISystemBookPresence, ISystemCatalogCommitWitness, IBookIdentityDeletionWriter, IBookIdentityProgressWriter, IBookIdentityPersonalWriter, IMetadataCollectionRootGuard, IAtomicLegacyUserDataImporter, ISnapshotCollectionRestorer)
   strict private
   type
     TBookIteratorImpl = class(TInterfacedObject, IBookIterator)
@@ -171,6 +171,8 @@ type
     procedure EndMetadataRootGuard;
     procedure BeginDataUpdate;
     procedure EndDataUpdate(Commit: Boolean);
+    procedure SetCatalogCommitWitness(CollectionID: Integer; const OperationID: string);
+    function CatalogCommitWitness(CollectionID: Integer): string;
     function RegisterSnapshotCollection(const CatalogFile, DisplayName, Root, SourceRoot: string;
       Source: TSQLiteDatabase; SourceID: Integer;
       const Canceled: TSnapshotCanceled): Integer;
@@ -699,6 +701,7 @@ var
   FieldName: string;
   query: TSQLiteQuery;
 begin
+  Result:=Unassigned;
   Assert(CollectionID <> INVALID_COLLECTION_ID);
   Assert(isSystemProp(PropID));
 
@@ -2076,6 +2079,29 @@ begin
   try
     if FDatabase.InTransaction then FDatabase.Rollback;
   finally FMetadataRootGuard := False; end;
+end;
+
+procedure TSystemData_SQLite.SetCatalogCommitWitness(CollectionID: Integer; const OperationID: string);
+var ID: TGUID;
+begin
+  try ID:=StringToGUID(OperationID);
+  except on E:EConvertError do raise EArgumentException.Create('Некорректная отметка обновления коллекции.'); end;
+  if (CollectionID<=0) or (OperationID<>GUIDToString(ID)) then
+    raise EArgumentException.Create('Некорректная отметка обновления коллекции.');
+  if not FDatabase.InTransaction then
+    raise EInvalidOperation.Create('Отметка обновления требует транзакции личных данных.');
+  FDatabase.ExecSQL('CREATE TABLE IF NOT EXISTS CatalogCommitWitnesses(CollectionID INTEGER PRIMARY KEY,OperationID TEXT NOT NULL)');
+  FDatabase.ExecSQL('INSERT OR REPLACE INTO CatalogCommitWitnesses VALUES(?,?)',[CollectionID,OperationID]);
+end;
+
+function TSystemData_SQLite.CatalogCommitWitness(CollectionID: Integer): string;
+var Query: TSQLiteQuery;
+begin
+  Result:='';
+  if FDatabase.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE type=''table'' AND name=''CatalogCommitWitnesses''')=0 then Exit;
+  Query:=FDatabase.NewQuery('SELECT OperationID FROM CatalogCommitWitnesses WHERE CollectionID=?',[CollectionID]);
+  try Query.Open; if not Query.Eof then Result:=Query.FieldAsString(0);
+  finally Query.Free; end;
 end;
 
 procedure TSystemData_SQLite.BeginDataUpdate;

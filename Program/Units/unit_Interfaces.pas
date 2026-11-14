@@ -66,6 +66,13 @@ type
     function StoredBookIDs(const CollectionID: Integer): TArray<Integer>;
   end;
 
+  // Written in the same transaction as the collection's personal-data update.
+  ISystemCatalogCommitWitness = interface
+    ['{64854C43-8127-4C63-BB1C-DF6BF2F712B8}']
+    procedure SetCatalogCommitWitness(CollectionID: Integer; const OperationID: string);
+    function CatalogCommitWitness(CollectionID: Integer): string;
+  end;
+
   // Sequential, read-only relations for an immutable catalogue. Book IDs must
   // be requested in nondecreasing order; no whole-catalogue relation cache.
   IBookSeriesReadStream = interface

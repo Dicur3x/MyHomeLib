@@ -36,12 +36,13 @@ end;
 
 procedure TestLibraryUpdateCancellation;
 {$IFDEF MHL_COMPRESSION_TEST}
-var Root, ArchivePath, ArchiveHash, OriginalID, CacheHash: string;
+var Root, ArchivePath, ArchiveHash, OriginalID, CacheHash, TargetToken, PersonalToken, PreviousToken: string;
   Target: IBookCollection; Source: TCatalogSources; Profile: TLibraryUpdateSource;
   Stage: TStagedLibraryIndex; Review: TLibraryUpdateReview; Worker: TCollectionWorker;
   Refresh: TCatalogRefreshWorker; Merge: TCatalogMergeWorker; Plan: TCollectionMergePlan;
   Probe: TLibraryCancelProbe; Book, Original: TBookRecord; History: TCatalogSource;
-  ID, Count: Integer; Books: IBookIterator; Bound, Committed, Fail: Boolean;
+  ID, Count, PreviousID: Integer; Books: IBookIterator; Bound, Committed, Fail: Boolean;
+  Witness: ISystemCatalogCommitWitness;
   procedure Index(const Name: string; Updated: Boolean);
   var Zip: TZipFile; Rows: string;
   begin
@@ -58,6 +59,8 @@ var Root, ArchivePath, ArchiveHash, OriginalID, CacheHash: string;
     finally Zip.Free; end;
   end;
 begin
+  Require(Supports(SystemDB,ISystemCatalogCommitWitness,Witness),'Personal store has no commit witnesses');
+  PreviousID:=0; PreviousToken:='';
   for Bound in TArray<Boolean>.Create(False,True) do
     for var Phase in TArray<string>.Create('rows-written','before-commit','commit-start','catalogue-committed','stores-committed','late-error') do
     begin
@@ -103,6 +106,18 @@ begin
       Target.SetRate(Original.BookKey,4); Target.SetProgress(Original.BookKey,31);
       Target.SetReview(Original.BookKey,'Original review'); Target.SetAnnotation(Original.BookKey,'Original annotation');
       Target.AddBookToGroup(Original.BookKey,FAVORITES_GROUP_ID);
+      for var PropID in TArray<Integer>.Create(PROP_CREATIONDATE,PROP_LIBRARY_UPDATE_TRANSACTION) do
+      begin
+        var Value:=Target.GetProperty(PropID);
+        if PropID=PROP_LIBRARY_UPDATE_TRANSACTION then
+          Require(VarIsEmpty(Value),'Missing catalogue property reused the preceding property value');
+      end;
+      for var CandidateID in TArray<Integer>.Create(ID,High(Integer)) do
+      begin
+        var Value:=SystemDB.GetProperty(CandidateID,PROP_DISPLAYNAME);
+        if CandidateID=High(Integer) then
+          Require(VarIsEmpty(Value),'Missing system property reused the preceding collection value');
+      end;
       Profile:=TLibraryUpdateSource.NewSource; Profile.Name:='Cancellation update'; Profile.Location:=Root; Profile.IndexFile:='new.inpx';
       if Bound then Profile.CatalogSourceID:=Source[0].ID;
       Stage:=TStagedLibraryIndex.Fetch(Profile,Settings.UpdatePath,nil); Review:=TLibraryUpdateReview.Create(Profile,Stage);
@@ -131,6 +146,26 @@ begin
           finally LibraryUpdateTestPoint:=nil; MergeApplyTestPoint:=nil; Worker.Free; end;
         finally Probe.Free; end;
         Target:=SystemDB.GetCollection(ID,True);
+        TargetToken:=VarToStr(Target.GetProperty(PROP_LIBRARY_UPDATE_TRANSACTION));
+        PersonalToken:=Witness.CatalogCommitWitness(ID);
+        if Committed then
+          Require((Review.OperationID<>'') and (TargetToken=Review.OperationID) and (PersonalToken=Review.OperationID),
+            'Committed update did not publish matching catalogue/personal witnesses at '+Phase)
+        else if (TargetToken<>'') or (PersonalToken<>'') then
+        begin
+          var Raw:=TSQLiteDatabase.CreateReadOnly(SystemDB.GetCollectionInfo(ID).DBFileName);
+          try
+            var Query:=Raw.NewQuery('SELECT SettingValue FROM Settings WHERE SettingID=?',[PROP_LIBRARY_UPDATE_TRANSACTION]);
+            try
+              Query.Open; var Stored:='(no row)'; if not Query.Eof then Stored:=Query.FieldAsString(0);
+              Require(False,Format('Rollback witness at %s bound=%s ID=%d target="%s" personal="%s" raw="%s" current="%s"',
+                [Phase,BoolToStr(Bound,True),ID,TargetToken,PersonalToken,Stored,Review.OperationID]));
+            finally Query.Free; end;
+          finally Raw.Free; end;
+        end;
+        if PreviousID>0 then Require(Witness.CatalogCommitWitness(PreviousID)=PreviousToken,
+          'An update replaced another collection''s commit witness');
+        PreviousID:=ID; PreviousToken:=PersonalToken;
         Books:=Target.GetBookIterator(bmAll,True); Count:=0;
         while Books.Next(Book) do
         begin
@@ -155,6 +190,8 @@ begin
       finally Review.Free; Stage.Free; end;
     end;
   Writeln('PASS reviewed update cancellation rolls back before commit, finishes late saves, protects rollback and retains published baselines after post-commit errors');
+  Writeln('PASS reviewed update commit witnesses are paired with catalogue and personal transactions, roll back on early errors and remain isolated by collection');
+  Writeln('PASS missing catalogue and system properties return empty instead of reusing a previous value');
 end;
 {$ELSE}
 begin raise EInvalidOperation.Create('Cancellation diagnostics require the guarded test build.'); end;

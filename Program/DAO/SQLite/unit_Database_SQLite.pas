@@ -2302,6 +2302,7 @@ const
 var
   query: TSQLiteQuery;
 begin
+  Result:=Unassigned;
   if isCollectionProp(PropID) then
   begin
     query := FDatabase.NewQuery(SQL);

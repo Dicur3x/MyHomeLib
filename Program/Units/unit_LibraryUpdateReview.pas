@@ -20,7 +20,7 @@ type
     FNewBooks, FChangedBooks, FTotal, FVersion, FDeleted, FSkipped: Integer;
     FPreviousIndex, FReady: Boolean;
     FDelta: IBookCollection;
-    FDeltaFile, FApplySummary, FCacheInput, FPreviousFile: string;
+    FDeltaFile, FApplySummary, FCacheInput, FPreviousFile, FOperationID: string;
     FPlan: TCollectionMergePlan;
     FActionDB: TSQLiteDatabase;
     FRevisionDB: TSQLiteDatabase;
@@ -66,6 +66,7 @@ type
     property Snapshot: IBookCollection read FSnapshot;
     property ApplySummary: string read FApplySummary;
     property Applied: Boolean read FApplied;
+    property OperationID: string read FOperationID;
     property MissingReportReady: Boolean read FIssuesReady;
     property MissingBooks: Integer read FMissingCount;
   end;
@@ -474,6 +475,7 @@ begin
   FDelta:=nil;
   if (FDeltaFile<>'') and FileExists(FDeltaFile) then TFile.Delete(FDeltaFile);
   FDeltaFile:=''; FApplicationReady:=False; FIssuesReady:=False;
+  FOperationID:=GUIDToString(TGUID.NewGuid);
   FNewCards:=0; FUpdateCards:=0; FRemovedCount:=0; FMissingCount:=0; FUnlistedCount:=0;
   FInventory:=TLibraryUpdateInventory.Create(Check);
   FActionDB:=TSQLiteDatabase.Create(FAnalysisFile); DB:=FActionDB;
@@ -930,6 +932,7 @@ begin
     if not Found then Profiles:=Profiles+[FSource];
   end;
   Target.SetProperty(PROP_LIBRARY_UPDATE_SOURCES,WriteLibraryUpdateSources(Profiles));
+  Target.SetProperty(PROP_LIBRARY_UPDATE_TRANSACTION,FOperationID);
   SaveLibraryUpdateHistory(Target,FSource,FPublishedSource,FPrepared.SHA256);
   if FSource.CatalogSourceID<>'' then
   begin
@@ -965,9 +968,12 @@ var Backup, Folder: string; Books: IBookIterator; Book, Prepared: TBookRecord;
   Rows: TSQLiteQuery; Cache: TImportCache; Genres: TDictionary<string,TGenreData>;
   LocalBooks: TArray<TLocalCatalogBook>; Done: Integer;
   SavedSQL: TSQLiteCancelCallback;
+  Witness: ISystemCatalogCommitWitness; SystemStarted: Boolean;
 begin
   Committed:=False;
   if not FApplicationReady then raise EInvalidOperation.Create('Обновление ещё не подготовлено.');
+  if not Supports(SystemData,ISystemCatalogCommitWitness,Witness) then
+    raise ENotSupportedException.Create('Хранилище личных данных не поддерживает согласованное обновление.');
   Check;
   CheckTargetRevision(Target);
   PrepareCache(Check,Progress);
@@ -981,6 +987,7 @@ begin
     end;
     FPlan.BeforeCommit:=procedure(const Collection:IBookCollection) begin
       Check; Collection.FinishCatalogUpdateTracking(True,FPreviousLastID); RestoreCopySizes(Collection,Check); StoreAppliedState(Collection);
+      Witness.SetCatalogCommitWitness(Collection.CollectionID,FOperationID);
     end;
     Folder:=TPath.Combine(Settings.DataPath,'LibraryUpdateBackups'); ForceDirectories(Folder);
     Backup:=TPath.Combine(Folder,TGUID.NewGuid.ToString);
@@ -1014,6 +1021,7 @@ begin
   finally BackupDB.Free; end;
   Cache:=TImportCache.Create; Genres:=TDictionary<string,TGenreData>.Create; Rows:=nil;
   SavedSQL:=SQLiteCancelCallback;
+  SystemStarted:=False;
   try
     Target.BeginBulkOperation;
     try
@@ -1067,7 +1075,10 @@ begin
       Target.FinishCatalogUpdateTracking(FSource.Full,FPreviousLastID);
       if FSource.Full then
         Target.RestoreLocalBooks(LocalBooks);
-      Check; StoreAppliedState(Target); NotifyLibraryUpdateTestPoint('before-commit'); Check;
+      Check;
+      SystemData.BeginDataUpdate; SystemStarted:=True;
+      StoreAppliedState(Target); Witness.SetCatalogCommitWitness(Target.CollectionID,FOperationID);
+      NotifyLibraryUpdateTestPoint('before-commit'); Check;
       SQLiteCancelCallback:=nil;
       if Assigned(Progress) then Progress('Сохранение каталога',Done,FTotal);
       NotifyLibraryUpdateTestPoint('commit-start');
@@ -1080,8 +1091,13 @@ begin
     end;
     SQLiteCancelCallback:=nil;
     SystemData.RemapCollectionBookIDs(Target.CollectionID,FSource.Full);
+    SystemData.EndDataUpdate(True); SystemStarted:=False;
     NotifyLibraryUpdateTestPoint('stores-committed');
-  finally SQLiteCancelCallback:=SavedSQL; Books:=nil; Rows.Free; Genres.Free; Cache.Free; end;
+  finally
+    SQLiteCancelCallback:=nil;
+    try if SystemStarted then SystemData.EndDataUpdate(False);
+    finally SQLiteCancelCallback:=SavedSQL; Books:=nil; Rows.Free; Genres.Free; Cache.Free; end;
+  end;
 end;
 
 type
