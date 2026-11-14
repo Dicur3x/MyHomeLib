@@ -6,7 +6,7 @@ uses System.Classes, System.Types, Vcl.Controls, Vcl.Forms, Vcl.StdCtrls, Vcl.Co
   unit_Interfaces, unit_CatalogSources, unit_CollectionMerge, unit_WorkerThread, unit_SeriesAliases;
 
 type
-  TCatalogWorkflowState = (cwsNeedsPreview, cwsChecking, cwsReady, cwsApplying, cwsDone, cwsFailed);
+  TCatalogWorkflowState = (cwsNeedsPreview, cwsChecking, cwsReady, cwsApplying, cwsDone, cwsFailed, cwsNeedsAttention);
 
   TSourceDialogForm = class(TForm)
   private
@@ -407,6 +407,7 @@ begin
     cwsApplying: FWorkflowTitle.Caption:='Добавляем книги';
     cwsDone: FWorkflowTitle.Caption:='Книги добавлены';
     cwsFailed: FWorkflowTitle.Caption:='Операция не завершена';
+    cwsNeedsAttention: FWorkflowTitle.Caption:='Каталог изменён; требуется внимание';
   end;
   FWorkflowDetails.Caption:=Details;
   LayoutSeriesScope;
@@ -739,7 +740,7 @@ begin
 end;
 
 procedure TfrmCatalogSources.Apply(Sender: TObject);
-var Worker: TCatalogMergeWorker; Backup: string; Plan: TCollectionMergePlan; Succeeded: Boolean;
+var Worker: TCatalogMergeWorker; Backup: string; Plan: TCollectionMergePlan; Succeeded, Committed: Boolean;
 begin
   if FBusy then Exit;
   if not Assigned(FPlan) then
@@ -748,7 +749,7 @@ begin
   // of the dialog cannot free a plan while its background operation uses it.
   Plan:=FPlan; FPlan:=nil; FBusy:=True; FApply.Enabled:=False; UpdateSelection; Succeeded:=False;
   SetWorkflowState(cwsApplying,'Добавляем книги по результату последней проверки. Дождитесь завершения операции.');
-  Backup:=''; Worker:=nil;
+  Backup:=''; Worker:=nil; Committed:=False;
   try
     try
       Backup:=TPath.Combine(Settings.DataPath,'Backups\merge-'+FormatDateTime('yyyymmdd-hhnnss',Now)+'-'+TCatalogSource.NewID);
@@ -761,8 +762,15 @@ begin
         FReport.Lines.Add('Резервные копии и отчёт: '+Backup); end
       else FReport.Lines.Add(Worker.Error+#13#10+'Папка операции: '+Backup);
     except on E: Exception do FReport.Lines.Add(E.Message+#13#10+'Папка операции: '+Backup); end;
-  finally Worker.Free; Plan.Free; FBusy:=False; InvalidatePreview; UpdateSelection; end;
+  finally
+    if Assigned(Worker) then Committed:=Worker.CommittedChanges;
+    Committed:=Committed or Plan.CatalogCommitted;
+    FChanged:=FChanged or Committed;
+    Worker.Free; Plan.Free; FBusy:=False; InvalidatePreview; UpdateSelection;
+  end;
   if Succeeded then SetWorkflowState(cwsDone,'Результат и резервная копия указаны в отчёте. Для другого режима сначала повторите проверку.')
+  else if Committed then SetWorkflowState(cwsNeedsAttention,
+    'Каталог уже изменён. Проверьте отчёт и резервные копии перед следующей операцией.')
   else SetWorkflowState(cwsFailed,'Добавление не завершено. Подробности в отчёте. Перед следующей попыткой повторите проверку.');
 end;
 

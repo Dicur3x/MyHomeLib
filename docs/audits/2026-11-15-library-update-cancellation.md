@@ -82,12 +82,39 @@ private runtimes. These are small functional fixtures, not startup or
 large-library performance measurements. Earlier failed builds and diagnostic
 attempts remain evidence, not passing gates.
 
+## Generic source-window durable outcome
+
+The ordinary source/merge window previously used only `Worker.Success` to
+signal a changed catalogue to its caller. An error after both stores committed
+could therefore leave the main view stale and report only an unfinished
+operation. It now captures the worker/plan's durable catalogue flag before
+disposing either object, including the exception path. A committed error has
+the distinct state `Каталог изменён; требуется внимание`, with a direction to
+inspect the report and backups. A rolled-back failure does not set the change
+flag. The merge worker publishes that flag in `finally`, including failure
+while reporting its result.
+
+The added diagnostic uses the actual source-window check/apply buttons and
+nested worker. Its four cases cover normal success, a pre-commit error, an
+error after the catalogue commit with successful restoration, and an error
+after both stores committed. It checks the window's change flag, warning text,
+invalidated apply plan, actual target rows and untouched source ZIP. The
+existing main handler uses that change flag to refresh the collection; this
+fixture checks that signal, not another rendering of the refreshed main tree.
+
+| Platform | Outcome run | Result | Seconds | Native binary SHA-256 |
+|---|---|---|---:|---|
+| Win64 | `merge-outcome-Win64-r269` | PASS | 29.125 | `654c5b3ce4952f21320f0fe49aa875ee7c5fdb3255d8e3954f06dcf6be7a9456` |
+| Win32 | `merge-outcome-Win32-r271` | PASS | 21.312 | `f597163f4fa8c9683f3ba9b70a852dcfe05bdb63d2a296ce4eacd61213a35b66` |
+
+Both outcome runs removed their private runtimes. The fresh IDE receipts are
+in `merge-outcome-build-Win64-r268` and `merge-outcome-build-Win32-r270`.
+
 ## Still open
 
 Cancellation/error recovery does not prove recovery from process death or
 power loss. The new update controller still needs that recovery journal,
 abandoned-stage handling, bounded backup/cache retention, workspace choice,
-the remaining catalogue/legacy modes and scale checks. Generic catalogue-source
-UI handling of an exceptional already-committed result also remains to be
-connected. Final production packages, visual inspection, Desktop replacement
+the remaining catalogue/legacy modes and scale checks. Final production
+packages, visual inspection, Desktop replacement
 and publication have not been performed.

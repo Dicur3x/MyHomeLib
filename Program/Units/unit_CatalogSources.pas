@@ -282,6 +282,7 @@ procedure TCatalogMergeWorker.WorkFunction;
 var Sources: TMergeSources; I: Integer;
 begin
   try
+  try
     SetProgressHint(pbstMarquee);
     SetComment('Подготовка каталогов и резервных копий...');
     if not FApply then
@@ -308,8 +309,10 @@ begin
     FSuccess := True;
     Teletype('Готово.', tsInfo);
   except on E: Exception do begin FError := E.Message; Teletype(FError, tsError); end; end;
-  if FApply and Assigned(FPlan) then FChangesCommitted:=FPlan.CatalogCommitted;
-  if Assigned(FPlan) then FPlan.StageProgress := nil;
+  finally
+    if FApply and Assigned(FPlan) then FChangesCommitted:=FPlan.CatalogCommitted;
+    if Assigned(FPlan) then FPlan.StageProgress := nil;
+  end;
 end;
 
 end.

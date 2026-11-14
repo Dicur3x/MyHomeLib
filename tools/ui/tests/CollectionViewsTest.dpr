@@ -6156,6 +6156,7 @@ end;
 {$I SearchStartupLayoutTests.inc}
 {$I CompactSearchFilterTests.inc}
 {$I CatalogSourcesWorkflowTests.inc}
+{$I CatalogCommittedOutcomeTests.inc}
 {$I MainLiveInputFavoriteTests.inc}
 {$I UpdateFormNotifierTests.inc}
 {$I UpdateRepairTests.inc}
@@ -6793,6 +6794,7 @@ begin
       else if ParamStr(1) = 'reader-small-fb2' then
         TestMainSmallFB2Opening
       else if ParamStr(1) = 'catalog-sources-workflow' then TestCatalogSourcesWorkflow
+      else if ParamStr(1) = 'catalog-merge-outcome' then TestCatalogCommittedOutcome
       else if ParamStr(1) = 'compact-book-views' then TestCompactBookViews
       else if ParamStr(1) = 'update-repair' then TestUpdateRepair
       else if ParamStr(1) = 'reader-cache-performance' then TestReaderCachePerformance
