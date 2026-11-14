@@ -56,15 +56,56 @@ def jpeg_xl_inpx_fixture():
 
 
 def archive_body(archive, member, seven_zip):
-    try:
-        with zipfile.ZipFile(archive) as source:
-            return source.read(member)
-    except NotImplementedError:  # PPMd ZIP: use the shipped independent decoder.
-        result = run_owned([str(seven_zip), 'e', '-so', '-bd', '-y', '--', str(archive), member],
-                                capture_output=True, timeout=120)
-        if result.returncode:
-            raise AssertionError(result.stderr.decode('utf-8', errors='replace'))
-        return result.stdout
+    # Decode independently with 7-Zip. Python's ZIP reader can select an EPUB
+    # embedded in a stored 7z instead of the primary archive's requested member.
+    result = run_owned([str(seven_zip), 'e', '-so', '-spd', '-bd', '-y', '--', str(archive), member],
+                            capture_output=True, timeout=120)
+    if result.returncode:
+        raise AssertionError(result.stderr.decode('utf-8', errors='replace'))
+    return result.stdout
+
+
+def verify_text_only_repack(root):
+    exports = list(root.glob('text-only-jxl-*.epub'))
+    assert len(exports) == 2, 'Both native publications must exercise text-only export'
+    work = root / 'text-only-repack'
+    work.mkdir()
+    source_book = work / 'without-images.epub'
+    shutil.copy2(exports[-1], source_book)
+    source = work / 'download.7z'
+    seven = root / 'tools/7zip/7za.exe'
+    result = run_owned([str(seven), 'a', '-t7z', '-mx=0', '-y', '-bb0', '--', str(source), source_book.name],
+                       cwd=work, capture_output=True, timeout=60)
+    assert result.returncode == 0, result.stderr.decode(errors='replace')
+    assert source.read_bytes().startswith(b'7z\xbc\xaf\x27\x1c')
+    source_hash = digest(source)
+    plan = work / 'plan.sqlite'
+    with closing(sqlite3.connect(plan)) as db:
+        db.execute('CREATE TABLE metadata(key TEXT PRIMARY KEY,value TEXT)')
+        db.executemany('INSERT INTO metadata VALUES(?,?)', [('api','1'), ('dataset','text-only-native-repack')])
+        db.execute('CREATE TABLE books(book_id INTEGER PRIMARY KEY,source TEXT,member TEXT,locator TEXT,filename TEXT,ext TEXT,inside_no INTEGER)')
+        db.execute('INSERT INTO books VALUES(?,?,?,?,?,?,?)',
+                   (1,str(source),source_book.name,source_book.name,source_book.stem,'.epub',0))
+        db.commit()
+    encoder, = (root / 'tools').rglob('cjxl.exe')
+    decoder, = (root / 'tools').rglob('djxl.exe')
+    output = work / 'output'
+    job = work / 'job.json'
+    job.write_text(json.dumps(dict(version=1, dataset='text-only-native-repack', engine='jpeg-xl-7z', images='original',
+        plan=str(plan), output=str(output), seven_zip=str(seven), jpeg_xl_encoder=str(encoder),
+        jpeg_xl_decoder=str(decoder), reader_fb2_namespaces=True)), encoding='utf-8')
+    result = run_owned([str(root / 'tools/python/python.exe'), '-I', '-B', '-X', 'utf8', str(root / 'tools/bookconvert/pack_collection.py'),
+                        '--job', str(job)], cwd=work, capture_output=True, timeout=90)
+    assert result.returncode == 0, (result.stdout + result.stderr).decode(errors='replace')
+    mapping, = output.glob('generations/*/locations.sqlite')
+    with closing(sqlite3.connect(mapping)) as db:
+        folder, name, ext = db.execute('SELECT folder,filename,ext FROM locations WHERE book_id=1').fetchone()
+    assert archive_body(output / folder, name + ext, seven) == source_book.read_bytes()
+    assert digest(source) == source_hash, 'Repacking changed the downloaded archive'
+    assert (output / folder).stat().st_size <= source.stat().st_size, 'Text-only repacking grew the container'
+    return dict(status='PASS', input_container='7z', book_bytes_preserved=True,
+                source_book_sha256=digest(source_book), source_archive_bytes=source.stat().st_size,
+                output_archive_bytes=(output / folder).stat().st_size)
 
 
 def descriptor(root, platform, component, version, name, files):
@@ -194,7 +235,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
     from test_pack_collection import illustrated_fb2, image_fixture
     assert bool(packing_codec) == bool(packing_codec_release), 'Codec archive and official release metadata must be paired'
     if packing_codec:
-        assert scenario == 'packing-fbd', 'Codec installation belongs to the packed INPX scenario'
+        assert scenario in ('packing-fbd', 'packed-jxl-formats'), 'Codec installation requires a native packing scenario'
     if recovery_fault:
         assert scenario == 'selected-compression-ui' and mode == 'apply' and not real_books
     if recovery_preserve:
@@ -251,14 +292,20 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
             assert not any((real_books, legacy_history, recovery_fault, refresh_index))
             (root / 'packing-inpx-illustration.fb2').write_bytes(
                 jpeg_xl_inpx_fixture() if packing_codec else illustrated_fb2(image_fixture()))
-            if packing_codec:
-                release = json.loads(packing_codec_release.read_text(encoding='utf-8-sig'))
-                arch = 'x64' if platform == 'Win64' else 'x86'
-                asset, = [asset for asset in release['assets'] if asset['name'] == f'jxl-{arch}-windows-static.zip']
-                assert asset['digest'] == 'sha256:' + digest(packing_codec)
-                assert asset['size'] == packing_codec.stat().st_size
-                shutil.copy2(packing_codec, root / 'official-jxl.zip')
-                shutil.copy2(packing_codec_release, root / 'official-jxl-release.json')
+        if scenario == 'packed-jxl-formats':
+            from packing_format_fixtures import fixtures
+            assert packing_codec and not any((real_books, legacy_history, recovery_fault, refresh_index))
+            inputs, format_manifest = fixtures()
+            originals = {**inputs, 'neighbor.fb2': originals['neighbor.fb2']}
+            (root / 'packing-jxl-formats.json').write_text(json.dumps(format_manifest), encoding='utf-8')
+        if packing_codec:
+            release = json.loads(packing_codec_release.read_text(encoding='utf-8-sig'))
+            arch = 'x64' if platform == 'Win64' else 'x86'
+            asset, = [asset for asset in release['assets'] if asset['name'] == f'jxl-{arch}-windows-static.zip']
+            assert asset['digest'] == 'sha256:' + digest(packing_codec)
+            assert asset['size'] == packing_codec.stat().st_size
+            shutil.copy2(packing_codec, root / 'official-jxl.zip')
+            shutil.copy2(packing_codec_release, root / 'official-jxl-release.json')
         if scenario == 'packed-catalogue-sizes':
             from test_prepare_book_compression import epub
             assert not any((real_books, legacy_history, recovery_fault, refresh_index))
@@ -305,7 +352,10 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
             for name, body in originals.items():
                 archive.writestr(name, body)
         (root / 'conversion-fixtures').mkdir()
-        (root / 'conversion-fixtures/source.fb2').write_bytes(originals['one.fb2'])
+        conversion_fb2 = originals.get('one.fb2')
+        if conversion_fb2 is None:
+            conversion_fb2 = illustrated_fb2(image_fixture(True))
+        (root / 'conversion-fixtures/source.fb2').write_bytes(conversion_fb2)
         before, size = digest(source), source.stat().st_size
         started = time.monotonic()
         startup = None
@@ -317,7 +367,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
         # discard the only evidence explaining where the private GUI stopped.
         # The real-book fixture itself allows 300 s *after* its application
         # bootstrap; leave separate room for bootstrap and orderly teardown.
-        deadline = 420 if real_books or scenario == 'packing-fbd' else 150
+        deadline = 420 if real_books or scenario in ('packing-fbd', 'packed-jxl-formats') else 150
         attempt = dict(status='INCOMPLETE', platform=platform, mode=mode,
             native_binary_sha256=digest(binary), outer_timeout_seconds=deadline,
             refresh_index=refresh_index,
@@ -397,10 +447,16 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
             'update-outcomes': 'PASS actual INPX and Metabib menus offer compression after commit',
             'packed-catalogue-sizes': 'PASS packed publication and actual INPX retain book copy and personal sizes without originals',
             'packing-fbd': 'PASS original FBD container, both native locator forms, exact book and descriptor, reuse without originals',
+            'packed-jxl-formats': 'PASS native JPEG XL PDF exact bytes and EPUB complete resources reading and retention without originals',
         }[scenario]
         if recovery_fault:
             expected = 'PASS actual compression crash and ordinary startup recovery ' + recovery_fault
         expected_lines = [expected]
+        if scenario == 'packed-jxl-formats':
+            expected_lines += [
+                'PASS official JPEG XL encoder installs separately from the reading component',
+                'PASS native JPEG XL EPUB text-only export works without its decoder and cannot replace full-image preparation',
+            ]
         if scenario == 'packing-fbd':
             expected_lines += [
                 'PASS loose book does not grow and remains readable after retention without its original',
@@ -445,6 +501,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
             assert not real_books, 'Event fixtures must not borrow real collection books'
             assert digest(source) == before, 'Import/update offer changed an unrelated shared ZIP'
             publication = {}
+            text_repack = verify_text_only_repack(root) if scenario == 'packed-jxl-formats' else None
             if scenario == 'packed-catalogue-sizes':
                 output_root = root / 'packed-size-output'
                 catalogues = list(output_root.glob('*.hlc2'))
@@ -478,10 +535,14 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
                         image_helper_sha256=digest(root / 'tools/images/HomeLibImages.exe'),
                         private_runtime=str(root), real_source_stamps={},
                         packed_catalogue_sizes=publication,
+                        text_only_repack=text_repack,
                         unrelated_archive_unchanged=True, native_log=str(log_path),
                         scope=('Native full packed-copy publication and actual INPX update without originals; '
                                'catalogue, personal card and alternate-copy sizes, legacy/unknown sizes and invalid-size rejection'
                                if scenario == 'packed-catalogue-sizes' else
+                               'Native JPEG XL PDF byte-exact read/preparation, EPUB all resources/text/images, '
+                               'catalogue/personal sizes and retention without originals; private generated fixtures'
+                               if scenario == 'packed-jxl-formats' else
                                'Native FBD/loose/alternate retention without originals, unavailable-book restoration, '
                                'estimate dialog and INPX continuation through an actual main window; synthetic books'
                                if scenario == 'packing-fbd' else
@@ -568,7 +629,7 @@ if __name__ == '__main__':
     parser.add_argument('--whole', action='store_true')
     parser.add_argument('--repeat-new', action='store_true', help='After applying, invoke the normal new-books menu and verify no preparation')
     parser.add_argument('--scenario', choices=['selected-compression-ui', 'explorer-file-drop', 'update-outcomes',
-                        'packed-catalogue-sizes', 'packing-fbd'], default='selected-compression-ui')
+                        'packed-catalogue-sizes', 'packing-fbd', 'packed-jxl-formats'], default='selected-compression-ui')
     parser.add_argument('--packing-codec', type=Path, help='Exact official JPEG XL archive for the native packed INPX installer/reader scenario')
     parser.add_argument('--packing-codec-release', type=Path, help='Official GitHub release metadata used to verify the codec archive')
     parser.add_argument('--repeat-offer', action='store_true', help='Exercise nonmodal arrivals offer, dismissal, canceled options and explicit start')

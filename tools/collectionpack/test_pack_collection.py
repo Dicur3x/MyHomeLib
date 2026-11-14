@@ -1,6 +1,7 @@
 """Real 7-Zip integration; synthetic books only, all inputs remain untouched."""
 import base64
 import hashlib
+import io
 from contextlib import contextmanager
 import json
 import os
@@ -570,6 +571,41 @@ class PackingTests(unittest.TestCase):
         for original, digest in companions:
             self.assertEqual(sha(path.parent / original.parent.name / original.name), digest)
             self.assertEqual(sha(original), digest)
+
+    def test_stored_7z_is_not_mistaken_for_an_embedded_epub_or_its_attachment(self):
+        def epub(text, attachment=None):
+            output = io.BytesIO()
+            with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as book:
+                book.writestr('mimetype', b'application/epub+zip', compress_type=zipfile.ZIP_STORED)
+                book.writestr('META-INF/container.xml', '<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="book.opf"/></rootfiles></container>')
+                book.writestr('book.opf', '<package xmlns="http://www.idpf.org/2007/opf" version="2.0"><manifest><item id="text" href="chapter.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="text"/></spine></package>')
+                book.writestr('chapter.xhtml', '<html xmlns="http://www.w3.org/1999/xhtml"><body><p>' + text + '</p></body></html>')
+                if attachment is not None:
+                    book.writestr('source.epub', attachment)
+                    book.writestr('extra.bin', random.Random(761).randbytes(20_000))
+            return output.getvalue()
+        nested = epub('Inner attachment, not the requested book')
+        original = epub('The actual outer book must survive', nested)
+        book = self.source / 'source.epub'; book.write_bytes(original)
+        source = self.source / 'stored.7z'
+        subprocess.run([str(SEVEN), 'a', '-t7z', '-mx=0', '-y', '-bb0', '--', str(source), book.name],
+                       cwd=self.source, check=True, capture_output=True,
+                       creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        self.assertTrue(source.read_bytes().startswith(b'7z\xbc\xaf\x27\x1c'))
+        self.assertTrue(zipfile.is_zipfile(source), 'This regression needs Python to see the trailing embedded ZIP')
+        before = sha(source)
+        self.add(1, source, book.name)
+        result = Packer(self.job).execute()
+        self.assertEqual(self.packed_book(result, 1), original, 'The inner attachment replaced the requested outer EPUB')
+        self.assertEqual(sha(source), before)
+        nested_source = self.source / 'nested.epub'
+        nested_source.write_bytes(source.read_bytes())
+        stripped = self.root / 'stripped.epub'
+        codec = JpegXL(sys.executable, sys.executable, lambda: None)
+        with patch.object(codec, 'encode') as encode:
+            self.assertEqual(codec.separate(nested_source, stripped, self.root), {})
+            encode.assert_not_called()
+        self.assertFalse(stripped.exists(), 'A 7z EPUB must not be opened as its embedded ZIP')
 
     def test_corrupt_source_illustration_archive_cannot_be_published_as_a_copy(self):
         source = self.archive('library.7z', {'9.fb2': b'<FictionBook>External illustrations</FictionBook>'})

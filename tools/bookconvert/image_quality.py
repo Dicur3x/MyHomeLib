@@ -170,6 +170,37 @@ def without_images(api, book, destination, target_extension, warnings=None):
         removed.update(e.filename for e in source.infolist()
                        if posixpath.splitext(e.filename.lower())[1] in image_suffixes)
         count += len(removed)
+        # A text-only EPUB no longer depends on FLibrary's image sidecars.
+        # Recognize the reserved index by structure too: similarly named
+        # attachments with unrelated data must remain byte-identical.
+        def unique_object(pairs):
+            value = {}
+            for key, item in pairs:
+                if key in value: raise ValueError('Duplicate image-index field')
+                value[key] = item
+            return value
+        def image_index(entry):
+            if (posixpath.basename(entry.filename).casefold() != 'flibraryimageindex.json' or
+                    entry.file_size > 1024 * 1024):
+                return False
+            try:
+                rows = json.loads(source.read(entry).decode('utf-8-sig'), object_pairs_hook=unique_object)
+            except (ValueError, UnicodeError):
+                return False
+            if not isinstance(rows, list): return False
+            for row in rows:
+                if (not isinstance(row, dict) or set(row) != {'id', 'num'} or
+                        not isinstance(row['id'], str) or type(row['num']) is not int or
+                        not -1 <= row['num'] <= 2**31-1):
+                    return False
+                # Index IDs are ZIP member names, not OPF hrefs: a literal '#'
+                # or percent sign must not be decoded as a URI fragment.
+                path = posixpath.normpath(row['id'])
+                if (':' in path or '\\' in row['id'] or path.startswith(('/', '../')) or path in ('', '.', '..') or
+                        (path not in removed and posixpath.splitext(path.lower())[1] not in image_suffixes)):
+                    return False
+            return True
+        removed.update(entry.filename for entry in source.infolist() if image_index(entry))
         has_text = False
         documents = {}
         for name, media in resources.items():

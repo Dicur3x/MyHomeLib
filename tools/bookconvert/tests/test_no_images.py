@@ -131,19 +131,57 @@ class NoImages(unittest.TestCase):
             if c.tag(node) == 'binary': document.remove(node)
         source.write_bytes(c.serialized(document))
         epub = self.root/'unrestored.epub'
+        image_index = []
         with zipfile.ZipFile(self.epub) as original, zipfile.ZipFile(epub,'w') as output:
             for entry in original.infolist():
-                if Path(entry.filename).suffix.lower() in {'.png','.jpg','.jpeg'}: continue
+                if Path(entry.filename).suffix.lower() in {'.png','.jpg','.jpeg'}:
+                    image_index.append(dict(id=entry.filename, num=len(image_index)+1))
+                    continue
                 output.writestr(entry,original.read(entry))
+            output.writestr('FLibraryImageIndex.json',json.dumps(image_index))
         for original in (source,epub):
             original_hash = hashlib.sha256(original.read_bytes()).digest()
             for suffix in ('.fb2','.epub'):
                 target = self.root/('text-from-unrestored-'+original.suffix[1:]+suffix)
                 report = c.convert_book(original,target,image_quality='none',tools_root=self.root/'no-decoders')
                 self.check_text_only(target)
+                if suffix == '.epub':
+                    with zipfile.ZipFile(target) as exported:
+                        self.assertNotIn('FLibraryImageIndex.json',exported.namelist())
                 self.assertTrue(any('без изображений' in warning for warning in report['warnings']))
                 self.assertEqual(hashlib.sha256(original.read_bytes()).digest(),original_hash)
         self.assertFalse(list(self.root.glob('homelib-*'))+list(self.root.glob('.homelib-*')))
+
+    def test_text_only_preserves_unrelated_or_unknown_same_named_json(self):
+        values = [b'{"payload":"Keep unrelated data"}',
+                  b'[{"id":"chapter.xhtml","num":1}]',
+                  b'[{"id":"image.jpg","num":1,"caption":"Keep this text"}]',
+                  b'[{"id":"image.jpg","num":true}]',
+                  b'[{"id":"caption","id":"image.jpg","num":1}]', b'Not a JSON index']
+        for index, data in enumerate(values):
+            with self.subTest(data=data):
+                source, target = self.root/f'custom-{index}.epub', self.root/f'custom-{index}-text.epub'
+                with zipfile.ZipFile(self.epub) as original, zipfile.ZipFile(source,'w') as output:
+                    for entry in original.infolist(): output.writestr(entry,original.read(entry))
+                    output.writestr('Extras/FLibraryImageIndex.json',data)
+                before = source.read_bytes()
+                c.convert_book(source,target,image_quality='none',tools_root=self.root/'no-decoders')
+                with zipfile.ZipFile(target) as exported:
+                    self.assertEqual(exported.read('Extras/FLibraryImageIndex.json'),data)
+                self.assertEqual(source.read_bytes(),before)
+
+    def test_text_only_removes_known_index_with_literal_zip_name_characters(self):
+        source, target = self.root/'literal-index.epub', self.root/'literal-text.epub'
+        rows = [{'id':'OPS/Images/cover#1.jpg','num':1},
+                {'id':'OPS/Images/percent%3Atitle.jpg','num':2}]
+        with zipfile.ZipFile(self.epub) as original, zipfile.ZipFile(source,'w') as output:
+            for entry in original.infolist(): output.writestr(entry,original.read(entry))
+            output.writestr('Extras/FLIBRARYIMAGEINDEX.JSON',json.dumps(rows))
+        before = source.read_bytes()
+        c.convert_book(source,target,image_quality='none',tools_root=self.root/'no-decoders')
+        with zipfile.ZipFile(target) as exported:
+            self.assertNotIn('Extras/FLIBRARYIMAGEINDEX.JSON',exported.namelist())
+        self.assertEqual(source.read_bytes(),before)
 
     def test_small_images_offer_text_only_without_an_encoder_and_exact_size(self):
         for source in (self.source,self.epub):

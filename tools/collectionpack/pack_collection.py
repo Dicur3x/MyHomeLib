@@ -167,6 +167,15 @@ def book_signature(path, check):
     return dict(payload_sha256=digest.hexdigest(), payload_crc32=crc, payload_size=size)
 
 
+def is_zip_container(path):
+    # is_zipfile also accepts ZIP data embedded in another file. A stored 7z
+    # member can be an entire EPUB ZIP; its primary container still wins.
+    with Path(path).open('rb') as stream:
+        if stream.read(len(SEVENZIP_MAGIC)) == SEVENZIP_MAGIC:
+            return False
+    return zipfile.is_zipfile(path)
+
+
 def atomic_json(path, value, replace=True):
     path = Path(path)
     partial = path.with_name(path.name + '.' + uuid.uuid4().hex + '.partial')
@@ -658,6 +667,8 @@ class JpegXL:
         return images
 
     def separate_epub(self, source, destination, scratch):
+        if not is_zip_container(source):
+            return {}
         with zipfile.ZipFile(source) as archive:
             entries = archive.infolist()
             names = {entry.filename.casefold() for entry in entries}
@@ -1214,7 +1225,7 @@ class Packer:
         index = b''
         if nested:
             index = self.seven.flibrary_image_index(book, stage)
-        elif zipfile.is_zipfile(book):
+        elif is_zip_container(book):
             with zipfile.ZipFile(book) as epub:
                 entry = next((entry for entry in epub.infolist()
                               if Path(entry.filename).name.lower() == EPUB_IMAGE_INDEX.lower()), None)
@@ -1256,6 +1267,7 @@ class Packer:
 
     def process(self, source, rows, stage, identity, stamp, companions):
         artifacts, mappings, copied_hashes = [], {}, {}
+        zip_source = is_zip_container(source)
         # Generation files are immutable. A changed source cannot replace an
         # archive referenced by the previously published catalogue.
         relative = Path('archives') / identity[:20] / stamp[:20]
@@ -1270,7 +1282,7 @@ class Packer:
         compare_original = source.suffix.lower() in ARCHIVE_SUFFIXES or self.keep_loose
         fbd_rows = [row for row in rows if row['fbd']]
         if fbd_rows:
-            if source.suffix.lower() != '.zip' or not zipfile.is_zipfile(source):
+            if source.suffix.lower() != '.zip' or not zip_source:
                 raise PackingError('В плане сжатия неверно указан архив книги с описанием FBD.')
             with zipfile.ZipFile(source) as directory:
                 entries = set(directory.namelist())
@@ -1283,13 +1295,13 @@ class Packer:
         if unsafe_extension is not None and not self.keep_loose and any(not row['member'] for row in rows):
             raise PackingError('Нельзя подготовить отдельный файл с таким расширением: ' + unsafe_extension)
         preserve_container = bool(companions) or bool(fbd_rows) or unsafe_extension is not None
-        if unsafe_extension is not None and any(row['member'] for row in rows) and zipfile.is_zipfile(source):
+        if unsafe_extension is not None and any(row['member'] for row in rows) and zip_source:
             with zipfile.ZipFile(source) as directory:
                 entries = set(directory.namelist())
                 for row in rows:
                     if row['member'] and row['member'] not in entries:
                         raise PackingError('Книга отсутствует в архиве: ' + row['member'])
-        if not preserve_container and any(row['member'] for row in rows) and zipfile.is_zipfile(source):
+        if not preserve_container and any(row['member'] for row in rows) and zip_source:
             with zipfile.ZipFile(source) as directory:
                 preserve_container = any(entry.file_size > MAX_BOOK for entry in directory.infolist() if not entry.is_dir())
         if preserve_container:
@@ -1317,7 +1329,7 @@ class Packer:
             original = None
             keep_source = False
             try:
-                if zipfile.is_zipfile(source):
+                if zip_source:
                     original = zipfile.ZipFile(source)
                 entries, folded = {}, {}
                 if original:

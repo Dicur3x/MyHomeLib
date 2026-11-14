@@ -1,4 +1,33 @@
-﻿type
+﻿procedure InstallPackingCodecs(var Options:TCollectionPackingOptions);
+var Job, FileName, DecoderHash, JSON, CodecVersion: string; Info: TProgramRelease;
+begin
+  FileName:=Settings.AppPath+'official-jxl.zip';
+  JSON:=TFile.ReadAllText(Settings.AppPath+'official-jxl-release.json',TEncoding.UTF8);
+  Require(IsOptionalComponent(JPEG_XL_ENCODER_COMPONENT) and ParseImageComponent(JSON,JPEG_XL_ENCODER_COMPONENT,Info) and
+    Info.OfficialComponent and (Info.ComponentVersion<>'') and
+    IsOfficialComponentURL(JPEG_XL_ENCODER_COMPONENT,Info.ComponentVersion,Info.DownloadURL,ProgramUpdatePlatform,False),
+    'Official encoder metadata was not accepted');
+  CodecVersion:=Info.ComponentVersion;
+  TFile.Copy(ParamStr(0),Settings.AppPath+'HomeLibre.exe');
+  Options.JpegXLEncoder:=TPath.Combine(Settings.AppPath,ComponentFileName(JPEG_XL_ENCODER_COMPONENT));
+  Options.JpegXLDecoder:=TPath.Combine(Settings.AppPath,ComponentFileName('JPEG XL'));
+  Job:=Settings.AppPath+'packing-decoder-job';
+  PrepareOfficialComponent(FileName,Job,'JPEG XL',CodecVersion,ProgramUpdatePlatform);
+  InstallProgramUpdate(Job,Settings.AppPath);
+  Require(not ComponentNeedsRepair(Settings.AppPath,'JPEG XL') and not FileExists(Options.JpegXLEncoder),
+    'Reading module installed the encoder');
+  DecoderHash:=UpdateSHA256(Options.JpegXLDecoder);
+  Job:=Settings.AppPath+'packing-encoder-job';
+  PrepareOfficialComponent(FileName,Job,JPEG_XL_ENCODER_COMPONENT,CodecVersion,ProgramUpdatePlatform);
+  InstallProgramUpdate(Job,Settings.AppPath);
+  Require(not ComponentNeedsRepair(Settings.AppPath,JPEG_XL_ENCODER_COMPONENT) and
+    (InstalledComponentVersion(Settings.AppPath,JPEG_XL_ENCODER_COMPONENT)=CodecVersion) and
+    (UpdateSHA256(Options.JpegXLDecoder)=DecoderHash), 'Installing the encoder changed the decoder or left an incomplete module');
+  Writeln('PASS official JPEG XL encoder installs separately from the reading component');
+end;
+
+
+type
   TPackedInpxResultProbe = class(TPackingReviewProbe)
     Accepted: Boolean;
     procedure Tick(Sender: TObject); reintroduce;
@@ -130,34 +159,6 @@ var Source, PackedSource, Updated: IBookCollection; Book, Card: TBookRecord;
     finally Stream.Free; end;
   end;
 
-  procedure InstallPackingCodecs;
-  var Job, FileName, DecoderHash, JSON, CodecVersion: string; Info: TProgramRelease;
-  begin
-    FileName:=Settings.AppPath+'official-jxl.zip';
-    JSON:=TFile.ReadAllText(Settings.AppPath+'official-jxl-release.json',TEncoding.UTF8);
-    Require(IsOptionalComponent(JPEG_XL_ENCODER_COMPONENT) and ParseImageComponent(JSON,JPEG_XL_ENCODER_COMPONENT,Info) and
-      Info.OfficialComponent and (Info.ComponentVersion<>'') and
-      IsOfficialComponentURL(JPEG_XL_ENCODER_COMPONENT,Info.ComponentVersion,Info.DownloadURL,ProgramUpdatePlatform,False),
-      'Official encoder metadata was not accepted');
-    CodecVersion:=Info.ComponentVersion;
-    TFile.Copy(ParamStr(0),Settings.AppPath+'HomeLibre.exe');
-    Options.JpegXLEncoder:=TPath.Combine(Settings.AppPath,ComponentFileName(JPEG_XL_ENCODER_COMPONENT));
-    Options.JpegXLDecoder:=TPath.Combine(Settings.AppPath,ComponentFileName('JPEG XL'));
-    Job:=Settings.AppPath+'packing-decoder-job';
-    PrepareOfficialComponent(FileName,Job,'JPEG XL',CodecVersion,ProgramUpdatePlatform);
-    InstallProgramUpdate(Job,Settings.AppPath);
-    Require(not ComponentNeedsRepair(Settings.AppPath,'JPEG XL') and not FileExists(Options.JpegXLEncoder),
-      'Reading module installed the encoder');
-    DecoderHash:=UpdateSHA256(Options.JpegXLDecoder);
-    Job:=Settings.AppPath+'packing-encoder-job';
-    PrepareOfficialComponent(FileName,Job,JPEG_XL_ENCODER_COMPONENT,CodecVersion,ProgramUpdatePlatform);
-    InstallProgramUpdate(Job,Settings.AppPath);
-    Require(not ComponentNeedsRepair(Settings.AppPath,JPEG_XL_ENCODER_COMPONENT) and
-      (InstalledComponentVersion(Settings.AppPath,JPEG_XL_ENCODER_COMPONENT)=CodecVersion) and
-      (UpdateSHA256(Options.JpegXLDecoder)=DecoderHash), 'Installing the encoder changed the decoder or left an incomplete module');
-    Writeln('PASS official JPEG XL encoder installs separately from the reading component');
-  end;
-
   procedure CheckRecoveredPictures(Stream: TStream);
   var SourceStream: TFileStream; Hashes: TDictionary<string,string>; BookXML: IXMLFictionBook;
     Image: IXMLBinary; Expected,ExpectedBody:string;
@@ -221,7 +222,7 @@ begin
   if UseJpegXL then
   begin
     Options.ImageProfile:=pipJpegXL;
-    InstallPackingCodecs;
+    InstallPackingCodecs(Options);
   end
   else if FileExists(ImageFixture) then Options.ImageProfile:=pipMaximum;
   Options.ImageGrayscale:=FileExists(Settings.AppPath+'packing-inpx-grayscale.flag');
