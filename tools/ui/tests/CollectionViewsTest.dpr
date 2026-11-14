@@ -6256,6 +6256,7 @@ end;
 {$I CompressionRecoveryTests.inc}
 {$I CompressionPreferenceTests.inc}
 {$I CompressionContinuationTests.inc}
+{$I CompressionModuleRestartTests.inc}
 {$I PackageCoverTests.inc}
 {$I CataloguePlacementTests.inc}
 

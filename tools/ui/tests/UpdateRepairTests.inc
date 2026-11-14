@@ -8,7 +8,7 @@ type
   public
     URLs, Files: TStringList;
     URL, Failure: string;
-    Requests: Integer;
+    Requests, DelayMS: Integer;
     constructor Create;
     destructor Destroy; override;
   end;
@@ -58,6 +58,7 @@ begin
     (Index<0) or (Index>=Files.Count) then
   begin Failure:='Unexpected owned repair route: '+Request.Document; Response.ResponseNo:=404; Exit; end;
   InterlockedIncrement(Requests);
+  if DelayMS>0 then Sleep(DelayMS);
   Response.ContentType:='application/octet-stream';
   Response.ContentStream:=TFileStream.Create(Files[Index],fmOpenRead or fmShareDenyWrite);
   Response.FreeContentStream:=True;

@@ -75,7 +75,8 @@ startup and canceled review, plus the unchanged ordinary compression route.
 They do not yet combine this new continuation with the compact module download,
 external installer and successor in one transaction. That full transaction,
 including cancellation during download and eventual approved compression,
-remains open. Current compression with old external image storage, bounded
+is now verified for the selected scope in
+`2026-11-14-compression-module-transaction.md`. Current compression with old external image storage, bounded
 user-data copies, final application/package builds, Desktop replacement and
 publication are also separate gates. Earlier broad recovery suites were not
 rerun in this step.

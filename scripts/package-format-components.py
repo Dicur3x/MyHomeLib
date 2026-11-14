@@ -278,7 +278,7 @@ def opds_tls_payload(platform, go):
 
 
 def payload_for(platform, component, kindle_export_root=None, advanced_export_root=None, opds_tls_go=None,
-                kfx_export_root=None):
+                kfx_export_root=None, image_processing_root=None):
     if component == 'OPDSTls':
         return opds_tls_payload(platform, opds_tls_go)
     if component == 'EpubPdfExport':
@@ -315,7 +315,8 @@ def payload_for(platform, component, kindle_export_root=None, advanced_export_ro
                     'tools/bookconvert/image_quality.py', *packing_workers, *sql_workers]
         helper.binary_platform(payload['tools/python/python.exe'], platform)
     elif component == 'ImageProcessing':
-        payload = tree(runtime/'images', 'tools/images', ('COMPONENT.json',))
+        source = Path(image_processing_root)/platform if image_processing_root else runtime/'images'
+        payload = tree(source, 'tools/images', ('COMPONENT.json',))
         required = ['tools/images/HomeLibImages.exe', 'tools/images/RUNTIME.json', 'tools/images/HomeLibImages-MIT.txt']
         helper.binary_platform(payload[required[0]], platform)
         descriptor = json.loads(payload[required[1]].decode('utf-8-sig'))
@@ -382,9 +383,9 @@ def payload_for(platform, component, kindle_export_root=None, advanced_export_ro
 
 
 def package(output, platform, component, version, kindle_export_root=None, advanced_export_root=None, opds_tls_go=None,
-            kfx_export_root=None):
+            kfx_export_root=None, image_processing_root=None):
     payload, required = payload_for(platform, component, kindle_export_root, advanced_export_root, opds_tls_go,
-                                    kfx_export_root)
+                                    kfx_export_root, image_processing_root)
     descriptor = dict(format=1, component=component, platform=platform, version=version,
                       required=required, identities={name:helper.digest(payload[name]) for name in required})
     payload[DESCRIPTORS[component]] = helper.json_bytes(descriptor)
@@ -419,6 +420,7 @@ if __name__ == '__main__':
     parser.add_argument('--advanced-export-root', type=Path, help='Verified optional writer files, including the patched FB2Export build')
     parser.add_argument('--opds-tls-go', type=Path, help='Verified Go executable for the optional OPDS HTTPS transport')
     parser.add_argument('--kfx-export-root', type=Path, help='Verified Boko and resvg runtime artifacts')
+    parser.add_argument('--image-processing-root', type=Path, help='Verified Win32/Win64 image helpers from the current source')
     options=parser.parse_args()
     import re
     if not re.fullmatch(r'\d+\.\d+(?:\.\d+){0,2}', options.version): parser.error('Invalid component version')
@@ -429,7 +431,7 @@ if __name__ == '__main__':
         for component in components:
             entry, asset=package(options.output.resolve(), platform, component, options.version,
                                  options.kindle_export_root, options.advanced_export_root, options.opds_tls_go,
-                                 options.kfx_export_root)
+                                 options.kfx_export_root, options.image_processing_root)
             entries.append(entry); assets.append(asset)
     if 'FB2Export' in components:
         source = options.advanced_export_root / FB2_BUILD['SOURCE_ARCHIVE']
