@@ -6329,6 +6329,7 @@ begin
       if ParamStr(1) = 'update-image-identity' then begin TestImageUpdateIdentity; Flush(Output); Halt(0); end;
       if ParamStr(1) = 'fbd-editor-save' then begin TestFBDEditorSave; Halt(0); end;
       if ParamStr(1) = 'packed-jxl-formats' then begin TestPackingJpegXLFormats; Halt(0); end;
+      if ParamStr(1) = 'packed-flibrary-sidecars' then begin TestPackedFLibraryEpub; Halt(0); end;
       if ParamStr(1) = 'packed-catalogue-sizes' then begin TestPackedCatalogueSizes; Halt(0); end;
       if ParamStr(1) = 'packing-fbd' then begin TestPackingFbd; Halt(0); end;
       if ParamStr(1) = 'packing-inpx-result-child' then

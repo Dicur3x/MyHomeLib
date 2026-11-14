@@ -1,4 +1,4 @@
-procedure TestPackingReal(MenuFixture: Boolean = False);
+﻿procedure TestPackingReal(MenuFixture: Boolean = False);
 var Root, PackedRoot: string; Options: TCollectionPackingOptions;
   Source, Copy1, Copy2, Copy3: IBookCollection;
   LegacyImport: TManualUpdateThread;
@@ -155,12 +155,14 @@ procedure TestPackedFLibraryEpub;
 var Fixture, OriginalRoot, PackedRoot: string;
   Manifest: TJSONObject; Expected: TJSONArray; Source, PackedCopy, Repacked: IBookCollection;
   Options: TCollectionPackingOptions; SourceID, ID: Integer; Book: TBookRecord;
+  StrictEpub: Boolean;
 
   function Pack(const Collection: IBookCollection; const Root, Name: string;
     Reused: Integer): IBookCollection;
   var Snapshot: TCollectionPackingSnapshot;
   begin
-    Options.SourceID:=Collection.CollectionID; Options.CatalogFile:=Collection.GetProperty(PROP_DATAFILE);
+    Options.SourceID:=Collection.CollectionID;
+    Options.CatalogFile:=Settings.ExpandCollectionFileName(VarToStr(Collection.GetProperty(PROP_DATAFILE)));
     Options.SourceRoot:=Root; Options.DisplayName:=Name;
     Snapshot:=TCollectionPackingSnapshot.Create(Options);
     try
@@ -174,7 +176,8 @@ var Fixture, OriginalRoot, PackedRoot: string;
 
   procedure Verify(const Collection: IBookCollection);
   var Book: TBookRecord; Source: TStream; Zip: TZipFile; Bytes: TBytes; Document: TReaderDocument;
-    Prepared: string;
+    Prepared: string; Cover: TStream; Graphic: TGraphic;
+    FB2,ExpectedFB2: IXMLFictionBook; Personal: TBookRecord;
   begin
     for var Entry in Expected do
     begin
@@ -183,30 +186,81 @@ var Fixture, OriginalRoot, PackedRoot: string;
       Require(BookID>0,'Missing FLibrary book '+LibID);
       Collection.GetBookRecord(CreateBookKey(BookID,Collection.CollectionID),Book,True);
       Source:=Book.GetBookStream(True,False);
-      try Require(SameText(THashSHA2.GetHashString(Source),Entry.GetValue<string>('sha256')),
+      try Require(Assigned(Source) and SameText(THashSHA2.GetHashString(Source),Entry.GetValue<string>('sha256')),
         'Nested 7z bytes differ for '+LibID);
       finally Source.Free; end;
+      if StrictEpub then
+      begin
+        Require(Book.Size=Entry.GetValue<Int64>('size'),'Sidecar copy changed its logical size');
+        Require(SameText(UpdateSHA256(Book.GetBookFileName),
+          Manifest.GetValue<TJSONObject>('files').GetValue(Entry.GetValue<string>('archive')).Value),
+          'Sidecar copy changed an outer archive or unselected member');
+        for var Companion in Entry.GetValue<TJSONArray>('companions') do
+          Require(SameText(UpdateSHA256(TPath.Combine(ExtractFileDir(Book.GetBookFileName),Companion.Value)),
+            Manifest.GetValue<TJSONObject>('files').GetValue(Companion.Value).Value),
+            'Sidecar copy changed a cover or illustration archive');
+        Cover:=Book.GetBookPreviewCoverStream;
+        try
+          Require(Assigned(Cover),'Missing FLibrary preview cover '+LibID);
+          Graphic:=CreateGraphicFromStream(Cover);
+          try Require(Assigned(Graphic) and (Graphic.Width=Entry.GetValue<Integer>('cover_width')) and
+            (Graphic.Height=Entry.GetValue<Integer>('cover_height')),'Invalid FLibrary preview cover '+LibID);
+          finally Graphic.Free; end;
+        finally Cover.Free; end;
+        SystemDB.GetBookRecord(Book.BookKey,Personal);
+        Require((Personal.Progress=37) and (Personal.Review='Sidecar note '+LibID),
+          'Sidecar copy lost progress or notes');
+      end;
       Prepared:=PrepareReaderFile(Book,True);
-      Zip:=TZipFile.Create;
-      try
-        Zip.Open(Prepared,zmRead);
-        Require((Zip.FileNames[0]='mimetype') and (Zip.IndexOf('META-INF/container.xml')>=0),'Invalid restored EPUB');
-        for var Asset in Entry.GetValue<TJSONObject>('assets') do
+      if SameText(Book.FileExt,'.fb2') then
+      begin
+        Source:=TStringStream.Create(Entry.GetValue<string>('fb2_xml'),TEncoding.UTF8);
+        try ExpectedFB2:=LoadFictionBook(Source); finally Source.Free; end;
+        Source:=TFileStream.Create(Prepared,fmOpenRead or fmShareDenyNone);
+        try FB2:=LoadFictionBook(Source); finally Source.Free; end;
+        Require(FB2.ChildNodes.FindNode('body','http://www.gribuser.ru/xml/fictionbook/2.0').XML=
+          ExpectedFB2.ChildNodes.FindNode('body','http://www.gribuser.ru/xml/fictionbook/2.0').XML,
+          'Sidecar restoration changed FB2 text or structure');
+        Require(FB2.Binary.Count=Entry.GetValue<TJSONObject>('assets').Count,'Wrong restored FB2 image count');
+        for var I:=0 to FB2.Binary.Count-1 do
         begin
-          var Path:=Asset.JsonString.Value;
-          Require(Zip.IndexOf(Path)>=0,'Missing restored EPUB resource: '+Path);
-          Zip.Read(Path,Bytes);
-          Source:=TBytesStream.Create(Bytes);
-          try Require(SameText(THashSHA2.GetHashString(Source),Asset.JsonValue.Value),
-            'Changed restored EPUB resource: '+Path);
+          var Image:=FB2.Binary[I];
+          Source:=TBytesStream.Create(TNetEncoding.Base64.DecodeStringToBytes(Image.Text));
+          try Require(SameText(THashSHA2.GetHashString(Source),
+            Entry.GetValue<TJSONObject>('assets').GetValue(Image.ID).Value),'Changed restored FB2 image '+Image.ID);
           finally Source.Free; end;
         end;
-      finally Zip.Free; end;
+        FB2:=nil; ExpectedFB2:=nil;
+      end
+      else
+      begin
+        Zip:=TZipFile.Create;
+        try
+          Zip.Open(Prepared,zmRead);
+          Require((Zip.FileNames[0]='mimetype') and (Zip.FileInfo[0].CompressionMethod=0) and
+            (Zip.IndexOf('META-INF/container.xml')>=0),'Invalid restored EPUB');
+          if StrictEpub then Require((Zip.FileCount=Entry.GetValue<TJSONObject>('assets').Count) and
+            (Zip.IndexOf('FLibraryImageIndex.json')<0),'Restored EPUB has extra resources or a private image index');
+          for var Asset in Entry.GetValue<TJSONObject>('assets') do
+          begin
+            var Path:=Asset.JsonString.Value;
+            Require(Zip.IndexOf(Path)>=0,'Missing restored EPUB resource: '+Path);
+            Zip.Read(Path,Bytes);
+            Source:=TBytesStream.Create(Bytes);
+            try Require(SameText(THashSHA2.GetHashString(Source),Asset.JsonValue.Value),
+              'Changed restored EPUB resource: '+Path);
+            finally Source.Free; end;
+          end;
+        finally Zip.Free; end;
+      end;
       Document:=TReaderDocument.Create;
       try
         Document.Load(Prepared);
         Require((Length(Document.PlainText)>1000) and (Document.ImageCount>0),'Restored EPUB did not open with text and images');
+        if StrictEpub then Require(Document.ImageCount=Entry.GetValue<Integer>('image_count'),
+          'Sidecar reader omitted a cover, alias or illustration');
       finally Document.Free; end;
+      if StrictEpub then Writeln('PASS native FLibrary book ',LibID,Book.FileExt,' resources and preview');
     end;
   end;
 
@@ -217,6 +271,7 @@ begin
   Manifest:=TJSONObject.ParseJSONValue(TFile.ReadAllText(Fixture+'\manifest.json',TEncoding.UTF8)) as TJSONObject;
   try
     Expected:=Manifest.GetValue<TJSONArray>('books');
+    StrictEpub:=False; Manifest.TryGetValue<Boolean>('strict_epub',StrictEpub);
     SourceID:=SystemDB.CreateCollection('Original FLibrary EPUB',OriginalRoot,'packing-flibrary-epub.hlc2',
       CT_EXTERNAL_LOCAL_FB,Settings.AppPath+'genres_fb2.glst');
     Source:=SystemDB.GetCollection(SourceID);
@@ -225,15 +280,23 @@ begin
       ID:=AddBook(Source,'FLibrary '+Entry.GetValue<string>('id'),'Author','ru','','prose_contemporary');
       Source.GetBookRecord(CreateBookKey(ID,SourceID),Book,True);
       Book.LibID:=Entry.GetValue<string>('id'); Book.Folder:=Entry.GetValue<string>('archive');
-      Book.FileName:=ChangeFileExt(Entry.GetValue<string>('wanted'),''); Book.FileExt:='.epub';
+      Book.FileName:=ChangeFileExt(Entry.GetValue<string>('wanted'),'');
+      Book.FileExt:=ExtractFileExt(Entry.GetValue<string>('wanted'));
       Book.InsideNo:=Entry.GetValue<Integer>('inside'); Source.UpdateBook(Book);
+      if StrictEpub then
+      begin
+        Book.Size:=Entry.GetValue<Int64>('size'); Source.UpdateBook(Book);
+        Source.SetProgress(Book.BookKey,37); Source.SetReview(Book.BookKey,'Sidecar note '+Book.LibID);
+        Source.AddBookToGroup(Book.BookKey,FAVORITES_GROUP_ID);
+      end;
     end;
-    Verify(Source);
     Options:=Default(TCollectionPackingOptions); Options.Dataset:='real-flibrary-epub';
     Options.OutputRoot:=PackedRoot; Options.PersonalFile:=Settings.SystemFileName[sfSystemDB];
-    Options.Python:=Settings.AppPath+'tools\kindle\python\python.exe';
+    Options.Python:=Settings.AppPath+'tools\python\python.exe';
     Options.SevenZip:=Settings.AppPath+'tools\7zip\7za.exe';
-    Options.Script:=Settings.AppPath+'tools\collectionpack\pack_collection.py';
+    Options.Script:=Settings.AppPath+'tools\bookconvert\pack_collection.py';
+    if FileExists(Settings.AppPath+'official-jxl.zip') then InstallPackingCodecs(Options);
+    Verify(Source);
     PackedCopy:=Pack(Source,OriginalRoot,'Packed FLibrary EPUB',0);
     Require(RenameFile(OriginalRoot,OriginalRoot+'.held'),'Cannot hide the owned source archives');
     try
@@ -244,6 +307,6 @@ begin
     for var FileHash in Manifest.GetValue<TJSONObject>('files') do
       Require(SameText(UpdateSHA256(TPath.Combine(OriginalRoot,FileHash.JsonString.Value)),FileHash.JsonValue.Value),
         'Packing changed a source archive or its images');
-    Writeln('PASS real FLibrary EPUB restores every expected image path and preserves nested bytes through packing and reuse');
+    Writeln('PASS FLibrary sidecar books preserve raw bytes, restored resources and covers through packing and reuse');
   finally Manifest.Free; end;
 end;
