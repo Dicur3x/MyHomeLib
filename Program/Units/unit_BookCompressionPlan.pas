@@ -498,10 +498,18 @@ var Catalogue,Personal:TSQLiteDatabase; Query,Paths,Rows:TSQLiteQuery;
     if Assigned(Progress) and (Done mod 1024=0) then Progress(Done);
   end;
   procedure Skipped(const Where,Reason:string; Count:Int64=1);
+  var DisplayWhere:string;
   begin
     Inc(FSkippedRows,Count);
     if Examples<8 then
-    begin Inc(Examples); FWarning:=FWarning+sLineBreak+Copy(Where,1,160)+': '+Copy(Reason,1,200); end;
+    begin
+      // Keep the complete archive filename at the end of a long Windows path.
+      // The examples remain bounded, including paths from malformed records.
+      DisplayWhere:=Where;
+      if Length(DisplayWhere)>320 then
+        DisplayWhere:=Copy(Where,1,32)+'…'+Copy(Where,Length(Where)-286,287);
+      Inc(Examples); FWarning:=FWarning+sLineBreak+DisplayWhere+': '+Copy(Reason,1,200);
+    end;
   end;
   procedure FlushChunk;
   begin

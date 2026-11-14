@@ -95,6 +95,18 @@ class NativeCompressionCollectionTests(unittest.TestCase):
         self.assertEqual(result['files'], [])
         self.assertIn('missing.zip', result['warning'])
 
+    def test_long_missing_archive_name_remains_complete_in_bounded_warning(self):
+        missing = 'Не найден архив ё ' + 'n' * 180 + '.zip'
+        with database(self.catalogue) as db:
+            db.execute('UPDATE Books SET Folder=?', (missing,))
+            db.execute('DELETE FROM CatalogBookCopies')
+        before = {p: sha(p.read_bytes()) for p in self.before}
+        result = self.capture()
+        self.assertEqual((result['file_count'], result['book_count'], result['skipped_rows']), (0, 0, 2))
+        self.assertIn(missing, result['warning'])
+        self.assertLess(len(result['warning']), 4500)
+        self.assertEqual({p: sha(p.read_bytes()) for p in before}, before)
+
     def test_more_than_one_commit_chunk_and_no_main_read_lock_while_visiting(self):
         with database(self.catalogue) as db:
             db.executemany('INSERT INTO Books SELECT ?,LibID,Folder,FileName,Ext,InsideNo,BookSize,'
@@ -151,9 +163,37 @@ class NativeCompressionCollectionTests(unittest.TestCase):
         self.assertEqual((result['file_count'], result['book_count']), (2, 2))
         self.assertEqual({Path(j['source']).name for j in result['files']}, {'Books.zip', 'books.zip'})
 
-    def store(self, mode):
-        self.config.update(mode=mode, work_root=str(self.root / 'plan-work'))
+    def store(self, mode, root=None):
+        self.config.update(mode=mode, work_root=str(root if root is not None else self.root / 'plan-work'))
         return plans.NativeCompressionPlanTests.capture(self)
+
+    def test_long_unicode_scratch_retains_lease_rollback_recovery_and_foreign_file_guards(self):
+        work = self.root / 'Временный план ё'
+        while len(str(work / 'collection-plan-{01234567-0123-0123-0123-012345678901}/plan.sqlite-journal')) <= 300:
+            work /= 'Вложенная рабочая папка ё'
+        result = self.store('store-live', work)
+        self.assertEqual(result['removed_live'], 0)
+        self.assertFalse(Path(result['folder']).exists())
+        result = self.store('store-edit-rollback', work)
+        self.assertEqual((result['candidates'], result['removed_live']), (0, 0))
+        self.assertFalse(Path(result['folder']).exists())
+        for mode, journal in (('store-edit-leave', 'plan.sqlite-journal'), ('store-wal-leave', 'plan.sqlite-wal')):
+            result = self.store(mode, work)
+            folder = Path(result['folder'])
+            self.assertGreater(len(str(folder / journal)), 260)
+            self.assertTrue((folder / journal).is_file())
+            self.assertEqual(self.store('store-clean', work)['removed'], 1)
+            self.assertFalse(folder.exists())
+        result = self.store('store-leave', work)
+        folder = Path(result['folder'])
+        foreign = folder / 'my-book.fb2'
+        foreign.write_bytes(self.fixture.original_book)
+        self.assertEqual(self.store('store-clean', work)['removed'], 0)
+        self.assertEqual(foreign.read_bytes(), self.fixture.original_book)
+        foreign.unlink()
+        self.assertEqual(self.store('store-clean', work)['removed'], 1)
+        self.assertFalse(folder.exists())
+        self.unchanged()
 
     def test_live_scratch_is_leased_and_normal_destruction_cleans_it(self):
         result = self.store('store-live')

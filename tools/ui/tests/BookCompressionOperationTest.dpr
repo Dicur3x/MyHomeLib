@@ -4,7 +4,7 @@
 
 uses System.SysUtils, System.Classes, System.IOUtils, System.JSON, System.Hash,
   Winapi.Windows, unit_BookCompressionPlan, unit_BookCompressionOperation,
-  unit_BookCompressionJob, unit_BookCompressionRuntime, unit_CollectionPacking, unit_Globals, unit_Settings, dm_user;
+  unit_BookCompressionJob, unit_BookCompressionRuntime, unit_ZipMemberDeletion, unit_CollectionPacking, unit_Globals, unit_Settings, dm_user;
 
 function Text(Obj:TJSONObject; const Name:string):string;
 begin Result:=Obj.GetValue<string>(Name,''); end;
@@ -12,7 +12,7 @@ begin Result:=Obj.GetValue<string>(Name,''); end;
 function Digest(const FileName:string):string;
 var Stream:TFileStream;
 begin
-  Stream:=TFileStream.Create(FileName,fmOpenRead or fmShareDenyWrite);
+  Stream:=TFileStream.Create(DeletionNativePath(FileName),fmOpenRead or fmShareDenyWrite);
   try Result:=THashSHA2.GetHashString(Stream); finally Stream.Free; end;
 end;
 
@@ -91,10 +91,10 @@ begin
                   if not RemoveDirectory(PChar(Options.BackupFolder)) then RaiseLastOSError;
                 if Mode='review-backup-corrupt' then
                 begin
-                  var Prepared:=TJSONObject.ParseJSONValue(TFile.ReadAllText(State.ReportFile,TEncoding.UTF8)) as TJSONObject;
+                  var Prepared:=TJSONObject.ParseJSONValue(TFile.ReadAllText(DeletionNativePath(State.ReportFile),TEncoding.UTF8)) as TJSONObject;
                   try
                     var Backup:=Prepared.GetValue<TJSONObject>('originals').GetValue<string>('path');
-                    var Stream:=TFileStream.Create(Backup,fmOpenReadWrite);
+                    var Stream:=TFileStream.Create(DeletionNativePath(Backup),fmOpenReadWrite);
                     var Damage:UInt32:=$FFFF0000;
                     try Stream.Position:=45; Stream.WriteBuffer(Damage,SizeOf(Damage)); finally Stream.Free; end;
                   finally Prepared.Free; end;

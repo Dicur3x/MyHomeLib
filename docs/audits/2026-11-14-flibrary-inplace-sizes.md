@@ -95,8 +95,14 @@ separately deciding whether a size write is justified.
 Deep initial operation roots `r102`/`r103` exposed a separate long-path problem:
 collection-plan SQLite failed at WAL setup, and a diagnostic could not open
 the prepared originals ZIP. Shortening the root removed those failures.
-These observations remain open; the passing long Unicode image-workspace test
-does not establish that every long catalogue/plan/backup path works.
+At that stage these observations remained open; the passing long Unicode
+image-workspace test alone did not establish that every long catalogue, plan
+or backup path works.
+
+Follow-up: the native long-plan failure is fixed and the long backup publisher
+is verified in `2026-11-14-compression-long-paths.md`. The earlier backup-open
+failure was in the diagnostic's unprefixed handle. The original observations
+and failed reports above are preserved.
 
 Quality changes to external FLibrary images, their dependency/cache witnesses,
 bounded user-data copies and final application/distribution gates remain open.

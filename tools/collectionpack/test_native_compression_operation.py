@@ -424,6 +424,40 @@ class NativeCompressionOperationTests(unittest.TestCase):
             manifest = json.loads(archive.read('HomeLibre-originals.json'))
             self.assertEqual(manifest['source_sha256'], self.before[self.fixture.source])
 
+    def long_backup_environment(self):
+        work = self.root / 'Подготовка оригиналов ё'
+        while len(str(work / 'prepare-{01234567-0123-0123-0123-012345678901}/payload/original-books.zip')) <= 300:
+            work /= 'Вложенная рабочая папка ё'
+        folder = self.root / 'Сохранённые оригиналы ё'
+        while len(str(folder / 'HomeLibre-originals-{01234567-0123-0123-0123-012345678901}.zip')) <= 300:
+            folder /= 'Вложенная папка бэкапа ё'
+        folder.mkdir(parents=True)
+        self.config.update(work_root=str(work), backup_originals=True, backup_folder=str(folder))
+        return folder
+
+    def test_long_unicode_backup_preserves_selected_original_and_manifest(self):
+        folder = self.long_backup_environment()
+        result = self.run_operation()
+        self.assert_applied(result)
+        self.assertEqual(result['backup_files'], 1)
+        files = list(folder.iterdir())
+        self.assertEqual(len(files), 1)
+        self.assertGreater(len(str(files[0])), 260)
+        with zipfile.ZipFile(files[0]) as archive:
+            self.assertEqual(set(archive.namelist()), {'books/one.fb2', 'HomeLibre-originals.json'})
+            self.assertEqual(archive.read('books/one.fb2'), self.fixture.original_book)
+            self.assertEqual(json.loads(archive.read('HomeLibre-originals.json'))['source_sha256'],
+                             self.before[self.fixture.source])
+
+    def test_long_unicode_corrupt_prepared_original_prevents_source_replacement(self):
+        folder = self.long_backup_environment()
+        self.config['operation_mode'] = 'review-backup-corrupt'
+        result = self.run_operation()
+        self.assertIn('сумма', result['error'])
+        self.assertEqual((result['changed_files'], result['pending_before_ack']), (0, 0))
+        self.assertEqual(list(folder.iterdir()), [])
+        self.unchanged()
+
     def test_preview_skip_does_not_publish_unnecessary_originals(self):
         folder = self.enable_backup()
         self.config['operation_mode'] = 'review-skip'
@@ -591,6 +625,21 @@ class NativeCompressionOperationTests(unittest.TestCase):
         self.assertEqual(result['pending_before_ack'], 0)
         self.assertIn('Новых книг', result['stage'])
         self.assertEqual({p: sha(p.read_bytes()) for p in before}, before)
+
+    def test_long_unicode_collection_plan_can_seal_edit_and_skip_verified_books(self):
+        work = self.root / 'План всей коллекции ё'
+        while len(str(work / 'collection-plan-{01234567-0123-0123-0123-012345678901}/plan.sqlite-wal')) <= 300:
+            work /= 'Вложенная рабочая папка ё'
+        self.config['work_root'] = str(work)
+        self.inspected_collection()
+        before = {p: sha(p.read_bytes()) for p in self.before}
+        self.forbid_encoder()
+        result = self.run_operation()
+        self.assertEqual(result['error'], '', result)
+        self.assertEqual((result['files_total'], result['books_total']), (0, 0))
+        self.assertEqual(result['previously_processed_books'], 2)
+        self.assertEqual({p: sha(p.read_bytes()) for p in before}, before)
+        self.assertEqual(list(work.glob('collection-plan-*')), [])
 
     def test_new_books_mode_selects_an_added_archive_and_preserves_the_previous_archive(self):
         self.inspected_collection()
