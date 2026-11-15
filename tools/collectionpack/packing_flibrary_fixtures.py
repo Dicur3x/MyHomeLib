@@ -57,9 +57,12 @@ def build(root, seven, repository, reviewed=False):
             assert destination.read_bytes().startswith(b'7z\xbc\xaf\x27\x1c')
         return destination.read_bytes()
 
-    for number, nested, side_kind, cover_number in ((101, False, 'zip', -1),
-            (201, True, '7z', -1), (401, False, 'zip', 0)):
-        name = {101: 'zip-epub', 201: 'nested-epub', 401: 'zero-cover'}[number]
+    layouts = [(101, False, 'zip', -1), (201, True, '7z', -1), (401, False, 'zip', 0)]
+    if reviewed:
+        layouts.append((501, False, 'zip', -1))
+    for number, nested, side_kind, cover_number in layouts:
+        destination_root = fixture / 'incoming' if number == 501 else source
+        name = {101: 'zip-epub', 201: 'nested-epub', 401: 'zero-cover', 501: 'arrived'}[number]
         outer_name = name + '.7z'
         stripped = {key: data for key, data in assets.items() if key not in image_names}
         stripped['FLibraryImageIndex.json'] = json.dumps([
@@ -78,10 +81,14 @@ def build(root, seven, repository, reviewed=False):
             pictures[f'{number}/0'] = encoded.read_bytes()
         complete = fixture / f'{number}-original.epub'
         archive(complete, assets, 'zip')
-        manifest['books'].append(dict(id=str(number), archive=outer_name, wanted=f'{number}.epub',
+        book = dict(id=str(number), archive=outer_name, wanted=f'{number}.epub',
             ext='.epub', inside=0, sha256=signature(inner.read_bytes()), size=complete.stat().st_size,
             assets={key: signature(data) for key, data in assets.items()}, companions=companions,
-            cover_width=32, cover_height=24, image_count=3))
+            cover_width=32, cover_height=24, image_count=3)
+        if number == 501:
+            manifest['incoming_book'] = book
+        else:
+            manifest['books'].append(book)
         if number == 201:
             fb2 = ('<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" '
                 'xmlns:l="http://www.w3.org/1999/xlink"><description><title-info><book-title>Sidecar FB2</book-title>'
@@ -95,12 +102,16 @@ def build(root, seven, repository, reviewed=False):
                 sha256=signature(entries['301.fb2']), size=len(entries['301.fb2']), fb2_xml=fb2,
                 assets={'cover': signature(original.read_bytes()), '1': signature(assets[image_names[2]])},
                 companions=companions, cover_width=32, cover_height=24, image_count=2))
-        archive(source / outer_name, entries, '7z')
-        archive(source / companions[0], pictures, side_kind)
+        archive(destination_root / outer_name, entries, '7z')
+        archive(destination_root / companions[0], pictures, side_kind)
         if covers:
-            archive(source / companions[1], covers, side_kind)
+            archive(destination_root / companions[1], covers, side_kind)
     manifest['files'] = {str(path.relative_to(source)).replace('\\', '/'): signature(path.read_bytes())
                          for path in source.rglob('*') if path.is_file()}
+    if reviewed:
+        manifest['incoming_files'] = {str(path.relative_to(fixture / 'incoming')).replace('\\', '/'): signature(path.read_bytes())
+                                      for path in (fixture / 'incoming').rglob('*') if path.is_file()}
     (fixture / 'manifest.json').write_text(json.dumps(manifest, ensure_ascii=False), encoding='utf-8')
     return dict(books=len(manifest['books']), archives=manifest['archives'],
-                files=manifest['files'], external_cover_jxl_sha256=signature(encoded.read_bytes()))
+                files=manifest['files'], incoming_files=manifest.get('incoming_files', {}),
+                external_cover_jxl_sha256=signature(encoded.read_bytes()))
