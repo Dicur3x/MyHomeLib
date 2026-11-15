@@ -336,7 +336,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
         legacy_history=False, packing_codec=None, packing_codec_release=None, reviewed_index=False, reviewed_bound=False,
         update_recovery_phase=None, update_recovery_bound=False, update_recovery_preserve=None,
         update_recovery_neighbour=False, update_recovery_compressed=False, reviewed_flibrary_bound=False, flibrary_recovery_phase=None, recovery_interrupt=None,
-        reader_runtime=None, reader_timeout=600, reader_recompress=False):
+        reader_runtime=None, reader_timeout=600, reader_recompress=False, cancel_compression_refresh=False):
     from library_recovery_restart import restart as restart_library_recovery
     from test_pack_collection import illustrated_fb2, image_fixture
     assert bool(packing_codec) == bool(packing_codec_release), 'Codec archive and official release metadata must be paired'
@@ -359,6 +359,10 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
     if reviewed_index or reviewed_bound:
         assert scenario == 'selected-compression-ui' and mode == 'apply'
         assert not any((legacy_history, recovery_fault, recovery_preserve, packing_codec))
+    if cancel_compression_refresh:
+        assert scenario == 'selected-compression-ui' and mode == 'apply'
+        assert not any((real_books, recovery_fault, legacy_history, reviewed_index, reviewed_bound,
+                        refresh_index, repeat_new, repeat_offer, estimate_first, whole))
     if recovery_fault:
         assert scenario == 'selected-compression-ui' and mode == 'apply' and not real_books
     if recovery_preserve:
@@ -405,6 +409,8 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
                 shutil.copy2(repo / 'tools/collectionpack' / file, root / 'tools/bookconvert' / file)
         for marker in ('uselocaldata', 'uselocaltemp'):
             (root / marker).touch()
+        if cancel_compression_refresh:
+            (root / 'compression-refresh-cancel.marker').touch()
         if refresh_index:
             assert mode == 'apply' and not recovery_fault
             (root / 'compression-refresh.marker').touch()
@@ -641,6 +647,11 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
         if flibrary_recovery_phase:
             expected = f'PASS actual FLibrary update crash and ordinary startup recovery {flibrary_recovery_phase} bound={reviewed_flibrary_bound}'
         expected_lines = [expected]
+        if cancel_compression_refresh:
+            expected_lines += [
+                'PASS canceled post-compression list refresh retains completed journal and immutable proofs',
+                'PASS recovery hook acknowledges a successful list refresh without changing approved books or backup',
+            ]
         if update_recovery_preserve:
             expected_lines = ['PASS actual library update startup retains conflicting data ' + update_recovery_preserve]
         if scenario == 'library-update-window':
@@ -868,6 +879,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
                     input_sha256={name: hashlib.sha256(body).hexdigest() for name, body in originals.items()},
                     real_source_stamps={str(path): stamp for path, stamp in real_stamps.items()},
                     whole=whole,
+                    cancel_compression_refresh=cancel_compression_refresh,
                     repeat_new=repeat_new,
                     repeat_offer=repeat_offer,
                     refresh_index=refresh_index, reviewed_index=reviewed_index, reviewed_bound=reviewed_bound,
@@ -895,6 +907,8 @@ if __name__ == '__main__':
     parser.add_argument('--reader-runtime', type=Path,
                         help='Inspect the real Main and Reader after the reviewed FLibrary fixture; GUI actions use Computer Use')
     parser.add_argument('--reader-timeout', type=int, default=600)
+    parser.add_argument('--cancel-compression-refresh', action='store_true',
+                        help='Cancel the real post-compression list reload and recover its retained journal through Main')
     parser.add_argument('--reader-recompress', action='store_true',
                         help='Save actual Reader positions before a new compression from the ordinary Main command, then verify reopened content and positions')
     parser.add_argument('--processing-package', type=Path)

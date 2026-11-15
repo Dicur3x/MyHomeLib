@@ -3,6 +3,8 @@
 
 procedure ArmCompressionRecoveryCrash(const Fault, ReportFile: string); forward;
 function CompressionBodyHash(const Body:TBytes):string; forward;
+procedure TestCancelledCompressionRefresh(const Collection:IBookCollection;
+  const PreviousBooks:TArray<TBookRecord>); forward;
 
 {$I CompressionCopyIndexTests.inc}
 
@@ -636,6 +638,10 @@ begin
       TestReviewedCompressedCatalogue(CurrentCollection,Books,OriginalBody,Options);
     if FileExists(Settings.AppPath+'bound-compression.marker') then
       TestReviewedBoundCompression(Books,Driver.BackupFolder,Options);
+    if FileExists(Settings.AppPath+'compression-refresh-cancel.marker') then
+      TestCancelledCompressionRefresh(CurrentCollection,Books);
     Writeln('PASS selected compression normal catalogue ',Mode,' preserves neighbors, personal progress, originals and refreshed Reader cache');
   finally Config.Free; Driver.Timer.Free; Driver.Free; end;
 end;
+
+{$I CompressionRefreshTests.inc}

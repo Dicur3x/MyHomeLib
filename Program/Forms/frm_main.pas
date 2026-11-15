@@ -5086,7 +5086,10 @@ begin
       if Assigned(FCollection) then
       begin
         FCollection:=FSystemData.GetCollection(FCollection.CollectionID,True);
+        FBookListCancelled:=False;
         RefreshBookMetadataViews(FCollection.CollectionID);
+        if FBookListCancelled then
+          raise EAbort.Create('Обновление списка книг отменено.');
       end;
     end;
     FBookCompressionOperation.AcknowledgeCompletedJobs;
@@ -5108,7 +5111,7 @@ begin
     StatusMessage:=StatusMessage+' Освобождено: '+BookCacheSizeText(State.SavedBytes);
   if FCloseAfterCompression then
   begin FCloseAfterCompression:=False; PostMessage(Handle,WM_CLOSE,0,0); end
-  else if State.Error='' then CheckCompressionRecovery;
+  else if (State.Error='') and (RefreshError='') then CheckCompressionRecovery;
 end;
 
 function ChoosePackingImageProfile(Owner: TForm; out Profile: TPackingImageProfile; out Grayscale: Boolean): Boolean;
