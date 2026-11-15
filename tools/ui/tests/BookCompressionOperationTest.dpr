@@ -20,7 +20,8 @@ end;
 var Data, Entry, Output:TJSONObject; Info:TCollectionInfo;
     Books:TArray<TBookRecord>; Options:TBookCompressionOperationOptions;
     Operation:TBookCompressionOperation; State:TBookCompressionOperationStatus;
-    Mode, BeforeReview:string; Started, TimeLimit:UInt64; SeenReview, Disposed:Boolean;
+    Mode, BeforeReview, AllowedSource:string; Started, TimeLimit:UInt64;
+    SeenReview, Disposed, SourceGuardVerified:Boolean;
 begin
   try
     Data:=TJSONObject.ParseJSONValue(TFile.ReadAllText(ParamStr(1),TEncoding.UTF8)) as TJSONObject;
@@ -52,6 +53,10 @@ begin
       Options.BackupOriginals:=Data.GetValue<Boolean>('backup_originals',False);
       Options.BackupFolder:=Text(Data,'backup_folder');
       Mode:=Text(Data,'operation_mode'); Options.ReviewResults:=Mode.StartsWith('review') or Mode.StartsWith('dispose');
+      AllowedSource:=Text(Data,'allowed_source');
+      if (AllowedSource<>'') and ((Mode<>'review-apply') or
+        Data.GetValue<Boolean>('whole',False) or Options.EstimateFirst) then
+        raise EArgumentException.Create('An allowed test source requires reviewed selected compression.');
       TimeLimit:=Data.GetValue<UInt64>('timeout_ms',30000);
       if (TimeLimit<1000) or (TimeLimit>300000) then
         raise EArgumentException.Create('Invalid bounded operation test timeout');
@@ -141,11 +146,18 @@ begin
         try
           if Mode='stop-before' then Operation.RequestStop;
           Started:=GetTickCount64; SeenReview:=False; BeforeReview:=''; Disposed:=False;
+          SourceGuardVerified:=False;
           Operation.Start;
           repeat
             State:=Operation.Status;
             if State.AwaitingReview then
             begin
+              if (AllowedSource<>'') and not State.AwaitingEstimate then
+              begin
+                if not SameFileName(ExpandFileName(State.Source),ExpandFileName(AllowedSource)) then
+                  raise EReadError.Create('Refusing write outside the allowed test source.');
+                SourceGuardVerified:=True;
+              end;
               if not SeenReview then
               begin
                 if not State.AwaitingEstimate then BeforeReview:=Digest(State.Source);
@@ -208,6 +220,7 @@ begin
               Output.AddPair('books_done',TJSONNumber.Create(State.BooksDone));
               Output.AddPair('books_total',TJSONNumber.Create(State.BooksTotal));
               Output.AddPair('changed_files',TJSONNumber.Create(State.ChangedFiles));
+              Output.AddPair('allowed_source_verified',TJSONBool.Create(SourceGuardVerified));
               Output.AddPair('unchanged_files',TJSONNumber.Create(State.UnchangedFiles));
               Output.AddPair('skipped_files',TJSONNumber.Create(State.SkippedFiles));
               Output.AddPair('previously_processed_books',TJSONNumber.Create(State.PreviouslyProcessedBooks));
