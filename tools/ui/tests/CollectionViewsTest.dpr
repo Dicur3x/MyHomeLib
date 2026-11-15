@@ -6261,6 +6261,7 @@ end;
 {$I CollectionPackingRestartTests.inc}
 {$I SqlCatalogueRestartTests.inc}
 {$I LibraryUpdateCompressionTests.inc}
+{$I LibraryUpdateBoundCompressionTests.inc}
 {$I BookCompressionCatalogueTests.inc}
 {$I PackedCatalogueSizeTests.inc}
 {$I PackingJpegXLFormatsTests.inc}

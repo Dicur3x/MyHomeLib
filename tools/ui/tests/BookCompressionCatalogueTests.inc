@@ -4,6 +4,8 @@
 procedure ArmCompressionRecoveryCrash(const Fault, ReportFile: string); forward;
 function CompressionBodyHash(const Body:TBytes):string; forward;
 
+{$I CompressionCopyIndexTests.inc}
+
 procedure TestCompressionIndexBoundaries;
 var Root,Source,Identity,Member,Key,Digest:string; DB:TSQLiteDatabase; Zip:TZipFile; Body:TBytes;
   procedure Seed(Archived:Boolean);
@@ -118,7 +120,7 @@ begin
     end;
   finally Reader.Free; end;
   Writeln('PASS actual full INPX refresh keeps verified compressed sizes and personal progress');
-  TestCompressionIndexBoundaries;
+  TestCompressionIndexBoundaries; TestCompressionCopyIndexBoundaries;
 end;
 
 type
@@ -632,6 +634,8 @@ begin
     if FileExists(Settings.AppPath+'compression-refresh.marker') or
       FileExists(Settings.AppPath+'reviewed-compression.marker') then
       TestReviewedCompressedCatalogue(CurrentCollection,Books,OriginalBody,Options);
+    if FileExists(Settings.AppPath+'bound-compression.marker') then
+      TestReviewedBoundCompression(Books,Driver.BackupFolder,Options);
     Writeln('PASS selected compression normal catalogue ',Mode,' preserves neighbors, personal progress, originals and refreshed Reader cache');
   finally Config.Free; Driver.Timer.Free; Driver.Free; end;
 end;

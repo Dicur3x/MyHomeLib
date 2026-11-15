@@ -32,7 +32,7 @@ uses
   unit_Consts;
 
 type
-  TSystemData_SQLite = class(TSystemData, ISystemData, ISystemBookPresence, ISystemCatalogCommitWitness, IBookIdentityDeletionWriter, IBookIdentityProgressWriter, IBookIdentityPersonalWriter, IMetadataCollectionRootGuard, IAtomicLegacyUserDataImporter, ISnapshotCollectionRestorer)
+  TSystemData_SQLite = class(TSystemData, ISystemData, ISystemBookPresence, ISystemStoredBookSizeWriter, ISystemCatalogCommitWitness, IBookIdentityDeletionWriter, IBookIdentityProgressWriter, IBookIdentityPersonalWriter, IMetadataCollectionRootGuard, IAtomicLegacyUserDataImporter, ISnapshotCollectionRestorer)
   strict private
   type
     TBookIteratorImpl = class(TInterfacedObject, IBookIterator)
@@ -134,6 +134,7 @@ type
       const Matches: TBookIdentityPredicate;
       CheckOnly: Boolean = False): TBookDeletionWriteResult;
     procedure UpdateBook(const BookRecord: TBookRecord);
+    procedure SetStoredBookSize(const BookKey:TBookKey; Size:Int64);
     procedure RelinkLocalBookSource(const Expected: TBookRecord; const NewFileName: string);
 
     procedure SetExtra(const BookKey: TBookKey; extra: TBookExtra);
@@ -190,6 +191,7 @@ type
 
   private
     FDatabase: TSQLiteDatabase;
+    FStoredBookSizeUpdate:TSQLiteQuery;
 
     procedure InternalClearGroup(GroupID: Integer; RemoveGroup: Boolean);
     function InternalFindGroup(GroupID: Integer): Boolean; inline;
@@ -539,6 +541,7 @@ end;
 
 destructor TSystemData_SQLite.Destroy;
 begin
+  FreeAndNil(FStoredBookSizeUpdate);
   FreeAndNil(FDatabase);
   inherited Destroy;
 end;
@@ -1171,6 +1174,17 @@ begin
       end;
     finally FDatabase.ExecSQL('DETACH DATABASE RelinkCatalog'); end;
   finally Rows.Free; Names.Free; Source.Free; end;
+end;
+
+procedure TSystemData_SQLite.SetStoredBookSize(const BookKey:TBookKey; Size:Int64);
+begin
+  if Size<=0 then Exit;
+  if not Assigned(FStoredBookSizeUpdate) then
+    FStoredBookSizeUpdate:=FDatabase.NewQuery('UPDATE Books SET BookSize=? WHERE BookID=? AND DatabaseID=? AND BookSize IS NOT ?');
+  FStoredBookSizeUpdate.Reset; FStoredBookSizeUpdate.SetParam(0,Size);
+  FStoredBookSizeUpdate.SetParam(1,BookKey.BookID); FStoredBookSizeUpdate.SetParam(2,BookKey.DatabaseID);
+  FStoredBookSizeUpdate.SetParam(3,Size);
+  try FStoredBookSizeUpdate.ExecSQL; finally FStoredBookSizeUpdate.Reset; end;
 end;
 
 procedure TSystemData_SQLite.UpdateBook(const BookRecord: TBookRecord);

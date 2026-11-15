@@ -66,6 +66,13 @@ type
     function StoredBookIDs(const CollectionID: Integer): TArray<Integer>;
   end;
 
+  // Update an existing personal card's measured size without creating a card
+  // or rewriting its notes, progress, rating or serialized metadata.
+  ISystemStoredBookSizeWriter = interface
+    ['{E0A31B18-2099-4F17-8F44-DF2A9B20ACD0}']
+    procedure SetStoredBookSize(const BookKey:TBookKey; Size:Int64);
+  end;
+
   // Written in the same transaction as the collection's personal-data update.
   ISystemCatalogCommitWitness = interface
     ['{64854C43-8127-4C63-BB1C-DF6BF2F712B8}']

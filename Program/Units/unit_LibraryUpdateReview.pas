@@ -38,7 +38,7 @@ type
       PreferNewRoot: Boolean; const Check: TProc; const Progress: TLibraryReviewProgress);
     procedure PrepareCache(const Check: TProc; const Progress: TLibraryReviewProgress);
     procedure StoreAppliedState(const Target: IBookCollection);
-    procedure RestoreCopySizes(const Collection: IBookCollection; const Check: TProc);
+    procedure RestoreCopySizes(const Collection: IBookCollection; const SystemData:ISystemData; const Check: TProc);
     procedure Apply(const Target: IBookCollection; const SystemData: ISystemData;
       const Check: TProc; const Progress: TLibraryReviewProgress; out Committed: Boolean);
     procedure CleanCache;
@@ -1183,9 +1183,11 @@ begin
   end;
 end;
 
-procedure TLibraryUpdateReview.RestoreCopySizes(const Collection: IBookCollection; const Check: TProc);
+procedure TLibraryUpdateReview.RestoreCopySizes(const Collection: IBookCollection; const SystemData:ISystemData; const Check: TProc);
   var Iterator: IBookIterator; CopyBook, Preferred: TBookRecord; Source: TMergeSource; Key: string; ID: Integer;
+    SizeWriter:ISystemStoredBookSizeWriter;
   begin
+    Supports(SystemData,ISystemStoredBookSizeWriter,SizeWriter);
     Source.ID:=FSourceInfo.ID; Source.Root:=FSourceInfo.Root; Iterator:=ReviewAllBooks(FDelta);
     while Iterator.Next(CopyBook) do
     begin
@@ -1196,6 +1198,13 @@ procedure TLibraryUpdateReview.RestoreCopySizes(const Collection: IBookCollectio
       begin
         CopyBook.BookKey:=Preferred.BookKey; CopyBook.Size:=Preferred.Size;
         Collection.SetCatalogBookCopy(Key,FSourceInfo.Name,CopyBook);
+        // A merge wrote publisher metadata to the existing personal card before
+        // the measured physical size was restored. Keep both stores consistent
+        // in their current shared operation, without adding unused user cards.
+        if Preferred.Size>0 then
+          if Assigned(SizeWriter) then SizeWriter.SetStoredBookSize(Preferred.BookKey,Preferred.Size)
+          else
+          begin Collection.GetBookRecord(Preferred.BookKey,Preferred,True); SystemData.UpdateBook(Preferred); end;
       end;
     end;
   end;
@@ -1236,7 +1245,7 @@ begin
       FPreviousLastID:=Collection.StartCatalogUpdateTracking(True);
     end;
     FPlan.BeforeCommit:=procedure(const Collection:IBookCollection) begin
-      Check; Collection.FinishCatalogUpdateTracking(True,FPreviousLastID); RestoreCopySizes(Collection,Check); StoreAppliedState(Collection);
+      Check; Collection.FinishCatalogUpdateTracking(True,FPreviousLastID); RestoreCopySizes(Collection,SystemData,Check); StoreAppliedState(Collection);
       Witness.SetCatalogCommitWitness(Collection.CollectionID,FOperationID);
       if Assigned(Progress) then Progress('Проверка подготовленного каталога',0,0);
       Journal.Seal(Collection,Check);

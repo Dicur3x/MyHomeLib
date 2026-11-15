@@ -17,7 +17,7 @@ uses System.SysUtils, System.Classes, System.Generics.Collections,
 procedure CaptureCompressionIndexSizes(DB:TSQLiteDatabase; const Root,IdentitySQL:string);
 var Query,Proof:TSQLiteQuery; Book:TBookRecord; Source,Actual,Key,SQL,Stamp,Snapshot:string;
     Sources:TDictionary<string,string>;
-    ImageMatches:TDictionary<string,Boolean>;
+    ImageMatches:TDictionary<string,Boolean>; HasCopies:Boolean;
   function ImagesMatch(const Source,Stamp,Snapshot:string):Boolean;
   begin
     if Stamp='' then Exit(True);
@@ -33,11 +33,12 @@ begin
   DB.ExecSQL('DROP TABLE IF EXISTS temp.InpxCompressionSources');
   DB.ExecSQL('DROP TABLE IF EXISTS temp.InpxCompressionWitness');
   DB.ExecSQL('DROP TABLE IF EXISTS temp.InpxCompressionRestores');
+  DB.ExecSQL('DROP TABLE IF EXISTS temp.InpxCompressionCopyRestores');
   if DB.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE type=''table'' AND '+
     'name IN (''HomeLibreBookCompression'',''HomeLibreCompressionChecks'')')<>2 then Exit;
   DB.ExecSQL('CREATE TEMP TABLE InpxCompressedSizes(Identity TEXT NOT NULL,Folder TEXT NOT NULL,'+
-    'FileName TEXT NOT NULL,Ext TEXT NOT NULL,FileKey TEXT NOT NULL,BookSize INTEGER NOT NULL,ImageStamp TEXT NOT NULL,'+
-    'PRIMARY KEY(Identity,Folder,FileName,Ext)) WITHOUT ROWID');
+    'FileName TEXT NOT NULL,Ext TEXT NOT NULL,FileKey TEXT NOT NULL,BookSize INTEGER NOT NULL,ImageStamp TEXT NOT NULL,Kind INTEGER NOT NULL,'+
+    'PRIMARY KEY(Kind,Identity,Folder,FileName,Ext)) WITHOUT ROWID');
   DB.ExecSQL('CREATE TEMP TABLE InpxCompressionSources(FileKey TEXT NOT NULL,Source TEXT NOT NULL,'+
     'SourceIdentity TEXT NOT NULL,ImageStamp TEXT NOT NULL,SourcesJSON TEXT NOT NULL,'+
     'PRIMARY KEY(FileKey,ImageStamp)) WITHOUT ROWID');
@@ -65,15 +66,23 @@ begin
     // The empty member names a standalone file, not an archive member. Its
     // old size narrows candidates; the physical key/identity below is still
     // mandatory, so equal-sized unrelated books cannot borrow its witness.
-    Query:=DB.NewQuery('SELECT '+IdentitySQL+',Folder,FileName,Ext,InsideNo FROM Books '+
+    HasCopies:=DB.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE type=''table'' AND name=''CatalogBookCopies''')<>0;
+    SQL:='SELECT '+IdentitySQL+',Folder,FileName,Ext,InsideNo,0 AS Kind,'''' AS Root FROM Books '+
       'WHERE FileName||coalesce(Ext,'''') IN (SELECT Member FROM temp.InpxCompressionWitness WHERE Member<>'''') '+
-      'OR BookSize IN (SELECT BookSize FROM temp.InpxCompressionWitness WHERE Member='''')');
+      'OR BookSize IN (SELECT BookSize FROM temp.InpxCompressionWitness WHERE Member='''')';
+    // A shared card may name several physical copies. Keep their source keys
+    // and roots separate from the card identity and from each other.
+    if HasCopies then SQL:=SQL+' UNION ALL SELECT SourceKey,Folder,FileName,coalesce(Ext,''''),InsideNo,1,Root FROM CatalogBookCopies '+
+      'WHERE FileName||coalesce(Ext,'''') IN (SELECT Member FROM temp.InpxCompressionWitness WHERE Member<>'''') '+
+      'OR BookSize IN (SELECT BookSize FROM temp.InpxCompressionWitness WHERE Member='''')';
+    Query:=DB.NewQuery(SQL);
     Proof:=DB.NewQuery('SELECT FileKey,BookSize,ImageStamp,SourcesJSON FROM temp.InpxCompressionWitness '+
       'WHERE FileKey=? AND SourceIdentity=? AND (Member=? OR Member='''') LIMIT 1');
     Query.Open;
     while not Query.Eof do
     begin
-      Book:=Default(TBookRecord); Book.CollectionRoot:=Root;
+      Book:=Default(TBookRecord); Book.CollectionRoot:=Query.FieldAsString(6);
+      if Book.CollectionRoot='' then Book.CollectionRoot:=Root;
       Book.Folder:=Query.FieldAsString(1); Book.FileName:=Query.FieldAsString(2);
       Book.FileExt:=Query.FieldAsString(3); Book.InsideNo:=Query.FieldAsInt(4);
       Source:=''; Actual:='';
@@ -101,8 +110,8 @@ begin
           begin Query.Next; Continue; end;
           Key:=Proof.FieldAsString(0);
           DB.ExecSQL('INSERT OR IGNORE INTO temp.InpxCompressionSources VALUES(?,?,?,?,?)',[Key,Source,Actual,Stamp,Snapshot]);
-          DB.ExecSQL('INSERT OR REPLACE INTO temp.InpxCompressedSizes VALUES(?,?,?,?,?,?,?)',
-            [Query.FieldAsString(0),Book.Folder,Book.FileName,Book.FileExt,Key,Proof.FieldAsInt(1),Stamp]);
+          DB.ExecSQL('INSERT OR REPLACE INTO temp.InpxCompressedSizes VALUES(?,?,?,?,?,?,?,?)',
+            [Query.FieldAsString(0),Book.Folder,Book.FileName,Book.FileExt,Key,Proof.FieldAsInt(1),Stamp,Query.FieldAsInt(5)]);
         end;
       end;
       Query.Next;
@@ -116,8 +125,8 @@ begin
 end;
 
 procedure RestoreCompressionIndexSizes(DB:TSQLiteDatabase; const Root,IdentitySQL:string);
-var Query:TSQLiteQuery; Actual,Source:string; Book:TBookRecord; Sources:TDictionary<string,string>;
-    ImageMatches:TDictionary<string,Boolean>;
+var Query:TSQLiteQuery; Actual,Source,SQL:string; Book:TBookRecord; Sources:TDictionary<string,string>;
+    ImageMatches:TDictionary<string,Boolean>; HasCopies:Boolean;
 begin
   if DB.QuerySingleInt('SELECT count(*) FROM sqlite_temp_master WHERE type=''table'' '+
     'AND name=''InpxCompressedSizes''')=0 then Exit;
@@ -141,6 +150,8 @@ begin
     end;
   finally Query.Free; end;
   DB.ExecSQL('CREATE TEMP TABLE InpxCompressionRestores(BookID INTEGER PRIMARY KEY,BookSize INTEGER NOT NULL)');
+  HasCopies:=DB.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE type=''table'' AND name=''CatalogBookCopies''')<>0;
+  if HasCopies then DB.ExecSQL('CREATE TEMP TABLE InpxCompressionCopyRestores(SourceKey TEXT PRIMARY KEY,BookSize INTEGER NOT NULL) WITHOUT ROWID');
   // INPX may spell the same archive with different slashes or a ZIP/7z alias.
   // Prove the rebuilt row's physical source instead of trusting its folder text
   // or borrowing a size solely because the publisher reused a library ID.
@@ -148,16 +159,18 @@ begin
   ImageMatches:=TDictionary<string,Boolean>.Create;
   Query:=nil;
   try
+    SQL:='SELECT BookID,'+IdentitySQL+' AS Identity,Folder,FileName,Ext,InsideNo,0 AS Kind,'''' AS Root,'''' AS CopyKey FROM Books';
+    if HasCopies then SQL:=SQL+' UNION ALL SELECT BookID,SourceKey,Folder,FileName,coalesce(Ext,''''),InsideNo,1,Root,SourceKey FROM CatalogBookCopies';
     Query:=DB.NewQuery('SELECT b.BookID,b.Folder,b.FileName,b.Ext,b.InsideNo,'+
-      's.BookSize,c.SourceIdentity,c.ImageStamp,c.SourcesJSON FROM '+
-      '(SELECT BookID,'+IdentitySQL+' AS Identity,Folder,FileName,Ext,InsideNo FROM Books) b '+
-      'JOIN temp.InpxCompressedSizes s ON s.Identity=b.Identity '+
+      's.BookSize,c.SourceIdentity,c.ImageStamp,c.SourcesJSON,b.Kind,b.Root,b.CopyKey FROM ('+SQL+') b '+
+      'JOIN temp.InpxCompressedSizes s ON s.Identity=b.Identity AND s.Kind=b.Kind '+
       'AND s.FileName=b.FileName AND s.Ext=b.Ext '+
       'JOIN temp.InpxCompressionSources c ON c.FileKey=s.FileKey AND c.ImageStamp=s.ImageStamp');
     Query.Open;
     while not Query.Eof do
     begin
-      Book:=Default(TBookRecord); Book.CollectionRoot:=Root;
+      Book:=Default(TBookRecord); Book.CollectionRoot:=Query.FieldAsString(10);
+      if Book.CollectionRoot='' then Book.CollectionRoot:=Root;
       Book.Folder:=Query.FieldAsString(1); Book.FileName:=Query.FieldAsString(2);
       Book.FileExt:=Query.FieldAsString(3); Book.InsideNo:=Query.FieldAsInt(4);
       Source:=''; Actual:='';
@@ -185,8 +198,12 @@ begin
         end;
       end;
       if (Actual<>'') and (Actual=Query.FieldAsString(6)) and ImagesValid then
-        DB.ExecSQL('INSERT OR REPLACE INTO temp.InpxCompressionRestores VALUES(?,?)',
-          [Query.FieldAsInt(0),Query.FieldAsInt(5)]);
+        if Query.FieldAsInt(9)=0 then
+          DB.ExecSQL('INSERT OR REPLACE INTO temp.InpxCompressionRestores VALUES(?,?)',
+            [Query.FieldAsInt(0),Query.FieldAsInt(5)])
+        else
+          DB.ExecSQL('INSERT OR REPLACE INTO temp.InpxCompressionCopyRestores VALUES(?,?)',
+            [Query.FieldAsString(11),Query.FieldAsInt(5)]);
       Query.Next;
     end;
   finally ImageMatches.Free; Query.Free; Sources.Free; end;
@@ -195,6 +212,12 @@ begin
   {$ENDIF}
   DB.ExecSQL('UPDATE Books SET BookSize=(SELECT BookSize FROM temp.InpxCompressionRestores r '+
     'WHERE r.BookID=Books.BookID) WHERE BookID IN (SELECT BookID FROM temp.InpxCompressionRestores)');
+  if HasCopies then
+  begin
+    DB.ExecSQL('UPDATE CatalogBookCopies SET BookSize=(SELECT BookSize FROM temp.InpxCompressionCopyRestores r '+
+      'WHERE r.SourceKey=CatalogBookCopies.SourceKey) WHERE SourceKey IN (SELECT SourceKey FROM temp.InpxCompressionCopyRestores)');
+    DB.ExecSQL('DROP TABLE temp.InpxCompressionCopyRestores');
+  end;
   DB.ExecSQL('DROP TABLE temp.InpxCompressionRestores');
   DB.ExecSQL('DROP TABLE temp.InpxCompressedSizes');
   DB.ExecSQL('DROP TABLE temp.InpxCompressionSources');
