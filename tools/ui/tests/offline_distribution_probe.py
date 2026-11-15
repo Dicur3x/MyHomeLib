@@ -54,6 +54,7 @@ def main():
                         data = archive.read(path)
                         assert len(data) == item['size'] and hashlib.sha256(data).hexdigest() == item['sha256']
                     full = manifest['distribution'] == 'full'
+                    prerequisites = []
                     parts = {part['component']: part['version'] for part in manifest.get('bundle', [])}
                     if full:
                         assert set(parts) == staging.COMPONENTS
@@ -65,6 +66,13 @@ def main():
                         assert {part['component'] for part in public['components']} == staging.COMPONENTS
                         assert all(set(part) <= {'component', 'version', 'official', 'reader_application'}
                                    for part in public['components'])
+                        if manifest.get('offline_prerequisites'):
+                            prerequisites = json.loads((ROOT / 'Installer/OfflinePrerequisites.json').read_bytes())['files']
+                            bundled = json.loads(archive.read('tools/prerequisites/PREREQUISITES.json'))['files']
+                            assert bundled == prerequisites
+                            for row in prerequisites:
+                                item = files['tools/prerequisites/' + row['path']]
+                                assert item['size'] == row['size'] and item['sha256'] == row['sha256']
                     else:
                         assert manifest['distribution'] == 'minimal' and not parts
                         assert not any(name.startswith(('Readers/', 'tools/fonts/', 'tools/python/')) for name in files)
@@ -126,6 +134,9 @@ def main():
                 if 'tools/updates/catalogue/HomeLibre.exe' in files:
                     assert not (target / 'tools/updates/catalogue/HomeLibre.exe').exists()
                 states = check_modules(target)
+                for row in prerequisites:
+                    state = json.loads(run('--offline-prerequisite', target, row['id'], row['architecture']).splitlines()[0])
+                    assert state['available'] and state['version'] == row['version']
                 owned = set()
                 for identity in parts:
                     receipt = target / 'tools/component-state' / (identity.lower().replace(' ', '-') + '.json')
@@ -143,7 +154,7 @@ def main():
                     platform=manifest['platform'], distribution=manifest['distribution'], files=len(files),
                     components=len(parts), native_sha256=staging.sha(native), runtime_states=states,
                     manually_extracted_inventory=True, receipt_hashes_verified=True, personal_preserved=True,
-                    unowned_font_files=unowned_fonts))
+                    unowned_font_files=unowned_fonts, offline_prerequisites_verified=len(prerequisites), installers_executed=False))
                 print('PASS actual ZIP preparation/installation/inventory ' + manifest['platform'] +
                       ' ' + manifest['distribution'], flush=True)
             assert not root.exists()

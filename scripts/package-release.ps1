@@ -8,6 +8,7 @@ param(
     [switch]$Full,
     [string]$OfflineComponents,
     [string]$OfflineVerifier,
+    [string]$OfflinePrerequisiteInputs,
     [string]$WorkingDirectory
 )
 
@@ -16,7 +17,10 @@ $ErrorActionPreference = 'Stop'
 if ($Full -and [string]::IsNullOrWhiteSpace($OfflineComponents)) {
     throw 'Полная сборка требует -OfflineComponents: проверенный список архивов всех компонентов с SHA-256.'
 }
-if (-not $Full -and ($OfflineComponents -or $OfflineVerifier)) {
+if ($Full -and [string]::IsNullOrWhiteSpace($OfflinePrerequisiteInputs)) {
+    throw 'Полная сборка требует -OfflinePrerequisiteInputs: папку с закреплёнными полными установщиками Microsoft.'
+}
+if (-not $Full -and ($OfflineComponents -or $OfflineVerifier -or $OfflinePrerequisiteInputs)) {
     throw 'Параметры автономных компонентов разрешены только вместе с -Full.'
 }
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
@@ -114,6 +118,9 @@ try {
             Copy-Item -LiteralPath $source -Destination $target
         }
         Copy-Item -LiteralPath (Join-Path $fontSource 'manifest.json') -Destination $fontDestination
+        & python -B (Join-Path $PSScriptRoot 'stage-offline-prerequisites.py') `
+            --payload $payloadDirectory --inputs $OfflinePrerequisiteInputs --native $OfflineVerifier | Out-Host
+        if ($LASTEXITCODE -ne 0) { throw 'Не удалось проверить автономные компоненты Windows.' }
         $offlinePublic = [ordered]@{ format = 1; platform = $Platform; components = @($offline.components) }
         [IO.File]::WriteAllText((Join-Path $updateMetadata 'OFFLINE.json'),
             ($offlinePublic | ConvertTo-Json -Depth 6), [Text.UTF8Encoding]::new($false))
@@ -128,7 +135,7 @@ try {
     })
     $manifest = [ordered]@{ format = 1; release = $release; platform = $Platform;
         distribution = $(if ($Full) { 'full' } else { 'minimal' }); files = $manifestFiles }
-    if ($Full) { $manifest.bundle = @($offline.components) }
+    if ($Full) { $manifest.bundle = @($offline.components); $manifest.offline_prerequisites = $true }
     # Keep this transport manifest at the legacy ZIP root: older clients read
     # it before running the new updater. It is not an installed payload file.
     [IO.File]::WriteAllText((Join-Path $payloadDirectory 'HomeLibRu.update.json'),
@@ -139,8 +146,20 @@ try {
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $temporaryArchive = Join-Path $stagingRoot $archiveName
     Assert-PackageDiskSpace
-    [System.IO.Compression.ZipFile]::CreateFromDirectory($payloadDirectory, $temporaryArchive,
-        [System.IO.Compression.CompressionLevel]::Optimal, $false)
+    $zipOutput = [IO.Compression.ZipFile]::Open($temporaryArchive, [IO.Compression.ZipArchiveMode]::Create)
+    try {
+        foreach ($file in Get-ChildItem -LiteralPath $payloadDirectory -Recurse -File | Sort-Object FullName) {
+            Assert-PackageDiskSpace
+            $member = $file.FullName.Substring($payloadDirectory.Length + 1).Replace('\', '/')
+            # Microsoft standalone installers already contain compressed data.
+            # Recompressing them costs CPU without useful size reduction.
+            $level = if ($Full -and $member -cmatch '^tools/prerequisites/(webview2-(x86|x64)|dotnet-framework-4\.8)\.exe$') {
+                [IO.Compression.CompressionLevel]::NoCompression
+            } else { [IO.Compression.CompressionLevel]::Optimal }
+            [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zipOutput, $file.FullName, $member, $level) | Out-Null
+        }
+    }
+    finally { $zipOutput.Dispose() }
     Assert-PackageDiskSpace
     $archive = [System.IO.Compression.ZipFile]::OpenRead($temporaryArchive)
     try {

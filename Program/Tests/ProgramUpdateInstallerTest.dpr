@@ -11,6 +11,7 @@ uses System.SysUtils, System.Classes, System.IOUtils, System.JSON,
   unit_BookConversion in '..\Units\unit_BookConversion.pas',
   unit_UpdateAuthenticity in '..\Units\unit_UpdateAuthenticity.pas',
   unit_ProgramUpdateInstaller in '..\Units\unit_ProgramUpdateInstaller.pas',
+  unit_OfflinePrerequisites in '..\Units\unit_OfflinePrerequisites.pas',
   unit_ReaderRestartState in '..\Units\unit_ReaderRestartState.pas',
   unit_UpdateRelatedInstances in '..\Units\unit_UpdateRelatedInstances.pas';
 
@@ -189,6 +190,19 @@ begin
     begin Guard(ParamStr(2)); Writeln(UpdateSHA3(ParamStr(2))); end
     else if Mode = '--signature' then
     begin VerifySumatraSignature(ParamStr(2)); end
+    else if Mode='--offline-prerequisite' then
+    begin
+      Guard(ParamStr(2));
+      var Offline:=FindOfflinePrerequisite(ParamStr(2),ParamStr(3),ParamStr(4));
+      if Offline.FileName<>'' then VerifyOfflinePrerequisite(Offline);
+      Detail:=TJSONObject.Create;
+      try
+        Detail.AddPair('available',TJSONBool.Create(Offline.FileName<>''));
+        Detail.AddPair('native_architecture',NativePrerequisiteArchitecture);
+        Detail.AddPair('file',Offline.FileName); Detail.AddPair('version',Offline.Version);
+        Writeln(Detail.ToJSON);
+      finally Detail.Free; end;
+    end
     else if Mode='--runtime-state' then
     begin
       Guard(ParamStr(2)); Params:=TJSONArray.Create;

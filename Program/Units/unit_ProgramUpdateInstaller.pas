@@ -9,6 +9,7 @@ uses System.SysUtils, System.Classes, System.JSON, unit_ApplicationIdentity;
 const
   UPDATE_MANIFEST = 'HomeLibRu.update.json';
   UPDATE_MAX_ARCHIVE = 256 * 1024 * 1024;
+  UPDATE_MAX_LOCAL_FULL_ARCHIVE = 1024 * 1024 * 1024;
   // A full distribution and a user selection can include every known module.
   UPDATE_MAX_COMPONENTS = 32;
   COMPONENT_RECEIPT_FOLDER = 'tools/component-state/';
@@ -67,7 +68,8 @@ implementation
 
 uses System.IOUtils, System.Hash, System.Zip, System.DateUtils, System.SyncObjs, unit_ProgramUpdatePaths,
   System.Generics.Collections, Winapi.Windows, System.RegularExpressions, unit_UpdateAuthenticity, unit_MHLExternalTools,
-  unit_IBKRuntime, unit_ReaderAdapters, unit_ZstdRuntime, unit_FormatComponents, unit_ComponentUsage;
+  unit_IBKRuntime, unit_ReaderAdapters, unit_ZstdRuntime, unit_FormatComponents, unit_ComponentUsage,
+  unit_OfflinePrerequisites;
 
 function IsProgramUpdateApplicationName(const Value: string): Boolean;
 begin
@@ -597,11 +599,25 @@ begin
   Result := TJSONObject(Value);
 end;
 
+function IsFullProgramManifest(Root: TJSONObject): Boolean;
+begin
+  Result:=(Root.GetValue<string>('component','')='') and
+    (Root.GetValue<string>('distribution','')='full') and (Root.GetValue('bundle') is TJSONArray);
+end;
+
+function IsOfflinePrerequisiteMember(const Name: string): Boolean;
+begin
+  Result:=(Name='tools/prerequisites/webview2-x86.exe') or
+    (Name='tools/prerequisites/webview2-x64.exe') or
+    (Name='tools/prerequisites/dotnet-framework-4.8.exe') or
+    (Name='tools/prerequisites/PREREQUISITES.json') or (Name='tools/prerequisites/README.txt');
+end;
+
 function ManifestFiles(Root: TJSONObject): TUpdateFiles;
 var ArrayValue: TJSONArray; Value: TJSONValue; I: Integer;
   Names: TDictionary<string, Boolean>; FileInfo: TUpdateFile; Total: Int64;
   Component, Version: string; Comparison: Integer;
-  Bundle: TJSONArray; Part: TJSONValue; Allowed: Boolean; IDs: TDictionary<string, Boolean>;
+  Bundle: TJSONArray; Part: TJSONValue; Allowed, FullDistribution: Boolean; IDs: TDictionary<string, Boolean>;
   procedure RequireMember(const Name: string);
   begin
     if not Names.ContainsKey(LowerCase(Name)) then
@@ -659,6 +675,7 @@ var ArrayValue: TJSONArray; Value: TJSONValue; I: Integer;
   end;
 begin
   Component := ''; Root.TryGetValue<string>('component', Component);
+  FullDistribution:=IsFullProgramManifest(Root);
   Bundle := nil; Root.TryGetValue<TJSONArray>('bundle', Bundle);
   if Component = 'batch' then
   begin
@@ -710,7 +727,14 @@ begin
          not TJSONObject(Value).TryGetValue<string>('sha256', FileInfo.SHA256) or
          not IsUpdateSHA256(FileInfo.SHA256) or
          not TJSONObject(Value).TryGetValue<Int64>('size', FileInfo.Size) or
-         (FileInfo.Size < 0) or (FileInfo.Size > 128 * 1024 * 1024) or
+         (FileInfo.Size < 0) or
+         ((FileInfo.Size > 128 * 1024 * 1024) and
+           (not FullDistribution or
+            ((FileInfo.Name<>'tools/prerequisites/webview2-x86.exe') and
+             (FileInfo.Name<>'tools/prerequisites/webview2-x64.exe')) or
+            (FileInfo.Size>384*1024*1024))) or
+         (FileInfo.Name.StartsWith('tools/prerequisites/') and
+           (not FullDistribution or not IsOfflinePrerequisiteMember(FileInfo.Name))) or
          Names.ContainsKey(LowerCase(FileInfo.Name)) then
         raise Exception.Create('Недопустимый файл в обновлении.');
       FileInfo.KeepExisting := SameText(FileInfo.Name, 'Readers/AlReader/$savevtut.ini');
@@ -719,6 +743,12 @@ begin
         raise Exception.Create('Обновление превышает допустимый размер.');
       Names.Add(LowerCase(FileInfo.Name), True);
       Result[I] := FileInfo; Inc(I);
+    end;
+    if Root.GetValue<Boolean>('offline_prerequisites',False) then
+    begin
+      if not FullDistribution then raise Exception.Create('Автономные компоненты Windows допустимы только в полном комплекте.');
+      for var Name in ['webview2-x86.exe','webview2-x64.exe','dotnet-framework-4.8.exe','PREREQUISITES.json','README.txt'] do
+        RequireMember('tools/prerequisites/'+Name);
     end;
     if Names.ContainsKey('homelibre.exe') and Names.ContainsKey(LowerCase(CATALOGUE_COMPATIBILITY_PAYLOAD)) then
       raise Exception.Create('В обновлении указаны два пути для HomeLibre.exe.');
@@ -1007,6 +1037,13 @@ begin
     VerifyUpdateExecutable(ChildPath(Stage, ApplicationFile), Tag, Platform);
     if (ApplicationFile<>'HomeLibRu.exe') and FileExists(ChildPath(Stage, 'HomeLibRu.exe')) then
       VerifyUpdateExecutable(ChildPath(Stage, 'HomeLibRu.exe'), Tag, Platform);
+    if IsFullProgramManifest(Manifest) and
+      (Manifest.GetValue<Boolean>('offline_prerequisites',False) or DirectoryExists(ChildPath(Stage,'tools/prerequisites'))) then
+    begin
+      VerifyOfflinePrerequisite(FindOfflinePrerequisite(Stage,'WebView2','x86'));
+      VerifyOfflinePrerequisite(FindOfflinePrerequisite(Stage,'WebView2','x64'));
+      VerifyOfflinePrerequisite(FindOfflinePrerequisite(Stage,'NetFramework48','AnyWindows'));
+    end;
   end
   else
   begin
@@ -1544,9 +1581,11 @@ function PrepareProgramUpdate(const Archive, SHA256, Tag, Platform, Job: string;
   VerifyIdentity: Boolean; const ComponentID, ComponentVersion: string): TUpdateFiles;
 var Zip: TZipFile; Root: TJSONObject; Bytes, ManifestBytes: TBytes; Names: TDictionary<string, Integer>;
   I, Index, Format: Integer; Name, Stage, Value, Component: string; Info: TUpdateFile;
+  ArchiveSize: Int64;
 begin
   AssertUpdatePath(Job); AssertUpdatePath(Archive);
-  if not IsUpdateSHA256(SHA256) or (TFile.GetSize(UpdateIOPath(Archive)) > UPDATE_MAX_ARCHIVE) or
+  ArchiveSize:=TFile.GetSize(UpdateIOPath(Archive));
+  if not IsUpdateSHA256(SHA256) or (ArchiveSize > UPDATE_MAX_LOCAL_FULL_ARCHIVE) or
      not SameText(UpdateSHA256(Archive), SHA256) then
     raise Exception.Create('Архив обновления повреждён: контрольная сумма не совпадает.');
   Stage := ChildPath(Job, 'payload');
@@ -1572,6 +1611,10 @@ begin
     Component:=ComponentID; if Component='' then Component:='HomeLibre';
     if (Root = nil) or not Root.TryGetValue<Integer>('format', Format) or (Format <> 1) then
       raise Exception.Create('Неизвестный формат манифеста обновления.');
+    // Network downloads retain UPDATE_MAX_ARCHIVE. A larger local full ZIP
+    // can include complete Microsoft installers; ordinary modules cannot.
+    if (ArchiveSize>UPDATE_MAX_ARCHIVE) and not IsFullProgramManifest(Root) then
+      raise Exception.Create('Архив превышает допустимый размер обычного обновления.');
     if not Root.TryGetValue<string>('release', Value) or (Value <> Tag) then
       raise Exception.Create('Пакет обновления относится к другому выпуску. Ожидается: '+Tag+
         '. Компонент: '+Component+'. Повторите проверку обновлений.');

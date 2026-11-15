@@ -11,7 +11,8 @@ implementation
 
 uses System.Classes, System.SysUtils, System.IOUtils, System.Win.Registry, System.RegularExpressions,
   System.SyncObjs, System.Net.HttpClient, Winapi.Windows, Vcl.Controls, Vcl.Dialogs, Vcl.StdCtrls,
-  Vcl.ComCtrls, Vcl.ExtCtrls, unit_MHLHttpClient, unit_UpdateAuthenticity, unit_MHLTheme;
+  Vcl.ComCtrls, Vcl.ExtCtrls, unit_MHLHttpClient, unit_UpdateAuthenticity, unit_MHLTheme,
+  unit_OfflinePrerequisites;
 
 const
   WebView2BootstrapperURL = 'https://go.microsoft.com/fwlink/p/?LinkId=2124703';
@@ -44,13 +45,15 @@ type
   private
     FHTTP: THTTPClient;
     FTempFolder: string;
+    FOffline: TOfflinePrerequisite;
     FStage: Integer;
     procedure ReceiveData(const Sender: TObject; ContentLength, ReadCount: Int64; var Abort: Boolean);
     function StartInstaller(const FileName: string): THandle;
+    procedure InstallFile(const FileName: string);
   protected
     procedure Execute; override;
   public
-    constructor Create(const TempFolder: string);
+    constructor Create(const TempFolder: string; const Offline: TOfflinePrerequisite);
     destructor Destroy; override;
     procedure CancelDownload;
     function Stage: Integer;
@@ -68,10 +71,11 @@ type
     constructor CreateProgress(Owner: TForm; Worker: TWebViewInstallThread);
   end;
 
-constructor TWebViewInstallThread.Create(const TempFolder: string);
+constructor TWebViewInstallThread.Create(const TempFolder: string; const Offline: TOfflinePrerequisite);
 begin
   inherited Create(True);
   FTempFolder:=TempFolder;
+  FOffline:=Offline;
   FHTTP:=CreateHTTPClientUpdate;
   FHTTP.ConnectionTimeout:=10000;
   FHTTP.ResponseTimeout:=15000;
@@ -106,10 +110,34 @@ begin
   Result:=Process.hProcess;
 end;
 
+procedure TWebViewInstallThread.InstallFile(const FileName: string);
+var Hold: TFileStream; Process: THandle; ExitCode: DWORD;
+begin
+  Hold:=TFileStream.Create(FileName,fmOpenRead or fmShareDenyWrite);
+  try
+    if FOffline.FileName<>'' then VerifyOfflinePrerequisite(FOffline)
+    else VerifyWebView2BootstrapperSignature(FileName);
+    if WebView2RuntimeInstalled then Exit;
+    if TInterlocked.CompareExchange(FStage,StageInstalling,StageDownloading)<>StageDownloading then Exit;
+    Process:=StartInstaller(FileName);
+  finally Hold.Free; end;
+  try
+    if WaitForSingleObject(Process,INFINITE)<>WAIT_OBJECT_0 then RaiseLastOSError;
+    if not GetExitCodeProcess(Process,ExitCode) then RaiseLastOSError;
+    if (ExitCode<>0) and not WebView2RuntimeInstalled then
+      raise Exception.CreateFmt('Установщик Microsoft завершился с кодом 0x%.8x.',[ExitCode]);
+  finally CloseHandle(Process); end;
+end;
+
 procedure TWebViewInstallThread.Execute;
-var WorkFolder, FileName: string; ID: TGUID; Output: TFileStream; Process: THandle; ExitCode: DWORD;
+var WorkFolder, FileName: string; ID: TGUID; Output: TFileStream;
 begin
   if WebView2RuntimeInstalled or (Stage=StageCancelled) then Exit;
+  if FOffline.FileName<>'' then
+  begin
+    InstallFile(FOffline.FileName);
+    Exit;
+  end;
   CreateGUID(ID);
   WorkFolder:=TPath.Combine(FTempFolder,'HomeLibre-WebView2-'+GUIDToString(ID));
   if not CreateDirectory(PChar(WorkFolder),nil) then RaiseLastOSError;
@@ -123,19 +151,7 @@ begin
         raise Exception.Create('Microsoft не вернула допустимый файл установщика WebView2.');
     finally Output.Free; end;
     if Stage=StageCancelled then Exit;
-    Output:=TFileStream.Create(FileName,fmOpenRead or fmShareDenyWrite);
-    try
-      VerifyWebView2BootstrapperSignature(FileName);
-      if WebView2RuntimeInstalled then Exit;
-      if TInterlocked.CompareExchange(FStage,StageInstalling,StageDownloading)<>StageDownloading then Exit;
-      Process:=StartInstaller(FileName);
-    finally Output.Free; end;
-    try
-      if WaitForSingleObject(Process,INFINITE)<>WAIT_OBJECT_0 then RaiseLastOSError;
-      if not GetExitCodeProcess(Process,ExitCode) then RaiseLastOSError;
-      if (ExitCode<>0) and not WebView2RuntimeInstalled then
-        raise Exception.CreateFmt('Установщик Microsoft завершился с кодом 0x%.8x.',[ExitCode]);
-    finally CloseHandle(Process); end;
+    InstallFile(FileName);
   finally
     try
       if FileExists(FileName) then TFile.Delete(FileName);
@@ -154,7 +170,8 @@ begin
   PopupMode:=pmExplicit; PopupParent:=Owner;
   FStatus:=TLabel.Create(Self); FStatus.Parent:=Self; FStatus.SetBounds(16,14,363,34);
   FStatus.AutoSize:=False; FStatus.WordWrap:=True;
-  FStatus.Caption:='Скачиваем установщик с сайта Microsoft…';
+  if Worker.FOffline.FileName<>'' then FStatus.Caption:='Проверяем установщик из полного комплекта…'
+  else FStatus.Caption:='Скачиваем установщик с сайта Microsoft…';
   var Bar:=TProgressBar.Create(Self); Bar.Parent:=Self;
   Bar.SetBounds(16,52,363,12); Bar.Style:=pbstMarquee;
   FCancel:=TButton.Create(Self); FCancel.Parent:=Self; FCancel.SetBounds(280,80,99,26);
@@ -186,21 +203,32 @@ end;
 
 function EnsureEpubPdfRuntime(Owner: TForm; const TempFolder: string): Boolean;
 var Prompt: TTaskDialog; Worker: TWebViewInstallThread; Progress: TWebViewInstallProgress;
+  Offline: TOfflinePrerequisite;
 begin
   if WebView2RuntimeInstalled then Exit(True);
   Result:=False;
+  try
+    Offline:=FindOfflinePrerequisite(ExtractFileDir(ParamStr(0)),'WebView2',NativePrerequisiteArchitecture);
+  except on E:Exception do
+    begin MessageDlg('Не удалось прочитать полный комплект. '+E.Message,mtError,[mbOK],0); Exit; end;
+  end;
   Prompt:=TTaskDialog.Create(Owner);
   try
     Prompt.Caption:='Сохранение EPUB в PDF';
     Prompt.Title:='Установить Microsoft WebView2 Runtime?';
-    Prompt.Text:='Эта среда нужна для вёрстки EPUB в PDF. Скачаем установщик Microsoft (около 2 МБ). '+
+    if Offline.FileName<>'' then
+      Prompt.Text:=Format('Эта среда нужна для вёрстки EPUB в PDF. Установщик Microsoft уже есть '+
+        'в полном комплекте (%.0f МБ). Интернет для установки не нужен.',[Offline.Size/1024/1024])
+    else Prompt.Text:='Эта среда нужна для вёрстки EPUB в PDF. Скачаем установщик Microsoft (около 2 МБ). '+
       'Он загрузит дополнительный пакет среды. Его размер зависит от системы.';
     Prompt.CommonButtons:=[tcbCancel]; Prompt.Flags:=[tfAllowDialogCancellation];
     var Button:=TTaskDialogButtonItem(Prompt.Buttons.Add);
-    Button.Caption:='Скачать и установить'; Button.ModalResult:=mrOk;
+    if Offline.FileName<>'' then Button.Caption:='Установить из комплекта'
+    else Button.Caption:='Скачать и установить';
+    Button.ModalResult:=mrOk;
     if not Prompt.Execute(Owner.Handle) or (Prompt.ModalResult<>mrOk) then Exit;
   finally Prompt.Free; end;
-  Worker:=TWebViewInstallThread.Create(TempFolder);
+  Worker:=TWebViewInstallThread.Create(TempFolder,Offline);
   try
     Progress:=TWebViewInstallProgress.CreateProgress(Owner,Worker);
     try

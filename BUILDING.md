@@ -16,9 +16,13 @@
 места; на C: должно оставаться не менее 8 ГиБ.
 
 ```powershell
+python -B ./scripts/prepare-offline-prerequisites.py `
+  --destination G:/release-inputs/prerequisites `
+  --native G:/build/Program/Tests/Out/Win64/ProgramUpdateInstallerTest.exe
 ./scripts/package-release.ps1 -Platform Win64 -Full `
   -OfflineComponents G:/release-inputs/components-Win64.json `
   -OfflineVerifier G:/build/Program/Tests/Out/Win64/ProgramUpdateInstallerTest.exe `
+  -OfflinePrerequisiteInputs G:/release-inputs/prerequisites `
   -WorkingDirectory G:/release-work -OutputDirectory G:/release-candidate
 ```
 
@@ -28,6 +32,13 @@
 Каждый ZIP проверяется штатным установщиком; конфликтующие файлы отклоняются.
 Все 109 файлов набора шрифтов проверяются по `Installer/ReaderFonts/manifest.json`.
 Частные пути из плана в публичный OFFLINE.json не попадают.
+Полный комплект также включает три оригинальных офлайн-установщика Microsoft,
+закреплённые в `Installer/OfflinePrerequisites.json`; они проходят нативную
+проверку подписи без запуска. WebView2 можно установить из комплекта через
+действие сохранения EPUB в PDF. Для отсутствующей .NET Framework рядом есть
+оригинальный установщик и краткая инструкция. Указанная в JSON версия — версия
+файла установщика. Требования Microsoft к Windows сохраняются.
+
 
 Это механизм подготовки кандидата. Проверки системных сред Windows, работы без
 сети, обновления и удаления модулей остаются отдельными условиями выпуска.

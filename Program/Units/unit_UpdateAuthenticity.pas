@@ -7,6 +7,7 @@ uses System.SysUtils;
 function UpdateSHA3(const FileName: string): string;
 procedure VerifySumatraSignature(const FileName: string);
 procedure VerifyWebView2BootstrapperSignature(const FileName: string);
+procedure VerifyMicrosoftPrerequisiteSignature(const FileName: string);
 
 implementation
 
@@ -122,6 +123,11 @@ end;
 procedure VerifyWebView2BootstrapperSignature(const FileName: string);
 begin
   VerifyPublisherSignature(FileName,'установщика WebView2','Microsoft Corporation');
+end;
+
+procedure VerifyMicrosoftPrerequisiteSignature(const FileName: string);
+begin
+  VerifyPublisherSignature(FileName,'автономного компонента Windows','Microsoft Corporation');
 end;
 
 end.

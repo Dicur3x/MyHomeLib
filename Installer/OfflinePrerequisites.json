@@ -1,0 +1,35 @@
+{
+  "format": 1,
+  "files": [
+    {
+      "id": "WebView2",
+      "architecture": "x86",
+      "path": "webview2-x86.exe",
+      "size": 190988512,
+      "sha256": "b771149c6bdb533ded79dfb177293aad3d83adfe3e31da20f4722d4ee79e3c57",
+      "version": "1.3.315.17",
+      "source": "https://msedge.sf.dl.delivery.mp.microsoft.com/filestreamingservice/files/f0ca8f31-c4e2-420a-9834-515a7417bd4d/MicrosoftEdgeWebView2RuntimeInstallerX86.exe",
+      "product": "Microsoft Edge Update"
+    },
+    {
+      "id": "WebView2",
+      "architecture": "x64",
+      "path": "webview2-x64.exe",
+      "size": 215116512,
+      "sha256": "d3cbe8fedb104282d745fff106993efead51ae94f5595a4e75804446a974f9c3",
+      "version": "1.3.315.17",
+      "source": "https://msedge.sf.dl.delivery.mp.microsoft.com/filestreamingservice/files/52cfd0a8-f256-48d4-9b18-467f2b3cda78/MicrosoftEdgeWebView2RuntimeInstallerX64.exe",
+      "product": "Microsoft Edge Update"
+    },
+    {
+      "id": "NetFramework48",
+      "architecture": "AnyWindows",
+      "path": "dotnet-framework-4.8.exe",
+      "size": 121346568,
+      "sha256": "0a3a390c47e639d0f7fc65b21195fee6b7f65b066f80f70c60fab191d14b7e40",
+      "version": "4.8.4115.0",
+      "source": "https://download.microsoft.com/download/f/3/a/f3a6af84-da23-40a5-8d1c-49cc10c8e76f/NDP48-x86-x64-AllOS-ENU.exe",
+      "product": "Microsoft .NET Framework 4.8"
+    }
+  ]
+}
