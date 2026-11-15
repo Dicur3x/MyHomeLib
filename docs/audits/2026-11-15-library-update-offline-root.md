@@ -1,5 +1,8 @@
 # Update from a download folder while the original book root is unavailable
 
+Follow-up: [publisher locators and actual 7z archives](2026-11-15-library-update-publisher-locations.md)
+records the later ordinary/bound ZIP-to-7z checks and their remaining limits.
+
 The review previously refused an unavailable original book root before looking
 at a separately configured download folder. It now permits that workflow when
 the download folder is explicitly configured and exists. A missing download

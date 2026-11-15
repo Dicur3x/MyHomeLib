@@ -71,6 +71,9 @@ type
     // True — свойства коллекции не изменяются: файл может быть чужим, и его
     // URL со скриптом подключения стер бы настройки пользователя.
     FKeepCollectionProps: Boolean;
+    // Read-only index snapshots retain publisher names. Resolution to an
+    // existing ZIP/7z belongs to the consumer, not to the imported metadata.
+    FKeepIndexArchiveNames: Boolean;
     FImportCheck: TProc;
     FInvalidRows: Integer;
 
@@ -630,7 +633,7 @@ begin
                 // compact torrent keeps the same member base name but stores
                 // books in 7z.  Prefer an existing 7z without changing the
                 // behaviour of ordinary collections.
-                if FileExists(TPath.Combine(CollectionRoot,
+                if not FKeepIndexArchiveNames and FileExists(TPath.Combine(CollectionRoot,
                   ChangeFileExt(CurrentFile, SEVENZIP_ARCHIVE_EXTENSION))) then
                   R.Folder := ChangeFileExt(CurrentFile,
                     SEVENZIP_ARCHIVE_EXTENSION)

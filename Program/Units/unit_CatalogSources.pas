@@ -193,7 +193,7 @@ end;
 constructor TCatalogRefreshWorker.Create(const Source: TCatalogSource);
 begin
   inherited Create(MHL_INVALID_ID); FSource := Source;
-  FGenresType := gtFb2; FKeepCollectionProps := True;
+  FGenresType := gtFb2; FKeepCollectionProps := True; FKeepIndexArchiveNames:=True;
 end;
 
 procedure TCatalogRefreshWorker.WorkFunction;

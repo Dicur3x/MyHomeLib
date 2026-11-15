@@ -35,6 +35,19 @@ var Root, OldRoot, DownloadRoot, IndexName, OldHash, DownloadHash, ExpectedTitle
       for var Number in Numbers do Zip.Add(TEncoding.UTF8.GetBytes(XML(Number)),Number+'.fb2');
     finally Zip.Free; end;
   end;
+  procedure Archive7z(const Folder, Name: string; const Numbers: array of string);
+  var Args:TArray<string>; Sink:TMemoryStream; Input, FileName:string;
+  begin
+    ForceDirectories(Folder); Input:=TPath.Combine(Root,'seven-inputs'); ForceDirectories(Input);
+    Args:=TArray<string>.Create('a','-t7z','-mx=0','-y',TPath.Combine(Folder,Name));
+    for var Number in Numbers do
+    begin
+      FileName:=TPath.Combine(Input,Number+'.fb2'); TFile.WriteAllText(FileName,XML(Number),TEncoding.UTF8);
+      Args:=Args+[FileName];
+    end;
+    Sink:=TMemoryStream.Create;
+    try RunExternalToolToStream(Settings.AppPath+'tools\7zip\7za.exe',Args,Sink); finally Sink.Free; end;
+  end;
   procedure Index(const Path: string; const Archives, Numbers, Titles: array of string);
   var Zip: TZipFile; Rows: TDictionary<string,string>; Line, Existing: string;
   begin
@@ -417,4 +430,107 @@ begin
     Require(Book.GetBookFileName.Contains(Sources[0].Root),'Offline merged-source update changed the other source priority');
   finally CloseReview; end;
   Writeln('PASS reviewed bound-source update adds downloaded books with its original root offline and preserves source priorities, personal fields and exclusions');
+
+  for var BoundAlias in TArray<Boolean>.Create(False,True) do
+  begin
+    OldRoot:=TPath.Combine(Root,'seven-old-'+BoolToStr(BoundAlias,True));
+    DownloadRoot:=TPath.Combine(Root,'seven-downloads-'+BoolToStr(BoundAlias,True));
+    Archive7z(OldRoot,'books.7z',['601','603']); Archive7z(DownloadRoot,'new.7z',['602','604']);
+    IndexName:=TPath.Combine(Root,'seven-'+BoolToStr(BoundAlias,True)+'.inpx');
+    Index(IndexName,['books','books'],['601','603'],['Seed 601','Seed 603']);
+    ID:=SystemDB.CreateCollection('ZIP names with actual 7z '+BoolToStr(BoundAlias,True),OldRoot,
+      TPath.Combine(Root,'seven-'+BoolToStr(BoundAlias,True)+'.hlc2'),CT_EXTERNAL_LOCAL_FB,Settings.SystemFileName[sfGenresFB2]);
+    Target:=SystemDB.GetCollection(ID); Profile:=TLibraryUpdateSource.NewSource;
+    Profile.Name:='ZIP names with 7z '+BoolToStr(BoundAlias,True);
+    Profile.Location:=Root; Profile.IndexFile:=TPath.GetFileName(IndexName); Profile.BooksRoot:=DownloadRoot;
+    if BoundAlias then
+    begin
+      SetLength(Sources,1); Sources[0]:=Default(TCatalogSource); Sources[0].ID:=TCatalogSource.NewID;
+      Sources[0].Root:=OldRoot; Sources[0].Name:='Actual 7z source'; Sources[0].INPXFile:=IndexName;
+      Refresh:=TCatalogRefreshWorker.Create(Sources[0]);
+      try Refresh.Start; Refresh.WaitFor; Require(Refresh.Success,'7z source preparation failed: '+Refresh.Error);
+      finally Refresh.Free; end;
+      SaveCatalogSources(Target,Sources); Merge:=TCatalogMergeWorker.CreatePreview(ID,Sources,mpSourcePriority);
+      try Merge.Start; Merge.WaitFor; Require(Merge.Success,'7z initial merge preview failed: '+Merge.Error); Plan:=Merge.TakePlan;
+      finally Merge.Free; end;
+      try
+        Merge:=TCatalogMergeWorker.CreateApply(Plan,TPath.Combine(Root,'seven-backup-'+BoolToStr(BoundAlias,True)));
+        try Merge.Start; Merge.WaitFor; Require(Merge.Success,'7z initial merge failed: '+Merge.Error);
+        finally Merge.Free; end;
+      finally Plan.Free; end;
+      Target:=SystemDB.GetCollection(ID,True); Profile.CatalogSourceID:=Sources[0].ID;
+    end
+    else
+      for var Number in TArray<string>.Create('601','603') do
+      begin
+        var Item:=Default(TBookRecord); Item.Title:='Seed '+Number; Item.LibID:=Number;
+        Item.FileName:=Number; Item.FileExt:='.fb2'; Item.Folder:='books.zip'; Item.Lang:='ru';
+        Item.Date:=EncodeDate(2026,11,14); Item.Size:=Length(TEncoding.UTF8.GetBytes(XML(Number)));
+        TAuthorsHelper.Add(Item.Authors,'Author','Test',''); Target.InsertBook(Item,False,False);
+      end;
+    Index(IndexName,['books','books'],['601','603'],['Corrected 601','Retained 603']);
+    OpenReview;
+    try Apply(True);
+      Require(FindDisplayBook('601',Book) and (Book.Title='Corrected 601') and
+        SameText(ExtractFileExt(Book.GetBookFileName),'.7z'),'ZIP-to-7z source links did not update their actual publication');
+      RequireBody(Book,'601'); Target.SetRate(Book.BookKey,4); Target.SetProgress(Book.BookKey,29);
+    finally CloseReview; end;
+    Require(FindDisplayBook('603',Book),'Missing removable 7z publication'); Target.DeleteBook(Book.BookKey);
+    Profile.Full:=False; Index(IndexName,['new'],['602'],['Downloaded 602']);
+    OpenReview; try Apply(True); finally CloseReview; end;
+    Require(LoadLibraryUpdateHistory(Target,Profile,CacheInfo),'7z append did not publish its baseline');
+    DB:=TSQLiteDatabase.CreateReadOnly(CacheInfo.CacheFile);
+    try
+      Require(DB.QuerySingleString('SELECT l.Location FROM LibraryUpdatePublisherLocations l JOIN Books b ON b.BookID=l.BookID WHERE b.LibID=''602''')='new.zip',
+        '7z append stored a resolved path or used input IDs instead of cache IDs for the publisher locator');
+    finally DB.Free; end;
+    Profile.Full:=True;
+    Index(IndexName,['books','new'],['601','602'],['Corrected 601','Downloaded 602']);
+    OpenReview; try Apply(True); finally CloseReview; end;
+    if BoundAlias then
+    begin
+      // Simulate the old cache schema with resolved locations but no separate
+      // publisher-location table. The original-root alias remains recoverable.
+      Require(LoadLibraryUpdateHistory(Target,Profile,CacheInfo),'Missing legacy 7z cache fixture');
+      DB:=TSQLiteDatabase.Create(CacheInfo.CacheFile);
+      try DB.ExecSQL('DROP TABLE LibraryUpdatePublisherLocations'); finally DB.Free; end;
+    end;
+    var SevenOriginal:=TPath.Combine(OldRoot,'books.7z'); var HeldOriginal:=TPath.Combine(Root,'held-'+BoolToStr(BoundAlias,True)+'.7z');
+    var SevenHash:=THashSHA2.GetHashStringFromFile(SevenOriginal);
+    var NewSevenHash:=THashSHA2.GetHashStringFromFile(TPath.Combine(DownloadRoot,'new.7z'));
+    Require(TPath.GetFullPath(OldRoot).StartsWith(IncludeTrailingPathDelimiter(TPath.GetFullPath(Root)),True),'7z root fixture escaped its workspace');
+    TFile.Move(SevenOriginal,HeldOriginal); TDirectory.Delete(OldRoot,False);
+    Index(IndexName,['books','books','new','new'],['601','603','602','604'],['Corrected 601','Returned 603','Downloaded 602','Downloaded 604']);
+    OpenReview;
+    try
+      if (Review.NeededArchives.IndexOf('books.zip')>=0) or (Review.ChangedBooks<>0) then
+      begin
+        Writeln('TRACE 7z comparison bound=',BoolToStr(BoundAlias,True),' changed=',Review.ChangedBooks,' needed=',Review.NeededArchives.CommaText);
+        Writeln(Review.Summary);
+        for var ComparisonFile in TDirectory.GetFiles(Stage.Folder,'comparison-*.sqlite') do
+        begin
+          DB:=TSQLiteDatabase.CreateReadOnly(ComparisonFile);
+          try
+            var Rows:=DB.NewQuery('SELECT r.BookID,r.Location,r.PublisherLocation,r.Available,p.Location,p.Stamp=r.Stamp,p.Physical=r.Physical,p.State,e.Key IS NOT NULL '+
+              'FROM ReviewRows r LEFT JOIN ReviewPrevious p ON p.Key=r.Key LEFT JOIN ReviewExcluded e ON e.Key=r.Key');
+            try Rows.Open; while not Rows.Eof do
+              begin for var C:=0 to Rows.ColCount-1 do Write(Rows.FieldAsString(C),' | '); Writeln; Rows.Next; end;
+            finally Rows.Free; end;
+          finally DB.Free; end;
+        end;
+      end;
+      Require((Review.NeededArchives.IndexOf('books.zip')<0) and (Review.ChangedBooks=0),
+        'An offline 7z alias or excluded publication requested a historical ZIP again');
+      Apply(True);
+      Require(not FindDisplayBook('603',Book),'Offline 7z update resurrected an excluded publication');
+      Require(FindDisplayBook('604',Book),'Offline 7z update missed the actual downloaded member'); RequireBody(Book,'604');
+      Require(FindDisplayBook('601',Book) and (Book.Rate=4) and (Book.Progress=29) and
+        SameText(ExtractFileExt(Book.GetBookFileName),'.7z'),'Offline 7z update lost its retained locator or personal fields');
+    finally CloseReview; end;
+    ForceDirectories(OldRoot); TFile.Move(HeldOriginal,SevenOriginal);
+    Require(FindDisplayBook('601',Book),'Reconnecting the 7z root lost its retained publication'); RequireBody(Book,'601');
+    Require((THashSHA2.GetHashStringFromFile(SevenOriginal)=SevenHash) and
+      (THashSHA2.GetHashStringFromFile(TPath.Combine(DownloadRoot,'new.7z'))=NewSevenHash),'Update rewrote an original or downloaded 7z');
+  end;
+  Writeln('PASS reviewed ZIP names retain actual 7z source links and publisher locations across offline roots, excluded returns and downloaded 7z members');
 end;
