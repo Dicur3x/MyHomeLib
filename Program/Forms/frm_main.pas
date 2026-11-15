@@ -981,6 +981,7 @@ type
     procedure ShowCatalogSources(Sender: TObject);
     procedure RestoreCollectionSnapshot(Sender: TObject);
     procedure PackCurrentCollection(Sender: TObject);
+    procedure CreateCompressedCollectionCopy(Sender: TObject);
     procedure CompressNewBooks(Sender: TObject);
     procedure StartCollectionCompression(OnlyNew: Boolean; Resume: PBookCompressionContinuation = nil);
     procedure QueueCollectionCompressionOffer(CollectionID: Integer);
@@ -4849,6 +4850,12 @@ end;
 procedure TfrmMain.PackCurrentCollection(Sender: TObject);
 begin StartCollectionCompression(False); end;
 
+procedure TfrmMain.CreateCompressedCollectionCopy(Sender: TObject);
+begin
+  if CompressionBlocksCatalogChange then Exit;
+  PackCollection(False);
+end;
+
 procedure TfrmMain.CompressNewBooks(Sender: TObject);
 begin StartCollectionCompression(True); end;
 
@@ -5124,12 +5131,12 @@ begin
   Dialog:=TTaskDialog.Create(Owner);
   try
     Dialog.Caption:='Сжатие коллекции';
-    Dialog.Title:='Как упаковать копию коллекции?';
-    Dialog.Text:='Исходные книги останутся в своих папках. Режимы с уменьшением качества действуют на иллюстрации FB2 и EPUB. '+
-      '«Максимальная экономия» также упрощает фон подходящих сканов DjVu.';
+    Dialog.Title:='Как сжать отдельную копию коллекции?';
+    Dialog.Text:='Исходные книги и каталог сохранятся. Сжатие иллюстраций доступно в FB2, EPUB, ODT, DOCX и CBZ. '+
+      '«Максимальная экономия» также упрощает фон подходящих сканов DjVu. Неподдерживаемые ресурсы сохраняются.';
     Dialog.Flags:=[tfUseCommandLinks,tfAllowDialogCancellation];
     Dialog.CommonButtons:=[tcbCancel];
-    Dialog.VerificationText:='При сжатии иллюстраций переводить JPEG и PNG в оттенки серого';
+    Dialog.VerificationText:='Переводить поддерживаемые иллюстрации в оттенки серого';
     for var Choice:=Low(TPackingImageProfile) to High(TPackingImageProfile) do
     begin
       Button:=TTaskDialogButtonItem(Dialog.Buttons.Add);
@@ -5137,7 +5144,7 @@ begin
       Button.ModalResult:=ChoiceBase+Ord(Choice);
       Button.Default:=Choice=pipOriginal;
       case Choice of
-        pipOriginal: Button.CommandLinkHint:='Сохранить содержимое книг и качество изображений.';
+        pipOriginal: Button.CommandLinkHint:='Сохранить содержимое книг и качество изображений. Попробовать уплотнить общие архивы.';
         pipBalanced: Button.CommandLinkHint:='Уменьшить размер крупных иллюстраций с умеренным сжатием.';
         pipEconomy: Button.CommandLinkHint:='Сжать иллюстрации сильнее. Размер и детализация могут уменьшиться.';
         pipMaximum: Button.CommandLinkHint:='Сильнее уменьшить крупные иллюстрации и детализацию фона '+
@@ -5274,23 +5281,24 @@ begin
           'Повторно использовано архивов и файлов: %d.',
           [Status.BooksDone,Status.Unavailable,PackingSize(Status.InputBytes),
            PackingSize(Status.OutputBytes),Status.Reused]);
+        Summary:=Summary+sLineBreak+'Счётчики записей включают личные карточки и дополнительные копии книг.';
         RecordComponentUse('BookProcessing');
         RecordComponentUse('7-Zip');
         if Options.ImageProfile=pipJpegXL then
         begin
           RecordComponentUse(JPEG_XL_ENCODER_COMPONENT);
           RecordComponentUse('JPEG XL');
-          Summary:=Summary+sLineBreak+Format('Книг со сжатыми JPEG: %d.',[Status.ImageBooksOptimized]);
+          Summary:=Summary+sLineBreak+Format('Записей со сжатыми JPEG: %d.',[Status.ImageBooksOptimized]);
         end
         else if PackingReducesImageQuality(Options.ImageProfile) then
         begin
           RecordComponentUse('ImageProcessing');
-          Summary:=Summary+sLineBreak+Format('Книг со сжатыми иллюстрациями: %d.',[Status.ImageBooksOptimized]);
+          Summary:=Summary+sLineBreak+Format('Записей со сжатыми иллюстрациями: %d.',[Status.ImageBooksOptimized]);
           if Status.ImageBooksSkipped>0 then
-            Summary:=Summary+sLineBreak+Format('Не удалось обработать иллюстрации в %d книгах. В копии сохранены исходные файлы.',
+            Summary:=Summary+sLineBreak+Format('Не удалось обработать иллюстрации в %d записях. В копии сохранены исходные файлы.',
               [Status.ImageBooksSkipped]);
           if Options.ImageGrayscale then
-            Summary:=Summary+sLineBreak+'Преобразование применяется к JPEG и PNG, когда копия книги или архива становится меньше.';
+            Summary:=Summary+sLineBreak+'Преобразование применяется к поддерживаемым изображениям, когда копия книги или архива становится меньше.';
         end;
         if UpdateFromInpx then
         begin
@@ -5879,6 +5887,10 @@ begin
   FilterMenu:=TMenuItem.Create(Self); FilterMenu.Name:='miPackCollection';
   FilterMenu.Caption:='Сжать текущую коллекцию…';
   FilterMenu.OnClick:=PackCurrentCollection; N2.Insert(N6.MenuIndex,FilterMenu);
+  FilterMenu:=TMenuItem.Create(Self); FilterMenu.Name:='miCreateCompressedCopy';
+  FilterMenu.Caption:='Создать сжатую копию…';
+  FilterMenu.Hint:='Отдельная коллекция в выбранной папке; исходные книги и каталог сохраняются.';
+  FilterMenu.OnClick:=CreateCompressedCollectionCopy; N2.Insert(N6.MenuIndex,FilterMenu);
   FilterMenu:=TMenuItem.Create(Self); FilterMenu.Name:='miCompressNewBooks';
   FilterMenu.Caption:='Сжать новые книги…';
   FilterMenu.Hint:='Проверить ещё не обработанные и изменившиеся файлы текущей коллекции и её источников.';

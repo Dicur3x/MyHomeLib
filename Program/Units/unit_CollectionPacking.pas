@@ -321,7 +321,7 @@ begin
     pipEconomy: Result:='Экономное сжатие иллюстраций';
     pipMaximum: Result:='Максимальная экономия места';
     pipJpegXL: Result:='JPEG XL без потери качества';
-    else Result:='Обратимая упаковка';
+    else Result:='Упаковка без изменения книг';
   end;
   if Grayscale then Result:=Result+' · оттенки серого';
 end;

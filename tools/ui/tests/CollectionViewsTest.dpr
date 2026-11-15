@@ -6263,6 +6263,7 @@ end;
 {$I LibraryUpdateCompressionTests.inc}
 {$I LibraryUpdateBoundCompressionTests.inc}
 {$I BookCompressionCatalogueTests.inc}
+{$I CollectionPackingCopyUITests.inc}
 {$I PackedCatalogueSizeTests.inc}
 {$I PackingJpegXLFormatsTests.inc}
 {$I CompressionRecoveryTests.inc}
@@ -6355,6 +6356,12 @@ begin
         TestPackedInpxResultChild;
         FreeAndNil(DMUser); FreeAndNil(frmSplash);
         Halt(0);
+      end;
+      if ParamStr(1)='packing-copy-ui' then
+      begin
+        TestPackingCopyCatalogue; Flush(Output);
+        FreeAndNil(DMUser); FreeAndNil(frmSplash);
+        Application.OnException:=nil; ExceptionHandler.Free; Halt(0);
       end;
       if ParamStr(1) = 'packing-menu-fixture' then begin TestPackingReal(True); Halt(0); end;
       if ParamStr(1) = 'packing-menu-verify' then begin VerifyPackingMenu; Halt(0); end;
