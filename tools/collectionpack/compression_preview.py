@@ -45,9 +45,12 @@ def fb2_images(path, limit, check):
 
 class ComparisonPreview:
     """No resized thumbnails: the viewer receives the actual before/after bytes."""
-    def __init__(self, directory, check):
+    def __init__(self, directory, check, book_count=1):
         self.path = Path(directory) / 'comparison.zip'
         self.check, self.pairs, self.bytes = check, [], 0
+        # Keep a many-image first book from consuming every comparison slot.
+        # The global pair/byte limits still apply to the complete shared file.
+        self.book_limit = max(1, MAX_PAIRS // max(1, book_count))
         self.archive, self.limited, self.keep, self.owned = None, False, False, False
 
     def __enter__(self):
@@ -81,10 +84,11 @@ class ComparisonPreview:
         return True
 
     def add_book(self, original, result, extension, member):
-        remaining = MAX_PAIRS - len(self.pairs)
+        remaining = min(self.book_limit, MAX_PAIRS - len(self.pairs))
         if remaining <= 0:
             self.limited = True
             return
+        stop_at = len(self.pairs) + remaining
         if extension == '.fb2':
             before = fb2_images(original, remaining, self.check)
             after = fb2_images(result, remaining, self.check)
@@ -102,6 +106,9 @@ class ComparisonPreview:
                         continue
                     if Path(item.filename).suffix.lower() not in {'.png', '.jpg', '.jpeg', '.gif', '.bmp'}:
                         continue
+                    if len(self.pairs) >= stop_at:
+                        self.limited = True
+                        break
                     other = new.getinfo(item.filename)
                     if other.file_size > MAX_IMAGE:
                         self.limited = True

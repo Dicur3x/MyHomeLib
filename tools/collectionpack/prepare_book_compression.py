@@ -437,7 +437,7 @@ def prepare_selected_file(source, members, workspace, seven_zip, *, profile='ori
     if preview_images and processor.converter is not None:
         result.working_bytes += MAX_COMPARISON_BYTES + 1024 * 1024
     reserve_space(workspace, result.working_bytes)
-    preview_context = ComparisonPreview(workspace, check) if preview_images else nullcontext()
+    preview_context = ComparisonPreview(workspace, check, len(members)) if preview_images else nullcontext()
     notify(dict(stage='Оцениваем временное место', working_bytes=result.working_bytes,
                 selected_bytes=selected_bytes, archive_bytes=before[2]))
     # Selected payloads survive only in a verified complete candidate. All

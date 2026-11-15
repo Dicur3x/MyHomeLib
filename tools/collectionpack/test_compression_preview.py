@@ -53,6 +53,34 @@ class CompressionPreviewTests(unittest.TestCase):
             self.assertEqual(archive.read(pair['before']), image)
             self.assertEqual(archive.read(pair['after']), book.read('picture.png'))
 
+    def test_illustrated_first_book_does_not_hide_the_next_selected_book(self):
+        image = image_fixture(True)
+        tree = ET.fromstring(illustrated_fb2(image))
+        binary = tree.find('{http://www.gribuser.ru/xml/fictionbook/2.0}binary')
+        for index in range(1, MAX_PAIRS + 2):
+            copy = ET.fromstring(ET.tostring(binary))
+            copy.set('id', 'picture-' + str(index))
+            tree.append(copy)
+        data = ET.tostring(tree, encoding='utf-8', xml_declaration=True)
+        source = self.source_zip({'many.fb2': data, 'next.fb2': data, 'neighbor.bin': b'Keep'})
+        before = sha(source)
+        result = self.prepare(source, {'many.fb2': '.fb2', 'next.fb2': '.fb2'},
+            profile='economy', grayscale=True, preview_images=True)
+        with zipfile.ZipFile(result.preview['path']) as archive:
+            document = json.loads(archive.read('comparison.json'))
+            self.assertEqual({p['member'] for p in document['pairs']}, {'many.fb2', 'next.fb2'})
+            self.assertLessEqual(len(document['pairs']), MAX_PAIRS)
+            for member in ('many.fb2', 'next.fb2'):
+                encoded = ET.fromstring(self.decoded(result.candidate, member))
+                binaries = {node.get('id'): base64.b64decode(node.text) for node in encoded.findall(
+                    '{http://www.gribuser.ru/xml/fictionbook/2.0}binary')}
+                for pair in document['pairs']:
+                    if pair['member'] == member:
+                        self.assertEqual(archive.read(pair['before']), image)
+                        self.assertEqual(archive.read(pair['after']), binaries[pair['image']])
+        self.assertEqual(sha(source), before)
+        self.assertEqual(self.decoded(result.candidate, 'neighbor.bin'), b'Keep')
+
     def test_cancel_after_collecting_preview_removes_owned_preview_and_candidate(self):
         source = self.source_zip({'one.fb2': illustrated_fb2(image_fixture(True))})
         before = sha(source)

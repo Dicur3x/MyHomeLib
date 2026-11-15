@@ -487,17 +487,42 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
             originals, legacy_stamps, legacy_image_hash = legacy_gui_inputs(root, stage, platform)
         if real_books:
             manifest = json.loads(real_books.read_text(encoding='utf-8-sig'))
-            assert set(manifest) == {'one.fb2', 'two.epub', 'neighbor.fb2'}
-            originals = {}
-            for name, spec in manifest.items():
-                path = Path(spec['archive']).resolve(strict=True)
-                info = path.stat()
-                real_stamps[path] = (info.st_ino, info.st_size, info.st_mtime_ns)
-                with zipfile.ZipFile(path) as archive:
-                    assert archive.getinfo(spec['member']).file_size <= 128 * 1024 * 1024
-                    originals[name] = archive.read(spec['member'])
+            containers = 'inputs' in manifest
+            if containers:
+                assert manifest['status'] == 'PASS'
+                assert set(manifest['inputs']) == {'.cbz', '.docx', '.odt'}
+                # Reuse only the bounded copies already extracted for this task.
+                # Never point a writable test catalogue at an original library.
+                isolated = real_books.resolve(strict=True).parent
+                originals = {'neighbor.fb2': originals['neighbor.fb2']}
+                for extension, row in manifest['inputs'].items():
+                    raw_path = Path(row['path'])
+                    assert not raw_path.is_symlink()
+                    path = raw_path.resolve(strict=True)
+                    assert path.parent == isolated and path.name == 'input' + extension
+                    assert 0 < row['bytes'] <= 16 * 1024**2
+                    assert path.stat().st_size == row['bytes'] and digest(path) == row['sha256']
+                    info = path.stat()
+                    real_stamps[path] = (info.st_ino, info.st_size, info.st_mtime_ns)
+                    source_path = Path(row['source']).resolve(strict=True)
+                    info = source_path.stat()
+                    stamp = (info.st_ino, info.st_size, info.st_mtime_ns)
+                    assert stamp == tuple(row['source_stamp'][key] for key in ('ino', 'size', 'mtime_ns'))
+                    real_stamps[source_path] = stamp
+                    originals['selected' + extension] = path.read_bytes()
+            else:
+                assert set(manifest) == {'one.fb2', 'two.epub', 'neighbor.fb2'}
+                originals = {}
+                for name, spec in manifest.items():
+                    path = Path(spec['archive']).resolve(strict=True)
+                    info = path.stat()
+                    real_stamps[path] = (info.st_ino, info.st_size, info.st_mtime_ns)
+                    with zipfile.ZipFile(path) as archive:
+                        assert archive.getinfo(spec['member']).file_size <= 128 * 1024 * 1024
+                        originals[name] = archive.read(spec['member'])
             (root / 'compression-fixture.json').write_text(json.dumps(dict(
-                first='one.fb2', second='two.epub', grayscale=False, timeout_ms=300000,
+                members=[name for name in originals if name != 'neighbor.fb2'],
+                grayscale=containers, timeout_ms=300000,
                 inspect_comparison=inspect_comparison)), encoding='utf-8')
         selected = [name for name in originals if name != 'neighbor.fb2']
         if inspect_comparison and not real_books:
@@ -855,6 +880,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
                                'Native normal INPX/Metabib menu or Windows Shell import on a private synthetic catalogue; no real user data'))
         attempt.update(status='VERIFYING_CONTENT', native_returncode=process.returncode)
         attempt_file.write_text(json.dumps(attempt, indent=2), encoding='utf-8')
+        book_results = {}
         with zipfile.ZipFile(source) as archive:
             assert set(archive.namelist()) == set(originals)
             assert archive_body(source, 'neighbor.fb2', root / 'tools/7zip/7za.exe') == originals['neighbor.fb2']
@@ -862,6 +888,17 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
                 assert source.stat().st_size < size
                 for name in selected:
                     body = archive_body(source, name, root / 'tools/7zip/7za.exe')
+                    book_results[name] = dict(before_bytes=len(originals[name]), after_bytes=len(body),
+                        output_sha256=hashlib.sha256(body).hexdigest())
+                    extension = Path(name).suffix.lower()
+                    if extension in {'.cbz', '.docx', '.odt'}:
+                        before_file, after_file = root / ('original' + extension), root / ('result' + extension)
+                        before_file.write_bytes(originals[name]); after_file.write_bytes(body)
+                        verify_non_image_content(before_file, after_file, extension)
+                        from test_real_container_compression import verify_grayscale
+                        import unittest
+                        verify_grayscale(unittest.TestCase(), after_file, extension)
+                        continue
                     if name.endswith('.epub'):
                         before_file, after_file = root / 'original.epub', root / 'result.epub'
                         before_file.write_bytes(originals[name]); after_file.write_bytes(body)
@@ -909,7 +946,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
                     processing_package_sha256=digest(processing_package) if processing_package else None,
                     input_sha256={name: hashlib.sha256(body).hexdigest() for name, body in originals.items()},
                     real_source_stamps={str(path): stamp for path, stamp in real_stamps.items()},
-                    whole=whole,
+                    whole=whole, estimate_first=estimate_first, book_results=book_results,
                     cancel_compression_refresh=cancel_compression_refresh,
                     work_picker=work_picker,
                     repeat_new=repeat_new,

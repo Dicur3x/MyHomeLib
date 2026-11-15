@@ -160,7 +160,7 @@ begin
   FList.Hint:=FList.Text;
   FBefore.HorzScrollBar.Position:=0; FBefore.VertScrollBar.Position:=0;
   FAfter.HorzScrollBar.Position:=0; FAfter.VertScrollBar.Position:=0;
-  FNote.Caption:=Format('Изображение %d из %d. Для сравнения берётся не более 12 иллюстраций текущего файла. '+
+  FNote.Caption:=Format('Изображение %d из %d. Для сравнения берётся до 12 иллюстраций выбранных книг. '+
     'Проверьте мелкий текст и важные детали перед применением.',[FList.ItemIndex+1,FList.Items.Count]);
   FitImages;
 end;

@@ -129,7 +129,8 @@ type
   TCompressionCatalogueDriver = class
     Timer: TTimer;
     Mode, OriginalSHA, Source, BackupFolder, RecoveryFault, RecoveryIssues, ResultNote: string;
-    ProfileIndex: Integer;
+    ProfileIndex, ExpectedBooks: Integer;
+    ExpectedMembers:TArray<string>;
     Grayscale, CancelOptions, InspectWorkPicker: Boolean;
     WorkPickerInitial, WorkPickerExpected:string;
     InspectComparison, EstimateFirst, EstimateSeen, Whole, OnlyNew: Boolean;
@@ -160,6 +161,22 @@ begin
       end;
       Require(not TCheckBox(Form.FindComponent('ComparisonFit')).Checked,'Comparison must start at actual 100 percent');
       var Before:=TImage(Form.FindComponent('ComparisonBeforeImage'));
+      var Choices:=TComboBox(Form.FindComponent('ComparisonImages'));
+      for var Member in ExpectedMembers do
+      begin
+        var Found:=False;
+        for var J:=0 to Choices.Items.Count-1 do
+          if Choices.Items[J].StartsWith(Member+' · ') then
+          begin
+            Choices.ItemIndex:=J; Choices.OnChange(Choices);
+            Require(Assigned(Before.Picture.Graphic) and
+              Assigned(TImage(Form.FindComponent('ComparisonAfterImage')).Picture.Graphic),
+              'Comparison failed to decode selected book: '+Member);
+            Found:=True; Break;
+          end;
+        Require(Found,'Comparison omitted an illustrated selected book: '+Member);
+      end;
+      Choices.ItemIndex:=0; Choices.OnChange(Choices);
       Require((Before.Picture.Graphic=nil) or (Before.Width=Before.Picture.Width),'Comparison changed original pixel size');
       if Grayscale then Require(Assigned(Before.Picture.Graphic),'Original preview failed to decode');
       for var Dark in [False,True] do
@@ -295,7 +312,7 @@ begin
         begin
           Require(Pos('Новых книг',TLabel(Form.FindComponent('CompressionStage')).Caption)>0,
             'Unchanged collection did not finish with a clear no-arrivals result');
-          Require(Note.Contains('Ранее проверено книг с этими настройками: 2.'),
+          Require(Note.Contains('Ранее проверено книг с этими настройками: '+IntToStr(ExpectedBooks)+'.'),
             'Already processed books disappeared from the result');
         end;
         TButton(Form.FindComponent('CompressionStop')).Click;
@@ -399,7 +416,13 @@ var Driver:TCompressionCatalogueDriver; After:TBookRecord;
     Action:TAction; Source, Cached, Mode, Registry:string;
     Options:TBookCompressionOperationOptions; Zip:TZipFile;
     Books:TArray<TBookRecord>; OriginalBody, OutputBody:TBytes; Started, Timeout:UInt64;
-    Members:TArray<string>; Config:TJSONObject;
+    Members:TArray<string>; IDs:TArray<Integer>; OriginalBodies:TArray<TBytes>; Config:TJSONObject;
+    MemberList:TJSONArray;
+  function SelectedBookIndex(ID:Integer):Integer;
+  begin
+    Result:=-1;
+    for var I:=0 to High(IDs) do if IDs[I]=ID then Exit(I);
+  end;
 begin
   if FileExists(Settings.AppPath+'legacy-compression-fixture.json') then
     TestLegacyCompressionHistoryCatalogue(Collection,FirstID,SecondID);
@@ -418,6 +441,12 @@ begin
       Require(Assigned(Config),'Invalid isolated compression fixture');
       Members[0]:=Config.GetValue<string>('first','one.fb2');
       Members[1]:=Config.GetValue<string>('second','two.fb2');
+      if Config.TryGetValue<TJSONArray>('members',MemberList) then
+      begin
+        Require(InRange(MemberList.Count,2,10),'Expected two to ten selected test books');
+        SetLength(Members,MemberList.Count);
+        for var I:=0 to MemberList.Count-1 do Members[I]:=MemberList.Items[I].Value;
+      end;
       Driver.Grayscale:=Config.GetValue<Boolean>('grayscale',True);
       Driver.ProfileIndex:=Config.GetValue<Integer>('profile_index',2);
       Require(InRange(Driver.ProfileIndex,0,3),'Invalid fixture compression profile');
@@ -435,13 +464,18 @@ begin
     if Mode='estimate' then Driver.EstimateFirst:=True;
     Driver.OriginalSHA:=THashSHA2.GetHashStringFromFile(Source);
     Driver.BackupFolder:=Settings.AppPath+'originals'; ForceDirectories(Driver.BackupFolder);
-    SetLength(Books,2); Zip:=TZipFile.Create;
+    Driver.ExpectedBooks:=Length(Members); Driver.ExpectedMembers:=Copy(Members);
+    SetLength(Books,Length(Members)); SetLength(IDs,Length(Members));
+    SetLength(OriginalBodies,Length(Members));
+    IDs[0]:=FirstID; IDs[1]:=SecondID;
+    for var I:=2 to High(IDs) do
+      IDs[I]:=AddBook(Collection,'Compression selected '+IntToStr(I),'Alpha','ru','','prose_contemporary');
+    Zip:=TZipFile.Create;
     try
       Zip.Open(Source,zmRead);
-      for var I:=0 to 1 do
+      for var I:=0 to High(Books) do
       begin
-        var ID:=FirstID; if I=1 then ID:=SecondID;
-        Collection.GetBookRecord(CreateBookKey(ID,Collection.CollectionID),Books[I],True);
+        Collection.GetBookRecord(CreateBookKey(IDs[I],Collection.CollectionID),Books[I],True);
         Require((ExtractFileName(Members[I])=Members[I]) and (Zip.IndexOf(Members[I])>=0),'Missing exact selected fixture member');
         Books[I].Folder:='books\shared.zip'; Books[I].FileName:=ChangeFileExt(Members[I],'');
         Books[I].FileExt:=ExtractFileExt(Members[I]); Books[I].InsideNo:=I;
@@ -450,13 +484,17 @@ begin
           FileExists(Settings.AppPath+'reviewed-compression.marker') then
           Books[I].LibID:='compression-refresh-'+IntToStr(I+1);
         Collection.UpdateBook(Books[I]);
+        Zip.Read(Members[I],OriginalBodies[I]);
       end;
-      Zip.Read(Members[0],OriginalBody);
+      OriginalBody:=OriginalBodies[0];
     finally Zip.Free; end;
     Require(TryStoreReaderBookProgress(Collection,Books[0],37),'Cannot seed personal progress');
-    Cached:=PrepareReaderFile(Books[0],True);
-    Require(CompressionBodyHash(TFile.ReadAllBytes(Cached))=CompressionBodyHash(OriginalBody),
-      'Initial Reader cache has wrong book');
+    for var I:=0 to High(Books) do
+    begin
+      Cached:=PrepareReaderFile(Books[I],True);
+      Require(CompressionBodyHash(TFile.ReadAllBytes(Cached))=CompressionBodyHash(OriginalBodies[I]),
+        'Initial Reader cache has wrong book: '+Members[I]);
+    end;
     if Assigned(Config) and Config.GetValue<Boolean>('repeat_offer',False) then
     begin
       Require(VarToStr(Collection.GetProperty(PROP_COMPRESSION_PREFERENCES))='',
@@ -475,7 +513,7 @@ begin
     begin
       Data:=frmMain.tvBooksSR.GetNodeData(Node);
       if Assigned(Data) and (Data^.nodeType=ntBookInfo) and
-        ((Data^.BookKey.BookID=FirstID) or (Data^.BookKey.BookID=SecondID)) then
+        (SelectedBookIndex(Data^.BookKey.BookID)>=0) then
       begin
         frmMain.tvBooksSR.CheckState[Node]:=csCheckedNormal;
         frmMain.tvBooksSR.FocusedNode:=Node;
@@ -483,7 +521,7 @@ begin
       end;
       Node:=frmMain.tvBooksSR.GetNext(Node);
     end;
-    Require(Selected=2,'Select exactly two visible books');
+    Require(Selected=Length(Books),'Select every requested visible book');
     Options:=Default(TBookCompressionOperationOptions);
     Options.Profile:=Profiles[Driver.ProfileIndex]; Options.Grayscale:=Driver.Grayscale;
     Require(Length(ResolveSelectedCompressionTools(Settings.AppPath,Options))=0,'Incomplete private compression runtime');
@@ -513,36 +551,48 @@ begin
         (not Driver.EstimateFirst or Driver.EstimateStageSeen),
         'Russian worker stages were lost or decoded incorrectly');
     var CurrentCollection:=SystemDB.GetCollection(Collection.CollectionID);
-    CurrentCollection.GetBookRecord(Books[0].BookKey,After,False);
     ShowPage(PAGE_SEARCH);
-    var VisibleBook:=False;
+    var VisibleBooks:=0;
     Node:=frmMain.tvBooksSR.GetFirst;
     while Assigned(Node) do
     begin
       Data:=frmMain.tvBooksSR.GetNodeData(Node);
-      if Assigned(Data) and (Data^.nodeType=ntBookInfo) and
-        (Data^.BookKey.BookID=FirstID) then
+      if Assigned(Data) and (Data^.nodeType=ntBookInfo) then
       begin
-        VisibleBook:=True;
-        Require(Data^.Size=After.Size,'Visible catalogue row kept the old size');
+        var SelectedIndex:=SelectedBookIndex(Data^.BookKey.BookID);
+        if SelectedIndex>=0 then
+        begin
+          Inc(VisibleBooks);
+          CurrentCollection.GetBookRecord(Books[SelectedIndex].BookKey,After,False);
+          Require(Data^.Size=After.Size,'Visible catalogue row kept the old size: '+Members[SelectedIndex]);
+        end;
       end;
       Node:=frmMain.tvBooksSR.GetNext(Node);
     end;
-    Require(VisibleBook,'Applied search was lost after compression');
+    Require(VisibleBooks=Length(Books),'Applied search lost a selected book after compression');
     NewSize:=TFile.GetSize(Source);
     if Mode='apply' then
     begin
       Require(NewSize<OldSize,'Confirmed compression did not shrink the archive');
-      Cached:=PrepareReaderFile(After,True); OutputBody:=TFile.ReadAllBytes(Cached);
-      Require(CompressionBodyHash(OriginalBody)<>CompressionBodyHash(OutputBody),
-        'Reader reused stale original cache after image compression');
-      Require(After.Size=Length(OutputBody),'Catalogue size was not refreshed');
+      for var I:=0 to High(Books) do
+      begin
+        CurrentCollection.GetBookRecord(Books[I].BookKey,After,False);
+        Cached:=PrepareReaderFile(After,True); OutputBody:=TFile.ReadAllBytes(Cached);
+        Require(CompressionBodyHash(OriginalBodies[I])<>CompressionBodyHash(OutputBody),
+          'Reader reused stale original cache after image compression: '+Members[I]);
+        Require((After.Size=Length(OutputBody)) and (After.Size<Books[I].Size),
+          'Catalogue size was not refreshed: '+Members[I]);
+      end;
       Require(Length(TDirectory.GetFiles(Driver.BackupFolder,'*.zip'))=1,'No persistent original backup');
       Zip:=TZipFile.Create;
       try
         Zip.Open(TDirectory.GetFiles(Driver.BackupFolder,'*.zip')[0],zmRead);
-        Zip.Read('books/'+Members[0],OutputBody);
-        Require(CompressionBodyHash(OutputBody)=CompressionBodyHash(OriginalBody),'Backup lost original book bytes');
+        for var I:=0 to High(Books) do
+        begin
+          Zip.Read('books/'+Members[I],OutputBody);
+          Require(CompressionBodyHash(OutputBody)=CompressionBodyHash(OriginalBodies[I]),
+            'Backup lost original book bytes: '+Members[I]);
+        end;
       finally Zip.Free; end;
     end
     else
