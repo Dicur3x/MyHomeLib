@@ -745,7 +745,7 @@ begin
   Hash:=THashSHA2.Create;
   Add('worker',FOptions.Script); Add('archive-engine',FOptions.SevenZip);
   for var Name in ['convert_book.py','pack_collection.py','image_quality.py','image_input.py','external_image_preparation.py',
-    'restored_book_validation.py','nested_epub_compression.py','MODULAR_RUNTIME.json'] do
+    'restored_book_validation.py','nested_epub_compression.py','container_image_quality.py','MODULAR_RUNTIME.json'] do
     Add('bookconvert/'+Name,TPath.Combine(FOptions.ToolsRoot,'bookconvert/'+Name));
   Add('image-engine',TPath.Combine(FOptions.ToolsRoot,'images/HomeLibImages.exe'));
   Add('image-config',TPath.Combine(FOptions.ToolsRoot,'images/HomeLibImages.exe.config'));

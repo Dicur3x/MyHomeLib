@@ -112,12 +112,18 @@ internal static class HomeLibXps
                 return 0;
             }
             if (args.Length == 1 && args[0] == "--packing-image-profiles") {
-                Console.WriteLine("maximum grayscale"); return 0;
+                Console.WriteLine("maximum grayscale same-format"); return 0;
             }
             if (args.Length == 3 && args[0] == "--image-pages") return ImagePages(args[1], args[2]);
-            if (args.Length == 4 && args[0] == "--export-images") return ExportImages(args[1], args[2], args[3]);
-            if (args.Length == 5 && args[0] == "--export-images" && args[4] == "--grayscale")
-                return ExportImages(args[1], args[2], args[3], true);
+            if (args.Length >= 4 && args.Length <= 6 && args[0] == "--export-images") {
+                bool grayscale = false, sameFormat = false;
+                for (int i = 4; i < args.Length; i++) {
+                    if (args[i] == "--grayscale" && !grayscale) grayscale = true;
+                    else if (args[i] == "--keep-format" && !sameFormat) sameFormat = true;
+                    else throw new ArgumentException("Unknown or duplicate image export option.");
+                }
+                return ExportImages(args[1], args[2], args[3], grayscale, sameFormat);
+            }
             if (args.Length == 5 && args[0] == "--scan-images") return ScanImages(args[1], args[2], args[3], args[4]);
             if (args.Length == 6 && args[0] == "--scan-images" && args[5] == "--grayscale")
                 return ScanImages(args[1], args[2], args[3], args[4], true);
@@ -210,7 +216,7 @@ internal static class HomeLibXps
     }
 
     // Encode local book pictures in one bounded process. Never upscale a page.
-    private static byte[] ExportImage(byte[] original, BitmapSource decoded, string profile, bool grayscale = false, bool retainOriginal = true)
+    private static byte[] ExportImage(byte[] original, BitmapSource decoded, string profile, bool grayscale = false, bool retainOriginal = true, bool sameFormat = false)
     {
         if (profile == "high" && !grayscale) return original;
         {
@@ -218,6 +224,8 @@ internal static class HomeLibXps
             if (width <= 0 || height <= 0 || width > 16384 || height > 16384 || (long)width * height > 16777216)
                 throw new IOException("Export image dimensions exceed the reader limit.");
             if (Math.Max(width, height) <= 512 && !grayscale) return original;
+            bool jpegSource = original.Length > 2 && original[0] == 255 && original[1] == 216;
+            bool allowPng = !sameFormat || !jpegSource;
             bool maximum = profile == "maximum";
             double edge = profile == "balanced" ? 2200 : maximum ? 1280 : 1600;
             double floor = profile == "balanced" ? .85 : 0;
@@ -257,7 +265,7 @@ internal static class HomeLibXps
             // A color original must never win the grayscale size comparison.
             byte[] best = !retainOriginal || (grayscale && (!gray || scale < 1)) ? null : original;
             bool[] textRows=null;
-            bool textScanProfile = (profile == "economy" || maximum) && !alpha && colored == 0 && (!grayscale || gray);
+            bool textScanProfile = allowPng && (profile == "economy" || maximum) && !alpha && colored == 0 && (!grayscale || gray);
             bool paletteScan = paperOrInk >= width * height * .90;
             if (textScanProfile)
             {
@@ -325,14 +333,14 @@ internal static class HomeLibXps
                 var png = new PngBitmapEncoder(); png.Frames.Add(BitmapFrame.Create(textScan));
                 using (var bytes=new MemoryStream()) { png.Save(bytes); if(best==null || bytes.Length<best.Length) best=bytes.ToArray(); }
             }
-            if (grayscale || alpha || original[0] != 255 || original[1] != 216)
+            if (allowPng && (grayscale || alpha || !jpegSource))
             {
                 var png = new PngBitmapEncoder(); png.Frames.Add(BitmapFrame.Create(encoded));
                 using (var bytes = new MemoryStream()) { png.Save(bytes); if (best == null || bytes.Length < best.Length) best = bytes.ToArray(); }
             }
-            if (!alpha && profile != "high")
+            if (!alpha && (!sameFormat || jpegSource) && (profile != "high" || (sameFormat && grayscale)))
             {
-                var jpeg = new JpegBitmapEncoder { QualityLevel = profile == "balanced" ? 60 : maximum ? 30 : 40 };
+                var jpeg = new JpegBitmapEncoder { QualityLevel = profile == "high" ? 95 : profile == "balanced" ? 60 : maximum ? 30 : 40 };
                 jpeg.Frames.Add(BitmapFrame.Create(encoded));
                 using (var bytes = new MemoryStream()) { jpeg.Save(bytes); if (best == null || bytes.Length < best.Length) best = bytes.ToArray(); }
             }
@@ -340,7 +348,7 @@ internal static class HomeLibXps
         }
     }
 
-    private static int ExportImages(string source, string destination, string profile, bool grayscale = false)
+    private static int ExportImages(string source, string destination, string profile, bool grayscale = false, bool sameFormat = false)
     {
         bool extendedEstimate = profile == "estimate-maximum";
         bool estimate = profile == "estimate" || extendedEstimate;
@@ -367,6 +375,10 @@ internal static class HomeLibXps
                         throw new IOException("Invalid export image entry.");
                     byte[] data;
                     using (Stream image = entry.Open()) using (var bytes = new MemoryStream()) { image.CopyTo(bytes); data = bytes.ToArray(); }
+                    if (sameFormat && !(data.Length >= 8 && (data[0] == 255 && data[1] == 216 ||
+                            data[0] == 137 && data[1] == 80 && data[2] == 78 && data[3] == 71 &&
+                            data[4] == 13 && data[5] == 10 && data[6] == 26 && data[7] == 10)))
+                        throw new IOException("Same-format image export requires JPEG or PNG.");
                     byte[] previous = grayscale ? null : data;
                     // Keep quality/size choices monotonic: a compact profile may
                     // reuse a smaller, clearer result from the previous profile.
@@ -382,7 +394,7 @@ internal static class HomeLibXps
                         foreach (string choice in profiles)
                         {
                             byte[] encoded = keepMetadata && !grayscale ? data :
-                                ExportImage(data, image, choice, grayscale, !keepMetadata);
+                                ExportImage(data, image, choice, grayscale, !keepMetadata, sameFormat);
                             if (previous != null && previous.Length < encoded.Length) encoded = previous;
                             previous = encoded;
                             if (estimate || choice == profile)

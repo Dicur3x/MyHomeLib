@@ -343,7 +343,7 @@ def image_storage(target_extension, container=None):
         if target_extension != '.fb2': raise ValueError('ZIP-контекст допустим только для FB2.')
         return container
     if container not in (None, 'raw'): raise ValueError('Неизвестный контейнер изображений.')
-    return container or ('epub' if target_extension == '.epub' else 'raw')
+    return container or ('epub' if target_extension in {'.epub', '.docx', '.odt', '.cbz'} else 'raw')
 
 
 def select_container_profiles(result, profile, storage, layout=False):
@@ -372,7 +372,7 @@ def select_container_profiles(result, profile, storage, layout=False):
     return chosen
 
 
-def run(api, tool, pictures, directory, profile, progress, layout=None, storage='raw', check=None, grayscale=False, tools_root=None):
+def run(api, tool, pictures, directory, profile, progress, layout=None, storage='raw', check=None, grayscale=False, tools_root=None, preserve_format=False):
     native_profile = 'estimate' if storage != 'raw' and profile in ('balanced','economy') else profile
     if storage != 'raw' and profile == 'maximum':
         native_profile = 'estimate-maximum'
@@ -391,6 +391,7 @@ def run(api, tool, pictures, directory, profile, progress, layout=None, storage=
         arguments = [str(tool), '--scan-images' if layout else '--export-images', str(source), str(output), native_profile]
         if layout: arguments.append(layout)
         if grayscale: arguments.append('--grayscale')
+        if preserve_format: arguments.append('--keep-format')
         process = subprocess.Popen(arguments,
                                    stdout=stream, stderr=subprocess.STDOUT,
                                    creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
@@ -475,6 +476,8 @@ def run(api, tool, pictures, directory, profile, progress, layout=None, storage=
                     data = original if identical and position == len(original) else archive.read(entry)
                 else: data = archive.read(entry)
                 if not mime(data): raise api.ConversionError('Некорректное сжатое изображение.')
+                if preserve_format and mime(data) != mime(original):
+                    raise api.ConversionError('Модуль изображений изменил исходный формат ресурса; книга сохранена.')
                 if webp and not grayscale and (p == 'high' or len(data) >= len(original)):
                     data = original
                 result[p].append(data)
@@ -492,10 +495,13 @@ def compressed_image_hashes(api, book, extension, check):
             data = base64.b64decode(''.join((node.text or '').split()), validate=True)
             if mime(data):
                 outputs.add(hashlib.sha256(data).hexdigest())
-    elif extension == '.epub':
+    elif extension in {'.epub', '.docx', '.odt', '.cbz'}:
+        members = None if extension == '.epub' else api.packing_image_members(book, extension, check)
         with zipfile.ZipFile(book) as archive:
             for entry in archive.infolist():
                 check()
+                if members is not None and entry.filename not in members:
+                    continue
                 if not 0 < entry.file_size <= 16 * 1024 * 1024:
                     continue
                 with archive.open(entry) as stream:
@@ -522,6 +528,8 @@ def apply(api, book, target_extension, profile, tools_root, progress, options_fi
                 warnings.add('Книга сохранена без изображений и обложки. Исходная книга сохранена.')
         return
     pictures, identities = [], []
+    preserve_format = target_extension in {'.docx', '.odt', '.cbz'}
+    members = api.packing_image_members(book, target_extension, check) if preserve_format else None
     root = None
     if target_extension == '.fb2':
         original_bytes = book.read_bytes()
@@ -545,6 +553,7 @@ def apply(api, book, target_extension, profile, tools_root, progress, options_fi
         with zipfile.ZipFile(book) as archive:
             for entry in archive.infolist():
                 # Only raster resources: SVG, fonts and text are never rasterized.
+                if members is not None and entry.filename not in members: continue
                 if entry.file_size > 16*1024*1024: continue
                 with archive.open(entry) as stream: header = stream.read(12)
                 if mime(header): pictures.append(archive.read(entry)); identities.append(entry.filename)
@@ -586,7 +595,7 @@ def apply(api, book, target_extension, profile, tools_root, progress, options_fi
         if profile == 'ask':
             candidate = directory/('text-only'+target_extension)
             try:
-                removed = without_images(api,book,candidate,target_extension)
+                removed = 0 if preserve_format else without_images(api,book,candidate,target_extension)
                 text_only_size = candidate.stat().st_size if removed else 0
                 if not removed and small: return
             except NoTextContent:
@@ -606,7 +615,7 @@ def apply(api, book, target_extension, profile, tools_root, progress, options_fi
             retained_packed = (sum(deflated_size(base64.b64encode(data)) for data in retained)
                                if target_extension == '.fb2' else 0)
             samples = ({p:[pictures[i] for i in sample_indices] for p in PACKING_PROFILES} if small else
-                       run(api, tool, [pictures[i] for i in sample_indices], directory, 'estimate-maximum', progress, storage=storage, check=check, grayscale=grayscale))
+                       run(api, tool, [pictures[i] for i in sample_indices], directory, 'estimate-maximum', progress, storage=storage, check=check, grayscale=grayscale, preserve_format=preserve_format))
             sizes = {'original': book.stat().st_size}
             # Includes a small allowance for UTF-8 member names and ZIP headers.
             # All are estimates, not a promise of byte-identical final lengths.
@@ -669,7 +678,7 @@ def apply(api, book, target_extension, profile, tools_root, progress, options_fi
             if check is not None: check()
             indices = remaining[at:at+9]
             result = run(api, tool, [pictures[i] for i in indices], directory, profile,
-                         lambda *_: None, storage=storage, check=check, grayscale=grayscale)[profile]
+                         lambda *_: None, storage=storage, check=check, grayscale=grayscale, preserve_format=preserve_format)[profile]
             for index,data in zip(indices,result): encoded[index] = data
             processed.update(indices)
             progress('optimizing-images', min(len(pictures), at+len(indices)+len(sample_indices)), len(pictures))
@@ -683,18 +692,29 @@ def apply(api, book, target_extension, profile, tools_root, progress, options_fi
         else:
             replacements = dict(zip(identities,encoded)); rewritten = directory/'book.epub'
             with zipfile.ZipFile(book) as source, zipfile.ZipFile(rewritten,'w',compression=zipfile.ZIP_DEFLATED) as output:
+                if preserve_format: output.comment = source.comment
                 for entry in source.infolist():
                     data = replacements.get(entry.filename)
                     if data is None:
                         data = source.read(entry)
-                        if entry.filename.lower().endswith('.opf'):
+                        if preserve_format and target_extension == '.odt' and entry.filename == 'META-INF/manifest.xml':
+                            data = api.packing_container_metadata(data, replacements)
+                        if not preserve_format and entry.filename.lower().endswith('.opf'):
                             package = api.xml(data)
                             for item in package.iter():
                                 if api.tag(item) != 'item': continue
                                 name = source_name(entry.filename,item.get('href',''))
                                 if name in replacements: item.set('media-type',mime(replacements[name]))
                             data = api.serialized(package)
-                    output.writestr(entry.filename,data,compress_type=zipfile.ZIP_STORED if entry.filename=='mimetype' else zipfile.ZIP_DEFLATED)
+                    if preserve_format:
+                        written = copy.copy(entry)
+                        output.writestr(written, data)
+                        # ZipFile fills a zero attribute with Unix permissions.
+                        # Office commonly records zero; the central directory
+                        # must retain that original value as well.
+                        written.external_attr = entry.external_attr
+                    else:
+                        output.writestr(entry.filename,data,compress_type=zipfile.ZIP_STORED if entry.filename=='mimetype' else zipfile.ZIP_DEFLATED)
             rewritten.replace(book)
         report_history(encoded, processed)
         if warnings is not None: warnings.add('Изображения подготовлены для экспорта: '+{'high':'высокое качество','balanced':'сбалансированный режим','economy':'экономный режим','maximum':'максимальная экономия'}[profile]+'. Исходная книга сохранена.')

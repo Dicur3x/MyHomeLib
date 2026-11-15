@@ -115,12 +115,67 @@ def verify_non_image_content(source, candidate, extension):
             unchanged = _fb2_content(source) == _fb2_content(candidate)
         elif extension == '.epub':
             unchanged = _epub_content(source) == _epub_content(candidate, output=True)
+        elif extension in {'.docx', '.odt', '.cbz'}:
+            unchanged = _container_content(source, extension) == _container_content(candidate, extension, output=True)
         else:
             return
-    except (ElementTree.ParseError, zipfile.BadZipFile, ValueError, RecursionError) as error:
+    except (ElementTree.ParseError, zipfile.BadZipFile, KeyError, ValueError, RecursionError) as error:
         raise PackingError('Не удалось проверить сохранность текста и оформления книги.') from error
     if not unchanged:
         raise PackingError('Обработка изменила текст, оформление или метаданные. Сохранена исходная книга.')
+
+
+def _container_content(path, extension, output=False):
+    """Keep undeclared assets exact; exempt only the format's actual images."""
+    with zipfile.ZipFile(path) as archive:
+        names = archive.namelist()
+        if len(names) != len(set(names)):
+            raise PackingError('Контейнер содержит повторяющиеся внутренние имена.')
+        raster_types = {}
+        for entry in archive.infolist():
+            with archive.open(entry) as stream:
+                media = _image_mime(stream.read(12))
+                if media in {'image/png', 'image/jpeg'}:
+                    raster_types[entry.filename] = media
+        namespace = '{urn:oasis:names:tc:opendocument:xmlns:manifest:1.0}'
+        if extension == '.odt':
+            manifest = ElementTree.fromstring(archive.read('META-INF/manifest.xml'))
+            declared = {n.get(namespace+'full-path'): n.get(namespace+'media-type', '').lower()
+                        for n in manifest.iter(namespace+'file-entry')}
+        elif extension == '.docx':
+            types = ElementTree.fromstring(archive.read('[Content_Types].xml'))
+            default = {n.get('Extension', '').lower(): n.get('ContentType', '').lower()
+                       for n in types if n.tag.endswith('}Default')}
+            override = {n.get('PartName', '').lstrip('/'): n.get('ContentType', '').lower()
+                        for n in types if n.tag.endswith('}Override')}
+            declared = {n: override.get(n, default.get(Path(n).suffix.lower()[1:])) for n in names
+                        if n.startswith('word/media/') or n.startswith('docProps/thumbnail.')}
+        else:
+            declared = {n: 'image/png' if Path(n).suffix.lower() == '.png' else 'image/jpeg'
+                        for n in names if Path(n).suffix.lower() in {'.png', '.jpg', '.jpeg'}}
+        images = {n: archive.getinfo(n).file_size for n, media in raster_types.items()
+                  if declared.get(n) == media}
+        def manifest_node(element):
+            attributes = dict(element.attrib)
+            name = attributes.get(namespace+'full-path', '')
+            if element.tag == namespace+'file-entry' and name in images and namespace+'size' in attributes:
+                if output and attributes[namespace+'size'] != str(images[name]):
+                    raise PackingError('Размер изображения в манифесте ODT не совпал с файлом.')
+                attributes[namespace+'size'] = 'image-size'
+            return (element.tag, sorted(attributes.items()), element.text, element.tail,
+                    tuple(manifest_node(child) for child in element))
+        result = []
+        for entry in archive.infolist():
+            data = archive.read(entry)
+            media = _image_mime(data)
+            content = ('raster', media) if entry.filename in images else data
+            if extension == '.odt' and entry.filename == 'META-INF/manifest.xml':
+                parser = ElementTree.XMLParser(target=ElementTree.TreeBuilder(insert_comments=True, insert_pis=True))
+                content = manifest_node(ElementTree.fromstring(data, parser=parser))
+            result.append((entry.filename, entry.date_time, entry.compress_type,
+                           entry.comment, entry.extra, entry.external_attr,
+                           entry.internal_attr, entry.create_system, content))
+        return archive.comment, result
 
 
 @dataclass

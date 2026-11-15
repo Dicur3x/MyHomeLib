@@ -93,7 +93,7 @@ class ComparisonPreview:
                     continue
                 if not self.add_pair(member, name, before[name], after[name]):
                     break
-        elif extension == '.epub':
+        elif extension in {'.epub', '.docx', '.odt', '.cbz'}:
             with zipfile.ZipFile(original) as old, zipfile.ZipFile(result) as new:
                 available = set(new.namelist())
                 for item in old.infolist():

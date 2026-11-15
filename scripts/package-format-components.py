@@ -313,7 +313,7 @@ def payload_for(platform, component, kindle_export_root=None, advanced_export_ro
                     'tools/bookconvert/ADVANCED_EXPORT_API.txt', 'tools/bookconvert/advanced_output.py',
                     'tools/bookconvert/markdown_output.py', 'tools/bookconvert/epub2_output.py', 'tools/bookconvert/epub3_output.py',
                     'tools/bookconvert/epub_kfx_output.py', 'tools/bookconvert/kfx_image_input.py',
-                    'tools/bookconvert/image_quality.py', *packing_workers, *sql_workers]
+                    'tools/bookconvert/image_quality.py', 'tools/bookconvert/container_image_quality.py', *packing_workers, *sql_workers]
         helper.binary_platform(payload['tools/python/python.exe'], platform)
     elif component == 'ImageProcessing':
         source = Path(image_processing_root)/platform if image_processing_root else runtime/'images'

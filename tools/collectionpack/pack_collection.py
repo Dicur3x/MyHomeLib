@@ -40,7 +40,7 @@ TEXT_SUFFIXES = {'.fb2', '.txt', '.rtf', '.html', '.htm', '.xml', '.md', '.csv'}
 ADAPTIVE_PPMD_SUFFIXES = {'.xhtml', '.shtml', '.mht', '.mhtml', '.markdown', '.mobi', '.azw3', '.pdb'}
 ADAPTIVE_LZMA_SUFFIXES = {'.doc', '.dot', '.ppt', '.pps', '.pot', '.xls', '.xlt', '.rgo', '.tif', '.tiff'}
 ADAPTIVE_COMPRESSION_LIMIT = 64 * 1024 * 1024
-IMAGE_SUFFIXES = {'.fb2', '.epub'}
+IMAGE_SUFFIXES = {'.fb2', '.epub', '.docx', '.odt', '.cbz'}
 DJVU_SUFFIXES = {'.djvu', '.djv', '.dju', '.djm', '.djvm'}
 IMAGE_ENGINES = ('illustrations-ppmd', 'illustrations-gray-ppmd')
 JPEG_XL_ENGINE = 'jpeg-xl-7z'
@@ -708,7 +708,7 @@ class JpegXL:
             return images
 
     def separate(self, source, destination, scratch):
-        if source.stat().st_size > MAX_IMAGE_BOOK or source.suffix not in IMAGE_SUFFIXES:
+        if source.stat().st_size > MAX_IMAGE_BOOK or source.suffix not in {'.fb2', '.epub'}:
             return {}
         try:
             if source.suffix == '.fb2':
@@ -830,7 +830,12 @@ class Packer:
             reserve_space(stage, 3 * size)
             history_options = (dict(packing_image_history=image_history, packing_image_report=history_updates.append)
                                if collect_image_history else {})
-            converter.convert_book(target, candidate, image_quality=self.images,
+            convert = converter.convert_book
+            if target.suffix in {'.docx', '.odt', '.cbz'}:
+                convert = getattr(converter, 'compress_image_container', None)
+                if not callable(convert) or getattr(converter, 'PACKING_IMAGE_API', 0) < 4:
+                    raise PackingError('Для сжатия ODT, DOCX и CBZ обновите HomeLibre BookProcessing.')
+            convert(target, candidate, image_quality=self.images,
                                    image_container='fb2-zip' if target.suffix == '.fb2' else None,
                                    tools_root=self.tools_root, cancel_check=self.check,
                                    packing_grayscale=self.grayscale and self.images != 'original',

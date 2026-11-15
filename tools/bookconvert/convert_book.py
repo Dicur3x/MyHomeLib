@@ -1853,7 +1853,30 @@ def rewrite_epub_version(source, output, version, transform, warnings, check):
         archive.close()
 
 
-PACKING_IMAGE_API = 3
+PACKING_IMAGE_API = 4
+PACKING_IMAGE_FORMATS = frozenset({'.fb2', '.epub', '.docx', '.odt', '.cbz'})
+
+
+def _packing_container_module():
+    spec = importlib.util.spec_from_file_location('homelibre_container_images', Path(__file__).with_name('container_image_quality.py'))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def packing_image_members(book, extension, check=None):
+    api = type('ConversionAPI', (), {name: value for name, value in globals().items() if not name.startswith('__')})
+    return _packing_container_module().image_members(api, book, extension, check)
+
+
+def packing_container_metadata(data, replacements):
+    api = type('ConversionAPI', (), {name: value for name, value in globals().items() if not name.startswith('__')})
+    return _packing_container_module().rewrite_metadata(api, data, replacements)
+
+
+def compress_image_container(source, destination, **options):
+    api = type('ConversionAPI', (), {name: value for name, value in globals().items() if not name.startswith('__')})
+    return _packing_container_module().compress(api, source, destination, **options)
 
 
 def compressed_image_hashes(book, extension, check):

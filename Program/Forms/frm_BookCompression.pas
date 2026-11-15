@@ -191,9 +191,9 @@ procedure TfrmBookCompressionOptions.ProfileChanged(Sender: TObject);
 begin
   case FProfile.ItemIndex of
     0: FExplanation.Caption:='Содержимое книг и качество изображений сохраняются. Экономия возможна за счёт упаковки.';
-    1: FExplanation.Caption:='Умеренное сжатие крупных иллюстраций FB2 и EPUB. Текст сохраняется; сложные изображения стоит проверить.';
-    2: FExplanation.Caption:='Более сильное сжатие иллюстраций FB2 и EPUB. Размер и детализация изображений могут уменьшиться.';
-    3: FExplanation.Caption:='Сильнее уменьшает иллюстрации FB2 и EPUB и фон подходящих сканов DjVu. Мелкие детали могут стать хуже видны.';
+    1: FExplanation.Caption:='Умеренное сжатие иллюстраций FB2, EPUB, ODT, DOCX и страниц CBZ. Текст сохраняется; сложные изображения стоит проверить.';
+    2: FExplanation.Caption:='Более сильное сжатие иллюстраций FB2, EPUB, ODT, DOCX и страниц CBZ. Размер и детализация изображений могут уменьшиться.';
+    3: FExplanation.Caption:='Сильнее уменьшает иллюстрации FB2, EPUB, ODT, DOCX, страницы CBZ и фон подходящих сканов DjVu. Мелкие детали могут стать хуже видны.';
   end;
   var Free:=CollectionDiskFree(FWork.Text);
   FSpace.Caption:='Место проверяется перед обработкой. За раз подготавливается один архив или файл.';
