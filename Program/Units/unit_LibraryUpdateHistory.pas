@@ -5,7 +5,9 @@ interface
 uses unit_Interfaces, unit_CatalogSources, unit_LibraryUpdateSources;
 
 function LoadLibraryUpdateHistory(const Collection: IBookCollection;
-  const Profile: TLibraryUpdateSource; out Source: TCatalogSource): Boolean;
+  const Profile: TLibraryUpdateSource; out Source: TCatalogSource): Boolean; overload;
+function LoadLibraryUpdateHistory(const Collection: IBookCollection;
+  const Profile: TLibraryUpdateSource; out Source: TCatalogSource; out IndexSHA256:string): Boolean; overload;
 procedure SaveLibraryUpdateHistory(const Collection: IBookCollection;
   const Profile: TLibraryUpdateSource; const Source: TCatalogSource; const SHA256: string);
 
@@ -38,9 +40,14 @@ end;
 
 function LoadLibraryUpdateHistory(const Collection: IBookCollection;
   const Profile: TLibraryUpdateSource; out Source: TCatalogSource): Boolean;
+var SHA256:string;
+begin Result:=LoadLibraryUpdateHistory(Collection,Profile,Source,SHA256); end;
+
+function LoadLibraryUpdateHistory(const Collection: IBookCollection;
+  const Profile: TLibraryUpdateSource; out Source: TCatalogSource; out IndexSHA256:string): Boolean;
 var Root, Item: TJSONObject; Items: TJSONArray;
 begin
-  Result:=False; Source:=Default(TCatalogSource); Root:=ReadHistory(Collection);
+  Result:=False; Source:=Default(TCatalogSource); IndexSHA256:=''; Root:=ReadHistory(Collection);
   try
     Items:=Root.GetValue<TJSONArray>('sources');
     // A bound source has one applied baseline across all delivery profiles.
@@ -63,6 +70,7 @@ begin
       Source.CacheFile;
       Source.Name:=Item.GetValue<string>('name',''); Source.Root:=Item.GetValue<string>('root','');
       Source.LibraryNamespace:=Item.GetValue<string>('library',''); Source.INPXFile:=Item.GetValue<string>('index','');
+      IndexSHA256:=Item.GetValue<string>('sha256','');
       Exit(True);
     end;
   finally Root.Free; end;

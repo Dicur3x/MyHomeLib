@@ -21,6 +21,7 @@ type
     FPreviousIndex, FReady, FOriginalRootOffline: Boolean;
     FDelta: IBookCollection;
     FDeltaFile, FApplySummary, FCacheInput, FPreviousFile, FOperationID: string;
+    FPreviousInput, FPreviousInputSHA, FPublisherFile: string;
     FPlan: TCollectionMergePlan;
     FActionDB: TSQLiteDatabase;
     FRevisionDB: TSQLiteDatabase;
@@ -31,7 +32,7 @@ type
     FRecoveryError: string;
     FRemovedCount, FMissingCount, FNewCards, FUpdateCards, FPreviousLastID, FUnlistedCount: Integer;
     FLastSpaceCheck: UInt64;
-    procedure Analyze(const Target, Previous: IBookCollection; const Check: TProc;
+    procedure Analyze(const Target, Previous: IBookCollection; const SystemData:ISystemData; const Check: TProc;
       const Progress: TLibraryReviewProgress);
     procedure PrepareApplication(const Target: IBookCollection; const SystemData: ISystemData;
       PreferNewRoot: Boolean; const Check: TProc; const Progress: TLibraryReviewProgress);
@@ -113,7 +114,7 @@ begin
   FPlan.Free; FActionLookup.Free; FActionDB.Free; FInventory.Free; FRevisionDB.Free;
   FDelta:=nil; FSnapshot:=nil; CleanCache;
   // Only files explicitly created by this review; never recursive cleanup.
-  for var Name in TArray<string>.Create(FDatabaseFile,FAnalysisFile,FDeltaFile) do
+  for var Name in TArray<string>.Create(FDatabaseFile,FAnalysisFile,FDeltaFile,FPublisherFile) do
     if Name<>'' then
       for var Suffix in TArray<string>.Create('','-wal','-shm','-journal') do
         if FileExists(Name+Suffix) then
@@ -179,8 +180,8 @@ begin
   if FOriginalRootOffline and (FSource.BooksRoot='') then
     raise EDirectoryNotFoundException.Create('Исходная папка книг недоступна: '+FSourceInfo.Root+
       '. Укажите доступную папку докачанных архивов в настройке источника.');
-  Previous:=Target; FPreviousIndex:=False;
-  if LoadLibraryUpdateHistory(Target,FSource,PreviousInfo) then
+  Previous:=Target; FPreviousIndex:=False; FPreviousInput:=''; FPreviousInputSHA:='';
+  if LoadLibraryUpdateHistory(Target,FSource,PreviousInfo,FPreviousInputSHA) then
   begin
     // Losing the authoritative baseline also loses exclusions and append
     // history. Falling back silently could resurrect deliberately removed books.
@@ -188,6 +189,7 @@ begin
       raise EReadError.Create('Сохранённый индекс обновления недоступен: '+PreviousInfo.CacheFile+
         '. Восстановите служебный каталог источника перед повторной проверкой.');
     Previous:=OpenCatalogSnapshot(PreviousInfo,PreviousInfo.CacheFile,SystemData); FPreviousIndex:=True;
+    FPreviousInput:=PreviousInfo.INPXFile;
   end
   else if (FSource.CatalogSourceID<>'') and FSourceInfo.IsINPX and FileExists(FSourceInfo.CacheFile) then
   begin Previous:=OpenCatalogSource(FSourceInfo,SystemData); FPreviousIndex:=True; end;
@@ -214,7 +216,7 @@ begin
   FVersion:=StrToIntDef(VarToStr(FSnapshot.GetProperty(PROP_DATAVERSION)),0);
   if FSourceInfo.LibraryNamespace='' then
     FSourceInfo.LibraryNamespace:=VarToStr(FSnapshot.GetProperty(PROP_SOURCE_LIBRARY));
-  Analyze(Target,Previous,Check,Progress);
+  Analyze(Target,Previous,SystemData,Check,Progress);
   Check;
   CheckTargetRevision(Target);
   FReady:=True;
@@ -296,15 +298,144 @@ begin
   if Archived then Cache.AddOrSetValue(Key,Result);
 end;
 
-procedure TLibraryUpdateReview.Analyze(const Target, Previous: IBookCollection;
+type
+  TPreviousInpxWorker=class(TImportInpxThreadBase)
+    Input:string; Scratch:IBookCollection; Check:TProc;
+    Cancellation:TSQLiteCancelCallback;
+    procedure WorkFunction; override;
+  end;
+  TPreviousMetabibWorker=class(TImportMetabibThreadBase)
+    Input:string; Scratch:IBookCollection; Check:TProc;
+    Cancellation:TSQLiteCancelCallback;
+    procedure WorkFunction; override;
+  end;
+
+procedure TPreviousInpxWorker.WorkFunction;
+var Saved:TSQLiteCancelCallback;
+begin
+  Saved:=SQLiteCancelCallback; SQLiteCancelCallback:=Cancellation;
+  try
+  FGenresType:=gtFb2; FKeepCollectionProps:=True; FKeepIndexArchiveNames:=True; FImportCheck:=Check;
+  Scratch.BeginBulkOperation;
+  try Import(Input,False,Scratch); Check; Scratch.EndBulkOperation(True);
+  except SQLiteCancelCallback:=nil; if Scratch.InBulkOperation then Scratch.EndBulkOperation(False); raise; end;
+  FOperationSuccess:=True;
+  finally SQLiteCancelCallback:=Saved; end;
+end;
+
+procedure TPreviousMetabibWorker.WorkFunction;
+var Saved:TSQLiteCancelCallback;
+begin
+  Saved:=SQLiteCancelCallback; SQLiteCancelCallback:=Cancellation;
+  try
+  FGenresType:=gtFb2; FImportCheck:=Check;
+  Scratch.BeginBulkOperation;
+  try Import(Input,False,Scratch); Check; Scratch.EndBulkOperation(True);
+  except SQLiteCancelCallback:=nil; if Scratch.InBulkOperation then Scratch.EndBulkOperation(False); raise; end;
+  FOperationSuccess:=True;
+  finally SQLiteCancelCallback:=Saved; end;
+end;
+
+function PublisherRecoveryKey(Book:TBookRecord; const Namespace,Root:string):string;
+begin
+  // Missing library IDs can still be recovered when the complete input has
+  // one unique artifact. Duplicate locators are explicitly marked ambiguous.
+  Book.Folder:=''; Result:=ReviewBookKey(Book,Namespace,Root);
+end;
+
+function ExternalPublisherLocator(const Folder,Root:string):Boolean;
+var Relative:string;
+begin
+  Result:=False;
+  if not IsArchiveExt(Folder) or not TPath.IsPathRooted(Folder) then Exit;
+  Relative:=ExtractRelativePath(IncludeTrailingPathDelimiter(TPath.GetFullPath(Root)),TPath.GetFullPath(Folder));
+  Result:=TPath.IsPathRooted(Relative) or (Relative='..') or Relative.StartsWith('..\');
+end;
+
+procedure TLibraryUpdateReview.Analyze(const Target, Previous: IBookCollection; const SystemData:ISystemData;
   const Check: TProc; const Progress: TLibraryReviewProgress);
 var DB: TSQLiteDatabase; Insert, Query: TSQLiteQuery; Iterator: IPublisherSeriesIndexIterator;
   Book, Candidate: TBookRecord; Stamp, Namespace, Key, Name, OldPath, NewPath, Path, Version, SourceKey: string;
   Count, Total, NewCount, ChangedCount: Integer; Existing, CandidateExists: Boolean;
   MergeSource: TMergeSource; Containers: TDictionary<string,string>;
-  StateDB: TSQLiteDatabase; StateQuery, SourceKeyQuery, PublisherQuery: TSQLiteQuery;
+  StateDB: TSQLiteDatabase; StateQuery, SourceKeyQuery, PublisherQuery, RecoveredQuery: TSQLiteQuery;
   State, Container, Comparison, Alternate, AlternateKey, RawLocation: string;
   Availability: TDictionary<string,Boolean>;
+  procedure RecoverPublisherLocations;
+  var Missing:TSQLiteQuery; Needed:Boolean; Lease:TFileStream;
+    Hash:THashSHA2; Bytes:TBytes; Count:Integer;
+    procedure BuildPublisherMap;
+    var Put:TSQLiteQuery; Item:TBookRecord; Unused,SpaceNamespace:string;
+      Scratch:IBookCollection; Source:TCatalogSource; Helper:TCollectionWorker;
+      RecoveredIterator:IPublisherSeriesIndexIterator;
+    begin
+      TBookCollection_SQLite.CreateCollection(SystemData,FPublisherFile,CT_EXTERNAL_LOCAL_FB,Settings.SystemFileName[sfGenresFB2]);
+      Source:=FSourceInfo; Source.Root:=Previous.CollectionRoot; Scratch:=OpenCatalogSnapshot(Source,FPublisherFile,SystemData);
+      SpaceNamespace:=VarToStr(Previous.GetProperty(PROP_SOURCE_LIBRARY)); if SpaceNamespace='' then SpaceNamespace:=FSourceInfo.LibraryNamespace;
+      if SpaceNamespace<>'' then Scratch.SetProperty(PROP_SOURCE_LIBRARY,SpaceNamespace);
+      var Mixed:=Previous.GetProperty(PROP_MIXED_LIBRARY_IDS); if not VarIsEmpty(Mixed) and not VarIsNull(Mixed) then Scratch.SetProperty(PROP_MIXED_LIBRARY_IDS,Mixed);
+      if TMetabibReader.IsDatasetFile(FPreviousInput) then
+      begin
+        var Reader:=TPreviousMetabibWorker.Create(MHL_INVALID_ID); Reader.Input:=FPreviousInput; Reader.Scratch:=Scratch;
+        Reader.Check:=procedure begin Check; NotifyLibraryUpdateTestPoint('publisher-recovery-row'); end;
+        Reader.Cancellation:=SQLiteCancelCallback; Helper:=Reader;
+      end
+      else
+      begin
+        var Reader:=TPreviousInpxWorker.Create(MHL_INVALID_ID); Reader.Input:=FPreviousInput; Reader.Scratch:=Scratch;
+        Reader.Check:=procedure begin Check; NotifyLibraryUpdateTestPoint('publisher-recovery-row'); end;
+        Reader.Cancellation:=SQLiteCancelCallback; Helper:=Reader;
+      end;
+      try
+        Helper.Start; Helper.WaitFor;
+        if Assigned(Helper.FatalException) then
+          if Helper.FatalException is EAbort then raise EAbort.Create(Exception(Helper.FatalException).Message)
+          else raise EReadError.Create('Не удалось прочитать прежний исходный индекс: '+Exception(Helper.FatalException).Message);
+        if not Helper.Success then raise EReadError.Create('Не завершено восстановление исходных имён.');
+      finally Helper.Free; end;
+      DB.ExecSQL('CREATE TABLE ReviewRecoveredPublishers(Key TEXT PRIMARY KEY,Stamp TEXT,Location TEXT,Ambiguous INTEGER NOT NULL DEFAULT 0) WITHOUT ROWID');
+      Put:=DB.NewQuery('INSERT INTO ReviewRecoveredPublishers(Key,Stamp,Location) VALUES(?,?,?) '+
+        'ON CONFLICT(Key) DO UPDATE SET Ambiguous=Ambiguous OR Stamp<>excluded.Stamp OR Location<>excluded.Location');
+      try
+        RecoveredIterator:=Scratch.GetPublisherSeriesIndexIterator; DB.Start;
+        try while RecoveredIterator.Next(Item,Unused) do
+          begin Check; CheckSpace; Put.Reset; Put.SetParam(0,PublisherRecoveryKey(Item,SpaceNamespace,Previous.CollectionRoot));
+            Put.SetParam(1,ReviewStamp(Item)); Put.SetParam(2,PublisherLocation(Item)); Put.ExecSQL; end;
+          DB.Commit;
+        except DB.Rollback; raise; end;
+      finally RecoveredIterator:=nil; Put.Free; Scratch:=nil; end;
+    end;
+  begin
+    if not Assigned(StateDB) or ((FPreviousInput='') and (FPreviousInputSHA='')) then Exit;
+    if Assigned(PublisherQuery) then
+      Missing:=StateDB.NewQuery('SELECT b.Folder FROM Books b WHERE NOT EXISTS(SELECT 1 FROM LibraryUpdatePublisherLocations p WHERE p.BookID=b.BookID)')
+    else Missing:=StateDB.NewQuery('SELECT Folder FROM Books');
+    Needed:=False;
+    try Missing.Open; while not Missing.Eof do
+      begin Check; if ExternalPublisherLocator(Missing.FieldAsString(0),Previous.CollectionRoot) then begin Needed:=True; Break; end; Missing.Next; end;
+    finally Missing.Free; end;
+    if not Needed then Exit;
+    if (FPreviousInput='') or (Length(FPreviousInputSHA)<>64) or not FileExists(FPreviousInput) or
+      not SameFileName(TPath.GetDirectoryName(TPath.GetFullPath(FPreviousInput)),TPath.GetDirectoryName(TPath.GetFullPath(FPreviousFile))) then
+      raise EReadError.Create('Для прежних путей вне папки источника нужен сохранённый исходный индекс с контрольной суммой. Служебный каталог не изменён.');
+    if Assigned(Progress) then Progress('Восстановление исходных имён из сохранённого индекса',0,0);
+    Lease:=TFileStream.Create(FPreviousInput,fmOpenRead or fmShareDenyWrite);
+    try
+      Hash:=THashSHA2.Create; SetLength(Bytes,1024*1024);
+      repeat Check; CheckSpace; Count:=Lease.Read(Bytes[0],Length(Bytes)); if Count>0 then Hash.Update(Bytes,Count); until Count=0;
+      if not SameText(Hash.HashAsString,FPreviousInputSHA) then raise EReadError.Create('Не совпала контрольная сумма прежнего исходного индекса. Восстановление имён остановлено.');
+      var PublisherFile:=TPath.Combine(FPrepared.Folder,'publisher-'+TGUID.NewGuid.ToString+'.hlc2');
+      if FileExists(PublisherFile) then raise EWriteError.Create('Временный каталог восстановления уже существует.');
+      FPublisherFile:=PublisherFile;
+      try BuildPublisherMap;
+      finally
+        // All interface temporaries belong to BuildPublisherMap and are now finalized.
+        for var Suffix in TArray<string>.Create('','-wal','-shm','-journal') do
+          if FileExists(FPublisherFile+Suffix) then try TFile.Delete(FPublisherFile+Suffix); except end;
+      end;
+      RecoveredQuery:=DB.NewQuery('SELECT Location FROM ReviewRecoveredPublishers WHERE Key=? AND Stamp=? AND Ambiguous=0');
+    finally Lease.Free; end;
+  end;
   function Available(const Item:TBookRecord; const Resolved:string):Boolean;
   var FileName:string;
   begin
@@ -353,6 +484,15 @@ var DB: TSQLiteDatabase; Insert, Query: TSQLiteQuery; Iterator: IPublisherSeries
           PublisherQuery.Reset; PublisherQuery.SetParam(0,Book.BookKey.BookID); PublisherQuery.Open;
           if not PublisherQuery.Eof then RawLocation:=PublisherQuery.FieldAsString(0);
         end;
+        if ((FPreviousInput<>'') or (FPreviousInputSHA<>'')) and ExternalPublisherLocator(Book.Folder,Collection.CollectionRoot) and
+          (not Assigned(PublisherQuery) or PublisherQuery.Eof) then
+        begin
+          if not Assigned(RecoveredQuery) then raise EReadError.Create('Не восстановлено исходное имя прежнего архива: '+Book.Folder);
+          RecoveredQuery.Reset; RecoveredQuery.SetParam(0,PublisherRecoveryKey(Book,Namespace,Collection.CollectionRoot));
+          RecoveredQuery.SetParam(1,ReviewStamp(Book)); RecoveredQuery.Open;
+          if RecoveredQuery.Eof then raise EReadError.Create('В сохранённом исходном индексе нет однозначной записи для прежнего архива: '+Book.Folder+' | '+Book.FileName);
+          RawLocation:=RecoveredQuery.FieldAsString(0);
+        end;
         Insert.SetParam(2,RawLocation); Insert.SetParam(3,SourceKey);
         Insert.SetParam(4,BookPhysicalIdentityAtLocation(Book,Container));
         State:='known';
@@ -386,7 +526,7 @@ begin
   FAnalysisFile:=Comparison;
   DB:=TSQLiteDatabase.Create(FAnalysisFile); Insert:=nil; Query:=nil;
   Containers:=TDictionary<string,string>.Create; Availability:=TDictionary<string,Boolean>.Create;
-  StateDB:=nil; StateQuery:=nil; SourceKeyQuery:=nil; PublisherQuery:=nil;
+  StateDB:=nil; StateQuery:=nil; SourceKeyQuery:=nil; PublisherQuery:=nil; RecoveredQuery:=nil;
   try
     if FPreviousIndex then
     begin
@@ -403,6 +543,7 @@ begin
     DB.ExecSQL('CREATE TABLE ReviewPrevious(Key TEXT PRIMARY KEY,Stamp TEXT,Location TEXT,SourceKey TEXT,Physical TEXT,State TEXT,BookID INTEGER,Container TEXT,InsideNo INTEGER,Copies INTEGER NOT NULL DEFAULT 1) WITHOUT ROWID');
     DB.ExecSQL('CREATE TABLE ReviewRows(Key TEXT,Stamp TEXT,BookID INTEGER,Location TEXT,Active INTEGER,Physical TEXT,Available INTEGER,PublisherLocation TEXT)');
     DB.ExecSQL('CREATE TABLE ReviewExcluded(Key TEXT PRIMARY KEY) WITHOUT ROWID');
+    RecoverPublisherLocations;
     if Assigned(StateDB) and (StateDB.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE name=''LibraryUpdateExclusions'' AND type=''table''')>0) then
     begin
       var Excluded:=StateDB.NewQuery('SELECT Key FROM LibraryUpdateExclusions');
@@ -490,7 +631,7 @@ begin
         FSummary:=FSummary+sLineBreak+FNeeded[I];
       end;
     end;
-  finally Iterator:=nil; PublisherQuery.Free; SourceKeyQuery.Free; StateQuery.Free; StateDB.Free;
+  finally Iterator:=nil; RecoveredQuery.Free; PublisherQuery.Free; SourceKeyQuery.Free; StateQuery.Free; StateDB.Free;
     Availability.Free; Containers.Free; Query.Free; Insert.Free; DB.Free; end;
 end;
 

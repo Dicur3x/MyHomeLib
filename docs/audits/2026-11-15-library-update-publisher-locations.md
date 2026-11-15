@@ -1,5 +1,9 @@
 # Publisher locators remain separate from resolved ZIP/7z paths
 
+Follow-up: [legacy external locator recovery](2026-11-15-library-update-legacy-locators.md)
+reads a verified saved input for old external paths and records its remaining
+partial-input and scale limits.
+
 Reviewed updates and source-refresh snapshots now retain the conventional ZIP
 name from an INPX member (or its explicit FOLDER value). They resolve an actual
 ZIP/7z when using a book. An opt-in importer flag enables this only for index
@@ -81,10 +85,11 @@ parallel timings are not performance comparisons.
 
 ## Remaining limits
 
-An old cache with resolved download paths outside its original root and no raw
-publisher-location metadata still needs recovery of that information from its
-saved input; the implementation does not guess it. Additional compressed/packed
-history modes, same-name content changes without index metadata changes,
+The follow-up [legacy locator recovery](2026-11-15-library-update-legacy-locators.md)
+reconstructs old external download locators from a verified saved full input.
+Partial inputs missing an older artifact and missing/ambiguous saved data still
+need an explicit repair path. Additional compressed/packed history modes,
+same-name content changes without index metadata changes,
 network/missing-drive timing, large-collection performance and final production
 packages remain open. The tests use small private fixtures and do not exercise
 PPMd/solid compression performance or a physical disconnected disk. No user
