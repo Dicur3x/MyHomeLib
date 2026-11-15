@@ -8,12 +8,13 @@ from xml.etree import ElementTree as ET
 import zipfile
 
 from supervised_test_process import run_owned
-from test_native_compression_operation import NativeCompressionOperationTests
+from test_native_compression_operation import NativeCompressionOperationTests, OPERATOR
 from test_native_compression_receipt import database, png, sha
 from test_prepare_book_compression import epub
 from archive_replacement import archive_inventory
 from pack_collection import SevenZip, digest_file
 from prepare_book_compression import verify_non_image_content
+from validate_catalogue_compression import archive_body
 
 
 class NativeExternalFormatTests(NativeCompressionOperationTests):
@@ -34,6 +35,25 @@ class NativeExternalFormatTests(NativeCompressionOperationTests):
         output = io.BytesIO()
         Image.frombytes('RGB',(256,256),random.Random(367).randbytes(256*256*3)).save(output,'WEBP',quality=75)
         self.check_epub(True,embedded=True,picture=output.getvalue())
+
+    def test_zero_cover_aliases_survive_zip_epub_compression(self):
+        self.check_epub(False, zero_cover=True, cover_alias=True)
+
+    def test_zero_cover_aliases_survive_nested_7z_named_zip_compression(self):
+        self.check_epub(True, container='books.zip', zero_cover=True, cover_alias=True)
+
+    def test_jpeg_xl_zero_cover_aliases_survive_zip_epub_compression(self):
+        self.check_epub(False, zero_cover=True, cover_alias=True, jpeg_xl_cover=True)
+
+    def test_jpeg_xl_zero_cover_aliases_survive_nested_7z_named_zip_compression(self):
+        self.check_epub(True, container='books.zip', zero_cover=True, cover_alias=True, jpeg_xl_cover=True)
+
+    def test_zero_cover_aliases_recover_interrupted_first_file_metadata(self):
+        self.check_epub(False, zero_cover=True, cover_alias=True, fault_stage='group-file-0-half-metadata')
+
+    def test_jpeg_xl_zero_cover_aliases_recover_after_catalogue_commit(self):
+        self.check_epub(True, container='books.zip', zero_cover=True, cover_alias=True,
+                        jpeg_xl_cover=True, fault_stage='catalogue-committed')
 
     def check_real_flibrary_epub(self):
         archive = Path(os.environ['HL_REAL_EPUB_ARCHIVE'])
@@ -119,8 +139,16 @@ class NativeExternalFormatTests(NativeCompressionOperationTests):
                 sha256=digest_file(p, lambda: None)) for p in sources})
         Path(os.environ['HL_REAL_EPUB_EVIDENCE']).write_text(json.dumps(evidence,ensure_ascii=False,indent=2),encoding='utf-8')
 
-    def check_epub(self, nested, embedded=False, separated=True, container='books.7z', picture=None):
+    def check_epub(self, nested, embedded=False, separated=True, container='books.7z', picture=None,
+                   zero_cover=False, cover_alias=False, jpeg_xl_cover=False, fault_stage=None):
         if picture is None: picture = png(False, random.Random(175).randbytes(128*128))
+        cover_picture = png(False, random.Random(176).randbytes(128*128)) if zero_cover else picture
+        original_cover = cover_picture
+        if jpeg_xl_cover:
+            fixtures = Path(__file__).resolve().parents[2]/'tools/ui/tests/fixtures'
+            cover_picture = (fixtures/'reconstruct-encoded.jxl').read_bytes()
+            original_cover = (fixtures/'reconstruct-original.jpg').read_bytes()
+        self.assertTrue(not cover_alias or (separated and zero_cover))
         original = epub(picture)
         stage = self.root/'outer-input'
         stage.mkdir()
@@ -130,12 +158,18 @@ class NativeExternalFormatTests(NativeCompressionOperationTests):
                 if name != 'picture.png' or not separated:
                     entries[name] = archive.read(name)
         if separated:
-            entries['FLibraryImageIndex.json'] = json.dumps([
-                {'id':'picture.png', 'num':1}, {'id':'cover.png', 'num':-1}]).encode()
+            index = [{'id':'picture.png', 'num':1}, {'id':'cover.png', 'num':0 if zero_cover else -1}]
+            if cover_alias: index.append({'id':'cover-alias.png', 'num':0})
+            entries['FLibraryImageIndex.json'] = json.dumps(index).encode()
         # The cover is a separate resource and must also be described by OPF.
         if separated:
             entries['book.opf'] = entries['book.opf'].replace(b'</manifest>',
                 b'<item id="cover" href="cover.png" media-type="image/png"/></manifest>')
+        if cover_alias:
+            entries['book.opf'] = entries['book.opf'].replace(b'</manifest>',
+                b'<item id="cover-alias" href="cover-alias.png" media-type="image/png"/></manifest>')
+            entries['chapter.xhtml'] = entries['chapter.xhtml'].replace(b'</body>',
+                b'<img src="cover-alias.png" alt="Same zero-numbered cover"/></body>')
         if embedded:
             entries['embedded.png'] = picture
             entries['book.opf'] = entries['book.opf'].replace(b'</manifest>',
@@ -168,15 +202,26 @@ class NativeExternalFormatTests(NativeCompressionOperationTests):
         with database(self.fixture.personal) as db:
             db.execute("UPDATE Books SET Folder=?,Ext='.epub' WHERE DatabaseID=7", (container,))
         sides = []
-        for folder, member in ([('covers','one'), ('images','one/1')] if separated else []):
+        side_members = ({'images':{'one/0':cover_picture,'one/1':picture}} if zero_cover else
+                        {'covers':{'one':picture},'images':{'one/1':picture}}) if separated else {}
+        for folder, members in side_members.items():
             target = self.root/folder/'books.zip'
             target.parent.mkdir()
             with zipfile.ZipFile(target, 'x', zipfile.ZIP_STORED) as archive:
-                archive.writestr(member, picture)
+                for member, body in members.items(): archive.writestr(member, body)
                 archive.writestr('neighbor' if folder=='covers' else 'neighbor/1', b'Keep neighbor image')
             sides.append(target)
         backups = self.enable_backup()
         self.config.update(profile='maximum', grayscale=True)
+        if fault_stage:
+            self.config['fault_at'] = fault_stage
+            self.request.write_text(json.dumps(self.config), encoding='utf-8')
+            crashed = run_owned([str(OPERATOR), str(self.request), str(self.result)],
+                                capture_output=True, encoding='utf-8', timeout=45)
+            self.assertEqual(crashed.returncode, 73, crashed.stdout+crashed.stderr)
+            self.assertIn('TRACE terminated at '+fault_stage, crashed.stdout)
+            self.config.pop('fault_at')
+            self.config['operation_mode'] = 'recover'
         result = self.run_operation()
         self.assertEqual(result['error'], '', result)
         self.assertEqual(result['changed_files'], 1, result)
@@ -191,7 +236,9 @@ class NativeExternalFormatTests(NativeCompressionOperationTests):
             self.assertNotIn('FLibraryImageIndex.json', archive.namelist())
             self.assertEqual(archive.read('picture.png'), picture)
             if separated:
-                self.assertEqual(archive.read('cover.png'), picture)
+                self.assertEqual(archive.read('cover.png'), original_cover)
+            if cover_alias:
+                self.assertEqual(archive.read('cover-alias.png'), original_cover)
             if embedded:
                 self.assertEqual(archive.read('embedded.png'), picture)
             for name in ['chapter.xhtml','book.css','font.ttf','drawing.svg','META-INF/container.xml']:
@@ -211,9 +258,31 @@ class NativeExternalFormatTests(NativeCompressionOperationTests):
             for name in ['chapter.xhtml','book.css','font.ttf','drawing.svg','META-INF/container.xml']:
                 self.assertEqual(archive.read(name), entries[name])
             for name in (['picture.png','cover.png'] if separated else ['picture.png']):
-                self.assertLess(len(archive.read(name)), len(picture))
+                if jpeg_xl_cover and name=='cover.png':
+                    self.assertLessEqual(len(archive.read(name)), len(original_cover))
+                else:
+                    self.assertLess(len(archive.read(name)), len(original_cover if name=='cover.png' else picture))
             if embedded:
                 self.assertLess(len(archive.read('embedded.png')), len(picture))
+            if cover_alias:
+                cover = archive.read('cover.png')
+                self.assertEqual(archive.read('cover-alias.png'), cover)
+                retained = archive_body(self.root/'images/books.zip', 'one/0', self.config['seven_zip'])
+                if jpeg_xl_cover and retained==cover_picture:
+                    self.assertEqual(cover, original_cover, 'Retained JPEG XL lost its byte-exact original JPEG')
+                else:
+                    self.assertEqual(cover, retained)
+                self.assertNotEqual(cover, archive.read('picture.png'), 'Distinct illustration replaced the shared cover')
+                items = {item.attrib['href']:item.attrib['media-type']
+                         for item in ET.fromstring(archive.read('book.opf')).iter()
+                         if item.tag.rsplit('}',1)[-1]=='item'}
+                self.assertEqual(items['cover-alias.png'], items['cover.png'])
+                self.assertEqual(items['cover.png'], 'image/jpeg' if cover.startswith(b'\xff\xd8') else 'image/png')
+        self.assertEqual(archive_body(self.fixture.source, 'neighbor.txt', self.config['seven_zip']),
+                         b'Keep this other book byte for byte.')
+        for side in sides:
+            member = 'neighbor' if side.parent.name=='covers' else 'neighbor/1'
+            self.assertEqual(archive_body(side, member, self.config['seven_zip']), b'Keep neighbor image')
         before = {p:sha(p.read_bytes()) for p in (self.fixture.source,self.fixture.catalogue,self.fixture.personal,*sides)}
         second = self.run_operation()
         self.assertEqual(second['error'], '', second)
