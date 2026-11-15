@@ -335,11 +335,14 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
         scenario='selected-compression-ui', recovery_fault=None, recovery_preserve=None, refresh_index=False,
         legacy_history=False, packing_codec=None, packing_codec_release=None, reviewed_index=False, reviewed_bound=False,
         update_recovery_phase=None, update_recovery_bound=False, update_recovery_preserve=None,
-        update_recovery_neighbour=False, update_recovery_compressed=False, reviewed_flibrary_bound=False):
+        update_recovery_neighbour=False, update_recovery_compressed=False, reviewed_flibrary_bound=False, flibrary_recovery_phase=None):
     from test_pack_collection import illustrated_fb2, image_fixture
     assert bool(packing_codec) == bool(packing_codec_release), 'Codec archive and official release metadata must be paired'
     if packing_codec:
         assert scenario in ('packing-fbd', 'packed-jxl-formats', 'packed-flibrary-sidecars', 'reviewed-flibrary-compression'), 'Codec installation requires a native packing scenario'
+    if flibrary_recovery_phase:
+        assert scenario == 'reviewed-flibrary-compression' and mode == 'apply' and packing_codec
+        assert not any((update_recovery_phase, update_recovery_compressed, update_recovery_preserve))
     if reviewed_flibrary_bound:
         assert scenario == 'reviewed-flibrary-compression' and mode == 'apply'
     if reviewed_index or reviewed_bound:
@@ -362,6 +365,8 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
         assert update_recovery_phase and not update_recovery_preserve
     with temporary_work_directory(stage, 'HomeLibRu-native-') as root:
         root = Path(root)
+        if flibrary_recovery_phase:
+            (root / 'library-flibrary-recovery-request.json').write_text(json.dumps(dict(phase=flibrary_recovery_phase)), encoding='utf-8')
         if update_recovery_phase:
             (root / 'library-update-recovery-request.json').write_text(json.dumps(dict(
                 phase=update_recovery_phase, bound=update_recovery_bound, compressed=update_recovery_compressed)), encoding='utf-8')
@@ -531,6 +536,15 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
                     cwd=root, env=env, stdout=log, stderr=subprocess.STDOUT, startupinfo=startup, timeout=deadline,
                     creationflags=subprocess.BELOW_NORMAL_PRIORITY_CLASS |
                         (0 if inspect_comparison else subprocess.CREATE_NO_WINDOW))
+                if flibrary_recovery_phase:
+                    assert process.returncode == 73, 'FLibrary update did not terminate at its actual boundary'
+                    assert (root / 'library-update-recovery-crash.txt').read_text(encoding='utf-8-sig') == flibrary_recovery_phase
+                    attempt.update(status='RECOVERING_FLIBRARY', flibrary_recovery_phase=flibrary_recovery_phase)
+                    attempt_file.write_text(json.dumps(attempt, indent=2), encoding='utf-8')
+                    with later_update_personal_neighbour(root, True):
+                        process = run_owned([str(root / 'CollectionViewsTest.exe'), 'library-flibrary-recovery-open'],
+                            cwd=root, env=env, stdout=log, stderr=subprocess.STDOUT, startupinfo=startup, timeout=deadline,
+                            creationflags=subprocess.BELOW_NORMAL_PRIORITY_CLASS | subprocess.CREATE_NO_WINDOW)
                 if update_recovery_phase:
                     assert process.returncode == 73, 'Actual update did not terminate at its requested boundary'
                     assert (root / 'library-update-recovery-crash.txt').read_text(encoding='utf-8-sig') == update_recovery_phase
@@ -611,6 +625,8 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
         }[scenario]
         if recovery_fault:
             expected = 'PASS actual compression crash and ordinary startup recovery ' + recovery_fault
+        if flibrary_recovery_phase:
+            expected = f'PASS actual FLibrary update crash and ordinary startup recovery {flibrary_recovery_phase} bound={reviewed_flibrary_bound}'
         expected_lines = [expected]
         if update_recovery_preserve:
             expected_lines = ['PASS actual library update startup retains conflicting data ' + update_recovery_preserve]
@@ -679,7 +695,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
             expected_lines.append('PASS bound reviewed full and append updates preserve actual compressed copy sizes payloads priorities and personal fields')
             expected_lines.append('PASS bound reviewed update incrementally compresses one new download and preserves all five processed physical members across either source')
             expected_lines.append('PASS bound measured-size updates preserve the existing personal card and roll back both stores if the size write fails')
-        if scenario == 'reviewed-flibrary-compression':
+        if scenario == 'reviewed-flibrary-compression' and not flibrary_recovery_phase:
             expected_lines.append('PASS FLibrary new external-image download compresses alone and retains old physical copies across full append and preferred-source updates')
         if update_recovery_compressed:
             expected_lines.append('PASS compressed source copies recover actual payloads sizes personal cards and witnesses then resume only the unprocessed new book')
@@ -741,6 +757,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
                         update_recovery_neighbour_preserved=update_recovery_neighbour,
                         update_recovery_compressed=update_recovery_compressed,
                         reviewed_flibrary_bound=reviewed_flibrary_bound,
+                        flibrary_recovery_phase=flibrary_recovery_phase,
                         unrelated_archive_unchanged=True, native_log=str(log_path),
                         scope=('Actual update process termination and ordinary data-module/main startup recovery, bound=' + str(update_recovery_bound) + ', compressed=' + str(update_recovery_compressed) + ', phase=' + str(update_recovery_phase) + ', conflict=' + str(update_recovery_preserve) + '; recovery checks catalogue/personal data, favourites, actual archive members and repeated acknowledgment; conflict cases stop at the data module and independently compare all persisted catalogue/personal rows, inputs, backup and journal; private fixtures'
                                if scenario == 'library-update-recovery' else
@@ -760,6 +777,8 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
                                'Native JPEG XL PDF byte-exact read/preparation, EPUB all resources/text/images, '
                                'catalogue/personal sizes and retention without originals; private generated fixtures'
                                if scenario == 'packed-jxl-formats' else
+                               'Actual FLibrary update-process termination with separate images, ordinary startup recovery, exact original resources and measured sizes, repeated INPX and incremental continuation, bound=' + str(reviewed_flibrary_bound) + ', phase=' + str(flibrary_recovery_phase) + '; private fixtures'
+                               if flibrary_recovery_phase else
                                'Native FLibrary external-image compression followed by reviewed full and append INPX, a new external-image download and incremental compression, restored text/resource/cover verification, measured sizes, personal data, repeated new-only selection, bound=' + str(reviewed_flibrary_bound) + '; private generated fixtures'
                                if scenario == 'reviewed-flibrary-compression' else
                                'Native original FLibrary ZIP/nested-7z EPUB and FB2 sidecar reading, cover preview, '
@@ -882,6 +901,9 @@ if __name__ == '__main__':
                         help='Write a later witness for another collection after the crash and verify recovery preserves it')
     parser.add_argument('--refresh-index', action='store_true',
                         help='After compression, run actual full INPX refresh and verify physical sizes')
+    parser.add_argument('--flibrary-recovery-phase', choices=['journal-published', 'rows-written', 'before-commit',
+                        'commit-start', 'catalogue-committed', 'stores-committed'],
+                        help='Terminate the reviewed FLibrary update after real separate-image compression, then recover through ordinary startup')
     parser.add_argument('--reviewed-flibrary-bound', action='store_true',
                         help='Use two FLibrary source roots with separate images and apply new downloads from another folder')
     parser.add_argument('--reviewed-bound', action='store_true',

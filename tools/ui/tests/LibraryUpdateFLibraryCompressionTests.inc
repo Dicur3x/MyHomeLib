@@ -1,12 +1,17 @@
 ﻿// Compose separate-image compression with the real reviewed INPX workers.
 procedure TestReviewedFLibraryCompression(const Collection:IBookCollection;
+  Manifest:TJSONObject; const SourceRoot:string); forward;
+
+{$I LibraryUpdateFLibraryRecoveryTests.inc}
+
+procedure TestReviewedFLibraryCompression(const Collection:IBookCollection;
   Manifest:TJSONObject; const SourceRoot:string);
 var Current:IBookCollection; Profile:TLibraryUpdateSource;
   Options:TBookCompressionOperationOptions; Expected:TDictionary<string,string>;
   Sizes:TDictionary<string,Int64>; Files,Raw:TDictionary<string,string>; History:string;
   CorrectTitles,PrimaryCorrect,SavedIgnore,Bound,HasArrival,ArrivalCompressed:Boolean;
   TargetID,ActiveSource,ArrivalSource,CopyCount:Integer; Sources:TCatalogSources;
-  Profiles:TArray<TLibraryUpdateSource>; SecondRoot,Downloads:string;
+  Profiles:TArray<TLibraryUpdateSource>; SecondRoot,Downloads,CrashPhase:string; StartupMode:Boolean;
 
   function HistoryStamp:string;
   var DB:TSQLiteDatabase; Q:TSQLiteQuery; Text:TStringBuilder;
@@ -195,7 +200,7 @@ var Current:IBookCollection; Profile:TLibraryUpdateSource;
       begin
         CheckArrival(True); ArrivalCompressed:=True; History:=HistoryStamp;
         for var Pair in Manifest.GetValue<TJSONObject>('incoming_files') do
-        begin var Path:=TPath.Combine(Downloads,Pair.JsonString.Value); Files.Add(Path,UpdateSHA256(Path)); end;
+        begin var Path:=TPath.Combine(Downloads,Pair.JsonString.Value); Files.AddOrSetValue(Path,UpdateSHA256(Path)); end;
       end;
       CheckBooks(not OnlyNew);
     finally Operation.Free; end;
@@ -290,10 +295,110 @@ var Current:IBookCollection; Profile:TLibraryUpdateSource;
     for var Entry in Manifest.GetValue<TJSONArray>('books') do
     begin Require(FindBook(Entry.GetValue<string>('id'),Book),'FLibrary merge lost a book'); SeedPersonal(Book); end;
   end;
+  procedure StageIncoming;
+  begin
+    ForceDirectories(Downloads);
+    for var Pair in Manifest.GetValue<TJSONObject>('incoming_files') do
+    begin
+      var Destination:=TPath.Combine(Downloads,Pair.JsonString.Value.Replace('/',PathDelim)); ForceDirectories(ExtractFileDir(Destination));
+      TFile.Copy(TPath.Combine(Settings.AppPath+'packing-flibrary-epub\incoming',Pair.JsonString.Value),Destination,False);
+    end;
+    HasArrival:=True; Profiles[ArrivalSource].BooksRoot:=Downloads; SelectSource(ArrivalSource);
+  end;
+  procedure CrashUpdate;
+{$IFDEF MHL_COMPRESSION_TEST}
+  var Proof:TJSONObject; Stage:TStagedLibraryIndex; Review:TLibraryUpdateReview;
+    Worker:TCollectionWorker; Fault:TLibraryRecoveryFault; Other:Integer;
+  begin
+    Proof:=TJSONObject.Create; Stage:=nil; Review:=nil; Fault:=nil;
+    try
+      Other:=SystemDB.CreateCollection('Untouched update neighbour',SourceRoot,Settings.AppPath+'flibrary-neighbour.hlc2',
+        CT_EXTERNAL_LOCAL_FB,Settings.SystemFileName[sfGenresFB2]);
+      Proof.AddPair('phase',CrashPhase); Proof.AddPair('bound',TJSONBool.Create(Bound));
+      Proof.AddPair('collection',TJSONNumber.Create(TargetID)); Proof.AddPair('source_root',SourceRoot);
+      Proof.AddPair('history',History); Proof.AddPair('profiles',WriteLibraryUpdateSources(Profiles));
+      Proof.AddPair('expected',FLibraryRecoveryStrings(Expected)); Proof.AddPair('raw',FLibraryRecoveryStrings(Raw));
+      Proof.AddPair('files',FLibraryRecoveryStrings(Files)); Proof.AddPair('sizes',FLibraryRecoverySizes(Sizes));
+      Proof.AddPair('index',Profile.LocalFile); Proof.AddPair('index_sha256',UpdateSHA256(Profile.LocalFile));
+      var OtherFile:=SystemDB.GetCollectionInfo(Other).DBFileName;
+      Proof.AddPair('other',OtherFile); Proof.AddPair('other_sha256',UpdateSHA256(OtherFile));
+      Settings.ActiveCollection:=TargetID; Settings.SaveSettings;
+      Stage:=TStagedLibraryIndex.Fetch(Profile,Settings.UpdatePath,nil); Review:=TLibraryUpdateReview.Create(Profile,Stage);
+      Worker:=CreateLibraryReviewWorker(TargetID,Review);
+      try Worker.Start; Worker.WaitFor;
+        if Assigned(Worker.FatalException) then raise Exception.Create('FLibrary crash review: '+Exception(Worker.FatalException).Message);
+        Require(Worker.Success and Review.Ready,'FLibrary crash review is not ready');
+      finally Worker.Free; end;
+      Fault:=TLibraryRecoveryFault.Create; Fault.Phase:=CrashPhase; Fault.Proof:=Proof; Fault.Review:=Review;
+      Worker:=CreateLibraryApplyWorker(TargetID,Review,False);
+      LibraryUpdateTestPoint:=procedure(Value:string) begin Fault.Point(Value); end; MergeApplyTestPoint:=LibraryUpdateTestPoint;
+      try Worker.OnShowMessage:=Fault.Confirm; Worker.Start; Worker.WaitFor;
+        if Assigned(Worker.FatalException) then raise Exception.Create('FLibrary update missed crash point: '+Exception(Worker.FatalException).Message);
+        Require(False,'FLibrary update did not terminate at '+CrashPhase);
+      finally LibraryUpdateTestPoint:=nil; MergeApplyTestPoint:=nil; Worker.Free; end;
+    finally Fault.Free; Review.Free; Stage.Free; Proof.Free; end;
+  end;
+{$ELSE}
+  begin raise EInvalidOperation.Create('FLibrary crash diagnostics require the guarded test build.'); end;
+{$ENDIF}
+  procedure ResumeRecovered;
+  var Proof:TJSONObject; Book:TBookRecord; Iterator:IBookIterator; Favourites:Integer;
+    Titles:TArray<string>; Warnings:TStringList; Before:string; Committed:Boolean;
+  begin
+    Proof:=TJSONObject.ParseJSONValue(TFile.ReadAllText(Settings.AppPath+'library-update-recovery-state.json',TEncoding.UTF8)) as TJSONObject;
+    try
+      Require(Assigned(Proof),'Missing FLibrary recovery state');
+      Require(DMUser.LibraryUpdateRecoveryWarnings.Count=0,'FLibrary startup recovery: '+DMUser.LibraryUpdateRecoveryWarnings.Text);
+      Require(Length(TLibraryUpdateJournal.Pending(TPath.Combine(Settings.DataPath,'LibraryUpdateRecovery')))=0,
+        'FLibrary startup left an unresolved update');
+      Require(Bound=Proof.GetValue<Boolean>('bound'),'FLibrary restart changed its bound scope');
+      CrashPhase:=Proof.GetValue<string>('phase');
+      Require(TFile.ReadAllText(Settings.AppPath+'library-update-recovery-crash.txt',TEncoding.UTF8)=CrashPhase,
+        'FLibrary process did not reach its requested crash');
+      Committed:=CrashPhase='stores-committed'; HasArrival:=Committed; PrimaryCorrect:=Committed; CorrectTitles:=True;
+      History:=Proof.GetValue<string>('history'); Profiles:=ReadLibraryUpdateSources(Proof.GetValue<string>('profiles'));
+      RestoreFLibraryRecoveryStrings(Expected,Proof.GetValue<TJSONArray>('expected'));
+      RestoreFLibraryRecoveryStrings(Raw,Proof.GetValue<TJSONArray>('raw'));
+      RestoreFLibraryRecoveryStrings(Files,Proof.GetValue<TJSONArray>('files'));
+      for var Item in Proof.GetValue<TJSONArray>('sizes') do Sizes.Add(Item.GetValue<string>('key'),Item.GetValue<Int64>('value'));
+      CheckBooks(False);
+      Require(FindBook('501',Book)=Committed,'FLibrary recovery retained the wrong incoming-card state');
+      Iterator:=SystemDB.GetBookIterator(FAVORITES_GROUP_ID,TargetID); Favourites:=0;
+      while Iterator.Next(Book) do begin Inc(Favourites); Require(Book.DisplayLibID<>'501','Recovery added an incoming favourite'); end;
+      Iterator:=nil; Require(Favourites=4,'FLibrary recovery changed favourite membership');
+      for var Name in TArray<string>.Create('index','other') do
+        Require(UpdateSHA256(Proof.GetValue<string>(Name))=Proof.GetValue<string>(Name+'_sha256'),'FLibrary recovery changed protected '+Name);
+      Application.CreateForm(TdmImages,dmImages); dmImages.ApplyThemeIcons;
+      Application.CreateForm(TfrmMain,frmMain); frmMain.Show; Application.ProcessMessages; ShowPage(PAGE_AUTHORS);
+      for var Entry in Manifest.GetValue<TJSONArray>('books') do
+      begin var Title:='FLibrary '+Entry.GetValue<string>('id'); if Committed then Title:=Title+' corrected'; Titles:=Titles+[Title]; end;
+      if Committed then Titles:=Titles+['FLibrary 501 corrected'];
+      ExpectTitles(frmMain.tvBooksA,Titles);
+      Before:=VarToStr(Current.GetProperty(PROP_LIBRARY_UPDATE_TRANSACTION)); Warnings:=TStringList.Create;
+      try
+        TLibraryUpdateJournal.RecoverAll(TPath.Combine(Settings.DataPath,'LibraryUpdateRecovery'),
+          TPath.Combine(Settings.DataPath,'LibraryUpdateBackups'),Settings.SystemFileName[sfSystemDB],SystemDB,Warnings);
+        Require((Warnings.Count=0) and (VarToStr(Current.GetProperty(PROP_LIBRARY_UPDATE_TRANSACTION))=Before),
+          'Repeated FLibrary recovery changed an acknowledged update');
+      finally Warnings.Free; end;
+      // The same downloaded index remains usable after either rollback or commit.
+      HasArrival:=True; SelectSource(0); ApplyIndex;
+      Require(FindBook('501',Book),'Recovered FLibrary cannot reapply its incoming INPX'); SeedPersonal(Book);
+      Compress(True,1,4*CopyCount); ApplyIndex; Profile.Full:=False; ApplyIndex; Compress(True,0,4*CopyCount+1);
+      Writeln('PASS actual FLibrary update crash and ordinary startup recovery ',CrashPhase,' bound=',BoolToStr(Bound,True));
+    finally Proof.Free; end;
+  end;
+
 begin
   RequireIsolatedRegression; Current:=Collection; TargetID:=Collection.CollectionID; CorrectTitles:=False; PrimaryCorrect:=False;
   Bound:=FileExists(Settings.AppPath+'reviewed-flibrary-bound.marker'); CopyCount:=IfThen(Bound,2,1);
   ArrivalSource:=CopyCount-1; HasArrival:=False; ArrivalCompressed:=False;
+  StartupMode:=ParamStr(1)='library-flibrary-recovery-open'; CrashPhase:='';
+  if FileExists(Settings.AppPath+'library-flibrary-recovery-request.json') then
+  begin
+    var Config:=TJSONObject.ParseJSONValue(TFile.ReadAllText(Settings.AppPath+'library-flibrary-recovery-request.json',TEncoding.UTF8)) as TJSONObject;
+    try CrashPhase:=Config.GetValue<string>('phase'); finally Config.Free; end;
+  end;
   Downloads:=Settings.AppPath+'reviewed-sidecars-downloads';
   SavedIgnore:=Settings.IgnoreAbsentArchives; Settings.IgnoreAbsentArchives:=False;
   Expected:=TDictionary<string,string>.Create; Sizes:=TDictionary<string,Int64>.Create;
@@ -302,6 +407,7 @@ begin
     Options:=Default(TBookCompressionOperationOptions); Options.Profile:='balanced'; Options.Grayscale:=True;
     Options.WorkRoot:=Settings.AppPath+'reviewed-sidecars-work'; Options.QueueName:=TGUID.NewGuid.ToString;
     Require(Length(ResolveSelectedCompressionTools(Settings.AppPath,Options))=0,'FLibrary compression runtime is incomplete');
+    if StartupMode then begin ResumeRecovered; Exit; end;
     PrepareSources; SelectSource(0); Compress(False,4*CopyCount,0);
     for var I:=0 to CopyCount-1 do
       for var Pair in Manifest.GetValue<TJSONObject>('files') do
@@ -310,18 +416,19 @@ begin
         var Path:=TPath.Combine(Root,Pair.JsonString.Value); Files.Add(Path,UpdateSHA256(Path));
       end;
     History:=HistoryStamp;
+    if CrashPhase<>'' then
+    begin
+      CorrectTitles:=True; ArrivalSource:=0; StageIncoming; WriteIndex;
+      for var Pair in Manifest.GetValue<TJSONObject>('incoming_files') do
+      begin var Path:=TPath.Combine(Downloads,Pair.JsonString.Value); Files.Add(Path,UpdateSHA256(Path)); end;
+      CrashUpdate; Exit;
+    end;
     WriteIndex; ApplyIndex; ApplyIndex; Compress(True,0,4*CopyCount);
     CorrectTitles:=True;
     if Bound then begin SelectSource(1); WriteIndex; ApplyIndex; Compress(True,0,8); end;
     SelectSource(0); WriteIndex; ApplyIndex; Compress(True,0,4*CopyCount);
     Profile.Full:=False; ApplyIndex; Compress(True,0,4*CopyCount);
-    ForceDirectories(Downloads);
-    for var Pair in Manifest.GetValue<TJSONObject>('incoming_files') do
-    begin
-      var Destination:=TPath.Combine(Downloads,Pair.JsonString.Value.Replace('/',PathDelim)); ForceDirectories(ExtractFileDir(Destination));
-      TFile.Copy(TPath.Combine(Settings.AppPath+'packing-flibrary-epub\incoming',Pair.JsonString.Value),Destination,False);
-    end;
-    HasArrival:=True; Profiles[ArrivalSource].BooksRoot:=Downloads; SelectSource(ArrivalSource);
+    StageIncoming;
     WriteIndex; ApplyIndex;
     var Arrived:TBookRecord; Require(FindBook('501',Arrived),'INPX did not add the external-image download'); SeedPersonal(Arrived);
     Compress(True,1,4*CopyCount); ApplyIndex; Profile.Full:=False; ApplyIndex; Compress(True,0,4*CopyCount+1);

@@ -6315,9 +6315,10 @@ begin
       Trace('isolated user module');
       Application.CreateForm(TDMUser, DMUser);
       DMUser.Init;
-      if (ParamStr(1)='compression-recovery-open') or (ParamStr(1)='library-update-recovery-open') then
+      if (ParamStr(1)='compression-recovery-open') or (ParamStr(1)='library-update-recovery-open') or (ParamStr(1)='library-flibrary-recovery-open') then
       begin
-        if ParamStr(1)='library-update-recovery-open' then TestLibraryUpdateRecoveryStartup
+        if ParamStr(1)='library-flibrary-recovery-open' then TestReviewedFLibraryRecoveryStartup
+        else if ParamStr(1)='library-update-recovery-open' then TestLibraryUpdateRecoveryStartup
         else TestCompressionRecoveryStartup;
         Flush(Output);
         FreeAndNil(frmMain); FreeAndNil(dmImages);
