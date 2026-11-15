@@ -600,6 +600,9 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
             expected_lines.append('PASS reviewed update commit witnesses are paired with catalogue and personal transactions, roll back on early errors and remain isolated by collection')
             expected_lines.append('PASS missing catalogue and system properties return empty instead of reusing a previous value')
         if scenario == 'library-update-apply':
+            expected_lines.append('PASS missing new copies wait for download without phantom links and removed retained copies stay excluded while another source remains preferred')
+            expected_lines.append('PASS deleted retained cards stay excluded after offline replacement while never-added missing books can arrive later')
+            expected_lines.append('PASS retained download deletions survive missing 7z restoration in whole bound full and bound append updates')
             expected_lines.append('PASS publisher recovery reads saved INPX and Metabib independently of the new input format and rolls back canceled recovery imports')
             expected_lines.append('PASS legacy publisher locations recover from a verified saved index outside the original root, survive both roots offline and repeat, and reject a changed saved input without touching the catalogue')
             expected_lines.append('PASS reviewed ZIP names retain actual 7z source links and publisher locations across offline roots, excluded returns and downloaded 7z members')

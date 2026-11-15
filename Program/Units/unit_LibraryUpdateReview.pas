@@ -671,7 +671,7 @@ procedure TLibraryUpdateReview.PrepareApplication(const Target: IBookCollection;
 var DB, CopyDB: TSQLiteDatabase; Rows, Put, Lookup, Copies, CurrentLocation: TSQLiteQuery;
   Iterator: IPublisherSeriesIndexIterator; Item, Current, Resolved, CopyBook: TBookRecord;
   Key, Stamp, Namespace, Identity, Physical, Reason, State, Name, ExpectedKey, CheckedFile: string;
-  Bound, Known, Changed, Eligible, KeepMetadata, OwnsFile, Verified: Boolean;
+  Bound, Known, Changed, Eligible, KeepMetadata, OwnsFile, Verified, HadSourceCard: Boolean;
   ID, Matches, Done, DeltaID: Integer; Sources: TMergeSources;
   Cache: TImportCache; Genres: TDictionary<string,TGenreData>;
   function MatchLive(const Column, Value: string): Integer;
@@ -747,7 +747,7 @@ begin
     'KeepMetadata INTEGER,State TEXT,Folder TEXT,InsideNo INTEGER,SourceKey TEXT,MissingReason TEXT)');
   DB.ExecSQL('CREATE TABLE ApplyDeltaInput(DeltaID INTEGER PRIMARY KEY,InputID INTEGER)');
   Rows:=DB.NewQuery('SELECT r.BookID,r.Key,p.Key IS NOT NULL,coalesce(p.State,''known''),'+
-    '(p.Key IS NULL OR p.Stamp<>r.Stamp OR p.Physical<>r.Physical OR p.State=''missing''),'+
+    '(p.Key IS NULL OR p.Stamp<>r.Stamp OR p.Physical<>r.Physical OR p.State IN (''missing'',''missing-retained'')),'+
     'coalesce(p.SourceKey,''''),coalesce(p.Physical,''''),coalesce(p.Copies,1),coalesce(p.Container,''''),coalesce(p.InsideNo,0),'+
     'EXISTS(SELECT 1 FROM ApplyExcluded e WHERE e.Key=r.Key) '+
     'FROM ReviewRows r LEFT JOIN ReviewPrevious p ON p.Key=r.Key ORDER BY r.Location,r.BookID');
@@ -779,6 +779,9 @@ begin
           ID:=Target.GetCatalogBookID(Stamp);
         end
         else ID:=MatchLive('Key',Rows.FieldAsString(1));
+        // A matching card owned by another source is not an existing copy
+        // of this source. Remember ownership before identity fallback.
+        HadSourceCard:=ID>0;
         if (ID=0) and ((Known and (State<>'missing')) or Rows.FieldAsBoolean(10)) then
         begin Eligible:=False; State:='excluded'; Inc(FRemovedCount); end;
         Resolved:=Item;
@@ -821,17 +824,19 @@ begin
           Check;
           if not Verified then
           begin
-            State:='missing'; Inc(FMissingCount);
+            if HadSourceCard then State:='missing-retained' else State:='missing';
+            Inc(FMissingCount);
             Name:=Item.FileName;
             if not SameText(ExtractFileExt(Name),Item.FileExt) then Name:=Name+Item.FileExt;
             if CheckedFile='' then CheckedFile:=Resolved.GetBookFileName;
             Reason:=CheckedFile+' | '+Name+' | '+Reason;
-            if ID=0 then Eligible:=False
-            else if not KeepMetadata then begin KeepMetadata:=True; Changed:=False; end;
+            if not HadSourceCard then Eligible:=False
+            else begin KeepMetadata:=True; Changed:=False; end;
           end
           else State:='known';
         end;
-        if not FSource.Full and Known and (Rows.FieldAsString(3)<>'missing') then Changed:=False;
+        if not FSource.Full and Known and (Rows.FieldAsString(3)<>'missing') and
+          (Rows.FieldAsString(3)<>'missing-retained') then Changed:=False;
         if Eligible and not Changed and (ID>0) then
         begin
           if Bound then
@@ -1047,7 +1052,7 @@ begin
     Cached:=OpenCatalogSnapshot(FPublishedSource,FPublishedSource.CacheFile,DMUser.GetSystemDBConnection);
     if not Supports(Cached,IBookImportedLocationWriter,Writer) then
       raise ENotSupportedException.Create('Не поддержано сохранение путей импортированных книг.');
-    Rows:=FActionDB.NewQuery('SELECT BookID,Folder,InsideNo FROM ApplyActions WHERE State=''known'' ORDER BY BookID');
+    Rows:=FActionDB.NewQuery('SELECT BookID,Folder,InsideNo FROM ApplyActions WHERE State IN (''known'',''missing-retained'') ORDER BY BookID');
     try
       Cached.BeginBulkOperation;
       try
@@ -1091,7 +1096,7 @@ begin
             Book.Folder:=Rows.FieldAsString(2); Book.InsideNo:=Rows.FieldAsInt(3);
             ID:=CopyReviewBook(FSnapshot,Cached,Book,Cache,Genres);
           end
-          else if Rows.FieldAsString(4)='known' then
+          else if (Rows.FieldAsString(4)='known') or (Rows.FieldAsString(4)='missing-retained') then
             Writer.SetImportedBookLocation(ID,Rows.FieldAsString(2),Rows.FieldAsInt(3));
           FActionDB.ExecSQL('INSERT INTO ApplyCachedInput VALUES(?,?)',[Book.BookKey.BookID,ID]);
           Rows.Next;

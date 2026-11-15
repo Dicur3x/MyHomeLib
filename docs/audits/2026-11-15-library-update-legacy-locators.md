@@ -86,10 +86,10 @@ This is a migration path with a temporary full metadata import; production-scale
 memory, workspace and timing still need measurement. It does not read or unpack
 book contents for the locator map.
 
-Also review the distinction between never-added missing books and retained cards
-removed after an update could not read their new file: the current availability
-marker `missing` covers both. This is a code-review concern for a separate
-regression, not a passing deletion-safety gate.
+The follow-up [retained missing-card regression](2026-11-15-library-update-retained-missing.md)
+reproduced and fixed resurrection after deleting a retained card while its
+changed file was unavailable. New pending copies and retained copies now have
+separate availability states; the follow-up includes both architectures.
 
 The complete source feature and beta 14 release remain open. No Desktop
 installation or GitHub release was changed.

@@ -272,6 +272,32 @@ begin
   finally CloseReview; end;
   Writeln('PASS reviewed update accepts only new archives with its original book root offline, retains historical cards and personal data, preserves exclusions and rejects unavailable download roots');
 
+  // A missing replacement may retain an existing card. Deleting that card
+  // must remain an exclusion when the file returns; a never-added missing book
+  // must still be eligible for a later download from the same index.
+  BookID:=Target.ResolveBookID('104',0); Target.GetBookRecord(CreateBookKey(BookID,ID),Book,True);
+  var RetainedTitle:=Book.Title;
+  Index(IndexName,['books','new','new','books','only-new','only-new'],['101','102','103','104','105','106'],
+    ['Returned 101','New 102','Awaiting 103','Changed while offline 104','Downloaded with original disk offline','Pending new 106']);
+  OpenReview;
+  try Apply(True);
+    BookID:=Target.ResolveBookID('104',0); Require(BookID>0,'Missing replacement discarded its retained card');
+    Target.GetBookRecord(CreateBookKey(BookID,ID),Book,True);
+    Require((Book.Title=RetainedTitle) and (Book.Rate=3) and (Book.Progress=19),
+      'Missing replacement changed retained metadata or personal fields');
+    Require(Target.ResolveBookID('106',0)=0,'Never-downloaded member was added prematurely');
+  finally CloseReview; end;
+  Target.DeleteBook(CreateBookKey(BookID,ID));
+  OpenReview; try Apply(True); finally CloseReview; end;
+  Archive(OldRoot,'books.zip',['101','104']); Archive(DownloadRoot,'only-new.zip',['105','106']);
+  OpenReview;
+  try Apply(True);
+    Require(Target.ResolveBookID('104',0)=0,'A deleted retained card returned after its missing file became available');
+    BookID:=Target.ResolveBookID('106',0); Require(BookID>0,'An excluded retained card also excluded a never-added missing publication');
+    Target.GetBookRecord(CreateBookKey(BookID,ID),Book,True); RequireBody(Book,'106');
+  finally CloseReview; end;
+  Writeln('PASS deleted retained cards stay excluded after offline replacement while never-added missing books can arrive later');
+
   SetLength(Sources,2);
   for var I:=0 to 1 do
   begin
@@ -451,6 +477,57 @@ begin
   finally CloseReview; end;
   Writeln('PASS reviewed bound-source update adds downloaded books with its original root offline and preserves source priorities, personal fields and exclusions');
 
+  // A card from another source must not create a phantom copy when the
+  // new source's member is missing. It remains a pending new copy.
+  var LowerProfile:=Profile;
+  var PreferredIndex:=TPath.Combine(Root,'preferred-new.inpx');
+  Archive(Sources[0].Root,'other.zip',['208']);
+  Index(PreferredIndex,['base','other'],['201','208'],['Shared book','Preferred 208']);
+  Profile:=TLibraryUpdateSource.NewSource; Profile.Name:='Add preferred shared card';
+  Profile.Location:=Root; Profile.IndexFile:=TPath.GetFileName(PreferredIndex);
+  Profile.CatalogSourceID:=Sources[0].ID; Profile.BooksRoot:=Sources[0].Root;
+  OpenReview; try Apply(True); finally CloseReview; end;
+  Require(FindDisplayBook('208',Book),'Preferred source did not add the shared-card fixture');
+  Target.SetRate(Book.BookKey,4); Target.SetProgress(Book.BookKey,43);
+  var Preferred208:=Book.GetBookFileName;
+  Profile:=LowerProfile; Profile.Full:=False;
+  Index(IndexName,['incoming-lower'],['208'],['Preferred 208']);
+  OpenReview; try Apply(True); finally CloseReview; end;
+  Require(FindDisplayBook('208',Book) and SameFileName(Book.GetBookFileName,Preferred208) and
+    (Book.Rate=4) and (Book.Progress=43) and (Length(Target.GetCatalogBookCopies(Book.BookKey))=1),
+    'A missing new source copy changed the preferred card or registered a phantom copy');
+  Archive(DownloadRoot,'incoming-lower.zip',['208']);
+  OpenReview; try Apply(True); finally CloseReview; end;
+  Require(FindDisplayBook('208',Book) and SameFileName(Book.GetBookFileName,Preferred208) and
+    (Book.Rate=4) and (Book.Progress=43) and (Length(Target.GetCatalogBookCopies(Book.BookKey))=2),
+    'A missing new source copy was excluded instead of being added after download');
+  RequireBody(Book,'208');
+  InputSource:=Default(TMergeSource); InputSource.ID:=Sources[1].ID; InputSource.Root:=Sources[1].Root;
+  var LowerKey:='';
+  for var CopyBook in Target.GetCatalogBookCopies(Book.BookKey) do
+    if CopyBook.GetBookFileName.Contains(DownloadRoot) then LowerKey:=MergeSourceKey(InputSource,CopyBook);
+  Require((LowerKey<>'') and (Target.GetCatalogBookID(LowerKey)=Book.BookKey.BookID),'Downloaded lower copy lost its source key');
+  var LowerID:=Book.BookKey.BookID;
+  var HeldLower:=TPath.Combine(Root,'held-incoming-lower.zip');
+  TFile.Move(TPath.Combine(DownloadRoot,'incoming-lower.zip'),HeldLower);
+  Index(IndexName,['incoming-lower'],['208'],['Changed while lower copy offline 208']);
+  OpenReview; try Apply(True); finally CloseReview; end;
+  Require(FindDisplayBook('208',Book) and SameFileName(Book.GetBookFileName,Preferred208) and
+    (Book.Rate=4) and (Book.Progress=43) and (Length(Target.GetCatalogBookCopies(Book.BookKey))=2),
+    'A missing lower replacement changed another source or lost an existing copy');
+  DB:=TSQLiteDatabase.Create(VarToStr(Target.GetProperty(PROP_DATAFILE)));
+  try DB.ExecSQL('DELETE FROM CatalogBookCopies WHERE SourceKey=? AND BookID=?',[LowerKey,LowerID]);
+    DB.ExecSQL('DELETE FROM CatalogSourceBooks WHERE SourceKey=? AND BookID=?',[LowerKey,LowerID]);
+  finally DB.Free; end;
+  OpenReview; try Apply(True); finally CloseReview; end;
+  TFile.Move(HeldLower,TPath.Combine(DownloadRoot,'incoming-lower.zip'));
+  OpenReview; try Apply(True); finally CloseReview; end;
+  Require(FindDisplayBook('208',Book) and SameFileName(Book.GetBookFileName,Preferred208) and
+    (Book.Rate=4) and (Book.Progress=43) and (Target.GetCatalogBookID(LowerKey)=0) and
+    (Length(Target.GetCatalogBookCopies(Book.BookKey))=1),
+    'A retained missing lower copy returned after removal or damaged the preferred source'); RequireBody(Book,'208');
+  Writeln('PASS missing new copies wait for download without phantom links and removed retained copies stay excluded while another source remains preferred');
+
   for var AliasCase:=0 to 2 do
   begin
     var BoundAlias:=AliasCase<>0; var AliasName:=IntToStr(AliasCase);
@@ -590,7 +667,31 @@ begin
     Require(FindDisplayBook('602',Book),'Reconnecting the old download root lost its retained publication'); RequireBody(Book,'602');
     Require((THashSHA2.GetHashStringFromFile(SevenOriginal)=SevenHash) and
       (THashSHA2.GetHashStringFromFile(TPath.Combine(DownloadRoot,'new.7z'))=NewSevenHash),'Update rewrote an original or downloaded 7z');
+    Require(FindDisplayBook('602',Book),'Missing prior download for retained deletion fixture');
+    var KeptDownload:=Book.GetBookFileName; var KeptTitle:=Book.Title;
+    Target.SetRate(Book.BookKey,5); Target.SetProgress(Book.BookKey,11);
+    TFile.Move(TPath.Combine(DownloadRoot,'new.7z'),HeldDownloads);
+    Profile.BooksRoot:=DownloadRoot; Profile.Full:=AliasCase<>2;
+    Index(IndexName,['books','books','new','last'],['601','603','602','604'],
+      ['Corrected 601','Returned 603','Changed offline download 602','Downloaded 604']);
+    OpenReview;
+    try Apply(True);
+      Require(FindDisplayBook('602',Book) and (Book.Title=KeptTitle) and (Book.Rate=5) and
+        (Book.Progress=11) and SameFileName(Book.GetBookFileName,KeptDownload),
+        'Missing externally downloaded replacement changed its retained metadata path or personal fields');
+    finally CloseReview; end;
+    Target.DeleteBook(Book.BookKey);
+    OpenReview; try Apply(True); finally CloseReview; end;
+    TFile.Move(HeldDownloads,TPath.Combine(DownloadRoot,'new.7z'));
+    OpenReview;
+    try Apply(True);
+      Require(not FindDisplayBook('602',Book),'A deleted retained download returned after its 7z became available');
+      Require(FindDisplayBook('604',Book),'Retained exclusion affected a different downloaded publication'); RequireBody(Book,'604');
+    finally CloseReview; end;
+    Require(THashSHA2.GetHashStringFromFile(TPath.Combine(DownloadRoot,'new.7z'))=NewSevenHash,
+      'Retained-card exclusion changed the book archive');
   end;
+  Writeln('PASS retained download deletions survive missing 7z restoration in whole bound full and bound append updates');
   Writeln('PASS reviewed ZIP names retain actual 7z source links and publisher locations across offline roots, excluded returns and downloaded 7z members');
   Writeln('PASS legacy publisher locations recover from a verified saved index outside the original root, survive both roots offline and repeat, and reject a changed saved input without touching the catalogue');
   Writeln('PASS publisher recovery reads saved INPX and Metabib independently of the new input format and rolls back canceled recovery imports');
