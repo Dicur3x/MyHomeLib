@@ -86,9 +86,10 @@ its observer incorrectly required an optional progress field in an initial
 displaying reply. The captured sessions prove the exact reopened positions and
 new process name, but that failure prevented its final catalogue/archive
 assertions. Do not relabel it as a passing end-to-end compression run. Its
-observer is corrected separately and must be rerun. The later final builds
-include additional legacy-name module-management checks; their build/native
-tests passed, without another claim of a final GUI compression run.
+observer was corrected separately; complete reruns with the final x86/x64
+development builds passed in r535/r536, including the final assertions. See
+[the compression/Reader inspection audit](2026-11-15-compressed-reader-inspection.md)
+for the exact scope and remaining limitations.
 
 Before publication, repeat relevant checks with final beta 14 identities and an
 unchanged published beta 13 GUI client, including coordinated Reader/catalogue

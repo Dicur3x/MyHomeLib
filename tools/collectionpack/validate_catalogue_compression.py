@@ -335,10 +335,15 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
         scenario='selected-compression-ui', recovery_fault=None, recovery_preserve=None, refresh_index=False,
         legacy_history=False, packing_codec=None, packing_codec_release=None, reviewed_index=False, reviewed_bound=False,
         update_recovery_phase=None, update_recovery_bound=False, update_recovery_preserve=None,
-        update_recovery_neighbour=False, update_recovery_compressed=False, reviewed_flibrary_bound=False, flibrary_recovery_phase=None, recovery_interrupt=None):
+        update_recovery_neighbour=False, update_recovery_compressed=False, reviewed_flibrary_bound=False, flibrary_recovery_phase=None, recovery_interrupt=None,
+        reader_runtime=None, reader_timeout=600):
     from library_recovery_restart import restart as restart_library_recovery
     from test_pack_collection import illustrated_fb2, image_fixture
     assert bool(packing_codec) == bool(packing_codec_release), 'Codec archive and official release metadata must be paired'
+    if reader_runtime:
+        assert scenario == 'reviewed-flibrary-compression' and mode == 'apply'
+        assert not any((flibrary_recovery_phase, recovery_interrupt, update_recovery_phase))
+        assert 30 <= reader_timeout <= 1800
     if packing_codec:
         assert scenario in ('packing-fbd', 'packed-jxl-formats', 'packed-flibrary-sidecars', 'reviewed-flibrary-compression'), 'Codec installation requires a native packing scenario'
     if recovery_interrupt:
@@ -726,6 +731,11 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
             assert digest(source) == before, 'Import/update offer changed an unrelated shared ZIP'
             publication = {}
             text_repack = verify_text_only_repack(root) if scenario == 'packed-jxl-formats' else None
+            reader_result = None
+            if reader_runtime:
+                from reader_inspection import inspect as inspect_reader
+                reader_result = inspect_reader(root, reader_runtime, platform,
+                    stage / f'catalogue-{platform}-reader.json', env, reader_timeout)
             if scenario == 'packed-catalogue-sizes':
                 output_root = root / 'packed-size-output'
                 catalogues = list(output_root.glob('*.hlc2'))
@@ -761,6 +771,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
                         packed_catalogue_sizes=publication,
                         text_only_repack=text_repack,
                         flibrary_sidecar_inputs=sidecar_inputs,
+                        reader_inspection=reader_result,
                         update_recovery_neighbour_preserved=update_recovery_neighbour,
                         update_recovery_compressed=update_recovery_compressed,
                         reviewed_flibrary_bound=reviewed_flibrary_bound,
@@ -880,6 +891,9 @@ if __name__ == '__main__':
     parser.add_argument('--mode', choices=['apply', 'skip', 'stop', 'estimate'], required=True)
     parser.add_argument('--real-books', type=Path)
     parser.add_argument('--inspect-comparison', action='store_true')
+    parser.add_argument('--reader-runtime', type=Path,
+                        help='Inspect the real Main and Reader after the reviewed FLibrary fixture; GUI actions use Computer Use')
+    parser.add_argument('--reader-timeout', type=int, default=600)
     parser.add_argument('--processing-package', type=Path)
     parser.add_argument('--estimate-first', action='store_true')
     parser.add_argument('--whole', action='store_true')
