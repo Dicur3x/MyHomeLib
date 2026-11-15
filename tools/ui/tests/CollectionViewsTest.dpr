@@ -2,8 +2,8 @@
 
 {$APPTYPE CONSOLE}
 {$R *.res}
-{$R '..\..\..\Program\MyhomeLib.res'}
-{$R '..\..\..\Program\MyhomeLib.dres'}
+{$R '..\..\..\Program\HomeLibre.res'}
+{$R '..\..\..\Program\HomeLibre.dres'}
 {$R '..\..\..\Program\lang.res'}
 
 uses

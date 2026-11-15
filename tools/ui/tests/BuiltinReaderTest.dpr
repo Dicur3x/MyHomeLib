@@ -1,7 +1,7 @@
 ﻿program BuiltinReaderTest;
 {$APPTYPE CONSOLE}
-{$R '..\..\..\Program\MyhomeLib.res'}
-{$R '..\..\..\Program\MyhomeLib.dres'}
+{$R '..\..\..\Program\HomeLibre.res'}
+{$R '..\..\..\Program\HomeLibre.dres'}
 {$R '..\..\..\Program\lang.res'}
 
 uses NativeRegressionGuard, Winapi.PsAPI, System.SysUtils, System.Classes, System.IOUtils,

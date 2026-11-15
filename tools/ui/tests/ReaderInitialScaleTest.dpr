@@ -1,7 +1,7 @@
 ﻿program ReaderInitialScaleTest;
 {$APPTYPE CONSOLE}
-{$R '..\..\..\Program\MyhomeLib.res'}
-{$R '..\..\..\Program\MyhomeLib.dres'}
+{$R '..\..\..\Program\HomeLibre.res'}
+{$R '..\..\..\Program\HomeLibre.dres'}
 {$R '..\..\..\Program\lang.res'}
 uses NativeRegressionGuard, System.SysUtils, System.Classes, System.Types, System.UITypes,
   System.IOUtils, System.IniFiles, System.Diagnostics, System.Math, System.Hash,

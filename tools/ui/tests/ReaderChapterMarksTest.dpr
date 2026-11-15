@@ -1,7 +1,7 @@
 program ReaderChapterMarksTest;
 {$APPTYPE CONSOLE}
-{$R '..\..\..\Program\MyhomeLib.res'}
-{$R '..\..\..\Program\MyhomeLib.dres'}
+{$R '..\..\..\Program\HomeLibre.res'}
+{$R '..\..\..\Program\HomeLibre.dres'}
 {$R '..\..\..\Program\lang.res'}
 uses NativeRegressionGuard, System.SysUtils, System.Classes, System.IOUtils,
   System.Diagnostics, System.Math, System.Hash, Winapi.Windows, Winapi.Messages,

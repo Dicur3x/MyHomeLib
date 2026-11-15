@@ -83,8 +83,11 @@ def inspect(root, runtime, platform, report_path, environment, timeout=600):
         cards = {title: db.execute('SELECT BookID, BookSize, Review, Progress FROM Books '
                     'WHERE Title COLLATE BINARY=?', (title,)).fetchall() for title in titles}
     assert all(len(rows) == 1 for rows in cards.values()), cards
-    protected = {path: sha(path) for base in (root / 'packing-flibrary-epub/source',
-                  root / 'reviewed-sidecars-downloads') for path in base.rglob('*') if path.is_file()}
+    source_roots = [root / 'packing-flibrary-epub/source', root / 'reviewed-sidecars-downloads']
+    if (root / 'reviewed-flibrary-bound.marker').exists():
+        source_roots.append(root / 'second-flibrary-source')
+    assert all(base.is_dir() and base.resolve().is_relative_to(root) for base in source_roots)
+    protected = {path: sha(path) for base in source_roots for path in base.rglob('*') if path.is_file()}
     settings = root / 'myhomelib2.ini'
     options = ini(settings)
     for section, values in {
@@ -111,6 +114,7 @@ def inspect(root, runtime, platform, report_path, environment, timeout=600):
     kernel.CloseHandle.argtypes = [wintypes.HANDLE]
     reader_handles, sessions = {}, {}
     result = dict(status='INSPECTING', platform=platform, root=str(root), binaries=binaries,
+                  source_roots=[str(base.relative_to(root)) for base in source_roots],
                   catalogue=str(catalogue), expected_titles=titles, sessions=sessions)
     report_path.write_text(json.dumps(result, indent=2), encoding='utf-8')
     app = subprocess.Popen([str(root / 'HomeLibre.exe')], cwd=root, env=environment,
