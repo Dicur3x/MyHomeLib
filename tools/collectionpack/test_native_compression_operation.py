@@ -59,11 +59,11 @@ class NativeCompressionOperationTests(unittest.TestCase):
     def unchanged(self):
         self.assertEqual({p: sha(p.read_bytes()) for p in self.before}, self.before)
 
-    def assert_applied(self, result):
+    def assert_applied(self, result, pending_after_ack=0):
         self.assertEqual(result['error'], '', result)
         self.assertEqual(result['changed_files'], 1, result)
         self.assertEqual(result['pending_before_ack'], 1, result)
-        self.assertEqual(result['pending_after_ack'], 0, result)
+        self.assertEqual(result['pending_after_ack'], pending_after_ack, result)
         self.assertEqual(self.fixture.snapshot(self.fixture.catalogue, sizes=False), self.catalogue)
         self.assertEqual(self.fixture.snapshot(self.fixture.personal, sizes=False), self.personal)
         with zipfile.ZipFile(self.fixture.source) as archive:

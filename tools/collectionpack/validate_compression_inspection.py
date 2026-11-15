@@ -108,6 +108,9 @@ def run(args):
                        HLRU_PACK_7ZIP=str(seven), HL_SELECTED_PREPARER=str(root / 'tools/bookconvert/prepare_book_compression.py'),
                        TEMP=str(root / 'temp'), TMP=str(root / 'temp'),
                        LOCALAPPDATA=str(root / 'profile/local'), APPDATA=str(root / 'profile/roaming'))
+            if args.source_volume:
+                env['HL_COMPRESSION_SOURCE_VOLUME'] = str(args.source_volume.resolve(strict=True))
+                env['HL_CROSS_VOLUME_EVIDENCE'] = str(report.with_suffix('.cross-volume.json'))
             if args.planner:
                 env['HL_NATIVE_COMPRESSION_PLAN'] = str(root / args.planner.name)
             if args.jpeg_xl_decoder:
@@ -157,6 +160,7 @@ if __name__ == '__main__':
         parser.add_argument('--' + name, type=Path, required=True)
     parser.add_argument('--platform', choices=('Win32', 'Win64'), required=True)
     parser.add_argument('--images', type=Path, help='Fresh verified image helper, without replacing another runtime')
+    parser.add_argument('--source-volume', type=Path, help='Existing parent on another volume for a bounded small owned source fixture')
     parser.add_argument('--planner', type=Path, help='Optional native planning and scratch-recovery fixture')
     parser.add_argument('--jpeg-xl-decoder', type=Path, help='Verified decoder for external-image preparation diagnostics')
     parser.add_argument('--real-epub-archive', type=Path, help='Read-only source for an isolated selected real EPUB check')
