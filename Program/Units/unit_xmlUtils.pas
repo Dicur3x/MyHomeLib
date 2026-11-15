@@ -72,7 +72,8 @@ uses
   Winapi.Windows,
   Variants,
   ActiveX,
-  ZLib;
+  ZLib,
+  unit_ProgramUpdatePaths;
 
 
 class function TMSXMLHelper.LoadFromZFile(const FileName: string): IXMLDOMDocument;
@@ -84,7 +85,7 @@ var
   fileStream: TFileStream; zipStream: TZDecompressionStream; Input: TStream;
   vIn: OleVariant; xmlDoc: IXMLDOMDocument; ParseError: IXMLDOMParseError; Msg: string;
 begin
-  fileStream:=TFileStream.Create(FileName,fmOpenRead or fmShareDenyWrite);
+  fileStream:=TFileStream.Create(UpdateIOPath(UpdateFullPath(FileName)),fmOpenRead or fmShareDenyWrite);
   try
     zipStream:=nil; Input:=fileStream;
     try
@@ -141,19 +142,30 @@ var
   Output: TStream;
   vOut: OleVariant;
   TempID: TGUID;
-  TempName: string;
+  Target, TargetIO, TempName: string;
   FileHandle: THandle;
   OwnTemp: Boolean;
+  procedure RaiseSaveError;
+  var Code: DWORD; Error: EOSError;
+  begin
+    Code:=GetLastError;
+    Error:=EOSError.CreateFmt('Не удалось сохранить XML "%s" (временный файл "%s"): %s',
+      [FileName,TempName,SysErrorMessage(Code)]);
+    Error.ErrorCode:=Code; raise Error;
+  end;
 begin
   if not Assigned(xmlDoc) then
     raise EArgumentNilException.Create('xmlDoc');
 
-  CreateGUID(TempID);
-  TempName := FileName + '.homelib-' + GUIDToString(TempID) + '.tmp';
+  Target:=UpdateFullPath(FileName); TargetIO:=UpdateIOPath(Target);
+  if CreateGUID(TempID)<>0 then raise EWriteError.Create('Не удалось создать имя временного файла XML.');
+  // Keep the sibling name independent of the destination's component length.
+  // Native file operations normalize and extend both paths independently.
+  TempName:=UpdateIOPath(ExtractFilePath(Target)+'.homelib-xml-'+GUIDToString(TempID)+'.tmp');
   FileHandle := CreateFile(PChar(TempName), GENERIC_READ or GENERIC_WRITE, 0,
     nil, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, 0);
   if FileHandle = INVALID_HANDLE_VALUE then
-    RaiseLastOSError;
+    RaiseSaveError;
   OwnTemp := True;
   try
     try
@@ -177,16 +189,16 @@ begin
         fileStream.Free;
       end;
       if not FlushFileBuffers(FileHandle) then
-        RaiseLastOSError;
+        RaiseSaveError;
     finally
       CloseHandle(FileHandle);
     end;
 
     // The temporary file is adjacent, so publication remains on one volume.
     // Failure (including a locked target) leaves the old complete file intact.
-    if not MoveFileEx(PChar(TempName), PChar(FileName),
+    if not MoveFileEx(PChar(TempName), PChar(TargetIO),
       MOVEFILE_REPLACE_EXISTING or MOVEFILE_WRITE_THROUGH) then
-      RaiseLastOSError;
+      RaiseSaveError;
     OwnTemp := False;
   finally
     if OwnTemp then
