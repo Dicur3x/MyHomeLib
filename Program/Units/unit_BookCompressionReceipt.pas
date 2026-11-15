@@ -36,6 +36,8 @@ type
   end;
 
 function CompressionFileKey(const FileName: string): string;
+// Shared metadata lease: permits SQLite writes while preventing file replacement.
+function AcquireCompressionDatabaseLease(const FileName, Expected: string): IInterface;
 
 implementation
 
@@ -107,6 +109,9 @@ end;
 
 function CompressionFileKey(const FileName: string): string;
 begin Result:=Copy(ArchiveDeletionSourceIdentity(FileName),1,25); end;
+
+function AcquireCompressionDatabaseLease(const FileName, Expected: string): IInterface;
+begin Result:=TCompressionDatabaseLease.Create(FileName,Expected); end;
 
 constructor TCompressionDatabaseLease.Create(const FileName, Expected: string);
 var Info: TByHandleFileInformation; Actual: string;

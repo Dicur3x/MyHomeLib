@@ -1,7 +1,7 @@
 # Physical consolidation of collection sources
 
-Status: inventory planner and verified single-file preparation journal are
-implemented. Group/catalogue integration remains open. There is no published
+Status: native catalogue inventory, file planner and verified single-file
+preparation journal are implemented. Group/catalogue publication remains open. There is no published
 transfer command and no user collection has been moved by this work.
 
 ## User result
@@ -61,13 +61,24 @@ chosen work volume. Hold only roots and a bounded working batch in memory.
 The implemented `unit_CollectionTransferPlan` accepts already resolved payloads,
 calculates collision-free roots/files, inventories native FLibrary sidecars,
 deduplicates repeated paths, estimates copy bytes, checks metadata identities and
-cleans its owned scratch store. It does not yet enumerate the catalogue, copy
-payloads or publish any database changes. Missing payloads currently reject an
-input; the catalogue adapter must classify missing locators before submission.
+cleans its owned scratch store. The planner itself does not enumerate a catalogue,
+copy payloads or publish database changes. Its inputs must be available files.
 Pre-existing hardlinks and file links currently receive an explicit diagnostic.
 Internal directory links which change relative layout are rejected as well;
 whole-root junction aliases are supported. Discovery uses extended Windows paths
 for both the book signature and FLibrary sidecars.
+
+`unit_CollectionTransferCatalogue` now streams native main/copy/personal locators
+into indexed scratch metadata and feeds available containers into that planner.
+Missing-file/directory and metadata-only records remain explicit. It captures original
+locators/source JSON and detects changed databases, registration, files and
+ZIP/7z selection. Personal read locks are released before the main scan. Bounded
+container caches avoid a disk probe for every book in a shared archive. The
+current logical-root limit is 4,096; scale beyond this needs work, not silent
+skipping. See `docs/audits/2026-11-16-collection-transfer-catalogue.md` for the
+x86/x64 native evidence, including real copy/readback with in-memory locators.
+This adapter does not yet publish a path or decide final locators for missing
+sources.
 
 The review must explain destination, physically transferred bytes/files,
 already-in-place files, sidecars, unavailable books, affected registered
@@ -95,6 +106,22 @@ group leases, revalidate original stream sets before cleanup and recover after
 source removal; file-level resume currently requires the original to exist.
 
 ## Group publication, stop and recovery (still to implement)
+
+Distinguish the user-chosen containing folder from the mapped default book root.
+Preserving that mapped default root can retain native relative locators/source
+keys rather than gratuitously making every folder absolute. Missing roots need
+an explicit future mapping even when no available file submitted that root to
+the physical planner.
+
+Inventory registrations by physical database file as well as collection ID.
+The same catalogue can be registered with two different book roots: its one
+relative row may then mean different physical books. An unconditional absolute
+folder rewrite would redirect the other registration to the wrong book. Such a
+case needs a proven per-registration strategy (for example deferred root
+publication with retained originals, or an owned catalogue fork with unchanged
+personal IDs). Account for its actual temporary space. Do not delete an original
+or declare that case supported before the chosen strategy and interrupted
+recovery have been tested.
 
 Process archive groups sequentially. A durable operation journal records an
 immutable reviewed file mapping, expected original identities, affected catalogue

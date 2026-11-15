@@ -46,6 +46,7 @@ type
     function RootDestination(const RootID: string): string;
     procedure ForEachFile(const Visit: TCollectionTransferFileVisitor);
     procedure CheckUnchanged;
+    procedure CheckInputsUnchanged;
     function FileCount: Int64;
     function CopyBytes: Int64;
     function CopyFileCount: Int64;
@@ -318,13 +319,12 @@ begin
   finally Query.Free; end;
 end;
 
-procedure TCollectionTransferPlan.CheckUnchanged;
+procedure TCollectionTransferPlan.CheckInputsUnchanged;
 var Query:TSQLiteQuery;
 begin
   CheckCancelled;
   if CanonicalDirectory(FDestinationInput)<>FDestination then
     raise EReadError.Create('Общая папка изменилась после проверки.');
-  CheckDestinationParent(FDestination,FContentRoot);
   for var Root in FRoots do
     if CanonicalDirectory(Root.Path)<>FCanonicalRoots[Root.ID] then
       raise EReadError.Create('Папка источника изменилась после проверки: '+Root.Path);
@@ -335,9 +335,6 @@ begin
       ReadFileState(Entry.Source,Canonical,Identity,Bytes);
       if (Canonical<>Entry.Source) or (Identity<>Entry.Identity) or (Bytes<>Entry.Bytes) then
         raise EReadError.Create('Файл изменился после проверки переноса: '+Entry.Source);
-      if not Entry.KeepInPlace and
-        (GetFileAttributes(PChar(DeletionNativePath(Entry.Destination)))<>INVALID_FILE_ATTRIBUTES) then
-        raise EReadError.Create('Назначение занято после проверки переноса: '+Entry.Destination);
     end);
   // Missing sidecars are witnesses as well: a new cover/image archive cannot
   // silently stay behind when the final source root is changed.
@@ -352,6 +349,19 @@ begin
       Query.Next;
     end;
   finally Query.Free; end;
+end;
+
+procedure TCollectionTransferPlan.CheckUnchanged;
+begin
+  CheckInputsUnchanged;
+  CheckDestinationParent(FDestination,FContentRoot);
+  ForEachFile(
+    procedure(const Entry:TCollectionTransferFile)
+    begin
+      if not Entry.KeepInPlace and
+        (GetFileAttributes(PChar(DeletionNativePath(Entry.Destination)))<>INVALID_FILE_ATTRIBUTES) then
+        raise EReadError.Create('Назначение занято после проверки переноса: '+Entry.Destination);
+    end);
 end;
 
 function TCollectionTransferPlan.FileCount: Int64;
