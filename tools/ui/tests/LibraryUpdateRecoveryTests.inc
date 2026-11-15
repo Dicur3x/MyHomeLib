@@ -1,4 +1,6 @@
-﻿{$I LibraryUpdateCompressedRecoveryTests.inc}
+﻿{$I LibraryUpdateRecoveryInterruptTests.inc}
+
+{$I LibraryUpdateCompressedRecoveryTests.inc}
 
 {$IFDEF MHL_COMPRESSION_TEST}
 type
@@ -132,6 +134,7 @@ begin
       DB.ExecSQL('CREATE TABLE RecoveryGuardProbe(ID TEXT PRIMARY KEY,Payload BLOB,TextValue TEXT,RealValue REAL) WITHOUT ROWID');
       DB.ExecSQL('INSERT INTO RecoveryGuardProbe VALUES(''a'',X''410042'',''A''||char(0)||''B'',0.10000000000000002)');
     finally DB.Free; end;
+    PrepareLibraryRecoveryInterruptProbe(Target);
     Profile:=TLibraryUpdateSource.NewSource; Profile.Name:='Actual recovery update'; Profile.Location:=Root; Profile.IndexFile:='new.inpx';
     if Bound then Profile.CatalogSourceID:=Sources[0].ID;
     Stage:=TStagedLibraryIndex.Fetch(Profile,Settings.UpdatePath,nil); Review:=TLibraryUpdateReview.Create(Profile,Stage);
@@ -185,7 +188,7 @@ begin
     Require(TFile.ReadAllText(Settings.AppPath+'library-update-recovery-crash.txt',TEncoding.UTF8)=Proof.GetValue<string>('phase'),
       'Previous process did not reach the actual update crash point');
     ID:=Proof.GetValue<Integer>('collection'); Committed:=Proof.GetValue<string>('phase')='stores-committed';
-    Target:=SystemDB.GetCollection(ID,True); Books:=Target.GetBookIterator(bmAll,True); Count:=0; FoundOriginal:=False;
+    Target:=SystemDB.GetCollection(ID,True); VerifyLibraryRecoveryInterruptProbe(Target); Books:=Target.GetBookIterator(bmAll,True); Count:=0; FoundOriginal:=False;
     while Books.Next(Book) do
     begin
       Inc(Count);

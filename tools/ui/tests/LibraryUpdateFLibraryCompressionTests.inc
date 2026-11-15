@@ -310,6 +310,7 @@ var Current:IBookCollection; Profile:TLibraryUpdateSource;
   var Proof:TJSONObject; Stage:TStagedLibraryIndex; Review:TLibraryUpdateReview;
     Worker:TCollectionWorker; Fault:TLibraryRecoveryFault; Other:Integer;
   begin
+    PrepareLibraryRecoveryInterruptProbe(Current);
     Proof:=TJSONObject.Create; Stage:=nil; Review:=nil; Fault:=nil;
     try
       Other:=SystemDB.CreateCollection('Untouched update neighbour',SourceRoot,Settings.AppPath+'flibrary-neighbour.hlc2',
@@ -348,6 +349,7 @@ var Current:IBookCollection; Profile:TLibraryUpdateSource;
     Proof:=TJSONObject.ParseJSONValue(TFile.ReadAllText(Settings.AppPath+'library-update-recovery-state.json',TEncoding.UTF8)) as TJSONObject;
     try
       Require(Assigned(Proof),'Missing FLibrary recovery state');
+      VerifyLibraryRecoveryInterruptProbe(Current);
       Require(DMUser.LibraryUpdateRecoveryWarnings.Count=0,'FLibrary startup recovery: '+DMUser.LibraryUpdateRecoveryWarnings.Text);
       Require(Length(TLibraryUpdateJournal.Pending(TPath.Combine(Settings.DataPath,'LibraryUpdateRecovery')))=0,
         'FLibrary startup left an unresolved update');

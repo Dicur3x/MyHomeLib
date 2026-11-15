@@ -38,6 +38,10 @@ type
       const SystemData: ISystemData; const Warnings: TStrings; const Check: TProc = nil); static;
   end;
 
+{$IFDEF MHL_COMPRESSION_TEST}
+var LibraryUpdateRecoveryTestPoint:TProc<string,Integer,Integer>;
+{$ENDIF}
+
 implementation
 
 uses System.IOUtils, System.Hash, System.Generics.Collections, System.Variants,
@@ -299,6 +303,9 @@ begin
     try Data.AddPair('owner',FMetaHash); Data.AddPair('state',State); SaveJSON(TPath.Combine(FDirectory,'done.json'),Data);
     finally Data.Free; end;
   end;
+{$IFDEF MHL_COMPRESSION_TEST}
+  if Assigned(LibraryUpdateRecoveryTestPoint) then LibraryUpdateRecoveryTestPoint('recovery-done',0,0);
+{$ENDIF}
   Completed:=TPath.Combine(FRoot,'completed'); EnsureDirectory(Completed); CompletedGuard:=Guard(Completed);
   try
     Destination:=TPath.Combine(Completed,JobPrefix+OperationID);
@@ -309,8 +316,14 @@ begin
     // makes any concurrent retry metadata-only before we release the lease.
     if FLease<>0 then begin CloseHandle(FLease); FLease:=0; end;
     CloseHandle(FDirectoryGuard); FDirectoryGuard:=0;
+{$IFDEF MHL_COMPRESSION_TEST}
+    if Assigned(LibraryUpdateRecoveryTestPoint) then LibraryUpdateRecoveryTestPoint('recovery-lease-released',0,0);
+{$ENDIF}
     if not MoveFileEx(PChar(DeletionNativePath(FDirectory)),PChar(DeletionNativePath(Destination)),MOVEFILE_WRITE_THROUGH) then RaiseLastOSError;
     FDirectory:=Destination;
+{$IFDEF MHL_COMPRESSION_TEST}
+    if Assigned(LibraryUpdateRecoveryTestPoint) then LibraryUpdateRecoveryTestPoint('recovery-moved',0,0);
+{$ENDIF}
   finally CloseHandle(CompletedGuard); end;
 end;
 
@@ -370,7 +383,16 @@ begin
           RecoverySpace(TPath.GetDirectoryName(Text('target')),UInt64(FBackupGuard.Size));
           Database.Rollback;
           // Exclusive locking mode retains the file lock across this restore.
-          Database.RestoreFrom(BackupFile,procedure(Copied,Total:Integer) begin GuardCheck; end);
+          Database.RestoreFrom(BackupFile,procedure(Copied,Total:Integer) begin
+            GuardCheck;
+{$IFDEF MHL_COMPRESSION_TEST}
+            if Assigned(LibraryUpdateRecoveryTestPoint) and (Copied<Total) then
+              LibraryUpdateRecoveryTestPoint('recovery-restore-step',Copied,Total);
+{$ENDIF}
+          end);
+{$IFDEF MHL_COMPRESSION_TEST}
+          if Assigned(LibraryUpdateRecoveryTestPoint) then LibraryUpdateRecoveryTestPoint('recovery-restored',0,0);
+{$ENDIF}
           if RawWitness(Database)<>Text('previous_catalogue') then raise EReadError.Create('Не восстановлена прежняя версия каталога.');
         end
         else if not (((Catalogue=OperationID) and (Personal=OperationID)) or
@@ -382,6 +404,9 @@ begin
   finally Metadata.EndMetadataRootGuard; end;
   SystemData.ClearCollectionCache;
   SystemData.RemapCollectionBookIDs(CollectionID,False);
+{$IFDEF MHL_COMPRESSION_TEST}
+  if Assigned(LibraryUpdateRecoveryTestPoint) then LibraryUpdateRecoveryTestPoint('recovery-remapped',0,0);
+{$ENDIF}
   Finish('recovered');
 end;
 

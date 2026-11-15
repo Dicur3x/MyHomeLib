@@ -335,11 +335,16 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
         scenario='selected-compression-ui', recovery_fault=None, recovery_preserve=None, refresh_index=False,
         legacy_history=False, packing_codec=None, packing_codec_release=None, reviewed_index=False, reviewed_bound=False,
         update_recovery_phase=None, update_recovery_bound=False, update_recovery_preserve=None,
-        update_recovery_neighbour=False, update_recovery_compressed=False, reviewed_flibrary_bound=False, flibrary_recovery_phase=None):
+        update_recovery_neighbour=False, update_recovery_compressed=False, reviewed_flibrary_bound=False, flibrary_recovery_phase=None, recovery_interrupt=None):
+    from library_recovery_restart import restart as restart_library_recovery
     from test_pack_collection import illustrated_fb2, image_fixture
     assert bool(packing_codec) == bool(packing_codec_release), 'Codec archive and official release metadata must be paired'
     if packing_codec:
         assert scenario in ('packing-fbd', 'packed-jxl-formats', 'packed-flibrary-sidecars', 'reviewed-flibrary-compression'), 'Codec installation requires a native packing scenario'
+    if recovery_interrupt:
+        assert (flibrary_recovery_phase or update_recovery_phase) and not update_recovery_preserve
+        if recovery_interrupt in ('recovery-restore-step', 'recovery-restored'):
+            assert (flibrary_recovery_phase or update_recovery_phase) == 'catalogue-committed'
     if flibrary_recovery_phase:
         assert scenario == 'reviewed-flibrary-compression' and mode == 'apply' and packing_codec
         assert not any((update_recovery_phase, update_recovery_compressed, update_recovery_preserve))
@@ -365,6 +370,8 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
         assert update_recovery_phase and not update_recovery_preserve
     with temporary_work_directory(stage, 'HomeLibRu-native-') as root:
         root = Path(root)
+        if recovery_interrupt:
+            (root / 'library-recovery-interrupt.json').write_text(json.dumps(dict(phase=recovery_interrupt)), encoding='utf-8')
         if flibrary_recovery_phase:
             (root / 'library-flibrary-recovery-request.json').write_text(json.dumps(dict(phase=flibrary_recovery_phase)), encoding='utf-8')
         if update_recovery_phase:
@@ -542,8 +549,8 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
                     attempt.update(status='RECOVERING_FLIBRARY', flibrary_recovery_phase=flibrary_recovery_phase)
                     attempt_file.write_text(json.dumps(attempt, indent=2), encoding='utf-8')
                     with later_update_personal_neighbour(root, True):
-                        process = run_owned([str(root / 'CollectionViewsTest.exe'), 'library-flibrary-recovery-open'],
-                            cwd=root, env=env, stdout=log, stderr=subprocess.STDOUT, startupinfo=startup, timeout=deadline,
+                        process = restart_library_recovery(root, [str(root / 'CollectionViewsTest.exe'), 'library-flibrary-recovery-open'],
+                            env=env, log=log, startup=startup, deadline=deadline, point=recovery_interrupt,
                             creationflags=subprocess.BELOW_NORMAL_PRIORITY_CLASS | subprocess.CREATE_NO_WINDOW)
                 if update_recovery_phase:
                     assert process.returncode == 73, 'Actual update did not terminate at its requested boundary'
@@ -552,8 +559,8 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
                                    update_recovery_phase=update_recovery_phase, update_recovery_bound=update_recovery_bound)
                     attempt_file.write_text(json.dumps(attempt, indent=2), encoding='utf-8')
                     with later_update_personal_neighbour(root, update_recovery_neighbour), preserve_update_recovery(root, update_recovery_preserve):
-                        process = run_owned([str(root / 'CollectionViewsTest.exe'), 'library-update-recovery-open'],
-                            cwd=root, env=env, stdout=log, stderr=subprocess.STDOUT, startupinfo=startup, timeout=deadline,
+                        process = restart_library_recovery(root, [str(root / 'CollectionViewsTest.exe'), 'library-update-recovery-open'],
+                            env=env, log=log, startup=startup, deadline=deadline, point=recovery_interrupt,
                             creationflags=subprocess.BELOW_NORMAL_PRIORITY_CLASS | subprocess.CREATE_NO_WINDOW)
                 if scenario == 'packing-fbd' and process.returncode == 0:
                     argument = (root / 'packing-inpx-result.argument').read_text(encoding='ascii').strip()
@@ -758,6 +765,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
                         update_recovery_compressed=update_recovery_compressed,
                         reviewed_flibrary_bound=reviewed_flibrary_bound,
                         flibrary_recovery_phase=flibrary_recovery_phase,
+                        recovery_interrupt=recovery_interrupt, recovery_foreign_files_preserved=bool(recovery_interrupt),
                         unrelated_archive_unchanged=True, native_log=str(log_path),
                         scope=('Actual update process termination and ordinary data-module/main startup recovery, bound=' + str(update_recovery_bound) + ', compressed=' + str(update_recovery_compressed) + ', phase=' + str(update_recovery_phase) + ', conflict=' + str(update_recovery_preserve) + '; recovery checks catalogue/personal data, favourites, actual archive members and repeated acknowledgment; conflict cases stop at the data module and independently compare all persisted catalogue/personal rows, inputs, backup and journal; private fixtures'
                                if scenario == 'library-update-recovery' else
@@ -901,6 +909,9 @@ if __name__ == '__main__':
                         help='Write a later witness for another collection after the crash and verify recovery preserves it')
     parser.add_argument('--refresh-index', action='store_true',
                         help='After compression, run actual full INPX refresh and verify physical sizes')
+    parser.add_argument('--recovery-interrupt', choices=['recovery-restore-step', 'recovery-restored', 'recovery-remapped',
+                        'recovery-done', 'recovery-lease-released', 'recovery-moved'],
+                        help='Actually terminate ordinary recovery, then restart again and preserve unrelated job/sibling files')
     parser.add_argument('--flibrary-recovery-phase', choices=['journal-published', 'rows-written', 'before-commit',
                         'commit-start', 'catalogue-committed', 'stores-committed'],
                         help='Terminate the reviewed FLibrary update after real separate-image compression, then recover through ordinary startup')

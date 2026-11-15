@@ -6314,7 +6314,7 @@ begin
     try
       Trace('isolated user module');
       Application.CreateForm(TDMUser, DMUser);
-      DMUser.Init;
+      ArmLibraryRecoveryInterrupt; DMUser.Init;
       if (ParamStr(1)='compression-recovery-open') or (ParamStr(1)='library-update-recovery-open') or (ParamStr(1)='library-flibrary-recovery-open') then
       begin
         if ParamStr(1)='library-flibrary-recovery-open' then TestReviewedFLibraryRecoveryStartup
