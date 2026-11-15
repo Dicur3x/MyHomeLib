@@ -6,7 +6,7 @@ Never points the catalogue at a user's source folder or personal database.
 """
 import argparse
 import base64
-from contextlib import closing, contextmanager, nullcontext
+from contextlib import closing, contextmanager, nullcontext, ExitStack
 import ctypes
 import hashlib
 import io
@@ -336,7 +336,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
         legacy_history=False, packing_codec=None, packing_codec_release=None, reviewed_index=False, reviewed_bound=False,
         update_recovery_phase=None, update_recovery_bound=False, update_recovery_preserve=None,
         update_recovery_neighbour=False, update_recovery_compressed=False, reviewed_flibrary_bound=False, flibrary_recovery_phase=None, recovery_interrupt=None,
-        reader_runtime=None, reader_timeout=600, reader_recompress=False, cancel_compression_refresh=False):
+        reader_runtime=None, reader_timeout=600, reader_recompress=False, cancel_compression_refresh=False, work_picker_source_volume=None):
     from library_recovery_restart import restart as restart_library_recovery
     from test_pack_collection import illustrated_fb2, image_fixture
     assert bool(packing_codec) == bool(packing_codec_release), 'Codec archive and official release metadata must be paired'
@@ -359,6 +359,10 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
     if reviewed_index or reviewed_bound:
         assert scenario == 'selected-compression-ui' and mode == 'apply'
         assert not any((legacy_history, recovery_fault, recovery_preserve, packing_codec))
+    if work_picker_source_volume:
+        assert scenario == 'selected-compression-ui' and mode == 'apply'
+        assert not any((real_books, inspect_comparison, cancel_compression_refresh, recovery_fault,
+                        legacy_history, reviewed_index, reviewed_bound, refresh_index, repeat_new, repeat_offer, estimate_first, whole))
     if cancel_compression_refresh:
         assert scenario == 'selected-compression-ui' and mode == 'apply'
         assert not any((real_books, recovery_fault, legacy_history, reviewed_index, reviewed_bound,
@@ -378,7 +382,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
         assert update_recovery_phase == 'catalogue-committed', 'Conflict checks require a catalogue-only commit'
     if update_recovery_neighbour:
         assert update_recovery_phase and not update_recovery_preserve
-    with temporary_work_directory(stage, 'HomeLibRu-native-') as root:
+    with temporary_work_directory(stage, 'HomeLibRu-native-') as root, ExitStack() as extra_work:
         root = Path(root)
         if recovery_interrupt:
             (root / 'library-recovery-interrupt.json').write_text(json.dumps(dict(phase=recovery_interrupt)), encoding='utf-8')
@@ -515,6 +519,31 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
         with zipfile.ZipFile(source, 'w', compression=zipfile.ZIP_STORED) as archive:
             for name, body in originals.items():
                 archive.writestr(name, body)
+        work_picker = None
+        if work_picker_source_volume:
+            source_parent = Path(work_picker_source_volume).resolve(strict=True)
+            small_source = extra_work.enter_context(temporary_work_directory(source_parent, 'HomeLibre-work-picker-source-'))
+            assert source.stat().st_size < 2 * 1024**2
+            assert {p.name for p in source.parent.iterdir()} == {'shared.zip'}
+            physical = small_source / 'shared.zip'
+            shutil.copy2(source, physical)
+            assert digest(physical) == digest(source)
+            source.unlink()
+            source.parent.rmdir()
+            linked = run_owned(['cmd.exe', '/c', 'mklink', '/J', str(source.parent), str(small_source)],
+                               capture_output=True, timeout=15)
+            assert linked.returncode == 0, linked.stderr
+            assert source.parent.resolve(strict=True) == small_source.resolve(strict=True)
+            assert source.stat().st_dev != root.stat().st_dev
+            chosen_parent = root / 'chosen-work-parent'
+            chosen_parent.mkdir()
+            expected_work = chosen_parent / 'HomeLibre-compression-work'
+            work_picker = dict(source_volume=physical.anchor, source_device=source.stat().st_dev,
+                               work_volume=root.anchor, work_device=root.stat().st_dev,
+                               chosen_parent=str(chosen_parent), expected_work=str(expected_work))
+            (root / 'compression-fixture.json').write_text(json.dumps(dict(
+                inspect_work_picker=True, work_picker_initial=str(small_source),
+                work_picker_expected=str(expected_work), timeout_ms=300000)), encoding='utf-8')
         (root / 'conversion-fixtures').mkdir()
         conversion_fb2 = originals.get('one.fb2')
         if conversion_fb2 is None:
@@ -523,7 +552,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
         before, size = digest(source), source.stat().st_size
         started = time.monotonic()
         startup = None
-        if inspect_comparison:
+        if inspect_comparison or work_picker_source_volume:
             startup = subprocess.STARTUPINFO()
             startup.dwFlags |= subprocess.STARTF_USESHOWWINDOW
             startup.wShowWindow = 5
@@ -531,7 +560,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
         # discard the only evidence explaining where the private GUI stopped.
         # The real-book fixture itself allows 300 s *after* its application
         # bootstrap; leave separate room for bootstrap and orderly teardown.
-        deadline = 420 if real_books or refresh_index or reviewed_index or reviewed_bound or scenario in ('packing-fbd', 'packed-jxl-formats', 'packed-flibrary-sidecars', 'reviewed-flibrary-compression',
+        deadline = 420 if work_picker_source_volume or real_books or refresh_index or reviewed_index or reviewed_bound or scenario in ('packing-fbd', 'packed-jxl-formats', 'packed-flibrary-sidecars', 'reviewed-flibrary-compression',
             'compression-continuation', 'library-update-sources', 'library-update-apply', 'library-update-cancel', 'library-update-window', 'catalog-merge-outcome', 'library-update-recovery') else 150
         attempt = dict(status='INCOMPLETE', platform=platform, mode=mode,
             native_binary_sha256=digest(binary), outer_timeout_seconds=deadline,
@@ -554,7 +583,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
                 process = run_owned(command,
                     cwd=root, env=env, stdout=log, stderr=subprocess.STDOUT, startupinfo=startup, timeout=deadline,
                     creationflags=subprocess.BELOW_NORMAL_PRIORITY_CLASS |
-                        (0 if inspect_comparison else subprocess.CREATE_NO_WINDOW))
+                        (0 if inspect_comparison or work_picker_source_volume else subprocess.CREATE_NO_WINDOW))
                 if flibrary_recovery_phase:
                     assert process.returncode == 73, 'FLibrary update did not terminate at its actual boundary'
                     assert (root / 'library-update-recovery-crash.txt').read_text(encoding='utf-8-sig') == flibrary_recovery_phase
@@ -647,6 +676,8 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
         if flibrary_recovery_phase:
             expected = f'PASS actual FLibrary update crash and ordinary startup recovery {flibrary_recovery_phase} bound={reviewed_flibrary_bound}'
         expected_lines = [expected]
+        if work_picker_source_volume:
+            expected_lines.append('PASS Windows folder selection drives actual compression and survives normal menu reopen without writes on cancel')
         if cancel_compression_refresh:
             expected_lines += [
                 'PASS canceled post-compression list refresh retains completed journal and immutable proofs',
@@ -880,6 +911,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
                     real_source_stamps={str(path): stamp for path, stamp in real_stamps.items()},
                     whole=whole,
                     cancel_compression_refresh=cancel_compression_refresh,
+                    work_picker=work_picker,
                     repeat_new=repeat_new,
                     repeat_offer=repeat_offer,
                     refresh_index=refresh_index, reviewed_index=reviewed_index, reviewed_bound=reviewed_bound,
@@ -907,6 +939,8 @@ if __name__ == '__main__':
     parser.add_argument('--reader-runtime', type=Path,
                         help='Inspect the real Main and Reader after the reviewed FLibrary fixture; GUI actions use Computer Use')
     parser.add_argument('--reader-timeout', type=int, default=600)
+    parser.add_argument('--work-picker-source-volume', type=Path,
+                        help='Manually choose the work folder with Computer Use; a small source is isolated on this other volume')
     parser.add_argument('--cancel-compression-refresh', action='store_true',
                         help='Cancel the real post-compression list reload and recover its retained journal through Main')
     parser.add_argument('--reader-recompress', action='store_true',

@@ -130,7 +130,8 @@ type
     Timer: TTimer;
     Mode, OriginalSHA, Source, BackupFolder, RecoveryFault, RecoveryIssues, ResultNote: string;
     ProfileIndex: Integer;
-    Grayscale, CancelOptions: Boolean;
+    Grayscale, CancelOptions, InspectWorkPicker: Boolean;
+    WorkPickerInitial, WorkPickerExpected:string;
     InspectComparison, EstimateFirst, EstimateSeen, Whole, OnlyNew: Boolean;
     ProducerStageSeen, EstimateStageSeen: Boolean;
     InspectionDeadline, Started: UInt64;
@@ -193,13 +194,21 @@ begin
         Require(TCheckBox(Form.FindComponent('CompressionGrayscale')).Checked=Grayscale,'Offer lost saved grayscale');
       end;
       if CancelOptions then
-      begin TButton(Form.FindComponent('CompressionCancel')).Click; Exit; end;
+      begin
+        if WorkPickerExpected<>'' then
+          Require(TEdit(Form.FindComponent('CompressionWorkFolder')).Text=WorkPickerExpected,
+            'Reopened compression options lost the folder selected through Windows');
+        TButton(Form.FindComponent('CompressionCancel')).Click; Exit;
+      end;
       TComboBox(Form.FindComponent('CompressionProfile')).ItemIndex:=ProfileIndex;
       TCheckBox(Form.FindComponent('CompressionGrayscale')).Checked:=Grayscale;
       TCheckBox(Form.FindComponent('CompressionReview')).Checked:=True;
-      TEdit(Form.FindComponent('CompressionWorkFolder')).Text:=Settings.AppPath+'compression-work';
+      if InspectWorkPicker then TEdit(Form.FindComponent('CompressionWorkFolder')).Text:=WorkPickerInitial
+      else TEdit(Form.FindComponent('CompressionWorkFolder')).Text:=Settings.AppPath+'compression-work';
       TCheckBox(Form.FindComponent('CompressionBackup')).Checked:=True;
       TEdit(Form.FindComponent('CompressionBackupFolder')).Text:=BackupFolder;
+      if InspectWorkPicker then
+      begin Writeln('TRACE actual work-folder picker ready; choose ',ExtractFileDir(WorkPickerExpected)); Flush(Output); Exit; end;
       if EstimateFirst then TButton(Form.FindComponent('CompressionEstimate')).Click
       else TButton(Form.FindComponent('CompressionStart')).Click;
       Exit;
@@ -413,6 +422,9 @@ begin
       Driver.ProfileIndex:=Config.GetValue<Integer>('profile_index',2);
       Require(InRange(Driver.ProfileIndex,0,3),'Invalid fixture compression profile');
       Driver.InspectComparison:=Config.GetValue<Boolean>('inspect_comparison',False);
+      Driver.InspectWorkPicker:=Config.GetValue<Boolean>('inspect_work_picker',False);
+      Driver.WorkPickerInitial:=Config.GetValue<string>('work_picker_initial','');
+      Driver.WorkPickerExpected:=Config.GetValue<string>('work_picker_expected','');
       Driver.EstimateFirst:=Config.GetValue<Boolean>('estimate_first',False);
       Driver.Whole:=Config.GetValue<Boolean>('whole',False);
       Driver.RecoveryFault:=Config.GetValue<string>('recovery_fault','');
@@ -549,6 +561,22 @@ begin
       Options.ReviewResults and Options.BackupOriginals and (Options.BackupFolder=Driver.BackupFolder),
       'Normal catalogue command lost its own selected compression choices');
     Require(Length(TBookCompressionJob.Pending(CompressionQueueRoot(Options)))=0,'Completed GUI action left a pending job');
+    if Driver.InspectWorkPicker then
+    begin
+      Require(Options.WorkRoot=Driver.WorkPickerExpected,'Compression ignored the folder selected through Windows');
+      var SavedRegistry:=TFile.ReadAllText(Registry,TEncoding.UTF8);
+      var SavedPreference:=VarToStr(CurrentCollection.GetProperty(PROP_COMPRESSION_PREFERENCES));
+      var SavedSource:=THashSHA2.GetHashStringFromFile(Source);
+      Driver.OptionsSeen:=False; Driver.CancelOptions:=True; Driver.Timer.Enabled:=True;
+      Action.Update; Require(Action.Enabled,'Cannot reopen normal compression options'); Action.Execute;
+      Driver.Timer.Enabled:=False;
+      Require(Driver.OptionsSeen,'Normal menu did not reopen its saved folder');
+      Require((TFile.ReadAllText(Registry,TEncoding.UTF8)=SavedRegistry) and
+        (VarToStr(CurrentCollection.GetProperty(PROP_COMPRESSION_PREFERENCES))=SavedPreference),
+        'Canceling the reopened options changed remembered settings');
+      Require(THashSHA2.GetHashStringFromFile(Source)=SavedSource,'Reopening options changed compressed books');
+      Writeln('PASS Windows folder selection drives actual compression and survives normal menu reopen without writes on cancel');
+    end;
     if FileExists(Settings.AppPath+'compression-refresh.marker') then
     begin
       Require(Mode='apply','Index-refresh case requires applied compression');
