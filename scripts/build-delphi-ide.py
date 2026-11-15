@@ -16,7 +16,17 @@ import secrets
 import shutil
 import struct
 import subprocess
+import tempfile
 import time
+
+
+def require_output_reserve(*folders):
+    for folder in folders:
+        probe = folder
+        while not probe.exists():
+            probe = probe.parent
+        if shutil.disk_usage(probe).free < 512 * 1024**2:
+            raise OSError('Build stopped: keep at least 512 MiB free on output/temp volume: ' + str(probe))
 
 
 def build(project, platform, binary, logs, ide, required_text=(), visible=False, timeout=180):
@@ -31,6 +41,7 @@ def build(project, platform, binary, logs, ide, required_text=(), visible=False,
     if len(matches) != 1:
         raise ValueError('Expected one explicit default project platform')
     logs.mkdir(parents=True, exist_ok=True)
+    require_output_reserve(logs, binary.parent)
     token = secrets.token_hex(6)
     log = logs / (project.stem + '-' + platform + '-' + token + '.err')
     clone = None
@@ -39,6 +50,11 @@ def build(project, platform, binary, logs, ide, required_text=(), visible=False,
         if clone.exists():
             raise FileExistsError(clone)
         clone.write_bytes(re.sub(pattern, lambda m: m[1] + platform.encode() + m[3], original))
+    # Keep IDE/compiler temporary data with the explicitly chosen build logs.
+    # Every invocation owns a fresh directory and reaps its IDE before cleanup.
+    build_temp = Path(tempfile.mkdtemp(prefix='ide-temp-' + token + '-', dir=logs))
+    temp_identity = build_temp.stat(follow_symlinks=False)
+    result = None
     started = time.time_ns()
     try:
         startup = subprocess.STARTUPINFO()
@@ -47,10 +63,12 @@ def build(project, platform, binary, logs, ide, required_text=(), visible=False,
         # These are Delphi projects; do not inherit another IDE personality
         # from a user's last interactive session.
         process = subprocess.Popen([str(ide), '-pDelphi', '-ns', '-b', '-o' + str(log), str(clone or project)],
-                                   startupinfo=startup)
+                                   startupinfo=startup,
+                                   env={**os.environ, 'TEMP': str(build_temp), 'TMP': str(build_temp)})
         try:
             deadline = time.monotonic() + timeout
             while process.poll() is None:
+                require_output_reserve(logs, binary.parent)
                 if os.name == 'nt' and shutil.disk_usage(os.environ.get('SystemDrive', 'C:') + '\\').free < 8*1024**3:
                     raise OSError('Build stopped: system drive reserve fell below 8 GiB.')
                 if log.is_file():
@@ -98,6 +116,20 @@ def build(project, platform, binary, logs, ide, required_text=(), visible=False,
                       original_project_unchanged=True, required_text=list(required_text),
                       interface='Documented bds.exe -b AutoBuild; compiler licence checks unchanged')
     finally:
+        # Only the freshly created directory, still at its original identity.
+        # A transient lock may retain it; never turn successful compilation
+        # into a failed build merely because cleanup needs another attempt.
+        try:
+            current = build_temp.stat(follow_symlinks=False)
+            if (not build_temp.is_symlink() and build_temp.resolve().parent == logs and
+                    (current.st_dev, current.st_ino) == (temp_identity.st_dev, temp_identity.st_ino)):
+                shutil.rmtree(build_temp)
+        except OSError:
+            pass
+        if result is not None:
+            result['temporary_directory_removed'] = not build_temp.exists()
+            if build_temp.exists():
+                result['retained_temporary_directory'] = str(build_temp)
         if clone:
             # This unpredictable prefix was created only by this invocation.
             generated = [*project.parent.glob(clone.stem + '.*'),
