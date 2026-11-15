@@ -1,7 +1,7 @@
 "use strict";
 // Run the real application with a small native fixture, never the owner's profile.
 // Close its window normally after inspection; the probe reports the actual exit.
-// Close other HomeLib Ru instances first: its single-instance check can exit 0
+// Close other HomeLibre instances first: its single-instance check can exit 0
 // without showing a new window. Confirm the probe's own window before closing it.
 const fs = require("fs"), os = require("os"), path = require("path"), cp = require("child_process");
 const [runtimeArg, fixtureArg, pageArg = "6"] = process.argv.slice(2);
@@ -11,7 +11,7 @@ const runtime = fs.realpathSync(runtimeArg), fixture = fs.realpathSync(fixtureAr
 const folder = fs.mkdtempSync(path.join(os.tmpdir(), "HomeLibRu-native-startup-"));
 require('../../test_temp_root')(folder, 'HomeLibRu-native-startup-');
 for (const entry of fs.readdirSync(runtime, {withFileTypes: true})) {
-  if (entry.isFile() && (/\.(dll|glst)$/i.test(entry.name) || entry.name === "HomeLibRu.exe"))
+  if (entry.isFile() && (/\.(dll|glst)$/i.test(entry.name) || ["HomeLibre.exe", "HomeLibRu.exe"].includes(entry.name)))
     fs.copyFileSync(path.join(runtime, entry.name), path.join(folder, entry.name));
   if (entry.isDirectory() && ["Icons", "tools", "Help", "Readers"].includes(entry.name))
     fs.cpSync(path.join(runtime, entry.name), path.join(folder, entry.name), {recursive: true});
@@ -39,8 +39,9 @@ fs.writeFileSync(path.join(folder, "myhomelib2.ini"), ini);
 fs.copyFileSync(path.resolve(__dirname, '../../../Installer/Components.json'), path.join(folder, 'COMPONENTS.json'));
 console.log(`Isolated profile: ${folder}`);
 // This is an interactive smoke probe: inspect and close the application window.
-const app = cp.spawn(path.join(folder, "HomeLibRu.exe"), [], {cwd: folder, stdio: "ignore"});
-console.log(`Actual application PID: ${app.pid}; saved page ${pageArg}`);
+const mainName = fs.existsSync(path.join(folder, "HomeLibre.exe")) ? "HomeLibre.exe" : "HomeLibRu.exe";
+const app = cp.spawn(path.join(folder, mainName), [], {cwd: folder, stdio: "ignore"});
+console.log(`Actual application: ${mainName}; PID: ${app.pid}; saved page ${pageArg}`);
 app.on("error", error => { console.error(error); process.exitCode = 1; });
 app.on("exit", (code, signal) => {
   console.log(`Actual application exit: ${code}; signal: ${signal || "none"}`);
