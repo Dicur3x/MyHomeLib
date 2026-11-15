@@ -336,10 +336,11 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
         legacy_history=False, packing_codec=None, packing_codec_release=None, reviewed_index=False, reviewed_bound=False,
         update_recovery_phase=None, update_recovery_bound=False, update_recovery_preserve=None,
         update_recovery_neighbour=False, update_recovery_compressed=False, reviewed_flibrary_bound=False, flibrary_recovery_phase=None, recovery_interrupt=None,
-        reader_runtime=None, reader_timeout=600):
+        reader_runtime=None, reader_timeout=600, reader_recompress=False):
     from library_recovery_restart import restart as restart_library_recovery
     from test_pack_collection import illustrated_fb2, image_fixture
     assert bool(packing_codec) == bool(packing_codec_release), 'Codec archive and official release metadata must be paired'
+    assert not reader_recompress or reader_runtime, 'Recompression inspection requires the real Main and Reader'
     if reader_runtime:
         assert scenario == 'reviewed-flibrary-compression' and mode == 'apply'
         assert not any((flibrary_recovery_phase, recovery_interrupt, update_recovery_phase))
@@ -735,7 +736,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
             if reader_runtime:
                 from reader_inspection import inspect as inspect_reader
                 reader_result = inspect_reader(root, reader_runtime, platform,
-                    stage / f'catalogue-{platform}-reader.json', env, reader_timeout)
+                    stage / f'catalogue-{platform}-reader.json', env, reader_timeout, reader_recompress)
             if scenario == 'packed-catalogue-sizes':
                 output_root = root / 'packed-size-output'
                 catalogues = list(output_root.glob('*.hlc2'))
@@ -894,6 +895,8 @@ if __name__ == '__main__':
     parser.add_argument('--reader-runtime', type=Path,
                         help='Inspect the real Main and Reader after the reviewed FLibrary fixture; GUI actions use Computer Use')
     parser.add_argument('--reader-timeout', type=int, default=600)
+    parser.add_argument('--reader-recompress', action='store_true',
+                        help='Save actual Reader positions before a new compression from the ordinary Main command, then verify reopened content and positions')
     parser.add_argument('--processing-package', type=Path)
     parser.add_argument('--estimate-first', action='store_true')
     parser.add_argument('--whole', action='store_true')

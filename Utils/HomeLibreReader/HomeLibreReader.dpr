@@ -1,7 +1,7 @@
 ﻿program HomeLibreReader;
 
 {$R *.res}
-{$R '..\..\Program\MyhomeLib.dres'}
+{$R '..\..\Program\HomeLibre.dres'}
 {$R '..\..\Program\lang.res'}
 {$R '..\..\Program\HomeLibreManifest.res'}
 
