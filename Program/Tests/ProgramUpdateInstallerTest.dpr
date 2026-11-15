@@ -189,6 +189,23 @@ begin
     begin Guard(ParamStr(2)); Writeln(UpdateSHA3(ParamStr(2))); end
     else if Mode = '--signature' then
     begin VerifySumatraSignature(ParamStr(2)); end
+    else if Mode='--runtime-state' then
+    begin
+      Guard(ParamStr(2)); Params:=TJSONArray.Create;
+      try
+        for var ID in ComponentIDs do
+        begin
+          Detail:=TJSONObject.Create; Detail.AddPair('id',ID);
+          Detail.AddPair('version',InstalledComponentVersion(ParamStr(2),ID));
+          Detail.AddPair('repair',TJSONBool.Create(ComponentNeedsRepair(ParamStr(2),ID)));
+          Detail.AddPair('inventory',TJSONNumber.Create(Length(InstalledComponentFiles(ParamStr(2),ID))));
+          Detail.AddPair('manifest_inventory',TJSONNumber.Create(Length(ComponentFilesFromManifest(
+            TPath.Combine(ParamStr(2),UPDATE_MANIFEST),ID))));
+          Params.AddElement(Detail);
+        end;
+        Writeln(Params.ToJSON);
+      finally Params.Free; end;
+    end
     else if Mode='--component-needs-repair' then
     begin
       Guard(ParamStr(2));

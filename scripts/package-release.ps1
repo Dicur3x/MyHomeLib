@@ -5,11 +5,20 @@ param(
     [string]$Platform,
 
     [string]$OutputDirectory,
-    [switch]$Full
+    [switch]$Full,
+    [string]$OfflineComponents,
+    [string]$OfflineVerifier,
+    [string]$WorkingDirectory
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+if ($Full -and [string]::IsNullOrWhiteSpace($OfflineComponents)) {
+    throw 'Полная сборка требует -OfflineComponents: проверенный список архивов всех компонентов с SHA-256.'
+}
+if (-not $Full -and ($OfflineComponents -or $OfflineVerifier)) {
+    throw 'Параметры автономных компонентов разрешены только вместе с -Full.'
+}
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $releaseIdentity = Get-Content -LiteralPath (Join-Path $repositoryRoot 'Installer\Release.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 $release = $releaseIdentity.release
@@ -34,22 +43,24 @@ if ($compatibilityArchivePath -and (Test-Path -LiteralPath $compatibilityArchive
 }
 
 # Preparation is explicit: this verifies the runtime without changing it.
-& (Join-Path $PSScriptRoot 'prepare-runtime.ps1') -Platform $Platform -CoreOnly:(-not $Full) | Out-Host
+& (Join-Path $PSScriptRoot 'prepare-runtime.ps1') -Platform $Platform -CoreOnly | Out-Host
 
-$temporaryDirectory = [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath())
+$temporaryDirectory = if ($WorkingDirectory) { [IO.Path]::GetFullPath($WorkingDirectory) } else { [IO.Path]::GetFullPath([IO.Path]::GetTempPath()) }
+if (-not (Test-Path -LiteralPath $temporaryDirectory -PathType Container)) { throw 'Не найдена рабочая папка упаковки.' }
+function Assert-PackageDiskSpace {
+    $systemVolume = [IO.DriveInfo]::new([IO.Path]::GetPathRoot($env:SystemRoot))
+    if ($systemVolume.AvailableFreeSpace -lt 8GB) { throw 'Для упаковки нужно оставить не менее 8 ГБ на системном диске.' }
+    $workVolume = [IO.DriveInfo]::new([IO.Path]::GetPathRoot($temporaryDirectory))
+    if ($workVolume.AvailableFreeSpace -lt 512MB) { throw 'В рабочей папке упаковки нужно оставить резерв 512 МБ.' }
+}
+Assert-PackageDiskSpace
 $stagingRoot = Join-Path $temporaryDirectory ('homelibru-package-' + [guid]::NewGuid().ToString('N'))
 $payloadDirectory = Join-Path $stagingRoot 'payload'
 [System.IO.Directory]::CreateDirectory($payloadDirectory) | Out-Null
+[IO.File]::WriteAllText((Join-Path $stagingRoot '.package-stage'), 'HomeLibre release packaging v1')
 try {
     foreach ($name in @('HomeLibre.exe', 'HomeLibRu.exe', 'HomeLibRuUpdater.exe', 'sqlite3.dll', 'LICENSE', 'NOTICE')) {
         Copy-Item -LiteralPath (Join-Path $runtimeDirectory $name) -Destination $payloadDirectory
-    }
-    if ($Full) {
-        foreach ($name in @('MHLMcpServer.exe', 'libzstd.dll')) {
-            Copy-Item -LiteralPath (Join-Path $runtimeDirectory $name) -Destination $payloadDirectory
-        }
-        $zstdLicence = [System.IO.File]::ReadAllText((Join-Path $repositoryRoot 'Program\Resources\zstd\LICENSE'))
-        [System.IO.File]::AppendAllText((Join-Path $payloadDirectory 'NOTICE'), "`n`nZstandard`n" + $zstdLicence)
     }
     & (Join-Path $PSScriptRoot 'check-release-identity.ps1') -RuntimeDirectory $payloadDirectory `
         -Release $release -Version $releaseIdentity.version -Platform $Platform
@@ -75,71 +86,37 @@ try {
     $toolsDestination = Join-Path $payloadDirectory 'tools'
     # Genre/update metadata is shared catalogue data. Fonts belong to the
     # optional Reader package; native format adapters arrive with their modules.
+    $offline = $null
     if ($Full) {
-        foreach ($directory in Get-ChildItem -LiteralPath (Join-Path $runtimeDirectory 'tools') -Directory) {
-            if ($directory.Name -notin @('fonts', 'bookconvert', 'collectionpack')) {
-                Copy-Item -LiteralPath $directory.FullName -Destination $toolsDestination -Recurse
-            }
+        if (-not $OfflineVerifier) {
+            $OfflineVerifier = Join-Path $repositoryRoot "Program/Tests/Out/$Platform/ProgramUpdateInstallerTest.exe"
         }
-        $bookConverterDestination = Join-Path $toolsDestination 'bookconvert'
-        [IO.Directory]::CreateDirectory($bookConverterDestination) | Out-Null
-        foreach ($name in @('convert_book.py', 'text_inputs.py', 'kindle_input.py', 'legacy_inputs.py', 'legacy_helper.py', 'rgo_input.py', 'rgo_outline.py', 'isilo_input.py', 'isilo_image.py', 'ibk_input.py', 'ibk_crypto.py', 'ibk_parameters.json', 'ibk_tables.bin', 'jutoh_input.py', 'pages_input.py', 'cr3_input.py', 'b1_input.py', 'sm_input.py', 'sm_runtime.js', 'sm_reader.py', 'sm_resources.py', 'js_runtime.py', 'fixed_layout.py', 'office_inputs.py', 'xps_input.py', 'image_input.py', 'tiff_jpeg.py', 'image_quality.py', 'scan_export.py', 'ha_input.py', 'LICENSE.txt', 'README.md', 'THIRD_PARTY.md')) {
-            Copy-Item -LiteralPath (Join-Path $runtimeDirectory "tools\bookconvert\$name") -Destination $bookConverterDestination
-        }
-        foreach ($file in Get-ChildItem -LiteralPath (Join-Path $runtimeDirectory 'tools\bookconvert\vendor') -Recurse -File |
-            Where-Object { $_.Extension -eq '.py' -or $_.Name -eq 'py.typed' -or $_.Name -eq 'SOURCE.json' -or $_.Name -like '*_LICENSE.txt' }) {
-            $relative = $file.FullName.Substring((Join-Path $runtimeDirectory 'tools\bookconvert').Length + 1)
-            $target = Join-Path $bookConverterDestination $relative
-            [IO.Directory]::CreateDirectory((Split-Path -Parent $target)) | Out-Null
-            Copy-Item -LiteralPath $file.FullName -Destination $target
-        }
-        $legacyNative = 'tools/bookconvert/vendor/calibre_legacy/native'
-        foreach ($name in @('HomeLibLegacy.dll', 'RUNTIME.json')) {
-            $target = Join-Path $payloadDirectory "$legacyNative/$name"
-            [IO.Directory]::CreateDirectory((Split-Path -Parent $target)) | Out-Null
-            Copy-Item -LiteralPath (Join-Path $runtimeDirectory "$legacyNative/$name") -Destination $target
-        }
-    }
-    if ($Full) {
-        $fontSource = Join-Path $runtimeDirectory 'tools\fonts'
+        $offlineReport = Join-Path $stagingRoot 'offline-components.json'
+        & python -B (Join-Path $PSScriptRoot 'stage-offline-components.py') `
+            --payload $payloadDirectory --definition $OfflineComponents --native $OfflineVerifier --report $offlineReport | Out-Host
+        if ($LASTEXITCODE -ne 0) { throw 'Не удалось проверить и собрать автономные компоненты.' }
+        $offline = Get-Content -LiteralPath $offlineReport -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ($offline.platform -cne $Platform) { throw 'Разрядность списка автономных компонентов не совпадает.' }
+        $fontSource = Join-Path $repositoryRoot 'Installer/ReaderFonts'
         $fontDestination = Join-Path $toolsDestination 'fonts'
         $fontManifest = Get-Content -LiteralPath (Join-Path $fontSource 'manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
         foreach ($font in $fontManifest.files) {
-            if ($Full -and ($font.path -match '^(ptserif|ptsans)/' -or
-                $font.path -match '^noto/(NotoSerif|NotoSans)-(Regular|Bold|Italic|BoldItalic)\.ttf$' -or
-                $font.path -match '(OFL|LICENSE).*\.(txt|md)$')) {
-                $target = Join-Path $fontDestination $font.path
-                [IO.Directory]::CreateDirectory((Split-Path -Parent $target)) | Out-Null
-                Copy-Item -LiteralPath (Join-Path $fontSource $font.path) -Destination $target
+            Assert-PackageDiskSpace
+            $source = [IO.Path]::GetFullPath((Join-Path $fontSource $font.path))
+            if (-not $source.StartsWith(($fontSource.TrimEnd('\') + '\'), [StringComparison]::OrdinalIgnoreCase)) {
+                throw 'Путь шрифта выходит за папку источников.'
             }
+            if ((Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash -ine $font.sha256) {
+                throw "Контрольная сумма шрифта не совпадает: $($font.path)"
+            }
+            $target = Join-Path $fontDestination $font.path
+            [IO.Directory]::CreateDirectory((Split-Path -Parent $target)) | Out-Null
+            Copy-Item -LiteralPath $source -Destination $target
         }
-        [IO.Directory]::CreateDirectory($fontDestination) | Out-Null
         Copy-Item -LiteralPath (Join-Path $fontSource 'manifest.json') -Destination $fontDestination
-    }
-    # Readers can save reading history alongside their executables. Ship only
-    # their distribution files, never a recursively copied working profile.
-    $readerFiles = @{
-        AlReader = @('$savevtut.ini', 'AlDictionary.aldict', 'AlReader2.exe',
-            'book_new0.m2.bmp', 'book_new1.m2.bmp', 'book_white.m2.bmp',
-            'DefaultTexture.BMP', 'DefaultTextureBlack.BMP',
-            'English_US_hyphen_(Alan).pdb', 'fon_white.m1.bmp', 'readme.txt',
-            'Russian_1251_hyphen_(Alan).pdb', 'Russian_EnUS_hyphen_(Alan).pdb',
-            'Russian_hyphen_(Alan).pdb', 'UNRAR.DLL')
-        SumatraPDF = @('SumatraPDF.exe', 'AUTHORS.txt', 'COPYING.BSD.txt', 'COPYING.txt')
-    }
-    foreach ($reader in $(if ($Full) { $readerFiles.Keys } else { @() })) {
-        $destination = Join-Path $payloadDirectory "Readers\$reader"
-        [System.IO.Directory]::CreateDirectory($destination) | Out-Null
-        foreach ($name in $readerFiles[$reader]) {
-            Copy-Item -LiteralPath (Join-Path $runtimeDirectory "Readers\$reader\$name") -Destination $destination
-        }
-    }
-    if ($Full) { Copy-Item -LiteralPath (Join-Path $repositoryRoot 'Installer\HomeLibRu.url') -Destination $payloadDirectory }
-    $converter = Join-Path $runtimeDirectory 'converters\fb2lrf'
-    if ($Full -and (Test-Path -LiteralPath $converter -PathType Container)) {
-        $converterDestination = Join-Path $payloadDirectory 'converters'
-        [System.IO.Directory]::CreateDirectory($converterDestination) | Out-Null
-        Copy-Item -LiteralPath $converter -Destination $converterDestination -Recurse
+        $offlinePublic = [ordered]@{ format = 1; platform = $Platform; components = @($offline.components) }
+        [IO.File]::WriteAllText((Join-Path $updateMetadata 'OFFLINE.json'),
+            ($offlinePublic | ConvertTo-Json -Depth 6), [Text.UTF8Encoding]::new($false))
     }
 
     $manifestFiles = @(Get-ChildItem -LiteralPath $payloadDirectory -Recurse -File | Sort-Object FullName | ForEach-Object {
@@ -151,6 +128,7 @@ try {
     })
     $manifest = [ordered]@{ format = 1; release = $release; platform = $Platform;
         distribution = $(if ($Full) { 'full' } else { 'minimal' }); files = $manifestFiles }
+    if ($Full) { $manifest.bundle = @($offline.components) }
     # Keep this transport manifest at the legacy ZIP root: older clients read
     # it before running the new updater. It is not an installed payload file.
     [IO.File]::WriteAllText((Join-Path $payloadDirectory 'HomeLibRu.update.json'),
@@ -160,8 +138,10 @@ try {
     # fixtures in the output directory do not belong in a release archive.
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $temporaryArchive = Join-Path $stagingRoot $archiveName
+    Assert-PackageDiskSpace
     [System.IO.Compression.ZipFile]::CreateFromDirectory($payloadDirectory, $temporaryArchive,
         [System.IO.Compression.CompressionLevel]::Optimal, $false)
+    Assert-PackageDiskSpace
     $archive = [System.IO.Compression.ZipFile]::OpenRead($temporaryArchive)
     try {
         if (-not $Full) {

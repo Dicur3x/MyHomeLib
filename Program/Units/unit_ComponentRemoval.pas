@@ -219,7 +219,7 @@ begin
     if not Assigned(Result) or (Result.GetValue<string>('kind','')<>REMOVAL_KIND) or
       not Result.TryGetValue<string>('target',Target) or
       not SameText(ExcludeTrailingPathDelimiter(TPath.GetFullPath(Target)),ExcludeTrailingPathDelimiter(TPath.GetFullPath(AppPath))) or
-      not Result.TryGetValue<TJSONArray>('ids',IDs) or (IDs.Count<1) or (IDs.Count>20) or
+      not Result.TryGetValue<TJSONArray>('ids',IDs) or (IDs.Count<1) or (IDs.Count>UPDATE_MAX_COMPONENTS) or
       not Result.TryGetValue<TJSONArray>('files',Files) or (Files.Count>12000) then
       raise Exception.Create('Журнал удаления не относится к этой программе.');
     Selected:=TDictionary<string,Boolean>.Create(TIStringComparer.Ordinal);

@@ -9,6 +9,8 @@ uses System.SysUtils, System.Classes, System.JSON, unit_ApplicationIdentity;
 const
   UPDATE_MANIFEST = 'HomeLibRu.update.json';
   UPDATE_MAX_ARCHIVE = 256 * 1024 * 1024;
+  // A full distribution and a user selection can include every known module.
+  UPDATE_MAX_COMPONENTS = 32;
   COMPONENT_RECEIPT_FOLDER = 'tools/component-state/';
   JPEG_XL_ENCODER_COMPONENT = 'JpegXLEncoder';
   CATALOGUE_COMPATIBILITY_PAYLOAD = CATALOGUE_TRANSPORT_PATH;
@@ -172,6 +174,10 @@ begin
   if ID='HomeLibReader' then Exit(IsReaderApplicationName(Name) or (Name='HomeLibRuUpdater.exe') or
     (Name='HomeLibReader-LICENSE.txt') or (Name='sqlite3.dll') or (Name='libzstd.dll') or (Name='NOTICE') or
     (Name='tools/fonts/manifest.json') or
+    TRegEx.IsMatch(Name,'\Atools/fonts/(ptserif|ptsans|noto|noto-cjk)/[A-Za-z0-9][A-Za-z0-9._-]{0,120}\.(ttf|otf|ttc)\z') or
+    (Name='tools/fonts/ptserif/OFL.txt') or (Name='tools/fonts/ptsans/OFL.txt') or
+    (Name='tools/fonts/noto/OFL.txt') or (Name='tools/fonts/noto-cjk/Sans-OFL.txt') or
+    (Name='tools/fonts/noto-cjk/Serif-OFL.txt') or
     (Name='tools/doc/HomeLibDoc.exe') or
     (Name='tools/doc/HomeLibDoc-MIT.txt') or
     (Name='tools/doc/DocSharp-MIT.txt') or
@@ -656,7 +662,7 @@ begin
   Bundle := nil; Root.TryGetValue<TJSONArray>('bundle', Bundle);
   if Component = 'batch' then
   begin
-    if not Assigned(Bundle) or (Bundle.Count < 1) or (Bundle.Count > 20) then
+    if not Assigned(Bundle) or (Bundle.Count < 1) or (Bundle.Count > UPDATE_MAX_COMPONENTS) then
       raise Exception.Create('Некорректный пакет компонентов.');
   end
   else if (Component <> '') and ((ComponentFileName(Component) = '') or
@@ -672,7 +678,7 @@ begin
   try
     if Assigned(Bundle) then
     begin
-      if (Bundle.Count < 1) or (Bundle.Count > 12) then raise Exception.Create('Некорректный пакет компонентов.');
+      if (Bundle.Count < 1) or (Bundle.Count > UPDATE_MAX_COMPONENTS) then raise Exception.Create('Некорректный пакет компонентов.');
       for Part in Bundle do
       begin
         if not (Part is TJSONObject) or not TJSONObject(Part).TryGetValue<string>('component', Version) or
@@ -1085,7 +1091,7 @@ var Manifest, Child, Entry, Part: TJSONObject; Bundle, List: TJSONArray;
   Files: TDictionary<string, TUpdateFile>; Info: TUpdateFile; JobName, Stage, Component, ReleaseTag: string;
   Zip: TZipFile; HasApplication: Boolean; Values: TUpdateFiles;
 begin
-  if (Length(Jobs) < 2) or (Length(Jobs) > 9) or DirectoryExists(Job) then
+  if (Length(Jobs) < 2) or (Length(Jobs) > UPDATE_MAX_COMPONENTS+1) or DirectoryExists(Job) then
     raise Exception.Create('Некорректный набор подготовленных обновлений.');
   AssertUpdatePath(Job); ForceDirectories(UpdateIOPath(Job)); Stage := ChildPath(Job, 'payload');
   Manifest := TJSONObject.Create; Files := TDictionary<string, TUpdateFile>.Create;
@@ -1536,7 +1542,7 @@ end;
 
 function PrepareProgramUpdate(const Archive, SHA256, Tag, Platform, Job: string;
   VerifyIdentity: Boolean; const ComponentID, ComponentVersion: string): TUpdateFiles;
-var Zip: TZipFile; Root: TJSONObject; Bytes: TBytes; Names: TDictionary<string, Integer>;
+var Zip: TZipFile; Root: TJSONObject; Bytes, ManifestBytes: TBytes; Names: TDictionary<string, Integer>;
   I, Index, Format: Integer; Name, Stage, Value, Component: string; Info: TUpdateFile;
 begin
   AssertUpdatePath(Job); AssertUpdatePath(Archive);
@@ -1561,6 +1567,7 @@ begin
        (Zip.FileInfo[Index].UncompressedSize > 1024 * 1024) then
       raise Exception.Create('В архиве нет манифеста обновления. Скачайте выпуск вручную.');
     Zip.Read(Index, Bytes);
+    ManifestBytes:=Copy(Bytes);
     Root := TJSONObject.ParseJSONValue(TEncoding.UTF8.GetString(Bytes)) as TJSONObject;
     Component:=ComponentID; if Component='' then Component:='HomeLibre';
     if (Root = nil) or not Root.TryGetValue<Integer>('format', Format) or (Format <> 1) then
@@ -1597,7 +1604,17 @@ begin
         raise Exception.Create('Контрольная сумма файла не совпадает: ' + Info.Name);
     end;
     if VerifyIdentity then VerifyPreparedProgramUpdateIdentity(Root, Stage, Tag, Platform);
-    WriteJSON(ChildPath(Job, 'manifest.json'), Root);
+    if Assigned(Root.GetValue('bundle')) then
+    begin
+      // Bundle verification binds the prepared manifest to the original ZIP
+      // byte for byte. JSON reserialization can change whitespace or the BOM.
+      Name:=ChildPath(Job,'manifest.json');
+      TFile.WriteAllBytes(UpdateIOPath(Name+'.new'),ManifestBytes);
+      if not RetryUpdateFileOperation(function:Boolean
+        begin Result:=MoveFileEx(PChar(UpdateIOPath(Name+'.new')),PChar(Name),
+          MOVEFILE_REPLACE_EXISTING or MOVEFILE_WRITE_THROUGH); end) then RaiseLastOSError;
+    end
+    else WriteJSON(ChildPath(Job, 'manifest.json'), Root);
   finally Root.Free; Names.Free; Zip.Free; end;
 end;
 
