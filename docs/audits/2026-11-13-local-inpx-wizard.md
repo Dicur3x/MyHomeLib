@@ -14,3 +14,13 @@ Native `CollectionViewsTest inpx-local-source` ran on both architectures with as
 | x86 | 0; both groups passed | `1728350f0060f187b000282bc54f1f8a81473dcf05aa618a846076c8b33c543f` |
 
 Reports: `G:\HomeLibRu-build-cache\HomeLibre-post13-raster-initial-20261113\inpx-native-Win64\result.json` and `inpx-native-Win32\result.json`. The test source is `tools/ui/tests/InpxWizardSourceTests.inc`. This is a local beta 14 fix; the final distribution and public update remain separate release work.
+
+## GitHub follow-up
+
+The same beta 13 assertion was reported in
+[issue #12](https://github.com/Dicur3x/MyHomeLib/issues/12). On 15 November 2026,
+[a reply](https://github.com/Dicur3x/MyHomeLib/issues/12#issuecomment-6895116440)
+explained the cause, the verified local fix and its inclusion in beta 14.
+Readback confirmed the comment and the issue's open state. Per the user's
+instruction, keep the issue open until beta 14 is actually published. After
+publication, reply with the release link and close it as completed.
