@@ -43,7 +43,7 @@ type
     FStageProgress: TMergeStageProgress;
     FBookLookup: TMergeBookLookup;
     FBookChoice: TMergeBookChoice;
-    FAfterBegin, FBeforeCommit: TMergeTransactionHook;
+    FBeforeBegin, FAfterBegin, FBeforeCommit: TMergeTransactionHook;
     FCommitted, FCatalogCommitted: Boolean;
     function ResolvedContainer(const Book: TBookRecord): string;
     procedure LoadTarget(const Canceled: TMergeCanceled = nil);
@@ -73,6 +73,7 @@ type
     property BookLookup: TMergeBookLookup read FBookLookup write FBookLookup;
     property BookChoice: TMergeBookChoice read FBookChoice write FBookChoice;
     property AfterBegin: TMergeTransactionHook read FAfterBegin write FAfterBegin;
+    property BeforeBegin: TMergeTransactionHook read FBeforeBegin write FBeforeBegin;
     property BeforeCommit: TMergeTransactionHook read FBeforeCommit write FBeforeCommit;
     property Committed: Boolean read FCommitted;
     property CatalogCommitted: Boolean read FCatalogCommitted;
@@ -670,6 +671,7 @@ begin
     Manifest.SaveToFile(TPath.Combine(BackupFolder, 'restore-paths.txt'), TEncoding.UTF8);
   finally Manifest.Free; end;
   CheckStamps; CheckResolvedContainers; FResolvedContainers.Clear;
+  if Assigned(FBeforeBegin) then FBeforeBegin(FTarget);
   TFile.WriteAllText(TPath.Combine(BackupFolder, 'status.txt'), 'Подготовлено', TEncoding.UTF8);
   // The validated preview already contains this index. CheckStamps above keeps
   // it valid until the write transaction; rebuilding it was a second full scan.

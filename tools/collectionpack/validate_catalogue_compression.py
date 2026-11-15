@@ -20,6 +20,7 @@ import sqlite3
 import subprocess
 from supervised_test_process import run_owned
 import time
+import uuid
 import zipfile
 from xml.etree import ElementTree as ET
 
@@ -228,10 +229,113 @@ def exclusive_recovery_owner(path):
             raise ctypes.WinError(ctypes.get_last_error())
 
 
+def sqlite_content_fingerprint(path):
+    """Independent small-fixture check, insensitive to WAL/checkpoint layout."""
+    def value(item):
+        return {'blob': item.hex()} if isinstance(item, bytes) else item
+    content = []
+    with closing(sqlite3.connect(path.as_uri() + '?mode=ro', uri=True)) as db:
+        schema = db.execute('SELECT type,name,sql FROM sqlite_master ORDER BY type,name').fetchall()
+        for kind, name, sql in schema:
+            rows = []
+            if kind == 'table':
+                quoted = '"' + name.replace('"', '""') + '"'
+                # Stable multiset comparison does not require app collations.
+                rows = sorted(json.dumps([value(cell) for cell in row], ensure_ascii=True)
+                              for row in db.execute('SELECT * FROM ' + quoted))
+            content.append((kind, name, sql, rows))
+    return hashlib.sha256(json.dumps(content, ensure_ascii=True).encode()).hexdigest()
+
+
+@contextmanager
+def later_update_personal_neighbour(root, enabled):
+    if not enabled:
+        yield
+        return
+    folder, = (root / 'Data/LibraryUpdateRecovery').glob('update-*')
+    job = json.loads((folder / 'job.json').read_text(encoding='utf-8-sig'))
+    personal = Path(job['system'])
+    assert personal.resolve(strict=True).is_relative_to(root.resolve(strict=True))
+    witness = '{' + str(uuid.uuid4()).upper() + '}'
+    with closing(sqlite3.connect(personal)) as db:
+        neighbour, = [row[0] for row in db.execute('SELECT DatabaseID,BaseName FROM Bases')
+                      if row[1] == 'Untouched update neighbour']
+        assert neighbour != job['collection']
+        db.execute('CREATE TABLE IF NOT EXISTS CatalogCommitWitnesses(CollectionID INTEGER PRIMARY KEY,OperationID TEXT NOT NULL)')
+        db.execute('INSERT OR REPLACE INTO CatalogCommitWitnesses VALUES(?,?)', (neighbour, witness))
+        db.commit()
+    yield
+    with closing(sqlite3.connect(personal.as_uri() + '?mode=ro', uri=True)) as db:
+        assert db.execute('SELECT OperationID FROM CatalogCommitWitnesses WHERE CollectionID=?',
+                          (neighbour,)).fetchone() == (witness,), 'Recovery overwrote later personal data of another collection'
+
+
+@contextmanager
+def preserve_update_recovery(root, mode):
+    if not mode:
+        yield
+        return
+    proof_file = root / 'library-update-recovery-state.json'
+    proof = json.loads(proof_file.read_text(encoding='utf-8-sig'))
+    folders = list((root / 'Data/LibraryUpdateRecovery').glob('update-*'))
+    assert len(folders) == 1
+    folder = folders[0]
+    job_file = folder / 'job.json'
+    job = json.loads(job_file.read_text(encoding='utf-8-sig'))
+    target, personal = Path(job['target']), Path(job['system'])
+    backups = root / 'Data/LibraryUpdateBackups'
+    backup = (backups / job['operation'] / 'destination.hlc2' if job['mode'] == 'bound'
+              else backups / (job['operation'] + '.hlc2'))
+    for path in (folder, target, personal, backup):
+        assert not path.is_symlink() and path.resolve(strict=True).is_relative_to(root.resolve(strict=True))
+    if mode == 'changed-catalogue':
+        with closing(sqlite3.connect(target)) as db:
+            # Alter the fixture's real catalogue table without substituting a
+            # Python approximation for the app's locale-dependent collations.
+            assert db.execute("UPDATE RecoveryGuardProbe SET Payload=X'4c61746572' WHERE ID='a'").rowcount == 1
+            db.commit()
+    elif mode == 'changed-backup':
+        with closing(sqlite3.connect(backup)) as db:
+            db.execute('CREATE TABLE LaterBackupData(Value TEXT)')
+            db.execute("INSERT INTO LaterBackupData VALUES('Keep changed backup')")
+            db.commit()
+    elif mode in ('replaced-catalogue', 'replaced-profile'):
+        path = target if mode == 'replaced-catalogue' else personal
+        replacement = path.with_name(path.name + '.replacement-fixture')
+        with closing(sqlite3.connect(path)) as source_db, closing(sqlite3.connect(replacement)) as copy_db:
+            source_db.backup(copy_db)
+        os.replace(replacement, path)
+    elif mode == 'changed-journal':
+        job['version'] = 2
+        job_file.write_text(json.dumps(job), encoding='utf-8')
+    else:
+        assert mode == 'live-owner'
+    proof['preserve'] = mode
+    proof_file.write_text(json.dumps(proof), encoding='utf-8')
+    before = {path: sqlite_content_fingerprint(path) for path in (target, personal)}
+    protected = {path: digest(path) for path in folder.iterdir() if path.is_file()}
+    protected[backup] = digest(backup)
+    for name in ('archive', 'index', 'other'):
+        path = Path(proof[name])
+        assert digest(path) == proof[name + '_sha256']
+        protected[path] = digest(path)
+    guard = exclusive_recovery_owner(folder / 'active.lock') if mode == 'live-owner' else nullcontext()
+    with guard:
+        yield
+    assert folder.is_dir(), 'Conflicted recovery moved its pending job'
+    assert not (folder / 'done.json').exists(), 'Conflicted recovery acknowledged unsafe work'
+    for path, fingerprint in before.items():
+        assert sqlite_content_fingerprint(path) == fingerprint, f'Conflicted recovery changed {path}'
+    for path, fingerprint in protected.items():
+        assert digest(path) == fingerprint, f'Conflicted recovery changed protected {path}'
+
+
 def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_books=None, inspect_comparison=False,
         processing_package=None, estimate_first=False, whole=False, repeat_new=False, repeat_offer=False, images=None,
         scenario='selected-compression-ui', recovery_fault=None, recovery_preserve=None, refresh_index=False,
-        legacy_history=False, packing_codec=None, packing_codec_release=None):
+        legacy_history=False, packing_codec=None, packing_codec_release=None,
+        update_recovery_phase=None, update_recovery_bound=False, update_recovery_preserve=None,
+        update_recovery_neighbour=False):
     from test_pack_collection import illustrated_fb2, image_fixture
     assert bool(packing_codec) == bool(packing_codec_release), 'Codec archive and official release metadata must be paired'
     if packing_codec:
@@ -240,8 +344,20 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
         assert scenario == 'selected-compression-ui' and mode == 'apply' and not real_books
     if recovery_preserve:
         assert recovery_fault, 'Preservation checks require a real interrupted job'
+    if update_recovery_phase or update_recovery_bound:
+        assert scenario == 'library-update-recovery' and mode == 'apply' and not any((
+            real_books, recovery_fault, recovery_preserve, legacy_history, packing_codec))
+    if scenario == 'library-update-recovery':
+        assert update_recovery_phase, 'Select the actual update termination boundary'
+    if update_recovery_preserve:
+        assert update_recovery_phase == 'catalogue-committed', 'Conflict checks require a catalogue-only commit'
+    if update_recovery_neighbour:
+        assert update_recovery_phase and not update_recovery_preserve
     with temporary_work_directory(stage, 'HomeLibRu-native-') as root:
         root = Path(root)
+        if update_recovery_phase:
+            (root / 'library-update-recovery-request.json').write_text(json.dumps(dict(
+                phase=update_recovery_phase, bound=update_recovery_bound)), encoding='utf-8')
         shutil.copy2(binary, root / 'CollectionViewsTest.exe')
         shutil.copy2(sqlite, root / 'sqlite3.dll')
         (root / 'Icons').mkdir()
@@ -373,7 +489,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
         # The real-book fixture itself allows 300 s *after* its application
         # bootstrap; leave separate room for bootstrap and orderly teardown.
         deadline = 420 if real_books or scenario in ('packing-fbd', 'packed-jxl-formats', 'packed-flibrary-sidecars',
-            'compression-continuation', 'library-update-sources', 'library-update-apply', 'library-update-cancel', 'library-update-window', 'catalog-merge-outcome') else 150
+            'compression-continuation', 'library-update-sources', 'library-update-apply', 'library-update-cancel', 'library-update-window', 'catalog-merge-outcome', 'library-update-recovery') else 150
         attempt = dict(status='INCOMPLETE', platform=platform, mode=mode,
             native_binary_sha256=digest(binary), outer_timeout_seconds=deadline,
             refresh_index=refresh_index,
@@ -396,6 +512,16 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
                     cwd=root, env=env, stdout=log, stderr=subprocess.STDOUT, startupinfo=startup, timeout=deadline,
                     creationflags=subprocess.BELOW_NORMAL_PRIORITY_CLASS |
                         (0 if inspect_comparison else subprocess.CREATE_NO_WINDOW))
+                if update_recovery_phase:
+                    assert process.returncode == 73, 'Actual update did not terminate at its requested boundary'
+                    assert (root / 'library-update-recovery-crash.txt').read_text(encoding='utf-8-sig') == update_recovery_phase
+                    attempt.update(status='RECOVERING_UPDATE', crash_returncode=process.returncode,
+                                   update_recovery_phase=update_recovery_phase, update_recovery_bound=update_recovery_bound)
+                    attempt_file.write_text(json.dumps(attempt, indent=2), encoding='utf-8')
+                    with later_update_personal_neighbour(root, update_recovery_neighbour), preserve_update_recovery(root, update_recovery_preserve):
+                        process = run_owned([str(root / 'CollectionViewsTest.exe'), 'library-update-recovery-open'],
+                            cwd=root, env=env, stdout=log, stderr=subprocess.STDOUT, startupinfo=startup, timeout=deadline,
+                            creationflags=subprocess.BELOW_NORMAL_PRIORITY_CLASS | subprocess.CREATE_NO_WINDOW)
                 if scenario == 'packing-fbd' and process.returncode == 0:
                     argument = (root / 'packing-inpx-result.argument').read_text(encoding='ascii').strip()
                     assert argument.startswith('--resume-collection-packing=') and '\n' not in argument
@@ -448,6 +574,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
             raise
         output = log_path.read_text(encoding='utf-8', errors='replace')
         expected = {
+            'library-update-recovery': f'PASS actual library update crash and ordinary startup recovery {update_recovery_phase} bound={update_recovery_bound}',
             'library-update-window': 'PASS library update menu and toolbar run reviewed confirmation, keep declined data, refresh the actual book view and offer incremental compression; both theme glyphs remain available',
             'catalog-merge-outcome': 'PASS catalog source window distinguishes rolled-back merges from committed errors and signals main-view refresh',
             'library-update-cancel': 'PASS reviewed update cancellation rolls back before commit, finishes late saves, protects rollback and retains published baselines after post-commit errors',
@@ -465,6 +592,8 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
         if recovery_fault:
             expected = 'PASS actual compression crash and ordinary startup recovery ' + recovery_fault
         expected_lines = [expected]
+        if update_recovery_preserve:
+            expected_lines = ['PASS actual library update startup retains conflicting data ' + update_recovery_preserve]
         if scenario == 'library-update-window':
             expected_lines.append('PASS reviewed update missing-member report previews bounded details and saves complete archive/member reasons after decline or apply')
         if scenario == 'library-update-cancel':
@@ -569,8 +698,11 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
                         packed_catalogue_sizes=publication,
                         text_only_repack=text_repack,
                         flibrary_sidecar_inputs=sidecar_inputs,
+                        update_recovery_neighbour_preserved=update_recovery_neighbour,
                         unrelated_archive_unchanged=True, native_log=str(log_path),
-                        scope=('Native catalogue-source preview/apply controls and worker: success, pre-commit failure, first-store restoration and post-commit error; small private catalogues, durable change flag for main refresh, no process-death proof'
+                        scope=('Actual update process termination and ordinary data-module/main startup recovery, bound=' + str(update_recovery_bound) + ', phase=' + str(update_recovery_phase) + ', conflict=' + str(update_recovery_preserve) + '; recovery checks catalogue/personal data, favourites, actual archive members and repeated acknowledgment; conflict cases stop at the data module and independently compare all persisted catalogue/personal rows, inputs, backup and journal; private fixtures'
+                               if scenario == 'library-update-recovery' else
+                               'Native catalogue-source preview/apply controls and worker: success, pre-commit failure, first-store restoration and post-commit error; small private catalogues, durable change flag for main refresh, no process-death proof'
                                if scenario == 'catalog-merge-outcome' else
                                'Actual main collection menu and toolbar, source-window review and apply controls, progress window, prepared worker confirmation, declined/committed views and incremental-compression offer; theme glyphs, private ZIP/INPX fixture, automatic confirmation answer'
                                if scenario == 'library-update-window' else
@@ -677,7 +809,7 @@ if __name__ == '__main__':
     parser.add_argument('--estimate-first', action='store_true')
     parser.add_argument('--whole', action='store_true')
     parser.add_argument('--repeat-new', action='store_true', help='After applying, invoke the normal new-books menu and verify no preparation')
-    parser.add_argument('--scenario', choices=['selected-compression-ui', 'explorer-file-drop', 'update-outcomes', 'library-update-sources', 'library-update-apply', 'library-update-cancel', 'library-update-window', 'catalog-merge-outcome',
+    parser.add_argument('--scenario', choices=['selected-compression-ui', 'explorer-file-drop', 'update-outcomes', 'library-update-sources', 'library-update-apply', 'library-update-cancel', 'library-update-window', 'catalog-merge-outcome', 'library-update-recovery',
                         'packed-catalogue-sizes', 'packing-fbd', 'packed-jxl-formats', 'packed-flibrary-sidecars', 'compression-continuation'], default='selected-compression-ui')
     parser.add_argument('--packing-codec', type=Path, help='Exact official JPEG XL archive for the native packed INPX installer/reader scenario')
     parser.add_argument('--packing-codec-release', type=Path, help='Official GitHub release metadata used to verify the codec archive')
@@ -689,6 +821,15 @@ if __name__ == '__main__':
                         help='Terminate the guarded test process at a durable compression stage, then restart ordinary Main')
     parser.add_argument('--recovery-preserve', choices=['foreign-file', 'foreign-marker', 'live-owner'],
                         help='Verify recovery retains foreign or externally leased preparation data')
+    parser.add_argument('--update-recovery-phase', choices=['journal-published', 'rows-written', 'before-commit',
+                        'commit-start', 'catalogue-committed', 'stores-committed'],
+                        help='Terminate an actual reviewed update then enter ordinary startup recovery')
+    parser.add_argument('--update-recovery-bound', action='store_true', help='Use a bound merged-catalogue source in the update crash fixture')
+    parser.add_argument('--update-recovery-preserve', choices=['changed-catalogue', 'changed-backup',
+                        'replaced-catalogue', 'replaced-profile', 'changed-journal', 'live-owner'],
+                        help='Verify ordinary startup retains a conflicted interrupted update without changing either store')
+    parser.add_argument('--update-recovery-neighbour', action='store_true',
+                        help='Write a later witness for another collection after the crash and verify recovery preserves it')
     parser.add_argument('--refresh-index', action='store_true',
                         help='After compression, run actual full INPX refresh and verify physical sizes')
     parser.add_argument('--legacy-history', action='store_true',

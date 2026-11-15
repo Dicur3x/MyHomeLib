@@ -73,6 +73,11 @@ type
     function CatalogCommitWitness(CollectionID: Integer): string;
   end;
 
+  ICatalogContentDigest = interface
+    ['{D563B754-3BA3-4E9D-8E32-482BAF43C1BD}']
+    function CaptureContentDigest(const Check: TProc): string;
+  end;
+
   // Sequential, read-only relations for an immutable catalogue. Book IDs must
   // be requested in nondecreasing order; no whole-catalogue relation cache.
   IBookSeriesReadStream = interface

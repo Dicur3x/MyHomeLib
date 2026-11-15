@@ -556,7 +556,9 @@ begin
   if Missing<>'' then Missing:=sLineBreak+sLineBreak+Missing;
   if Failure<>'' then
   begin
-    if FReview.Applied then SetReport('Каталог уже обновлён. Завершение потребовало внимания: '+Failure+Missing)
+    if FReview.RecoveryPending then SetReport('Сохранение обновления требует восстановления. Перезапустите программу. '+
+      Failure+sLineBreak+FReview.RecoveryError+Missing)
+    else if FReview.Applied then SetReport('Каталог уже обновлён. Завершение потребовало внимания: '+Failure+Missing)
     else SetReport('Обновление не применено: '+Failure+Missing);
     Exit;
   end;

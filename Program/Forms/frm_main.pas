@@ -639,6 +639,7 @@ type
     procedure UpdateCollectionFromFileExecute(Sender: TObject);
     procedure LibraryUpdateSourcesExecute(Sender: TObject);
     procedure LibraryUpdateSourcesBeginApply(Sender: TObject);
+    procedure ShowLibraryUpdateRecoveryReport(Sender: TObject);
     procedure LibraryUpdateActionUpdate(Sender: TObject);
     procedure UpdateCollectionFromFileUpdate(Sender: TObject);
     procedure ClearReadFolderExecute(Sender: TObject);
@@ -1390,7 +1391,7 @@ uses
   unit_SystemDatabase_Abstract,
   unit_MHLArchiveHelpers, unit_MHLExternalTools, unit_FormatComponents,
   unit_BookCache, unit_MHLOperationStatus, frm_DeleteCollection, unit_ImportOldUserData, unit_BookColumnFilters, frm_CatalogSources, frm_CollectionBackup, frm_BookDuplicates, unit_ComponentUpdates, unit_ProgramUpdateInstaller, unit_Diagnostics, unit_ComponentUsage, unit_ComponentRemoval, frm_ComponentMaintenance,
-  frm_CollectionPackingProgress, frm_LibraryUpdateSources;
+  frm_CollectionPackingProgress, frm_LibraryUpdateSources, unit_LibraryUpdateJournal;
 
 type
   TBookTreeAccess = class(TBookTree);
@@ -5032,6 +5033,12 @@ end;
 
 function TfrmMain.CompressionBlocksCatalogChange: Boolean;
 begin
+  if Assigned(FCollection) and TLibraryUpdateJournal.HasPendingForCollection(
+    TPath.Combine(Settings.DataPath,'LibraryUpdateRecovery'),FCollection.CollectionID) then
+  begin
+    Result:=True; StatusMessage:='Сначала завершите восстановление обновления. Перезапустите программу и проверьте отчёт.';
+    Exit;
+  end;
   Result:=Assigned(FBookCompressionOperation) or FCompressionNeedsRecovery;
   if not Result then Exit;
   StatusMessage:='Сначала завершите сжатие книг. Просматривать каталог и читать книги можно.';
@@ -5832,6 +5839,8 @@ begin
   FUpdateLibraryMenu:=TPopupMenu.Create(Self); FUpdateLibraryMenu.Name:='pmUpdateLibrary';
   FUpdateLibraryMenu.Items.Add(NewItem('Настроить источники обновлений…',0,False,True,LibraryUpdateSourcesExecute,0,'miToolbarUpdateSources'));
   FUpdateLibraryMenu.Items.Add(NewItem('Из файла INPX или Metabib…',0,False,True,UpdateCollectionFromFileExecute,0,'miToolbarUpdateFile'));
+  if DMUser.LibraryUpdateRecoveryWarnings.Count>0 then
+    Section.Add(NewItem('Отчёт восстановления обновлений…',0,False,True,ShowLibraryUpdateRecoveryReport,0,'miLibraryUpdateRecoveryReport'));
   FUpdateLibraryAction:=TAction.Create(Self); FUpdateLibraryAction.ActionList:=Actions;
   FUpdateLibraryAction.Name:='acUpdateLibrary'; FUpdateLibraryAction.Category:='Коллекция';
   FUpdateLibraryAction.Caption:='Обновить библиотеку';
@@ -6017,6 +6026,12 @@ begin
     StartBookDeletion(TBookDeletionOperation.Recover(Settings.SystemFileName[sfSystemDB],
       BookDeletionJournalRoot),False);
   CheckCompressionRecovery;
+  if DMUser.LibraryUpdateRecoveryWarnings.Count>0 then
+  begin
+    StatusMessage:='Восстановление обновления требует внимания. Откройте отчёт восстановления.';
+    var Notice:=TTimer.Create(Self); Notice.Name:='LibraryUpdateRecoveryNoticeTimer';
+    Notice.Interval:=100; Notice.OnTimer:=ShowLibraryUpdateRecoveryReport; Notice.Enabled:=True;
+  end;
 end;
 
 procedure TfrmMain.StartInitialCatalogRead(View: TView);
@@ -13282,6 +13297,14 @@ procedure TfrmMain.LibraryUpdateSourcesBeginApply(Sender: TObject);
 begin
   if Assigned(FOPDSForm) then FOPDSForm.StopServer;
   UpdatePositions;
+end;
+
+procedure TfrmMain.ShowLibraryUpdateRecoveryReport(Sender: TObject);
+begin
+  if Sender is TTimer then TTimer(Sender).Enabled:=False;
+  ShowOperationReport(Self,'Восстановление обновления коллекции','LibraryUpdateRecoveryReport',
+    'Восстановление не завершено. Проверьте причины ниже. Резервные копии и журналы сохранены.',
+    DMUser.LibraryUpdateRecoveryWarnings.Text);
 end;
 
 procedure TfrmMain.LibraryUpdateActionUpdate(Sender: TObject);

@@ -42,6 +42,7 @@ function ConfirmBookDeletion(const CollectionName: string; BookCount, ArchiveCou
 
 function ConfirmBookDeletionBatch(var Items: TArray<TBookDeletionBatchItem>): Boolean;
 procedure ShowBookDeletionReport(Owner:TForm; const Summary, Details:string);
+procedure ShowOperationReport(Owner:TForm; const Title, ComponentName, Summary, Details:string);
 function BookDeletionSpaceSummary(const State:TBookDeletionOperationStatus):string;
 function BookDeletionSpaceDetails(const State:TBookDeletionOperationStatus):string;
 function PrepareSelectorBookDeletion(Owner:TForm; const Info:TCollectionInfo; Mode:TBookIteratorMode;
@@ -153,10 +154,14 @@ begin
 end;
 
 procedure ShowBookDeletionReport(Owner:TForm; const Summary, Details:string);
+begin ShowOperationReport(Owner,'Результат удаления книг','BookDeletionReport',Summary,Details); end;
+
+procedure ShowOperationReport(Owner:TForm; const Title, ComponentName, Summary, Details:string);
 var Report:TBookDeletionReport;
 begin
-  Report:=Owner.FindComponent('BookDeletionReport') as TBookDeletionReport;
-  if not Assigned(Report) then Report:=TBookDeletionReport.CreateReport(Owner);
+  Report:=Owner.FindComponent(ComponentName) as TBookDeletionReport;
+  if not Assigned(Report) then Report:=TBookDeletionReport.CreateReport(Owner,ComponentName);
+  Report.Caption:=Title;
   if Details='' then Report.SetReportText(Summary)
   else Report.SetReportText(Summary+sLineBreak+sLineBreak+Details);
   if Report.WindowState=wsMinimized then Report.WindowState:=wsNormal;

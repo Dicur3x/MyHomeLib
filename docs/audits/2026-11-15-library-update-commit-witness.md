@@ -1,5 +1,8 @@
 # Transaction witnesses for reviewed library update recovery
 
+Follow-up: [real process-crash and ordinary startup recovery](2026-11-15-library-update-startup-recovery.md)
+adds the controller and records its separate evidence and remaining limits.
+
 This is a recovery prerequisite, not a completed startup recovery controller.
 The immutable recovery job, verified backup selection and actual process-kill /
 ordinary-startup recovery gates remain open. No Desktop replacement or release

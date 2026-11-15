@@ -27,7 +27,8 @@ type
     FActionLookup: TSQLiteQuery;
     FInventory: TLibraryUpdateInventory;
     FPublishedSource: TCatalogSource;
-    FCacheOwned, FCachePublished, FApplicationReady, FApplied, FIssuesReady: Boolean;
+    FCacheOwned, FCachePublished, FApplicationReady, FApplied, FIssuesReady, FRecoveryPending: Boolean;
+    FRecoveryError: string;
     FRemovedCount, FMissingCount, FNewCards, FUpdateCards, FPreviousLastID, FUnlistedCount: Integer;
     FLastSpaceCheck: UInt64;
     procedure Analyze(const Target, Previous: IBookCollection; const Check: TProc;
@@ -67,6 +68,8 @@ type
     property ApplySummary: string read FApplySummary;
     property Applied: Boolean read FApplied;
     property OperationID: string read FOperationID;
+    property RecoveryPending: Boolean read FRecoveryPending;
+    property RecoveryError: string read FRecoveryError;
     property MissingReportReady: Boolean read FIssuesReady;
     property MissingBooks: Integer read FMissingCount;
   end;
@@ -84,7 +87,7 @@ implementation
 uses Winapi.Windows, Vcl.ComCtrls, System.IOUtils, System.Hash, System.Variants, System.JSON, System.StrUtils, System.Math,
   unit_Consts, unit_Database_SQLite, unit_LibrarySourceID, unit_UserData,
   unit_ImportInpxThread, unit_ImportMetabibThread, unit_MetabibReader,
-  unit_MHLArchiveHelpers, unit_Settings, unit_LibraryUpdateHistory, unit_CollectionPacking, dm_user;
+  unit_MHLArchiveHelpers, unit_Settings, unit_LibraryUpdateHistory, unit_CollectionPacking, unit_LibraryUpdateJournal, dm_user;
 
 procedure NotifyLibraryUpdateTestPoint(const Stage: string); inline;
 begin
@@ -129,6 +132,11 @@ begin
   if not GetDiskFreeSpaceEx(PChar(FPrepared.Folder),Available,Capacity,nil) then RaiseLastOSError;
   if Available<UInt64(512)*1024*1024 then
     raise EWriteError.Create('Недостаточно места для проверки индекса. Текущая коллекция не изменена.');
+  if FTargetFile<>'' then
+  begin
+    if not GetDiskFreeSpaceEx(PChar(TPath.GetDirectoryName(FTargetFile)),Available,Capacity,nil) then RaiseLastOSError;
+    if Available<UInt64(512)*1024*1024 then raise EWriteError.Create('Недостаточно места на диске каталога. Обновление остановлено.');
+  end;
   FLastSpaceCheck:=GetTickCount64;
 end;
 
@@ -969,17 +977,29 @@ var Backup, Folder: string; Books: IBookIterator; Book, Prepared: TBookRecord;
   LocalBooks: TArray<TLocalCatalogBook>; Done: Integer;
   SavedSQL: TSQLiteCancelCallback;
   Witness: ISystemCatalogCommitWitness; SystemStarted: Boolean;
+  Journal: TLibraryUpdateJournal; Failed, RemapComplete: Boolean; FinalCancel: TSQLiteCancelCallback;
 begin
   Committed:=False;
   if not FApplicationReady then raise EInvalidOperation.Create('Обновление ещё не подготовлено.');
+  if TLibraryUpdateJournal.HasPendingForCollection(TPath.Combine(Settings.DataPath,'LibraryUpdateRecovery'),Target.CollectionID) then
+    raise EInvalidOperation.Create('Сначала завершите восстановление прежнего обновления. Перезапустите программу и проверьте отчёт восстановления.');
   if not Supports(SystemData,ISystemCatalogCommitWitness,Witness) then
     raise ENotSupportedException.Create('Хранилище личных данных не поддерживает согласованное обновление.');
+  Journal:=nil; Failed:=False; RemapComplete:=False; FRecoveryPending:=False; FRecoveryError:='';
+  try
+  try
   Check;
   CheckTargetRevision(Target);
   PrepareCache(Check,Progress);
   CheckTargetRevision(Target);
   if Assigned(FPlan) then
   begin
+    FPlan.BeforeBegin:=procedure(const Collection:IBookCollection) begin
+      Journal:=TLibraryUpdateJournal.CreatePrepared(TPath.Combine(Settings.DataPath,'LibraryUpdateRecovery'),
+        Folder,Settings.SystemFileName[sfSystemDB],TPath.Combine(Backup,'destination.hlc2'),
+        Collection,SystemData,FOperationID,True,Check);
+      NotifyLibraryUpdateTestPoint('journal-published');
+    end;
     FPlan.AfterBegin:=procedure(const Collection:IBookCollection) begin
       Collection.SetProperty(PROP_DATAVERSION,Collection.GetProperty(PROP_DATAVERSION));
       CheckTargetRevision(Collection);
@@ -988,9 +1008,11 @@ begin
     FPlan.BeforeCommit:=procedure(const Collection:IBookCollection) begin
       Check; Collection.FinishCatalogUpdateTracking(True,FPreviousLastID); RestoreCopySizes(Collection,Check); StoreAppliedState(Collection);
       Witness.SetCatalogCommitWitness(Collection.CollectionID,FOperationID);
+      if Assigned(Progress) then Progress('Проверка подготовленного каталога',0,0);
+      Journal.Seal(Collection,Check);
     end;
     Folder:=TPath.Combine(Settings.DataPath,'LibraryUpdateBackups'); ForceDirectories(Folder);
-    Backup:=TPath.Combine(Folder,TGUID.NewGuid.ToString);
+    Backup:=TPath.Combine(Folder,FOperationID);
     FPlan.StageProgress:=procedure(const Stage:string; Done,Total:Integer) begin
       if Assigned(Progress) then Progress(Stage,Done,Total);
     end;
@@ -998,19 +1020,13 @@ begin
       if Assigned(Progress) then Progress('Обновление источника',Done,Total);
     end,function:Boolean begin Check; Result:=False; end);
     finally
-      FPlan.StageProgress:=nil;
+      FPlan.StageProgress:=nil; FPlan.BeforeBegin:=nil; FPlan.BeforeCommit:=nil; FPlan.AfterBegin:=nil;
       Committed:=FPlan.CatalogCommitted; FCachePublished:=Committed; FApplied:=Committed;
-    end;
-    if Committed then
-    begin
-      SavedSQL:=SQLiteCancelCallback; SQLiteCancelCallback:=nil;
-      try SystemData.RemapCollectionBookIDs(Target.CollectionID,False);
-      finally SQLiteCancelCallback:=SavedSQL; end;
     end;
     Exit;
   end;
   Folder:=TPath.Combine(Settings.DataPath,'LibraryUpdateBackups'); ForceDirectories(Folder);
-  Backup:=TPath.Combine(Folder,TGUID.NewGuid.ToString+'.hlc2');
+  Backup:=TPath.Combine(Folder,FOperationID+'.hlc2');
   CheckReviewOutputSpace(Folder,UInt64(TFile.GetSize(FTargetFile)));
   var BackupDB:=TSQLiteDatabase.CreateReadOnly(FTargetFile);
   try
@@ -1019,6 +1035,9 @@ begin
       if Assigned(Progress) then Progress('Резервная копия каталога',Done,Total);
     end);
   finally BackupDB.Free; end;
+  Journal:=TLibraryUpdateJournal.CreatePrepared(TPath.Combine(Settings.DataPath,'LibraryUpdateRecovery'),
+    Folder,Settings.SystemFileName[sfSystemDB],Backup,Target,SystemData,FOperationID,False,Check);
+  NotifyLibraryUpdateTestPoint('journal-published');
   Cache:=TImportCache.Create; Genres:=TDictionary<string,TGenreData>.Create; Rows:=nil;
   SavedSQL:=SQLiteCancelCallback;
   SystemStarted:=False;
@@ -1078,6 +1097,8 @@ begin
       Check;
       SystemData.BeginDataUpdate; SystemStarted:=True;
       StoreAppliedState(Target); Witness.SetCatalogCommitWitness(Target.CollectionID,FOperationID);
+      if Assigned(Progress) then Progress('Проверка подготовленного каталога',0,0);
+      Journal.Seal(Target,Check);
       NotifyLibraryUpdateTestPoint('before-commit'); Check;
       SQLiteCancelCallback:=nil;
       if Assigned(Progress) then Progress('Сохранение каталога',Done,FTotal);
@@ -1092,11 +1113,33 @@ begin
     SQLiteCancelCallback:=nil;
     SystemData.RemapCollectionBookIDs(Target.CollectionID,FSource.Full);
     SystemData.EndDataUpdate(True); SystemStarted:=False;
+    RemapComplete:=True;
     NotifyLibraryUpdateTestPoint('stores-committed');
   finally
     SQLiteCancelCallback:=nil;
     try if SystemStarted then SystemData.EndDataUpdate(False);
     finally SQLiteCancelCallback:=SavedSQL; Books:=nil; Rows.Free; Genres.Free; Cache.Free; end;
+  end;
+  except Failed:=True; raise; end;
+  finally
+    FinalCancel:=SQLiteCancelCallback; SQLiteCancelCallback:=nil;
+    try
+      if Assigned(Journal) then
+      begin
+        try
+          Committed:=Committed or Journal.CatalogueCommitted(Target);
+          FCachePublished:=FCachePublished or Committed; FApplied:=FApplied or Committed;
+          FRecoveryPending:=not Journal.CompleteAttempt(Target,SystemData,RemapComplete);
+          if FRecoveryPending then
+          begin
+            FCachePublished:=True;
+            raise EReadError.Create('Сохранение обновления требует восстановления. Перезапустите программу.');
+          end;
+        except on E:Exception do
+          begin FRecoveryPending:=True; FCachePublished:=True; FRecoveryError:=E.Message; if not Failed then raise; end;
+        end;
+      end;
+    finally Journal.Free; SQLiteCancelCallback:=FinalCancel; end;
   end;
 end;
 

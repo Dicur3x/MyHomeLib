@@ -34,6 +34,7 @@ type
   private
     FSettings: TMHLSettings;
     FSystemDB: ISystemData;
+    FLibraryUpdateRecoveryWarnings: TStrings;
 
     function InternalGetSystemDB(const FileName: string): ISystemData; inline;
 
@@ -52,6 +53,7 @@ type
 
     property Settings: TMHLSettings read FSettings;
     property SystemDB: ISystemData read FSystemDB;
+    property LibraryUpdateRecoveryWarnings: TStrings read FLibraryUpdateRecoveryWarnings;
   end;
 
 var
@@ -67,7 +69,7 @@ implementation
 uses
   SysUtils,
   IOUtils,
-  unit_SystemDatabase_SQLite, unit_Diagnostics, unit_ComponentUpdates;
+  unit_SystemDatabase_SQLite, unit_Diagnostics, unit_ComponentUpdates, unit_LibraryUpdateJournal;
 
 function Settings: TMHLSettings; inline;
 begin
@@ -88,6 +90,7 @@ constructor TDMUser.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
   FSettings := TMHLSettings.Create;
+  FLibraryUpdateRecoveryWarnings:=TStringList.Create;
 end;
 
 destructor TDMUser.Destroy;
@@ -98,6 +101,7 @@ begin
     FSystemDB := nil;
   end;
   FreeAndNil(FSettings);
+  FreeAndNil(FLibraryUpdateRecoveryWarnings);
   inherited Destroy;
 end;
 
@@ -138,6 +142,9 @@ begin
     TSystemData_SQLite.CreateSystemTables(SysDBFileName);
 
   FSystemDB := InternalGetSystemDB(SysDBFileName);
+  FLibraryUpdateRecoveryWarnings.Clear;
+  TLibraryUpdateJournal.RecoverAll(TPath.Combine(FSettings.DataPath,'LibraryUpdateRecovery'),
+    TPath.Combine(FSettings.DataPath,'LibraryUpdateBackups'),SysDBFileName,FSystemDB,FLibraryUpdateRecoveryWarnings);
 end;
 
 function TDMUser.GetSystemDBConnection: ISystemData;

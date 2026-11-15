@@ -85,7 +85,7 @@ type
     procedure ExecSQL(const SQL : string; const Params: array of const); overload;
 
     procedure BackupTo(const FileName: string; const Progress: TSQLiteBackupProgress = nil);
-    procedure RestoreFrom(const FileName: string);
+    procedure RestoreFrom(const FileName: string; const Progress: TSQLiteBackupProgress = nil);
     // Reuse a bounded set of statements only while an import/iterator is active.
     // Live queries keep exclusive ownership; released parameters are cleared.
     procedure BeginQueryBatch;
@@ -346,12 +346,12 @@ begin
   finally Target.Free; end;
 end;
 
-procedure TSQLiteDatabase.RestoreFrom(const FileName: string);
+procedure TSQLiteDatabase.RestoreFrom(const FileName: string; const Progress: TSQLiteBackupProgress);
 var Source: TSQLiteDatabase;
 begin
   if InTransaction then raise ESQLiteException.Create('Перед восстановлением завершите транзакцию.');
   Source := TSQLiteDatabase.CreateReadOnly(FileName);
-  try CopyDatabase(Source, Self); finally Source.Free; end;
+  try CopyDatabase(Source, Self, Progress); finally Source.Free; end;
 end;
 
 constructor TSQLiteDatabase.Create(const FileName: string);

@@ -29,7 +29,7 @@ uses
   unit_Database_Abstract;
 
 type
-  TBookCollection_SQLite = class(TBookCollection, IBookCollection, IBookSeriesStreamProvider, IBookMergeMetadataUpdater, IBookMergeMetadataDeltaUpdater, IBookImportedLocationWriter, IBookMergeOriginalCopyRecorder, IAuthorFavoriteCollectionView, IBookIdentityDeletionWriter, IBookIdentityProgressWriter, IBookIdentityPersonalWriter, IBookMetadataFillWriter, ICatalogUserDataRestorer)
+  TBookCollection_SQLite = class(TBookCollection, IBookCollection, IBookSeriesStreamProvider, IBookMergeMetadataUpdater, IBookMergeMetadataDeltaUpdater, IBookImportedLocationWriter, IBookMergeOriginalCopyRecorder, IAuthorFavoriteCollectionView, IBookIdentityDeletionWriter, IBookIdentityProgressWriter, IBookIdentityPersonalWriter, IBookMetadataFillWriter, ICatalogUserDataRestorer, ICatalogContentDigest)
   strict private type
     TStreamAuthor = record
       Data: TAuthorData;
@@ -241,6 +241,7 @@ type
       const Fields: TMetadataSyncFields; const SourceStillMatches: TFunc<Boolean>;
       out Updated: TMetadataSyncFields): TMetadataFillResult;
     function GetCatalogRevision: string;
+    function CaptureContentDigest(const Check: TProc): string;
     procedure SetImportedBookLocation(BookID: Integer; const Folder: string; InsideNo: Integer);
     procedure RestoreCollectionBackup(const FileName: string);
     function GetCatalogBookID(const SourceKey: string): Integer;
@@ -361,6 +362,7 @@ uses
   Generics.Collections,
   Variants,
   SQLite3,
+  unit_CatalogContentDigest,
   DateUtils,
   Math,
   StrUtils,
@@ -3735,6 +3737,9 @@ begin
   Result := IntToStr(FDatabase.QuerySingleInt('PRAGMA data_version')) + ':' +
     IntToStr(FDatabase.QuerySingleInt('SELECT total_changes()'));
 end;
+
+function TBookCollection_SQLite.CaptureContentDigest(const Check: TProc): string;
+begin Result:=CatalogContentDigest(FDatabase,Check); end;
 
 procedure TBookCollection_SQLite.RestoreCollectionBackup(const FileName: string);
 begin
