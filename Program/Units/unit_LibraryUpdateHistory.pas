@@ -43,12 +43,17 @@ begin
   Result:=False; Source:=Default(TCatalogSource); Root:=ReadHistory(Collection);
   try
     Items:=Root.GetValue<TJSONArray>('sources');
-    for var Value in Items do
+    // A bound source has one applied baseline across all delivery profiles.
+    // Read older version-1 histories backwards: they may retain one stale
+    // entry per profile, in application order.
+    for var I:=Items.Count-1 downto 0 do
     begin
+      var Value:=Items.Items[I];
       if not (Value is TJSONObject) then raise EReadError.Create('Повреждена запись истории обновлений.');
       Item:=TJSONObject(Value);
-      if not SameText(Item.GetValue<string>('profile',''),Profile.ID) or
-        not SameText(Item.GetValue<string>('binding',''),Profile.CatalogSourceID) then Continue;
+      if not SameText(Item.GetValue<string>('binding',''),Profile.CatalogSourceID) then Continue;
+      if (Profile.CatalogSourceID='') and
+        not SameText(Item.GetValue<string>('profile',''),Profile.ID) then Continue;
       Source.ID:=Item.GetValue<string>('source',''); Source.CacheVersion:=Item.GetValue<string>('cache','');
       if Profile.CatalogSourceID='' then
       begin if not SameText(Source.ID,Profile.ID) then raise EReadError.Create('Не совпала привязка истории обновления.'); end
@@ -73,7 +78,14 @@ begin
   try
     Items:=Root.GetValue<TJSONArray>('sources');
     for var I:=Items.Count-1 downto 0 do
-      if SameText(TJSONObject(Items.Items[I]).GetValue<string>('profile',''),Profile.ID) then Items.Remove(I).Free;
+    begin
+      Item:=TJSONObject(Items.Items[I]);
+      if not SameText(Item.GetValue<string>('binding',''),Profile.CatalogSourceID) then Continue;
+      // Retain another binding's state when the same delivery profile is
+      // rebound. Unbound profiles still own their independent history.
+      if (Profile.CatalogSourceID<>'') or
+        SameText(Item.GetValue<string>('profile',''),Profile.ID) then Items.Remove(I).Free;
+    end;
     Item:=TJSONObject.Create; Items.AddElement(Item);
     Item.AddPair('profile',Profile.ID); Item.AddPair('binding',Profile.CatalogSourceID);
     Item.AddPair('source',Source.ID); Item.AddPair('cache',Source.CacheVersion);

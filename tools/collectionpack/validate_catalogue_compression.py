@@ -600,6 +600,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
             expected_lines.append('PASS reviewed update commit witnesses are paired with catalogue and personal transactions, roll back on early errors and remain isolated by collection')
             expected_lines.append('PASS missing catalogue and system properties return empty instead of reusing a previous value')
         if scenario == 'library-update-apply':
+            expected_lines.append('PASS shared-source profiles use the latest applied baseline across append, omission, deletion and profile removal, retain immutable caches and refuse a missing authoritative baseline')
             expected_lines.append('PASS reviewed merged-source update preserves priorities personal data and removed copies, adds verified members from a second root and repeats without duplicate cards')
             expected_lines.append('PASS reviewed updates retain exclusions across omitted indexes, distinguish publisher omissions and roll back catalogues personal fields source links and baseline publication on a late failure')
         if scenario == 'library-update-sources':

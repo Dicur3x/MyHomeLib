@@ -178,8 +178,15 @@ begin
   if (FSource.BooksRoot<>'') and not DirectoryExists(FSource.BooksRoot) then
     raise EDirectoryNotFoundException.Create('Папка докачанных архивов недоступна: '+FSource.BooksRoot);
   Previous:=Target; FPreviousIndex:=False;
-  if LoadLibraryUpdateHistory(Target,FSource,PreviousInfo) and FileExists(PreviousInfo.CacheFile) then
-  begin Previous:=OpenCatalogSnapshot(PreviousInfo,PreviousInfo.CacheFile,SystemData); FPreviousIndex:=True; end
+  if LoadLibraryUpdateHistory(Target,FSource,PreviousInfo) then
+  begin
+    // Losing the authoritative baseline also loses exclusions and append
+    // history. Falling back silently could resurrect deliberately removed books.
+    if not FileExists(PreviousInfo.CacheFile) then
+      raise EReadError.Create('Сохранённый индекс обновления недоступен: '+PreviousInfo.CacheFile+
+        '. Восстановите служебный каталог источника перед повторной проверкой.');
+    Previous:=OpenCatalogSnapshot(PreviousInfo,PreviousInfo.CacheFile,SystemData); FPreviousIndex:=True;
+  end
   else if (FSource.CatalogSourceID<>'') and FSourceInfo.IsINPX and FileExists(FSourceInfo.CacheFile) then
   begin Previous:=OpenCatalogSource(FSourceInfo,SystemData); FPreviousIndex:=True; end;
   if (FSource.CatalogSourceID<>'') and not FSourceInfo.IsINPX then

@@ -107,6 +107,12 @@ var Root, OldRoot, DownloadRoot, IndexName, OldHash, DownloadHash, ExpectedTitle
       Require(TEncoding.UTF8.GetString(Bytes).Contains('body '+Number),'Updated book does not read the correct actual archive member');
     finally Stream.Free; end;
   end;
+  function FindDisplayBook(const Number: string; out Item: TBookRecord): Boolean;
+  var Books: IBookIterator;
+  begin
+    Books:=Target.GetBookIterator(bmAll,True); Result:=False;
+    while Books.Next(Item) do if Item.DisplayLibID=Number then Exit(True);
+  end;
 begin
   Stage:=nil; Review:=nil;
   Root:=TPath.Combine(Settings.AppPath,'library-apply-fixture'); ForceDirectories(Root);
@@ -266,4 +272,86 @@ begin
   finally CloseReview; end;
   Writeln('PASS reviewed merged-source update preserves priorities personal data and removed copies, adds verified members from a second root and repeats without duplicate cards');
   Writeln('PASS reviewed updates retain exclusions across omitted indexes, distinguish publisher omissions and roll back catalogues personal fields source links and baseline publication on a late failure');
+
+  // The binding owns one applied baseline even when two profiles update it.
+  // Keep A's older cache intact, then use B, delete a publication, omit it,
+  // return through A with an append package, and finally apply a full index.
+  var ProfileA:=Profile; var ProfileB:=Profile;
+  ProfileB.ID:=TCatalogSource.NewID; ProfileB.Name:='Second profile for the same source';
+  Require(LoadLibraryUpdateHistory(Target,ProfileA,CacheInfo),'Missing first profile baseline');
+  var OlderHistory:=VarToStr(Target.GetProperty(PROP_LIBRARY_UPDATE_HISTORY));
+  FirstCache:=CacheInfo.CacheFile; CacheHash:=THashSHA2.GetHashStringFromFile(FirstCache);
+  Require(FindDisplayBook('202',Book),'Missing shared-source original publication');
+  Target.SetRate(Book.BookKey,2); Target.SetProgress(Book.BookKey,23);
+  Target.SetAnnotation(Book.BookKey,'Keep cross-profile annotation');
+  Archive(DownloadRoot,'next.zip',['202','203','204','205']);
+  Index(IndexName,['base','next','next','next'],['201','202','203','204'],
+    ['Returned lower copy','Corrected through B','Removed through B','Retained through B']);
+  Profile:=ProfileB; OpenReview;
+  try Apply(True);
+    Require(FindDisplayBook('203',Book),'Second profile did not add its actual publication'); RequireBody(Book,'203');
+    Require(FindDisplayBook('204',Book),'Second profile lost its other new publication'); RequireBody(Book,'204');
+  finally CloseReview; end;
+  Require(FindDisplayBook('203',Book),'Cannot remove the second-profile publication'); Target.DeleteBook(Book.BookKey);
+  Index(IndexName,['base','next','next'],['201','202','204'],
+    ['Returned lower copy','Corrected through B','Retained through B']);
+  OpenReview; try Apply(True); finally CloseReview; end;
+  // Migrate the earlier v1 layout, which kept stale per-profile entries.
+  var LegacyHistory:=TJSONObject.ParseJSONValue(OlderHistory) as TJSONObject;
+  var LatestHistory:=TJSONObject.ParseJSONValue(VarToStr(Target.GetProperty(PROP_LIBRARY_UPDATE_HISTORY))) as TJSONObject;
+  try
+    Require(Assigned(LegacyHistory) and Assigned(LatestHistory),'Invalid shared history fixture');
+    for var Entry in LatestHistory.GetValue<TJSONArray>('sources') do
+      LegacyHistory.GetValue<TJSONArray>('sources').AddElement(Entry.Clone as TJSONValue);
+    Target.SetProperty(PROP_LIBRARY_UPDATE_HISTORY,LegacyHistory.ToJSON);
+  finally LegacyHistory.Free; LatestHistory.Free; end;
+  // Removing a delivery profile must not erase its source's applied state.
+  var RemainingProfiles:TLibraryUpdateSources; SetLength(RemainingProfiles,1); RemainingProfiles[0]:=ProfileA;
+  Target.SetProperty(PROP_LIBRARY_UPDATE_SOURCES,WriteLibraryUpdateSources(RemainingProfiles));
+  Profile:=ProfileA; Profile.Full:=False;
+  Index(IndexName,['next'],['205'],['Appended through A']);
+  OpenReview; try Apply(True); finally CloseReview; end;
+  Require(FindDisplayBook('204',Book),'Switching profiles dropped a live publication'); Target.DeleteBook(Book.BookKey);
+  Index(IndexName,['base','next','next','next','next'],['201','202','203','204','205'],
+    ['Returned lower copy','Corrected through B','Removed through B','Retained through B','Appended through A']);
+  Profile.Full:=True; OpenReview;
+  try Apply(True);
+    Require(not FindDisplayBook('203',Book),'Switching profiles forgot the other profile''s exclusion after an omitted index');
+    Require(not FindDisplayBook('204',Book),'Appending through an older profile lost the latest source baseline');
+    Require(FindDisplayBook('205',Book),'Full update lost the appended publication'); RequireBody(Book,'205');
+    Require(FindDisplayBook('202',Book) and (Book.Title='Corrected through B') and (Book.Rate=2) and
+      (Book.Progress=23) and (Book.Annotation='Keep cross-profile annotation'),'Profile switch changed retained metadata or personal fields');
+    Require(THashSHA2.GetHashStringFromFile(FirstCache)=CacheHash,'Profile switching overwrote the old immutable cache');
+  finally CloseReview; end;
+  Require(LoadLibraryUpdateHistory(Target,Profile,CacheInfo),'Missing latest shared-source baseline');
+  var HeldCache:=CacheInfo.CacheFile+'.fixture-hold';
+  Require(FileExists(CacheInfo.CacheFile) and not FileExists(HeldCache),'Unsafe shared-source cache fixture path');
+  TFile.Move(CacheInfo.CacheFile,HeldCache);
+  try
+    Profile:=ProfileB; Stage:=TStagedLibraryIndex.Fetch(Profile,Settings.UpdatePath,nil);
+    Review:=TLibraryUpdateReview.Create(Profile,Stage); Worker:=CreateLibraryReviewWorker(ID,Review);
+    try
+      Worker.Start; Worker.WaitFor;
+      Require(Assigned(Worker.FatalException) and not Review.Ready and not Worker.CommittedChanges and
+        Exception(Worker.FatalException).Message.Contains('Сохранённый индекс обновления недоступен'),
+        'An unavailable shared baseline silently fell back to a stale profile or the live catalogue');
+    finally Worker.Free; end;
+  finally CloseReview; TFile.Move(HeldCache,CacheInfo.CacheFile); end;
+  // Reusing a delivery profile for a different source retains the old source's
+  // authority. Keep the invented second binding inside a rolled-back fixture.
+  var RetainedCache:=CacheInfo.CacheVersion; var ReboundProfile:=ProfileA;
+  ReboundProfile.CatalogSourceID:=TCatalogSource.NewID;
+  var ReboundSource:=CacheInfo; ReboundSource.ID:=ReboundProfile.CatalogSourceID;
+  ReboundSource.CacheVersion:=TCatalogSource.NewID;
+  Target.BeginBulkOperation;
+  try
+    SaveLibraryUpdateHistory(Target,ReboundProfile,ReboundSource,StringOfChar('a',64));
+    Require(LoadLibraryUpdateHistory(Target,ProfileB,CacheInfo) and (CacheInfo.CacheVersion=RetainedCache),
+      'Rebinding a delivery profile erased the old source baseline');
+    Require(LoadLibraryUpdateHistory(Target,ReboundProfile,CacheInfo) and
+      (CacheInfo.CacheVersion=ReboundSource.CacheVersion),'Rebound profile did not keep its new independent baseline');
+  finally Target.EndBulkOperation(False); end;
+  Require(LoadLibraryUpdateHistory(Target,ProfileB,CacheInfo) and (CacheInfo.CacheVersion=RetainedCache),
+    'Rolling back the rebinding fixture changed the source baseline');
+  Writeln('PASS shared-source profiles use the latest applied baseline across append, omission, deletion and profile removal, retain immutable caches and refuse a missing authoritative baseline');
 end;
