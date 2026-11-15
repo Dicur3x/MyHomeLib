@@ -54,6 +54,10 @@ type
     property ContentRoot: string read FContentRoot;
   end;
 
+// Shared metadata primitives; readers still take their own data leases.
+function TransferCanonicalDirectory(const Path: string): string;
+procedure TransferReadFileState(const Path: string; out Canonical, Identity: string; out Bytes: Int64);
+
 implementation
 
 uses Winapi.Windows, System.IOUtils, System.Hash, System.JSON, System.Generics.Defaults,
@@ -358,5 +362,11 @@ begin Result:=FStore.DB.QuerySingleInt('SELECT coalesce(sum(Bytes),0) FROM Trans
 
 function TCollectionTransferPlan.CopyFileCount: Int64;
 begin Result:=FStore.DB.QuerySingleInt('SELECT count(*) FROM TransferFiles WHERE KeepInPlace=0'); end;
+
+function TransferCanonicalDirectory(const Path: string): string;
+begin Result:=CanonicalDirectory(Path); end;
+
+procedure TransferReadFileState(const Path: string; out Canonical, Identity: string; out Bytes: Int64);
+begin ReadFileState(Path,Canonical,Identity,Bytes); end;
 
 end.

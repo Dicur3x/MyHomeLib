@@ -1,6 +1,7 @@
 # Physical consolidation of collection sources
 
-Status: implementation started; inventory planner only. There is no published
+Status: inventory planner and verified single-file preparation journal are
+implemented. Group/catalogue integration remains open. There is no published
 transfer command and no user collection has been moved by this work.
 
 ## User result
@@ -75,7 +76,25 @@ and a peak temporary-space estimate; do not add whole-library extraction space.
 Recheck the 8 GiB system reserve and destination/work-volume reserves before and
 during long work. Losing the reserve stops preparation without deleting sources.
 
-## Publication, stop and recovery (still to implement)
+## File preparation (implemented, not connected to catalogues)
+
+`unit_CollectionTransferCopy` prepares one whole file, preserving and comparing
+all enumerated NTFS data streams. It retains source/output read leases and
+directory guards, reserves a unique adjacent temporary, verifies its file ID,
+flushes and hashes its output, and publishes by handle without overwrite. Its
+flushed append-only file journal resumes verified/published files without
+recopying. Unknown files and invalid journals are preserved with a diagnostic.
+Cancellation and process interruption never remove the source.
+
+Native x86/x64 diagnostics each pass 25 cases, including actual E: to G: copying,
+additional streams, long Unicode paths, collisions and interruption/recovery.
+See `docs/audits/2026-11-16-collection-transfer-copy.md` for evidence and limits.
+This is a building block, not a complete group journal or a usable move command.
+The parent operation must supply the independent reviewed binding, retain all
+group leases, revalidate original stream sets before cleanup and recover after
+source removal; file-level resume currently requires the original to exist.
+
+## Group publication, stop and recovery (still to implement)
 
 Process archive groups sequentially. A durable operation journal records an
 immutable reviewed file mapping, expected original identities, affected catalogue
@@ -83,8 +102,8 @@ and personal bindings, and progress for each group. No pathname taken from a
 mutable JSON response grants ownership of existing files.
 
 1. Before copying, guard the source against replacement/writes and verify its
-   reviewed identity. Copy to an exclusively created owned temporary file on
-   the destination volume. Stream bytes and compute SHA-256 with bounded memory.
+   reviewed identity. Hash its streams with bounded memory and copy to an
+   exclusively reserved owned temporary file on the destination volume.
 2. Flush the destination, read it back and verify full byte length and checksum.
    Do this for the book container and every required sidecar before publication.
    Recheck destination directory handles/containment; publish without overwrite.
