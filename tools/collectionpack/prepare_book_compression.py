@@ -422,12 +422,14 @@ def prepare_selected_file(source, members, workspace, seven_zip, *, profile='ori
                      and ledger.get('output_sha256') == initial['payload_sha256']
                      and not ledger.get('retry_original', False))
             reason, optimized, image_outputs, checked = '', False, [], True
+            detected_format = extension
             images_reused = images_processed = 0
             if reuse:
                 reason = 'Уже сжата с этими настройками; повторная обработка изображений не нужна.'
-                if member not in previous and member in legacy and processor.converter is not None:
+                if processor.converter is not None:
                     detected = processor.converter.detect_input(current)
-                    if detected in IMAGE_SUFFIXES and current.stat().st_size <= MAX_IMAGE_BOOK:
+                    detected_format = detected
+                    if member not in previous and member in legacy and detected in IMAGE_SUFFIXES and current.stat().st_size <= MAX_IMAGE_BOOK:
                         collect = getattr(processor.converter, 'compressed_image_hashes', None)
                         if not callable(collect):
                             raise PackingError('Для переноса истории изображений обновите модуль подготовки книг.')
@@ -436,6 +438,7 @@ def prepare_selected_file(source, members, workspace, seven_zip, *, profile='ori
             elif processor.converter is not None:
                 try:
                     detected = processor.converter.detect_input(current)
+                    detected_format = detected
                     if detected in IMAGE_SUFFIXES or (detected == '.djvu' and profile == 'maximum'):
                         if detected != extension:
                             renamed = book_dir / ('book' + detected)
@@ -483,7 +486,7 @@ def prepare_selected_file(source, members, workspace, seven_zip, *, profile='ori
             result.payloads.append(dict(member=member, input_sha256=initial['payload_sha256'],
                                         output_sha256=final['payload_sha256'], size=final['payload_size'],
                                         image_outputs=image_outputs, retry_original=not (optimized or reuse), checked=checked))
-            result.books.append(dict(member=member, format=extension, optimized=optimized, reused=reuse,
+            result.books.append(dict(member=member, format=detected_format, optimized=optimized, reused=reuse,
                                      input_bytes=initial['payload_size'], output_bytes=final['payload_size'], reason=reason,
                                      images_reused=images_reused, images_processed=images_processed, checked=checked))
             if preview is not None and optimized:
