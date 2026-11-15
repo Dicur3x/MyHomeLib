@@ -1,4 +1,6 @@
-﻿{$IFDEF MHL_COMPRESSION_TEST}
+﻿{$I LibraryUpdateCompressedRecoveryTests.inc}
+
+{$IFDEF MHL_COMPRESSION_TEST}
 type
   TLibraryRecoveryFault = class
     Phase: string;
@@ -27,7 +29,8 @@ end;
 
 procedure TestLibraryUpdateRecoveryCrash;
 {$IFDEF MHL_COMPRESSION_TEST}
-var Root, ArchivePath, OtherFile: string; Bound: Boolean; ID, OtherID: Integer;
+var Root, ArchivePath, OtherFile: string; Bound,Compressed: Boolean; ID, OtherID: Integer;
+  PublisherSize:Int64; Body,ImageBody:TBytes;
   Config, Proof: TJSONObject; Target: IBookCollection; Book, Original: TBookRecord;
   Sources: TCatalogSources; Profile: TLibraryUpdateSource; Stage: TStagedLibraryIndex;
   Review: TLibraryUpdateReview; Worker: TCollectionWorker; Fault: TLibraryRecoveryFault;
@@ -36,8 +39,8 @@ var Root, ArchivePath, OtherFile: string; Bound: Boolean; ID, OtherID: Integer;
   var Zip: TZipFile; Rows: string;
   begin
     if Updated then Rows:='Updated 601' else Rows:='Original 601';
-    Rows:='Author,Test:'#4'prose_contemporary:'#4+Rows+#4#4#4'601'#4'100'#4'601'#4'0'#4'fb2'#4'2026-11-15'#4'ru'+sLineBreak;
-    if Updated then Rows:=Rows+'Author,Test:'#4'prose_contemporary:'#4'New 602'#4#4#4'602'#4'100'#4'602'#4'0'#4'fb2'#4'2026-11-15'#4'ru';
+    Rows:='Author,Test:'#4'prose_contemporary:'#4+Rows+#4#4#4'601'#4+IntToStr(PublisherSize)+#4'601'#4'0'#4'fb2'#4'2026-11-15'#4'ru'+sLineBreak;
+    if Updated then Rows:=Rows+'Author,Test:'#4'prose_contemporary:'#4'New 602'#4#4#4'602'#4+IntToStr(PublisherSize)+#4'602'#4'0'#4'fb2'#4'2026-11-15'#4'ru';
     Zip:=TZipFile.Create;
     try
       Zip.Open(FileName,zmWrite);
@@ -51,13 +54,28 @@ begin
   Require(Assigned(Config),'Missing library recovery configuration');
   Proof:=TJSONObject.Create; Fault:=nil; Review:=nil; Stage:=nil;
   try
-    Bound:=Config.GetValue<Boolean>('bound'); Root:=TPath.Combine(Settings.AppPath,'library-recovery'); ForceDirectories(Root);
+    Bound:=Config.GetValue<Boolean>('bound'); Compressed:=Config.GetValue<Boolean>('compressed',False); PublisherSize:=100; Root:=TPath.Combine(Settings.AppPath,'library-recovery'); ForceDirectories(Root);
     ArchivePath:=TPath.Combine(Root,'books.zip');
+    if Compressed then
+    begin
+      var Images:=TZipFile.Create;
+      try Images.Open(Settings.AppPath+'books\shared.zip',zmRead); Images.Read('two.fb2',ImageBody);
+      finally Images.Free; end;
+    end;
     var Zip:=TZipFile.Create;
     try
       Zip.Open(ArchivePath,zmWrite);
       for var Number in TArray<string>.Create('601','602') do
-        Zip.Add(TEncoding.UTF8.GetBytes('<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0"><body><section><p>'+Number+'</p></section></body></FictionBook>'),Number+'.fb2');
+      begin
+        if Compressed then
+        begin
+          Body:=TEncoding.UTF8.GetBytes(TEncoding.UTF8.GetString(ImageBody).Replace('</section>','<p>'+Number+'</p></section>'));
+          Require(TEncoding.UTF8.GetString(Body).Contains('<p>'+Number+'</p>'),'Cannot create private compressed recovery paragraph');
+          PublisherSize:=Length(Body);
+        end
+        else Body:=TEncoding.UTF8.GetBytes('<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0"><body><section><p>'+Number+'</p></section></body></FictionBook>');
+        Zip.Add(Body,Number+'.fb2');
+      end;
     finally Zip.Free; end;
     Index(TPath.Combine(Root,'old.inpx'),False); Index(TPath.Combine(Root,'new.inpx'),True);
     ID:=SystemDB.CreateCollection('Actual update recovery',Root,TPath.Combine(Root,'target.hlc2'),CT_EXTERNAL_LOCAL_FB,Settings.SystemFileName[sfGenresFB2]);
@@ -69,9 +87,18 @@ begin
       SetLength(Sources,1); Sources[0]:=Default(TCatalogSource); Sources[0].ID:=TCatalogSource.NewID;
       Sources[0].Name:='Bound recovery source'; Sources[0].Root:=Root;
       Sources[0].INPXFile:=TPath.Combine(Root,'old.inpx'); Sources[0].LibraryNamespace:='flibusta';
-      Refresh:=TCatalogRefreshWorker.Create(Sources[0]);
-      try Refresh.Start; Refresh.WaitFor; Require(Refresh.Success,'Recovery source preparation failed: '+Refresh.Error);
-      finally Refresh.Free; end;
+      if Compressed then
+      begin
+        SetLength(Sources,2); Sources[1]:=Sources[0]; Sources[1].ID:=TCatalogSource.NewID;
+        Sources[1].Name:='Second compressed recovery source'; Sources[1].Root:=TPath.Combine(Root,'second-source');
+        ForceDirectories(Sources[1].Root); TFile.Copy(ArchivePath,TPath.Combine(Sources[1].Root,'books.zip'),False);
+      end;
+      for var Source in Sources do
+      begin
+        Refresh:=TCatalogRefreshWorker.Create(Source);
+        try Refresh.Start; Refresh.WaitFor; Require(Refresh.Success,'Recovery source preparation failed: '+Refresh.Error);
+        finally Refresh.Free; end;
+      end;
       SaveCatalogSources(Target,Sources);
       Merge:=TCatalogMergeWorker.CreatePreview(ID,Sources,mpSourcePriority);
       try Merge.Start; Merge.WaitFor; Require(Merge.Success,'Recovery source preview failed: '+Merge.Error); Plan:=Merge.TakePlan;
@@ -86,13 +113,20 @@ begin
     else
     begin
       Book:=Default(TBookRecord); Book.LibID:='601'; Book.FileName:='601'; Book.FileExt:='.fb2';
-      Book.Folder:='books.zip'; Book.Title:='Original 601'; Book.Size:=100; Book.Lang:='ru';
+      Book.Folder:='books.zip'; Book.Title:='Original 601'; Book.Size:=PublisherSize; Book.Lang:='ru';
       TAuthorsHelper.Add(Book.Authors,'Author','Test',''); Target.InsertBook(Book,False,False);
     end;
     Books:=Target.GetBookIterator(bmAll,True); Require(Books.Next(Original),'Recovery baseline is empty'); Books:=nil;
     Target.SetRate(Original.BookKey,4); Target.SetProgress(Original.BookKey,37);
     Target.SetReview(Original.BookKey,'Keep recovery review ё'); Target.SetAnnotation(Original.BookKey,'Keep &lt;literal&gt; annotation');
     Target.AddBookToGroup(Original.BookKey,FAVORITES_GROUP_ID);
+    if Compressed then
+    begin
+      RunLibraryRecoveryCompression(Target,Root,False,IfThen(Bound,2,1),0);
+      Target:=SystemDB.GetCollection(ID,True); Target.GetBookRecord(Original.BookKey,Original,True);
+      Require(Original.Size<PublisherSize,'Recovery fixture did not actually compress the original book');
+      CaptureLibraryRecoveryCompression(Target,Original,Proof);
+    end;
     var DB:=TSQLiteDatabase.Create(SystemDB.GetCollectionInfo(ID).DBFileName);
     try
       DB.ExecSQL('CREATE TABLE RecoveryGuardProbe(ID TEXT PRIMARY KEY,Payload BLOB,TextValue TEXT,RealValue REAL) WITHOUT ROWID');
@@ -109,6 +143,7 @@ begin
     finally Worker.Free; end;
     SystemDB.ClearCollectionCache;
     Proof.AddPair('phase',Config.GetValue<string>('phase')); Proof.AddPair('bound',TJSONBool.Create(Bound));
+    Proof.AddPair('compressed',TJSONBool.Create(Compressed));
     Proof.AddPair('collection',TJSONNumber.Create(ID)); Proof.AddPair('original_id',Original.LibID);
     Proof.AddPair('archive',ArchivePath); Proof.AddPair('archive_sha256',THashSHA2.GetHashStringFromFile(ArchivePath));
     Proof.AddPair('index',TPath.Combine(Root,'new.inpx')); Proof.AddPair('index_sha256',THashSHA2.GetHashStringFromFile(TPath.Combine(Root,'new.inpx')));
@@ -129,7 +164,7 @@ begin raise EInvalidOperation.Create('Recovery diagnostics require the guarded t
 {$ENDIF}
 
 procedure TestLibraryUpdateRecoveryStartup;
-var Proof: TJSONObject; Target: IBookCollection; Book: TBookRecord; Books: IBookIterator;
+var Proof: TJSONObject; Target: IBookCollection; Book,Original: TBookRecord; Books: IBookIterator;
   Committed, FoundOriginal: Boolean; ID, Count: Integer; Before: string;
 begin
   Proof:=TJSONObject.ParseJSONValue(TFile.ReadAllText(Settings.AppPath+'library-update-recovery-state.json',TEncoding.UTF8)) as TJSONObject;
@@ -156,7 +191,7 @@ begin
       Inc(Count);
       if Book.LibID=Proof.GetValue<string>('original_id') then
       begin
-        FoundOriginal:=True;
+        FoundOriginal:=True; Original:=Book;
         if Committed then Require(Book.Title='Updated 601','Completed update lost its metadata')
         else Require(Book.Title='Original 601','Partial update did not restore its original catalogue');
         Require((Book.Rate=4) and (Book.Progress=37) and (Book.Review='Keep recovery review ё') and
@@ -164,15 +199,19 @@ begin
       end;
       Require(SameFileName(Book.GetBookFileName,Proof.GetValue<string>('archive')),'Recovered book points to another archive');
       var Member:=Book.FileName; if not SameText(ExtractFileExt(Member),Book.FileExt) then Member:=Member+Book.FileExt;
-      var Zip:=TZipFile.Create;
+      var Stream:=Book.GetBookStream(True,False);
       try
-        Zip.Open(Book.GetBookFileName,zmRead); var Bytes: TBytes; Zip.Read(Member,Bytes);
-        Require(TEncoding.UTF8.GetString(Bytes).Contains('<p>'+TPath.GetFileNameWithoutExtension(Member)+'</p>'),
-          'Recovered book does not read its actual matching archive member');
-      finally Zip.Free; end;
+        Require(Assigned(Stream),'Recovered book has no readable matching member');
+        var Bytes:TBytes; SetLength(Bytes,Stream.Size); if Length(Bytes)>0 then Stream.ReadBuffer(Bytes[0],Length(Bytes));
+        var Document:=LoadXMLData(TEncoding.UTF8.GetString(Bytes));
+        var Body:=Document.DocumentElement.ChildNodes.FindNode('body','http://www.gribuser.ru/xml/fictionbook/2.0');
+        Require(LibraryRecoveryHasParagraph(Body,TPath.GetFileNameWithoutExtension(Member)),
+          'Recovered book does not read its actual matching archive member '+Member);
+      finally Stream.Free; end;
     end;
     Books:=nil;
     Require(FoundOriginal,'Recovery lost the original publication identity');
+    if Proof.GetValue<Boolean>('compressed',False) then VerifyLibraryRecoveryCompression(Target,Original,Proof,True);
     if Committed then Require(Count=2,'Completed update lost its added book') else Require(Count=1,'Rollback retained an uncommitted added book');
     Books:=SystemDB.GetBookIterator(FAVORITES_GROUP_ID,ID);
     Require(Books.Next(Book) and (Book.LibID=Proof.GetValue<string>('original_id')) and not Books.Next(Book),'Recovery changed favourite membership'); Books:=nil;
@@ -198,6 +237,16 @@ begin
       Require((Warnings.Count=0) and (VarToStr(Target.GetProperty(PROP_LIBRARY_UPDATE_TRANSACTION))=Before),
         'A repeated recovery changed an already acknowledged update');
     finally Warnings.Free; end;
+    if Proof.GetValue<Boolean>('compressed',False) then
+    begin
+      var Previous:=Proof.GetValue<TJSONArray>('compressed_members').Count;
+      var WorkRoot:=TPath.Combine(Settings.AppPath,'library-recovery');
+      RunLibraryRecoveryCompression(Target,WorkRoot,True,Ord(Committed),Previous);
+      Target:=SystemDB.GetCollection(ID,True); Target.GetBookRecord(Original.BookKey,Original,True);
+      VerifyLibraryRecoveryCompression(Target,Original,Proof,False);
+      RunLibraryRecoveryCompression(Target,WorkRoot,True,0,Previous+Ord(Committed));
+      Writeln('PASS compressed source copies recover actual payloads sizes personal cards and witnesses then resume only the unprocessed new book');
+    end;
     Writeln('PASS actual library update crash and ordinary startup recovery ',Proof.GetValue<string>('phase'),
       ' bound=',BoolToStr(Proof.GetValue<Boolean>('bound'),True));
   finally Proof.Free; end;

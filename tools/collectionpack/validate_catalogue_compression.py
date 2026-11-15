@@ -335,7 +335,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
         scenario='selected-compression-ui', recovery_fault=None, recovery_preserve=None, refresh_index=False,
         legacy_history=False, packing_codec=None, packing_codec_release=None, reviewed_index=False, reviewed_bound=False,
         update_recovery_phase=None, update_recovery_bound=False, update_recovery_preserve=None,
-        update_recovery_neighbour=False):
+        update_recovery_neighbour=False, update_recovery_compressed=False):
     from test_pack_collection import illustrated_fb2, image_fixture
     assert bool(packing_codec) == bool(packing_codec_release), 'Codec archive and official release metadata must be paired'
     if packing_codec:
@@ -352,6 +352,8 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
             real_books, recovery_fault, recovery_preserve, legacy_history, packing_codec))
     if scenario == 'library-update-recovery':
         assert update_recovery_phase, 'Select the actual update termination boundary'
+    if update_recovery_compressed:
+        assert update_recovery_phase and not update_recovery_preserve, 'Compressed recovery needs an actual non-conflict update crash'
     if update_recovery_preserve:
         assert update_recovery_phase == 'catalogue-committed', 'Conflict checks require a catalogue-only commit'
     if update_recovery_neighbour:
@@ -360,7 +362,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
         root = Path(root)
         if update_recovery_phase:
             (root / 'library-update-recovery-request.json').write_text(json.dumps(dict(
-                phase=update_recovery_phase, bound=update_recovery_bound)), encoding='utf-8')
+                phase=update_recovery_phase, bound=update_recovery_bound, compressed=update_recovery_compressed)), encoding='utf-8')
         shutil.copy2(binary, root / 'CollectionViewsTest.exe')
         shutil.copy2(sqlite, root / 'sqlite3.dll')
         (root / 'Icons').mkdir()
@@ -673,6 +675,8 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
             expected_lines.append('PASS bound reviewed full and append updates preserve actual compressed copy sizes payloads priorities and personal fields')
             expected_lines.append('PASS bound reviewed update incrementally compresses one new download and preserves all five processed physical members across either source')
             expected_lines.append('PASS bound measured-size updates preserve the existing personal card and roll back both stores if the size write fails')
+        if update_recovery_compressed:
+            expected_lines.append('PASS compressed source copies recover actual payloads sizes personal cards and witnesses then resume only the unprocessed new book')
         if legacy_history:
             expected_lines.append('PASS normal catalogue migrated legacy FB2 EPUB history without rewriting archive')
         if process.returncode or any(line not in output for line in expected_lines):
@@ -729,8 +733,9 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
                         text_only_repack=text_repack,
                         flibrary_sidecar_inputs=sidecar_inputs,
                         update_recovery_neighbour_preserved=update_recovery_neighbour,
+                        update_recovery_compressed=update_recovery_compressed,
                         unrelated_archive_unchanged=True, native_log=str(log_path),
-                        scope=('Actual update process termination and ordinary data-module/main startup recovery, bound=' + str(update_recovery_bound) + ', phase=' + str(update_recovery_phase) + ', conflict=' + str(update_recovery_preserve) + '; recovery checks catalogue/personal data, favourites, actual archive members and repeated acknowledgment; conflict cases stop at the data module and independently compare all persisted catalogue/personal rows, inputs, backup and journal; private fixtures'
+                        scope=('Actual update process termination and ordinary data-module/main startup recovery, bound=' + str(update_recovery_bound) + ', compressed=' + str(update_recovery_compressed) + ', phase=' + str(update_recovery_phase) + ', conflict=' + str(update_recovery_preserve) + '; recovery checks catalogue/personal data, favourites, actual archive members and repeated acknowledgment; conflict cases stop at the data module and independently compare all persisted catalogue/personal rows, inputs, backup and journal; private fixtures'
                                if scenario == 'library-update-recovery' else
                                'Native catalogue-source preview/apply controls and worker: success, pre-commit failure, first-store restoration and post-commit error; small private catalogues, durable change flag for main refresh, no process-death proof'
                                if scenario == 'catalog-merge-outcome' else
@@ -861,6 +866,8 @@ if __name__ == '__main__':
                         'commit-start', 'catalogue-committed', 'stores-committed'],
                         help='Terminate an actual reviewed update then enter ordinary startup recovery')
     parser.add_argument('--update-recovery-bound', action='store_true', help='Use a bound merged-catalogue source in the update crash fixture')
+    parser.add_argument('--update-recovery-compressed', action='store_true',
+                        help='Actually compress existing physical copies before the update crash, then verify ordinary startup and incremental continuation')
     parser.add_argument('--update-recovery-preserve', choices=['changed-catalogue', 'changed-backup',
                         'replaced-catalogue', 'replaced-profile', 'changed-journal', 'live-owner'],
                         help='Verify ordinary startup retains a conflicted interrupted update without changing either store')
