@@ -333,13 +333,16 @@ def preserve_update_recovery(root, mode):
 def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_books=None, inspect_comparison=False,
         processing_package=None, estimate_first=False, whole=False, repeat_new=False, repeat_offer=False, images=None,
         scenario='selected-compression-ui', recovery_fault=None, recovery_preserve=None, refresh_index=False,
-        legacy_history=False, packing_codec=None, packing_codec_release=None,
+        legacy_history=False, packing_codec=None, packing_codec_release=None, reviewed_index=False,
         update_recovery_phase=None, update_recovery_bound=False, update_recovery_preserve=None,
         update_recovery_neighbour=False):
     from test_pack_collection import illustrated_fb2, image_fixture
     assert bool(packing_codec) == bool(packing_codec_release), 'Codec archive and official release metadata must be paired'
     if packing_codec:
         assert scenario in ('packing-fbd', 'packed-jxl-formats', 'packed-flibrary-sidecars'), 'Codec installation requires a native packing scenario'
+    if reviewed_index:
+        assert scenario == 'selected-compression-ui' and mode == 'apply'
+        assert not any((legacy_history, recovery_fault, recovery_preserve, packing_codec))
     if recovery_fault:
         assert scenario == 'selected-compression-ui' and mode == 'apply' and not real_books
     if recovery_preserve:
@@ -403,6 +406,14 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
         originals = {'one.fb2': illustrated_fb2(image_fixture(True)),
                      'two.fb2': illustrated_fb2(image_fixture(False)).replace(b'this text', b'the second text'),
                      'neighbor.fb2': b'Unselected neighbor must remain byte-exact.\x00\xff'}
+        if reviewed_index and not real_books:
+            from test_prepare_book_compression import epub
+            originals = {'one.fb2': illustrated_fb2(image_fixture()), 'two.epub': epub(image_fixture()),
+                         'neighbor.fb2': originals['neighbor.fb2']}
+            (root / 'compression-fixture.json').write_text(json.dumps(dict(
+                first='one.fb2', second='two.epub', grayscale=False, timeout_ms=90000)), encoding='utf-8')
+        if reviewed_index:
+            (root / 'reviewed-compression.marker').write_text('1', encoding='ascii')
         real_stamps = {}
         if scenario == 'packing-fbd':
             assert not any((real_books, legacy_history, recovery_fault, refresh_index))
@@ -488,11 +499,11 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
         # discard the only evidence explaining where the private GUI stopped.
         # The real-book fixture itself allows 300 s *after* its application
         # bootstrap; leave separate room for bootstrap and orderly teardown.
-        deadline = 420 if real_books or scenario in ('packing-fbd', 'packed-jxl-formats', 'packed-flibrary-sidecars',
+        deadline = 420 if real_books or refresh_index or reviewed_index or scenario in ('packing-fbd', 'packed-jxl-formats', 'packed-flibrary-sidecars',
             'compression-continuation', 'library-update-sources', 'library-update-apply', 'library-update-cancel', 'library-update-window', 'catalog-merge-outcome', 'library-update-recovery') else 150
         attempt = dict(status='INCOMPLETE', platform=platform, mode=mode,
             native_binary_sha256=digest(binary), outer_timeout_seconds=deadline,
-            refresh_index=refresh_index,
+            refresh_index=refresh_index, reviewed_index=reviewed_index,
             legacy_history=legacy_history,
             private_runtime=str(root),
             real_source_stamps={str(path): stamp for path, stamp in real_stamps.items()})
@@ -652,6 +663,8 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
                 'PASS actual full INPX refresh keeps verified compressed sizes and personal progress',
                 'PASS eleven compressed-size boundaries preserve physical identity and rollback',
             ])
+        if refresh_index or reviewed_index:
+            expected_lines.append('PASS reviewed full and append updates retain actual compressed sizes history and Reader payloads without originals and incrementally compress only the new downloaded book')
         if legacy_history:
             expected_lines.append('PASS normal catalogue migrated legacy FB2 EPUB history without rewriting archive')
         if process.returncode or any(line not in output for line in expected_lines):
@@ -796,7 +809,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
                     whole=whole,
                     repeat_new=repeat_new,
                     repeat_offer=repeat_offer,
-                    refresh_index=refresh_index,
+                    refresh_index=refresh_index, reviewed_index=reviewed_index,
                     legacy_history=legacy_history,
                     recovery_fault=recovery_fault,
                     recovery_preserve=recovery_preserve,
@@ -841,6 +854,8 @@ if __name__ == '__main__':
                         help='Write a later witness for another collection after the crash and verify recovery preserves it')
     parser.add_argument('--refresh-index', action='store_true',
                         help='After compression, run actual full INPX refresh and verify physical sizes')
+    parser.add_argument('--reviewed-index', action='store_true',
+                        help='After real catalogue compression, apply full and append INPX and process only a new downloaded member; default fixture mixes FB2 and EPUB')
     parser.add_argument('--legacy-history', action='store_true',
                         help='Migrate real old Packer FB2/EPUB witnesses through the normal catalogue command')
     args = parser.parse_args()

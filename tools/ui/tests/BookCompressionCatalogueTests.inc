@@ -430,7 +430,8 @@ begin
         Books[I].Folder:='books\shared.zip'; Books[I].FileName:=ChangeFileExt(Members[I],'');
         Books[I].FileExt:=ExtractFileExt(Members[I]); Books[I].InsideNo:=I;
         Books[I].Size:=Zip.FileInfo[Zip.IndexOf(Members[I])].UncompressedSize;
-        if FileExists(Settings.AppPath+'compression-refresh.marker') then
+        if FileExists(Settings.AppPath+'compression-refresh.marker') or
+          FileExists(Settings.AppPath+'reviewed-compression.marker') then
           Books[I].LibID:='compression-refresh-'+IntToStr(I+1);
         Collection.UpdateBook(Books[I]);
       end;
@@ -628,6 +629,9 @@ begin
       Require(Personal.Progress=37,'No-arrivals command changed personal progress');
       Writeln('PASS normal new-books menu preserved the compressed archive and did not run the producer');
     end;
+    if FileExists(Settings.AppPath+'compression-refresh.marker') or
+      FileExists(Settings.AppPath+'reviewed-compression.marker') then
+      TestReviewedCompressedCatalogue(CurrentCollection,Books,OriginalBody,Options);
     Writeln('PASS selected compression normal catalogue ',Mode,' preserves neighbors, personal progress, originals and refreshed Reader cache');
   finally Config.Free; Driver.Timer.Free; Driver.Free; end;
 end;
