@@ -4,6 +4,8 @@
 {$R *.res}
 
 uses System.SysUtils, System.Classes, System.IOUtils, System.JSON, Winapi.Windows,
+  unit_ComponentRemoval in '..\Units\unit_ComponentRemoval.pas',
+  unit_ComponentUpdates in '..\Units\unit_ComponentUpdates.pas',
   unit_ApplicationIdentity in '..\Units\unit_ApplicationIdentity.pas',
   unit_ProgramUpdateInstaller in '..\Units\unit_ProgramUpdateInstaller.pas',
   unit_ProgramUpdates in '..\Units\unit_ProgramUpdates.pas';
@@ -39,6 +41,8 @@ begin
       if not IsProgramUpdateApplicationName(CATALOGUE_APPLICATION) or
         not IsProgramUpdateApplicationName(LEGACY_CATALOGUE_APPLICATION) or
         not IsProgramUpdateApplicationName(READER_APPLICATION) or
+        not IsProgramUpdateApplicationName(LEGACY_READER_APPLICATION) or
+        not SafeUpdateName(READER_APPLICATION) or not SafeUpdateName(LEGACY_READER_APPLICATION) or
         IsProgramUpdateApplicationName('renamed.exe') or
         not SafeUpdateName(CATALOGUE_APPLICATION) or not SafeUpdateName(CATALOGUE_TRANSPORT_PATH) or
         SafeUpdateName('../HomeLibre.exe') or SafeUpdateName('Data/HomeLibre.exe') then
@@ -57,7 +61,33 @@ begin
         raise Exception.Create('Restart arguments');
       if ForwardApplicationCommandLine('C:\HomeLibre.exe','"C:\HomeLibRu.exe"')<>'"C:\HomeLibre.exe"' then
         raise Exception.Create('Empty restart arguments');
+      for var I:=Low(UPDATE_COMPONENTS) to High(UPDATE_COMPONENTS) do
+        if (UPDATE_COMPONENTS[I].ID='HomeLibReader') and (ComponentTitle(I)<>'HomeLibre Reader') then
+          raise Exception.Create('Reader display title contains the legacy component ID');
       Writeln('PASS identity allowlist, legacy requests and verbatim restart parameters');
+    end
+    else if Mode='--reader-removal' then
+    begin
+      Guard(ParamStr(2));
+      var Plan:=BuildComponentRemovalPlan(ParamStr(2),TArray<string>.Create('HomeLibReader'));
+      Root:=TJSONObject.Create; Args:=TJSONArray.Create;
+      try
+        Root.AddPair('blocked',TJSONNumber.Create(Length(Plan.Blockers)));
+        Root.AddPair('files',Args);
+        for var Item in Plan.Files do if Item.Disposition=crRemove then Args.Add(Item.FileInfo.Name);
+        Writeln(Root.ToJSON);
+      finally Root.Free; end;
+    end
+    else if Mode='--reader-state' then
+    begin
+      Guard(ParamStr(2)); Root:=TJSONObject.Create;
+      try
+        Root.AddPair('file',InstalledComponentFileName(ParamStr(2),'HomeLibReader'));
+        Root.AddPair('version',InstalledComponentVersion(ParamStr(2),'HomeLibReader'));
+        Root.AddPair('repair',TJSONBool.Create(ComponentNeedsRepair(ParamStr(2),'HomeLibReader')));
+        Root.AddPair('inventory',TJSONNumber.Create(Length(InstalledComponentFiles(ParamStr(2),'HomeLibReader'))));
+        Writeln(Root.ToJSON);
+      finally Root.Free; end;
     end
     else if Mode='--resolve' then
     begin Guard(ParamStr(2)); Writeln(InstalledApplicationName(ParamStr(2),ParamStr(3))); end
@@ -69,7 +99,7 @@ begin
     else if Mode='--prepare' then
     begin
       Guard(ParamStr(2)); Guard(ParamStr(5));
-      PrepareProgramUpdate(ParamStr(2),ParamStr(3),ParamStr(4),ProgramUpdatePlatform,ParamStr(5));
+      PrepareProgramUpdate(ParamStr(2),ParamStr(3),ParamStr(4),ProgramUpdatePlatform,ParamStr(5),True,ParamStr(6),ParamStr(7));
       Writeln('PASS prepared identity and payload hashes');
     end
     else if Mode='--verify' then

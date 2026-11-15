@@ -82,7 +82,7 @@ def main():
         candidate = None
         if args.candidate_exe:
             candidate = args.candidate_exe.resolve(strict=True)
-            shutil.copyfile(candidate, app / 'HomeLibReader.exe')
+            shutil.copyfile(candidate, app / 'HomeLibreReader.exe')
         (app / 'HomeLibReader.ini').write_text('[SYSTEM]\nCheckUpdates=0\n', encoding='utf-8')
         before = {str(file.relative_to(app)): sha(file) for file in app.rglob('*') if file.is_file()}
         environment = dict(os.environ, APPDATA=str(root / 'Roaming'), LOCALAPPDATA=str(root / 'Local'),
@@ -101,12 +101,12 @@ def main():
                     file=source.stem, extension=source.suffix, inside=0, size=source.stat().st_size,
                     lib_id='1', title='Проверка отмены открытия', language='ru')), ensure_ascii=False), encoding='utf-8')
             launch_argument = '--session=' + str(session_file)
-        process = subprocess.Popen([str(app / 'HomeLibReader.exe'), launch_argument],
+        process = subprocess.Popen([str(app / 'HomeLibreReader.exe'), launch_argument],
             cwd=app, env=environment, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL, creationflags=subprocess.CREATE_NO_WINDOW)
         state['runs'].append(dict(platform=args.platform, app=str(app), original_pid=process.pid,
             package_sha256=sha(args.package), before=before, checked=False,
-            candidate_exe=str(candidate) if candidate else None, reader_exe_sha256=sha(app / 'HomeLibReader.exe'),
+            candidate_exe=str(candidate) if candidate else None, reader_exe_sha256=sha(app / 'HomeLibreReader.exe'),
             session_file=str(session_file) if session_file else None))
         state['stage'] = 'waiting-for-real-GUI-installation'
     elif args.action == 'inspect':
@@ -136,7 +136,7 @@ def main():
     elif args.action == 'record-open':
         run = state['runs'][-1]
         assert len(active) == 1 and active[0]['ProcessId'] != run['original_pid']
-        assert Path(active[0]['ExecutablePath']) == Path(run['app']) / 'HomeLibReader.exe'
+        assert Path(active[0]['ExecutablePath']) == Path(run['app']) / 'HomeLibreReader.exe'
         run['restarted_pid'] = active[0]['ProcessId']
         state['stage'] = 'restarted-reader-running'
     elif args.action == 'check':
@@ -195,7 +195,7 @@ def main():
         process = active[0]
         run = state['runs'][-1]
         assert process['ProcessId'] == run['original_pid']
-        assert Path(process['ExecutablePath']) == Path(run['app']) / 'HomeLibReader.exe'
+        assert Path(process['ExecutablePath']) == Path(run['app']) / 'HomeLibreReader.exe'
         import signal
         os.kill(process['ProcessId'], signal.SIGTERM)
         state.update(stage='aborted-unavailable-window', status='INCOMPLETE',

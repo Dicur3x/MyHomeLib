@@ -118,7 +118,7 @@ def record_event(state, run, current, event, actor):
     previous = [item['event'] for item in run['events']]
     assert len(previous) < len(order) and event == order[len(previous)], (
         'Observe the active operation before recording its cancellation', previous, event)
-    reader = dict(ProcessId=run['pid'], ExecutablePath=str(Path(run['app'])/'HomeLibReader.exe'))
+    reader = dict(ProcessId=run['pid'], ExecutablePath=str(Path(run['app'])/'HomeLibreReader.exe'))
     assert reader in current['processes'], current
     running = event.endswith('-active')
     if running:
@@ -217,11 +217,11 @@ def main():
         environment = dict(os.environ,APPDATA=str(root/'Roaming'),LOCALAPPDATA=str(root/'Local'),
                            TEMP=str(root/'temp'),TMP=str(root/'temp'),PYTHONDONTWRITEBYTECODE='1')
         (root/'temp').mkdir(exist_ok=True)
-        process = subprocess.Popen([str(app/'HomeLibReader.exe'),'--open='+state['source']],cwd=app,
+        process = subprocess.Popen([str(app/'HomeLibreReader.exe'),'--open='+state['source']],cwd=app,
                                    env=environment,stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,
                                    stderr=subprocess.DEVNULL,creationflags=subprocess.CREATE_NO_WINDOW)
         state['runs'].append(dict(platform=args.platform,app=str(app),output=str(output),pid=process.pid,
-            package_sha256=sha(package),reader_sha256=sha(app/'HomeLibReader.exe'),modules=installed,events=[],checked=False))
+            package_sha256=sha(package),reader_sha256=sha(app/'HomeLibreReader.exe'),modules=installed,events=[],checked=False))
     elif args.action == 'retry-export':
         assert not active(root)
         run = state['runs'][-1]
@@ -249,7 +249,7 @@ def main():
             source = args.export_source.resolve(strict=True)
             assert source.is_relative_to(root) and source.suffix.lower() == '.fb2'
             run['export_source'] = dict(path=str(source),sha256=sha(source),bytes=source.stat().st_size)
-        process = subprocess.Popen([str(app/'HomeLibReader.exe'),'--open='+str(source)],cwd=app,
+        process = subprocess.Popen([str(app/'HomeLibreReader.exe'),'--open='+str(source)],cwd=app,
                                    env=environment,stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,
                                    stderr=subprocess.DEVNULL,creationflags=subprocess.CREATE_NO_WINDOW)
         run.update(pid=process.pid,output=str(output))
@@ -287,7 +287,7 @@ def main():
         assert sha(Path(state['source'])) == state['source_sha256']
         if run.get('export_source'):
             assert sha(Path(run['export_source']['path'])) == run['export_source']['sha256']
-        assert sha(Path(run['app'])/'HomeLibReader.exe') == run['reader_sha256']
+        assert sha(Path(run['app'])/'HomeLibreReader.exe') == run['reader_sha256']
         current = snapshot(root)
         assert not current['scratch'] and not current['atomic_stages'],current
         run['checked'] = True

@@ -1,10 +1,10 @@
 ﻿<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <PropertyGroup>
     <ProjectGuid>{4AB0861E-C452-4782-ACD2-780A153EB237}</ProjectGuid>
-    <MainSource>HomeLibReader.dpr</MainSource>
+    <MainSource>HomeLibreReader.dpr</MainSource>
     <ProjectVersion>20.3</ProjectVersion>
-    <ProjectName>HomeLibReader</ProjectName>
-    <SanitizedProjectName>HomeLibReader</SanitizedProjectName>
+    <ProjectName>HomeLibreReader</ProjectName>
+    <SanitizedProjectName>HomeLibreReader</SanitizedProjectName>
     <Base>true</Base>
     <Config Condition="'$(Config)'==''">Release</Config>
     <Platform Condition="'$(Platform)'==''">Win64</Platform>
@@ -16,7 +16,7 @@
     <VerInfo_Locale>1049</VerInfo_Locale>
     <VerInfo_MajorVer>3</VerInfo_MajorVer><VerInfo_MinorVer>0</VerInfo_MinorVer>
         <VerInfo_Release>0</VerInfo_Release><VerInfo_Build>13</VerInfo_Build>
-        <VerInfo_Keys>FileDescription=HomeLibre Reader;ProductName=HomeLibre Reader;ProductVersion=3.0.0_pre1.13;FileVersion=3.0.0.13;InternalName=HomeLibReader;OriginalFilename=HomeLibReader.exe</VerInfo_Keys>
+        <VerInfo_Keys>FileDescription=HomeLibre Reader;ProductName=HomeLibre Reader;ProductVersion=3.0.0_pre1.13;FileVersion=3.0.0.13;InternalName=HomeLibreReader;OriginalFilename=HomeLibreReader.exe</VerInfo_Keys>
     <DCC_UnitSearchPath>..\..\Program\Units;..\..\Program\Forms;..\..\Program\Forms\Editors;..\..\Program\DataModules;..\..\Program\ImportImpl;..\..\Program\UtilsImpl;..\..\Program\DwnldImpl;..\..\Program\DAO;..\..\Program\DAO\SQLite;..\..\Program\DAO\SQLite\Lib;..\..\Program\Wizards\NewCollection;..\..\Program\Wizards\Base;..\..\Components\MHLComponents;..\..\Components\MHLComponents\Units;..\..\Components\VirtualTreeView\Source;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
     <DCC_ResourcePath>..\..\Components\MHLComponents;$(DCC_ResourcePath)</DCC_ResourcePath>
     <DCC_IncludePath>..\..\Components\MHLComponents;$(DCC_IncludePath)</DCC_IncludePath>
@@ -24,7 +24,7 @@
     <DCC_UnitAlias>WinTypes=Winapi.Windows;WinProcs=Winapi.Windows;$(DCC_UnitAlias)</DCC_UnitAlias>
     <DCC_ExeOutput>Out\$(Platform)</DCC_ExeOutput>
     <DCC_DcuOutput>Out\$(Platform)\dcu</DCC_DcuOutput>
-    <DCC_DependencyCheckOutputName>Out\$(Platform)\HomeLibReader.exe</DCC_DependencyCheckOutputName>
+    <DCC_DependencyCheckOutputName>Out\$(Platform)\HomeLibreReader.exe</DCC_DependencyCheckOutputName>
     <DCC_Assertions>true</DCC_Assertions><DCC_RangeChecking>true</DCC_RangeChecking>
     <DCC_OverflowChecking>true</DCC_OverflowChecking><DCC_Optimize>true</DCC_Optimize>
     <DCC_DebugInformation>0</DCC_DebugInformation><DCC_MapFile>3</DCC_MapFile>

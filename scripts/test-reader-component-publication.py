@@ -11,13 +11,14 @@ import zipfile
 spec = importlib.util.spec_from_file_location('reader_packages', Path(__file__).with_name('package-reader-components.py'))
 packages = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(packages)
+publication = __import__('runpy').run_path(str(Path(__file__).with_name('prepare-component-publication.py')))
 
 
 class PublicationContract(unittest.TestCase):
     def reader_fixture(self, root, platform):
         repo = root / 'repo'
         runtime = repo / 'Program/Out' / ('Bin' if platform == 'Win32' else 'Bin64')
-        reader = repo / 'Utils/HomeLibReader/Out' / platform
+        reader = repo / 'Utils/HomeLibreReader/Out' / platform
         runtime.mkdir(parents=True)
         reader.mkdir(parents=True)
         header = bytearray(96)
@@ -25,7 +26,7 @@ class PublicationContract(unittest.TestCase):
         struct.pack_into('<I', header, 0x3c, 64)
         header[64:68] = b'PE\0\0'
         struct.pack_into('<H', header, 68, 0x14c if platform == 'Win32' else 0x8664)
-        (reader / 'HomeLibReader.exe').write_bytes(header)
+        (reader / 'HomeLibreReader.exe').write_bytes(header)
         for name in ('HomeLibRuUpdater.exe', 'sqlite3.dll'):
             (runtime / name).write_bytes(header)
         for path, data in {
@@ -70,11 +71,38 @@ class PublicationContract(unittest.TestCase):
                 with zipfile.ZipFile(report['archive']) as archive:
                     manifest = json.loads(archive.read('HomeLibRu.update.json'))
                     self.assertEqual(manifest['version'], entry['version'])
+                    self.assertEqual(manifest['reader_application'], 'HomeLibreReader.exe')
+                    self.assertIn('HomeLibReader.exe', archive.namelist())
+                    self.assertNotIn('HomeLibreReader.exe', archive.namelist())
                     self.assertEqual(manifest['platform'], platform)
                     self.assertEqual(manifest['release'], packages.COMPONENT_RELEASE_TAG)
                     self.assertNotIn('libzstd.dll', archive.namelist())
                     self.assertFalse(any(name.startswith(('tools/bookconvert/', 'tools/kindle/',
                         'tools/office/', 'tools/xps/')) for name in archive.namelist()))
+
+                with zipfile.ZipFile(report['portable_archive']) as archive:
+                    names = archive.namelist()
+                    self.assertIn('HomeLibreReader.exe', names)
+                    self.assertNotIn('HomeLibReader.exe', names)
+                    manifest = json.loads(archive.read('HomeLibRu.update.json'))
+                    self.assertEqual({item['path'] for item in manifest['files']}, set(names) - {'HomeLibRu.update.json'})
+                    self.assertEqual(archive.read('HomeLibreReader.exe'),
+                                     (repo / 'Utils/HomeLibreReader/Out' / platform / 'HomeLibreReader.exe').read_bytes())
+                with zipfile.ZipFile(report['archive']) as archive:
+                    compatible = json.loads(archive.read('HomeLibRu.update.json'))
+                    payload = {item['path']: archive.read(item['path']) for item in compatible['files']}
+                asset = publication['portable_reader_asset'](root / 'output', entry, payload, compatible)
+                self.assertEqual(asset['path'], report['portable_archive'])
+                self.assertEqual(asset['digest'], 'sha256:' + report['portable_sha256'])
+                portable = Path(report['portable_archive'])
+                with zipfile.ZipFile(portable) as archive:
+                    altered = {name: archive.read(name) for name in archive.namelist()}
+                altered['HomeLibreReader.exe'] += b'altered'
+                with zipfile.ZipFile(portable, 'w') as archive:
+                    for name, body in altered.items():
+                        archive.writestr(name, body)
+                with self.assertRaises(AssertionError):
+                    publication['portable_reader_asset'](root / 'output', entry, payload, compatible)
 
     def test_stale_reader_rejected_without_output(self):
         self.assert_reader_version_rejected(['2.7.0.1105'])

@@ -264,7 +264,10 @@ begin
 end;
 
 function ComponentTitle(Index: Integer): string;
-begin Result:=UPDATE_COMPONENTS[Index].Title+' · '+UPDATE_COMPONENTS[Index].ID; end;
+begin
+  Result:=UPDATE_COMPONENTS[Index].Title;
+  if UPDATE_COMPONENTS[Index].ID<>'HomeLibReader' then Result:=Result+' · '+UPDATE_COMPONENTS[Index].ID;
+end;
 
 function UpdateReleasePageURL(const Component, Tag, SavedURL: string): string;
 const ReleasesPage = 'https://github.com/Dicur3x/MyHomeLib/releases';

@@ -1,5 +1,10 @@
 # Catalogue executable-name migration after beta 13
 
+Follow-up on 15 November: the Reader executable and source project have also
+been renamed to HomeLibreReader. The implementation and current evidence are in
+[the Reader migration audit](2026-11-15-reader-name-migration.md). Statements
+below about the unchanged Reader name describe the earlier catalogue-only stage.
+
 This is local work for beta 14. No Desktop installation or public release was changed. Production binaries and fixtures still carry the current beta 13 identity until the complete beta 14 release is prepared.
 
 ## Implementation

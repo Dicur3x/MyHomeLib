@@ -77,7 +77,7 @@ begin
   for var Component in UPDATE_COMPONENTS do
     if IsOptionalComponent(Component.ID) and not (ReaderOnly and
       (IndexText(Component.ID,['HomeLibReader','AlReader','SumatraPDF','MHLMcpServer','Zstandard',JPEG_XL_ENCODER_COMPONENT])>=0)) and
-      (FileExists(CheckedUpdateChildPath(AppPath,ComponentFileName(Component.ID))) or
+      (FileExists(CheckedUpdateChildPath(AppPath,InstalledComponentFileName(AppPath,Component.ID))) or
        FileExists(CheckedUpdateChildPath(AppPath,ComponentReceiptName(Component.ID)))) then
       Result:=Result+TArray<string>.Create(Component.ID);
 end;
@@ -223,7 +223,7 @@ begin
   except end;
   if Known then Item.SubItems[0] := ModuleSize(Size) else Item.SubItems[0] := '—';
   if not Known then Item.SubItems[1] := 'Сверить состав'
-  else if FileExists(CheckedUpdateChildPath(FAppPath, ComponentFileName(ID))) then
+  else if FileExists(CheckedUpdateChildPath(FAppPath, InstalledComponentFileName(FAppPath,ID))) then
     Item.SubItems[1] := 'Состав учтён'
   else if HasFiles then Item.SubItems[1] := 'Остались файлы'
   else Item.SubItems[1] := 'Нет файлов';

@@ -5,15 +5,20 @@ interface
 const
   CATALOGUE_APPLICATION = 'HomeLibre.exe';
   LEGACY_CATALOGUE_APPLICATION = 'HomeLibRu.exe';
-  READER_APPLICATION = 'HomeLibReader.exe';
+  READER_APPLICATION = 'HomeLibreReader.exe';
+  LEGACY_READER_APPLICATION = 'HomeLibReader.exe';
   CATALOGUE_TRANSPORT_PATH = 'tools/updates/catalogue/HomeLibre.exe';
 
+function IsReaderApplicationName(const Value: string): Boolean;
 function ForwardApplicationCommandLine(const Executable, Original: string): string;
 function InstalledApplicationName(const Directory, Requested: string): string;
 
 implementation
 
 uses System.SysUtils, System.IOUtils;
+
+function IsReaderApplicationName(const Value: string): Boolean;
+begin Result:=SameText(Value,READER_APPLICATION) or SameText(Value,LEGACY_READER_APPLICATION); end;
 
 function ForwardApplicationCommandLine(const Executable, Original: string): string;
 var I: Integer; Quoted: Boolean;
@@ -40,8 +45,11 @@ begin
     // Rollback may have restored a release preceding the new executable name.
     if FileExists(TPath.Combine(Directory,LEGACY_CATALOGUE_APPLICATION)) then Exit(LEGACY_CATALOGUE_APPLICATION);
   end
-  else if SameText(Requested,READER_APPLICATION) and
-    FileExists(TPath.Combine(Directory,READER_APPLICATION)) then Exit(READER_APPLICATION);
+  else if IsReaderApplicationName(Requested) then
+  begin
+    if FileExists(TPath.Combine(Directory,READER_APPLICATION)) then Exit(READER_APPLICATION);
+    if FileExists(TPath.Combine(Directory,LEGACY_READER_APPLICATION)) then Exit(LEGACY_READER_APPLICATION);
+  end;
   raise EFileNotFoundException.Create('Не найден файл приложения HomeLibre: '+Requested);
 end;
 

@@ -106,7 +106,7 @@ def launch(state, arch, mode, packed, package=None, save_copy=False):
                     target.write_bytes(data)
             state.setdefault('packages', {})[arch] = {'archive':str(package.resolve()),'sha256':sha(package)}
         else:
-            shutil.copy2(REPO / f'Utils/HomeLibReader/Out/{arch}/HomeLibReader.exe', app / 'HomeLibReader.exe')
+            shutil.copy2(REPO / f'Utils/HomeLibreReader/Out/{arch}/HomeLibreReader.exe', app / 'HomeLibreReader.exe')
             shutil.copy2(REPO / 'LICENSE', app / 'HomeLibReader-LICENSE.txt')
             for name in ('sqlite3.dll', 'libzstd.dll', 'NOTICE', 'HomeLibRuUpdater.exe'):
                 shutil.copy2(runtime / name, app / name)
@@ -140,7 +140,7 @@ def launch(state, arch, mode, packed, package=None, save_copy=False):
             with zipfile.ZipFile(archive, 'x', zipfile.ZIP_DEFLATED) as output:
                 output.write(source, source.name)
         source = archive
-    command = [str(app / 'HomeLibReader.exe'), '--open=' + str(source)]
+    command = [str(app / 'HomeLibreReader.exe'), '--open=' + str(source)]
     if mode == 'explicit':
         command.append('--profile=' + str(profile))
     local_before = snapshot(app / 'Data') if mode == 'explicit' else None
@@ -149,7 +149,7 @@ def launch(state, arch, mode, packed, package=None, save_copy=False):
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                creationflags=subprocess.CREATE_NO_WINDOW)
     record = dict(arch=arch, mode=mode, pid=process.pid, app=str(app), profile=str(profile),
-                  exe_sha256=sha(app / 'HomeLibReader.exe'), checked=False, packed=packed)
+                  exe_sha256=sha(app / 'HomeLibreReader.exe'), checked=False, packed=packed)
     if save_copy:
         record.update(save_copy_destination=str(destination), destination_prefilled_in_owned_profile=True)
     if mode == 'explicit':

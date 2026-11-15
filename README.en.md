@@ -25,7 +25,7 @@ Requires **Windows 10 or later**. The archive contains the catalogue app.
 Books are obtained separately.
 
 1. Extract the archive to a folder you can write to.
-2. Run **HomeLibRu.exe**.
+2. Run **HomeLibre.exe**.
 3. Use the **Collection** menu to create an empty collection, import INPX or
    open an existing `.hlc2` catalogue.
 4. Choose your books folder. Use **Collection → Import → Add file…** or drag
@@ -43,7 +43,7 @@ Books are obtained separately.
 Choose the HomeLibre Reader archive for Windows x86 or x64 from the list of assets.
 
 To read files without the catalogue app, extract the Reader archive, run
-**HomeLibReader.exe** and press **Ctrl+O**. If you open a book from the catalogue,
+**HomeLibreReader.exe** and press **Ctrl+O**. If you open a book from the catalogue,
 HomeLibre offers to install the reader the first time you need it.
 
 ### Supported reading formats
@@ -222,7 +222,7 @@ speaker. Help follows the selected interface language.
 Build with **Delphi 13 / RAD Studio 37.0**, VirtualTreeView and dependencies
 of the matching architecture. Projects, the component patch, build order,
 runtime preparation and checks are documented in [BUILDING.md](BUILDING.md) (in Russian).
-The main project is `Program/HomeLibRu.dpr`; utilities are in `Utils/`,
+The main project is `Program/HomeLibre.dpr`; utilities are in `Utils/`,
 and native tests are in `Program/Tests` and `tools/ui/tests`.
 
 [Release history](https://github.com/Dicur3x/MyHomeLib/releases) ·

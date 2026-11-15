@@ -108,7 +108,7 @@ def main():
         stage_package(args.package, app, args.platform)
         candidate = args.candidate_exe.resolve(strict=True) if args.candidate_exe else None
         if candidate:
-            shutil.copyfile(candidate, app / 'HomeLibReader.exe')
+            shutil.copyfile(candidate, app / 'HomeLibreReader.exe')
         assert all(not (app / 'tools' / folder).exists() for folder in ('bookconvert', 'images', 'kindle', 'office', 'xps'))
         output = app / 'saved'
         output.mkdir()
@@ -116,11 +116,11 @@ def main():
             'SaveAsUseSubfolders=0\n[PATH]\nSyncExport=' + str(output) + '\n', encoding='utf-8')
         before = {str(file.relative_to(app)): sha(file) for file in app.rglob('*') if file.is_file()}
         environment = dict(os.environ, APPDATA=str(root / 'Roaming'), LOCALAPPDATA=str(root / 'Local'), TEMP=str(root), TMP=str(root))
-        process = subprocess.Popen([str(app / 'HomeLibReader.exe'), '--open=' + state['source']], cwd=app,
+        process = subprocess.Popen([str(app / 'HomeLibreReader.exe'), '--open=' + state['source']], cwd=app,
             env=environment, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             creationflags=subprocess.CREATE_NO_WINDOW)
         state['runs'].append(dict(platform=args.platform, app=str(app), original_pid=process.pid,
-            package_sha256=sha(args.package), reader_exe_sha256=sha(app / 'HomeLibReader.exe'),
+            package_sha256=sha(args.package), reader_exe_sha256=sha(app / 'HomeLibreReader.exe'),
             candidate_exe=str(candidate) if candidate else None, before=before, checked=False,
             expected_module_version=args.expected_module_version, expected_module_versions=args.expected_module_versions))
         state['stage'] = 'waiting-for-real-Save-As-GUI'

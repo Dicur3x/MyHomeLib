@@ -8069,7 +8069,7 @@ begin
   Personal:=Request.RequirePersonalProgress; ReaderCollection:=nil; Remembered:=False;
   if Expected.BookKey.BookID>0 then
     try ReaderCollection:=FSystemData.GetCollection(Expected.BookKey.DatabaseID); except end;
-  LaunchReaderSession(Self,Settings.AppPath+'HomeLibReader.exe',
+  LaunchReaderSession(Self,TPath.Combine(Settings.AppPath,InstalledComponentFileName(Settings.AppPath,'HomeLibReader')),
     TPath.Combine(Settings.DataDir,'ReaderProfile'),Request,
     procedure(Reply: TReaderSessionReply)
     var Changed: TBookRecord; Outcome: TReaderPersonalWriteResult;

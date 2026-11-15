@@ -964,7 +964,7 @@ begin
   for var Entry in FComponentsView.PopupMenu.Items do if Entry.Tag=3 then
     Entry.Enabled:=FManageComponents.Enabled and (FSelectedRow>0) and
       IsOptionalComponent(UPDATE_COMPONENTS[FSelectedRow-1].ID) and
-      FileExists(CheckedUpdateChildPath(Settings.AppPath,ComponentFileName(UPDATE_COMPONENTS[FSelectedRow-1].ID)));
+      FileExists(CheckedUpdateChildPath(Settings.AppPath,InstalledComponentFileName(Settings.AppPath,UPDATE_COMPONENTS[FSelectedRow-1].ID)));
 end;
 
 procedure TfrmProgramUpdate.ManageComponentsClick(Sender: TObject);
@@ -2182,7 +2182,7 @@ begin
     end;
     if not IsProgramUpdateApplicationName(ExtractFileName(ParamStr(0))) then
       raise Exception.Create('Файл программы переименован: '+ExtractFileName(ParamStr(0))+'. '+
-        'Для встроенного обновления верните имя HomeLibre.exe или HomeLibReader.exe.');
+        'Для встроенного обновления верните имя HomeLibre.exe или HomeLibreReader.exe.');
     AssertUpdatePath(FJob); AssertUpdatePath(Settings.AppPath);
     Helper := IncludeTrailingPathDelimiter(FJob) + 'HomeLibRuUpdater.exe';
     if not FRecovery or not FileExists(Helper) then

@@ -59,7 +59,7 @@ def main():
     package = Path(package_info['archive'])
     assert digest(package) == package_info['sha256']
     with zipfile.ZipFile(package) as archive:
-        package_info['exe_sha256'] = hashlib.sha256(archive.read('HomeLibReader.exe')).hexdigest()
+        package_info['exe_sha256'] = hashlib.sha256(archive.read('HomeLibreReader.exe')).hexdigest()
     scenario = ('Ordinary book opening with the verified Reader payload already installed. '
                 if args.installed_reader else
                 'Missing-core offer and saved-session resume after verified payload installation. ')
@@ -175,7 +175,7 @@ def main():
                 assert target.is_relative_to(folder) and not entry.is_dir()
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(archive.read(entry))
-        assert digest(folder / 'HomeLibReader.exe') == info['reader_sha256']
+        assert digest(folder / 'HomeLibreReader.exe') == info['reader_sha256']
         if request_path is not None:
             request_path.parent.mkdir(parents=True)
             request_path.write_text(json.dumps(saved, ensure_ascii=False), encoding='utf8')
@@ -240,7 +240,7 @@ def main():
         assert folder.name.startswith('HomeLibRu-native-reader-main-')
         # Reader may still be open when Main times out. Never select another
         # installation: this path belongs to this invocation's private root.
-        cleanup_environment = dict(environment, HOMELIBRE_TEST_READER=str(folder / 'HomeLibReader.exe'))
+        cleanup_environment = dict(environment, HOMELIBRE_TEST_READER=str(folder / 'HomeLibreReader.exe'))
         try:
             stopped = subprocess.run(['powershell', '-NoProfile', '-Command',
                 "$ErrorActionPreference='Stop'; "

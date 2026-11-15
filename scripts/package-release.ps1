@@ -170,7 +170,7 @@ try {
                     $entry.FullName -cmatch '^tools/genres/genres_(fb2|nonfb2)(_(bg|en|uk))?\.glst$'
                 if (($entry.FullName.StartsWith('tools/') -and -not $coreResource) -or
                     $entry.FullName.StartsWith('Readers/') -or $entry.FullName.StartsWith('converters/') -or
-                    $entry.FullName -in @('HomeLibReader.exe', 'MHLMcpServer.exe', 'HomeLibRu.url', 'libzstd.dll')) {
+                    $entry.FullName -in @('HomeLibReader.exe', 'HomeLibreReader.exe', 'MHLMcpServer.exe', 'HomeLibRu.url', 'libzstd.dll')) {
                     throw "Optional payload leaked into minimal catalogue archive: $($entry.FullName)"
                 }
                 if (-not $entry.FullName.Contains('/') -and $entry.FullName -notin @(

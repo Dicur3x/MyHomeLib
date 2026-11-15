@@ -104,7 +104,7 @@ def package(repo, platform, component, tag, converter_version, output):
     publication_tag(tag)
     runtime = repo / "Program/Out" / ("Bin" if platform == "Win32" else "Bin64")
     if component == "HomeLibReader":
-        reader = repo / f"Utils/HomeLibReader/Out/{platform}/HomeLibReader.exe"
+        reader = repo / f"Utils/HomeLibreReader/Out/{platform}/HomeLibreReader.exe"
         verify_reader_manifest(reader)
         payload = {"HomeLibReader.exe": reader.read_bytes(),
                    "HomeLibReader-LICENSE.txt": (repo / "LICENSE").read_bytes()}
@@ -114,7 +114,7 @@ def package(repo, platform, component, tag, converter_version, output):
             "HomeLibre Reader\n\n"
             "Читалка портативная по умолчанию. Файл uselocaldata создавать не нужно.\n"
             "Настройки, заметки, история и кэш по умолчанию будут храниться рядом с программой в Data.\n"
-            "Также можно запустить HomeLibReader.exe uselocaldata или с параметром --portable.\n\n"
+            "В переносимом архиве можно запустить HomeLibreReader.exe uselocaldata или с параметром --portable.\n\n"
             "При запуске из каталогизатора используется явно переданная им папка профиля.\n"
             "Существующие данные автоматически между папками не переносятся.\n"
             "Декодеры дополнительных форматов устанавливаются только при необходимости.\n"
@@ -175,6 +175,10 @@ def package(repo, platform, component, tag, converter_version, output):
     manifest = {"format": 1, "release": tag, "platform": platform, "component": component,
                 "version": version, "files": [{"path": name, "size": len(value), "sha256": digest(value)}
                                                for name, value in sorted(payload.items())]}
+    if component == "HomeLibReader":
+        # Keep the legacy component transport accepted by beta 13. The new
+        # helper publishes this payload under its canonical executable name.
+        manifest["reader_application"] = "HomeLibreReader.exe"
     payload["HomeLibRu.update.json"] = json_bytes(manifest)
     output.mkdir(parents=True, exist_ok=True)
     filename = (f"HomeLibRu-{component}-{version}-{platform}.zip" if component == "HomeLibReader"
@@ -189,6 +193,26 @@ def package(repo, platform, component, tag, converter_version, output):
     with zipfile.ZipFile(destination) as archive:
         if archive.testzip() is not None:
             raise ValueError("Component ZIP failed CRC verification")
+    portable_info = {}
+    if component == "HomeLibReader":
+        portable = output / f"HomeLibreReader-{version}-{platform}.zip"
+        standalone = dict(payload)
+        standalone["HomeLibreReader.exe"] = standalone.pop("HomeLibReader.exe")
+        standalone_manifest = dict(manifest)
+        standalone_manifest["files"] = [{"path": name, "size": len(value), "sha256": digest(value)}
+            for name, value in sorted(standalone.items()) if name != "HomeLibRu.update.json"]
+        standalone["HomeLibRu.update.json"] = json_bytes(standalone_manifest)
+        with portable.open("xb") as stream, zipfile.ZipFile(stream, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
+            for name, value in sorted(standalone.items()):
+                info = zipfile.ZipInfo(name, (2026, 10, 25, 0, 0, 0))
+                info.compress_type = zipfile.ZIP_DEFLATED
+                info.external_attr = 0o644 << 16
+                archive.writestr(info, value)
+        with zipfile.ZipFile(portable) as archive:
+            if archive.testzip() is not None:
+                raise ValueError("Portable Reader ZIP failed CRC verification")
+        portable_info = {"portable_archive": str(portable), "portable_sha256": digest(portable.read_bytes()),
+                         "portable_size": portable.stat().st_size}
     date = datetime.now(timezone.utc).date().isoformat()
     if component == "HomeLibReader":
         history = [{"date": date, **history[0]}, *history[1:]]
@@ -197,7 +221,7 @@ def package(repo, platform, component, tag, converter_version, output):
     return {"id": component, "platform": platform, "version": version, "archive": destination.name,
             "history": history}, {
             "component": component, "platform": platform, "version": version, "archive": str(destination),
-            "size": destination.stat().st_size, "sha256": digest(destination.read_bytes()), "files": len(manifest["files"])}
+            "size": destination.stat().st_size, "sha256": digest(destination.read_bytes()), "files": len(manifest["files"]), **portable_info}
 
 
 if __name__ == "__main__":

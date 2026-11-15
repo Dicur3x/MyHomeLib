@@ -36,6 +36,30 @@ def archive_name(entry):
     return entry['archive']
 
 
+def portable_reader_asset(directory, entry, compatible_payload, compatible_manifest):
+    """Verify the public standalone ZIP against the same tested Reader payload."""
+    name = f"HomeLibreReader-{entry['version']}-{entry['platform']}.zip"
+    path = directory / name
+    data = path.read_bytes()
+    expected = dict(compatible_payload)
+    expected['HomeLibreReader.exe'] = expected.pop('HomeLibReader.exe')
+    with zipfile.ZipFile(path) as archive:
+        names = archive.namelist()
+        assert len(names) == len(set(names)) and archive.testzip() is None
+        assert set(names) == set(expected) | {'HomeLibRu.update.json'}
+        manifest = json.loads(archive.read('HomeLibRu.update.json'))
+        for field in ('format', 'release', 'platform', 'component', 'version', 'reader_application'):
+            assert manifest[field] == compatible_manifest[field], field
+        assert manifest['reader_application'] == 'HomeLibreReader.exe'
+        records = {item['path']: item for item in manifest['files']}
+        assert len(records) == len(manifest['files']) and set(records) == set(expected)
+        for name, payload in expected.items():
+            assert archive.read(name) == payload, name
+            assert records[name]['size'] == len(payload) and records[name]['sha256'] == digest(payload), name
+    return dict(path=str(path), name=path.name, size=len(data), digest='sha256:' + digest(data),
+                browser_download_url=PREFIX + path.name)
+
+
 def entries(value):
     assert value['format'] == 1
     result = {}
@@ -158,7 +182,7 @@ def main():
                     assert len(payload) == item['size'] and digest(payload) == item['sha256'], name
                 if key[0] == 'HomeLibReader':
                     assert 'libzstd.dll' not in payload_names, 'Reader package must not bundle Zstandard'
-                    current = ROOT / 'Utils/HomeLibReader/Out' / key[1] / 'HomeLibReader.exe'
+                    current = ROOT / 'Utils/HomeLibreReader/Out' / key[1] / 'HomeLibreReader.exe'
                     for reader_source in (ROOT / 'Program/Units/unit_BookSendOptions.pas',
                                           ROOT / 'Program/Units/unit_Settings.pas',
                                           ROOT / 'Program/Forms/frm_ReaderHost.pas',
@@ -167,6 +191,13 @@ def main():
                             'Rebuild current Reader after source changes: ' + str(reader_source))
                     assert archive.read('HomeLibReader.exe') == current.read_bytes(), (
                         'Reader archive does not match current executable: ' + str(path))
+                    standalone = portable_reader_asset(directory, entry,
+                        {name: archive.read(name) for name in payload_names}, manifest)
+                    assert standalone['name'] not in new_names
+                    new_names.add(standalone['name'])
+                    previous = old_assets.get(standalone['name'])
+                    if previous is None or any(previous[field] != standalone[field] for field in ('size', 'digest')):
+                        uploads.append(standalone)
                 if key[0] == 'KfxExport':
                     prefix = 'tools/kfx-export/'
                     assert source_asset['browser_download_url'].encode('ascii') in archive.read(prefix + 'SOURCE.txt')
@@ -213,7 +244,8 @@ def main():
             checked.append(dict(component=key[0], platform=key[1], version=entry['version'],
                                 archive_sha256=digest(data), managed_files=len(payload_names)))
     assert set(replacement) == expected
-    identical_archive_count = len(checked) - sum(asset['name'] in new_names for asset in uploads)
+    component_archives = {entry['archive'] for entry in replacement.values()}
+    identical_archive_count = len(checked) - sum(asset['name'] in component_archives for asset in uploads)
     if not partial:
         previous_source = old_assets.get(kfx_source.name)
         if previous_source is None:

@@ -1,4 +1,4 @@
-﻿program HomeLibReader;
+﻿program HomeLibreReader;
 
 {$R *.res}
 {$R '..\..\Program\MyhomeLib.dres'}

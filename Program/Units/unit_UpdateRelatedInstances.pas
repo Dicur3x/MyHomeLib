@@ -152,7 +152,7 @@ begin
       if (Entry.th32ProcessID=ExcludedPID) or (Entry.th32ProcessID=GetCurrentProcessId) then Continue;
       if not SameText(Entry.szExeFile,'HomeLibre.exe') and
          not SameText(Entry.szExeFile,'HomeLibRu.exe') and
-         not SameText(Entry.szExeFile,'HomeLibReader.exe') then Continue;
+         not IsReaderApplicationName(Entry.szExeFile) then Continue;
       Process:=OpenProcess(SYNCHRONIZE or RELATED_QUERY_LIMITED,False,Entry.th32ProcessID);
       if Process=0 then Continue;
       try
@@ -181,7 +181,7 @@ var Initialized: HRESULT;
     Locator:=CreateOleObject('WbemScripting.SWbemLocator');
     Service:=Locator.ConnectServer('.', 'root\cimv2');
     Rows:=Service.ExecQuery('SELECT ProcessId,CommandLine FROM Win32_Process WHERE '+
-      'Name=''HomeLibReader.exe'' OR Name=''HomeLibRu.exe'' OR Name=''HomeLibre.exe''','WQL',48);
+      'Name=''HomeLibReader.exe'' OR Name=''HomeLibreReader.exe'' OR Name=''HomeLibRu.exe'' OR Name=''HomeLibre.exe''','WQL',48);
     Enumerator:=IUnknown(Rows._NewEnum) as IEnumVARIANT;
     while Enumerator.Next(1,Row,Fetched)=S_OK do
     begin
@@ -212,7 +212,7 @@ var Arguments: PPWideChar; Count, Comparison: Integer;
   Source, PendingFile, PendingSession, CurrentRequest, OriginalSource: string;
   JSON: TJSONValue; Values: TArray<string>; Startup: TReaderStartup; Ini: TMemIniFile;
 begin
-  if not SameText(ExtractFileName(Instance.Executable),'HomeLibReader.exe') then Exit;
+  if not IsReaderApplicationName(ExtractFileName(Instance.Executable)) then Exit;
   Arguments:=CommandLineToArgvW(PWideChar(Instance.CommandLine),Count);
   if Arguments=nil then RaiseLastOSError;
   Source:='';
@@ -273,7 +273,7 @@ end;
 
 procedure TUpdateRelatedInstances.KeepCallerInput(const ApplicationName, CommandLine: string);
 begin
-  if not SameText(ApplicationName,'HomeLibReader.exe') then Exit;
+  if not IsReaderApplicationName(ApplicationName) then Exit;
   if Assigned(FCallerInput) then raise Exception.Create('Повторная подготовка открытой книги к обновлению.');
   FCallerInput:=TUpdateRelatedInstance.Create;
   FCallerInput.Executable:=TPath.Combine(FTarget,ApplicationName);
@@ -333,7 +333,7 @@ begin
       AllClosed:=True;
       for var Instance in FInstances do
       begin
-        if Ord(SameText(ExtractFileName(Instance.Executable),'HomeLibReader.exe'))<>ReaderPass then Continue;
+        if Ord(IsReaderApplicationName(ExtractFileName(Instance.Executable)))<>ReaderPass then Continue;
         if WaitForSingleObject(Instance.ProcessHandle,0)=WAIT_OBJECT_0 then Continue;
         AllClosed:=False;
         if GetTickCount64>=NextPost then

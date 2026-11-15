@@ -65,10 +65,10 @@ var Requested: TDictionary<string,Boolean>; Names: TDictionary<string,Integer>; 
   var Primary: string;
   begin
     Result := False;
-    Primary := CheckedUpdateChildPath(AppPath, ComponentFileName(ID));
+    Primary := CheckedUpdateChildPath(AppPath, InstalledComponentFileName(AppPath,ID));
     if not FileExists(Primary) then Exit;
     for var Info in Inventory do
-      if SameText(Info.Name, ComponentFileName(ID)) then
+      if SameText(Info.Name, InstalledComponentFileName(AppPath,ID)) then
         Exit((TFile.GetSize(Primary) = Info.Size) and SameText(UpdateSHA256(Primary), Info.SHA256));
   end;
   procedure AddCandidate(const Value: TComponentRemovalFile);
@@ -92,7 +92,7 @@ begin
   AssertUpdatePath(AppPath); Result.AppPath:=ExcludeTrailingPathDelimiter(TPath.GetFullPath(AppPath));
   if not FileExists(CheckedUpdateChildPath(AppPath,'HomeLibre.exe')) and
     not FileExists(CheckedUpdateChildPath(AppPath,'HomeLibRu.exe')) and
-    not FileExists(CheckedUpdateChildPath(AppPath,'HomeLibReader.exe')) then
+    not FileExists(CheckedUpdateChildPath(AppPath,InstalledComponentFileName(AppPath,'HomeLibReader'))) then
     raise Exception.Create('В выбранной папке нет HomeLibre или HomeLibre Reader.');
   Result.ManifestSources:=Copy(ManifestSources);
   Result.ManifestSources:=Result.ManifestSources+TArray<string>.Create(
@@ -113,7 +113,7 @@ begin
     // Retain shared paths even for older installations without receipts. Only
     // the selected component's explicit inventory can ever nominate removals.
     for var Component in UPDATE_COMPONENTS do if not Selected(Component.ID) and
-      (FileExists(CheckedUpdateChildPath(AppPath,ComponentFileName(Component.ID))) or
+      (FileExists(CheckedUpdateChildPath(AppPath,InstalledComponentFileName(AppPath,Component.ID))) or
        FileExists(CheckedUpdateChildPath(AppPath,ComponentReceiptName(Component.ID)))) then
       Retained.AddOrSetValue(Component.ID,Title(Component.ID));
     for ID in Result.IDs do
@@ -158,7 +158,7 @@ begin
             begin Item.Disposition:=crKeepChanged; Item.Reason:='Файл отличается от учтённой копии'; end;
           end;
         end;
-        if SameText(Info.Name,ComponentFileName(ID)) and
+        if SameText(Info.Name,InstalledComponentFileName(AppPath,ID)) and
           (Item.Disposition in [crKeepShared,crKeepChanged]) then
           Block('Нельзя удалить «'+Title(ID)+'»: '+Item.Reason+'. '+Info.Name);
         AddCandidate(Item);

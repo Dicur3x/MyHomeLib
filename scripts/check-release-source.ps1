@@ -45,7 +45,7 @@ $projects = @{
     'Program/MyhomeLib.dproj' = $false
     'Utils/HomeLibRuLauncher/HomeLibRu.dproj' = $false
     'Utils/HomeLibRuUpdater/HomeLibRuUpdater.dproj' = $false
-    'Utils/HomeLibReader/HomeLibReader.dproj' = $false
+    'Utils/HomeLibreReader/HomeLibreReader.dproj' = $false
     'Utils/MHLMcpServer/MHLMcpServer.dproj' = $true
 }
 foreach ($project in $projects.Keys) {

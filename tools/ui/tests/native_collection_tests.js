@@ -512,9 +512,10 @@ function runPackingMenu(folder, executable) {
     windowsHide:true,encoding:'utf8',timeout:60000};
   const reader=cp.spawnSync(python,['-I','-B','-m','zipfile','-e',readerArchive,packageFolder],options);
   if (reader.status!==0) throw Error('Reader fixture extraction failed: '+reader.stderr);
-  if (machine(path.join(packageFolder,'HomeLibReader.exe'))!==architecture)
+  const readerName=fs.existsSync(path.join(packageFolder,'HomeLibreReader.exe'))?'HomeLibreReader.exe':'HomeLibReader.exe';
+  if (machine(path.join(packageFolder,readerName))!==architecture)
     throw Error('Packing Reader architecture differs from fixture');
-  for (const name of ['HomeLibReader.exe','HomeLibReader-LICENSE.txt','HomeLibRuUpdater.exe','NOTICE'])
+  for (const name of [readerName,'HomeLibReader-LICENSE.txt','HomeLibRuUpdater.exe','NOTICE'])
     fs.copyFileSync(path.join(packageFolder,name),path.join(folder,name));
   function runFixture(mode, marker) {
     const result=cp.spawnSync(executable,[mode],options);
@@ -693,7 +694,7 @@ function run(executable, mode, subcase = "") {
       fs.copyFileSync(path.resolve(__dirname,'../../../Installer/GenreLists/genres_fb2.glst'),path.join(folder,'genres_fb2.glst'));
     }
     if (['builtin-reader','reader-small-fb2','reader-main-filter','reader-catalogue-recent','reader-catalogue-volume'].includes(mode)) {
-      fs.copyFileSync(executable,path.join(folder,'HomeLibReader.exe'));
+      fs.copyFileSync(executable,path.join(folder,'HomeLibreReader.exe'));
       for (const [source,name] of [
         [path.resolve(__dirname,'../../../LICENSE'),'HomeLibReader-LICENSE.txt'],
         [path.join(runtime,'HomeLibRuUpdater.exe'),'HomeLibRuUpdater.exe'],
@@ -1251,7 +1252,7 @@ function runView(mode) {
     if(process.argv.includes('--sql-module-restart')) return run(tests[2],mode,'sql');
     if(process.argv.includes('--save-kindle-restart')) return run(tests[2],mode,'kindle');
     if(process.argv.includes('--packing-module-restart')) return run(tests[2],mode,'packing');
-    for (const application of ['HomeLibReader.exe','HOMELIBREADER.EXE','homelibru.exe','legacy-request']) run(tests[2],mode,application);
+    for (const application of ['HomeLibreReader.exe','HOMELIBREREADER.EXE','HomeLibReader.exe','HOMELIBREADER.EXE','homelibru.exe','legacy-request']) run(tests[2],mode,application);
     return;
   }
   if (mode==='catalogue-performance' && process.argv.includes('--catalogue-ui-legacy')) return run(tests[2],mode,'ui-legacy');

@@ -247,7 +247,7 @@ def main():
             assert ready.returncode==0 and ready.stdout.strip().splitlines()==['0','PASS'], (component,ready.stdout,ready.stderr)
             report['installed_components'].append(dict(id=component,version=version,archive_sha256=sha(source)))
         assert all(not (target/'tools'/name).exists() for name in ('kindle','office','xps','7zip'))
-        assert not (target/'HomeLibReader.exe').exists()
+        assert not (target/'HomeLibreReader.exe').exists()
         if args.resumed_conversion_only:
             # A synthetic completed module-install request, confined to our
             # profile. Production validates identities, consumes the ready

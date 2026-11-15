@@ -34,6 +34,7 @@ function PrepareProgramUpdate(const Archive, SHA256, Tag, Platform, Job: string;
 function UpdateFileVersion(const FileName: string): string;
 function CompareComponentVersions(const Left, Right: string; out Comparison: Integer): Boolean;
 function ComponentFileName(const ID: string): string;
+function InstalledComponentFileName(const AppPath, ID: string): string;
 function InstalledComponentVersion(const AppPath, ID: string): string;
 function ComponentNeedsRepair(const AppPath, ID: string): Boolean;
 function ComponentReceiptName(const ID: string): string;
@@ -70,7 +71,7 @@ function IsProgramUpdateApplicationName(const Value: string): Boolean;
 begin
   // Windows filenames are case insensitive. Keep the supported application names
   // explicit: accepting an arbitrary renamed EXE could restart an old binary.
-  Result:=SameText(Value,'HomeLibre.exe') or SameText(Value,'HomeLibRu.exe') or SameText(Value,'HomeLibReader.exe');
+  Result:=SameText(Value,CATALOGUE_APPLICATION) or SameText(Value,LEGACY_CATALOGUE_APPLICATION) or IsReaderApplicationName(Value);
 end;
 
 function ReadProgramUpdateApplication(const Request: TJSONObject): string;
@@ -91,7 +92,7 @@ begin
   if IsFormatComponent(ID) then Exit(FormatComponentFile(ID));
   Result := '';
   if ID = 'SQLite' then Result := 'sqlite3.dll';
-  if ID = 'HomeLibReader' then Result := 'HomeLibReader.exe';
+  if ID = 'HomeLibReader' then Result := READER_APPLICATION;
   if ID = 'MHLMcpServer' then Result := 'MHLMcpServer.exe';
   if ID = 'Zstandard' then Result := 'libzstd.dll';
   if ID = 'PDFium' then Result := 'tools/pdfium/pdfium.dll';
@@ -105,6 +106,46 @@ begin
   if ID = 'JPEG XL' then Result := 'tools/jpeg-xl/djxl.exe';
   if ID = JPEG_XL_ENCODER_COMPONENT then Result := 'tools/jpeg-xl-encoder/cjxl.exe';
   if ID = 'WebP' then Result := 'tools/webp/libwebp.dll';
+end;
+
+function InstalledComponentFileName(const AppPath, ID: string): string;
+begin
+  Result:=ComponentFileName(ID);
+  if (ID='HomeLibReader') and not FileExists(TPath.Combine(AppPath,Result)) and
+    FileExists(TPath.Combine(AppPath,LEGACY_READER_APPLICATION)) then Result:=LEGACY_READER_APPLICATION;
+end;
+
+function IsComponentPrimaryFile(const ID, Name: string): Boolean;
+begin
+  if ID='HomeLibReader' then Result:=IsReaderApplicationName(Name)
+  else Result:=SameText(Name,ComponentFileName(ID));
+end;
+
+function ReaderComponentUsesCanonicalName(Part:TJSONObject):Boolean;
+var Value:TJSONValue; Comparison:Integer; Version:string;
+begin
+  Result:=False;
+  if Part.GetValue<string>('component','')<>'HomeLibReader' then Exit;
+  Value:=Part.GetValue('reader_application');
+  if Assigned(Value) then
+  begin
+    if not (Value is TJSONString) or (Value.Value<>READER_APPLICATION) then
+      raise Exception.Create('Некорректное имя приложения читалки в обновлении.');
+    Exit(True);
+  end;
+  // Old clients retain component/version in a combined update, but discard
+  // newer optional metadata. Beta 14 is the first renamed Reader payload.
+  Version:=Part.GetValue<string>('version','');
+  Result:=CompareComponentVersions(Version,'3.0.0.14',Comparison) and (Comparison>=0);
+end;
+
+function ManifestRenamesReader(Manifest:TJSONObject):Boolean;
+var Bundle:TJSONArray;
+begin
+  Result:=ReaderComponentUsesCanonicalName(Manifest);
+  if Manifest.TryGetValue<TJSONArray>('bundle',Bundle) then
+    for var Part in Bundle do
+      Result:=ReaderComponentUsesCanonicalName(TJSONObject(Part)) or Result;
 end;
 
 function JPEGXLComponentFolder(const ID: string): string;
@@ -128,7 +169,7 @@ begin
     for var FileName in IBK_FILES do if Name='tools/ibk/'+FileName then Exit(True);
     Exit(False);
   end;
-  if ID='HomeLibReader' then Exit((Name='HomeLibReader.exe') or (Name='HomeLibRuUpdater.exe') or
+  if ID='HomeLibReader' then Exit(IsReaderApplicationName(Name) or (Name='HomeLibRuUpdater.exe') or
     (Name='HomeLibReader-LICENSE.txt') or (Name='sqlite3.dll') or (Name='libzstd.dll') or (Name='NOTICE') or
     (Name='tools/fonts/manifest.json') or
     (Name='tools/doc/HomeLibDoc.exe') or
@@ -231,7 +272,7 @@ var Root: TJSONValue; Metadata, Hashes: TJSONObject; HashValue: TJSONValue;
   FileName, MetadataFile, Version, Hash: string; Comparison: Integer;
 begin
   FileName:=UpdateIOPath(IncludeTrailingPathDelimiter(AppPath)+
-    StringReplace(ComponentFileName(ID),'/',PathDelim,[rfReplaceAll]));
+    StringReplace(InstalledComponentFileName(AppPath,ID),'/',PathDelim,[rfReplaceAll]));
   Result:=UpdateFileVersion(FileName);
   if IsFormatComponent(ID) then Exit(FormatComponentVersion(AppPath,ID));
   if ID='Zstandard' then Exit(ZstdRuntimeVersion(AppPath));
@@ -343,7 +384,7 @@ begin
     // it on first use so catalogue launches obey the new dependency layout.
     if (ID='HomeLibReader') and
       (not CompareComponentVersions(Version,'2.7.0.1105',Comparison) or (Comparison<0)) then Exit;
-    if ID='HomeLibReader' then Names:=TArray<string>.Create('HomeLibReader.exe','HomeLibRuUpdater.exe',
+    if ID='HomeLibReader' then Names:=TArray<string>.Create(InstalledComponentFileName(AppPath,ID),'HomeLibRuUpdater.exe',
       'HomeLibReader-LICENSE.txt','sqlite3.dll','NOTICE')
     else if ID='MHLMcpServer' then Names:=TArray<string>.Create('MHLMcpServer.exe')
     else if ID='Zstandard' then
@@ -431,7 +472,7 @@ begin
   end;
   Lower := LowerCase(Name);
   if Length(Parts) = 1 then
-    Result := (Lower = 'homelibre.exe') or (Lower = 'homelibru.exe') or (Lower = 'homelibreader.exe') or
+    Result := (Lower = 'homelibre.exe') or (Lower = 'homelibru.exe') or (Lower = 'homelibreader.exe') or (Lower = 'homelibrereader.exe') or
       (Lower = 'homelibreader-license.txt') or (Lower = 'homelibruupdater.exe') or
       (Lower = 'mhlmcpserver.exe') or (Lower = 'mhlmcpserver-license.txt') or
       (Lower = 'mhlmcpserver-readme.txt') or (Lower = 'sqlite3.dll') or
@@ -678,10 +719,14 @@ begin
     if ((Component = '') and ((not Names.ContainsKey('homelibru.exe') and
        not Names.ContainsKey('homelibre.exe')) or
        not Names.ContainsKey('license') or not Names.ContainsKey('notice'))) or
-       ((Component <> '') and (Component <> 'batch') and not Names.ContainsKey(LowerCase(ComponentFileName(Component)))) then
+       ((Component <> '') and (Component <> 'batch') and
+         not Names.ContainsKey(LowerCase(ComponentFileName(Component))) and
+         not ((Component='HomeLibReader') and Names.ContainsKey(LowerCase(LEGACY_READER_APPLICATION)))) then
       raise Exception.Create('В обновлении отсутствуют обязательные файлы.');
     if Assigned(Bundle) then for Part in Bundle do
-      if not Names.ContainsKey(LowerCase(ComponentFileName(TJSONObject(Part).GetValue<string>('component')))) then
+      if not Names.ContainsKey(LowerCase(ComponentFileName(TJSONObject(Part).GetValue<string>('component')))) and
+         not ((TJSONObject(Part).GetValue<string>('component')='HomeLibReader') and
+           Names.ContainsKey(LowerCase(LEGACY_READER_APPLICATION))) then
         raise Exception.Create('В пакете отсутствует файл компонента.');
     if (Component<>'') and (Component<>'batch') then
       RequireComponentMembers(Component,Root.GetValue<string>('version'));
@@ -737,7 +782,7 @@ begin
     if Includes then for var Info in Files do if SafeComponentFile(ID,Info.Name) then
     begin SetLength(Result,Length(Result)+1); Result[High(Result)]:=Info; end;
     Includes:=False;
-    for var Info in Result do if SameText(Info.Name,ComponentFileName(ID)) then Includes:=True;
+    for var Info in Result do if IsComponentPrimaryFile(ID,Info.Name) then Includes:=True;
     if not Includes then Result:=nil;
   finally Root.Free; end;
 end;
@@ -758,8 +803,8 @@ var Files, Previous: TUpdateFiles; Root, Receipt, Entry: TJSONObject; Entries: T
   end;
 begin
   Files:=ComponentFilesFromManifest(ManifestFile,ID); Found:=False;
-  Primary:=ChildPath(AppPath,ComponentFileName(ID));
-  for var Info in Files do if SameText(Info.Name,ComponentFileName(ID)) then
+  Primary:=ChildPath(AppPath,InstalledComponentFileName(AppPath,ID));
+  for var Info in Files do if SameText(Info.Name,InstalledComponentFileName(AppPath,ID)) then
     Found:=FileExists(Primary) and (TFile.GetSize(Primary)=Info.Size) and SameText(UpdateSHA256(Primary),Info.SHA256);
   if not Found then raise Exception.Create('Архив не соответствует установленному файлу модуля. Нужна та же версия.');
   Root:=ReadJSON(ManifestFile);
@@ -811,6 +856,11 @@ var Bundle: TJSONArray;
     ID:=Part.GetValue<string>('component','');
     if (ID='') or (ID='batch') then Exit;
     Primary:=ComponentFileName(ID); Found:=False; Skipped:=False;
+    if ID='HomeLibReader' then
+    begin
+      for Info in Files do if SameText(Info.Name,READER_APPLICATION) then Found:=True;
+      if not Found then Primary:=LEGACY_READER_APPLICATION; Found:=False;
+    end;
     for Info in Files do if SameText(Info.Name,Primary) then
     begin Found:=True; Skipped:=Info.Skip; Break; end;
     // A full update can preserve a newer installed module. Its receipt must
@@ -998,7 +1048,7 @@ begin
       for var Name in ['ddjvu.exe','libdjvulibre.dll','libjpeg.dll','libtiff.dll','libz.dll'] do
         VerifyUpdateExecutable(ChildPath(Stage,'tools/djvu/'+Name),'',Architecture,True);
     end
-    else VerifyUpdateExecutable(ChildPath(Stage, ComponentFileName(Component)), Version, Architecture, True);
+    else VerifyUpdateExecutable(ChildPath(Stage, InstalledComponentFileName(Stage,Component)), Version, Architecture, True);
     if Component='HomeLibReader' then
     begin
       for var Name in ['HomeLibRuUpdater.exe','sqlite3.dll'] do
@@ -1063,6 +1113,8 @@ begin
             raise Exception.Create('Этот компонент нельзя включить в пакет.');
           Part := TJSONObject.Create; Part.AddPair('component', Component);
           Part.AddPair('version', Child.GetValue<string>('version'));
+          if (Component='HomeLibReader') and ReaderComponentUsesCanonicalName(Child) then
+            Part.AddPair('reader_application',READER_APPLICATION);
           Part.AddPair('official', TJSONBool.Create(Child.GetValue<Boolean>('official', False)));
           Bundle.AddElement(Part);
         end;
@@ -1720,7 +1772,8 @@ var Manifest, Journal, Entry: TJSONObject; Files: TUpdateFiles; List: TJSONArray
 begin
   AssertUpdatePath(Target); AssertUpdatePath(Job);
   if not FileExists(ChildPath(Target,'HomeLibre.exe')) and
-    not FileExists(ChildPath(Target,'HomeLibRu.exe')) and not FileExists(ChildPath(Target,'HomeLibReader.exe')) then
+    not FileExists(ChildPath(Target,'HomeLibRu.exe')) and
+    not FileExists(ChildPath(Target,READER_APPLICATION)) and not FileExists(ChildPath(Target,LEGACY_READER_APPLICATION)) then
     raise Exception.Create('В выбранной папке нет HomeLibre или HomeLibre Reader.');
   TargetLock:=AcquireUpdateTarget(Target);
   try
@@ -1735,7 +1788,7 @@ begin
   end;
   SetLength(PreviouslyInstalled,Length(ComponentNames));
   for I:=Low(ComponentNames) to High(ComponentNames) do
-    PreviouslyInstalled[I]:=FileExists(ChildPath(Target,ComponentFileName(ComponentNames[I])));
+    PreviouslyInstalled[I]:=FileExists(ChildPath(Target,InstalledComponentFileName(Target,ComponentNames[I])));
   Manifest := ReadJSON(ChildPath(Job, 'manifest.json'));
   try
     if Assigned(Manifest.GetValue('bundle')) then
@@ -1747,20 +1800,47 @@ begin
     for I:=0 to High(Files) do
       if Files[I].Name=CATALOGUE_COMPATIBILITY_PAYLOAD then
       begin Files[I].SourceName:=Files[I].Name; Files[I].Name:='HomeLibre.exe'; end;
+    var RenamesReader:=ManifestRenamesReader(Manifest);
+    for Info in Files do
+      if SameText(Info.Name,READER_APPLICATION) then RenamesReader:=True;
+    if RenamesReader then
+    begin
+      var CanonicalIndex:=-1; var LegacyIndex:=-1;
+      for I:=0 to High(Files) do
+      begin
+        if SameText(Files[I].Name,READER_APPLICATION) then CanonicalIndex:=I;
+        if SameText(Files[I].Name,LEGACY_READER_APPLICATION) then LegacyIndex:=I;
+      end;
+      if (CanonicalIndex>=0) and (LegacyIndex>=0) then
+        raise Exception.Create('В обновлении указаны два приложения читалки.');
+      if LegacyIndex>=0 then
+      begin
+        CanonicalIndex:=LegacyIndex;
+        Files[CanonicalIndex].SourceName:=Files[CanonicalIndex].Name;
+        Files[CanonicalIndex].Name:=READER_APPLICATION;
+      end;
+      if (CanonicalIndex>=0) and FileExists(ChildPath(Target,LEGACY_READER_APPLICATION)) then
+      begin
+        Info:=Files[CanonicalIndex];
+        if Info.SourceName='' then Info.SourceName:=Info.Name;
+        Info.Name:=LEGACY_READER_APPLICATION;
+        Files:=Files+TArray<TUpdateFile>.Create(Info);
+      end;
+    end;
   // A full application archive can bundle an older component than the user
   // has already installed independently. Preserve that whole component.
   for ComponentID in ComponentNames do
   begin
     ComponentPath := ComponentFileName(ComponentID);
     for I := 0 to High(Files) do
-      if (Files[I].Name = ComponentPath) and not ComponentNeedsRepair(Target,ComponentID) and
+      if IsComponentPrimaryFile(ComponentID,Files[I].Name) and not ComponentNeedsRepair(Target,ComponentID) and
          CompareComponentVersions(InstalledComponentVersion(Target,ComponentID),
            InstalledComponentVersion(ChildPath(Job,'payload'),ComponentID), Comparison) and
          (Comparison > 0) then
       begin
         Folder := Copy(ComponentPath, 1, LastDelimiter('/', ComponentPath));
         for J := 0 to High(Files) do
-          if (Files[J].Name = ComponentPath) or
+          if IsComponentPrimaryFile(ComponentID,Files[J].Name) or
              ((Folder <> '') and Files[J].Name.StartsWith(Folder)) then Files[J].Skip := True;
         Break;
       end;
@@ -1769,7 +1849,7 @@ begin
   finally Manifest.Free; end;
   // Update the main EXE last. The earlier EXE remains available during copying.
   for I := 0 to High(Files) do
-    if SameText(Files[I].Name, 'HomeLibre.exe') or SameText(Files[I].Name, 'HomeLibReader.exe') or
+    if SameText(Files[I].Name, 'HomeLibre.exe') or IsReaderApplicationName(Files[I].Name) or
       (SameText(Files[I].Name, 'HomeLibRu.exe') and not FileExists(ChildPath(Job,'payload/HomeLibre.exe')) and
        not FileExists(ChildPath(Job,'payload/'+CATALOGUE_COMPATIBILITY_PAYLOAD))) then
     begin Info := Files[High(Files)]; Files[High(Files)] := Files[I]; Files[I] := Info; Break; end;

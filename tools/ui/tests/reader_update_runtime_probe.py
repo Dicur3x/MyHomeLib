@@ -155,7 +155,7 @@ def main():
         assert sha(package) == (args.reader_sha256 or PACKAGE_HASH[platform])
         candidate = root / 'candidate'
         manifest = extract_reader(package, candidate, platform)
-        reader = REPO / f'Utils/HomeLibReader/Out/{platform}/HomeLibReader.exe'
+        reader = REPO / f'Utils/HomeLibreReader/Out/{platform}/HomeLibreReader.exe'
         helper = REPO / ('Program/Out/Bin64' if platform == 'Win64' else 'Program/Out/Bin') / 'HomeLibRuUpdater.exe'
         if args.reader_package:
             assert sha(candidate / reader.name) == sha(reader)
@@ -189,7 +189,7 @@ def main():
                          baseline_helper_sha256=sha(app / helper.name), job_path=str(job))
         elif not app.exists():
             shutil.copytree(candidate, app)
-            with (app / 'HomeLibReader.exe').open('ab') as file:
+            with (app / 'HomeLibreReader.exe').open('ab') as file:
                 file.write(b'\nOwned running development EXE overlay to require replacement\n')
         if args.catalogue_package:
             assert sha(args.catalogue_package) == args.catalogue_sha256
@@ -282,7 +282,7 @@ def main():
         state['baseline_launches'] = state['launches']
         state['baseline_reader_sha256'] = state['running_exe_sha256']
         state['launches'] = []
-        reader = REPO / f'Utils/HomeLibReader/Out/{platform}/HomeLibReader.exe'
+        reader = REPO / f'Utils/HomeLibreReader/Out/{platform}/HomeLibreReader.exe'
         shutil.copyfile(reader, app / reader.name)
         state.update(reader_sha256=sha(reader), running_exe_sha256=sha(reader))
     elif args.action == 'launch-catalogue':
@@ -306,7 +306,7 @@ def main():
             text = ini.read_text(encoding='utf-8-sig') if ini.exists() else ''
             ini.write_text(text + '\n[PATH]\nSyncExport=' + str(output) + '\n[SYSTEM]\nClearBookCacheOnExit=1\nSaveAsUseSubfolders=0\nFileNameTemplate=%t\n', encoding='utf-8-sig')
         source = root / 'books' / ('Первоначальная книга.fb2' if args.label == 'peer' else 'Книга инициатора.fb2')
-        command = [str(app / 'HomeLibReader.exe'), '--profile=' + str(profile), '--open=' + str(source)]
+        command = [str(app / 'HomeLibreReader.exe'), '--profile=' + str(profile), '--open=' + str(source)]
         if args.archive_session:
             source = root / 'books/Сборник.zip'
             session = root / 'catalogue-session/request.json'
@@ -368,7 +368,7 @@ def main():
     elif args.action == 'record-ui-install':
         caller, = [x for x in state['launches'] if x['label'] == 'caller']
         request = json.loads((job / 'request.json').read_bytes())
-        assert request['pid'] == caller['original_pid'] and request['application'] == 'HomeLibReader.exe'
+        assert request['pid'] == caller['original_pid'] and request['application'] == 'HomeLibreReader.exe'
         assert request['target'] == str(app) and request['sha256'] == state['archive_sha256']
         assert request['tag'] == state['release'] and request['args'] == caller['command'][1:]
         assert request['commandLine'] == subprocess.list2cmdline(caller['command'])
@@ -382,7 +382,7 @@ def main():
         assert caller['original_pid'] not in {p['ProcessId'] for p in processes(root)}, 'Close own caller normally through Computer Use first'
         assert sha(Path(state['archive'])) == state['archive_sha256']
         dump(job / 'request.json', dict(target=str(app), pid=caller['original_pid'], tag=state['release'],
-             sha256=state['archive_sha256'], application='HomeLibReader.exe', args=caller['command'][1:],
+             sha256=state['archive_sha256'], application='HomeLibreReader.exe', args=caller['command'][1:],
              commandLine=subprocess.list2cmdline(caller['command'])))
         process = subprocess.Popen([str(job / 'HomeLibRuUpdater.exe'), '--job', str(job)], cwd=job, env=env,
                                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -393,13 +393,13 @@ def main():
         assert state['helper_pid'] not in {p['ProcessId'] for p in active}, 'Update still running'
         assert json.loads((job / 'journal.json').read_text(encoding='utf-8-sig'))['state'] == 'installed'
         if manifest := state.get('component_manifest'):
-            assert sha(app / 'HomeLibReader.exe') == state['running_exe_sha256']
+            assert sha(app / 'HomeLibreReader.exe') == state['running_exe_sha256']
             for entry in manifest['files']:
                 assert sha(app / entry['path']) == entry['sha256']
             assert {p.name for p in (app / 'tools').iterdir() if p.is_dir()} == {'fonts', 'images'}
             state['only_requested_module_installed'] = True
         else:
-            assert sha(app / 'HomeLibReader.exe') == state['reader_sha256'] != state['running_exe_sha256']
+            assert sha(app / 'HomeLibreReader.exe') == state['reader_sha256'] != state['running_exe_sha256']
             if state.get('baseline_reader_version'):
                 assert state.get('frontend_request'), 'Published Reader must request its own update'
                 with zipfile.ZipFile(state['archive']) as archive:
