@@ -600,6 +600,8 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
             expected_lines.append('PASS reviewed update commit witnesses are paired with catalogue and personal transactions, roll back on early errors and remain isolated by collection')
             expected_lines.append('PASS missing catalogue and system properties return empty instead of reusing a previous value')
         if scenario == 'library-update-apply':
+            expected_lines.append('PASS reviewed bound-source update adds downloaded books with its original root offline and preserves source priorities, personal fields and exclusions')
+            expected_lines.append('PASS reviewed update accepts only new archives with its original book root offline, retains historical cards and personal data, preserves exclusions and rejects unavailable download roots')
             expected_lines.append('PASS shared-source profiles use the latest applied baseline across append, omission, deletion and profile removal, retain immutable caches and refuse a missing authoritative baseline')
             expected_lines.append('PASS reviewed merged-source update preserves priorities personal data and removed copies, adds verified members from a second root and repeats without duplicate cards')
             expected_lines.append('PASS reviewed updates retain exclusions across omitted indexes, distinguish publisher omissions and roll back catalogues personal fields source links and baseline publication on a late failure')
@@ -709,7 +711,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
                                if scenario == 'library-update-window' else
                                'Native full and bound-source update cancellation at row writes, pre-commit, commit start, first-store commit and completion, including forced cancellation during rollback and post-commit errors; private fixtures, no process-death proof'
                                if scenario == 'library-update-cancel' else
-                               'Native reviewed whole and merged-source updates on small private ZIP/INPX fixtures: metadata, personal data, priorities, removed copies across omitted indexes, exact member availability, separate download root, same-index continuation and late SQL-failure rollback; no production-scale or packed/online application gate'
+                               'Native reviewed whole and merged-source updates on small private ZIP/INPX fixtures: metadata, personal data, priorities, shared-profile baselines, append/omission/exclusion continuity, offline original roots, exact member availability, separate download root, same-index continuation and late SQL-failure rollback; no production-scale or packed/online application gate'
                                if scenario == 'library-update-apply' else
                                'Native source settings and INPX/Metabib review, archive names/roots, date changes, deleted and malformed rows, cancellation, unchanged live catalogues, actual legacy individual/default HTTP version requests, rename and theme/DPI layout; no update application'
                                if scenario == 'library-update-sources' else

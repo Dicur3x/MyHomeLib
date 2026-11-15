@@ -77,6 +77,16 @@ var Root, OldRoot, DownloadRoot, IndexName, OldHash, DownloadHash, ExpectedTitle
   end;
   procedure CloseReview;
   begin Review.Free; Review:=nil; Stage.Free; Stage:=nil; end;
+  procedure RejectReview(const Expected: string);
+  begin
+    Stage:=TStagedLibraryIndex.Fetch(Profile,Settings.UpdatePath,nil);
+    Review:=TLibraryUpdateReview.Create(Profile,Stage); Worker:=CreateLibraryReviewWorker(ID,Review);
+    try
+      Worker.Start; Worker.WaitFor;
+      Require(Assigned(Worker.FatalException) and not Review.Ready and not Worker.CommittedChanges and
+        Exception(Worker.FatalException).Message.Contains(Expected),'Unavailable input did not fail its read-only review: '+Expected);
+    finally Worker.Free; CloseReview; end;
+  end;
   procedure RejectCommit;
   begin
     Probe:=TLibraryApplyProbe.Create; Probe.Accept:=True;
@@ -197,6 +207,37 @@ begin
     Require(Target.ResolveBookID('104',0)>0,'Publisher omission was incorrectly treated as a user deletion');
   finally CloseReview; end;
   Writeln('PASS reviewed whole update keeps literal metadata personal data favourites and roots, skips missing members, continues the same index and retains removed books as excluded');
+
+  // Disconnect only this private fixture's original book root. Its database
+  // and saved raw baseline remain available, as with a detached library disk.
+  BookID:=Target.ResolveBookID('104',0); Require(BookID>0,'Missing offline-root baseline book');
+  Target.SetRate(CreateBookKey(BookID,ID),3); Target.SetProgress(CreateBookKey(BookID,ID),19);
+  Require(TPath.GetFullPath(OldRoot).StartsWith(IncludeTrailingPathDelimiter(TPath.GetFullPath(Root)),True),
+    'Offline-root fixture escaped its private workspace');
+  TFile.Delete(TPath.Combine(OldRoot,'books.zip')); TDirectory.Delete(OldRoot,False);
+  var AvailableProfile:=Profile; Profile.BooksRoot:=''; RejectReview('Исходная папка книг недоступна');
+  Profile.BooksRoot:=TPath.Combine(Root,'missing-download-root'); RejectReview('Папка докачанных архивов недоступна');
+  Profile:=AvailableProfile;
+  Archive(DownloadRoot,'only-new.zip',['105']);
+  Index(IndexName,['books','new','new','books','only-new'],['101','102','103','104','105'],
+    ['Returned 101','New 102','Awaiting 103','Publisher returned 104','Downloaded with original disk offline']);
+  OpenReview;
+  try
+    Require(Review.Summary.Contains('Исходная папка книг сейчас недоступна') and
+      Review.HistoricalMissing.Contains('books.zip') and not Review.NeededArchives.Contains('books.zip'),
+      'An offline original root turned historical books into a download request');
+    Apply(True);
+    Require(not DirectoryExists(OldRoot) and (Target.ResolveBookID('101',0)=0),
+      'Offline-root update recreated the old folder or resurrected an excluded book');
+    BookID:=Target.ResolveBookID('104',0); Require(BookID>0,'Offline-root update discarded a retained old publication');
+    Target.GetBookRecord(CreateBookKey(BookID,ID),Book,True);
+    Require((Book.Rate=3) and (Book.Progress=19) and not FileExists(Book.GetBookFileName),
+      'Offline-root update changed old personal fields or invented an available old file');
+    BookID:=Target.ResolveBookID('105',0); Require(BookID>0,'Offline-root update did not add the downloaded publication');
+    Target.GetBookRecord(CreateBookKey(BookID,ID),Book,True);
+    Require(Book.GetBookFileName.Contains(DownloadRoot),'Offline-root update lost the actual download root'); RequireBody(Book,'105');
+  finally CloseReview; end;
+  Writeln('PASS reviewed update accepts only new archives with its original book root offline, retains historical cards and personal data, preserves exclusions and rejects unavailable download roots');
 
   SetLength(Sources,2);
   for var I:=0 to 1 do
@@ -354,4 +395,26 @@ begin
   Require(LoadLibraryUpdateHistory(Target,ProfileB,CacheInfo) and (CacheInfo.CacheVersion=RetainedCache),
     'Rolling back the rebinding fixture changed the source baseline');
   Writeln('PASS shared-source profiles use the latest applied baseline across append, omission, deletion and profile removal, retain immutable caches and refuse a missing authoritative baseline');
+  Require(TPath.GetFullPath(Sources[1].Root).StartsWith(IncludeTrailingPathDelimiter(TPath.GetFullPath(Root)),True),
+    'Bound offline-root fixture escaped its private workspace');
+  TFile.Delete(TPath.Combine(Sources[1].Root,'base.zip')); TDirectory.Delete(Sources[1].Root,False);
+  Profile:=ProfileA; Profile.Full:=True; var BoundDownloads:=Profile.BooksRoot;
+  Profile.BooksRoot:=''; RejectReview('Исходная папка книг недоступна'); Profile.BooksRoot:=BoundDownloads;
+  Archive(DownloadRoot,'offline-new.zip',['206']);
+  Index(IndexName,['base','next','next','next','next','offline-new'],['201','202','203','204','205','206'],
+    ['Returned lower copy','Corrected through B','Removed through B','Retained through B','Appended through A','Downloaded with source disk offline']);
+  OpenReview;
+  try
+    Require(Review.Summary.Contains('Исходная папка книг сейчас недоступна') and
+      (Review.NeededArchives.IndexOf('base.zip')<0),'Offline merged source requested a historical archive');
+    Apply(True);
+    Require(not DirectoryExists(Sources[1].Root) and not FindDisplayBook('203',Book) and not FindDisplayBook('204',Book),
+      'Offline merged source recreated its folder or resurrected excluded publications');
+    Require(FindDisplayBook('206',Book),'Offline merged source did not add its downloaded publication'); RequireBody(Book,'206');
+    Require(FindDisplayBook('202',Book) and (Book.Rate=2) and (Book.Progress=23) and
+      (Book.Annotation='Keep cross-profile annotation'),'Offline merged source changed retained personal fields');
+    Target.GetBookRecord(Seed.BookKey,Book,True);
+    Require(Book.GetBookFileName.Contains(Sources[0].Root),'Offline merged-source update changed the other source priority');
+  finally CloseReview; end;
+  Writeln('PASS reviewed bound-source update adds downloaded books with its original root offline and preserves source priorities, personal fields and exclusions');
 end;

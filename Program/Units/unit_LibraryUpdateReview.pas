@@ -18,7 +18,7 @@ type
     FDatabaseFile, FAnalysisFile, FTargetRevision, FTargetFile, FOriginalTargetRoot, FSummary: string;
     FNeeded, FHistorical, FFound, FAmbiguous: TStringList;
     FNewBooks, FChangedBooks, FTotal, FVersion, FDeleted, FSkipped: Integer;
-    FPreviousIndex, FReady: Boolean;
+    FPreviousIndex, FReady, FOriginalRootOffline: Boolean;
     FDelta: IBookCollection;
     FDeltaFile, FApplySummary, FCacheInput, FPreviousFile, FOperationID: string;
     FPlan: TCollectionMergePlan;
@@ -173,10 +173,12 @@ begin
       begin FSourceInfo:=Item; Found:=True; Break; end;
     if not Found then raise EArgumentException.Create('Привязанный источник больше не подключён к этой коллекции.');
   end;
-  if not DirectoryExists(FSourceInfo.Root) then
-    raise EDirectoryNotFoundException.Create('Исходная папка книг недоступна: '+FSourceInfo.Root);
   if (FSource.BooksRoot<>'') and not DirectoryExists(FSource.BooksRoot) then
     raise EDirectoryNotFoundException.Create('Папка докачанных архивов недоступна: '+FSource.BooksRoot);
+  FOriginalRootOffline:=not DirectoryExists(FSourceInfo.Root);
+  if FOriginalRootOffline and (FSource.BooksRoot='') then
+    raise EDirectoryNotFoundException.Create('Исходная папка книг недоступна: '+FSourceInfo.Root+
+      '. Укажите доступную папку докачанных архивов в настройке источника.');
   Previous:=Target; FPreviousIndex:=False;
   if LoadLibraryUpdateHistory(Target,FSource,PreviousInfo) then
   begin
@@ -407,6 +409,9 @@ begin
       [FTotal,FDeleted,sLineBreak,FNewBooks,FChangedBooks,sLineBreak,Version,sLineBreak,FFound.Count,FNeeded.Count,sLineBreak,FHistorical.Count,FAmbiguous.Count]);
     if FSkipped>0 then FSummary:=FSummary+sLineBreak+
       Format('Внимание: пропущено ошибочных записей или записей без файла: %d. Список неполный.',[FSkipped]);
+    if FOriginalRootOffline then FSummary:=FSummary+sLineBreak+
+      'Исходная папка книг сейчас недоступна: '+FSourceInfo.Root+'. Проверяем доступные архивы в папке докачки: '+
+      FSource.BooksRoot+'. Само отсутствие прежнего диска не делает старые записи новыми.';
     if FPreviousIndex then FSummary:=FSummary+sLineBreak+'Сравнение с сохранённым индексом этого источника.'
     else FSummary:=FSummary+sLineBreak+'Сравнение с текущим каталогом. Прежний полный индекс неизвестен: удалённые ранее записи могут выглядеть новыми.';
     FSummary:=FSummary+sLineBreak+'Сверяются ID, имена и форматы файлов; изменения — по названию, языку, размеру, дате и отметке удаления. '+
@@ -723,6 +728,8 @@ begin
     [FSource.Name,sLineBreak,FNewCards,FUpdateCards,sLineBreak,FRemovedCount,FMissingCount,sLineBreak]);
   if FUnlistedCount>0 then FApplySummary:=FApplySummary+sLineBreak+
     Format('Прежних записей, которых нет в полном новом индексе: %d. Они исчезнут из каталога; файлы останутся на месте.',[FUnlistedCount]);
+  if FOriginalRootOffline then FApplySummary:=FApplySummary+sLineBreak+
+    'Прежняя папка книг недоступна. Новые книги добавляются из указанной папки докачки. Для чтения прежних файлов потребуется снова подключить их диск или папку.';
   FApplicationReady:=True;
 end;
 
