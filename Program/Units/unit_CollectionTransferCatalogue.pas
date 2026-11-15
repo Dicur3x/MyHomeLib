@@ -42,6 +42,9 @@ type
     destructor Destroy; override;
     procedure CheckUnchanged;
     procedure ForEachBinding(const Visit: TTransferBindingVisitor);
+    procedure ForEachRoot(const Visit: TProc<TCollectionTransferRoot>);
+    procedure ForEachMissingContainer(const Visit: TProc<string>);
+    function CollectionInfo: TCollectionInfo;
     function BuildFilePlan(const Destination, WorkRoot: string; const OperationID: TGUID): TCollectionTransferPlan;
     function Count(State: TTransferBindingState): Int64;
     function CandidateCount: Int64;
@@ -49,6 +52,7 @@ type
     property SourcesJSON: string read FSourcesJSON;
     property CatalogueKey: string read FCatalogueKey;
     property PersonalKey: string read FPersonalKey;
+    property PersonalFile: string read FPersonalFile;
     property BaseRoot: string read FBaseRoot;
     property BaseCatalogue: string read FBaseCatalogue;
   end;
@@ -381,6 +385,25 @@ end;
 
 function TCollectionTransferCatalogue.CandidateCount:Int64;
 begin Result:=FStore.DB.QuerySingleInt('SELECT count(*) FROM TransferCandidates'); end;
+
+procedure TCollectionTransferCatalogue.ForEachRoot(const Visit:TProc<TCollectionTransferRoot>);
+begin
+  if Assigned(Visit) then
+    for var Root in FRoots do begin CheckCancelled; Visit(Root); end;
+end;
+
+function TCollectionTransferCatalogue.CollectionInfo:TCollectionInfo;
+begin Result:=FInfo; end;
+
+procedure TCollectionTransferCatalogue.ForEachMissingContainer(const Visit:TProc<string>);
+begin
+  if not Assigned(Visit) then Exit;
+  var Q:=FStore.DB.NewQuery('SELECT Path FROM TransferMissingContainers ORDER BY Path');
+  try
+    Q.Open;
+    while not Q.Eof do begin CheckCancelled; Visit(Q.FieldAsString(0)); Q.Next; end;
+  finally Q.Free; end;
+end;
 
 function TCollectionTransferCatalogue.BuildFilePlan(const Destination,WorkRoot:string; const OperationID:TGUID):TCollectionTransferPlan;
 var Roots:TArray<TCollectionTransferRoot>;

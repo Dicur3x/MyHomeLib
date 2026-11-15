@@ -20,6 +20,12 @@ type
     KeepInPlace, ExternalImages: Boolean;
   end;
 
+  TCollectionTransferRootMap = record
+    ID, InputPath, CanonicalPath, Destination: string;
+  end;
+  TTransferRootMapVisitor = reference to procedure(const Root: TCollectionTransferRootMap);
+  TTransferImageSetVisitor = reference to procedure(const Source, PathsJSON: string);
+
   TCollectionTransferVisitor = reference to procedure(const Input: TCollectionTransferInput);
   TCollectionTransferFileVisitor = reference to procedure(const Entry: TCollectionTransferFile);
   TCollectionTransferEnumerator = reference to procedure(const Visit: TCollectionTransferVisitor);
@@ -45,6 +51,8 @@ type
     destructor Destroy; override;
     function RootDestination(const RootID: string): string;
     procedure ForEachFile(const Visit: TCollectionTransferFileVisitor);
+    procedure ForEachRoot(const Visit: TTransferRootMapVisitor);
+    procedure ForEachImageSet(const Visit: TTransferImageSetVisitor);
     procedure CheckUnchanged;
     procedure CheckInputsUnchanged;
     function FileCount: Int64;
@@ -58,6 +66,7 @@ type
 // Shared metadata primitives; readers still take their own data leases.
 function TransferCanonicalDirectory(const Path: string): string;
 procedure TransferReadFileState(const Path: string; out Canonical, Identity: string; out Bytes: Int64);
+function TransferImageSourcesSnapshot(const Source: string): string;
 
 implementation
 
@@ -252,6 +261,29 @@ begin
     raise EArgumentException.Create('Неизвестный источник переноса: '+RootID);
 end;
 
+procedure TCollectionTransferPlan.ForEachRoot(const Visit:TTransferRootMapVisitor);
+begin
+  if not Assigned(Visit) then Exit;
+  for var Root in FRoots do
+  begin
+    CheckCancelled;
+    var Mapping:TCollectionTransferRootMap; Mapping.ID:=Root.ID;
+    Mapping.InputPath:=FInputRoots[Root.ID]; Mapping.CanonicalPath:=FCanonicalRoots[Root.ID];
+    Mapping.Destination:=FMappedRoots[Root.ID]; Visit(Mapping);
+  end;
+end;
+
+procedure TCollectionTransferPlan.ForEachImageSet(const Visit:TTransferImageSetVisitor);
+begin
+  if not Assigned(Visit) then Exit;
+  var Q:=FStore.DB.NewQuery('SELECT Source,PathsJSON FROM TransferImageSets ORDER BY Source');
+  try
+    Q.Open;
+    while not Q.Eof do
+    begin CheckCancelled; Visit(Q.FieldAsString(0),Q.FieldAsString(1)); Q.Next; end;
+  finally Q.Free; end;
+end;
+
 function TCollectionTransferPlan.AddFile(const RootID, FileName: string; ExternalImages: Boolean): string;
 var Source, Identity, Destination, Root, Requested, Logical: string; Bytes: Int64; Query:TSQLiteQuery; Keep:Boolean;
 begin
@@ -378,5 +410,8 @@ begin Result:=CanonicalDirectory(Path); end;
 
 procedure TransferReadFileState(const Path: string; out Canonical, Identity: string; out Bytes: Int64);
 begin ReadFileState(Path,Canonical,Identity,Bytes); end;
+
+function TransferImageSourcesSnapshot(const Source:string):string;
+begin Result:=ImageSourcesJSON(ImageSources(Source)); end;
 
 end.

@@ -1,7 +1,7 @@
 # Physical consolidation of collection sources
 
-Status: native catalogue inventory, file planner and verified single-file
-preparation journal are implemented. Group/catalogue publication remains open. There is no published
+Status: native catalogue inventory, file planner and single-file/connected-group
+preparation journals are implemented. Group/catalogue publication remains open. There is no published
 transfer command and no user collection has been moved by this work.
 
 ## User result
@@ -106,6 +106,15 @@ group leases, revalidate original stream sets before cleanup and recover after
 source removal; file-level resume currently requires the original to exist.
 
 ## Group publication, stop and recovery (still to implement)
+
+The preparation half is implemented in `unit_CollectionTransferJournal`:
+immutable externally bound review, mutable durable state, on-disk connected
+components for shared sidecars, linked child journals and verified group leases.
+It rechecks live locator fields without restoring older notes/progress. A ready
+copy group remains pending publication and never authorizes original removal.
+See `docs/audits/2026-11-16-collection-transfer-journal.md` for native crash/resume
+evidence and the remaining whole-operation gates. Pending-job discovery and the
+all-registration/publication/cleanup halves are not implemented by that journal.
 
 Distinguish the user-chosen containing folder from the mapped default book root.
 Preserving that mapped default root can retain native relative locators/source
