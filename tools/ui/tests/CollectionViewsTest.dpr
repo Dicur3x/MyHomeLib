@@ -6344,7 +6344,7 @@ begin
       if ParamStr(1) = 'update-image-identity' then begin TestImageUpdateIdentity; Flush(Output); Halt(0); end;
       if ParamStr(1) = 'fbd-editor-save' then begin TestFBDEditorSave; Halt(0); end;
       if ParamStr(1) = 'packed-jxl-formats' then begin TestPackingJpegXLFormats; Halt(0); end;
-      if ParamStr(1) = 'packed-flibrary-sidecars' then begin TestPackedFLibraryEpub; Halt(0); end;
+      if (ParamStr(1) = 'packed-flibrary-sidecars') or (ParamStr(1) = 'reviewed-flibrary-compression') then begin TestPackedFLibraryEpub; Halt(0); end;
       if ParamStr(1) = 'compression-continuation' then begin TestCompressionContinuation; Halt(0); end;
       if ParamStr(1) = 'compression-resume-review-child' then begin TestCompressionResumeReviewChild; Halt(0); end;
       if ParamStr(1) = 'packed-catalogue-sizes' then begin TestPackedCatalogueSizes; Halt(0); end;

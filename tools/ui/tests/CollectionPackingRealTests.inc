@@ -151,6 +151,8 @@ begin
   Writeln('PASS production menu published the expected real INPX update separately');
 end;
 
+{$I LibraryUpdateFLibraryCompressionTests.inc}
+
 procedure TestPackedFLibraryEpub;
 var Fixture, OriginalRoot, PackedRoot: string;
   Manifest: TJSONObject; Expected: TJSONArray; Source, PackedCopy, Repacked: IBookCollection;
@@ -297,6 +299,8 @@ begin
     Options.Script:=Settings.AppPath+'tools\bookconvert\pack_collection.py';
     if FileExists(Settings.AppPath+'official-jxl.zip') then InstallPackingCodecs(Options);
     Verify(Source);
+    if ParamStr(1)='reviewed-flibrary-compression' then
+    begin TestReviewedFLibraryCompression(Source,Manifest,OriginalRoot); Exit; end;
     PackedCopy:=Pack(Source,OriginalRoot,'Packed FLibrary EPUB',0);
     Require(RenameFile(OriginalRoot,OriginalRoot+'.held'),'Cannot hide the owned source archives');
     try

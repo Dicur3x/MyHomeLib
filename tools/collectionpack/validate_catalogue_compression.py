@@ -339,7 +339,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
     from test_pack_collection import illustrated_fb2, image_fixture
     assert bool(packing_codec) == bool(packing_codec_release), 'Codec archive and official release metadata must be paired'
     if packing_codec:
-        assert scenario in ('packing-fbd', 'packed-jxl-formats', 'packed-flibrary-sidecars'), 'Codec installation requires a native packing scenario'
+        assert scenario in ('packing-fbd', 'packed-jxl-formats', 'packed-flibrary-sidecars', 'reviewed-flibrary-compression'), 'Codec installation requires a native packing scenario'
     if reviewed_index or reviewed_bound:
         assert scenario == 'selected-compression-ui' and mode == 'apply'
         assert not any((legacy_history, recovery_fault, recovery_preserve, packing_codec))
@@ -436,10 +436,10 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
             shutil.copy2(packing_codec, root / 'official-jxl.zip')
             shutil.copy2(packing_codec_release, root / 'official-jxl-release.json')
         sidecar_inputs = None
-        if scenario == 'packed-flibrary-sidecars':
+        if scenario in ('packed-flibrary-sidecars', 'reviewed-flibrary-compression'):
             from packing_flibrary_fixtures import build
             assert packing_codec and not any((real_books, legacy_history, recovery_fault, refresh_index))
-            sidecar_inputs = build(root, root / 'tools/7zip/7za.exe', repo)
+            sidecar_inputs = build(root, root / 'tools/7zip/7za.exe', repo, reviewed=scenario == 'reviewed-flibrary-compression')
         if scenario == 'packed-catalogue-sizes':
             from test_prepare_book_compression import epub
             assert not any((real_books, legacy_history, recovery_fault, refresh_index))
@@ -501,7 +501,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
         # discard the only evidence explaining where the private GUI stopped.
         # The real-book fixture itself allows 300 s *after* its application
         # bootstrap; leave separate room for bootstrap and orderly teardown.
-        deadline = 420 if real_books or refresh_index or reviewed_index or reviewed_bound or scenario in ('packing-fbd', 'packed-jxl-formats', 'packed-flibrary-sidecars',
+        deadline = 420 if real_books or refresh_index or reviewed_index or reviewed_bound or scenario in ('packing-fbd', 'packed-jxl-formats', 'packed-flibrary-sidecars', 'reviewed-flibrary-compression',
             'compression-continuation', 'library-update-sources', 'library-update-apply', 'library-update-cancel', 'library-update-window', 'catalog-merge-outcome', 'library-update-recovery') else 150
         attempt = dict(status='INCOMPLETE', platform=platform, mode=mode,
             native_binary_sha256=digest(binary), outer_timeout_seconds=deadline,
@@ -599,6 +599,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
             'packed-catalogue-sizes': 'PASS packed publication and actual INPX retain book copy and personal sizes without originals',
             'packing-fbd': 'PASS original FBD container, both native locator forms, exact book and descriptor, reuse without originals',
             'packed-jxl-formats': 'PASS native JPEG XL PDF exact bytes and EPUB complete resources reading and retention without originals',
+            'reviewed-flibrary-compression': 'PASS FLibrary external JPEG XL covers and pictures survive actual compression reviewed full append and repeated new-only selection with measured sizes text and personal data',
             'packed-flibrary-sidecars': 'PASS FLibrary sidecar books preserve raw bytes, restored resources and covers through packing and reuse',
             'compression-continuation': 'PASS compression continuation restores exact selected, collection and new-book options through actual main-window startup',
         }[scenario]
@@ -633,7 +634,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
         if scenario == 'compression-continuation':
             expected_lines.append('PASS compression continuation rejects replay, wrong token, collection or reused book, changed archive and malformed choices')
             expected_lines.extend('PASS normal startup restored and canceled compression scope ' + str(scope) for scope in range(3))
-        if scenario == 'packed-flibrary-sidecars':
+        if scenario in ('packed-flibrary-sidecars', 'reviewed-flibrary-compression'):
             expected_lines.append('PASS official JPEG XL encoder installs separately from the reading component')
         if scenario == 'packed-jxl-formats':
             expected_lines += [
@@ -747,6 +748,8 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
                                'Native JPEG XL PDF byte-exact read/preparation, EPUB all resources/text/images, '
                                'catalogue/personal sizes and retention without originals; private generated fixtures'
                                if scenario == 'packed-jxl-formats' else
+                               'Native FLibrary external-image compression followed by reviewed full and append INPX, restored text/resource/cover verification, measured sizes, personal data, repeated new-only selection; private generated fixtures'
+                               if scenario == 'reviewed-flibrary-compression' else
                                'Native original FLibrary ZIP/nested-7z EPUB and FB2 sidecar reading, cover preview, '
                                'exact resource/archive retention and personal data without originals; generated fixtures'
                                if scenario == 'packed-flibrary-sidecars' else
@@ -843,7 +846,7 @@ if __name__ == '__main__':
     parser.add_argument('--whole', action='store_true')
     parser.add_argument('--repeat-new', action='store_true', help='After applying, invoke the normal new-books menu and verify no preparation')
     parser.add_argument('--scenario', choices=['selected-compression-ui', 'explorer-file-drop', 'update-outcomes', 'library-update-sources', 'library-update-apply', 'library-update-cancel', 'library-update-window', 'catalog-merge-outcome', 'library-update-recovery',
-                        'packed-catalogue-sizes', 'packing-fbd', 'packed-jxl-formats', 'packed-flibrary-sidecars', 'compression-continuation'], default='selected-compression-ui')
+                        'packed-catalogue-sizes', 'packing-fbd', 'packed-jxl-formats', 'packed-flibrary-sidecars', 'reviewed-flibrary-compression', 'compression-continuation'], default='selected-compression-ui')
     parser.add_argument('--packing-codec', type=Path, help='Exact official JPEG XL archive for the native packed INPX installer/reader scenario')
     parser.add_argument('--packing-codec-release', type=Path, help='Official GitHub release metadata used to verify the codec archive')
     parser.add_argument('--repeat-offer', action='store_true', help='Exercise nonmodal arrivals offer, dismissal, canceled options and explicit start')

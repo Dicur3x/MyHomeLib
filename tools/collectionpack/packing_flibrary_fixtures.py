@@ -9,7 +9,7 @@ from packing_format_fixtures import fixtures
 from supervised_test_process import run_owned
 
 
-def build(root, seven, repository):
+def build(root, seven, repository, reviewed=False):
     fixture = root / 'packing-flibrary-epub'
     source = fixture / 'source'
     source.mkdir(parents=True)
@@ -18,6 +18,13 @@ def build(root, seven, repository):
     books, _ = fixtures()
     with zipfile.ZipFile(io.BytesIO(books['two.epub'])) as archive:
         assets = {name: archive.read(name) for name in archive.namelist()}
+    if reviewed:
+        from PIL import Image
+        import random
+        picture = Image.frombytes('RGB', (480, 640), random.Random(915).randbytes(480 * 640 * 3))
+        encoded_picture = io.BytesIO()
+        picture.save(encoded_picture, format='JPEG', quality=98)
+        assets['OPS/Images/арт 1.jpg'] = encoded_picture.getvalue()
     assets['OPS/Images/cover.jpg'] = original.read_bytes()
     assets['OPS/Images/alias.jpg'] = assets['OPS/Images/cover.jpg']
     assets['OPS/book.opf'] = assets['OPS/book.opf'].replace(b'</manifest>',
@@ -25,7 +32,8 @@ def build(root, seven, repository):
     assets['OPS/chapter.xhtml'] = assets['OPS/chapter.xhtml'].replace(b'</body>',
         b'<img src="Images/alias.jpg" alt="Repeated cover"/></body>')
     image_names = ['OPS/Images/cover.jpg', 'OPS/Images/alias.jpg', 'OPS/Images/арт 1.jpg']
-    manifest = dict(books=[], archives=3, files={}, strict_epub=True)
+    manifest = dict(books=[], archives=3, files={}, strict_epub=True,
+                    neighbor_sha256=hashlib.sha256(b'Unselected neighbor must survive.\x00\xff' * 200).hexdigest())
 
     def signature(data):
         return hashlib.sha256(data).hexdigest()

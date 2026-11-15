@@ -767,7 +767,7 @@ function TBookCompressionOperation.ValidateRestored(JobRequest:TJSONObject):TJSO
     try
       try
         RunExternalToolToStream(FOptions.Python,
-          ['-I','-B','-X','utf8',TPath.Combine(ExtractFileDir(FOptions.Script),'restored_book_validation.py'),
+          ['-I','-B','-X','utf8',TPath.Combine(FOptions.ToolsRoot,'bookconvert\restored_book_validation.py'),
            '--job',TPath.Combine(FWork,'restored-request.json'),'--cancel',FCancelFile],
           Events,CancelProducer,0,True,NativeUInt(512)*1024*1024);
       except on E:EMHLExternalToolError do
