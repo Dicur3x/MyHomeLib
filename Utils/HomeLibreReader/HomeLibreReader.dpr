@@ -3,7 +3,7 @@
 {$R *.res}
 {$R '..\..\Program\MyhomeLib.dres'}
 {$R '..\..\Program\lang.res'}
-{$R '..\..\Program\HomeLibRuManifest.res'}
+{$R '..\..\Program\HomeLibreManifest.res'}
 
 uses System.SysUtils, System.IOUtils, System.Win.ComObj, Winapi.Windows, Winapi.ActiveX, Vcl.Forms,
   unit_Settings, unit_ReaderStartup, unit_Diagnostics, unit_MHLTheme, dm_user, frm_ReaderHost;

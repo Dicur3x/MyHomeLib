@@ -28,7 +28,7 @@
 #define protected ShortVersion = Str(Major) +'.' + Str(Minor) +'.' + Str(Revision)
 #define LibFolder = 'x86\'
 
-OutputBaseFilename = {#'Setup_HomeLibRu_' + ReleaseVersion}
+OutputBaseFilename = {#'Setup_HomeLibre_' + ReleaseVersion}
 
 
 #include "common.iss"

@@ -25,7 +25,7 @@ Add to your client's `.mcp.json` (paths below assume the Win64 build; swap in
 not a copy elsewhere, and not another clone/worktree of this repo that may
 be on a different branch or may not have `Utils\MHLMcpServer` built at all.
 `Program\OUT\Bin64\` (or `Program\OUT\BIN\` for Win32) only exists once you
-have built `Program\MHL.groupproj` yourself; adjust the drive/path above to
+have built `Program\HomeLibre.groupproj` yourself; adjust the drive/path above to
 wherever your own checkout lives. The exe also needs a resolvable
 `sqlite3.dll` sitting right beside it — see the load-time dependency note
 below — so double-check that file is present at the same path before

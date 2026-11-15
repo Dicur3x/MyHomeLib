@@ -2,7 +2,8 @@
 
 Начиная с 3.0 beta 1 публичное название проекта — **HomeLibre**, читалки —
 **HomeLibre Reader**. Текущие приложения собираются в `HomeLibre.exe` и
-`HomeLibreReader.exe`; проект читалки — `Utils/HomeLibreReader/HomeLibreReader.dproj`.
+`HomeLibreReader.exe`; проект каталога — `Program/HomeLibre.dproj`, группа —
+`Program/HomeLibre.groupproj`, проект читалки — `Utils/HomeLibreReader/HomeLibreReader.dproj`.
 Прежние имена настроек и протокола обновления читаются для совместимости.
 Ниже сохранён журнал проверок старых выпусков с их прежними названиями и номерами.
 

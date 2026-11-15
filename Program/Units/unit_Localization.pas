@@ -44,7 +44,7 @@ var
 
 // unit_Logger is NOT usable here. TGlobalLogger is declared in that unit's
 // implementation section, and the whole logger — GetLogger and ILogger
-// included — is wrapped in {$IFDEF USELOGGER}, which MyhomeLib.dproj defines
+// included — is wrapped in {$IFDEF USELOGGER}, which HomeLibre.dproj defines
 // only for the Debug config. A Release build has no logging facility at all.
 // The status therefore goes to the Windows debug channel, which is always
 // available, and is kept in a variable the UI can surface later.

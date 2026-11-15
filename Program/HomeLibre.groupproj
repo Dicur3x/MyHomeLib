@@ -9,7 +9,7 @@
         <Projects Include="Resources\Icons\MHLIcons.dproj">
             <Dependencies/>
         </Projects>
-        <Projects Include="MyhomeLib.dproj">
+        <Projects Include="HomeLibre.dproj">
             <Dependencies/>
         </Projects>
         <Projects Include="..\Utils\MHLMcpServer\MHLMcpServer.dproj">
@@ -41,14 +41,14 @@
     <Target Name="MHLIcons:Make">
         <MSBuild Projects="Resources\Icons\MHLIcons.dproj" Targets="Make"/>
     </Target>
-    <Target Name="MyhomeLib">
-        <MSBuild Projects="MyhomeLib.dproj"/>
+    <Target Name="HomeLibre">
+        <MSBuild Projects="HomeLibre.dproj"/>
     </Target>
-    <Target Name="MyhomeLib:Clean">
-        <MSBuild Projects="MyhomeLib.dproj" Targets="Clean"/>
+    <Target Name="HomeLibre:Clean">
+        <MSBuild Projects="HomeLibre.dproj" Targets="Clean"/>
     </Target>
-    <Target Name="MyhomeLib:Make">
-        <MSBuild Projects="MyhomeLib.dproj" Targets="Make"/>
+    <Target Name="HomeLibre:Make">
+        <MSBuild Projects="HomeLibre.dproj" Targets="Make"/>
     </Target>
     <Target Name="MHLMcpServer">
         <MSBuild Projects="..\Utils\MHLMcpServer\MHLMcpServer.dproj"/>
@@ -60,13 +60,13 @@
         <MSBuild Projects="..\Utils\MHLMcpServer\MHLMcpServer.dproj" Targets="Make"/>
     </Target>
     <Target Name="Build">
-        <CallTarget Targets="MHLComponents;MHLIcons;MyhomeLib;MHLMcpServer"/>
+        <CallTarget Targets="MHLComponents;MHLIcons;HomeLibre;MHLMcpServer"/>
     </Target>
     <Target Name="Clean">
-        <CallTarget Targets="MHLComponents:Clean;MHLIcons:Clean;MyhomeLib:Clean;MHLMcpServer:Clean"/>
+        <CallTarget Targets="MHLComponents:Clean;MHLIcons:Clean;HomeLibre:Clean;MHLMcpServer:Clean"/>
     </Target>
     <Target Name="Make">
-        <CallTarget Targets="MHLComponents:Make;MHLIcons:Make;MyhomeLib:Make;MHLMcpServer:Make"/>
+        <CallTarget Targets="MHLComponents:Make;MHLIcons:Make;HomeLibre:Make;MHLMcpServer:Make"/>
     </Target>
     <Import Project="$(BDS)\Bin\CodeGear.Group.Targets" Condition="Exists('$(BDS)\Bin\CodeGear.Group.Targets')"/>
 </Project>

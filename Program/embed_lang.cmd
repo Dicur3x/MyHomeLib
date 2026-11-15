@@ -45,7 +45,7 @@ findstr /L /C:"MHL_DARK_STYLE VCLSTYLE" "%RC%" >nul || echo MHL_DARK_STYLE VCLST
 :: Both resources must use the same compiler. BRCC32 can silently drop the
 :: manifest under dotted worktree paths, just as it can drop the dark theme.
 call :CompileResource "%RC%" "%RES%" || exit /b 1
-call :CompileResource "HomeLibRuManifest.rc" "HomeLibRuManifest.res" || exit /b 1
+call :CompileResource "HomeLibreManifest.rc" "HomeLibreManifest.res" || exit /b 1
 exit /b 0
 
 :CompileResource

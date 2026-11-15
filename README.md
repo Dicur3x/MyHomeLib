@@ -268,7 +268,7 @@ SQLite, SumatraPDF, DjVuLibre, 7-Zip и DocSharp проверяются на о�
 Сборка: **Delphi 13 / RAD Studio 37.0**, компоненты VirtualTreeView и зависимости
 нужной разрядности. Список проектов, патч компонентов, порядок сборки,
 подготовка runtime и проверки — в [BUILDING.md](BUILDING.md).
-Главная программа — `Program/HomeLibre.dpr`, проект — `Program/MyhomeLib.dproj`; утилиты — `Utils/`,
+Главная программа — `Program/HomeLibre.dpr`, проект — `Program/HomeLibre.dproj`; утилиты — `Utils/`,
 нативные проверки — `Program/Tests` и `tools/ui/tests`.
 
 [История выпусков](https://github.com/Dicur3x/MyHomeLib/releases) ·

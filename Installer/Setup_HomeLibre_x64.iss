@@ -27,7 +27,7 @@
 #define protected ShortVersion = Str(Major) +'.' + Str(Minor) +'.' + Str(Revision)
 #define LibFolder = 'x64\'
 
-OutputBaseFilename = {#'Setup_HomeLibRu_' + ReleaseVersion + '_x64'}
+OutputBaseFilename = {#'Setup_HomeLibre_' + ReleaseVersion + '_x64'}
 ArchitecturesInstallIn64BitMode = x64
 
 #include "common.iss"

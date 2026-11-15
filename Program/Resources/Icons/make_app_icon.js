@@ -4,7 +4,7 @@
  *
  *   node make_app_icon.js
  *
- * Writes ..\home-lib.ico (referenced by MyhomeLib.dproj as Icon_MainIcon)
+ * Writes ..\home-lib.ico (referenced by HomeLibre.dproj as Icon_MainIcon)
  * and ..\..\..\Installer\Images\Setup.ico.
  *
  * It also rewrites the RT_ICON / RT_GROUP_ICON resources inside

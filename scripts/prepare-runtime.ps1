@@ -127,7 +127,7 @@ function Copy-CheckedFile {
     Write-Host "[COPIED] $destinationPath"
 }
 
-function Assert-HomeLibBrand {
+function Assert-HomeLibreBrand {
     param(
         [Parameter(Mandatory = $true)]
         [string]$Path,
@@ -331,16 +331,16 @@ foreach ($requiredFile in $requiredRuntimeFiles) {
 
 Assert-Architecture -Path (Join-Path $outputDirectory 'Icons\MHLIcons.dll') -Expected $Platform
 Assert-Architecture -Path (Join-Path $outputDirectory 'HomeLibRuUpdater.exe') -Expected $Platform
-Assert-HomeLibBrand -Path (Join-Path $outputDirectory 'Icons\MHLIcons.dll') -InternalName 'MHLIcons' -ProductName 'HomeLib Ru'
+Assert-HomeLibreBrand -Path (Join-Path $outputDirectory 'Icons\MHLIcons.dll') -InternalName 'MHLIcons' -ProductName 'HomeLibre'
 if (-not $CoreOnly) {
     Assert-Architecture -Path $zstdDestination -Expected $Platform
     Assert-Architecture -Path (Join-Path $outputDirectory 'MHLMcpServer.exe') -Expected $Platform
-    Assert-HomeLibBrand -Path (Join-Path $outputDirectory 'MHLMcpServer.exe') -InternalName 'MHLMcpServer' -ProductName 'HomeLibre'
+    Assert-HomeLibreBrand -Path (Join-Path $outputDirectory 'MHLMcpServer.exe') -InternalName 'MHLMcpServer' -ProductName 'HomeLibre'
     Assert-Architecture -Path $sevenZipDestination -Expected $Platform
     Assert-Architecture -Path (Join-Path $outputDirectory 'tools\7zip\7z.exe') -Expected $Platform
     Assert-Architecture -Path (Join-Path $outputDirectory 'tools\7zip\7z.dll') -Expected $Platform
     # DjVuLibre is a separate persistent x86 decoder process on both platforms, with its own
-    # x86 dependencies. None of these DLLs is loaded into HomeLib Ru.
+    # x86 dependencies. None of these DLLs is loaded into HomeLibre.
     foreach ($djvuName in @('HomeLibDjvu.exe','ddjvu.exe','djvused.exe','libdjvulibre.dll','libjpeg.dll','libtiff.dll','libz.dll')) {
         Assert-Architecture -Path (Join-Path $outputDirectory "tools\djvu\$djvuName") -Expected 'Win32'
     }
@@ -363,7 +363,7 @@ if (-not $CoreOnly) {
         throw 'PDFium runtime differs from Installer/PDFIUM_RUNTIME.json. Run scripts/prepare-pdfium.ps1.'
     }
     # AlReader is distributed as one Win32 portable executable for both packages;
-    # SumatraPDF must match the HomeLib Ru package architecture.
+    # SumatraPDF must match the HomeLibre package architecture.
     Assert-Architecture -Path $alReaderDestination -Expected 'Win32'
     Assert-Architecture -Path $sumatraDestination -Expected $Platform
 

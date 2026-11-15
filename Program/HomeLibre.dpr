@@ -38,7 +38,7 @@
 
 program HomeLibre;
 
-{$R 'MyhomeLib.dres'}
+{$R 'HomeLibre.dres'}
 
 uses
 {$IFDEF USE_FASTMM5}
@@ -300,8 +300,8 @@ uses
   unit_DownloadView in 'DwnldImpl\unit_DownloadView.pas',
   dm_Images in 'DataModules\dm_Images.pas' {dmImages: TDataModule};
 
-{$R 'MyhomeLib.res'}
-{$R 'HomeLibRuManifest.res'}
+{$R 'HomeLibre.res'}
+{$R 'HomeLibreManifest.res'}
 // Language catalogs for the locales we ship. Generated before every build by
 // embed_lang.cmd; always present, possibly empty. See
 // docs/superpowers/specs/2026-08-11-signed-lang-catalogs-design.md.

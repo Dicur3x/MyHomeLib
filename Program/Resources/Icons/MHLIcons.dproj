@@ -33,7 +33,7 @@
         <DCC_Namespace>System;$(DCC_Namespace)</DCC_Namespace>
         <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
         <VerInfo_Locale>1033</VerInfo_Locale>
-        <VerInfo_Keys>CompanyName=;FileDescription=HomeLib Ru icon resources;FileVersion=1.0.0.0;InternalName=MHLIcons;LegalCopyright=Copyright (c) 2008-2026 Oleksiy Penkov;LegalTrademarks=;OriginalFilename=MHLIcons.dll;ProductName=HomeLib Ru;ProductVersion=2.7.0_pre5.01;Comments=Generated from MHLIconsImages.rc</VerInfo_Keys>
+        <VerInfo_Keys>CompanyName=;FileDescription=HomeLibre icon resources;FileVersion=1.0.0.0;InternalName=MHLIcons;LegalCopyright=Copyright (c) 2008-2026 Oleksiy Penkov;LegalTrademarks=;OriginalFilename=MHLIcons.dll;ProductName=HomeLibre;ProductVersion=2.7.0_pre5.01;Comments=Generated from MHLIconsImages.rc</VerInfo_Keys>
         <GenDll>true</GenDll>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_1)'!=''">

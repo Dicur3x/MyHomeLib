@@ -42,11 +42,15 @@ foreach ($part in $componentParts) { if ([int]$part -gt 65535) { throw 'Componen
 $componentTag = $componentParts[0..2] -join '.'
 if ([int]$componentParts[3] -lt 65535) { $componentTag += '_pre1.' + $componentParts[3] }
 $projects = @{
-    'Program/MyhomeLib.dproj' = $false
+    'Program/HomeLibre.dproj' = $false
     'Utils/HomeLibRuLauncher/HomeLibRu.dproj' = $false
     'Utils/HomeLibRuUpdater/HomeLibRuUpdater.dproj' = $false
     'Utils/HomeLibreReader/HomeLibreReader.dproj' = $false
     'Utils/MHLMcpServer/MHLMcpServer.dproj' = $true
+}
+$applicationNames = @{
+    'Program/HomeLibre.dproj' = 'HomeLibre'
+    'Utils/HomeLibreReader/HomeLibreReader.dproj' = 'HomeLibreReader'
 }
 foreach ($project in $projects.Keys) {
     $projectParts = $parts
@@ -59,6 +63,17 @@ foreach ($project in $projects.Keys) {
     }
     $expected = @{VerInfo_MajorVer=$projectParts[0]; VerInfo_MinorVer=$projectParts[1]; VerInfo_Release=$projectParts[2]; VerInfo_Build=$projectParts[3]}
     [xml]$xml = Get-Content -LiteralPath (Join-Path $repositoryRoot $project) -Raw -Encoding UTF8
+    if ($applicationNames.ContainsKey($project)) {
+        $applicationName = $applicationNames[$project]
+        foreach ($property in @('ProjectName', 'SanitizedProjectName', 'MainSource')) {
+            $expectedName = if ($property -eq 'MainSource') { "$applicationName.dpr" } else { $applicationName }
+            $nodes = @($xml.SelectNodes("//*[local-name()='PropertyGroup']/*[local-name()='$property']"))
+            if (-not $nodes.Count) { throw "Missing application identity in $project : $property" }
+            foreach ($node in $nodes) {
+                if ($node.InnerText -cne $expectedName) { throw "Obsolete application identity in $project : $property" }
+            }
+        }
+    }
     foreach ($name in $expected.Keys) {
         $nodes = @($xml.SelectNodes("//*[local-name()='$name']"))
         if ($nodes.Count -eq 0) { throw "Missing numeric version property in $project : $name" }
@@ -74,6 +89,11 @@ foreach ($project in $projects.Keys) {
         }
         if ($values.FileVersion -cne $projectVersion -or $values.ProductVersion -cne $projectTag) {
             throw "Conflicting string version in $project"
+        }
+        if ($applicationNames.ContainsKey($project) -and
+            ($values.InternalName -cne $applicationNames[$project] -or
+             $values.OriginalFilename -cne ($applicationNames[$project] + '.exe'))) {
+            throw "Obsolete executable identity in $project"
         }
     }
 }

@@ -1,2 +1,6 @@
 # Preserve pinned font resources and upstream license bytes across Windows checkouts.
 Installer/ReaderFonts/** -text
+
+# Keep the existing Windows IDE project bytes across the application rename.
+/Program/HomeLibre.dproj -text
+/Program/HomeLibre.groupproj -text

@@ -73,13 +73,13 @@ foreach ($field in @('ProductName', 'InternalName', 'OriginalFilename', 'LegalTr
     }
 }
 
-if (-not ('MyHomeLib.ReleaseResources' -as [type])) {
+if (-not ('HomeLibre.ReleaseResources' -as [type])) {
     Add-Type -TypeDefinition @'
 using System;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 
-namespace MyHomeLib {
+namespace HomeLibre {
     public static class ReleaseResources {
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         private static extern IntPtr LoadLibraryEx(string file, IntPtr reserved, uint flags);
@@ -126,7 +126,7 @@ namespace MyHomeLib {
 '@
 }
 
-$manifestBytes = [MyHomeLib.ReleaseResources]::ReadManifest($resolvedPath)
+$manifestBytes = [HomeLibre.ReleaseResources]::ReadManifest($resolvedPath)
 $manifestStream = [System.IO.MemoryStream]::new($manifestBytes, $false)
 $xmlSettings = [System.Xml.XmlReaderSettings]::new()
 $xmlSettings.DtdProcessing = [System.Xml.DtdProcessing]::Prohibit
@@ -146,6 +146,10 @@ $namespaces = [System.Xml.XmlNamespaceManager]::new($manifest.NameTable)
 $namespaces.AddNamespace('a', 'urn:schemas-microsoft-com:asm.v1')
 $namespaces.AddNamespace('a3', 'urn:schemas-microsoft-com:asm.v3')
 $namespaces.AddNamespace('dpi', 'http://schemas.microsoft.com/SMI/2016/WindowsSettings')
+$assembly = $manifest.SelectSingleNode('/a:assembly/a:assemblyIdentity', $namespaces)
+if (($null -eq $assembly) -or ($assembly.GetAttribute('name') -cne 'HomeLibre')) {
+    throw "Manifest has an obsolete application identity: $resolvedPath"
+}
 $controls = $manifest.SelectSingleNode(
     '/a:assembly/a:dependency/a:dependentAssembly/a:assemblyIdentity[@name="Microsoft.Windows.Common-Controls"]',
     $namespaces)

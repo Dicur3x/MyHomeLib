@@ -67,7 +67,7 @@ function checkDrcFreshness() {
   if (drcTime + STALE_TOLERANCE_MS < exeTime) {
     fail(
       'HomeLibRu.drc is stale or missing. Rebuild with:\n' +
-      '  msbuild Program\\MHL.groupproj /t:Build /p:Config=Release /p:Platform=Win64 /p:DCC_OutputDRCFile=true'
+      '  msbuild Program\\HomeLibre.groupproj /t:Build /p:Config=Release /p:Platform=Win64 /p:DCC_OutputDRCFile=true'
     );
   }
   const newestPas = findNewestPas(PROGRAM_DIR);
@@ -75,7 +75,7 @@ function checkDrcFreshness() {
     fail(
       `HomeLibRu.drc is stale: ${newestPas.file} was modified more recently ` +
       'than the .drc, so the .drc cannot reflect its current resourcestrings. Rebuild with:\n' +
-      '  msbuild Program\\MHL.groupproj /t:Build /p:Config=Release /p:Platform=Win64 /p:DCC_OutputDRCFile=true'
+      '  msbuild Program\\HomeLibre.groupproj /t:Build /p:Config=Release /p:Platform=Win64 /p:DCC_OutputDRCFile=true'
     );
   }
 }

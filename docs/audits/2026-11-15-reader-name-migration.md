@@ -95,3 +95,40 @@ Before publication, repeat relevant checks with final beta 14 identities and an
 unchanged published beta 13 GUI client, including coordinated Reader/catalogue
 restart and the final offline/minimal distributions. No rename-related check
 closes the other open beta 14 work.
+
+## Catalogue source project, resources and bundled help
+
+The catalogue project and group now use `Program/HomeLibre.dproj` and
+`Program/HomeLibre.groupproj`. Its tracked resource inputs are `HomeLibre.res`,
+`HomeLibre.dres`, `HomeLibreManifest.rc` and `HomeLibre.manifest`; both catalogue
+and Reader link the renamed manifest resource. The Windows assembly identity
+and the catalogue ProgramID now use HomeLibre. The release preflight checks
+canonical project, source and executable resource names, and the executable
+check rejects an obsolete embedded assembly name.
+
+Current build entry points, README and all four languages of bundled help now
+refer to HomeLibre.exe and the canonical portable archives. Optional Inno source
+scripts and their output names use Setup_HomeLibre; their build-script links were
+updated together. The icon resource library's product description/name also use
+HomeLibre, while its stable DLL filename stays unchanged. Historical build logs,
+upstream credits, repository URLs and compatibility protocols remain accurate.
+
+Both production catalogue and Reader builds passed again through the licensed
+IDE after the resource/project changes. The catalogue PE/resource checks passed
+on both architectures, including the canonical embedded assembly, common
+controls and PerMonitorV2. These candidates still carry numeric version 13:
+final beta 14 packages and published-client migration remain release gates.
+
+| Application | Architecture | SHA-256 |
+|---|---|---|
+| Catalogue | x64 | `dfd5091c76f17defda9e76fb1c8f59c85a5c9de0ce226409c91855b87239ff9f` |
+| Catalogue | x86 | `69f9f6b93f0e328aba726eb57b04e2e4212e7b514c0e76995a53569af74148a4` |
+| Reader | x64 | `d44ccf0fcd36773ceb9b7ba4c16760b8592ad7ceb7c893769fb23d8f609a970a` |
+| Reader | x86 | `c66e8c9f3fe9dd95d1597f2b2e6b975f37db8716429f686ac7862e9906acd105` |
+
+Evidence directories under `G:/HL-b14-external`: catalogue-project-rename-Win64-r551,
+catalogue-project-rename-Win32-r553, reader-resource-rename-Win64-r555 and
+reader-resource-rename-Win32-r556. Icon library builds passed in
+icons-brand-Win32-r557 and icons-brand-Win64-r558. Source release preflight passed.
+The optional Inno installer itself was not rebuilt in this check. No Desktop
+installation or public release was changed.

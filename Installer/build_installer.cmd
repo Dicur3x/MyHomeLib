@@ -16,7 +16,7 @@ set "ISCC=C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
 set "BDS=C:\Program Files (x86)\Embarcadero\Studio\37.0"
 set "BDSCOMMONDIR=C:\Users\Public\Documents\Embarcadero\Studio\37.0"
 set "MSBUILD=C:\Windows\Microsoft.NET\Framework\v4.0.30319\msbuild.exe"
-set "GROUPPROJ=%ROOT_DIR%\Program\MHL.groupproj"
+set "GROUPPROJ=%ROOT_DIR%\Program\HomeLibre.groupproj"
 
 set "TARGET=%~1"
 if "%TARGET%"=="" set "TARGET=all"
@@ -148,7 +148,7 @@ goto :skip_build_x86
 :build_x86
 echo.
 echo === Building x86 installer ===
-"%ISCC%" "%SCRIPT_DIR%Setup_Script_MyHomeLib.iss"
+"%ISCC%" "%SCRIPT_DIR%Setup_HomeLibre.iss"
 if errorlevel 1 (
     echo ERROR: x86 installer build failed!
     exit /b 1
@@ -162,7 +162,7 @@ goto :skip_build_x64
 :build_x64
 echo.
 echo === Building x64 installer ===
-"%ISCC%" "%SCRIPT_DIR%Setup_Script_MyHomeLib_x64.iss"
+"%ISCC%" "%SCRIPT_DIR%Setup_HomeLibre_x64.iss"
 if errorlevel 1 (
     echo ERROR: x64 installer build failed!
     exit /b 1
@@ -172,7 +172,7 @@ if errorlevel 1 (
 echo.
 echo === Done ===
 echo.
-for %%F in ("%SCRIPT_DIR%Out\Setup_HomeLibRu_*.exe") do (
+for %%F in ("%SCRIPT_DIR%Out\Setup_HomeLibre_*.exe") do (
     echo   Created: %%~nxF
 )
 echo.

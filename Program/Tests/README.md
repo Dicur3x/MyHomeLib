@@ -1,7 +1,7 @@
-# Проверки OPDS HomeLib Ru
+# Проверки OPDS HomeLibre
 
 `OPDSServerTest.dproj` — консольный тестовый сервер, использующий настоящий
-`unit_OPDSServer`, SQLiteWrap, Indy и путь получения книг из HomeLib Ru.
+`unit_OPDSServer`, SQLiteWrap, Indy и путь получения книг из HomeLibre.
 `opds_tests.js` создаёт отдельную коллекцию во временной папке и проверяет её
 через HTTP. Дополнительные пакеты Node.js и Python не нужны.
 
