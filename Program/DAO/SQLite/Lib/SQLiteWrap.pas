@@ -85,6 +85,9 @@ type
     procedure ExecSQL(const SQL : string; const Params: array of const); overload;
 
     procedure BackupTo(const FileName: string; const Progress: TSQLiteBackupProgress = nil);
+    // Caller exclusively reserved and owns this empty destination. This permits
+    // recording its file identity before the first backup page is written.
+    procedure BackupToEmpty(Target:TSQLiteDatabase; const Progress:TSQLiteBackupProgress=nil);
     procedure RestoreFrom(const FileName: string; const Progress: TSQLiteBackupProgress = nil);
     // Reuse a bounded set of statements only while an import/iterator is active.
     // Live queries keep exclusive ownership; released parameters are cleared.
@@ -344,6 +347,20 @@ begin
     Target.QuerySingleString('PRAGMA journal_mode = DELETE');
     CopyDatabase(Self, Target, Progress);
   finally Target.Free; end;
+end;
+
+procedure TSQLiteDatabase.BackupToEmpty(Target:TSQLiteDatabase; const Progress:TSQLiteBackupProgress);
+begin
+  if (Target=nil) or (Target=Self) or Target.InTransaction then
+    raise ESQLiteException.Create('Нужна отдельная пустая база для резервной копии.');
+  if (Target.QuerySingleInt('SELECT count(*) FROM sqlite_master')<>0) or
+    (Target.QuerySingleInt('PRAGMA page_count')>1) or
+    (Target.QuerySingleInt('PRAGMA user_version')<>0) or
+    (Target.QuerySingleInt('PRAGMA application_id')<>0) then
+    raise ESQLiteException.Create('База назначения уже содержит данные.');
+  Target.QuerySingleString('PRAGMA journal_mode=DELETE');
+  Target.ExecSQL('PRAGMA synchronous=FULL');
+  CopyDatabase(Self,Target,Progress);
 end;
 
 procedure TSQLiteDatabase.RestoreFrom(const FileName: string; const Progress: TSQLiteBackupProgress);

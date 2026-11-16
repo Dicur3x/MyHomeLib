@@ -8,6 +8,7 @@ uses System.SysUtils, System.Classes, System.IOUtils, System.JSON, System.Hash,
   unit_CollectionTransferCatalogue, unit_CollectionTransferPlan,
   unit_CollectionTransferCopy, unit_CollectionTransferJournal, unit_CollectionTransferReferences, unit_CollectionTransferRegistry,
   unit_CollectionTransferOperation, unit_CollectionTransferCache, unit_CatalogSources, unit_CollectionTransferCacheSettings,
+  unit_CollectionTransferCacheSnapshot,
   unit_CollectionMerge, unit_Interfaces, unit_LibraryUpdateReview, unit_SystemDatabase_SQLite,
   unit_CollectionTransferLayout, unit_CollectionTransferFinalRows, unit_CollectionTransferFinalization,
   unit_CollectionTransferHistory, unit_CollectionTransferLocations, unit_BookCompressionImages, unit_BookCompressionReceipt, unit_BookCompressionPlan;
@@ -140,6 +141,11 @@ begin
                 DB.ExecSQL('UPDATE Books SET Title=''late finalization title'' WHERE BookID=1');
               finally DB.Free; end;
             end;
+          end;
+        TransferCacheSnapshotTestPoint:=procedure(Stage:string)
+          begin
+            if Stage=Crash then begin Writeln('CRASH ',Stage); Flush(System.Output); Halt(97); end;
+            if Stage=Request.GetValue<string>('cancel_cache_snapshot_stage','') then Stop:=True;
           end;
         TransferReferenceTestPoint:=
           procedure(Stage:string)
@@ -457,6 +463,82 @@ begin
               end;
             finally FinalPersonal.Free; end;
           finally FinalCat.Free; end;
+        end;
+        if Request.GetValue<string>('cache_snapshot_job','')<>'' then
+        begin
+          var JobJSON:=Request.GetValue<string>('cache_snapshot_job'); var InputsJSON:=Request.GetValue<string>('cache_snapshot_inputs');
+          var Binding:=Request.GetValue<string>('cache_snapshot_binding');
+          var Job:=TJSONObject.ParseJSONValue(JobJSON) as TJSONObject;
+          try Owned(Job.GetValue<string>('before_file')); Owned(Job.GetValue<string>('after_file'));
+          if Request.GetValue<string>('backup_to_nonempty_target','')<>'' then
+          begin
+            var SourceDB:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(Owned(Job.GetValue<string>('before_file'))));
+            try
+              var TargetDB:=TSQLiteDatabase.Create(DeletionNativePath(Owned(Request.GetValue<string>('backup_to_nonempty_target'))),False);
+              try SourceDB.BackupToEmpty(TargetDB); finally TargetDB.Free; end;
+            finally SourceDB.Free; end;
+            raise EReadError.Create('Nonempty backup destination was accepted');
+          end;
+          var InputCheck:=TJSONObject.ParseJSONValue(InputsJSON) as TJSONArray;
+          try for var Value in InputCheck do begin Owned(TJSONObject(Value).GetValue<string>('source_file')); Owned(TJSONObject(Value).GetValue<string>('target_file')); end;
+          finally InputCheck.Free; end;
+          var Parent:=TSQLiteDatabase.Create(DeletionNativePath(Owned(Request.GetValue<string>('cache_snapshot_parent'))),False);
+          try
+            Parent.ExecSQL('PRAGMA synchronous=FULL');
+            Parent.ExecSQL('CREATE TABLE IF NOT EXISTS CacheSnapshotState(Context TEXT PRIMARY KEY,Directory TEXT,DirectoryKey TEXT,ReadySHA TEXT)');
+            Parent.ExecSQL('CREATE TABLE IF NOT EXISTS CacheSnapshotOwnership(Context TEXT,Stage TEXT,Path TEXT,Data TEXT,PRIMARY KEY(Context,Stage,Path))');
+            var Snapshot:TTransferCacheSnapshot:=nil;
+            try
+              if Request.GetValue<Boolean>('recover_cache_snapshot',False) then
+              begin
+                var Row:=Parent.NewQuery('SELECT Directory,DirectoryKey,ReadySHA FROM CacheSnapshotState WHERE Context=?',[Binding]);
+                try
+                  Row.Open; if Row.Eof then raise EReadError.Create('No independent cache snapshot state');
+                  Snapshot:=TTransferCacheSnapshot.Recover(Journal.Review,Journal.ReviewSHA256,Journal.Directory,
+                    Owned(Row.FieldAsString(0)),Row.FieldAsString(1),JobJSON,InputsJSON,Binding,Row.FieldAsString(2),
+                    procedure begin if Stop then raise EAbort.Create('Fixture snapshot stop'); Journal.CheckSpace; end);
+                finally Row.Free; end;
+              end
+              else Snapshot:=TTransferCacheSnapshot.CreateNew(Journal.Review,Journal.ReviewSHA256,Journal.Directory,
+                JobJSON,InputsJSON,Binding,
+                procedure(const Stage,DataJSON:string)
+                begin
+                  var Data:=TJSONObject.ParseJSONValue(DataJSON) as TJSONObject;
+                  try
+                    Owned(Data.GetValue<string>('directory')); Owned(Data.GetValue<string>('path'));
+                    Parent.ExecSQL('BEGIN IMMEDIATE');
+                    try
+                      Parent.ExecSQL('INSERT OR REPLACE INTO CacheSnapshotOwnership VALUES(?,?,?,?)',
+                        [Binding,Stage,Data.GetValue<string>('path'),DataJSON]);
+                      if Stage='cache-directory-created' then Parent.ExecSQL('INSERT OR REPLACE INTO CacheSnapshotState VALUES(?,?,?,'''')',
+                        [Binding,Data.GetValue<string>('directory'),Data.GetValue<string>('directory_key')]);
+                      if Stage='cache-ready' then Parent.ExecSQL('UPDATE CacheSnapshotState SET ReadySHA=? WHERE Context=?',
+                        [Data.GetValue<string>('key'),Binding]);
+                      Parent.Commit;
+                    except if Parent.InTransaction then Parent.Rollback; raise; end;
+                    if (Stage='cache-backup-complete') and Request.GetValue<Boolean>('probe_cache_snapshot_writer',False) then
+                    begin
+                      var Other:=TSQLiteDatabase.Create(DeletionNativePath(Owned(Job.GetValue<string>('before_file'))),False);
+                      try
+                        Other.SetTimeout(0); var Locked:=False;
+                        try Other.ExecSQL('BEGIN IMMEDIATE');
+                        except on E:ESQLiteException do if E.Message.ToLower.Contains('locked') or E.Message.ToLower.Contains('busy') then Locked:=True else raise; end;
+                        if Other.InTransaction then Other.Rollback;
+                        if not Locked then raise EReadError.Create('Snapshot source writer was not blocked');
+                      finally Other.Free; end;
+                    end;
+                  finally Data.Free; end;
+                end,
+                procedure begin if Stop then raise EAbort.Create('Fixture snapshot stop'); Journal.CheckSpace; end);
+              Snapshot.CheckUnchanged;
+              Output.AddPair('snapshot_directory',Snapshot.Directory); Output.AddPair('snapshot_directory_key',Snapshot.DirectoryKey);
+              Output.AddPair('snapshot_ready_sha256',Snapshot.ReadySHA); Output.AddPair('snapshot_proof',Snapshot.ProofJSON);
+              Output.AddPair('snapshot_source_held',TJSONBool.Create(Snapshot.SourceHeld));
+              if Request.GetValue<Boolean>('read_cache_snapshot',False) then
+                Output.AddPair('snapshot_book_hash',NativeBookHash(TPath.Combine(Snapshot.Directory,'catalog.hlc2'),Job.GetValue<string>('after_root')));
+            finally Snapshot.Free; end;
+          finally Parent.Free; end;
+          finally Job.Free; end;
         end;
         if Request.GetValue<Boolean>('cache_settings',False) then
         begin

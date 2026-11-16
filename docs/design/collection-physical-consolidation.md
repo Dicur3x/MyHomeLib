@@ -4,7 +4,8 @@ Status: native inventory, file/group copy journals, catalogue/fork publication,
 resource verification, destination-only recovery, guarded source removal,
 the sequential available-file phase, final-layout/final-row primitives and the
 durable roots/settings phase, unpublished source-cache projection and replayable
-source/history cache-version planning are implemented internally. Durable cache publication/Reader,
+source/history cache-version planning and recoverable work-volume cache snapshots
+are implemented internally. Durable cache publication/Reader,
 live DAO/job coordination, startup and normal UI remain open. No user collection
 has been moved by this work.
 
@@ -386,6 +387,25 @@ The model itself creates no cache directory, copies no input and publishes no
 setting. Its GUIDs/paths alone do not prove ownership or authorize publication;
 the next controller must bind them to independent intent, snapshots and prepared
 file proofs. Details: `docs/audits/2026-11-16-collection-transfer-cache-settings.md`.
+
+`TTransferCacheSnapshot` now creates the actual projected SQLite clone and raw
+index copies in a fresh operation-work directory. It reserves/records file IDs
+before large writes, takes the baseline through SQLite's backup API under a
+source writer lock (including committed WAL rows), projects metadata and retains
+read leases on verified outputs. Known raw-input hashes and the copied bytes
+must match. A flushed ready manifest is bound to the immutable review/job/inputs;
+the parent records its digest and directory identity independently. Recovery
+requires both, rehashes every exact file and can recover a ready work snapshot
+without its original cache or index. Incomplete stages cannot be guessed ready
+and remain for the parent's ownership-aware cleanup. This is preparation only;
+no persistent cache-version directory or source/history setting is published.
+
+The complete controller should prepare/cache these dependencies before source
+archive removal, then publish pinned/exclusive persistent versions and their
+metadata only with all group/registration proofs. Independent personal intent,
+source data-root checks, partial publication, authorized roots replay and normal
+startup/job/Reader coordination remain required. Snapshot evidence and boundaries:
+`docs/audits/2026-11-16-collection-transfer-cache-snapshot.md`.
 
 ### Full operation gates
 
