@@ -22,8 +22,11 @@ ordered by path depth so nested unavailable roots share one future tree. A
 missing child inside an already kept destination stays inside that destination
 rather than acquiring a second speculative tree.
 
-Source JSON changes only each known source's root. Names, stable IDs, source
-keys, original index/catalogue references and unknown fields remain intact.
+At this stage source JSON changed only each known source's root. Names, stable
+IDs, source keys, original index/catalogue references and unknown fields remained
+intact. The subsequent verified registration-fork filename projection is described
+in `docs/audits/2026-11-16-collection-transfer-final-forks.md`; INPX references
+remain unchanged.
 Update-profile JSON is validated with the existing parser but edited directly,
 so unknown fields survive. Explicit book roots inside the relocated logical
 roots follow their relative paths; empty roots remain empty and unrelated

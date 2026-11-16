@@ -160,6 +160,23 @@ begin
           raise EReadError.Create('Папка источника не совпала с замороженным планом.');
         SetText(Obj,'root',Root.Destination);
       end;
+      if (Obj.GetValue<string>('inpx','')='') and (Obj.GetValue<Integer>('collection',-1)>0) then
+      begin
+        var Q:=FReview.NewQuery('SELECT r.Catalogue,f.Destination FROM ForkMembers m '+
+          'JOIN CatalogueForks f ON f.ID=m.ForkID '+
+          'JOIN ReferenceRegistrations r ON r.RegistrationID=m.RegistrationID WHERE m.RegistrationID=?',
+          [Obj.GetValue<Integer>('collection')]);
+        try
+          Q.Open;
+          if not Q.Eof then
+          begin
+            var FileName:=Obj.GetValue<string>('file','');
+            if (FileName='') or not SameFileName(Settings.ExpandCollectionFileName(FileName),Q.FieldAsString(0)) then
+              raise EReadError.Create('Файл исходной коллекции не совпал с замороженным планом.');
+            SetText(Obj,'file',Q.FieldAsString(1));
+          end;
+        finally Q.Free; end;
+      end;
     end;
     Result:=Data.ToJSON;
   finally Data.Free; end;

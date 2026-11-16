@@ -100,6 +100,15 @@ keep their meanings. This stage is read-only: source/registration settings and
 download state are not yet applied. See
 `docs/audits/2026-11-16-collection-transfer-layout.md`.
 
+Equal original default roots also need separate catalogue roles if only the
+selected registration's final root moves. Retained equal aliases share one fork;
+their physical-root witnesses and personal-only paths keep their original
+meanings. An unchanged kept root needs no such split. For a non-INPX source that
+names a forked registration, the final projection also rebinds its catalogue
+filename to that reviewed fork, preserving the registration/source IDs and
+unknown fields. INPX references stay unchanged. This is not yet final-settings
+publication; see `docs/audits/2026-11-16-collection-transfer-final-forks.md`.
+
 ## File preparation (implemented at file/group level)
 
 `unit_CollectionTransferCopy` prepares one whole file, preserving and comparing

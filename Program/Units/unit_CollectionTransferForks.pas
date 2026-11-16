@@ -15,7 +15,7 @@ function AcquireTransferForkSource(Review:TSQLiteDatabase; SourceID:Int64;
 implementation
 
 uses System.Classes, System.IOUtils, System.Hash, System.JSON, System.Generics.Collections,
-  Winapi.Windows, unit_ZipMemberDeletion, unit_BookCompressionReceipt;
+  Winapi.Windows, unit_ZipMemberDeletion, unit_BookCompressionReceipt, unit_CollectionTransferLayout;
 
 type
   TPinnedCatalogue = class(TInterfacedObject)
@@ -195,15 +195,25 @@ begin
 end;
 
 procedure CaptureTransferCatalogueForks(Review:TSQLiteDatabase; const Cancelled:TFunc<Boolean>);
-var Keys,Regs:TSQLiteQuery; Key,Keeper,Token,Source:string; SourceID,ForkID,MemberID:Int64;
+var Keys,Regs:TSQLiteQuery; Key,Keeper,Token,Role,Source,SelectedKey,OriginalRoot:string;
+    SourceID,ForkID,MemberID:Int64; SelectedID:Integer; SelectedMoves:Boolean;
 begin
   if not Review.InTransaction then raise EArgumentException.Create('Нужен незавершённый план переноса.');
+  SelectedID:=StrToInt(Review.QuerySingleString('SELECT Value FROM Context WHERE Name=''collection'''));
+  SelectedKey:=Review.QuerySingleString('SELECT Value FROM Context WHERE Name=''catalogue_key''');
+  OriginalRoot:=Review.QuerySingleString('SELECT coalesce(CanonicalPath,InputPath) FROM Roots WHERE ID=''collection''');
+  var Layout:=TCollectionTransferLayout.Create(Review);
+  try SelectedMoves:=not SameFileName(IncludeTrailingPathDelimiter(Layout.RootDestination('collection')),
+    IncludeTrailingPathDelimiter(OriginalRoot));
+  finally Layout.Free; end;
   Review.ExecSQL('CREATE TABLE ForkSources(ID INTEGER PRIMARY KEY,Source TEXT,CatalogueKey TEXT UNIQUE,Witness TEXT,'+
     'Snapshot TEXT,Identity TEXT,Bytes INTEGER,SHA256 TEXT,CanonicalSource TEXT)');
   Review.ExecSQL('CREATE TABLE CatalogueForks(ID INTEGER PRIMARY KEY,SourceID INTEGER,RootToken TEXT,Destination TEXT UNIQUE,'+
     'UNIQUE(SourceID,RootToken))');
   Review.ExecSQL('CREATE TABLE ForkMembers(RegistrationID INTEGER PRIMARY KEY,ForkID INTEGER,RootToken TEXT)');
-  Keys:=Review.NewQuery('SELECT DISTINCT CatalogueKey FROM ReferenceConflicts ORDER BY CatalogueKey');
+  Keys:=Review.NewQuery('SELECT DISTINCT CatalogueKey FROM ReferenceConflicts UNION '+
+    'SELECT CatalogueKey FROM ReferenceRegistrations WHERE State=''ready'' AND CatalogueKey=? AND ?=1 '+
+    'GROUP BY CatalogueKey HAVING count(*)>1 ORDER BY CatalogueKey',[SelectedKey,Ord(SelectedMoves)]);
   try
     Keys.Open;
     while not Keys.Eof do
@@ -211,24 +221,29 @@ begin
       Key:=Keys.FieldAsString(0); SourceID:=0; Source:=''; Keeper:='';
       Regs:=Review.NewQuery('SELECT RegistrationID,Root,Catalogue FROM ReferenceRegistrations WHERE CatalogueKey=? AND State=''ready'' '+
         'ORDER BY CASE WHEN RegistrationID=? THEN 0 ELSE 1 END,RegistrationID',
-        [Key,StrToInt(Review.QuerySingleString('SELECT Value FROM Context WHERE Name=''collection'''))]);
+        [Key,SelectedID]);
       try
         Regs.Open;
         while not Regs.Eof do
         begin
           if Assigned(Cancelled) and Cancelled() then raise EAbort.Create('Подготовка копий каталога остановлена.');
           MemberID:=Regs.FieldAsInt(0); Token:=TransferForkRootToken(Regs.FieldAsString(1));
+          Role:=Token;
+          // Equal old roots stop being equivalent if only the selected alias
+          // gets a different final default root. Other aliases retain one fork.
+          if SelectedMoves and (Key=SelectedKey) and (MemberID<>SelectedID) and (Token=Keeper) then
+            Role:='retained:'+Token;
           if Keeper='' then begin Keeper:=Token; Source:=Regs.FieldAsString(2); end
-          else if Token<>Keeper then
+          else if Role<>Keeper then
           begin
             if SourceID=0 then SourceID:=Snapshot(Review,Source,Key,Cancelled);
-            ForkID:=Review.QuerySingleInt('SELECT ID FROM CatalogueForks WHERE SourceID=? AND RootToken=?',[SourceID,Token]);
+            ForkID:=Review.QuerySingleInt('SELECT ID FROM CatalogueForks WHERE SourceID=? AND RootToken=?',[SourceID,Role]);
             if ForkID=0 then
             begin
               ForkID:=Review.QuerySingleInt('SELECT coalesce(max(ID),0)+1 FROM CatalogueForks');
               var Destination:=TPath.Combine(Review.QuerySingleString('SELECT Value FROM Context WHERE Name=''content_root'''),
                 'catalogues\'+IntToStr(ForkID)+'.hlc2');
-              Review.ExecSQL('INSERT INTO CatalogueForks VALUES(?,?,?,?)',[ForkID,SourceID,Token,Destination]);
+              Review.ExecSQL('INSERT INTO CatalogueForks VALUES(?,?,?,?)',[ForkID,SourceID,Role,Destination]);
             end;
             Review.ExecSQL('INSERT INTO ForkMembers VALUES(?,?,?)',[MemberID,ForkID,Token]);
           end;
