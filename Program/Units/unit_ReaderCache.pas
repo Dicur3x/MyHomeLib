@@ -7,6 +7,9 @@ uses
 
 function ReaderCopyName(const Book: TBookRecord): string;
 function ReaderHistoryName(const Book: TBookRecord; const LibraryNamespace: string): string;
+function ReaderBaseHistoryName(const Book:TBookRecord; const LibraryNamespace:string):string;
+function ReaderHistoryNeedsLocationProof(const Book:TBookRecord; const LibraryNamespace:string):Boolean;
+function TryReaderHistoryAlias(const Book:TBookRecord; const LibraryNamespace:string; out OriginalName:string):Boolean;
 function PrepareExternalReaderFile(const Book: TBookRecord; const PreparedFile, LibraryNamespace: string;
   ForceCopy: Boolean = False): string;
 procedure PrepareExternalReaderFileInBackground(Owner: TComponent; const Book: TBookRecord;
@@ -210,7 +213,7 @@ begin
   except on E: Exception do Result := ''; end;
 end;
 
-function ReaderHistoryName(const Book: TBookRecord; const LibraryNamespace: string): string;
+function ReaderBaseHistoryName(const Book: TBookRecord; const LibraryNamespace: string): string;
 var ID, Namespace, OriginalID, Physical, Extension: string; Separator, Depth: Integer;
   Numeric: Boolean;
 begin
@@ -236,6 +239,30 @@ begin
   if (Pos(' ', Extension) > 0) or (Length(Extension) > 11) then Extension := '.bin';
   Result := 'homelib-' + IntToStr(Book.BookKey.DatabaseID) + '-' +
     Copy(THashSHA2.GetHashString('reader-physical-history-v1' + #1 + Physical), 1, 32) + Extension;
+end;
+
+function ReaderHistoryNeedsLocationProof(const Book:TBookRecord; const LibraryNamespace:string):Boolean;
+begin
+  var Namespace,OriginalID:string;
+  Result:=not ReaderStableIdentity(Book.LibID,LibraryNamespace,Namespace,OriginalID);
+end;
+
+function TryReaderHistoryAlias(const Book:TBookRecord; const LibraryNamespace:string;
+  out OriginalName:string):Boolean;
+begin
+  Result:=False; OriginalName:='';
+  if not ReaderHistoryNeedsLocationProof(Book,LibraryNamespace) or
+    (Book.BookKey.DatabaseID<=0) or (Book.BookKey.BookID<=0) or not Assigned(DMUser) or
+    not Assigned(DMUser.SystemDB) then Exit;
+  var Provider:IReaderHistoryIdentityProvider;
+  if Supports(DMUser.SystemDB,IReaderHistoryIdentityProvider,Provider) then
+    Result:=Provider.TryReaderHistoryAlias(Book,ReaderBaseHistoryName(Book,LibraryNamespace),OriginalName);
+end;
+
+function ReaderHistoryName(const Book:TBookRecord; const LibraryNamespace:string):string;
+begin
+  Result:=ReaderBaseHistoryName(Book,LibraryNamespace); var OriginalName:string;
+  if TryReaderHistoryAlias(Book,LibraryNamespace,OriginalName) then Result:=OriginalName;
 end;
 
 function ReaderSamePhysical(const First, Second: TBookRecord): Boolean;

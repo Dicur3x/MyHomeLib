@@ -49,7 +49,7 @@ type
     function GetGroupIterator: IGroupIterator; virtual; abstract;
     function GetCollectionInfoIterator: ICollectionInfoIterator; virtual; abstract;
 
-    procedure ClearCollectionCache;
+    procedure ClearCollectionCache; virtual;
 
   public
     constructor Create;

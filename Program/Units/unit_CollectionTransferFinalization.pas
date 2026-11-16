@@ -377,7 +377,8 @@ begin
     finally Q.Free; end;
   end;
   CheckSettings(Participant,Marked);
-  if Participant.Key=FSelectedKey then ApplyTransferFinalRows(DB,FPersonal,FJournal.Review,FOperation,FReviewSHA,FIntentSHA,False,Marked,Stop);
+  if Participant.Key=FSelectedKey then ApplyTransferFinalRows(DB,FPersonal,FJournal.Review,FOperation,FReviewSHA,FIntentSHA,
+    False,Marked,Stop,FState='intent');
   if Marked then Exit;
   var Row:=PlanDatabase(Participant.Key);
   for var Kind in ['source','profile'] do

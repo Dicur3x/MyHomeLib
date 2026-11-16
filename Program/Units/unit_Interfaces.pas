@@ -33,6 +33,12 @@ type
   TBookIdentityWriteResult = (biwUnavailable, biwNoCard, biwMismatch, biwSaved);
   TBookDeletionWriteResult = (bdwBusy, bdwChanged, bdwMissing, bdwReady, bdwDeleted);
 
+  IReaderHistoryIdentityProvider = interface
+    ['{B02DCB47-469D-47CD-A19D-C9481DFD75B3}']
+    function TryReaderHistoryAlias(const Book:TBookRecord; const CurrentName:string;
+      out OriginalName:string):Boolean;
+  end;
+
   // Archive receipts can be replayed after interruption. Never delete a row
   // merely because its old numeric ID has been reused by a later import.
   // CheckOnly validates without deleting either catalogue or personal data.

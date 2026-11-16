@@ -12,12 +12,14 @@ type TTransferFinalRowsResult=record FutureRows,CopyRoots:Int64; end;
 // it cannot authorize source removal, change default roots or complete a move.
 function ApplyTransferFinalRows(DB,Personal,Review:TSQLiteDatabase;
   const Operation,ReviewSHA,IntentSHA:string; PersonalRows:Boolean;
-  VerifyOnly:Boolean=False; const Cancelled:TFunc<Boolean> = nil):TTransferFinalRowsResult;
+  VerifyOnly:Boolean=False; const Cancelled:TFunc<Boolean> = nil;
+  RecoverReaderAliases:Boolean=False):TTransferFinalRowsResult;
 
 implementation
 
 uses System.Classes, System.Hash, System.JSON, System.IOUtils, Winapi.Windows, SQLite3, unit_Globals,
-  unit_CollectionTransferLayout, unit_BookCompressionReceipt, unit_ZipMemberDeletion, unit_Settings, dm_user;
+  unit_CollectionTransferLayout, unit_BookCompressionReceipt, unit_ZipMemberDeletion, unit_Settings, dm_user,
+  unit_ReaderHistoryAliases;
 
 const ReceiptTable='HomeLibreTransferFinalRows';
 
@@ -63,17 +65,21 @@ procedure BindFinalRow(var Hash:THashSHA2; const Values:array of string);
 
 function ApplyTransferFinalRows(DB,Personal,Review:TSQLiteDatabase;
   const Operation,ReviewSHA,IntentSHA:string; PersonalRows,VerifyOnly:Boolean;
-  const Cancelled:TFunc<Boolean>):TTransferFinalRowsResult;
+  const Cancelled:TFunc<Boolean>; RecoverReaderAliases:Boolean):TTransferFinalRowsResult;
 var Layout:TCollectionTransferLayout; Live,Bindings:TSQLiteQuery; Hash:THashSHA2;
     CID:Integer; Marked:Boolean; ActualKey,BindingSHA:string; Outcome:TTransferFinalRowsResult;
+    ReaderAliases:TReaderHistoryAliasWriter;
 begin
-  Outcome:=Default(TTransferFinalRowsResult); Layout:=nil; Live:=nil; Bindings:=nil;
+  Outcome:=Default(TTransferFinalRowsResult); Layout:=nil; Live:=nil; Bindings:=nil; ReaderAliases:=nil;
   if (DB=nil) or (Personal=nil) or (Review=nil) or not DB.InTransaction or not Personal.InTransaction or
     (Operation='') or (Length(ReviewSHA)<>64) or (Length(IntentSHA)<>64) then
     raise EArgumentException.Create('Нужна привязанная транзакция итоговых адресов.');
   CheckCancelled(Cancelled);
   if Operation<>Review.QuerySingleString('SELECT Value FROM Context WHERE Name=''directory''') then
     raise EReadError.Create('Итоговые адреса относятся к другой операции.');
+  if RecoverReaderAliases and (Personal.QuerySingleInt('SELECT count(*) FROM HomeLibreTransferFinalization '+
+    'WHERE Operation=? AND ReviewSHA256=? AND IntentSHA256=? AND State=''intent''',[Operation,ReviewSHA,IntentSHA])<>1) then
+    raise EReadError.Create('Нет независимого незавершённого намерения для восстановления истории чтения.');
   ActualKey:=DatabaseKey(DB);
   var PersonalKey:=Review.QuerySingleString('SELECT Value FROM Context WHERE Name=''personal_key''');
   if (DatabaseKey(Personal)<>PersonalKey) or (PersonalRows<>(ActualKey=PersonalKey)) or
@@ -85,6 +91,7 @@ begin
   if VerifyOnly and not Marked then raise EReadError.Create('Нет квитанции итоговых адресов.');
   Hash:=THashSHA2.Create;
   try
+    ReaderAliases:=TReaderHistoryAliasWriter.Create(Personal,Operation,ReviewSHA);
     Layout:=TCollectionTransferLayout.Create(Review);
     if not VerifyOnly then DB.AddFunction('MHL_TRIGGERS_ON',0,EnableLocatorTriggers);
     Layout.ForEachFutureLocator(
@@ -121,6 +128,18 @@ begin
             not (OldLocation or NewLocation) or ((Marked or VerifyOnly) and not NewLocation) then
             raise EReadError.Create('Отсутствующая книга изменилась перед сохранением итогового адреса.');
           FreeAndNil(Live);
+          var ReaderBefore:=Default(TBookRecord); ReaderBefore.BookKey:=CreateBookKey(Locator.BookID,CID);
+          ReaderBefore.LibID:=Bindings.FieldAsString(0); ReaderBefore.Folder:=Bindings.FieldAsString(1);
+          ReaderBefore.FileName:=Bindings.FieldAsString(2); ReaderBefore.FileExt:=Bindings.FieldAsString(3);
+          ReaderBefore.InsideNo:=Bindings.FieldAsInt(4);
+          ReaderBefore.CollectionRoot:=Settings.ExpandCollectionRoot(Review.QuerySingleString('SELECT Value FROM Context WHERE Name=''collection_root'''));
+          if (Locator.Kind=2) and (Bindings.FieldAsString(5)<>'') then
+            ReaderBefore.CollectionRoot:=Settings.ExpandCollectionRoot(Bindings.FieldAsString(5));
+          var ReaderAfter:=ReaderBefore; ReaderAfter.Folder:=Locator.Folder; ReaderAfter.FileName:=Locator.FileName;
+          ReaderAfter.CollectionRoot:=Layout.RootDestination('collection');
+          if (Locator.Kind=2) and (Locator.CopyRoot<>'') then ReaderAfter.CollectionRoot:=Settings.ExpandCollectionRoot(Locator.CopyRoot);
+          var ReaderBinding:=ReaderAliases.RecordMove(ReaderBefore,ReaderAfter,VerifyOnly and not RecoverReaderAliases);
+          if ReaderBinding<>'' then BindFinalRow(Hash,['reader-history',ReaderBinding]);
           if not NewLocation then
           begin
             Live:=DB.NewQuery('UPDATE '+Table+' SET Folder=?,FileName=? WHERE '+Where);
@@ -158,6 +177,7 @@ begin
           // Root publication must not silently move an unpublished/retained
           // relative locator. Published and future locators are already absolute.
           var OldBook:=Default(TBookRecord); OldBook.CollectionRoot:=Settings.ExpandCollectionRoot(Live.FieldAsString(4));
+          OldBook.BookKey:=CreateBookKey(Bindings.FieldAsInt(0),CID);
           OldBook.LibID:=Live.FieldAsString(1); OldBook.FileExt:=Live.FieldAsString(2); OldBook.InsideNo:=Live.FieldAsInt(3);
           OldBook.Folder:=Live.FieldAsString(5); OldBook.FileName:=Live.FieldAsString(6);
           var NewBook:=OldBook; NewBook.CollectionRoot:=After;
@@ -166,6 +186,8 @@ begin
           if (OldBook.GetBookFormat(OldContainer)<>NewBook.GetBookFormat(NewContainer)) or
             not SameFileName(ExpandFileName(OldBook.GetBookFileName(OldContainer)),ExpandFileName(NewBook.GetBookFileName(NewContainer))) then
             raise EReadError.Create('Нельзя менять итоговую папку копии с несохранённым адресом книги.');
+          var ReaderBinding:=ReaderAliases.RecordMove(OldBook,NewBook,VerifyOnly and not RecoverReaderAliases);
+          if ReaderBinding<>'' then BindFinalRow(Hash,['reader-history',ReaderBinding]);
         end;
         FreeAndNil(Live);
         if Changed then
@@ -195,7 +217,7 @@ begin
       DB.ExecSQL('INSERT INTO '+ReceiptTable+' VALUES(?,?,?,?,?)',[Operation,ReviewSHA,IntentSHA,ActualKey,BindingSHA]);
     end;
     CheckCancelled(Cancelled); Result:=Outcome;
-  finally Live.Free; Bindings.Free; Layout.Free; end;
+  finally ReaderAliases.Free; Live.Free; Bindings.Free; Layout.Free; end;
 end;
 
 end.

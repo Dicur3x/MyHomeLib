@@ -71,9 +71,13 @@ var Ini: TMemIniFile; BoundCID, BoundID: Integer; Section: string;
           if ResolvedID>0 then
           begin
             Collection.GetBookRecord(CreateBookKey(ResolvedID,CID),Candidate,False);
+            var OriginalHistory:string;
+            var Moved:=(Ini.ReadString(Section,'LibID','')=Candidate.LibID) and
+              TryReaderHistoryAlias(Candidate,Namespace,OriginalHistory) and
+              (ReaderNoteIdentity(OriginalHistory)=Note.BookID);
             if Matches(Candidate,Note.BookID,Namespace) and
-              ReaderBookMatchesExpectedIdentity(Ini.ReadString(Section,'LibID',''),
-                Ini.ReadString(Section,'PhysicalIdentity',''),Candidate,Namespace) then
+              (ReaderBookMatchesExpectedIdentity(Ini.ReadString(Section,'LibID',''),
+                Ini.ReadString(Section,'PhysicalIdentity',''),Candidate,Namespace) or Moved) then
             begin Book:=Candidate; Exit(True); end;
           end;
         except

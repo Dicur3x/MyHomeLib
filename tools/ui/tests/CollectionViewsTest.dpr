@@ -2665,6 +2665,8 @@ begin
   Require(Result > 0, 'Fixture book was not inserted');
 end;
 
+{$I CollectionTransferReaderHistoryTests.inc}
+
 procedure TestMainCatalogueRecent(const Collection: IBookCollection; const Selected: TBookRecord);
 var Target: TBookRecord; Ini: TMemIniFile; Body, Report, OldMode, OldReport, OldTarget, Namespace: string;
   Deadline: UInt64;
@@ -6516,6 +6518,13 @@ begin
         Halt(0);
       end;
       if ParamStr(1).StartsWith('startup-deferred') then CompleteDeferredStartup;
+      if ParamStr(1)='transfer-reader-history' then
+      begin
+        TestTransferReaderHistory; Flush(Output);
+        FreeAndNil(frmMain); FreeAndNil(dmImages); One:=nil; Two:=nil;
+        FreeAndNil(DMUser); FreeAndNil(frmSplash);
+        Application.OnException:=nil; ExceptionHandler.Free; Halt(0);
+      end;
       if (ParamStr(1)='selected-compression-ui') or (ParamStr(1)='compression-preferences') then
       begin
         if ParamStr(1)='compression-preferences' then TestCompressionPreferences(One,Two)

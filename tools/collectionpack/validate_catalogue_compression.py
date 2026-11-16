@@ -700,6 +700,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
             raise
         output = log_path.read_text(encoding='utf-8', errors='replace')
         expected = {
+            'transfer-reader-history': 'PASS transferred real Reader preserves positions bookmarks notes and changed-title bindings across placeholder numeric opaque and scoped identities',
             'library-update-recovery': f'PASS actual library update crash and ordinary startup recovery {update_recovery_phase} bound={update_recovery_bound}',
             'library-update-window': 'PASS library update menu and toolbar run reviewed confirmation, keep declined data, refresh the actual book view and offer incremental compression; both theme glyphs remain available',
             'catalog-merge-outcome': 'PASS catalog source window distinguishes rolled-back merges from committed errors and signals main-view refresh',
@@ -899,6 +900,8 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
                                'Native FBD/loose/alternate retention without originals, unavailable-book restoration, '
                                'estimate dialog and INPX continuation through an actual main window; synthetic books'
                                if scenario == 'packing-fbd' else
+                               'Actual catalogue DAO and built-in Reader before/after physical transfer; positions, bookmarks, notes and changed-title bindings across five identity types'
+                               if scenario == 'transfer-reader-history' else
                                'Native normal INPX/Metabib menu or Windows Shell import on a private synthetic catalogue; no real user data'))
         attempt.update(status='VERIFYING_CONTENT', native_returncode=process.returncode)
         attempt_file.write_text(json.dumps(attempt, indent=2), encoding='utf-8')
@@ -1018,7 +1021,7 @@ if __name__ == '__main__':
     parser.add_argument('--whole', action='store_true')
     parser.add_argument('--repeat-new', action='store_true', help='After applying, invoke the normal new-books menu and verify no preparation')
     parser.add_argument('--scenario', choices=['selected-compression-ui', 'explorer-file-drop', 'update-outcomes', 'library-update-sources', 'library-update-apply', 'library-update-cancel', 'library-update-window', 'catalog-merge-outcome', 'library-update-recovery',
-                        'packed-catalogue-sizes', 'packing-fbd', 'packed-jxl-formats', 'packed-flibrary-sidecars', 'reviewed-flibrary-compression', 'compression-continuation'], default='selected-compression-ui')
+                        'packed-catalogue-sizes', 'packing-fbd', 'packed-jxl-formats', 'packed-flibrary-sidecars', 'reviewed-flibrary-compression', 'compression-continuation', 'transfer-reader-history'], default='selected-compression-ui')
     parser.add_argument('--packing-codec', type=Path, help='Exact official JPEG XL archive for the native packed INPX installer/reader scenario')
     parser.add_argument('--packing-codec-release', type=Path, help='Official GitHub release metadata used to verify the codec archive')
     parser.add_argument('--repeat-offer', action='store_true', help='Exercise nonmodal arrivals offer, dismissal, canceled options and explicit start')

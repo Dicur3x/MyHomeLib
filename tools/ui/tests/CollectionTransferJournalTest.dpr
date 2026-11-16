@@ -11,6 +11,7 @@ uses System.SysUtils, System.Classes, System.IOUtils, System.JSON, System.Hash,
   unit_CollectionTransferCacheSnapshot,
   unit_CollectionTransferCachePreparation,
   unit_CollectionTransferCacheInstallation,
+  unit_ReaderHistoryAliases, unit_ReaderCache,
   unit_CollectionMerge, unit_Interfaces, unit_LibraryUpdateReview, unit_SystemDatabase_SQLite,
   unit_CollectionTransferLayout, unit_CollectionTransferFinalRows, unit_CollectionTransferFinalization,
   unit_CollectionTransferHistory, unit_CollectionTransferLocations, unit_BookCompressionImages, unit_BookCompressionReceipt, unit_BookCompressionPlan;
@@ -35,6 +36,39 @@ function HashFile(const Path:string):string;
 begin
   var Stream:=TFileStream.Create(DeletionNativePath(Owned(Path)),fmOpenRead or fmShareDenyWrite);
   try Result:=THashSHA2.GetHashString(Stream); finally Stream.Free; end;
+end;
+
+function FixtureReaderNames(const Request:TJSONObject):TJSONArray;
+begin
+  Result:=TJSONArray.Create;
+  var Personal:TSQLiteDatabase:=nil;
+  var CID:=Request.GetValue<Integer>('reader_collection_id',7);
+  var DB:TSQLiteDatabase:=nil; var Lookup:TReaderHistoryAliasLookup:=nil;
+  try
+    try
+    Personal:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(Owned(Request.GetValue<string>('personal'))));
+    var Root:=Personal.QuerySingleString('SELECT RootFolder FROM Bases WHERE DatabaseID=?',[CID]);
+    var Catalogue:=Personal.QuerySingleString('SELECT DBFileName FROM Bases WHERE DatabaseID=?',[CID]);
+    Root:=Owned(Settings.ExpandCollectionRoot(Root));
+    DB:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(Owned(Catalogue)));
+    Lookup:=TReaderHistoryAliasLookup.Create(Personal);
+    var Q:=DB.NewQuery('SELECT BookID,LibID,Folder,FileName,Ext,InsideNo FROM Books ORDER BY BookID');
+    try Q.Open;
+      while not Q.Eof do
+      begin
+        if Result.Count>=1000 then raise EReadError.Create('Reader fixture is not bounded');
+        var Book:=Default(TBookRecord); Book.BookKey:=CreateBookKey(Q.FieldAsInt(0),CID);
+        Book.CollectionRoot:=Root; Book.LibID:=Q.FieldAsString(1); Book.Folder:=Q.FieldAsString(2);
+        Book.FileName:=Q.FieldAsString(3); Book.FileExt:=Q.FieldAsString(4); Book.InsideNo:=Q.FieldAsInt(5);
+        var Current:=ReaderBaseHistoryName(Book,Request.GetValue<string>('reader_namespace',''));
+        var Original:string; var Used:=Lookup.Find(Book,Current,Original); if not Used then Original:=Current;
+        var Row:=TJSONObject.Create; Row.AddPair('book',TJSONNumber.Create(Book.BookKey.BookID));
+        Row.AddPair('base',Current); Row.AddPair('history',Original); Row.AddPair('aliased',TJSONBool.Create(Used));
+        Result.AddElement(Row); Q.Next;
+      end;
+    finally Q.Free; end;
+    except Result.Free; raise; end;
+  finally Lookup.Free; DB.Free; Personal.Free; end;
 end;
 
 procedure ProbeStreamLeases(const Path:string);
@@ -132,6 +166,11 @@ begin
         Mode:=Request.GetValue<string>('mode','create'); ControlFile:=Owned(Request.GetValue<string>('control'));
         Crash:=Request.GetValue<string>('crash',''); Copies:=0; PreparedFiles:=0; Stop:=False; BetweenEdited:=False; HistoryRows:=0; VerifiedRetained:=0; HistoryHits:=TJSONArray.Create;
         Removed:=0; Missing:=0; RetainedSources:=0; PendingSources:=0; CachesPrepared:=0; HeldPreparedCaches:=0; PublishedCacheDatabases:=0; RootsApplied:=False;
+        if Mode='reader-names' then
+        begin
+          Output:=TJSONObject.Create; Output.AddPair('reader_names',FixtureReaderNames(Request));
+          TFile.WriteAllText(Owned(ParamStr(2)),Output.ToJSON,TEncoding.UTF8); Exit;
+        end;
         TransferFinalizationTestPoint:=procedure(Stage:string)
           begin
             if Stage=Crash then begin Writeln('CRASH ',Stage); Flush(System.Output); Halt(97); end;
@@ -476,6 +515,7 @@ begin
         Output:=TJSONObject.Create; Groups:=TJSONArray.Create; Output.AddPair('groups',Groups);
         Output.AddPair('installed_caches',TJSONNumber.Create(InstalledCaches));
         Output.AddPair('published_cache_databases',TJSONNumber.Create(PublishedCacheDatabases));
+        if Request.GetValue<Boolean>('read_reader_names',False) then Output.AddPair('reader_names',FixtureReaderNames(Request));
         if Request.GetValue<Boolean>('read_installed_caches',False) and ((InstalledCaches>0) or (PublishedCacheDatabases>0)) then
         begin
           var DB:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(Owned(Request.GetValue<string>('personal'))));

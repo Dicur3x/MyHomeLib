@@ -495,8 +495,17 @@ All consumers need the same lookup: Reader launch, next volume, recent reading,
 notes/notebooks and duplicate detection. Use the existing personal database
 connection with a prepared lookup, not a new connection or schema query per
 book; invalidate its negative/table cache when Main reloads after transfer.
-Actual Reader positions and notes remain a separate test gate. The Main entry
-must wait for active preparation/session callbacks and conflicting jobs; it must
+The bound alias lookup and transactional writer are now implemented. A pending
+independent roots intent also covers recovery after a catalogue commit rolls
+back its personal aliases; committed aliases cannot be silently reminted.
+Native x86/x64 checks cover conflicts, changed identities/locators and missing
+books. The actual initialized DAO and built-in Reader also pass on both
+architectures for five FB2 identity types after original archive removal: saved
+positions, bookmark context/navigation, notes, changed-title direct note binding
+and the notes filter. Evidence:
+`docs/audits/2026-11-16-collection-transfer-reader-history.md`. This is a small
+ZIP/FB2 scenario; it does not prove every format, later reimport or second move.
+The Main entry must wait for active preparation/session callbacks and conflicting jobs; it must
 not forcibly close a user's reader to begin transfer. The transfer command stays
 unreleased until this and the complete-operation/UI/startup gates are connected.
 

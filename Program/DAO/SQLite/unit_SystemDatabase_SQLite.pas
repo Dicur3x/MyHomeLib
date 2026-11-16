@@ -29,10 +29,10 @@ uses
   unit_Interfaces,
   unit_CollectionBackup,
   unit_Globals,
-  unit_Consts;
+  unit_Consts, unit_ReaderHistoryAliases;
 
 type
-  TSystemData_SQLite = class(TSystemData, ISystemData, ISystemBookPresence, ISystemStoredBookSizeWriter, ISystemCatalogCommitWitness, IBookIdentityDeletionWriter, IBookIdentityProgressWriter, IBookIdentityPersonalWriter, IMetadataCollectionRootGuard, IAtomicLegacyUserDataImporter, ISnapshotCollectionRestorer)
+  TSystemData_SQLite = class(TSystemData, ISystemData, ISystemBookPresence, ISystemStoredBookSizeWriter, ISystemCatalogCommitWitness, IBookIdentityDeletionWriter, IBookIdentityProgressWriter, IBookIdentityPersonalWriter, IMetadataCollectionRootGuard, IAtomicLegacyUserDataImporter, ISnapshotCollectionRestorer, IReaderHistoryIdentityProvider)
   strict private
   type
     TBookIteratorImpl = class(TInterfacedObject, IBookIterator)
@@ -100,6 +100,9 @@ type
   public
     constructor Create(const DBUserFile: string);
     destructor Destroy; override;
+    procedure ClearCollectionCache; override;
+    function TryReaderHistoryAlias(const Book:TBookRecord; const CurrentName:string;
+      out OriginalName:string):Boolean;
 
   protected
     function CreateCollection(
@@ -192,6 +195,7 @@ type
   private
     FDatabase: TSQLiteDatabase;
     FStoredBookSizeUpdate:TSQLiteQuery;
+    FReaderHistoryAliases:TReaderHistoryAliasLookup;
 
     procedure InternalClearGroup(GroupID: Integer; RemoveGroup: Boolean);
     function InternalFindGroup(GroupID: Integer): Boolean; inline;
@@ -537,14 +541,26 @@ begin
   // This connection can update an attached catalogue. Keep its search
   // triggers active just as they are on the ordinary catalogue connection.
   FDatabase.AddFunction('MHL_TRIGGERS_ON',0,EnableAttachedCatalogTriggers);
+  FReaderHistoryAliases:=TReaderHistoryAliasLookup.Create(FDatabase);
 end;
 
 destructor TSystemData_SQLite.Destroy;
 begin
+  FreeAndNil(FReaderHistoryAliases);
   FreeAndNil(FStoredBookSizeUpdate);
   FreeAndNil(FDatabase);
   inherited Destroy;
 end;
+
+procedure TSystemData_SQLite.ClearCollectionCache;
+begin
+  if FReaderHistoryAliases<>nil then FReaderHistoryAliases.Invalidate;
+  inherited;
+end;
+
+function TSystemData_SQLite.TryReaderHistoryAlias(const Book:TBookRecord;
+  const CurrentName:string; out OriginalName:string):Boolean;
+begin Result:=FReaderHistoryAliases.Find(Book,CurrentName,OriginalName); end;
 
 function TSystemData_SQLite.GetCollectionInfo(const CollectionID: Integer): TCollectionInfo;
 const

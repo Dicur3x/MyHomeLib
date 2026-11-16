@@ -16,7 +16,7 @@ implementation
 
 uses System.Classes, System.IOUtils, System.JSON, System.Hash, System.StrUtils, System.Generics.Collections,
   SQLite3, unit_Globals, unit_Settings, dm_user, unit_CollectionTransferPlan, unit_CollectionTransferHistory,
-  unit_BookCompressionReceipt, unit_CollectionTransferLayout;
+  unit_BookCompressionReceipt, unit_CollectionTransferLayout, unit_ReaderHistoryAliases;
 
 procedure EnableLocatorTriggers(Context:TSQLite3Context; Count:Integer; Values:TSQLite3Value); cdecl;
 begin SQLite3_Result_Int(Context,1); end;
@@ -105,7 +105,7 @@ end;
 
 procedure NewPersonalRows(DB,Review:TSQLiteDatabase; Prepared:TPreparedTransferGroup;
   const Registrations:TArray<Integer>; Seen:TDictionary<string,Boolean>; var Changed,Retained:Int64;
-  VerifyOnly,ReconcileOnly:Boolean);
+  VerifyOnly,ReconcileOnly:Boolean; ReaderAliases:TReaderHistoryAliasWriter);
 var Candidates,Live,Root:TSQLiteQuery; Canonical,Identity,Folder,FileName:string; Bytes:Int64;
 begin
   for var CID in Registrations do
@@ -163,6 +163,9 @@ begin
                 if VerifyOnly and not SameFileName(Canonical,Item.Destination) then
                   raise EReadError.Create('Новая личная запись ещё ссылается на исходный файл.');
                 Project(Book,Item.Source,Item.Destination,Folder,FileName,not (VerifyOnly or ReconcileOnly));
+                Book.BookKey:=CreateBookKey(BookID,CID);
+                var AfterBook:=Book; AfterBook.Folder:=Folder; AfterBook.FileName:=FileName;
+                ReaderAliases.RecordMove(Book,AfterBook,VerifyOnly);
                 if (Folder<>Book.Folder) or (FileName<>Book.FileName) then
                 begin
                   if VerifyOnly then raise EReadError.Create('Новый личный адрес книги не совпал с проверенной копией.');
@@ -182,9 +185,9 @@ function ApplyTransferLocations(DB,Personal,Review:TSQLiteDatabase; Prepared:TPr
   const Operation,ReviewSHA:string; const Registrations:TArray<Integer>; PersonalRows:Boolean;
   VerifyOnly,ReconcileOnly,Finalizing:Boolean):TTransferLocationResult;
 var R,Rows,Live,Marker:TSQLiteQuery; Allowed,Seen,Unsafe:TDictionary<string,Boolean>; Bind:TJSONArray;
-    FinalLayout:TCollectionTransferLayout;
+    FinalLayout:TCollectionTransferLayout; ReaderAliases:TReaderHistoryAliasWriter;
 begin
-  Result:=Default(TTransferLocationResult); R:=nil; Rows:=nil; Live:=nil; Marker:=nil; FinalLayout:=nil;
+  Result:=Default(TTransferLocationResult); R:=nil; Rows:=nil; Live:=nil; Marker:=nil; FinalLayout:=nil; ReaderAliases:=nil;
   if (DB=nil) or not DB.InTransaction or (Prepared=nil) or (Length(Registrations)=0) or
     (Length(ReviewSHA)<>64) or (Operation='') then raise EArgumentException.Create('Нужна привязанная транзакция расположений.');
   var ActualKey:=DatabaseKey(DB); var PersonalKey:=Review.QuerySingleString('SELECT Value FROM Context WHERE Name=''personal_key''');
@@ -193,6 +196,7 @@ begin
   Allowed:=TDictionary<string,Boolean>.Create; Seen:=TDictionary<string,Boolean>.Create;
   Unsafe:=TDictionary<string,Boolean>.Create; Bind:=TJSONArray.Create;
   try
+    ReaderAliases:=TReaderHistoryAliasWriter.Create(Personal,Operation,ReviewSHA);
     if Finalizing then FinalLayout:=TCollectionTransferLayout.Create(Review);
     if not VerifyOnly then DB.AddFunction('MHL_TRIGGERS_ON',0,EnableLocatorTriggers);
     for var CID in Registrations do
@@ -241,7 +245,7 @@ begin
     end;
     FreeAndNil(R);
     Rows:=Review.NewQuery('SELECT r.RegistrationID,r.Kind,r.BookID,r.SourceKey,r.LibID,r.Folder,r.FileName,r.Ext,r.InsideNo,'+
-      'r.CopyRoot,r.FileID,r.RetainReason,c.Root FROM RegisteredReferences r JOIN Files f ON f.ID=r.FileID '+
+      'r.CopyRoot,r.FileID,r.RetainReason,c.Root,c.RawRoot FROM RegisteredReferences r JOIN Files f ON f.ID=r.FileID '+
       'JOIN ReferenceRegistrations c ON c.RegistrationID=r.RegistrationID WHERE f.GroupID=? AND r.Resource=0 ORDER BY r.ID',[Prepared.ID]);
     Rows.Open;
     while not Rows.Eof do
@@ -298,6 +302,12 @@ begin
       if VerifyOnly and not NewLocation then raise EReadError.Create('Новый адрес книги ещё не сохранён.');
       if ReconcileOnly and not PersonalRows and not NewLocation then
         raise EReadError.Create('Сохранённый адрес каталога изменился после публикации группы.');
+      var ReaderBefore:=Original; ReaderBefore.BookKey:=CreateBookKey(Rows.FieldAsInt(2),CID);
+      if (Kind<>2) or (Rows.FieldAsString(9)='') then
+        ReaderBefore.CollectionRoot:=Settings.ExpandCollectionRoot(Rows.FieldAsString(13));
+      var ReaderAfter:=ReaderBefore; ReaderAfter.Folder:=Folder; ReaderAfter.FileName:=FileName;
+      var ReaderBinding:=ReaderAliases.RecordMove(ReaderBefore,ReaderAfter,VerifyOnly or ReconcileOnly);
+      if ReaderBinding<>'' then Row.Add('reader-history:'+ReaderBinding);
       if not NewLocation then
       begin
         Live:=DB.NewQuery('UPDATE '+Table+' SET Folder=?,FileName=? WHERE '+Where);
@@ -310,7 +320,7 @@ begin
       Rows.Next;
     end;
     FreeAndNil(Rows);
-    if PersonalRows then NewPersonalRows(DB,Review,Prepared,Registrations,Seen,Result.Rows,Result.Retained,VerifyOnly,ReconcileOnly);
+    if PersonalRows then NewPersonalRows(DB,Review,Prepared,Registrations,Seen,Result.Rows,Result.Retained,VerifyOnly,ReconcileOnly,ReaderAliases);
     var BindingSHA:=THashSHA2.GetHashString(Bind.ToJSON);
     if VerifyOnly or ReconcileOnly then
     begin
@@ -329,7 +339,7 @@ begin
       if not PersonalRows and not ReconcileOnly then Result.History:=RebindTransferHistory(DB,Review,Prepared);
       DB.ExecSQL('INSERT OR IGNORE INTO HomeLibreTransferLocations VALUES(?,?,?,?)',[Operation,Prepared.ID,ReviewSHA,BindingSHA]);
     end;
-  finally FinalLayout.Free; Marker.Free; Live.Free; Rows.Free; R.Free; Bind.Free; Unsafe.Free; Seen.Free; Allowed.Free; end;
+  finally ReaderAliases.Free; FinalLayout.Free; Marker.Free; Live.Free; Rows.Free; R.Free; Bind.Free; Unsafe.Free; Seen.Free; Allowed.Free; end;
 end;
 
 end.
