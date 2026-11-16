@@ -11,10 +11,10 @@ procedure ShowCollectionTransfer(Owner:TCustomForm; const Info:TCollectionInfo; 
 
 implementation
 
-uses Winapi.Windows, Winapi.ActiveX, System.IOUtils, System.SyncObjs, System.Math,
+uses Winapi.Windows, Winapi.Messages, Winapi.ActiveX, System.IOUtils, System.SyncObjs, System.Math,
   Vcl.Dialogs, Vcl.Clipbrd, unit_Settings, dm_user, unit_MHLTheme, unit_BookEstimateReport,
   unit_CollectionTransferCatalogue, unit_CollectionTransferPlan, unit_CollectionTransferJournal,
-  unit_CollectionTransferOperation, unit_CollectionTransferCompletion;
+  unit_CollectionTransferOperation, unit_CollectionTransferCompletion, unit_CollectionTransferSpace;
 
 type
   TTransferUIPhase=(tpPreview,tpRun,tpComplete);
@@ -27,6 +27,7 @@ type
   private
     FLock:TObject;
     FStatus:TTransferUIStatus;
+    FNextSpaceCheck:UInt64;
   public
     Info:TCollectionInfo;
     Personal,Destination,WorkRoot,Error:string;
@@ -46,6 +47,7 @@ type
     procedure CatalogueProgress(Count:Int64);
     function Status:TTransferUIStatus;
     procedure BeginPhase;
+    procedure CheckSpace;
   end;
   TTransferUIWorker=class(TThread)
   private
@@ -114,9 +116,28 @@ begin Result:=TInterlocked.CompareExchange(CancelFlag,0,0)<>0; end;
 
 procedure TTransferUIContext.BeginPhase;
 begin
+  FNextSpaceCheck:=0;
   TInterlocked.Exchange(CancelFlag,0);
   System.TMonitor.Enter(FLock);
   try FStatus:=Default(TTransferUIStatus); finally System.TMonitor.Exit(FLock); end;
+end;
+
+procedure TTransferUIContext.CheckSpace;
+var Available,Capacity:UInt64;
+begin
+  if GetTickCount64<FNextSpaceCheck then Exit;
+  FNextSpaceCheck:=GetTickCount64+1000;
+  var SystemDrive:=GetEnvironmentVariable('SystemDrive'); if SystemDrive='' then SystemDrive:='C:';
+  if not GetDiskFreeSpaceEx(PChar(IncludeTrailingPathDelimiter(SystemDrive)),Available,Capacity,nil) then RaiseLastOSError;
+  if Available<UInt64(8)*1024*1024*1024 then
+    raise EWriteError.Create('На системном диске нужно сохранить не менее 8 ГБ. Подготовка остановлена.');
+  for var Path in TArray<string>.Create(WorkRoot,Destination) do
+    if (Path<>'') and DirectoryExists(Path) then
+    begin
+      if not GetDiskFreeSpaceEx(PChar(IncludeTrailingPathDelimiter(Path)),Available,Capacity,nil) then RaiseLastOSError;
+      if Available<UInt64(512)*1024*1024 then
+        raise EWriteError.Create('В рабочей папке и назначении нужно сохранить резерв 512 МБ. Подготовка остановлена.');
+    end;
 end;
 
 function TTransferUIContext.Status:TTransferUIStatus;
@@ -165,11 +186,7 @@ begin
   try
     FContext.Error:=''; FContext.Stopped:=False;
     try
-      var SystemRoot:=GetEnvironmentVariable('SystemDrive'); if SystemRoot='' then SystemRoot:='C:';
-      var FreeBytes,TotalBytes:UInt64;
-      if not GetDiskFreeSpaceEx(PChar(IncludeTrailingPathDelimiter(SystemRoot)),FreeBytes,TotalBytes,nil) then RaiseLastOSError;
-      if FreeBytes<UInt64(8)*1024*1024*1024 then
-        raise EWriteError.Create('На системном диске нужно оставить не менее 8 ГБ. Готовые данные и журнал сохраняются.');
+      Context.CheckSpace;
       case FPhase of
         tpPreview:
           begin
@@ -178,7 +195,7 @@ begin
               raise EDirectoryNotFoundException.Create('Выберите существующую папку назначения.');
             ForceDirectories(FContext.WorkRoot);
             FContext.Capture:=TCollectionTransferCatalogue.Create(FContext.Info,FContext.Personal,FContext.WorkRoot,
-              function:Boolean begin Result:=Context.Cancelled; end,
+              function:Boolean begin Context.CheckSpace; Result:=Context.Cancelled; end,
               procedure(Count:Int64) begin Context.CatalogueProgress(Count); end);
             if Cancelled then Abort;
             FContext.Plan:=FContext.Capture.BuildFilePlan(FContext.Destination,FContext.WorkRoot,TGUID.NewGuid);
@@ -186,10 +203,19 @@ begin
             FContext.CopyBytes:=FContext.Plan.CopyBytes; FContext.Missing:=FContext.Capture.Count(tbsMissing);
             var Lines:=TList<string>.Create;
             try
+              Progress('Оценка места и сохранённых источников','',0,0,0,0);
+              var SpaceReview:=TCollectionTransferJournal.Create(FContext.WorkRoot,FContext.Capture,FContext.Plan,
+                function:Boolean begin Context.CheckSpace; Result:=Context.Cancelled; end,True);
+              try
+                var Budget:=EstimateTransferSpace(SpaceReview,Settings.DataPath,
+                  procedure begin Context.CheckSpace; if Context.Cancelled then Abort; end);
+                Lines.AddRange(TransferSpaceText(Budget)); Lines.Add('');
+              finally SpaceReview.Free; end;
+              var PathLines:=0;
               FContext.Plan.ForEachFile(procedure(const Item:TCollectionTransferFile)
                 begin
                   if Cancelled then Abort;
-                  if Lines.Count<200 then Lines.Add(Item.Source+sLineBreak+'  → '+Item.Destination);
+                  if PathLines<200 then begin Lines.Add(Item.Source+sLineBreak+'  → '+Item.Destination); Inc(PathLines); end;
                 end);
               FContext.PreviewLines:=Lines.ToArray;
             finally Lines.Free; end;
@@ -219,7 +245,12 @@ begin
           FContext.Outcome:=FContext.Journal.CompleteTransfer(FReady,Cancelled);
       end;
     except
-      on E:EAbort do begin FContext.Stopped:=True; FContext.Error:='Остановлено. Готовые копии и журнал сохранены.'; end;
+      on E:EAbort do
+      begin
+        FContext.Stopped:=True;
+        if FPhase=tpPreview then FContext.Error:='Проверка остановлена. Книги не перемещались.'
+        else FContext.Error:='Остановлено. Готовые копии и журнал сохранены.';
+      end;
       on E:Exception do FContext.Error:=E.Message;
     end;
   finally
@@ -348,7 +379,8 @@ begin
   FDestination.Enabled:=not Busy and not Frozen; FWork.Enabled:=FDestination.Enabled;
   FChooseDestination.Enabled:=FDestination.Enabled; FChooseWork.Enabled:=FDestination.Enabled;
   FPreview.Enabled:=not Busy and not Frozen and (Value<>usCompleted);
-  FRun.Enabled:=not Busy and (Value<>usCompleted) and (((FContext.Plan<>nil) and (FContext.Files>0)) or Frozen);
+  FRun.Enabled:=not Busy and (Value<>usCompleted) and
+    ((((FContext.Plan<>nil) and (FContext.Files>0)) and (Value=usReady)) or Frozen);
   FStop.Enabled:=Busy; FClose.Enabled:=True;
   FRun.Default:=FRun.Enabled;
   if Value=usCompleted then FBar.Position:=100;
@@ -476,6 +508,7 @@ begin
         'Ниже показано до 200 файлов. Общие исходники сохраняются, если нужны другой коллекции.'+sLineBreak,
         [FContext.Files,FContext.CopyFiles,BookEstimateSizeText(FContext.CopyBytes),FContext.Missing]);
       for var Line in FContext.PreviewLines do FReport.Lines.Add(Line);
+      FReport.SelStart:=0; FReport.Perform(EM_SCROLLCARET,0,0);
       SetState(usReady,'План готов. Проверьте папки и нажмите «Перенести».');
       if FContext.Files=0 then FStage.Caption:='Доступных файлов для переноса не найдено. Проверьте подключение папок книг.';
     end;

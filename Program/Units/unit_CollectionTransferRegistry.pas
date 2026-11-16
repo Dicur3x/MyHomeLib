@@ -126,6 +126,7 @@ constructor TCollectionTransferRegistry.Create(Journal:TCollectionTransferJourna
 begin
   inherited Create;
   if Journal=nil then raise EArgumentException.Create('Не указан проверенный журнал переноса.');
+  if Journal.IsPreview then raise EReadError.Create('Проверка места не является операцией переноса.');
   FJournal:=Journal; FInfo.Operation:=Meta('directory'); FInfo.Directory:=Journal.Directory;
   FInfo.ReviewSHA256:=Journal.ReviewSHA256; FInfo.PersonalKey:=Meta('personal_key');
   FInfo.WorkRoot:=Meta('work_root'); FInfo.Destination:=Meta('destination');

@@ -295,7 +295,8 @@ constructor TReferenceScan.Create(Review:TSQLiteDatabase; const PersonalFile:str
 begin
   inherited Create; FReview:=Review; FCancelled:=Cancelled; FProgress:=Progress; FExtraTargets:=ExtraTargets;
   if (FReview=nil) or not FReview.InTransaction or
-    (FReview.QuerySingleString('SELECT Value FROM Context WHERE Name=''kind''')<>'HomeLibre collection transfer preparation v1') or
+    ((FReview.QuerySingleString('SELECT Value FROM Context WHERE Name=''kind''')<>'HomeLibre collection transfer preparation v1') and
+      (FReview.QuerySingleString('SELECT Value FROM Context WHERE Name=''kind''')<>'HomeLibre collection transfer space preview v1')) or
     (CompressionFileKey(PersonalFile)<>FReview.QuerySingleString('SELECT Value FROM Context WHERE Name=''personal_key''')) then
     raise EArgumentException.Create('Нужен собственный незавершённый план переноса.');
   FPersonal:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(PersonalFile));

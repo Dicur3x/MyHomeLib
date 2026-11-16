@@ -86,6 +86,10 @@ begin
         1:
           if Run.Enabled then
           begin
+            Require(Pos('Место по дискам:',TMemo(Dialog.FindComponent('TransferReport')).Text)>0,
+              'Transfer preview omitted the volume-space budget');
+            Require(SendMessage(TMemo(Dialog.FindComponent('TransferReport')).Handle,EM_GETFIRSTVISIBLELINE,0,0)=0,
+              'Transfer plan opened scrolled past its space budget');
             if GetEnvironmentVariable('HL_TRANSFER_VISUAL')='1' then
             begin
               if not VisualMarked then

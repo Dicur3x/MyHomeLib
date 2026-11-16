@@ -63,8 +63,11 @@ end;
 constructor TCollectionTransferLayout.Create(Review:TSQLiteDatabase);
 begin
   inherited Create;
-  if (Review=nil) or (Review.QuerySingleString('SELECT Value FROM Context WHERE Name=''kind''')<>
-    'HomeLibre collection transfer preparation v1') then raise EArgumentException.Create('Нужен проверенный план переноса.');
+  if Review=nil then raise EArgumentException.Create('Нужен проверенный план переноса.');
+  var Kind:=Review.QuerySingleString('SELECT Value FROM Context WHERE Name=''kind''');
+  if (Kind<>'HomeLibre collection transfer preparation v1') and
+    (Kind<>'HomeLibre collection transfer space preview v1') then
+    raise EArgumentException.Create('Нужен проверенный план переноса.');
   FReview:=Review;
   FDestination:=Folder(Review.QuerySingleString('SELECT Value FROM Context WHERE Name=''destination'''));
   FContentRoot:=Folder(Review.QuerySingleString('SELECT Value FROM Context WHERE Name=''content_root'''));

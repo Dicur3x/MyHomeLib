@@ -6,7 +6,8 @@ uses System.SysUtils, SQLiteWrap, unit_CollectionTransferPlan;
 
 // Called only while constructing the owning, unsealed review. Snapshots are
 // private metadata, not registered catalogues. Nothing is removed or rebound.
-procedure CaptureTransferCatalogueForks(Review:TSQLiteDatabase; const Cancelled:TFunc<Boolean>);
+procedure CaptureTransferCatalogueForks(Review:TSQLiteDatabase; const Cancelled:TFunc<Boolean>;
+  MetadataOnly:Boolean=False);
 function TransferForkRootToken(const Root:string):string;
 function TransferForkEntry(Review:TSQLiteDatabase; ForkID:Int64):TCollectionTransferFile;
 function AcquireTransferForkSource(Review:TSQLiteDatabase; SourceID:Int64;
@@ -145,11 +146,20 @@ begin
     raise EWriteError.Create('Для копии общего каталога не хватает места с резервом 512 МБ.');
 end;
 
-function Snapshot(Review:TSQLiteDatabase; const Source,Key:string; const Cancelled:TFunc<Boolean>):Int64;
+function Snapshot(Review:TSQLiteDatabase; const Source,Key:string; const Cancelled:TFunc<Boolean>; MetadataOnly:Boolean):Int64;
 var Guard:TPinnedCatalogue; Lease:IInterface; DB:TSQLiteDatabase; SnapshotLease:IInterface;
   Canonical,Identity,SHA,Directory,FileName:string; Bytes,PageSize:Int64;
 begin
   Guard:=TPinnedCatalogue.Create(Source,Key,Cancelled); Lease:=Guard;
+  if MetadataOnly then
+  begin
+    DB:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(Guard.Path));
+    try Bytes:=DB.QuerySingleInt('PRAGMA page_count')*DB.QuerySingleInt('PRAGMA page_size'); finally DB.Free; end;
+    Result:=Review.QuerySingleInt('SELECT coalesce(max(ID),0)+1 FROM ForkSources');
+    Review.ExecSQL('INSERT INTO ForkSources VALUES(?,?,?,?,?,?,?,?,?)',
+      [Result,Source,Key,Guard.Witness,'','',Bytes,'',Guard.Path]);
+    Exit;
+  end;
   Directory:=TPath.Combine(Review.QuerySingleString('SELECT Value FROM Context WHERE Name=''work_root'''),
     Review.QuerySingleString('SELECT Value FROM Context WHERE Name=''directory'''));
   Directory:=TPath.Combine(Directory,'catalogue-snapshots');
@@ -194,7 +204,7 @@ begin
   finally Stream.Free; end;
 end;
 
-procedure CaptureTransferCatalogueForks(Review:TSQLiteDatabase; const Cancelled:TFunc<Boolean>);
+procedure CaptureTransferCatalogueForks(Review:TSQLiteDatabase; const Cancelled:TFunc<Boolean>; MetadataOnly:Boolean);
 var Keys,Regs:TSQLiteQuery; Key,Keeper,Token,Role,Source,SelectedKey,OriginalRoot:string;
     SourceID,ForkID,MemberID:Int64; SelectedID:Integer; SelectedMoves:Boolean;
 begin
@@ -236,7 +246,7 @@ begin
           if Keeper='' then begin Keeper:=Token; Source:=Regs.FieldAsString(2); end
           else if Role<>Keeper then
           begin
-            if SourceID=0 then SourceID:=Snapshot(Review,Source,Key,Cancelled);
+            if SourceID=0 then SourceID:=Snapshot(Review,Source,Key,Cancelled,MetadataOnly);
             ForkID:=Review.QuerySingleInt('SELECT ID FROM CatalogueForks WHERE SourceID=? AND RootToken=?',[SourceID,Role]);
             if ForkID=0 then
             begin

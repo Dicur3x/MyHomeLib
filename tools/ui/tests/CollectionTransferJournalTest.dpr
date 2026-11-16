@@ -11,6 +11,7 @@ uses System.SysUtils, System.Classes, System.IOUtils, System.JSON, System.Hash,
   unit_CollectionTransferCacheSnapshot,
   unit_CollectionTransferCachePreparation,
   unit_CollectionTransferCacheInstallation,
+  unit_CollectionTransferSpace,
   unit_ReaderHistoryAliases, unit_ReaderCache,
   unit_CollectionMerge, unit_Interfaces, unit_LibraryUpdateReview, unit_SystemDatabase_SQLite,
   unit_CollectionTransferLayout, unit_CollectionTransferFinalRows, unit_CollectionTransferFinalization,
@@ -293,7 +294,43 @@ begin
               Stop:=True;
             end;
           Journal:=TCollectionTransferJournal.Create(Owned(Request.GetValue<string>('work')),Capture,Plan,
-            function:Boolean begin Result:=Stop; end);
+            function:Boolean begin Result:=Stop; end,Request.GetValue<Boolean>('space_preview',False));
+          if Journal.IsPreview then
+          begin
+            Output:=TJSONObject.Create;
+            Writeln('TRACE estimating transfer space'); Flush(System.Output);
+            var Rows:=EstimateTransferSpace(Journal,Settings.DataPath,
+              procedure begin if Request.GetValue<Boolean>('cancel_space',False) then Abort; end);
+            var Budgets:=TJSONArray.Create; Output.AddPair('space',Budgets);
+            for var Budget in Rows do
+            begin
+              var Row:=TJSONObject.Create; Budgets.AddElement(Row); Row.AddPair('volume',Budget.Volume); Row.AddPair('key',Budget.Key);
+              Row.AddPair('free',TJSONNumber.Create(Budget.Free)); Row.AddPair('books',TJSONNumber.Create(Budget.Books));
+              Row.AddPair('working',TJSONNumber.Create(Budget.Working)); Row.AddPair('caches',TJSONNumber.Create(Budget.Caches));
+              Row.AddPair('catalogues',TJSONNumber.Create(Budget.Catalogues)); Row.AddPair('reserve',TJSONNumber.Create(Budget.Reserve));
+              Row.AddPair('required',TJSONNumber.Create(Budget.Required));
+            end;
+            var Refused:=False;
+            try Registry:=TCollectionTransferRegistry.Create(Journal); except on E:EReadError do Refused:=True; end;
+            if not Refused then raise EReadError.Create('Space preview can be registered as a move');
+            Refused:=False;
+            try var Prepared:=Journal.PrepareGroup(1); Prepared.Free; except on E:EReadError do Refused:=True; end;
+            if not Refused then raise EReadError.Create('Space preview can prepare payloads');
+            Refused:=False;
+            try
+              var Resumed:=TCollectionTransferJournal.Resume(Owned(Request.GetValue<string>('work')),
+                Owned(Request.GetValue<string>('destination')),Journal.Directory,Journal.ReviewSHA256); Resumed.Free;
+            except
+              on E:EReadError do Refused:=True;
+              on E:EOSError do if E.ErrorCode=ERROR_SHARING_VIOLATION then Refused:=True else raise;
+            end;
+            if not Refused then raise EReadError.Create('Space preview can be reopened as a move');
+            var Directory:=Journal.Directory; FreeAndNil(Journal);
+            if DirectoryExists(Directory) then raise EReadError.Create('Space review was not discarded');
+            FreeAndNil(Plan); FreeAndNil(Capture);
+            Output.AddPair('status','PASS'); TFile.WriteAllText(Owned(ParamStr(2)),Output.ToJSON,TEncoding.UTF8);
+            Writeln('PASS volume space preview remains read-only refuses transfer and removes owned scratch'); Exit;
+          end;
           Control:=TJSONObject.Create; Control.AddPair('directory',Journal.Directory);
           Control.AddPair('review_sha256',Journal.ReviewSHA256);
           TFile.WriteAllText(ControlFile,Control.ToJSON,TEncoding.UTF8);

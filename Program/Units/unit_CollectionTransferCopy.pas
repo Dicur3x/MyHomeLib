@@ -5,6 +5,9 @@ interface
 uses System.SysUtils, System.Classes, System.JSON, System.Generics.Collections,
   Winapi.Windows, unit_CollectionTransferPlan;
 
+// Metadata only: all named data streams, without reading their contents.
+function TransferSourceBytes(const Path,ExpectedIdentity:string):Int64;
+
 type
   TTransferCopyProgress = reference to procedure(const Stage: string; Done, Total: Int64);
   TTransferDestinationProof = record
@@ -420,6 +423,21 @@ begin
   TArray.Sort<TStreamItem>(Result,TComparer<TStreamItem>.Construct(
     function(const A,B:TStreamItem):Integer
     begin Result:=CompareStr(A.Name,B.Name); end));
+end;
+
+function TransferSourceBytes(const Path,ExpectedIdentity:string):Int64;
+begin
+  var Canonical,Identity:string; var Bytes:Int64;
+  TransferReadFileState(Path,Canonical,Identity,Bytes);
+  if (ExpectedIdentity<>'') and (Identity<>ExpectedIdentity) then raise EReadError.Create('Файл изменился перед оценкой места.');
+  Result:=0;
+  for var Item in StreamNames(Path) do
+  begin
+    if (Item.Size<0) or (Result>High(Int64)-Item.Size) then raise EReadError.Create('Размер файла слишком велик.');
+    Inc(Result,Item.Size);
+  end;
+  TransferReadFileState(Path,Canonical,Identity,Bytes);
+  if (ExpectedIdentity<>'') and (Identity<>ExpectedIdentity) then raise EReadError.Create('Файл изменился при оценке места.');
 end;
 
 constructor TTransferStreamSnapshot.Create(const Path, ExpectedIdentity, ExpectedKey:string;

@@ -91,6 +91,19 @@ and a peak temporary-space estimate; do not add whole-library extraction space.
 Recheck the 8 GiB system reserve and destination/work-volume reserves before and
 during long work. Losing the reserve stops preparation without deleting sources.
 
+The local preview now includes a per-volume planning allowance for payloads,
+working metadata/cache snapshots, installed cache versions and catalogue/fork
+processing. A volume identity combines roles and applies the largest reserve
+once: 8 GiB on the system volume, 512 MiB elsewhere. File bytes include named
+streams and exclude in-place payloads; future source deletion is never credited.
+The cache plan reuses the actual source/history projection. A separate preview
+review kind permits metadata-only fork planning and cannot register or prepare a
+move. Its owned draft is discarded after estimation. Initial UI capture/planning
+also polls the reserves, and an estimation failure disables Transfer. Growth
+factors are planning allowances rather than an exact peak or reserved capacity;
+runtime guards still stop insufficient-space writes. Native evidence and limits:
+`docs/audits/2026-11-17-collection-transfer-space.md`.
+
 The physical planner now observes all existing declared roots, including an
 outer root with no directly assigned book. This keeps its children in one
 relative layout without recursively copying unrelated contents. The final-layout

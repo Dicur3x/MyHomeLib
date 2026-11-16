@@ -49,7 +49,7 @@ type
     FProgress: TTransferJournalProgress;
     FNextReserveCheck: UInt64;
     FCreatedDirectoryKey,FCreatedCopiesKey:string;
-    FConstructionComplete:Boolean;
+    FConstructionComplete,FPreviewOnly:Boolean;
     FConstructionFiles:TDictionary<string,string>;
     procedure DiscardIncompletePreparation;
     procedure CheckStop;
@@ -70,7 +70,7 @@ type
     constructor OpenExisting(const WorkRoot, Destination, Directory, ReviewSHA: string);
   public
     constructor Create(const WorkRoot: string; Catalogue: TCollectionTransferCatalogue;
-      Plan: TCollectionTransferPlan; const Cancelled: TFunc<Boolean> = nil);
+      Plan: TCollectionTransferPlan; const Cancelled: TFunc<Boolean> = nil; PreviewOnly:Boolean=False);
     class function Resume(const WorkRoot, Destination, Directory, ReviewSHA: string): TCollectionTransferJournal; static;
     destructor Destroy; override;
     procedure ForEachGroup(const Visit: TTransferJournalGroupVisitor);
@@ -113,6 +113,7 @@ type
     property Directory: string read FDirectory;
     property ReviewSHA256: string read FReviewSHA;
     property Review: TSQLiteDatabase read FReview;
+    property IsPreview:Boolean read FPreviewOnly;
   end;
 
 {$IFDEF MHL_TRANSFER_TEST}
@@ -128,6 +129,7 @@ uses System.IOUtils, System.Hash, unit_Globals, unit_Consts,
   unit_CollectionTransferFinalization, unit_CollectionTransferCachePreparation, unit_CollectionTransferCompletion;
 
 const JournalKind='HomeLibre collection transfer preparation v1';
+  PreviewKind='HomeLibre collection transfer space preview v1';
   Prefix='collection-transfer-';
 
 procedure Point(const Stage,Directory:string; GroupID,FileID:Int64);
@@ -185,6 +187,8 @@ begin Result:=FCopies[Index]; end;
 
 procedure TCollectionTransferJournal.CheckStop;
 begin
+  if FPreviewOnly and FConstructionComplete then
+    raise EReadError.Create('План места предназначен только для просмотра. Начните перенос из обычного окна.');
   if Assigned(FCancelled) and FCancelled() then
     raise EAbort.Create('Подготовка переноса остановлена. Исходники и журнал сохранены.');
   CheckSpace;
@@ -310,7 +314,8 @@ begin
   FReview.ExecSQL('CREATE TABLE NegativePaths(Path TEXT NOT NULL PRIMARY KEY) WITHOUT ROWID');
   FReview.ExecSQL('CREATE TABLE Parents(FileID INTEGER PRIMARY KEY,ParentID INTEGER NOT NULL)');
   FReview.ExecSQL('BEGIN');
-  SaveMeta('kind',JournalKind); SaveMeta('directory',ExtractFileName(FDirectory));
+  if FPreviewOnly then SaveMeta('kind',PreviewKind) else SaveMeta('kind',JournalKind);
+  SaveMeta('directory',ExtractFileName(FDirectory));
   SaveMeta('work_root',FWorkRoot); SaveMeta('destination',FDestination); SaveMeta('content_root',Plan.ContentRoot);
   SaveMeta('work_key',PinDirectory(FWorkRoot)); SaveMeta('destination_key',PinDirectory(FDestination));
   SaveMeta('state_key',CompressionFileKey(TPath.Combine(FDirectory,'state.sqlite')));
@@ -402,15 +407,16 @@ begin
   FReview.ExecSQL('CREATE UNIQUE INDEX Groups_ID ON Groups(ID)');
   CaptureTransferReferences(FReview,Catalogue.PersonalFile,
     function:Boolean begin CheckStop; Result:=False; end);
-  CaptureTransferCatalogueForks(FReview,function:Boolean begin CheckStop; Result:=False; end);
+  CaptureTransferCatalogueForks(FReview,function:Boolean begin CheckStop; Result:=False; end,FPreviewOnly);
   Catalogue.CheckUnchanged; Plan.CheckUnchanged;
   FReview.ExecSQL('COMMIT');
 end;
 
 constructor TCollectionTransferJournal.Create(const WorkRoot:string; Catalogue:TCollectionTransferCatalogue;
-  Plan:TCollectionTransferPlan; const Cancelled:TFunc<Boolean>);
+  Plan:TCollectionTransferPlan; const Cancelled:TFunc<Boolean>; PreviewOnly:Boolean);
 begin
   inherited Create;
+  FPreviewOnly:=PreviewOnly;
   if (Catalogue=nil) or (Plan=nil) then raise EArgumentException.Create('Нужен проверенный план коллекции.');
   FCancelled:=Cancelled; FGuards:=TList<THandle>.Create;
   FConstructionFiles:=TDictionary<string,string>.Create;
@@ -498,7 +504,7 @@ begin
   FPublicationSession.Free; FState.Free; FReview.Free; FReviewLease.Free; FStateLease:=nil;
   if FLease<>0 then CloseHandle(FLease);
   if FGuards<>nil then begin for var Handle in FGuards do CloseHandle(Handle); FGuards.Free; end;
-  if not FConstructionComplete then DiscardIncompletePreparation;
+  if not FConstructionComplete or FPreviewOnly then DiscardIncompletePreparation;
   FConstructionFiles.Free;
   inherited;
 end;
@@ -1191,6 +1197,7 @@ end;
 
 procedure TCollectionTransferJournal.OpenPublicationSession;
 begin
+  if FPreviewOnly then raise EReadError.Create('Проверка места не может менять каталоги.');
     if FPublicationSession=nil then
       FPublicationSession:=TTransferPublicationSession.Create(FReview,Meta('personal'),FWorkRoot,Meta('directory'),FReviewSHA,
         function(CID:Integer):string begin Result:=EffectiveCatalogue(CID); end,
