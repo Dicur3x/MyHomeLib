@@ -414,12 +414,47 @@ authorized roots replay is validated by the roots controller first. The command
 and overall operation remain disabled/pending. See
 `docs/audits/2026-11-16-collection-transfer-cache-preparation.md`.
 
-The complete controller must still reserve/publish persistent versions and their
-metadata with independent file proofs and per-database atomic receipts, support
-partial publication through authorized roots/startup replay, and coordinate
-normal DAO/job/Reader access and old-baseline changes. Whole-operation cleanup,
-space accounting and final gates remain required. Snapshot evidence:
-`docs/audits/2026-11-16-collection-transfer-cache-snapshot.md`.
+`TTransferCacheInstallation` now materializes the fixed new version directories.
+The prepared personal intent freezes the data-directory identity; the metadata
+model rejects colliding new version paths. Each installation binds the exact
+review/intent/job/inputs and snapshot digest, records attempt/file ownership before
+copying, flushes and reads back every file, and commits its ready proof before
+renaming the exact owned directory handle without replacement. Strict named-file
+leases and complete identity/hash/membership checks follow the rename before the
+published marker. A ready exit before/after rename recovers the same objects;
+unready attempts are retained and a fresh attempt is used. Source/history
+references remain unchanged and the operation remains pending. Evidence and
+the NTFS child-handle transition are described in
+`docs/audits/2026-11-16-collection-transfer-cache-installation.md`.
+
+### Cache metadata cutover still required
+
+Only after every fixed version is independently proved published may source and
+history references change. Write both properties and a receipt in each database's
+same transaction. Bind the receipt to its database key, immutable review, cache
+intent, root intent and complete installation-proof set. Commit, reacquire the
+same writer and check data_version; a foreign writer's intervening update must
+be revalidated, never acknowledged as the transfer's own write.
+
+Partial publication needs a shared read/validation gate under the already-owned
+publication session. Reconstruct the fixed cache plan, verify all installed
+directory/file proofs under leases, and authorize sources_after/history_after
+only for a participant with its exact matching receipt. Other participants must
+still match their roots-only sources and history_before. The prior roots
+controller must accept that exact authorized source projection in its reference
+callback and settings check; it must never accept arbitrary cache_version edits
+or reset successfully published metadata to roots-only values. This gate must
+not start nested finalization transactions. Recovery after receipts should be
+able to use installed files and independent records without old baselines or
+discarded work snapshots, while preserving the immutable operation review.
+
+Route startup/continuation through that gate before ordinary source updates.
+After all metadata receipts are proved, normal DAO/job/Reader coordination,
+old-baseline changes, complete-operation state, ownership-aware cleanup, space
+accounting and final gates still remain. Verify a real full/incremental INPX with
+only a new archive after cutover: saved publisher/source/review keys must preserve
+old physical locators, compression history, copies and personal data. Snapshot
+evidence: `docs/audits/2026-11-16-collection-transfer-cache-snapshot.md`.
 
 ### Full operation gates
 

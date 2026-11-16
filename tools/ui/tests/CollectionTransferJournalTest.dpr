@@ -10,6 +10,7 @@ uses System.SysUtils, System.Classes, System.IOUtils, System.JSON, System.Hash,
   unit_CollectionTransferOperation, unit_CollectionTransferCache, unit_CatalogSources, unit_CollectionTransferCacheSettings,
   unit_CollectionTransferCacheSnapshot,
   unit_CollectionTransferCachePreparation,
+  unit_CollectionTransferCacheInstallation,
   unit_CollectionMerge, unit_Interfaces, unit_LibraryUpdateReview, unit_SystemDatabase_SQLite,
   unit_CollectionTransferLayout, unit_CollectionTransferFinalRows, unit_CollectionTransferFinalization,
   unit_CollectionTransferHistory, unit_CollectionTransferLocations, unit_BookCompressionImages, unit_BookCompressionReceipt, unit_BookCompressionPlan;
@@ -170,6 +171,11 @@ begin
             end;
             if Stage=Crash then begin Writeln('CRASH ',Stage); Flush(System.Output); Halt(97); end;
             if Stage=Request.GetValue<string>('cancel_cache_preparation_stage','') then Stop:=True;
+          end;
+        TransferCacheInstallationTestPoint:=procedure(Stage:string)
+          begin
+            if Stage=Crash then begin Writeln('CRASH ',Stage); Flush(System.Output); Halt(97); end;
+            if Stage=Request.GetValue<string>('cancel_cache_installation_stage','') then Stop:=True;
           end;
         TransferReferenceTestPoint:=
           procedure(Stage:string)
@@ -455,7 +461,28 @@ begin
           end;
         end;
         end;
+        var InstalledCaches:Int64:=0;
+        if Request.GetValue<Boolean>('install_cache_versions',False) then
+          InstalledCaches:=Journal.InstallSourceCacheVersions(function:Boolean begin Result:=Stop; end);
         Output:=TJSONObject.Create; Groups:=TJSONArray.Create; Output.AddPair('groups',Groups);
+        Output.AddPair('installed_caches',TJSONNumber.Create(InstalledCaches));
+        if Request.GetValue<Boolean>('read_installed_caches',False) and (InstalledCaches>0) then
+        begin
+          var DB:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(Owned(Request.GetValue<string>('personal'))));
+          try
+            var Raw:=DB.QuerySingleString('SELECT IntentJSON FROM HomeLibreTransferCacheIntent WHERE Operation=?',[ExtractFileName(Journal.Directory)]);
+            var Intent:=TJSONObject.ParseJSONValue(Raw) as TJSONObject;
+            try
+              var Hashes:=TJSONArray.Create; Output.AddPair('installed_book_hashes',Hashes);
+              for var Value in Intent.GetValue<TJSONArray>('jobs') do
+              begin
+                var Job:=Value as TJSONObject; var Item:=TJSONObject.Create; Hashes.AddElement(Item);
+                Item.AddPair('source',Job.GetValue<string>('source'));
+                Item.AddPair('sha256',NativeBookHash(Owned(Job.GetValue<string>('after_file')),Job.GetValue<string>('after_root')));
+              end;
+            finally Intent.Free; end;
+          finally DB.Free; end;
+        end;
         Output.AddPair('history_rows',TJSONNumber.Create(HistoryRows)); Output.AddPair('history_hits',HistoryHits); HistoryHits:=nil;
         Output.AddPair('publication_scans',TJSONNumber.Create(Journal.PublicationScanCount));
         Output.AddPair('verified_retained',TJSONNumber.Create(VerifiedRetained));

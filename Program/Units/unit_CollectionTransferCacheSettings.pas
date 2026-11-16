@@ -69,6 +69,7 @@ begin
   FStore.ExecSQL('CREATE TABLE TransferCacheSettingInputs('+
     'Job TEXT NOT NULL,SourceKey TEXT NOT NULL,SourceFile TEXT NOT NULL,ExpectedSHA TEXT NOT NULL,TargetFile TEXT NOT NULL,'+
     'PRIMARY KEY(Job,SourceKey)) WITHOUT ROWID');
+  FStore.ExecSQL('CREATE UNIQUE INDEX TransferCacheSettingTargets ON TransferCacheSettingJobs(AfterFile COLLATE NOCASE)');
 end;
 
 destructor TTransferCacheSettingsPlan.Destroy;
@@ -93,6 +94,8 @@ begin
   if Source.CacheVersion='' then raise EReadError.Create('В намерении нет выбранной версии кэша.');
   var AfterFile:=Full(Source.CacheFile);
   if SameFileName(FileName,AfterFile) then raise EReadError.Create('Новая версия кэша совпала с исходной.');
+  if FStore.QuerySingleInt('SELECT count(*) FROM TransferCacheSettingJobs WHERE AfterFile=? COLLATE NOCASE',[AfterFile])<>0 then
+    raise EReadError.Create('Разные задания выбрали один путь новой версии кэша.');
   FStore.ExecSQL('INSERT INTO TransferCacheSettingJobs VALUES(?,?,?,?,?,?,?,?,?)',
     [Result,ID,Version,Source.CacheVersion,OldRoot,NewRoot,Namespace,FileName,AfterFile]);
 end;

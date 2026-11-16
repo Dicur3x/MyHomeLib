@@ -95,6 +95,7 @@ type
     function FinalizeRoots(const Cancelled:TFunc<Boolean> = nil):Boolean;
     function HasCachePreparation:Boolean;
     function PrepareSourceCaches(const Cancelled:TFunc<Boolean> = nil):Int64;
+    function InstallSourceCacheVersions(const Cancelled:TFunc<Boolean> = nil):Int64;
     property Directory: string read FDirectory;
     property ReviewSHA256: string read FReviewSHA;
     property Review: TSQLiteDatabase read FReview;
@@ -1188,6 +1189,14 @@ begin
   OpenPublicationSession;
   var Handler:=TCollectionTransferCachePreparation.Create(Self,TTransferPublicationSession(FPublicationSession),RootsApplied);
   try Result:=Handler.Prepare(Cancelled); finally Handler.Free; end;
+end;
+
+function TCollectionTransferJournal.InstallSourceCacheVersions(const Cancelled:TFunc<Boolean>):Int64;
+begin
+  if not HasRootFinalization or not HasCachePreparation then raise EReadError.Create('Нет подготовленного завершения для установки кэша.');
+  var RootsApplied:=FinalizeRoots(Cancelled); OpenPublicationSession;
+  var Handler:=TCollectionTransferCachePreparation.Create(Self,TTransferPublicationSession(FPublicationSession),RootsApplied);
+  try Result:=Handler.Prepare(Cancelled,True); finally Handler.Free; end;
 end;
 
 function TCollectionTransferJournal.HasRootFinalization:Boolean;

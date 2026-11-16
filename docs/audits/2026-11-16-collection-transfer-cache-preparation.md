@@ -107,7 +107,12 @@ the review and inspects the plan, then corrupts the input of the actual second
 job before preparation. r970/r969 remain unsuccessful reports; only their complete
 passing methods contribute to the final coverage above.
 
-## Remaining boundaries
+## Remaining boundaries at this checkpoint
+
+Persistent version-directory materialization was added subsequently; its
+implementation and newer evidence are tracked in
+`docs/audits/2026-11-16-collection-transfer-cache-installation.md`. The following
+paragraphs record the preparation-controller checkpoint's remaining boundary.
 
 Persistent version directories/files still need exclusive reservation, verified
 copy/publication, durable ownership and independent recovery proofs. Source and

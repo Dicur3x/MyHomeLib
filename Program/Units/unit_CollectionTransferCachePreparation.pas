@@ -3,7 +3,8 @@
 interface
 
 uses System.SysUtils, System.Classes, System.JSON, System.Generics.Collections, SQLiteWrap,
-  unit_CollectionTransferJournal, unit_CollectionTransferPublication, unit_CollectionTransferCacheSnapshot;
+  unit_CollectionTransferJournal, unit_CollectionTransferPublication, unit_CollectionTransferCacheSnapshot,
+  unit_CollectionTransferCacheInstallation;
 
 type TCollectionTransferCachePreparation=class
   private
@@ -20,6 +21,8 @@ type TCollectionTransferCachePreparation=class
     FLeases:TList<IInterface>;
     FInputs:TObjectDictionary<string,TFileStream>;
     FReady:TObjectList<TTransferCacheSnapshot>;
+    FInstalled:TObjectList<TTransferCacheInstallation>;
+    FDataRoot:TTransferCachePathGuard;
     function Stop:Boolean;
     procedure Check;
     procedure Point(const Stage:string);
@@ -37,11 +40,13 @@ type TCollectionTransferCachePreparation=class
     procedure SaveIntent;
     procedure Remember(const Job,Binding,Stage,Data:string);
     function PrepareJob(Job:TJSONObject):Boolean;
+    procedure RememberInstallation(const Job,Binding,Stage,Data:string);
+    procedure InstallJob(Job:TJSONObject; Snapshot:TTransferCacheSnapshot);
   public
     constructor Create(Journal:TCollectionTransferJournal; Session:TTransferPublicationSession; RootsApplied:Boolean);
     destructor Destroy; override;
     class function HasIntent(Journal:TCollectionTransferJournal):Boolean; static;
-    function Prepare(const Cancelled:TFunc<Boolean>=nil):Int64;
+    function Prepare(const Cancelled:TFunc<Boolean>=nil; InstallVersions:Boolean=False):Int64;
   end;
 
 {$IFDEF MHL_TRANSFER_TEST}
@@ -56,6 +61,7 @@ uses System.Hash, System.IOUtils, Winapi.Windows, unit_Consts, unit_Settings, dm
 
 const IntentTable='HomeLibreTransferCacheIntent'; StageTable='HomeLibreTransferCacheStages';
   ClaimTable='HomeLibreTransferCacheClaims'; Kind='HomeLibre cache preparation v1';
+  InstallTable='HomeLibreTransferCacheInstallations'; InstallClaims='HomeLibreTransferCacheInstallClaims';
 
 function HasTable(DB:TSQLiteDatabase; const Name:string):Boolean;
 begin Result:=DB.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE type=''table'' AND name=?',[Name])=1; end;
@@ -83,14 +89,16 @@ begin
   FOwnedDBs:=TObjectList<TSQLiteDatabase>.Create(True); FLeases:=TList<IInterface>.Create;
   FInputs:=TObjectDictionary<string,TFileStream>.Create([doOwnsValues]);
   FReady:=TObjectList<TTransferCacheSnapshot>.Create(True);
+  FInstalled:=TObjectList<TTransferCacheInstallation>.Create(True);
 end;
 
 destructor TCollectionTransferCachePreparation.Destroy;
 begin
+  FInstalled.Free;
   FReady.Free;
   FInputs.Free;
   if FOwnedDBs<>nil then for var DB in FOwnedDBs do if DB.InTransaction then DB.Rollback;
-  FOwnedDBs.Free; FSourceDBs.Free; FLeases.Free; FPlan.Free; inherited;
+  FOwnedDBs.Free; FSourceDBs.Free; FLeases.Free; FPlan.Free; FDataRoot.Free; inherited;
 end;
 
 function TCollectionTransferCachePreparation.Meta(const Name:string):string;
@@ -162,6 +170,8 @@ procedure TCollectionTransferCachePreparation.BuildPlan;
 begin
   FPlan:=TJSONObject.Create; FPlan.AddPair('kind',Kind); FPlan.AddPair('operation',FOperation);
   FPlan.AddPair('review',FJournal.ReviewSHA256); FPlan.AddPair('data_root',Settings.DataPath);
+  FDataRoot:=TTransferCachePathGuard.Create(Settings.DataPath);
+  FPlan.AddPair('data_root_key',FDataRoot.Key);
   var Rows:=TJSONArray.Create; FPlan.AddPair('databases',Rows);
   var Store:=TCompressionPlanStore.Create(FJournal.Directory);
   try
@@ -192,6 +202,9 @@ begin
     (FPlan.GetValue<string>('review')<>FJournal.ReviewSHA256) or (FPlan.GetValue<string>('data_root')<>Settings.DataPath) or
     not ((FState='intent') or (FState='prepared') or (FState='')) or
     (FPlan.GetValue<TJSONArray>('databases').Count<>Length(FDatabases)) then raise EReadError.Create('Намерение относится к другой подготовке кэша.');
+  if FDataRoot=nil then FDataRoot:=TTransferCachePathGuard.Create(Settings.DataPath);
+  if FPlan.GetValue<string>('data_root_key')<>FDataRoot.Key then
+    raise EReadError.Create('Папка данных заменена после намерения переноса.');
   var Versions:=TDictionary<string,string>.Create;
   try
     for var Value in FPlan.GetValue<TJSONArray>('jobs') do
@@ -369,12 +382,117 @@ begin
   finally Snapshot.Free; Inputs.Free; end;
 end;
 
-function TCollectionTransferCachePreparation.Prepare(const Cancelled:TFunc<Boolean>):Int64;
+procedure TCollectionTransferCachePreparation.RememberInstallation(const Job,Binding,Stage,Data:string);
+begin
+  Stop; CheckOperation;
+  var Row:=TJSONObject.ParseJSONValue(Data) as TJSONObject;
+  try
+    var PlanJob:TJSONObject:=nil;
+    for var Value in FPlan.GetValue<TJSONArray>('jobs') do if TJSONObject(Value).GetValue<string>('job')=Job then PlanJob:=TJSONObject(Value);
+    if PlanJob=nil then raise EReadError.Create('Нет задания установки в независимом намерении.');
+    var Destination:=ExcludeTrailingPathDelimiter(ExtractFilePath(PlanJob.GetValue<string>('after_file')));
+    var Directory:=Row.GetValue<string>('directory'); var Key:=Row.GetValue<string>('directory_key'); var Path:=Row.GetValue<string>('path');
+    var Name:=ExtractFileName(Directory);
+    if (Row.GetValue<string>('binding')<>Binding) or (Row.GetValue<string>('destination')<>Destination) or (Length(Key)<>25) or
+      not SameFileName(ExtractFileDir(Directory),ExtractFileDir(Destination)) or not Name.StartsWith('transfer-cache-') or
+      (Name<>'transfer-cache-'+StringToGUID(Copy(Name,16,MaxInt)).ToString) then
+      raise EReadError.Create('Запись установки кэша выходит за пределы выбранной версии.');
+    FPersonal.ExecSQL('CREATE TABLE IF NOT EXISTS '+InstallTable+'(Operation TEXT,Job TEXT,BindingSHA TEXT,'+
+      'Directory TEXT,DirectoryKey TEXT,Destination TEXT,ProofJSON TEXT,ProofSHA TEXT,State TEXT '+
+      'CHECK(State IN (''copying'',''ready'',''published'')),PRIMARY KEY(Operation,Job)) WITHOUT ROWID');
+    FPersonal.ExecSQL('CREATE TABLE IF NOT EXISTS '+InstallClaims+'(Operation TEXT,Job TEXT,Directory TEXT,Stage TEXT,'+
+      'Path TEXT,FileKey TEXT,PRIMARY KEY(Operation,Job,Directory,Stage,Path)) WITHOUT ROWID');
+    if Stage='install-directory-created' then
+    begin
+      if (Path<>Directory) or (Row.GetValue<string>('key')<>Key) or
+        (FPersonal.QuerySingleInt('SELECT count(*) FROM '+InstallTable+' WHERE Operation=? AND Job=? AND State<>''copying''',[FOperation,Job])<>0) then
+        raise EReadError.Create('Нельзя заменить подтверждённую установку кэша новой попыткой.');
+      FPersonal.ExecSQL('INSERT OR REPLACE INTO '+InstallTable+' VALUES(?,?,?,?,?,?,'''','''',''copying'')',
+        [FOperation,Job,Binding,Directory,Key,Destination]);
+    end
+    else
+    begin
+      var Saved:=FPersonal.NewQuery('SELECT BindingSHA,Directory,DirectoryKey,Destination,State FROM '+InstallTable+' WHERE Operation=? AND Job=?',[FOperation,Job]);
+      var State:string;
+      try
+        Saved.Open;
+        if Saved.Eof or (Saved.FieldAsString(0)<>Binding) or (Saved.FieldAsString(1)<>Directory) or
+          (Saved.FieldAsString(2)<>Key) or (Saved.FieldAsString(3)<>Destination) then
+          raise EReadError.Create('Изменена независимая запись установки кэша.');
+        State:=Saved.FieldAsString(4);
+      finally Saved.Free; end;
+      if Stage='install-ready' then
+      begin
+        if (State<>'copying') or (Path<>Directory) then raise EReadError.Create('Нет подготовки для подтверждения установки.');
+        var Raw:=Row.GetValue<string>('proof'); var SHA:=Row.GetValue<string>('proof_sha256');
+        var Proof:=TJSONObject.ParseJSONValue(Raw) as TJSONObject;
+        try
+          if (Length(Raw)>16*1024*1024) or (THashSHA2.GetHashString(Raw)<>SHA) or (Proof=nil) or
+            (Proof.GetValue<string>('binding')<>Binding) or (Proof.GetValue<string>('directory_key')<>Key) or
+            (Proof.GetValue<string>('stage_directory')<>Directory) or (Proof.GetValue<string>('destination')<>Destination) then
+            raise EReadError.Create('Не совпало подтверждение готовой установки кэша.');
+        finally Proof.Free; end;
+        FPersonal.ExecSQL('UPDATE '+InstallTable+' SET ProofJSON=?,ProofSHA=?,State=''ready'' WHERE Operation=? AND Job=?',[Raw,SHA,FOperation,Job]);
+      end
+      else if Stage='install-published' then
+      begin
+        if (State<>'ready') or (Path<>Destination) or (Row.GetValue<string>('key')<>Key) then
+          raise EReadError.Create('Нет готового подтверждения публикации кэша.');
+        FPersonal.ExecSQL('UPDATE '+InstallTable+' SET State=''published'' WHERE Operation=? AND Job=?',[FOperation,Job]);
+      end
+      else if (Stage<>'install-file-reserved') or (State<>'copying') or
+        not SameFileName(ExtractFileDir(Path),Directory) or (Length(Row.GetValue<string>('key'))<>25) then
+        raise EReadError.Create('Неизвестная запись владения установкой кэша.');
+    end;
+    FPersonal.ExecSQL('INSERT OR REPLACE INTO '+InstallClaims+' VALUES(?,?,?,?,?,?)',[FOperation,Job,Directory,Stage,Path,Row.GetValue<string>('key')]);
+    Point('cache-installation-before-claim-commit'); FPersonal.Commit; Point('cache-installation-claim-committed');
+    FSession.ReopenFinalizationPersonal;
+  finally Row.Free; end;
+end;
+
+procedure TCollectionTransferCachePreparation.InstallJob(Job:TJSONObject; Snapshot:TTransferCacheSnapshot);
+begin
+  Stop; var ID:=Job.GetValue<string>('job'); var Inputs:=InputsFor(ID); var Installed:TTransferCacheInstallation:=nil;
+  try
+    var Binding:=TTransferCacheInstallation.Binding(FJournal.ReviewSHA256,FIntentSHA,Job.ToJSON,Inputs.ToJSON,Snapshot.ReadySHA);
+    var Raw,SHA,State:string;
+    if HasTable(FPersonal,InstallTable) then
+    begin
+      var Q:=FPersonal.NewQuery('SELECT BindingSHA,ProofJSON,ProofSHA,State FROM '+InstallTable+' WHERE Operation=? AND Job=?',[FOperation,ID]);
+      try Q.Open;
+        if not Q.Eof then
+        begin
+          if Q.FieldAsString(0)<>Binding then raise EReadError.Create('Изменена привязка постоянного кэша.');
+          Raw:=Q.FieldAsString(1); SHA:=Q.FieldAsString(2); State:=Q.FieldAsString(3);
+        end;
+      finally Q.Free; end;
+    end;
+    if (State<>'') and (State<>'copying') and (State<>'ready') and (State<>'published') then
+      raise EReadError.Create('Неизвестное состояние установки кэша.');
+    if SHA<>'' then
+    begin
+      if not ((State='ready') or (State='published')) then raise EReadError.Create('Не совпало состояние готовой установки кэша.');
+      Installed:=TTransferCacheInstallation.Recover(FJournal.ReviewSHA256,FIntentSHA,Job.ToJSON,Inputs.ToJSON,Snapshot.ReadySHA,FDataRoot.Key,
+        Raw,SHA,State='published',procedure(const Stage,Data:string) begin RememberInstallation(ID,Binding,Stage,Data); end,Check);
+    end
+    else
+    begin
+      if (State='ready') or (State='published') or (Raw<>'') then raise EReadError.Create('Потеряно независимое подтверждение постоянного кэша.');
+      Installed:=TTransferCacheInstallation.CreateNew(FJournal.ReviewSHA256,FIntentSHA,Job.ToJSON,Inputs.ToJSON,FDataRoot.Key,Snapshot,
+        procedure(const Stage,Data:string) begin RememberInstallation(ID,Binding,Stage,Data); end,Check);
+    end;
+    Installed.CheckUnchanged; FInstalled.Add(Installed); Installed:=nil; Point('cache-installation-job-published');
+  finally Installed.Free; Inputs.Free; end;
+end;
+
+function TCollectionTransferCachePreparation.Prepare(const Cancelled:TFunc<Boolean>; InstallVersions:Boolean):Int64;
 begin
   FCancelled:=Cancelled; Stop; FSession.BeginFinalization(Stop);
   try
     FPersonal:=FSession.FinalizationPersonal; FDatabases:=FSession.FinalizationDatabases;
     CheckOperation; ReadIntent;
+    if InstallVersions and (not FRootDone or (FPlan=nil) or (FState<>'prepared')) then
+      raise EReadError.Create('Для установки кэша нужны подготовленное намерение и подтверждённые итоговые корни.');
     if FPlan=nil then begin BuildPlan; ValidatePlan; SaveIntent; end;
     ValidatePlan; CheckOperation; CheckCurrent;
     var Root:='';
@@ -391,7 +509,16 @@ begin
       if FPersonal.LastChangedRows<>1 then raise EReadError.Create('Не сохранена готовность зависимостей переноса.');
     end;
     Point('cache-preparation-before-complete-commit'); FPersonal.Commit; Point('cache-preparation-complete');
+    if InstallVersions then
+    begin
+      FSession.ReopenFinalizationPersonal;
+      for var I:=0 to FReady.Count-1 do InstallJob(TJSONObject(FPlan.GetValue<TJSONArray>('jobs').Items[I]),FReady[I]);
+      for var Installed in FInstalled do Installed.CheckUnchanged;
+      CheckOperation; CheckCurrent; FSession.RefreshFinalizationReferences(CurrentSources,Root);
+      FPersonal.Commit; Point('cache-installation-complete');
+    end;
   finally
+    FInstalled.Clear;
     FReady.Clear;
     FInputs.Clear;
     for var DB in FOwnedDBs do if DB.InTransaction then DB.Rollback;
