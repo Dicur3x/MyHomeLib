@@ -7,7 +7,7 @@ uses System.SysUtils, System.Classes, System.IOUtils, System.JSON, System.Hash,
   SQLiteWrap, SQLite3, unit_Globals, unit_Consts, unit_ZipMemberDeletion,
   unit_CollectionTransferCatalogue, unit_CollectionTransferPlan,
   unit_CollectionTransferCopy, unit_CollectionTransferJournal, unit_CollectionTransferReferences, unit_CollectionTransferRegistry,
-  unit_CollectionTransferOperation, unit_CollectionTransferCache, unit_CatalogSources,
+  unit_CollectionTransferOperation, unit_CollectionTransferCache, unit_CatalogSources, unit_CollectionTransferCacheSettings,
   unit_CollectionMerge, unit_Interfaces, unit_LibraryUpdateReview, unit_SystemDatabase_SQLite,
   unit_CollectionTransferLayout, unit_CollectionTransferFinalRows, unit_CollectionTransferFinalization,
   unit_CollectionTransferHistory, unit_CollectionTransferLocations, unit_BookCompressionImages, unit_BookCompressionReceipt, unit_BookCompressionPlan;
@@ -457,6 +457,57 @@ begin
               end;
             finally FinalPersonal.Free; end;
           finally FinalCat.Free; end;
+        end;
+        if Request.GetValue<Boolean>('cache_settings',False) then
+        begin
+          var StorePath:=Owned(Request.GetValue<string>('cache_settings_store'));
+          if FileExists(StorePath) then raise EReadError.Create('Cache settings fixture store already exists');
+          var Store:=TSQLiteDatabase.Create(DeletionNativePath(StorePath),False);
+          try
+            Store.ExecSQL('BEGIN IMMEDIATE');
+            try
+              var Calls:=0;
+              var ReplayVersions:=TDictionary<string,string>.Create;
+              try
+              var VersionLookup:TFunc<string,string>:=nil;
+              if Request.GetValue<string>('replay_cache_jobs','')<>'' then
+              begin
+                var Saved:=TJSONObject.ParseJSONValue(Request.GetValue<string>('replay_cache_jobs')) as TJSONArray;
+                try
+                  if (Saved=nil) or (Saved.Count>4096) then raise EReadError.Create('Invalid replay cache jobs');
+                  for var Value in Saved do
+                  begin
+                    var Row:=Value as TJSONObject;
+                    ReplayVersions.Add(Row.GetValue<string>('job'),Row.GetValue<string>('after_version'));
+                  end;
+                finally Saved.Free; end;
+                VersionLookup:=function(Job:string):string
+                  begin
+                    if not ReplayVersions.TryGetValue(Job,Result) then raise EReadError.Create('Missing replay cache job');
+                  end;
+              end;
+              var Model:=TTransferCacheSettingsPlan.Create(Journal.Review,Store,
+                procedure
+                begin
+                  Inc(Calls);
+                  if (Request.GetValue<Integer>('cancel_cache_settings_after',0)>0) and
+                    (Calls>=Request.GetValue<Integer>('cancel_cache_settings_after')) then raise EAbort.Create('Fixture cache settings stop');
+                end,VersionLookup);
+              try
+                var Before:=Journal.Review.QuerySingleString('SELECT Value FROM Context WHERE Name=''sources_json''');
+                Output.AddPair('cache_sources',Model.ProjectSources(Before,True));
+                Output.AddPair('cache_history',Model.ProjectHistory(Request.GetValue<string>('cache_history',''),True));
+                if Request.GetValue<Boolean>('cache_other_alias',False) then
+                begin
+                  Output.AddPair('cache_other_sources',Model.ProjectSources(Before,False));
+                  Output.AddPair('cache_other_history',Model.ProjectHistory(Request.GetValue<string>('cache_history',''),False));
+                end;
+                Output.AddPair('cache_jobs',Model.Jobs); Output.AddPair('cache_inputs',Model.Inputs);
+                Output.AddPair('cache_settings_checks',TJSONNumber.Create(Calls)); Store.Commit;
+              finally Model.Free; end;
+              finally ReplayVersions.Free; end;
+            except if Store.InTransaction then Store.Rollback; raise; end;
+          finally Store.Free; end;
         end;
         if Request.GetValue<string>('project_cache','')<>'' then
         begin

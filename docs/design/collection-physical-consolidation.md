@@ -3,7 +3,8 @@
 Status: native inventory, file/group copy journals, catalogue/fork publication,
 resource verification, destination-only recovery, guarded source removal,
 the sequential available-file phase, final-layout/final-row primitives and the
-durable roots/settings phase and unpublished source-cache projection are implemented internally. Durable cache publication/Reader,
+durable roots/settings phase, unpublished source-cache projection and replayable
+source/history cache-version planning are implemented internally. Durable cache publication/Reader,
 live DAO/job coordination, startup and normal UI remain open. No user collection
 has been moved by this work.
 
@@ -365,6 +366,26 @@ and route partial-commit startup before another roots phase. Other collections
 may continue using the old shared cache. Reader identities, normal DAO/job
 coordination and full/incremental INPX after the complete move remain required.
 Evidence: `docs/audits/2026-11-16-collection-transfer-cache.md`.
+
+`TTransferCacheSettingsPlan` supplies the metadata part of that controller. It
+projects current source settings through the frozen layout and independently
+projects per-profile update history. An indexed owned work store deduplicates
+jobs by exact source ID/namespace, old cache path and old/new book roots. Current
+source and matching bound history share one new GUID version; another catalogue
+which keeps its old root receives a separate version. Unbound profiles retain
+their own IDs/baselines, including when there is no current source list. External
+catalogues remain external; a user-selected refresh index outside the cache keeps
+its original path. Retained raw inputs get explicit per-version co-located copy
+targets, preserved expected hashes and conflict detection. Unknown JSON fields
+and update-profile bindings survive.
+
+Replay supplies versions by the independently persisted semantic job key. It
+reconstructs the same exported settings/input targets, refuses a missing job
+instead of inventing another GUID, and cannot choose the original cache path.
+The model itself creates no cache directory, copies no input and publishes no
+setting. Its GUIDs/paths alone do not prove ownership or authorize publication;
+the next controller must bind them to independent intent, snapshots and prepared
+file proofs. Details: `docs/audits/2026-11-16-collection-transfer-cache-settings.md`.
 
 ### Full operation gates
 
