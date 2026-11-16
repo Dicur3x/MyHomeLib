@@ -10,6 +10,7 @@ procedure LaunchReaderSession(Owner: TComponent; const Executable, Profile: stri
   const Request: TReaderSessionRequest; const OnReply: TProc<TReaderSessionReply>;
   const OnOpened: TProc = nil);
 procedure CancelReaderSessionRunners(Owner: TComponent);
+function ReaderSessionRunnersPending(Owner:TComponent):Boolean;
 function RemoveReaderSessionFiles(const Request: TReaderSessionRequest): Boolean;
 
 implementation
@@ -181,6 +182,13 @@ procedure LaunchReaderSession(Owner: TComponent; const Executable, Profile: stri
   const Request: TReaderSessionRequest; const OnReply: TProc<TReaderSessionReply>;
   const OnOpened: TProc);
 begin TReaderSessionRunner.Start(Owner,Executable,Profile,Request,OnReply,OnOpened); end;
+
+function ReaderSessionRunnersPending(Owner:TComponent):Boolean;
+begin
+  Result:=False; if Owner=nil then Exit;
+  for var I:=0 to Owner.ComponentCount-1 do
+    if Owner.Components[I] is TReaderSessionRunner then Exit(True);
+end;
 
 procedure CancelReaderSessionRunners(Owner: TComponent);
 begin

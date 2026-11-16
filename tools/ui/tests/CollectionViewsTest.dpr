@@ -9,7 +9,7 @@
 uses
   unit_BookCompressionIndex, unit_BookCompressionPlan,
   unit_CollectionTransferCatalogue, unit_CollectionTransferPlan, unit_CollectionTransferJournal,
-  unit_CollectionTransferOperation,
+  unit_CollectionTransferOperation, unit_CollectionTransferRegistry,
   unit_Utils, frm_search, frm_MCPSetup, Xml.XMLDoc, Xml.XMLIntf,
   unit_CatalogComponents, unit_MetabibReader, unit_FormatComponents, unit_ComponentRemoval, unit_ComponentUsage, frm_ComponentMaintenance,
   unit_StartupCatalog, unit_FLibraryCompat, unit_BookCompressionRestored, unit_BookViewSessions,
@@ -6320,6 +6320,12 @@ begin
       Trace('isolated user module');
       Application.CreateForm(TDMUser, DMUser);
       ArmLibraryRecoveryInterrupt; DMUser.Init;
+      if ParamStr(1)='transfer-workflow-startup' then
+      begin
+        TestTransferStartupUI; Flush(Output);
+        FreeAndNil(frmMain); FreeAndNil(dmImages); FreeAndNil(DMUser); FreeAndNil(frmSplash);
+        Application.OnException:=nil; ExceptionHandler.Free; Halt(0);
+      end;
       if (ParamStr(1)='compression-recovery-open') or (ParamStr(1)='library-update-recovery-open') or (ParamStr(1)='library-flibrary-recovery-open') then
       begin
         if ParamStr(1)='library-flibrary-recovery-open' then TestReviewedFLibraryRecoveryStartup
@@ -6518,9 +6524,9 @@ begin
         Halt(0);
       end;
       if ParamStr(1).StartsWith('startup-deferred') then CompleteDeferredStartup;
-      if ParamStr(1)='transfer-reader-history' then
+      if (ParamStr(1)='transfer-reader-history') or (ParamStr(1)='transfer-workflow-ui') or (ParamStr(1)='transfer-workflow-prepare') then
       begin
-        TestTransferReaderHistory; Flush(Output);
+        TestTransferReaderHistory(ParamStr(1)='transfer-workflow-ui',ParamStr(2)='stop',ParamStr(1)='transfer-workflow-prepare'); Flush(Output);
         FreeAndNil(frmMain); FreeAndNil(dmImages); One:=nil; Two:=nil;
         FreeAndNil(DMUser); FreeAndNil(frmSplash);
         Application.OnException:=nil; ExceptionHandler.Free; Halt(0);

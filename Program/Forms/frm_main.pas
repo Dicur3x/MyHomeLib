@@ -999,7 +999,12 @@ type
     procedure StopBookCompression(Sender: TObject);
     procedure ReviewBookCompression(Decision: TCompressionReview);
     procedure CheckCompressionRecovery;
-    function CompressionBlocksCatalogChange: Boolean;
+    function CompressionBlocksCatalogChange(IgnoreTransfer:Boolean=False): Boolean;
+    procedure ShowCollectionTransfer(Sender:TObject);
+    procedure LoadCollectionTransferState;
+    procedure CollectionTransferNotice(Sender:TObject);
+    function TransferApplicationReady:Boolean;
+    function CollectionTransferPending:Boolean;
     procedure ResumePacking(var Message: TMessage); message WM_RESUME_COLLECTION_PACKING;
     procedure ResumeBookCompression(var Message: TMessage); message WM_RESUME_BOOK_COMPRESSION;
     procedure ResumeSqlCatalogue(var Message: TMessage); message WM_RESUME_SQL_CATALOGUE;
@@ -1040,6 +1045,10 @@ type
   private
     FLastNotifiedRelease: string;
     FFormBusy: Boolean;
+    FTransferActive:Boolean;
+    FTransferPending:TArray<Integer>;
+    FTransferRegistryError:string;
+    FTransferResumeID:Integer;
     FBookDeletionOperation: TBookDeletionOperation;
     FBookDeletionProgress: TBookDeletionProgress;
     FBookDeletionTimer: TTimer;
@@ -1391,7 +1400,7 @@ uses
   frm_EditGroup,
   unit_SystemDatabase_Abstract,
   unit_MHLArchiveHelpers, unit_MHLExternalTools, unit_FormatComponents,
-  unit_BookCache, unit_MHLOperationStatus, frm_DeleteCollection, unit_ImportOldUserData, unit_BookColumnFilters, frm_CatalogSources, frm_CollectionBackup, frm_BookDuplicates, unit_ComponentUpdates, unit_ProgramUpdateInstaller, unit_Diagnostics, unit_ComponentUsage, unit_ComponentRemoval, frm_ComponentMaintenance,
+  unit_BookCache, unit_MHLOperationStatus, frm_DeleteCollection, unit_ImportOldUserData, unit_BookColumnFilters, frm_CatalogSources, frm_CollectionTransfer, unit_CollectionTransferRegistry, frm_ReaderHost, frm_CollectionBackup, frm_BookDuplicates, unit_ComponentUpdates, unit_ProgramUpdateInstaller, unit_Diagnostics, unit_ComponentUsage, unit_ComponentRemoval, frm_ComponentMaintenance,
   frm_CollectionPackingProgress, frm_LibraryUpdateSources, unit_LibraryUpdateJournal;
 
 type
@@ -5038,8 +5047,14 @@ begin
   if Assigned(FBookCompressionOperation) then FBookCompressionOperation.Approve(Decision);
 end;
 
-function TfrmMain.CompressionBlocksCatalogChange: Boolean;
+function TfrmMain.CompressionBlocksCatalogChange(IgnoreTransfer:Boolean): Boolean;
 begin
+  if not IgnoreTransfer and (FTransferActive or CollectionTransferPending) then
+  begin
+    Result:=True;
+    StatusMessage:='Сначала завершите перенос файлов. Коллекция → Собрать файлы в одну папку…';
+    Exit;
+  end;
   if Assigned(FCollection) and TLibraryUpdateJournal.HasPendingForCollection(
     TPath.Combine(Settings.DataPath,'LibraryUpdateRecovery'),FCollection.CollectionID) then
   begin
@@ -5386,10 +5401,110 @@ begin
   ImportSqlCatalogueClick(nil);
 end;
 
+function TfrmMain.CollectionTransferPending:Boolean;
+begin
+  Result:=FTransferRegistryError<>''; if Result or not Assigned(FCollection) then Exit;
+  for var CID in FTransferPending do if CID=FCollection.CollectionID then Exit(True);
+end;
+
+procedure TfrmMain.LoadCollectionTransferState;
+begin
+  FTransferPending:=nil; FTransferRegistryError:='';
+  try
+    for var Item in RegisteredCollectionTransfers(Settings.SystemFileName[sfSystemDB]) do
+    begin
+      var N:=Length(FTransferPending); SetLength(FTransferPending,N+1); FTransferPending[N]:=Item.CollectionID;
+    end;
+  except on E:Exception do FTransferRegistryError:=E.Message; end;
+end;
+
+function TfrmMain.TransferApplicationReady:Boolean;
+begin
+  Result:=Assigned(FCollection) and not FFormBusy and not FStartupLoading and not FBookListLoading and
+    not Assigned(FBookCompressionOperation) and not Assigned(FBookDeletionOperation) and
+    not FBookDeletionNeedsRecovery and not FCompressionNeedsRecovery and not Assigned(FDMThread) and
+    not FPendingReaderSaved and not ReaderPreparationsPending(Self) and not ReaderSessionRunnersPending(Self);
+  if Result then
+    for var I:=0 to Screen.FormCount-1 do if Screen.Forms[I] is TfrmReaderHost then Exit(False);
+end;
+
+procedure TfrmMain.ShowCollectionTransfer(Sender:TObject);
+begin
+  if FTransferActive or CompressionBlocksCatalogChange(True) or not Assigned(FCollection) then Exit;
+  if isOnlineCollection(FCollection.CollectionCode) then
+  begin StatusMessage:='Перенос доступен для локальной коллекции.'; Exit; end;
+  if not TransferApplicationReady then
+  begin
+    Application.MessageBox('Дождитесь загрузки каталога и завершения заданий. Закройте читалки, открытые из HomeLibre, затем повторите перенос.',
+      'Перенос файлов коллекции',MB_OK or MB_ICONINFORMATION); Exit;
+  end;
+  LoadCollectionTransferState;
+  if FTransferRegistryError<>'' then
+  begin Application.MessageBox(PChar('Не удалось прочитать состояние переноса: '+FTransferRegistryError),'HomeLibre',MB_OK or MB_ICONERROR); Exit; end;
+  var Info:=FSystemData.GetCollectionInfo(FCollection.CollectionID);
+  var Pending:=Default(TRegisteredCollectionTransfer);
+  for var Item in RegisteredCollectionTransfers(Settings.SystemFileName[sfSystemDB]) do
+    if Item.CollectionID=Info.ID then begin Pending:=Item; Break; end;
+  FTransferActive:=True;
+  try
+    frm_CollectionTransfer.ShowCollectionTransfer(Self,Info,Settings.SystemFileName[sfSystemDB],Pending,
+      procedure begin CloseCollection; FSystemData.ClearCollectionCache; end,
+      procedure
+      begin
+        FSystemData.ClearCollectionCache; Settings.ActiveCollection:=Info.ID; InitCollection;
+        NotifyFavoriteCatalogChanged(TArray<Integer>.Create(Info.ID)); LoadCollectionTransferState;
+      end,
+      function:Boolean begin Result:=TransferApplicationReady; end);
+  finally FTransferActive:=False; LoadCollectionTransferState; end;
+end;
+
+procedure TfrmMain.CollectionTransferNotice(Sender:TObject);
+begin
+  if (FTransferResumeID<0) or not TransferApplicationReady or FTransferActive then Exit;
+  if FTransferResumeID>0 then
+  begin
+    TTimer(Sender).Enabled:=False; FTransferResumeID:=0; TTimer(Sender).Free;
+    ShowCollectionTransfer(nil); Exit;
+  end;
+  if FTransferRegistryError<>'' then
+  begin
+    TTimer(Sender).Enabled:=False; TTimer(Sender).Free;
+    Application.MessageBox(PChar('Не удалось проверить незавершённые переносы: '+FTransferRegistryError),
+      'HomeLibre',MB_OK or MB_ICONWARNING); Exit;
+  end;
+  var Pending:TArray<TRegisteredCollectionTransfer>;
+  try Pending:=RegisteredCollectionTransfers(Settings.SystemFileName[sfSystemDB]);
+  except
+    on E:Exception do
+    begin
+      TTimer(Sender).Enabled:=False; TTimer(Sender).Free; LoadCollectionTransferState;
+      Application.MessageBox(PChar('Не удалось прочитать незавершённый перенос: '+E.Message),'HomeLibre',MB_OK or MB_ICONWARNING); Exit;
+    end;
+  end;
+  if Length(Pending)=0 then begin TTimer(Sender).Free; Exit; end;
+  TTimer(Sender).Enabled:=False;
+  var Question:=CreateMessageDialog('Есть незавершённый перенос файлов.'+sLineBreak+
+    'Назначение: '+Pending[0].Destination+sLineBreak+sLineBreak+'Продолжить сейчас?',
+    mtConfirmation,[mbYes,mbNo],mbNo,['Продолжить','Позже']);
+  var Answer:Integer;
+  FTransferResumeID:=-1;
+  try
+    Question.Name:='CollectionTransferResumeQuestion'; Question.Caption:='HomeLibre — незавершённый перенос';
+    ApplyMHLControlTheme(Question); Answer:=Question.ShowModal;
+  finally FTransferResumeID:=0; Question.Free; end;
+  if Answer<>mrYes then
+  begin TTimer(Sender).Free; Exit; end;
+  FTransferResumeID:=Pending[0].CollectionID;
+  if Settings.ActiveCollection<>FTransferResumeID then
+  begin Settings.ActiveCollection:=FTransferResumeID; InitCollection; end;
+  TTimer(Sender).Enabled:=True;
+end;
+
 procedure TfrmMain.ShowCatalogSources(Sender: TObject);
-var Dialog: TfrmCatalogSources; Changed, MetadataChanged: Boolean; CollectionID: Integer;
+var Dialog: TfrmCatalogSources; Changed, MetadataChanged, TransferRequested: Boolean; CollectionID: Integer;
   Required: string;
 begin
+  if CollectionTransferPending then begin ShowCollectionTransfer(Sender); Exit; end;
   if CompressionBlocksCatalogChange then Exit;
   if not Assigned(FCollection) then Exit;
   if isOnlineCollection(FCollection.CollectionCode) then
@@ -5400,7 +5515,7 @@ begin
   CollectionID:=FCollection.CollectionID;
   Dialog := TfrmCatalogSources.CreateForCollection(Self,FCollection);
   try Dialog.ShowModal; Changed := Dialog.CatalogChanged; MetadataChanged:=Dialog.MetadataChanged;
-    Required:=Dialog.RequiredComponent;
+    Required:=Dialog.RequiredComponent; TransferRequested:=Dialog.TransferRequested;
   finally Dialog.Free; end;
   if Changed then
   begin
@@ -5410,6 +5525,7 @@ begin
   end
   else if MetadataChanged then RefreshBookMetadataViews(CollectionID);
   if Required<>'' then RequestOptionalComponent(Required);
+  if TransferRequested then ShowCollectionTransfer(Sender);
 end;
 
 procedure TfrmMain.UpdateThemeToolbar;
@@ -5880,6 +5996,9 @@ begin
   FilterMenu:=TMenuItem.Create(Self); FilterMenu.Name:='miCatalogSources';
   FilterMenu.Caption:='Источники коллекции…';
   FilterMenu.OnClick:=ShowCatalogSources; N2.Insert(miStat.MenuIndex+1,FilterMenu);
+  FilterMenu:=TMenuItem.Create(Self); FilterMenu.Name:='miTransferCollection';
+  FilterMenu.Caption:='Собрать файлы в одну папку…'; FilterMenu.OnClick:=ShowCollectionTransfer;
+  N2.Insert(miStat.MenuIndex+2,FilterMenu);
   FilterMenu:=TMenuItem.Create(Self); FilterMenu.Name:='miBookDuplicates';
   FilterMenu.Caption:='Найти дубли книг…';
   FilterMenu.OnClick:=ShowBookDuplicates; N2.Insert(N6.MenuIndex,FilterMenu);
@@ -6041,6 +6160,12 @@ begin
     StartBookDeletion(TBookDeletionOperation.Recover(Settings.SystemFileName[sfSystemDB],
       BookDeletionJournalRoot),False);
   CheckCompressionRecovery;
+  LoadCollectionTransferState;
+  if (Length(FTransferPending)>0) or (FTransferRegistryError<>'') then
+  begin
+    var TransferNotice:=TTimer.Create(Self); TransferNotice.Name:='CollectionTransferNoticeTimer';
+    TransferNotice.Interval:=200; TransferNotice.OnTimer:=CollectionTransferNotice; TransferNotice.Enabled:=True;
+  end;
   if DMUser.LibraryUpdateRecoveryWarnings.Count>0 then
   begin
     StatusMessage:='Восстановление обновления требует внимания. Откройте отчёт восстановления.';
@@ -6252,6 +6377,8 @@ end;
 
 procedure TfrmMain.FormCloseQuery(Sender: TObject; var CanClose: Boolean);
 begin
+  if FTransferActive then
+  begin CanClose:=False; StatusMessage:='Остановите перенос и закройте его окно перед выходом.'; Exit; end;
   if Assigned(FBookCompressionOperation) then
   begin
     CanClose:=False; FCloseAfterCompression:=True; StopBookCompression(nil); Exit;

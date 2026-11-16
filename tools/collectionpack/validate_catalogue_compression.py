@@ -622,13 +622,24 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
             env['HOMELIB_PACKED_RESULT_COMPONENTS'] = '1'
         try:
             with log_path.open('wb') as log:
-                command = [str(root / 'CollectionViewsTest.exe'), scenario]
-                if scenario == 'selected-compression-ui':
+                if os.environ.get('HL_TRANSFER_VISUAL') == '1':
+                    deadline = max(deadline, 600)
+                command = [str(root / 'CollectionViewsTest.exe'),
+                           'transfer-workflow-prepare' if scenario == 'transfer-workflow-startup' else scenario]
+                if scenario in ('selected-compression-ui', 'transfer-workflow-ui'):
                     command.append(mode)
                 process = run_owned(command,
                     cwd=root, env=env, stdout=log, stderr=subprocess.STDOUT, startupinfo=startup, timeout=deadline,
                     creationflags=subprocess.BELOW_NORMAL_PRIORITY_CLASS |
                         (0 if inspect_comparison or work_picker_source_volume else subprocess.CREATE_NO_WINDOW))
+                if scenario == 'transfer-workflow-startup' and process.returncode == 0:
+                    assert (root / 'transfer-startup-fixture.json').is_file()
+                    restart_command = [str(root / 'CollectionViewsTest.exe'), 'transfer-workflow-startup']
+                    if mode == 'stop':
+                        restart_command.append('defer')
+                    process = run_owned(restart_command,
+                        cwd=root, env=env, stdout=log, stderr=subprocess.STDOUT, startupinfo=startup, timeout=deadline,
+                        creationflags=subprocess.BELOW_NORMAL_PRIORITY_CLASS | subprocess.CREATE_NO_WINDOW)
                 if flibrary_recovery_phase:
                     assert process.returncode == 73, 'FLibrary update did not terminate at its actual boundary'
                     assert (root / 'library-update-recovery-crash.txt').read_text(encoding='utf-8-sig') == flibrary_recovery_phase
@@ -700,6 +711,8 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
             raise
         output = log_path.read_text(encoding='utf-8', errors='replace')
         expected = {
+            'transfer-workflow-startup': 'PASS ordinary startup offers pending transfer explicitly resumes it refreshes Main and restores actual Reader positions bookmarks and notes',
+            'transfer-workflow-ui': 'PASS ordinary sources transfer refreshes the active Main book view and supports explicit stop resume and changed-plan invalidation',
             'transfer-reader-history': 'PASS transferred real Reader preserves positions bookmarks notes and changed-title bindings across placeholder numeric opaque and scoped identities',
             'library-update-recovery': f'PASS actual library update crash and ordinary startup recovery {update_recovery_phase} bound={update_recovery_bound}',
             'library-update-window': 'PASS library update menu and toolbar run reviewed confirmation, keep declined data, refresh the actual book view and offer incremental compression; both theme glyphs remain available',
@@ -735,6 +748,8 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
             expected_lines.append('PASS reviewed update missing-member report previews bounded details and saves complete archive/member reasons after decline or apply')
         if scenario == 'transfer-reader-history':
             expected_lines.append('PASS actual DAO and Reader refresh permit atomic transfer completion with cumulative totals and unchanged replay')
+        if scenario == 'transfer-workflow-startup' and mode == 'stop':
+            expected_lines.append('PASS startup Later keeps original books and the pending operation then the ordinary sources command resumes it')
         if scenario == 'library-update-cancel':
             expected_lines.append('PASS reviewed update commit witnesses are paired with catalogue and personal transactions, roll back on early errors and remain isolated by collection')
             expected_lines.append('PASS missing catalogue and system properties return empty instead of reusing a previous value')
@@ -902,6 +917,10 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
                                'Native FBD/loose/alternate retention without originals, unavailable-book restoration, '
                                'estimate dialog and INPX continuation through an actual main window; synthetic books'
                                if scenario == 'packing-fbd' else
+                               'Separate native producer and ordinary Main restart; explicit pending-transfer choice, immutable continuation, active view and actual Reader state'
+                               if scenario == 'transfer-workflow-startup' else
+                               'Ordinary Sources/Main transfer workflow with explicit preview, edited-path invalidation, active book-view refresh, completion and Reader positions/bookmarks/notes; stop-first=' + str(mode == 'stop')
+                               if scenario == 'transfer-workflow-ui' else
                                'Actual catalogue DAO and built-in Reader before/after physical transfer; positions, bookmarks, notes and changed-title bindings across five identity types'
                                if scenario == 'transfer-reader-history' else
                                'Native normal INPX/Metabib menu or Windows Shell import on a private synthetic catalogue; no real user data'))
@@ -1023,7 +1042,7 @@ if __name__ == '__main__':
     parser.add_argument('--whole', action='store_true')
     parser.add_argument('--repeat-new', action='store_true', help='After applying, invoke the normal new-books menu and verify no preparation')
     parser.add_argument('--scenario', choices=['selected-compression-ui', 'explorer-file-drop', 'update-outcomes', 'library-update-sources', 'library-update-apply', 'library-update-cancel', 'library-update-window', 'catalog-merge-outcome', 'library-update-recovery',
-                        'packed-catalogue-sizes', 'packing-fbd', 'packed-jxl-formats', 'packed-flibrary-sidecars', 'reviewed-flibrary-compression', 'compression-continuation', 'transfer-reader-history'], default='selected-compression-ui')
+                        'packed-catalogue-sizes', 'packing-fbd', 'packed-jxl-formats', 'packed-flibrary-sidecars', 'reviewed-flibrary-compression', 'compression-continuation', 'transfer-reader-history', 'transfer-workflow-ui', 'transfer-workflow-startup'], default='selected-compression-ui')
     parser.add_argument('--packing-codec', type=Path, help='Exact official JPEG XL archive for the native packed INPX installer/reader scenario')
     parser.add_argument('--packing-codec-release', type=Path, help='Official GitHub release metadata used to verify the codec archive')
     parser.add_argument('--repeat-offer', action='store_true', help='Exercise nonmodal arrivals offer, dismissal, canceled options and explicit start')

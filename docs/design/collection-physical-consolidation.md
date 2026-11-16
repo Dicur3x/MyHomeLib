@@ -1,12 +1,11 @@
 # Physical consolidation of collection sources
 
-Status: native inventory, file/group copy journals, catalogue/fork publication,
-resource verification, destination-only recovery, guarded source removal,
-the sequential available-file phase, final-layout/final-row primitives and the
-durable roots/settings phase, unpublished source-cache projection and replayable
-source/history cache-version planning and recoverable work-volume cache snapshots
-are implemented internally. Durable cache publication/Reader,
-live DAO/job coordination, startup and normal UI remain open. No user collection
+Status: native inventory, recoverable file/catalogue publication, guarded source
+removal, final roots, source/history cache publication, Reader aliases and atomic
+whole-operation completion are implemented. The local Main/Sources command now
+connects preview, stop/resume, active-view reload and explicit startup continuation.
+Space presentation, owned working-data cleanup, scale, remaining format/update
+compositions and final production/release gates remain open. No user collection
 has been moved by this work.
 
 ## User result
@@ -458,10 +457,9 @@ database writes. Missing receipts and foreign source/history edits are refused.
 The installation guard validates all manifest names before opening any file.
 Evidence: `docs/audits/2026-11-16-collection-transfer-cache-metadata.md`.
 
-Startup/UI routing through that gate before ordinary source updates remains open.
-After all metadata receipts are proved, normal DAO/job/Reader coordination,
-old-baseline changes, complete-operation state, ownership-aware cleanup, space
-accounting and final gates still remain. Verify a real full/incremental INPX with
+Startup/UI routing now uses that gate before allowing conflicting source changes.
+Ownership-aware cleanup, space accounting and final gates still remain.
+Verify a real full/incremental INPX with
 only a new archive after cutover: saved publisher/source/review keys must preserve
 old physical locators, compression history, copies and personal data. Snapshot
 evidence: `docs/audits/2026-11-16-collection-transfer-cache-snapshot.md`.
@@ -505,9 +503,9 @@ positions, bookmark context/navigation, notes, changed-title direct note binding
 and the notes filter. Evidence:
 `docs/audits/2026-11-16-collection-transfer-reader-history.md`. This is a small
 ZIP/FB2 scenario; it does not prove every format, later reimport or second move.
-The Main entry must wait for active preparation/session callbacks and conflicting jobs; it must
-not forcibly close a user's reader to begin transfer. The transfer command stays
-unreleased until this and the complete-operation/UI/startup gates are connected.
+The Main entry waits for active preparation/session callbacks, built-in Reader
+hosts, pending saved-reader replies and conflicting jobs. It does not forcibly
+close a user's reader to begin transfer. Final release checks still apply.
 
 ### Whole-operation acknowledgement
 
@@ -524,10 +522,37 @@ including earlier runs and in-place files. A lost completion receipt is refused.
 
 Ten native cases per architecture and the actual DAO/Reader composition pass on
 x86/x64. Evidence: `docs/audits/2026-11-16-collection-transfer-completion.md`.
-The normal Main target view/startup routing and active session/job coordination
-are still pending; the explicit callback alone does not prove those UI gates.
-Working-data cleanup and scale remain separate gates. Keep the transfer command
-unreleased until the complete ordinary workflow is verified.
+The ordinary Main workflow described below now calls this gate after reloading
+the target view. Working-data cleanup and scale remain separate gates.
+
+### Ordinary local workflow
+
+`Collection → Собрать файлы в одну папку…` and the matching Sources button open
+the same modal window. The user chooses existing destination and working folders,
+checks a read-only plan and explicitly starts the move. Changing a path discards
+the previous plan. Registered continuation locks both paths to their saved values.
+The preview closes the current DAO view before capturing the catalogue; closing
+the window restores it. Native work runs in a background thread, with atomic
+cancellation/readiness flags and locked progress snapshots. Plan callbacks belong
+to the window context and outlive the preview thread; a later phase resets
+cancellation without reusing a freed worker.
+
+Main blocks conflicting catalogue commands while the window is active or the
+current collection has a pending transfer. The entry waits for catalogue loading,
+compression/deletion/recovery/download work, Reader preparation, external session
+callbacks, saved Reader replies and built-in Reader hosts. After a run, Main
+clears DAO caches, reloads the same collection, invalidates favourites and waits
+for the active view before final acknowledgement. Completion stays in the same
+window, comes to the front and reports processed physical inventory and original
+files removed/missing/retained. Its current-file display is a label, not an input.
+
+The ordinary startup offers Continue or Later, defaulting to Later. It does not
+resume a move without that choice. Later preserves the registered operation;
+Sources or the transfer menu can resume it manually. Registration follows journal
+creation even when cancellation arrives before the first group, so an early stop
+remains discoverable. Dark-theme controls and 225% layout use explicit geometry
+after scaling and resize. The ordinary small-catalogue evidence and its limits are
+recorded in `docs/audits/2026-11-17-collection-transfer-ui.md`.
 
 ### Remaining end-to-end evidence
 

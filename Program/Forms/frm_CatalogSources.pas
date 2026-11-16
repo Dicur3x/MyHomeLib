@@ -42,6 +42,8 @@ type
     FWorkflowState: TCatalogWorkflowState;
     FPolicy, FTargetLibrary: TComboBox;
     FChanged: Boolean;
+    FTransferRequested:Boolean;
+    FTransfer:TButton;
     FMetadataChanged: Boolean;
     FRequiredComponent: string;
     FLastReportFile: string;
@@ -72,6 +74,7 @@ type
     procedure Resize; override;
     procedure PreviewSeriesAliases(Sender: TObject);
     procedure FillBookMetadata(Sender: TObject);
+    procedure TransferFiles(Sender:TObject);
     procedure SaveReport(Sender: TObject);
     procedure Selected(Sender: TObject; Item: TListItem; Selected: Boolean);
     procedure RunWorker(Worker: TWorker; const Caption: string; OwnerWindow: TCustomForm = nil);
@@ -84,6 +87,7 @@ type
     property CatalogChanged: Boolean read FChanged;
     property MetadataChanged: Boolean read FMetadataChanged;
     property RequiredComponent: string read FRequiredComponent;
+    property TransferRequested:Boolean read FTransferRequested;
   end;
 
 type
@@ -257,6 +261,10 @@ begin
   FSeriesScope:=LabelAt(Panel,'Эти команды обрабатывают сведения уже добавленных книг. Источники не импортируют.',540,82,408,30);
   FSeriesScope.Name:='lblSeriesNamesScope';
   B:=Button(Panel,'Закрыть',848,100,nil); B.Top:=48; B.Anchors:=[akTop,akRight]; B.ModalResult:=mrClose; B.Cancel:=True; FClose:=B;
+  FTransfer:=Button(Panel,'Собрать файлы в одну папку…',12,384,TransferFiles);
+  FTransfer.Name:='btnTransferCollectionFiles'; FTransfer.Top:=116;
+  FTransfer.Hint:='Перенос уже добавленных книг текущей коллекции. Сначала открывается проверка плана; источники из списка не импортируются.';
+  FTransfer.ShowHint:=True;
   FReport:=TMemo.Create(Self); FReport.Parent:=Body; FReport.Top:=MaxInt; FReport.Align:=alTop; FReport.Height:=156;
   FReport.AlignWithMargins:=True; FReport.Margins.Left:=12; FReport.Margins.Right:=12;
   FReport.Name:='mmSourcesReport'; FReport.ReadOnly:=True; FReport.ScrollBars:=ssVertical; FReport.WordWrap:=True;
@@ -312,7 +320,7 @@ end;
 procedure TfrmCatalogSources.LayoutSeriesScope;
 var R: TRect; PPI, Gap, ColumnWidth, RowHeight, HeaderHeight: Integer; Footer: TWinControl; Text: string;
 begin
-  if FSeriesLayoutBusy or not Assigned(FSeriesScope) or not Assigned(FClose) then Exit;
+  if FSeriesLayoutBusy or not Assigned(FSeriesScope) or not Assigned(FClose) or not Assigned(FTransfer) then Exit;
   FSeriesLayoutBusy:=True;
   try
     PPI:=Max(96,Font.PixelsPerInch); Footer:=FSeriesScope.Parent;
@@ -352,7 +360,9 @@ begin
     R:=Rect(0,0,FSeriesScope.Width,0);
     DrawTextW(Canvas.Handle,PChar(Text),Length(Text),R,DT_CALCRECT or DT_WORDBREAK or DT_NOPREFIX);
     FSeriesScope.Height:=Max(MulDiv(30,PPI,96),R.Height);
-    Footer.Height:=Max(MulDiv(116,PPI,96),FSeriesScope.Top+FSeriesScope.Height+MulDiv(4,PPI,96));
+    FTransfer.SetBounds(MulDiv(12,PPI,96),FSeriesScope.Top+FSeriesScope.Height+MulDiv(6,PPI,96),
+      Min(MulDiv(384,PPI,96),Footer.ClientWidth-MulDiv(24,PPI,96)),MulDiv(28,PPI,96));
+    Footer.Height:=FTransfer.Top+FTransfer.Height+MulDiv(8,PPI,96);
     LayoutBodyText;
   finally FSeriesLayoutBusy:=False; end;
 end;
@@ -521,6 +531,7 @@ begin
   FUp.Enabled:=Index>0; FDown.Enabled:=(Index>=0) and (Index<High(FSources));
   FPreview.Enabled:=(Length(FSources)>0) and not FBusy;
   if Assigned(FMetadataFill) then FMetadataFill.Enabled:=not FBusy;
+    if Assigned(FTransfer) then FTransfer.Enabled:=not FBusy;
   if not FRefresh.Enabled then begin FDetails.Caption:='Выберите источник в списке, чтобы изменить его настройки.'; Exit; end;
   Source:=FSources[Index]; FRefresh.Enabled:=Source.IsINPX;
   FRoot.Enabled:=Source.IsINPX; FIndexFile.Enabled:=Source.IsINPX;
@@ -650,6 +661,12 @@ begin
     Save; RebuildList(Index);
     FReport.Lines.Text := 'Файл индекса изменён. Обновите выбранный источник, затем выполните предпросмотр.';
   finally Dialog.Free; end;
+end;
+
+procedure TfrmCatalogSources.TransferFiles(Sender:TObject);
+begin
+  if FBusy then Exit;
+  FTransferRequested:=True; ModalResult:=mrOk;
 end;
 
 procedure TfrmCatalogSources.RunWorker(Worker: TWorker; const Caption: string; OwnerWindow: TCustomForm);
