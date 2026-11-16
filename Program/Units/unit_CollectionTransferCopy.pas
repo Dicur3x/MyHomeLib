@@ -11,6 +11,8 @@ type
     Identity,SHA256,StreamsJSON:string;
   end;
 
+  TTransferOriginalRemoval=class;
+
   // Retain through catalogue publication. Native readers can open the output,
   // but ordinary writers/replacement cannot change its verified streams.
   TTransferPreparedCopy = class
@@ -31,6 +33,33 @@ type
     property Identity: string read FIdentity;
     property SHA256: string read FSHA256;
     property StreamsJSON: string read FStreamsJSON;
+  end;
+
+  // The caller must durably bind Attributes/identity and approve live references
+  // before ProtectAndVerify or Unlink. Target leases stay owned by Prepared.
+  TTransferOriginalRemoval=class
+  private
+    FPrepared:TTransferPreparedCopy;
+    FHandle,FAttributesHandle,FParent:THandle;
+    FSnapshot:TObject;
+    FExpected:string;
+    FOriginalAttributes:DWORD;
+    FMissing,FProtected,FRemovalRequested:Boolean;
+    FCancelled:TFunc<Boolean>;
+    FProgress:TTransferCopyProgress;
+    procedure CheckStop;
+    procedure SetReadOnly(Value:Boolean);
+    procedure CheckHeld;
+  public
+    constructor Create(Prepared:TTransferPreparedCopy; const ExpectedIdentity:string;
+      const Cancelled:TFunc<Boolean> = nil; const Progress:TTransferCopyProgress = nil);
+    destructor Destroy; override;
+    // Use the independently journaled pre-protection attributes on recovery.
+    procedure RestoreOriginalAttributes(Value:DWORD);
+    procedure ProtectAndVerify;
+    function Unlink(const BeforeUnlink:TProc):Boolean;
+    property Missing:Boolean read FMissing;
+    property Attributes:DWORD read FOriginalAttributes;
   end;
 
   // One active file journal. The collection's disk-backed ledger will retain
@@ -134,6 +163,160 @@ begin
 {$IFDEF MHL_TRANSFER_TEST}
   if Assigned(TransferCopyTestPoint) then TransferCopyTestPoint(Name,Directory);
 {$ENDIF}
+end;
+
+function FileKey(Handle:THandle):string; forward;
+
+function OriginalHandleIdentity(Handle:THandle):string;
+var Info:TByHandleFileInformation;
+begin
+  if not GetFileInformationByHandle(Handle,Info) then RaiseLastOSError;
+  FileKey(Handle);
+  Result:=IntToHex(Info.dwVolumeSerialNumber,8)+':'+IntToHex(Info.nFileIndexHigh,8)+IntToHex(Info.nFileIndexLow,8)+':'+
+    IntToHex(Info.nFileSizeHigh,8)+IntToHex(Info.nFileSizeLow,8)+':'+
+    IntToHex(Info.ftLastWriteTime.dwHighDateTime,8)+IntToHex(Info.ftLastWriteTime.dwLowDateTime,8);
+end;
+
+constructor TTransferOriginalRemoval.Create(Prepared:TTransferPreparedCopy; const ExpectedIdentity:string;
+  const Cancelled:TFunc<Boolean>; const Progress:TTransferCopyProgress);
+var Info:TByHandleFileInformation;
+begin
+  inherited Create; FPrepared:=Prepared; FExpected:=ExpectedIdentity; FCancelled:=Cancelled; FProgress:=Progress;
+  if (Prepared=nil) or (Length(ExpectedIdentity)<>59) or SameFileName(Prepared.Source,Prepared.Destination) or
+    (Copy(ExpectedIdentity,1,25)=Copy(Prepared.Identity,1,25)) then
+    raise EArgumentException.Create('Нельзя удалять единственную копию файла в назначении.');
+  CheckStop; Prepared.CheckDestinationUnchanged(Cancelled);
+  FreeAndNil(Prepared.FSourceLease);
+  if GetFileAttributes(PChar(DeletionNativePath(Prepared.Source)))=INVALID_FILE_ATTRIBUTES then
+  begin
+    var Code:=GetLastError;
+    if Code in [ERROR_FILE_NOT_FOUND,ERROR_PATH_NOT_FOUND] then begin FMissing:=True; Exit; end;
+    RaiseLastOSError(Code);
+  end;
+  var Parent:=ExcludeTrailingPathDelimiter(ExtractFileDir(Prepared.Source));
+  FParent:=CreateFile(PChar(DeletionNativePath(Parent)),FILE_READ_ATTRIBUTES,FILE_SHARE_READ or FILE_SHARE_WRITE,
+    nil,OPEN_EXISTING,FILE_FLAG_BACKUP_SEMANTICS or FILE_FLAG_OPEN_REPARSE_POINT,0);
+  if FParent=INVALID_HANDLE_VALUE then
+  begin
+    var Code:=GetLastError; FParent:=0;
+    if Code in [ERROR_FILE_NOT_FOUND,ERROR_PATH_NOT_FOUND] then begin FMissing:=True; Exit; end;
+    RaiseLastOSError(Code);
+  end;
+  if not GetFileInformationByHandle(FParent,Info) then RaiseLastOSError;
+  if (Info.dwFileAttributes and FILE_ATTRIBUTE_REPARSE_POINT<>0) or
+    (TransferCanonicalDirectory(Parent)<>IncludeTrailingPathDelimiter(Parent)) then
+    raise EReadError.Create('Папка исходника перенаправлена. Исходник сохранён.');
+  FHandle:=CreateFile(PChar(DeletionNativePath(Prepared.Source)),GENERIC_READ or Winapi.Windows._DELETE,
+    FILE_SHARE_READ,nil,OPEN_EXISTING,FILE_FLAG_OPEN_REPARSE_POINT or FILE_FLAG_SEQUENTIAL_SCAN,0);
+  if FHandle=INVALID_HANDLE_VALUE then
+  begin
+    var Code:=GetLastError; FHandle:=0;
+    if Code in [ERROR_FILE_NOT_FOUND,ERROR_PATH_NOT_FOUND] then begin FMissing:=True; Exit; end;
+    RaiseLastOSError(Code);
+  end;
+  if (OriginalHandleIdentity(FHandle)<>FExpected) or (TransferFinalHandlePath(FHandle)<>Prepared.Source) then
+    raise EReadError.Create('Исходник изменился или заменён; он сохранён.');
+  if not GetFileInformationByHandle(FHandle,Info) then RaiseLastOSError;
+  FOriginalAttributes:=Info.dwFileAttributes;
+end;
+
+procedure TTransferOriginalRemoval.CheckStop;
+begin
+  if Assigned(FCancelled) and FCancelled() then raise EAbort.Create('Освобождение исходников остановлено.');
+end;
+
+procedure TTransferOriginalRemoval.RestoreOriginalAttributes(Value:DWORD);
+begin
+  if FProtected or FRemovalRequested then raise EInvalidOperation.Create('Защита исходника уже начата.');
+  FOriginalAttributes:=Value;
+end;
+
+procedure TTransferOriginalRemoval.SetReadOnly(Value:Boolean);
+type TBasicInfo=record CreationTime,LastAccessTime,LastWriteTime,ChangeTime:Int64; FileAttributes,Padding:DWORD; end;
+var Info:TByHandleFileInformation; Basic:TBasicInfo;
+begin
+  if not GetFileInformationByHandle(FHandle,Info) then RaiseLastOSError;
+  if (Info.dwFileAttributes and FILE_ATTRIBUTE_READONLY<>0)=Value then Exit;
+  if FAttributesHandle=0 then
+  begin
+    FAttributesHandle:=CreateFile(PChar(DeletionNativePath(FPrepared.Source)),FILE_READ_ATTRIBUTES or FILE_WRITE_ATTRIBUTES,
+      FILE_SHARE_READ or FILE_SHARE_WRITE or FILE_SHARE_DELETE,nil,OPEN_EXISTING,FILE_FLAG_OPEN_REPARSE_POINT,0);
+    if FAttributesHandle=INVALID_HANDLE_VALUE then begin FAttributesHandle:=0; RaiseLastOSError; end;
+    if FileKey(FAttributesHandle)<>Copy(FExpected,1,25) then raise EReadError.Create('Файл защиты исходника заменён.');
+  end;
+  Basic:=Default(TBasicInfo); Basic.FileAttributes:=Info.dwFileAttributes and not (FILE_ATTRIBUTE_READONLY or FILE_ATTRIBUTE_NORMAL);
+  if Value then Basic.FileAttributes:=Basic.FileAttributes or FILE_ATTRIBUTE_READONLY;
+  if Basic.FileAttributes=0 then Basic.FileAttributes:=FILE_ATTRIBUTE_NORMAL;
+  if not TransferSetFileInformation(FAttributesHandle,0,@Basic,SizeOf(Basic)) then
+    RaiseLastOSError(GetLastError,'Защита исходника от добавления потоков');
+end;
+
+procedure TTransferOriginalRemoval.ProtectAndVerify;
+begin
+  CheckStop; if FMissing then Exit;
+  if OriginalHandleIdentity(FHandle)<>FExpected then raise EReadError.Create('Исходник изменился перед защитой.');
+  FProtected:=True; SetReadOnly(True); Point('source-protected',FPrepared.Source);
+  var Context:=TCollectionTransferCopy.Create;
+  try
+    Context.FCancelled:=FCancelled;
+    Context.FProgress:=FProgress;
+    FSnapshot:=TTransferStreamSnapshot.Create(FPrepared.Source,FExpected,'',Context,'Проверка исходника перед удалением',True);
+  finally Context.Free; end;
+  CheckHeld; Point('source-removal-verified',FPrepared.Source); CheckStop;
+end;
+
+procedure TTransferOriginalRemoval.CheckHeld;
+var Info:TByHandleFileInformation;
+begin
+  CheckStop;
+  if not GetFileInformationByHandle(FHandle,Info) then RaiseLastOSError;
+  if not FProtected or (Info.dwFileAttributes and FILE_ATTRIBUTE_READONLY=0) then
+    raise EReadError.Create('Защита исходника изменилась. Исходник сохранён.');
+  if OriginalHandleIdentity(FHandle)<>FExpected then raise EReadError.Create('Номер или размер исходника изменились.');
+  FPrepared.CheckSnapshot(FPrepared.Source,FExpected,FSnapshot,FCancelled);
+  FPrepared.CheckDestinationUnchanged(FCancelled);
+end;
+
+function TTransferOriginalRemoval.Unlink(const BeforeUnlink:TProc):Boolean;
+begin
+  Result:=FMissing; if FMissing then Exit;
+  if not Assigned(BeforeUnlink) then raise EArgumentException.Create('Нужна подтверждённая граница удаления исходника.');
+  CheckHeld; BeforeUnlink(); CheckHeld;
+  // READONLY blocks creation of previously unenumerated data streams. Existing
+  // streams have write-denying leases. Ignore that owned guard only for unlink.
+  var Flags:DWORD:=$00000001 or $00000010;
+  if not TransferSetFileInformation(FHandle,21,@Flags,SizeOf(Flags)) then RaiseLastOSError;
+  FRemovalRequested:=True;
+  Point('source-unlink-requested',FPrepared.Source);
+  FreeAndNil(FSnapshot);
+  if FAttributesHandle<>0 then begin CloseHandle(FAttributesHandle); FAttributesHandle:=0; end;
+  CloseHandle(FHandle); FHandle:=0;
+  Point('source-unlinked',FPrepared.Source);
+  var Attr:=GetFileAttributes(PChar(DeletionNativePath(FPrepared.Source)));
+  if Attr=INVALID_FILE_ATTRIBUTES then
+  begin
+    var Code:=GetLastError; Result:=Code in [ERROR_FILE_NOT_FOUND,ERROR_PATH_NOT_FOUND];
+    if not Result and (Code<>ERROR_ACCESS_DENIED) then RaiseLastOSError(Code);
+  end
+  else
+  begin
+    var Canonical,Identity:string; var Bytes:Int64;
+    TransferReadFileState(FPrepared.Source,Canonical,Identity,Bytes);
+    Result:=Copy(Identity,1,25)<>Copy(FExpected,1,25);
+  end;
+end;
+
+destructor TTransferOriginalRemoval.Destroy;
+begin
+  try
+    if FProtected and not FRemovalRequested and (FHandle<>0) then SetReadOnly(FOriginalAttributes and FILE_ATTRIBUTE_READONLY<>0);
+  finally
+    FSnapshot.Free;
+    if FAttributesHandle<>0 then CloseHandle(FAttributesHandle);
+    if FHandle<>0 then CloseHandle(FHandle);
+    if FParent<>0 then CloseHandle(FParent);
+    inherited;
+  end;
 end;
 
 constructor TTransferReadStream.Create(const Path:string; Share:DWORD);

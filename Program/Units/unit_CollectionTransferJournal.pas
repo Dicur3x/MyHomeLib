@@ -78,7 +78,10 @@ type
       const Cancelled:TFunc<Boolean> = nil):TPreparedTransferGroup;
     procedure CheckPreparedGroupProof(Prepared:TPreparedTransferGroup; const SHA:string;
       const Cancelled:TFunc<Boolean> = nil);
+    function HoldPreparedGroupProof(GroupID:Int64; const SHA:string):TStream;
     function VerifyPublishedGroup(Prepared:TPreparedTransferGroup; const Cancelled:TFunc<Boolean> = nil):Int64;
+    procedure RemovePublishedGroup(Prepared:TPreparedTransferGroup; const Cancelled:TFunc<Boolean>;
+      const RegistryCheck:TProc<TSQLiteDatabase>; const SaveIntent,RemoveSources:TProc<TSQLiteDatabase,TArray<Int64>>);
     procedure PublishCatalogueForks(const Cancelled:TFunc<Boolean> = nil);
     procedure PublishCatalogueFork(ForkID:Int64; const Cancelled:TFunc<Boolean> = nil);
     function EffectiveCatalogue(RegistrationID:Integer):string;
@@ -919,6 +922,23 @@ begin
   Q.Free;
 end;
 
+function TCollectionTransferJournal.HoldPreparedGroupProof(GroupID:Int64; const SHA:string):TStream;
+var Canonical,Identity:string; Bytes:Int64;
+begin
+  Result:=nil;
+  var Data:=ReadPreparedGroupProof(GroupID,SHA); Data.Free;
+  var Path:=TPath.Combine(FDirectory,'prepared-group-'+IntToStr(GroupID)+'.json');
+  var Stream:=TFileStream.Create(DeletionNativePath(Path),fmOpenRead or fmShareDenyWrite);
+  try
+    TransferReadFileState(Path,Canonical,Identity,Bytes);
+    if (Canonical<>Path) or (Bytes<=0) or (Bytes>64*1024*1024) or
+      (Stream.Size<>Bytes) or (THashSHA2.GetHashString(Stream)<>SHA) or
+      (Copy(Identity,1,25)<>FState.QuerySingleString('SELECT FileKey FROM GroupProof WHERE GroupID=?',[GroupID])) then
+      raise EReadError.Create('Подтверждение группы изменилось перед освобождением исходников.');
+    Result:=Stream; Stream:=nil;
+  finally Stream.Free; end;
+end;
+
 function TCollectionTransferJournal.RecoverPreparedGroup(GroupID:Int64; const ExpectedProofSHA:string;
   const Cancelled:TFunc<Boolean>):TPreparedTransferGroup;
 var Previous:TFunc<Boolean>; Data:TJSONObject; Q:TSQLiteQuery; Job:TCollectionTransferCopy;
@@ -1001,6 +1021,25 @@ begin
     Result:=TTransferPublicationSession(FPublicationSession).VerifyPublished(Prepared,
       function:Boolean begin CheckStop; Result:=False; end,
       procedure(Stage:string) begin Point(Stage,FDirectory,Prepared.ID,0); end);
+    except FreeAndNil(FPublicationSession); raise; end;
+  finally FCancelled:=Previous; end;
+end;
+
+procedure TCollectionTransferJournal.RemovePublishedGroup(Prepared:TPreparedTransferGroup;
+  const Cancelled:TFunc<Boolean>; const RegistryCheck:TProc<TSQLiteDatabase>;
+  const SaveIntent,RemoveSources:TProc<TSQLiteDatabase,TArray<Int64>>);
+var Previous:TFunc<Boolean>;
+begin
+  if (Prepared=nil) or (Prepared.Count=0) then raise EArgumentException.Create('Нужна полная группа освобождения исходников.');
+  Previous:=FCancelled; FCancelled:=Cancelled;
+  try
+    try
+      ValidateTransferResources(FReview,Prepared,function:Boolean begin CheckStop; Result:=False; end,False);
+      OpenPublicationSession;
+      TTransferPublicationSession(FPublicationSession).RemovePublished(Prepared,
+        function:Boolean begin CheckStop; Result:=False; end,
+        procedure(Stage:string) begin Point(Stage,FDirectory,Prepared.ID,0); end,
+        RegistryCheck,SaveIntent,RemoveSources);
     except FreeAndNil(FPublicationSession); raise; end;
   finally FCancelled:=Previous; end;
 end;

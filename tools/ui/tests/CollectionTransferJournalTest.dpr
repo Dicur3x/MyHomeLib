@@ -114,6 +114,7 @@ end;
 var Request,Control,Output:TJSONObject; Capture:TCollectionTransferCatalogue; Plan:TCollectionTransferPlan;
     Journal:TCollectionTransferJournal; Registry:TCollectionTransferRegistry; Info:TCollectionInfo; ControlFile,Mode,Crash:string;
     Copies,PreparedFiles:Integer; Stop,BetweenEdited:Boolean; Groups,HistoryHits:TJSONArray; IDs:TList<Int64>; HistoryRows,VerifiedRetained:Int64;
+    Removed,Missing,RetainedSources,PendingSources:Int64;
 begin
   SetTextCodePage(System.Output,CP_UTF8);
   try
@@ -124,6 +125,7 @@ begin
       try
         Mode:=Request.GetValue<string>('mode','create'); ControlFile:=Owned(Request.GetValue<string>('control'));
         Crash:=Request.GetValue<string>('crash',''); Copies:=0; PreparedFiles:=0; Stop:=False; BetweenEdited:=False; HistoryRows:=0; VerifiedRetained:=0; HistoryHits:=TJSONArray.Create;
+        Removed:=0; Missing:=0; RetainedSources:=0; PendingSources:=0;
         TransferReferenceTestPoint:=
           procedure(Stage:string)
           begin
@@ -197,6 +199,16 @@ begin
           begin
             if Stage='copy-stream-start' then Inc(Copies);
             if 'file:'+Stage=Crash then begin Writeln('CRASH ',Stage); Flush(System.Output); Halt(97); end;
+            if (Stage='source-protected') and Request.GetValue<Boolean>('probe_source_protection',False) then
+            begin
+              var Handle:=CreateFile(PChar(DeletionNativePath(Owned(Directory)+':HomeLibreNewStream')),GENERIC_WRITE,
+                FILE_SHARE_READ or FILE_SHARE_WRITE or FILE_SHARE_DELETE,nil,CREATE_NEW,FILE_ATTRIBUTE_NORMAL,0);
+              if Handle<>INVALID_HANDLE_VALUE then
+              begin CloseHandle(Handle); raise EReadError.Create('Protected source allowed a new data stream'); end;
+              var Code:=GetLastError;
+              if Code<>ERROR_ACCESS_DENIED then RaiseLastOSError(Code);
+            end;
+            if (Stage=Request.GetValue<string>('cancel_source_stage','')) then Stop:=True;
           end;
         TransferJournalTestPoint:=
           procedure(Stage,Directory:string; GroupID,FileID:Int64)
@@ -331,6 +343,15 @@ begin
                 Inc(VerifiedRetained,Registry.VerifyPublishedGroup(Ready,function:Boolean begin Result:=Stop; end));
                 if Request.GetValue<Boolean>('probe_verification_locks',False) then ProbeVerificationLocks(Journal,False);
               end;
+              if Request.GetValue<Boolean>('remove_sources',False) then
+              begin
+                for var I:=0 to Ready.Count-1 do
+                begin Owned(Ready.CopyAt(I).Source); Owned(Ready.CopyAt(I).Destination); end;
+                var Removal:=Registry.RemovePublishedGroup(Ready,function:Boolean begin Result:=Stop; end);
+                Inc(Removed,Removal.Removed); Inc(Missing,Removal.Missing);
+                Inc(RetainedSources,Removal.Retained); Inc(PendingSources,Removal.Pending);
+                if Request.GetValue<Boolean>('probe_verification_locks',False) then ProbeVerificationLocks(Journal,False);
+              end;
               if Request.GetValue<Boolean>('rebind_history',False) then
               begin
                 var DB:=TSQLiteDatabase.Create(DeletionNativePath(Owned(Request.GetValue<string>('catalogue'))));
@@ -358,6 +379,10 @@ begin
         Output.AddPair('history_rows',TJSONNumber.Create(HistoryRows)); Output.AddPair('history_hits',HistoryHits); HistoryHits:=nil;
         Output.AddPair('publication_scans',TJSONNumber.Create(Journal.PublicationScanCount));
         Output.AddPair('verified_retained',TJSONNumber.Create(VerifiedRetained));
+        Output.AddPair('removed_sources',TJSONNumber.Create(Removed));
+        Output.AddPair('missing_sources',TJSONNumber.Create(Missing));
+        Output.AddPair('retained_sources',TJSONNumber.Create(RetainedSources));
+        Output.AddPair('pending_sources',TJSONNumber.Create(PendingSources));
         Output.AddPair('resource_validations',TJSONNumber.Create(Journal.ResourceValidationCount));
         Journal.ForEachGroup(
           procedure(const Group:TTransferJournalGroup)

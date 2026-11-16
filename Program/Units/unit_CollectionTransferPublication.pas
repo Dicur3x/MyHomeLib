@@ -25,6 +25,8 @@ type TTransferPublicationSession=class
     function UnknownChanged:Boolean;
     procedure Rollback;
     procedure LockGroup(Prepared:TPreparedTransferGroup; ForceFresh:Boolean);
+    function CheckLocations(Prepared:TPreparedTransferGroup; const Point:TProc<string>):Int64;
+    procedure RefreshLockedGroup(Prepared:TPreparedTransferGroup);
   public
     constructor Create(Review:TSQLiteDatabase; const PersonalFile,WorkRoot,Operation,ReviewSHA:string;
       const Effective:TFunc<Integer,string>; const Targets:TProc<TSQLiteDatabase>);
@@ -35,6 +37,9 @@ type TTransferPublicationSession=class
     // Returns retained/unresolved locators; never writes or permits later unlink.
     function VerifyPublished(Prepared:TPreparedTransferGroup; const Cancelled:TFunc<Boolean>;
       const Point:TProc<string>):Int64;
+    procedure RemovePublished(Prepared:TPreparedTransferGroup; const Cancelled:TFunc<Boolean>; const Point:TProc<string>;
+      const RegistryCheck:TProc<TSQLiteDatabase>;
+      const SaveIntent,RemoveSources:TProc<TSQLiteDatabase,TArray<Int64>>);
     property Scans:Integer read FScans;
 end;
 
@@ -178,13 +183,9 @@ begin
   finally FCancelled:=nil; end;
 end;
 
-function TTransferPublicationSession.VerifyPublished(Prepared:TPreparedTransferGroup;
-  const Cancelled:TFunc<Boolean>; const Point:TProc<string>):Int64;
+function TTransferPublicationSession.CheckLocations(Prepared:TPreparedTransferGroup; const Point:TProc<string>):Int64;
 begin
-  Result:=0; FCancelled:=Cancelled;
-  try
-    try
-      LockGroup(Prepared,True);
+  Result:=0;
       if Assigned(Point) then Point('locations-before-verification'); CheckStop;
       for var Pair in FDatabases do
       begin
@@ -195,6 +196,48 @@ begin
       var Check:=ApplyTransferLocations(FPersonal,FPersonal,FReview,Prepared,FOperation,FReviewSHA,FIDs.ToArray,True,True);
       Inc(Result,Check.Retained);
       if Assigned(Point) then Point('locations-after-personal-verification'); CheckStop;
+end;
+
+procedure TTransferPublicationSession.RefreshLockedGroup(Prepared:TPreparedTransferGroup);
+begin
+  FreeAndNil(FSnapshot);
+  FSnapshot:=TTransferReferenceSnapshot.Create(FReview,FPersonalFile,FWorkRoot,FEffective,FTargets,CheckStop);
+  Inc(FScans); FSnapshot.CheckGroup(Prepared);
+end;
+
+procedure TTransferPublicationSession.RemovePublished(Prepared:TPreparedTransferGroup;
+  const Cancelled:TFunc<Boolean>; const Point:TProc<string>; const RegistryCheck:TProc<TSQLiteDatabase>;
+  const SaveIntent,RemoveSources:TProc<TSQLiteDatabase,TArray<Int64>>);
+begin
+  if not Assigned(RegistryCheck) or not Assigned(SaveIntent) or not Assigned(RemoveSources) then
+    raise EArgumentException.Create('Для освобождения исходников нужны привязанные этапы журнала.');
+  FCancelled:=Cancelled;
+  try
+    try
+      LockGroup(Prepared,True); CheckLocations(Prepared,Point); RegistryCheck(FPersonal);
+      SaveIntent(FPersonal,FSnapshot.RetainedFiles(Prepared)); CheckStop;
+      if Assigned(Point) then Point('removal-before-intent-commit'); CheckStop;
+      FPersonal.ExecSQL('COMMIT');
+      if Assigned(Point) then Point('removal-intent-committed');
+      FPersonal.ExecSQL('BEGIN IMMEDIATE'); CheckStop;
+      RefreshLockedGroup(Prepared); CheckLocations(Prepared,Point); RegistryCheck(FPersonal);
+      if Assigned(Point) then Point('removal-before-sources'); CheckStop;
+      RemoveSources(FPersonal,FSnapshot.RetainedFiles(Prepared));
+      if Assigned(Point) then Point('removal-before-state-commit');
+      FPersonal.ExecSQL('COMMIT');
+      if Assigned(Point) then Point('removal-state-committed');
+    except FreeAndNil(FSnapshot); raise; end;
+  finally Rollback; FCancelled:=nil; end;
+end;
+
+function TTransferPublicationSession.VerifyPublished(Prepared:TPreparedTransferGroup;
+  const Cancelled:TFunc<Boolean>; const Point:TProc<string>):Int64;
+begin
+  Result:=0; FCancelled:=Cancelled;
+  try
+    try
+      LockGroup(Prepared,True);
+      Result:=CheckLocations(Prepared,Point);
     except FreeAndNil(FSnapshot); raise; end;
   finally Rollback; FCancelled:=nil; end;
 end;

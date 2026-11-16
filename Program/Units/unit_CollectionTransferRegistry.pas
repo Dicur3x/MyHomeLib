@@ -5,6 +5,8 @@ interface
 uses System.SysUtils, SQLiteWrap, unit_CollectionTransferJournal;
 
 type
+  TTransferRemovalResult=record Removed,Missing,Retained,Pending:Int64; end;
+
   TRegisteredCollectionTransfer=record
     Operation,Directory,ReviewSHA256,PersonalKey,WorkRoot,Destination:string;
     CollectionID:Integer;
@@ -36,6 +38,8 @@ type
     // Checks the independent proof and saved locations; does not authorize unlink.
     function VerifyPublishedGroup(Prepared:TPreparedTransferGroup;
       const Cancelled:TFunc<Boolean> = nil):Int64;
+    function RemovePublishedGroup(Prepared:TPreparedTransferGroup; const Cancelled:TFunc<Boolean> = nil;
+      const Progress:TTransferJournalProgress = nil):TTransferRemovalResult;
   end;
 
 function RegisteredCollectionTransfers(const PersonalFile:string):TArray<TRegisteredCollectionTransfer>;
@@ -47,10 +51,11 @@ var TransferRegistryTestPoint:TProc<string,string,Int64>;
 
 implementation
 
-uses System.Classes, System.IOUtils, System.Generics.Collections,
-  unit_BookCompressionReceipt, unit_ZipMemberDeletion;
+uses System.Classes, System.IOUtils, System.Generics.Collections, Winapi.Windows,
+  unit_BookCompressionReceipt, unit_ZipMemberDeletion, unit_CollectionTransferCopy, unit_CollectionTransferReferenceFence;
 
 const OperationTable='HomeLibreTransferOperations'; ProofTable='HomeLibreTransferGroupProofs';
+  RemovalTable='HomeLibreTransferRemovalIntent';
 
 procedure Stop(const Cancelled:TFunc<Boolean>);
 begin
@@ -239,6 +244,163 @@ begin
   if Prepared=nil then raise EArgumentException.Create('Не указана проверенная группа.');
   FJournal.CheckPreparedGroupProof(Prepared,GroupProofSHA(Prepared.ID),Cancelled);
   Result:=FJournal.VerifyPublishedGroup(Prepared,Cancelled);
+end;
+
+function TCollectionTransferRegistry.RemovePublishedGroup(Prepared:TPreparedTransferGroup;
+  const Cancelled:TFunc<Boolean>; const Progress:TTransferJournalProgress):TTransferRemovalResult;
+type
+  TIntent=record
+    SourceIdentity,State,Reason:string;
+    Attributes:DWORD;
+    Bound:Boolean;
+  end;
+  TLoadIntent=reference to function(DB:TSQLiteDatabase; Index:Integer; out Entry:TIntent):Boolean;
+var Guards:TObjectDictionary<Int64,TTransferOriginalRemoval>;
+    Entries:TDictionary<Int64,TIntent>; Kept:TDictionary<Int64,Boolean>;
+    SHA:string; ProofLease:TStream; Outcome:TTransferRemovalResult;
+    Retain:TProc<Int64,string>; AddRetained:TProc<TArray<Int64>>;
+    LoadIntent:TLoadIntent; CheckRegistry:TProc<TSQLiteDatabase>;
+
+begin
+  Retain:=procedure(ID:Int64; Reason:string)
+  begin
+    Kept.AddOrSetValue(ID,True);
+    var Entry:=Entries[ID]; Entry.Reason:=Reason; Entries[ID]:=Entry;
+  end;
+
+  AddRetained:=procedure(Seeds:TArray<Int64>)
+  begin
+    for var ID in Seeds do Kept.AddOrSetValue(ID,True);
+    for var ID in ExpandTransferRetention(FJournal.Review,Prepared.ID,Kept.Keys.ToArray) do Kept.AddOrSetValue(ID,True);
+  end;
+
+  LoadIntent:=function(DB:TSQLiteDatabase; Index:Integer; out Entry:TIntent):Boolean
+  begin
+    var ID:=Prepared.FileID(Index); var Item:=Prepared.CopyAt(Index);
+    Entry:=Default(TIntent);
+    Entry.SourceIdentity:=FJournal.Review.QuerySingleString('SELECT Identity FROM Files WHERE ID=? AND GroupID=?',[ID,Prepared.ID]);
+    if Length(Entry.SourceIdentity)<>59 then raise EReadError.Create('Нет исходной привязки файла для освобождения.');
+    var Q:=DB.NewQuery('SELECT GroupID,ProofSHA256,SourceIdentity,TargetIdentity,Source,Destination,SHA256,StreamsJSON,'+
+      'OriginalAttributes,ProtectionBound,State,Reason FROM '+RemovalTable+' WHERE Operation=? AND FileID=?',[FInfo.Operation,ID]);
+    try
+      Q.Open; Result:=not Q.Eof; if not Result then Exit;
+      if (Q.FieldAsInt(0)<>Prepared.ID) or (Q.FieldAsString(1)<>SHA) or (Q.FieldAsString(2)<>Entry.SourceIdentity) or
+        (Q.FieldAsString(3)<>Item.Identity) or (Q.FieldAsString(4)<>Item.Source) or (Q.FieldAsString(5)<>Item.Destination) or
+        (Q.FieldAsString(6)<>Item.SHA256) or (Q.FieldAsString(7)<>Item.StreamsJSON) or
+        not (Q.FieldAsInt(9) in [0,1]) then
+        raise EReadError.Create('Намерение удаления изменилось или относится к другому файлу. Исходник сохранён.');
+      Entry.Attributes:=DWORD(Q.FieldAsInt(8)); Entry.Bound:=Q.FieldAsInt(9)=1;
+      Entry.State:=Q.FieldAsString(10); Entry.Reason:=Q.FieldAsString(11);
+      if (Entry.State<>'intent') and (Entry.State<>'removed') and (Entry.State<>'missing') and
+        (Entry.State<>'retained') and (Entry.State<>'pending') then raise EReadError.Create('Неизвестное состояние освобождения исходника.');
+    finally Q.Free; end;
+  end;
+
+  CheckRegistry:=procedure(DB:TSQLiteDatabase)
+  begin
+    Stop(Cancelled); CheckRegistration(DB);
+    if DB.QuerySingleString('SELECT ProofSHA256 FROM '+ProofTable+' WHERE Operation=? AND GroupID=?',
+      [FInfo.Operation,Prepared.ID])<>SHA then raise EReadError.Create('Независимое подтверждение группы изменилось.');
+    FJournal.CheckPreparedGroupProof(Prepared,SHA,Cancelled);
+  end;
+
+  Stop(Cancelled);
+  if Prepared=nil then raise EArgumentException.Create('Не указана проверенная группа освобождения.');
+  SHA:=GroupProofSHA(Prepared.ID); FJournal.CheckPreparedGroupProof(Prepared,SHA,Cancelled);
+  ProofLease:=FJournal.HoldPreparedGroupProof(Prepared.ID,SHA);
+  Guards:=TObjectDictionary<Int64,TTransferOriginalRemoval>.Create([doOwnsValues]);
+  Entries:=TDictionary<Int64,TIntent>.Create; Kept:=TDictionary<Int64,Boolean>.Create;
+  Outcome:=Default(TTransferRemovalResult);
+  try
+    FJournal.RemovePublishedGroup(Prepared,Cancelled,CheckRegistry,
+      procedure(DB:TSQLiteDatabase; Retained:TArray<Int64>)
+      begin
+        DB.ExecSQL('CREATE TABLE IF NOT EXISTS '+RemovalTable+'(Operation TEXT NOT NULL,GroupID INTEGER NOT NULL,FileID INTEGER NOT NULL,'+
+          'ProofSHA256 TEXT NOT NULL,SourceIdentity TEXT NOT NULL,TargetIdentity TEXT NOT NULL,Source TEXT NOT NULL,Destination TEXT NOT NULL,'+
+          'SHA256 TEXT NOT NULL,StreamsJSON TEXT NOT NULL,OriginalAttributes INTEGER NOT NULL,ProtectionBound INTEGER NOT NULL,'+
+          'State TEXT NOT NULL,Reason TEXT NOT NULL,PRIMARY KEY(Operation,FileID)) WITHOUT ROWID');
+        AddRetained(Retained);
+        for var I:=0 to Prepared.Count-1 do
+        begin
+          Stop(Cancelled); var ID:=Prepared.FileID(I); var Item:=Prepared.CopyAt(I); var Entry:TIntent;
+          LoadIntent(DB,I,Entry); Entries.Add(ID,Entry);
+          if (Entry.State='removed') or (Entry.State='missing') or Kept.ContainsKey(ID) then Continue;
+          try
+            var Path:=Item.Source;
+            var Guard:=TTransferOriginalRemoval.Create(Item,Entry.SourceIdentity,Cancelled,
+              procedure(const Stage:string; Done,Total:Int64)
+              begin if Assigned(Progress) then Progress(Stage,Path,Done,Total); end);
+            Guards.Add(ID,Guard);
+            if Entry.Bound then Guard.RestoreOriginalAttributes(Entry.Attributes)
+            else if not Guard.Missing then
+            begin Entry.Attributes:=Guard.Attributes; Entry.Bound:=True; Entries[ID]:=Entry; end;
+          except
+            on E:EAbort do raise;
+            on E:EOSError do Retain(ID,E.Message);
+            on E:EReadError do Retain(ID,E.Message);
+          end;
+        end;
+        AddRetained(nil);
+        for var I:=0 to Prepared.Count-1 do
+        begin
+          Stop(Cancelled); var ID:=Prepared.FileID(I); var Item:=Prepared.CopyAt(I); var Entry:=Entries[ID];
+          DB.ExecSQL('INSERT OR IGNORE INTO '+RemovalTable+' VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+            [FInfo.Operation,Prepared.ID,ID,SHA,Entry.SourceIdentity,Item.Identity,Item.Source,Item.Destination,
+             Item.SHA256,Item.StreamsJSON,Int64(Entry.Attributes),Ord(Entry.Bound),'intent',Entry.Reason]);
+          if (Entry.State<>'removed') and (Entry.State<>'missing') then
+            DB.ExecSQL('UPDATE '+RemovalTable+' SET OriginalAttributes=?,ProtectionBound=?,Reason=? WHERE Operation=? AND FileID=?',
+              [Int64(Entry.Attributes),Ord(Entry.Bound),Entry.Reason,FInfo.Operation,ID]);
+          LoadIntent(DB,I,Entry); Entries[ID]:=Entry;
+        end;
+      end,
+      procedure(DB:TSQLiteDatabase; Retained:TArray<Int64>)
+      begin
+        AddRetained(Retained);
+        // Verify the whole dependency group before unlinking its first file.
+        for var I:=0 to Prepared.Count-1 do
+        begin
+          Stop(Cancelled); var ID:=Prepared.FileID(I); var Entry:TIntent;
+          if not LoadIntent(DB,I,Entry) then raise EReadError.Create('Нет независимо сохранённого намерения удаления.');
+          var Before:=Entries[ID];
+          if (Entry.State<>Before.State) or (Entry.Attributes<>Before.Attributes) or (Entry.Bound<>Before.Bound) then
+            raise EReadError.Create('Намерение удаления изменилось после сохранения.');
+          if (Entry.State='removed') or (Entry.State='missing') or Kept.ContainsKey(ID) then Continue;
+          var Guard:TTransferOriginalRemoval;
+          if not Guards.TryGetValue(ID,Guard) then raise EReadError.Create('Нет удерживаемого исходника для освобождения.');
+          try Guard.ProtectAndVerify;
+          except
+            on E:EAbort do raise;
+            on E:EOSError do Retain(ID,E.Message);
+            on E:EReadError do Retain(ID,E.Message);
+          end;
+        end;
+        AddRetained(nil);
+        for var I:=0 to Prepared.Count-1 do
+        begin
+          Stop(Cancelled); var ID:=Prepared.FileID(I); var Entry:=Entries[ID]; var State,Reason:string;
+          if Entry.State='removed' then begin Inc(Outcome.Removed); Continue; end;
+          if Entry.State='missing' then begin Inc(Outcome.Missing); Continue; end;
+          Reason:=Entry.Reason;
+          if Kept.ContainsKey(ID) then
+          begin
+            State:='retained'; if Reason='' then Reason:='Исходник нужен другой записи, сохранён вместе с зависимыми картинками.';
+            Inc(Outcome.Retained);
+          end
+          else if Guards[ID].Missing then begin State:='missing'; Reason:=''; Inc(Outcome.Missing); end
+          else
+          begin
+            if Guards[ID].Unlink(procedure begin CheckRegistry(DB); end) then
+            begin State:='removed'; Reason:=''; Inc(Outcome.Removed); end
+            else begin State:='pending'; Reason:='Освобождение завершится после закрытия внешнего читателя.'; Inc(Outcome.Pending); end;
+          end;
+          DB.ExecSQL('UPDATE '+RemovalTable+' SET State=?,Reason=? WHERE Operation=? AND FileID=?',[State,Reason,FInfo.Operation,ID]);
+        end;
+      end);
+    Result:=Outcome;
+  finally
+    Kept.Free; Entries.Free; Guards.Free; ProofLease.Free;
+    Retain:=nil; AddRetained:=nil; LoadIntent:=nil; CheckRegistry:=nil;
+  end;
 end;
 
 function ResumeRegisteredCollectionTransfer(const PersonalFile,Operation:string):TCollectionTransferJournal;

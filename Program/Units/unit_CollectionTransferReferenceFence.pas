@@ -18,7 +18,10 @@ type TTransferReferenceSnapshot=class
       const Cancelled:TFunc<Boolean>);
     destructor Destroy; override;
     procedure CheckGroup(Prepared:TPreparedTransferGroup);
+    function RetainedFiles(Prepared:TPreparedTransferGroup):TArray<Int64>;
 end;
+
+function ExpandTransferRetention(Review:TSQLiteDatabase; GroupID:Int64; const Seeds:TArray<Int64>):TArray<Int64>;
 
 procedure CheckTransferPublicationReferences(Review:TSQLiteDatabase;
   const PersonalFile,WorkRoot:string; Prepared:TPreparedTransferGroup;
@@ -26,7 +29,41 @@ procedure CheckTransferPublicationReferences(Review:TSQLiteDatabase;
 
 implementation
 
-uses System.Classes, unit_CollectionTransferReferences, unit_BookCompressionReceipt;
+uses System.Classes, System.Generics.Collections, unit_CollectionTransferReferences, unit_BookCompressionReceipt;
+
+function ExpandTransferRetention(Review:TSQLiteDatabase; GroupID:Int64; const Seeds:TArray<Int64>):TArray<Int64>;
+var Kept:TDictionary<Int64,Boolean>; Q:TSQLiteQuery; Changed:Boolean;
+begin
+  Kept:=TDictionary<Int64,Boolean>.Create; Q:=nil;
+  try
+    for var ID in Seeds do Kept.AddOrSetValue(ID,True);
+    repeat
+      Changed:=False;
+      Q:=Review.NewQuery('SELECT e.OwnerID,e.FileID FROM Edges e JOIN Files f ON f.ID=e.OwnerID WHERE f.GroupID=?',[GroupID]); Q.Open;
+      while not Q.Eof do
+      begin
+        if Kept.ContainsKey(Q.FieldAsInt(0)) and not Kept.ContainsKey(Q.FieldAsInt(1)) then
+        begin Kept.Add(Q.FieldAsInt(1),True); Changed:=True; end;
+        Q.Next;
+      end;
+      FreeAndNil(Q);
+    until not Changed;
+    Result:=Kept.Keys.ToArray;
+  finally Q.Free; Kept.Free; end;
+end;
+
+function TTransferReferenceSnapshot.RetainedFiles(Prepared:TPreparedTransferGroup):TArray<Int64>;
+var Seeds:TList<Int64>;
+begin
+  Seeds:=TList<Int64>.Create;
+  try
+    for var I:=0 to Prepared.Count-1 do
+      if TransferReferenceRequiresRetention(FStore.DB,Prepared.FileID(I)) or
+        (FReview.QuerySingleInt('SELECT KeepInPlace FROM Files WHERE ID=?',[Prepared.FileID(I)])<>0) then
+        Seeds.Add(Prepared.FileID(I));
+    Result:=ExpandTransferRetention(FReview,Prepared.ID,Seeds.ToArray);
+  finally Seeds.Free; end;
+end;
 
 procedure TTransferReferenceSnapshot.Stop;
 begin
