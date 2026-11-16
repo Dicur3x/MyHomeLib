@@ -5,7 +5,13 @@ interface
 uses System.SysUtils, System.Generics.Collections, SQLiteWrap,
   unit_CollectionTransferJournal, unit_CollectionTransferReferenceFence;
 
-type TTransferPublicationSession=class
+type
+  TTransferPublicationDatabase=record
+    Key,Path:string;
+    Database:TSQLiteDatabase;
+    Registrations:TArray<Integer>;
+  end;
+  TTransferPublicationSession=class
   private
     FReview,FPersonal:TSQLiteDatabase;
     FPersonalFile,FWorkRoot,FOperation,FReviewSHA,FPersonalKey:string;
@@ -24,7 +30,7 @@ type TTransferPublicationSession=class
     function VersionChanged(const Key:string; DB:TSQLiteDatabase):Boolean;
     function UnknownChanged:Boolean;
     procedure Rollback;
-    procedure LockGroup(Prepared:TPreparedTransferGroup; ForceFresh:Boolean);
+    procedure LockGroup(Prepared:TPreparedTransferGroup; ForceFresh:Boolean; SkipReferences:Boolean=False);
     function CheckLocations(Prepared:TPreparedTransferGroup; const Point:TProc<string>):Int64;
     procedure RefreshLockedGroup(Prepared:TPreparedTransferGroup);
   public
@@ -40,6 +46,15 @@ type TTransferPublicationSession=class
     procedure RemovePublished(Prepared:TPreparedTransferGroup; const Cancelled:TFunc<Boolean>; const Point:TProc<string>;
       const RegistryCheck:TProc<TSQLiteDatabase>;
       const SaveIntent,RemoveSources:TProc<TSQLiteDatabase,TArray<Int64>>);
+    // Metadata finalization owns these transactions until EndFinalization.
+    // No source unlink can be authorized by these checks.
+    procedure BeginFinalization(const Cancelled:TFunc<Boolean>);
+    procedure RefreshFinalizationReferences(const FinalSources:TFunc<Integer,string>; const FinalRoot:string);
+    procedure CheckFinalizationGroup(Prepared:TPreparedTransferGroup);
+    procedure ReopenFinalizationPersonal;
+    procedure EndFinalization;
+    function FinalizationDatabases:TArray<TTransferPublicationDatabase>;
+    property FinalizationPersonal:TSQLiteDatabase read FPersonal;
     property Scans:Integer read FScans;
 end;
 
@@ -109,7 +124,7 @@ begin
   if (FPersonal<>nil) and FPersonal.InTransaction then FPersonal.Rollback;
 end;
 
-procedure TTransferPublicationSession.LockGroup(Prepared:TPreparedTransferGroup; ForceFresh:Boolean);
+procedure TTransferPublicationSession.LockGroup(Prepared:TPreparedTransferGroup; ForceFresh,SkipReferences:Boolean);
 var Q:TSQLiteQuery; Dirty:Boolean;
 begin
   Q:=nil;
@@ -145,15 +160,67 @@ begin
       if VersionChanged(Pair.Key,Pair.Value) then Dirty:=True;
     end;
     if UnknownChanged then Dirty:=True;
-    if Dirty or ForceFresh then
+    if not SkipReferences and (Dirty or ForceFresh) then
     begin
       FreeAndNil(FSnapshot);
       FSnapshot:=TTransferReferenceSnapshot.Create(FReview,FPersonalFile,FWorkRoot,FEffective,FTargets,CheckStop);
       Inc(FScans);
     end;
-    FSnapshot.CheckGroup(Prepared);
+    if (Prepared<>nil) and not SkipReferences then FSnapshot.CheckGroup(Prepared);
   finally Q.Free; end;
 end;
+
+procedure TTransferPublicationSession.BeginFinalization(const Cancelled:TFunc<Boolean>);
+begin
+  FCancelled:=Cancelled;
+  try LockGroup(nil,False,True);
+  except EndFinalization; raise; end;
+end;
+
+procedure TTransferPublicationSession.RefreshFinalizationReferences(const FinalSources:TFunc<Integer,string>; const FinalRoot:string);
+begin
+  CheckStop;
+  if not FPersonal.InTransaction then raise EArgumentException.Create('Нет личной транзакции завершения.');
+  for var Pair in FDatabases do
+    if not Pair.Value.InTransaction then raise EArgumentException.Create('Нет транзакции каталога для завершения.');
+  FreeAndNil(FSnapshot);
+  FSnapshot:=TTransferReferenceSnapshot.Create(FReview,FPersonalFile,FWorkRoot,FEffective,FTargets,CheckStop,FinalSources,FinalRoot);
+  Inc(FScans);
+end;
+
+function TTransferPublicationSession.FinalizationDatabases:TArray<TTransferPublicationDatabase>;
+begin
+  var Keys:=TList<string>.Create;
+  try
+    for var Key in FDatabases.Keys do Keys.Add(Key); Keys.Sort;
+    SetLength(Result,Keys.Count);
+    for var I:=0 to Keys.Count-1 do
+    begin
+      var Key:=Keys[I]; Result[I].Key:=Key; Result[I].Path:=FPaths[Key];
+      Result[I].Database:=FDatabases[Key]; Result[I].Registrations:=FLists[Key].ToArray;
+    end;
+  finally Keys.Free; end;
+end;
+
+procedure TTransferPublicationSession.CheckFinalizationGroup(Prepared:TPreparedTransferGroup);
+begin
+  CheckStop;
+  if (FSnapshot=nil) or (Prepared=nil) then raise EArgumentException.Create('Нет свежей сверки завершения переноса.');
+  FSnapshot.CheckGroup(Prepared);
+  for var Pair in FDatabases do
+    ApplyTransferLocations(Pair.Value,FPersonal,FReview,Prepared,FOperation,FReviewSHA,FLists[Pair.Key].ToArray,False,True,False,True);
+  ApplyTransferLocations(FPersonal,FPersonal,FReview,Prepared,FOperation,FReviewSHA,FIDs.ToArray,True,False,True,True);
+end;
+
+procedure TTransferPublicationSession.ReopenFinalizationPersonal;
+begin
+  CheckStop;
+  if FPersonal.InTransaction then raise EArgumentException.Create('Личная транзакция ещё открыта.');
+  FPersonal.ExecSQL('BEGIN IMMEDIATE');
+end;
+
+procedure TTransferPublicationSession.EndFinalization;
+begin Rollback; FreeAndNil(FSnapshot); FCancelled:=nil; end;
 
 procedure TTransferPublicationSession.Publish(Prepared:TPreparedTransferGroup;
   const Cancelled:TFunc<Boolean>; const Point:TProc<string>; const PersonalChanges:TProc<TSQLiteDatabase>;

@@ -10,13 +10,13 @@ type TTransferLocationResult=record Rows,Retained,History:Int64; end;
 // Registration IDs must enumerate this database's participating registrations.
 function ApplyTransferLocations(DB,Personal,Review:TSQLiteDatabase; Prepared:TPreparedTransferGroup;
   const Operation,ReviewSHA:string; const Registrations:TArray<Integer>; PersonalRows:Boolean;
-  VerifyOnly:Boolean=False; ReconcileOnly:Boolean=False):TTransferLocationResult;
+  VerifyOnly:Boolean=False; ReconcileOnly:Boolean=False; Finalizing:Boolean=False):TTransferLocationResult;
 
 implementation
 
 uses System.Classes, System.IOUtils, System.JSON, System.Hash, System.StrUtils, System.Generics.Collections,
   SQLite3, unit_Globals, unit_Settings, dm_user, unit_CollectionTransferPlan, unit_CollectionTransferHistory,
-  unit_BookCompressionReceipt;
+  unit_BookCompressionReceipt, unit_CollectionTransferLayout;
 
 procedure EnableLocatorTriggers(Context:TSQLite3Context; Count:Integer; Values:TSQLite3Value); cdecl;
 begin SQLite3_Result_Int(Context,1); end;
@@ -180,10 +180,11 @@ end;
 
 function ApplyTransferLocations(DB,Personal,Review:TSQLiteDatabase; Prepared:TPreparedTransferGroup;
   const Operation,ReviewSHA:string; const Registrations:TArray<Integer>; PersonalRows:Boolean;
-  VerifyOnly,ReconcileOnly:Boolean):TTransferLocationResult;
+  VerifyOnly,ReconcileOnly,Finalizing:Boolean):TTransferLocationResult;
 var R,Rows,Live,Marker:TSQLiteQuery; Allowed,Seen,Unsafe:TDictionary<string,Boolean>; Bind:TJSONArray;
+    FinalLayout:TCollectionTransferLayout;
 begin
-  Result:=Default(TTransferLocationResult); R:=nil; Rows:=nil; Live:=nil; Marker:=nil;
+  Result:=Default(TTransferLocationResult); R:=nil; Rows:=nil; Live:=nil; Marker:=nil; FinalLayout:=nil;
   if (DB=nil) or not DB.InTransaction or (Prepared=nil) or (Length(Registrations)=0) or
     (Length(ReviewSHA)<>64) or (Operation='') then raise EArgumentException.Create('Нужна привязанная транзакция расположений.');
   var ActualKey:=DatabaseKey(DB); var PersonalKey:=Review.QuerySingleString('SELECT Value FROM Context WHERE Name=''personal_key''');
@@ -192,6 +193,7 @@ begin
   Allowed:=TDictionary<string,Boolean>.Create; Seen:=TDictionary<string,Boolean>.Create;
   Unsafe:=TDictionary<string,Boolean>.Create; Bind:=TJSONArray.Create;
   try
+    if Finalizing then FinalLayout:=TCollectionTransferLayout.Create(Review);
     if not VerifyOnly then DB.AddFunction('MHL_TRIGGERS_ON',0,EnableLocatorTriggers);
     for var CID in Registrations do
     begin
@@ -199,7 +201,12 @@ begin
       var Frozen:=Review.NewQuery('SELECT RawRoot,Code FROM ReferenceRegistrations WHERE RegistrationID=?',[CID]);
       try
         Frozen.Open;
-        if R.Eof or Frozen.Eof or (R.FieldAsString(1)<>Frozen.FieldAsString(0)) or
+        var RootMatches:=not R.Eof and not Frozen.Eof and (R.FieldAsString(1)=Frozen.FieldAsString(0));
+        if Finalizing and (CID=StrToInt(Review.QuerySingleString('SELECT Value FROM Context WHERE Name=''collection'''))) and not R.Eof then
+        begin
+          RootMatches:=RootMatches or (R.FieldAsString(1)=FinalLayout.RootDestination('collection'));
+        end;
+        if R.Eof or Frozen.Eof or not RootMatches or
           (R.FieldAsInt(2)<>Frozen.FieldAsInt(1)) or
           (not PersonalRows and (CompressionFileKey(Settings.ExpandCollectionFileName(R.FieldAsString(0)))<>ActualKey)) then
           raise EReadError.Create('Подключение изменилось перед сохранением адресов.');
@@ -272,9 +279,20 @@ begin
       end;
       var OldLocation:=(Live.FieldAsString(1)=Original.Folder) and (Live.FieldAsString(2)=Original.FileName);
       var NewLocation:=(Live.FieldAsString(1)=Folder) and (Live.FieldAsString(2)=FileName);
+      var CopyRootMatches:=True;
+      if Kind=2 then
+      begin
+        CopyRootMatches:=Live.FieldAsString(5)=Rows.FieldAsString(9);
+        if Finalizing and (ActualKey=Review.QuerySingleString('SELECT Value FROM Context WHERE Name=''catalogue_key''')) and
+          (Rows.FieldAsString(9)<>'') then
+        begin
+          CopyRootMatches:=CopyRootMatches or
+            (Live.FieldAsString(5)=FinalLayout.RelocatePath(Settings.ExpandCollectionRoot(Rows.FieldAsString(9))));
+        end;
+      end;
       if (Live.FieldAsString(0)<>Original.LibID) or (Live.FieldAsString(3)<>Original.FileExt) or
         (Live.FieldAsInt(4)<>Original.InsideNo) or not (OldLocation or NewLocation) or
-        ((Kind=2) and ((Live.FieldAsString(5)<>Rows.FieldAsString(9)) or (Live.FieldAsInt(6)<>Rows.FieldAsInt(2)))) then
+        ((Kind=2) and (not CopyRootMatches or (Live.FieldAsInt(6)<>Rows.FieldAsInt(2)))) then
         raise EReadError.Create('Расположение или номер книги изменились перед сохранением.');
       FreeAndNil(Live);
       if VerifyOnly and not NewLocation then raise EReadError.Create('Новый адрес книги ещё не сохранён.');
@@ -311,7 +329,7 @@ begin
       if not PersonalRows and not ReconcileOnly then Result.History:=RebindTransferHistory(DB,Review,Prepared);
       DB.ExecSQL('INSERT OR IGNORE INTO HomeLibreTransferLocations VALUES(?,?,?,?)',[Operation,Prepared.ID,ReviewSHA,BindingSHA]);
     end;
-  finally Marker.Free; Live.Free; Rows.Free; R.Free; Bind.Free; Unsafe.Free; Seen.Free; Allowed.Free; end;
+  finally FinalLayout.Free; Marker.Free; Live.Free; Rows.Free; R.Free; Bind.Free; Unsafe.Free; Seen.Free; Allowed.Free; end;
 end;
 
 end.

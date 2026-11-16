@@ -89,6 +89,10 @@ type
       const PersonalChanges:TProc<TSQLiteDatabase> = nil);
     procedure ReconcileGroupLocations(Prepared:TPreparedTransferGroup; const ProofSHA:string;
       const Cancelled:TFunc<Boolean>; const PersonalCheck:TProc<TSQLiteDatabase>);
+    procedure CheckSpace;
+    procedure EnsureFinalRootDirectory;
+    function HasRootFinalization:Boolean;
+    function FinalizeRoots(const Cancelled:TFunc<Boolean> = nil):Boolean;
     property Directory: string read FDirectory;
     property ReviewSHA256: string read FReviewSHA;
     property Review: TSQLiteDatabase read FReview;
@@ -103,7 +107,8 @@ implementation
 uses System.IOUtils, System.Hash, unit_Globals, unit_Consts,
   unit_Settings, dm_user, unit_BookCompressionReceipt, unit_ZipMemberDeletion,
   unit_CollectionTransferReferences, unit_CollectionTransferForks, unit_CollectionTransferLocations,
-  unit_CollectionTransferPublication, unit_CollectionTransferResources;
+  unit_CollectionTransferPublication, unit_CollectionTransferResources, unit_CollectionTransferLayout,
+  unit_CollectionTransferFinalization;
 
 const JournalKind='HomeLibre collection transfer preparation v1';
   Prefix='collection-transfer-';
@@ -148,10 +153,15 @@ function TPreparedTransferGroup.CopyAt(Index:Integer):TTransferPreparedCopy;
 begin Result:=FCopies[Index]; end;
 
 procedure TCollectionTransferJournal.CheckStop;
-var Available,Capacity:UInt64;
 begin
   if Assigned(FCancelled) and FCancelled() then
     raise EAbort.Create('Подготовка переноса остановлена. Исходники и журнал сохранены.');
+  CheckSpace;
+end;
+
+procedure TCollectionTransferJournal.CheckSpace;
+var Available,Capacity:UInt64;
+begin
   if GetTickCount64<FNextReserveCheck then Exit;
   FNextReserveCheck:=GetTickCount64+1000;
   var SystemDrive:=TPath.GetPathRoot(GetEnvironmentVariable('SystemRoot'));
@@ -1138,6 +1148,43 @@ begin
         procedure(Stage:string) begin Point(Stage,FDirectory,Prepared.ID,0); end,PersonalCheck,True);
     except FreeAndNil(FPublicationSession); raise; end;
   finally FCancelled:=Previous; Proof.Free; end;
+end;
+
+procedure TCollectionTransferJournal.EnsureFinalRootDirectory;
+begin
+  CheckStop;
+  var Layout:=TCollectionTransferLayout.Create(FReview);
+  try
+    var Root:=IncludeTrailingPathDelimiter(FDestination);
+    var Target:=Layout.RootDestination('collection');
+    if not Target.StartsWith(Root,True) then raise EReadError.Create('Итоговый корень выходит из папки назначения.');
+    var Relative:=Copy(Target,Length(Root)+1,MaxInt); var Current:=Root;
+    PinDirectory(Current);
+    for var Part in Relative.Split(['\'],TStringSplitOptions.ExcludeEmpty) do
+    begin
+      CheckStop;
+      if (Part='.') or (Part='..') then raise EReadError.Create('Неверная часть итогового корня.');
+      Current:=TPath.Combine(Current,Part);
+      if GetFileAttributes(PChar(DeletionNativePath(Current)))=INVALID_FILE_ATTRIBUTES then
+      begin
+        var Code:=GetLastError;
+        if not (Code in [ERROR_FILE_NOT_FOUND,ERROR_PATH_NOT_FOUND]) then RaiseLastOSError(Code);
+        if not CreateDirectory(PChar(DeletionNativePath(Current)),nil) then RaiseLastOSError;
+      end;
+      PinDirectory(Current);
+    end;
+  finally Layout.Free; end;
+end;
+
+function TCollectionTransferJournal.HasRootFinalization:Boolean;
+begin Result:=TCollectionTransferFinalization.HasIntent(Self); end;
+
+function TCollectionTransferJournal.FinalizeRoots(const Cancelled:TFunc<Boolean>):Boolean;
+begin
+  OpenPublicationSession;
+  var Handler:=TCollectionTransferFinalization.Create(Self,TTransferPublicationSession(FPublicationSession));
+  try Result:=Handler.ApplyRoots(Cancelled);
+  finally Handler.Free; end;
 end;
 
 end.

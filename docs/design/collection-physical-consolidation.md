@@ -2,8 +2,8 @@
 
 Status: native inventory, file/group copy journals, catalogue/fork publication,
 resource verification, destination-only recovery, guarded source removal,
-the sequential available-file phase, final-layout projection and final-row
-transaction primitive are implemented internally. Final roots,
+the sequential available-file phase, final-layout/final-row primitives and the
+durable roots/settings phase are implemented internally. Source-cache/Reader,
 live DAO/job coordination, startup and normal UI remain open. No user collection
 has been moved by this work.
 
@@ -121,6 +121,17 @@ separate; the owning finalization controller still needs independent durable
 intent, final-aware resume and coordinated commits before this can be enabled
 in the normal move flow. See
 `docs/audits/2026-11-16-collection-transfer-final-rows.md`.
+
+The production coordinator now has a durable roots/settings phase, with personal
+intent before any catalogue setting commit, exact per-database receipts,
+final-aware reference/location verification, writer-gap data_version checks and
+atomic personal-root/phase publication. All affected source-catalogue filenames
+follow reviewed forks, while only the selected roots/profiles relocate. Late
+personal-only paths retain their meaning; known late missing cards follow their
+reviewed future locations. Intent selects the resume route before ordinary
+source preparation. The phase ends at `roots-applied` and deliberately leaves
+the overall operation pending for source-cache/Reader and complete-controller
+integration. See `docs/audits/2026-11-16-collection-transfer-finalization.md`.
 
 ## File preparation (implemented at file/group level)
 

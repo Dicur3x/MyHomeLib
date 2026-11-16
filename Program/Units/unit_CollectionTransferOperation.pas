@@ -8,6 +8,7 @@ type
   TTransferOperationResult=record
     GroupsDone,GroupsTotal,FilesVerified:Int64;
     Originals:TTransferRemovalResult;
+    RootsApplied:Boolean;
   end;
   TTransferOperationProgress=reference to procedure(const Stage,Source:string;
     GroupsDone,GroupsTotal,Done,Total:Int64);
@@ -25,7 +26,7 @@ type
   public
     constructor Create(Journal:TCollectionTransferJournal);
     function Run(const Cancelled:TFunc<Boolean> = nil;
-      const Progress:TTransferOperationProgress = nil):TTransferOperationResult;
+      const Progress:TTransferOperationProgress = nil; FinalizeRoots:Boolean=False):TTransferOperationResult;
   end;
 
 implementation
@@ -52,7 +53,7 @@ begin
 end;
 
 function TCollectionTransferOperation.Run(const Cancelled:TFunc<Boolean>;
-  const Progress:TTransferOperationProgress):TTransferOperationResult;
+  const Progress:TTransferOperationProgress; FinalizeRoots:Boolean):TTransferOperationResult;
 var Registry:TCollectionTransferRegistry;
 begin
   FCancelled:=Cancelled; FProgress:=Progress; Registry:=nil;
@@ -60,6 +61,12 @@ begin
   try
     CheckStop; Registry:=TCollectionTransferRegistry.Create(FJournal);
     Registry.RegisterOperation(CheckStop);
+    if FJournal.HasRootFinalization then
+    begin
+      FResult.RootsApplied:=FJournal.FinalizeRoots(CheckStop);
+      FResult.GroupsDone:=FResult.GroupsTotal; FResult.FilesVerified:=FJournal.FileCount; Result:=FResult;
+      Notify('Итоговые пути сохранены; требуется завершение переноса','',FResult.GroupsDone,FResult.GroupsTotal); Exit;
+    end;
     Notify('Подготовка каталогов','',0,FResult.GroupsTotal);
     FJournal.PublishCatalogueForks(CheckStop);
     FJournal.ForEachGroup(
@@ -89,8 +96,10 @@ begin
           Notify('Группа перенесена','',Group.Files,Group.Files);
         finally Prepared.Free; end;
       end);
+    if FinalizeRoots then FResult.RootsApplied:=FJournal.FinalizeRoots(CheckStop);
     Result:=FResult;
-    Notify('Файлы обработаны; требуется завершение настройки путей','',FResult.GroupsDone,FResult.GroupsTotal);
+    if FResult.RootsApplied then Notify('Итоговые пути сохранены; требуется завершение переноса','',FResult.GroupsDone,FResult.GroupsTotal)
+    else Notify('Файлы обработаны; требуется завершение настройки путей','',FResult.GroupsDone,FResult.GroupsTotal);
   finally Registry.Free; FCancelled:=nil; FProgress:=nil; end;
 end;
 

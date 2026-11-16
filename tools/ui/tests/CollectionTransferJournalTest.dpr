@@ -8,7 +8,7 @@ uses System.SysUtils, System.Classes, System.IOUtils, System.JSON, System.Hash,
   unit_CollectionTransferCatalogue, unit_CollectionTransferPlan,
   unit_CollectionTransferCopy, unit_CollectionTransferJournal, unit_CollectionTransferReferences, unit_CollectionTransferRegistry,
   unit_CollectionTransferOperation,
-  unit_CollectionTransferLayout, unit_CollectionTransferFinalRows,
+  unit_CollectionTransferLayout, unit_CollectionTransferFinalRows, unit_CollectionTransferFinalization,
   unit_CollectionTransferHistory, unit_CollectionTransferLocations, unit_BookCompressionImages, unit_BookCompressionReceipt, unit_BookCompressionPlan;
 
 procedure DisableFixtureTriggers(Context:TSQLite3Context; Count:Integer; Values:TSQLite3Value); cdecl;
@@ -116,7 +116,7 @@ end;
 var Request,Control,Output:TJSONObject; Capture:TCollectionTransferCatalogue; Plan:TCollectionTransferPlan;
     Journal:TCollectionTransferJournal; Registry:TCollectionTransferRegistry; Info:TCollectionInfo; ControlFile,Mode,Crash:string;
     Copies,PreparedFiles:Integer; Stop,BetweenEdited:Boolean; Groups,HistoryHits:TJSONArray; IDs:TList<Int64>; HistoryRows,VerifiedRetained:Int64;
-    Removed,Missing,RetainedSources,PendingSources:Int64;
+    Removed,Missing,RetainedSources,PendingSources:Int64; RootsApplied:Boolean;
 begin
   SetTextCodePage(System.Output,CP_UTF8);
   try
@@ -127,7 +127,19 @@ begin
       try
         Mode:=Request.GetValue<string>('mode','create'); ControlFile:=Owned(Request.GetValue<string>('control'));
         Crash:=Request.GetValue<string>('crash',''); Copies:=0; PreparedFiles:=0; Stop:=False; BetweenEdited:=False; HistoryRows:=0; VerifiedRetained:=0; HistoryHits:=TJSONArray.Create;
-        Removed:=0; Missing:=0; RetainedSources:=0; PendingSources:=0;
+        Removed:=0; Missing:=0; RetainedSources:=0; PendingSources:=0; RootsApplied:=False;
+        TransferFinalizationTestPoint:=procedure(Stage:string)
+          begin
+            if Stage=Crash then begin Writeln('CRASH ',Stage); Flush(System.Output); Halt(97); end;
+            if Request.GetValue<string>('cancel_finalization_stage','')=Stage then Stop:=True;
+            if (Stage='finalization-after-catalogue-commit') and Request.GetValue<Boolean>('edit_finalization_gap',False) then
+            begin
+              var DB:=TSQLiteDatabase.Create(DeletionNativePath(Owned(Request.GetValue<string>('catalogue'))));
+              try DB.AddFunction('MHL_TRIGGERS_ON',0,DisableFixtureTriggers);
+                DB.ExecSQL('UPDATE Books SET Title=''late finalization title'' WHERE BookID=1');
+              finally DB.Free; end;
+            end;
+          end;
         TransferReferenceTestPoint:=
           procedure(Stage:string)
           begin
@@ -302,7 +314,8 @@ begin
                 if (Stage='Группа перенесена') and Request.GetValue<Boolean>('cancel_after_group',False) then Stop:=True;
                 if (Stage='Группа перенесена') and (Crash='operation-group-handled') then
                 begin Writeln('CRASH operation-group-handled'); Flush(System.Output); Halt(97); end;
-              end);
+              end,Request.GetValue<Boolean>('finalize_roots',False));
+            RootsApplied:=Handled.RootsApplied;
             PreparedFiles:=Handled.FilesVerified; Removed:=Handled.Originals.Removed; Missing:=Handled.Originals.Missing;
             RetainedSources:=Handled.Originals.Retained; PendingSources:=Handled.Originals.Pending;
             if Handled.GroupsDone<>Handled.GroupsTotal then raise EReadError.Create('Operation omitted a reviewed group');
@@ -410,10 +423,11 @@ begin
         Output.AddPair('retained_sources',TJSONNumber.Create(RetainedSources));
         Output.AddPair('pending_sources',TJSONNumber.Create(PendingSources));
         Output.AddPair('resource_validations',TJSONNumber.Create(Journal.ResourceValidationCount));
+        Output.AddPair('roots_applied',TJSONBool.Create(RootsApplied));
         if Request.GetValue<Boolean>('final_rows',False) then
         begin
           // Isolated diagnostic for the row primitive only. The ordinary
-          // controller still needs durable whole-operation finalization intent.
+          // This branch bypasses the separate production roots-intent controller.
           var FinalCat:=TSQLiteDatabase.Create(DeletionNativePath(Owned(Request.GetValue<string>('catalogue'))),False);
           try
             var FinalPersonal:=TSQLiteDatabase.Create(DeletionNativePath(Owned(Request.GetValue<string>('personal'))),False);
@@ -543,7 +557,7 @@ begin
         end;
       finally
         TransferCopyTestPoint:=nil; TransferJournalTestPoint:=nil;
-        TransferReferenceTestPoint:=nil; TransferRegistryTestPoint:=nil;
+        TransferReferenceTestPoint:=nil; TransferRegistryTestPoint:=nil; TransferFinalizationTestPoint:=nil;
         HistoryHits.Free; IDs.Free; Registry.Free; Journal.Free; Plan.Free; Capture.Free; Output.Free; Control.Free; Request.Free;
       end;
     finally FreeAndNil(DMUser); end;

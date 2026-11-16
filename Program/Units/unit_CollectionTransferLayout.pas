@@ -31,8 +31,10 @@ type
     function RootDestination(const ID:string):string;
     function RelocatePath(const Path:string):string;
     function SourceSettings:string;
+    function ProjectSources(const Current:string; MoveRoots:Boolean):string;
     function UpdateSettings(const Current:string):string;
     procedure ForEachFutureLocator(const Visit:TTransferFutureVisitor);
+    function TryMainFuture(BookID:Int64; out Locator:TTransferFutureLocator):Boolean;
   end;
 
 implementation
@@ -140,10 +142,14 @@ begin
 end;
 
 function TCollectionTransferLayout.SourceSettings:string;
-var Data:TJSONValue;
+begin Result:=ProjectSources(FReview.QuerySingleString('SELECT Value FROM Context WHERE Name=''sources_json'''),True); end;
+
+function TCollectionTransferLayout.ProjectSources(const Current:string; MoveRoots:Boolean):string;
+var Data:TJSONValue; Changed:Boolean;
 begin
-  Result:=FReview.QuerySingleString('SELECT Value FROM Context WHERE Name=''sources_json''');
+  Result:=Current;
   if Result='' then Exit;
+  Changed:=False;
   Data:=TJSONObject.ParseJSONValue(Result);
   try
     if not (Data is TJSONArray) then raise EReadError.Create('Повреждён список источников итогового размещения.');
@@ -152,13 +158,13 @@ begin
       if not (Value is TJSONObject) then raise EReadError.Create('Повреждена запись источника итогового размещения.');
       var Obj:=TJSONObject(Value); var ID:=Obj.GetValue<string>('id');
       var Path:=Obj.GetValue<string>('root','');
-      if Path<>'' then
+      if MoveRoots and (Path<>'') then
       begin
         var Root:TTransferFinalRoot;
         if not FRoots.TryGetValue('source:'+ID,Root) or
           not SameFileName(Folder(Settings.ExpandCollectionRoot(Path)),Root.Input) then
           raise EReadError.Create('Папка источника не совпала с замороженным планом.');
-        SetText(Obj,'root',Root.Destination);
+        Changed:=Changed or (Path<>Root.Destination); SetText(Obj,'root',Root.Destination);
       end;
       if (Obj.GetValue<string>('inpx','')='') and (Obj.GetValue<Integer>('collection',-1)>0) then
       begin
@@ -173,12 +179,12 @@ begin
             var FileName:=Obj.GetValue<string>('file','');
             if (FileName='') or not SameFileName(Settings.ExpandCollectionFileName(FileName),Q.FieldAsString(0)) then
               raise EReadError.Create('Файл исходной коллекции не совпал с замороженным планом.');
-            SetText(Obj,'file',Q.FieldAsString(1));
+            Changed:=Changed or (FileName<>Q.FieldAsString(1)); SetText(Obj,'file',Q.FieldAsString(1));
           end;
         finally Q.Free; end;
       end;
     end;
-    Result:=Data.ToJSON;
+    if Changed then Result:=Data.ToJSON;
   finally Data.Free; end;
 end;
 
@@ -252,6 +258,15 @@ begin
   var Q:=FReview.NewQuery('SELECT ID,Kind,BookID,LibID,Folder,FileName,Ext,InsideNo,Root,SourceKey,Source,RootID FROM Bindings '+
     'WHERE State=? AND FileID IS NULL AND FileName<>'''' AND Source<>'''' ORDER BY ID',[Ord(tbsMissing)]);
   try Q.Open; while not Q.Eof do begin Visit(FutureLocator(Q)); Q.Next; end;
+  finally Q.Free; end;
+end;
+
+function TCollectionTransferLayout.TryMainFuture(BookID:Int64; out Locator:TTransferFutureLocator):Boolean;
+begin
+  Locator:=Default(TTransferFutureLocator);
+  var Q:=FReview.NewQuery('SELECT ID,Kind,BookID,LibID,Folder,FileName,Ext,InsideNo,Root,SourceKey,Source,RootID FROM Bindings '+
+    'WHERE Kind=0 AND BookID=? AND State=? AND FileID IS NULL AND FileName<>'''' AND Source<>''''',[BookID,Ord(tbsMissing)]);
+  try Q.Open; Result:=not Q.Eof; if Result then Locator:=FutureLocator(Q);
   finally Q.Free; end;
 end;
 

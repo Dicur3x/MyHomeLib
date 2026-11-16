@@ -29,6 +29,13 @@ def require_output_reserve(*folders):
             raise OSError('Build stopped: keep at least 512 MiB free on output/temp volume: ' + str(probe))
 
 
+def terminal_build_log(text):
+    # AutoBuild can keep its editor open after either compiler outcome. Wait
+    # for its complete fresh report, not for editor shutdown or a deadline.
+    return (re.search(r'(?m)^(?:Success|Failed)\r?$', text) is not None and
+            re.search(r'(?m)^Elapsed time:', text) is not None)
+
+
 def build(project, platform, binary, logs, ide, required_text=(), visible=False, timeout=180):
     if os.name == 'nt' and shutil.disk_usage(os.environ.get('SystemDrive', 'C:') + '\\').free < 8*1024**3:
         raise OSError('Build stopped: keep at least 8 GiB free on the system drive.')
@@ -82,9 +89,7 @@ def build(project, platform, binary, logs, ide, required_text=(), visible=False,
                     # AutoBuild can leave its own IDE open after the compiler
                     # has finished. The fresh log and executable, rather than
                     # editor shutdown, are the completion authority.
-                    if (re.search(r'(?m)^Success\r?$', text) and
-                            re.search(r'(?m)^Elapsed time:', text) and
-                            binary.is_file() and binary.stat().st_mtime_ns >= started):
+                    if terminal_build_log(text):
                         break
                 if time.monotonic() >= deadline:
                     raise subprocess.TimeoutExpired(process.args, timeout)

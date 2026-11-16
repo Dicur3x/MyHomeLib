@@ -15,7 +15,7 @@ type TTransferReferenceSnapshot=class
     // Caller holds writer transactions on personal and every ready catalogue.
     constructor Create(Review:TSQLiteDatabase; const PersonalFile,WorkRoot:string;
       const EffectiveCatalogue:TFunc<Integer,string>; const ExtraTargets:TProc<TSQLiteDatabase>;
-      const Cancelled:TFunc<Boolean>);
+      const Cancelled:TFunc<Boolean>; const FinalSources:TFunc<Integer,string> = nil; const FinalRoot:string = '');
     destructor Destroy; override;
     procedure CheckGroup(Prepared:TPreparedTransferGroup);
     function RetainedFiles(Prepared:TPreparedTransferGroup):TArray<Int64>;
@@ -79,7 +79,8 @@ end;
 
 constructor TTransferReferenceSnapshot.Create(Review:TSQLiteDatabase;
   const PersonalFile,WorkRoot:string; const EffectiveCatalogue:TFunc<Integer,string>;
-  const ExtraTargets:TProc<TSQLiteDatabase>; const Cancelled:TFunc<Boolean>);
+  const ExtraTargets:TProc<TSQLiteDatabase>; const Cancelled:TFunc<Boolean>;
+  const FinalSources:TFunc<Integer,string>; const FinalRoot:string);
 var Fresh,Q,Found:TSQLiteQuery; DB:TSQLiteDatabase;
 begin
   inherited Create; FReview:=Review; FCancelled:=Cancelled;
@@ -114,9 +115,15 @@ begin
     begin
       Stop;
       Found:=FReview.NewQuery('SELECT RawRoot,Code,State,SourcesJSON,RawCatalogue FROM ReferenceRegistrations WHERE RegistrationID=?',[Fresh.FieldAsInt(0)]); Found.Open;
-      if Found.Eof or (Fresh.FieldAsString(1)<>Found.FieldAsString(0)) or
-        (Fresh.FieldAsInt(2)<>Found.FieldAsInt(1)) or (Fresh.FieldAsString(3)<>Found.FieldAsString(2)) or
-        (Fresh.FieldAsString(4)<>Found.FieldAsString(3)) then Changed;
+      if Found.Eof then Changed;
+      var RootMatches:=Fresh.FieldAsString(1)=Found.FieldAsString(0);
+      if (FinalRoot<>'') and (Fresh.FieldAsInt(0)=StrToInt(FReview.QuerySingleString('SELECT Value FROM Context WHERE Name=''collection'''))) then
+        RootMatches:=RootMatches or (Fresh.FieldAsString(1)=FinalRoot);
+      var SourcesMatch:=Fresh.FieldAsString(4)=Found.FieldAsString(3);
+      if Assigned(FinalSources) and (Fresh.FieldAsString(3)='ready') then
+        SourcesMatch:=SourcesMatch or (Fresh.FieldAsString(4)=FinalSources(Fresh.FieldAsInt(0)));
+      if not RootMatches or (Fresh.FieldAsInt(2)<>Found.FieldAsInt(1)) or
+        (Fresh.FieldAsString(3)<>Found.FieldAsString(2)) or not SourcesMatch then Changed;
       if (Fresh.FieldAsString(3)='ready') and
         (Fresh.FieldAsString(5)<>CompressionFileKey(EffectiveCatalogue(Fresh.FieldAsInt(0)))) then Changed;
       if (Fresh.FieldAsString(3)<>'ready') and (Fresh.FieldAsString(6)<>Found.FieldAsString(4)) then Changed;

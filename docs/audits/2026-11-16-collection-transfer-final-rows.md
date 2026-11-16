@@ -120,8 +120,9 @@ Each stage summary retains its actual status, input hashes and cleanup.
 
 ## Remaining gates
 
-Independent finalization intent, final-aware resume, coordinated source/profile
-settings and registration commits, late-card reconciliation, retained source
+The subsequent independent roots-intent phase, final-aware resume, coordinated
+source/profile/default-root commits and late-card handling are recorded in
+`docs/audits/2026-11-16-collection-transfer-finalization.md`. Retained source
 indices/cache, Reader/live DAO/jobs, startup/Sources UI, space/cleanup, large and
 cross-filesystem trials, post-transfer updates and final production/release checks
 remain open. No working collection, Desktop installation or public artifact was
