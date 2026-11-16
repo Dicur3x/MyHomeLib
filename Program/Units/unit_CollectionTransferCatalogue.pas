@@ -410,9 +410,10 @@ var Roots:TArray<TCollectionTransferRoot>;
 begin
   CheckUnchanged; Roots:=nil;
   for var Root in FRoots do
-    if FStore.DB.QuerySingleInt('SELECT count(*) FROM TransferCandidates WHERE RootID=? AND Available=1',[Root.ID])<>0 then
+    if DirectoryExists(DeletionNativePath(Root.Path)) then
     begin SetLength(Roots,Length(Roots)+1); Roots[High(Roots)]:=Root; end;
-  if Length(Roots)=0 then raise EReadError.Create('Нет доступных локальных файлов для переноса.');
+  if (Length(Roots)=0) or (FStore.DB.QuerySingleInt('SELECT count(*) FROM TransferCandidates WHERE Available=1')=0) then
+    raise EReadError.Create('Нет доступных локальных файлов для переноса.');
   Result:=TCollectionTransferPlan.Create(Destination,WorkRoot,Roots,
     procedure(const Visit:TCollectionTransferVisitor)
     var Q:TSQLiteQuery; Input:TCollectionTransferInput;

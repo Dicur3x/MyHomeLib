@@ -8,6 +8,7 @@ uses System.SysUtils, System.Classes, System.IOUtils, System.JSON, System.Hash,
   unit_CollectionTransferCatalogue, unit_CollectionTransferPlan,
   unit_CollectionTransferCopy, unit_CollectionTransferJournal, unit_CollectionTransferReferences, unit_CollectionTransferRegistry,
   unit_CollectionTransferOperation,
+  unit_CollectionTransferLayout,
   unit_CollectionTransferHistory, unit_CollectionTransferLocations, unit_BookCompressionImages, unit_BookCompressionReceipt, unit_BookCompressionPlan;
 
 procedure DisableFixtureTriggers(Context:TSQLite3Context; Count:Integer; Values:TSQLite3Value); cdecl;
@@ -409,6 +410,32 @@ begin
         Output.AddPair('retained_sources',TJSONNumber.Create(RetainedSources));
         Output.AddPair('pending_sources',TJSONNumber.Create(PendingSources));
         Output.AddPair('resource_validations',TJSONNumber.Create(Journal.ResourceValidationCount));
+        if Request.GetValue<Boolean>('final_layout',False) then
+        begin
+          var Layout:=TCollectionTransferLayout.Create(Journal.Review);
+          try
+            var Data:=TJSONObject.Create; Output.AddPair('final_layout',Data);
+            var Roots:=TJSONArray.Create; Data.AddPair('roots',Roots);
+            for var Root in Layout.Roots do
+            begin
+              var Row:=TJSONObject.Create; Roots.AddElement(Row); Row.AddPair('id',Root.ID);
+              Row.AddPair('input',Root.Input); Row.AddPair('destination',Root.Destination);
+              Row.AddPair('observed',TJSONBool.Create(Root.Observed));
+            end;
+            Data.AddPair('sources_json',Layout.SourceSettings);
+            Data.AddPair('profiles_json',Layout.UpdateSettings(Request.GetValue<string>('layout_profiles','')));
+            var Future:=TJSONArray.Create; Data.AddPair('future',Future);
+            Layout.ForEachFutureLocator(
+              procedure(const Locator:TTransferFutureLocator)
+              begin
+                var Row:=TJSONObject.Create; Future.AddElement(Row);
+                Row.AddPair('binding',TJSONNumber.Create(Locator.BindingID)); Row.AddPair('kind',TJSONNumber.Create(Locator.Kind));
+                Row.AddPair('book',TJSONNumber.Create(Locator.BookID)); Row.AddPair('key',Locator.SourceKey);
+                Row.AddPair('source',Locator.Source); Row.AddPair('folder',Locator.Folder);
+                Row.AddPair('filename',Locator.FileName); Row.AddPair('root',Locator.CopyRoot);
+              end);
+          finally Layout.Free; end;
+        end;
         Journal.ForEachGroup(
           procedure(const Group:TTransferJournalGroup)
           begin

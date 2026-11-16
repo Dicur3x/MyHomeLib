@@ -1,8 +1,8 @@
 # Physical consolidation of collection sources
 
 Status: native inventory, file/group copy journals, catalogue/fork publication,
-resource verification, destination-only recovery, guarded source removal and
-the sequential available-file phase are implemented internally. Final roots,
+resource verification, destination-only recovery, guarded source removal,
+the sequential available-file phase and final-layout projection are implemented internally. Final roots,
 live DAO/job coordination, startup and normal UI remain open. No user collection
 has been moved by this work.
 
@@ -88,6 +88,17 @@ collections and why any source archive will be retained. Display space by volume
 and a peak temporary-space estimate; do not add whole-library extraction space.
 Recheck the 8 GiB system reserve and destination/work-volume reserves before and
 during long work. Losing the reserve stops preparation without deleting sources.
+
+The physical planner now observes all existing declared roots, including an
+outer root with no directly assigned book. This keeps its children in one
+relative layout without recursively copying unrelated contents. The final-layout
+projector uses those frozen destinations and derives unavailable roots from a
+known ancestor or an isolated future folder. It preserves native missing-book
+locators and source/copy keys, updates only source/profile book-root fields and
+retains unknown JSON fields. Empty profile roots and unrelated incoming folders
+keep their meanings. This stage is read-only: source/registration settings and
+download state are not yet applied. See
+`docs/audits/2026-11-16-collection-transfer-layout.md`.
 
 ## File preparation (implemented at file/group level)
 
