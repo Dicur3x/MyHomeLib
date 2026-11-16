@@ -114,7 +114,12 @@ It rechecks live locator fields without restoring older notes/progress. A ready
 copy group remains pending publication and never authorizes original removal.
 See `docs/audits/2026-11-16-collection-transfer-journal.md` for native crash/resume
 evidence and the remaining whole-operation gates. Pending-job discovery and the
-all-registration/publication/cleanup halves are not implemented by that journal.
+publication/cleanup halves are not implemented by that journal. Its frozen
+review now also inventories other registrations and their personal locators by
+physical file ID, captures shared-database row conflicts, and records unknown
+catalogues or unsupported path/resource aliases as retention requirements.
+That inventory is an initial review snapshot, not permission to remove a file:
+publication and cleanup must reconcile live references again.
 
 Distinguish the user-chosen containing folder from the mapped default book root.
 Preserving that mapped default root can retain native relative locators/source
@@ -128,7 +133,14 @@ relative row may then mean different physical books. An unconditional absolute
 folder rewrite would redirect the other registration to the wrong book. Such a
 case needs a proven per-registration strategy (for example deferred root
 publication with retained originals, or an owned catalogue fork with unchanged
-personal IDs). Account for its actual temporary space. Do not delete an original
+personal IDs). The selected strategy for divergent shared rows is an owned
+catalogue fork per registration/root group that needs different locator
+updates, created with the existing SQLite online backup API. Preserve personal
+registration/book IDs and source keys; publish the new registration filename
+with durable markers before modifying divergent rows. Account for the extra
+metadata space and retain the original database until recovery no longer
+needs it. This strategy still needs implementation and interrupted-recovery
+proof; a detected conflict is not yet a resolved conflict. Do not delete an original
 or declare that case supported before the chosen strategy and interrupted
 recovery have been tested.
 

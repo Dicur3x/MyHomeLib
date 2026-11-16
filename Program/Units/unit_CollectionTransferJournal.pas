@@ -78,7 +78,8 @@ var TransferJournalTestPoint: TProc<string,string,Int64,Int64>;
 implementation
 
 uses System.IOUtils, System.JSON, System.Hash, unit_Globals, unit_Consts,
-  unit_Settings, dm_user, unit_BookCompressionReceipt, unit_ZipMemberDeletion;
+  unit_Settings, dm_user, unit_BookCompressionReceipt, unit_ZipMemberDeletion,
+  unit_CollectionTransferReferences;
 
 const JournalKind='HomeLibre collection transfer preparation v1';
   Prefix='collection-transfer-';
@@ -330,6 +331,8 @@ begin
   FReview.ExecSQL('CREATE INDEX Files_Group ON Files(GroupID,ID)');
   FReview.ExecSQL('CREATE TABLE Groups AS SELECT GroupID AS ID,count(*) AS Files,sum(Bytes) AS Bytes FROM Files GROUP BY GroupID');
   FReview.ExecSQL('CREATE UNIQUE INDEX Groups_ID ON Groups(ID)');
+  CaptureTransferReferences(FReview,Catalogue.PersonalFile,
+    function:Boolean begin CheckStop; Result:=False; end);
   Catalogue.CheckUnchanged; Plan.CheckUnchanged;
   FReview.ExecSQL('COMMIT');
 end;

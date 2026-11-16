@@ -67,6 +67,7 @@ type
 function TransferCanonicalDirectory(const Path: string): string;
 procedure TransferReadFileState(const Path: string; out Canonical, Identity: string; out Bytes: Int64);
 function TransferImageSourcesSnapshot(const Source: string): string;
+function TransferFinalHandlePath(Handle: NativeUInt): string;
 
 implementation
 
@@ -413,5 +414,8 @@ begin ReadFileState(Path,Canonical,Identity,Bytes); end;
 
 function TransferImageSourcesSnapshot(const Source:string):string;
 begin Result:=ImageSourcesJSON(ImageSources(Source)); end;
+
+function TransferFinalHandlePath(Handle:NativeUInt):string;
+begin Result:=OrdinaryFinalPath(Handle); end;
 
 end.

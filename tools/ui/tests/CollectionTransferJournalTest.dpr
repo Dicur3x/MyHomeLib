@@ -4,9 +4,12 @@
 
 uses System.SysUtils, System.Classes, System.IOUtils, System.JSON, System.Hash,
   System.Generics.Collections, Winapi.Windows, NativeRegressionGuard, dm_user,
-  SQLiteWrap, unit_Globals, unit_Consts, unit_ZipMemberDeletion,
+  SQLiteWrap, SQLite3, unit_Globals, unit_Consts, unit_ZipMemberDeletion,
   unit_CollectionTransferCatalogue, unit_CollectionTransferPlan,
-  unit_CollectionTransferCopy, unit_CollectionTransferJournal;
+  unit_CollectionTransferCopy, unit_CollectionTransferJournal, unit_CollectionTransferReferences;
+
+procedure DisableFixtureTriggers(Context:TSQLite3Context; Count:Integer; Values:TSQLite3Value); cdecl;
+begin SQLite3_Result_Int(Context,0); end;
 
 function Owned(const Path:string):string;
 begin
@@ -40,6 +43,19 @@ begin
       try
         Mode:=Request.GetValue<string>('mode','create'); ControlFile:=Owned(Request.GetValue<string>('control'));
         Crash:=Request.GetValue<string>('crash',''); Copies:=0; PreparedFiles:=0; Stop:=False;
+        TransferReferenceTestPoint:=
+          procedure(Stage:string)
+          begin
+            if (Stage='reference-row') and Request.GetValue<Boolean>('cancel_reference_scan',False) then Stop:=True;
+            if (Stage='references-read') and (Request.GetValue<string>('change_reference_catalogue','')<>'') then
+            begin
+              var DB:=TSQLiteDatabase.Create(DeletionNativePath(Owned(Request.GetValue<string>('change_reference_catalogue'))));
+              try
+                DB.AddFunction('MHL_TRIGGERS_ON',0,DisableFixtureTriggers);
+                DB.ExecSQL('UPDATE Books SET Folder=''changed-after-reference-scan.zip'' WHERE BookID=1');
+              finally DB.Free; end;
+            end;
+          end;
         if Mode='create' then
         begin
           Info.Clear; Info.ID:=7; Info.CollectionType:=CT_EXTERNAL_LOCAL_FB;
@@ -47,7 +63,8 @@ begin
           Capture:=TCollectionTransferCatalogue.Create(Info,Owned(Request.GetValue<string>('personal')),Owned(Request.GetValue<string>('work')));
           Plan:=Capture.BuildFilePlan(Owned(Request.GetValue<string>('destination')),Owned(Request.GetValue<string>('work')),
             StringToGUID('{A71B2224-0365-46A8-97E6-876445556001}'));
-          Journal:=TCollectionTransferJournal.Create(Owned(Request.GetValue<string>('work')),Capture,Plan);
+          Journal:=TCollectionTransferJournal.Create(Owned(Request.GetValue<string>('work')),Capture,Plan,
+            function:Boolean begin Result:=Stop; end);
           Control:=TJSONObject.Create; Control.AddPair('directory',Journal.Directory);
           Control.AddPair('review_sha256',Journal.ReviewSHA256);
           TFile.WriteAllText(ControlFile,Control.ToJSON,TEncoding.UTF8);
@@ -110,12 +127,26 @@ begin
         Output.AddPair('status','PASS'); Output.AddPair('directory',Journal.Directory);
         Output.AddPair('review_sha256',Journal.ReviewSHA256); Output.AddPair('files',TJSONNumber.Create(Journal.FileCount));
         Output.AddPair('bindings',TJSONNumber.Create(Journal.Review.QuerySingleInt('SELECT count(*) FROM Bindings')));
+        Output.AddPair('reference_conflicts',TJSONNumber.Create(TransferReferenceConflictCount(Journal.Review)));
+        Output.AddPair('reference_issues',TJSONNumber.Create(Journal.Review.QuerySingleInt('SELECT count(*) FROM ReferenceIssues')));
+        var Retained:=TJSONArray.Create; Output.AddPair('retained_files',Retained);
+        var Files:=Journal.Review.NewQuery('SELECT ID FROM Files ORDER BY ID');
+        try
+          Files.Open;
+          while not Files.Eof do
+          begin
+            var ID:=StrToInt64(Files.FieldAsString(0));
+            if TransferReferenceRequiresRetention(Journal.Review,ID) then Retained.Add(ID);
+            Files.Next;
+          end;
+        finally Files.Free; end;
         Output.AddPair('copy_streams',TJSONNumber.Create(Copies)); Output.AddPair('prepared_files',TJSONNumber.Create(PreparedFiles));
         Output.AddPair('pending_group',TJSONNumber.Create(Journal.PendingGroup));
         TFile.WriteAllText(Owned(ParamStr(2)),Output.ToJSON,TEncoding.UTF8);
         Writeln('PASS frozen transfer review and durable group preparation');
       finally
         TransferCopyTestPoint:=nil; TransferJournalTestPoint:=nil;
+        TransferReferenceTestPoint:=nil;
         IDs.Free; Journal.Free; Plan.Free; Capture.Free; Output.Free; Control.Free; Request.Free;
       end;
     finally FreeAndNil(DMUser); end;

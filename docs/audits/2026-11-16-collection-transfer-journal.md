@@ -113,7 +113,7 @@ retained rather than relabelled as a final pass.
 
 ## Remaining operation work
 
-The frozen review currently covers one registration and may retain unmapped
+At checkpoint `0cdd9bd0`, the frozen review covers one registration and may retain unmapped
 missing roots. The durable all-registration reference inventory, shared-catalogue
 strategy, future missing-book/root mapping, publication receipts and paired
 database markers remain open. New personal rows must be reconciled during
