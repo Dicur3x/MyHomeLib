@@ -427,7 +427,7 @@ references remain unchanged and the operation remains pending. Evidence and
 the NTFS child-handle transition are described in
 `docs/audits/2026-11-16-collection-transfer-cache-installation.md`.
 
-### Cache metadata cutover still required
+### Durable cache metadata cutover
 
 Only after every fixed version is independently proved published may source and
 history references change. Write both properties and a receipt in each database's
@@ -448,7 +448,17 @@ not start nested finalization transactions. Recovery after receipts should be
 able to use installed files and independent records without old baselines or
 discarded work snapshots, while preserving the immutable operation review.
 
-Route startup/continuation through that gate before ordinary source updates.
+The native controller now implements this cutover. A personal publication intent
+is committed first; each catalogue atomically switches both properties with its
+receipt; the personal marker becomes published only after every participant is
+verified. The roots controller uses the shared guard in its existing session and
+the coordinator automatically continues an existing publication. Recovery does
+not require original caches or work snapshots, and unchanged replay performs no
+database writes. Missing receipts and foreign source/history edits are refused.
+The installation guard validates all manifest names before opening any file.
+Evidence: `docs/audits/2026-11-16-collection-transfer-cache-metadata.md`.
+
+Startup/UI routing through that gate before ordinary source updates remains open.
 After all metadata receipts are proved, normal DAO/job/Reader coordination,
 old-baseline changes, complete-operation state, ownership-aware cleanup, space
 accounting and final gates still remain. Verify a real full/incremental INPX with

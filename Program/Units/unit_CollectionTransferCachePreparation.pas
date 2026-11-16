@@ -23,6 +23,8 @@ type TCollectionTransferCachePreparation=class
     FReady:TObjectList<TTransferCacheSnapshot>;
     FInstalled:TObjectList<TTransferCacheInstallation>;
     FDataRoot:TTransferCachePathGuard;
+    FPublished:TDictionary<string,Boolean>;
+    FRootSHA,FInstallSetSHA,FPublicationState:string;
     function Stop:Boolean;
     procedure Check;
     procedure Point(const Stage:string);
@@ -42,11 +44,21 @@ type TCollectionTransferCachePreparation=class
     function PrepareJob(Job:TJSONObject):Boolean;
     procedure RememberInstallation(const Job,Binding,Stage,Data:string);
     procedure InstallJob(Job:TJSONObject; Snapshot:TTransferCacheSnapshot);
+    function ReadRootSHA:string;
+    procedure RecoverInstalledVersions;
+    procedure ReadPublication;
+    procedure CheckMetadataReceipts;
+    procedure PublishDatabase(const Participant:TTransferPublicationDatabase);
   public
     constructor Create(Journal:TCollectionTransferJournal; Session:TTransferPublicationSession; RootsApplied:Boolean);
     destructor Destroy; override;
     class function HasIntent(Journal:TCollectionTransferJournal):Boolean; static;
+    class function HasPublication(Journal:TCollectionTransferJournal):Boolean; static;
+    class function OpenPublishedGuard(Journal:TCollectionTransferJournal; Session:TTransferPublicationSession;
+      const RootSHA:string; const Cancelled:TFunc<Boolean>=nil):TCollectionTransferCachePreparation; static;
+    function AuthorizedSources(CID:Integer):string;
     function Prepare(const Cancelled:TFunc<Boolean>=nil; InstallVersions:Boolean=False):Int64;
+    function PublishMetadata(const Cancelled:TFunc<Boolean>=nil):Int64;
   end;
 
 {$IFDEF MHL_TRANSFER_TEST}
@@ -62,6 +74,7 @@ uses System.Hash, System.IOUtils, Winapi.Windows, unit_Consts, unit_Settings, dm
 const IntentTable='HomeLibreTransferCacheIntent'; StageTable='HomeLibreTransferCacheStages';
   ClaimTable='HomeLibreTransferCacheClaims'; Kind='HomeLibre cache preparation v1';
   InstallTable='HomeLibreTransferCacheInstallations'; InstallClaims='HomeLibreTransferCacheInstallClaims';
+  PublicationTable='HomeLibreTransferCachePublication'; MetadataReceipt='HomeLibreTransferCacheMetadata';
 
 function HasTable(DB:TSQLiteDatabase; const Name:string):Boolean;
 begin Result:=DB.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE type=''table'' AND name=?',[Name])=1; end;
@@ -90,6 +103,7 @@ begin
   FInputs:=TObjectDictionary<string,TFileStream>.Create([doOwnsValues]);
   FReady:=TObjectList<TTransferCacheSnapshot>.Create(True);
   FInstalled:=TObjectList<TTransferCacheInstallation>.Create(True);
+  FPublished:=TDictionary<string,Boolean>.Create;
 end;
 
 destructor TCollectionTransferCachePreparation.Destroy;
@@ -98,7 +112,7 @@ begin
   FReady.Free;
   FInputs.Free;
   if FOwnedDBs<>nil then for var DB in FOwnedDBs do if DB.InTransaction then DB.Rollback;
-  FOwnedDBs.Free; FSourceDBs.Free; FLeases.Free; FPlan.Free; FDataRoot.Free; inherited;
+  FOwnedDBs.Free; FSourceDBs.Free; FLeases.Free; FPlan.Free; FDataRoot.Free; FPublished.Free; inherited;
 end;
 
 function TCollectionTransferCachePreparation.Meta(const Name:string):string;
@@ -147,6 +161,7 @@ end;
 
 procedure TCollectionTransferCachePreparation.ReadIntent;
 begin
+  FreeAndNil(FPlan); FState:=''; FIntentSHA:='';
   if not HasTable(FPersonal,IntentTable) then Exit;
   var Q:=FPersonal.NewQuery('SELECT ReviewSHA256,IntentJSON,IntentSHA256,State FROM '+IntentTable+' WHERE Operation=?',[FOperation]);
   try
@@ -244,6 +259,8 @@ end;
 
 function TCollectionTransferCachePreparation.CurrentSources(CID:Integer):string;
 begin
+  for var Participant in FDatabases do for var ID in Participant.Registrations do
+    if (ID=CID) and FPublished.ContainsKey(Participant.Key) then Exit(PlanDB(Participant.Key).GetValue<string>('sources_after'));
   Result:=FJournal.Review.QuerySingleString('SELECT SourcesJSON FROM ReferenceRegistrations WHERE RegistrationID=?',[CID]);
   if FRootDone then
   begin
@@ -262,7 +279,9 @@ begin
     Stop; var Row:=PlanDB(Participant.Key); var Present:Boolean;
     if (Setting(Participant.Database,PROP_CATALOG_SOURCES,Present)<>CurrentSources(Participant.Registrations[0])) or
       (Present<>Row.GetValue<Boolean>('sources_present')) then raise EReadError.Create('Источники изменились перед подготовкой кэша.');
-    if (Setting(Participant.Database,PROP_LIBRARY_UPDATE_HISTORY,Present)<>Row.GetValue<string>('history_before')) or
+    var History:=Row.GetValue<string>('history_before');
+    if FPublished.ContainsKey(Participant.Key) then History:=Row.GetValue<string>('history_after');
+    if (Setting(Participant.Database,PROP_LIBRARY_UPDATE_HISTORY,Present)<>History) or
       (Present<>Row.GetValue<Boolean>('history_present')) then raise EReadError.Create('История обновлений изменилась перед подготовкой кэша.');
   end;
   var Root:=FJournal.Review.QuerySingleString('SELECT RawRoot FROM ReferenceRegistrations WHERE RegistrationID=?',[StrToInt(Meta('collection'))]);
@@ -525,6 +544,192 @@ begin
     FOwnedDBs.Clear; FSourceDBs.Clear; FLeases.Clear;
     FSession.EndFinalization; FCancelled:=nil;
   end;
+end;
+
+class function TCollectionTransferCachePreparation.HasPublication(Journal:TCollectionTransferJournal):Boolean;
+begin
+  var Path:=Journal.Review.QuerySingleString('SELECT Value FROM Context WHERE Name=''personal''');
+  var Lease:=AcquireCompressionDatabaseLease(Path,Journal.Review.QuerySingleString('SELECT Value FROM Context WHERE Name=''personal_key'''));
+  var DB:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(Path));
+  try Result:=HasTable(DB,PublicationTable) and (DB.QuerySingleInt('SELECT count(*) FROM '+PublicationTable+' WHERE Operation=?',
+    [Journal.Review.QuerySingleString('SELECT Value FROM Context WHERE Name=''directory''')])<>0);
+  finally DB.Free; Lease:=nil; end;
+end;
+
+function TCollectionTransferCachePreparation.ReadRootSHA:string;
+begin
+  if not HasTable(FPersonal,'HomeLibreTransferFinalization') then raise EReadError.Create('Нет подтверждённых итоговых корней для источников.');
+  var Q:=FPersonal.NewQuery('SELECT ReviewSHA256,IntentJSON,IntentSHA256,State FROM HomeLibreTransferFinalization WHERE Operation=?',[FOperation]);
+  try Q.Open;
+    if Q.Eof or (Q.FieldAsString(0)<>FJournal.ReviewSHA256) or (Length(Q.FieldAsString(1))>16*1024*1024) or
+      (THashSHA2.GetHashString(Q.FieldAsString(1))<>Q.FieldAsString(2)) or (Q.FieldAsString(3)<>'roots-applied') then
+      raise EReadError.Create('Итоговые корни не подтверждены для публикации источников.');
+    Result:=Q.FieldAsString(2);
+  finally Q.Free; end;
+end;
+
+procedure TCollectionTransferCachePreparation.RecoverInstalledVersions;
+begin
+  FInstalled.Clear; var Signature:='HomeLibre cache metadata v1'+#0+FJournal.ReviewSHA256+#0+FIntentSHA+#0+FRootSHA;
+  for var Value in FPlan.GetValue<TJSONArray>('jobs') do
+  begin
+    Stop; var Job:=Value as TJSONObject; var ID:=Job.GetValue<string>('job'); var Inputs:=InputsFor(ID);
+    try
+      if not HasTable(FPersonal,InstallTable) or not HasTable(FPersonal,StageTable) then
+        raise EReadError.Create('Нет независимого подтверждения постоянных версий кэша.');
+      var Source:=FPersonal.NewQuery('SELECT BindingSHA,ReadySHA FROM '+StageTable+' WHERE Operation=? AND Job=?',[FOperation,ID]);
+      var SnapshotSHA:string;
+      try Source.Open;
+        if Source.Eof or (Source.FieldAsString(0)<>TTransferCacheSnapshot.Binding(FJournal.ReviewSHA256,Job.ToJSON,Inputs.ToJSON)) or
+          (Length(Source.FieldAsString(1))<>64) then raise EReadError.Create('Потеряно подтверждение исходного снимка установки.');
+        SnapshotSHA:=Source.FieldAsString(1);
+      finally Source.Free; end;
+      var Q:=FPersonal.NewQuery('SELECT BindingSHA,Directory,DirectoryKey,Destination,ProofJSON,ProofSHA,State FROM '+InstallTable+
+        ' WHERE Operation=? AND Job=?',[FOperation,ID]);
+      try Q.Open;
+        var Binding:=TTransferCacheInstallation.Binding(FJournal.ReviewSHA256,FIntentSHA,Job.ToJSON,Inputs.ToJSON,SnapshotSHA);
+        if Q.Eof or (Q.FieldAsString(0)<>Binding) or (Q.FieldAsString(6)<>'published') or
+          (Length(Q.FieldAsString(4))>16*1024*1024) or (Length(Q.FieldAsString(5))<>64) or
+          (THashSHA2.GetHashString(Q.FieldAsString(4))<>Q.FieldAsString(5)) then
+          raise EReadError.Create('Не все постоянные версии кэша подтверждены.');
+        var Proof:=TJSONObject.ParseJSONValue(Q.FieldAsString(4)) as TJSONObject;
+        try
+          if (Proof=nil) or (Q.FieldAsString(1)<>Proof.GetValue<string>('stage_directory')) or
+            (Q.FieldAsString(2)<>Proof.GetValue<string>('directory_key')) or
+            (Q.FieldAsString(3)<>Proof.GetValue<string>('destination')) then
+            raise EReadError.Create('Независимая запись установки не совпала с её подтверждением.');
+        finally Proof.Free; end;
+        var Installed:=TTransferCacheInstallation.Recover(FJournal.ReviewSHA256,FIntentSHA,Job.ToJSON,Inputs.ToJSON,SnapshotSHA,
+          FDataRoot.Key,Q.FieldAsString(4),Q.FieldAsString(5),True,nil,Check);
+        FInstalled.Add(Installed); Signature:=Signature+#0+ID+#0+Q.FieldAsString(5);
+      finally Q.Free; end;
+    finally Inputs.Free; end;
+  end;
+  FInstallSetSHA:=THashSHA2.GetHashString(Signature);
+end;
+
+procedure TCollectionTransferCachePreparation.ReadPublication;
+begin
+  FPublicationState:='';
+  if not HasTable(FPersonal,PublicationTable) then Exit;
+  var Q:=FPersonal.NewQuery('SELECT ReviewSHA256,CacheSHA256,RootSHA256,InstallSetSHA256,State FROM '+PublicationTable+' WHERE Operation=?',[FOperation]);
+  try Q.Open; if Q.Eof then Exit;
+    if (Q.FieldAsString(0)<>FJournal.ReviewSHA256) or (Q.FieldAsString(1)<>FIntentSHA) or
+      (Q.FieldAsString(2)<>FRootSHA) or (Q.FieldAsString(3)<>FInstallSetSHA) or
+      not ((Q.FieldAsString(4)='intent') or (Q.FieldAsString(4)='published')) then
+      raise EReadError.Create('Независимое намерение публикации источников изменено.');
+    FPublicationState:=Q.FieldAsString(4); Q.Next;
+    if not Q.Eof then raise EReadError.Create('Повтор намерения публикации источников.');
+  finally Q.Free; end;
+end;
+
+procedure TCollectionTransferCachePreparation.CheckMetadataReceipts;
+begin
+  FPublished.Clear;
+  for var Participant in FDatabases do
+  begin
+    Stop; var Found:=False;
+    if HasTable(Participant.Database,MetadataReceipt) then
+    begin
+      var Q:=Participant.Database.NewQuery('SELECT ReviewSHA256,CacheSHA256,RootSHA256,InstallSetSHA256,DatabaseKey,SourceSHA256,HistorySHA256 '+
+        'FROM '+MetadataReceipt+' WHERE Operation=?',[FOperation]);
+      try Q.Open; Found:=not Q.Eof;
+        if Found then
+        begin
+          var Row:=PlanDB(Participant.Key);
+          if (FPublicationState='') or (Q.FieldAsString(0)<>FJournal.ReviewSHA256) or (Q.FieldAsString(1)<>FIntentSHA) or
+            (Q.FieldAsString(2)<>FRootSHA) or (Q.FieldAsString(3)<>FInstallSetSHA) or (Q.FieldAsString(4)<>Participant.Key) or
+            (Q.FieldAsString(5)<>THashSHA2.GetHashString(Row.GetValue<string>('sources_after'))) or
+            (Q.FieldAsString(6)<>THashSHA2.GetHashString(Row.GetValue<string>('history_after'))) then
+            raise EReadError.Create('Квитанция публикации источников изменилась.');
+          FPublished.Add(Participant.Key,True); Q.Next;
+          if not Q.Eof then raise EReadError.Create('Повтор квитанции источников в каталоге.');
+        end;
+      finally Q.Free; end;
+    end;
+    if not Found and (FPublicationState='published') then raise EReadError.Create('Потеряна квитанция опубликованных источников.');
+  end;
+end;
+
+class function TCollectionTransferCachePreparation.OpenPublishedGuard(Journal:TCollectionTransferJournal;
+  Session:TTransferPublicationSession; const RootSHA:string; const Cancelled:TFunc<Boolean>):TCollectionTransferCachePreparation;
+begin
+  Result:=nil; var Personal:=Session.FinalizationPersonal;
+  if not HasTable(Personal,PublicationTable) or
+    (Personal.QuerySingleInt('SELECT count(*) FROM '+PublicationTable+' WHERE Operation=?',
+      [Journal.Review.QuerySingleString('SELECT Value FROM Context WHERE Name=''directory''')])=0) then Exit;
+  Result:=TCollectionTransferCachePreparation.Create(Journal,Session,True);
+  try
+    Result.FCancelled:=Cancelled; Result.FPersonal:=Personal; Result.FDatabases:=Session.FinalizationDatabases;
+    Result.CheckOperation; Result.ReadIntent;
+    if (Result.FPlan=nil) or (Result.FState<>'prepared') then raise EReadError.Create('Потеряно подготовленное намерение источников.');
+    Result.ValidatePlan; Result.FRootSHA:=Result.ReadRootSHA;
+    if Result.FRootSHA<>RootSHA then raise EReadError.Create('Публикация относится к другому завершению корней.');
+    Result.RecoverInstalledVersions; Result.ReadPublication; Result.CheckMetadataReceipts; Result.CheckCurrent;
+  except Result.Free; raise; end;
+end;
+
+function TCollectionTransferCachePreparation.AuthorizedSources(CID:Integer):string;
+begin Result:=CurrentSources(CID); end;
+
+procedure TCollectionTransferCachePreparation.PublishDatabase(const Participant:TTransferPublicationDatabase);
+begin
+  Stop; if FPublished.ContainsKey(Participant.Key) then Exit;
+  var DB:=Participant.Database; var Row:=PlanDB(Participant.Key);
+  for var Kind in ['sources','history'] do
+  begin
+    var Before:=Row.GetValue<string>('history_before'); var After:=Row.GetValue<string>('history_after');
+    var ID:=PROP_LIBRARY_UPDATE_HISTORY;
+    if Kind='sources' then
+    begin Before:=CurrentSources(Participant.Registrations[0]); After:=Row.GetValue<string>('sources_after'); ID:=PROP_CATALOG_SOURCES; end;
+    if Before=After then Continue;
+    DB.ExecSQL('UPDATE Settings SET SettingValue=? WHERE SettingID=?',[After,ID]);
+    if DB.LastChangedRows<>1 then raise EWriteError.Create('Не сохранены ссылки источников или история обновлений.');
+  end;
+  DB.ExecSQL('CREATE TABLE IF NOT EXISTS '+MetadataReceipt+'(Operation TEXT PRIMARY KEY,ReviewSHA256 TEXT NOT NULL,'+
+    'CacheSHA256 TEXT NOT NULL,RootSHA256 TEXT NOT NULL,InstallSetSHA256 TEXT NOT NULL,DatabaseKey TEXT NOT NULL,'+
+    'SourceSHA256 TEXT NOT NULL,HistorySHA256 TEXT NOT NULL) WITHOUT ROWID');
+  DB.ExecSQL('INSERT INTO '+MetadataReceipt+' VALUES(?,?,?,?,?,?,?,?)',[FOperation,FJournal.ReviewSHA256,FIntentSHA,FRootSHA,FInstallSetSHA,
+    Participant.Key,THashSHA2.GetHashString(Row.GetValue<string>('sources_after')),THashSHA2.GetHashString(Row.GetValue<string>('history_after'))]);
+  var Version:=DB.QuerySingleInt('PRAGMA data_version'); Point('cache-metadata-before-catalogue-commit');
+  DB.Commit; Point('cache-metadata-after-catalogue-commit'); DB.ExecSQL('BEGIN IMMEDIATE');
+  if DB.QuerySingleInt('PRAGMA data_version')<>Version then
+    raise EReadError.Create('Каталог изменился между этапами публикации источников. Повторите продолжение переноса.');
+  FPublished.Add(Participant.Key,True); CheckCurrent;
+end;
+
+function TCollectionTransferCachePreparation.PublishMetadata(const Cancelled:TFunc<Boolean>):Int64;
+begin
+  FCancelled:=Cancelled; FRootDone:=True; Stop; FSession.BeginFinalization(Stop);
+  try
+    FPersonal:=FSession.FinalizationPersonal; FDatabases:=FSession.FinalizationDatabases;
+    CheckOperation; ReadIntent;
+    if (FPlan=nil) or (FState<>'prepared') then raise EReadError.Create('Нет подготовленного намерения для публикации источников.');
+    ValidatePlan; FRootSHA:=ReadRootSHA; RecoverInstalledVersions; ReadPublication; CheckMetadataReceipts; CheckCurrent;
+    var Layout:=TCollectionTransferLayout.Create(FJournal.Review); var Root:string;
+    try Root:=Layout.RootDestination('collection'); finally Layout.Free; end;
+    FSession.RefreshFinalizationReferences(CurrentSources,Root);
+    if FPublicationState='' then
+    begin
+      FPersonal.ExecSQL('CREATE TABLE IF NOT EXISTS '+PublicationTable+'(Operation TEXT PRIMARY KEY,ReviewSHA256 TEXT NOT NULL,'+
+        'CacheSHA256 TEXT NOT NULL,RootSHA256 TEXT NOT NULL,InstallSetSHA256 TEXT NOT NULL,State TEXT NOT NULL CHECK(State IN (''intent'',''published''))) WITHOUT ROWID');
+      FPersonal.ExecSQL('INSERT INTO '+PublicationTable+' VALUES(?,?,?,?,?,''intent'')',[FOperation,FJournal.ReviewSHA256,FIntentSHA,FRootSHA,FInstallSetSHA]);
+      Point('cache-metadata-before-intent-commit'); FPersonal.Commit; Point('cache-metadata-intent-committed');
+      FSession.ReopenFinalizationPersonal; FPublicationState:='intent'; CheckOperation; CheckCurrent;
+      FSession.RefreshFinalizationReferences(CurrentSources,Root);
+    end;
+    for var Participant in FDatabases do PublishDatabase(Participant);
+    for var Installed in FInstalled do Installed.CheckUnchanged;
+    CheckOperation; CheckMetadataReceipts; CheckCurrent; FSession.RefreshFinalizationReferences(CurrentSources,Root);
+    if FPublished.Count<>Length(FDatabases) then raise EReadError.Create('Не все каталоги подтвердили источники.');
+    if FPublicationState<>'published' then
+    begin
+      FPersonal.ExecSQL('UPDATE '+PublicationTable+' SET State=''published'' WHERE Operation=? AND ReviewSHA256=? AND CacheSHA256=? AND RootSHA256=? AND InstallSetSHA256=?',
+        [FOperation,FJournal.ReviewSHA256,FIntentSHA,FRootSHA,FInstallSetSHA]);
+      if FPersonal.LastChangedRows<>1 then raise EReadError.Create('Не подтверждено завершение публикации источников.');
+    end;
+    Point('cache-metadata-before-complete-commit'); FPersonal.Commit; Point('cache-metadata-complete'); Result:=FPublished.Count;
+  finally FInstalled.Clear; FSession.EndFinalization; FCancelled:=nil; end;
 end;
 
 end.

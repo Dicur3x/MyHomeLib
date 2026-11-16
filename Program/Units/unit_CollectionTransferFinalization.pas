@@ -16,6 +16,7 @@ type
     FPersonal:TSQLiteDatabase;
     FDatabases:TArray<TTransferPublicationDatabase>;
     FPlan:TJSONObject;
+    FCacheGuard:TObject;
     FSources:TDictionary<Integer,string>;
     FCancelled:TFunc<Boolean>;
     FOperation,FReviewSHA,FIntentSHA,FState,FSelectedKey:string;
@@ -50,7 +51,8 @@ var TransferFinalizationTestPoint:TProc<string>;
 implementation
 
 uses System.Classes, System.Hash, System.IOUtils, Winapi.Windows, unit_Consts, unit_Globals,
-  unit_Settings, dm_user, unit_BookCompressionReceipt, unit_ZipMemberDeletion, unit_CollectionTransferFinalRows;
+  unit_Settings, dm_user, unit_BookCompressionReceipt, unit_ZipMemberDeletion, unit_CollectionTransferFinalRows,
+  unit_CollectionTransferCachePreparation;
 
 const IntentTable='HomeLibreTransferFinalization'; ReceiptTable='HomeLibreTransferFinalSettings';
 
@@ -83,7 +85,7 @@ begin
 end;
 
 destructor TCollectionTransferFinalization.Destroy;
-begin FPlan.Free; FSources.Free; FLayout.Free; inherited; end;
+begin FCacheGuard.Free; FPlan.Free; FSources.Free; FLayout.Free; inherited; end;
 
 function TCollectionTransferFinalization.Meta(const Name:string):string;
 begin Result:=FJournal.Review.QuerySingleString('SELECT Value FROM Context WHERE Name=?',[Name]); end;
@@ -240,7 +242,10 @@ begin
 end;
 
 function TCollectionTransferFinalization.FinalSources(CID:Integer):string;
-begin if not FSources.TryGetValue(CID,Result) then raise EReadError.Create('Нет итоговых источников подключения.'); end;
+begin
+  if not FSources.TryGetValue(CID,Result) then raise EReadError.Create('Нет итоговых источников подключения.');
+  if FCacheGuard<>nil then Result:=TCollectionTransferCachePreparation(FCacheGuard).AuthorizedSources(CID);
+end;
 
 procedure TCollectionTransferFinalization.CheckRegistrations;
 begin
@@ -282,6 +287,7 @@ begin
   var Source:=Setting(Participant.Database,PROP_CATALOG_SOURCES,Present);
   if Present<>Row.GetValue<Boolean>('source_present') then raise EReadError.Create('Изменился состав настроек источников.');
   var Expected:=Row.GetValue<string>('source_before'); if RequireAfter then Expected:=Row.GetValue<string>('source_after');
+  if RequireAfter and (FCacheGuard<>nil) then Expected:=TCollectionTransferCachePreparation(FCacheGuard).AuthorizedSources(Participant.Registrations[0]);
   if Source<>Expected then raise EReadError.Create('Список источников изменился при завершении.');
   var Profile:=Setting(Participant.Database,PROP_LIBRARY_UPDATE_SOURCES,Present);
   if Present<>Row.GetValue<Boolean>('profile_present') then raise EReadError.Create('Изменился состав профилей обновления.');
@@ -460,7 +466,9 @@ begin
       for var Participant in FDatabases do CheckSettings(Participant,False);
       RememberIntent;
     end;
-    ValidatePlan; CheckRegistration; CheckRegistrations; CheckInventory; CheckMissingPaths; CheckGroups;
+    ValidatePlan;
+    FCacheGuard:=TCollectionTransferCachePreparation.OpenPublishedGuard(FJournal,FSession,FIntentSHA,Stop);
+    CheckRegistration; CheckRegistrations; CheckInventory; CheckMissingPaths; CheckGroups;
     for var Participant in FDatabases do ApplyCatalogue(Participant);
     if FState='roots-applied' then
     begin
@@ -477,7 +485,7 @@ begin
     FPersonal.ExecSQL('UPDATE '+IntentTable+' SET State=''roots-applied'' WHERE Operation=? AND IntentSHA256=?',[FOperation,FIntentSHA]);
     if FPersonal.LastChangedRows<>1 then raise EWriteError.Create('Не сохранён этап завершения корней.');
     Point('finalization-before-personal-commit'); FPersonal.Commit; Point('finalization-after-personal-commit'); Result:=True;
-  finally FSession.EndFinalization; FCancelled:=nil; end;
+  finally FreeAndNil(FCacheGuard); FSession.EndFinalization; FCancelled:=nil; end;
 end;
 
 end.

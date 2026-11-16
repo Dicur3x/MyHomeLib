@@ -120,7 +120,7 @@ end;
 var Request,Control,Output:TJSONObject; Capture:TCollectionTransferCatalogue; Plan:TCollectionTransferPlan;
     Journal:TCollectionTransferJournal; Registry:TCollectionTransferRegistry; Info:TCollectionInfo; ControlFile,Mode,Crash:string;
     Copies,PreparedFiles:Integer; Stop,BetweenEdited:Boolean; Groups,HistoryHits:TJSONArray; IDs:TList<Int64>; HistoryRows,VerifiedRetained:Int64;
-    Removed,Missing,RetainedSources,PendingSources,CachesPrepared,HeldPreparedCaches:Int64; RootsApplied:Boolean;
+    Removed,Missing,RetainedSources,PendingSources,CachesPrepared,HeldPreparedCaches,PublishedCacheDatabases:Int64; RootsApplied:Boolean;
 begin
   SetTextCodePage(System.Output,CP_UTF8);
   try
@@ -131,7 +131,7 @@ begin
       try
         Mode:=Request.GetValue<string>('mode','create'); ControlFile:=Owned(Request.GetValue<string>('control'));
         Crash:=Request.GetValue<string>('crash',''); Copies:=0; PreparedFiles:=0; Stop:=False; BetweenEdited:=False; HistoryRows:=0; VerifiedRetained:=0; HistoryHits:=TJSONArray.Create;
-        Removed:=0; Missing:=0; RetainedSources:=0; PendingSources:=0; CachesPrepared:=0; HeldPreparedCaches:=0; RootsApplied:=False;
+        Removed:=0; Missing:=0; RetainedSources:=0; PendingSources:=0; CachesPrepared:=0; HeldPreparedCaches:=0; PublishedCacheDatabases:=0; RootsApplied:=False;
         TransferFinalizationTestPoint:=procedure(Stage:string)
           begin
             if Stage=Crash then begin Writeln('CRASH ',Stage); Flush(System.Output); Halt(97); end;
@@ -151,6 +151,13 @@ begin
           end;
         TransferCachePreparationTestPoint:=procedure(Stage:string)
           begin
+            if (Stage='cache-metadata-after-catalogue-commit') and Request.GetValue<Boolean>('edit_cache_metadata_gap',False) then
+            begin
+              var DB:=TSQLiteDatabase.Create(DeletionNativePath(Owned(Request.GetValue<string>('catalogue'))),False);
+              try DB.AddFunction('MHL_TRIGGERS_ON',0,DisableFixtureTriggers);
+                DB.ExecSQL('UPDATE Books SET Title=''late cache metadata title'' WHERE BookID=1');
+              finally DB.Free; end;
+            end;
             if (Stage='cache-preparation-job-ready') and Request.GetValue<Boolean>('probe_prepared_cache_guards',False) then
             begin
               var DB:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(Owned(Request.GetValue<string>('personal'))));
@@ -351,9 +358,11 @@ begin
                 if (Stage='Группа перенесена') and Request.GetValue<Boolean>('cancel_after_group',False) then Stop:=True;
                 if (Stage='Группа перенесена') and (Crash='operation-group-handled') then
                 begin Writeln('CRASH operation-group-handled'); Flush(System.Output); Halt(97); end;
-              end,Request.GetValue<Boolean>('finalize_roots',False),Request.GetValue<Boolean>('prepare_source_caches',False));
+              end,Request.GetValue<Boolean>('finalize_roots',False),Request.GetValue<Boolean>('prepare_source_caches',False),
+              Request.GetValue<Boolean>('publish_cache_settings',False));
             RootsApplied:=Handled.RootsApplied;
             CachesPrepared:=Handled.CachesPrepared;
+            PublishedCacheDatabases:=Handled.CacheDatabasesPublished;
             PreparedFiles:=Handled.FilesVerified; Removed:=Handled.Originals.Removed; Missing:=Handled.Originals.Missing;
             RetainedSources:=Handled.Originals.Retained; PendingSources:=Handled.Originals.Pending;
             if Handled.GroupsDone<>Handled.GroupsTotal then raise EReadError.Create('Operation omitted a reviewed group');
@@ -466,7 +475,8 @@ begin
           InstalledCaches:=Journal.InstallSourceCacheVersions(function:Boolean begin Result:=Stop; end);
         Output:=TJSONObject.Create; Groups:=TJSONArray.Create; Output.AddPair('groups',Groups);
         Output.AddPair('installed_caches',TJSONNumber.Create(InstalledCaches));
-        if Request.GetValue<Boolean>('read_installed_caches',False) and (InstalledCaches>0) then
+        Output.AddPair('published_cache_databases',TJSONNumber.Create(PublishedCacheDatabases));
+        if Request.GetValue<Boolean>('read_installed_caches',False) and ((InstalledCaches>0) or (PublishedCacheDatabases>0)) then
         begin
           var DB:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(Owned(Request.GetValue<string>('personal'))));
           try

@@ -107,6 +107,10 @@ above fixed that case. Failed reports are preserved separately.
 
 ## Remaining
 
+The subsequent cache-metadata checkpoint implements the first paragraph below;
+see `2026-11-16-collection-transfer-cache-metadata.md`. These were the remaining
+requirements at the installation-only checkpoint.
+
 Atomically publish source and independent-history settings with per-database
 receipts, validate partially committed settings through the prior roots
 controller, and recover that publication before ordinary source updates. The

@@ -96,6 +96,8 @@ type
     function HasCachePreparation:Boolean;
     function PrepareSourceCaches(const Cancelled:TFunc<Boolean> = nil):Int64;
     function InstallSourceCacheVersions(const Cancelled:TFunc<Boolean> = nil):Int64;
+    function HasCachePublication:Boolean;
+    function PublishSourceCacheSettings(const Cancelled:TFunc<Boolean> = nil):Int64;
     property Directory: string read FDirectory;
     property ReviewSHA256: string read FReviewSHA;
     property Review: TSQLiteDatabase read FReview;
@@ -1201,6 +1203,20 @@ end;
 
 function TCollectionTransferJournal.HasRootFinalization:Boolean;
 begin Result:=TCollectionTransferFinalization.HasIntent(Self); end;
+
+function TCollectionTransferJournal.HasCachePublication:Boolean;
+begin Result:=TCollectionTransferCachePreparation.HasPublication(Self); end;
+
+function TCollectionTransferJournal.PublishSourceCacheSettings(const Cancelled:TFunc<Boolean>):Int64;
+begin
+  if not HasCachePreparation then raise EReadError.Create('Нет подготовленных источников для публикации.');
+  var RootsApplied:=FinalizeRoots(Cancelled); OpenPublicationSession;
+  var Handler:=TCollectionTransferCachePreparation.Create(Self,TTransferPublicationSession(FPublicationSession),RootsApplied);
+  try
+    if not HasCachePublication then Handler.Prepare(Cancelled,True);
+    Result:=Handler.PublishMetadata(Cancelled);
+  finally Handler.Free; end;
+end;
 
 function TCollectionTransferJournal.FinalizeRoots(const Cancelled:TFunc<Boolean>):Boolean;
 begin

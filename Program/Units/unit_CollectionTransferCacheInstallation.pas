@@ -281,7 +281,19 @@ end;
 
 procedure TTransferCacheInstallation.OpenFiles(RenamePending:Boolean);
 begin
-  for var Value in FProof.GetValue<TJSONArray>('files') do
+  var Files:=FProof.GetValue<TJSONArray>('files');
+  if (Files=nil) or (Files.Count<>FNames.Count) then raise EReadError.Create('Неполная постоянная версия кэша.');
+  var Seen:=TDictionary<string,Boolean>.Create;
+  try
+    for var Value in Files do
+    begin
+      var Name:=(Value as TJSONObject).GetValue<string>('name');
+      if not FNames.ContainsKey(LowerCase(Name)) or Seen.ContainsKey(LowerCase(Name)) or
+        (ExtractFileName(Name)<>Name) then raise EReadError.Create('Неверный состав установленного кэша.');
+      Seen.Add(LowerCase(Name),True);
+    end;
+  finally Seen.Free; end;
+  for var Value in Files do
   begin
     Check; var Path:=TPath.Combine(FDirectory,(Value as TJSONObject).GetValue<string>('name'));
     var Share:DWORD:=FILE_SHARE_READ; if RenamePending then Share:=Share or FILE_SHARE_DELETE;
