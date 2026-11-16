@@ -142,8 +142,10 @@ metadata space and retain the original database until recovery no longer
 needs it. Metadata snapshot creation and explicit registration publication are
 now implemented and natively tested on x86/x64, including WAL data and repeated
 process interruption (see `docs/audits/2026-11-16-collection-transfer-forks.md`).
-The journal's effective-catalogue mapping must be used by the later archive
-locator publisher. The normal UI still has to close conflicting writable DAO
+The journal's group locator publisher now uses that effective-catalogue mapping
+and commits each database's locators/history with a matching publication receipt.
+See `docs/audits/2026-11-16-collection-transfer-locations.md` for its native
+validation and remaining fresh-reference/session gates. The normal UI still has to close conflicting writable DAO
 connections, block other pending compression/update jobs, refresh registrations
 after a fork commit and account for snapshot/fork space. Fork publication keeps
 the initial book root; final root publication needs its own durable marker and

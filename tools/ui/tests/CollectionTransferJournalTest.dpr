@@ -6,7 +6,8 @@ uses System.SysUtils, System.Classes, System.IOUtils, System.JSON, System.Hash,
   System.Generics.Collections, Winapi.Windows, NativeRegressionGuard, dm_user,
   SQLiteWrap, SQLite3, unit_Globals, unit_Consts, unit_ZipMemberDeletion,
   unit_CollectionTransferCatalogue, unit_CollectionTransferPlan,
-  unit_CollectionTransferCopy, unit_CollectionTransferJournal, unit_CollectionTransferReferences;
+  unit_CollectionTransferCopy, unit_CollectionTransferJournal, unit_CollectionTransferReferences,
+  unit_CollectionTransferHistory, unit_CollectionTransferLocations, unit_BookCompressionImages, unit_BookCompressionReceipt, unit_BookCompressionPlan;
 
 procedure DisableFixtureTriggers(Context:TSQLite3Context; Count:Integer; Values:TSQLite3Value); cdecl;
 begin SQLite3_Result_Int(Context,0); end;
@@ -47,9 +48,30 @@ begin
   finally DB.Free; end;
 end;
 
+function NativeCacheHit(const Catalogue,Personal,Root,Source:string):Boolean;
+var Selected:TArray<TCompressionLocator>; Options:TCompressionPlanOptions;
+begin
+  var DB:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(Owned(Catalogue)));
+  try
+    var Q:=DB.NewQuery('SELECT LibID,Folder,FileName,Ext,InsideNo,BookSize FROM Books WHERE BookID=1');
+    try
+      Q.Open; SetLength(Selected,1); Selected[0].Kind:=0; Selected[0].BookID:=1;
+      Selected[0].LibID:=Q.FieldAsString(0); Selected[0].Folder:=Q.FieldAsString(1); Selected[0].FileName:=Q.FieldAsString(2);
+      Selected[0].Extension:=Q.FieldAsString(3); Selected[0].InsideNo:=Q.FieldAsInt(4); Selected[0].OldSize:=Q.FieldAsInt(5);
+    finally Q.Free; end;
+  finally DB.Free; end;
+  Options.CollectionID:=7; Options.Catalogue:=Owned(Catalogue); Options.Personal:=Owned(Personal);
+  Options.CollectionRoot:=IncludeTrailingPathDelimiter(Owned(Root)); Options.BaseRoot:=Owned(Root); Options.BaseCatalogue:=Owned(Catalogue);
+  var Plan:=TBookCompressionPlan.Create(Options,Selected,
+    function(const Row:TCompressionLocator):string begin Result:=Owned(Source); end,
+    function(const Path:string; const Row:TCompressionLocator):string begin Result:=Row.FileName+Row.Extension; end);
+  try Result:=(Plan.Files.Count=1) and Plan.Files[0].AlreadyChecked('balanced',False,StringOfChar('a',64));
+  finally Plan.Free; end;
+end;
+
 var Request,Control,Output:TJSONObject; Capture:TCollectionTransferCatalogue; Plan:TCollectionTransferPlan;
     Journal:TCollectionTransferJournal; Info:TCollectionInfo; ControlFile,Mode,Crash:string;
-    Copies,PreparedFiles:Integer; Stop:Boolean; Groups:TJSONArray; IDs:TList<Int64>;
+    Copies,PreparedFiles:Integer; Stop:Boolean; Groups,HistoryHits:TJSONArray; IDs:TList<Int64>; HistoryRows:Int64;
 begin
   SetTextCodePage(System.Output,CP_UTF8);
   try
@@ -59,7 +81,7 @@ begin
       Request:=ReadJSON(ParamStr(1)); Control:=nil; Output:=nil; Capture:=nil; Plan:=nil; Journal:=nil; IDs:=nil;
       try
         Mode:=Request.GetValue<string>('mode','create'); ControlFile:=Owned(Request.GetValue<string>('control'));
-        Crash:=Request.GetValue<string>('crash',''); Copies:=0; PreparedFiles:=0; Stop:=False;
+        Crash:=Request.GetValue<string>('crash',''); Copies:=0; PreparedFiles:=0; Stop:=False; HistoryRows:=0; HistoryHits:=TJSONArray.Create;
         TransferReferenceTestPoint:=
           procedure(Stage:string)
           begin
@@ -113,8 +135,9 @@ begin
             if Stage=Crash then begin Writeln('CRASH ',Stage); Flush(System.Output); Halt(97); end;
             if (Stage='child-prepared') and Request.GetValue<Boolean>('cancel_after_file',False) then Stop:=True;
             if (Stage='fork-before-personal-commit') and Request.GetValue<Boolean>('cancel_fork_commit',False) then Stop:=True;
+            if (Stage='locations-before-catalogue-commit') and Request.GetValue<Boolean>('cancel_location_commit',False) then Stop:=True;
           end;
-        if Request.GetValue<Boolean>('publish_forks',False) then
+        if Request.GetValue<Boolean>('publish_forks',False) or Request.GetValue<Boolean>('apply_locations',False) then
           Journal.PublishCatalogueForks(function:Boolean begin Result:=Stop; end);
         IDs:=TList<Int64>.Create;
         if Request.GetValue<Boolean>('prepare',False) then
@@ -133,10 +156,33 @@ begin
                 if HashFile(Item.Source)<>HashFile(Item.Destination) then raise EReadError.Create('Group payload mismatch');
                 Inc(PreparedFiles);
               end;
+              if Request.GetValue<Boolean>('apply_locations',False) then
+                Journal.PublishGroupLocations(Ready,function:Boolean begin Result:=Stop; end);
+              if Request.GetValue<Boolean>('rebind_history',False) then
+              begin
+                var DB:=TSQLiteDatabase.Create(DeletionNativePath(Owned(Request.GetValue<string>('catalogue'))));
+                try
+                  DB.ExecSQL('PRAGMA synchronous=FULL'); DB.ExecSQL('BEGIN IMMEDIATE');
+                  try
+                    Inc(HistoryRows,RebindTransferHistory(DB,Journal.Review,Ready));
+                    if Crash='history-before-commit' then begin Writeln('CRASH history-before-commit'); Flush(System.Output); Halt(97); end;
+                    if Request.GetValue<Boolean>('rollback_history',False) then raise EAbort.Create('Fixture history rollback');
+                    DB.ExecSQL('COMMIT');
+                    if Crash='history-after-commit' then begin Writeln('CRASH history-after-commit'); Flush(System.Output); Halt(97); end;
+                  except if DB.InTransaction then DB.Rollback; raise; end;
+                finally DB.Free; end;
+                for var I:=0 to Ready.Count-1 do
+                begin
+                  var Item:=TJSONObject.Create; HistoryHits.AddElement(Item); Item.AddPair('file_id',TJSONNumber.Create(Ready.FileID(I)));
+                  Item.AddPair('hit',TJSONBool.Create(NativeCacheHit(Request.GetValue<string>('catalogue'),Request.GetValue<string>('personal'),
+                    Request.GetValue<string>('root'),Ready.CopyAt(I).Destination)));
+                end;
+              end;
             finally Ready.Free; end;
           end;
         end;
         Output:=TJSONObject.Create; Groups:=TJSONArray.Create; Output.AddPair('groups',Groups);
+        Output.AddPair('history_rows',TJSONNumber.Create(HistoryRows)); Output.AddPair('history_hits',HistoryHits); HistoryHits:=nil;
         Journal.ForEachGroup(
           procedure(const Group:TTransferJournalGroup)
           begin
@@ -150,6 +196,34 @@ begin
         Output.AddPair('reference_conflicts',TJSONNumber.Create(TransferReferenceConflictCount(Journal.Review)));
         Output.AddPair('reference_issues',TJSONNumber.Create(Journal.Review.QuerySingleInt('SELECT count(*) FROM ReferenceIssues')));
         Output.AddPair('forks',TJSONNumber.Create(Journal.Review.QuerySingleInt('SELECT count(*) FROM CatalogueForks')));
+        if Request.GetValue<Boolean>('history_witnesses',False) then
+        begin
+          var Witnesses:=TJSONArray.Create; Output.AddPair('history_witnesses',Witnesses);
+          var Files:=Journal.Review.NewQuery('SELECT ID,Source,Identity FROM Files ORDER BY ID');
+          try
+            Files.Open;
+            while not Files.Eof do
+            begin
+              var Source:=Files.FieldAsString(1); var Item:=TJSONObject.Create; Witnesses.AddElement(Item);
+              Item.AddPair('file_id',TJSONNumber.Create(Files.FieldAsInt(0))); Item.AddPair('source',Source);
+              Item.AddPair('identity',Files.FieldAsString(2)); Item.AddPair('sha256',HashFile(Source));
+              Item.AddPair('stamp',CompressionImageStamp(Source));
+              var Data:=CaptureCompressionImageSources(Source);
+              try
+                for var Value in Data do
+                begin
+                  var Path:=Value.GetValue<string>('path');
+                  if Path<>'' then
+                  begin
+                    var Hash:=HashFile(Path); TJSONObject(Value).AddPair('source_sha256',Hash); TJSONObject(Value).AddPair('result_sha256',Hash);
+                  end;
+                end;
+                if Data.Count>0 then Item.AddPair('images',Data.ToJSON) else Item.AddPair('images','');
+              finally Data.Free; end;
+              Files.Next;
+            end;
+          finally Files.Free; end;
+        end;
         if Request.GetValue<Boolean>('read_fork_members',False) then
         begin
           Output.AddPair('keeper_native_sha256',NativeBookHash(Request.GetValue<string>('catalogue'),Request.GetValue<string>('root')));
@@ -183,7 +257,7 @@ begin
       finally
         TransferCopyTestPoint:=nil; TransferJournalTestPoint:=nil;
         TransferReferenceTestPoint:=nil;
-        IDs.Free; Journal.Free; Plan.Free; Capture.Free; Output.Free; Control.Free; Request.Free;
+        HistoryHits.Free; IDs.Free; Journal.Free; Plan.Free; Capture.Free; Output.Free; Control.Free; Request.Free;
       end;
     finally FreeAndNil(DMUser); end;
   except on E:Exception do begin Writeln(E.ClassName,': ',E.Message); Halt(1); end; end;
