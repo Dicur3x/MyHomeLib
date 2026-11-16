@@ -69,6 +69,8 @@ type
     function GroupCount: Int64;
     function FileCount: Int64;
     function PublicationScanCount:Integer;
+    function ResourceValidationCount:Integer;
+    procedure VerifyGroupResources(Prepared:TPreparedTransferGroup; const Cancelled:TFunc<Boolean> = nil);
     procedure PublishCatalogueForks(const Cancelled:TFunc<Boolean> = nil);
     procedure PublishCatalogueFork(ForkID:Int64; const Cancelled:TFunc<Boolean> = nil);
     function EffectiveCatalogue(RegistrationID:Integer):string;
@@ -87,7 +89,7 @@ implementation
 uses System.IOUtils, System.JSON, System.Hash, unit_Globals, unit_Consts,
   unit_Settings, dm_user, unit_BookCompressionReceipt, unit_ZipMemberDeletion,
   unit_CollectionTransferReferences, unit_CollectionTransferForks, unit_CollectionTransferLocations,
-  unit_CollectionTransferPublication;
+  unit_CollectionTransferPublication, unit_CollectionTransferResources;
 
 const JournalKind='HomeLibre collection transfer preparation v1';
   Prefix='collection-transfer-';
@@ -795,6 +797,40 @@ begin
   if FPublicationSession<>nil then Result:=TTransferPublicationSession(FPublicationSession).Scans;
 end;
 
+function TCollectionTransferJournal.ResourceValidationCount:Integer;
+begin
+  Result:=0;
+  if FState.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE type=''table'' AND name=''ResourceValidation''')<>0 then
+    Result:=FState.QuerySingleInt('SELECT count(*) FROM ResourceValidation WHERE ReviewSHA256=?',[FReviewSHA]);
+end;
+
+procedure TCollectionTransferJournal.VerifyGroupResources(Prepared:TPreparedTransferGroup; const Cancelled:TFunc<Boolean>);
+var Previous:TFunc<Boolean>; Q:TSQLiteQuery;
+begin
+  if Prepared=nil then raise EArgumentException.Create('Не указана группа проверки ресурсов.');
+  Previous:=FCancelled; FCancelled:=Cancelled; Q:=nil;
+  try
+    CheckStop; Point('resources-before-validation',FDirectory,Prepared.ID,0); CheckStop;
+    CheckRoots; CheckNegativePaths; CheckGroupImages(Prepared.ID);
+    var Verified:=ValidateTransferResources(FReview,Prepared,function:Boolean begin CheckStop; Result:=False; end);
+    FState.ExecSQL('CREATE TABLE IF NOT EXISTS ResourceValidation(GroupID INTEGER PRIMARY KEY,Kind TEXT NOT NULL,'+
+      'ReviewSHA256 TEXT NOT NULL,ResourcesSHA256 TEXT NOT NULL,Files INTEGER NOT NULL,ImageSets INTEGER NOT NULL,Resources INTEGER NOT NULL)');
+    FState.ExecSQL('BEGIN');
+    try
+      Q:=FState.NewQuery('SELECT Kind,ReviewSHA256,ResourcesSHA256,Files,ImageSets,Resources FROM ResourceValidation WHERE GroupID=?',[Prepared.ID]); Q.Open;
+      if not Q.Eof and ((Q.FieldAsString(0)<>'resources v1') or (Q.FieldAsString(1)<>FReviewSHA) or
+        (Q.FieldAsString(2)<>Verified.SHA256) or (Q.FieldAsInt(3)<>Verified.Files) or
+        (Q.FieldAsInt(4)<>Verified.ImageSets) or (Q.FieldAsInt(5)<>Verified.Resources)) then
+        raise EReadError.Create('Квитанция проверки ресурсов изменилась. Исходники сохранены.');
+      FreeAndNil(Q);
+      FState.ExecSQL('INSERT OR IGNORE INTO ResourceValidation VALUES(?,''resources v1'',?,?,?,?,?)',
+        [Prepared.ID,FReviewSHA,Verified.SHA256,Verified.Files,Verified.ImageSets,Verified.Resources]);
+      Point('resources-before-commit',FDirectory,Prepared.ID,0); CheckStop;
+      FState.ExecSQL('COMMIT'); Point('resources-after-commit',FDirectory,Prepared.ID,0);
+    except if FState.InTransaction then FState.Rollback; raise; end;
+  finally Q.Free; FCancelled:=Previous; end;
+end;
+
 procedure TCollectionTransferJournal.PublishGroupLocations(Prepared:TPreparedTransferGroup; const Cancelled:TFunc<Boolean>);
 begin
   if (Prepared=nil) or (Prepared.Count=0) or
@@ -803,6 +839,7 @@ begin
   PublishCatalogueForks(Cancelled); FCancelled:=Cancelled;
   try
     CheckStop; CheckRoots; CheckNegativePaths; CheckGroupImages(Prepared.ID);
+    VerifyGroupResources(Prepared,Cancelled);
     if FPublicationSession=nil then
       FPublicationSession:=TTransferPublicationSession.Create(FReview,Meta('personal'),FWorkRoot,Meta('directory'),FReviewSHA,
         function(CID:Integer):string begin Result:=EffectiveCatalogue(CID); end,

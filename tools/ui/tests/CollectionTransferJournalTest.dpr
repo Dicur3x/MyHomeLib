@@ -31,6 +31,20 @@ begin
   try Result:=THashSHA2.GetHashString(Stream); finally Stream.Free; end;
 end;
 
+procedure ProbeStreamLeases(const Path:string);
+begin
+  for var Suffix in ['',':HomeLibreNote'] do
+    for var Access in [DWORD(GENERIC_WRITE),DWORD(Winapi.Windows._DELETE)] do
+    begin
+      var Handle:=CreateFile(PChar(DeletionNativePath(Owned(Path)+Suffix)),Access,
+        FILE_SHARE_READ or FILE_SHARE_WRITE or FILE_SHARE_DELETE,nil,OPEN_EXISTING,FILE_FLAG_OPEN_REPARSE_POINT,0);
+      if Handle<>INVALID_HANDLE_VALUE then
+      begin CloseHandle(Handle); raise EReadError.Create('Prepared stream permits access '+IntToHex(Access,8)+': '+Path+Suffix); end;
+      var Code:=GetLastError;
+      if Code<>ERROR_SHARING_VIOLATION then RaiseLastOSError(Code);
+    end;
+end;
+
 function NativeBookHash(const Catalogue,Root:string):string;
 begin
   var DB:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(Owned(Catalogue)));
@@ -137,6 +151,18 @@ begin
             if (Stage='fork-before-personal-commit') and Request.GetValue<Boolean>('cancel_fork_commit',False) then Stop:=True;
             if (Stage='locations-before-catalogue-commit') and Request.GetValue<Boolean>('cancel_location_commit',False) then Stop:=True;
             if (Stage='references-before-publication') and Request.GetValue<Boolean>('cancel_publication_fence',False) then Stop:=True;
+            if (Stage='resources-before-commit') and Request.GetValue<Boolean>('cancel_resources',False) then Stop:=True;
+            if (Stage='resources-before-validation') and Request.GetValue<Boolean>('foreign_target_cover',False) then
+            begin
+              var Path:=Journal.Review.QuerySingleString('SELECT f.Destination FROM ImageSets i JOIN Files f ON f.ID=i.OwnerID '+
+                'WHERE f.GroupID=? ORDER BY i.OwnerID LIMIT 1',[GroupID]);
+              if Path<>'' then
+              begin
+                var Cover:=Owned(TPath.Combine(ExtractFileDir(Path),'covers\'+ChangeFileExt(ExtractFileName(Path),'.zip')));
+                ForceDirectories(ExtractFileDir(Cover));
+                if not FileExists(Cover) then TFile.WriteAllText(Cover,'foreign fixture cover',TEncoding.UTF8);
+              end;
+            end;
             var Edit:=Request.GetValue<string>('between_group_edit','');
             if not BetweenEdited and (Edit<>'') and (Stage=Request.GetValue<string>('edit_stage','locations-after-personal-commit')) then
             begin
@@ -206,10 +232,14 @@ begin
               begin
                 var Item:=Ready.CopyAt(I);
                 if HashFile(Item.Source)<>HashFile(Item.Destination) then raise EReadError.Create('Group payload mismatch');
+                if Request.GetValue<Boolean>('probe_stream_leases',False) then
+                begin ProbeStreamLeases(Item.Source); ProbeStreamLeases(Item.Destination); end;
                 Inc(PreparedFiles);
               end;
               if Request.GetValue<Boolean>('apply_locations',False) then
                 Journal.PublishGroupLocations(Ready,function:Boolean begin Result:=Stop; end);
+              if Request.GetValue<Boolean>('verify_resources',False) and not Request.GetValue<Boolean>('apply_locations',False) then
+                Journal.VerifyGroupResources(Ready,function:Boolean begin Result:=Stop; end);
               if Request.GetValue<Boolean>('rebind_history',False) then
               begin
                 var DB:=TSQLiteDatabase.Create(DeletionNativePath(Owned(Request.GetValue<string>('catalogue'))));
@@ -236,6 +266,7 @@ begin
         Output:=TJSONObject.Create; Groups:=TJSONArray.Create; Output.AddPair('groups',Groups);
         Output.AddPair('history_rows',TJSONNumber.Create(HistoryRows)); Output.AddPair('history_hits',HistoryHits); HistoryHits:=nil;
         Output.AddPair('publication_scans',TJSONNumber.Create(Journal.PublicationScanCount));
+        Output.AddPair('resource_validations',TJSONNumber.Create(Journal.ResourceValidationCount));
         Journal.ForEachGroup(
           procedure(const Group:TTransferJournalGroup)
           begin

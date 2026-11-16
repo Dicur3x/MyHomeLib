@@ -159,7 +159,15 @@ rechecked. Both architectures prove one capture for 26 archive groups and a
 new capture after external catalogue/personal/WAL changes. See
 `docs/audits/2026-11-16-collection-transfer-publication-session.md` for evidence
 and the separate live-filesystem/cleanup/real-scale gates. A cached database
-snapshot never grants permission to remove an original. The normal UI
+snapshot never grants permission to remove an original. Prepared copy results
+now reacquire strict named-stream leases after rename and verify those named
+stream hashes, closing the DELETE-sharing gap at handoff. Each group checks
+its held file/stream witnesses and native external-picture resolution at the
+mapped paths before locator publication; versioned resource receipts are
+replayed rather than overwritten. See
+`docs/audits/2026-11-16-collection-transfer-resources.md` for x86/x64 evidence.
+These resource receipts do not authorize original cleanup or replace its fresh
+live-reference/removal-intent proof. The normal UI
 still has to close conflicting writable DAO
 connections, block other pending compression/update jobs, refresh registrations
 after a fork commit and account for snapshot/fork space. Fork publication keeps

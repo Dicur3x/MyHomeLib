@@ -18,6 +18,7 @@ type
     FSource, FDestination, FIdentity, FSHA256, FStreamsJSON: string;
   public
     destructor Destroy; override;
+    procedure CheckUnchanged(const ExpectedSourceIdentity:string; const Cancelled:TFunc<Boolean> = nil);
     property Source: string read FSource;
     property Destination: string read FDestination;
     property Identity: string read FIdentity;
@@ -96,9 +97,11 @@ type
     Items: TArray<TStreamItem>;
     Identity, Description, MainSHA: string;
     Total: Int64;
+    RenameAllowed:Boolean;
     constructor Create(const Path, ExpectedIdentity, ExpectedKey: string;
       Owner: TCollectionTransferCopy; const Stage: string; AllowRename:Boolean=False);
     destructor Destroy; override;
+    procedure PinPublishedStreams(const Path:string; Owner:TCollectionTransferCopy);
   end;
   TTransferRenameInfo = record
     ReplaceIfExists: Byte;
@@ -228,7 +231,7 @@ constructor TTransferStreamSnapshot.Create(const Path, ExpectedIdentity, Expecte
   Owner:TCollectionTransferCopy; const Stage:string; AllowRename:Boolean);
 var Canonical,Stamp:string; Bytes,Done:Int64; Buffer:TBytes; Count:Integer; Hash:THashSHA2; Data:TJSONArray;
 begin
-  inherited Create;
+  inherited Create; RenameAllowed:=AllowRename;
   TransferReadFileState(Path,Canonical,Stamp,Bytes);
   if not SameFileName(Canonical,Path) or
     ((ExpectedIdentity<>'') and (Stamp<>ExpectedIdentity)) or
@@ -278,12 +281,68 @@ begin
   inherited;
 end;
 
+procedure TTransferStreamSnapshot.PinPublishedStreams(const Path:string; Owner:TCollectionTransferCopy);
+var Stream:TTransferReadStream; Hash:THashSHA2; Buffer:TBytes; N:Integer;
+begin
+  if not RenameAllowed then Exit;
+  SetLength(Buffer,1024*1024);
+  for var I:=0 to High(Items) do
+  begin
+    Owner.CheckStop;
+    Stream:=TTransferReadStream.Create(StreamPath(Path,Items[I].Name),FILE_SHARE_READ);
+    try
+      if (FileKey(Stream.Handle)<>Copy(Identity,1,25)) or (Stream.Size<>Items[I].Size) then
+        raise EReadError.Create('Поток результата изменился при удержании готового файла.');
+      // The default-stream replacement guard pins the published file. Named
+      // streams had to share DELETE while the whole temporary was renamed;
+      // lock their current names and rehash them before trusting old hashes.
+      if Items[I].Name<>'::$DATA' then
+      begin
+        Hash:=THashSHA2.Create;
+        repeat
+          Owner.CheckStop; N:=Stream.Read(Buffer[0],Length(Buffer));
+          if N>0 then Hash.Update(Buffer,N);
+        until N=0;
+        if Hash.HashAsString<>Items[I].SHA256 then raise EReadError.Create('Дополнительный поток результата изменился.');
+        Stream.Position:=0;
+      end;
+      Items[I].Stream.Free; Items[I].Stream:=Stream; Stream:=nil;
+    finally Stream.Free; end;
+  end;
+  RenameAllowed:=False;
+end;
+
 destructor TTransferPreparedCopy.Destroy;
 begin
   if FOutputGuard<>0 then CloseHandle(FOutputGuard);
   FOutputLease.Free; FSourceLease.Free;
   for var Handle in FDirectoryGuards do if Handle<>0 then CloseHandle(Handle);
   inherited;
+end;
+
+procedure TTransferPreparedCopy.CheckUnchanged(const ExpectedSourceIdentity:string; const Cancelled:TFunc<Boolean>);
+  procedure Check(const Path,Expected:string; Snapshot:TTransferStreamSnapshot);
+  var Canonical,Identity:string; Bytes:Int64;
+  begin
+    if Assigned(Cancelled) and Cancelled() then raise EAbort.Create('Проверка файлов остановлена. Исходники сохранены.');
+    if Snapshot=nil then raise EReadError.Create('Нет удерживаемой проверки потоков файла.');
+    TransferReadFileState(Path,Canonical,Identity,Bytes);
+    if (Canonical<>Path) or (Identity<>Expected) or (Snapshot.Identity<>Expected) or
+      (Snapshot.Description<>FStreamsJSON) or (Snapshot.MainSHA<>FSHA256) then
+      raise EReadError.Create('Проверенный файл или его привязка изменились.');
+    var Current:=StreamNames(Path);
+    if Length(Current)<>Length(Snapshot.Items) then raise EReadError.Create('Набор потоков файла изменился.');
+    for var I:=0 to High(Current) do
+      if (Current[I].Name<>Snapshot.Items[I].Name) or (Current[I].Size<>Snapshot.Items[I].Size) or
+        (Snapshot.Items[I].Stream=nil) or (Snapshot.Items[I].Stream.Size<>Current[I].Size) or
+        (FileKey(Snapshot.Items[I].Stream.Handle)<>Copy(Expected,1,25)) then
+        raise EReadError.Create('Потоки проверенного файла изменились.');
+    // Existing streams retain their write-denying leases and replacement
+    // guards. Reuse their verified hashes rather than reading terabytes again.
+  end;
+begin
+  Check(FSource,ExpectedSourceIdentity,TTransferStreamSnapshot(FSourceLease));
+  Check(FDestination,FIdentity,TTransferStreamSnapshot(FOutputLease));
 end;
 
 function TCollectionTransferCopy.PinDirectory(const Path:string; CreateMissing:Boolean):THandle;
@@ -504,6 +563,7 @@ var Source,Output:TTransferStreamSnapshot; Guard,Handle,FinalGuard:THandle;
 
   procedure MakeResult;
   begin
+    Output.PinPublishedStreams(FEntry.Destination,Self);
     Result:=TTransferPreparedCopy.Create;
     try
       Result.FSource:=FEntry.Source; Result.FDestination:=FEntry.Destination;
@@ -515,6 +575,7 @@ var Source,Output:TTransferStreamSnapshot; Guard,Handle,FinalGuard:THandle;
       for var I:=0 to FDirectories.Count-1 do
         if not DuplicateHandle(GetCurrentProcess,FDirectories[I],GetCurrentProcess,
           @Result.FDirectoryGuards[I],0,False,DUPLICATE_SAME_ACCESS) then RaiseLastOSError;
+      Result.CheckUnchanged(FEntry.Identity,FCancelled);
     except Result.Free; Result:=nil; raise; end;
   end;
 
