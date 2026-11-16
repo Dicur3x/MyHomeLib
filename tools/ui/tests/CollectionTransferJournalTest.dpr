@@ -8,7 +8,7 @@ uses System.SysUtils, System.Classes, System.IOUtils, System.JSON, System.Hash,
   unit_CollectionTransferCatalogue, unit_CollectionTransferPlan,
   unit_CollectionTransferCopy, unit_CollectionTransferJournal, unit_CollectionTransferReferences, unit_CollectionTransferRegistry,
   unit_CollectionTransferOperation,
-  unit_CollectionTransferLayout,
+  unit_CollectionTransferLayout, unit_CollectionTransferFinalRows,
   unit_CollectionTransferHistory, unit_CollectionTransferLocations, unit_BookCompressionImages, unit_BookCompressionReceipt, unit_BookCompressionPlan;
 
 procedure DisableFixtureTriggers(Context:TSQLite3Context; Count:Integer; Values:TSQLite3Value); cdecl;
@@ -410,6 +410,39 @@ begin
         Output.AddPair('retained_sources',TJSONNumber.Create(RetainedSources));
         Output.AddPair('pending_sources',TJSONNumber.Create(PendingSources));
         Output.AddPair('resource_validations',TJSONNumber.Create(Journal.ResourceValidationCount));
+        if Request.GetValue<Boolean>('final_rows',False) then
+        begin
+          // Isolated diagnostic for the row primitive only. The ordinary
+          // controller still needs durable whole-operation finalization intent.
+          var FinalCat:=TSQLiteDatabase.Create(DeletionNativePath(Owned(Request.GetValue<string>('catalogue'))),False);
+          try
+            var FinalPersonal:=TSQLiteDatabase.Create(DeletionNativePath(Owned(Request.GetValue<string>('personal'))),False);
+            try
+              FinalCat.ExecSQL('PRAGMA synchronous=FULL'); FinalPersonal.ExecSQL('PRAGMA synchronous=FULL');
+              FinalCat.ExecSQL('BEGIN IMMEDIATE'); FinalPersonal.ExecSQL('BEGIN IMMEDIATE');
+              try
+                var Checks:=0;
+                var StopFinal:TFunc<Boolean>:=function:Boolean
+                  begin Inc(Checks); Result:=(Request.GetValue<Integer>('final_rows_cancel_after',0)>0) and
+                    (Checks>=Request.GetValue<Integer>('final_rows_cancel_after')); end;
+                var IntentSHA:=THashSHA2.GetHashString('private final-row fixture v1:'+Journal.ReviewSHA256);
+                var Verify:=Request.GetValue<Boolean>('verify_final_rows',False);
+                var CatRows:=ApplyTransferFinalRows(FinalCat,FinalPersonal,Journal.Review,ExtractFileName(Journal.Directory),
+                  Journal.ReviewSHA256,IntentSHA,False,Verify,StopFinal);
+                var PersonalRows:=ApplyTransferFinalRows(FinalPersonal,FinalPersonal,Journal.Review,ExtractFileName(Journal.Directory),
+                  Journal.ReviewSHA256,IntentSHA,True,Verify,StopFinal);
+                Output.AddPair('final_future_rows',TJSONNumber.Create(CatRows.FutureRows+PersonalRows.FutureRows));
+                Output.AddPair('final_copy_roots',TJSONNumber.Create(CatRows.CopyRoots));
+                if Verify then begin FinalCat.Rollback; FinalPersonal.Rollback; end
+                else begin FinalCat.Commit; FinalPersonal.Commit; end;
+              except
+                if FinalCat.InTransaction then FinalCat.Rollback;
+                if FinalPersonal.InTransaction then FinalPersonal.Rollback;
+                raise;
+              end;
+            finally FinalPersonal.Free; end;
+          finally FinalCat.Free; end;
+        end;
         if Request.GetValue<Boolean>('final_layout',False) then
         begin
           var Layout:=TCollectionTransferLayout.Create(Journal.Review);

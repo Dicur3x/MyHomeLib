@@ -11,7 +11,7 @@ import test_native_collection_transfer_journal as journal_fixture
 from test_native_collection_transfer_forks import tables
 
 MARKERS={'HomeLibreTransferLocations','HomeLibreTransferForkReceipts',
-         'HomeLibreTransferOperations','HomeLibreTransferGroupProofs','HomeLibreTransferRemovalIntent'}
+         'HomeLibreTransferOperations','HomeLibreTransferGroupProofs','HomeLibreTransferRemovalIntent','HomeLibreTransferFinalRows'}
 
 
 @unittest.skipUnless(os.name=='nt' and all(p and p.is_file() for p in

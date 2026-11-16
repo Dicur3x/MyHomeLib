@@ -2,7 +2,8 @@
 
 Status: native inventory, file/group copy journals, catalogue/fork publication,
 resource verification, destination-only recovery, guarded source removal,
-the sequential available-file phase and final-layout projection are implemented internally. Final roots,
+the sequential available-file phase, final-layout projection and final-row
+transaction primitive are implemented internally. Final roots,
 live DAO/job coordination, startup and normal UI remain open. No user collection
 has been moved by this work.
 
@@ -108,6 +109,16 @@ names a forked registration, the final projection also rebinds its catalogue
 filename to that reviewed fork, preserving the registration/source IDs and
 unknown fields. INPX references stay unchanged. This is not yet final-settings
 publication; see `docs/audits/2026-11-16-collection-transfer-final-forks.md`.
+
+The final-row transaction primitive now applies the reviewed missing-book
+locators and explicit alternate-copy roots, with database identity checks,
+unchanged locator identity, absence checks, per-database intent-bound receipts
+and read-only verification. It does not recreate deleted personal cards or
+overwrite changed receipts. Default roots and source/profile settings remain
+separate; the owning finalization controller still needs independent durable
+intent, final-aware resume and coordinated commits before this can be enabled
+in the normal move flow. See
+`docs/audits/2026-11-16-collection-transfer-final-rows.md`.
 
 ## File preparation (implemented at file/group level)
 
