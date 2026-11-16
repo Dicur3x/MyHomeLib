@@ -54,6 +54,7 @@ type
     procedure CheckNegativePaths;
     procedure CheckGroupImages(GroupID: Int64);
     procedure CheckGroupBindings(GroupID: Int64);
+    procedure CheckPublishedFork(ForkID:Int64);
     constructor OpenExisting(const WorkRoot, Destination, Directory, ReviewSHA: string);
   public
     constructor Create(const WorkRoot: string; Catalogue: TCollectionTransferCatalogue;
@@ -66,6 +67,9 @@ type
     function PendingGroup: Int64;
     function GroupCount: Int64;
     function FileCount: Int64;
+    procedure PublishCatalogueForks(const Cancelled:TFunc<Boolean> = nil);
+    procedure PublishCatalogueFork(ForkID:Int64; const Cancelled:TFunc<Boolean> = nil);
+    function EffectiveCatalogue(RegistrationID:Integer):string;
     property Directory: string read FDirectory;
     property ReviewSHA256: string read FReviewSHA;
     property Review: TSQLiteDatabase read FReview;
@@ -79,7 +83,7 @@ implementation
 
 uses System.IOUtils, System.JSON, System.Hash, unit_Globals, unit_Consts,
   unit_Settings, dm_user, unit_BookCompressionReceipt, unit_ZipMemberDeletion,
-  unit_CollectionTransferReferences;
+  unit_CollectionTransferReferences, unit_CollectionTransferForks;
 
 const JournalKind='HomeLibre collection transfer preparation v1';
   Prefix='collection-transfer-';
@@ -202,6 +206,10 @@ begin
   if (FState.QuerySingleInt('SELECT count(*) FROM FileState')<>FileCount) or
     (FState.QuerySingleInt('SELECT count(*) FROM GroupState')<>GroupCount) then
     raise EReadError.Create('Состав журнала переноса не совпал с проверенным планом.');
+  if FReview.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE type=''table'' AND name=''CatalogueForks''')<>0 then
+    if (FState.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE type=''table'' AND name=''ForkState''')<>1) or
+      (FState.QuerySingleInt('SELECT count(*) FROM ForkState')<>FReview.QuerySingleInt('SELECT count(*) FROM CatalogueForks')) then
+      raise EReadError.Create('Состав копий общих каталогов не совпал с планом.');
 end;
 
 function TCollectionTransferJournal.FindComponent(ID:Int64):Int64;
@@ -333,6 +341,7 @@ begin
   FReview.ExecSQL('CREATE UNIQUE INDEX Groups_ID ON Groups(ID)');
   CaptureTransferReferences(FReview,Catalogue.PersonalFile,
     function:Boolean begin CheckStop; Result:=False; end);
+  CaptureTransferCatalogueForks(FReview,function:Boolean begin CheckStop; Result:=False; end);
   Catalogue.CheckUnchanged; Plan.CheckUnchanged;
   FReview.ExecSQL('COMMIT');
 end;
@@ -368,12 +377,18 @@ begin
     'Identity TEXT NOT NULL DEFAULT '''',SHA256 TEXT NOT NULL DEFAULT '''',StreamsJSON TEXT NOT NULL DEFAULT '''')');
   FState.ExecSQL('CREATE TABLE GroupState(GroupID INTEGER PRIMARY KEY,State TEXT NOT NULL '+
     'CHECK(State IN (''planned'',''copying'',''prepared'')))');
+  FState.ExecSQL('CREATE TABLE ForkState(ForkID INTEGER PRIMARY KEY,Child TEXT NOT NULL DEFAULT '''','+
+    'State TEXT NOT NULL DEFAULT ''planned'' CHECK(State IN (''planned'',''prepared'',''published'')),'+
+    'Identity TEXT NOT NULL DEFAULT '''',SHA256 TEXT NOT NULL DEFAULT '''',StreamsJSON TEXT NOT NULL DEFAULT '''')');
   FState.ExecSQL('BEGIN');
   var Q:=FReview.NewQuery('SELECT ID FROM Files');
   try Q.Open; while not Q.Eof do begin FState.ExecSQL('INSERT INTO FileState(FileID) VALUES(?)',[StrToInt64(Q.FieldAsString(0))]); Q.Next; end;
   finally Q.Free; end;
   Q:=FReview.NewQuery('SELECT ID FROM Groups');
   try Q.Open; while not Q.Eof do begin FState.ExecSQL('INSERT INTO GroupState VALUES(?,''planned'')',[StrToInt64(Q.FieldAsString(0))]); Q.Next; end;
+  finally Q.Free; end;
+  Q:=FReview.NewQuery('SELECT ID FROM CatalogueForks');
+  try Q.Open; while not Q.Eof do begin FState.ExecSQL('INSERT INTO ForkState(ForkID) VALUES(?)',[Q.FieldAsInt(0)]); Q.Next; end;
   finally Q.Free; end;
   FState.ExecSQL('COMMIT');
   var ReviewKey:=CompressionFileKey(ReviewFile); FreeAndNil(FReview);
@@ -611,5 +626,152 @@ begin Result:=FReview.QuerySingleInt('SELECT count(*) FROM Groups'); end;
 
 function TCollectionTransferJournal.FileCount:Int64;
 begin Result:=FReview.QuerySingleInt('SELECT count(*) FROM Files'); end;
+
+procedure TCollectionTransferJournal.CheckPublishedFork(ForkID:Int64);
+var Personal:TSQLiteDatabase; PersonalLease:IInterface; Q,Live,Marker:TSQLiteQuery;
+begin
+  PersonalLease:=AcquireCompressionDatabaseLease(Meta('personal'),Meta('personal_key'));
+  Personal:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(Meta('personal'))); Q:=nil; Live:=nil; Marker:=nil;
+  try
+    Personal.ExecSQL('BEGIN');
+    if Personal.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE type=''table'' AND name=''HomeLibreTransferForkReceipts''')=0 then
+      raise EReadError.Create('Нет квитанции переключения общего каталога.');
+    var Expected:=FReview.QuerySingleInt('SELECT count(*) FROM ForkMembers WHERE ForkID=?',[ForkID]);
+    if (Expected=0) or (Personal.QuerySingleInt('SELECT count(*) FROM HomeLibreTransferForkReceipts WHERE Operation=? AND ForkID=?',
+      [Meta('directory'),ForkID])<>Expected) then raise EReadError.Create('Неполная квитанция переключения общего каталога.');
+    Q:=FReview.NewQuery('SELECT r.RegistrationID,r.RawCatalogue,r.RawRoot,r.Code,f.Destination,s.SHA256 '+
+      'FROM ForkMembers m JOIN ReferenceRegistrations r ON r.RegistrationID=m.RegistrationID '+
+      'JOIN CatalogueForks f ON f.ID=m.ForkID JOIN ForkSources s ON s.ID=f.SourceID WHERE m.ForkID=?',[ForkID]);
+    Q.Open;
+    while not Q.Eof do
+    begin
+      CheckStop;
+      Live:=Personal.NewQuery('SELECT DBFileName,RootFolder,Code FROM Bases WHERE DatabaseID=?',[Q.FieldAsInt(0)]); Live.Open;
+      if Live.Eof or (Live.FieldAsString(0)<>Q.FieldAsString(4)) or (Live.FieldAsString(1)<>Q.FieldAsString(2)) or
+        (Live.FieldAsInt(2)<>Q.FieldAsInt(3)) then raise EReadError.Create('Подключение копии общего каталога изменилось.');
+      Marker:=Personal.NewQuery('SELECT ReviewSHA256,Target,TargetKey,SnapshotSHA256,OldCatalogue,OldRoot '+
+        'FROM HomeLibreTransferForkReceipts WHERE Operation=? AND ForkID=? AND RegistrationID=?',
+        [Meta('directory'),ForkID,Q.FieldAsInt(0)]); Marker.Open;
+      if Marker.Eof or (Marker.FieldAsString(0)<>FReviewSHA) or (Marker.FieldAsString(1)<>Q.FieldAsString(4)) or
+        (Marker.FieldAsString(3)<>Q.FieldAsString(5)) or (Marker.FieldAsString(4)<>Q.FieldAsString(1)) or
+        (Marker.FieldAsString(5)<>Q.FieldAsString(2)) or
+        (CompressionFileKey(Q.FieldAsString(4))<>Marker.FieldAsString(2)) then
+        raise EReadError.Create('Квитанция или файл копии общего каталога изменились.');
+      FreeAndNil(Marker); FreeAndNil(Live); Q.Next;
+    end;
+  finally Marker.Free; Live.Free; Q.Free; Personal.Free; end;
+end;
+
+procedure TCollectionTransferJournal.PublishCatalogueFork(ForkID:Int64; const Cancelled:TFunc<Boolean>);
+var State,Q,Live:TSQLiteQuery; Personal:TSQLiteDatabase; Job:TCollectionTransferCopy; Prepared:TTransferPreparedCopy;
+  PersonalLease,SourceLease:IInterface; Entry:TCollectionTransferFile; Child,Phase,OldIdentity,OldSHA,OldStreams,SnapshotSHA:string;
+begin
+  FCancelled:=Cancelled; State:=nil; Q:=nil; Live:=nil; Personal:=nil; Job:=nil; Prepared:=nil;
+  try
+    CheckStop; Entry:=TransferForkEntry(FReview,ForkID);
+    State:=FState.NewQuery('SELECT Child,State,Identity,SHA256,StreamsJSON FROM ForkState WHERE ForkID=?',[ForkID]); State.Open;
+    if State.Eof then raise EReadError.Create('В журнале нет копии общего каталога.');
+    Child:=State.FieldAsString(0); Phase:=State.FieldAsString(1); OldIdentity:=State.FieldAsString(2);
+    OldSHA:=State.FieldAsString(3); OldStreams:=State.FieldAsString(4); FreeAndNil(State);
+    PersonalLease:=AcquireCompressionDatabaseLease(Meta('personal'),Meta('personal_key'));
+    Personal:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(Meta('personal')));
+    var HasMarker:=False;
+    if Personal.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE type=''table'' AND name=''HomeLibreTransferForkReceipts''')<>0 then
+      HasMarker:=Personal.QuerySingleInt('SELECT count(*) FROM HomeLibreTransferForkReceipts WHERE Operation=? AND ForkID=?',
+        [Meta('directory'),ForkID])<>0;
+    FreeAndNil(Personal);
+    if HasMarker or (Phase='published') then
+    begin
+      // Personal commit is authoritative even if the process died before the
+      // parent receipt. Published catalogues may already contain newer edits.
+      CheckPublishedFork(ForkID);
+      Point('fork-recovered',FDirectory,ForkID,0);
+      FState.ExecSQL('UPDATE ForkState SET State=''published'' WHERE ForkID=?',[ForkID]); Exit;
+    end;
+    if not ((Phase='planned') or (Phase='prepared')) then raise EReadError.Create('Неизвестное состояние копии каталога.');
+    if Child='' then
+    begin
+      if Phase<>'planned' then raise EReadError.Create('Нет журнала готовой копии каталога.');
+      Job:=TCollectionTransferCopy.CreateNew(FCopiesRoot,FDestination,Entry);
+      Point('fork-child-created',FDirectory,ForkID,0);
+      Child:=ExtractFileName(Job.Directory); FState.ExecSQL('UPDATE ForkState SET Child=? WHERE ForkID=?',[Child,ForkID]);
+      Point('fork-child-linked',FDirectory,ForkID,0);
+    end
+    else
+    begin
+      if not Child.StartsWith('transfer-copy-') then raise EReadError.Create('Неверная ссылка на журнал копии каталога.');
+      var Token:=StringToGUID(Copy(Child,Length('transfer-copy-')+1,MaxInt));
+      if Child<>'transfer-copy-'+GUIDToString(Token) then raise EReadError.Create('Неверная ссылка на журнал копии каталога.');
+      Job:=TCollectionTransferCopy.Resume(FCopiesRoot,FDestination,TPath.Combine(FCopiesRoot,Child),Entry);
+    end;
+    Prepared:=Job.Prepare(Cancelled); FreeAndNil(Job);
+    SnapshotSHA:=FReview.QuerySingleString('SELECT s.SHA256 FROM ForkSources s JOIN CatalogueForks f ON f.SourceID=s.ID WHERE f.ID=?',[ForkID]);
+    if (Prepared.SHA256<>SnapshotSHA) or ((Phase='prepared') and
+      ((Prepared.Identity<>OldIdentity) or (Prepared.SHA256<>OldSHA) or (Prepared.StreamsJSON<>OldStreams))) then
+      raise EReadError.Create('Проверочная запись копии общего каталога изменилась.');
+    FState.ExecSQL('UPDATE ForkState SET State=''prepared'',Identity=?,SHA256=?,StreamsJSON=? WHERE ForkID=?',
+      [Prepared.Identity,Prepared.SHA256,Prepared.StreamsJSON,ForkID]);
+    Point('fork-copy-prepared',FDirectory,ForkID,0);
+    var SourceID:=FReview.QuerySingleInt('SELECT SourceID FROM CatalogueForks WHERE ID=?',[ForkID]);
+    SourceLease:=AcquireTransferForkSource(FReview,SourceID,function:Boolean begin CheckStop; Result:=False; end);
+    CheckStop;
+    Personal:=TSQLiteDatabase.Create(DeletionNativePath(Meta('personal'))); Personal.ExecSQL('PRAGMA synchronous=FULL');
+    Personal.ExecSQL('BEGIN IMMEDIATE');
+    try
+      Personal.ExecSQL('CREATE TABLE IF NOT EXISTS HomeLibreTransferForkReceipts(Operation TEXT,ForkID INTEGER,RegistrationID INTEGER,'+
+        'ReviewSHA256 TEXT,Target TEXT,TargetKey TEXT,SnapshotSHA256 TEXT,OldCatalogue TEXT,OldRoot TEXT,'+
+        'PRIMARY KEY(Operation,ForkID,RegistrationID)) WITHOUT ROWID');
+      if Personal.QuerySingleInt('SELECT count(*) FROM HomeLibreTransferForkReceipts WHERE Operation=? AND ForkID=?',
+        [Meta('directory'),ForkID])<>0 then raise EReadError.Create('Переключение каталога уже выполняет другой владелец.');
+      Q:=FReview.NewQuery('SELECT r.RegistrationID,r.RawCatalogue,r.RawRoot,r.Code,r.CatalogueKey,m.RootToken '+
+        'FROM ForkMembers m JOIN ReferenceRegistrations r ON r.RegistrationID=m.RegistrationID WHERE m.ForkID=?',[ForkID]); Q.Open;
+      if Q.Eof then raise EReadError.Create('Нет подключений для копии каталога.');
+      while not Q.Eof do
+      begin
+        CheckStop; Live:=Personal.NewQuery('SELECT DBFileName,RootFolder,Code FROM Bases WHERE DatabaseID=?',[Q.FieldAsInt(0)]); Live.Open;
+        if Live.Eof or (Live.FieldAsString(0)<>Q.FieldAsString(1)) or (Live.FieldAsString(1)<>Q.FieldAsString(2)) or
+          (Live.FieldAsInt(2)<>Q.FieldAsInt(3)) or
+          (CompressionFileKey(Settings.ExpandCollectionFileName(Live.FieldAsString(0)))<>Q.FieldAsString(4)) or
+          (TransferForkRootToken(Settings.ExpandCollectionRoot(Live.FieldAsString(1)))<>Q.FieldAsString(5)) then
+          raise EReadError.Create('Подключение общего каталога изменилось до переключения.');
+        FreeAndNil(Live);
+        Personal.ExecSQL('UPDATE Bases SET DBFileName=? WHERE DatabaseID=?',[Entry.Destination,Q.FieldAsInt(0)]);
+        if Personal.LastChangedRows<>1 then raise EWriteError.Create('Не удалось переключить подключение общего каталога.');
+        Personal.ExecSQL('INSERT INTO HomeLibreTransferForkReceipts VALUES(?,?,?,?,?,?,?,?,?)',
+          [Meta('directory'),ForkID,Q.FieldAsInt(0),FReviewSHA,Entry.Destination,Copy(Prepared.Identity,1,25),SnapshotSHA,
+           Q.FieldAsString(1),Q.FieldAsString(2)]);
+        Q.Next;
+      end;
+      FreeAndNil(Q); Point('fork-before-personal-commit',FDirectory,ForkID,0); CheckStop;
+      Personal.ExecSQL('COMMIT'); Point('fork-after-personal-commit',FDirectory,ForkID,0);
+    except if Personal.InTransaction then Personal.Rollback; raise; end;
+    FreeAndNil(Personal); CheckPublishedFork(ForkID);
+    FState.ExecSQL('UPDATE ForkState SET State=''published'' WHERE ForkID=?',[ForkID]);
+    Point('fork-published',FDirectory,ForkID,0);
+  finally
+    Prepared.Free; Job.Free; Live.Free; Q.Free; State.Free; Personal.Free;
+    FCancelled:=nil;
+  end;
+end;
+
+procedure TCollectionTransferJournal.PublishCatalogueForks(const Cancelled:TFunc<Boolean>);
+begin
+  var Q:=FReview.NewQuery('SELECT ID FROM CatalogueForks ORDER BY ID');
+  try Q.Open; while not Q.Eof do begin PublishCatalogueFork(Q.FieldAsInt(0),Cancelled); Q.Next; end;
+  finally Q.Free; end;
+end;
+
+function TCollectionTransferJournal.EffectiveCatalogue(RegistrationID:Integer):string;
+begin
+  var ForkID:=FReview.QuerySingleInt('SELECT ForkID FROM ForkMembers WHERE RegistrationID=?',[RegistrationID]);
+  if ForkID=0 then
+    Result:=FReview.QuerySingleString('SELECT Catalogue FROM ReferenceRegistrations WHERE RegistrationID=?',[RegistrationID])
+  else
+  begin
+    CheckPublishedFork(ForkID);
+    Result:=FReview.QuerySingleString('SELECT Destination FROM CatalogueForks WHERE ID=?',[ForkID]);
+  end;
+  if Result='' then raise EArgumentException.Create('Неизвестное подключение коллекции.');
+end;
 
 end.

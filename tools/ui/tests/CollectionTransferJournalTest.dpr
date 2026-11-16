@@ -30,6 +30,23 @@ begin
   try Result:=THashSHA2.GetHashString(Stream); finally Stream.Free; end;
 end;
 
+function NativeBookHash(const Catalogue,Root:string):string;
+begin
+  var DB:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(Owned(Catalogue)));
+  try
+    var Q:=DB.NewQuery('SELECT LibID,Folder,FileName,Ext,InsideNo FROM Books WHERE BookID=1');
+    try
+      Q.Open; if Q.Eof then raise EReadError.Create('No fixture book');
+      var Book:=Default(TBookRecord); Book.CollectionRoot:=IncludeTrailingPathDelimiter(Owned(Root));
+      Book.LibID:=Q.FieldAsString(0); Book.Folder:=Q.FieldAsString(1); Book.FileName:=Q.FieldAsString(2);
+      Book.FileExt:=Q.FieldAsString(3); Book.InsideNo:=Q.FieldAsInt(4);
+      var Stream:=Book.GetBookStream;
+      try if Stream=nil then raise EReadError.Create('No native fixture stream'); Result:=THashSHA2.GetHashString(Stream);
+      finally Stream.Free; end;
+    finally Q.Free; end;
+  finally DB.Free; end;
+end;
+
 var Request,Control,Output:TJSONObject; Capture:TCollectionTransferCatalogue; Plan:TCollectionTransferPlan;
     Journal:TCollectionTransferJournal; Info:TCollectionInfo; ControlFile,Mode,Crash:string;
     Copies,PreparedFiles:Integer; Stop:Boolean; Groups:TJSONArray; IDs:TList<Int64>;
@@ -95,7 +112,10 @@ begin
           begin
             if Stage=Crash then begin Writeln('CRASH ',Stage); Flush(System.Output); Halt(97); end;
             if (Stage='child-prepared') and Request.GetValue<Boolean>('cancel_after_file',False) then Stop:=True;
+            if (Stage='fork-before-personal-commit') and Request.GetValue<Boolean>('cancel_fork_commit',False) then Stop:=True;
           end;
+        if Request.GetValue<Boolean>('publish_forks',False) then
+          Journal.PublishCatalogueForks(function:Boolean begin Result:=Stop; end);
         IDs:=TList<Int64>.Create;
         if Request.GetValue<Boolean>('prepare',False) then
         begin
@@ -129,6 +149,22 @@ begin
         Output.AddPair('bindings',TJSONNumber.Create(Journal.Review.QuerySingleInt('SELECT count(*) FROM Bindings')));
         Output.AddPair('reference_conflicts',TJSONNumber.Create(TransferReferenceConflictCount(Journal.Review)));
         Output.AddPair('reference_issues',TJSONNumber.Create(Journal.Review.QuerySingleInt('SELECT count(*) FROM ReferenceIssues')));
+        Output.AddPair('forks',TJSONNumber.Create(Journal.Review.QuerySingleInt('SELECT count(*) FROM CatalogueForks')));
+        if Request.GetValue<Boolean>('read_fork_members',False) then
+        begin
+          Output.AddPair('keeper_native_sha256',NativeBookHash(Request.GetValue<string>('catalogue'),Request.GetValue<string>('root')));
+          var Members:=Journal.Review.NewQuery('SELECT RegistrationID,Root FROM ReferenceRegistrations ORDER BY RegistrationID');
+          var Native:TJSONArray:=TJSONArray.Create; Output.AddPair('native_fork_reads',Native);
+          try
+            Members.Open;
+            while not Members.Eof do
+            begin
+              var Item:=TJSONObject.Create; Native.AddElement(Item); Item.AddPair('registration',TJSONNumber.Create(Members.FieldAsInt(0)));
+              Item.AddPair('sha256',NativeBookHash(Journal.EffectiveCatalogue(Members.FieldAsInt(0)),Members.FieldAsString(1)));
+              Members.Next;
+            end;
+          finally Members.Free; end;
+        end;
         var Retained:=TJSONArray.Create; Output.AddPair('retained_files',Retained);
         var Files:=Journal.Review.NewQuery('SELECT ID FROM Files ORDER BY ID');
         try

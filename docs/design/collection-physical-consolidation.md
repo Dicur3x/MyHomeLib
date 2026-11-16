@@ -139,10 +139,16 @@ updates, created with the existing SQLite online backup API. Preserve personal
 registration/book IDs and source keys; publish the new registration filename
 with durable markers before modifying divergent rows. Account for the extra
 metadata space and retain the original database until recovery no longer
-needs it. This strategy still needs implementation and interrupted-recovery
-proof; a detected conflict is not yet a resolved conflict. Do not delete an original
-or declare that case supported before the chosen strategy and interrupted
-recovery have been tested.
+needs it. Metadata snapshot creation and explicit registration publication are
+now implemented and natively tested on x86/x64, including WAL data and repeated
+process interruption (see `docs/audits/2026-11-16-collection-transfer-forks.md`).
+The journal's effective-catalogue mapping must be used by the later archive
+locator publisher. The normal UI still has to close conflicting writable DAO
+connections, block other pending compression/update jobs, refresh registrations
+after a fork commit and account for snapshot/fork space. Fork publication keeps
+the initial book root; final root publication needs its own durable marker and
+must extend that validation. None of this permits source archive removal before
+the remaining group-publication and cleanup proof.
 
 Process archive groups sequentially. A durable operation journal records an
 immutable reviewed file mapping, expected original identities, affected catalogue
