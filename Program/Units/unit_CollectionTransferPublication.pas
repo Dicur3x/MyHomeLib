@@ -32,7 +32,7 @@ type TTransferPublicationSession=class
       const Effective:TFunc<Integer,string>; const Targets:TProc<TSQLiteDatabase>);
     destructor Destroy; override;
     procedure Publish(Prepared:TPreparedTransferGroup; const Cancelled:TFunc<Boolean>; const Point:TProc<string>;
-      const PersonalChanges:TProc<TSQLiteDatabase> = nil);
+      const PersonalChanges:TProc<TSQLiteDatabase> = nil; ReconcileOnly:Boolean=False);
     // Verifies receipts/current locators under fresh reference and writer locks.
     // Returns retained/unresolved locators; never writes or permits later unlink.
     function VerifyPublished(Prepared:TPreparedTransferGroup; const Cancelled:TFunc<Boolean>;
@@ -156,7 +156,8 @@ begin
 end;
 
 procedure TTransferPublicationSession.Publish(Prepared:TPreparedTransferGroup;
-  const Cancelled:TFunc<Boolean>; const Point:TProc<string>; const PersonalChanges:TProc<TSQLiteDatabase>);
+  const Cancelled:TFunc<Boolean>; const Point:TProc<string>; const PersonalChanges:TProc<TSQLiteDatabase>;
+  ReconcileOnly:Boolean);
 begin
   FCancelled:=Cancelled;
   try
@@ -166,13 +167,13 @@ begin
     for var Pair in FDatabases do
     begin
       CheckStop;
-      ApplyTransferLocations(Pair.Value,FPersonal,FReview,Prepared,FOperation,FReviewSHA,FLists[Pair.Key].ToArray,False);
+      ApplyTransferLocations(Pair.Value,FPersonal,FReview,Prepared,FOperation,FReviewSHA,FLists[Pair.Key].ToArray,False,False,ReconcileOnly);
       if Assigned(Point) then Point('locations-before-catalogue-commit'); CheckStop;
       Pair.Value.ExecSQL('COMMIT');
       if Assigned(Point) then Point('locations-after-catalogue-commit');
     end;
     CheckStop;
-    ApplyTransferLocations(FPersonal,FPersonal,FReview,Prepared,FOperation,FReviewSHA,FIDs.ToArray,True);
+    ApplyTransferLocations(FPersonal,FPersonal,FReview,Prepared,FOperation,FReviewSHA,FIDs.ToArray,True,False,ReconcileOnly);
     if Assigned(PersonalChanges) then PersonalChanges(FPersonal);
     if Assigned(Point) then Point('locations-before-personal-commit'); CheckStop;
     FPersonal.ExecSQL('COMMIT');

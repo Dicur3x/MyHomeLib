@@ -35,6 +35,9 @@ type
     procedure PublishPreparedGroup(Prepared:TPreparedTransferGroup;
       const Cancelled:TFunc<Boolean> = nil);
     function RecoverGroup(GroupID:Int64; const Cancelled:TFunc<Boolean> = nil):TPreparedTransferGroup;
+    function HasPreparedGroup(GroupID:Int64):Boolean;
+    function HasPublishedGroup(GroupID:Int64):Boolean;
+    procedure ReconcilePublishedGroup(Prepared:TPreparedTransferGroup; const Cancelled:TFunc<Boolean> = nil);
     // Checks the independent proof and saved locations; does not authorize unlink.
     function VerifyPublishedGroup(Prepared:TPreparedTransferGroup;
       const Cancelled:TFunc<Boolean> = nil):Int64;
@@ -244,6 +247,47 @@ begin
   if Prepared=nil then raise EArgumentException.Create('Не указана проверенная группа.');
   FJournal.CheckPreparedGroupProof(Prepared,GroupProofSHA(Prepared.ID),Cancelled);
   Result:=FJournal.VerifyPublishedGroup(Prepared,Cancelled);
+end;
+
+function TCollectionTransferRegistry.HasPreparedGroup(GroupID:Int64):Boolean;
+var Lease:IInterface; DB:TSQLiteDatabase;
+begin
+  DB:=OpenDatabase(False,Lease);
+  try
+    CheckRegistration(DB);
+    Result:=HasTable(DB,ProofTable) and (DB.QuerySingleInt('SELECT count(*) FROM '+ProofTable+' WHERE Operation=? AND GroupID=?',
+      [FInfo.Operation,GroupID])=1);
+  finally DB.Free; Lease:=nil; end;
+end;
+
+procedure TCollectionTransferRegistry.ReconcilePublishedGroup(Prepared:TPreparedTransferGroup; const Cancelled:TFunc<Boolean>);
+begin
+  Stop(Cancelled);
+  if Prepared=nil then raise EArgumentException.Create('Не указана опубликованная группа переноса.');
+  var SHA:=GroupProofSHA(Prepared.ID);
+  FJournal.ReconcileGroupLocations(Prepared,SHA,Cancelled,
+    procedure(DB:TSQLiteDatabase)
+    begin
+      CheckRegistration(DB);
+      if DB.QuerySingleString('SELECT ProofSHA256 FROM '+ProofTable+' WHERE Operation=? AND GroupID=?',
+        [FInfo.Operation,Prepared.ID])<>SHA then raise EReadError.Create('Независимое подтверждение публикации исчезло или изменилось.');
+    end);
+end;
+
+function TCollectionTransferRegistry.HasPublishedGroup(GroupID:Int64):Boolean;
+var Lease:IInterface; DB:TSQLiteDatabase;
+begin
+  DB:=OpenDatabase(False,Lease);
+  try
+    CheckRegistration(DB); Result:=False;
+    if not HasTable(DB,ProofTable) or not HasTable(DB,'HomeLibreTransferLocations') then Exit;
+    // Presence selects recovery; exact digests/locations are checked under the
+    // publication locks. Corrupt witnesses must fail rather than look absent.
+    Result:=(DB.QuerySingleInt('SELECT count(*) FROM '+ProofTable+' WHERE Operation=? AND GroupID=?',
+      [FInfo.Operation,GroupID])=1) and
+      (DB.QuerySingleInt('SELECT count(*) FROM HomeLibreTransferLocations WHERE Operation=? AND GroupID=?',
+      [FInfo.Operation,GroupID])=1);
+  finally DB.Free; Lease:=nil; end;
 end;
 
 function TCollectionTransferRegistry.RemovePublishedGroup(Prepared:TPreparedTransferGroup;

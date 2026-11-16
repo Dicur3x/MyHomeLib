@@ -1,9 +1,10 @@
 # Physical consolidation of collection sources
 
 Status: native inventory, file/group copy journals, catalogue/fork publication,
-resource verification and destination-only group recovery are implemented as
-internal stages. Whole-operation control, guarded source removal, startup and
-normal UI remain open. No user collection has been moved by this work.
+resource verification, destination-only recovery, guarded source removal and
+the sequential available-file phase are implemented internally. Final roots,
+live DAO/job coordination, startup and normal UI remain open. No user collection
+has been moved by this work.
 
 ## User result
 
@@ -88,7 +89,7 @@ and a peak temporary-space estimate; do not add whole-library extraction space.
 Recheck the 8 GiB system reserve and destination/work-volume reserves before and
 during long work. Losing the reserve stops preparation without deleting sources.
 
-## File preparation (implemented, not connected to catalogues)
+## File preparation (implemented at file/group level)
 
 `unit_CollectionTransferCopy` prepares one whole file, preserving and comparing
 all enumerated NTFS data streams. It retains source/output read leases and
@@ -129,8 +130,9 @@ existing publication connection. Its own registry writes therefore do not force
 a complete reference recapture per archive, and no version acknowledgement can
 hide an intervening external writer. Standalone preparation registration remains
 available without publishing locators. Both paths still require exact retained
-source/destination witnesses to seal the group. This registry does not authorize
-source removal, complete an operation or itself hook the normal startup/UI.
+source/destination witnesses to seal the group. Registration alone does not
+authorize source removal or complete an operation. The separate guarded removal
+method and sequential phase do not themselves hook normal startup/UI.
 
 The registry can now check a held group's independent digest and saved location
 receipts without requiring the old archives. A shared publication-session lock
@@ -140,9 +142,13 @@ the current projected locators. Native kind reconstruction uses frozen logical
 containers, preserving ZIP/7z, raw and FBD semantics without probing old names.
 It performs no location/history/table writes and rolls back all verification
 transactions. This point-in-time result does not authorize a later unlink after
-the locks are released. Removal intent and its final coordinated guard remain
-required. Native evidence and scale limits are recorded in
+the locks are released. A separate removal method now commits independent exact
+intent before protecting/hashing originals, reacquires a current reference and
+receipt view, and unlinks only its held original handles. It retains changed,
+unknown or dependent originals and distinguishes pending external readers.
+Native evidence and scale limits are recorded in
 `docs/audits/2026-11-16-collection-transfer-location-receipts.md`.
+See also `docs/audits/2026-11-16-collection-transfer-source-removal.md`.
 
 ## Group publication, stop and recovery
 
@@ -152,13 +158,35 @@ components for shared sidecars, linked child journals and verified group leases.
 It rechecks live locator fields without restoring older notes/progress. A ready
 copy group remains pending publication and never authorizes original removal.
 See `docs/audits/2026-11-16-collection-transfer-journal.md` for native crash/resume
-evidence and the remaining whole-operation gates. Pending-job discovery and the
-whole-operation publication/cleanup are not implemented by that journal. Its frozen
+evidence and the remaining whole-operation gates. Registered pending-job discovery
+is supplied by the registry; the sequential publication/cleanup phase is supplied
+by `unit_CollectionTransferOperation`. Finalization and normal startup/UI remain
+separate. The journal's frozen
 review now also inventories other registrations and their personal locators by
 physical file ID, captures shared-database row conflicts, and records unknown
 catalogues or unsupported path/resource aliases as retention requirements.
 That inventory is an initial review snapshot, not permission to remove a file:
 publication and cleanup must reconcile live references again.
+
+The sequential phase registers before mutation, publishes necessary catalogue
+forks and streams groups from the on-disk review. A group with a committed
+personal location receipt and independent proof recovers verified destinations;
+an uncommitted group prepares original-held files and completes publication.
+It then runs the exact guarded removal stage and reports cumulative results.
+An interrupted catalogue commit, completed group or protected source can resume
+through the same production phase rather than a manually selected fixture path.
+
+Source-free reconciliation requires existing matching per-database receipts;
+it cannot recreate missing receipts or repair a changed catalogue address.
+It can update known stale personal addresses and new cards for a reviewed main
+book, preserving current notes/progress. A missing old file must match the frozen
+main-book fields and logical path before this projection is allowed. A reused
+old name with a different identity is not used to rebind a new personal card.
+Already rebound compression history is not recopied from absent originals.
+The phase deliberately leaves the operation registered as pending: final root
+publication, unavailable/future locators, profile/cache coordination and normal
+UI remain required. See
+`docs/audits/2026-11-16-collection-transfer-operation.md`.
 
 Distinguish the user-chosen containing folder from the mapped default book root.
 Preserving that mapped default root can retain native relative locators/source

@@ -7,6 +7,7 @@ uses System.SysUtils, System.Classes, System.IOUtils, System.JSON, System.Hash,
   SQLiteWrap, SQLite3, unit_Globals, unit_Consts, unit_ZipMemberDeletion,
   unit_CollectionTransferCatalogue, unit_CollectionTransferPlan,
   unit_CollectionTransferCopy, unit_CollectionTransferJournal, unit_CollectionTransferReferences, unit_CollectionTransferRegistry,
+  unit_CollectionTransferOperation,
   unit_CollectionTransferHistory, unit_CollectionTransferLocations, unit_BookCompressionImages, unit_BookCompressionReceipt, unit_BookCompressionPlan;
 
 procedure DisableFixtureTriggers(Context:TSQLite3Context; Count:Integer; Values:TSQLite3Value); cdecl;
@@ -285,6 +286,29 @@ begin
               end;
             end;
           end;
+        if Request.GetValue<Boolean>('run_operation',False) then
+        begin
+          var Paths:=Journal.Review.NewQuery('SELECT Source,Destination FROM Files');
+          try
+            Paths.Open;
+            while not Paths.Eof do begin Owned(Paths.FieldAsString(0)); Owned(Paths.FieldAsString(1)); Paths.Next; end;
+          finally Paths.Free; end;
+          var Operation:=TCollectionTransferOperation.Create(Journal);
+          try
+            var Handled:=Operation.Run(function:Boolean begin Result:=Stop; end,
+              procedure(const Stage,Source:string; GroupsDone,GroupsTotal,Done,Total:Int64)
+              begin
+                if (Stage='Группа перенесена') and Request.GetValue<Boolean>('cancel_after_group',False) then Stop:=True;
+                if (Stage='Группа перенесена') and (Crash='operation-group-handled') then
+                begin Writeln('CRASH operation-group-handled'); Flush(System.Output); Halt(97); end;
+              end);
+            PreparedFiles:=Handled.FilesVerified; Removed:=Handled.Originals.Removed; Missing:=Handled.Originals.Missing;
+            RetainedSources:=Handled.Originals.Retained; PendingSources:=Handled.Originals.Pending;
+            if Handled.GroupsDone<>Handled.GroupsTotal then raise EReadError.Create('Operation omitted a reviewed group');
+          finally Operation.Free; end;
+        end
+        else
+        begin
         if Request.GetValue<Boolean>('publish_forks',False) or Request.GetValue<Boolean>('apply_locations',False) then
           Journal.PublishCatalogueForks(function:Boolean begin Result:=Stop; end);
         IDs:=TList<Int64>.Create;
@@ -374,6 +398,7 @@ begin
               end;
             finally Ready.Free; end;
           end;
+        end;
         end;
         Output:=TJSONObject.Create; Groups:=TJSONArray.Create; Output.AddPair('groups',Groups);
         Output.AddPair('history_rows',TJSONNumber.Create(HistoryRows)); Output.AddPair('history_hits',HistoryHits); HistoryHits:=nil;

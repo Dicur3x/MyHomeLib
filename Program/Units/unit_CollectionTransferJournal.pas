@@ -87,6 +87,8 @@ type
     function EffectiveCatalogue(RegistrationID:Integer):string;
     procedure PublishGroupLocations(Prepared:TPreparedTransferGroup; const Cancelled:TFunc<Boolean> = nil;
       const PersonalChanges:TProc<TSQLiteDatabase> = nil);
+    procedure ReconcileGroupLocations(Prepared:TPreparedTransferGroup; const ProofSHA:string;
+      const Cancelled:TFunc<Boolean>; const PersonalCheck:TProc<TSQLiteDatabase>);
     property Directory: string read FDirectory;
     property ReviewSHA256: string read FReviewSHA;
     property Review: TSQLiteDatabase read FReview;
@@ -1118,6 +1120,24 @@ begin
         procedure(Stage:string) begin Point(Stage,FDirectory,Prepared.ID,0); end,PersonalChanges);
     except FreeAndNil(FPublicationSession); raise; end;
   finally FCancelled:=nil; end;
+end;
+
+procedure TCollectionTransferJournal.ReconcileGroupLocations(Prepared:TPreparedTransferGroup; const ProofSHA:string;
+  const Cancelled:TFunc<Boolean>; const PersonalCheck:TProc<TSQLiteDatabase>);
+var Previous:TFunc<Boolean>; Proof:TStream;
+begin
+  if not Assigned(PersonalCheck) then raise EArgumentException.Create('Нужна проверка независимого подтверждения публикации.');
+  CheckPreparedGroupProof(Prepared,ProofSHA,Cancelled);
+  Proof:=HoldPreparedGroupProof(Prepared.ID,ProofSHA); Previous:=FCancelled; FCancelled:=Cancelled;
+  try
+    CheckStop; ValidateTransferResources(FReview,Prepared,function:Boolean begin CheckStop; Result:=False; end,False);
+    OpenPublicationSession;
+    try
+      TTransferPublicationSession(FPublicationSession).Publish(Prepared,
+        function:Boolean begin CheckStop; Result:=False; end,
+        procedure(Stage:string) begin Point(Stage,FDirectory,Prepared.ID,0); end,PersonalCheck,True);
+    except FreeAndNil(FPublicationSession); raise; end;
+  finally FCancelled:=Previous; Proof.Free; end;
 end;
 
 end.

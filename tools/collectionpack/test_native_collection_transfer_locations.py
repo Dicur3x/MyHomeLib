@@ -38,6 +38,12 @@ class TransferLocationTests(unittest.TestCase):
     def snapshots(self):
         paths=[self.catalogue,self.personal]
         if getattr(self,'other',None): paths.append(self.other)
+        with fixture.connect(self.personal) as db:
+            registered=[Path(row[0]) for row in db.execute('select DBFileName from Bases')]
+        for path in registered:
+            if path.is_absolute() and path.is_file():
+                self.assertTrue(path.resolve().is_relative_to(self.home.resolve()),'fixture catalogue left its private runtime')
+                paths.append(path)
         return {p:tables(p) for p in paths}
 
     def check_metadata(self,before):
@@ -90,10 +96,12 @@ class TransferLocationTests(unittest.TestCase):
                             (data['BookID'],data['DatabaseID']) if path==self.personal else (data['BookID'],)
                         change=changes.get((name,key))
                         if change:
+                            location_changed=(data['Folder'],data['FileName'])!=change
                             data['Folder'],data['FileName']=change
-                            for column in cols:
-                                if column.startswith('Search') and column[6:] in data:
-                                    value=data[column[6:]];data[column]=value.upper() if value else ''
+                            if location_changed:
+                                for column in cols:
+                                    if column.startswith('Search') and column[6:] in data:
+                                        value=data[column[6:]];data[column]=value.upper() if value else ''
                     if name=='Bases' and path==self.personal:
                         cid=data['DatabaseID']
                         if cid in registrations:data['DBFileName']=str(registrations[cid][0])
