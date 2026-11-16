@@ -48,6 +48,10 @@ type
     FCancelled: TFunc<Boolean>;
     FProgress: TTransferJournalProgress;
     FNextReserveCheck: UInt64;
+    FCreatedDirectoryKey,FCreatedCopiesKey:string;
+    FConstructionComplete:Boolean;
+    FConstructionFiles:TDictionary<string,string>;
+    procedure DiscardIncompletePreparation;
     procedure CheckStop;
     function PinDirectory(const Path: string): string;
     procedure OpenReview(const Expected: string; const ExpectedFileKey: string = '');
@@ -140,11 +144,25 @@ begin
   Result.KeepInPlace:=Q.FieldAsInt(Offset+4)<>0; Result.ExternalImages:=Q.FieldAsInt(Offset+5)<>0;
 end;
 
-procedure CreateEmptyFile(const Path:string);
+function PreparationObjectKey(Handle:THandle; Directory:Boolean):string;
+var Info:TByHandleFileInformation;
+begin
+  if not GetFileInformationByHandle(Handle,Info) then RaiseLastOSError;
+  if ((Info.dwFileAttributes and FILE_ATTRIBUTE_DIRECTORY<>0)<>Directory) or
+    (Info.dwFileAttributes and FILE_ATTRIBUTE_REPARSE_POINT<>0) or
+    (not Directory and (Info.nNumberOfLinks<>1)) then
+    raise EReadError.Create('Рабочий объект переноса заменён ссылкой.');
+  Result:=IntToHex(Info.dwVolumeSerialNumber,8)+':'+IntToHex(Info.nFileIndexHigh,8)+IntToHex(Info.nFileIndexLow,8);
+end;
+
+function SetPreparationFileInformation(Handle:THandle; InfoClass:Integer; Data:Pointer; Bytes:DWORD):BOOL;
+  stdcall; external kernel32 name 'SetFileInformationByHandle';
+
+function CreateEmptyFile(const Path:string):string;
 begin
   var Handle:=CreateFile(PChar(DeletionNativePath(Path)),GENERIC_WRITE,0,nil,CREATE_NEW,FILE_ATTRIBUTE_NORMAL,0);
   if Handle=INVALID_HANDLE_VALUE then RaiseLastOSError;
-  CloseHandle(Handle);
+  try Result:=PreparationObjectKey(Handle,False); finally CloseHandle(Handle); end;
 end;
 
 constructor TPreparedTransferGroup.Create(ID:Int64);
@@ -395,23 +413,28 @@ begin
   inherited Create;
   if (Catalogue=nil) or (Plan=nil) then raise EArgumentException.Create('Нужен проверенный план коллекции.');
   FCancelled:=Cancelled; FGuards:=TList<THandle>.Create;
+  FConstructionFiles:=TDictionary<string,string>.Create;
   FWorkRoot:=TransferCanonicalDirectory(WorkRoot); FDestination:=Plan.Destination; CheckStop;
   PinDirectory(FWorkRoot);
   FDirectory:=TPath.Combine(FWorkRoot,Prefix+GUIDToString(TGUID.NewGuid));
   if not CreateDirectory(PChar(DeletionNativePath(FDirectory)),nil) then RaiseLastOSError;
-  PinDirectory(FDirectory);
+  FCreatedDirectoryKey:=PinDirectory(FDirectory);
   FCopiesRoot:=TPath.Combine(FDirectory,'copies');
   if not CreateDirectory(PChar(DeletionNativePath(FCopiesRoot)),nil) then RaiseLastOSError;
-  PinDirectory(FCopiesRoot);
+  FCreatedCopiesKey:=PinDirectory(FCopiesRoot);
   FLease:=CreateFile(PChar(DeletionNativePath(TPath.Combine(FDirectory,'lease'))),GENERIC_READ or GENERIC_WRITE,
     0,nil,CREATE_NEW,FILE_ATTRIBUTE_NORMAL,0);
   if FLease=INVALID_HANDLE_VALUE then begin FLease:=0; RaiseLastOSError; end;
+  FConstructionFiles.Add('lease',PreparationObjectKey(FLease,False));
   var ReviewFile:=TPath.Combine(FDirectory,'review.sqlite'); var StateFile:=TPath.Combine(FDirectory,'state.sqlite');
-  CreateEmptyFile(ReviewFile); CreateEmptyFile(StateFile);
+  FConstructionFiles.Add('review.sqlite',CreateEmptyFile(ReviewFile));
+  FConstructionFiles.Add('state.sqlite',CreateEmptyFile(StateFile));
+  Point('preparation-before-review',FDirectory,0,0); CheckStop;
   FReview:=TSQLiteDatabase.Create(DeletionNativePath(ReviewFile));
   FReview.QuerySingleString('PRAGMA journal_mode=DELETE'); FReview.ExecSQL('PRAGMA synchronous=FULL');
   FReview.ExecSQL('PRAGMA cache_size=-4096'); FReview.ExecSQL('PRAGMA temp_store=FILE');
   BuildReview(Catalogue,Plan);
+  Point('preparation-after-review',FDirectory,0,0); CheckStop;
   FStateLease:=AcquireCompressionDatabaseLease(StateFile,Meta('state_key'));
   FState:=TSQLiteDatabase.Create(DeletionNativePath(StateFile));
   FState.QuerySingleString('PRAGMA journal_mode=DELETE'); FState.ExecSQL('PRAGMA synchronous=FULL');
@@ -437,7 +460,9 @@ begin
   var ReviewKey:=CompressionFileKey(ReviewFile); FreeAndNil(FReview);
   // The newly created file is sealed under a read lease and hashed in bounded,
   // cancellable chunks. Its digest must be stored independently by the caller.
-  OpenReview('',ReviewKey); FCancelled:=nil;
+  OpenReview('',ReviewKey);
+  Point('preparation-before-ready',FDirectory,0,0); CheckStop;
+  FCancelled:=nil; FConstructionComplete:=True;
 end;
 
 constructor TCollectionTransferJournal.OpenExisting(const WorkRoot,Destination,Directory,ReviewSHA:string);
@@ -473,7 +498,68 @@ begin
   FPublicationSession.Free; FState.Free; FReview.Free; FReviewLease.Free; FStateLease:=nil;
   if FLease<>0 then CloseHandle(FLease);
   if FGuards<>nil then begin for var Handle in FGuards do CloseHandle(Handle); FGuards.Free; end;
+  if not FConstructionComplete then DiscardIncompletePreparation;
+  FConstructionFiles.Free;
   inherited;
+end;
+
+procedure TCollectionTransferJournal.DiscardIncompletePreparation;
+var RootHandle,CopiesHandle:THandle; Files:TList<THandle>;
+  function Hold(const Path,Key:string; Directory:Boolean):THandle;
+  begin
+    Result:=CreateFile(PChar(DeletionNativePath(Path)),FILE_READ_ATTRIBUTES or Winapi.Windows._DELETE,
+      FILE_SHARE_READ,nil,OPEN_EXISTING,
+      FILE_FLAG_OPEN_REPARSE_POINT or FILE_FLAG_BACKUP_SEMANTICS,0);
+    if Result=INVALID_HANDLE_VALUE then RaiseLastOSError;
+    try
+      if (Key='') or (PreparationObjectKey(Result,Directory)<>Key) then
+        raise EReadError.Create('Черновой журнал заменён; он сохранён для проверки.');
+    except CloseHandle(Result); Result:=0; raise; end;
+  end;
+  procedure Unlink(Handle:THandle);
+  begin
+    var DeleteFlag:Byte:=1;
+    if not SetPreparationFileInformation(Handle,4,@DeleteFlag,SizeOf(DeleteFlag)) then RaiseLastOSError;
+  end;
+begin
+  // Only a newly created constructor which never returned can reach this path.
+  // No registration or payload copying can have started. Retain every completed
+  // or resumed journal, and refuse unknown entries, replacement IDs and links.
+  if (FCreatedDirectoryKey='') or (FConstructionFiles=nil) then Exit;
+  RootHandle:=0; CopiesHandle:=0; Files:=TList<THandle>.Create;
+  try
+    try
+      RootHandle:=Hold(FDirectory,FCreatedDirectoryKey,True);
+      for var Path in TDirectory.GetFileSystemEntries(DeletionNativePath(FDirectory)) do
+      begin
+        var Name:=ExtractFileName(Path);
+        if Name='copies' then
+        begin
+          CopiesHandle:=Hold(Path,FCreatedCopiesKey,True);
+          if Length(TDirectory.GetFileSystemEntries(Path))<>0 then Exit;
+        end
+        else
+        begin
+          var Key:string;
+          if not FConstructionFiles.TryGetValue(Name,Key) then Exit;
+          Files.Add(Hold(Path,Key,False));
+        end;
+      end;
+      // Validate the complete directory before marking any known object deleted.
+      // Deletion uses its held identity, never a check-then-delete path lookup.
+      for var Handle in Files do Unlink(Handle);
+      for var Handle in Files do CloseHandle(Handle); Files.Clear;
+      if CopiesHandle<>0 then
+      begin Unlink(CopiesHandle); CloseHandle(CopiesHandle); CopiesHandle:=0; end;
+      Unlink(RootHandle);
+    except
+      // Cleanup must not replace the original preparation error.
+    end;
+  finally
+    for var Handle in Files do CloseHandle(Handle); Files.Free;
+    if CopiesHandle<>0 then CloseHandle(CopiesHandle);
+    if RootHandle<>0 then CloseHandle(RootHandle);
+  end;
 end;
 
 procedure TCollectionTransferJournal.CheckRoots;

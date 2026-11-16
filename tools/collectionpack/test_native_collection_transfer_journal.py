@@ -110,6 +110,37 @@ class TransferJournalTests(unittest.TestCase):
         self.assertEqual(self.read_review('select Value from Context where Name=?', ('sources_json',))[0][0], self.sources)
         self.assertEqual(self.read_review('select count(*) from Bindings where State=2'), [(1,)])
 
+    def test_incomplete_constructor_cleans_only_its_owned_metadata(self):
+        for stage in ('preparation-before-review', 'preparation-after-review', 'preparation-before-ready'):
+            with self.subTest(stage=stage):
+                self.config['cancel_preparation_stage'] = stage
+                self.run_case('fail')
+                self.assertFalse(self.control.exists())
+                self.assertFalse(list(self.work.glob('collection-transfer-*')),
+                                 'unregistered constructor metadata remained after a safe cancellation')
+                self.assertFalse(list(self.destination.iterdir()))
+
+    def test_incomplete_constructor_preserves_unknown_replaced_linked_or_busy_entries(self):
+        for foreign in ('file', 'copies', 'replacement', 'hardlink', 'reader'):
+            with self.subTest(foreign=foreign):
+                before = set(self.work.glob('collection-transfer-*'))
+                self.config.update(cancel_preparation_stage='preparation-before-review', preparation_foreign=foreign)
+                self.run_case('fail')
+                created = set(self.work.glob('collection-transfer-*')) - before
+                self.assertEqual(len(created), 1)
+                directory = created.pop()
+                self.assertTrue(all((directory / name).is_file() for name in ('lease', 'review.sqlite', 'state.sqlite')),
+                                'cleanup deleted known files before validating the complete directory')
+                if foreign == 'file':
+                    self.assertEqual((directory / 'unrelated.txt').read_text(encoding='utf-8-sig'), 'foreign preparation file')
+                elif foreign == 'copies':
+                    self.assertEqual((directory / 'copies/unrelated.txt').read_text(encoding='utf-8-sig'), 'foreign copies file')
+                elif foreign == 'replacement':
+                    self.assertEqual((directory / 'review.sqlite').read_text(encoding='utf-8-sig'), 'foreign replacement')
+                elif foreign == 'hardlink':
+                    self.assertEqual((directory / 'review.sqlite').stat().st_nlink, 2)
+                    self.assertTrue((self.work / 'foreign-hardlink').is_file())
+
     def test_prepare_all_and_resume_without_recopy(self):
         self.config['prepare'] = True
         data = self.run_case()

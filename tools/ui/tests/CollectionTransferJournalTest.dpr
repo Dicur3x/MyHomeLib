@@ -155,6 +155,7 @@ var Request,Control,Output:TJSONObject; Capture:TCollectionTransferCatalogue; Pl
     Journal:TCollectionTransferJournal; Registry:TCollectionTransferRegistry; Info:TCollectionInfo; ControlFile,Mode,Crash:string;
     Copies,PreparedFiles:Integer; Stop,BetweenEdited,CompletionBusy:Boolean; Groups,HistoryHits:TJSONArray; IDs:TList<Int64>; HistoryRows,VerifiedRetained:Int64;
     Removed,Missing,RetainedSources,PendingSources,CachesPrepared,HeldPreparedCaches,PublishedCacheDatabases:Int64; RootsApplied:Boolean;
+    IncompletePreparationHandle:THandle;
 begin
   SetTextCodePage(System.Output,CP_UTF8);
   try
@@ -166,7 +167,7 @@ begin
         Mode:=Request.GetValue<string>('mode','create'); ControlFile:=Owned(Request.GetValue<string>('control'));
         Crash:=Request.GetValue<string>('crash',''); Copies:=0; PreparedFiles:=0; Stop:=False; BetweenEdited:=False; HistoryRows:=0; VerifiedRetained:=0; HistoryHits:=TJSONArray.Create;
         Removed:=0; Missing:=0; RetainedSources:=0; PendingSources:=0; CachesPrepared:=0; HeldPreparedCaches:=0; PublishedCacheDatabases:=0; RootsApplied:=False;
-        CompletionBusy:=Request.GetValue<Boolean>('application_busy',False);
+        CompletionBusy:=Request.GetValue<Boolean>('application_busy',False); IncompletePreparationHandle:=0;
         if Mode='reader-names' then
         begin
           Output:=TJSONObject.Create; Output.AddPair('reader_names',FixtureReaderNames(Request));
@@ -266,6 +267,31 @@ begin
           Capture:=TCollectionTransferCatalogue.Create(Info,Owned(Request.GetValue<string>('personal')),Owned(Request.GetValue<string>('work')));
           Plan:=Capture.BuildFilePlan(Owned(Request.GetValue<string>('destination')),Owned(Request.GetValue<string>('work')),
             StringToGUID('{A71B2224-0365-46A8-97E6-876445556001}'));
+          TransferJournalTestPoint:=procedure(Stage,Directory:string; GroupID,FileID:Int64)
+            begin
+              if Stage<>Request.GetValue<string>('cancel_preparation_stage','') then Exit;
+              var Foreign:=Request.GetValue<string>('preparation_foreign','');
+              var Review:=Owned(TPath.Combine(Directory,'review.sqlite'));
+              if Foreign='file' then TFile.WriteAllText(Owned(TPath.Combine(Directory,'unrelated.txt')),'foreign preparation file',TEncoding.UTF8)
+              else if Foreign='copies' then TFile.WriteAllText(Owned(TPath.Combine(Directory,'copies\unrelated.txt')),'foreign copies file',TEncoding.UTF8)
+              else if Foreign='replacement' then
+              begin
+                var Incoming:=Owned(TPath.Combine(Directory,'incoming.txt'));
+                TFile.WriteAllText(Incoming,'foreign replacement',TEncoding.UTF8);
+                if not DeleteFile(PChar(Review)) or not MoveFile(PChar(Incoming),PChar(Review)) then RaiseLastOSError;
+              end
+              else if Foreign='hardlink' then
+              begin
+                if not CreateHardLink(PChar(Owned(TPath.Combine(Request.GetValue<string>('work'),'foreign-hardlink'))),PChar(Review),nil) then RaiseLastOSError;
+              end
+              else if Foreign='reader' then
+              begin
+                IncompletePreparationHandle:=CreateFile(PChar(Review),GENERIC_READ,FILE_SHARE_READ or FILE_SHARE_WRITE,
+                  nil,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,0);
+                if IncompletePreparationHandle=INVALID_HANDLE_VALUE then begin IncompletePreparationHandle:=0; RaiseLastOSError; end;
+              end;
+              Stop:=True;
+            end;
           Journal:=TCollectionTransferJournal.Create(Owned(Request.GetValue<string>('work')),Capture,Plan,
             function:Boolean begin Result:=Stop; end);
           Control:=TJSONObject.Create; Control.AddPair('directory',Journal.Directory);
@@ -869,6 +895,7 @@ begin
         end;
       finally
         TransferCopyTestPoint:=nil; TransferJournalTestPoint:=nil;
+        if IncompletePreparationHandle<>0 then CloseHandle(IncompletePreparationHandle);
         TransferReferenceTestPoint:=nil; TransferRegistryTestPoint:=nil; TransferFinalizationTestPoint:=nil;
         HistoryHits.Free; IDs.Free; Registry.Free; Journal.Free; Plan.Free; Capture.Free; Output.Free; Control.Free; Request.Free;
       end;

@@ -554,6 +554,20 @@ remains discoverable. Dark-theme controls and 225% layout use explicit geometry
 after scaling and resize. The ordinary small-catalogue evidence and its limits are
 recorded in `docs/audits/2026-11-17-collection-transfer-ui.md`.
 
+### Owned draft cleanup
+
+If the initial journal constructor fails or is cancelled before returning, its
+destructor can discard only that newly created draft. Physical IDs are recorded
+for its directory, empty copies directory and three metadata files. After
+releasing its ordinary leases, cleanup acquires deletion handles and validates
+the complete entry set before unlinking anything. Unknown entries, replacement
+IDs, reparse points, hardlinks and busy files preserve the draft. There is no
+recursive removal or check-then-delete path lookup. Completed constructors and
+all resumed journals are retained, including valid unregistered native reviews.
+Evidence: `docs/audits/2026-11-17-collection-transfer-preparation-cleanup.md`.
+Hard-exit orphan discovery and cleanup of large completed cache snapshots remain
+open; in-memory ownership of this draft is not authority to clean those folders.
+
 ### Remaining end-to-end evidence
 
 The first real post-transfer INPX composition now passes on x86/x64: two
