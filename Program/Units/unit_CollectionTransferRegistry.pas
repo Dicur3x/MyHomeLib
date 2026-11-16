@@ -19,6 +19,7 @@ type
     FPersonal:string;
     function OpenDatabase(Writable:Boolean; out Lease:IInterface):TSQLiteDatabase;
     procedure CheckRegistration(DB:TSQLiteDatabase);
+    function GroupProofSHA(GroupID:Int64):string;
     procedure StoreGroupProof(DB:TSQLiteDatabase; GroupID:Int64; const SHA:string;
       const Cancelled:TFunc<Boolean>);
   public
@@ -32,6 +33,9 @@ type
     procedure PublishPreparedGroup(Prepared:TPreparedTransferGroup;
       const Cancelled:TFunc<Boolean> = nil);
     function RecoverGroup(GroupID:Int64; const Cancelled:TFunc<Boolean> = nil):TPreparedTransferGroup;
+    // Checks the independent proof and saved locations; does not authorize unlink.
+    function VerifyPublishedGroup(Prepared:TPreparedTransferGroup;
+      const Cancelled:TFunc<Boolean> = nil):Int64;
   end;
 
 function RegisteredCollectionTransfers(const PersonalFile:string):TArray<TRegisteredCollectionTransfer>;
@@ -210,18 +214,31 @@ begin
   Point('registry-after-group-commit',FInfo.Operation,Prepared.ID);
 end;
 
-function TCollectionTransferRegistry.RecoverGroup(GroupID:Int64;
-  const Cancelled:TFunc<Boolean>):TPreparedTransferGroup;
-var Lease:IInterface; DB:TSQLiteDatabase; SHA:string;
+function TCollectionTransferRegistry.GroupProofSHA(GroupID:Int64):string;
+var Lease:IInterface; DB:TSQLiteDatabase;
 begin
-  Stop(Cancelled); DB:=OpenDatabase(False,Lease);
+  DB:=OpenDatabase(False,Lease);
   try
     CheckRegistration(DB);
     if not HasTable(DB,ProofTable) then raise EReadError.Create('Нет независимых подтверждений групп переноса.');
-    SHA:=DB.QuerySingleString('SELECT ProofSHA256 FROM '+ProofTable+' WHERE Operation=? AND GroupID=?',[FInfo.Operation,GroupID]);
-    if SHA='' then raise EReadError.Create('Группа ещё не зарегистрирована для восстановления без исходников.');
+    Result:=DB.QuerySingleString('SELECT ProofSHA256 FROM '+ProofTable+' WHERE Operation=? AND GroupID=?',[FInfo.Operation,GroupID]);
+    if Result='' then raise EReadError.Create('Группа ещё не зарегистрирована для восстановления без исходников.');
   finally DB.Free; Lease:=nil; end;
-  Result:=FJournal.RecoverPreparedGroup(GroupID,SHA,Cancelled);
+end;
+
+function TCollectionTransferRegistry.RecoverGroup(GroupID:Int64;
+  const Cancelled:TFunc<Boolean>):TPreparedTransferGroup;
+begin
+  Stop(Cancelled); Result:=FJournal.RecoverPreparedGroup(GroupID,GroupProofSHA(GroupID),Cancelled);
+end;
+
+function TCollectionTransferRegistry.VerifyPublishedGroup(Prepared:TPreparedTransferGroup;
+  const Cancelled:TFunc<Boolean>):Int64;
+begin
+  Stop(Cancelled);
+  if Prepared=nil then raise EArgumentException.Create('Не указана проверенная группа.');
+  FJournal.CheckPreparedGroupProof(Prepared,GroupProofSHA(Prepared.ID),Cancelled);
+  Result:=FJournal.VerifyPublishedGroup(Prepared,Cancelled);
 end;
 
 function ResumeRegisteredCollectionTransfer(const PersonalFile,Operation:string):TCollectionTransferJournal;

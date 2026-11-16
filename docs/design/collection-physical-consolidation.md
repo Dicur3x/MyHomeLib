@@ -132,6 +132,18 @@ available without publishing locators. Both paths still require exact retained
 source/destination witnesses to seal the group. This registry does not authorize
 source removal, complete an operation or itself hook the normal startup/UI.
 
+The registry can now check a held group's independent digest and saved location
+receipts without requiring the old archives. A shared publication-session lock
+routine obtains all ready catalogue/personal writer transactions; verification
+captures fresh references, requires the existing matching receipts and checks
+the current projected locators. Native kind reconstruction uses frozen logical
+containers, preserving ZIP/7z, raw and FBD semantics without probing old names.
+It performs no location/history/table writes and rolls back all verification
+transactions. This point-in-time result does not authorize a later unlink after
+the locks are released. Removal intent and its final coordinated guard remain
+required. Native evidence and scale limits are recorded in
+`docs/audits/2026-11-16-collection-transfer-location-receipts.md`.
+
 ## Group publication, stop and recovery
 
 The preparation half is implemented in `unit_CollectionTransferJournal`:

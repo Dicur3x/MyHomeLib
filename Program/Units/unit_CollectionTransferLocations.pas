@@ -9,7 +9,8 @@ type TTransferLocationResult=record Rows,Retained,History:Int64; end;
 // Caller owns one database transaction and retains the complete prepared group.
 // Registration IDs must enumerate this database's participating registrations.
 function ApplyTransferLocations(DB,Personal,Review:TSQLiteDatabase; Prepared:TPreparedTransferGroup;
-  const Operation,ReviewSHA:string; const Registrations:TArray<Integer>; PersonalRows:Boolean):TTransferLocationResult;
+  const Operation,ReviewSHA:string; const Registrations:TArray<Integer>; PersonalRows:Boolean;
+  VerifyOnly:Boolean=False):TTransferLocationResult;
 
 implementation
 
@@ -29,13 +30,22 @@ begin
   finally Q.Free; end;
 end;
 
-procedure Project(const Original:TBookRecord; const Source,Destination:string; out Folder,FileName:string);
+procedure Project(const Original:TBookRecord; const Source,Destination:string; out Folder,FileName:string;
+  RequireSource:Boolean=True);
 var Canonical,Identity:string; Bytes:Int64;
 begin
-  var Before:=Original; var Container:=Before.GetBookContainer; var Format:=Before.GetBookFormat(Container);
-  TransferReadFileState(Before.GetBookFileName(Container),Canonical,Identity,Bytes);
-  if not SameFileName(Canonical,Source) and not SameFileName(Canonical,Destination) then
-    raise EReadError.Create('Запись книги больше не относится к проверенному файлу.');
+  var Before:=Original;
+  // Archive fallback changes ZIP to 7z, not the native locator kind. Use the
+  // frozen logical container to reconstruct that kind without probing old names.
+  var Container:=TPath.Combine(Before.CollectionRoot,Before.Folder);
+  if RequireSource then Container:=Before.GetBookContainer;
+  var Format:=Before.GetBookFormat(Container);
+  if RequireSource then
+  begin
+    TransferReadFileState(Before.GetBookFileName(Container),Canonical,Identity,Bytes);
+    if not SameFileName(Canonical,Source) and not SameFileName(Canonical,Destination) then
+      raise EReadError.Create('Запись книги больше не относится к проверенному файлу.');
+  end;
   var After:=Before;
   if Format in [bfFb2Archive,bfRawArchive] then After.Folder:=Destination
   else
@@ -62,7 +72,7 @@ begin
 end;
 
 procedure NewPersonalRows(DB,Review:TSQLiteDatabase; Prepared:TPreparedTransferGroup;
-  const Registrations:TArray<Integer>; Seen:TDictionary<string,Boolean>; var Changed:Int64);
+  const Registrations:TArray<Integer>; Seen:TDictionary<string,Boolean>; var Changed,Retained:Int64; VerifyOnly:Boolean);
 var Candidates,Live,Root:TSQLiteQuery; Canonical,Identity,Folder,FileName:string; Bytes:Int64;
 begin
   for var CID in Registrations do
@@ -100,13 +110,17 @@ begin
             on E:EOSError do begin if not (E.ErrorCode in [2,3]) then raise; Available:=False; end;
             on E:EReadError do Available:=False; // Unsupported aliases keep their original locator.
           end;
+          if not Available and VerifyOnly then Inc(Retained);
           if Available then
             for var I:=0 to Prepared.Count-1 do
               if SameFileName(Canonical,Prepared.CopyAt(I).Source) or SameFileName(Canonical,Prepared.CopyAt(I).Destination) then
               begin
-                Project(Book,Prepared.CopyAt(I).Source,Prepared.CopyAt(I).Destination,Folder,FileName);
+                if VerifyOnly and not SameFileName(Canonical,Prepared.CopyAt(I).Destination) then
+                  raise EReadError.Create('Новая личная запись ещё ссылается на исходный файл.');
+                Project(Book,Prepared.CopyAt(I).Source,Prepared.CopyAt(I).Destination,Folder,FileName,not VerifyOnly);
                 if (Folder<>Book.Folder) or (FileName<>Book.FileName) then
                 begin
+                  if VerifyOnly then raise EReadError.Create('Новый личный адрес книги не совпал с проверенной копией.');
                   DB.ExecSQL('UPDATE Books SET Folder=?,FileName=? WHERE BookID=? AND DatabaseID=?',[Folder,FileName,BookID,CID]);
                   if DB.LastChangedRows<>1 then raise EWriteError.Create('Не удалось обновить новый личный адрес книги.');
                   Inc(Changed);
@@ -121,7 +135,8 @@ begin
 end;
 
 function ApplyTransferLocations(DB,Personal,Review:TSQLiteDatabase; Prepared:TPreparedTransferGroup;
-  const Operation,ReviewSHA:string; const Registrations:TArray<Integer>; PersonalRows:Boolean):TTransferLocationResult;
+  const Operation,ReviewSHA:string; const Registrations:TArray<Integer>; PersonalRows:Boolean;
+  VerifyOnly:Boolean):TTransferLocationResult;
 var R,Rows,Live,Marker:TSQLiteQuery; Allowed,Seen,Unsafe:TDictionary<string,Boolean>; Bind:TJSONArray;
 begin
   Result:=Default(TTransferLocationResult); R:=nil; Rows:=nil; Live:=nil; Marker:=nil;
@@ -133,7 +148,7 @@ begin
   Allowed:=TDictionary<string,Boolean>.Create; Seen:=TDictionary<string,Boolean>.Create;
   Unsafe:=TDictionary<string,Boolean>.Create; Bind:=TJSONArray.Create;
   try
-    DB.AddFunction('MHL_TRIGGERS_ON',0,EnableLocatorTriggers);
+    if not VerifyOnly then DB.AddFunction('MHL_TRIGGERS_ON',0,EnableLocatorTriggers);
     for var CID in Registrations do
     begin
       R:=Personal.NewQuery('SELECT DBFileName,RootFolder,Code FROM Bases WHERE DatabaseID=?',[CID]); R.Open;
@@ -194,7 +209,7 @@ begin
       Original.CollectionRoot:=Rows.FieldAsString(12); Original.LibID:=Rows.FieldAsString(4); Original.Folder:=Rows.FieldAsString(5);
       Original.FileName:=Rows.FieldAsString(6); Original.FileExt:=Rows.FieldAsString(7); Original.InsideNo:=Rows.FieldAsInt(8);
       if (Kind=2) and (Rows.FieldAsString(9)<>'') then Original.CollectionRoot:=Settings.ExpandCollectionRoot(Rows.FieldAsString(9));
-      var Folder,FileName:string; Project(Original,Item.Source,Item.Destination,Folder,FileName);
+      var Folder,FileName:string; Project(Original,Item.Source,Item.Destination,Folder,FileName,not VerifyOnly);
       var Row:=TJSONArray.Create; Bind.AddElement(Row);
       Row.Add(Key); Row.Add(Original.LibID); Row.Add(Original.Folder); Row.Add(Original.FileName); Row.Add(Original.FileExt);
       Row.Add(Original.InsideNo); Row.Add(Rows.FieldAsString(9)); Row.Add(Folder); Row.Add(FileName); Row.Add(Item.Identity); Row.Add(Item.SHA256);
@@ -218,6 +233,7 @@ begin
         ((Kind=2) and ((Live.FieldAsString(5)<>Rows.FieldAsString(9)) or (Live.FieldAsInt(6)<>Rows.FieldAsInt(2)))) then
         raise EReadError.Create('Расположение или номер книги изменились перед сохранением.');
       FreeAndNil(Live);
+      if VerifyOnly and not NewLocation then raise EReadError.Create('Новый адрес книги ещё не сохранён.');
       if not NewLocation then
       begin
         Live:=DB.NewQuery('UPDATE '+Table+' SET Folder=?,FileName=? WHERE '+Where);
@@ -230,16 +246,25 @@ begin
       Rows.Next;
     end;
     FreeAndNil(Rows);
-    if PersonalRows then NewPersonalRows(DB,Review,Prepared,Registrations,Seen,Result.Rows);
+    if PersonalRows then NewPersonalRows(DB,Review,Prepared,Registrations,Seen,Result.Rows,Result.Retained,VerifyOnly);
     var BindingSHA:=THashSHA2.GetHashString(Bind.ToJSON);
-    DB.ExecSQL('CREATE TABLE IF NOT EXISTS HomeLibreTransferLocations(Operation TEXT,GroupID INTEGER,ReviewSHA256 TEXT,BindingSHA256 TEXT,'+
+    if VerifyOnly then
+    begin
+      if DB.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE type=''table'' AND name=''HomeLibreTransferLocations''')<>1 then
+        raise EReadError.Create('Нет квитанции сохранённых адресов переноса.');
+    end
+    else DB.ExecSQL('CREATE TABLE IF NOT EXISTS HomeLibreTransferLocations(Operation TEXT,GroupID INTEGER,ReviewSHA256 TEXT,BindingSHA256 TEXT,'+
       'PRIMARY KEY(Operation,GroupID)) WITHOUT ROWID');
     Marker:=DB.NewQuery('SELECT ReviewSHA256,BindingSHA256 FROM HomeLibreTransferLocations WHERE Operation=? AND GroupID=?',[Operation,Prepared.ID]); Marker.Open;
+    if VerifyOnly and Marker.Eof then raise EReadError.Create('Нет квитанции сохранённых адресов этой группы.');
     if not Marker.Eof and ((Marker.FieldAsString(0)<>ReviewSHA) or (Marker.FieldAsString(1)<>BindingSHA)) then
       raise EReadError.Create('Квитанция расположений относится к другой проверке.');
     FreeAndNil(Marker);
-    if not PersonalRows then Result.History:=RebindTransferHistory(DB,Review,Prepared);
-    DB.ExecSQL('INSERT OR IGNORE INTO HomeLibreTransferLocations VALUES(?,?,?,?)',[Operation,Prepared.ID,ReviewSHA,BindingSHA]);
+    if not VerifyOnly then
+    begin
+      if not PersonalRows then Result.History:=RebindTransferHistory(DB,Review,Prepared);
+      DB.ExecSQL('INSERT OR IGNORE INTO HomeLibreTransferLocations VALUES(?,?,?,?)',[Operation,Prepared.ID,ReviewSHA,BindingSHA]);
+    end;
   finally Marker.Free; Live.Free; Rows.Free; R.Free; Bind.Free; Unsafe.Free; Seen.Free; Allowed.Free; end;
 end;
 

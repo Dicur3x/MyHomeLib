@@ -83,9 +83,37 @@ begin
   finally Plan.Free; end;
 end;
 
+procedure ProbeVerificationLocks(Journal:TCollectionTransferJournal; Expected:Boolean);
+var Paths:TList<string>; Q:TSQLiteQuery;
+begin
+  Paths:=TList<string>.Create; Q:=nil;
+  try
+    Paths.Add(Journal.Review.QuerySingleString('SELECT Value FROM Context WHERE Name=''personal'''));
+    Q:=Journal.Review.NewQuery('SELECT RegistrationID FROM ReferenceRegistrations WHERE State=''ready'''); Q.Open;
+    while not Q.Eof do
+    begin
+      var Path:=Journal.EffectiveCatalogue(Q.FieldAsInt(0));
+      if not Paths.Contains(Path) then Paths.Add(Path); Q.Next;
+    end;
+    for var Path in Paths do
+    begin
+      var DB:=TSQLiteDatabase.Create(DeletionNativePath(Owned(Path)),False);
+      try
+        DB.SetTimeout(0); var Locked:=False;
+        try DB.ExecSQL('BEGIN IMMEDIATE');
+        except on E:ESQLiteException do
+          if E.Message.ToLower.Contains('locked') or E.Message.ToLower.Contains('busy') then Locked:=True else raise;
+        end;
+        if DB.InTransaction then DB.Rollback;
+        if Locked<>Expected then raise EReadError.Create('Unexpected verification writer-lock state');
+      finally DB.Free; end;
+    end;
+  finally Q.Free; Paths.Free; end;
+end;
+
 var Request,Control,Output:TJSONObject; Capture:TCollectionTransferCatalogue; Plan:TCollectionTransferPlan;
     Journal:TCollectionTransferJournal; Registry:TCollectionTransferRegistry; Info:TCollectionInfo; ControlFile,Mode,Crash:string;
-    Copies,PreparedFiles:Integer; Stop,BetweenEdited:Boolean; Groups,HistoryHits:TJSONArray; IDs:TList<Int64>; HistoryRows:Int64;
+    Copies,PreparedFiles:Integer; Stop,BetweenEdited:Boolean; Groups,HistoryHits:TJSONArray; IDs:TList<Int64>; HistoryRows,VerifiedRetained:Int64;
 begin
   SetTextCodePage(System.Output,CP_UTF8);
   try
@@ -95,7 +123,7 @@ begin
       Request:=ReadJSON(ParamStr(1)); Control:=nil; Output:=nil; Capture:=nil; Plan:=nil; Journal:=nil; Registry:=nil; IDs:=nil;
       try
         Mode:=Request.GetValue<string>('mode','create'); ControlFile:=Owned(Request.GetValue<string>('control'));
-        Crash:=Request.GetValue<string>('crash',''); Copies:=0; PreparedFiles:=0; Stop:=False; BetweenEdited:=False; HistoryRows:=0; HistoryHits:=TJSONArray.Create;
+        Crash:=Request.GetValue<string>('crash',''); Copies:=0; PreparedFiles:=0; Stop:=False; BetweenEdited:=False; HistoryRows:=0; VerifiedRetained:=0; HistoryHits:=TJSONArray.Create;
         TransferReferenceTestPoint:=
           procedure(Stage:string)
           begin
@@ -179,6 +207,9 @@ begin
             if (Stage='locations-before-catalogue-commit') and Request.GetValue<Boolean>('cancel_location_commit',False) then Stop:=True;
             if (Stage='references-before-publication') and Request.GetValue<Boolean>('cancel_publication_fence',False) then Stop:=True;
             if (Stage='resources-before-commit') and Request.GetValue<Boolean>('cancel_resources',False) then Stop:=True;
+            if (Stage='locations-before-verification') and Request.GetValue<Boolean>('probe_verification_locks',False) then
+              ProbeVerificationLocks(Journal,True);
+            if (Stage='locations-after-catalogue-verification') and Request.GetValue<Boolean>('cancel_verification',False) then Stop:=True;
             if (Stage='resources-before-validation') and Request.GetValue<Boolean>('foreign_target_cover',False) then
             begin
               var Path:=Journal.Review.QuerySingleString('SELECT f.Destination FROM ImageSets i JOIN Files f ON f.ID=i.OwnerID '+
@@ -295,6 +326,11 @@ begin
                 Proofs.RemovePair(IntToStr(ID)).Free; Proofs.AddPair(IntToStr(ID),SHA);
                 TFile.WriteAllText(ControlFile,Control.ToJSON,TEncoding.UTF8);
               end;
+              if Request.GetValue<Boolean>('verify_published',False) then
+              begin
+                Inc(VerifiedRetained,Registry.VerifyPublishedGroup(Ready,function:Boolean begin Result:=Stop; end));
+                if Request.GetValue<Boolean>('probe_verification_locks',False) then ProbeVerificationLocks(Journal,False);
+              end;
               if Request.GetValue<Boolean>('rebind_history',False) then
               begin
                 var DB:=TSQLiteDatabase.Create(DeletionNativePath(Owned(Request.GetValue<string>('catalogue'))));
@@ -321,6 +357,7 @@ begin
         Output:=TJSONObject.Create; Groups:=TJSONArray.Create; Output.AddPair('groups',Groups);
         Output.AddPair('history_rows',TJSONNumber.Create(HistoryRows)); Output.AddPair('history_hits',HistoryHits); HistoryHits:=nil;
         Output.AddPair('publication_scans',TJSONNumber.Create(Journal.PublicationScanCount));
+        Output.AddPair('verified_retained',TJSONNumber.Create(VerifiedRetained));
         Output.AddPair('resource_validations',TJSONNumber.Create(Journal.ResourceValidationCount));
         Journal.ForEachGroup(
           procedure(const Group:TTransferJournalGroup)

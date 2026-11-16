@@ -24,12 +24,17 @@ type TTransferPublicationSession=class
     function VersionChanged(const Key:string; DB:TSQLiteDatabase):Boolean;
     function UnknownChanged:Boolean;
     procedure Rollback;
+    procedure LockGroup(Prepared:TPreparedTransferGroup; ForceFresh:Boolean);
   public
     constructor Create(Review:TSQLiteDatabase; const PersonalFile,WorkRoot,Operation,ReviewSHA:string;
       const Effective:TFunc<Integer,string>; const Targets:TProc<TSQLiteDatabase>);
     destructor Destroy; override;
     procedure Publish(Prepared:TPreparedTransferGroup; const Cancelled:TFunc<Boolean>; const Point:TProc<string>;
       const PersonalChanges:TProc<TSQLiteDatabase> = nil);
+    // Verifies receipts/current locators under fresh reference and writer locks.
+    // Returns retained/unresolved locators; never writes or permits later unlink.
+    function VerifyPublished(Prepared:TPreparedTransferGroup; const Cancelled:TFunc<Boolean>;
+      const Point:TProc<string>):Int64;
     property Scans:Integer read FScans;
 end;
 
@@ -58,7 +63,7 @@ begin
   FIDs:=TList<Integer>.Create; FLeases:=TList<IInterface>.Create;
   FPersonalKey:=FReview.QuerySingleString('SELECT Value FROM Context WHERE Name=''personal_key''');
   FLeases.Add(AcquireCompressionDatabaseLease(FPersonalFile,FPersonalKey));
-  FPersonal:=TSQLiteDatabase.Create(DeletionNativePath(FPersonalFile));
+  FPersonal:=TSQLiteDatabase.Create(DeletionNativePath(FPersonalFile),False);
   FPersonal.ExecSQL('PRAGMA synchronous=FULL');
 end;
 
@@ -99,13 +104,11 @@ begin
   if (FPersonal<>nil) and FPersonal.InTransaction then FPersonal.Rollback;
 end;
 
-procedure TTransferPublicationSession.Publish(Prepared:TPreparedTransferGroup;
-  const Cancelled:TFunc<Boolean>; const Point:TProc<string>; const PersonalChanges:TProc<TSQLiteDatabase>);
+procedure TTransferPublicationSession.LockGroup(Prepared:TPreparedTransferGroup; ForceFresh:Boolean);
 var Q:TSQLiteQuery; Dirty:Boolean;
 begin
-  FCancelled:=Cancelled; Q:=nil;
+  Q:=nil;
   try
-    try
     CheckStop; FPersonal.ExecSQL('BEGIN IMMEDIATE');
     Dirty:=VersionChanged(FPersonalKey,FPersonal) or (FSnapshot=nil);
     if FIDs.Count=0 then
@@ -122,7 +125,7 @@ begin
           begin
             IDs:=TList<Integer>.Create; FLists.Add(Key,IDs); FPaths.Add(Key,Path);
             FLeases.Add(AcquireCompressionDatabaseLease(Path,Key));
-            var DB:=TSQLiteDatabase.Create(DeletionNativePath(Path));
+            var DB:=TSQLiteDatabase.Create(DeletionNativePath(Path),False);
             FDatabases.Add(Key,DB); DB.ExecSQL('PRAGMA synchronous=FULL');
           end;
           IDs.Add(CID);
@@ -137,13 +140,23 @@ begin
       if VersionChanged(Pair.Key,Pair.Value) then Dirty:=True;
     end;
     if UnknownChanged then Dirty:=True;
-    if Dirty then
+    if Dirty or ForceFresh then
     begin
       FreeAndNil(FSnapshot);
       FSnapshot:=TTransferReferenceSnapshot.Create(FReview,FPersonalFile,FWorkRoot,FEffective,FTargets,CheckStop);
       Inc(FScans);
     end;
     FSnapshot.CheckGroup(Prepared);
+  finally Q.Free; end;
+end;
+
+procedure TTransferPublicationSession.Publish(Prepared:TPreparedTransferGroup;
+  const Cancelled:TFunc<Boolean>; const Point:TProc<string>; const PersonalChanges:TProc<TSQLiteDatabase>);
+begin
+  FCancelled:=Cancelled;
+  try
+    try
+    LockGroup(Prepared,False);
     if Assigned(Point) then Point('references-before-publication'); CheckStop;
     for var Pair in FDatabases do
     begin
@@ -162,7 +175,28 @@ begin
     except
       FreeAndNil(FSnapshot); Rollback; raise;
     end;
-  finally Q.Free; FCancelled:=nil; end;
+  finally FCancelled:=nil; end;
+end;
+
+function TTransferPublicationSession.VerifyPublished(Prepared:TPreparedTransferGroup;
+  const Cancelled:TFunc<Boolean>; const Point:TProc<string>):Int64;
+begin
+  Result:=0; FCancelled:=Cancelled;
+  try
+    try
+      LockGroup(Prepared,True);
+      if Assigned(Point) then Point('locations-before-verification'); CheckStop;
+      for var Pair in FDatabases do
+      begin
+        var Check:=ApplyTransferLocations(Pair.Value,FPersonal,FReview,Prepared,FOperation,FReviewSHA,FLists[Pair.Key].ToArray,False,True);
+        Inc(Result,Check.Retained);
+        if Assigned(Point) then Point('locations-after-catalogue-verification'); CheckStop;
+      end;
+      var Check:=ApplyTransferLocations(FPersonal,FPersonal,FReview,Prepared,FOperation,FReviewSHA,FIDs.ToArray,True,True);
+      Inc(Result,Check.Retained);
+      if Assigned(Point) then Point('locations-after-personal-verification'); CheckStop;
+    except FreeAndNil(FSnapshot); raise; end;
+  finally Rollback; FCancelled:=nil; end;
 end;
 
 destructor TTransferPublicationSession.Destroy;
