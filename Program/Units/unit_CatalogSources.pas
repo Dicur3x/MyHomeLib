@@ -60,16 +60,38 @@ function OpenCatalogSource(const Source: TCatalogSource; const SystemData: ISyst
 implementation
 
 uses System.JSON, System.Variants, System.IOUtils, Winapi.Windows, Vcl.ComCtrls,
-  unit_Consts, unit_Settings, unit_Database_SQLite, dm_user;
+  unit_Consts, unit_Settings, unit_Database_SQLite, dm_user, SQLiteWrap;
 
 type
   // A source snapshot has no entry in the user's collection list. Its system
   // properties are private to the snapshot; imports cannot change target URLs.
-  TCatalogSnapshot = class(TBookCollection_SQLite)
+  TCatalogSnapshot = class(TBookCollection_SQLite, IBookImportedSourceKeyProvider)
+  private
+    FKeyTableChecked:Boolean;
+    FSourceKeyQuery:TSQLiteQuery;
   public
+    destructor Destroy; override;
+    function TryImportedSourceKey(BookID:Integer; out SourceKey:string):Boolean;
     function GetProperty(const PropID: TPropertyID): Variant; override;
     procedure SetProperty(const PropID: TPropertyID; const Value: Variant); override;
   end;
+
+destructor TCatalogSnapshot.Destroy;
+begin FSourceKeyQuery.Free; inherited; end;
+
+function TCatalogSnapshot.TryImportedSourceKey(BookID:Integer; out SourceKey:string):Boolean;
+begin
+  SourceKey:=''; Result:=False;
+  if not FKeyTableChecked then
+  begin
+    FSourceKeyQuery:=ImportedSourceKeyQuery;
+    FKeyTableChecked:=True;
+  end;
+  if FSourceKeyQuery=nil then Exit;
+  FSourceKeyQuery.Reset; FSourceKeyQuery.SetParam(0,BookID); FSourceKeyQuery.Open;
+  if not FSourceKeyQuery.Eof then SourceKey:=FSourceKeyQuery.FieldAsString(0);
+  Result:=SourceKey<>'';
+end;
 
 function TCatalogSnapshot.GetProperty(const PropID: TPropertyID): Variant;
 begin

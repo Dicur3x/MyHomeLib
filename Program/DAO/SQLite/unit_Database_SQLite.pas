@@ -318,6 +318,7 @@ type
 
   protected
     procedure InsertGenreIfMissing(const GenreData: TGenreData); override;
+    function ImportedSourceKeyQuery:TSQLiteQuery;
 
   private
     FMetadataRootGuard: IMetadataCollectionRootGuard;
@@ -4581,6 +4582,13 @@ end;
 procedure TBookCollection_SQLite.CompactDatabase;
 begin
   FDatabase.CompactDatabase;
+end;
+
+function TBookCollection_SQLite.ImportedSourceKeyQuery:TSQLiteQuery;
+begin
+  Result:=nil;
+  if FDatabase.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE type=''table'' AND name=''LibraryUpdateSourceKeys''')=1 then
+    Result:=FDatabase.NewQuery('SELECT SourceKey FROM LibraryUpdateSourceKeys WHERE BookID=?');
 end;
 
 function TBookCollection_SQLite.CheckDatabase: string;

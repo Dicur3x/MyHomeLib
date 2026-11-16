@@ -147,8 +147,14 @@ begin
 end;
 
 function SourceKeyAt(const Source: TMergeSource; const Book: TBookRecord; const Resolved: string): string;
-var Root, Path, Name: string;
+var Root, Path, Name: string; Provider:IBookImportedSourceKeyProvider;
 begin
+  if Assigned(Source.Collection) and Supports(Source.Collection,IBookImportedSourceKeyProvider,Provider) and
+    Provider.TryImportedSourceKey(Book.BookKey.BookID,Result) then
+  begin
+    if not Result.StartsWith(Source.ID+':file:',True) then raise EReadError.Create('Сохранённый ключ относится к другому источнику.');
+    Exit;
+  end;
   // An INPX may repeat LIBID for different files, formats or placeholder rows.
   // Use the actual member, relative to the source root so moving it is stable.
   Root := Source.Root;

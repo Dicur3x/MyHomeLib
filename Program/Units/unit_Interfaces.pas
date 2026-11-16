@@ -85,6 +85,13 @@ type
     function CaptureContentDigest(const Check: TProc): string;
   end;
 
+  // An immutable imported snapshot can retain a source key whose physical
+  // locator changed. It is provenance, not permission to access a file.
+  IBookImportedSourceKeyProvider = interface
+    ['{81142F70-586C-4B61-BC30-2C5132722806}']
+    function TryImportedSourceKey(BookID:Integer; out SourceKey:string):Boolean;
+  end;
+
   // Sequential, read-only relations for an immutable catalogue. Book IDs must
   // be requested in nondecreasing order; no whole-catalogue relation cache.
   IBookSeriesReadStream = interface

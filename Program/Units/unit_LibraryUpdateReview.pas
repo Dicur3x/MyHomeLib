@@ -87,7 +87,7 @@ implementation
 
 uses Winapi.Windows, Vcl.ComCtrls, System.IOUtils, System.Hash, System.Variants, System.JSON, System.StrUtils, System.Math,
   unit_Consts, unit_Database_SQLite, unit_LibrarySourceID, unit_UserData,
-  unit_ImportInpxThread, unit_ImportMetabibThread, unit_MetabibReader,
+  unit_ImportInpxThread, unit_ImportMetabibThread, unit_MetabibReader, unit_LibraryUpdateIdentity,
   unit_MHLArchiveHelpers, unit_Settings, unit_LibraryUpdateHistory, unit_CollectionPacking, unit_LibraryUpdateJournal, dm_user;
 
 procedure NotifyLibraryUpdateTestPoint(const Stage: string); inline;
@@ -222,32 +222,8 @@ begin
   FReady:=True;
 end;
 
-function ReviewBookKey(const Book: TBookRecord; const Namespace, Root: string): string;
-var ID, Source, Original, Folder: string; P: Integer; Numeric: Boolean;
-begin
-  ID:=Book.LibID; Source:=LowerCase(Trim(Namespace));
-  if ID.StartsWith('merged:',True) then
-  begin Delete(ID,1,7); P:=Pos(':',ID); if P>0 then Delete(ID,1,P); end;
-  if TryParseLibrarySourceID(ID,Source,Original) then ID:=Original
-  else
-  begin
-    Source:=LowerCase(Trim(Namespace)); Numeric:=ID<>'';
-    for var C in ID do Numeric:=Numeric and CharInSet(C,['0'..'9']);
-    if not Numeric or ((Source<>'flibusta') and (Source<>'librusec')) then Source:='';
-  end;
-  if Source<>'' then Folder:='id:'+Source+#1+ID
-  else if ID<>'' then Folder:='source-id:'+ID
-  else
-  begin
-    Folder:=Book.Folder;
-    if TPath.IsPathRooted(Folder) then
-      Folder:=ExtractRelativePath(IncludeTrailingPathDelimiter(TPath.GetFullPath(Root)),TPath.GetFullPath(Folder));
-    Folder:='file:'+LowerCase(Folder.Replace('/','\'))+#1+ID;
-  end;
-  // Preserve separate artifacts sharing a library ID; unknown libraries match
-  // only their physical relative locator, never a guessed display-name identity.
-  Result:=THashSHA2.GetHashString(Folder+#1+LowerCase(Book.FileName)+#1+LowerCase(Book.FileExt));
-end;
+function ReviewBookKey(const Book:TBookRecord; const Namespace,Root:string):string;
+begin Result:=LibraryUpdateBookKey(Book,Namespace,Root); end;
 
 function ReviewStamp(const Book: TBookRecord): string;
 begin
@@ -261,25 +237,11 @@ begin
   else Result:=TPath.Combine(Book.Folder,Book.FileName)+Book.FileExt;
 end;
 
-function PublisherLocation(const Book: TBookRecord): string;
-begin Result:=LowerCase(ReviewLocation(Book).Replace('/','\')); end;
+function PublisherLocation(const Book:TBookRecord):string;
+begin Result:=LibraryPublisherLocation(Book); end;
 
 function LegacyPublisherLocation(const Book:TBookRecord):string;
-var Folder:string;
-begin
-  Result:=PublisherLocation(Book);
-  if not IsArchiveExt(Book.Folder) then Exit;
-  Folder:=Book.Folder;
-  if TPath.IsPathRooted(Folder) then
-  begin
-    Folder:=ExtractRelativePath(IncludeTrailingPathDelimiter(TPath.GetFullPath(Book.CollectionRoot)),TPath.GetFullPath(Folder));
-    // An older snapshot has no publisher locator for an external download
-    // root. Do not guess its relative directory from the basename alone.
-    if TPath.IsPathRooted(Folder) or (Folder='..') or Folder.StartsWith('..\') then Exit;
-  end;
-  if SameText(ExtractFileExt(Folder),SEVENZIP_EXTENSION) then Folder:=ChangeFileExt(Folder,ZIP_EXTENSION);
-  Result:=LowerCase(Folder.Replace('/','\'));
-end;
+begin Result:=LibraryLegacyPublisherLocation(Book); end;
 
 function ReviewContainer(const Book: TBookRecord; const DownloadRoot: string;
   Cache: TDictionary<string,string>): string;
@@ -358,7 +320,7 @@ var DB: TSQLiteDatabase; Insert, Query: TSQLiteQuery; Iterator: IPublisherSeries
   Book, Candidate: TBookRecord; Stamp, Namespace, Key, Name, OldPath, NewPath, Path, Version, SourceKey: string;
   Count, Total, NewCount, ChangedCount: Integer; Existing, CandidateExists: Boolean;
   MergeSource: TMergeSource; Containers: TDictionary<string,string>;
-  StateDB: TSQLiteDatabase; StateQuery, SourceKeyQuery, PublisherQuery, RecoveredQuery: TSQLiteQuery;
+  StateDB: TSQLiteDatabase; StateQuery, SourceKeyQuery, PublisherQuery, RecoveredQuery, ReviewKeyQuery: TSQLiteQuery;
   State, Container, Comparison, Alternate, AlternateKey, RawLocation: string;
   Availability: TDictionary<string,Boolean>;
   procedure RecoverPublisherLocations;
@@ -458,6 +420,11 @@ var DB: TSQLiteDatabase; Insert, Query: TSQLiteQuery; Iterator: IPublisherSeries
     begin
       Check; CheckSpace;
       Key:=ReviewBookKey(Book,Namespace,FSourceInfo.Root);
+      if IsPrevious and Assigned(ReviewKeyQuery) then
+      begin
+        ReviewKeyQuery.Reset; ReviewKeyQuery.SetParam(0,Book.BookKey.BookID); ReviewKeyQuery.Open;
+        if not ReviewKeyQuery.Eof then Key:=ReviewKeyQuery.FieldAsString(0);
+      end;
       Insert.Reset; Insert.SetParam(0,Key); Insert.SetParam(1,ReviewStamp(Book));
       if IsPrevious then
       begin
@@ -526,7 +493,7 @@ begin
   FAnalysisFile:=Comparison;
   DB:=TSQLiteDatabase.Create(FAnalysisFile); Insert:=nil; Query:=nil;
   Containers:=TDictionary<string,string>.Create; Availability:=TDictionary<string,Boolean>.Create;
-  StateDB:=nil; StateQuery:=nil; SourceKeyQuery:=nil; PublisherQuery:=nil; RecoveredQuery:=nil;
+  StateDB:=nil; StateQuery:=nil; SourceKeyQuery:=nil; PublisherQuery:=nil; RecoveredQuery:=nil; ReviewKeyQuery:=nil;
   try
     if FPreviousIndex then
     begin
@@ -539,6 +506,8 @@ begin
           SourceKeyQuery:=StateDB.NewQuery('SELECT SourceKey FROM LibraryUpdateSourceKeys WHERE BookID=?');
       if StateDB.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE name=''LibraryUpdatePublisherLocations'' AND type=''table''')>0 then
         PublisherQuery:=StateDB.NewQuery('SELECT Location FROM LibraryUpdatePublisherLocations WHERE BookID=?');
+      if StateDB.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE name=''LibraryUpdateReviewKeys'' AND type=''table''')>0 then
+        ReviewKeyQuery:=StateDB.NewQuery('SELECT Key FROM LibraryUpdateReviewKeys WHERE BookID=?');
     end;
     DB.ExecSQL('CREATE TABLE ReviewPrevious(Key TEXT PRIMARY KEY,Stamp TEXT,Location TEXT,SourceKey TEXT,Physical TEXT,State TEXT,BookID INTEGER,Container TEXT,InsideNo INTEGER,Copies INTEGER NOT NULL DEFAULT 1) WITHOUT ROWID');
     DB.ExecSQL('CREATE TABLE ReviewRows(Key TEXT,Stamp TEXT,BookID INTEGER,Location TEXT,Active INTEGER,Physical TEXT,Available INTEGER,PublisherLocation TEXT)');
@@ -631,7 +600,7 @@ begin
         FSummary:=FSummary+sLineBreak+FNeeded[I];
       end;
     end;
-  finally Iterator:=nil; RecoveredQuery.Free; PublisherQuery.Free; SourceKeyQuery.Free; StateQuery.Free; StateDB.Free;
+  finally Iterator:=nil; ReviewKeyQuery.Free; RecoveredQuery.Free; PublisherQuery.Free; SourceKeyQuery.Free; StateQuery.Free; StateDB.Free;
     Availability.Free; Containers.Free; Query.Free; Insert.Free; DB.Free; end;
 end;
 
@@ -1120,6 +1089,7 @@ begin
   Output:=TSQLiteDatabase.Create(FPublishedSource.CacheFile);
   try
     Output.ExecSQL('CREATE TABLE IF NOT EXISTS LibraryUpdateSourceKeys(BookID INTEGER PRIMARY KEY,SourceKey TEXT NOT NULL)');
+    Output.ExecSQL('CREATE TABLE IF NOT EXISTS LibraryUpdateReviewKeys(BookID INTEGER PRIMARY KEY,Key TEXT NOT NULL)');
     Output.ExecSQL('CREATE TABLE IF NOT EXISTS LibraryUpdateExclusions(Key TEXT PRIMARY KEY) WITHOUT ROWID');
     Output.ExecSQL('CREATE TABLE IF NOT EXISTS LibraryUpdatePublisherLocations(BookID INTEGER PRIMARY KEY,Location TEXT NOT NULL)');
     Output.ExecSQL('ATTACH DATABASE ? AS review',[FAnalysisFile]);
@@ -1130,10 +1100,10 @@ begin
       Output.ExecSQL('INSERT OR REPLACE INTO LibraryUpdatePublisherLocations SELECT m.CacheID,r.PublisherLocation '+
         'FROM review.ReviewRows r JOIN review.ApplyCachedInput m ON m.InputID=r.BookID');
     if FSource.Full then
-      Rows:=Output.NewQuery('SELECT b.BookID,b.Folder,b.FileName,b.Ext,b.InsideNo,b.LibID,a.SourceKey '+
+      Rows:=Output.NewQuery('SELECT b.BookID,b.Folder,b.FileName,b.Ext,b.InsideNo,b.LibID,a.SourceKey,a.Key '+
         'FROM Books b JOIN review.ApplyActions a ON a.BookID=b.BookID ORDER BY b.BookID')
     else
-      Rows:=Output.NewQuery('SELECT b.BookID,b.Folder,b.FileName,b.Ext,b.InsideNo,b.LibID,a.SourceKey '+
+      Rows:=Output.NewQuery('SELECT b.BookID,b.Folder,b.FileName,b.Ext,b.InsideNo,b.LibID,a.SourceKey,a.Key '+
         'FROM Books b JOIN review.ApplyCachedInput m ON m.CacheID=b.BookID '+
         'JOIN review.ApplyActions a ON a.BookID=m.InputID ORDER BY b.BookID');
     try
@@ -1150,6 +1120,11 @@ begin
           if (Expected<>'') and (Generated<>Expected) then
             Output.ExecSQL('INSERT OR REPLACE INTO LibraryUpdateSourceKeys VALUES(?,?)',[Rows.FieldAsInt(0),Expected])
           else Output.ExecSQL('DELETE FROM LibraryUpdateSourceKeys WHERE BookID=?',[Rows.FieldAsInt(0)]);
+          Expected:=Rows.FieldAsString(7);
+          Generated:=ReviewBookKey(Book,FPublishedSource.LibraryNamespace,FPublishedSource.Root);
+          if (Expected<>'') and (Generated<>Expected) then
+            Output.ExecSQL('INSERT OR REPLACE INTO LibraryUpdateReviewKeys VALUES(?,?)',[Rows.FieldAsInt(0),Expected])
+          else Output.ExecSQL('DELETE FROM LibraryUpdateReviewKeys WHERE BookID=?',[Rows.FieldAsInt(0)]);
           Rows.Next;
         end;
         Output.Commit;

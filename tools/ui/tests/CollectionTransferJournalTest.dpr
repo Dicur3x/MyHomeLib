@@ -7,7 +7,8 @@ uses System.SysUtils, System.Classes, System.IOUtils, System.JSON, System.Hash,
   SQLiteWrap, SQLite3, unit_Globals, unit_Consts, unit_ZipMemberDeletion,
   unit_CollectionTransferCatalogue, unit_CollectionTransferPlan,
   unit_CollectionTransferCopy, unit_CollectionTransferJournal, unit_CollectionTransferReferences, unit_CollectionTransferRegistry,
-  unit_CollectionTransferOperation,
+  unit_CollectionTransferOperation, unit_CollectionTransferCache, unit_CatalogSources,
+  unit_CollectionMerge, unit_Interfaces, unit_LibraryUpdateReview, unit_SystemDatabase_SQLite,
   unit_CollectionTransferLayout, unit_CollectionTransferFinalRows, unit_CollectionTransferFinalization,
   unit_CollectionTransferHistory, unit_CollectionTransferLocations, unit_BookCompressionImages, unit_BookCompressionReceipt, unit_BookCompressionPlan;
 
@@ -456,6 +457,55 @@ begin
               end;
             finally FinalPersonal.Free; end;
           finally FinalCat.Free; end;
+        end;
+        if Request.GetValue<string>('project_cache','')<>'' then
+        begin
+          var CachePath:=Owned(Request.GetValue<string>('project_cache'));
+          var CacheRoot:=Owned(Request.GetValue<string>('cache_before_root'));
+          var NewRoot:=Owned(Request.GetValue<string>('cache_after_root'));
+          var CacheDB:=TSQLiteDatabase.Create(DeletionNativePath(CachePath),False);
+          try
+            CacheDB.ExecSQL('BEGIN IMMEDIATE');
+            try
+              var Calls:=0;
+              var Projection:=ProjectTransferCache(Journal.Review,CacheDB,Request.GetValue<string>('cache_source_id','a'),
+                Request.GetValue<string>('cache_namespace',''),CacheRoot,NewRoot,
+                procedure
+                begin
+                  Inc(Calls);
+                  if (Request.GetValue<Integer>('cancel_cache_after',0)>0) and
+                    (Calls>=Request.GetValue<Integer>('cancel_cache_after')) then raise EAbort.Create('Fixture cache stop');
+                end);
+              if Crash='cache-before-commit' then begin Writeln('CRASH cache-before-commit'); Flush(System.Output); Halt(97); end;
+              CacheDB.Commit;
+              Output.AddPair('cache_examined',TJSONNumber.Create(Projection.Examined));
+              Output.AddPair('cache_changed',TJSONNumber.Create(Projection.Changed));
+              Output.AddPair('cache_source_keys',TJSONNumber.Create(Projection.SourceKeys));
+              Output.AddPair('cache_review_keys',TJSONNumber.Create(Projection.ReviewKeys));
+            except if CacheDB.InTransaction then CacheDB.Rollback; raise; end;
+          finally CacheDB.Free; end;
+          var Source:=Default(TCatalogSource); Source.ID:=Request.GetValue<string>('cache_source_id','a');
+          Source.Name:='Private relocated cache'; Source.Root:=NewRoot;
+          var CacheUser:ISystemData:=TSystemData_SQLite.Create(Owned(Request.GetValue<string>('cache_personal')));
+          var Snapshot:=OpenCatalogSnapshot(Source,CachePath,CacheUser);
+          var Entry:=Default(TMergeSource); Entry.ID:=Source.ID; Entry.Root:=Source.Root; Entry.Collection:=Snapshot;
+          var Readback:=TJSONArray.Create; Output.AddPair('cache_readback',Readback);
+          var Iterator:=Snapshot.GetPublisherSeriesIndexIterator; var Book:TBookRecord; var Series:string;
+          while Iterator.Next(Book,Series) do
+          begin
+            var Row:=TJSONObject.Create; Readback.AddElement(Row); Row.AddPair('id',TJSONNumber.Create(Book.BookKey.BookID));
+            Row.AddPair('key',MergeSourceKeyAtLocation(Entry,Book,TPath.Combine(Book.CollectionRoot,Book.Folder)));
+            Row.AddPair('format',TJSONNumber.Create(Ord(Book.GetBookFormat(TPath.Combine(Book.CollectionRoot,Book.Folder)))));
+            Row.AddPair('path',Book.GetBookFileName(TPath.Combine(Book.CollectionRoot,Book.Folder)));
+            if Request.GetValue<Boolean>('cache_read_streams',False) then
+            begin
+              var Stream:=Book.GetBookStream;
+              try if Stream=nil then raise EReadError.Create('Cache book has no native stream');
+                Row.AddPair('sha256',THashSHA2.GetHashString(Stream));
+              finally Stream.Free; end;
+            end;
+          end;
+          Iterator:=nil; Entry.Collection:=nil; Snapshot:=nil;
         end;
         if Request.GetValue<Boolean>('final_layout',False) then
         begin

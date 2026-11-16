@@ -3,7 +3,7 @@
 Status: native inventory, file/group copy journals, catalogue/fork publication,
 resource verification, destination-only recovery, guarded source removal,
 the sequential available-file phase, final-layout/final-row primitives and the
-durable roots/settings phase are implemented internally. Source-cache/Reader,
+durable roots/settings phase and unpublished source-cache projection are implemented internally. Durable cache publication/Reader,
 live DAO/job coordination, startup and normal UI remain open. No user collection
 has been moved by this work.
 
@@ -334,6 +334,39 @@ must preserve that decision evidence. Never recursively delete an unrecognised
 job folder or an entire old source root. Empty folders can be left behind.
 
 ## Required evidence before enabling the command
+
+### Source-cache identity and location projection
+
+`unit_CollectionTransferCache` now projects a caller-owned unpublished cache clone
+inside its transaction. It never rewrites the shared original baseline. It uses
+the frozen physical-file map, observed whole-root aliases, unavailable-locator
+projection and recorded absent ZIP names to retain native ZIP/7z, raw and FBD
+addresses. It does not probe old originals, which may be absent or reused.
+Unlisted cache books keep their original logical addresses, made absolute when
+necessary; changing a source root cannot silently redirect them to new files.
+The indexed working path map resides in the owned clone rather than SQLite's
+default in-memory TEMP store. Book rows are streamed and key writes are prepared.
+
+Publisher locations and source-link keys survive the change independently of
+the new physical locator. Empty-LIBID review keys also survive an address outside
+the new source root. The common key algorithms are extracted without changing
+their existing bytes. Immutable source snapshots expose saved source keys to the
+ordinary merge path; library-update preparation reads/preserves review-key
+overrides. Prior availability/exclusion data and unrelated cache metadata stay
+with the clone. An operation/source marker refuses projecting an already
+successful clone again using its old root; a new preparation attempt must clone
+the immutable baseline again.
+
+This is not the durable cache controller. It still needs to enumerate both
+current sources and independent update-history baselines in every participating
+catalogue, reserve and publish compatible GUID cache versions and retained raw
+indices, atomically change their references under independent recovery intent,
+and route partial-commit startup before another roots phase. Other collections
+may continue using the old shared cache. Reader identities, normal DAO/job
+coordination and full/incremental INPX after the complete move remain required.
+Evidence: `docs/audits/2026-11-16-collection-transfer-cache.md`.
+
+### Full operation gates
 
 - Native planner on x86/x64: equal archive names in distinct roots, root aliases
   and overlaps, already-in-place first source, FLibrary sidecars, repeated
