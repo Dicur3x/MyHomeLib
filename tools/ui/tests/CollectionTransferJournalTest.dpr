@@ -6,7 +6,7 @@ uses System.SysUtils, System.Classes, System.IOUtils, System.JSON, System.Hash,
   System.Generics.Collections, Winapi.Windows, NativeRegressionGuard, dm_user,
   SQLiteWrap, SQLite3, unit_Globals, unit_Consts, unit_ZipMemberDeletion,
   unit_CollectionTransferCatalogue, unit_CollectionTransferPlan,
-  unit_CollectionTransferCopy, unit_CollectionTransferJournal, unit_CollectionTransferReferences,
+  unit_CollectionTransferCopy, unit_CollectionTransferJournal, unit_CollectionTransferReferences, unit_CollectionTransferRegistry,
   unit_CollectionTransferHistory, unit_CollectionTransferLocations, unit_BookCompressionImages, unit_BookCompressionReceipt, unit_BookCompressionPlan;
 
 procedure DisableFixtureTriggers(Context:TSQLite3Context; Count:Integer; Values:TSQLite3Value); cdecl;
@@ -84,7 +84,7 @@ begin
 end;
 
 var Request,Control,Output:TJSONObject; Capture:TCollectionTransferCatalogue; Plan:TCollectionTransferPlan;
-    Journal:TCollectionTransferJournal; Info:TCollectionInfo; ControlFile,Mode,Crash:string;
+    Journal:TCollectionTransferJournal; Registry:TCollectionTransferRegistry; Info:TCollectionInfo; ControlFile,Mode,Crash:string;
     Copies,PreparedFiles:Integer; Stop,BetweenEdited:Boolean; Groups,HistoryHits:TJSONArray; IDs:TList<Int64>; HistoryRows:Int64;
 begin
   SetTextCodePage(System.Output,CP_UTF8);
@@ -92,7 +92,7 @@ begin
     RequireIsolatedRegression; DMUser:=TDMUser.Create(nil);
     try
       if ParamCount<>2 then raise EArgumentException.Create('Expected request and result');
-      Request:=ReadJSON(ParamStr(1)); Control:=nil; Output:=nil; Capture:=nil; Plan:=nil; Journal:=nil; IDs:=nil;
+      Request:=ReadJSON(ParamStr(1)); Control:=nil; Output:=nil; Capture:=nil; Plan:=nil; Journal:=nil; Registry:=nil; IDs:=nil;
       try
         Mode:=Request.GetValue<string>('mode','create'); ControlFile:=Owned(Request.GetValue<string>('control'));
         Crash:=Request.GetValue<string>('crash',''); Copies:=0; PreparedFiles:=0; Stop:=False; BetweenEdited:=False; HistoryRows:=0; HistoryHits:=TJSONArray.Create;
@@ -109,6 +109,26 @@ begin
               finally DB.Free; end;
             end;
           end;
+        TransferRegistryTestPoint:=
+          procedure(Stage,Operation:string; GroupID:Int64)
+          begin
+            if Stage=Crash then begin Writeln('CRASH ',Stage); Flush(System.Output); Halt(97); end;
+            if (Stage='registry-before-group-commit') and Request.GetValue<Boolean>('cancel_registry_commit',False) then Stop:=True;
+          end;
+        if Mode='discover' then
+        begin
+          Output:=TJSONObject.Create; var Pending:=TJSONArray.Create; Output.AddPair('operations',Pending);
+          for var Item in RegisteredCollectionTransfers(Owned(Request.GetValue<string>('personal'))) do
+          begin
+            var Row:=TJSONObject.Create; Pending.AddElement(Row);
+            Row.AddPair('operation',Item.Operation); Row.AddPair('directory',Item.Directory);
+            Row.AddPair('review_sha256',Item.ReviewSHA256); Row.AddPair('collection',TJSONNumber.Create(Item.CollectionID));
+          end;
+          Output.AddPair('status','PASS'); TFile.WriteAllText(Owned(ParamStr(2)),Output.ToJSON,TEncoding.UTF8);
+          Writeln('PASS read-only registered transfer discovery');
+        end
+        else
+        begin
         if Mode='create' then
         begin
           Info.Clear; Info.ID:=7; Info.CollectionType:=CT_EXTERNAL_LOCAL_FB;
@@ -123,6 +143,11 @@ begin
           TFile.WriteAllText(ControlFile,Control.ToJSON,TEncoding.UTF8);
           FreeAndNil(Plan); FreeAndNil(Capture);
         end
+        else if Mode='registered' then
+        begin
+          Journal:=ResumeRegisteredCollectionTransfer(Owned(Request.GetValue<string>('personal')),Request.GetValue<string>('operation'));
+          Control:=TJSONObject.Create; Control.AddPair('directory',Journal.Directory); Control.AddPair('review_sha256',Journal.ReviewSHA256);
+        end
         else
         begin
           Control:=ReadJSON(ControlFile);
@@ -130,6 +155,8 @@ begin
             Owned(Request.GetValue<string>('destination')),Owned(Control.GetValue<string>('directory')),
             Request.GetValue<string>('override_review_sha256',Control.GetValue<string>('review_sha256')));
         end;
+        Registry:=TCollectionTransferRegistry.Create(Journal);
+        if Request.GetValue<Boolean>('register_operation',False) then Registry.RegisterOperation(function:Boolean begin Result:=Stop; end);
         var Wait:=Request.GetValue<string>('wait_for_release','');
         if Wait<>'' then
         begin
@@ -227,7 +254,9 @@ begin
           for var ID in IDs do
           begin
             var Ready:TPreparedTransferGroup;
-            if Request.GetValue<Boolean>('recover_groups',False) then
+            if Request.GetValue<Boolean>('recover_registered_groups',False) then
+              Ready:=Registry.RecoverGroup(ID,function:Boolean begin Result:=Stop; end)
+            else if Request.GetValue<Boolean>('recover_groups',False) then
             begin
               var Proofs:=Control.GetValue<TJSONObject>('group_proofs',nil);
               if Proofs=nil then raise EReadError.Create('No independent fixture group proof');
@@ -239,7 +268,7 @@ begin
               for var I:=0 to Ready.Count-1 do
               begin
                 var Item:=Ready.CopyAt(I);
-                if Request.GetValue<Boolean>('recover_groups',False) then
+                if Request.GetValue<Boolean>('recover_groups',False) or Request.GetValue<Boolean>('recover_registered_groups',False) then
                 begin
                   if Item.SourceHeld or (HashFile(Item.Destination)<>Item.SHA256) then raise EReadError.Create('Invalid recovered destination role');
                 end
@@ -249,9 +278,15 @@ begin
                 Inc(PreparedFiles);
               end;
               if Request.GetValue<Boolean>('apply_locations',False) then
-                Journal.PublishGroupLocations(Ready,function:Boolean begin Result:=Stop; end);
+              begin
+                if Request.GetValue<Boolean>('register_groups',False) then
+                  Registry.PublishPreparedGroup(Ready,function:Boolean begin Result:=Stop; end)
+                else Journal.PublishGroupLocations(Ready,function:Boolean begin Result:=Stop; end);
+              end;
               if Request.GetValue<Boolean>('verify_resources',False) and not Request.GetValue<Boolean>('apply_locations',False) then
                 Journal.VerifyGroupResources(Ready,function:Boolean begin Result:=Stop; end);
+              if Request.GetValue<Boolean>('register_groups',False) and not Request.GetValue<Boolean>('apply_locations',False) then
+                Registry.RememberPreparedGroup(Ready,function:Boolean begin Result:=Stop; end);
               if Request.GetValue<Boolean>('seal_groups',False) then
               begin
                 var SHA:=Journal.SealPreparedGroup(Ready,function:Boolean begin Result:=Stop; end);
@@ -358,10 +393,11 @@ begin
         Output.AddPair('pending_group',TJSONNumber.Create(Journal.PendingGroup));
         TFile.WriteAllText(Owned(ParamStr(2)),Output.ToJSON,TEncoding.UTF8);
         Writeln('PASS frozen transfer review and durable group preparation');
+        end;
       finally
         TransferCopyTestPoint:=nil; TransferJournalTestPoint:=nil;
-        TransferReferenceTestPoint:=nil;
-        HistoryHits.Free; IDs.Free; Journal.Free; Plan.Free; Capture.Free; Output.Free; Control.Free; Request.Free;
+        TransferReferenceTestPoint:=nil; TransferRegistryTestPoint:=nil;
+        HistoryHits.Free; IDs.Free; Registry.Free; Journal.Free; Plan.Free; Capture.Free; Output.Free; Control.Free; Request.Free;
       end;
     finally FreeAndNil(DMUser); end;
   except on E:Exception do begin Writeln(E.ClassName,': ',E.Message); Halt(1); end; end;

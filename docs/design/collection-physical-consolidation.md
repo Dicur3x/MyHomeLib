@@ -118,6 +118,20 @@ or publish/acknowledge source removal. See
 `docs/audits/2026-11-16-collection-transfer-group-recovery.md` for the current
 group-level evidence and the remaining operation-registry/removal integration.
 
+The production registry in `unit_CollectionTransferRegistry` now records the
+operation and independent group digests in the personal database. Discovery is
+read-only and does not depend on a fixture control file or an available work
+volume. Resume reopens the journal with its saved external review digest and
+checks the registration against the immutable context and actual personal-file
+identity. A copied personal database cannot silently adopt the original jobs.
+`PublishPreparedGroup` commits the group digest with personal locators on the
+existing publication connection. Its own registry writes therefore do not force
+a complete reference recapture per archive, and no version acknowledgement can
+hide an intervening external writer. Standalone preparation registration remains
+available without publishing locators. Both paths still require exact retained
+source/destination witnesses to seal the group. This registry does not authorize
+source removal, complete an operation or itself hook the normal startup/UI.
+
 ## Group publication, stop and recovery
 
 The preparation half is implemented in `unit_CollectionTransferJournal`:

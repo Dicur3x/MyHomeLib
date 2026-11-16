@@ -10,7 +10,8 @@ import test_native_collection_transfer_catalogue as fixture
 import test_native_collection_transfer_journal as journal_fixture
 from test_native_collection_transfer_forks import tables
 
-MARKERS={'HomeLibreTransferLocations','HomeLibreTransferForkReceipts'}
+MARKERS={'HomeLibreTransferLocations','HomeLibreTransferForkReceipts',
+         'HomeLibreTransferOperations','HomeLibreTransferGroupProofs'}
 
 
 @unittest.skipUnless(os.name=='nt' and all(p and p.is_file() for p in

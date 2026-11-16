@@ -28,7 +28,8 @@ type TTransferPublicationSession=class
     constructor Create(Review:TSQLiteDatabase; const PersonalFile,WorkRoot,Operation,ReviewSHA:string;
       const Effective:TFunc<Integer,string>; const Targets:TProc<TSQLiteDatabase>);
     destructor Destroy; override;
-    procedure Publish(Prepared:TPreparedTransferGroup; const Cancelled:TFunc<Boolean>; const Point:TProc<string>);
+    procedure Publish(Prepared:TPreparedTransferGroup; const Cancelled:TFunc<Boolean>; const Point:TProc<string>;
+      const PersonalChanges:TProc<TSQLiteDatabase> = nil);
     property Scans:Integer read FScans;
 end;
 
@@ -99,7 +100,7 @@ begin
 end;
 
 procedure TTransferPublicationSession.Publish(Prepared:TPreparedTransferGroup;
-  const Cancelled:TFunc<Boolean>; const Point:TProc<string>);
+  const Cancelled:TFunc<Boolean>; const Point:TProc<string>; const PersonalChanges:TProc<TSQLiteDatabase>);
 var Q:TSQLiteQuery; Dirty:Boolean;
 begin
   FCancelled:=Cancelled; Q:=nil;
@@ -154,6 +155,7 @@ begin
     end;
     CheckStop;
     ApplyTransferLocations(FPersonal,FPersonal,FReview,Prepared,FOperation,FReviewSHA,FIDs.ToArray,True);
+    if Assigned(PersonalChanges) then PersonalChanges(FPersonal);
     if Assigned(Point) then Point('locations-before-personal-commit'); CheckStop;
     FPersonal.ExecSQL('COMMIT');
     if Assigned(Point) then Point('locations-after-personal-commit');

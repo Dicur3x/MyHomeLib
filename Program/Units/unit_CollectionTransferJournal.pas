@@ -77,7 +77,8 @@ type
     procedure PublishCatalogueForks(const Cancelled:TFunc<Boolean> = nil);
     procedure PublishCatalogueFork(ForkID:Int64; const Cancelled:TFunc<Boolean> = nil);
     function EffectiveCatalogue(RegistrationID:Integer):string;
-    procedure PublishGroupLocations(Prepared:TPreparedTransferGroup; const Cancelled:TFunc<Boolean> = nil);
+    procedure PublishGroupLocations(Prepared:TPreparedTransferGroup; const Cancelled:TFunc<Boolean> = nil;
+      const PersonalChanges:TProc<TSQLiteDatabase> = nil);
     property Directory: string read FDirectory;
     property ReviewSHA256: string read FReviewSHA;
     property Review: TSQLiteDatabase read FReview;
@@ -976,7 +977,8 @@ begin
   finally Q.Free; FCancelled:=Previous; end;
 end;
 
-procedure TCollectionTransferJournal.PublishGroupLocations(Prepared:TPreparedTransferGroup; const Cancelled:TFunc<Boolean>);
+procedure TCollectionTransferJournal.PublishGroupLocations(Prepared:TPreparedTransferGroup; const Cancelled:TFunc<Boolean>;
+  const PersonalChanges:TProc<TSQLiteDatabase>);
 begin
   if (Prepared=nil) or (Prepared.Count=0) or
     (FReview.QuerySingleInt('SELECT count(*) FROM Files WHERE GroupID=?',[Prepared.ID])<>Prepared.Count) then
@@ -1007,7 +1009,7 @@ begin
     try
       TTransferPublicationSession(FPublicationSession).Publish(Prepared,
         function:Boolean begin CheckStop; Result:=False; end,
-        procedure(Stage:string) begin Point(Stage,FDirectory,Prepared.ID,0); end);
+        procedure(Stage:string) begin Point(Stage,FDirectory,Prepared.ID,0); end,PersonalChanges);
     except FreeAndNil(FPublicationSession); raise; end;
   finally FCancelled:=nil; end;
 end;
