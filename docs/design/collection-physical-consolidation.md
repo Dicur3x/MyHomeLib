@@ -468,6 +468,40 @@ evidence: `docs/audits/2026-11-16-collection-transfer-cache-snapshot.md`.
 
 ### Full operation gates
 
+The coordinator must not enter final roots/cache publication while original
+unlink is pending. An external reader can defer deletion even after a successful
+copy and locator commit. Advancing roots then selects metadata-only continuation
+and would bypass the unfinished removal phase. Keep the operation registered,
+copies and dependency snapshots intact; retry the published groups after the
+reader releases its handle, without copying them again.
+
+### Reader identity before normal UI completion
+
+The existing `ReaderHistoryName` is stable for scoped library IDs, but placeholders
+and positive unscoped IDs can depend on the folder or physical path. The bound
+FB2/EPUB INPX gate does not prove those histories survive a move. Do not
+replace the identity algorithm globally with BookID: full imports can reuse rows.
+Preserve a changed before-name through a durable alias bound to collection/book
+identity, LibID and the exact reviewed after-locator. Prepare this from immutable
+review data before locator publication, enforce it on partial continuation and
+validate it before whole-operation completion. A later move must preserve an
+existing alias rather than start a fresh history. Distinct old histories that
+collide must be retained and resolved explicitly, never overwritten silently.
+Compute the before-name from the exact stored root/folder/copy-root spelling;
+canonical roots cannot substitute for raw roots across junctions or aliases.
+Do not probe former original paths, which can already be absent or reused.
+
+All consumers need the same lookup: Reader launch, next volume, recent reading,
+notes/notebooks and duplicate detection. Use the existing personal database
+connection with a prepared lookup, not a new connection or schema query per
+book; invalidate its negative/table cache when Main reloads after transfer.
+Actual Reader positions and notes remain a separate test gate. The Main entry
+must wait for active preparation/session callbacks and conflicting jobs; it must
+not forcibly close a user's reader to begin transfer. The transfer command stays
+unreleased until this and the complete-operation/UI/startup gates are connected.
+
+### Remaining end-to-end evidence
+
 The first real post-transfer INPX composition now passes on x86/x64: two
 compressed bound FB2/EPUB source archives, both former roots offline, full/append
 updates from a new incoming folder, exactly one new member, unchanged old archive

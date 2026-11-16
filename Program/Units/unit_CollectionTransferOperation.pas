@@ -110,6 +110,15 @@ begin
           Notify('Группа перенесена','',Group.Files,Group.Files);
         finally Prepared.Free; end;
       end);
+    if FResult.Originals.Pending>0 then
+    begin
+      // A reader may keep a deleted file alive. Final roots would select the
+      // metadata-only resume path and bypass this unfinished unlink phase.
+      Result:=FResult;
+      Notify('Освобождение исходных файлов отложено; перенос можно продолжить позже.','',
+        FResult.Originals.Pending,0);
+      Exit;
+    end;
     if PublishCaches then
     begin FResult.CacheDatabasesPublished:=FJournal.PublishSourceCacheSettings(CheckStop); FResult.RootsApplied:=True; end
     else if FinalizeRoots then FResult.RootsApplied:=FJournal.FinalizeRoots(CheckStop);
