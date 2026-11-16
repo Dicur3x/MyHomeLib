@@ -48,6 +48,7 @@ var Request,Attempt,Output:TJSONObject; Entry:TCollectionTransferFile;
     Job:TCollectionTransferCopy; Prepared:TTransferPreparedCopy;
     WorkRoot,AllowedRoot,AttemptFile,Crash,Canonical,Probe:string;
     Bytes:Int64; Stop,Rejected:Boolean; Reader,Writer:TFileStream; Hooks,Copies:Integer;
+    Expected:TTransferDestinationProof;
 begin
   SetTextCodePage(System.Output,CP_UTF8);
   try
@@ -114,7 +115,23 @@ begin
             finally Wrapped.Free; end;
           end;
         end;
-      Prepared:=Job.Prepare(
+      if Request.GetValue<Boolean>('verify_destination',False) then
+      begin
+        var Proof:=JSONFile(Request.GetValue<string>('proof'));
+        try
+          Expected.Identity:=Proof.GetValue<string>('identity'); Expected.SHA256:=Proof.GetValue<string>('sha256');
+          Expected.StreamsJSON:=Proof.GetValue<string>('streams');
+        finally Proof.Free; end;
+        Prepared:=Job.VerifyDestination(Expected,function:Boolean begin Result:=Stop; end,
+          procedure(const Stage:string; Done,Total:Int64)
+          begin
+            if Request.GetValue<Boolean>('cancel_verify',False) and (Done>0) then Stop:=True;
+          end);
+        if Prepared.SourceHeld then raise EReadError.Create('Destination verification acquired an unexpected source lease');
+        Prepared.CheckDestinationUnchanged;
+        if Request.GetValue<Boolean>('require_source_check',False) then Prepared.CheckUnchanged(Entry.Identity);
+      end
+      else Prepared:=Job.Prepare(
         function:Boolean
         begin Result:=Stop; end,
         procedure(const Stage:string; Done,Total:Int64)
@@ -133,6 +150,7 @@ begin
         Output.AddPair('status','PASS'); Output.AddPair('directory',Job.Directory);
         Output.AddPair('source',Prepared.Source); Output.AddPair('destination',Prepared.Destination);
         Output.AddPair('identity',Prepared.Identity); Output.AddPair('sha256',Prepared.SHA256);
+        Output.AddPair('source_held',TJSONBool.Create(Prepared.SourceHeld));
         Output.AddPair('streams',Prepared.StreamsJSON); Output.AddPair('copy_streams',TJSONNumber.Create(Copies));
         Output.AddPair('hooks',TJSONNumber.Create(Hooks));
         TFile.WriteAllText(OwnedPath(ParamStr(2)),Output.ToJSON,TEncoding.UTF8);

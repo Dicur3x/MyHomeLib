@@ -103,7 +103,13 @@ See `docs/audits/2026-11-16-collection-transfer-copy.md` for evidence and limits
 This is a building block, not a complete group journal or a usable move command.
 The parent operation must supply the independent reviewed binding, retain all
 group leases, revalidate original stream sets before cleanup and recover after
-source removal; file-level resume currently requires the original to exist.
+source removal. Ordinary Prepare still requires the original. A separate
+VerifyDestination primitive now accepts an independently supplied recorded
+identity/hash/stream proof and verifies the surviving output without touching
+the old name. It retains destination-only leases, performs no copy/state write,
+and cannot authorize removal or complete a group. See
+`docs/audits/2026-11-16-collection-transfer-destination-recovery.md` for x86/x64
+validation and the remaining parent-intent/group-recovery integration.
 
 ## Group publication, stop and recovery
 

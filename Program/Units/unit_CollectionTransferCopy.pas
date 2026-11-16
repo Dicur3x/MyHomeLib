@@ -7,6 +7,9 @@ uses System.SysUtils, System.Classes, System.JSON, System.Generics.Collections,
 
 type
   TTransferCopyProgress = reference to procedure(const Stage: string; Done, Total: Int64);
+  TTransferDestinationProof = record
+    Identity,SHA256,StreamsJSON:string;
+  end;
 
   // Retain through catalogue publication. Native readers can open the output,
   // but ordinary writers/replacement cannot change its verified streams.
@@ -16,9 +19,13 @@ type
     FOutputGuard: THandle;
     FDirectoryGuards: TArray<THandle>;
     FSource, FDestination, FIdentity, FSHA256, FStreamsJSON: string;
+    procedure CheckSnapshot(const Path,Expected:string; Lease:TObject; const Cancelled:TFunc<Boolean>);
+    function HasSourceLease:Boolean;
   public
     destructor Destroy; override;
     procedure CheckUnchanged(const ExpectedSourceIdentity:string; const Cancelled:TFunc<Boolean> = nil);
+    procedure CheckDestinationUnchanged(const Cancelled:TFunc<Boolean> = nil);
+    property SourceHeld:Boolean read HasSourceLease;
     property Source: string read FSource;
     property Destination: string read FDestination;
     property Identity: string read FIdentity;
@@ -43,7 +50,7 @@ type
     FCallbackAborted: Boolean;
     FCallbackGuard: THandle;
     function PinDirectory(const Path: string; CreateMissing: Boolean): THandle;
-    procedure PinDestination;
+    procedure PinDestination(CreateMissing:Boolean=True);
     procedure CheckStop;
     procedure Space(Remaining: Int64);
     procedure Notify(const Stage: string; Done, Total: Int64);
@@ -63,6 +70,11 @@ type
       const Entry: TCollectionTransferFile): TCollectionTransferCopy; static;
     function Prepare(const Cancelled: TFunc<Boolean> = nil;
       const Progress: TTransferCopyProgress = nil): TTransferPreparedCopy;
+    // Proof must come from the parent's bound durable record, independently of
+    // this child's mutable state. Does not inspect/remove/recreate the source,
+    // publish locators, or acknowledge completion/removal of any original.
+    function VerifyDestination(const Expected:TTransferDestinationProof;
+      const Cancelled:TFunc<Boolean> = nil; const Progress:TTransferCopyProgress = nil):TTransferPreparedCopy;
     property Directory: string read FDirectory;
   end;
 
@@ -320,11 +332,11 @@ begin
   inherited;
 end;
 
-procedure TTransferPreparedCopy.CheckUnchanged(const ExpectedSourceIdentity:string; const Cancelled:TFunc<Boolean>);
-  procedure Check(const Path,Expected:string; Snapshot:TTransferStreamSnapshot);
+procedure TTransferPreparedCopy.CheckSnapshot(const Path,Expected:string; Lease:TObject; const Cancelled:TFunc<Boolean>);
   var Canonical,Identity:string; Bytes:Int64;
   begin
-    if Assigned(Cancelled) and Cancelled() then raise EAbort.Create('Проверка файлов остановлена. Исходники сохранены.');
+    var Snapshot:=TTransferStreamSnapshot(Lease);
+    if Assigned(Cancelled) and Cancelled() then raise EAbort.Create('Проверка файлов остановлена. Готовая копия не изменена.');
     if Snapshot=nil then raise EReadError.Create('Нет удерживаемой проверки потоков файла.');
     TransferReadFileState(Path,Canonical,Identity,Bytes);
     if (Canonical<>Path) or (Identity<>Expected) or (Snapshot.Identity<>Expected) or
@@ -340,9 +352,17 @@ procedure TTransferPreparedCopy.CheckUnchanged(const ExpectedSourceIdentity:stri
     // Existing streams retain their write-denying leases and replacement
     // guards. Reuse their verified hashes rather than reading terabytes again.
   end;
+
+function TTransferPreparedCopy.HasSourceLease:Boolean;
+begin Result:=FSourceLease<>nil; end;
+
+procedure TTransferPreparedCopy.CheckDestinationUnchanged(const Cancelled:TFunc<Boolean>);
+begin CheckSnapshot(FDestination,FIdentity,FOutputLease,Cancelled); end;
+
+procedure TTransferPreparedCopy.CheckUnchanged(const ExpectedSourceIdentity:string; const Cancelled:TFunc<Boolean>);
 begin
-  Check(FSource,ExpectedSourceIdentity,TTransferStreamSnapshot(FSourceLease));
-  Check(FDestination,FIdentity,TTransferStreamSnapshot(FOutputLease));
+  CheckSnapshot(FSource,ExpectedSourceIdentity,FSourceLease,Cancelled);
+  CheckDestinationUnchanged(Cancelled);
 end;
 
 function TCollectionTransferCopy.PinDirectory(const Path:string; CreateMissing:Boolean):THandle;
@@ -364,7 +384,7 @@ begin
   except CloseHandle(Result); raise; end;
 end;
 
-procedure TCollectionTransferCopy.PinDestination;
+procedure TCollectionTransferCopy.PinDestination(CreateMissing:Boolean);
 var Parent,Current,Relative:string;
 begin
   PinDirectory(FAllowedRoot,False);
@@ -372,12 +392,12 @@ begin
   if not Parent.StartsWith(FAllowedRoot,True) then raise EReadError.Create('Назначение вне общей папки.');
   Relative:=Copy(Parent,Length(FAllowedRoot)+1,MaxInt); Current:=FAllowedRoot;
   for var Part in Relative.Split(['\'],TStringSplitOptions.ExcludeEmpty) do
-  begin Current:=TPath.Combine(Current,Part); PinDirectory(Current,True); end;
+  begin Current:=TPath.Combine(Current,Part); PinDirectory(Current,CreateMissing); end;
 end;
 
 procedure TCollectionTransferCopy.CheckStop;
 begin
-  if Assigned(FCancelled) and FCancelled() then raise EAbort.Create('Копирование остановлено. Исходник сохранён.');
+  if Assigned(FCancelled) and FCancelled() then raise EAbort.Create('Операция остановлена. Файлы не удалялись.');
   var SystemRoot:=TPath.GetPathRoot(ExpandFileName(GetEnvironmentVariable('SystemRoot')));
   var Available,Capacity:UInt64;
   if not GetDiskFreeSpaceEx(PChar(SystemRoot),Available,Capacity,nil) then RaiseLastOSError;
@@ -715,6 +735,43 @@ begin
     if Guard<>0 then CloseHandle(Guard);
     Output.Free; Source.Free; FCancelled:=nil; FProgress:=nil; FCallbackGuard:=0;
   end;
+end;
+
+function TCollectionTransferCopy.VerifyDestination(const Expected:TTransferDestinationProof;
+  const Cancelled:TFunc<Boolean>; const Progress:TTransferCopyProgress):TTransferPreparedCopy;
+var Snapshot:TTransferStreamSnapshot; Canonical,Identity:string; Bytes:Int64;
+begin
+  Result:=nil; Snapshot:=nil; FCancelled:=Cancelled; FProgress:=Progress;
+  try
+    CheckStop;
+    if FEntry.KeepInPlace or (Length(Expected.Identity)<>59) or (Length(Expected.SHA256)<>64) or
+      (Expected.StreamsJSON='') or (Length(Expected.StreamsJSON)>MaxJSONBytes) then
+      raise EArgumentException.Create('Нужен сохранённый результат отдельной проверенной копии.');
+    for var C in Expected.SHA256 do
+      if not CharInSet(C,['0'..'9','a'..'f']) then raise EArgumentException.Create('Неверная контрольная сумма результата.');
+    if (Text('phase')<>'ready') or (Text('identity')<>Expected.Identity) or
+      (Text('key')<>Copy(Expected.Identity,1,25)) or (Text('streams')<>Expected.StreamsJSON) then
+      raise EReadError.Create('Журнал копирования не совпал с сохранённым результатом переноса.');
+    PinDestination(False);
+    TransferReadFileState(FEntry.Destination,Canonical,Identity,Bytes);
+    if (Canonical<>FEntry.Destination) or (Identity<>Expected.Identity) or (Bytes<>FEntry.Bytes) then
+      raise EReadError.Create('Готовая копия отсутствует, заменена или изменилась.');
+    Snapshot:=TTransferStreamSnapshot.Create(FEntry.Destination,Expected.Identity,'',Self,'Проверка сохранённой копии');
+    if (Snapshot.Description<>Expected.StreamsJSON) or (Snapshot.MainSHA<>Expected.SHA256) then
+      raise EReadError.Create('Контрольные суммы готовой копии не совпали с сохранённым результатом.');
+    Point('destination-verified',FDirectory); CheckStop;
+    Result:=TTransferPreparedCopy.Create;
+    try
+      Result.FSource:=FEntry.Source; Result.FDestination:=FEntry.Destination;
+      Result.FIdentity:=Snapshot.Identity; Result.FSHA256:=Snapshot.MainSHA; Result.FStreamsJSON:=Snapshot.Description;
+      Result.FOutputLease:=Snapshot; Snapshot:=nil;
+      SetLength(Result.FDirectoryGuards,FDirectories.Count);
+      for var I:=0 to FDirectories.Count-1 do
+        if not DuplicateHandle(GetCurrentProcess,FDirectories[I],GetCurrentProcess,
+          @Result.FDirectoryGuards[I],0,False,DUPLICATE_SAME_ACCESS) then RaiseLastOSError;
+      Result.CheckDestinationUnchanged(Cancelled);
+    except Result.Free; Result:=nil; raise; end;
+  finally Snapshot.Free; FCancelled:=nil; FProgress:=nil; end;
 end;
 
 end.
