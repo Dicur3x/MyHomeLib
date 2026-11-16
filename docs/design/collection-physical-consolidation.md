@@ -400,11 +400,25 @@ without its original cache or index. Incomplete stages cannot be guessed ready
 and remain for the parent's ownership-aware cleanup. This is preparation only;
 no persistent cache-version directory or source/history setting is published.
 
-The complete controller should prepare/cache these dependencies before source
-archive removal, then publish pinned/exclusive persistent versions and their
-metadata only with all group/registration proofs. Independent personal intent,
-source data-root checks, partial publication, authorized roots replay and normal
-startup/job/Reader coordination remain required. Snapshot evidence and boundaries:
+`TCollectionTransferCachePreparation` connects this preparation to an independent
+personal intent before the coordinator's source-removal phase. It captures the
+current data root, original cache/input identities, fixed new versions and exact
+source/history before/after values under writer/input locks. Replay reconstructs
+the metadata model and recovers ready snapshots from independently saved proofs;
+unready jobs require their original identities. Directory/file claims and ready
+digests commit in the personal store, with old-attempt ownership retained. All
+ready output leases stay held until the full dependency set is rechecked and
+marked prepared. A catalogue that is also a cache lends its existing writer.
+An existing intent is enforced on continuation even without the initial option;
+authorized roots replay is validated by the roots controller first. The command
+and overall operation remain disabled/pending. See
+`docs/audits/2026-11-16-collection-transfer-cache-preparation.md`.
+
+The complete controller must still reserve/publish persistent versions and their
+metadata with independent file proofs and per-database atomic receipts, support
+partial publication through authorized roots/startup replay, and coordinate
+normal DAO/job/Reader access and old-baseline changes. Whole-operation cleanup,
+space accounting and final gates remain required. Snapshot evidence:
 `docs/audits/2026-11-16-collection-transfer-cache-snapshot.md`.
 
 ### Full operation gates

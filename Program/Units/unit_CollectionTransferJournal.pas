@@ -93,6 +93,8 @@ type
     procedure EnsureFinalRootDirectory;
     function HasRootFinalization:Boolean;
     function FinalizeRoots(const Cancelled:TFunc<Boolean> = nil):Boolean;
+    function HasCachePreparation:Boolean;
+    function PrepareSourceCaches(const Cancelled:TFunc<Boolean> = nil):Int64;
     property Directory: string read FDirectory;
     property ReviewSHA256: string read FReviewSHA;
     property Review: TSQLiteDatabase read FReview;
@@ -108,7 +110,7 @@ uses System.IOUtils, System.Hash, unit_Globals, unit_Consts,
   unit_Settings, dm_user, unit_BookCompressionReceipt, unit_ZipMemberDeletion,
   unit_CollectionTransferReferences, unit_CollectionTransferForks, unit_CollectionTransferLocations,
   unit_CollectionTransferPublication, unit_CollectionTransferResources, unit_CollectionTransferLayout,
-  unit_CollectionTransferFinalization;
+  unit_CollectionTransferFinalization, unit_CollectionTransferCachePreparation;
 
 const JournalKind='HomeLibre collection transfer preparation v1';
   Prefix='collection-transfer-';
@@ -1174,6 +1176,18 @@ begin
       PinDirectory(Current);
     end;
   finally Layout.Free; end;
+end;
+
+function TCollectionTransferJournal.HasCachePreparation:Boolean;
+begin Result:=TCollectionTransferCachePreparation.HasIntent(Self); end;
+
+function TCollectionTransferJournal.PrepareSourceCaches(const Cancelled:TFunc<Boolean>):Int64;
+begin
+  var RootsApplied:=False;
+  if HasRootFinalization then RootsApplied:=FinalizeRoots(Cancelled);
+  OpenPublicationSession;
+  var Handler:=TCollectionTransferCachePreparation.Create(Self,TTransferPublicationSession(FPublicationSession),RootsApplied);
+  try Result:=Handler.Prepare(Cancelled); finally Handler.Free; end;
 end;
 
 function TCollectionTransferJournal.HasRootFinalization:Boolean;

@@ -9,6 +9,7 @@ uses System.SysUtils, System.Classes, System.IOUtils, System.JSON, System.Hash,
   unit_CollectionTransferCopy, unit_CollectionTransferJournal, unit_CollectionTransferReferences, unit_CollectionTransferRegistry,
   unit_CollectionTransferOperation, unit_CollectionTransferCache, unit_CatalogSources, unit_CollectionTransferCacheSettings,
   unit_CollectionTransferCacheSnapshot,
+  unit_CollectionTransferCachePreparation,
   unit_CollectionMerge, unit_Interfaces, unit_LibraryUpdateReview, unit_SystemDatabase_SQLite,
   unit_CollectionTransferLayout, unit_CollectionTransferFinalRows, unit_CollectionTransferFinalization,
   unit_CollectionTransferHistory, unit_CollectionTransferLocations, unit_BookCompressionImages, unit_BookCompressionReceipt, unit_BookCompressionPlan;
@@ -118,7 +119,7 @@ end;
 var Request,Control,Output:TJSONObject; Capture:TCollectionTransferCatalogue; Plan:TCollectionTransferPlan;
     Journal:TCollectionTransferJournal; Registry:TCollectionTransferRegistry; Info:TCollectionInfo; ControlFile,Mode,Crash:string;
     Copies,PreparedFiles:Integer; Stop,BetweenEdited:Boolean; Groups,HistoryHits:TJSONArray; IDs:TList<Int64>; HistoryRows,VerifiedRetained:Int64;
-    Removed,Missing,RetainedSources,PendingSources:Int64; RootsApplied:Boolean;
+    Removed,Missing,RetainedSources,PendingSources,CachesPrepared,HeldPreparedCaches:Int64; RootsApplied:Boolean;
 begin
   SetTextCodePage(System.Output,CP_UTF8);
   try
@@ -129,7 +130,7 @@ begin
       try
         Mode:=Request.GetValue<string>('mode','create'); ControlFile:=Owned(Request.GetValue<string>('control'));
         Crash:=Request.GetValue<string>('crash',''); Copies:=0; PreparedFiles:=0; Stop:=False; BetweenEdited:=False; HistoryRows:=0; VerifiedRetained:=0; HistoryHits:=TJSONArray.Create;
-        Removed:=0; Missing:=0; RetainedSources:=0; PendingSources:=0; RootsApplied:=False;
+        Removed:=0; Missing:=0; RetainedSources:=0; PendingSources:=0; CachesPrepared:=0; HeldPreparedCaches:=0; RootsApplied:=False;
         TransferFinalizationTestPoint:=procedure(Stage:string)
           begin
             if Stage=Crash then begin Writeln('CRASH ',Stage); Flush(System.Output); Halt(97); end;
@@ -146,6 +147,29 @@ begin
           begin
             if Stage=Crash then begin Writeln('CRASH ',Stage); Flush(System.Output); Halt(97); end;
             if Stage=Request.GetValue<string>('cancel_cache_snapshot_stage','') then Stop:=True;
+          end;
+        TransferCachePreparationTestPoint:=procedure(Stage:string)
+          begin
+            if (Stage='cache-preparation-job-ready') and Request.GetValue<Boolean>('probe_prepared_cache_guards',False) then
+            begin
+              var DB:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(Owned(Request.GetValue<string>('personal'))));
+              try
+                var Q:=DB.NewQuery('SELECT Directory FROM HomeLibreTransferCacheStages WHERE ReadySHA<>''''');
+                try Q.Open; while not Q.Eof do
+                  begin
+                    var Path:=TPath.Combine(Owned(Q.FieldAsString(0)),'catalog.hlc2');
+                    var Handle:=CreateFile(PChar(DeletionNativePath(Path)),GENERIC_WRITE,
+                      FILE_SHARE_READ or FILE_SHARE_WRITE or FILE_SHARE_DELETE,nil,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,0);
+                    if Handle<>INVALID_HANDLE_VALUE then
+                    begin CloseHandle(Handle); raise EReadError.Create('Prepared cache is not held against writes'); end;
+                    if GetLastError<>ERROR_SHARING_VIOLATION then RaiseLastOSError;
+                    Inc(HeldPreparedCaches); Q.Next;
+                  end;
+                finally Q.Free; end;
+              finally DB.Free; end;
+            end;
+            if Stage=Crash then begin Writeln('CRASH ',Stage); Flush(System.Output); Halt(97); end;
+            if Stage=Request.GetValue<string>('cancel_cache_preparation_stage','') then Stop:=True;
           end;
         TransferReferenceTestPoint:=
           procedure(Stage:string)
@@ -321,8 +345,9 @@ begin
                 if (Stage='Группа перенесена') and Request.GetValue<Boolean>('cancel_after_group',False) then Stop:=True;
                 if (Stage='Группа перенесена') and (Crash='operation-group-handled') then
                 begin Writeln('CRASH operation-group-handled'); Flush(System.Output); Halt(97); end;
-              end,Request.GetValue<Boolean>('finalize_roots',False));
+              end,Request.GetValue<Boolean>('finalize_roots',False),Request.GetValue<Boolean>('prepare_source_caches',False));
             RootsApplied:=Handled.RootsApplied;
+            CachesPrepared:=Handled.CachesPrepared;
             PreparedFiles:=Handled.FilesVerified; Removed:=Handled.Originals.Removed; Missing:=Handled.Originals.Missing;
             RetainedSources:=Handled.Originals.Retained; PendingSources:=Handled.Originals.Pending;
             if Handled.GroupsDone<>Handled.GroupsTotal then raise EReadError.Create('Operation omitted a reviewed group');
@@ -330,6 +355,15 @@ begin
         end
         else
         begin
+        if Request.GetValue<Boolean>('cache_prepare_only',False) then
+        begin
+          var CacheRegistry:=TCollectionTransferRegistry.Create(Journal);
+          try
+            CacheRegistry.RegisterOperation(function:Boolean begin Result:=Stop; end);
+            Journal.PublishCatalogueForks(function:Boolean begin Result:=Stop; end);
+            CachesPrepared:=Journal.PrepareSourceCaches(function:Boolean begin Result:=Stop; end);
+          finally CacheRegistry.Free; end;
+        end;
         if Request.GetValue<Boolean>('publish_forks',False) or Request.GetValue<Boolean>('apply_locations',False) then
           Journal.PublishCatalogueForks(function:Boolean begin Result:=Stop; end);
         IDs:=TList<Int64>.Create;
@@ -431,6 +465,8 @@ begin
         Output.AddPair('pending_sources',TJSONNumber.Create(PendingSources));
         Output.AddPair('resource_validations',TJSONNumber.Create(Journal.ResourceValidationCount));
         Output.AddPair('roots_applied',TJSONBool.Create(RootsApplied));
+        Output.AddPair('caches_prepared',TJSONNumber.Create(CachesPrepared));
+        Output.AddPair('held_prepared_cache_checks',TJSONNumber.Create(HeldPreparedCaches));
         if Request.GetValue<Boolean>('final_rows',False) then
         begin
           // Isolated diagnostic for the row primitive only. The ordinary

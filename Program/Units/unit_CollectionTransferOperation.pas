@@ -9,6 +9,7 @@ type
     GroupsDone,GroupsTotal,FilesVerified:Int64;
     Originals:TTransferRemovalResult;
     RootsApplied:Boolean;
+    CachesPrepared:Int64;
   end;
   TTransferOperationProgress=reference to procedure(const Stage,Source:string;
     GroupsDone,GroupsTotal,Done,Total:Int64);
@@ -26,7 +27,8 @@ type
   public
     constructor Create(Journal:TCollectionTransferJournal);
     function Run(const Cancelled:TFunc<Boolean> = nil;
-      const Progress:TTransferOperationProgress = nil; FinalizeRoots:Boolean=False):TTransferOperationResult;
+      const Progress:TTransferOperationProgress = nil; FinalizeRoots:Boolean=False;
+      PrepareCaches:Boolean=False):TTransferOperationResult;
   end;
 
 implementation
@@ -53,7 +55,7 @@ begin
 end;
 
 function TCollectionTransferOperation.Run(const Cancelled:TFunc<Boolean>;
-  const Progress:TTransferOperationProgress; FinalizeRoots:Boolean):TTransferOperationResult;
+  const Progress:TTransferOperationProgress; FinalizeRoots,PrepareCaches:Boolean):TTransferOperationResult;
 var Registry:TCollectionTransferRegistry;
 begin
   FCancelled:=Cancelled; FProgress:=Progress; Registry:=nil;
@@ -64,11 +66,17 @@ begin
     if FJournal.HasRootFinalization then
     begin
       FResult.RootsApplied:=FJournal.FinalizeRoots(CheckStop);
+      if PrepareCaches or FJournal.HasCachePreparation then FResult.CachesPrepared:=FJournal.PrepareSourceCaches(CheckStop);
       FResult.GroupsDone:=FResult.GroupsTotal; FResult.FilesVerified:=FJournal.FileCount; Result:=FResult;
       Notify('Итоговые пути сохранены; требуется завершение переноса','',FResult.GroupsDone,FResult.GroupsTotal); Exit;
     end;
     Notify('Подготовка каталогов','',0,FResult.GroupsTotal);
     FJournal.PublishCatalogueForks(CheckStop);
+    if PrepareCaches or FJournal.HasCachePreparation then
+    begin
+      Notify('Подготовка сохранённых источников','',0,0);
+      FResult.CachesPrepared:=FJournal.PrepareSourceCaches(CheckStop);
+    end;
     FJournal.ForEachGroup(
       procedure(const Group:TTransferJournalGroup)
       var Prepared:TPreparedTransferGroup;

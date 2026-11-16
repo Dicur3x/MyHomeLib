@@ -87,7 +87,12 @@ cache intent/claim store before enabling this stage. These are private small
 catalogues and book streams, not a real-user cache transfer, visible Reader
 position test, power-loss hardware test or large-cache throughput benchmark.
 
-## Remaining
+## Remaining at this checkpoint
+
+The independent personal preparation controller was added subsequently; its
+integration before source removal and newer evidence are tracked in
+`docs/audits/2026-11-16-collection-transfer-cache-preparation.md`. The following
+paragraph records the boundary of this snapshot-component checkpoint.
 
 Integrate dependency preparation before source unlink; persist the complete
 cache intent in the personal registry; verify source data-root/context changes;

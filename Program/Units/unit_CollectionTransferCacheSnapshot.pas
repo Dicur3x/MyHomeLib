@@ -14,6 +14,7 @@ type
   private
     FReview:TSQLiteDatabase;
     FSourceWriter:TSQLiteDatabase;
+    FOwnsSourceWriter:Boolean;
     FSourceLease:IInterface;
     FGuards:TList<THandle>;
     FStreams:TObjectList<TFileStream>;
@@ -39,7 +40,8 @@ type
   public
     class function Binding(const ReviewSHA,JobJSON,InputsJSON:string):string; static;
     class function CreateNew(Review:TSQLiteDatabase; const ReviewSHA,WorkRoot,JobJSON,InputsJSON,ExpectedBinding:string;
-      const Remember:TTransferCacheRemember; const Cancelled:TProc=nil):TTransferCacheSnapshot; static;
+      const Remember:TTransferCacheRemember; const Cancelled:TProc=nil;
+      BorrowedWriter:TSQLiteDatabase=nil):TTransferCacheSnapshot; static;
     class function Recover(Review:TSQLiteDatabase; const ReviewSHA,WorkRoot,Directory,DirectoryKey,
       JobJSON,InputsJSON,ExpectedBinding,ReadySHA:string; const Cancelled:TProc=nil):TTransferCacheSnapshot; static;
     destructor Destroy; override;
@@ -112,7 +114,7 @@ end;
 destructor TTransferCacheSnapshot.Destroy;
 begin
   FStreams.Free;
-  if Assigned(FSourceWriter) then begin if FSourceWriter.InTransaction then FSourceWriter.Rollback; FSourceWriter.Free; end;
+  if Assigned(FSourceWriter) and FOwnsSourceWriter then begin if FSourceWriter.InTransaction then FSourceWriter.Rollback; FSourceWriter.Free; end;
   FSourceLease:=nil;
   if Assigned(FGuards) then begin for var Handle in FGuards do CloseHandle(Handle); FGuards.Free; end;
   FReserved.Free; FProof.Free; FInputs.Free; FJob.Free; inherited;
@@ -237,8 +239,21 @@ procedure TTransferCacheSnapshot.BuildCache;
 begin
   var Before:=FJob.GetValue<string>('before_file'); var Canonical,Identity:string; var Bytes:Int64;
   TransferReadFileState(Before,Canonical,Identity,Bytes); FSourceKey:=Copy(Identity,1,25);
+  if (FJob.GetValue<string>('source_key','')<>'') and (FJob.GetValue<string>('source_key')<>FSourceKey) then
+    raise EReadError.Create('Исходный кэш заменён после сохранения плана.');
   FSourceLease:=AcquireCompressionDatabaseLease(Canonical,FSourceKey);
-  FSourceWriter:=TSQLiteDatabase.Create(DeletionNativePath(Canonical),False); FSourceWriter.ExecSQL('BEGIN IMMEDIATE');
+  if FSourceWriter=nil then
+  begin
+    FSourceWriter:=TSQLiteDatabase.Create(DeletionNativePath(Canonical),False); FOwnsSourceWriter:=True;
+    FSourceWriter.ExecSQL('BEGIN IMMEDIATE');
+  end
+  else
+  begin
+    var Q:=FSourceWriter.NewQuery('PRAGMA database_list'); var Actual:='';
+    try Q.Open; while not Q.Eof do begin if Q.FieldAsString(1)='main' then Actual:=CompressionFileKey(Q.FieldAsString(2)); Q.Next; end;
+    finally Q.Free; end;
+    if not FSourceWriter.InTransaction or (Actual<>FSourceKey) then raise EReadError.Create('Нет блокировки выбранного исходного кэша.');
+  end;
   if CompressionFileKey(Canonical)<>FSourceKey then raise EReadError.Create('Исходный кэш изменился перед копированием.');
   var Reader:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(Canonical));
   try
@@ -278,6 +293,8 @@ begin
     try
       var Canonical,Identity:string; var Bytes:Int64; TransferReadFileState(Path,Canonical,Identity,Bytes);
       if Key(Input.Handle)<>Copy(Identity,1,25) then raise EReadError.Create('Исходный индекс заменён.');
+      if (Row.GetValue<string>('source_key','')<>'') and (Row.GetValue<string>('source_key')<>Copy(Identity,1,25)) then
+        raise EReadError.Create('Исходный индекс заменён после сохранения плана.');
       Space(UInt64(Input.Size)); var Handle:=Reserve(Name);
       try
         var Output:=THandleStream.Create(Handle);
@@ -317,12 +334,13 @@ end;
 
 class function TTransferCacheSnapshot.CreateNew(Review:TSQLiteDatabase;
   const ReviewSHA,WorkRoot,JobJSON,InputsJSON,ExpectedBinding:string;
-  const Remember:TTransferCacheRemember; const Cancelled:TProc):TTransferCacheSnapshot;
+  const Remember:TTransferCacheRemember; const Cancelled:TProc; BorrowedWriter:TSQLiteDatabase):TTransferCacheSnapshot;
 begin
   if (Length(ReviewSHA)<>64) or (Binding(ReviewSHA,JobJSON,InputsJSON)<>ExpectedBinding) or not Assigned(Remember) then
     raise EReadError.Create('Нет независимой привязки подготовки кэша.');
   Result:=TTransferCacheSnapshot.Initialize(Review,JobJSON,InputsJSON,ExpectedBinding,Cancelled);
   try
+    Result.FSourceWriter:=BorrowedWriter;
     Result.FRemember:=Remember; Result.Pin(WorkRoot);
     Result.FDirectory:=TPath.Combine(TransferCanonicalDirectory(WorkRoot),Prefix+TGUID.NewGuid.ToString);
     if not CreateDirectory(PChar(DeletionNativePath(Result.FDirectory)),nil) then RaiseLastOSError;
