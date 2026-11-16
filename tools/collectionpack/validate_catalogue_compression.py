@@ -733,6 +733,8 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
             expected_lines = ['PASS actual library update startup retains conflicting data ' + update_recovery_preserve]
         if scenario == 'library-update-window':
             expected_lines.append('PASS reviewed update missing-member report previews bounded details and saves complete archive/member reasons after decline or apply')
+        if scenario == 'transfer-reader-history':
+            expected_lines.append('PASS actual DAO and Reader refresh permit atomic transfer completion with cumulative totals and unchanged replay')
         if scenario == 'library-update-cancel':
             expected_lines.append('PASS reviewed update commit witnesses are paired with catalogue and personal transactions, roll back on early errors and remain isolated by collection')
             expected_lines.append('PASS missing catalogue and system properties return empty instead of reusing a previous value')

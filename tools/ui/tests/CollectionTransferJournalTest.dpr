@@ -153,7 +153,7 @@ end;
 
 var Request,Control,Output:TJSONObject; Capture:TCollectionTransferCatalogue; Plan:TCollectionTransferPlan;
     Journal:TCollectionTransferJournal; Registry:TCollectionTransferRegistry; Info:TCollectionInfo; ControlFile,Mode,Crash:string;
-    Copies,PreparedFiles:Integer; Stop,BetweenEdited:Boolean; Groups,HistoryHits:TJSONArray; IDs:TList<Int64>; HistoryRows,VerifiedRetained:Int64;
+    Copies,PreparedFiles:Integer; Stop,BetweenEdited,CompletionBusy:Boolean; Groups,HistoryHits:TJSONArray; IDs:TList<Int64>; HistoryRows,VerifiedRetained:Int64;
     Removed,Missing,RetainedSources,PendingSources,CachesPrepared,HeldPreparedCaches,PublishedCacheDatabases:Int64; RootsApplied:Boolean;
 begin
   SetTextCodePage(System.Output,CP_UTF8);
@@ -166,6 +166,7 @@ begin
         Mode:=Request.GetValue<string>('mode','create'); ControlFile:=Owned(Request.GetValue<string>('control'));
         Crash:=Request.GetValue<string>('crash',''); Copies:=0; PreparedFiles:=0; Stop:=False; BetweenEdited:=False; HistoryRows:=0; VerifiedRetained:=0; HistoryHits:=TJSONArray.Create;
         Removed:=0; Missing:=0; RetainedSources:=0; PendingSources:=0; CachesPrepared:=0; HeldPreparedCaches:=0; PublishedCacheDatabases:=0; RootsApplied:=False;
+        CompletionBusy:=Request.GetValue<Boolean>('application_busy',False);
         if Mode='reader-names' then
         begin
           Output:=TJSONObject.Create; Output.AddPair('reader_names',FixtureReaderNames(Request));
@@ -175,6 +176,8 @@ begin
           begin
             if Stage=Crash then begin Writeln('CRASH ',Stage); Flush(System.Output); Halt(97); end;
             if Request.GetValue<string>('cancel_finalization_stage','')=Stage then Stop:=True;
+            if (Stage='completion-before-personal-commit') and Request.GetValue<Boolean>('busy_before_completion_commit',False) then
+              CompletionBusy:=True;
             if (Stage='finalization-after-catalogue-commit') and Request.GetValue<Boolean>('edit_finalization_gap',False) then
             begin
               var DB:=TSQLiteDatabase.Create(DeletionNativePath(Owned(Request.GetValue<string>('catalogue'))));
@@ -382,6 +385,19 @@ begin
               end;
             end;
           end;
+        if Request.GetValue<Boolean>('complete_only',False) then
+        begin
+          var Done:=Journal.CompleteTransfer(
+            function:Boolean begin Result:=not CompletionBusy; end,
+            function:Boolean begin Result:=Stop; end);
+          Output:=TJSONObject.Create;
+          Output.AddPair('files',TJSONNumber.Create(Done.Files)); Output.AddPair('groups',TJSONNumber.Create(Done.Groups));
+          Output.AddPair('bytes',TJSONNumber.Create(Done.Bytes)); Output.AddPair('removed',TJSONNumber.Create(Done.Removed));
+          Output.AddPair('missing',TJSONNumber.Create(Done.Missing)); Output.AddPair('retained',TJSONNumber.Create(Done.Retained));
+          Output.AddPair('completed_at',Done.CompletedAt);
+          Output.AddPair('pending_operations',TJSONNumber.Create(Length(RegisteredCollectionTransfers(Owned(Request.GetValue<string>('personal'))))));
+          TFile.WriteAllText(Owned(ParamStr(2)),Output.ToJSON,TEncoding.UTF8); Exit;
+        end;
         if Request.GetValue<Boolean>('run_operation',False) then
         begin
           var Paths:=Journal.Review.NewQuery('SELECT Source,Destination FROM Files');

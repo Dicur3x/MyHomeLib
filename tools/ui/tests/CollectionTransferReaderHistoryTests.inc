@@ -103,7 +103,6 @@ begin
       Require(State.RootsApplied and (State.GroupsDone=State.GroupsTotal) and (State.Originals.Pending=0),
         'Reader transfer did not finish publishing locations and roots');
     finally Operation.Free; end;
-    FreeAndNil(Journal);
     Require(not FileExists(ArchiveName),'Reader test still has its original archive available');
     SystemDB.ClearCollectionCache; Target:=SystemDB.GetCollection(CID,True);
     for var I:=0 to High(Books) do
@@ -118,6 +117,12 @@ begin
     end;
     var Noted:=ReaderNoteBookIDs(SystemDB,SettingsFile,CID);
     Require(Length(Noted)=Length(Books),'The ordinary books-with-notes filter lost moved books');
+    var Completed:=Journal.CompleteTransfer(function:Boolean begin Result:=not ReaderPreparationsPending(frmMain); end);
+    Require((Completed.Files=1) and (Completed.Groups=1) and (Completed.Removed=1) and
+      (Completed.Missing=0) and (Completed.Retained=0),'Actual DAO refresh lost cumulative transfer totals');
+    Require(Journal.CompleteTransfer(function:Boolean begin Result:=True; end).CompletedAt=Completed.CompletedAt,
+      'Completed transfer replay changed its saved completion time');
+    Writeln('PASS actual DAO and Reader refresh permit atomic transfer completion with cumulative totals and unchanged replay');
     Writeln('PASS transferred real Reader preserves positions bookmarks notes and changed-title bindings across placeholder numeric opaque and scoped identities');
   finally Journal.Free; Plan.Free; Capture.Free; Store.Free; Target:=nil; end;
 end;

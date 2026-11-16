@@ -509,6 +509,26 @@ The Main entry must wait for active preparation/session callbacks and conflictin
 not forcibly close a user's reader to begin transfer. The transfer command stays
 unreleased until this and the complete-operation/UI/startup gates are connected.
 
+### Whole-operation acknowledgement
+
+`CompleteTransfer` now provides an explicit final gate after DAO/Reader reload.
+Its required application-ready callback is read-only; the Main workflow must
+block new conflicting jobs before using it. The gate reuses the final roots
+session and existing writer locks, requires applied roots and fully published
+source/history versions, validates each original-removal binding alongside its
+recovered group, and refuses any pending original. Summary and completed registry
+state commit in the same personal transaction. A late cancel/busy callback or
+pre-commit exit rolls both back; post-commit recovery reads the same historical
+summary without rewriting databases. Totals cover the whole reviewed inventory,
+including earlier runs and in-place files. A lost completion receipt is refused.
+
+Ten native cases per architecture and the actual DAO/Reader composition pass on
+x86/x64. Evidence: `docs/audits/2026-11-16-collection-transfer-completion.md`.
+The normal Main target view/startup routing and active session/job coordination
+are still pending; the explicit callback alone does not prove those UI gates.
+Working-data cleanup and scale remain separate gates. Keep the transfer command
+unreleased until the complete ordinary workflow is verified.
+
 ### Remaining end-to-end evidence
 
 The first real post-transfer INPX composition now passes on x86/x64: two

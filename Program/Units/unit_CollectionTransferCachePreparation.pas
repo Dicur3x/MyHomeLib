@@ -59,6 +59,7 @@ type TCollectionTransferCachePreparation=class
     function AuthorizedSources(CID:Integer):string;
     function Prepare(const Cancelled:TFunc<Boolean>=nil; InstallVersions:Boolean=False):Int64;
     function PublishMetadata(const Cancelled:TFunc<Boolean>=nil):Int64;
+    function MetadataPublished:Boolean;
   end;
 
 {$IFDEF MHL_TRANSFER_TEST}
@@ -668,6 +669,9 @@ begin
     Result.RecoverInstalledVersions; Result.ReadPublication; Result.CheckMetadataReceipts; Result.CheckCurrent;
   except Result.Free; raise; end;
 end;
+
+function TCollectionTransferCachePreparation.MetadataPublished:Boolean;
+begin Result:=FPublicationState='published'; end;
 
 function TCollectionTransferCachePreparation.AuthorizedSources(CID:Integer):string;
 begin Result:=CurrentSources(CID); end;

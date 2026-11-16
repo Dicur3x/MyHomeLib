@@ -3,7 +3,8 @@
 interface
 
 uses System.SysUtils, System.JSON, System.Generics.Collections, SQLiteWrap,
-  unit_CollectionTransferJournal, unit_CollectionTransferPublication, unit_CollectionTransferLayout;
+  unit_CollectionTransferJournal, unit_CollectionTransferPublication, unit_CollectionTransferLayout,
+  unit_CollectionTransferCompletion;
 
 type
   // Durable roots/settings phase. The operation remains pending until cache,
@@ -17,6 +18,7 @@ type
     FDatabases:TArray<TTransferPublicationDatabase>;
     FPlan:TJSONObject;
     FCacheGuard:TObject;
+    FCompletion:TTransferCompletionWriter;
     FSources:TDictionary<Integer,string>;
     FCancelled:TFunc<Boolean>;
     FOperation,FReviewSHA,FIntentSHA,FState,FSelectedKey:string;
@@ -42,6 +44,7 @@ type
     destructor Destroy; override;
     class function HasIntent(Journal:TCollectionTransferJournal):Boolean; static;
     function ApplyRoots(const Cancelled:TFunc<Boolean> = nil):Boolean;
+    function Complete(const ApplicationReady,Cancelled:TFunc<Boolean>):TTransferCompletionResult;
   end;
 
 {$IFDEF MHL_TRANSFER_TEST}
@@ -348,7 +351,9 @@ begin
   begin
     Stop; var Row:=TJSONObject(Value); var ID:=Row.GetValue<Int64>('id');
     var Prepared:=FJournal.RecoverPreparedGroup(ID,Row.GetValue<string>('sha'),Stop);
-    try FSession.CheckFinalizationGroup(Prepared);
+    try
+      FSession.CheckFinalizationGroup(Prepared);
+      if FCompletion<>nil then FCompletion.CheckGroup(FPersonal,Prepared,Row.GetValue<string>('sha'));
     finally Prepared.Free; end;
   end;
 end;
@@ -461,6 +466,8 @@ begin
   try
     FPersonal:=FSession.FinalizationPersonal; FDatabases:=FSession.FinalizationDatabases;
     CheckRegistration; ReadPlan;
+    if (FCompletion<>nil) and ((FPlan=nil) or (FState<>'roots-applied')) then
+      raise EReadError.Create('Сначала требуется сохранить итоговые корни переноса.');
     if FPlan=nil then
     begin
       BuildPlan; ValidatePlan; CheckRegistrations; CheckInventory; CheckMissingPaths;
@@ -469,12 +476,20 @@ begin
     end;
     ValidatePlan;
     FCacheGuard:=TCollectionTransferCachePreparation.OpenPublishedGuard(FJournal,FSession,FIntentSHA,Stop);
+    if (FCompletion<>nil) and ((FCacheGuard=nil) or
+      not TCollectionTransferCachePreparation(FCacheGuard).MetadataPublished) then
+      raise EReadError.Create('Сначала требуется завершить публикацию источников переноса.');
     CheckRegistration; CheckRegistrations; CheckInventory; CheckMissingPaths; CheckGroups;
     for var Participant in FDatabases do ApplyCatalogue(Participant);
     if FState='roots-applied' then
     begin
       ApplyTransferFinalRows(FPersonal,FPersonal,FJournal.Review,FOperation,FReviewSHA,FIntentSHA,True,True,Stop);
+      if FCompletion<>nil then
+      begin
+        FCompletion.Save(FPersonal,FIntentSHA); Point('completion-before-personal-commit'); FCompletion.BeforeCommit;
+      end;
       FPersonal.Commit;
+      if FCompletion<>nil then Point('completion-after-personal-commit');
       Result:=True; Exit;
     end;
     for var Participant in FDatabases do if Participant.Key=FSelectedKey then CheckRootSemantics(Participant.Database,False,False);
@@ -487,6 +502,14 @@ begin
     if FPersonal.LastChangedRows<>1 then raise EWriteError.Create('Не сохранён этап завершения корней.');
     Point('finalization-before-personal-commit'); FPersonal.Commit; Point('finalization-after-personal-commit'); Result:=True;
   finally FreeAndNil(FCacheGuard); FSession.EndFinalization; FCancelled:=nil; end;
+end;
+
+function TCollectionTransferFinalization.Complete(const ApplicationReady,Cancelled:TFunc<Boolean>):TTransferCompletionResult;
+begin
+  FCompletion:=TTransferCompletionWriter.Create(FJournal,ApplicationReady,Cancelled);
+  try
+    ApplyRoots(Cancelled); Result:=FCompletion.Outcome;
+  finally FreeAndNil(FCompletion); end;
 end;
 
 end.

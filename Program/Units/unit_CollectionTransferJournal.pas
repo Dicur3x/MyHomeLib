@@ -7,6 +7,11 @@ uses System.SysUtils, System.Classes, System.JSON, System.Generics.Collections, 
   unit_CollectionTransferCopy;
 
 type
+  TTransferCompletionResult=record
+    Files,Groups,Bytes,Removed,Missing,Retained:Int64;
+    CompletedAt:string;
+  end;
+
   TTransferJournalGroup = record
     ID, Files, Bytes: Int64;
     State: string;
@@ -98,6 +103,9 @@ type
     function InstallSourceCacheVersions(const Cancelled:TFunc<Boolean> = nil):Int64;
     function HasCachePublication:Boolean;
     function PublishSourceCacheSettings(const Cancelled:TFunc<Boolean> = nil):Int64;
+    // Caller has refreshed its DAO/view and supplies a read-only quiescence check.
+    function CompleteTransfer(const ApplicationReady:TFunc<Boolean>;
+      const Cancelled:TFunc<Boolean> = nil):TTransferCompletionResult;
     property Directory: string read FDirectory;
     property ReviewSHA256: string read FReviewSHA;
     property Review: TSQLiteDatabase read FReview;
@@ -113,7 +121,7 @@ uses System.IOUtils, System.Hash, unit_Globals, unit_Consts,
   unit_Settings, dm_user, unit_BookCompressionReceipt, unit_ZipMemberDeletion,
   unit_CollectionTransferReferences, unit_CollectionTransferForks, unit_CollectionTransferLocations,
   unit_CollectionTransferPublication, unit_CollectionTransferResources, unit_CollectionTransferLayout,
-  unit_CollectionTransferFinalization, unit_CollectionTransferCachePreparation;
+  unit_CollectionTransferFinalization, unit_CollectionTransferCachePreparation, unit_CollectionTransferCompletion;
 
 const JournalKind='HomeLibre collection transfer preparation v1';
   Prefix='collection-transfer-';
@@ -1215,6 +1223,19 @@ begin
   try
     if not HasCachePublication then Handler.Prepare(Cancelled,True);
     Result:=Handler.PublishMetadata(Cancelled);
+  finally Handler.Free; end;
+end;
+
+function TCollectionTransferJournal.CompleteTransfer(const ApplicationReady:TFunc<Boolean>;
+  const Cancelled:TFunc<Boolean>):TTransferCompletionResult;
+begin
+  if Assigned(Cancelled) and Cancelled() then raise EAbort.Create('Завершение переноса остановлено.');
+  if not Assigned(ApplicationReady) or not ApplicationReady() then
+    raise EReadError.Create('Открытая коллекция ещё не обновлена или есть незавершённые задания чтения.');
+  if ReadTransferCompletion(Self,Result) then Exit;
+  OpenPublicationSession;
+  var Handler:=TCollectionTransferFinalization.Create(Self,TTransferPublicationSession(FPublicationSession));
+  try Result:=Handler.Complete(ApplicationReady,Cancelled);
   finally Handler.Free; end;
 end;
 
