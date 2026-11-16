@@ -468,6 +468,16 @@ evidence: `docs/audits/2026-11-16-collection-transfer-cache-snapshot.md`.
 
 ### Full operation gates
 
+The first real post-transfer INPX composition now passes on x86/x64: two
+compressed bound FB2/EPUB source archives, both former roots offline, full/append
+updates from a new incoming folder, exactly one new member, unchanged old archive
+hashes/book and source/copy keys/personal fields, and incremental selection of
+only the arrival. It also exercises preferred-source updates, personal-size
+rollback and an independent final card-count check. An actual SQL column mismatch
+in review-key preservation was found and fixed. This is one small native/Main
+scenario, not the ordinary transfer UI or all format/profile combinations.
+Evidence: `docs/audits/2026-11-16-collection-transfer-inpx.md`.
+
 - Native planner on x86/x64: equal archive names in distinct roots, root aliases
   and overlaps, already-in-place first source, FLibrary sidecars, repeated
   locators, missing/changed files, hardlinks, cancellation and foreign files.

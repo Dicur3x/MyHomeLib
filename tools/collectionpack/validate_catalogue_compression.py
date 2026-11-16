@@ -56,6 +56,14 @@ def jpeg_xl_inpx_fixture():
     return re.sub(rb'</([^\s<>/]+)>(\s*)$', rb'</\1 >\2', data)
 
 
+def fixture_sevenzip(root):
+    for name in ('7z.exe', '7za.exe'):
+        path = root / 'tools/7zip' / name
+        if path.is_file():
+            return path
+    raise AssertionError('Private fixture has no 7-Zip executable')
+
+
 def archive_body(archive, member, seven_zip):
     # Decode independently with 7-Zip. Python's ZIP reader can select an EPUB
     # embedded in a stored 7z instead of the primary archive's requested member.
@@ -74,7 +82,7 @@ def verify_text_only_repack(root):
     source_book = work / 'without-images.epub'
     shutil.copy2(exports[-1], source_book)
     source = work / 'download.7z'
-    seven = root / 'tools/7zip/7za.exe'
+    seven = fixture_sevenzip(root)
     result = run_owned([str(seven), 'a', '-t7z', '-mx=0', '-y', '-bb0', '--', str(source), source_book.name],
                        cwd=work, capture_output=True, timeout=60)
     assert result.returncode == 0, result.stderr.decode(errors='replace')
@@ -166,7 +174,7 @@ def legacy_gui_inputs(root, stage, platform):
     job = root / 'legacy-job.json'
     job.write_text(json.dumps(dict(version=1, dataset='legacy-ui-history', engine='illustrations-ppmd',
         images='maximum', plan=str(plan), output=str(output),
-        seven_zip=str(root / 'tools/7zip/7za.exe'), tools_root=str(root / 'tools'))), encoding='utf-8')
+        seven_zip=str(fixture_sevenzip(root)), tools_root=str(root / 'tools'))), encoding='utf-8')
     process = run_owned([str(root / 'tools/python/python.exe'), '-I', '-B', '-X', 'utf8',
         str(root / 'tools/bookconvert/pack_collection.py'), '--job', str(job)],
         capture_output=True, timeout=120, creationflags=subprocess.CREATE_NO_WINDOW)
@@ -186,7 +194,7 @@ def legacy_gui_inputs(root, stage, platform):
     for name in ('packing.sqlite', 'HomeLibRu-compressed.json'):
         shutil.copy2(output / name, root / name)
     old_archive = root / locations[0][0]
-    bodies = [archive_body(old_archive, filename + extension, root / 'tools/7zip/7za.exe')
+    bodies = [archive_body(old_archive, filename + extension, fixture_sevenzip(root))
               for _, filename, extension, _ in locations]
     books = []
     for i, (location, body) in enumerate(zip(locations, bodies)):
@@ -336,7 +344,17 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
         legacy_history=False, packing_codec=None, packing_codec_release=None, reviewed_index=False, reviewed_bound=False,
         update_recovery_phase=None, update_recovery_bound=False, update_recovery_preserve=None,
         update_recovery_neighbour=False, update_recovery_compressed=False, reviewed_flibrary_bound=False, flibrary_recovery_phase=None, recovery_interrupt=None,
-        reader_runtime=None, reader_timeout=600, reader_recompress=False, cancel_compression_refresh=False, work_picker_source_volume=None):
+        reader_runtime=None, reader_timeout=600, reader_recompress=False, cancel_compression_refresh=False, work_picker_source_volume=None,
+        transfer_bound=False):
+    for value in (binary, runtime, sqlite, icons, genres, stage, real_books, processing_package,
+                  images, packing_codec, packing_codec_release, reader_runtime, work_picker_source_volume):
+        if value is not None:
+            path = Path(value)
+            assert path.drive.casefold() != 'e:', 'Drive E: is forbidden for tests'
+            assert path.resolve().drive.casefold() != 'e:', 'Resolved test path uses forbidden drive E:'
+    if transfer_bound:
+        assert reviewed_bound and not real_books, 'Transfer gate requires the private reviewed bound fixture'
+        assert Path(stage).resolve().drive.casefold() == 'g:', 'Transfer fixture must use G:'
     from library_recovery_restart import restart as restart_library_recovery
     from test_pack_collection import illustrated_fb2, image_fixture
     assert bool(packing_codec) == bool(packing_codec_release), 'Codec archive and official release metadata must be paired'
@@ -448,6 +466,8 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
             (root / 'reviewed-compression.marker').write_text('1', encoding='ascii')
         if reviewed_bound:
             (root / 'bound-compression.marker').write_text('1', encoding='ascii')
+        if transfer_bound:
+            (root / 'transfer-bound-compression.marker').write_text('1', encoding='ascii')
         if reviewed_flibrary_bound:
             (root / 'reviewed-flibrary-bound.marker').write_text('1', encoding='ascii')
         real_stamps = {}
@@ -473,7 +493,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
         if scenario in ('packed-flibrary-sidecars', 'reviewed-flibrary-compression'):
             from packing_flibrary_fixtures import build
             assert packing_codec and not any((real_books, legacy_history, recovery_fault, refresh_index))
-            sidecar_inputs = build(root, root / 'tools/7zip/7za.exe', repo, reviewed=scenario == 'reviewed-flibrary-compression')
+            sidecar_inputs = build(root, fixture_sevenzip(root), repo, reviewed=scenario == 'reviewed-flibrary-compression')
         if scenario == 'packed-catalogue-sizes':
             from test_prepare_book_compression import epub
             assert not any((real_books, legacy_history, recovery_fault, refresh_index))
@@ -775,6 +795,8 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
             expected_lines.append('PASS bound reviewed full and append updates preserve actual compressed copy sizes payloads priorities and personal fields')
             expected_lines.append('PASS bound reviewed update incrementally compresses one new download and preserves all five processed physical members across either source')
             expected_lines.append('PASS bound measured-size updates preserve the existing personal card and roll back both stores if the size write fails')
+        if transfer_bound:
+            expected_lines.append('PASS actual bound transfer preserves compressed archive hashes book IDs source keys copies and personal fields with old roots offline')
         if scenario == 'reviewed-flibrary-compression' and not flibrary_recovery_phase:
             expected_lines.append('PASS FLibrary new external-image download compresses alone and retains old physical copies across full append and preferred-source updates')
         if update_recovery_compressed:
@@ -817,7 +839,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
                         assert len(rows) == 2
                         for book_id, lib_id, folder, filename, ext, size in rows:
                             name = 'one.fb2' if str(lib_id) == '101' else 'two.epub'
-                            body = archive_body(output_root / folder, filename + ext, root / 'tools/7zip/7za.exe')
+                            body = archive_body(output_root / folder, filename + ext, fixture_sevenzip(root))
                             assert size == len(body) < len(originals[name]), (catalogue.name, name, size, len(body))
                             old, new = root / ('before-' + name), root / ('after-' + name)
                             old.write_bytes(originals[name]); new.write_bytes(body)
@@ -880,14 +902,20 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
                                'Native normal INPX/Metabib menu or Windows Shell import on a private synthetic catalogue; no real user data'))
         attempt.update(status='VERIFYING_CONTENT', native_returncode=process.returncode)
         attempt_file.write_text(json.dumps(attempt, indent=2), encoding='utf-8')
+        if transfer_bound:
+            db = sqlite3.connect(root / 'bound-compressed/target.hlc2')
+            try:
+                assert db.execute('SELECT count(*) FROM Books').fetchone()[0] == 3, 'Transfer/update created duplicate book cards'
+            finally:
+                db.close()
         book_results = {}
         with zipfile.ZipFile(source) as archive:
             assert set(archive.namelist()) == set(originals)
-            assert archive_body(source, 'neighbor.fb2', root / 'tools/7zip/7za.exe') == originals['neighbor.fb2']
+            assert archive_body(source, 'neighbor.fb2', fixture_sevenzip(root)) == originals['neighbor.fb2']
             if mode == 'apply' and recovery_fault not in {'preparation-ready', 'receipt-prepared', 'binding-prepared'}:
                 assert source.stat().st_size < size
                 for name in selected:
-                    body = archive_body(source, name, root / 'tools/7zip/7za.exe')
+                    body = archive_body(source, name, fixture_sevenzip(root))
                     book_results[name] = dict(before_bytes=len(originals[name]), after_bytes=len(body),
                         output_sha256=hashlib.sha256(body).hexdigest())
                     extension = Path(name).suffix.lower()
@@ -952,12 +980,15 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
                     repeat_new=repeat_new,
                     repeat_offer=repeat_offer,
                     refresh_index=refresh_index, reviewed_index=reviewed_index, reviewed_bound=reviewed_bound,
+                    transfer_bound=transfer_bound,
                     legacy_history=legacy_history,
                     recovery_fault=recovery_fault,
                     recovery_preserve=recovery_preserve,
                     private_runtime=str(root),
                     image_helper_sha256=digest(root / 'tools/images/HomeLibImages.exe'),
-                    scope=('Reviewed bound-source full/append INPX after real compression: two physical copies, measured catalogue/personal/copy sizes, priority, one new download and injected rollback; private FB2/EPUB fixtures'
+                    scope=('Physical transfer and source/history cutover followed by real full/append INPX with old source folders offline: exact old compressed archives and keys, two copies, personal fields, one new download and incremental compression; private FB2/EPUB fixtures'
+                           if transfer_bound else
+                           'Reviewed bound-source full/append INPX after real compression: two physical copies, measured catalogue/personal/copy sizes, priority, one new download and injected rollback; private FB2/EPUB fixtures'
                            if reviewed_bound else
                            'Ordinary menu compression, reviewed full/append INPX without originals, preserved measured sizes/history, one downloaded arrival and 0/1/0 incremental selection; private fixtures'
                            if reviewed_index or refresh_index else
@@ -1021,6 +1052,8 @@ if __name__ == '__main__':
                         help='Use two FLibrary source roots with separate images and apply new downloads from another folder')
     parser.add_argument('--reviewed-bound', action='store_true',
                         help='Compress two physical bound sources, then apply source INPX and preserve sizes and priorities')
+    parser.add_argument('--transfer-bound', action='store_true',
+                        help='Physically transfer the private reviewed bound fixture before adding a new archive and applying full/append INPX; G: only')
     parser.add_argument('--reviewed-index', action='store_true',
                         help='After real catalogue compression, apply full and append INPX and process only a new downloaded member; default fixture mixes FB2 and EPUB')
     parser.add_argument('--legacy-history', action='store_true',

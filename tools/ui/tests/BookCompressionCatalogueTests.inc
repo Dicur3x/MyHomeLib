@@ -418,6 +418,7 @@ var Driver:TCompressionCatalogueDriver; After:TBookRecord;
     Books:TArray<TBookRecord>; OriginalBody, OutputBody:TBytes; Started, Timeout:UInt64;
     Members:TArray<string>; IDs:TArray<Integer>; OriginalBodies:TArray<TBytes>; Config:TJSONObject;
     MemberList:TJSONArray;
+    ObservedStages:TArray<Integer>;
   function SelectedBookIndex(ID:Integer):Integer;
   begin
     Result:=-1;
@@ -431,6 +432,12 @@ begin
   Source:=Settings.AppPath+'books\shared.zip';
   Require(FileExists(Source),'Missing isolated book archive');
   Driver:=TCompressionCatalogueDriver.Create;
+  SetLength(ObservedStages,2);
+  CompressionOperationTestStage:=procedure(Stage:string)
+    begin
+      if Stage='Подготавливаем выбранную книгу' then TInterlocked.Exchange(ObservedStages[0],1);
+      if Stage='Оцениваем выбранную книгу' then TInterlocked.Exchange(ObservedStages[1],1);
+    end;
   Config:=nil;
   try
     Members:=TArray<string>.Create('one.fb2','two.fb2'); Timeout:=45000;
@@ -544,12 +551,12 @@ begin
     Require(Driver.OptionsSeen and Driver.ReviewSeen and Driver.ResultSeen and
       ((Mode='estimate') or Driver.ComparisonSeen) and (not Driver.EstimateFirst or Driver.EstimateSeen),
       'Normal catalogue compression did not reach options, review and result; last stage: '+Driver.LastStage);
-    // Real illustrated books keep producer stages visible long enough for the
-    // GUI timer. Tiny fixtures may complete between two timer ticks.
+    // Read actual decoded producer events: a short stage may finish between
+    // two GUI timer ticks even for an illustrated EPUB.
     if Members[1]='two.epub' then
-      Require(((Mode='estimate') or Driver.ProducerStageSeen) and
-        (not Driver.EstimateFirst or Driver.EstimateStageSeen),
-        'Russian worker stages were lost or decoded incorrectly');
+      Require(((Mode='estimate') or (TInterlocked.CompareExchange(ObservedStages[0],0,0)<>0)) and
+        (not Driver.EstimateFirst or (TInterlocked.CompareExchange(ObservedStages[1],0,0)<>0)),
+        'Russian worker events were lost or decoded incorrectly');
     var CurrentCollection:=SystemDB.GetCollection(Collection.CollectionID);
     ShowPage(PAGE_SEARCH);
     var VisibleBooks:=0;
@@ -639,6 +646,7 @@ begin
       Driver.OnlyNew:=True; Driver.Whole:=True;
       Driver.OptionsSeen:=False; Driver.ReviewSeen:=False; Driver.ResultSeen:=False;
       Driver.DecisionSent:=False; Driver.ProducerStageSeen:=False; Driver.OriginalSHA:=CompressedSHA;
+      TInterlocked.Exchange(ObservedStages[0],0); TInterlocked.Exchange(ObservedStages[1],0);
       Driver.Timer.Enabled:=True; Driver.Started:=GetTickCount64;
       var Menu:=frmMain.FindComponent('miCompressNewBooks') as TMenuItem;
       Require(Assigned(Menu),'New-books compression is missing from the normal menu');
@@ -703,7 +711,8 @@ begin
       Started:=GetTickCount64;
       while not Driver.ResultSeen and (GetTickCount64-Started<Timeout) do
       begin Application.ProcessMessages; Sleep(10); end;
-      Require(Driver.OptionsSeen and Driver.ResultSeen and not Driver.ReviewSeen and not Driver.ProducerStageSeen,
+      Require(Driver.OptionsSeen and Driver.ResultSeen and not Driver.ReviewSeen and not Driver.ProducerStageSeen and
+        (TInterlocked.CompareExchange(ObservedStages[0],0,0)=0),
         'No-arrivals menu command repeated preparation or failed to finish; last stage: '+Driver.LastStage);
       Require(THashSHA2.GetHashStringFromFile(Source)=CompressedSHA,'No-arrivals command changed compressed books');
       Require(Length(TDirectory.GetFiles(Driver.BackupFolder,'*.zip'))=1,'No-arrivals command added an unnecessary backup');
@@ -714,12 +723,13 @@ begin
     if FileExists(Settings.AppPath+'compression-refresh.marker') or
       FileExists(Settings.AppPath+'reviewed-compression.marker') then
       TestReviewedCompressedCatalogue(CurrentCollection,Books,OriginalBody,Options);
-    if FileExists(Settings.AppPath+'bound-compression.marker') then
+    if FileExists(Settings.AppPath+'bound-compression.marker') or
+      FileExists(Settings.AppPath+'transfer-bound-compression.marker') then
       TestReviewedBoundCompression(Books,Driver.BackupFolder,Options);
     if FileExists(Settings.AppPath+'compression-refresh-cancel.marker') then
       TestCancelledCompressionRefresh(CurrentCollection,Books);
     Writeln('PASS selected compression normal catalogue ',Mode,' preserves neighbors, personal progress, originals and refreshed Reader cache');
-  finally Config.Free; Driver.Timer.Free; Driver.Free; end;
+  finally CompressionOperationTestStage:=nil; Config.Free; Driver.Timer.Free; Driver.Free; end;
 end;
 
 {$I CompressionRefreshTests.inc}

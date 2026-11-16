@@ -85,6 +85,8 @@ function CompressionHasAbandonedPreparation(const Options: TBookCompressionOpera
 // Only the guarded native regression executable defines this symbol. Its
 // callback terminates that private process at an existing durable job stage.
 var CompressionOperationTestFault: TProc<string>;
+// Observe decoded producer stages without depending on a GUI timer tick.
+var CompressionOperationTestStage: TProc<string>;
 {$ENDIF}
 
 implementation
@@ -378,6 +380,10 @@ begin
   if Data=nil then raise EReadError.Create('Некорректный ответ обработчика сжатия.');
   try
     Stage:=Data.GetValue<string>('stage','');
+    {$IFDEF MHL_COMPRESSION_TEST}
+    var Observer:=CompressionOperationTestStage;
+    if Assigned(Observer) then Observer(Stage);
+    {$ENDIF}
     if Stage='error' then FLastError:=Copy(Data.GetValue<string>('message',''),1,2048);
     if (Stage='error') or (Stage='cancelled') or (Stage='ready') then Exit;
     TMonitor.Enter(FLock);

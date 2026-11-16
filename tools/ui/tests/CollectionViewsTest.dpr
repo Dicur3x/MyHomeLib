@@ -8,6 +8,8 @@
 
 uses
   unit_BookCompressionIndex, unit_BookCompressionPlan,
+  unit_CollectionTransferCatalogue, unit_CollectionTransferPlan, unit_CollectionTransferJournal,
+  unit_CollectionTransferOperation,
   unit_Utils, frm_search, frm_MCPSetup, Xml.XMLDoc, Xml.XMLIntf,
   unit_CatalogComponents, unit_MetabibReader, unit_FormatComponents, unit_ComponentRemoval, unit_ComponentUsage, frm_ComponentMaintenance,
   unit_StartupCatalog, unit_FLibraryCompat, unit_BookCompressionRestored, unit_BookViewSessions,

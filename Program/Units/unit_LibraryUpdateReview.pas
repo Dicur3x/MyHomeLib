@@ -1100,12 +1100,14 @@ begin
       Output.ExecSQL('INSERT OR REPLACE INTO LibraryUpdatePublisherLocations SELECT m.CacheID,r.PublisherLocation '+
         'FROM review.ReviewRows r JOIN review.ApplyCachedInput m ON m.InputID=r.BookID');
     if FSource.Full then
-      Rows:=Output.NewQuery('SELECT b.BookID,b.Folder,b.FileName,b.Ext,b.InsideNo,b.LibID,a.SourceKey,a.Key '+
-        'FROM Books b JOIN review.ApplyActions a ON a.BookID=b.BookID ORDER BY b.BookID')
+      Rows:=Output.NewQuery('SELECT b.BookID,b.Folder,b.FileName,b.Ext,b.InsideNo,b.LibID,a.SourceKey,r.Key '+
+        'FROM Books b JOIN review.ApplyActions a ON a.BookID=b.BookID '+
+        'JOIN review.ReviewRows r ON r.BookID=a.BookID ORDER BY b.BookID')
     else
-      Rows:=Output.NewQuery('SELECT b.BookID,b.Folder,b.FileName,b.Ext,b.InsideNo,b.LibID,a.SourceKey,a.Key '+
+      Rows:=Output.NewQuery('SELECT b.BookID,b.Folder,b.FileName,b.Ext,b.InsideNo,b.LibID,a.SourceKey,r.Key '+
         'FROM Books b JOIN review.ApplyCachedInput m ON m.CacheID=b.BookID '+
-        'JOIN review.ApplyActions a ON a.BookID=m.InputID ORDER BY b.BookID');
+        'JOIN review.ApplyActions a ON a.BookID=m.InputID '+
+        'JOIN review.ReviewRows r ON r.BookID=a.BookID ORDER BY b.BookID');
     try
       Output.Start; Rows.Open;
       try

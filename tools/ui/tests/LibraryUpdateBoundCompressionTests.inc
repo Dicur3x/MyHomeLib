@@ -5,6 +5,7 @@ var Root:string; Sources:TCatalogSources; Bodies:TArray<TBytes>; Titles:TArray<s
   Target:IBookCollection; ID:Integer; Profile:TLibraryUpdateSource;
   Expected:TDictionary<string,Int64>; Hashes:TDictionary<string,string>;
   Options:TBookCompressionOperationOptions; HasThird:Boolean; ThirdBody:TBytes; Downloads:string;
+  BaselineBookIDs,TransferredKeysSHA:string;
 
   function Find(const Number:string; out Book:TBookRecord):Boolean;
   var It:IBookIterator;
@@ -18,6 +19,25 @@ var Root:string; Sources:TCatalogSources; Bodies:TArray<TBytes>; Titles:TArray<s
         [Book.Size,Stream.Size,Book.GetBookFileName]));
       Result:=THashSHA2.GetHashString(Stream);
     finally Stream.Free; end;
+  end;
+  function CurrentIdentitySHA:string;
+  begin
+    if BaselineBookIDs='' then Exit('');
+    var DB:=TSQLiteDatabase.CreateReadOnly(SystemDB.GetCollectionInfo(ID).DBFileName);
+    var Text:='';
+    try
+      for var Table in ['Books','CatalogSourceBooks','CatalogBookCopies'] do
+      begin
+        var Columns:='BookID,SourceKey'; var Order:='SourceKey';
+        if Table='Books' then begin Columns:='BookID,LibID'; Order:='BookID'; end;
+        var Query:=DB.NewQuery('SELECT '+Columns+' FROM '+Table+' WHERE BookID IN ('+BaselineBookIDs+') ORDER BY '+Order);
+        try Query.Open; Text:=Text+#0+Table;
+          while not Query.Eof do
+          begin Text:=Text+#0+Query.FieldAsString(0)+#1+Query.FieldAsString(1); Query.Next; end;
+        finally Query.Free; end;
+      end;
+    finally DB.Free; end;
+    Result:=THashSHA2.GetHashString(Text);
   end;
   procedure WriteIndex(Source:Integer; Correct:Boolean);
   var Zip:TZipFile; Rows,Title:string;
@@ -45,6 +65,8 @@ var Root:string; Sources:TCatalogSources; Bodies:TArray<TBytes>; Titles:TArray<s
   var Book,Personal:TBookRecord; Key,Hash:string;
   begin
     Target:=SystemDB.GetCollection(ID,True);
+    if TransferredKeysSHA<>'' then Require(CurrentIdentitySHA=TransferredKeysSHA,
+      'Post-transfer INPX update changed retained book IDs or source/copy keys');
     for var I:=0 to High(Originals) do
     begin
       Require(Find(IntToStr(1001+I),Book),'Bound update lost a compressed book');
@@ -130,12 +152,16 @@ var Root:string; Sources:TCatalogSources; Bodies:TArray<TBytes>; Titles:TArray<s
         begin
           if Assigned(Worker.FatalException) then raise Exception.Create('Bound compressed apply: '+Exception(Worker.FatalException).Message);
           Require(Probe.Confirmed and Worker.Success and Worker.CommittedChanges,'Bound compressed update did not commit');
+          if TransferredKeysSHA<>'' then Require(Review.MissingBooks=0,
+            'Post-transfer update incorrectly requires old publisher archives: '+Review.MissingDetails);
         end;
       finally Worker.Free; Probe.Free; end;
     finally Review.Free; Stage.Free; end;
   end;
+  {$I CollectionTransferBoundUpdateTests.inc}
 begin
   RequireIsolatedRegression; Root:=Settings.AppPath+'bound-compressed'; ForceDirectories(Root); HasThird:=False;
+  BaselineBookIDs:=''; TransferredKeysSHA:='';
   Downloads:=TPath.Combine(Root,'downloads'); ForceDirectories(Downloads);
   SetLength(Bodies,Length(Originals)); SetLength(Titles,Length(Originals));
   var Backups:=TDirectory.GetFiles(BackupFolder,'*.zip'); Require(Length(Backups)=1,'Missing original fixture backup');
@@ -179,11 +205,12 @@ begin
   try
     CompressAll(False,4,0,2); CheckCopies(True);
     Profile:=TLibraryUpdateSource.NewSource; Profile.Name:='Reviewed compressed lower source';
-    Profile.CatalogSourceID:=Sources[1].ID; Profile.Location:=Sources[1].Root;
+    Profile.CatalogSourceID:=Sources[1].ID; Profile.Location:=TPath.GetDirectoryName(Sources[1].INPXFile);
     Profile.IndexFile:=TPath.GetFileName(Sources[1].INPXFile); Profile.BooksRoot:=Sources[1].Root;
     WriteIndex(1,True); ApplyIndex; CheckCopies(False);
     ApplyIndex; CheckCopies(False); Profile.Full:=False; ApplyIndex; CheckCopies(False);
     CompressAll(True,0,4,0); CheckCopies(False);
+    if FileExists(Settings.AppPath+'transfer-bound-compression.marker') then MoveBoundFixture;
     ThirdBody:=TEncoding.UTF8.GetBytes(TEncoding.UTF8.GetString(Bodies[0]).Replace('</body>',
       '<section><p>bound-arrival-text</p></section></body>'));
     Require(TEncoding.UTF8.GetString(ThirdBody).Contains('bound-arrival-text'),'Cannot build bound arrival fixture');
@@ -201,7 +228,7 @@ begin
     Require(Find('1003',Book) and (Book.Size=ThirdSize) and
       (THashSHA2.GetHashStringFromFile(Book.GetBookFileName)=ThirdArchiveSHA),'Bound full/append update changed the compressed download');
     Profile:=TLibraryUpdateSource.NewSource; Profile.Name:='Reviewed preferred compressed source';
-    Profile.CatalogSourceID:=Sources[0].ID; Profile.Location:=Sources[0].Root;
+    Profile.CatalogSourceID:=Sources[0].ID; Profile.Location:=TPath.GetDirectoryName(Sources[0].INPXFile);
     Profile.IndexFile:=TPath.GetFileName(Sources[0].INPXFile); Profile.BooksRoot:=Sources[0].Root;
     WriteIndex(0,True);
     Require(Find('1001',Book),'Missing personal-size rollback fixture');
