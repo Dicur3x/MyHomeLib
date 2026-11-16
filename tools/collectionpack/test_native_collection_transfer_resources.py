@@ -7,6 +7,29 @@ import test_native_collection_transfer_locations as location_fixture
 import test_native_collection_transfer_journal as journal_fixture
 
 
+def in_place_sources(case):
+    parent=case.home/'in-place';parent.mkdir()
+    old_a,old_b=str(case.a),str(case.b)
+    for source in (case.a,case.b):
+        target=parent/source.name
+        case.assertTrue(source.resolve().is_relative_to(case.home.resolve()))
+        case.assertTrue(target.resolve().is_relative_to(case.home.resolve()))
+        case.assertFalse(target.exists());source.rename(target)
+    case.a,case.b=parent/case.a.name,parent/case.b.name
+    sources=json.loads(case.sources)
+    for source in sources:
+        if source['root']==old_a:source['root']=str(case.a)
+        elif source['root']==old_b:source['root']=str(case.b)
+    case.sources=json.dumps(sources,ensure_ascii=False)
+    with fixture.connect(case.catalogue) as db:
+        db.execute('update CatalogBookCopies set Root=? where Root=?',(str(case.b),old_b))
+        db.execute('update Settings set SettingValue=? where SettingID=?',(case.sources,fixture.SOURCE_PROPERTY))
+    with fixture.connect(case.personal) as db:
+        db.execute('update Bases set RootFolder=? where DatabaseID=7',(str(case.a),))
+        db.execute('update Bases set RootFolder=? where DatabaseID=8',(str(case.b),))
+    case.destination=parent;case.config.update(root=str(case.a),destination=str(parent))
+
+
 class TransferResourceTests(location_fixture.TransferLocationTests):
     def state_rows(self,sql):
         db=sqlite3.connect(self.journal()/'state.sqlite')
@@ -25,26 +48,7 @@ class TransferResourceTests(location_fixture.TransferLocationTests):
         self.assertEqual(self.state_rows('select GroupID,Kind,ReviewSHA256,ResourcesSHA256,Files,ImageSets,Resources from ResourceValidation order by GroupID'),rows)
 
     def test_in_place_files_are_validated_without_copying(self):
-        parent=self.home/'in-place';parent.mkdir()
-        old_a,old_b=str(self.a),str(self.b)
-        for source in (self.a,self.b):
-            target=parent/source.name
-            self.assertTrue(source.resolve().is_relative_to(self.home.resolve()))
-            self.assertTrue(target.resolve().is_relative_to(self.home.resolve()))
-            self.assertFalse(target.exists());source.rename(target)
-        self.a,self.b=parent/self.a.name,parent/self.b.name
-        sources=json.loads(self.sources)
-        for source in sources:
-            if source['root']==old_a:source['root']=str(self.a)
-            elif source['root']==old_b:source['root']=str(self.b)
-        self.sources=json.dumps(sources,ensure_ascii=False)
-        with fixture.connect(self.catalogue) as db:
-            db.execute('update CatalogBookCopies set Root=? where Root=?',(str(self.b),old_b))
-            db.execute('update Settings set SettingValue=? where SettingID=?',(self.sources,fixture.SOURCE_PROPERTY))
-        with fixture.connect(self.personal) as db:
-            db.execute('update Bases set RootFolder=? where DatabaseID=7',(str(self.a),))
-            db.execute('update Bases set RootFolder=? where DatabaseID=8',(str(self.b),))
-        self.destination=parent;self.config.update(root=str(self.a),destination=str(parent))
+        in_place_sources(self)
         result=self.run_case()
         self.assertEqual((result['copy_streams'],result['resource_validations']),(0,2))
 

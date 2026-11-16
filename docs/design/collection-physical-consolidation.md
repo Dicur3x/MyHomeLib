@@ -1,8 +1,9 @@
 # Physical consolidation of collection sources
 
-Status: native catalogue inventory, file planner and single-file/connected-group
-preparation journals are implemented. Group/catalogue publication remains open. There is no published
-transfer command and no user collection has been moved by this work.
+Status: native inventory, file/group copy journals, catalogue/fork publication,
+resource verification and destination-only group recovery are implemented as
+internal stages. Whole-operation control, guarded source removal, startup and
+normal UI remain open. No user collection has been moved by this work.
 
 ## User result
 
@@ -109,7 +110,13 @@ identity/hash/stream proof and verifies the surviving output without touching
 the old name. It retains destination-only leases, performs no copy/state write,
 and cannot authorize removal or complete a group. See
 `docs/audits/2026-11-16-collection-transfer-destination-recovery.md` for x86/x64
-validation and the remaining parent-intent/group-recovery integration.
+file-level validation. The parent journal now seals complete group proofs and
+uses that path to recover mixed removed/retained groups and native image sets,
+including kept-in-place files. Its caller must independently persist the proof
+digest before any original removal. Recovery does not rewrite the proof/state
+or publish/acknowledge source removal. See
+`docs/audits/2026-11-16-collection-transfer-group-recovery.md` for the current
+group-level evidence and the remaining operation-registry/removal integration.
 
 ## Group publication, stop and recovery
 

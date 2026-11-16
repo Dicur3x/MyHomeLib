@@ -226,12 +226,24 @@ begin
           else Journal.ForEachGroup(procedure(const Group:TTransferJournalGroup) begin IDs.Add(Group.ID); end);
           for var ID in IDs do
           begin
-            var Ready:=Journal.PrepareGroup(ID,function:Boolean begin Result:=Stop; end);
+            var Ready:TPreparedTransferGroup;
+            if Request.GetValue<Boolean>('recover_groups',False) then
+            begin
+              var Proofs:=Control.GetValue<TJSONObject>('group_proofs',nil);
+              if Proofs=nil then raise EReadError.Create('No independent fixture group proof');
+              Ready:=Journal.RecoverPreparedGroup(ID,Request.GetValue<string>('override_group_proof',Proofs.GetValue<string>(IntToStr(ID))),
+                function:Boolean begin Result:=Stop; end);
+            end
+            else Ready:=Journal.PrepareGroup(ID,function:Boolean begin Result:=Stop; end);
             try
               for var I:=0 to Ready.Count-1 do
               begin
                 var Item:=Ready.CopyAt(I);
-                if HashFile(Item.Source)<>HashFile(Item.Destination) then raise EReadError.Create('Group payload mismatch');
+                if Request.GetValue<Boolean>('recover_groups',False) then
+                begin
+                  if Item.SourceHeld or (HashFile(Item.Destination)<>Item.SHA256) then raise EReadError.Create('Invalid recovered destination role');
+                end
+                else if HashFile(Item.Source)<>HashFile(Item.Destination) then raise EReadError.Create('Group payload mismatch');
                 if Request.GetValue<Boolean>('probe_stream_leases',False) then
                 begin ProbeStreamLeases(Item.Source); ProbeStreamLeases(Item.Destination); end;
                 Inc(PreparedFiles);
@@ -240,6 +252,14 @@ begin
                 Journal.PublishGroupLocations(Ready,function:Boolean begin Result:=Stop; end);
               if Request.GetValue<Boolean>('verify_resources',False) and not Request.GetValue<Boolean>('apply_locations',False) then
                 Journal.VerifyGroupResources(Ready,function:Boolean begin Result:=Stop; end);
+              if Request.GetValue<Boolean>('seal_groups',False) then
+              begin
+                var SHA:=Journal.SealPreparedGroup(Ready,function:Boolean begin Result:=Stop; end);
+                var Proofs:=Control.GetValue<TJSONObject>('group_proofs',nil);
+                if Proofs=nil then begin Proofs:=TJSONObject.Create; Control.AddPair('group_proofs',Proofs); end;
+                Proofs.RemovePair(IntToStr(ID)).Free; Proofs.AddPair(IntToStr(ID),SHA);
+                TFile.WriteAllText(ControlFile,Control.ToJSON,TEncoding.UTF8);
+              end;
               if Request.GetValue<Boolean>('rebind_history',False) then
               begin
                 var DB:=TSQLiteDatabase.Create(DeletionNativePath(Owned(Request.GetValue<string>('catalogue'))));

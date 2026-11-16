@@ -71,6 +71,9 @@ type
     function PublicationScanCount:Integer;
     function ResourceValidationCount:Integer;
     procedure VerifyGroupResources(Prepared:TPreparedTransferGroup; const Cancelled:TFunc<Boolean> = nil);
+    function SealPreparedGroup(Prepared:TPreparedTransferGroup; const Cancelled:TFunc<Boolean> = nil):string;
+    function RecoverPreparedGroup(GroupID:Int64; const ExpectedProofSHA:string;
+      const Cancelled:TFunc<Boolean> = nil):TPreparedTransferGroup;
     procedure PublishCatalogueForks(const Cancelled:TFunc<Boolean> = nil);
     procedure PublishCatalogueFork(ForkID:Int64; const Cancelled:TFunc<Boolean> = nil);
     function EffectiveCatalogue(RegistrationID:Integer):string;
@@ -204,7 +207,7 @@ procedure TCollectionTransferJournal.OpenState;
 begin
   var Path:=TPath.Combine(FDirectory,'state.sqlite');
   FStateLease:=AcquireCompressionDatabaseLease(Path,Meta('state_key'));
-  FState:=TSQLiteDatabase.Create(DeletionNativePath(Path));
+  FState:=TSQLiteDatabase.Create(DeletionNativePath(Path),False);
   if FState.QuerySingleString('PRAGMA integrity_check')<>'ok' then
     raise EReadError.Create('Журнал переноса повреждён. Исходники сохранены.');
   FState.QuerySingleString('PRAGMA journal_mode=DELETE'); FState.ExecSQL('PRAGMA synchronous=FULL');
@@ -795,6 +798,148 @@ function TCollectionTransferJournal.PublicationScanCount:Integer;
 begin
   Result:=0;
   if FPublicationSession<>nil then Result:=TTransferPublicationSession(FPublicationSession).Scans;
+end;
+
+function ReadGroupProof(const Path,ExpectedSHA:string; out Key:string):TJSONObject;
+var Raw:TBytes; Canonical,Identity:string; Bytes:Int64;
+begin
+  Result:=nil;
+  var Stream:=TFileStream.Create(DeletionNativePath(Path),fmOpenRead or fmShareDenyWrite);
+  try
+    TransferReadFileState(Path,Canonical,Identity,Bytes);
+    if (Canonical<>Path) or (Stream.Size<>Bytes) or (Bytes<=0) or (Bytes>64*1024*1024) then
+      raise EReadError.Create('Неверный файл подтверждения группы переноса.');
+    if not SameText(THashSHA2.GetHashString(Stream),ExpectedSHA) then
+      raise EReadError.Create('Подтверждение группы не совпало с независимо сохранённой контрольной суммой.');
+    Key:=Copy(Identity,1,25); Stream.Position:=0; SetLength(Raw,Integer(Bytes)); Stream.ReadBuffer(Raw[0],Length(Raw));
+  finally Stream.Free; end;
+  var Value:=TJSONObject.ParseJSONValue(TEncoding.UTF8.GetString(Raw));
+  if not (Value is TJSONObject) then begin Value.Free; raise EReadError.Create('Повреждено подтверждение группы переноса.'); end;
+  Result:=TJSONObject(Value);
+end;
+
+function CheckedProofChild(const Child:string):string;
+begin
+  if not Child.StartsWith('transfer-copy-') then raise EReadError.Create('Неверный журнал файла в подтверждении группы.');
+  var ID:=StringToGUID(Copy(Child,Length('transfer-copy-')+1,MaxInt));
+  if Child<>'transfer-copy-'+GUIDToString(ID) then raise EReadError.Create('Неверный журнал файла в подтверждении группы.');
+  Result:=Child;
+end;
+
+function TCollectionTransferJournal.SealPreparedGroup(Prepared:TPreparedTransferGroup; const Cancelled:TFunc<Boolean>):string;
+var Previous:TFunc<Boolean>; Data:TJSONObject; Files:TJSONArray; Q,State:TSQLiteQuery;
+  Copies:TDictionary<Int64,TTransferPreparedCopy>; Key:string;
+begin
+  Previous:=FCancelled; FCancelled:=Cancelled; Data:=nil; Q:=nil; State:=nil;
+  Copies:=TDictionary<Int64,TTransferPreparedCopy>.Create;
+  try
+    CheckStop;
+    var Verified:=ValidateTransferResources(FReview,Prepared,function:Boolean begin CheckStop; Result:=False; end);
+    for var I:=0 to Prepared.Count-1 do Copies.Add(Prepared.FileID(I),Prepared.CopyAt(I));
+    Data:=TJSONObject.Create; Data.AddPair('kind','HomeLibre prepared transfer group v1');
+    Data.AddPair('operation',Meta('directory')); Data.AddPair('review_sha256',FReviewSHA);
+    Data.AddPair('group',TJSONNumber.Create(Prepared.ID)); Data.AddPair('resources_sha256',Verified.SHA256);
+    Files:=TJSONArray.Create; Data.AddPair('files',Files);
+    Q:=FReview.NewQuery('SELECT ID,Source,Destination,Identity,Bytes,KeepInPlace,ExternalImages FROM Files WHERE GroupID=? ORDER BY ID',[Prepared.ID]); Q.Open;
+    while not Q.Eof do
+    begin
+      CheckStop; var Item:=Copies[Q.FieldAsInt(0)]; var Entry:=FileEntry(Q,1);
+      State:=FState.NewQuery('SELECT Child,State,Identity,SHA256,StreamsJSON FROM FileState WHERE FileID=?',[Q.FieldAsInt(0)]); State.Open;
+      if State.Eof or (State.FieldAsString(1)<>'prepared') or (State.FieldAsString(2)<>Item.Identity) or
+        (State.FieldAsString(3)<>Item.SHA256) or (State.FieldAsString(4)<>Item.StreamsJSON) then
+        raise EReadError.Create('Данные подготовленного файла изменились перед сохранением группы.');
+      var Child:=CheckedProofChild(State.FieldAsString(0)); FreeAndNil(State);
+      var Job:=TCollectionTransferCopy.Resume(FCopiesRoot,FDestination,TPath.Combine(FCopiesRoot,Child),Entry);
+      Job.Free;
+      var Row:=TJSONObject.Create; Files.AddElement(Row); Row.AddPair('id',TJSONNumber.Create(Q.FieldAsInt(0)));
+      Row.AddPair('child',Child); Row.AddPair('identity',Item.Identity); Row.AddPair('sha256',Item.SHA256); Row.AddPair('streams',Item.StreamsJSON);
+      Q.Next;
+    end;
+    FreeAndNil(Q);
+    var Raw:=TEncoding.UTF8.GetBytes(Data.ToJSON);
+    if Length(Raw)>64*1024*1024 then raise EWriteError.Create('Слишком большое подтверждение одной группы.');
+    Result:=THashSHA2.GetHashString(Data.ToJSON);
+    var Path:=TPath.Combine(FDirectory,'prepared-group-'+IntToStr(Prepared.ID)+'.json');
+    var Attr:=GetFileAttributes(PChar(DeletionNativePath(Path)));
+    if Attr=INVALID_FILE_ATTRIBUTES then
+    begin
+      var Code:=GetLastError; if not (Code in [ERROR_FILE_NOT_FOUND,ERROR_PATH_NOT_FOUND]) then RaiseLastOSError(Code);
+      var Temporary:=TPath.Combine(FDirectory,'.group-proof-'+GUIDToString(TGUID.NewGuid)+'.tmp');
+      var Handle:=CreateFile(PChar(DeletionNativePath(Temporary)),GENERIC_WRITE,0,nil,CREATE_NEW,FILE_ATTRIBUTE_NORMAL,0);
+      if Handle=INVALID_HANDLE_VALUE then RaiseLastOSError;
+      try
+        var Stream:=THandleStream.Create(Handle);
+        try Stream.WriteBuffer(Raw[0],Length(Raw)); finally Stream.Free; end;
+        if not FlushFileBuffers(Handle) then RaiseLastOSError;
+      finally CloseHandle(Handle); end;
+      Point('group-proof-written',FDirectory,Prepared.ID,0); CheckStop;
+      if not MoveFileEx(PChar(DeletionNativePath(Temporary)),PChar(DeletionNativePath(Path)),MOVEFILE_WRITE_THROUGH) then RaiseLastOSError;
+      Point('group-proof-published',FDirectory,Prepared.ID,0);
+    end;
+    var Existing:=ReadGroupProof(Path,Result,Key); Existing.Free;
+    FState.ExecSQL('CREATE TABLE IF NOT EXISTS GroupProof(GroupID INTEGER PRIMARY KEY,FileKey TEXT NOT NULL,SHA256 TEXT NOT NULL)');
+    FState.ExecSQL('BEGIN');
+    try
+      State:=FState.NewQuery('SELECT FileKey,SHA256 FROM GroupProof WHERE GroupID=?',[Prepared.ID]); State.Open;
+      if not State.Eof and ((State.FieldAsString(0)<>Key) or (State.FieldAsString(1)<>Result)) then
+        raise EReadError.Create('Сохранённое подтверждение группы изменилось.');
+      FreeAndNil(State);
+      FState.ExecSQL('INSERT OR IGNORE INTO GroupProof VALUES(?,?,?)',[Prepared.ID,Key,Result]);
+      Point('group-proof-before-commit',FDirectory,Prepared.ID,0); CheckStop;
+      FState.ExecSQL('COMMIT'); Point('group-proof-after-commit',FDirectory,Prepared.ID,0);
+    except if FState.InTransaction then FState.Rollback; raise; end;
+  finally State.Free; Q.Free; Data.Free; Copies.Free; FCancelled:=Previous; end;
+end;
+
+function TCollectionTransferJournal.RecoverPreparedGroup(GroupID:Int64; const ExpectedProofSHA:string;
+  const Cancelled:TFunc<Boolean>):TPreparedTransferGroup;
+var Previous:TFunc<Boolean>; Data:TJSONObject; Q:TSQLiteQuery; Job:TCollectionTransferCopy;
+  Prepared:TTransferPreparedCopy; IDs:TDictionary<Int64,Boolean>; Key:string;
+begin
+  Result:=nil; Previous:=FCancelled; FCancelled:=Cancelled; Data:=nil; Q:=nil; Job:=nil; Prepared:=nil;
+  IDs:=TDictionary<Int64,Boolean>.Create;
+  try
+    CheckStop;
+    if (Length(ExpectedProofSHA)<>64) or (FReview.QuerySingleInt('SELECT count(*) FROM Groups WHERE ID=?',[GroupID])<>1) then
+      raise EArgumentException.Create('Нужно независимо сохранённое подтверждение этой группы.');
+    for var C in ExpectedProofSHA do
+      if not CharInSet(C,['0'..'9','a'..'f','A'..'F']) then raise EArgumentException.Create('Неверная контрольная сумма подтверждения группы.');
+    if FState.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE type=''table'' AND name=''GroupProof''')<>1 then
+      raise EReadError.Create('Нет сохранённого подтверждения подготовленной группы.');
+    Q:=FState.NewQuery('SELECT FileKey,SHA256 FROM GroupProof WHERE GroupID=?',[GroupID]); Q.Open;
+    if Q.Eof or not SameText(Q.FieldAsString(1),ExpectedProofSHA) then raise EReadError.Create('Состояние группы не совпало с независимым подтверждением.');
+    var ExpectedKey:=Q.FieldAsString(0); FreeAndNil(Q);
+    Data:=ReadGroupProof(TPath.Combine(FDirectory,'prepared-group-'+IntToStr(GroupID)+'.json'),ExpectedProofSHA,Key);
+    if (Key<>ExpectedKey) or (Data.GetValue<string>('kind')<>'HomeLibre prepared transfer group v1') or
+      (Data.GetValue<string>('operation')<>Meta('directory')) or (Data.GetValue<string>('review_sha256')<>FReviewSHA) or
+      (Data.GetValue<Int64>('group')<>GroupID) then raise EReadError.Create('Подтверждение относится к другой группе или заменено.');
+    var Files:=Data.GetValue<TJSONArray>('files');
+    if (Files=nil) or (Files.Count<>FReview.QuerySingleInt('SELECT count(*) FROM Files WHERE GroupID=?',[GroupID])) then
+      raise EReadError.Create('В подтверждении неполная группа файлов.');
+    Result:=TPreparedTransferGroup.Create(GroupID);
+    try
+      for var Value in Files do
+      begin
+        CheckStop;
+        if not (Value is TJSONObject) then raise EReadError.Create('Повреждена запись файла в подтверждении группы.');
+        var Row:=TJSONObject(Value); var ID:=Row.GetValue<Int64>('id');
+        if IDs.ContainsKey(ID) then raise EReadError.Create('Файл повторяется в подтверждении группы.'); IDs.Add(ID,True);
+        Q:=FReview.NewQuery('SELECT Source,Destination,Identity,Bytes,KeepInPlace,ExternalImages FROM Files WHERE ID=? AND GroupID=?',[ID,GroupID]); Q.Open;
+        if Q.Eof then raise EReadError.Create('В подтверждении файл другой группы.');
+        var Entry:=FileEntry(Q); FreeAndNil(Q);
+        var Child:=CheckedProofChild(Row.GetValue<string>('child'));
+        Job:=TCollectionTransferCopy.Resume(FCopiesRoot,FDestination,TPath.Combine(FCopiesRoot,Child),Entry);
+        var Proof:TTransferDestinationProof;
+        Proof.Identity:=Row.GetValue<string>('identity'); Proof.SHA256:=Row.GetValue<string>('sha256'); Proof.StreamsJSON:=Row.GetValue<string>('streams');
+        Prepared:=Job.VerifyDestination(Proof,function:Boolean begin CheckStop; Result:=False; end);
+        Result.FFiles.Add(ID); Result.FCopies.Add(Prepared); Prepared:=nil; FreeAndNil(Job);
+        Point('group-destination-verified',FDirectory,GroupID,ID);
+      end;
+      var Verified:=ValidateTransferResources(FReview,Result,function:Boolean begin CheckStop; Result:=False; end,False);
+      if Verified.SHA256<>Data.GetValue<string>('resources_sha256') then raise EReadError.Create('Восстановленный набор картинок отличается от сохранённого.');
+      Point('group-destinations-verified',FDirectory,GroupID,0); CheckStop;
+    except Result.Free; Result:=nil; raise; end;
+  finally Prepared.Free; Job.Free; Q.Free; Data.Free; IDs.Free; FCancelled:=Previous; end;
 end;
 
 function TCollectionTransferJournal.ResourceValidationCount:Integer;

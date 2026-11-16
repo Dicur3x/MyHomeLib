@@ -101,7 +101,7 @@ class TransferLocationTests(unittest.TestCase):
 
     def run_case(self,expected=0):
         payloads=self.payloads();before=self.pending or self.snapshots()
-        process=subprocess.run(self.command(),cwd=self.home,capture_output=True,timeout=90,
+        process=subprocess.run(self.command(),cwd=self.home,capture_output=True,timeout=getattr(self,'native_timeout',90),
             creationflags=subprocess.CREATE_NO_WINDOW | subprocess.BELOW_NORMAL_PRIORITY_CLASS,
             env={**os.environ,'TEMP':str(self.home),'TMP':str(self.home)})
         entry=dict(test=self.id(),request=dict(self.config),expected=expected,returncode=process.returncode,

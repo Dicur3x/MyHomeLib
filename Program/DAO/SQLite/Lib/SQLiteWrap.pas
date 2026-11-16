@@ -69,7 +69,7 @@ type
       Pass FileName as AnsiString (if you are not using Unicode Delphi version)
       or as UnicodeString (on Delphi 2009 and higher)!
     }
-    constructor Create(const FileName: string);
+    constructor Create(const FileName: string; EnableWAL: Boolean = True);
     // OPDS opens its own connection without creating or changing a database.
     constructor CreateReadOnly(const FileName: string);
 
@@ -354,7 +354,7 @@ begin
   try CopyDatabase(Source, Self, Progress); finally Source.Free; end;
 end;
 
-constructor TSQLiteDatabase.Create(const FileName: string);
+constructor TSQLiteDatabase.Create(const FileName: string; EnableWAL: Boolean);
 var
   s: string;
 {$IFDEF MHL_SQL_PROFILE}
@@ -378,7 +378,7 @@ begin
     // Imports and background updates can briefly overlap on different cached
     // connections. Wait for the writer instead of failing immediately.
     SetTimeout(10000);
-    QuerySingleString('PRAGMA journal_mode = WAL');
+    if EnableWAL then QuerySingleString('PRAGMA journal_mode = WAL');
     ExecSQL('PRAGMA synchronous = NORMAL');
     ExecSQL('PRAGMA temp_store = MEMORY');
 {$IFDEF WIN64}

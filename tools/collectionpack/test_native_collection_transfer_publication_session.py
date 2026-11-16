@@ -32,6 +32,9 @@ class TransferPublicationSessionTests(location_fixture.TransferLocationTests):
         super().check_metadata(before)
 
     def test_one_scan_for_many_independent_archive_groups(self):
+        # This case flushes 26 complete journals; allow bounded disk contention
+        # without weakening the one-capture, content or ownership assertions.
+        self.native_timeout=180
         with fixture.connect(self.catalogue) as db:
             for i in range(24):
                 name=f'part-{i}.zip';self.write_zip(self.a/name,b'additional private carrier')

@@ -12,7 +12,7 @@ end;
 // Prepared leases keep all verified streams immutable. Native discovery at the
 // new owner path must select exactly the mapped cover/image archives.
 function ValidateTransferResources(Review:TSQLiteDatabase; Prepared:TPreparedTransferGroup;
-  const Cancelled:TFunc<Boolean> = nil):TTransferResourceValidation;
+  const Cancelled:TFunc<Boolean> = nil; RequireSources:Boolean=True):TTransferResourceValidation;
 
 implementation
 
@@ -20,7 +20,7 @@ uses System.Classes, System.JSON, System.Hash, System.Generics.Collections,
   unit_CollectionTransferCopy, unit_CollectionTransferPlan;
 
 function ValidateTransferResources(Review:TSQLiteDatabase; Prepared:TPreparedTransferGroup;
-  const Cancelled:TFunc<Boolean>):TTransferResourceValidation;
+  const Cancelled:TFunc<Boolean>; RequireSources:Boolean):TTransferResourceValidation;
 var Copies:TDictionary<Int64,TTransferPreparedCopy>; Paths:TDictionary<string,Int64>;
   Q:TSQLiteQuery; Proof:TJSONArray;
   procedure Stop;
@@ -50,7 +50,8 @@ begin
       Stop; var Item:TTransferPreparedCopy;
       if not Copies.TryGetValue(Q.FieldAsInt(0),Item) or (Item.Source<>Q.FieldAsString(1)) or
         (Item.Destination<>Q.FieldAsString(2)) then raise EReadError.Create('В проверенной группе другой файл.');
-      Item.CheckUnchanged(Q.FieldAsString(3),Cancelled);
+      if RequireSources then Item.CheckUnchanged(Q.FieldAsString(3),Cancelled)
+      else Item.CheckDestinationUnchanged(Cancelled);
       Paths.Add(Item.Source,Q.FieldAsInt(0));
       var Row:=TJSONArray.Create; Proof.AddElement(Row);
       Row.Add(Q.FieldAsInt(0)); Row.Add(Item.Source); Row.Add(Item.Destination); Row.Add(Q.FieldAsString(3));
@@ -64,8 +65,9 @@ begin
       Stop; var Owner:=Copies[Q.FieldAsInt(0)]; var Old:=JSONPaths(Q.FieldAsString(1));
       var Fresh:TJSONArray:=nil;
       try
-        if TransferImageSourcesSnapshot(Owner.Source)<>Q.FieldAsString(1) then
-          raise EReadError.Create('Исходный набор внешних картинок изменился.');
+        if RequireSources then
+          if TransferImageSourcesSnapshot(Owner.Source)<>Q.FieldAsString(1) then
+            raise EReadError.Create('Исходный набор внешних картинок изменился.');
         Fresh:=JSONPaths(TransferImageSourcesSnapshot(Owner.Destination));
         if Fresh.Count<>Old.Count then raise EReadError.Create('Новый путь меняет набор внешних картинок.');
         var Row:=TJSONArray.Create; Proof.AddElement(Row); Row.Add(Q.FieldAsInt(0));

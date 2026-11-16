@@ -744,9 +744,9 @@ begin
   Result:=nil; Snapshot:=nil; FCancelled:=Cancelled; FProgress:=Progress;
   try
     CheckStop;
-    if FEntry.KeepInPlace or (Length(Expected.Identity)<>59) or (Length(Expected.SHA256)<>64) or
+    if (Length(Expected.Identity)<>59) or (Length(Expected.SHA256)<>64) or
       (Expected.StreamsJSON='') or (Length(Expected.StreamsJSON)>MaxJSONBytes) then
-      raise EArgumentException.Create('Нужен сохранённый результат отдельной проверенной копии.');
+      raise EArgumentException.Create('Нужен сохранённый результат проверенного файла.');
     for var C in Expected.SHA256 do
       if not CharInSet(C,['0'..'9','a'..'f']) then raise EArgumentException.Create('Неверная контрольная сумма результата.');
     if (Text('phase')<>'ready') or (Text('identity')<>Expected.Identity) or
