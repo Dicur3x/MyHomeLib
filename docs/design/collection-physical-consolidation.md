@@ -114,7 +114,9 @@ The final-row transaction primitive now applies the reviewed missing-book
 locators and explicit alternate-copy roots, with database identity checks,
 unchanged locator identity, absence checks, per-database intent-bound receipts
 and read-only verification. It does not recreate deleted personal cards or
-overwrite changed receipts. Default roots and source/profile settings remain
+overwrite changed receipts. Changing a copy root must preserve its current
+native logical address/format; an unpublished relative address prevents that
+change and rolls back the transaction. Default roots and source/profile settings remain
 separate; the owning finalization controller still needs independent durable
 intent, final-aware resume and coordinated commits before this can be enabled
 in the normal move flow. See

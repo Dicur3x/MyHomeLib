@@ -41,6 +41,12 @@ class TransferFinalRowsTests(operation_fixture.TransferOperationTests):
             return db.execute('select * from HomeLibreTransferFinalRows').fetchone()
 
     def check_metadata(self,before):
+        if getattr(self,'expect_all_metadata_unchanged',False):
+            # This deliberately stale available locator must remain stale on
+            # refusal. The ordinary observer otherwise models its prior location
+            # receipt as an instruction to publish it again.
+            self.assertEqual(self.snapshots(),before)
+            return
         # Independent expected changes for the known missing archive fixtures.
         # The existing verifier then compares every existing table/field and
         # models ordinary available-file publication separately.
@@ -134,3 +140,12 @@ class TransferFinalRowsTests(operation_fixture.TransferOperationTests):
         before=self.snapshots()
         self.assertIn('Квитанция итоговых адресов',self.rows_only('fail',verify_final_rows=True))
         self.assertEqual(self.snapshots(),before);self.assertEqual(self.receipt(self.catalogue)[4],'0'*64)
+
+    def test_unpublished_relative_copy_address_prevents_root_change_and_rolls_back(self):
+        self.config['final_rows']=False;self.run_case()
+        with fixture.connect(self.catalogue) as db:
+            db.execute("update CatalogBookCopies set Folder='same.zip' where SourceKey='b:file:stable-copy'")
+        before=self.snapshots()
+        self.expect_all_metadata_unchanged=True
+        self.assertIn('несохранённым адресом',self.rows_only('fail'))
+        self.assertEqual(self.snapshots(),before);self.assertIsNone(self.receipt(self.catalogue))

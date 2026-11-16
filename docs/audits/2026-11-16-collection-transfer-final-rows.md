@@ -77,10 +77,46 @@ copy roots work; a deleted missing personal card stays deleted; a changed receip
 is refused without repair. The source-registration fork/replay regression passes
 with the new driver branch disabled.
 
-Final modified native SHA-256 values:
+Initial modified native SHA-256 values for r906/r907:
 
 - `unit_CollectionTransferFinalRows.pas`: `9154611458624326b749e011f5003b2f26b4519a1f3a356b2e6b85bd57a78428`.
 - `CollectionTransferJournalTest.dpr`: `244437dd65fac55903964efaa962e2fa702863cf56ce533103c335df27ac72fe`.
+
+## Copy-root semantic guard
+
+A final review identified an extra boundary: changing Root must not silently
+redirect an available copy whose relative Folder has not actually been
+published, or which deliberately retains an old address. Before a changed copy
+root can be written, the primitive now compares the native logical file path
+and book format with the old/new root. A relative unpublished locator which
+changes its meaning is refused, rolling back earlier missing-row writes too.
+Already published absolute and reviewed future locators retain their meaning.
+This guard does not replace whole-operation available-location receipt checks.
+
+Final licensed builds are Win64 r912, SHA-256
+`53aa52168617efd52a416e20f7ad93726b7f375f534ba6fef14a95c8829f3a81`,
+and Win32 r913, SHA-256
+`6e3c1ea636e1b258e03b495a55b017088d33dfae6622fd7fa17b6fa84e4218ed`.
+The final row unit hash is
+`f6641ecb563883cea45a2eae5ea8c0b3165ee6c7da1d8a2426816d4e4d6211b7`;
+the driver is unchanged.
+
+The ordinary final apply/readonly verify and relative-root methods passed on
+x64 r914. Its third negative method received the expected native refusal, but
+the ordinary observer incorrectly treated a previous group receipt as an
+instruction to restore the intentionally stale Folder. This observer failure
+is retained: r914 is not a passing matrix. For this negative case the corrected
+observer directly compares complete before/after schema/table snapshots, with
+no projected mutation allowance. The negative method passes alone in x64 r916
+(26.957 s); all three methods pass together in x86 r915 (58.110 s). r914's two
+passing methods account for three calls; its two observer-failed-method calls
+are excluded from passing evidence. All three owned runtimes were removed.
+
+Including the earlier row stages, eight new methods and one existing regression
+pass per architecture: 42 native invocations belonging to passing methods,
+including ten expected refusals, no forced exits/unexpected returns/skips.
+The two additional observer-failed invocations remain separately recorded.
+Each stage summary retains its actual status, input hashes and cleanup.
 
 ## Remaining gates
 

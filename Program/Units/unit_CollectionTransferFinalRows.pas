@@ -16,7 +16,7 @@ function ApplyTransferFinalRows(DB,Personal,Review:TSQLiteDatabase;
 
 implementation
 
-uses System.Classes, System.Hash, System.JSON, Winapi.Windows, SQLite3,
+uses System.Classes, System.Hash, System.JSON, System.IOUtils, Winapi.Windows, SQLite3, unit_Globals,
   unit_CollectionTransferLayout, unit_BookCompressionReceipt, unit_ZipMemberDeletion, unit_Settings, dm_user;
 
 const ReceiptTable='HomeLibreTransferFinalRows';
@@ -144,7 +144,7 @@ begin
         var After:=Layout.RelocatePath(Settings.ExpandCollectionRoot(Before));
         BindFinalRow(Hash,['copy-root',Bindings.FieldAsString(0),Bindings.FieldAsString(1),Bindings.FieldAsString(2),
           Bindings.FieldAsString(3),Bindings.FieldAsString(4),Before,After]);
-        Live:=DB.NewQuery('SELECT BookID,LibID,Ext,InsideNo,Root FROM CatalogBookCopies WHERE SourceKey=?',[Bindings.FieldAsString(1)]);
+        Live:=DB.NewQuery('SELECT BookID,LibID,Ext,InsideNo,Root,Folder,FileName FROM CatalogBookCopies WHERE SourceKey=?',[Bindings.FieldAsString(1)]);
         Live.Open;
         if Live.Eof or (Live.FieldAsInt(0)<>Bindings.FieldAsInt(0)) or
           (Live.FieldAsString(1)<>Bindings.FieldAsString(2)) or (Live.FieldAsString(2)<>Bindings.FieldAsString(3)) or
@@ -152,7 +152,22 @@ begin
           not ((Live.FieldAsString(4)=Before) or (Live.FieldAsString(4)=After)) or
           ((Marked or VerifyOnly) and (Live.FieldAsString(4)<>After)) then
           raise EReadError.Create('Дополнительная копия изменилась перед сохранением итоговой папки.');
-        var Changed:=Live.FieldAsString(4)<>After; FreeAndNil(Live);
+        var Changed:=Live.FieldAsString(4)<>After;
+        if Changed and (Live.FieldAsString(6)<>'') then
+        begin
+          // Root publication must not silently move an unpublished/retained
+          // relative locator. Published and future locators are already absolute.
+          var OldBook:=Default(TBookRecord); OldBook.CollectionRoot:=Settings.ExpandCollectionRoot(Live.FieldAsString(4));
+          OldBook.LibID:=Live.FieldAsString(1); OldBook.FileExt:=Live.FieldAsString(2); OldBook.InsideNo:=Live.FieldAsInt(3);
+          OldBook.Folder:=Live.FieldAsString(5); OldBook.FileName:=Live.FieldAsString(6);
+          var NewBook:=OldBook; NewBook.CollectionRoot:=After;
+          var OldContainer:=TPath.Combine(OldBook.CollectionRoot,OldBook.Folder);
+          var NewContainer:=TPath.Combine(NewBook.CollectionRoot,NewBook.Folder);
+          if (OldBook.GetBookFormat(OldContainer)<>NewBook.GetBookFormat(NewContainer)) or
+            not SameFileName(ExpandFileName(OldBook.GetBookFileName(OldContainer)),ExpandFileName(NewBook.GetBookFileName(NewContainer))) then
+            raise EReadError.Create('Нельзя менять итоговую папку копии с несохранённым адресом книги.');
+        end;
+        FreeAndNil(Live);
         if Changed then
         begin
           DB.ExecSQL('UPDATE CatalogBookCopies SET Root=? WHERE SourceKey=?',[After,Bindings.FieldAsString(1)]);
