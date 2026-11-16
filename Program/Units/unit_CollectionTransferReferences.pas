@@ -7,7 +7,8 @@ uses System.SysUtils, SQLiteWrap;
 // Writes only the owning transfer's not-yet-sealed review. Registered catalogue
 // and personal databases stay read-only. Unknown references retain originals.
 procedure CaptureTransferReferences(Review:TSQLiteDatabase; const PersonalFile:string;
-  const Cancelled:TFunc<Boolean> = nil; const Progress:TProc<Int64> = nil);
+  const Cancelled:TFunc<Boolean> = nil; const Progress:TProc<Int64> = nil;
+  const ExtraTargets:TProc<TSQLiteDatabase> = nil);
 function TransferReferenceConflictCount(Review:TSQLiteDatabase):Int64;
 function TransferReferenceRequiresRetention(Review:TSQLiteDatabase; FileID:Int64):Boolean;
 
@@ -33,6 +34,7 @@ type
     FReview,FPersonal:TSQLiteDatabase;
     FCancelled:TFunc<Boolean>;
     FProgress:TProc<Int64>;
+    FExtraTargets:TProc<TSQLiteDatabase>;
     FExamined:Int64;
     FPaths:TDictionary<string,TPathInfo>;
     FContainers,FRootCanonical:TDictionary<string,string>;
@@ -56,7 +58,8 @@ type
     procedure SetRoots(const DefaultRoot,SourceJSON:string);
   public
     constructor Create(Review:TSQLiteDatabase; const PersonalFile:string;
-      const Cancelled:TFunc<Boolean>; const Progress:TProc<Int64>);
+      const Cancelled:TFunc<Boolean>; const Progress:TProc<Int64>;
+      const ExtraTargets:TProc<TSQLiteDatabase>);
     destructor Destroy; override;
     procedure Run;
   end;
@@ -287,9 +290,10 @@ begin
 end;
 
 constructor TReferenceScan.Create(Review:TSQLiteDatabase; const PersonalFile:string;
-  const Cancelled:TFunc<Boolean>; const Progress:TProc<Int64>);
+  const Cancelled:TFunc<Boolean>; const Progress:TProc<Int64>;
+  const ExtraTargets:TProc<TSQLiteDatabase>);
 begin
-  inherited Create; FReview:=Review; FCancelled:=Cancelled; FProgress:=Progress;
+  inherited Create; FReview:=Review; FCancelled:=Cancelled; FProgress:=Progress; FExtraTargets:=ExtraTargets;
   if (FReview=nil) or not FReview.InTransaction or
     (FReview.QuerySingleString('SELECT Value FROM Context WHERE Name=''kind''')<>'HomeLibre collection transfer preparation v1') or
     (CompressionFileKey(PersonalFile)<>FReview.QuerySingleString('SELECT Value FROM Context WHERE Name=''personal_key''')) then
@@ -314,6 +318,7 @@ var Q:TSQLiteQuery; Info:TCollectionInfo; DB:TSQLiteDatabase; Key,SourceJSON:str
 begin
   FReview.ExecSQL('CREATE TABLE ReferenceTargets(FileKey TEXT PRIMARY KEY,FileID INTEGER NOT NULL) WITHOUT ROWID');
   FReview.ExecSQL('INSERT INTO ReferenceTargets SELECT substr(Identity,1,25),ID FROM Files');
+  if Assigned(FExtraTargets) then FExtraTargets(FReview);
   FReview.ExecSQL('CREATE TABLE ReferenceRegistrations(RegistrationID INTEGER PRIMARY KEY,Name TEXT,RawCatalogue TEXT,RawRoot TEXT,'+
     'Code INTEGER,Catalogue TEXT,Root TEXT,CatalogueKey TEXT,State TEXT,Reason TEXT,SourcesJSON TEXT)');
   FReview.ExecSQL('CREATE INDEX ReferenceRegistrations_Key ON ReferenceRegistrations(CatalogueKey)');
@@ -391,9 +396,10 @@ begin
 end;
 
 procedure CaptureTransferReferences(Review:TSQLiteDatabase; const PersonalFile:string;
-  const Cancelled:TFunc<Boolean>; const Progress:TProc<Int64>);
+  const Cancelled:TFunc<Boolean>; const Progress:TProc<Int64>;
+  const ExtraTargets:TProc<TSQLiteDatabase>);
 begin
-  var Scan:=TReferenceScan.Create(Review,PersonalFile,Cancelled,Progress);
+  var Scan:=TReferenceScan.Create(Review,PersonalFile,Cancelled,Progress,ExtraTargets);
   try Scan.Run; finally Scan.Free; end;
 end;
 

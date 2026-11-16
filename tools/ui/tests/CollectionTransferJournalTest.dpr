@@ -136,6 +136,18 @@ begin
             if (Stage='child-prepared') and Request.GetValue<Boolean>('cancel_after_file',False) then Stop:=True;
             if (Stage='fork-before-personal-commit') and Request.GetValue<Boolean>('cancel_fork_commit',False) then Stop:=True;
             if (Stage='locations-before-catalogue-commit') and Request.GetValue<Boolean>('cancel_location_commit',False) then Stop:=True;
+            if (Stage='references-before-publication') and Request.GetValue<Boolean>('cancel_publication_fence',False) then Stop:=True;
+            if (Stage='references-before-publication') and (Request.GetValue<string>('wait_publication_fence','')<>'') then
+            begin
+              var Release:=Owned(Request.GetValue<string>('wait_publication_fence'));
+              TFile.WriteAllText(Release+'.waiting','locked',TEncoding.UTF8);
+              var Started:=GetTickCount64;
+              while not FileExists(Release) do
+              begin
+                if GetTickCount64-Started>20000 then raise EAbort.Create('Publication fence fixture wait expired');
+                Sleep(25);
+              end;
+            end;
           end;
         if Request.GetValue<Boolean>('publish_forks',False) or Request.GetValue<Boolean>('apply_locations',False) then
           Journal.PublishCatalogueForks(function:Boolean begin Result:=Stop; end);

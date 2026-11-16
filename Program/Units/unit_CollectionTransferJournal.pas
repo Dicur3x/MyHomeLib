@@ -84,7 +84,8 @@ implementation
 
 uses System.IOUtils, System.JSON, System.Hash, unit_Globals, unit_Consts,
   unit_Settings, dm_user, unit_BookCompressionReceipt, unit_ZipMemberDeletion,
-  unit_CollectionTransferReferences, unit_CollectionTransferForks, unit_CollectionTransferLocations;
+  unit_CollectionTransferReferences, unit_CollectionTransferForks, unit_CollectionTransferLocations,
+  unit_CollectionTransferReferenceFence;
 
 const JournalKind='HomeLibre collection transfer preparation v1';
   Prefix='collection-transfer-';
@@ -789,17 +790,20 @@ end;
 procedure TCollectionTransferJournal.PublishGroupLocations(Prepared:TPreparedTransferGroup; const Cancelled:TFunc<Boolean>);
 var Personal,DB:TSQLiteDatabase; Lists:TObjectDictionary<string,TList<Integer>>;
   Paths:TDictionary<string,string>; IDs:TList<Integer>; Q:TSQLiteQuery; Leases:TList<IInterface>;
+  Databases:TObjectDictionary<string,TSQLiteDatabase>;
 begin
   if (Prepared=nil) or (Prepared.Count=0) or
     (FReview.QuerySingleInt('SELECT count(*) FROM Files WHERE GroupID=?',[Prepared.ID])<>Prepared.Count) then
     raise EArgumentException.Create('Для адресов нужна полная проверенная группа.');
   PublishCatalogueForks(Cancelled); FCancelled:=Cancelled;
   Lists:=TObjectDictionary<string,TList<Integer>>.Create([doOwnsValues]); Paths:=TDictionary<string,string>.Create;
+  Databases:=TObjectDictionary<string,TSQLiteDatabase>.Create([doOwnsValues]);
   IDs:=TList<Integer>.Create; Leases:=TList<IInterface>.Create; Personal:=nil; DB:=nil; Q:=nil;
   try
     CheckStop; CheckRoots; CheckNegativePaths; CheckGroupImages(Prepared.ID);
     Leases.Add(AcquireCompressionDatabaseLease(Meta('personal'),Meta('personal_key')));
-    Personal:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(Meta('personal')));
+    Personal:=TSQLiteDatabase.Create(DeletionNativePath(Meta('personal')));
+    Personal.ExecSQL('PRAGMA synchronous=FULL'); Personal.ExecSQL('BEGIN IMMEDIATE');
     Q:=FReview.NewQuery('SELECT RegistrationID,State FROM ReferenceRegistrations ORDER BY RegistrationID'); Q.Open;
     while not Q.Eof do
     begin
@@ -817,10 +821,23 @@ begin
       Q.Next;
     end;
     FreeAndNil(Q);
+    // Lock every reviewed ready catalogue before the fresh scan. A writer in
+    // another instance cannot introduce a new reference between this scan and
+    // its catalogue commit. All locks roll back on cancellation or rejection.
     for var Pair in Lists do
     begin
       CheckStop; DB:=TSQLiteDatabase.Create(DeletionNativePath(Paths[Pair.Key]));
-      DB.ExecSQL('PRAGMA synchronous=FULL'); DB.ExecSQL('BEGIN IMMEDIATE');
+      Databases.Add(Pair.Key,DB); DB:=nil;
+      Databases[Pair.Key].ExecSQL('PRAGMA synchronous=FULL');
+      Databases[Pair.Key].ExecSQL('BEGIN IMMEDIATE');
+    end;
+    CheckTransferPublicationReferences(FReview,Meta('personal'),FWorkRoot,Prepared,
+      function(CID:Integer):string begin Result:=EffectiveCatalogue(CID); end,
+      function:Boolean begin CheckStop; Result:=False; end);
+    Point('references-before-publication',FDirectory,Prepared.ID,0); CheckStop;
+    for var Pair in Lists do
+    begin
+      CheckStop; DB:=Databases.ExtractPair(Pair.Key).Value;
       try
         ApplyTransferLocations(DB,Personal,FReview,Prepared,Meta('directory'),FReviewSHA,Pair.Value.ToArray,False);
         Point('locations-before-catalogue-commit',FDirectory,Prepared.ID,0); CheckStop;
@@ -828,15 +845,13 @@ begin
       except if DB.InTransaction then DB.Rollback; raise; end;
       FreeAndNil(DB);
     end;
-    FreeAndNil(Personal);
-    CheckStop; Personal:=TSQLiteDatabase.Create(DeletionNativePath(Meta('personal')));
-    Personal.ExecSQL('PRAGMA synchronous=FULL'); Personal.ExecSQL('BEGIN IMMEDIATE');
+    CheckStop;
     try
       ApplyTransferLocations(Personal,Personal,FReview,Prepared,Meta('directory'),FReviewSHA,IDs.ToArray,True);
       Point('locations-before-personal-commit',FDirectory,Prepared.ID,0); CheckStop;
       Personal.ExecSQL('COMMIT'); Point('locations-after-personal-commit',FDirectory,Prepared.ID,0);
     except if Personal.InTransaction then Personal.Rollback; raise; end;
-  finally Q.Free; DB.Free; Personal.Free; Leases.Free; IDs.Free; Paths.Free; Lists.Free; FCancelled:=nil; end;
+  finally Q.Free; DB.Free; Databases.Free; Personal.Free; Leases.Free; IDs.Free; Paths.Free; Lists.Free; FCancelled:=nil; end;
 end;
 
 end.

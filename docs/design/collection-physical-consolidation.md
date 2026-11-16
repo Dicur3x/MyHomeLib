@@ -105,7 +105,7 @@ The parent operation must supply the independent reviewed binding, retain all
 group leases, revalidate original stream sets before cleanup and recover after
 source removal; file-level resume currently requires the original to exist.
 
-## Group publication, stop and recovery (still to implement)
+## Group publication, stop and recovery
 
 The preparation half is implemented in `unit_CollectionTransferJournal`:
 immutable externally bound review, mutable durable state, on-disk connected
@@ -114,7 +114,7 @@ It rechecks live locator fields without restoring older notes/progress. A ready
 copy group remains pending publication and never authorizes original removal.
 See `docs/audits/2026-11-16-collection-transfer-journal.md` for native crash/resume
 evidence and the remaining whole-operation gates. Pending-job discovery and the
-publication/cleanup halves are not implemented by that journal. Its frozen
+whole-operation publication/cleanup are not implemented by that journal. Its frozen
 review now also inventories other registrations and their personal locators by
 physical file ID, captures shared-database row conflicts, and records unknown
 catalogues or unsupported path/resource aliases as retention requirements.
@@ -145,7 +145,14 @@ process interruption (see `docs/audits/2026-11-16-collection-transfer-forks.md`)
 The journal's group locator publisher now uses that effective-catalogue mapping
 and commits each database's locators/history with a matching publication receipt.
 See `docs/audits/2026-11-16-collection-transfer-locations.md` for its native
-validation and remaining fresh-reference/session gates. The normal UI still has to close conflicting writable DAO
+validation. A fresh disk-backed reference scan now precedes locator commits,
+while the personal store and every reviewed ready catalogue hold write
+transactions. New archive references, registrations, source metadata or newly
+unreadable catalogues require a renewed plan before this group changes. New
+personal cards for an approved main book and unrelated books remain allowed.
+See `docs/audits/2026-11-16-collection-transfer-reference-fence.md` for the native
+scope and remaining whole-operation/live-cleanup/scale gates. The normal UI
+still has to close conflicting writable DAO
 connections, block other pending compression/update jobs, refresh registrations
 after a fork commit and account for snapshot/fork space. Fork publication keeps
 the initial book root; final root publication needs its own durable marker and
