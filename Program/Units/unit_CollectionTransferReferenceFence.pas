@@ -2,73 +2,81 @@
 
 interface
 
-uses System.SysUtils, SQLiteWrap, unit_CollectionTransferJournal;
+uses System.SysUtils, SQLiteWrap, unit_CollectionTransferJournal, unit_BookCompressionPlanStore;
 
-// Caller holds BEGIN IMMEDIATE on personal and all reviewed ready catalogues.
-// Re-scan current references before publishing any archive locator. This is not
-// a source-removal authorization; another live session is needed before unlink.
+type TTransferReferenceSnapshot=class
+  private
+    FReview:TSQLiteDatabase;
+    FStore:TCompressionPlanStore;
+    FCancelled:TFunc<Boolean>;
+    procedure Stop;
+    procedure Changed;
+  public
+    // Caller holds writer transactions on personal and every ready catalogue.
+    constructor Create(Review:TSQLiteDatabase; const PersonalFile,WorkRoot:string;
+      const EffectiveCatalogue:TFunc<Integer,string>; const ExtraTargets:TProc<TSQLiteDatabase>;
+      const Cancelled:TFunc<Boolean>);
+    destructor Destroy; override;
+    procedure CheckGroup(Prepared:TPreparedTransferGroup);
+end;
+
 procedure CheckTransferPublicationReferences(Review:TSQLiteDatabase;
   const PersonalFile,WorkRoot:string; Prepared:TPreparedTransferGroup;
   const EffectiveCatalogue:TFunc<Integer,string>; const Cancelled:TFunc<Boolean>);
 
 implementation
 
-uses System.Classes, unit_BookCompressionPlanStore, unit_CollectionTransferReferences,
-  unit_BookCompressionReceipt;
+uses System.Classes, unit_CollectionTransferReferences, unit_BookCompressionReceipt;
 
-procedure CheckTransferPublicationReferences(Review:TSQLiteDatabase;
-  const PersonalFile,WorkRoot:string; Prepared:TPreparedTransferGroup;
-  const EffectiveCatalogue:TFunc<Integer,string>; const Cancelled:TFunc<Boolean>);
-var Store:TCompressionPlanStore; Fresh,Q,Found:TSQLiteQuery; DB:TSQLiteDatabase;
-  procedure Stop;
-  begin
-    if Assigned(Cancelled) and Cancelled() then
-      raise EAbort.Create('Проверка новых ссылок остановлена. Исходные книги сохранены.');
-  end;
-  procedure Changed;
-  begin
-    raise EReadError.Create('Ссылки на переносимые файлы или подключения изменились. '+
-      'Нужен новый план переноса; исходные книги сохранены.');
-  end;
+procedure TTransferReferenceSnapshot.Stop;
 begin
-  if (Review=nil) or (Prepared=nil) or not Assigned(EffectiveCatalogue) then
+  if Assigned(FCancelled) and FCancelled() then
+    raise EAbort.Create('Проверка новых ссылок остановлена. Исходные книги сохранены.');
+end;
+
+procedure TTransferReferenceSnapshot.Changed;
+begin
+  raise EReadError.Create('Ссылки на переносимые файлы или подключения изменились. '+
+    'Нужен новый план переноса; исходные книги сохранены.');
+end;
+
+constructor TTransferReferenceSnapshot.Create(Review:TSQLiteDatabase;
+  const PersonalFile,WorkRoot:string; const EffectiveCatalogue:TFunc<Integer,string>;
+  const ExtraTargets:TProc<TSQLiteDatabase>; const Cancelled:TFunc<Boolean>);
+var Fresh,Q,Found:TSQLiteQuery; DB:TSQLiteDatabase;
+begin
+  inherited Create; FReview:=Review; FCancelled:=Cancelled;
+  if (Review=nil) or not Assigned(EffectiveCatalogue) then
     raise EArgumentException.Create('Нужна проверенная группа для повторной проверки ссылок.');
-  Store:=TCompressionPlanStore.Create(WorkRoot); Fresh:=nil; Q:=nil; Found:=nil;
+  FStore:=TCompressionPlanStore.Create(WorkRoot); Fresh:=nil; Q:=nil; Found:=nil;
   try
-    DB:=Store.DB; DB.ExecSQL('BEGIN');
+    DB:=FStore.DB; DB.ExecSQL('BEGIN');
     DB.ExecSQL('CREATE TABLE Context(Name TEXT PRIMARY KEY,Value TEXT) WITHOUT ROWID');
-    Q:=Review.NewQuery('SELECT Name,Value FROM Context'); Q.Open;
+    Q:=FReview.NewQuery('SELECT Name,Value FROM Context'); Q.Open;
     while not Q.Eof do begin DB.ExecSQL('INSERT INTO Context VALUES(?,?)',[Q.FieldAsString(0),Q.FieldAsString(1)]); Q.Next; end;
     FreeAndNil(Q);
     DB.ExecSQL('DELETE FROM Context WHERE Name=''reference_rows''');
     DB.ExecSQL('CREATE TABLE Files(ID INTEGER PRIMARY KEY,Identity TEXT,GroupID INTEGER)');
-    Q:=Review.NewQuery('SELECT ID,Identity,GroupID FROM Files'); Q.Open;
+    Q:=FReview.NewQuery('SELECT ID,Identity,GroupID FROM Files'); Q.Open;
     while not Q.Eof do
     begin
       Stop; DB.ExecSQL('INSERT INTO Files VALUES(?,?,?)',[Q.FieldAsInt(0),Q.FieldAsString(1),Q.FieldAsInt(2)]); Q.Next;
     end;
     FreeAndNil(Q);
+    DB.ExecSQL('CREATE INDEX PublicationFilesGroup ON Files(GroupID,ID)');
     DB.ExecSQL('CREATE TABLE Edges(OwnerID INTEGER,FileID INTEGER,PRIMARY KEY(OwnerID,FileID)) WITHOUT ROWID');
-    Q:=Review.NewQuery('SELECT OwnerID,FileID FROM Edges'); Q.Open;
+    Q:=FReview.NewQuery('SELECT OwnerID,FileID FROM Edges'); Q.Open;
     while not Q.Eof do begin DB.ExecSQL('INSERT OR IGNORE INTO Edges VALUES(?,?)',[Q.FieldAsInt(0),Q.FieldAsInt(1)]); Q.Next; end;
     FreeAndNil(Q);
-    CaptureTransferReferences(DB,PersonalFile,Cancelled,nil,
-      procedure(Targets:TSQLiteDatabase)
-      begin
-        // Already published rows resolve to the copied file's new physical ID.
-        // Only complete, leased and verified copies can introduce that alias.
-        for var I:=0 to Prepared.Count-1 do
-          Targets.ExecSQL('INSERT OR IGNORE INTO ReferenceTargets VALUES(?,?)',
-            [Copy(Prepared.CopyAt(I).Identity,1,25),Prepared.FileID(I)]);
-      end);
+    CaptureTransferReferences(DB,PersonalFile,Cancelled,nil,ExtraTargets);
     if TransferReferenceConflictCount(DB)<>0 then Changed;
     if DB.QuerySingleInt('SELECT count(*) FROM ReferenceRegistrations')<>
-      Review.QuerySingleInt('SELECT count(*) FROM ReferenceRegistrations') then Changed;
+      FReview.QuerySingleInt('SELECT count(*) FROM ReferenceRegistrations') then Changed;
     Fresh:=DB.NewQuery('SELECT RegistrationID,RawRoot,Code,State,SourcesJSON,CatalogueKey,RawCatalogue FROM ReferenceRegistrations'); Fresh.Open;
     while not Fresh.Eof do
     begin
       Stop;
-      Found:=Review.NewQuery('SELECT RawRoot,Code,State,SourcesJSON,RawCatalogue FROM ReferenceRegistrations WHERE RegistrationID=?',[Fresh.FieldAsInt(0)]); Found.Open;
+      Found:=FReview.NewQuery('SELECT RawRoot,Code,State,SourcesJSON,RawCatalogue FROM ReferenceRegistrations WHERE RegistrationID=?',[Fresh.FieldAsInt(0)]); Found.Open;
       if Found.Eof or (Fresh.FieldAsString(1)<>Found.FieldAsString(0)) or
         (Fresh.FieldAsInt(2)<>Found.FieldAsInt(1)) or (Fresh.FieldAsString(3)<>Found.FieldAsString(2)) or
         (Fresh.FieldAsString(4)<>Found.FieldAsString(3)) then Changed;
@@ -81,8 +89,8 @@ begin
     // Disk-backed approved keys avoid a per-live-row scan of the frozen list.
     DB.ExecSQL('CREATE TABLE Approved(RegistrationID INTEGER,Kind INTEGER,BookID INTEGER,SourceKey TEXT,FileID INTEGER,'+
       'RetainReason TEXT,Resource INTEGER,Owner TEXT,PRIMARY KEY(RegistrationID,Kind,BookID,SourceKey,FileID,Resource,Owner,RetainReason)) WITHOUT ROWID');
-    Q:=Review.NewQuery('SELECT r.RegistrationID,r.Kind,r.BookID,r.SourceKey,r.FileID,r.RetainReason,r.Resource,r.Owner '+
-      'FROM RegisteredReferences r JOIN Files f ON f.ID=r.FileID WHERE f.GroupID=?',[Prepared.ID]); Q.Open;
+    Q:=FReview.NewQuery('SELECT r.RegistrationID,r.Kind,r.BookID,r.SourceKey,r.FileID,r.RetainReason,r.Resource,r.Owner '+
+      'FROM RegisteredReferences r JOIN Files f ON f.ID=r.FileID'); Q.Open;
     while not Q.Eof do
     begin
       Stop; DB.ExecSQL('INSERT OR IGNORE INTO Approved VALUES(?,?,?,?,?,?,?,?)',
@@ -90,6 +98,26 @@ begin
       Q.Next;
     end;
     FreeAndNil(Q);
+    DB.ExecSQL('CREATE INDEX PublicationApprovedFile ON Approved(FileID)');
+    Fresh:=DB.NewQuery('SELECT RegistrationID,Path,Reason FROM ReferenceIssues'); Fresh.Open;
+    while not Fresh.Eof do
+    begin
+      Stop;
+      if FReview.QuerySingleInt('SELECT count(*) FROM ReferenceIssues WHERE RegistrationID=? AND Path=? AND Reason=?',
+        [Fresh.FieldAsInt(0),Fresh.FieldAsString(1),Fresh.FieldAsString(2)])=0 then Changed;
+      Fresh.Next;
+    end;
+    Stop; DB.Commit;
+    DB.ExecSQL('CREATE INDEX PublicationReferenceRow ON RegisteredReferences(RegistrationID,Kind,BookID,SourceKey,FileID,Resource)');
+  finally Found.Free; Q.Free; Fresh.Free; end;
+end;
+
+procedure TTransferReferenceSnapshot.CheckGroup(Prepared:TPreparedTransferGroup);
+var Fresh:TSQLiteQuery; DB:TSQLiteDatabase;
+begin
+  if Prepared=nil then raise EArgumentException.Create('Не указана проверенная группа.');
+  DB:=FStore.DB; Fresh:=nil;
+  try
     Fresh:=DB.NewQuery('SELECT r.RegistrationID,r.Kind,r.BookID,r.SourceKey,r.FileID,r.RetainReason,r.Resource,r.Owner '+
       'FROM RegisteredReferences r JOIN Files f ON f.ID=r.FileID WHERE f.GroupID=?',[Prepared.ID]); Fresh.Open;
     while not Fresh.Eof do
@@ -109,22 +137,30 @@ begin
       Fresh.Next;
     end;
     FreeAndNil(Fresh);
-    DB.ExecSQL('CREATE INDEX PublicationReferenceRow ON RegisteredReferences(RegistrationID,Kind,BookID,SourceKey,FileID,Resource)');
     // A disappeared non-personal reference can mean that its row now points
     // elsewhere or an archive became unavailable; neither permits publication.
-    if DB.QuerySingleInt('SELECT count(*) FROM Approved a WHERE a.Kind<>1 AND NOT EXISTS '+
+    if DB.QuerySingleInt('SELECT count(*) FROM Approved a JOIN Files f ON f.ID=a.FileID WHERE f.GroupID=? AND a.Kind<>1 AND NOT EXISTS '+
       '(SELECT 1 FROM RegisteredReferences r WHERE r.RegistrationID=a.RegistrationID AND r.Kind=a.Kind '+
-      'AND r.BookID=a.BookID AND r.SourceKey=a.SourceKey AND r.FileID=a.FileID AND r.Resource=a.Resource)')<>0 then Changed;
-    Fresh:=DB.NewQuery('SELECT RegistrationID,Path,Reason FROM ReferenceIssues'); Fresh.Open;
-    while not Fresh.Eof do
+      'AND r.BookID=a.BookID AND r.SourceKey=a.SourceKey AND r.FileID=a.FileID AND r.Resource=a.Resource)',[Prepared.ID])<>0 then Changed;
+    Stop;
+  finally Fresh.Free; end;
+end;
+
+destructor TTransferReferenceSnapshot.Destroy;
+begin FStore.Free; inherited; end;
+
+procedure CheckTransferPublicationReferences(Review:TSQLiteDatabase;
+  const PersonalFile,WorkRoot:string; Prepared:TPreparedTransferGroup;
+  const EffectiveCatalogue:TFunc<Integer,string>; const Cancelled:TFunc<Boolean>);
+begin
+  var Snapshot:=TTransferReferenceSnapshot.Create(Review,PersonalFile,WorkRoot,EffectiveCatalogue,
+    procedure(Targets:TSQLiteDatabase)
     begin
-      Stop;
-      if Review.QuerySingleInt('SELECT count(*) FROM ReferenceIssues WHERE RegistrationID=? AND Path=? AND Reason=?',
-        [Fresh.FieldAsInt(0),Fresh.FieldAsString(1),Fresh.FieldAsString(2)])=0 then Changed;
-      Fresh.Next;
-    end;
-    Stop; DB.Commit;
-  finally Found.Free; Q.Free; Fresh.Free; Store.Free; end;
+      for var I:=0 to Prepared.Count-1 do
+        Targets.ExecSQL('INSERT OR IGNORE INTO ReferenceTargets VALUES(?,?)',
+          [Copy(Prepared.CopyAt(I).Identity,1,25),Prepared.FileID(I)]);
+    end,Cancelled);
+  try Snapshot.CheckGroup(Prepared); finally Snapshot.Free; end;
 end;
 
 end.

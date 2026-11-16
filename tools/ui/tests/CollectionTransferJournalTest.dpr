@@ -71,7 +71,7 @@ end;
 
 var Request,Control,Output:TJSONObject; Capture:TCollectionTransferCatalogue; Plan:TCollectionTransferPlan;
     Journal:TCollectionTransferJournal; Info:TCollectionInfo; ControlFile,Mode,Crash:string;
-    Copies,PreparedFiles:Integer; Stop:Boolean; Groups,HistoryHits:TJSONArray; IDs:TList<Int64>; HistoryRows:Int64;
+    Copies,PreparedFiles:Integer; Stop,BetweenEdited:Boolean; Groups,HistoryHits:TJSONArray; IDs:TList<Int64>; HistoryRows:Int64;
 begin
   SetTextCodePage(System.Output,CP_UTF8);
   try
@@ -81,7 +81,7 @@ begin
       Request:=ReadJSON(ParamStr(1)); Control:=nil; Output:=nil; Capture:=nil; Plan:=nil; Journal:=nil; IDs:=nil;
       try
         Mode:=Request.GetValue<string>('mode','create'); ControlFile:=Owned(Request.GetValue<string>('control'));
-        Crash:=Request.GetValue<string>('crash',''); Copies:=0; PreparedFiles:=0; Stop:=False; HistoryRows:=0; HistoryHits:=TJSONArray.Create;
+        Crash:=Request.GetValue<string>('crash',''); Copies:=0; PreparedFiles:=0; Stop:=False; BetweenEdited:=False; HistoryRows:=0; HistoryHits:=TJSONArray.Create;
         TransferReferenceTestPoint:=
           procedure(Stage:string)
           begin
@@ -137,6 +137,46 @@ begin
             if (Stage='fork-before-personal-commit') and Request.GetValue<Boolean>('cancel_fork_commit',False) then Stop:=True;
             if (Stage='locations-before-catalogue-commit') and Request.GetValue<Boolean>('cancel_location_commit',False) then Stop:=True;
             if (Stage='references-before-publication') and Request.GetValue<Boolean>('cancel_publication_fence',False) then Stop:=True;
+            var Edit:=Request.GetValue<string>('between_group_edit','');
+            if not BetweenEdited and (Edit<>'') and (Stage=Request.GetValue<string>('edit_stage','locations-after-personal-commit')) then
+            begin
+              BetweenEdited:=True;
+              if Edit='unknown-arrives' then
+              begin
+                var Path:=Owned(Journal.Review.QuerySingleString('SELECT Catalogue FROM ReferenceRegistrations WHERE RegistrationID=8'));
+                ForceDirectories(ExtractFileDir(Path)); TFile.WriteAllText(Path,'new unavailable catalogue',TEncoding.UTF8);
+              end
+              else
+              begin
+                var Path:=Request.GetValue<string>('catalogue');
+                if Edit='personal-note' then Path:=Request.GetValue<string>('personal');
+                var DB:=TSQLiteDatabase.Create(DeletionNativePath(Owned(Path)));
+                try
+                  DB.AddFunction('MHL_TRIGGERS_ON',0,DisableFixtureTriggers);
+                  if Edit='personal-note' then DB.ExecSQL('UPDATE Books SET Annotation=''between archives'',Progress=92 WHERE BookID=1 AND DatabaseID=7')
+                  else if Edit='title' then DB.ExecSQL('UPDATE Books SET Title=''between archives'',SearchTitle=''BETWEEN ARCHIVES'' WHERE BookID=1')
+                  else if Edit='new-reference' then
+                  begin
+                    var Q:=DB.NewQuery('PRAGMA table_info(Books)'); var Columns,Values:string;
+                    try
+                      Q.Open; Columns:=''; Values:='';
+                      while not Q.Eof do
+                      begin
+                        var Column:='"'+StringReplace(Q.FieldAsString(1),'"','""',[rfReplaceAll])+'"';
+                        if Columns<>'' then begin Columns:=Columns+','; Values:=Values+','; end;
+                        Columns:=Columns+Column;
+                        if Q.FieldAsString(1)='BookID' then Values:=Values+'991'
+                        else if Q.FieldAsString(1)='Folder' then Values:=Values+QuotedStr(Owned(Request.GetValue<string>('new_reference_container')))
+                        else Values:=Values+Column;
+                        Q.Next;
+                      end;
+                    finally Q.Free; end;
+                    DB.ExecSQL('INSERT INTO Books('+Columns+') SELECT '+Values+' FROM Books WHERE BookID=1');
+                  end
+                  else raise EArgumentException.Create('Unknown between-group fixture edit');
+                finally DB.Free; end;
+              end;
+            end;
             if (Stage='references-before-publication') and (Request.GetValue<string>('wait_publication_fence','')<>'') then
             begin
               var Release:=Owned(Request.GetValue<string>('wait_publication_fence'));
@@ -195,6 +235,7 @@ begin
         end;
         Output:=TJSONObject.Create; Groups:=TJSONArray.Create; Output.AddPair('groups',Groups);
         Output.AddPair('history_rows',TJSONNumber.Create(HistoryRows)); Output.AddPair('history_hits',HistoryHits); HistoryHits:=nil;
+        Output.AddPair('publication_scans',TJSONNumber.Create(Journal.PublicationScanCount));
         Journal.ForEachGroup(
           procedure(const Group:TTransferJournalGroup)
           begin

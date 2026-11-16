@@ -29,12 +29,13 @@ type
   end;
 
   // Durable copy preparation for connected archive/sidecar groups. A trusted
-  // external review digest is required to resume. No catalogue publication,
-  // original removal or "operation complete" transition is implemented here.
+  // external review digest is required to resume. Per-database locator/history
+  // publication is implemented; original removal and completion remain separate.
   TCollectionTransferJournal = class
   private
     FWorkRoot, FDestination, FDirectory, FCopiesRoot, FReviewSHA: string;
     FReview, FState: TSQLiteDatabase;
+    FPublicationSession:TObject;
     FReviewLease: TFileStream;
     FStateLease: IInterface;
     FLease: THandle;
@@ -67,6 +68,7 @@ type
     function PendingGroup: Int64;
     function GroupCount: Int64;
     function FileCount: Int64;
+    function PublicationScanCount:Integer;
     procedure PublishCatalogueForks(const Cancelled:TFunc<Boolean> = nil);
     procedure PublishCatalogueFork(ForkID:Int64; const Cancelled:TFunc<Boolean> = nil);
     function EffectiveCatalogue(RegistrationID:Integer):string;
@@ -85,7 +87,7 @@ implementation
 uses System.IOUtils, System.JSON, System.Hash, unit_Globals, unit_Consts,
   unit_Settings, dm_user, unit_BookCompressionReceipt, unit_ZipMemberDeletion,
   unit_CollectionTransferReferences, unit_CollectionTransferForks, unit_CollectionTransferLocations,
-  unit_CollectionTransferReferenceFence;
+  unit_CollectionTransferPublication;
 
 const JournalKind='HomeLibre collection transfer preparation v1';
   Prefix='collection-transfer-';
@@ -429,7 +431,7 @@ begin Result:=TCollectionTransferJournal.OpenExisting(WorkRoot,Destination,Direc
 
 destructor TCollectionTransferJournal.Destroy;
 begin
-  FState.Free; FReview.Free; FReviewLease.Free; FStateLease:=nil;
+  FPublicationSession.Free; FState.Free; FReview.Free; FReviewLease.Free; FStateLease:=nil;
   if FLease<>0 then CloseHandle(FLease);
   if FGuards<>nil then begin for var Handle in FGuards do CloseHandle(Handle); FGuards.Free; end;
   inherited;
@@ -787,71 +789,45 @@ begin
   if Result='' then raise EArgumentException.Create('Неизвестное подключение коллекции.');
 end;
 
+function TCollectionTransferJournal.PublicationScanCount:Integer;
+begin
+  Result:=0;
+  if FPublicationSession<>nil then Result:=TTransferPublicationSession(FPublicationSession).Scans;
+end;
+
 procedure TCollectionTransferJournal.PublishGroupLocations(Prepared:TPreparedTransferGroup; const Cancelled:TFunc<Boolean>);
-var Personal,DB:TSQLiteDatabase; Lists:TObjectDictionary<string,TList<Integer>>;
-  Paths:TDictionary<string,string>; IDs:TList<Integer>; Q:TSQLiteQuery; Leases:TList<IInterface>;
-  Databases:TObjectDictionary<string,TSQLiteDatabase>;
 begin
   if (Prepared=nil) or (Prepared.Count=0) or
     (FReview.QuerySingleInt('SELECT count(*) FROM Files WHERE GroupID=?',[Prepared.ID])<>Prepared.Count) then
     raise EArgumentException.Create('Для адресов нужна полная проверенная группа.');
   PublishCatalogueForks(Cancelled); FCancelled:=Cancelled;
-  Lists:=TObjectDictionary<string,TList<Integer>>.Create([doOwnsValues]); Paths:=TDictionary<string,string>.Create;
-  Databases:=TObjectDictionary<string,TSQLiteDatabase>.Create([doOwnsValues]);
-  IDs:=TList<Integer>.Create; Leases:=TList<IInterface>.Create; Personal:=nil; DB:=nil; Q:=nil;
   try
     CheckStop; CheckRoots; CheckNegativePaths; CheckGroupImages(Prepared.ID);
-    Leases.Add(AcquireCompressionDatabaseLease(Meta('personal'),Meta('personal_key')));
-    Personal:=TSQLiteDatabase.Create(DeletionNativePath(Meta('personal')));
-    Personal.ExecSQL('PRAGMA synchronous=FULL'); Personal.ExecSQL('BEGIN IMMEDIATE');
-    Q:=FReview.NewQuery('SELECT RegistrationID,State FROM ReferenceRegistrations ORDER BY RegistrationID'); Q.Open;
-    while not Q.Eof do
-    begin
-      CheckStop; var CID:=Q.FieldAsInt(0); IDs.Add(CID);
-      if Q.FieldAsString(1)='ready' then
-      begin
-        var Path:=EffectiveCatalogue(CID); var Key:=CompressionFileKey(Path); var Group:TList<Integer>;
-        if not Lists.TryGetValue(Key,Group) then
+    if FPublicationSession=nil then
+      FPublicationSession:=TTransferPublicationSession.Create(FReview,Meta('personal'),FWorkRoot,Meta('directory'),FReviewSHA,
+        function(CID:Integer):string begin Result:=EffectiveCatalogue(CID); end,
+        procedure(Targets:TSQLiteDatabase)
         begin
-          Group:=TList<Integer>.Create; Lists.Add(Key,Group); Paths.Add(Key,Path);
-          Leases.Add(AcquireCompressionDatabaseLease(Path,Key));
-        end;
-        Group.Add(CID);
-      end;
-      Q.Next;
-    end;
-    FreeAndNil(Q);
-    // Lock every reviewed ready catalogue before the fresh scan. A writer in
-    // another instance cannot introduce a new reference between this scan and
-    // its catalogue commit. All locks roll back on cancellation or rejection.
-    for var Pair in Lists do
-    begin
-      CheckStop; DB:=TSQLiteDatabase.Create(DeletionNativePath(Paths[Pair.Key]));
-      Databases.Add(Pair.Key,DB); DB:=nil;
-      Databases[Pair.Key].ExecSQL('PRAGMA synchronous=FULL');
-      Databases[Pair.Key].ExecSQL('BEGIN IMMEDIATE');
-    end;
-    CheckTransferPublicationReferences(FReview,Meta('personal'),FWorkRoot,Prepared,
-      function(CID:Integer):string begin Result:=EffectiveCatalogue(CID); end,
-      function:Boolean begin CheckStop; Result:=False; end);
-    Point('references-before-publication',FDirectory,Prepared.ID,0); CheckStop;
-    for var Pair in Lists do
-    begin
-      CheckStop; DB:=Databases.ExtractPair(Pair.Key).Value;
-      try
-        ApplyTransferLocations(DB,Personal,FReview,Prepared,Meta('directory'),FReviewSHA,Pair.Value.ToArray,False);
-        Point('locations-before-catalogue-commit',FDirectory,Prepared.ID,0); CheckStop;
-        DB.ExecSQL('COMMIT'); Point('locations-after-catalogue-commit',FDirectory,Prepared.ID,0);
-      except if DB.InTransaction then DB.Rollback; raise; end;
-      FreeAndNil(DB);
-    end;
-    CheckStop;
+          // Saved identities are used only to discover already-published rows.
+          // Each group still requires its complete verified prepared leases and
+          // exact native old/new row projection before a location can commit.
+          var Q:=FState.NewQuery('SELECT FileID,Identity FROM FileState WHERE State=''prepared'' AND length(Identity)=59');
+          try
+            Q.Open;
+            while not Q.Eof do
+            begin
+              CheckStop;
+              Targets.ExecSQL('INSERT OR IGNORE INTO ReferenceTargets VALUES(?,?)',[Copy(Q.FieldAsString(1),1,25),Q.FieldAsInt(0)]);
+              Q.Next;
+            end;
+          finally Q.Free; end;
+        end);
     try
-      ApplyTransferLocations(Personal,Personal,FReview,Prepared,Meta('directory'),FReviewSHA,IDs.ToArray,True);
-      Point('locations-before-personal-commit',FDirectory,Prepared.ID,0); CheckStop;
-      Personal.ExecSQL('COMMIT'); Point('locations-after-personal-commit',FDirectory,Prepared.ID,0);
-    except if Personal.InTransaction then Personal.Rollback; raise; end;
-  finally Q.Free; DB.Free; Databases.Free; Personal.Free; Leases.Free; IDs.Free; Paths.Free; Lists.Free; FCancelled:=nil; end;
+      TTransferPublicationSession(FPublicationSession).Publish(Prepared,
+        function:Boolean begin CheckStop; Result:=False; end,
+        procedure(Stage:string) begin Point(Stage,FDirectory,Prepared.ID,0); end);
+    except FreeAndNil(FPublicationSession); raise; end;
+  finally FCancelled:=nil; end;
 end;
 
 end.

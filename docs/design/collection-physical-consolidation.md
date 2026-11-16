@@ -150,8 +150,16 @@ while the personal store and every reviewed ready catalogue hold write
 transactions. New archive references, registrations, source metadata or newly
 unreadable catalogues require a renewed plan before this group changes. New
 personal cards for an approved main book and unrelated books remain allowed.
-See `docs/audits/2026-11-16-collection-transfer-reference-fence.md` for the native
-scope and remaining whole-operation/live-cleanup/scale gates. The normal UI
+See `docs/audits/2026-11-16-collection-transfer-reference-fence.md` for the initial
+native fence. The journal now reuses exact writer connections and an indexed
+disk-backed reference snapshot across groups. It reacquires writer transactions
+at each boundary; external data_version changes trigger a new capture without
+acknowledging intervening writes as own commits. Unknown-file arrivals are
+rechecked. Both architectures prove one capture for 26 archive groups and a
+new capture after external catalogue/personal/WAL changes. See
+`docs/audits/2026-11-16-collection-transfer-publication-session.md` for evidence
+and the separate live-filesystem/cleanup/real-scale gates. A cached database
+snapshot never grants permission to remove an original. The normal UI
 still has to close conflicting writable DAO
 connections, block other pending compression/update jobs, refresh registrations
 after a fork commit and account for snapshot/fork space. Fork publication keeps
