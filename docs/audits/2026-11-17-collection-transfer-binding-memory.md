@@ -60,8 +60,38 @@ under that budget. Peak process commit was 1,948,307,456 bytes. All checked book
 rows and both original carrier hashes remained unchanged; no source-removal
 intent existed. Its private runtime was removed. The failed result is retained.
 
-Candidate million-row runs are still pending; no success or final memory
-reduction is claimed until they finish.
+Both streaming binaries from `bc20c159` passed:
+
+| Run | Native seconds | OS peak process commit | Sampled additional file allocation |
+| --- | ---: | ---: | ---: |
+| Win64 r1177 | 1,005.359 | 291,057,664 bytes | 3,645,558,104 bytes |
+| Win32 r1181 | 1,014.579 | 172,101,632 bytes | 3,645,820,248 bytes |
+
+The Win64 observed commit peak is about 6.69 times lower than the old failed
+run's peak. This compares a completed bounded run against a failed bounded run,
+not two unrestricted runs. Timing is not a speedup comparison: the old run did
+not finish, and the two new runs partly overlapped. Resident working-set peaks
+were 811,229,184/224,702,464 bytes; Win64 also maps database pages, so commit and
+working set must not be presented as the same memory metric.
+
+Both runs perform five fresh reference captures, use five held approval
+attachments with no approval copies, publish locators, copy both carriers and
+remove their originals. All eight selected primary fields of every book match:
+`25ea4f2d6c272ba1d56c0f097aa9ca59a82fb794f487ed9c36c700153168e2c1`.
+The benchmark asserts the destination hashes against both original carrier
+hashes before reaping each private runtime; both runtimes were removed.
+
+`G:/HL-b14-external/transfer-binding-validation-r1182/summary.json` consolidates
+the 650-input focused checks and both million-row results, retaining the old
+failure separately. File-allocation peaks are sampled about every 0.5 seconds,
+excluding directory/MFT overhead and possibly short-lived allocations. They are
+observations, not exact volume peaks or a hard reservation guarantee.
+
+These million-row runs deliberately omit cache preparation/publication, final
+root changes and whole-operation completion acknowledgement. Their native
+`roots_applied` field is false. They prove the group publication/source-removal
+scale point, not the entire final application workflow. Later locator-format
+changes are outside this historical pair and require their own evidence.
 
 ## Scope remaining
 
