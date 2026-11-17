@@ -19,6 +19,19 @@ from pack_collection import reserve_space
 DERIVED = ('LibraryUpdateSourceKeys', 'LibraryUpdateReviewKeys', 'LibraryUpdatePublisherLocations')
 
 
+def publish_progress(stage, report):
+    """Status readers/scanners must not abort a real monitored native job."""
+    try:
+        temporary = stage/'progress.new'
+        temporary.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding='utf-8')
+        temporary.replace(stage/'progress.json')
+        return True
+    except OSError as error:
+        report['deferred_progress_writes'] = report.get('deferred_progress_writes', 0)+1
+        report['last_progress_write_error'] = repr(error)
+        return False
+
+
 def file_sha(path):
     with Path(path).open('rb') as stream:
         return hashlib.file_digest(stream, 'sha256').hexdigest()
@@ -130,11 +143,6 @@ def run(args):
                   memory_limit_bytes=args.memory_limit_mib*1024**2)
     started = time.monotonic()
 
-    def publish_progress():
-        temporary = stage/'progress.new'
-        temporary.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding='utf-8')
-        temporary.replace(stage/'progress.json')
-
     def native(phase):
         evidence = dict(phase=phase, samples=0, job_peak_commit=0,
                         peak=dict(logical=0, allocated=0), memory_peak={})
@@ -158,7 +166,7 @@ def run(args):
                     evidence.update(seconds=round(time.monotonic()-tick, 3), job_peak_commit=job.peak())
                     evidence['samples'] += 1
                     samples.write(json.dumps(dict(seconds=evidence['seconds'], runtime=current, memory=memory))+'\n')
-                    samples.flush(); publish_progress()
+                    samples.flush(); publish_progress(stage, report)
                     if terminal is not None: break
                     if evidence['seconds'] > args.timeout: raise TimeoutError('Native '+phase+' timed out')
                     time.sleep(.5)

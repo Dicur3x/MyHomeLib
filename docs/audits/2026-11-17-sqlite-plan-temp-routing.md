@@ -59,3 +59,14 @@ allocation failures, mounted/unavailable volumes, incomplete work-snapshot side
 files and final release packages remain separate gates. All fixtures and outputs
 are on G:, E: is unused, and user catalogues/archives and Desktop binaries have
 not changed.
+
+The first routed Win32 scale run r1227 was terminated by its benchmark wrapper,
+not an application error: replacing the optional progress JSON collided with a
+Windows reader denying delete sharing. Its failed report and removed runtime
+are retained. Progress publication is now best-effort; a real held Windows
+reader test proves that the preceding JSON remains valid and publication resumes
+after the reader closes. The native operation and its authoritative samples and
+final report are not aborted by that status-file collision. Win64 r1226 remains
+on the original live wrapper; Win32 r1229 uses the corrected wrapper. The latter
+has 657 input files, differing in benchmark/test code rather than production
+SQLite/transfer code. Both scale outcomes remain pending.
