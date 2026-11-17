@@ -25,6 +25,21 @@ def digest(path): return hashlib.sha256(path.read_bytes()).hexdigest()
 def shape(node, include_tail=False): return (node.tag, sorted(node.attrib.items()), node.text, node.tail if include_tail else None, [shape(n,True) for n in node])
 
 class ConversionTests(unittest.TestCase):
+    def test_generated_kindle_navigation_escapes_labels_without_relaxing_other_xml(self):
+        raw=(f'<html xmlns="{c.XH}"><body><nav><a href="part.xhtml?one=1&two=2">'
+             'Hard & soft &amp; exact &#38; entities</a><!--keep & comment-->'
+             '<![CDATA[keep & data]]></nav></body></html>').encode()
+        document,changed=c.kindle_nav_xhtml(raw)
+        self.assertTrue(changed)
+        link=next(n for n in document.iter() if c.tag(n)=='a')
+        self.assertEqual(link.get('href'),'part.xhtml?one=1&two=2')
+        self.assertEqual(link.text,'Hard & soft & exact & entities')
+        self.assertIn('keep & data',''.join(document.itertext()))
+        self.assertFalse(c.kindle_nav_xhtml(c.serialized(document))[1])
+        with self.assertRaises(c.ConversionError):c.kindle_xhtml(raw)
+        for bad in (b'<html><body><p>A & B</body></html>',b'<html><body>A & B &unknown;</body></html>'):
+            with self.assertRaises(c.ConversionError):c.kindle_nav_xhtml(bad)
+
     def test_kindle_skeleton_namespaces_preserve_text_and_note_semantics(self):
         raw = ('<html:html><html:body><html:p>Ёжик <html:a epub:type="noteref" href="#note">1</html:a>'
                '</html:p></html:body></html:html>').encode('utf-8')

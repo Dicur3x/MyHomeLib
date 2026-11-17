@@ -1604,6 +1604,22 @@ def kindle_xhtml(data):
         return xhtml(repaired), True
 
 
+def kindle_nav_xhtml(data):
+    """Escape bare ampersands in KindleUnpack's generated navigation only."""
+    try:
+        return kindle_xhtml(data)
+    except ConversionError as error:
+        if 'invalid token' not in str(error): raise
+        # The unpacker inserts INDX labels into nav.xhtml without XML escaping.
+        # Keep existing entities, comments and CDATA unchanged; malformed tags,
+        # undeclared entities and namespaces still have to pass the strict reader.
+        repaired = re.sub(rb'<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>|&(?!#\d+;|#x[0-9a-fA-F]+;|[A-Za-z_:][\w:.-]*;)',
+                          lambda match: b'&amp;' if match.group() == b'&' else match.group(), data)
+        if repaired == data: raise
+        document, _ = kindle_xhtml(repaired)
+        return document, True
+
+
 def kindle_epub(source, output, warnings=None):
     """Keep KindleUnpack resources, repair its known EPUB 3 packaging omissions."""
     archive = EpubArchive(source)
@@ -1644,9 +1660,11 @@ def kindle_epub(source, output, warnings=None):
         for item in manifest:
             if item.get('media-type') != 'application/xhtml+xml': continue
             part = archive.resolve(package_path, item.get('href', ''))[0]
-            document, dirty = kindle_xhtml(archive.read(part))
+            navigation = 'nav' in item.get('properties', '').split()
+            document, dirty = (kindle_nav_xhtml if navigation else kindle_xhtml)(archive.read(part))
             if dirty and warnings is not None:
-                warnings.add('В разметке Kindle восстановлены стандартные пространства имён XHTML/EPUB.')
+                warnings.add('В оглавлении Kindle восстановлено XML-экранирование или стандартные пространства имён.' if navigation else
+                             'В разметке Kindle восстановлены стандартные пространства имён XHTML/EPUB.')
             for node in document.iter():
                 if 'cid' in node.attrib: node.attrib.pop('cid'); dirty = True
             if any(n.tag == '{http://www.w3.org/2000/svg}svg' for n in document.iter()):
@@ -1842,9 +1860,14 @@ def detect_input(source):
     if re.search(br'<(?:\w+:)?FictionBook\b', probe, re.I): return '.fb2'
     if re.search(br'<(?:\w+:)?abiword\b',probe,re.I):return '.abw'
     if re.search(br'^MIME-Version:', probe, re.M | re.I) and re.search(br'multipart/|text/html', probe, re.I): return '.mht'
-    if re.search(br'<html\b|<!DOCTYPE\s+html|<(?:body|p|div|section|h[1-6])(?:\s|>)', probe, re.I): return '.html'
+    # Markdown commonly contains static HTML blocks. A full HTML document
+    # still wins over a misleading suffix; a paragraph alone must not turn a
+    # genuine Markdown book (and its links/code) into an HTML fragment.
+    if (re.search(br'<html\b|<!DOCTYPE\s+html', probe, re.I) or
+            (source.suffix.lower() not in {'.md', '.markdown'} and
+             re.search(br'<(?:body|p|div|section|h[1-6])(?:\s|>)', probe, re.I))): return '.html'
     # Plain text markers such as <|title|> are not XML tags.
-    if re.match(br'<(?:[A-Za-z_:\x80-\xff][\w.:\x80-\xff-]*(?=[\s/>])|\?xml(?=[\s?])|!--|!DOCTYPE(?=[\s>]))',
+    if source.suffix.lower() not in {'.md', '.markdown'} and re.match(br'<(?:[A-Za-z_:\x80-\xff][\w.:\x80-\xff-]*(?=[\s/>])|\?xml(?=[\s?])|!--|!DOCTYPE(?=[\s>]))',
                 probe.lstrip(), re.I):
         if source.suffix.lower() in {'.html','.htm','.xhtml','.shtml'}: return '.html'
         return '.xml'

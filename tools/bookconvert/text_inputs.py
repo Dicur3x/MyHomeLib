@@ -6,6 +6,7 @@ of an office page. Never runs macros, follows external resources or changes inpu
 import base64
 import codecs
 import copy
+import html
 from datetime import datetime, timezone
 from html.parser import HTMLParser
 from pathlib import Path
@@ -221,6 +222,7 @@ class Book:
         manifest = c.element(c.OP, 'manifest'); package.append(manifest)
         for index, (name, (_, mime)) in enumerate(self.resources.items()):
             attrs = {'id': 'r' + str(index), 'href': name, 'media-type': mime}
+            if name == getattr(self, 'cover_image', None): attrs['properties'] = 'cover-image'
             if name == 'nav.xhtml': attrs['properties'] = 'nav'
             manifest.append(c.element(c.OP, 'item', **attrs))
         spine = c.element(c.OP, 'spine'); package.append(spine)
@@ -233,12 +235,35 @@ class Book:
             for name, (data, _) in self.resources.items(): archive.writestr('OEBPS/' + name, data)
 
 
+def empty_layout_image(attrs, raw):
+    source=(attrs.get('src') or '').strip()
+    dimensions={name:(attrs.get(name) or '').strip() for name in ('width','height')}
+    missing=not source
+    if not missing:
+        # Old CHM menus contain <img height=1 src= width=4>. Keep quoted
+        # literal filenames such as src="width=4" as real resource paths.
+        tokens=re.findall(r'''[^\s/>=]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?''',raw)
+        for token in tokens:
+            match=re.fullmatch(r'src\s*=\s+(width|height)=(\d{1,4})',token,re.I)
+            if match and source.lower()==match[1].lower()+'='+match[2]:
+                dimensions[match[1].lower()]=match[2];missing=True;break
+    try: width,height=(int(dimensions[name]) for name in ('width','height'))
+    except ValueError:return False
+    return (missing and not (attrs.get('alt') or '').strip() and
+            (attrs.get('border') or '0').strip()=='0' and
+            min(width,height)==1 and 0<width*height<=32)
+
+
 class HTMLInput(HTMLParser):
     VOID = {'br', 'hr', 'img', 'meta', 'link', 'input', 'source', 'wbr', 'area', 'base', 'embed', 'param', 'col'}
     BLOCK = {'p', 'div', 'section', 'article', 'blockquote', 'ul', 'ol', 'li', 'dl', 'dt', 'dd', 'table', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th', 'pre', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr'}
     def __init__(self, book):
         super().__init__(convert_charrefs=True)
         self.b = book; self.stack = [('root', book.body)]; self.hidden = []; self.in_head = False; self.title = []; self.in_title = False; self.nodes = 0
+        self.named_anchors=set()
+
+    def empty_layout_image(self, attrs):
+        return empty_layout_image(attrs,self.get_starttag_text() or '')
 
     def handle_starttag(self, name, attrs):
         attrs = dict(attrs)
@@ -274,7 +299,11 @@ class HTMLInput(HTMLParser):
                     and (image_url.startswith('//') or urlsplit(image_url).scheme.lower() in {'http', 'https'})):
                 self.b.warnings.add('Внешнее изображение размером 1 × 1 пропущено.')
                 return
-        node = self.b.local_image(attrs.get('src', '')) if mapped == 'img' else self.b.el(mapped)
+        if mapped=='img' and self.empty_layout_image(attrs):
+            self.b.warnings.add('Пустое служебное изображение HTML заменено пробелом.')
+            node=self.b.el('span',' ')
+        else:
+            node = self.b.local_image(attrs.get('src', '')) if mapped == 'img' else self.b.el(mapped)
         keys = ['id', 'class']
         if mapped in {'td', 'th'}: keys += ['colspan', 'rowspan']
         if mapped == 'ol': keys.append('start')
@@ -282,7 +311,8 @@ class HTMLInput(HTMLParser):
         for key in keys:
             if attrs.get(key): node.set(key, attrs[key])
         if name == 'a':
-            if not node.get('id') and attrs.get('name'): node.set('id', attrs['name'])
+            if not node.get('id') and attrs.get('name'):
+                node.set('id', attrs['name']);self.named_anchors.add(node)
             href = attrs.get('href', '')
             if hasattr(self.b, 'local_link'): node.set('href', self.b.local_link(href))
             elif href.startswith('#') or urlsplit(href).scheme.lower() in {'https', 'http', 'mailto'}: node.set('href', quote(href, safe=":/?#[]@!$&'()*+,;=%"))
@@ -317,10 +347,36 @@ class HTMLInput(HTMLParser):
         elif not self.in_head: self.b.c.append_text(self.stack[-1][1], value)
 
 
+def repair_empty_layout_images(text, book):
+    """Recognize original empty src before HTML5 turns it into a quoted URL."""
+    class Repair(HTMLParser):
+        def __init__(self):
+            super().__init__(convert_charrefs=True)
+            self.parts=[];self.last=0;self.line=1;self.line_start=0;self.nodes=0
+        def handle_starttag(self,name,attrs):
+            self.nodes+=1
+            if self.nodes>500000:book.fail('HTML слишком сложен для конвертации.')
+            attrs=dict(attrs);raw=self.get_starttag_text() or ''
+            if name!='img' or not empty_layout_image(attrs,raw):return
+            line,column=self.getpos()
+            while self.line<line:
+                self.line_start=text.index('\n',self.line_start)+1;self.line+=1
+            at=self.line_start+column
+            self.parts.append(text[self.last:at])
+            attributes=''.join(' '+key+'="'+html.escape(attrs[key],quote=True)+'"'
+                               for key in ('id','class') if attrs.get(key))
+            self.parts.append('<span'+attributes+'> </span>');self.last=at+len(raw)
+            book.warnings.add('Пустое служебное изображение HTML заменено пробелом.')
+    parser=Repair();parser.feed(text);parser.close()
+    if not parser.parts:return text
+    parser.parts.append(text[parser.last:]);return ''.join(parser.parts)
+
+
 def read_html(book, data, html5=False):
     declaration = re.search(br'<meta\b[^>]*charset\s*=\s*[\'\"]?\s*([\w-]+)', data[:8192], re.I)
     text = decode(data, declaration[1].decode('ascii') if declaration else None)
     if html5:
+        text=repair_empty_layout_images(text,book)
         import sys
         vendor = str(Path(__file__).with_name('vendor')); sys.path.insert(0, vendor)
         try:
@@ -329,6 +385,23 @@ def read_html(book, data, html5=False):
             text = html5lib.serialize(tree, quote_attr_values='always', omit_optional_tags=False)
         finally: sys.path.remove(vendor)
     parser = HTMLInput(book); parser.feed(text); parser.close()
+    # HTML fragments select the first explicit id, then the first named anchor.
+    # Keep that target; rename later duplicates without taking an existing id.
+    reserved={node.get('id') for node in book.body.iter() if node.get('id')}
+    first={};numbers={};renamed=0
+    for node in book.body.iter():
+        identity=node.get('id')
+        if not identity:continue
+        if identity not in first or (first[identity] in parser.named_anchors and node not in parser.named_anchors):
+            first[identity]=node
+    for node in book.body.iter():
+        identity=node.get('id')
+        if not identity or first[identity] is node:continue
+        number=numbers.get(identity,2);candidate=identity+'-homelibre-'+str(number)
+        while candidate in reserved:
+            number+=1;candidate=identity+'-homelibre-'+str(number)
+        node.set('id',candidate);reserved.add(candidate);numbers[identity]=number+1;renamed+=1
+    if renamed:book.warnings.add('Повторяющиеся метки переходов HTML переименованы: '+str(renamed)+'. Ссылки ведут к первой метке.')
     if html5:
         blocks = HTMLInput.BLOCK | {'figure', 'figcaption', 'aside', 'header', 'footer', 'dl', 'dt', 'dd'}
         for node in reversed(list(book.body.iter())):
@@ -347,7 +420,10 @@ def read_markdown(book, data):
     sys.path.insert(0, vendor)
     try:
         import mistune
-        parser = mistune.create_markdown(escape=True, plugins=['table', 'footnotes', 'strikethrough', 'url'])
+        # Markdown permits static HTML (including the anchors emitted by our
+        # writer). All of it still goes through HTMLInput's active-content,
+        # attribute and local-resource checks before entering the reading book.
+        parser = mistune.create_markdown(escape=False, plugins=['table', 'footnotes', 'strikethrough', 'url'])
         html = parser(decode(data))
     finally:
         sys.path.remove(vendor)

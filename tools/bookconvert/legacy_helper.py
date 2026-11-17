@@ -65,11 +65,29 @@ def empty_book(title=''):
     return root,etree.SubElement(root,'body')
 
 
+def lit_cover(tree,entries):
+    # MS Reader keeps its real cover in the guide, outside the text spine.
+    # Prefer its full image to the standard preview; never use a thumbnail or
+    # an arbitrary first illustration as the cover.
+    references=[node for guide in tree.iter() if guide.tag.rsplit('}',1)[-1]=='guide'
+                for node in guide if node.tag.rsplit('}',1)[-1]=='reference']
+    for kind in ('cover','other.ms-coverimage','other.ms-coverimage-standard'):
+        for node in references:
+            if node.get('type')!=kind:continue
+            parts=urlsplit(node.get('href',''))
+            if parts.scheme or parts.netloc:continue
+            try:path=safe_path(parts.path)
+            except ValueError:continue
+            entry=entries.get(path)
+            if entry is not None and str(entry.mime_type).lower().startswith('image/'):return path
+    return None
+
+
 def lit(source,native,log):
     from calibre_legacy.native_api import configure
     from calibre_legacy.lit.reader import LitFile,UnBinary,OPF_MAP
     configure(native)
-    resources={};sections=[];metadata={};total=0
+    resources={};sections=[];metadata={};total=0;cover=None
     with source.open('rb') as stream:
         book=LitFile(BoundedInput(stream),log)
         if len(book.manifest)>20000:raise ValueError('Excessive LIT manifest')
@@ -78,6 +96,7 @@ def lit(source,native,log):
         try:
             opf=UnBinary(book.get_file('/meta'),book.opf_path,book.manifest,map=OPF_MAP).raw
             tree=xml(opf)
+            cover=lit_cover(tree,entries)
             for field in ['title','creator','language']:
                 found=tree.xpath('//*[local-name()=$name]',name=field)
                 if found:metadata[field]=''.join(found[0].itertext()).strip()
@@ -87,7 +106,10 @@ def lit(source,native,log):
                     ('html' in str(entry.mime_type) or 'oeb1-document' in str(entry.mime_type))}
         prefixes={path:'lit-'+str(index) for index,path in enumerate(entries) if path in html_paths}
         for path,entry in entries.items():
-            data=book.get_file('/data/'+entry.internal+'/content');total+=len(data)
+            # LIT binary HTML lives below /content; images and styles are the
+            # /data/<internal> stream itself (calibre LitContainer.read).
+            internal='/data/'+entry.internal+('/content' if 'spine' in entry.state else '')
+            data=book.get_file(internal);total+=len(data)
             if total>MAX_TOTAL:raise ValueError('Decoded LIT exceeds 256 MB')
             if path in html_paths:
                 converted=UnBinary(data,path,book.manifest,atoms=book.get_atoms(entry)).raw
@@ -95,6 +117,8 @@ def lit(source,native,log):
             else:resources[path]=data
     root,body=empty_book(metadata.get('title',''))
     assets={};asset_names={}
+    if cover in resources:
+        alias='assets/0.bin';asset_names[cover]=alias;assets[alias]=resources[cover];metadata['cover']=alias
     parser=etree.HTMLParser(no_network=True)
     for path,data in sections:
         document=etree.fromstring(data,parser)

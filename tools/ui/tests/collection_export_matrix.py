@@ -100,9 +100,10 @@ def run(args):
             python=root/'tools/python/python.exe';script=root/'tools/bookconvert/convert_book.py'
             spec=importlib.util.spec_from_file_location('matrix_api',REPO/'tools/bookconvert/convert_book.py')
             api=importlib.util.module_from_spec(spec);spec.loader.exec_module(api)
-            seen=set()
+            seen=set();requested=set(args.detected or [])
             for sample in samples['results']:
                 detected=sample.get('detected')
+                if requested and detected not in requested:continue
                 if sample['status']!='sampled' or detected not in api.BOOK_EPUB_INPUTS:
                     report['pending'].append(dict(extension=sample['extension'],reason='Needs native preparation, nonbook classification or an accessible sample'));continue
                 if detected in seen:continue
@@ -137,6 +138,7 @@ def run(args):
                     save();print(plan['platform'],detected,name,op['status'],flush=True)
                 row['status']='GAPS_FOUND' if any(o['status'] in {'FAIL','TIMEOUT'} for o in row['operations']) else 'BACKEND_PROBED'
                 source.unlink();save()
+            if requested-seen:raise ValueError('Requested input families were not exercised: '+str(sorted(requested-seen)))
             if not any(row['operations'] for row in report['rows']):
                 raise ValueError('No actual conversions were exercised')
             report['status']='GAPS_FOUND' if any(r['status']=='GAPS_FOUND' for r in report['rows']) else 'BACKEND_PROBED'
@@ -148,4 +150,5 @@ def run(args):
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     for key in ['plan','inventory','samples','helpers','stage']:parser.add_argument('--'+key,type=Path,required=True)
+    parser.add_argument('--detected',nargs='+',help='Optional explicit detected families for targeted fix regressions')
     run(parser.parse_args())

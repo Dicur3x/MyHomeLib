@@ -10,7 +10,7 @@ import struct
 import subprocess
 import tempfile
 import time
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 import xml.etree.ElementTree as ET
 import zipfile
 
@@ -145,7 +145,30 @@ def regular_language_case(value):
     return '-'.join(parts)
 
 
-def canonical_input(api, source, destination, warnings=None):
+def png_cover(api, data, tools, directory):
+    tool = api.image_processor_path(tools)
+    if not tool.is_file():
+        raise api.ComponentRequired('ImageProcessing', 'Для подготовки обложки Kindle нужен модуль HomeLibre Images.')
+    with tempfile.TemporaryDirectory(prefix='homelibre-kindle-cover-', dir=directory) as folder:
+        root=Path(folder); source=root/'cover.gif'; output=root/'frames.zip'; source.write_bytes(data)
+        try:
+            done=subprocess.run([str(tool),'--image-pages',str(source),str(output)], capture_output=True,
+                                timeout=30,creationflags=0x08000000 if os.name=='nt' else 0)
+        except subprocess.TimeoutExpired as error:
+            raise api.ConversionError('Подготовка обложки Kindle превысила 30 секунд.') from error
+        if done.returncode or not output.is_file():
+            raise api.ConversionError('Не удалось подготовить обложку Kindle без изменения качества.')
+        with zipfile.ZipFile(output) as archive:
+            entries=archive.infolist()
+            if len(entries)!=1 or entries[0].file_size>16*1024*1024:
+                raise api.ConversionError('Обложка Kindle содержит несколько кадров или превышает предел размера.')
+            png=archive.read(entries[0])
+            if not png.startswith(b'\x89PNG\r\n\x1a\n'):
+                raise api.ConversionError('Модуль изображений не вернул обложку PNG.')
+            return png
+
+
+def canonical_input(api, source, destination, warnings=None, tools_root=None):
     """Adapt a private copy, keeping images, CSS and standard book metadata.
 
     Kindling removes root namespace declarations from its KF8 skeleton, so
@@ -158,6 +181,7 @@ def canonical_input(api, source, destination, warnings=None):
         container = api.xml(archive.read('META-INF/container.xml'))
         documents, styles, navigation = set(), set(), set()
         packages, image_items, duplicate_covers = {}, {}, {}
+        declared_cover_images = set()
         cover_declared = False
         for rootfile in (node for node in container.iter() if api.tag(node) == 'rootfile'):
             name = archive.resolve('container.xml', rootfile.get('full-path', ''))[0]
@@ -187,6 +211,7 @@ def canonical_input(api, source, destination, warnings=None):
                     styles.add(member)
                 elif kind == 'application/x-dtbncx+xml':
                     navigation.add(member)
+            declared_cover_images.update(cover_images)
             cover_declared = cover_declared or bool(cover_ids)
             spine = next((node for node in package if api.tag(node) == 'spine'), None)
             if spine is not None and len(spine) > 1:
@@ -231,6 +256,10 @@ def canonical_input(api, source, destination, warnings=None):
                         for attribute in list(node.attrib):
                             if attribute == 'data-fb2' or attribute.startswith('data-fb2-'):
                                 del node.attrib[attribute]
+                            elif attribute in {'href', XLINK_HREF, 'src'}:
+                                reference = node.get(attribute)
+                                if urlsplit(reference).scheme.lower() in {'http', 'https', 'mailto'}:
+                                    node.set(attribute, quote(reference, safe=":/?#[]@!$&'()*+,;=%"))
                     if cover_pages:
                         keep_linked_covers(name, root.iter())
                     normalize = getattr(api, 'local_foreign_namespaces', None)
@@ -246,6 +275,10 @@ def canonical_input(api, source, destination, warnings=None):
                     data = re.sub(rb'(<(area|base|br|col|embed|hr|img|input|link|meta|param|source|track|wbr)\b[^<>]*?)></\2>',
                                   rb'\1 />', data)
                 elif name in image_items:
+                    if name in declared_cover_images and data.startswith((b'GIF87a', b'GIF89a')):
+                        data=png_cover(api,data,Path(tools_root or Path(__file__).resolve().parent.parent),destination.parent)
+                        if warnings is not None:
+                            warnings.add('Обложка GIF подготовлена для Kindle в PNG без уменьшения изображения.')
                     for item in image_items[name]:
                         try:
                             mime, _ = api.fb2_image_type(data, item.get('media-type'))
@@ -378,7 +411,7 @@ def convert(api, source, destination, options):
         result = api.convert_book(source, prepared, **dict(options,image_container='raw'))
         warnings.update(result.get('warnings', []))
         adapted = work / 'kindle-input.epub'
-        cover_declared = canonical_input(api, prepared, adapted, warnings)
+        cover_declared = canonical_input(api, prepared, adapted, warnings, tools)
         output = work / ('book' + extension)
         command = [str(writer), 'build', str(adapted), '-o', str(output),
                    '--no-embed-source', '--creator-tag']

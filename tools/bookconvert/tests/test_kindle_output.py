@@ -1,5 +1,6 @@
 """Optional writer boundaries and preservation; real native round-trip is separate."""
 import hashlib
+import base64
 import importlib.util
 import re
 from pathlib import Path
@@ -25,6 +26,37 @@ k = load('kindle_output_test_writer', ROOT / 'kindle_output.py')
 
 
 class KindleOutputTests(unittest.TestCase):
+    def test_gif_cover_is_prepared_as_png_in_private_copy_and_animation_is_not_silently_lost(self):
+        gif=base64.b64decode('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7')
+        source=self.root/'gif.epub';output=self.root/'private-gif.epub'
+        with zipfile.ZipFile(self.source) as z:entries={n:z.read(n) for n in z.namelist()}
+        entries['OPS/image.png']=gif
+        entries['OPS/package.opf']=entries['OPS/package.opf'].replace(b'media-type="image/png"',b'media-type="image/gif" properties="cover-image"')
+        with zipfile.ZipFile(source,'w') as z:
+            for name,data in entries.items():z.writestr(name,data)
+        before=source.read_bytes();tool=self.root/'images.exe';tool.write_bytes(b'mocked image processor')
+        png=b'\x89PNG\r\n\x1a\nfixture';warnings=set()
+        def run(command,**options):
+            self.assertEqual(Path(command[2]).read_bytes(),gif)
+            with zipfile.ZipFile(command[3],'x') as z:z.writestr('00001.png',png)
+            return SimpleNamespace(returncode=0)
+        with mock.patch.object(c,'image_processor_path',return_value=tool),mock.patch.object(k.subprocess,'run',side_effect=run):
+            self.assertTrue(k.canonical_input(c,source,output,warnings))
+        with zipfile.ZipFile(output) as z:
+            self.assertEqual(z.read('OPS/image.png'),png)
+            item=next(n for n in c.xml(z.read('OPS/package.opf')).iter() if n.get('href')=='image.png')
+            self.assertEqual(item.get('media-type'),'image/png');self.assertEqual(item.get('properties'),'cover-image')
+        self.assertTrue(any('GIF' in x for x in warnings));self.assertEqual(source.read_bytes(),before)
+        self.assertFalse(list(self.root.glob('homelibre-kindle-cover-*')))
+        def animated(command,**options):
+            with zipfile.ZipFile(command[3],'x') as z:
+                z.writestr('00001.png',png);z.writestr('00002.png',png)
+            return SimpleNamespace(returncode=0)
+        with mock.patch.object(c,'image_processor_path',return_value=tool),mock.patch.object(k.subprocess,'run',side_effect=animated):
+            with self.assertRaisesRegex(c.ConversionError,'несколько кадров'):
+                k.png_cover(c,gif,self.root,self.root)
+        self.assertFalse(list(self.root.glob('homelibre-kindle-cover-*')))
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix='homelibre-kindle-boundaries-')
         self.addCleanup(self.temporary.cleanup)
@@ -95,6 +127,27 @@ class KindleOutputTests(unittest.TestCase):
             self.assertIn('Ёжик', ''.join(c.xhtml(z.read('OPS/chapter.xml')).itertext()))
         self.assertEqual(source.read_bytes(), before)
         self.assert_clean()
+
+    def test_external_urls_are_encoded_without_changing_local_targets_or_prose(self):
+        source, output = self.root/'urls.epub', self.root/'private-urls.epub'
+        with zipfile.ZipFile(self.source) as z:
+            entries = {name:z.read(name) for name in z.namelist()}
+        entries['OPS/chapter.xml'] = entries['OPS/chapter.xml'].replace(b'</html:p>',
+            ('<html:a href="mailto:reader@example.invalid?subject=Вопрос о книге&amp;body=One%20word">Write</html:a>'
+             '<html:a href="https://example.invalid/Часть 2?q=A B#ref">Public</html:a></html:p>').encode())
+        with zipfile.ZipFile(source, 'w') as z:
+            for name, data in entries.items(): z.writestr(name, data)
+        before = source.read_bytes()
+        k.canonical_input(c, source, output)
+        with zipfile.ZipFile(output) as z:
+            tree=c.xhtml(z.read('OPS/chapter.xml'))
+            links=[n.get('href') for n in tree.iter() if c.tag(n)=='a']
+            self.assertIn('#note',links)
+            self.assertIn('mailto:reader@example.invalid?subject=%D0%92%D0%BE%D0%BF%D1%80%D0%BE%D1%81%20%D0%BE%20%D0%BA%D0%BD%D0%B8%D0%B3%D0%B5&body=One%20word',links)
+            self.assertIn('https://example.invalid/%D0%A7%D0%B0%D1%81%D1%82%D1%8C%202?q=A%20B#ref',links)
+            self.assertIn('Ёжик',''.join(tree.itertext()))
+            self.assertEqual(z.read('OPS/image.png'),self.image)
+        self.assertEqual(source.read_bytes(),before)
 
     def test_svg_math_and_note_namespaces_survive_replaced_html_root(self):
         source, output = self.root / 'foreign.epub', self.root / 'canonical.epub'

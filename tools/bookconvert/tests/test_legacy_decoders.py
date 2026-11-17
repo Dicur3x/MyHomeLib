@@ -1,8 +1,10 @@
 """GPL-3.0-only. Independent vectors and bounds for the isolated decoder."""
 import ctypes
 import io
+import importlib.util
 import os
 from pathlib import Path
+from types import SimpleNamespace
 import struct
 import sys
 import unittest
@@ -76,6 +78,21 @@ class NativeLegacy(unittest.TestCase):
 
 
 class LegacyBounds(unittest.TestCase):
+    def test_lit_guide_prefers_explicit_full_cover_without_guessing_from_thumbnails(self):
+        spec=importlib.util.spec_from_file_location('lit_cover_test_helper',ROOT/'legacy_helper.py')
+        helper=importlib.util.module_from_spec(spec);spec.loader.exec_module(helper)
+        entries={name:SimpleNamespace(mime_type=mime) for name,mime in
+                 [('thumb.jpg','image/jpeg'),('small.jpg','image/jpeg'),('full cover.jpg','image/jpeg'),('body.htm','text/html')]}
+        tree=helper.xml(b'<package><guide><reference type="other.ms-thumbimage" href="thumb.jpg"/>'
+                        b'<reference type="other.ms-coverimage-standard" href="small.jpg"/>'
+                        b'<reference type="other.ms-coverimage" href="full%20cover.jpg"/></guide></package>')
+        self.assertEqual(helper.lit_cover(tree,entries),'full cover.jpg')
+        tree=helper.xml(b'<package><guide><reference type="cover" href="https://example.invalid/a.jpg"/>'
+                        b'<reference type="cover" href="../full%20cover.jpg"/>'
+                        b'<reference type="cover" href="body.htm"/>'
+                        b'<reference type="other.ms-thumbimage" href="thumb.jpg"/></guide></package>')
+        self.assertIsNone(helper.lit_cover(tree,entries))
+
     def test_lrf_final_untagged_text_is_not_duplicated(self):
         class Style:
             def as_dict(self):return {}

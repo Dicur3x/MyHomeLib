@@ -130,6 +130,71 @@ class TextInputs(unittest.TestCase):
         with zipfile.ZipFile(self.root/'book.shtml.epub') as archive:
             body = c.xml(archive.read('OEBPS/book.xhtml'))
             self.assertFalse(any(c.tag(node) == 'img' for node in body.iter()))
+
+    def test_empty_html_layout_image_keeps_menu_text_without_inventing_pixels(self):
+        source=self.root/'menu.htm'
+        source.write_text('<html><body><p>Before<IMG border=0 height=1 src= width=4>After'
+                          '<img width="4" height="1" src=""/>'
+                          '<img src="data:image/png;base64,'+base64.b64encode(PNG).decode()+'"/>'
+                          '</p><p>Last paragraph.</p></body></html>',encoding='utf-8')
+        self.outputs(source,['Before After','Last paragraph.'],True)
+        with zipfile.ZipFile(self.root/'menu.htm.epub') as z:
+            tree=c.xml(z.read('OEBPS/book.xhtml'))
+            self.assertEqual(sum(c.tag(n)=='img' for n in tree.iter()),1)
+        for index,tag in enumerate([
+            '<img src="width=4" width="4" height="1">',
+            '<img title="src= width=4" src="width=4" width="4" height="1">',
+            '<img src= width=400 height=600>',
+            '<img height=1 src= width=4 alt="Meaningful illustration">']):
+            book=self.root/('missing-image-'+str(index)+'.htm')
+            book.write_text('<html><body><p>Text'+tag+'</p></body></html>',encoding='utf-8')
+            before=book.read_bytes()
+            for suffix in ['.epub','.fb2']:
+                output=self.root/(book.stem+suffix)
+                with self.assertRaises(c.ConversionError):c.convert_book(book,output)
+                self.assertFalse(output.exists())
+            self.assertEqual(book.read_bytes(),before)
+
+    def test_html5_layout_repair_keeps_unicode_offsets_anchors_and_quoted_images(self):
+        spec=importlib.util.spec_from_file_location('layout_html_input',Path(__file__).resolve().parents[1]/'text_inputs.py')
+        module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+        (self.root/'width=4').write_bytes(PNG)
+        for html5 in [False,True]:
+            source=self.root/('layout-'+str(html5)+'.htm')
+            source.write_text('<html><head><title>Menu</title></head><body>Ё 😀\r\n<p>Before\r\n'
+                              '<img border=0 height=1 src= width=4 id="a&amp;b" class="spacer">After</p>\r\n'
+                              '<p><img title="src= width=4" src="width=4" width=4 height=1></p>'
+                              '<p>Last paragraph.</p></body></html>',encoding='utf-8')
+            before=source.read_bytes();warnings=set();book=module.Book(c,source,warnings)
+            module.read_html(book,before,html5=html5)
+            output=self.root/('layout-'+str(html5)+'.epub');book.finish(output)
+            with zipfile.ZipFile(output) as z:
+                tree=c.xml(z.read('OEBPS/book.xhtml'));text=' '.join(''.join(tree.itertext()).split())
+                self.assertIn('Ё 😀',text);self.assertIn('Before After',text);self.assertIn('Last paragraph.',text)
+                self.assertTrue(any(n.get('id')=='a&b' and n.get('class')=='spacer' for n in tree.iter()))
+                self.assertEqual(sum(c.tag(n)=='img' for n in tree.iter()),1)
+                self.assertIn(PNG,[z.read(name) for name in z.namelist() if '/images/' in name])
+            self.assertEqual(source.read_bytes(),before)
+            self.assertTrue(any('служебное изображение' in warning for warning in warnings))
+
+    def test_html_duplicate_anchors_keep_first_target_and_do_not_take_later_ids(self):
+        source=self.root/'anchors.htm'
+        source.write_text('<html><body><p id="a">First target.</p><p id="a">Second paragraph.</p>'
+                          '<p id="a-homelibre-2">Existing later target.</p>'
+                          '<a name="mixed">Earlier named anchor.</a><p id="mixed">Explicit ID target.</p>'
+                          '<p><a href="#a">First link</a> <a href="#a-homelibre-2">Later link</a>'
+                          '<a href="#mixed">Explicit link</a></p></body></html>',encoding='utf-8')
+        self.outputs(source,['First target.','Second paragraph.','Existing later target.','Explicit ID target.'])
+        with zipfile.ZipFile(self.root/'anchors.htm.epub') as z:
+            tree=c.xml(z.read('OEBPS/book.xhtml'))
+            nodes=[n for n in tree.iter() if n.get('id')]
+            self.assertEqual(len(nodes),len({n.get('id') for n in nodes}))
+            by_id={n.get('id'):n for n in nodes}
+            self.assertEqual(c.plain(by_id['a']),'First target.')
+            self.assertEqual(c.plain(by_id['a-homelibre-2']),'Existing later target.')
+            self.assertEqual(c.plain(by_id['mixed']),'Explicit ID target.')
+            self.assertTrue(any(n.get('href')=='#a' and c.plain(n)=='First link' for n in tree.iter()))
+            self.assertTrue(any(n.get('href')=='#a-homelibre-2' for n in tree.iter()))
     def test_docx(self):
         source = self.root/'book.docx'; docx(source); self.outputs(source, [TEXT, 'Точная сноска', 'Ячейка'], True, True, True)
     def test_docx_unpainted_empty_textbox_does_not_block_the_book(self):
@@ -205,6 +270,25 @@ class TextInputs(unittest.TestCase):
         source = self.root/'book.md'; (self.root/'image.png').write_bytes(PNG)
         source.write_text('# Глава один\n\n'+TEXT+' **Жирный *курсив***[^1]\n\n![Иллюстрация](image.png)\n\n## Подглава\n\n> Цитата\n\n1. Первый\n2. Второй\n\n```python\nprint("Точный код")\n```\n\n# Глава два\n\n[^1]: Точная сноска\n',encoding='utf-8')
         self.outputs(source, [TEXT, 'Жирный курсив', 'Точная сноска', 'Точный код'], True, True, True)
+
+    def test_markdown_static_anchors_roundtrip_through_active_content_filter(self):
+        source=self.root/'anchors.md'
+        source.write_text('[Next](#destination)\n\n<a id="destination"></a>\n\n'
+                          '## Destination\n\n<img src="data:image/png;base64,'+base64.b64encode(PNG).decode()+'" onerror="bad()">\n\n'
+                          '<script>bad script text</script>\n\n'
+                          '<p onclick="bad()">Visible text <a href="javascript:bad()">Safe words</a></p>\n\n'
+                          '\\<literal\\> and `<a id="code-only"></a>`\n',encoding='utf-8')
+        before=source.read_bytes();output=self.root/'static.epub';c.convert_book(source,output)
+        with zipfile.ZipFile(output) as z:
+            body=c.first(c.xml(z.read('OEBPS/book.xhtml')),'body')
+            self.assertTrue(any(n.get('id')=='destination' for n in body.iter()))
+            self.assertTrue(any(n.get('href')=='#destination' for n in body.iter()))
+            self.assertFalse(any(n.get('id')=='code-only' for n in body.iter()))
+            self.assertFalse(any(c.tag(n)=='script' or any(k.startswith('on') for k in n.attrib) or n.get('href','').startswith('javascript:') for n in body.iter()))
+            self.assertIn('Safe words',''.join(body.itertext()));self.assertIn('<literal>',''.join(body.itertext()))
+            self.assertNotIn('bad script text',''.join(body.itertext()))
+            self.assertTrue(any(c.tag(n)=='img' for n in body.iter()))
+        self.assertEqual(source.read_bytes(),before)
     def test_rtf_unicode_groups_escapes_and_picture(self):
         source = self.root/'book.rtf'
         def rtf_unicode(text): return ''.join('\\u' + str(int.from_bytes(text.encode('utf-16-le')[i:i+2], 'little', signed=True)) + '?' for i in range(0, len(text.encode('utf-16-le')), 2))

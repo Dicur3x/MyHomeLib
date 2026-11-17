@@ -46,7 +46,12 @@ def read_lit_lrf(book, read_html):
                 if href not in package.namelist():book.fail('В LIT/LRF отсутствует изображение: '+href[:160])
                 return book.image(package.read(href))
             book.local_image=image
-            try:read_html(book,package.read('book.html'))
+            try:
+                read_html(book,package.read('book.html'))
+                if metadata.get('cover'):
+                    cover=image(metadata['cover']);book.cover_image=cover.get('src')
+                    if not any(node.get('src')==book.cover_image for node in book.body.iter()):
+                        paragraph=book.el('p');paragraph.append(cover);book.body.insert(0,paragraph)
             finally:book.local_image=original
 
 
