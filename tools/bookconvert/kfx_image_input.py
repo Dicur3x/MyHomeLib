@@ -114,21 +114,25 @@ def prepare(api, source, destination, render, check=None, decode_webp=None, deco
     with closing(api.EpubArchive(source)) as archive:
         container = api.xml(archive.read('META-INF/container.xml'))
         roots = [node.get('full-path') for node in container.iter() if api.tag(node) == 'rootfile']
-        if len(roots) != 1 or not roots[0]:
-            raise api.ConversionError(f'{label}: для подготовки изображений нужен один пакет EPUB.')
+        if not roots or any(not root for root in roots) or len(set(roots)) != len(roots) or (not only_gif and len(roots) != 1):
+            message = 'некорректный список пакетов EPUB.' if only_gif else 'для подготовки изображений нужен один пакет EPUB.'
+            raise api.ConversionError(f'{label}: {message}')
         package_path = roots[0]
-        package = api.xml(archive.read(package_path))
+        packages = {path: api.xml(archive.read(path)) for path in roots}
+        package = packages[package_path]
         if not only_gif and any((node.get('property') == 'rendition:layout' and api.plain(node) == 'pre-paginated')
                or 'rendition:layout-pre-paginated' in node.get('properties', '').split()
                or (node.get('name') == 'fixed-layout' and node.get('content') == 'true')
                for node in package.iter()):
             raise api.ConversionError(f'{label}: фиксированную вёрстку EPUB пока нельзя сохранить без изменений.')
-        manifest = api.first(package, 'manifest')
-        if manifest is None:
+        manifests = {path: api.first(value, 'manifest') for path, value in packages.items()}
+        if any(value is None for value in manifests.values()):
             raise api.ConversionError(f'{label}: в EPUB нет списка ресурсов.')
-        members = [(item, archive.resolve(package_path, item.get('href', ''))[0]) for item in manifest]
+        owners = {id(item): path for path, manifest in manifests.items() for item in manifest}
+        members = [(item, archive.resolve(path, item.get('href', ''))[0])
+                   for path, manifest in manifests.items() for item in manifest]
         names = set(archive.names)
-        ids = {item.get('id') for item in manifest}
+        ids = {item.get('id') for manifest in manifests.values() for item in manifest}
         updates, added, replacements = {}, {}, {}
         png_targets, inline_gifs = {}, {}
         added_bytes = 0
@@ -165,10 +169,15 @@ def prepare(api, source, destination, render, check=None, decode_webp=None, deco
             added[target] = image
             png_targets.setdefault(sha256(image).digest(), target)
             if item is None:
-                item = api.element(api.OP, 'item', id=name)
-                manifest.append(item)
-            item.set('href', relative(package_path, target))
-            item.set('media-type', 'image/png')
+                # A shared content/CSS document may belong to several
+                # renditions. Register its inline image in each package.
+                for path, manifest in manifests.items():
+                    entry = api.element(api.OP, 'item', id=name, href=relative(path, target))
+                    entry.set('media-type', 'image/png')
+                    manifest.append(entry)
+            else:
+                item.set('href', relative(owners[id(item)], target))
+                item.set('media-type', 'image/png')
             return target
 
         for item, path in members:
@@ -183,6 +192,10 @@ def prepare(api, source, destination, render, check=None, decode_webp=None, deco
             if not path or mime not in ('image/svg+xml', 'image/webp', 'image/gif'):
                 continue
             if path in replacements:
+                if only_gif and len(packages) > 1:
+                    item.set('href', relative(owners[id(item)], replacements[path]))
+                    item.set('media-type', 'image/png')
+                    continue
                 raise api.ConversionError(f'{label}: рисунок несколько раз указан в списке ресурсов.')
             require_rewrite()
             data = archive.read(path)
@@ -217,7 +230,11 @@ def prepare(api, source, destination, render, check=None, decode_webp=None, deco
                     key = sha256(data).digest()
                     if key not in inline_gifs:
                         image = decode_gif(data)
-                        inline_gifs[key] = png_targets.get(sha256(image).digest()) or add_png(image, 16384)
+                        # Existing resources may be declared in only one of
+                        # several packages. A fresh inline entry is registered
+                        # in all of them, keeping every rendition self-contained.
+                        existing = png_targets.get(sha256(image).digest()) if len(packages) == 1 else None
+                        inline_gifs[key] = existing or add_png(image, 16384)
                     return relative(path, inline_gifs[key])
             if not replacements:
                 return href
@@ -304,13 +321,15 @@ def prepare(api, source, destination, render, check=None, decode_webp=None, deco
                     else:
                         item.attrib.pop('properties')
         if only_gif:
-            for node in package.iter():
-                href = node.get('href')
-                if href:
-                    node.set('href', remap(package_path, href))
+            for path, package in packages.items():
+                for node in package.iter():
+                    href = node.get('href')
+                    if href:
+                        node.set('href', remap(path, href))
         if not added:
             return 0
-        updates[package_path] = api.serialized(package)
+        for path, package in packages.items():
+            updates[path] = api.serialized(package)
         entries = [entry for entry in archive.archive.infolist() if entry.filename not in replacements]
         sizes = [len(updates[entry.filename]) if entry.filename in updates else entry.file_size for entry in entries]
         if (len(entries) + len(added) > api.MAX_ENTRIES or max(sizes, default=0) > api.MAX_FILE

@@ -285,6 +285,27 @@ class GifStaticExportPolicy(unittest.TestCase):
         self.assertEqual(source.read_bytes(), original)
         self.assertFalse(list(self.work.glob('homelibre-gif-export-*')))
 
+    def test_multiple_package_documents_survive_a_real_zip_rewrite(self):
+        from test_gif_package_model import GifPackageModel
+        model = GifPackageModel()
+        for inline in (False, True):
+            with self.subTest(inline=inline):
+                files, roots = model.book(inline=inline)
+                source = self.work / ('source-multiple-' + str(inline) + '.epub')
+                private = self.work / ('private-multiple-' + str(inline) + '.epub')
+                with zipfile.ZipFile(source, 'x') as z:
+                    for name, data in files.items():
+                        z.writestr(name, data)
+                original = source.read_bytes()
+                private.write_bytes(original)
+                with mock.patch.object(gif_static, 'first_frame', return_value=PNG):
+                    self.assertEqual(gif_static.normalize_export(api, private, '.epub', self.work, set()), 1)
+                self.assertEqual(source.read_bytes(), original)
+                with zipfile.ZipFile(private) as z:
+                    self.assertIsNone(z.testzip())
+                    result = {name: z.read(name) for name in z.namelist()}
+                model.assert_renditions(result, roots, preserve_ids=not inline)
+
 
 @unittest.skipUnless(os.environ.get('HOMELIB_TEST_TOOLS'), 'Explicit current Windows image runtime required')
 class NativeGifFirstFrame(unittest.TestCase):

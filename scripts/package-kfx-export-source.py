@@ -23,6 +23,8 @@ RESVG = 'resvg-0.49.0.tar.xz'
 README = b'''Corresponding source for HomeLibre KfxExport (Boko 0.6.0 and resvg 0.49.0).
 The two pinned upstream source archives retain their original licences.
 The accompanying patch fixes EPUB navigation and linked inline images.
+HomeLibre modification date: 2026-11-17. The modified Boko work remains
+GPL-3.0-or-later; see the upstream LICENSE and the accompanying patch.
 The vendor directory contains the dependency sources pinned by Boko's Cargo.lock.
 resvg includes its own vendor directory in its upstream source archive.
 

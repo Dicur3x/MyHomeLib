@@ -23,7 +23,7 @@ def first_frame(api, data, tools, work, check=None):
         raise api.ConversionError('Изображение GIF превышает допустимые размеры.')
     if check is not None:
         check()
-    tool = api.image_processor_path(tools)
+    tool = api.image_processor_path(Path(tools or Path(__file__).resolve().parent.parent))
     if not tool.is_file():
         raise api.ComponentRequired('ImageProcessing', 'Для статичного кадра GIF нужен модуль HomeLibre Images.')
     runtime = tool.with_name('RUNTIME.json')

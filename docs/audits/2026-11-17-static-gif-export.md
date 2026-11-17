@@ -31,30 +31,52 @@ No such frequency measurement or UI choice has been implemented now.
 
 ## Evidence available
 
-`G:/HL-b14-external/gif-static-boundaries-r1450/pure-capability.log` passes ten
-lightweight tests: module availability/version capability, input/output bounds,
-cancellation and cleanup, and source-set URL handling including data-URL commas.
-They do not execute the native decoder or process ZIP archives. Python source
-syntax and the repository whitespace check pass.
+The initial low-reserve checkpoint passed ten lightweight boundary/URL tests
+without native decoding or ZIP processing (`gif-static-boundaries-r1450`).
+After the reserve recovered, validation continued:
+
+- Fresh images-only helpers built from current source pass 30 methods each for
+  Win64 and Win32 in `G:/HL-b14-external/gif-static-native-r1452/`. Four methods
+  execute each real helper and compare complete RGBA pixels with independent
+  Pillow decoding: six frames become one, partial-frame offsets retain their
+  logical canvas, transparency survives, and an occupied output is preserved.
+  These use host Python with separate x86/x64 executables; they do not establish
+  the final embedded-Python or GUI package path.
+- The same cohort exercises FB2/EPUB policy, signed packages, inline GIFs,
+  references, reading/original preservation and the existing KFX image tests.
+- Four in-memory package-graph checks pass for shared/inline images in two
+  package documents, no-GIF books and signature rejection (`gif-package-model-r1451`).
+  A separate real-ZIP test passes shared and inline variants, checking every
+  CRC, both package manifests, text/links and the untouched original file:
+  `gif-static-native-r1452/multiple-package-zip.log`.
+- Writer regression: 27 methods pass, with three explicit installed-writer
+  skips, in `gif-static-native-r1452/writer-regression.log`.
+- The actual six-frame 88 x 31 GIF from CHM 776538 becomes a one-frame PNG with
+  byte-for-byte equal decoded RGBA pixels on both helpers. Alpha and appearance
+  on black/white backgrounds also match; the source CHM hash is unchanged.
+  Evidence: `G:/HL-b14-external/real-gif-first-frame-r1455/report.json`.
+
+Python source syntax and the repository whitespace check pass. These results
+remain separate from final writer output and coherent release-package evidence.
 
 ## Still required
 
-System free space remained below the workspace's 8 GiB reserve; production
-builds and archive-based checks have not resumed. The user identified an active
-Windows installation assistant and is freeing space separately.
+Earlier builds stopped below the workspace's 8 GiB reserve while the user's
+Windows upgrade used system space. The reserve later recovered. A subsequent
+KFX build was intentionally stopped by the user's explicit goal pause
+(`kfx-module-build-r1453/user-pause.json`). These are intentional stops, not
+successful builds or newly diagnosed compiler defects. Work resumed afterward.
 
-- Build current images-only and XPS helpers on x86/x64. Test six-frame GIFs,
-  partial first-frame offsets, logical-canvas background/transparency, occupied
-  outputs and malformed inputs against an independent decoder.
-- Run the FB2/EPUB policy tests and KFX preparation tests, plus relevant existing
-  conversion/writer regression suites. These integration tests are written but
-  have not run in this low-reserve step.
+- Current images-only and XPS helpers are built on x86/x64. Still check broader
+  image/XPS regressions and malformed GIF frame/sub-block inputs in the native
+  path, then test fresh sealed components through the native application.
 - Rebuild the patched KfxExport 3.0.0.6 and its versioned corresponding source.
   Re-run real CHM/LIT/DOCX exports with independent text, first-frame pixels,
   image-link and position-map checks. The old six-frame resource assertion in
   the unexecuted private probe must be replaced with the user's static policy;
   retaining an animation is no longer the acceptance criterion.
-- Verify EPUB books with multiple package documents: the shared preparation
-  currently requires one package. Do not claim universal coverage of this case.
+- GIF-only preparation now keeps multiple package documents and their shared
+  resources. This does not expand the separate KFX writer's one-package limit
+  or establish multi-rendition behavior on physical reading devices.
 - Produce coherent fresh components, native GUI/update checks and final packages.
   No Desktop replacement or release follows from the lightweight tests alone.
