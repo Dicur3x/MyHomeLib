@@ -59,7 +59,7 @@ NOTES = {
     'FB2Export': 'fb2cng — сохранение FB2 в EPUB 2, EPUB 3, KEPUB, KFX, AZW8, PDF и Markdown.',
     'KoboExport': 'kepubify — прямое сохранение EPUB в KEPUB для Kobo.',
     'EpubPdfExport': 'Vivliostyle — прямая вёрстка EPUB в PDF через Microsoft WebView2 Runtime.',
-    'KfxExport': 'Boko — прямое сохранение EPUB в KFX и AZW8 с подготовкой иллюстраций через resvg.',
+    'KfxExport': 'Обложки KFX/AZW8 и прямое сохранение EPUB в эти форматы, включая подготовку иллюстраций SVG.',
     'OPDSTls': 'Каталог OPDS по HTTPS с сертификатом и закрытым ключом пользователя.',
 }
 

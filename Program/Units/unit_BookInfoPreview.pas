@@ -32,7 +32,7 @@ implementation
 uses Winapi.Windows, Winapi.ActiveX, Vcl.Graphics, FictionBook_21, unit_FB2Utils,
   unit_Interfaces, unit_ReaderCache, unit_Consts, System.Variants, dm_user,
   unit_BookMetadataCache, unit_PackageBookCover, unit_ReaderRaster, unit_ReaderPDFWorker,
-  unit_XpsBookCover, unit_MHLExternalTools, unit_KindleBookCover;
+  unit_XpsBookCover, unit_MHLExternalTools, unit_KindleBookCover, unit_KfxBookCover;
 
 type
   TPreviewThread = class(TThread)
@@ -168,6 +168,30 @@ begin
         except
           on E:EAbort do Exit;
           on E:Exception do CoverStatus:='Не удалось прочитать обложку Kindle: '+E.Message;
+        end;
+      end;
+      if Terminated then Exit;
+      if LocalSource and NeedCover and not Assigned(Cover) and
+        (SameText(Book.FileExt,'.kfx') or SameText(Book.FileExt,'.azw8')) then
+      begin
+        try
+          Stream:=OpenRawBookSource(Book,nil,function:Boolean begin Result:=Terminated; end);
+          try
+            if not (Stream is TFileStream) then raise EReadError.Create('Нет локального файла для чтения обложки KFX.');
+            CoverBytes:=ReadKfxBookCover(TFileStream(Stream).FileName,
+              FindExternalTool('boko.exe','kfx-export'),function:Boolean begin Result:=Terminated; end);
+          finally Stream.Free; end;
+          if Terminated then Exit;
+          if Length(CoverBytes)>0 then
+          begin
+            CoverAssigned:=True; Image:=TBytesStream.Create(CoverBytes);
+            try Cover:=CreateGraphicFromStream(Image,64*1024*1024); finally Image.Free; end;
+            if not Assigned(Cover) then CoverStatus:='Не удалось прочитать изображение обложки KFX.';
+          end;
+          CoverBytes:=nil;
+        except
+          on E:EAbort do Exit;
+          on E:Exception do CoverStatus:='Обложка KFX недоступна: '+E.Message;
         end;
       end;
       if Terminated then Exit;

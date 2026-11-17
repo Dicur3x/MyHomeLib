@@ -335,3 +335,70 @@ diff --git a/src/kfx/storyline/tests.rs b/src/kfx/storyline/tests.rs
      /// A styled span after an inline image gets run-relative event offsets.
      #[test]
      fn events_after_inline_image_are_run_relative() {
+diff --git a/src/bin/boko/main.rs b/src/bin/boko/main.rs
+--- a/src/bin/boko/main.rs
++++ b/src/bin/boko/main.rs
+@@ -29,6 +29,12 @@
+         json: bool,
+     },
+
++    /// Write only the explicitly declared KFX/AZW8 cover to stdout
++    Cover {
++        /// Input file (standalone KFX or AZW8)
++        file: String,
++    },
++
+     /// Convert between ebook formats
+     Convert {
+         /// Input file (use - for stdin)
+@@ -110,6 +116,7 @@
+
+     let result = match cli.command {
+         Command::Info { file, json } => show_info(&file, json),
++        Command::Cover { file } => write_cover(&file),
+         Command::KfxDump(args) => kfx_dump::run(&args),
+         Command::Sections { file } => show_sections(&file),
+         Command::Convert {
+@@ -245,6 +252,42 @@
+     landmark_type: String,
+     href: String,
+     label: String,
++}
++
++// Opening KFX reads its metadata/resource index, not chapter contents. A missing
++// declaration stays missing; never promote an arbitrary first illustration.
++fn declared_cover(path: &str) -> Result<Option<Vec<u8>>, String> {
++    let metadata = std::fs::metadata(path).map_err(|e| e.to_string())?;
++    if !metadata.is_file() || metadata.len() > 64 * 1024 * 1024 {
++        return Err("Cover input must be a regular file of at most 64 MiB".into());
++    }
++    let book = Book::open_format(path, Format::Kfx).map_err(|e| e.to_string())?;
++    let Some(name) = book.metadata().cover_image.as_deref() else {
++        return Ok(None);
++    };
++    if name.trim().is_empty() {
++        return Err("Empty declared cover reference".into());
++    }
++    let image = book.load_asset(name).map_err(|e| e.to_string())?;
++    if image.is_empty() || image.len() > 16 * 1024 * 1024 {
++        return Err("Declared cover exceeds 16 MiB or is empty".into());
++    }
++    let raster = image.starts_with(b"\x89PNG\r\n\x1a\n")
++        || image.starts_with(b"\xff\xd8\xff")
++        || image.starts_with(b"GIF87a") || image.starts_with(b"GIF89a")
++        || (image.starts_with(b"RIFF") && image.get(8..12) == Some(b"WEBP"));
++    if !raster {
++        return Err("Declared cover is not a supported raster image".into());
++    }
++    Ok(Some(image))
++}
++
++fn write_cover(path: &str) -> Result<(), String> {
++    use std::io::Write;
++    if let Some(image) = declared_cover(path)? {
++        std::io::stdout().lock().write_all(&image).map_err(|e| e.to_string())?;
++    }
++    Ok(())
+ }
+
+ fn show_info(path: &str, json: bool) -> Result<(), String> {

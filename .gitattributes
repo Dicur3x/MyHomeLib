@@ -4,3 +4,6 @@ Installer/ReaderFonts/** -text
 # Keep the existing Windows IDE project bytes across the application rename.
 /Program/HomeLibre.dproj -text
 /Program/HomeLibre.groupproj -text
+
+# Corresponding-source archives and runtime notices bind exact patch bytes.
+/scripts/boko-epub-navigation.patch text eol=lf
