@@ -32,10 +32,16 @@ Extract this ZIP into a folder with a short path. With Python 3.12, Git,
 Rust 1.99.1 for x86_64-pc-windows-gnu, the Windows GNU target libraries
 and LLVM dlltool available, run:
 
+Before going offline, install the 32-bit standard and MinGW target libraries:
+rustup target add i686-pc-windows-gnu --toolchain 1.99.1-x86_64-pc-windows-gnu
+rustup component add rust-mingw --target i686-pc-windows-gnu --toolchain 1.99.1-x86_64-pc-windows-gnu
+
 python build-kfx-export.py --boko source.tar.gz --resvg resvg-0.49.0.tar.xz --boko-vendor vendor --platform Win32 --output components --dlltool path-to-llvm-dlltool.exe
 
 Repeat with --platform Win64. The build uses the bundled dependency sources
-offline. See the runtime package's RUNTIME.json for binary hashes.
+offline. Optionally retain checked Cargo artifacts across retries with
+--cargo-target-dir cache-Win32 (use a separate directory for Win64).
+See the runtime package's RUNTIME.json for binary hashes.
 '''
 
 

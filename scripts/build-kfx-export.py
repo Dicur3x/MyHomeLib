@@ -58,7 +58,7 @@ def configure_vendor(source, vendor):
                      '[source.vendored-sources]\ndirectory = ' + json.dumps(str(vendor)) + '\n')
 
 
-def build(boko, resvg, platform, output, dlltool, boko_vendor=None):
+def build(boko, resvg, platform, output, dlltool, boko_vendor=None, cargo_target_dir=None):
     cargo, rustc = 'cargo', 'rustc'
     if command(rustc, '--version', cwd=output.parent).split()[1] != RUST_VERSION:
         raise ValueError('Use Rust ' + RUST_VERSION)
@@ -75,7 +75,9 @@ def build(boko, resvg, platform, output, dlltool, boko_vendor=None):
         work = Path(folder)
         artifacts = work / 'artifacts'
         artifacts.mkdir()
-        env = dict(os.environ, CARGO_TARGET_DIR=str(work / 'target'), CARGO_PROFILE_RELEASE_OPT_LEVEL='2',
+        if cargo_target_dir is not None:
+            cargo_target_dir.mkdir(parents=True, exist_ok=True)
+        env = dict(os.environ, CARGO_TARGET_DIR=str(cargo_target_dir or (work / 'target')), CARGO_PROFILE_RELEASE_OPT_LEVEL='2',
                    CARGO_PROFILE_RELEASE_LTO='false', CARGO_PROFILE_RELEASE_STRIP='symbols',
                    CARGO_ENCODED_RUSTFLAGS='\x1f'.join(('-Clink-self-contained=yes', '-Clinker-flavor=ld.lld',
                                                        '-Ctarget-feature=+crt-static', '-Cdlltool=' + str(dlltool))))
@@ -127,6 +129,8 @@ if __name__ == '__main__':
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--dlltool', type=Path, required=True)
     parser.add_argument('--boko-vendor', type=Path, help='Use the vendor folder from the corresponding-source ZIP offline')
+    parser.add_argument('--cargo-target-dir', type=Path, help='Retain Cargo build artifacts for retries; use a separate directory per platform')
     args = parser.parse_args()
     build(args.boko.resolve(), args.resvg.resolve(), args.platform, args.output.resolve(), args.dlltool.resolve(),
-          args.boko_vendor.resolve() if args.boko_vendor else None)
+          args.boko_vendor.resolve() if args.boko_vendor else None,
+          args.cargo_target_dir.resolve() if args.cargo_target_dir else None)

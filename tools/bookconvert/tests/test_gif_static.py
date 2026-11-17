@@ -364,6 +364,38 @@ class NativeGifFirstFrame(unittest.TestCase):
         self.assertEqual(source.read_bytes(), GIF)
         self.assertEqual(target.read_bytes(), b'keep me')
 
+    def test_interlaced_first_frame_preserves_pixels(self):
+        from PIL import Image
+        image = Image.new('RGB', (32, 20))
+        image.putdata([((x * 7) % 256, (y * 11) % 256, (x + y) % 256)
+                       for y in range(20) for x in range(32)])
+        stream = io.BytesIO()
+        image.save(stream, format='GIF', interlace=True)
+        data = stream.getvalue()
+        descriptor = 13 + ((2 << (data[10] & 7)) * 3 if data[10] & 128 else 0)
+        self.assertEqual(data[descriptor], 0x2c)
+        self.assertTrue(data[descriptor + 9] & 64)
+        self.verify(data)
+
+    def test_malformed_native_inputs_leave_no_partial_output(self):
+        bad_canvas = GIF[:6] + struct.pack('<HH', 16384, 16384) + GIF[10:]
+        descriptor = GIF.index(b'\x2c')
+        bad_offset = bytearray(GIF)
+        bad_offset[descriptor + 1:descriptor + 3] = struct.pack('<H', 1)
+        bad_block = bytearray(GIF)
+        bad_block[descriptor + 11] = 255
+        for number, data in enumerate([GIF[:6], bad_canvas, bytes(bad_offset), bytes(bad_block)]):
+            with self.subTest(number=number):
+                source = self.work / ('invalid-' + str(number) + '.gif')
+                target = self.work / ('invalid-' + str(number) + '.png')
+                source.write_bytes(data)
+                result = subprocess.run([str(api.image_processor_path(self.tools)), '--gif-first-frame',
+                                         str(source), str(target)], capture_output=True, timeout=30,
+                                        creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(source.read_bytes(), data)
+                self.assertFalse(target.exists())
+
 
 if __name__ == '__main__':
     unittest.main()

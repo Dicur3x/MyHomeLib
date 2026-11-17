@@ -21,10 +21,11 @@ This does not establish physical Kindle compatibility or final GUI packaging.
 | --- | --- | --- | --- |
 | Real DOCX | Pass after soft-hyphen repair | Pass | Pass |
 | Real LIT | Pass | Pass | Pass |
-| Real CHM | Pass | Missing referenced illustration | Missing referenced illustration |
+| Real CHM | Pass | Pass after linked-image repair | Pass after linked-image repair |
 
-Both architectures give the same result: seven independently confirmed outputs
-and two remaining failures each, fourteen successful cells across x86/x64.
+Both architectures now give nine independently confirmed outputs each: eighteen
+successful cells across x86/x64, using fresh sealed components without source
+overlays. The four previously failing CHM KFX/AZW8 cells are closed.
 The CHM/LIT source images and all original prose are checked; this DOCX has no
 embedded image resources. Its original text consists of 18,993 words.
 
@@ -45,18 +46,20 @@ separately by the focused runtime reports.
 The development matrix originally copied current Python sources only into
 `tools/bookconvert`, while the PDF bridge actually loads from `tools/epub-pdf`.
 The runner now overlays and records that real optional-module location too.
-This is a development overlay, not a sealed release component. The final
-EpubPdfExport package still needs a new version and its native update checks.
+This was development-overlay evidence. The current sealed EpubPdfExport 3.0.0.9
+package independently passes the same real-book checks on both architectures;
+native application update checks remain separate.
 
-## Remaining CHM image failure
+## Initial CHM image failure and repair
 
-The referenced 88 × 31 GIF has six frames. KFX contains GIF bytes, but the
-independent reconstructed EPUB has no image reference or image manifest item;
-the resource symbol is reported unused. Investigate the writer's content/link
-handling instead of assuming that GIF is unsupported or flattening its frames.
+The referenced 88 × 31 GIF has six frames. The initial KFX contained GIF bytes,
+but the independently reconstructed EPUB had no image reference or image
+manifest item; the resource symbol was reported unused. This directed the
+investigation to the writer's content/link handling instead of assuming that
+GIF was unsupported or flattening its frames.
 The pinned writer has a GIF format symbol. A temporary static-GIF conversion
 draft was rejected and removed from the working tree; animation was not silently
-discarded to make the checks pass. These four cells remain open.
+discarded to make the checks pass. At that checkpoint four cells remained open.
 
 ### Linked-image repair and the user's subsequent GIF decision
 
@@ -70,13 +73,14 @@ complete patch to pristine pinned sources reproduces the tested UTF-8 source.
 The production x86/x64 builds were deliberately stopped when system free space
 fell below 8 GiB (observed 7,963,721,728 bytes). Their nonzero exits are not
 successful build evidence. Sources, toolchains and build work stay on G:.
-The new runtime packages and independent real-book readback are still pending.
-The intended KfxExport version is 3.0.0.6; the corresponding-source archive now
-has a distinct versioned name rather than replacing the published source ZIP.
+At that checkpoint the new runtime packages and independent real-book readback
+were pending. The chosen KfxExport version was 3.0.0.6; the corresponding-source
+archive received a distinct versioned name rather than replacing the published
+source ZIP.
 
 After this investigation the user explicitly chose a static GIF result for
 beta 14 export: one frame, with original source files unchanged. That conversion
-still needs implementation and validation. The earlier rejection of an
+was then implemented and validated as described below. The earlier rejection of an
 unapproved static conversion remains a historical observation, not the current
 product decision. Do not claim that preserving an animated resource establishes
 animation support on a physical Kindle. After beta 14, count GIFs and animated
@@ -87,9 +91,37 @@ Evidence: `G:/HL-b14-external/kfx-inline-images-r1438/storyline-tests-cc.log`,
 `G:/HL-b14-external/kfx-patch-check-r1441/` and
 `G:/HL-b14-external/kfx-module-build-r1442/aborted-for-system-reserve.json`.
 
+### Current sealed result
+
+The linked-image patch and static-first-frame policy are now built and tested.
+KfxExport 3.0.0.6 was compiled successfully for Win64 (`kfx-module-build-r1454`)
+and Win32 (`kfx-module-build-r1459`). The Win32 environment required the official
+`rust-mingw` target component in addition to `rust-std`; this is documented in
+the versioned corresponding-source archive. Its contents and checksums were
+verified, and its build script and patch match both runtime packages.
+
+The sealed cohort installs fresh BookProcessing 3.0.0.14, ImageProcessing
+3.0.0.14, XPS 3.0.0.6, KindleExport 3.0.0.9, EpubPdfExport 3.0.0.9 and
+KfxExport 3.0.0.6, plus LegacyBooks 3.0.0.6 and pinned unchanged dependencies.
+All 1,211 installed manifest files on Win64 and 1,210 on Win32 match their
+packages. Both source-overlay maps are empty; conversion runs under the
+architecture's embedded Python. Independent readers then check all 18 outputs.
+
+The CHM KFX/AZW8 readbacks retain both linked image occurrences, all source
+words/order and the first frame's exact decoded pixels. The original GIF has
+six frames; the exported PNG has one. Source file hashes remain unchanged.
+This closes these specific writer failures, not the all-format matrix, native
+GUI/update tests, physical devices or final release gates.
+
 ## Evidence
 
-- Consolidated result: `G:/HL-b14-external/independent-writer-validation-r1431/summary.json`.
+- Current result: `G:/HL-b14-external/sealed-writer-validation-r1467/summary.json`
+  (`PASS_SEALED_INDEPENDENT_CONTENT`, 18 passed, 0 failed).
+- Current per-architecture reports: `sealed-writer-content-Win64-r1464/report.json`
+  and `sealed-writer-content-Win32-r1465/report.json` under the same evidence root.
+- Corresponding source: `kfx-corresponding-source-r1466/Boko-0.6.0-HomeLibre-source-3.0.0.6.zip`,
+  SHA-256 `16a680fb0fd1ed866a4259dc19171df6207d8fd04e25c1855310238d87e73fb1`.
+- Earlier failing result: `G:/HL-b14-external/independent-writer-validation-r1431/summary.json`.
 - Initial real cohorts: `independent-writer-content-Win64-r1420/report.json` and
   `independent-writer-content-Win32-r1421/report.json` under that evidence root.
 - Latest PDF bridge cohorts: `independent-writer-content-Win64-r1434/report.json`

@@ -23,7 +23,7 @@ def owned_g(path):
     if path.drive.upper()!='G:':raise ValueError('New matrix work stays on G:')
     return path
 
-def prepare_runtime(root,plan,helpers):
+def prepare_runtime(root,plan,helpers,source_overlay=True):
     packages=[]
     for entry in plan['packages']:
         if entry['id'] not in WRITERS:continue
@@ -44,7 +44,7 @@ def prepare_runtime(root,plan,helpers):
         packages.append(entry)
     if {e['id'] for e in packages}!=WRITERS:raise ValueError('Incomplete explicit runtime plan')
     overlays={}
-    for source in (REPO/'tools/bookconvert').rglob('*'):
+    for source in (REPO/'tools/bookconvert').rglob('*') if source_overlay else ():
         relative=source.relative_to(REPO/'tools/bookconvert')
         if not source.is_file() or {'tests','__pycache__'}&set(relative.parts):continue
         if source.suffix not in {'.py','.txt','.js','.json','.bin'} and source.name!='py.typed':continue
@@ -53,7 +53,7 @@ def prepare_runtime(root,plan,helpers):
     # The PDF bridge is installed with its optional writer, outside the common
     # Python folder. Overlay the script actually loaded by advanced_output too.
     optional={}
-    for relative in ['tools/epub-pdf/epub_pdf_output.py']:
+    for relative in ['tools/epub-pdf/epub_pdf_output.py'] if source_overlay else ():
         target=root/relative
         if target.is_file():
             source=REPO/'tools/bookconvert'/target.name
@@ -63,7 +63,8 @@ def prepare_runtime(root,plan,helpers):
         shutil.copytree(helpers/name,root/'tools'/name)
         for source in (helpers/name).rglob('*'):
             if source.is_file():local[source.relative_to(helpers).as_posix()]=sha(source)
-    return dict(packages=packages,current_source_overlay=overlays,optional_module_source_overlay=optional,local_helper_sha256=local)
+    return dict(packages=packages,source_overlay_enabled=source_overlay,current_source_overlay=overlays,
+                optional_module_source_overlay=optional,local_helper_sha256=local)
 
 def extract_sample(candidate,expected,root):
     errors=[]

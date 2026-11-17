@@ -1,4 +1,4 @@
-# Static GIF export: implementation and pending checks
+# Static GIF export: implementation and sealed checks
 
 The user chose one static frame for beta 14 conversion, retaining original
 files. After beta 14, measure GIF and animated-GIF frequency in the actual
@@ -44,6 +44,11 @@ After the reserve recovered, validation continued:
   the final embedded-Python or GUI package path.
 - The same cohort exercises FB2/EPUB policy, signed packages, inline GIFs,
   references, reading/original preservation and the existing KFX image tests.
+- Two additional native methods pass on each architecture: interlaced first
+  frames match every independent RGBA pixel; malformed/truncated headers,
+  oversized canvases, out-of-bounds frames and bad sub-blocks leave no partial
+  output and preserve their inputs. Logs: `Win64-additional-native.log` and
+  `Win32-additional-native.log` in the same evidence directory.
 - Four in-memory package-graph checks pass for shared/inline images in two
   package documents, no-GIF books and signature rejection (`gif-package-model-r1451`).
   A separate real-ZIP test passes shared and inline variants, checking every
@@ -56,8 +61,14 @@ After the reserve recovered, validation continued:
   on black/white backgrounds also match; the source CHM hash is unchanged.
   Evidence: `G:/HL-b14-external/real-gif-first-frame-r1455/report.json`.
 
-Python source syntax and the repository whitespace check pass. These results
-remain separate from final writer output and coherent release-package evidence.
+Fresh sealed components additionally pass all 18 real CHM/LIT/DOCX exports to
+PDF/KFX/AZW8 on both embedded Python architectures. There are no source
+overlays; every installed manifest file is verified. Independent readers check
+text/order and decoded pixels; CHM KFX/AZW8 retain both image links and one
+static frame. Consolidation:
+`G:/HL-b14-external/sealed-writer-validation-r1467/summary.json`.
+The versioned corresponding KFX source archive is built and verified too.
+These results remain separate from final native GUI/update/release evidence.
 
 ## Still required
 
@@ -67,14 +78,12 @@ KFX build was intentionally stopped by the user's explicit goal pause
 (`kfx-module-build-r1453/user-pause.json`). These are intentional stops, not
 successful builds or newly diagnosed compiler defects. Work resumed afterward.
 
-- Current images-only and XPS helpers are built on x86/x64. Still check broader
-  image/XPS regressions and malformed GIF frame/sub-block inputs in the native
-  path, then test fresh sealed components through the native application.
-- Rebuild the patched KfxExport 3.0.0.6 and its versioned corresponding source.
-  Re-run real CHM/LIT/DOCX exports with independent text, first-frame pixels,
-  image-link and position-map checks. The old six-frame resource assertion in
-  the unexecuted private probe must be replaced with the user's static policy;
-  retaining an animation is no longer the acceptance criterion.
+- Current images-only and XPS helpers are built on x86/x64. Broader image/XPS
+  regressions and fresh sealed components through the native application
+  remain separate from the completed helper malformed-input checks.
+- Patched KfxExport 3.0.0.6, corresponding source and real CHM/LIT/DOCX readback
+  are complete. Full actual-format coverage and final application/update
+  checks still remain; the 18 successful outputs do not establish those gates.
 - GIF-only preparation now keeps multiple package documents and their shared
   resources. This does not expand the separate KFX writer's one-package limit
   or establish multi-rendition behavior on physical reading devices.
