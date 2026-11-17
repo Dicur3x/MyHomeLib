@@ -16,7 +16,7 @@ uses
   unit_LibraryUpdateSources, unit_LibraryUpdateFetch, unit_LibraryUpdateReview, unit_LibraryUpdateHistory, unit_LibraryUpdateJournal, unit_Lib_Updates, frm_LibraryUpdateSources,
   NativeRegressionGuard, System.SysUtils, System.StrUtils, System.Classes, System.Types, System.IOUtils, System.IniFiles, System.JSON, System.Net.HttpClient, System.Net.URLClient, System.Generics.Collections, System.Variants, Winapi.Windows, Winapi.Messages, Winapi.CommCtrl, Winapi.RichEdit, Winapi.ActiveX, Winapi.ShlObj,
   Vcl.Forms, Vcl.Dialogs, Vcl.Themes, Vcl.Styles, Vcl.Clipbrd, Vcl.CheckLst, Vcl.Graphics, Vcl.Menus, Vcl.ComCtrls, Vcl.ExtCtrls, Vcl.Controls, Vcl.StdCtrls, Vcl.ActnList,
-  VirtualTrees, VirtualTrees.Types, VirtualTrees.BaseTree, BookTreeView, BookInfoPanel, unit_MHLTheme, unit_FirstUseGuide, unit_MHLThemePalette, frm_InterfaceColors, unit_BookGallery, unit_UpdateNotes, unit_UpdateTextCache,
+  VirtualTrees, VirtualTrees.Types, VirtualTrees.BaseTree, BookTreeView, BookInfoPanel, unit_MHLTheme, unit_FirstUseGuide, unit_HelpTopics, unit_MHLThemePalette, frm_InterfaceColors, unit_BookGallery, unit_UpdateNotes, unit_UpdateTextCache,
   System.SyncObjs, System.Zip, System.Hash, System.NetEncoding, System.Diagnostics, System.Math, System.DateUtils, Vcl.Imaging.pngimage,
   unit_BookDeletionReferences, unit_BookDeletionOperation, unit_BookDeletionDialog, unit_BookDeletionSpace,
   unit_MHLArchiveBusy, unit_BookDeletionPreparation, unit_BookDeletionInventory, unit_BookDeletionMembers, unit_BookDeletionBinding, unit_SevenZipDeletionPlan, unit_ArchiveDeletionQueue, unit_ZipMemberDeletion, unit_ImageBounds, unit_BookCache, unit_MHLOperationStatus, unit_Globals, unit_Consts, unit_Interfaces, unit_Localization, unit_TreeUtils, unit_Settings, unit_ReaderCache, unit_BookMetadataCache, unit_FB2Utils, unit_MHLGenerics, FictionBook_21, unit_BookColumnFilters, unit_BookInfoPreview, unit_PackageBookCover, unit_CollectionMerge, unit_BookDuplicates, frm_BookDuplicates, frm_CollectionBackup, unit_CollectionBackup, unit_SeriesAliases, unit_CatalogSources, frm_CatalogSources, unit_CollectionSpace, unit_Database_SQLite, SQLiteWrap, SQLite3, SQLiteProfile,
@@ -3990,6 +3990,37 @@ var Sources, Loaded: TCatalogSources; Target, SourceCollection: IBookCollection;
   Plan: TCollectionMergePlan; Book, AliasBook: TBookRecord; Iterator: IBookIterator; Count, AliasID: Integer;
   AliasWorker: TSeriesAliasWorker; AliasPlan: TSeriesAliasPlan;
   Dialog: TfrmCatalogSources; Statistics: TfrmStat; Review: TfrmSeriesAliasReview;
+  Guide: TFirstUseGuide;
+
+  procedure CheckGuide;
+  var CountLabel: TLabel; Bounds: TRect; Text: string;
+  begin
+    CountLabel:=Dialog.FindComponent('lblSourceCount') as TLabel;
+    Require((Guide.Top+Guide.Height<=CountLabel.Top) and
+      (CountLabel.Top+CountLabel.Height<=CountLabel.Parent.ClientHeight),
+      'Source guide overlaps the source list summary');
+    for var Name in ['GuideSummary','GuideDetails'] do
+    begin
+      var LabelControl:=Guide.FindComponent(Name) as TLabel;
+      if not LabelControl.Visible then Continue;
+      Text:=LabelControl.Caption; Dialog.Canvas.Font.Assign(LabelControl.Font);
+      Bounds:=Rect(0,0,LabelControl.Width,0);
+      DrawTextW(Dialog.Canvas.Handle,PChar(Text),Length(Text),Bounds,DT_CALCRECT or DT_WORDBREAK or DT_NOPREFIX);
+      Require((Bounds.Height<=LabelControl.Height) and
+        (LabelControl.BoundsRect.Bottom<=Guide.ClientHeight),
+        'Source guide explanation is clipped');
+    end;
+    for var Name in ['GuideContextHelp','GuideToggle','GuideMore','GuideNever'] do
+    begin
+      var Control:=Guide.FindComponent(Name) as TControl;
+      if Control.Visible then
+        Require((Control.BoundsRect.Right<=Guide.ClientWidth) and
+          (Control.BoundsRect.Bottom<=Guide.ClientHeight),
+          Format('Source guide action is clipped: %s %d,%d %dx%d parent=%dx%d PPI=%d expanded=%d',
+            [Name,Control.Left,Control.Top,Control.Width,Control.Height,Guide.ClientWidth,Guide.ClientHeight,
+             Dialog.Font.PixelsPerInch,Ord(Guide.Expanded)]));
+    end;
+  end;
 
   procedure IndexFile(const FileName, Title: string);
   var Zip: TZipFile; Data: TBytes;
@@ -4004,6 +4035,21 @@ var Sources, Loaded: TCatalogSources; Target, SourceCollection: IBookCollection;
     finally Zip.Free; end;
   end;
 begin
+  RequireIsolatedRegression;
+  var Link:=HelpTopicLink('G:\Книги #old\100% test\collections.html','sources');
+  Require(Link.StartsWith('file:') and Link.EndsWith('#sources') and
+    Link.Contains('%23') and Link.Contains('%25') and Link.Contains('%20') and
+    (Link.LastIndexOf('#')=Link.IndexOf('#')),'Help section does not escape the Windows filename');
+  Require(HelpTopicLink('G:\plain help.html','')='G:\plain help.html','Ordinary help link changed');
+  var PreferredHelp:=Settings.AppPath+'translated-guide.html';
+  var BaseHelp:=Settings.AppPath+'base-guide.html';
+  TFile.WriteAllText(PreferredHelp,'<h1>Older translation</h1>',TEncoding.UTF8);
+  TFile.WriteAllText(BaseHelp,'<h2 id="sources">Источники</h2>',TEncoding.UTF8);
+  Require(HelpTopicPath(PreferredHelp,BaseHelp,'sources')=BaseHelp,'Missing translated section did not fall back');
+  Require(HelpTopicPath(PreferredHelp,BaseHelp,'')=PreferredHelp,'Ordinary translated help was replaced');
+  TFile.WriteAllText(PreferredHelp,'<h2 id=''sources''>Sources</h2>',TEncoding.UTF8);
+  Require(HelpTopicPath(PreferredHelp,BaseHelp,'sources')=PreferredHelp,'Translated section was ignored');
+  Require(HelpTopicPath(PreferredHelp+'.absent',BaseHelp,'sources')=BaseHelp,'Missing translated page did not fall back');
   TestCollectionSpaceEstimate;
   ID := SystemDB.CreateCollection('Multiple sources', Settings.AppPath,
     'source-target.hlc2', CT_EXTERNAL_LOCAL_FB, Settings.SystemFileName[sfGenresFB2]);
@@ -4105,10 +4151,20 @@ begin
   // A separate series review must not replace the source-merge action.
   Dialog:=TfrmCatalogSources.CreateForCollection(frmMain,Target);
   try
+    Guide:=Dialog.FindComponent('SourcesFirstUseGuide') as TFirstUseGuide;
+    Require(Guide.Expanded,'First source visit did not explain the workflow');
+    CheckGuide;
     CheckSourceDialogLayout(Dialog);
     Require(not FeedbackButton(Dialog,'2. Добавить книги').Enabled,'Source apply enabled before preview');
     FeedbackButton(Dialog,'1. Проверить все источники').OnClick(FeedbackButton(Dialog,'1. Проверить все источники'));
     Require(FeedbackButton(Dialog,'2. Добавить книги').Enabled,'All-source preview did not enable source apply');
+    var ExpandedHeight:=Guide.Height;
+    TButton(Guide.FindComponent('GuideToggle')).Click;
+    Require(not Guide.Expanded and (Guide.Height<ExpandedHeight),'Source guide did not collapse');
+    Require(FeedbackButton(Dialog,'2. Добавить книги').Enabled,'Acknowledging help invalidated the source preview');
+    CheckGuide;
+    TButton(Guide.FindComponent('GuideContextHelp')).Click;
+    Require(Guide.Expanded,'Source explanation cannot be reopened'); CheckGuide;
     Review:=TfrmSeriesAliasReview.CreateFor(Dialog);
     try
       Review.PreviewAliases(nil); CheckSourceDialogLayout(Review);
@@ -4125,11 +4181,12 @@ begin
       for var Dark in [False,True] do
       begin
         SetMHLTheme(Dark);
-        for var PPI in [96,144,192] do
+        for var PPI in [96,144,192,216,288] do
         begin
           Dialog.ScaleForPPI(PPI); Dialog.Show;
           Dialog.Width:=Dialog.Constraints.MinWidth; Dialog.Height:=Dialog.Constraints.MinHeight;
           Application.ProcessMessages;
+          CheckGuide;
           var SpaceLabel:=Dialog.FindComponent('lblSourceSpace') as TLabel;
           Dialog.Canvas.Font.Assign(SpaceLabel.Font);
           var Text:=string(SpaceLabel.Caption); var Bounds:=Rect(0,0,SpaceLabel.Width,0);
@@ -4161,6 +4218,15 @@ begin
     Require(not Assigned(Dialog.FindComponent('btnBookDuplicates')),
       'Source window still duplicates the collection menu command');
   finally Dialog.Free; end;
+  Dialog:=TfrmCatalogSources.CreateForCollection(frmMain,Target);
+  try
+    Guide:=Dialog.FindComponent('SourcesFirstUseGuide') as TFirstUseGuide;
+    Require(not Guide.Expanded,'Acknowledged source explanation repeats in the same beta');
+    CheckGuide;
+    TButton(Guide.FindComponent('GuideContextHelp')).Click;
+    Require(Guide.Expanded,'Acknowledged source explanation cannot be reopened'); CheckGuide;
+  finally Dialog.Free; end;
+  Writeln('PASS source inline help reopens without changing preview and reflows at 225 percent; local help sections escape filenames');
   Writeln('PASS all sources participate without multiselect; independent series review shows zero result; source labels/buttons fit 100/150/200 percent and short windows scroll');
   if ParamStr(1)='catalog-sources-ui' then
   begin

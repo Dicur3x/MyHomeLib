@@ -3,7 +3,8 @@
 interface
 
 uses System.Classes, System.Types, Vcl.Controls, Vcl.Forms, Vcl.StdCtrls, Vcl.ComCtrls, Vcl.ExtCtrls,
-  unit_Interfaces, unit_CatalogSources, unit_CollectionMerge, unit_WorkerThread, unit_SeriesAliases;
+  unit_Interfaces, unit_CatalogSources, unit_CollectionMerge, unit_WorkerThread, unit_SeriesAliases,
+  unit_FirstUseGuide;
 
 type
   TCatalogWorkflowState = (cwsNeedsPreview, cwsChecking, cwsReady, cwsApplying, cwsDone, cwsFailed, cwsNeedsAttention);
@@ -29,7 +30,8 @@ type
     FTarget: IBookCollection;
     FBody: TSourceScrollBox;
     FHeader, FActions, FOptions: TPanel;
-    FIntroTitle, FIntroHelp, FTargetLabel, FLibraryHelp: TLabel;
+    FIntroTitle, FTargetLabel, FLibraryHelp: TLabel;
+    FGuide: TFirstUseGuide;
     FSources: TCatalogSources;
     FPlan: TCollectionMergePlan;
     FList: TListView;
@@ -70,6 +72,8 @@ type
     procedure Apply(Sender: TObject);
     procedure LayoutSeriesScope;
     procedure LayoutBodyText;
+    procedure GuideResized(Sender: TObject);
+    procedure GuideMore(Sender: TObject);
     function DoMouseWheel(Shift: TShiftState; WheelDelta: Integer; MousePos: TPoint): Boolean; override;
     procedure Resize; override;
     procedure PreviewSeriesAliases(Sender: TObject);
@@ -111,7 +115,8 @@ implementation
 uses System.SysUtils, System.IOUtils, System.Variants, Winapi.Windows, Vcl.Graphics,
   Vcl.Dialogs, Vcl.FileCtrl, unit_Consts, unit_Settings, unit_Globals,
   frm_ImportProgressFormEx, unit_BookCache, dm_user, unit_CollectionSpace, System.Math, frm_BookMetadataFill,
-  System.IniFiles, unit_AtomicIniFile, frm_LibraryUpdateSources, unit_LibraryUpdateSources;
+  System.IniFiles, unit_AtomicIniFile, frm_LibraryUpdateSources, unit_LibraryUpdateSources, unit_HelpTopics,
+  unit_ProgramUpdates;
 
 function TSourceScrollBox.ScrollWheel(WheelDelta: Integer): Boolean;
 var Lines: Cardinal; Step, Delta: Integer;
@@ -193,8 +198,8 @@ begin
   LabelText:=LabelAt(Panel,'Добавить книги в текущую коллекцию',12,9,936,22);
   FIntroTitle:=LabelText;
   LabelText.Font.Style:=[fsBold]; LabelText.Font.Size:=11;
-  FIntroHelp:=LabelAt(Panel,'INPX — список книг; папка книг — место, где лежат сами файлы и архивы. Можно подключить несколько библиотек, включая смешанные каталоги Флибусты и Либрусека.',12,36,936,34);
   FAllSources:=LabelAt(Panel,'',12,76,936,28); FAllSources.Font.Style:=[fsBold];
+  FAllSources.Name:='lblSourceCount';
   FList:=TListView.Create(Self); FList.Parent:=Body; FList.SetBounds(0,76,ClientWidth,166); FList.Align:=alTop;
   FList.Name:='lvCatalogSources'; FList.ViewStyle:=vsReport; FList.ReadOnly:=True; FList.RowSelect:=True;
   FList.HideSelection:=False; FList.DoubleBuffered:=True; FList.ShowHint:=True;
@@ -274,6 +279,17 @@ begin
     'Размер файла не гарантирует качество: если предпочитаете полные иллюстрации, поставьте нужный источник выше и выберите соответствующий режим.'+#13#10+
     'В смешанном каталоге номера Флибусты и Либрусека проверяются отдельно. Одинаковый номер в разных библиотеках не объединяет книги.';
   finally EnableAlign; end;
+  FGuide:=TFirstUseGuide.CreateGuide(Self,FHeader,'catalog-sources',
+    PROGRAM_RELEASE_VERSION,Settings.SettingsFileName,
+    'INPX — список книг; папка книг — место, где лежат сами файлы и архивы. Здесь можно подключить несколько библиотек.',
+    '1. Добавьте INPX или готовую коллекцию. У каждого источника может быть своя папка, в том числе на другом диске.'+sLineBreak+
+    '2. Выберите правило повторных книг. Порядок сверху вниз задаёт приоритет, если выбран режим «предпочитать источник выше». Размер файла сам по себе не гарантирует качество.'+sLineBreak+
+    '3. Нажмите «Проверить все источники» и прочитайте отчёт. До команды «Добавить книги» текущая коллекция не меняется; проверяется весь список, а не только выделенная строка.'+sLineBreak+
+    'Книги могут оставаться в разных папках. Чтобы перенести уже добавленные файлы в одну папку, используйте «Собрать файлы в одну папку…»: сначала откроется отдельный план.'+sLineBreak+
+    'Новые выпуски INPX и список недостающих архивов проверяются через кнопку «Обновить библиотеку».');
+  FGuide.Name:='SourcesFirstUseGuide'; FGuide.Align:=alNone;
+  FGuide.SetBounds(12,36,936,FGuide.Height); FGuide.Anchors:=[akLeft,akTop,akRight];
+  FGuide.OnResize:=GuideResized; FGuide.OnMore:=GuideMore;
   UpdatePolicyHelp; RebuildList(0);
   SetWorkflowState(cwsNeedsPreview,'Сначала выберите режим повторных книг, затем нажмите «1. Проверить все источники».');
   ScaleForPPI(Screen.PixelsPerInch);
@@ -378,15 +394,17 @@ var PPI, SavedPosition: Integer;
     LabelControl.Height:=Max(MulDiv(Minimum,PPI,96),R.Height);
   end;
 begin
-  if not Assigned(FBody) or not Assigned(FSpace) or not Assigned(FIntroTitle) then Exit;
+  if not Assigned(FBody) or not Assigned(FSpace) or not Assigned(FIntroTitle) or not Assigned(FGuide) then Exit;
   PPI:=Max(96,Font.PixelsPerInch); SavedPosition:=FBody.VertScrollBar.Position;
   FBody.DisableAlign;
   try
     // Reflow from design heights rather than growing on every resize. Keep
     // enough height in each aligned section for the actual wrapped text.
+    FIntroTitle.Width:=Max(MulDiv(200,PPI,96),FHeader.ClientWidth-2*FIntroTitle.Left);
     Fit(FIntroTitle,22);
-    FIntroHelp.Top:=FIntroTitle.Top+FIntroTitle.Height+MulDiv(6,PPI,96); Fit(FIntroHelp,34);
-    FAllSources.Top:=FIntroHelp.Top+FIntroHelp.Height+MulDiv(6,PPI,96); Fit(FAllSources,28);
+    FGuide.SetBounds(FIntroTitle.Left,FIntroTitle.Top+FIntroTitle.Height+MulDiv(6,PPI,96),
+      FIntroTitle.Width,FGuide.Height);
+    FAllSources.Top:=FGuide.Top+FGuide.Height+MulDiv(6,PPI,96); Fit(FAllSources,28);
     FHeader.Height:=FAllSources.Top+FAllSources.Height+MulDiv(4,PPI,96);
     Fit(FDetails,36); FActions.Height:=FDetails.Top+FDetails.Height+MulDiv(4,PPI,96);
     Fit(FPolicyHelp,42);
@@ -399,6 +417,12 @@ begin
   finally FBody.EnableAlign; end;
   FBody.VertScrollBar.Position:=SavedPosition;
 end;
+
+procedure TfrmCatalogSources.GuideResized(Sender: TObject);
+begin LayoutSeriesScope; end;
+
+procedure TfrmCatalogSources.GuideMore(Sender: TObject);
+begin ShowHelpTopic(110,'sources'); end;
 
 function TfrmCatalogSources.Button(ParentPanel: TPanel; const Caption: string; Left, Width: Integer;
   Handler: TNotifyEvent): TButton;

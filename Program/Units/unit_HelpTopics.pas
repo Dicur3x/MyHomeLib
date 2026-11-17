@@ -17,16 +17,21 @@ unit unit_HelpTopics;
 interface
 
 function HelpTopicFile(ContextID: Integer): string;
-procedure ShowHelpTopic(ContextID: Integer);
+function HelpTopicLink(const FullName, Anchor: string): string;
+function HelpTopicPath(const Preferred, Fallback, Anchor: string): string;
+procedure ShowHelpTopic(ContextID: Integer; const Anchor: string = '');
 
 implementation
 
 uses
   Windows,
   SysUtils,
+  System.Classes,
+  System.IOUtils,
   Forms,
   Dialogs,
   ShellAPI,
+  Winapi.Shlwapi,
   unit_Consts,
   unit_Settings,
   unit_MHL_strings,
@@ -80,7 +85,40 @@ begin
   Result := HELP_TOPIC_INDEX;
 end;
 
-procedure ShowHelpTopic(ContextID: Integer);
+function HelpTopicLink(const FullName, Anchor: string): string;
+var C: Char; Count: DWORD;
+begin
+  if Anchor='' then Exit(FullName);
+  for C in Anchor do
+    if not CharInSet(C,['a'..'z','A'..'Z','0'..'9','-','_']) then
+      raise EArgumentException.Create('Invalid help section');
+  // A '#' appended to a Windows filename is another filename, not a section.
+  // Let Windows encode spaces, Unicode, '%' and '#' in the local file URL.
+  Count:=Length(FullName)*9+32;
+  SetLength(Result,Count);
+  if UrlCreateFromPathW(PChar(FullName),PChar(Result),@Count,0)<0 then
+    raise Exception.Create('Could not open the local help section');
+  SetLength(Result,Count);
+  Result:=Result+'#'+Anchor;
+end;
+
+function HelpTopicPath(const Preferred, Fallback, Anchor: string): string;
+var Text: string;
+begin
+  Result:=Preferred;
+  if not FileExists(Result) then Exit(Fallback);
+  if Anchor='' then Exit;
+  try
+    Text:=TFile.ReadAllText(Result,TEncoding.UTF8);
+    if (Pos('id="'+Anchor+'"',Text)=0) and (Pos('id='''+Anchor+'''',Text)=0) then
+      Result:=Fallback;
+  except
+    // Incomplete translations must not hide a newly added help section.
+    Result:=Fallback;
+  end;
+end;
+
+procedure ShowHelpTopic(ContextID: Integer; const Anchor: string);
 var
   HelpDir: string;
   FullName: string;
@@ -92,9 +130,8 @@ begin
   // Ukrainian original over time and a translation lags. Fall back to the
   // Ukrainian page rather than refusing to show help at all, the same way a
   // partial catalog degrades to Ukrainian instead of blanking the UI.
-  if not FileExists(FullName) then
-    FullName := Settings.AppPath + APP_HELP_DIR_NAME + PathDelim
-      + HelpTopicFile(ContextID);
+  FullName:=HelpTopicPath(FullName,Settings.AppPath+APP_HELP_DIR_NAME+PathDelim+
+    HelpTopicFile(ContextID),Anchor);
 
   if not FileExists(FullName) then
   begin
@@ -102,6 +139,7 @@ begin
     Exit;
   end;
 
+  FullName:=HelpTopicLink(FullName,Anchor);
   ShellExecute(Application.Handle, 'open', PChar(FullName), nil, nil, SW_SHOWNORMAL);
 end;
 
