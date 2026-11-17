@@ -11,6 +11,38 @@ from kfx_image_input import prepare
 
 
 class KfxImageInputTest(unittest.TestCase):
+    def test_static_gif_decoder_remaps_images_without_changing_source(self):
+        gif = b64decode('R0lGODdhAQABAIAAAP8AAP///ywAAAAAAQABAAACAkQBADs=')
+        with zipfile.ZipFile(self.base) as archive, zipfile.ZipFile(self.source, 'x') as result:
+            for entry in archive.infolist():
+                data = archive.read(entry)
+                if entry.filename == 'OPS/cover.png':
+                    entry.filename = 'OPS/picture.gif'
+                    data = gif
+                elif entry.filename == 'OPS/book.opf':
+                    data = data.replace(b'cover.png', b'picture.gif').replace(b'image/png', b'image/gif')
+                elif entry.filename == 'OPS/text/chapter.xhtml':
+                    data = data.replace(b'cover.png', b'picture.gif')
+                result.writestr(entry, data)
+        original = self.source.read_bytes()
+        with self.assertRaises(conversion.ComponentRequired) as missing:
+            prepare(conversion, self.source, self.output, lambda *_: self.fail('No SVG'))
+        self.assertEqual(missing.exception.component, 'ImageProcessing')
+        self.assertFalse(self.output.exists())
+        def decode(data):
+            self.assertEqual(data, gif)
+            return b64decode(PNG)
+        self.assertEqual(prepare(conversion, self.source, self.output, lambda *_: self.fail('No SVG'), decode_gif=decode), 1)
+        with zipfile.ZipFile(self.output) as archive:
+            self.assertNotIn('OPS/picture.gif', archive.namelist())
+            root = conversion.xhtml(archive.read('OPS/text/chapter.xhtml'))
+            image = next(node for node in root.iter() if conversion.tag(node) == 'img')
+            path, _ = conversion.EpubArchive.resolve(None, 'OPS/text/chapter.xhtml', image.get('src'))
+            self.assertEqual(archive.read(path), b64decode(PNG))
+            package = conversion.xml(archive.read('OPS/book.opf'))
+            self.assertFalse(any(item.get('media-type') == 'image/gif' for item in package.iter()))
+        self.assertEqual(self.source.read_bytes(), original)
+
     def setUp(self):
         scratch = TemporaryDirectory()
         self.addCleanup(scratch.cleanup)

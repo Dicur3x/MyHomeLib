@@ -140,7 +140,7 @@ def convert(api, source, destination, source_extension, profile, options):
         work = Path(folder)
         prepared = work / ('source.epub' if source_extension != '.fb2' else 'source.fb2')
         output = work / ('book' + suffix)
-        preparation = api.convert_book(source, prepared, **options)
+        preparation = api.convert_book(source, prepared, **dict(options, _static_gifs=not epub_markdown))
         warnings = set(preparation.get('warnings', ()))
         progress('advanced-writing', 0, 1)
         if epub_pdf or epub_markdown or epub_version:

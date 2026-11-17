@@ -408,7 +408,7 @@ def convert(api, source, destination, options):
         # validates an existing EPUB without a lossy FB2 round trip.
         # EPUB is only a private intermediate: Kindle embeds image records
         # directly, so ZIP-oriented candidate selection would be misleading.
-        result = api.convert_book(source, prepared, **dict(options,image_container='raw'))
+        result = api.convert_book(source, prepared, **dict(options,image_container='raw',_static_gifs=True))
         warnings.update(result.get('warnings', []))
         adapted = work / 'kindle-input.epub'
         cover_declared = canonical_input(api, prepared, adapted, warnings, tools)

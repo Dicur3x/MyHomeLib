@@ -1,9 +1,11 @@
 """Direct KFX/AZW8 export from a prepared EPUB using optional native tools."""
 
 from math import ceil
+from hashlib import sha256
 import re
 
 from image_input import decode_webp
+from gif_static import first_frame, WARNING as STATIC_GIF_WARNING
 from kfx_image_input import prepare
 from text_inputs import Book
 
@@ -38,8 +40,16 @@ def convert(api, source, output, writer, tools, warnings, check, run_writer):
         return bitmap.read_bytes()
 
     compatible = work / 'kindle-source.epub'
-    if prepare(api, source, compatible, render, check, lambda data: decode_webp(book, data)):
+    gif_images = {}
+    def gif(data):
+        key = sha256(data).digest()
+        if key not in gif_images:
+            gif_images[key] = first_frame(api, data, tools, work, check)
+        warnings.add(STATIC_GIF_WARNING)
+        return gif_images[key]
+
+    if prepare(api, source, compatible, render, check, lambda data: decode_webp(book, data), gif):
         source = compatible
-        warnings.add('Для совместимости с Kindle часть рисунков сохранена в PNG. Иллюстрации SVG в копии становятся растровыми.')
+        warnings.add('Для совместимости с Kindle часть изображений в копии сохранена в PNG.')
     warnings.add('При сохранении в формате Kindle оформление и разбиение текста на страницы могут измениться.')
     run_writer(api, [str(writer), 'convert', '-t', 'kfx', str(source), str(output)], work, check)

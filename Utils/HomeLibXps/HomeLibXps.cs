@@ -116,6 +116,7 @@ internal static class HomeLibXps
                 Console.WriteLine("maximum grayscale same-format"); return 0;
             }
             if (args.Length == 3 && args[0] == "--image-pages") return ImagePages(args[1], args[2]);
+            if (args.Length == 3 && args[0] == "--gif-first-frame") return GifFirstFrame(args[1], args[2]);
             if (args.Length >= 4 && args.Length <= 6 && args[0] == "--export-images") {
                 bool grayscale = false, sameFormat = false;
                 for (int i = 4; i < args.Length; i++) {
@@ -661,6 +662,87 @@ internal static class HomeLibXps
                         Console.WriteLine("PAGE " + (i+1) + " " + count); Console.Out.Flush();
                     }
                     file.Flush(true);
+                }
+            }
+            return 0;
+        }
+        catch { if (owns) { try { DeleteImageFile(output); } catch { } } throw; }
+    }
+
+    private static int GifSubBlocks(byte[] data, int at)
+    {
+        for (;;) {
+            if (at >= data.Length) throw new IOException("Truncated GIF data blocks.");
+            int length = data[at++];
+            if (length == 0) return at;
+            if (length > data.Length - at) throw new IOException("Truncated GIF data block.");
+            at += length;
+        }
+    }
+
+    // Decode only the first complete image, retaining its logical canvas,
+    // palette, transparency and offset. Later animation frames are not decoded.
+    private static byte[] FirstGifFrame(byte[] data, out int width, out int height)
+    {
+        if (data.Length < 14 || data.Length > 16 * 1024 * 1024 ||
+            (Encoding.ASCII.GetString(data, 0, 6) != "GIF87a" && Encoding.ASCII.GetString(data, 0, 6) != "GIF89a"))
+            throw new IOException("Invalid GIF header or size.");
+        width = data[6] | data[7] << 8; height = data[8] | data[9] << 8;
+        if (width <= 0 || height <= 0 || width > 16384 || height > 16384 || (long)width * height > 16777216)
+            throw new IOException("GIF canvas exceeds the reader limit.");
+        int at = 13 + ((data[10] & 128) != 0 ? (2 << (data[10] & 7)) * 3 : 0);
+        while (at < data.Length) {
+            int marker = data[at++];
+            if (marker == 0x21) {
+                if (at >= data.Length) throw new IOException("Truncated GIF extension.");
+                at = GifSubBlocks(data, at + 1); // extension label, then sub-blocks
+            } else if (marker == 0x2c) {
+                if (data.Length - at < 10) throw new IOException("Truncated GIF frame.");
+                int left = data[at] | data[at+1] << 8, top = data[at+2] | data[at+3] << 8;
+                int frameWidth = data[at+4] | data[at+5] << 8, frameHeight = data[at+6] | data[at+7] << 8;
+                if (frameWidth <= 0 || frameHeight <= 0 || frameWidth > width - left || frameHeight > height - top)
+                    throw new IOException("GIF frame is outside its logical canvas.");
+                int flags = data[at+8]; at += 9;
+                if ((flags & 128) != 0) at += (2 << (flags & 7)) * 3;
+                if (at >= data.Length || data[at] < 2 || data[at] > 8) throw new IOException("Invalid GIF image data.");
+                at = GifSubBlocks(data, at + 1);
+                byte[] first = new byte[at + 1]; Buffer.BlockCopy(data, 0, first, 0, at); first[at] = 0x3b;
+                return first;
+            } else throw new IOException("GIF has no complete first image.");
+        }
+        throw new IOException("GIF has no complete first image.");
+    }
+
+    private static int GifFirstFrame(string source, string destination)
+    {
+        string input = ImageFilePath(source), output = ImageFilePath(destination); bool owns = false;
+        if (String.Equals(input, output, StringComparison.OrdinalIgnoreCase) || ImageFileExists(output))
+            throw new IOException("Output must be new.");
+        long length = ImageFileLength(input);
+        if (length < 14 || length > 16 * 1024 * 1024) throw new IOException("GIF exceeds 16 MB or is empty.");
+        try {
+            byte[] data = new byte[(int)length];
+            using (var file = ImageFileStream(input, false)) {
+                int offset = 0, count;
+                while (offset < data.Length && (count = file.Read(data, offset, data.Length - offset)) != 0) offset += count;
+                if (offset != data.Length) throw new IOException("GIF changed while reading.");
+            }
+            int width, height; byte[] first = FirstGifFrame(data, out width, out height);
+            using (var stream = new MemoryStream(first, false))
+            using (var image = System.Drawing.Image.FromStream(stream, false, true)) {
+                if (image.Width != width || image.Height != height) throw new IOException("GIF decoder changed the logical canvas.");
+                using (var bitmap = new System.Drawing.Bitmap(width, height, System.Drawing.Imaging.PixelFormat.Format32bppArgb)) {
+                    using (var graphics = System.Drawing.Graphics.FromImage(bitmap)) {
+                        graphics.CompositingMode = System.Drawing.Drawing2D.CompositingMode.SourceCopy;
+                        graphics.Clear(System.Drawing.Color.Transparent); graphics.DrawImageUnscaled(image, 0, 0);
+                    }
+                    using (var bytes = new MemoryStream()) {
+                        bitmap.Save(bytes, System.Drawing.Imaging.ImageFormat.Png);
+                        if (bytes.Length > 16 * 1024 * 1024) throw new IOException("Static GIF frame exceeds 16 MB.");
+                        using (var file = ImageFileStream(output, true)) {
+                            owns = true; bytes.Position = 0; bytes.CopyTo(file); file.Flush(true);
+                        }
+                    }
                 }
             }
             return 0;

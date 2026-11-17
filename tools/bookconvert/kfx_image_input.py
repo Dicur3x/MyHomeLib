@@ -1,13 +1,13 @@
 """Prepare SVG illustrations in a private EPUB for the KFX writer."""
 
-from base64 import b64encode
+from base64 import b64decode, b64encode
 from contextlib import closing
 from copy import deepcopy
 from hashlib import sha256
 import posixpath
 import re
 import struct
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 import zipfile
 
 from markdown_output import SVG, static_svg
@@ -18,7 +18,7 @@ PNG = b'\x89PNG\r\n\x1a\n'
 CSS_URL = re.compile(r'''url\(\s*(['"]?)([^'")]+)\1\s*\)''', re.I)
 
 
-def vector_input(api, archive, path, vector, decode_webp):
+def vector_input(api, archive, path, vector, decode_webp, decode_gif=None):
     vector = deepcopy(vector)
     vector.tail = None
     images = []
@@ -35,6 +35,10 @@ def vector_input(api, archive, path, vector, decode_webp):
         data = archive.read(target)
         if data.startswith(b'RIFF') and data[8:12] == b'WEBP':
             data = webp_image(api, data, decode_webp)
+        if data.startswith((b'GIF87a', b'GIF89a')):
+            if decode_gif is None:
+                raise api.ComponentRequired('ImageProcessing', 'Для GIF внутри SVG нужен модуль HomeLibre Images.')
+            data = decode_gif(data)
         image_bytes += 4 * ((len(data) + 2) // 3)
         if image_bytes > api.MAX_FILE:
             raise api.ConversionError('KFX: вложенные изображения SVG слишком велики.')
@@ -69,27 +73,64 @@ def webp_image(api, data, decode):
     return decode(data)
 
 
-def prepare(api, source, destination, render, check=None, decode_webp=None):
-    """Convert supported SVG and WebP to PNG in a private EPUB."""
+def remap_srcset(value, resolve):
+    # Preserve descriptors, spacing and data-URL commas. A source URL
+    # ends at ASCII whitespace; trailing commas delimit candidates.
+    spans = []
+    at = 0
+    while at < len(value):
+        while at < len(value) and value[at] in ' \t\n\r\f,':
+            at += 1
+        start = at
+        while at < len(value) and value[at] not in ' \t\n\r\f':
+            at += 1
+        end = at
+        while end > start and value[end-1] == ',':
+            end -= 1
+        if end > start:
+            mapped = resolve(value[start:end])
+            if mapped != value[start:end]:
+                spans.append((start, end, mapped))
+        if end != at:
+            continue
+        depth = 0
+        while at < len(value):
+            char = value[at]
+            at += 1
+            if char == '(':
+                depth += 1
+            elif char == ')':
+                depth = max(0, depth-1)
+            elif char == ',' and depth == 0:
+                break
+    for start, end, mapped in reversed(spans):
+        value = value[:start] + mapped + value[end:]
+    return value
+
+
+def prepare(api, source, destination, render, check=None, decode_webp=None, decode_gif=None, only_gif=False):
+    """Convert supported SVG/WebP and a static GIF frame to private PNGs."""
+    label = 'GIF' if only_gif else 'KFX'
     with closing(api.EpubArchive(source)) as archive:
         container = api.xml(archive.read('META-INF/container.xml'))
         roots = [node.get('full-path') for node in container.iter() if api.tag(node) == 'rootfile']
         if len(roots) != 1 or not roots[0]:
-            raise api.ConversionError('KFX: для подготовки изображений нужен один пакет EPUB.')
+            raise api.ConversionError(f'{label}: для подготовки изображений нужен один пакет EPUB.')
         package_path = roots[0]
         package = api.xml(archive.read(package_path))
-        if any((node.get('property') == 'rendition:layout' and api.plain(node) == 'pre-paginated')
+        if not only_gif and any((node.get('property') == 'rendition:layout' and api.plain(node) == 'pre-paginated')
                or 'rendition:layout-pre-paginated' in node.get('properties', '').split()
                or (node.get('name') == 'fixed-layout' and node.get('content') == 'true')
                for node in package.iter()):
-            raise api.ConversionError('KFX: фиксированную вёрстку EPUB пока нельзя сохранить без изменений.')
+            raise api.ConversionError(f'{label}: фиксированную вёрстку EPUB пока нельзя сохранить без изменений.')
         manifest = api.first(package, 'manifest')
         if manifest is None:
-            raise api.ConversionError('KFX: в EPUB нет списка ресурсов.')
+            raise api.ConversionError(f'{label}: в EPUB нет списка ресурсов.')
         members = [(item, archive.resolve(package_path, item.get('href', ''))[0]) for item in manifest]
         names = set(archive.names)
         ids = {item.get('id') for item in manifest}
         updates, added, replacements = {}, {}, {}
+        png_targets, inline_gifs = {}, {}
         added_bytes = 0
 
         def relative(path, target):
@@ -99,18 +140,18 @@ def prepare(api, source, destination, render, check=None, decode_webp=None):
             if check is not None:
                 check()
             if 'META-INF/signatures.xml' in archive.names:
-                raise api.ConversionError('KFX: замена рисунков нарушила бы подпись EPUB.')
+                raise api.ConversionError(f'{label}: замена рисунков нарушила бы подпись EPUB.')
 
         def add_png(image, maximum, item=None):
             nonlocal added_bytes
             if not 33 <= len(image) <= api.MAX_FILE or not image.startswith(PNG) or image[12:16] != b'IHDR':
-                raise api.ConversionError('KFX: не удалось подготовить PNG допустимого размера.')
+                raise api.ConversionError(f'{label}: не удалось подготовить PNG допустимого размера.')
             width, height = struct.unpack_from('>II', image, 16)
             if not (0 < width <= maximum and 0 < height <= maximum):
-                raise api.ConversionError('KFX: рисунок превышает допустимые размеры.')
+                raise api.ConversionError(f'{label}: рисунок превышает допустимые размеры.')
             added_bytes += len(image)
             if added_bytes > api.MAX_TOTAL:
-                raise api.ConversionError('KFX: обработанные изображения превышают допустимый объём.')
+                raise api.ConversionError(f'{label}: обработанные изображения превышают допустимый объём.')
             stem = 'hl-kfx-image-' + sha256(image).hexdigest()[:20]
             name = stem
             suffix = 0
@@ -122,6 +163,7 @@ def prepare(api, source, destination, render, check=None, decode_webp=None):
             names.add(target)
             ids.add(name)
             added[target] = image
+            png_targets.setdefault(sha256(image).digest(), target)
             if item is None:
                 item = api.element(api.OP, 'item', id=name)
                 manifest.append(item)
@@ -131,26 +173,59 @@ def prepare(api, source, destination, render, check=None, decode_webp=None):
 
         for item, path in members:
             mime = item.get('media-type')
-            if not path or mime not in ('image/svg+xml', 'image/webp'):
+            if only_gif:
+                if not path or not (mime or '').startswith('image/'):
+                    continue
+                with archive.archive.open(path) as stream:
+                    if stream.read(6) not in (b'GIF87a', b'GIF89a'):
+                        continue
+                mime = 'image/gif'
+            if not path or mime not in ('image/svg+xml', 'image/webp', 'image/gif'):
                 continue
             if path in replacements:
-                raise api.ConversionError('KFX: рисунок несколько раз указан в списке ресурсов.')
+                raise api.ConversionError(f'{label}: рисунок несколько раз указан в списке ресурсов.')
             require_rewrite()
             data = archive.read(path)
             if mime == 'image/svg+xml':
-                vector = vector_input(api, archive, path, api.xml(data), decode_webp)
+                vector = vector_input(api, archive, path, api.xml(data), decode_webp, decode_gif)
                 replacements[path] = add_png(render(vector), 2048, item)
-            else:
+            elif mime == 'image/webp':
                 replacements[path] = add_png(webp_image(api, data, decode_webp), 16384, item)
+            else:
+                if decode_gif is None:
+                    raise api.ComponentRequired('ImageProcessing', 'Для подготовки GIF нужен модуль HomeLibre Images.')
+                replacements[path] = add_png(decode_gif(data), 16384, item)
 
         def remap(path, href):
+            header, separator, payload = href.partition(',')
+            if decode_gif is not None and separator and header.lower().startswith('data:image/') and ';base64' in header.lower():
+                payload = ''.join(unquote(payload).split())
+                try:
+                    signature = b64decode(payload[:12], validate=True)
+                except ValueError as error:
+                    if header.lower().startswith('data:image/gif;'):
+                        raise api.ConversionError(f'{label}: некорректные данные встроенного GIF.') from error
+                    return href
+                if signature.startswith((b'GIF87a', b'GIF89a')):
+                    require_rewrite()
+                    if len(payload) > 4 * ((16 * 1024 * 1024 + 2) // 3):
+                        raise api.ConversionError(f'{label}: встроенное изображение GIF превышает 16 МБ.')
+                    try:
+                        data = b64decode(payload, validate=True)
+                    except ValueError as error:
+                        raise api.ConversionError(f'{label}: некорректные данные встроенного GIF.') from error
+                    key = sha256(data).digest()
+                    if key not in inline_gifs:
+                        image = decode_gif(data)
+                        inline_gifs[key] = png_targets.get(sha256(image).digest()) or add_png(image, 16384)
+                    return relative(path, inline_gifs[key])
             if not replacements:
                 return href
             target, fragment = archive.resolve(path, href)
             if target not in replacements:
                 return href
             if fragment:
-                raise api.ConversionError('KFX: ссылка ведёт на отдельную часть рисунка.')
+                raise api.ConversionError(f'{label}: ссылка ведёт на отдельную часть рисунка.')
             return relative(path, replacements[target])
 
         def stylesheet(path, css):
@@ -158,33 +233,44 @@ def prepare(api, source, destination, render, check=None, decode_webp=None):
                 href = match[2].strip()
                 mapped = remap(path, href)
                 return 'url("' + mapped + '")' if mapped != href else match[0]
-            return CSS_URL.sub(replace, css) if replacements else css
+            return CSS_URL.sub(replace, css) if replacements or only_gif else css
+
+
 
         for item, path in members:
             if check is not None:
                 check()
             if not path or path in updates:
                 continue
-            if item.get('media-type') == 'text/css' and replacements:
+            if item.get('media-type') == 'text/css' and (replacements or only_gif):
                 css = archive.read(path).decode('utf-8-sig')
                 changed = stylesheet(path, css)
                 if changed != css:
                     updates[path] = changed.encode('utf-8')
-            if item.get('media-type') != 'application/xhtml+xml':
+            xml_resource = only_gif and item.get('media-type') in ('image/svg+xml', 'application/x-dtbncx+xml')
+            if item.get('media-type') != 'application/xhtml+xml' and not xml_resource:
                 continue
-            chapter = api.xhtml(archive.read(path))
-            if any(api.tag(node) in {'audio', 'video', 'script', 'iframe', 'object', 'embed'}
+            chapter = api.xml(archive.read(path)) if xml_resource else api.xhtml(archive.read(path))
+            if not only_gif and any(api.tag(node) in {'audio', 'video', 'script', 'iframe', 'object', 'embed'}
                    for node in chapter.iter()):
-                raise api.ConversionError('KFX: в EPUB есть интерактивные или мультимедийные элементы.')
+                raise api.ConversionError(f'{label}: в EPUB есть интерактивные или мультимедийные элементы.')
             pending = [chapter]
             changed = False
             while pending:
                 parent = pending.pop()
-                for name in ('src', 'href', 'data', 'poster'):
+                for name in ('src', 'href', 'data', 'poster', '{' + api.XL + '}href'):
                     href = parent.get(name)
                     if href and (mapped := remap(path, href)) != href:
                         parent.set(name, mapped)
+                        if parent.get('type') == 'image/gif':
+                            parent.set('type', 'image/png')
                         changed = True
+                if parent.get('srcset'):
+                    value = remap_srcset(parent.get('srcset'), lambda href: remap(path, href))
+                    changed |= value != parent.get('srcset')
+                    parent.set('srcset', value)
+                    if changed and parent.get('type') == 'image/gif':
+                        parent.set('type', 'image/png')
                 if api.tag(parent) == 'style' and parent.text:
                     css = stylesheet(path, parent.text)
                     changed |= css != parent.text
@@ -194,11 +280,11 @@ def prepare(api, source, destination, render, check=None, decode_webp=None):
                     changed |= css != parent.get('style')
                     parent.set('style', css)
                 for index, node in enumerate(list(parent)):
-                    if node.tag != VECTOR + 'svg':
+                    if node.tag != VECTOR + 'svg' or only_gif:
                         pending.append(node)
                         continue
                     require_rewrite()
-                    vector = vector_input(api, archive, path, node, decode_webp)
+                    vector = vector_input(api, archive, path, node, decode_webp, decode_gif)
                     image = api.element(api.XH, 'img', src=relative(path, add_png(render(vector), 2048)),
                                         alt=api.plain(api.first(node, 'title')))
                     image.tail = node.tail
@@ -211,12 +297,17 @@ def prepare(api, source, destination, render, check=None, decode_webp=None):
             if changed:
                 updates[path] = api.serialized(chapter)
                 properties = item.get('properties', '').split()
-                if 'svg' in properties:
+                if 'svg' in properties and not only_gif:
                     properties.remove('svg')
                     if properties:
                         item.set('properties', ' '.join(properties))
                     else:
                         item.attrib.pop('properties')
+        if only_gif:
+            for node in package.iter():
+                href = node.get('href')
+                if href:
+                    node.set('href', remap(package_path, href))
         if not added:
             return 0
         updates[package_path] = api.serialized(package)
@@ -224,7 +315,7 @@ def prepare(api, source, destination, render, check=None, decode_webp=None):
         sizes = [len(updates[entry.filename]) if entry.filename in updates else entry.file_size for entry in entries]
         if (len(entries) + len(added) > api.MAX_ENTRIES or max(sizes, default=0) > api.MAX_FILE
                 or sum(sizes) + added_bytes > api.MAX_TOTAL):
-            raise api.ConversionError('KFX: подготовленная книга превышает допустимый объём.')
+            raise api.ConversionError(f'{label}: подготовленная книга превышает допустимый объём.')
         with zipfile.ZipFile(destination, 'x', compression=zipfile.ZIP_DEFLATED) as result:
             for entry in entries:
                 if check is not None:

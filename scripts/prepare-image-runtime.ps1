@@ -13,9 +13,9 @@ $runtime=if($OutputDirectory){[IO.Path]::GetFullPath($OutputDirectory)}else{Join
 [IO.Directory]::CreateDirectory($runtime) | Out-Null
 $target=Join-Path $runtime 'HomeLibImages.exe'
 $references=@('WindowsBase.dll','PresentationCore.dll','PresentationFramework.dll') | ForEach-Object { '/reference:'+(Join-Path $wpf $_) }
-& (Join-Path $framework 'csc.exe') /nologo /target:exe /optimize+ /define:HOMELIB_IMAGES_ONLY "/platform:$architecture" "/out:$target" /reference:System.Xaml.dll /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll @references $source
+& (Join-Path $framework 'csc.exe') /nologo /target:exe /optimize+ /define:HOMELIB_IMAGES_ONLY "/platform:$architecture" "/out:$target" /reference:System.Xaml.dll /reference:System.Drawing.dll /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll @references $source
 if($LASTEXITCODE -ne 0){throw 'Image processor compilation failed.'}
-$manifest=[ordered]@{version=1;platform=$Platform;source_sha256=(Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant();sha256=(Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash.ToLowerInvariant();processor='Images only; no XPS document reader'}
+$manifest=[ordered]@{version=1;platform=$Platform;gif_static_api=1;source_sha256=(Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant();sha256=(Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash.ToLowerInvariant();processor='Images only; no XPS document reader'}
 $manifest | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $runtime 'RUNTIME.json') -Encoding UTF8
 Copy-Item -LiteralPath (Join-Path $repository 'LICENSE') -Destination (Join-Path $runtime 'HomeLibImages-MIT.txt') -Force
 & $target --version

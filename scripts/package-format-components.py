@@ -313,7 +313,7 @@ def payload_for(platform, component, kindle_export_root=None, advanced_export_ro
                     'tools/python/python313.zip', 'tools/python/python313._pth',
                     'tools/bookconvert/ADVANCED_EXPORT_API.txt', 'tools/bookconvert/advanced_output.py',
                     'tools/bookconvert/markdown_output.py', 'tools/bookconvert/epub2_output.py', 'tools/bookconvert/epub3_output.py',
-                    'tools/bookconvert/epub_kfx_output.py', 'tools/bookconvert/kfx_image_input.py',
+                    'tools/bookconvert/epub_kfx_output.py', 'tools/bookconvert/kfx_image_input.py', 'tools/bookconvert/gif_static.py',
                     'tools/bookconvert/image_quality.py', 'tools/bookconvert/container_image_quality.py', *packing_workers, *sql_workers]
         helper.binary_platform(payload['tools/python/python.exe'], platform)
     elif component == 'ImageProcessing':
@@ -375,7 +375,7 @@ def payload_for(platform, component, kindle_export_root=None, advanced_export_ro
     if component in ('ImageProcessing', 'XPS'):
         prefix = 'tools/images/' if component == 'ImageProcessing' else 'tools/xps/'
         runtime_info = json.loads(payload[prefix + 'RUNTIME.json'])
-        if (runtime_info.get('platform') != platform or
+        if (runtime_info.get('platform') != platform or runtime_info.get('gif_static_api') != 1 or
                 runtime_info.get('source_sha256') != helper.digest((REPO / 'Utils/HomeLibXps/HomeLibXps.cs').read_bytes()) or
                 runtime_info.get('sha256') != helper.digest(payload[required[0]])):
             raise ValueError('Rebuild the image/XPS helper from the current source before packaging it')

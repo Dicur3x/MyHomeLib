@@ -2006,6 +2006,9 @@ def convert_book(source, destination, **metadata):
 
 
 def _convert_book(source, destination, **metadata):
+    static_gifs = metadata.pop('_static_gifs', None)
+    if static_gifs is not None and not isinstance(static_gifs, bool):
+        raise ConversionError('Некорректный режим статичных GIF.')
     output_profile = metadata.pop('output_profile', None)
     text_layer_only = metadata.pop('text_layer_only', False)
     image_quality = metadata.pop('image_quality', 'original')
@@ -2173,6 +2176,16 @@ def _convert_book(source, destination, **metadata):
         elif conversion is fb2_to_epub:
             fb2_to_epub(source,temporary,warnings,maximum=limit)
         else: conversion(source, temporary, warnings)
+        if (not metadata.get('reading') and image_quality != 'none' and not text_layer_only
+                and (static_gifs is True or (static_gifs is None and not same_format))):
+            script_directory = str(Path(__file__).resolve().parent)
+            sys.path.insert(0, script_directory)
+            try:
+                from gif_static import normalize_export
+                api = type('ConversionAPI', (), {name: value for name, value in globals().items() if not name.startswith('__')})
+                normalize_export(api, temporary, target_extension, metadata.get('tools_root'), warnings, cancel_check)
+            finally:
+                sys.path.pop(0)
         if ((image_quality != 'original' or grayscale) and not text_layer_only and text_only_source is None
                 and not b1_input and not (image_export and image_export['handled'])):
             spec = importlib.util.spec_from_file_location('homelib_image_quality', Path(__file__).with_name('image_quality.py'))
