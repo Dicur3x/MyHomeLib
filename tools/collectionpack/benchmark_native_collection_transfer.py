@@ -15,6 +15,67 @@ import subprocess
 import time
 
 from pack_collection import reserve_space
+from supervised_test_process import ExtendedLimits
+
+
+class MemoryCounters(ctypes.Structure):
+    _fields_ = [('cb', ctypes.c_uint32), ('faults', ctypes.c_uint32)] + [
+        (name, ctypes.c_size_t) for name in ('peak_working_set', 'working_set',
+        'peak_paged_pool', 'paged_pool', 'peak_nonpaged_pool', 'nonpaged_pool',
+        'commit', 'peak_commit', 'private')]
+
+
+def process_memory(process):
+    info = MemoryCounters()
+    info.cb = ctypes.sizeof(info)
+    query = ctypes.WinDLL('psapi', use_last_error=True).GetProcessMemoryInfo
+    query.argtypes = [ctypes.c_void_p, ctypes.POINTER(MemoryCounters), ctypes.c_uint32]
+    query.restype = ctypes.c_int
+    if not query(int(process._handle), ctypes.byref(info), info.cb):
+        if process.poll() is not None:
+            return None
+        raise ctypes.WinError(ctypes.get_last_error())
+    return dict(working_set=info.working_set, peak_working_set=info.peak_working_set,
+                private=info.private, peak_commit=info.peak_commit)
+
+
+class MemoryJob:
+    """An unnamed job bounds only this private native process, not other apps."""
+    def __init__(self, limit):
+        self.kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+        self.kernel.CreateJobObjectW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p]
+        self.kernel.CreateJobObjectW.restype = ctypes.c_void_p
+        self.kernel.SetInformationJobObject.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32]
+        self.kernel.QueryInformationJobObject.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32, ctypes.c_void_p]
+        self.kernel.AssignProcessToJobObject.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        self.kernel.CloseHandle.argtypes = [ctypes.c_void_p]
+        self.handle = self.kernel.CreateJobObjectW(None, None)
+        if not self.handle:
+            raise ctypes.WinError(ctypes.get_last_error())
+        limits = ExtendedLimits()
+        limits.basic.flags = 0x2000 | 0x100  # Kill owned process on close; private commit limit.
+        limits.process_memory = limit
+        if not self.kernel.SetInformationJobObject(self.handle, 9, ctypes.byref(limits), ctypes.sizeof(limits)):
+            error = ctypes.WinError(ctypes.get_last_error())
+            self.close()
+            raise error
+
+    def attach(self, process):
+        # The tiny request is followed by a catalogue scan. Assign immediately
+        # after creation, before that scan can allocate catalogue-sized objects.
+        if not self.kernel.AssignProcessToJobObject(self.handle, int(process._handle)):
+            raise ctypes.WinError(ctypes.get_last_error())
+
+    def peak(self):
+        limits = ExtendedLimits()
+        if not self.kernel.QueryInformationJobObject(self.handle, 9, ctypes.byref(limits), ctypes.sizeof(limits), None):
+            raise ctypes.WinError(ctypes.get_last_error())
+        return limits.peak_process_memory
+
+    def close(self):
+        if self.handle:
+            self.kernel.CloseHandle(self.handle)
+            self.handle = None
 
 
 def rows_hash(path):
@@ -61,8 +122,8 @@ def footprint(root):
 
 
 def run(args):
-    if os.name != 'nt' or args.rows < 1:
-        raise ValueError('Windows and a positive row count are required')
+    if os.name != 'nt' or args.rows < 1 or args.memory_limit_mib < 1:
+        raise ValueError('Windows and positive row/memory limits are required')
     stage = Path(args.stage).resolve()
     for name, path in [('stage', stage), ('binary', Path(args.binary)), ('sqlite', Path(args.sqlite)),
                        ('sevenzip', Path(args.sevenzip))]:
@@ -81,6 +142,9 @@ def run(args):
                     script_sha256=fixture.digest(__file__),
                     native_sha256=fixture.digest(args.binary), samples=0)
     process = None
+    job = None
+    memory_peak = dict(working_set=0, peak_working_set=0, private=0, peak_commit=0)
+    evidence['memory_limit_bytes'] = args.memory_limit_mib * 1024**2
     try:
         reserve_space(stage, 0)
         with fixture.connect(case.catalogue) as db:
@@ -98,29 +162,49 @@ def run(args):
         work_peak = dict(logical=0, allocated=0)
         samples = stage/'samples.jsonl'
         tick = time.monotonic()
+        job = MemoryJob(evidence['memory_limit_bytes'])
         with (stage/'native.log').open('wb') as log, samples.open('w', encoding='utf-8') as sample_log:
             process = subprocess.Popen(case.command(), cwd=case.home, stdout=log, stderr=subprocess.STDOUT,
                                        creationflags=subprocess.CREATE_NO_WINDOW | subprocess.BELOW_NORMAL_PRIORITY_CLASS,
                                        env={**os.environ, 'TEMP':str(case.home), 'TMP':str(case.home)})
+            job.attach(process)
+            evidence.update(native_pid=process.pid, private_runtime=str(case.home))
             while True:
                 terminal = process.poll()
                 reserve_space(stage, 0)
                 current = footprint(case.home)
                 work = footprint(case.work)
+                memory = process_memory(process)
+                if memory:
+                    for key, value in memory.items():
+                        memory_peak[key] = max(memory_peak[key], value)
                 for key in peak:
                     peak[key] = max(peak[key], current[key])
                     work_peak[key] = max(work_peak[key], work[key])
                 sample_log.write(json.dumps(dict(seconds=round(time.monotonic()-tick, 3),
-                                                 runtime=current, working=work))+'\n')
+                                                 runtime=current, working=work, memory=memory))+'\n')
                 sample_log.flush()
                 evidence['samples'] += 1
+                # Persist evidence while a long million-row process is live.
+                evidence.update(elapsed_native_seconds=round(time.monotonic()-tick, 3),
+                                memory_peak=memory_peak, job_peak_commit=job.peak(),
+                                baseline=baseline, peak=peak, working_peak=work_peak)
+                (stage/'progress.json').write_text(json.dumps(evidence, indent=2), encoding='utf-8')
                 if terminal is not None:
                     break
                 if time.monotonic()-tick > args.timeout:
                     raise TimeoutError('Bounded synthetic transfer measurement timed out')
                 time.sleep(.5)
         evidence['native_seconds'] = round(time.monotonic()-tick, 3)
+        evidence['native_returncode'] = process.returncode
         if process.returncode:
+            # Preserve useful failure evidence before the private root is reaped.
+            try:
+                evidence.update(before_book_rows=before, after_book_rows=rows_hash(case.catalogue),
+                                source_carriers_after={p:fixture.digest(p) if Path(p).exists() else None for p in payloads},
+                                source_carriers_before=payloads, removal_intents=case.intents())
+            except Exception as diagnostic:
+                evidence['failure_diagnostic_error'] = repr(diagnostic)
             raise RuntimeError((stage/'native.log').read_text(encoding='utf-8', errors='replace')[-4000:])
         result = json.loads(case.result.read_text(encoding='utf-8-sig'))
         after = rows_hash(case.catalogue)
@@ -144,6 +228,10 @@ def run(args):
         if process is not None and process.poll() is None:
             process.kill()
             process.wait(timeout=15)
+        if job:
+            evidence['job_peak_commit'] = job.peak()
+            job.close()
+        evidence['memory_peak'] = memory_peak
         (stage/'report.json').write_text(json.dumps(evidence, indent=2, ensure_ascii=False), encoding='utf-8')
         case.tearDown()
         evidence['private_runtime_removed'] = not case.home.exists()
@@ -159,4 +247,5 @@ if __name__ == '__main__':
     parser.add_argument('--sevenzip', required=True)
     parser.add_argument('--rows', type=int, default=100000)
     parser.add_argument('--timeout', type=int, default=600)
+    parser.add_argument('--memory-limit-mib', type=int, default=2048)
     print(json.dumps(run(parser.parse_args()), ensure_ascii=False))

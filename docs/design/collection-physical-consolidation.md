@@ -4,9 +4,10 @@ Status: native inventory, recoverable file/catalogue publication, guarded source
 removal, final roots, source/history cache publication, Reader aliases and atomic
 whole-operation completion are implemented. The local Main/Sources command now
 connects preview, stop/resume, active-view reload and explicit startup continuation.
-Space presentation, owned working-data cleanup, scale, remaining format/update
-compositions and final production/release gates remain open. No user collection
-has been moved by this work.
+Per-volume preview and owned draft/completed-snapshot cleanup are connected and
+tested on small private data. Scale, remaining format/update compositions and
+final production/release gates remain open. No user collection has been moved
+by this work.
 
 ## User result
 
@@ -625,6 +626,23 @@ Native and ordinary-window evidence is recorded in
 `docs/audits/2026-11-17-collection-transfer-completed-cleanup.md`. Unregistered
 hard-exit drafts, unknown SQLite side files in abandoned incomplete snapshots,
 large-volume peak use and final production gates remain separate requirements.
+
+### Locator receipt hashing
+
+The per-group locator receipt keeps the previous JSON array bytes and SHA-256,
+but now feeds completed rows into a 64 KiB buffered hash and releases each row.
+It does not retain a catalogue-sized JSON object graph or materialize the entire
+array twice at finalization. A missing optional personal card still contributes
+its historical prefix. Existing reader-history suffixes retain their order and
+encoding. Receipt schema and all publication/reference/removal checks are
+unchanged; memory used by `Seen`, SQLite and other metadata remains separate.
+
+Native comparisons exercise the old Delphi expression itself and resume
+receipts created by saved pre-change executables. The discovered old limitation
+for a deleted numeric personal card with a reader-alias suffix is not silently
+treated as a streaming regression or as successful recovery. Evidence and the
+bounded million-row measurements are recorded in
+`docs/audits/2026-11-17-collection-transfer-binding-memory.md`.
 
 ### Remaining end-to-end evidence
 

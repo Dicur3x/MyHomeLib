@@ -14,6 +14,7 @@ uses System.SysUtils, System.Classes, System.IOUtils, System.JSON, System.Hash,
   unit_CollectionTransferSpace,
   unit_CollectionTransferCleanup,
   unit_CollectionTransferReferenceFence,
+  unit_CollectionTransferBindingDigest,
   unit_ReaderHistoryAliases, unit_ReaderCache,
   unit_CollectionMerge, unit_Interfaces, unit_LibraryUpdateReview, unit_SystemDatabase_SQLite,
   unit_CollectionTransferLayout, unit_CollectionTransferFinalRows, unit_CollectionTransferFinalization,
@@ -206,6 +207,23 @@ begin
         begin
           Output:=TJSONObject.Create; Output.AddPair('reader_names',FixtureReaderNames(Request));
           TFile.WriteAllText(Owned(ParamStr(2)),Output.ToJSON,TEncoding.UTF8); Exit;
+        end;
+        if Mode='binding-digest' then
+        begin
+          var Values:=Request.GetValue<TJSONArray>('binding_rows'); var Digest:=TTransferBindingDigest.Create;
+          try
+            for var Row in Values do Digest.AddRow(Row as TJSONArray);
+            var LegacyJSON:=Values.ToJSON; var SHA:=Digest.Digest;
+            if Digest.Digest<>SHA then raise EReadError.Create('Binding digest is not idempotent');
+            var Refused:=False;
+            try Digest.AddRow(Values); except on E:EInvalidOperation do Refused:=True; end;
+            if not Refused then raise EReadError.Create('Finished binding digest accepted another row');
+            Output:=TJSONObject.Create; Output.AddPair('status','PASS'); Output.AddPair('sha256',SHA);
+            Output.AddPair('legacy_sha256',THashSHA2.GetHashString(LegacyJSON));
+            Output.AddPair('bytes',TJSONNumber.Create(Length(TEncoding.UTF8.GetBytes(LegacyJSON))));
+            if Length(LegacyJSON)<20000 then Output.AddPair('legacy_json',LegacyJSON);
+            TFile.WriteAllText(Owned(ParamStr(2)),Output.ToJSON,TEncoding.UTF8); Exit;
+          finally Digest.Free; end;
         end;
         TransferCleanupTestPoint:=procedure(Stage,Path:string)
           begin

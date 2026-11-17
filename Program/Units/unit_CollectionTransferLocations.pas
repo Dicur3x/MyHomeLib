@@ -16,7 +16,8 @@ implementation
 
 uses System.Classes, System.IOUtils, System.JSON, System.Hash, System.StrUtils, System.Generics.Collections,
   SQLite3, unit_Globals, unit_Settings, dm_user, unit_CollectionTransferPlan, unit_CollectionTransferHistory,
-  unit_BookCompressionReceipt, unit_CollectionTransferLayout, unit_ReaderHistoryAliases;
+  unit_BookCompressionReceipt, unit_CollectionTransferLayout, unit_ReaderHistoryAliases,
+  unit_CollectionTransferBindingDigest;
 
 procedure EnableLocatorTriggers(Context:TSQLite3Context; Count:Integer; Values:TSQLite3Value); cdecl;
 begin SQLite3_Result_Int(Context,1); end;
@@ -184,17 +185,17 @@ end;
 function ApplyTransferLocations(DB,Personal,Review:TSQLiteDatabase; Prepared:TPreparedTransferGroup;
   const Operation,ReviewSHA:string; const Registrations:TArray<Integer>; PersonalRows:Boolean;
   VerifyOnly,ReconcileOnly,Finalizing:Boolean):TTransferLocationResult;
-var R,Rows,Live,Marker:TSQLiteQuery; Allowed,Seen,Unsafe:TDictionary<string,Boolean>; Bind:TJSONArray;
+var R,Rows,Live,Marker:TSQLiteQuery; Allowed,Seen,Unsafe:TDictionary<string,Boolean>; Bind:TTransferBindingDigest; Row:TJSONArray;
     FinalLayout:TCollectionTransferLayout; ReaderAliases:TReaderHistoryAliasWriter;
 begin
-  Result:=Default(TTransferLocationResult); R:=nil; Rows:=nil; Live:=nil; Marker:=nil; FinalLayout:=nil; ReaderAliases:=nil;
+  Result:=Default(TTransferLocationResult); R:=nil; Rows:=nil; Live:=nil; Marker:=nil; FinalLayout:=nil; ReaderAliases:=nil; Row:=nil;
   if (DB=nil) or not DB.InTransaction or (Prepared=nil) or (Length(Registrations)=0) or
     (Length(ReviewSHA)<>64) or (Operation='') then raise EArgumentException.Create('Нужна привязанная транзакция расположений.');
   var ActualKey:=DatabaseKey(DB); var PersonalKey:=Review.QuerySingleString('SELECT Value FROM Context WHERE Name=''personal_key''');
   if (DatabaseKey(Personal)<>PersonalKey) or (PersonalRows<>(ActualKey=PersonalKey)) then
     raise EReadError.Create('Транзакция относится к другой базе данных.');
   Allowed:=TDictionary<string,Boolean>.Create; Seen:=TDictionary<string,Boolean>.Create;
-  Unsafe:=TDictionary<string,Boolean>.Create; Bind:=TJSONArray.Create;
+  Unsafe:=TDictionary<string,Boolean>.Create; Bind:=TTransferBindingDigest.Create;
   try
     ReaderAliases:=TReaderHistoryAliasWriter.Create(Personal,Operation,ReviewSHA);
     if Finalizing then FinalLayout:=TCollectionTransferLayout.Create(Review);
@@ -265,7 +266,7 @@ begin
       Original.FileName:=Rows.FieldAsString(6); Original.FileExt:=Rows.FieldAsString(7); Original.InsideNo:=Rows.FieldAsInt(8);
       if (Kind=2) and (Rows.FieldAsString(9)<>'') then Original.CollectionRoot:=Settings.ExpandCollectionRoot(Rows.FieldAsString(9));
       var Folder,FileName:string; Project(Original,Item.Source,Item.Destination,Folder,FileName,not (VerifyOnly or ReconcileOnly));
-      var Row:=TJSONArray.Create; Bind.AddElement(Row);
+      Row:=TJSONArray.Create;
       Row.Add(Key); Row.Add(Original.LibID); Row.Add(Original.Folder); Row.Add(Original.FileName); Row.Add(Original.FileExt);
       Row.Add(Original.InsideNo); Row.Add(Rows.FieldAsString(9)); Row.Add(Folder); Row.Add(FileName); Row.Add(Item.Identity); Row.Add(Item.SHA256);
       var Table:='Books'; var Where:='BookID=?';
@@ -279,6 +280,7 @@ begin
       if Live.Eof then
       begin
         FreeAndNil(Live); if not PersonalRows then raise EReadError.Create('Запись книги удалена после проверки.');
+        Bind.AddRow(Row); FreeAndNil(Row);
         Rows.Next; Continue;
       end;
       var OldLocation:=(Live.FieldAsString(1)=Original.Folder) and (Live.FieldAsString(2)=Original.FileName);
@@ -317,11 +319,12 @@ begin
         Live.ExecSQL; if DB.LastChangedRows<>1 then raise EWriteError.Create('Не удалось сохранить адрес книги.');
         FreeAndNil(Live); Inc(Result.Rows);
       end;
+      Bind.AddRow(Row); FreeAndNil(Row);
       Rows.Next;
     end;
     FreeAndNil(Rows);
     if PersonalRows then NewPersonalRows(DB,Review,Prepared,Registrations,Seen,Result.Rows,Result.Retained,VerifyOnly,ReconcileOnly,ReaderAliases);
-    var BindingSHA:=THashSHA2.GetHashString(Bind.ToJSON);
+    var BindingSHA:=Bind.Digest;
     if VerifyOnly or ReconcileOnly then
     begin
       if DB.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE type=''table'' AND name=''HomeLibreTransferLocations''')<>1 then
@@ -339,7 +342,7 @@ begin
       if not PersonalRows and not ReconcileOnly then Result.History:=RebindTransferHistory(DB,Review,Prepared);
       DB.ExecSQL('INSERT OR IGNORE INTO HomeLibreTransferLocations VALUES(?,?,?,?)',[Operation,Prepared.ID,ReviewSHA,BindingSHA]);
     end;
-  finally ReaderAliases.Free; FinalLayout.Free; Marker.Free; Live.Free; Rows.Free; R.Free; Bind.Free; Unsafe.Free; Seen.Free; Allowed.Free; end;
+  finally Row.Free; ReaderAliases.Free; FinalLayout.Free; Marker.Free; Live.Free; Rows.Free; R.Free; Bind.Free; Unsafe.Free; Seen.Free; Allowed.Free; end;
 end;
 
 end.
