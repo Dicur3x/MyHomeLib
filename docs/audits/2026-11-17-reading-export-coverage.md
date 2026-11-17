@@ -40,14 +40,42 @@ addition to the converter backend.
 Earlier reading and FB2/EPUB checks remain valid within their recorded cohorts.
 For example, `docs/audits/2026-11-08-post-beta7.md` records 133 paired inputs from
 78 suffix groups, subsequent rare-format checks and fixes, and separate
-MOBI/AZW3/advanced-writer trials. The retained
-`G:/HomeLibRu-build-cache/HomeLibre-bug-audit-20261107/usr-tail-sweep-20261109/verified-partial-summary.json`
-currently records 167 paired inputs and 111 suffixes, plus 31 remaining suffixes
-in that historical inventory. Its outcomes include explicit expected failures;
-the totals must not be reported as 167 successful complete books. Separate
+MOBI/AZW3/advanced-writer trials. The retained partial summary was superseded by
+the final
+`G:/HomeLibRu-build-cache/HomeLibre-bug-audit-20261107/usr-tail-sweep-20261109/reconciled-coverage.json`:
+187 paired inputs, 131 paired suffix spellings, ten nonbook/incomplete groups
+and the separately checked interactive SM. Its unresolved-suffix list is empty.
+All current 84 suffix spellings occur in those final categories; see
+`G:/HL-b14-external/format-evidence-reconciliation-r1507/report.json`.
+This reconciles spelling/family evidence, not every current file's identity or
+all advanced directions. Historical outcomes include explicit expected failures;
+paired totals must not be reported as wholly successful complete books. Separate
 nonbook evidence contains 49 records, including incomplete/damaged sources.
 The dated notes and historical test binaries do not establish every output
 direction for the current source/package cohort.
+
+## Current coherent native cohort
+
+The later sealed-component and native worker probes cover 26 frozen actual
+source families through eleven backend/native directions on x86/x64. All 572
+native output operations pass, including the separately run large LRF PDF.
+Original copies remain byte-identical and private runtimes are removed. Native
+TXT/FB2.ZIP and original saving retain their separate recorded evidence. See
+the [sealed matrix](2026-11-17-sealed-format-matrix.md) and
+[bounded PDF follow-up](2026-11-17-large-pdf-memory-budget.md).
+
+This combines coherent pipeline/container evidence with explicitly scoped
+independent full-content checks. It is not independent full-content proof for
+every one of the 572 files or a final ordinary Main/Reader release validation.
+
+Five small source copies in `remaining-payloads-r1503` independently match the
+earlier payload hashes: SM, PHP and three archive containers. The SM is the same
+previously tested interactive book, not a new linear codec. The TGZ contains a
+document and adjacent JPEG resources; ZIP contains one PDF; the 7z signature
+identifies its container only. The PHP contains source code rather than a book,
+already diagnosed by the earlier native regression. It was read only as data,
+never executed. These observations do not replace selected-member/linked-resource
+checks in final applications.
 
 ## OpenXPS follow-up
 

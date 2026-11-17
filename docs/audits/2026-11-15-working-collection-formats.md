@@ -94,3 +94,16 @@ must continue to retain their original bytes. Remaining work also includes the
 unclassified names, an isolated working-catalogue compression trial and final
 application/package validation. No production worker or package changed in
 this inventory step; the latest BookProcessing candidate remains r647.
+
+## November 17 evidence reconciliation
+
+The later final historical coverage report supersedes its partial summary:
+187 paired inputs across 131 suffix spellings, ten nonbook/incomplete groups
+and the interactive SM. Every one of the current 84 spellings occurs in these
+categories. The 24 unsampled groups in this bounded inventory therefore are
+not 24 newly discovered codecs. This mapping does not assert matching identity
+for each current book or retest every advanced output. Current native/coherent
+component results and their limits are recorded in the
+[reading/export audit](2026-11-17-reading-export-coverage.md) and
+`G:/HL-b14-external/format-evidence-reconciliation-r1507/report.json`.
+The original inventory above remains a record of what that particular run did.
