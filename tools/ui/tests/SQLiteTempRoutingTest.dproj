@@ -1,0 +1,56 @@
+﻿<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <ProjectGuid>{6FA71522-8D0A-4DBC-BF23-8BC7F26D571B}</ProjectGuid>
+    <MainSource>SQLiteTempRoutingTest.dpr</MainSource>
+    <ProjectVersion>20.3</ProjectVersion>
+    <ProjectName>SQLiteTempRoutingTest</ProjectName>
+    <SanitizedProjectName>SQLiteTempRoutingTest</SanitizedProjectName>
+    <Base>true</Base>
+    <Config Condition="'$(Config)'==''">Release</Config>
+    <Platform Condition="'$(Platform)'==''">Win64</Platform>
+    <TargetedPlatforms>3</TargetedPlatforms>
+    <AppType>Console</AppType>
+    <FrameworkType>VCL</FrameworkType>
+
+    <VerInfo_IncludeVerInfo>false</VerInfo_IncludeVerInfo>
+    <DCC_UnitSearchPath>..\..\..\Program\Units;..\..\..\Program\Forms;..\..\..\Program\Forms\Editors;..\..\..\Program\DataModules;..\..\..\Program\ImportImpl;..\..\..\Program\UtilsImpl;..\..\..\Program\DwnldImpl;..\..\..\Program\DAO;..\..\..\Program\DAO\SQLite;..\..\..\Program\DAO\SQLite\Lib;..\..\..\Program\Wizards\NewCollection;..\..\..\Program\Wizards\Base;..\..\..\Components\MHLComponents;..\..\..\Components\MHLComponents\Units;..\..\..\Components\VirtualTreeView\Source;..\..\..\tools\ui\tests;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+    <DCC_ResourcePath>..\..\..\Components\MHLComponents;$(DCC_ResourcePath)</DCC_ResourcePath>
+    <DCC_IncludePath>..\..\..\Components\MHLComponents;$(DCC_IncludePath)</DCC_IncludePath>
+    <DCC_Namespace>Vcl;Vcl.Imaging;Vcl.Touch;Vcl.Samples;Vcl.Shell;System;System.Win;Xml;Xml.Win;Data;Data.Win;Datasnap;Datasnap.Win;Web;Web.Win;Soap;Soap.Win;Winapi;Bde;$(DCC_Namespace)</DCC_Namespace>
+    <DCC_UnitAlias>WinTypes=Winapi.Windows;WinProcs=Winapi.Windows;$(DCC_UnitAlias)</DCC_UnitAlias>
+    <DCC_ExeOutput>Out\$(Platform)\TempRouting</DCC_ExeOutput>
+    <DCC_DcuOutput>Out\$(Platform)\TempRouting-dcu</DCC_DcuOutput>
+    <DCC_DependencyCheckOutputName>Out\$(Platform)\SQLiteTempRoutingTest.exe</DCC_DependencyCheckOutputName>
+    <DCC_Define>MHL_TRANSFER_TEST;$(DCC_Define)</DCC_Define>
+    <DCC_Assertions>true</DCC_Assertions>
+    <DCC_RangeChecking>true</DCC_RangeChecking>
+    <DCC_OverflowChecking>true</DCC_OverflowChecking>
+    <DCC_Optimize>false</DCC_Optimize>
+    <DCC_DebugInformation>0</DCC_DebugInformation>
+    <DCC_MapFile>3</DCC_MapFile>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Config)'=='Base' or '$(Base)'!=''"><Base>true</Base></PropertyGroup>
+  <PropertyGroup Condition="'$(Config)'=='Release' or '$(Cfg_1)'!=''"><Cfg_1>true</Cfg_1><CfgParent>Base</CfgParent><Base>true</Base></PropertyGroup>
+  <!-- Measure production code generation without removing functional checks. -->
+  <PropertyGroup Condition="'$(Config)'=='Performance' or '$(Cfg_2)'!=''">
+    <Cfg_2>true</Cfg_2><CfgParent>Base</CfgParent><Base>true</Base>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Cfg_2)'!=''">
+    <DCC_Define>MHL_RELEASE_PERFORMANCE;$(DCC_Define)</DCC_Define>
+    <DCC_Optimize>true</DCC_Optimize>
+    <DCC_Inlining>on</DCC_Inlining>
+    <DCC_ExeOutput>Out\$(Platform)\Performance</DCC_ExeOutput>
+    <DCC_DcuOutput>Out\$(Platform)\Performance\dcu</DCC_DcuOutput>
+    <DCC_DependencyCheckOutputName>Out\$(Platform)\Performance\SQLiteTempRoutingTest.exe</DCC_DependencyCheckOutputName>
+  </PropertyGroup>
+  <ItemGroup>
+    <DelphiCompile Include="$(MainSource)"><MainSource>MainSource</MainSource></DelphiCompile>
+    <DCCReference Include="..\..\..\tools\ui\tests\NativeRegressionGuard.pas"/>
+    <BuildConfiguration Include="Base"><Key>Base</Key></BuildConfiguration>
+    <BuildConfiguration Include="Release"><Key>Cfg_1</Key><CfgParent>Base</CfgParent></BuildConfiguration>
+    <BuildConfiguration Include="Performance"><Key>Cfg_2</Key><CfgParent>Base</CfgParent></BuildConfiguration>
+  </ItemGroup>
+  <ProjectExtensions><Borland.Personality>Delphi.Personality.12</Borland.Personality><Borland.ProjectType>Console</Borland.ProjectType><BorlandProject><Platforms><Platform value="Win32">True</Platform><Platform value="Win64">True</Platform></Platforms></BorlandProject></ProjectExtensions>
+  <Import Project="$(BDS)\Bin\CodeGear.Delphi.Targets" Condition="Exists('$(BDS)\Bin\CodeGear.Delphi.Targets')"/>
+  <PropertyGroup><NameSpace>Vcl;Vcl.Imaging;Vcl.Touch;Vcl.Samples;Vcl.Shell;System;System.Win;Xml;Xml.Win;Data;Data.Win;Datasnap;Datasnap.Win;Web;Web.Win;Soap;Soap.Win;Winapi;Bde</NameSpace></PropertyGroup>
+</Project>

@@ -25,6 +25,7 @@ interface
 uses
   Winapi.Windows,
   SQLite3,
+  SQLiteTempVFS,
   Classes,
   System.Generics.Collections,
   SysUtils;
@@ -45,6 +46,7 @@ type
   TSQLiteDatabase = class(TObject)
   private
     FDB: TSQLite3DB;
+    FTemporaryVFS:TSQLiteTemporaryVFS;
     FProfileName: string;
     FBusyTimeout: Integer;
     FBusyStarted: UInt64;
@@ -52,6 +54,7 @@ type
     FStatementGeneration: Integer;
     FIdleStatements: TDictionary<string, TSQLiteStmt>;
     procedure ClearIdleStatements;
+    function GetTemporaryFileCount:Integer;
     function TakeStatement(const SQL: string; out Generation: Integer): TSQLiteStmt;
     procedure ReturnStatement(const SQL: string; Statement: TSQLiteStmt; Generation: Integer);
 
@@ -69,9 +72,9 @@ type
       Pass FileName as AnsiString (if you are not using Unicode Delphi version)
       or as UnicodeString (on Delphi 2009 and higher)!
     }
-    constructor Create(const FileName: string; EnableWAL: Boolean = True; EnableURI:Boolean=False);
+    constructor Create(const FileName: string; EnableWAL: Boolean = True; EnableURI:Boolean=False; const TempDirectory:string='');
     // OPDS opens its own connection without creating or changing a database.
-    constructor CreateReadOnly(const FileName: string);
+    constructor CreateReadOnly(const FileName: string; const TempDirectory:string='');
 
     {: Class descructor. Call Free instead.}
     destructor Destroy; override;
@@ -140,6 +143,7 @@ type
 
     { SQLite database handler.}
     property DB: TSQLite3DB read FDB;
+    property TemporaryFilesCreated:Integer read GetTemporaryFileCount;
   end;
 
   {: @abstract(Class for handling SQLite query result)}
@@ -371,7 +375,7 @@ begin
   try CopyDatabase(Source, Self, Progress); finally Source.Free; end;
 end;
 
-constructor TSQLiteDatabase.Create(const FileName: string; EnableWAL: Boolean; EnableURI:Boolean);
+constructor TSQLiteDatabase.Create(const FileName: string; EnableWAL: Boolean; EnableURI:Boolean; const TempDirectory:string);
 var
   s: string;
   Code:Integer;
@@ -384,9 +388,14 @@ begin
   FProfileName := ExtractFileName(ExcludeTrailingPathDelimiter(ExtractFilePath(FileName))) +
     '/' + ExtractFileName(FileName);
   try
-    if EnableURI then
-      Code:=SQLite3_Open_v2(PUTF8Char(UTF8String(FileName)),FDB,
-        SQLITE_OPEN_READWRITE or SQLITE_OPEN_CREATE or SQLITE_OPEN_URI or SQLITE_OPEN_PRIVATECACHE,nil)
+    if TempDirectory<>'' then FTemporaryVFS:=TSQLiteTemporaryVFS.Create(TempDirectory);
+    if EnableURI or (FTemporaryVFS<>nil) then
+    begin
+      var Flags:=SQLITE_OPEN_READWRITE or SQLITE_OPEN_CREATE;
+      if EnableURI then Flags:=Flags or SQLITE_OPEN_URI or SQLITE_OPEN_PRIVATECACHE;
+      var VFS:PUTF8Char:=nil; if FTemporaryVFS<>nil then VFS:=FTemporaryVFS.Name;
+      Code:=SQLite3_Open_v2(PUTF8Char(UTF8String(FileName)),FDB,Flags,VFS);
+    end
     else Code:=SQLite3_Open(PUTF8Char(UTF8String(FileName)), FDB);
     if Code <> SQLITE_OK then
     begin
@@ -437,7 +446,7 @@ begin
   end;
 end;
 
-constructor TSQLiteDatabase.CreateReadOnly(const FileName: string);
+constructor TSQLiteDatabase.CreateReadOnly(const FileName: string; const TempDirectory:string);
 var
   s: string;
 begin
@@ -446,8 +455,10 @@ begin
   FProfileName := ExtractFileName(ExcludeTrailingPathDelimiter(ExtractFilePath(FileName))) +
     '/' + ExtractFileName(FileName);
   try
+    if TempDirectory<>'' then FTemporaryVFS:=TSQLiteTemporaryVFS.Create(TempDirectory);
+    var VFS:PUTF8Char:=nil; if FTemporaryVFS<>nil then VFS:=FTemporaryVFS.Name;
     if SQLite3_Open_v2(PUTF8Char(UTF8String(FileName)), FDB,
-      SQLITE_OPEN_READONLY or SQLITE_OPEN_PRIVATECACHE, nil) <> SQLITE_OK then
+      SQLITE_OPEN_READONLY or SQLITE_OPEN_PRIVATECACHE, VFS) <> SQLITE_OK then
     begin
       if Assigned(FDB) then
         s := string(UTF8String(SQLite3_ErrMsg(FDB)))
@@ -475,9 +486,19 @@ begin
   ClearIdleStatements;
   FreeAndNil(FIdleStatements);
   if Assigned(FDB) then
-    SQLite3_Close(FDB);
+  begin
+    // A caller leaving a statement open already violates this class's lifetime
+    // contract. A busy native handle must still retain its registered VFS.
+    if SQLite3_Close(FDB)<>SQLITE_OK then FTemporaryVFS:=nil;
+  end;
+  FTemporaryVFS.Free;
 
   inherited Destroy;
+end;
+
+function TSQLiteDatabase.GetTemporaryFileCount:Integer;
+begin
+  Result:=0; if FTemporaryVFS<>nil then Result:=FTemporaryVFS.FilesCreated;
 end;
 
 procedure TSQLiteDatabase.ClearIdleStatements;

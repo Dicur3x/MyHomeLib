@@ -131,7 +131,7 @@ begin
   Stream.Free;
   // SQLite must receive the extended path too, including on reopen: its
   // journal files cannot rely on the host executable being long-path aware.
-  FDB:=TSQLiteDatabase.Create(DeletionNativePath(FileName),True,EnableURI);
+  FDB:=TSQLiteDatabase.Create(DeletionNativePath(FileName),True,EnableURI,FFolder);
   FDB.QuerySingleString('PRAGMA journal_mode=DELETE');
   FDB.ExecSQL('PRAGMA synchronous=NORMAL');
   FDB.ExecSQL('PRAGMA temp_store=FILE');
@@ -154,7 +154,7 @@ procedure TCompressionPlanStore.Seal;
 begin
   if FSealed then Exit;
   FreeAndNil(FDB);
-  FDB:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(TPath.Combine(FFolder,'plan.sqlite')));
+  FDB:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(TPath.Combine(FFolder,'plan.sqlite')),FFolder);
   FSealed:=True;
 end;
 
@@ -164,7 +164,7 @@ begin
     raise EInvalidOperation.Create('План сжатия ещё не готов к отбору новых книг.');
   FreeAndNil(FDB); FSealed:=False;
   try
-    FDB:=TSQLiteDatabase.Create(DeletionNativePath(TPath.Combine(FFolder,'plan.sqlite')));
+    FDB:=TSQLiteDatabase.Create(DeletionNativePath(TPath.Combine(FFolder,'plan.sqlite')),True,False,FFolder);
     FDB.QuerySingleString('PRAGMA journal_mode=DELETE');
     FDB.ExecSQL('PRAGMA cache_size=-4096');
     FDB.ExecSQL('PRAGMA temp_store=FILE');

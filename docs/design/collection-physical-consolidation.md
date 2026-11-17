@@ -591,6 +591,13 @@ this draft is not authority to clean arbitrary folders.
 
 ### Completed work-snapshot cleanup
 
+Scratch planning connections now explicitly select their own work folder for
+anonymous SQLite temp/sort files, including sealed read-only and edit reopens.
+This uses an opt-in connection-local VFS; it does not change process TEMP/TMP,
+the default VFS or named database/journal paths. Native spill, locking, Unicode,
+long-path, cancellation and live-exit evidence and the remaining scope are in
+`docs/audits/2026-11-17-sqlite-plan-temp-routing.md`.
+
 After durable whole-operation completion, the journal releases its own remaining
 publication leases and can remove its cache-snapshot working directories. The
 completion receipt and frozen review remain as historical evidence. Installed
