@@ -84,3 +84,10 @@ driver was corrected to use the existing isolation contract without changing
 the guard. Native advanced directions,
 large-LRF diagnosis, remaining source/content classification, ordinary Main
 selection and final production/update packages still have separate gates.
+
+The native full cohort subsequently passes 285 directions on Win64 in r1471
+and 285 on Win32 in r1491; the latter uses the final progress/memory-budget
+binary. LRF PDF passes separately on both architectures as described above.
+All frozen originals remain byte-identical, both full native runtimes are
+removed, and no output cell failed. This does not expand the independently
+verified content subsets to all 572 native files or all catalogue suffixes.

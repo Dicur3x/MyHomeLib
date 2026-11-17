@@ -65,8 +65,16 @@ marker and matching source hashes are recorded in `pdf-memory-ui-build-r1494`.
 
 ## Still required
 
-The remaining x86 full matrix, final production applications and release/update
-packages are still required. Earlier
+The remaining x86 native matrix subsequently completes all 285 directions
+with the final typed-budget binary: zero failures, all 26 original copies
+unchanged and the private runtime removed. Its final two-second sample is
+772.94 seconds. Evidence:
+`G:/HL-b14-external/sealed-native-all-Win32-r1491/report.json`.
+Together with the separately checked large LRF PDF, this covers the current
+26-family/eleven-direction native cohort on both architectures. Full independent
+content readback remains scoped to the explicitly documented subsets.
+
+Final production applications and release/update packages are still required. Earlier
 failed runs remain separate evidence and are not counted as successful exports.
 No Desktop installation or public asset has been changed. All new work stays
 on G:, E: is unused and C: retains its required reserve.

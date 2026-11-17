@@ -70,5 +70,6 @@ The first five-minute native x64 run (`sealed-native-lrf-pdf-Win64-r1483`)
 still failed: a separate per-process memory ceiling also constrained its browser.
 The [memory-budget follow-up](2026-11-17-large-pdf-memory-budget.md) records the
 subsequent native successes on x86/x64 and independent full PDF readback on
-both platforms. The remaining x86 full matrix is still needed. No Desktop application
+both platforms. The subsequent x86 native matrix passed all 285 remaining
+directions; see the same follow-up. No Desktop application
 or public asset changed.
