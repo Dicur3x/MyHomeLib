@@ -254,6 +254,29 @@ class AdvancedOutputTest(unittest.TestCase):
                     self.assertEqual(error.exception.code, 404)
                     error.exception.close()
 
+    def test_pdf_print_copy_removes_discretionary_hints_but_keeps_links_and_real_hyphens(self):
+        source=self.work/'manual-hyphens.epub';rich_epub(source)
+        with zipfile.ZipFile(source) as archive:entries={name:archive.read(name) for name in archive.namelist()}
+        entries['OPS/one.xhtml']=entries['OPS/one.xhtml'].replace(b'</body>',
+            '<p id="soft\u00adid">со&#000173;стояние <strong>мо&#xad;роз</strong> well-known</p>'
+            '<a href="#soft\u00adid">Read\u00ading</a></body>'.encode())
+        with zipfile.ZipFile(source,'w') as archive:
+            for name,data in entries.items():archive.writestr(name,data)
+        before=source.read_bytes()
+        with closing(conversion.EpubArchive(source)) as archive:
+            container=conversion.xml(archive.read('META-INF/container.xml'))
+            package_path=next(n.get('full-path') for n in container.iter() if conversion.tag(n)=='rootfile')
+            package=conversion.xml(archive.read(package_path))
+            replacements=epub_pdf_output.printable_documents(conversion,archive,package_path,package)
+            def cancelled():raise InterruptedError('cancelled before printing')
+            with self.assertRaises(InterruptedError):
+                epub_pdf_output.printable_documents(conversion,archive,package_path,package,cancelled)
+        tree=conversion.xhtml(replacements['OPS/one.xhtml']);body=conversion.first(tree,'body')
+        self.assertIn('состояние мороз well-known',''.join(body.itertext()))
+        self.assertTrue(any(n.get('id')=='soft\u00adid' for n in body.iter()))
+        self.assertTrue(any(n.get('href')=='#soft\u00adid' for n in body.iter()))
+        self.assertIn('Reading',''.join(body.itertext()));self.assertEqual(source.read_bytes(),before)
+
     def test_epub_pdf_browser_scratch_is_removed_with_profile(self):
         work = self.work / 'render'
         work.mkdir()

@@ -50,12 +50,20 @@ def prepare_runtime(root,plan,helpers):
         if source.suffix not in {'.py','.txt','.js','.json','.bin'} and source.name!='py.typed':continue
         target=root/'tools/bookconvert'/relative;target.parent.mkdir(parents=True,exist_ok=True)
         shutil.copy2(source,target);overlays[relative.as_posix()]=sha(source)
+    # The PDF bridge is installed with its optional writer, outside the common
+    # Python folder. Overlay the script actually loaded by advanced_output too.
+    optional={}
+    for relative in ['tools/epub-pdf/epub_pdf_output.py']:
+        target=root/relative
+        if target.is_file():
+            source=REPO/'tools/bookconvert'/target.name
+            shutil.copy2(source,target);optional[relative]=sha(source)
     local={}
     for name in ['xps','images']:
         shutil.copytree(helpers/name,root/'tools'/name)
         for source in (helpers/name).rglob('*'):
             if source.is_file():local[source.relative_to(helpers).as_posix()]=sha(source)
-    return dict(packages=packages,current_source_overlay=overlays,local_helper_sha256=local)
+    return dict(packages=packages,current_source_overlay=overlays,optional_module_source_overlay=optional,local_helper_sha256=local)
 
 def extract_sample(candidate,expected,root):
     errors=[]

@@ -84,6 +84,13 @@ cost. Do not add recognition to beta 14 or use it as a release gate. TXT require
 an existing usable text layer; image-only inputs retain their clear explanation
 and their image-preserving export paths. Revisit OCR in a later discussion.
 
+The later discussion should evaluate speed and acceptable FB2 text on a
+500-page scan, including faint originals and recognition errors. The user also
+proposed choosing a free engine, an external tool or separately purchased
+HomeArchive. This is research after beta 14, not an accepted paid-feature
+implementation. Audit its libraries, model licences, build tools and interaction
+with GPL components before deciding the integration and commercial terms.
+
 - Reconcile the current actual payload families and archive/incorrect-name cases
   with the earlier native results. Resolve the unclassified book inputs rather
   than treat each unusual suffix as a new format or silently drop it.

@@ -284,6 +284,25 @@ def legacy_navigation(api, archive, package_path, package):
         return {}
 
 
+def printable_documents(api, archive, package_path, package, check=None):
+    replacements = {}
+    for item in package.iter():
+        if check is not None: check()
+        if api.tag(item) != 'item' or item.get('media-type') != 'application/xhtml+xml': continue
+        path, _ = archive.resolve(package_path, item.get('href', ''))
+        if path not in archive.names: continue
+        data = archive.read(path)
+        document = api.xhtml(data); body = api.first(document, 'body'); changed = False
+        if body is None: continue
+        for node in body.iter():
+            for name in ('text', 'tail'):
+                value = getattr(node, name)
+                if value and '\u00ad' in value:
+                    setattr(node, name, value.replace('\u00ad', '')); changed = True
+        if changed: replacements[path] = api.serialized(document)
+    return replacements
+
+
 def convert(api, prepared, output, module_root, check):
     renderer = module_root / 'runtime' / 'HomeLibEpubPdf.exe'
     if not renderer.is_file():
@@ -317,6 +336,11 @@ def convert(api, prepared, output, module_root, check):
                         if node.text and node.text.strip()]
             title = package.findtext('.//{http://purl.org/dc/elements/1.1/}title', '').strip()
             replacements = legacy_navigation(api, archive, rootfile, package)
+            # Manual soft-hyphen glyphs become spaces in Chromium's PDF text
+            # layer even when no visible line break occurs. Remove only these
+            # discretionary hints from the private printed text, preserving
+            # actual hyphens, IDs, URLs and all original archive bytes.
+            replacements.update(printable_documents(api, archive, rootfile, package, checkpoint))
             with local_book(archive, module_root / 'viewer', replacements) as (origin, prefix):
                 url = origin + prefix + 'viewer/index.html#' + urlencode({'source': '../book/' + quote(rootfile)})
                 render_pdf(api, renderer, output.parent, url, origin + prefix, checkpoint)
