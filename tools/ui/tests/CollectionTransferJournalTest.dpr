@@ -12,7 +12,7 @@ uses System.SysUtils, System.Classes, System.IOUtils, System.JSON, System.Hash,
   unit_CollectionTransferCachePreparation,
   unit_CollectionTransferCacheInstallation,
   unit_CollectionTransferSpace,
-  unit_CollectionTransferCleanup, unit_CollectionTransferDrafts, unit_BookCompressionPlanStore,
+  unit_CollectionTransferCleanup, unit_CollectionTransferDrafts, unit_CollectionTransferForks, unit_BookCompressionPlanStore,
   unit_CollectionTransferReferenceFence,
   unit_CollectionTransferBindingDigest,
   unit_ReaderHistoryAliases, unit_ReaderCache,
@@ -201,7 +201,7 @@ var Request,Control,Output:TJSONObject; Capture:TCollectionTransferCatalogue; Pl
     Journal:TCollectionTransferJournal; Registry:TCollectionTransferRegistry; Info:TCollectionInfo; ControlFile,Mode,Crash:string;
     Copies,PreparedFiles,IndexedApprovals,CopiedApprovals,ReadOnlyApprovals,SQLApprovalPolls:Integer; Stop,BetweenEdited,CompletionBusy:Boolean; Groups,HistoryHits:TJSONArray; IDs:TList<Int64>; HistoryRows,VerifiedRetained:Int64;
     Removed,Missing,RetainedSources,PendingSources,CachesPrepared,HeldPreparedCaches,PublishedCacheDatabases:Int64; RootsApplied:Boolean;
-    IncompletePreparationHandle:THandle;
+    IncompletePreparationHandle:THandle; DraftSnapshots:Integer;
 begin
   SetTextCodePage(System.Output,CP_UTF8);
   try
@@ -216,7 +216,30 @@ begin
         CompletionBusy:=Request.GetValue<Boolean>('application_busy',False); IncompletePreparationHandle:=0;
         IndexedApprovals:=0; CopiedApprovals:=0;
         ReadOnlyApprovals:=0; SQLApprovalPolls:=0;
-        TransferDraftTestPoint:=procedure(Stage,Directory:string) begin Writeln('TRACE draft-retained ',Stage,' ',Directory); end;
+        DraftSnapshots:=0;
+        TransferDraftTestPoint:=procedure(Stage,Directory:string)
+          begin
+            Writeln('TRACE draft ',Stage,' ',Directory);
+            if Stage=Crash then begin Writeln('CRASH ',Stage); Flush(System.Output); Halt(97); end;
+          end;
+        TransferForkDraftTestPoint:=procedure(Stage,Path:string; Done,Total:Integer)
+          begin
+            Owned(Path);
+            if Stage='fork-draft-reserved' then Inc(DraftSnapshots);
+            if Stage=Request.GetValue<string>('cancel_draft_snapshot_stage','') then Stop:=True;
+            if (Stage<>Crash) or (DraftSnapshots<Request.GetValue<Integer>('crash_snapshot',1)) then Exit;
+            if Request.GetValue<Boolean>('only_partial_snapshot',False) and ((Done<=0) or (Done>=Total)) then Exit;
+            var Bytes:=TFile.GetSize(DeletionNativePath(Path));
+            if Bytes<Request.GetValue<Int64>('draft_min_bytes',0) then Exit;
+            var Evidence:=TJSONObject.Create;
+            try
+              Evidence.AddPair('stage',Stage); Evidence.AddPair('path',Path); Evidence.AddPair('bytes',TJSONNumber.Create(Bytes));
+              Evidence.AddPair('done',TJSONNumber.Create(Done)); Evidence.AddPair('total',TJSONNumber.Create(Total));
+              TFile.AppendAllText(Owned(TPath.Combine(ExtractFileDir(ControlFile),'fork-draft-events.jsonl')),
+                Evidence.ToJSON+sLineBreak,TEncoding.UTF8);
+            finally Evidence.Free; end;
+            Writeln('CRASH ',Stage); Flush(System.Output); Halt(97);
+          end;
         TransferApprovalTestPoint:=procedure(Indexed:Boolean)
           begin if Indexed then Inc(IndexedApprovals) else Inc(CopiedApprovals); end;
         TransferApprovalReadOnlyProbe:=procedure(DB:TSQLiteDatabase)

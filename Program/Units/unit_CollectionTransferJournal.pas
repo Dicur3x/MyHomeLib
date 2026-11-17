@@ -426,7 +426,22 @@ begin
     function:Boolean begin CheckStop; Result:=False; end);
   FReview.ExecSQL('CREATE INDEX TransferApprovedLookup ON RegisteredReferences('+
     'RegistrationID,Kind,BookID,SourceKey,FileID,Resource,Owner,RetainReason)');
-  CaptureTransferCatalogueForks(FReview,function:Boolean begin CheckStop; Result:=False; end,FPreviewOnly);
+  CaptureTransferCatalogueForks(FReview,function:Boolean begin CheckStop; Result:=False; end,FPreviewOnly,
+    procedure(const Path:string; Handle:THandle; Directory,Created:Boolean)
+    begin
+      CheckStop;
+      if not SameFileName(DeletionNativePath(TransferFinalHandlePath(Handle)),DeletionNativePath(Path)) then
+        raise EReadError.Create('Черновой снимок перенаправлен.');
+      var Name:=ExtractRelativePath(IncludeTrailingPathDelimiter(FDirectory),Path).Replace('\','/');
+      var Key:=PreparationObjectKey(Handle,Directory); var Existing:string;
+      if Created then
+      begin
+        if FConstructionFiles.ContainsKey(Name) then raise EReadError.Create('Черновой снимок был заменён.');
+        TTransferDrafts.RecordEntry(FLease,Name,Key,Directory); FConstructionFiles.Add(Name,Key);
+      end
+      else if not FConstructionFiles.TryGetValue(Name,Existing) or (Existing<>Key) then
+        raise EReadError.Create('Папка черновых снимков не принадлежит этой подготовке.');
+    end);
   Catalogue.CheckUnchanged; Plan.CheckUnchanged;
   FReview.ExecSQL('COMMIT');
 end;
@@ -582,6 +597,10 @@ begin
   // No registration or payload copying can have started. Retain every completed
   // or resumed journal, and refuse unknown entries, replacement IDs and links.
   if (FCreatedDirectoryKey='') or (FConstructionFiles=nil) then Exit;
+  if FConstructionFiles.ContainsKey('catalogue-snapshots') then
+  begin
+    try if TTransferDrafts.CleanDirectory(FWorkRoot,FDirectory) then Exit; except end;
+  end;
   RootHandle:=0; CopiesHandle:=0; Files:=TList<THandle>.Create;
   try
     try

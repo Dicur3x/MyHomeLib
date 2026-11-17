@@ -10,6 +10,8 @@ type
     class procedure Save(Lease:THandle; const Directory,DirectoryKey,CopiesKey:string;
       Files:TDictionary<string,string>); static;
     class procedure Ready(Lease:THandle); static;
+    class procedure RecordEntry(Lease:THandle; const Name,Key:string; Directory:Boolean); static;
+    class function CleanDirectory(const WorkRoot,Directory:string; const Cancelled:TFunc<Boolean>=nil):Boolean; static;
     class function CleanAbandoned(const WorkRoot:string; const Cancelled:TFunc<Boolean>=nil):Integer; static;
   end;
 
@@ -24,14 +26,16 @@ uses System.Classes, System.IOUtils, System.JSON, System.Hash,
 
 const Kind='HomeLibre disposable transfer preparation v1'; Prefix='collection-transfer-';
   MaxClaimBytes=1024*1024;
+  MaxLeaseBytes=16*1024*1024;
+  EntryKind='HomeLibre transfer draft entry v1'; Snapshots='catalogue-snapshots';
 
 function FileKey(Handle:THandle; Directory:Boolean):string;
 begin
   var Info:TByHandleFileInformation;
   if not GetFileInformationByHandle(Handle,Info) then RaiseLastOSError;
   if ((Info.dwFileAttributes and FILE_ATTRIBUTE_DIRECTORY<>0)<>Directory) or
-    (Info.dwFileAttributes and (FILE_ATTRIBUTE_REPARSE_POINT or FILE_ATTRIBUTE_READONLY)<>0) or
-    (not Directory and (Info.nNumberOfLinks<>1)) or
+    (Info.dwFileAttributes and FILE_ATTRIBUTE_REPARSE_POINT<>0) or
+    (not Directory and ((Info.nNumberOfLinks<>1) or (Info.dwFileAttributes and FILE_ATTRIBUTE_READONLY<>0))) or
     ((Info.nFileIndexHigh=0) and (Info.nFileIndexLow=0)) then raise EReadError.Create('Рабочий объект переноса изменён.');
   Result:=IntToHex(Info.dwVolumeSerialNumber,8)+':'+IntToHex(Info.nFileIndexHigh,8)+IntToHex(Info.nFileIndexLow,8);
 end;
@@ -72,8 +76,69 @@ begin
     if ((Expected<>'') and (Key<>Expected)) or
       not SameFileName(DeletionNativePath(TransferFinalHandlePath(Result)),DeletionNativePath(Path)) then
       raise EReadError.Create('Черновой объект заменён или перенаправлен.');
-    DefaultStream(Result,Directory);
+    if NeedDelete then DefaultStream(Result,Directory);
   except CloseHandle(Result); raise; end;
+end;
+
+procedure Point(const Stage,Directory:string);
+begin
+{$IFDEF MHL_TRANSFER_TEST}
+  if Assigned(TransferDraftTestPoint) then TransferDraftTestPoint(Stage,Directory);
+{$ENDIF}
+end;
+
+procedure CheckEntryName(const Name:string; Directory:Boolean);
+begin
+  if Directory then
+  begin
+    if Name<>Snapshots then raise EReadError.Create('Неизвестная папка чернового снимка.');
+  end
+  else
+  begin
+    if not Name.StartsWith(Snapshots+'/') then raise EReadError.Create('Неизвестный путь чернового снимка.');
+    var Leaf:=Copy(Name,Length(Snapshots)+2,MaxInt);
+    if not Leaf.EndsWith('.hlc2') then raise EReadError.Create('Неизвестный файл чернового снимка.');
+    var ID:=StringToGUID(Copy(Leaf,1,Length(Leaf)-5));
+    if Leaf<>GUIDToString(ID)+'.hlc2' then raise EReadError.Create('Неверное имя чернового снимка.');
+  end;
+end;
+
+class procedure TTransferDrafts.RecordEntry(Lease:THandle; const Name,Key:string; Directory:Boolean);
+begin
+  CheckEntryName(Name,Directory);
+  if Length(Key)<>25 then raise EReadError.Create('Нет физического ключа чернового снимка.');
+  var Data:=TJSONObject.Create;
+  try
+    Data.AddPair('kind',EntryKind); Data.AddPair('name',Name); Data.AddPair('key',Key);
+    Data.AddPair('directory',TJSONBool.Create(Directory));
+    var Raw:=Data.ToJSON; var Bytes:=TEncoding.UTF8.GetBytes(Raw); var Size:DWORD:=Length(Bytes);
+    var Hash:=TEncoding.ASCII.GetBytes(THashSHA2.GetHashString(Raw));
+    var Stream:=THandleStream.Create(Lease);
+    try
+      if (Stream.Size<69) or (Size>MaxClaimBytes) or (Stream.Size+Int64(Size)+68>MaxLeaseBytes) then
+        raise EWriteError.Create('Слишком большая запись владения черновиком.');
+      Stream.Seek(0,soEnd); Stream.WriteBuffer(Size,SizeOf(Size));
+      Stream.WriteBuffer(Bytes[0],Size); Stream.WriteBuffer(Hash[0],Length(Hash));
+      if not FlushFileBuffers(Lease) then RaiseLastOSError;
+    finally Stream.Free; end;
+  finally Data.Free; end;
+end;
+
+function ReadFrame(Stream:TStream):TJSONObject;
+begin
+  Result:=nil;
+  var Size:DWORD;
+  if Stream.Size-Stream.Position<4 then raise EReadError.Create('Неполная запись владения черновиком.');
+  Stream.ReadBuffer(Size,SizeOf(Size));
+  if (Size=0) or (Size>MaxClaimBytes) or (Stream.Size-Stream.Position<Int64(Size)+64) then
+    raise EReadError.Create('Неверная запись владения черновиком.');
+  var Bytes:TBytes; SetLength(Bytes,Size); Stream.ReadBuffer(Bytes[0],Size);
+  var Raw:=TEncoding.UTF8.GetString(Bytes); SetLength(Bytes,64); Stream.ReadBuffer(Bytes[0],64);
+  if TEncoding.ASCII.GetString(Bytes)<>THashSHA2.GetHashString(Raw) then
+    raise EReadError.Create('Повреждена запись владения черновиком.');
+  var Parsed:=TJSONObject.ParseJSONValue(Raw);
+  if not (Parsed is TJSONObject) then begin Parsed.Free; raise EReadError.Create('Неверный формат владения черновиком.'); end;
+  Result:=TJSONObject(Parsed);
 end;
 
 class procedure TTransferDrafts.Save(Lease:THandle; const Directory,DirectoryKey,CopiesKey:string;
@@ -107,10 +172,11 @@ begin
 end;
 
 function RemoveDraft(const Directory:string; const Cancelled:TFunc<Boolean>):Boolean;
-var Root,Lease,Copies:THandle; Files:TList<THandle>; Data:TJSONObject; Stage:string;
+var Root,Lease,Copies,SnapshotRoot:THandle; Files:TList<THandle>; Data:TJSONObject;
+  Stage,SnapshotKey:string; SnapshotFiles:TDictionary<string,string>;
   function ClaimedKey(Entries:TJSONObject; const Name:string):string;
   begin
-    // Generic GetValue treats the dot in a filename as JSON-path syntax.
+    // Filenames contain dots; compare literal pairs, not JSON-path expressions.
     for var Pair in Entries do if Pair.JsonString.Value=Name then
     begin
       if not (Pair.JsonValue is TJSONString) then raise EReadError.Create('Повреждён ключ чернового файла.');
@@ -118,65 +184,126 @@ var Root,Lease,Copies:THandle; Files:TList<THandle>; Data:TJSONObject; Stage:str
     end;
     raise EReadError.Create('Нет ключа чернового файла.');
   end;
+  procedure Stop;
+  begin
+    if Assigned(Cancelled) and Cancelled() then raise EAbort.Create('Уборка черновиков переноса остановлена.');
+  end;
+  procedure RemoveDirectoryHandle(var Handle:THandle);
+  begin
+    if Handle=0 then Exit;
+    var DeleteFlag:Byte:=1;
+    if not DraftSetInformation(Handle,4,@DeleteFlag,1) then RaiseLastOSError;
+    CloseHandle(Handle); Handle:=0;
+  end;
 begin
-  Result:=False; Root:=0; Lease:=0; Copies:=0; Data:=nil; Files:=TList<THandle>.Create; Stage:='directory';
+  Result:=False; Root:=0; Lease:=0; Copies:=0; SnapshotRoot:=0; Data:=nil;
+  Files:=TList<THandle>.Create; SnapshotFiles:=TDictionary<string,string>.Create; Stage:='directory';
   try
     try
-      Root:=Hold(Directory,'',True);
-      Stage:='lease';
-      Lease:=Hold(TPath.Combine(Directory,'lease'),'',False,True);
-      Stage:='claim-bytes';
-      var Stream:=THandleStream.Create(Lease); var Raw:string;
+      Root:=Hold(Directory,'',True); Stage:='lease';
+      Lease:=Hold(TPath.Combine(Directory,'lease'),'',False,True); Stage:='claim-bytes';
+      var Stream:=THandleStream.Create(Lease);
       try
-        if (Stream.Size<69) or (Stream.Size>MaxClaimBytes+68) then Exit;
-        var Size:DWORD; Stream.ReadBuffer(Size,SizeOf(Size));
-        if (Size=0) or (Size>MaxClaimBytes) or (Stream.Size<>SizeOf(Size)+Int64(Size)+64) then Exit;
-        var Bytes:TBytes; SetLength(Bytes,Size); Stream.ReadBuffer(Bytes[0],Size); Raw:=TEncoding.UTF8.GetString(Bytes);
-        SetLength(Bytes,64); Stream.ReadBuffer(Bytes[0],64);
-        if TEncoding.ASCII.GetString(Bytes)<>THashSHA2.GetHashString(Raw) then Exit;
+        if (Stream.Size<69) or (Stream.Size>MaxLeaseBytes) then Exit;
+        Data:=ReadFrame(Stream); Stage:='claim-fields';
+        if (Data.Count<>5) or (Data.GetValue<string>('kind')<>Kind) or
+          not SameFileName(Data.GetValue<string>('directory'),Directory) or
+          (Data.GetValue<string>('directory_key')<>FileKey(Root,True)) then Exit;
+        while Stream.Position<Stream.Size do
+        begin
+          Stop;
+          var Entry:=ReadFrame(Stream);
+          try
+            if (Entry.Count<>4) or (Entry.GetValue<string>('kind')<>EntryKind) then Exit;
+            var Name:=Entry.GetValue<string>('name'); var Key:=Entry.GetValue<string>('key');
+            var IsDirectory:=Entry.GetValue<Boolean>('directory'); CheckEntryName(Name,IsDirectory);
+            if Length(Key)<>25 then Exit;
+            if IsDirectory then
+            begin
+              if SnapshotKey<>'' then Exit;
+              SnapshotKey:=Key;
+            end
+            else
+            begin
+              if SnapshotKey='' then Exit;
+              var Leaf:=Copy(Name,Length(Snapshots)+2,MaxInt);
+              if SnapshotFiles.ContainsKey(Leaf) then Exit;
+              SnapshotFiles.Add(Leaf,Key);
+            end;
+          finally Entry.Free; end;
+        end;
       finally Stream.Free; end;
-      var Parsed:=TJSONObject.ParseJSONValue(Raw);
-      if not (Parsed is TJSONObject) then begin Parsed.Free; Exit; end;
-      Data:=TJSONObject(Parsed);
-      Stage:='claim-fields';
-      if (Data.Count<>5) or (Data.GetValue<string>('kind')<>Kind) or
-        not SameFileName(Data.GetValue<string>('directory'),Directory) or
-        (Data.GetValue<string>('directory_key')<>FileKey(Root,True)) then Exit;
-      var Expected:=Data.GetValue<TJSONObject>('files');
-      Stage:='claim-files';
+      var Expected:=Data.GetValue<TJSONObject>('files'); Stage:='claim-files';
       if (Expected=nil) or (Expected.Count<>3) or (ClaimedKey(Expected,'lease')<>FileKey(Lease,False)) then Exit;
-      Copies:=Hold(TPath.Combine(Directory,'copies'),Data.GetValue<string>('copies_key'),True);
+      if (Length(ClaimedKey(Expected,'review.sqlite'))<>25) or (Length(ClaimedKey(Expected,'state.sqlite'))<>25) then Exit;
+      // A previous cleanup may already have removed known objects. Missing
+      // disposable entries are allowed; every present entry still needs its ID.
       Stage:='entries';
-      if Length(TDirectory.GetFileSystemEntries(DeletionNativePath(TPath.Combine(Directory,'copies'))))<>0 then Exit;
-      var Count:=0;
       for var Path in TDirectory.GetFileSystemEntries(DeletionNativePath(Directory)) do
       begin
-        Inc(Count); var Name:=ExtractFileName(Path);
-        if (Name='copies') or (Name='lease') then Continue;
-        if (Name<>'review.sqlite') and (Name<>'state.sqlite') then Exit;
-        Files.Add(Hold(Path,ClaimedKey(Expected,Name),False));
+        Stop; var Name:=ExtractFileName(Path);
+        if Name='lease' then Continue;
+        if Name='copies' then
+        begin
+          Copies:=Hold(Path,Data.GetValue<string>('copies_key'),True);
+          if Length(TDirectory.GetFileSystemEntries(Path))<>0 then Exit;
+        end
+        else if Name=Snapshots then
+        begin
+          if SnapshotKey='' then Exit;
+          SnapshotRoot:=Hold(Path,SnapshotKey,True);
+          for var Child in TDirectory.GetFileSystemEntries(Path) do
+          begin
+            Stop; var Key:string;
+            if not SnapshotFiles.TryGetValue(ExtractFileName(Child),Key) then Exit;
+            Files.Add(Hold(Child,Key,False));
+          end;
+        end
+        else
+        begin
+          if (Name<>'review.sqlite') and (Name<>'state.sqlite') then Exit;
+          Files.Add(Hold(Path,ClaimedKey(Expected,Name),False));
+        end;
       end;
-      if (Count<>4) or (Files.Count<>2) then Exit;
-      if Assigned(Cancelled) and Cancelled() then raise EAbort.Create('Уборка черновиков переноса остановлена.');
-      // Validate the entire set first; unlink only the exact held identities.
-      var DeleteFlag:Byte:=1;
-      Stage:='unlink';
-      for var Handle in Files do if not DraftSetInformation(Handle,4,@DeleteFlag,1) then RaiseLastOSError;
-      for var Handle in Files do CloseHandle(Handle); Files.Clear;
+      Stop; Point('draft-before-unlink',Directory);
+      var DeleteFlag:Byte:=1; Stage:='unlink';
+      while Files.Count>0 do
+      begin
+        var Handle:=Files.Last;
+        var IsSnapshot:=SameFileName(IncludeTrailingPathDelimiter(ExtractFileDir(TransferFinalHandlePath(Handle))),
+          IncludeTrailingPathDelimiter(TPath.Combine(Directory,Snapshots)));
+        if not DraftSetInformation(Handle,4,@DeleteFlag,1) then RaiseLastOSError;
+        CloseHandle(Handle); Files.Delete(Files.Count-1);
+        Point('draft-file-unlinked',Directory);
+        if IsSnapshot then Point('draft-snapshot-unlinked',Directory);
+      end;
+      RemoveDirectoryHandle(SnapshotRoot); RemoveDirectoryHandle(Copies);
+      Point('draft-directories-unlinked',Directory);
       if not DraftSetInformation(Lease,4,@DeleteFlag,1) then RaiseLastOSError;
-      CloseHandle(Lease); Lease:=0;
-      if not DraftSetInformation(Copies,4,@DeleteFlag,1) then RaiseLastOSError;
-      CloseHandle(Copies); Copies:=0;
+      CloseHandle(Lease); Lease:=0; Point('draft-claim-unlinked',Directory);
       if not DraftSetInformation(Root,4,@DeleteFlag,1) then RaiseLastOSError;
       Result:=True;
     except on E:EAbort do raise; on E:Exception do begin Result:=False; Stage:=Stage+' '+E.ClassName+': '+E.Message; end; end;
   finally
-{$IFDEF MHL_TRANSFER_TEST}
-    if not Result and Assigned(TransferDraftTestPoint) then TransferDraftTestPoint(Stage,Directory);
-{$ENDIF}
-    Data.Free; for var Handle in Files do CloseHandle(Handle); Files.Free;
-    if Lease<>0 then CloseHandle(Lease); if Copies<>0 then CloseHandle(Copies); if Root<>0 then CloseHandle(Root);
+    if not Result then Point('draft-retained '+Stage,Directory);
+    Data.Free; SnapshotFiles.Free; for var Handle in Files do CloseHandle(Handle); Files.Free;
+    if Lease<>0 then CloseHandle(Lease); if Copies<>0 then CloseHandle(Copies);
+    if SnapshotRoot<>0 then CloseHandle(SnapshotRoot); if Root<>0 then CloseHandle(Root);
   end;
+end;
+
+class function TTransferDrafts.CleanDirectory(const WorkRoot,Directory:string; const Cancelled:TFunc<Boolean>):Boolean;
+begin
+  Result:=False;
+  var Base:=ExcludeTrailingPathDelimiter(TransferCanonicalDirectory(WorkRoot));
+  var Candidate:=ExcludeTrailingPathDelimiter(ExpandFileName(Directory));
+  if not SameFileName(DeletionNativePath(ExtractFileDir(Candidate)),DeletionNativePath(Base)) then Exit;
+  var Name:=ExtractFileName(Candidate); var ID:TGUID;
+  if not Name.StartsWith(Prefix) then Exit;
+  try ID:=StringToGUID(Copy(Name,Length(Prefix)+1,MaxInt)); except on E:EConvertError do Exit; end;
+  if Name<>Prefix+GUIDToString(ID) then Exit;
+  var Guard:=Hold(Base,'',True,False,False);
+  try Result:=RemoveDraft(Candidate,Cancelled); finally CloseHandle(Guard); end;
 end;
 
 class function TTransferDrafts.CleanAbandoned(const WorkRoot:string; const Cancelled:TFunc<Boolean>):Integer;

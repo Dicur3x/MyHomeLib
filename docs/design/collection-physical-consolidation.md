@@ -716,3 +716,17 @@ is no all-volume startup scan. Nested catalogue-fork snapshots and remnants
 without a complete claim remain separate cleanup scope. See
 `2026-11-17-collection-transfer-draft-recovery.md` for crash/lifecycle evidence
 and explicit durability/cleanup boundaries.
+
+
+### Nested preparation claims
+
+New snapshot directories and GUID catalogue files are recorded in checksummed,
+append-only lease frames before backup data. Existing paths must match this
+constructor's retained creation identity. Cleanup validates every present entry
+and permits already-missing disposable entries after interrupted deletion; it
+removes data/children before the lease proof. Ready tails, torn/unknown records,
+unknown paths and changed identities preserve the draft. Parent container
+metadata is retained. Source/successful transactions remain durable; only
+unreturned scratch snapshots use MEMORY rollback, then return to DELETE/FULL.
+See `2026-11-17-collection-transfer-nested-drafts.md` for x86/x64 evidence and
+remaining ready-operation/unproven-cache/volume/scale/UI release gates.

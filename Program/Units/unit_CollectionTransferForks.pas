@@ -2,21 +2,27 @@
 
 interface
 
-uses System.SysUtils, SQLiteWrap, unit_CollectionTransferPlan;
+uses System.SysUtils, Winapi.Windows, SQLiteWrap, unit_CollectionTransferPlan;
+
+type TTransferForkOwnership=reference to procedure(const Path:string; Handle:THandle; Directory,Created:Boolean);
 
 // Called only while constructing the owning, unsealed review. Snapshots are
 // private metadata, not registered catalogues. Nothing is removed or rebound.
 procedure CaptureTransferCatalogueForks(Review:TSQLiteDatabase; const Cancelled:TFunc<Boolean>;
-  MetadataOnly:Boolean=False);
+  MetadataOnly:Boolean=False; const Ownership:TTransferForkOwnership=nil);
 function TransferForkRootToken(const Root:string):string;
 function TransferForkEntry(Review:TSQLiteDatabase; ForkID:Int64):TCollectionTransferFile;
 function AcquireTransferForkSource(Review:TSQLiteDatabase; SourceID:Int64;
   const Cancelled:TFunc<Boolean>):IInterface;
 
+{$IFDEF MHL_TRANSFER_TEST}
+var TransferForkDraftTestPoint:TProc<string,string,Integer,Integer>;
+{$ENDIF}
+
 implementation
 
 uses System.Classes, System.IOUtils, System.Hash, System.JSON, System.Generics.Collections,
-  Winapi.Windows, unit_ZipMemberDeletion, unit_BookCompressionReceipt, unit_CollectionTransferLayout;
+  unit_ZipMemberDeletion, unit_BookCompressionReceipt, unit_CollectionTransferLayout;
 
 type
   TPinnedCatalogue = class(TInterfacedObject)
@@ -146,7 +152,8 @@ begin
     raise EWriteError.Create('Для копии общего каталога не хватает места с резервом 512 МБ.');
 end;
 
-function Snapshot(Review:TSQLiteDatabase; const Source,Key:string; const Cancelled:TFunc<Boolean>; MetadataOnly:Boolean):Int64;
+function Snapshot(Review:TSQLiteDatabase; const Source,Key:string; const Cancelled:TFunc<Boolean>;
+  MetadataOnly:Boolean; const Ownership:TTransferForkOwnership):Int64;
 var Guard:TPinnedCatalogue; Lease:IInterface; DB:TSQLiteDatabase; SnapshotLease:IInterface;
   Canonical,Identity,SHA,Directory,FileName:string; Bytes,PageSize:Int64;
 begin
@@ -163,31 +170,54 @@ begin
   Directory:=TPath.Combine(Review.QuerySingleString('SELECT Value FROM Context WHERE Name=''work_root'''),
     Review.QuerySingleString('SELECT Value FROM Context WHERE Name=''directory'''));
   Directory:=TPath.Combine(Directory,'catalogue-snapshots');
-  if GetFileAttributes(PChar(DeletionNativePath(Directory)))=INVALID_FILE_ATTRIBUTES then
-    if not CreateDirectory(PChar(DeletionNativePath(Directory)),nil) then RaiseLastOSError;
+  var CreatedDirectory:=GetFileAttributes(PChar(DeletionNativePath(Directory)))=INVALID_FILE_ATTRIBUTES;
+  if CreatedDirectory then if not CreateDirectory(PChar(DeletionNativePath(Directory)),nil) then RaiseLastOSError;
   if not SameFileName(TransferCanonicalDirectory(Directory),IncludeTrailingPathDelimiter(Directory)) then
     raise EReadError.Create('Папка снимков каталога перенаправлена.');
   FileName:=TPath.Combine(Directory,GUIDToString(TGUID.NewGuid)+'.hlc2');
-  Guard.PinParents(FileName);
+  var DirectoryHandle:=CreateFile(PChar(DeletionNativePath(Directory)),FILE_READ_ATTRIBUTES,
+    FILE_SHARE_READ or FILE_SHARE_WRITE,nil,OPEN_EXISTING,FILE_FLAG_BACKUP_SEMANTICS or FILE_FLAG_OPEN_REPARSE_POINT,0);
+  if DirectoryHandle=INVALID_HANDLE_VALUE then RaiseLastOSError;
+  try
+    if Assigned(Ownership) then Ownership(Directory,DirectoryHandle,True,CreatedDirectory);
+    Guard.PinParents(FileName);
+  finally CloseHandle(DirectoryHandle); end;
   DB:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(Guard.Path),Review.TemporaryDirectory);
   try
     PageSize:=DB.QuerySingleInt('PRAGMA page_size'); RequireSpace(Directory,DB.QuerySingleInt('PRAGMA page_count')*PageSize);
   finally DB.Free; end;
   var Handle:=CreateFile(PChar(DeletionNativePath(FileName)),GENERIC_WRITE,0,nil,CREATE_NEW,FILE_ATTRIBUTE_NORMAL,0);
   if Handle=INVALID_HANDLE_VALUE then RaiseLastOSError;
-  CloseHandle(Handle);
+  try if Assigned(Ownership) then Ownership(FileName,Handle,False,True); finally CloseHandle(Handle); end;
+{$IFDEF MHL_TRANSFER_TEST}
+  if Assigned(TransferForkDraftTestPoint) then TransferForkDraftTestPoint('fork-draft-reserved',FileName,0,0);
+{$ENDIF}
   SnapshotLease:=AcquireCompressionDatabaseLease(FileName,CompressionFileKey(FileName));
-  DB:=TSQLiteDatabase.Create(DeletionNativePath(FileName),True,False,Review.TemporaryDirectory);
+  DB:=TSQLiteDatabase.Create(DeletionNativePath(FileName),False,False,Review.TemporaryDirectory);
   try
-    DB.QuerySingleString('PRAGMA journal_mode=DELETE'); DB.ExecSQL('PRAGMA synchronous=FULL');
+    if Assigned(Ownership) then
+    begin
+      if DB.QuerySingleString('PRAGMA journal_mode=MEMORY')<>'memory' then
+        raise EWriteError.Create('Не удалось подготовить одноразовый снимок каталога.');
+    end
+    else DB.QuerySingleString('PRAGMA journal_mode=DELETE');
+    DB.ExecSQL('PRAGMA synchronous=FULL'); DB.ExecSQL('PRAGMA cache_size=-512');
     DB.RestoreFrom(DeletionNativePath(Guard.Path),
       procedure(Done,Total:Integer)
       begin
         if Assigned(Cancelled) and Cancelled() then raise EAbort.Create('Подготовка копии каталога остановлена.');
         RequireSpace(Directory,Int64(Total-Done)*PageSize);
+{$IFDEF MHL_TRANSFER_TEST}
+        if Assigned(TransferForkDraftTestPoint) then TransferForkDraftTestPoint('fork-draft-copying',FileName,Done,Total);
+{$ENDIF}
       end);
     if DB.QuerySingleString('PRAGMA quick_check')<>'ok' then raise EReadError.Create('Копия общего каталога не прошла проверку.');
+    if DB.QuerySingleString('PRAGMA journal_mode=DELETE')<>'delete' then
+      raise EWriteError.Create('Не удалось сохранить снимок общего каталога.');
   finally DB.Free; end;
+{$IFDEF MHL_TRANSFER_TEST}
+  if Assigned(TransferForkDraftTestPoint) then TransferForkDraftTestPoint('fork-draft-ready',FileName,0,0);
+{$ENDIF}
   // Reopen under a read lease before freezing the full payload fingerprint.
   var Stream:=TFileStream.Create(DeletionNativePath(FileName),fmOpenRead or fmShareDenyWrite);
   try
@@ -204,7 +234,8 @@ begin
   finally Stream.Free; end;
 end;
 
-procedure CaptureTransferCatalogueForks(Review:TSQLiteDatabase; const Cancelled:TFunc<Boolean>; MetadataOnly:Boolean);
+procedure CaptureTransferCatalogueForks(Review:TSQLiteDatabase; const Cancelled:TFunc<Boolean>;
+  MetadataOnly:Boolean; const Ownership:TTransferForkOwnership);
 var Keys,Regs:TSQLiteQuery; Key,Keeper,Token,Role,Source,SelectedKey,OriginalRoot:string;
     SourceID,ForkID,MemberID:Int64; SelectedID:Integer; SelectedMoves:Boolean;
 begin
@@ -246,7 +277,7 @@ begin
           if Keeper='' then begin Keeper:=Token; Source:=Regs.FieldAsString(2); end
           else if Role<>Keeper then
           begin
-            if SourceID=0 then SourceID:=Snapshot(Review,Source,Key,Cancelled,MetadataOnly);
+            if SourceID=0 then SourceID:=Snapshot(Review,Source,Key,Cancelled,MetadataOnly,Ownership);
             ForkID:=Review.QuerySingleInt('SELECT ID FROM CatalogueForks WHERE SourceID=? AND RootToken=?',[SourceID,Role]);
             if ForkID=0 then
             begin

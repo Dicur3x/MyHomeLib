@@ -86,3 +86,11 @@ was stopped by the build helper's system-volume reserve guard; after free space
 returned above 8 GiB the same sources built successfully. These are development
 executables, not the final beta14 packages or an ordinary UI validation of the
 new cleanup path. Desktop/user data remain unchanged.
+
+
+The later nested-draft extension is documented in
+`2026-11-17-collection-transfer-nested-drafts.md`. It adds independent entry
+frames before shared-catalogue snapshot data, handles nested constructor
+cancellation, and resumes cleanup while retaining its lease proof. The earlier
+flat-only boundary above is historical; ready-operation snapshot cleanup and
+unproven remnants remain distinct scope.
