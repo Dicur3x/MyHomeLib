@@ -31,7 +31,8 @@ implementation
 
 uses Winapi.Windows, Winapi.ActiveX, Vcl.Graphics, FictionBook_21, unit_FB2Utils,
   unit_Interfaces, unit_ReaderCache, unit_Consts, System.Variants, dm_user,
-  unit_BookMetadataCache, unit_PackageBookCover, unit_ReaderRaster, unit_ReaderPDFWorker;
+  unit_BookMetadataCache, unit_PackageBookCover, unit_ReaderRaster, unit_ReaderPDFWorker,
+  unit_XpsBookCover, unit_MHLExternalTools;
 
 type
   TPreviewThread = class(TThread)
@@ -148,6 +149,28 @@ begin
         end;
       end;
       if Terminated then Exit;
+      if LocalSource and NeedCover and not Assigned(Cover) and SameText(Book.FileExt,'.xps') then
+      begin
+        try
+          Stream:=OpenRawBookSource(Book,nil,function:Boolean begin Result:=Terminated; end);
+          try
+            if not (Stream is TFileStream) then raise EReadError.Create('Нет локального файла для предпросмотра.');
+            CoverBytes:=ReadXpsBookCover(TFileStream(Stream).FileName,
+              FindExternalTool('HomeLibXps.exe','xps'),Settings.TempDir,
+              function:Boolean begin Result:=Terminated; end);
+          finally Stream.Free; end;
+          if Terminated then Exit;
+          Image:=TBytesStream.Create(CoverBytes);
+          try Cover:=CreateGraphicFromStream(Image,64*1024*1024); finally Image.Free; end;
+          CoverBytes:=nil;
+          if Assigned(Cover) then PreviewKind:='Предпросмотр первой страницы.'
+          else CoverStatus:='Не удалось прочитать предпросмотр XPS.';
+        except
+          on E:EAbort do Exit;
+          on E:Exception do CoverStatus:='Предпросмотр первой страницы недоступен: '+E.Message;
+        end;
+      end;
+      if Terminated then Exit;
       GenericArchive:=SameText(Book.FileExt,'.zip') or SameText(Book.FileExt,'.7z') or SameText(Book.FileExt,'.rar');
       IsPDF:=SameText(Book.FileExt,'.pdf');
       if LocalSource and NeedCover and not Assigned(Cover) and
@@ -198,7 +221,7 @@ begin
         else if HasDescriptor then Status:=Status+'Обложка в метаданных не задана.'
         else Status:=Status+'Обложка для этого файла недоступна.';
       end;
-      if (Length(RasterPixels)>0) and (PreviewKind<>'') then
+      if (Assigned(Cover) or (Length(RasterPixels)>0)) and (PreviewKind<>'') then
       begin
         if Status<>'' then Status:=Status+sLineBreak;
         Status:=Status+PreviewKind;

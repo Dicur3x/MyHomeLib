@@ -6353,6 +6353,7 @@ begin
       if ParamStr(1)='raster-preview' then begin TestRasterPreview; Flush(Output); Halt(0); end;
       if ParamStr(1)='package-covers' then begin TestPackageCovers; Flush(Output); Halt(0); end;
       if ParamStr(1)='package-preview' then begin TestPackagePreview; Flush(Output); Halt(0); end;
+      if ParamStr(1)='xps-preview' then begin TestXpsPreview; Flush(Output); Halt(0); end;
       if ParamStr(1) = 'update-image-identity' then begin TestImageUpdateIdentity; Flush(Output); Halt(0); end;
       if ParamStr(1) = 'fbd-editor-save' then begin TestFBDEditorSave; Halt(0); end;
       if ParamStr(1) = 'packed-jxl-formats' then begin TestPackingJpegXLFormats; Halt(0); end;

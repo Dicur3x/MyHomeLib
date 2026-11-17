@@ -130,19 +130,25 @@ internal static class HomeLibXps
 #if HOMELIB_IMAGES_ONLY
             throw new ArgumentException("Expected image processing command. XPS reading is a separate component.");
 #else
-            if (args.Length != 2) throw new ArgumentException("Expected XPS and a new page ZIP.");
-            string input = Path.GetFullPath(args[0]); output = Path.GetFullPath(args[1]);
+            bool coverOnly = args.Length == 3 && args[0] == "--cover";
+            if (!coverOnly && args.Length != 2) throw new ArgumentException("Expected XPS and a new page ZIP, optionally prefixed with --cover.");
+            int argumentOffset = coverOnly ? 1 : 0;
+            string input = Path.GetFullPath(args[argumentOffset]); output = Path.GetFullPath(args[argumentOffset + 1]);
             if (String.Equals(input, output, StringComparison.OrdinalIgnoreCase) || File.Exists(output)) throw new IOException("Output must be new.");
             long length = new FileInfo(input).Length;
             if (length <= 0 || length > MaxInput) throw new IOException("XPS size exceeds 64 MB or is empty.");
             Validate(input);
-            using (var document = new XpsDocument(input, FileAccess.Read))
+            using (var package = Package.Open(input, FileMode.Open, FileAccess.Read, FileShare.Read))
+            using (var document = new XpsDocument(package, CompressionOption.NotCompressed, input))
             {
                 FixedDocumentSequence sequence = document.GetFixedDocumentSequence();
                 if (sequence == null) throw new IOException("No fixed document sequence.");
                 DocumentPaginator paginator = sequence.DocumentPaginator;
                 paginator.ComputePageCount(); int count = paginator.PageCount;
                 if (count <= 0 || count > 5000) throw new IOException("Invalid XPS page count.");
+                // Cover requests retain the same package/resource validation,
+                // but never render the later pages of a potentially large book.
+                if (coverOnly) count = 1;
                 using (var file = new FileStream(output, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None))
                 {
                     ownsOutput = true; long total = 0;
@@ -153,7 +159,7 @@ internal static class HomeLibXps
                         double width = page.Size.Width, height = page.Size.Height;
                         if (Double.IsNaN(width) || Double.IsNaN(height) || Double.IsInfinity(width) || Double.IsInfinity(height) ||
                             width < 1 || height < 1 || width > 100000 || height > 100000) throw new IOException("Invalid XPS page dimensions.");
-                        double scale = Math.Min(2.0, 1600.0 / Math.Max(width, height));
+                        double scale = Math.Min(2.0, (coverOnly ? 600.0 : 1600.0) / Math.Max(width, height));
                         int pixelsX = Math.Max(1, (int)Math.Ceiling(width * scale)), pixelsY = Math.Max(1, (int)Math.Ceiling(height * scale));
                         var visual = new DrawingVisual();
                         using (DrawingContext drawing = visual.RenderOpen())
@@ -692,7 +698,7 @@ internal static class HomeLibXps
     private static void Validate(string path)
     {
         var fixedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        using (Package package = Package.Open(path, FileMode.Open, FileAccess.Read))
+        using (Package package = Package.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read))
         foreach (PackagePart part in package.GetParts())
             if (part.ContentType.StartsWith("application/vnd.ms-package.xps-", StringComparison.OrdinalIgnoreCase) && part.ContentType.EndsWith("+xml", StringComparison.OrdinalIgnoreCase))
                 fixedNames.Add(Uri.UnescapeDataString(part.Uri.OriginalString).TrimStart('/'));

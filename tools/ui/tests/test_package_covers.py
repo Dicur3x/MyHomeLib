@@ -2,7 +2,7 @@
 import tarfile
 import io, posixpath, urllib.parse, xml.etree.ElementTree as ET
 import ctypes, ctypes.wintypes as wt
-import argparse, base64, hashlib, json, os, shutil, struct, subprocess, tempfile, warnings, zipfile, zlib
+import argparse, base64, hashlib, json, os, runpy, shutil, struct, subprocess, tempfile, warnings, zipfile, zlib
 from pathlib import Path
 
 def png(width):
@@ -133,6 +133,7 @@ def main():
     p.add_argument('--full-7zip',type=Path)
     p.add_argument('--webp-dir',type=Path)
     p.add_argument('--jxl-dir',type=Path)
+    p.add_argument('--xps-dir',type=Path)
     p.add_argument('--flibrary-archive',type=Path)
     p.add_argument('--comic-real',type=Path)
     p.add_argument('--modes',nargs='+',default=['package-covers','package-preview','book-preview','update-theme'])
@@ -149,6 +150,14 @@ def main():
         for n in ('uselocaldata','uselocaltemp'): (root/n).touch()
         (root/'native-regression.marker').write_text('HomeLib Ru isolated native regression v1',encoding='utf-8')
         count=fixtures(root/'cover-fixtures',a.official,a.modes)
+        if 'xps-preview' in a.modes:
+            assert a.xps_dir, 'XPS preview needs its matching optional helper'
+            namespace=runpy.run_path(str(Path(__file__).resolve().parents[2]/'bookconvert/tests/test_xps_input.py'))
+            source=root/'cover-fixtures/first-page.xps'; namespace['fixture'](source)
+            with zipfile.ZipFile(root/'cover-fixtures/xps-wrapper.zip','w',zipfile.ZIP_DEFLATED) as archive:
+                archive.write(source,'books/first-page.xps')
+            (root/'cover-fixtures/broken.xps').write_bytes(b'PK\x03\x04broken')
+            shutil.copytree(a.xps_dir,root/'tools/xps')
         cases=json.loads((root/'cover-fixtures/cases.json').read_text(encoding='utf-8'))
         real=[]; originals={}
         for i,src in enumerate(a.real):
@@ -223,7 +232,7 @@ def main():
             rc.append(dict(name=target,cover=True,width=max(1,int(w*scale)),height=max(1,int(h*scale)),check_color=False))
             rp.write_text(json.dumps(rc),encoding='utf-8')
         if a.tools:
-            (root/'tools').mkdir(); shutil.copytree(a.tools/'7zip',root/'tools/7zip')
+            (root/'tools').mkdir(exist_ok=True); shutil.copytree(a.tools/'7zip',root/'tools/7zip')
             work=root/'cover-fixtures'/'seven'; (work/'books').mkdir(parents=True)
             shutil.copy2(root/'cover-fixtures/epub3.epub',work/'books/epub3.epub')
             result=subprocess.run([str(root/'tools/7zip/7za.exe'),'a','-t7z',str(root/'cover-fixtures/outer.7z'),'books/epub3.epub'],cwd=work,capture_output=True,timeout=15,creationflags=subprocess.CREATE_NO_WINDOW)

@@ -37,6 +37,69 @@ begin
   finally Cases.Free; end;
 end;
 
+procedure TestXpsPreview;
+var Host:TForm; Panel:TInfoPanel; Preview:TBookInfoPreview; Image:TImage;
+  Folder, Hash, Tool:string; Book:TBookRecord; Bitmap:TBitmap; Deadline:UInt64;
+  procedure WaitPreview;
+  begin
+    Deadline:=GetTickCount64+35000;
+    while Preview.Busy and (GetTickCount64<Deadline) do
+    begin Application.ProcessMessages; CheckSynchronize(5); Sleep(5); end;
+    Require(not Preview.Busy,'XPS preview did not finish');
+  end;
+  procedure SelectBook(const Name,Member:string);
+  begin
+    Book:=Default(TBookRecord); Book.CollectionRoot:=Folder;
+    Book.FileName:=ChangeFileExt(Name,''); Book.FileExt:=ExtractFileExt(Name);
+    if Member<>'' then
+    begin Book.Folder:=Name; Book.FileName:=ChangeFileExt(Member,''); Book.FileExt:=ExtractFileExt(Member); end;
+    Preview.Load(Book,True,False,False);
+  end;
+  procedure CheckCover(const Name,Member:string);
+  begin
+    Hash:=THashSHA2.GetHashStringFromFile(Folder+Name);
+    var Started:=GetTickCount64; SelectBook(Name,Member);
+    Require(GetTickCount64-Started<100,'XPS selection blocks the catalogue'); WaitPreview;
+    Require(Assigned(Image.Picture.Graphic),'No XPS preview: '+Panel.PreviewStatusText);
+    Require((Image.Picture.Width=450) and (Image.Picture.Height=600),'Wrong XPS cover dimensions');
+    Bitmap:=TBitmap.Create;
+    try
+      Bitmap.Assign(Image.Picture.Graphic);
+      Require(ColorToRGB(Bitmap.Canvas.Pixels[225,300])=RGB(32,80,176),'Wrong XPS page or pixels');
+    finally Bitmap.Free; end;
+    Require(Panel.PreviewStatusText.Contains('Предпросмотр первой страницы'),
+      'First XPS page presented as a declared cover');
+    Require(Hash=THashSHA2.GetHashStringFromFile(Folder+Name),'XPS source changed');
+    Writeln('PASS catalogue XPS ',Name,' ',Member); Flush(Output);
+  end;
+begin
+  Folder:=Settings.AppPath+'cover-fixtures'+PathDelim;
+  Tool:=Settings.AppPath+'tools\xps\HomeLibXps.exe';
+  Require(FileExists(Tool),'Private XPS helper missing');
+  Host:=TForm.CreateNew(nil); Panel:=TInfoPanel.Create(Host); Panel.Parent:=Host;
+  Host.SetBounds(80,90,850,450); Panel.Align:=alClient; Host.Show;
+  Preview:=TBookInfoPreview.CreateFor(Host,Panel);
+  try
+    Image:=nil;
+    for var I:=0 to Panel.ControlCount-1 do if Panel.Controls[I] is TImage then Image:=TImage(Panel.Controls[I]);
+    Require(Assigned(Image),'Cover control missing');
+    CheckCover('first-page.xps',''); CheckCover('xps-wrapper.zip','books/first-page.xps');
+    SelectBook('first-page.xps',''); SelectBook('broken.xps',''); WaitPreview;
+    Require(not Assigned(Image.Picture.Graphic) and (Panel.PreviewStatusText<>''),
+      'Broken XPS retained the previous selection cover');
+    Writeln('PASS latest XPS selection and damaged input');
+    TFile.Move(Tool,Tool+'.disabled');
+    try
+      SelectBook('first-page.xps',''); WaitPreview;
+      Require(not Assigned(Image.Picture.Graphic) and Panel.PreviewStatusText.Contains('модуль'),
+        'Missing XPS helper is not explained');
+    finally TFile.Move(Tool+'.disabled',Tool); end;
+    Writeln('PASS missing optional XPS module');
+    Require(Length(TDirectory.GetDirectories(Settings.TempDir,'homelibre-xps-cover-*'))=0,
+      'Catalogue preview retained XPS output');
+  finally Preview.Free; Host.Free; end;
+end;
+
 procedure TestPackagePreview;
 var Host:TForm; Panel:TInfoPanel; Preview:TBookInfoPreview; Book:TBookRecord;
   Image:TImage; OriginalHash,Folder:string; Started,Deadline:UInt64;
