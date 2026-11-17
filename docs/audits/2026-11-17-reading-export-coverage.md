@@ -79,6 +79,11 @@ E: was unused and C: retained its 8 GiB reserve.
 
 ## Remaining completion criteria
 
+OCR was explicitly deferred by the user on 17 November because of its resource
+cost. Do not add recognition to beta 14 or use it as a release gate. TXT requires
+an existing usable text layer; image-only inputs retain their clear explanation
+and their image-preserving export paths. Revisit OCR in a later discussion.
+
 - Reconcile the current actual payload families and archive/incorrect-name cases
   with the earlier native results. Resolve the unclassified book inputs rather
   than treat each unusual suffix as a new format or silently drop it.

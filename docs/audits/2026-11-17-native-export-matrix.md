@@ -46,6 +46,13 @@ Consequently, the requirement for every book input to support every offered
 direction remains open. TXT for these image-only books needs OCR; these sixteen
 cross-architecture cells are not passing conversions or completed support.
 
+The user subsequently explicitly deferred OCR on 17 November because of its
+resource cost. Recognition is outside beta 14 and is not a release condition.
+The recorded TXT failures therefore describe the agreed image-only limitation;
+they must not be relabelled as successful conversions. Preserve the existing
+clear explanation and image-preserving export, and revisit OCR only after a
+future discussion with the user.
+
 ## Matching legacy component
 
 The first x64 development runtime overlaid the repaired GPL `legacy_helper.py`
@@ -87,7 +94,7 @@ runtime from `kindle-legacy-diagnosis-r1399` remains after automatic cleanup was
 rejected with no detailed reason; the denied deletion was not retried. E: was
 not used, and C: remained above the required 8 GiB reserve.
 
-Independent source references for other formats, OCR, native cancellation and
+Independent source references for other formats, native cancellation and
 remaining directions, unclassified/nested/oversized groups, archive/FLibrary
 preparation, ordinary final Main/Reader UI and coherent release packages remain
 open. Desktop and public release assets were not changed.
