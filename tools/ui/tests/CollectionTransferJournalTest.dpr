@@ -470,6 +470,10 @@ begin
             var Rows:=EstimateTransferSpace(Journal,Settings.DataPath,
               procedure begin if Request.GetValue<Boolean>('cancel_space',False) then Abort; end);
             var Budgets:=TJSONArray.Create; Output.AddPair('space',Budgets);
+            Output.AddPair('preview_bindings',TJSONNumber.Create(Journal.Review.QuerySingleInt('SELECT count(*) FROM Bindings')));
+            Output.AddPair('preview_references',TJSONNumber.Create(Journal.Review.QuerySingleInt('SELECT count(*) FROM RegisteredReferences')));
+            Output.AddPair('preview_files',TJSONNumber.Create(Journal.Review.QuerySingleInt('SELECT count(*) FROM Files')));
+            Output.AddPair('preview_review_bytes',TJSONNumber.Create(TFile.GetSize(DeletionNativePath(TPath.Combine(Journal.Directory,'review.sqlite')))));
             for var Budget in Rows do
             begin
               var Row:=TJSONObject.Create; Budgets.AddElement(Row); Row.AddPair('volume',Budget.Volume); Row.AddPair('key',Budget.Key);
