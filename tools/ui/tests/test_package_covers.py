@@ -134,6 +134,7 @@ def main():
     p.add_argument('--webp-dir',type=Path)
     p.add_argument('--jxl-dir',type=Path)
     p.add_argument('--xps-dir',type=Path)
+    p.add_argument('--kindle-real',type=Path,action='append',default=[])
     p.add_argument('--flibrary-archive',type=Path)
     p.add_argument('--comic-real',type=Path)
     p.add_argument('--modes',nargs='+',default=['package-covers','package-preview','book-preview','update-theme'])
@@ -149,7 +150,7 @@ def main():
         (root/'Icons').mkdir(); shutil.copy2(a.icons,root/'Icons/MHLIcons.dll')
         for n in ('uselocaldata','uselocaltemp'): (root/n).touch()
         (root/'native-regression.marker').write_text('HomeLib Ru isolated native regression v1',encoding='utf-8')
-        count=fixtures(root/'cover-fixtures',a.official,a.modes)
+        count=fixtures(root/'cover-fixtures',a.official,a.modes);originals={}
         if 'xps-preview' in a.modes:
             assert a.xps_dir, 'XPS preview needs its matching optional helper'
             namespace=runpy.run_path(str(Path(__file__).resolve().parents[2]/'bookconvert/tests/test_xps_input.py'))
@@ -158,8 +159,37 @@ def main():
                 archive.write(source,'books/first-page.xps')
             (root/'cover-fixtures/broken.xps').write_bytes(b'PK\x03\x04broken')
             shutil.copytree(a.xps_dir,root/'tools/xps')
+        if 'kindle-preview' in a.modes:
+            from PIL import Image
+            from test_kindle_covers import fixtures as kindle_fixtures, image as kindle_image
+            for source in a.kindle_real:originals[str(source)]=hashlib.sha256(source.read_bytes()).hexdigest()
+            kroot=root/'cover-fixtures/kindle';ks,_=kindle_fixtures(kroot,a.kindle_real)
+            selected=['declared.mobi','kf8.azw3','compact-index.prc','thumbnail-only.mobi',
+                'combined-kf8.mobi','absent-cover.mobi','bad-index.mobi','palmdoc-no-cover.pdb']
+            selected += [row['name'] for row in ks if row['name'].startswith('real-')]
+            ui=[]
+            for name in selected:
+                row=next(row for row in ks if row['name']==name);item=dict(name=name,cover=row['cover'])
+                if row['cover']:
+                    with Image.open(kroot/row['expected']) as picture:
+                        rgb=picture.convert('RGB');item.update(width=rgb.width,height=rgb.height,color=rgb.getpixel((rgb.width//2,rgb.height//2)))
+                if 'status' in row:item['status']=row['status']
+                ui.append(item)
+            with zipfile.ZipFile(kroot/'kindle-wrapper.zip','w',zipfile.ZIP_DEFLATED) as archive:
+                archive.write(kroot/'declared.mobi','books/declared.mobi')
+            ui.append(dict(ui[0],name='kindle-wrapper.zip',member='books/declared.mobi'))
+            for suffix in ['.azw','.azw4','.pdb']:
+                name='declared'+suffix;shutil.copyfile(kroot/'declared.mobi',kroot/name)
+                ui.append(dict(ui[0],name=name))
+            shutil.copyfile(kroot/'declared.mobi',kroot/'sidecar.mobi')
+            binary=base64.b64encode(kindle_image((176,48,32))).decode('ascii')
+            (kroot/'sidecar.fbd').write_text('<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:l="http://www.w3.org/1999/xlink"><description><title-info><book-title>Sidecar</book-title><coverpage><image l:href="#cover"/></coverpage><lang>ru</lang></title-info></description><binary id="cover" content-type="image/png">'+binary+'</binary></FictionBook>',encoding='utf-8')
+            ui.append(dict(ui[0],name='sidecar.mobi',color=[176,48,32]))
+            png=kindle_image();(kroot/'bad-image.mobi').write_bytes((kroot/'declared.mobi').read_bytes().replace(png,b'?'*len(png)))
+            ui.append(dict(name='bad-image.mobi',cover=False))
+            (kroot/'kindle-ui.json').write_text(json.dumps(ui),encoding='utf-8')
         cases=json.loads((root/'cover-fixtures/cases.json').read_text(encoding='utf-8'))
-        real=[]; originals={}
+        real=[]
         for i,src in enumerate(a.real):
             originals[str(src)]=hashlib.sha256(src.read_bytes()).hexdigest()
             name=f'real-{i}.epub'; expected=f'real-{i}-cover.bin'

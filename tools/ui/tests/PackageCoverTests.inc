@@ -37,6 +37,59 @@ begin
   finally Cases.Free; end;
 end;
 
+procedure TestKindlePreview;
+var Host:TForm; Panel:TInfoPanel; Preview:TBookInfoPreview; Image:TImage;
+  Folder,Name:string; Cases:TJSONArray; Book:TBookRecord; Deadline:UInt64;
+begin
+  Folder:=Settings.AppPath+'cover-fixtures\kindle\';
+  Cases:=TJSONObject.ParseJSONValue(TFile.ReadAllText(Folder+'kindle-ui.json',TEncoding.UTF8)) as TJSONArray;
+  Host:=TForm.CreateNew(nil); Panel:=TInfoPanel.Create(Host); Panel.Parent:=Host;
+  Host.SetBounds(80,90,850,450); Panel.Align:=alClient; Host.Show;
+  Preview:=TBookInfoPreview.CreateFor(Host,Panel);
+  try
+    Image:=nil;
+    for var I:=0 to Panel.ControlCount-1 do if Panel.Controls[I] is TImage then Image:=TImage(Panel.Controls[I]);
+    Require(Assigned(Image),'Kindle cover control missing');
+    for var Value in Cases do
+    begin
+      var Item:=Value as TJSONObject; Name:=Item.GetValue<string>('name');
+      Book:=Default(TBookRecord); Book.CollectionRoot:=Folder;
+      Book.FileName:=ChangeFileExt(Name,''); Book.FileExt:=ExtractFileExt(Name);
+      var Member:=Item.GetValue<string>('member','');
+      if Member<>'' then
+      begin Book.Folder:=Name; Book.FileName:=ChangeFileExt(Member,''); Book.FileExt:=ExtractFileExt(Member); end;
+      var Started:=GetTickCount64; Preview.Load(Book,True,False,False);
+      Require(GetTickCount64-Started<100,'Kindle cover blocks catalogue selection');
+      Deadline:=GetTickCount64+15000;
+      while Preview.Busy and (GetTickCount64<Deadline) do
+      begin Application.ProcessMessages; CheckSynchronize(5); Sleep(5); end;
+      Require(not Preview.Busy,'Kindle cover preview timeout');
+      if Item.GetValue<Boolean>('cover') then
+      begin
+        Require(Assigned(Image.Picture.Graphic),'Missing Kindle cover '+Name+' '+Panel.PreviewStatusText);
+        Require((Image.Picture.Width=Item.GetValue<Integer>('width')) and
+          (Image.Picture.Height=Item.GetValue<Integer>('height')),'Wrong Kindle cover dimensions');
+        var Bitmap:=TBitmap.Create;
+        try
+          Bitmap.Assign(Image.Picture.Graphic);
+          var Pixel:=ColorToRGB(Bitmap.Canvas.Pixels[Bitmap.Width div 2,Bitmap.Height div 2]);
+          var Color:=Item.GetValue<TJSONArray>('color');
+          Require((Abs(Integer(GetRValue(Pixel))-Color.Items[0].GetValue<Integer>)<=8) and
+            (Abs(Integer(GetGValue(Pixel))-Color.Items[1].GetValue<Integer>)<=8) and
+            (Abs(Integer(GetBValue(Pixel))-Color.Items[2].GetValue<Integer>)<=8),'Wrong Kindle cover pixels');
+        finally Bitmap.Free; end;
+      end
+      else Require(not Assigned(Image.Picture.Graphic) and (Panel.PreviewStatusText<>''),
+        'Undeclared/damaged Kindle cover selected an image');
+      var Note:=Item.GetValue<string>('status','');
+      if Note<>'' then Require(Panel.PreviewStatusText.Contains(Note),'Kindle thumbnail status missing');
+      Writeln('PASS catalogue Kindle ',Name); Flush(Output);
+    end;
+    Require(not DirectoryExists(Settings.AppPath+'tools\kindle') and
+      not DirectoryExists(Settings.AppPath+'tools\bookconvert'),'Preview needed whole-book converter');
+  finally Preview.Free; Host.Free; Cases.Free; end;
+end;
+
 procedure TestXpsPreview;
 var Host:TForm; Panel:TInfoPanel; Preview:TBookInfoPreview; Image:TImage;
   Folder, Hash, Tool:string; Book:TBookRecord; Bitmap:TBitmap; Deadline:UInt64;

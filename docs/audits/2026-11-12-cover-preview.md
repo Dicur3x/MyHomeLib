@@ -68,3 +68,12 @@ The final native cohort passed on x86 and x64: 51 raw package cases plus cancell
 Reports: `codec-followup-Win32-final.json` and `codec-followup-Win64-final.json` in the existing evidence directory. The failed diagnostic logs remain distinct from the passing reports. These tests use locally installed libjxl 0.12.0 decoder binaries and the respective WebP DLL; the separate official 0.13.0 updater checks do not replace image-rendering tests. The changes are locally validated and unpublished; the remaining format rows and final production-package checks stay open.
 
 FB3 sample source: [official FB3 examples](https://github.com/gribuser/FB3/tree/master/Examples), Git blob `e7e2714b3e1d9b1c6040f8b7914525f634030c8e` (verified before inspection).
+
+## November 17 follow-up
+
+The matrix above records the November 12 cohort. The subsequent
+[XPS first-page preview](2026-11-17-xps-cover-preview.md) and
+[declared MOBI/KF8 covers](2026-11-17-kindle-cover-preview.md) are now checked
+locally on x86/x64. They do not establish OXPS, KFX/AZW8, pure vector SVG or the
+remaining legacy/office variants. Final production-package validation is still
+separate.
