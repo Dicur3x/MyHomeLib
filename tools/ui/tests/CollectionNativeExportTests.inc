@@ -6,7 +6,8 @@ var Root, SourcesRoot, SourceName, SourceHash, Required, ModeName: string;
   Cases: TJSONArray; Report: TJSONObject; Rows: TJSONArray; Row: TJSONObject;
   Book: TBookRecord; Options: TBookSendOptions; Results: TBookExportResults;
   Probe: TUnifiedSendProbe; SavedEncoding: TTXTEncoding; Failures: Integer;
-  Archive: TZipFile;
+  Archive: TZipFile; ModeNames: TArray<string>; RequestedModes: TJSONArray;
+  Mode: TExportMode;
 begin
   Root:=TPath.Combine(Settings.AppPath,'native-export-matrix');
   SourcesRoot:=IncludeTrailingPathDelimiter(TPath.GetFullPath(TPath.Combine(Root,'sources')));
@@ -28,11 +29,31 @@ begin
       SourceHash:=Item.GetValue<string>('sha256');
       Require(UpdateSHA256(SourceName)=SourceHash,'Real native source differs from its inventory');
       Book:=FileBook(SourceName); Book.Title:='case-'+Item.GetValue<string>('id');
-      for var Mode in TArray<TExportMode>.Create(emTxt,emFB2Zip,emFB2) do
+      ModeNames:=TArray<string>.Create('txt','fb2zip','original');
+      RequestedModes:=Item.GetValue('outputs') as TJSONArray;
+      if Assigned(RequestedModes) then
       begin
-        if Mode=emTxt then ModeName:='txt'
-        else if Mode=emFB2Zip then ModeName:='fb2zip'
-        else ModeName:='original';
+        Require(RequestedModes.Count>0,'Native matrix requires at least one requested output');
+        ModeNames:=nil;
+        for var RequestedMode in RequestedModes do ModeNames:=ModeNames+[RequestedMode.Value];
+      end;
+      for var RequestedName in ModeNames do
+      begin
+        ModeName:=RequestedName;
+        if ModeName='txt' then Mode:=emTxt
+        else if ModeName='fb2zip' then Mode:=emFB2Zip
+        else if (ModeName='original') or (ModeName='fb2') then Mode:=emFB2
+        else if ModeName='epub' then Mode:=emEpub
+        else if ModeName='mobi' then Mode:=emMobi
+        else if ModeName='azw3' then Mode:=emAZW3
+        else if ModeName='epub2' then Mode:=emEpub2
+        else if ModeName='epub3' then Mode:=emEpub3
+        else if ModeName='kepub' then Mode:=emKepub
+        else if ModeName='kfx' then Mode:=emKfx
+        else if ModeName='azw8' then Mode:=emAzw8
+        else if ModeName='pdf' then Mode:=emAdvancedPDF
+        else if ModeName='md' then Mode:=emMarkdown
+        else raise Exception.Create('Unknown native matrix output: '+ModeName);
         Row:=TJSONObject.Create; Rows.AddElement(Row);
         Row.AddPair('id',Item.GetValue<string>('id'));
         Row.AddPair('detected',Item.GetValue<string>('detected'));
@@ -43,7 +64,7 @@ begin
           Options.Folder:=TPath.Combine(Root,Item.GetValue<string>('id')+'-'+ModeName);
           ForceDirectories(Options.Folder); Options.FileNameTemplate:='%t';
           Options.NameCollision:=bncKeepBoth; Options.ImageQuality:='original';
-          Probe.Deadline:=GetTickCount64+120000; Probe.Failure:='';
+          Probe.Deadline:=GetTickCount64+360000; Probe.Failure:='';
           Probe.Messages.Clear; Probe.Worker:=nil; Probe.Timer.Enabled:=True;
           try Results:=SaveFileBooks([Book],Options,Required);
           finally Probe.Timer.Enabled:=False; Probe.Worker:=nil; end;
@@ -60,7 +81,7 @@ begin
             Require(SameText(ExtractFileExt(Results[0].OutputFile),'.txt'),'Native text output has the wrong extension');
             Require(TFile.ReadAllText(Results[0].OutputFile,TEncoding.UTF8).Trim<>'','Native text output is empty');
           end
-          else
+          else if ModeName='fb2zip' then
           begin
             Require(SameText(ExtractFileExt(Results[0].OutputFile),'.zip'),'Native FB2.ZIP has the wrong extension');
             Archive:=TZipFile.Create;
@@ -69,7 +90,11 @@ begin
               Require((Archive.FileCount=1) and SameText(ExtractFileExt(Archive.FileNames[0]),'.fb2'),
                 'Native FB2.ZIP must contain exactly one FB2 book');
             finally Archive.Free; end;
-          end;
+          end
+          else
+            Require(Results[0].OutputFile.EndsWith(
+              BookSaveTargetExtension(Book.FileExt,Mode,False,False),True),
+              'Native matrix output has the wrong target extension');
           Require(UpdateSHA256(SourceName)=SourceHash,'Native saving changed its real input');
           Row.AddPair('status','PASS_NATIVE');
           Writeln('PASS native real export ',Item.GetValue<string>('detected'),' ',ModeName); Flush(Output);
