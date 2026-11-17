@@ -373,7 +373,10 @@ begin
           (Total=1) and (Completed>=0) and (Completed<=1) then
         begin
           Advanced:=not KindleWriting or (Completed>KindleCompleted);
-          KindleWriting:=True; KindleCompleted:=Completed; Percent:=98+Completed;
+          // A writer start/completion record does not measure work inside the
+          // codec. Keep measured preparation progress; callers show this
+          // uncounted phase as activity instead of an invented 98 percent.
+          KindleWriting:=True; KindleCompleted:=Completed;
         end
         else if (Stage='scan-estimates') and (Total>0) and (Total<=9) and (Completed>0) and (Completed<=Total) then
         begin

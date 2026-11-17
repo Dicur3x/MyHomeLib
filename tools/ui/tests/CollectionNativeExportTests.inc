@@ -1,6 +1,25 @@
 ﻿// Real isolated payloads through the native SaveFileBooks worker. Output
 // content is inspected by a separate Python oracle; native success is not
 // treated as independent proof of complete book content.
+type
+  TCollectionExportProgressProbe = class
+    SeenWriting, SeenMarquee, SeenFalse98: Boolean;
+    procedure Tick(Sender: TObject);
+  end;
+
+procedure TCollectionExportProgressProbe.Tick(Sender: TObject);
+begin
+  for var I:=0 to Screen.FormCount-1 do
+    if (Screen.Forms[I] is TExportToDeviceProgressForm) and Screen.Forms[I].Visible then
+    begin
+      var Form:=TExportToDeviceProgressForm(Screen.Forms[I]);
+      if not string(Form.txtComment.Caption).Contains('Запись книги') then Continue;
+      SeenWriting:=True;
+      if Form.ProgressBar.Style=pbstMarquee then SeenMarquee:=True;
+      if (Form.ProgressBar.Style=pbstNormal) and (Form.ProgressBar.Position=98) then SeenFalse98:=True;
+    end;
+end;
+
 procedure TestCollectionNativeExports;
 var Root, SourcesRoot, SourceName, SourceHash, Required, ModeName: string;
   Cases: TJSONArray; Report: TJSONObject; Rows: TJSONArray; Row: TJSONObject;
@@ -8,6 +27,7 @@ var Root, SourcesRoot, SourceName, SourceHash, Required, ModeName: string;
   Probe: TUnifiedSendProbe; SavedEncoding: TTXTEncoding; Failures: Integer;
   Archive: TZipFile; ModeNames: TArray<string>; RequestedModes: TJSONArray;
   Mode: TExportMode;
+  ProgressProbe: TCollectionExportProgressProbe; ProgressTimer: TTimer;
 begin
   Root:=TPath.Combine(Settings.AppPath,'native-export-matrix');
   SourcesRoot:=IncludeTrailingPathDelimiter(TPath.GetFullPath(TPath.Combine(Root,'sources')));
@@ -17,6 +37,9 @@ begin
   Probe:=TUnifiedSendProbe.Create; Probe.Messages:=TStringList.Create;
   Probe.Timer:=TTimer.Create(nil); Probe.Timer.Enabled:=False; Probe.Timer.Interval:=50; Probe.Timer.OnTimer:=Probe.Tick;
   Probe.SavedModal:=Application.OnModalBegin; Application.OnModalBegin:=Probe.ModalBegin;
+  ProgressProbe:=TCollectionExportProgressProbe.Create;
+  ProgressTimer:=TTimer.Create(nil); ProgressTimer.Enabled:=False;
+  ProgressTimer.Interval:=20; ProgressTimer.OnTimer:=ProgressProbe.Tick;
   SavedEncoding:=Settings.TXTEncoding; Failures:=0;
   try
     Settings.TXTEncoding:=enUTF8;
@@ -66,12 +89,20 @@ begin
           Options.NameCollision:=bncKeepBoth; Options.ImageQuality:='original';
           Probe.Deadline:=GetTickCount64+360000; Probe.Failure:='';
           Probe.Messages.Clear; Probe.Worker:=nil; Probe.Timer.Enabled:=True;
+          ProgressProbe.SeenWriting:=False; ProgressProbe.SeenMarquee:=False; ProgressProbe.SeenFalse98:=False;
+          ProgressTimer.Enabled:=True;
           try Results:=SaveFileBooks([Book],Options,Required);
-          finally Probe.Timer.Enabled:=False; Probe.Worker:=nil; end;
+          finally ProgressTimer.Enabled:=False; Probe.Timer.Enabled:=False; Probe.Worker:=nil; end;
           Require((Required='') and (Probe.Failure=''),ModeName+': '+Required+Probe.Failure);
           Require(Length(Results)=1,'Native matrix lost its per-book result');
           Require(Results[0].State=besSucceeded,Results[0].ErrorText+Probe.Messages.Text);
           Require(FileExists(Results[0].OutputFile),'Native matrix published no output');
+          Row.AddPair('writer_phase_seen',TJSONBool.Create(ProgressProbe.SeenWriting));
+          Row.AddPair('writer_marquee_seen',TJSONBool.Create(ProgressProbe.SeenMarquee));
+          Row.AddPair('writer_false_98_seen',TJSONBool.Create(ProgressProbe.SeenFalse98));
+          if Item.GetValue<Boolean>('expect_writer_marquee',False) then
+            Require(ProgressProbe.SeenWriting and ProgressProbe.SeenMarquee and not ProgressProbe.SeenFalse98,
+              'Unmeasured writer must show activity instead of an invented 98 percent');
           Row.AddPair('output',Results[0].OutputFile);
           Row.AddPair('sha256',UpdateSHA256(Results[0].OutputFile));
           if ModeName='original' then
@@ -112,6 +143,7 @@ begin
     Require(Failures=0,Format('Native real export matrix has %d failures',[Failures]));
   finally
     Settings.TXTEncoding:=SavedEncoding; Application.OnModalBegin:=Probe.SavedModal;
+    ProgressTimer.Free; ProgressProbe.Free;
     Probe.Timer.Free; Probe.Messages.Free; Probe.Free; Report.Free; Cases.Free;
   end;
 end;

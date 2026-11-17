@@ -148,6 +148,7 @@ implementation
 
 uses
   Windows,
+  ComCtrls,
   SysUtils,
   IOUtils,
   unit_Consts,
@@ -779,21 +780,27 @@ begin
         function: Boolean begin Result := Canceled or Terminated; end,
         FFileOprecord.BookTitle,FFileOprecord.BookAuthor,FFileOprecord.BookLanguage,False,
         procedure(Percent, Completed, Total: Integer; const Stage: string)
-        var DisplayPercent: Integer;
+        var DisplayPercent: Integer; StageComment: string; Measured: Boolean;
         begin
+          Measured:=(Total>0) and ((Stage='pages') or (Stage='rendering') or
+            (Stage='image-estimates') or (Stage='scan-estimates') or
+            (Stage='optimizing-images') or (Stage='scan-images'));
+          if Measured then SetProgressHint(pbstNormal) else SetProgressHint(pbstMarquee);
           DisplayPercent:=Percent; if DisplayPercent>99 then DisplayPercent:=99;
+          if not Measured then DisplayPercent:=0;
           if Length(FBookIdList)>0 then
             SetProgress((FCurrentBookIndex*100+DisplayPercent) div Length(FBookIdList));
           if Stage='pages' then
-            SetComment(Format('Книга %d/%d · стр. %d/%d (%d%%)',
-              [FCurrentBookIndex+1,Length(FBookIdList),Completed,Total,Percent]))
-          else if (Stage='image-estimates') or (Stage='scan-estimates') then SetComment('Оценка размера книги для выбора изображений…')
-          else if (Stage='optimizing-images') or (Stage='scan-images') then SetComment('Сжатие изображений для экспорта…')
-          else if Stage='finalizing' then SetComment(Format('Сборка книги (%d%%)…',[Percent]))
-          else if Stage='kindle-writing' then SetComment('Запись книги для Kindle…')
-          else if Stage='advanced-writing' then SetComment('Запись книги в выбранном формате…')
-          else if Stage='complete' then SetComment('Запись книги…')
-          else SetComment('Подготовка к конвертации…');
+            StageComment:=Format('Страницы: %d/%d (%d%%)',[Completed,Total,Percent])
+          else if Stage='rendering' then StageComment:=Format('Подготовка страниц: %d/%d…',[Completed,Total])
+          else if (Stage='image-estimates') or (Stage='scan-estimates') then StageComment:='Оценка размера книги для выбора изображений…'
+          else if (Stage='optimizing-images') or (Stage='scan-images') then StageComment:='Сжатие изображений для экспорта…'
+          else if Stage='finalizing' then StageComment:='Сборка книги…'
+          else if Stage='kindle-writing' then StageComment:='Запись книги для Kindle…'
+          else if Stage='advanced-writing' then StageComment:='Запись книги в выбранном формате…'
+          else if Stage='complete' then StageComment:='Сохранение готовой книги…'
+          else StageComment:='Подготовка к конвертации…';
+          SetComment(Format('Книга %d/%d · %s',[FCurrentBookIndex+1,Length(FBookIdList),StageComment]));
         end,Quality,
         function(const Options: TBookImageQualityOptions): string
         var Selected: string; ApplyToAll: Boolean;
@@ -1268,6 +1275,7 @@ begin
       for i := 0 to totalBooks - 1 do
       begin
         FCurrentBookIndex:=i;
+        SetProgressHint(pbstNormal);
         if Canceled or Terminated then
           Break;
 
@@ -1406,6 +1414,7 @@ begin
       end;
 
     finally
+      SetProgressHint(pbstNormal);
       FProgressEngine.EndOperation;
     end;
 

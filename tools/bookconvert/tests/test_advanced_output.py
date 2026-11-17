@@ -6,6 +6,7 @@ import re
 import struct
 import sys
 import tempfile
+import types
 import unittest
 from unittest.mock import patch
 from urllib.error import HTTPError
@@ -298,6 +299,29 @@ class AdvancedOutputTest(unittest.TestCase):
             popen.side_effect = launch
             epub_pdf_output.render_pdf(conversion, self.work / 'renderer', work, 'url', 'prefix', lambda: None)
         self.assertFalse(list(self.work.glob('w2-*')))
+
+    def test_large_pdf_can_finish_after_four_minutes_but_keeps_five_minute_limit(self):
+        source=self.work/'large-deadline.epub';rich_epub(source)
+        original=source.read_bytes();module=self.work/'pdf-module'
+        (module/'runtime').mkdir(parents=True);(module/'viewer').mkdir()
+        (module/'runtime/HomeLibEpubPdf.exe').touch()
+        (module/'viewer/vivliostyle.js').write_text('// fixture',encoding='utf-8')
+        class ReachedPrint(Exception):pass
+        modules={'pypdf':types.SimpleNamespace(PdfReader=None,PdfWriter=None),
+                 'pypdf.errors':types.SimpleNamespace(PyPdfError=ValueError)}
+        for seconds,expected in [(250,ReachedPrint),(301,conversion.ConversionError)]:
+            with self.subTest(seconds=seconds):
+                now=[0]
+                def render(_api,_renderer,_work,_url,_allowed,checkpoint):
+                    now[0]=seconds;checkpoint();raise ReachedPrint()
+                output=self.work/('deadline-'+str(seconds)+'.pdf')
+                with patch.dict(sys.modules,modules), \
+                     patch.object(epub_pdf_output.time,'monotonic',side_effect=lambda:now[0]), \
+                     patch.object(epub_pdf_output,'render_pdf',side_effect=render), \
+                     self.assertRaises(expected):
+                    epub_pdf_output.convert(conversion,source,output,module,None)
+                self.assertEqual(source.read_bytes(),original)
+                self.assertFalse(output.exists())
 
     @unittest.skipUnless(os.environ.get('HOMELIBRE_EPUB_PDF_TOOLS'), 'needs the packaged WebView2 writer and Runtime')
     def test_epub_pdf_preserves_text_and_leaves_no_runtime_profile(self):

@@ -307,13 +307,16 @@ def convert(api, prepared, output, module_root, check):
     renderer = module_root / 'runtime' / 'HomeLibEpubPdf.exe'
     if not renderer.is_file():
         raise api.ComponentRequired('EpubPdfExport', 'Установите модуль вёрстки EPUB в PDF.')
-    deadline = time.monotonic() + 240
+    # Large real books can finish pagination just before four minutes, then
+    # still need to stream the PDF and write its outline. Match the native
+    # advanced writer's five-minute budget instead of cancelling that finish.
+    deadline = time.monotonic() + 300
 
     def checkpoint():
         if check is not None:
             check()
         if time.monotonic() >= deadline:
-            raise api.ConversionError('Не удалось завершить вёрстку EPUB за четыре минуты.')
+            raise api.ConversionError('Не удалось завершить вёрстку EPUB за пять минут.')
 
     # Isolate optional dependencies from other book-format components.
     runtime = module_root / 'runtime'
