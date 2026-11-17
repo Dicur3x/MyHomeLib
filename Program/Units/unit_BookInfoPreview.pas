@@ -32,7 +32,8 @@ implementation
 uses Winapi.Windows, Winapi.ActiveX, Vcl.Graphics, FictionBook_21, unit_FB2Utils,
   unit_Interfaces, unit_ReaderCache, unit_Consts, System.Variants, dm_user,
   unit_BookMetadataCache, unit_PackageBookCover, unit_ReaderRaster, unit_ReaderPDFWorker,
-  unit_XpsBookCover, unit_MHLExternalTools, unit_KindleBookCover, unit_KfxBookCover;
+  unit_XpsBookCover, unit_MHLExternalTools, unit_KindleBookCover, unit_KfxBookCover,
+  unit_SvgBookCover;
 
 type
   TPreviewThread = class(TThread)
@@ -133,7 +134,12 @@ begin
           Stream:=OpenRawBookSource(Book,nil,function:Boolean begin Result:=Terminated; end);
           try
             CoverBytes:=ReadPackageBookCover(Stream,Book.FileExt,CoverStatus,
-              function:Boolean begin Result:=Terminated; end);
+              function:Boolean begin Result:=Terminated; end,
+              function(Data:TBytes):TBytes
+              begin
+                Result:=RenderSvgBookCover(Data,FindExternalTool('resvg.exe','kfx-export'),
+                  Settings.TempDir,function:Boolean begin Result:=Terminated; end);
+              end);
           finally Stream.Free; end;
           if Terminated then Exit;
           if Length(CoverBytes)>0 then

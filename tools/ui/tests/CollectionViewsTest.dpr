@@ -60,7 +60,7 @@ uses
   frm_BookCompression, frm_BookCompressionCompare,
   frm_CollectionPackingProgress in '..\..\..\Program\Forms\frm_CollectionPackingProgress.pas',
   unit_CollectionPackingInpx in '..\..\..\Program\Units\unit_CollectionPackingInpx.pas',
-  unit_OPDSServer, unit_KfxBookCover;
+  unit_OPDSServer, unit_KfxBookCover, unit_SvgBookCover;
 
 type
   TRegressionExceptionHandler = class
@@ -6277,6 +6277,7 @@ end;
 {$I CompressionModuleRestartTests.inc}
 {$I PackageCoverTests.inc}
 {$I KfxCoverTests.inc}
+{$I SvgCoverTests.inc}
 {$I CataloguePlacementTests.inc}
 
 var
@@ -6354,6 +6355,7 @@ begin
       if ParamStr(1) = 'update-populated-dpi' then begin TestUpdatePopulatedDPI; Flush(Output); Halt(0); end;
       if ParamStr(1) = 'inpx-local-source' then begin TestInpxWizardLocalSource; Flush(Output); Halt(0); end;
       if ParamStr(1)='raster-preview' then begin TestRasterPreview; Flush(Output); Halt(0); end;
+      if ParamStr(1)='svg-preview' then begin TestSvgCovers; Flush(Output); Halt(0); end;
       if ParamStr(1)='kfx-preview' then begin TestKfxCovers; Flush(Output); Halt(0); end;
       if ParamStr(1)='package-covers' then begin TestPackageCovers; Flush(Output); Halt(0); end;
       if ParamStr(1)='package-preview' then begin TestPackagePreview; Flush(Output); Halt(0); end;
