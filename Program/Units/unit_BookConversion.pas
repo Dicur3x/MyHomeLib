@@ -608,8 +608,15 @@ begin
         if (Pos('|'+Extension+'|','|.html|.htm|.xhtml|.shtml|.md|.markdown|')>0) and
           (Pos('|'+LowerCase(ExtractFileExt(SourceFile))+'|','|.html|.htm|.xhtml|.shtml|.md|.markdown|')>0) then
           Arguments:=Arguments+TArray<string>.Create('--resource-root',ExtractFilePath(TPath.GetFullPath(SourceFile)));
+        var ConverterMemoryLimit: NativeUInt;
+        ConverterMemoryLimit:=NativeUInt(512)*1024*1024;
+        // Browser pagination/printing retains the layout of the whole book.
+        // Keep its process tree contained, but give this PDF route a separate
+        // bounded budget instead of the generic decoder's 512 MiB per process.
+        if (OutputProfile='pdf') and (Actual<>'.fb2') then
+          ConverterMemoryLimit:=NativeUInt($80000000); // 2 GiB, including x86.
         RunExternalToolToStream(Tool,Arguments,Log,
-          function: Boolean begin Check; Result:=False; end,0,True,512*1024*1024);
+          function: Boolean begin Check; Result:=False; end,0,True,ConverterMemoryLimit);
       except
         on E: EMHLExternalToolError do
         begin

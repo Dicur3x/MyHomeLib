@@ -36,7 +36,7 @@ All 26 frozen inputs remain byte-identical. Both private processing runtimes
 were removed. Work and temporary files stayed on G:, E: was unused, and C:
 retained its required reserve. No Desktop installation or public asset changed.
 
-## Remaining large LRF PDF case
+## Large LRF PDF follow-up
 
 Both LRF-to-PDF cells hit this probe's outer 240-second limit. The actual source
 is a Sherlock Holmes omnibus with about 669,682 words and a 4.25 MB XHTML body,
@@ -44,10 +44,10 @@ not an ordinary short chapter fixture. Its other ten directions succeed. The
 original baseline had produced its PDF in 164.625 seconds on Win64; the new
 parallel timeouts alone do not identify a decoder or layout defect.
 
-The production PDF path has its own four-minute layout deadline and cleanup
-grace period. Diagnose the case serially under the native worker with a test
-deadline longer than the complete production operation. Do not relabel the two
-timeouts as passing outputs or simply remove the production deadline.
+At that probe the production PDF path had its own four-minute layout deadline
+and cleanup grace period. The serial follow-up separates that deadline from
+the native process memory ceiling. The two original parallel timeouts remain
+timeouts in the original matrix.
 
 The first serial native x64 run (`sealed-native-lrf-pdf-Win64-r1475`) reaches
 the real PDF host and fails with `Value does not fall within the expected range`.
@@ -56,6 +56,14 @@ runtime is removed. Thus the outer parallel timeout was not sufficient to
 diagnose the remaining problem. A diagnostic-only host adds phase/page counts
 and a complete exception stack in `lrf-pdf-diagnostic-host-r1477`; its modified
 binary is not used as sealed-component evidence.
+
+The subsequent production fix gives browser PDF writing a bounded 2 GiB
+per-process budget and five-minute deadline. Serial sealed native exports now
+pass on x86 and x64. Independent full readback of both actual PDFs confirms
+all 1246 pages, all 668,971 reading-order words and fourteen visible images.
+See the [bounded-memory follow-up](2026-11-17-large-pdf-memory-budget.md)
+for package/binary hashes, measured memory, preserved failed runs and the
+transparent-pixel-only difference in one image.
 
 ## Evidence and next checks
 

@@ -66,6 +66,9 @@ The initial stricter raw-pixel report is retained, alongside that explanation:
 `G:/HL-b14-external/lrf-pdf-independent-r1482/visible-content-summary.json`.
 
 That diagnostic used an instrumented host and is not a sealed native pass.
-The current sealed x64 long-book run is `sealed-native-lrf-pdf-Win64-r1483`;
-its result, the x86 long-book check and the remaining x86 full matrix still
-need to be collected/completed. No Desktop application or public asset changed.
+The first five-minute native x64 run (`sealed-native-lrf-pdf-Win64-r1483`)
+still failed: a separate per-process memory ceiling also constrained its browser.
+The [memory-budget follow-up](2026-11-17-large-pdf-memory-budget.md) records the
+subsequent native successes on x86/x64 and independent full PDF readback on
+both platforms. The remaining x86 full matrix is still needed. No Desktop application
+or public asset changed.
