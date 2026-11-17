@@ -77,3 +77,10 @@ The matrix above records the November 12 cohort. The subsequent
 locally on x86/x64. They do not establish OXPS, KFX/AZW8, pure vector SVG or the
 remaining legacy/office variants. Final production-package validation is still
 separate.
+
+The subsequent [OpenXPS follow-up](2026-11-17-oxps-cover-preview.md) adds locally
+validated OXPS first-page preview and conversion through the Windows XPS Object
+Model. Both app architectures pass the embedded font, PNG/JPEG XR, first-page
+and full-page-order fixtures. This supersedes the OXPS limitation above for that
+tested cohort. Other real document variants and final release-package checks
+remain open.

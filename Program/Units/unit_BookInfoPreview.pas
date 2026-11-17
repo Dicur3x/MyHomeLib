@@ -171,7 +171,8 @@ begin
         end;
       end;
       if Terminated then Exit;
-      if LocalSource and NeedCover and not Assigned(Cover) and SameText(Book.FileExt,'.xps') then
+      if LocalSource and NeedCover and not Assigned(Cover) and
+        (SameText(Book.FileExt,'.xps') or SameText(Book.FileExt,'.oxps')) then
       begin
         try
           Stream:=OpenRawBookSource(Book,nil,function:Boolean begin Result:=Terminated; end);

@@ -137,6 +137,7 @@ begin
     for var I:=0 to Panel.ControlCount-1 do if Panel.Controls[I] is TImage then Image:=TImage(Panel.Controls[I]);
     Require(Assigned(Image),'Cover control missing');
     CheckCover('first-page.xps',''); CheckCover('xps-wrapper.zip','books/first-page.xps');
+    CheckCover('first-page.oxps',''); CheckCover('xps-wrapper.zip','books/first-page.oxps');
     SelectBook('first-page.xps',''); SelectBook('broken.xps',''); WaitPreview;
     Require(not Assigned(Image.Picture.Graphic) and (Panel.PreviewStatusText<>''),
       'Broken XPS retained the previous selection cover');

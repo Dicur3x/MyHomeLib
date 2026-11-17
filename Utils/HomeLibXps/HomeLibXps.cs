@@ -78,6 +78,7 @@ internal static class HomeLibXps
     private const long MaxInput = 64L * 1024 * 1024, MaxTotal = 256L * 1024 * 1024;
 #if !HOMELIB_IMAGES_ONLY
     private const string XpsNamespace = "http://schemas.microsoft.com/xps/2005/06";
+    private const string OpenXpsNamespace = "http://schemas.openxps.org/oxps/v1.0";
     private static readonly HashSet<string> StructureNodes = new HashSet<string>((
         "DocumentStructure DocumentStructure.Outline DocumentOutline OutlineEntry " +
         "Story StoryFragmentReference StoryFragments StoryFragment SectionStructure " +
@@ -107,7 +108,7 @@ internal static class HomeLibXps
 #if HOMELIB_IMAGES_ONLY
                 Console.WriteLine("HomeLibImages 1; image processing/.NET Framework");
 #else
-                Console.WriteLine("HomeLibXps 1; Windows XPS/.NET Framework");
+                Console.WriteLine("HomeLibXps 2; Windows XPS/OpenXPS/.NET Framework");
 #endif
                 return 0;
             }
@@ -137,9 +138,11 @@ internal static class HomeLibXps
             if (String.Equals(input, output, StringComparison.OrdinalIgnoreCase) || File.Exists(output)) throw new IOException("Output must be new.");
             long length = new FileInfo(input).Length;
             if (length <= 0 || length > MaxInput) throw new IOException("XPS size exceeds 64 MB or is empty.");
-            Validate(input);
-            using (var package = Package.Open(input, FileMode.Open, FileAccess.Read, FileShare.Read))
-            using (var document = new XpsDocument(package, CompressionOption.NotCompressed, input))
+            bool openXps = Validate(input);
+            using (Stream prepared = openXps ? OpenXpsNative.Normalize(input,coverOnly) : (Stream)File.OpenRead(input))
+            using (var package = Package.Open(prepared, FileMode.Open, FileAccess.Read))
+            using (var registration = new RegisteredXpsPackage(package))
+            using (var document = new XpsDocument(package, CompressionOption.NotCompressed, registration.Uri.AbsoluteUri))
             {
                 FixedDocumentSequence sequence = document.GetFixedDocumentSequence();
                 if (sequence == null) throw new IOException("No fixed document sequence.");
@@ -193,6 +196,7 @@ internal static class HomeLibXps
 #if HOMELIB_IMAGES_ONLY
             Console.Error.WriteLine("Images: " + error.GetType().Name + ": " + error.Message); return 1;
 #else
+            if (error is OpenXpsNative.ApiUnavailableException) Console.WriteLine("OPENXPS_API_UNAVAILABLE");
             Console.Error.WriteLine("XPS: " + error.GetType().Name + ": " + error.Message); return 1;
 #endif
         }
@@ -695,8 +699,16 @@ internal static class HomeLibXps
     }
 
 #if !HOMELIB_IMAGES_ONLY
-    private static void Validate(string path)
+    private sealed class RegisteredXpsPackage : IDisposable
     {
+        internal readonly Uri Uri = new Uri("memorystream://homelibre-" + Guid.NewGuid().ToString("N") + "/book.xps");
+        internal RegisteredXpsPackage(Package package) { PackageStore.AddPackage(Uri, package); }
+        public void Dispose() { PackageStore.RemovePackage(Uri); }
+    }
+
+    private static bool Validate(string path)
+    {
+        bool openXps = false; int pages = 0;
         var fixedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         using (Package package = Package.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read))
         foreach (PackagePart part in package.GetParts())
@@ -723,10 +735,18 @@ internal static class HomeLibXps
                     {
                         if (++nodes > 500000 || xml.Depth > 128) throw new IOException("XPS XML is too complex.");
                         if (xml.NodeType != XmlNodeType.Element) continue;
-                        if (fixedPart && !((xml.NamespaceURI == XpsNamespace && Nodes.Contains(xml.LocalName)) ||
-                            (xml.NamespaceURI == XpsNamespace + "/documentstructure" && StructureNodes.Contains(xml.LocalName))))
+                        if (fixedPart && !(((xml.NamespaceURI == XpsNamespace || xml.NamespaceURI == OpenXpsNamespace) && Nodes.Contains(xml.LocalName)) ||
+                            ((xml.NamespaceURI == XpsNamespace + "/documentstructure" || xml.NamespaceURI == OpenXpsNamespace + "/documentstructure") && StructureNodes.Contains(xml.LocalName))))
                             throw new IOException("Unsupported XPS fixed markup: " + xml.LocalName);
-                        if (!fixedPart && xml.LocalName == "Relationship" && xml.GetAttribute("TargetMode") == "External") throw new IOException("External XPS relationships are not loaded.");
+                        if (fixedPart && xml.NamespaceURI == OpenXpsNamespace) openXps = true;
+                        if (fixedPart && xml.LocalName == "PageContent" && ++pages > 5000)
+                            throw new IOException("Too many XPS pages.");
+                        if (!fixedPart && xml.LocalName == "Relationship") {
+                            string target = Uri.UnescapeDataString(xml.GetAttribute("Target") ?? "").Trim();
+                            if (String.Equals(xml.GetAttribute("TargetMode"), "External", StringComparison.OrdinalIgnoreCase) ||
+                                Regex.IsMatch(target, @"[a-zA-Z][a-zA-Z0-9+.-]*:|\\|^//"))
+                                throw new IOException("External XPS relationships are not loaded.");
+                        }
                         if (xml.MoveToFirstAttribute()) do
                         {
                             string value = Uri.UnescapeDataString(xml.Value).Trim();
@@ -737,9 +757,14 @@ internal static class HomeLibXps
                                 if (Regex.IsMatch(value, @"[a-zA-Z][a-zA-Z0-9+.-]*:|\\|^//")) throw new IOException("External XPS resources are not loaded.");
                             }
                             if (fixedPart && xml.NamespaceURI.Length != 0 && xml.NamespaceURI != "http://www.w3.org/XML/1998/namespace" &&
-                                xml.NamespaceURI != "http://schemas.microsoft.com/winfx/2006/xaml" && xml.NamespaceURI != "http://www.w3.org/2000/xmlns/")
+                                xml.NamespaceURI != "http://schemas.microsoft.com/winfx/2006/xaml" &&
+                                xml.NamespaceURI != XpsNamespace + "/resourcedictionary-key" &&
+                                xml.NamespaceURI != OpenXpsNamespace + "/resourcedictionary-key" &&
+                                xml.NamespaceURI != "http://www.w3.org/2000/xmlns/")
                                 throw new IOException("Unsupported XPS attribute namespace.");
-                            if (fixedPart && xml.NamespaceURI == "http://schemas.microsoft.com/winfx/2006/xaml" && xml.LocalName != "Key" && xml.LocalName != "Name")
+                            if (fixedPart && (xml.NamespaceURI == "http://schemas.microsoft.com/winfx/2006/xaml" ||
+                                xml.NamespaceURI == XpsNamespace + "/resourcedictionary-key" ||
+                                xml.NamespaceURI == OpenXpsNamespace + "/resourcedictionary-key") && xml.LocalName != "Key" && xml.LocalName != "Name")
                                 throw new IOException("Unsupported XPS markup directive.");
                         } while (xml.MoveToNextAttribute());
                         xml.MoveToElement();
@@ -747,6 +772,7 @@ internal static class HomeLibXps
                 }
             }
         }
+        return openXps;
     }
 #endif
 }

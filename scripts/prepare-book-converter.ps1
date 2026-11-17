@@ -68,6 +68,8 @@ Write-Host "[OK] Built-in FB2/EPUB converter and LIT decoder match source ($Plat
 $xpsRoot = Join-Path $destinationDirectory '../xps'
 $xpsInfo = Get-Content -LiteralPath (Join-Path $xpsRoot 'RUNTIME.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 if ($xpsInfo.platform -ne $Platform -or
+    $xpsInfo.PSObject.Properties.Name -notcontains 'openxps_source_sha256' -or
+    $xpsInfo.openxps_source_sha256 -ine (Get-FileHash -LiteralPath (Join-Path $repositoryRoot 'Utils/HomeLibXps/OpenXpsNative.cs')).Hash -or
     $xpsInfo.source_sha256 -ine (Get-FileHash -LiteralPath (Join-Path $repositoryRoot 'Utils/HomeLibXps/HomeLibXps.cs')).Hash -or
     $xpsInfo.sha256 -ine (Get-FileHash -LiteralPath (Join-Path $xpsRoot 'HomeLibXps.exe')).Hash) {
     throw 'XPS renderer requires rebuilding: scripts/prepare-xps-runtime.ps1.'

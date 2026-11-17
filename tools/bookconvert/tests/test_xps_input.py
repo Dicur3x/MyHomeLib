@@ -18,17 +18,17 @@ TOOLS = Path(os.environ.get('HOMELIB_TEST_TOOLS', ROOT.parents[1] / 'Program/Out
 NS = 'http://schemas.microsoft.com/xps/2005/06'
 
 
-def fixture(path, extra=''):
+def fixture(path, extra='', namespace=NS):
     with zipfile.ZipFile(path, 'w', zipfile.ZIP_DEFLATED) as z:
         z.writestr('[Content_Types].xml', '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
                    ''.join('<Default Extension="' + suffix + '" ContentType="application/vnd.ms-package.xps-' + kind + '+xml"/>'
                            for suffix, kind in [('fdseq','fixeddocumentsequence'),('fdoc','fixeddocument'),('fpage','fixedpage')]) +
                    '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/></Types>')
-        z.writestr('_rels/.rels', '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="R" Type="' + NS + '/fixedrepresentation" Target="book.fdseq"/></Relationships>')
-        z.writestr('book.fdseq', '<FixedDocumentSequence xmlns="' + NS + '"><DocumentReference Source="book.fdoc"/></FixedDocumentSequence>')
-        z.writestr('book.fdoc', '<FixedDocument xmlns="' + NS + '"><PageContent Source="1.fpage"/><PageContent Source="2.fpage"/></FixedDocument>')
+        z.writestr('_rels/.rels', '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="R" Type="' + namespace + '/fixedrepresentation" Target="book.fdseq"/></Relationships>')
+        z.writestr('book.fdseq', '<FixedDocumentSequence xmlns="' + namespace + '"><DocumentReference Source="book.fdoc"/></FixedDocumentSequence>')
+        z.writestr('book.fdoc', '<FixedDocument xmlns="' + namespace + '"><PageContent Source="1.fpage"/><PageContent Source="2.fpage"/></FixedDocument>')
         for index, color in enumerate(['#FF2050B0','#FFB03020'], 1):
-            z.writestr(str(index) + '.fpage', '<FixedPage xmlns="' + NS + '" Width="300" Height="400" xml:lang="en-US"><Path Fill="' + color + '" Data="M 20,20 L 280,20 280,380 20,380 Z"/>' + extra + '</FixedPage>')
+            z.writestr(str(index) + '.fpage', '<FixedPage xmlns="' + namespace + '" Width="300" Height="400" xml:lang="en-US"><Path Fill="' + color + '" Data="M 20,20 L 280,20 280,380 20,380 Z"/>' + extra + '</FixedPage>')
 
 
 def middle_pixel(png, first_row=False):

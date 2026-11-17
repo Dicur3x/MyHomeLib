@@ -71,7 +71,13 @@ begin
       try
         RunExternalToolToStream(ToolPath,['--cover',SourceFile,Output],Log,Canceled,0,True,384*1024*1024);
       except on E:EMHLExternalToolError do
+      begin
+        var Diagnostic:TBytes; SetLength(Diagnostic,Log.Size);
+        if Length(Diagnostic)>0 then Move(Log.Memory^,Diagnostic[0],Length(Diagnostic));
+        if TEncoding.UTF8.GetString(Diagnostic).Contains('OPENXPS_API_UNAVAILABLE') then
+          raise EReadError.Create('Для предпросмотра OXPS нужна Windows 8 или новее с API чтения XPS.');
         raise EReadError.Create('Не удалось прочитать XPS. Проверьте файл и обновите модуль чтения XPS.');
+      end;
       end;
     finally Log.Free; end;
     Check;

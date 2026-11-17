@@ -155,8 +155,10 @@ def main():
             assert a.xps_dir, 'XPS preview needs its matching optional helper'
             namespace=runpy.run_path(str(Path(__file__).resolve().parents[2]/'bookconvert/tests/test_xps_input.py'))
             source=root/'cover-fixtures/first-page.xps'; namespace['fixture'](source)
+            oxps=root/'cover-fixtures/first-page.oxps'; namespace['fixture'](oxps,namespace='http://schemas.openxps.org/oxps/v1.0')
             with zipfile.ZipFile(root/'cover-fixtures/xps-wrapper.zip','w',zipfile.ZIP_DEFLATED) as archive:
                 archive.write(source,'books/first-page.xps')
+                archive.write(oxps,'books/first-page.oxps')
             (root/'cover-fixtures/broken.xps').write_bytes(b'PK\x03\x04broken')
             shutil.copytree(a.xps_dir,root/'tools/xps')
         if 'kindle-preview' in a.modes:
