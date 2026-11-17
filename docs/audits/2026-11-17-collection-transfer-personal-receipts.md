@@ -57,6 +57,8 @@ after card deletion. All earlier reports are retained.
 The earlier million-row results in the binding-memory audit precede this format
 change. The new whole-operation benchmark adds cache/root publication, a fresh
 process for completion and another process for byte-exact replay, using streamed
-guards of non-locator user data. Its small setup check and large runs remain
-separate gates. It is native coordinator evidence, not an ordinary-window/release
-gate. No user catalogue/archive or Desktop executable was changed.
+guards of non-locator user data. Its small x86/x64 setup checks passed; large runs
+remain pending. Evidence and guard limits are in
+`docs/audits/2026-11-17-collection-transfer-full-scale.md`. This is native
+coordinator evidence, not an ordinary-window/release gate. No user
+catalogue/archive or Desktop executable was changed.
