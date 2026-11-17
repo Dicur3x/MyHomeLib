@@ -82,7 +82,7 @@ uses
   unit_Localization, unit_BookInfoPreview, unit_MHLTheme, System.Generics.Collections,
   unit_AuthorFavorites, unit_AuthorFavoriteRefresh, unit_ReaderAnnotations, unit_ReaderSession,
   unit_BookSaveContinuation, unit_BookReviewPreview, unit_CollectionPacking, unit_BookCompressionContinuation,
-  unit_BookCompressionOperation, frm_BookCompression;
+  unit_BookCompressionOperation, frm_BookCompression, unit_CollectionTransferCleanup;
 
 const
   WM_RESUME_SQL_CATALOGUE = $8000+372;
@@ -1003,6 +1003,7 @@ type
     procedure ShowCollectionTransfer(Sender:TObject);
     procedure LoadCollectionTransferState;
     procedure CollectionTransferNotice(Sender:TObject);
+    procedure CollectionTransferCleanupTick(Sender:TObject);
     function TransferApplicationReady:Boolean;
     function CollectionTransferPending:Boolean;
     procedure ResumePacking(var Message: TMessage); message WM_RESUME_COLLECTION_PACKING;
@@ -1049,6 +1050,8 @@ type
     FTransferPending:TArray<Integer>;
     FTransferRegistryError:string;
     FTransferResumeID:Integer;
+    FTransferCleanup:TTransferCleanupWorker;
+    FTransferCleanupTimer:TTimer;
     FBookDeletionOperation: TBookDeletionOperation;
     FBookDeletionProgress: TBookDeletionProgress;
     FBookDeletionTimer: TTimer;
@@ -5428,6 +5431,28 @@ begin
     for var I:=0 to Screen.FormCount-1 do if Screen.Forms[I] is TfrmReaderHost then Exit(False);
 end;
 
+procedure TfrmMain.CollectionTransferCleanupTick(Sender:TObject);
+begin
+  // No review hashing or work-directory enumeration on the startup/UI thread.
+  if FTransferCleanup=nil then
+  begin
+    FTransferCleanupTimer.Interval:=1000;
+    if FTransferActive or FFormBusy or FStartupLoading or (Application.ModalLevel>0) then Exit;
+    if Assigned(FCollection) and not TransferApplicationReady then Exit;
+    FTransferCleanup:=TTransferCleanupWorker.Create(Settings.SystemFileName[sfSystemDB]);
+    FTransferCleanup.Start;
+  end
+  else if FTransferCleanup.Done then
+  begin
+    var Outcome:=FTransferCleanup.Outcome;
+    FreeAndNil(FTransferCleanup); FreeAndNil(FTransferCleanupTimer);
+    if Outcome.FilesRemoved>0 then
+      StatusMessage:=Format('Удалено временных рабочих файлов переноса: %d.',[Outcome.FilesRemoved])
+    else if Outcome.Warning<>'' then
+      StatusMessage:='Уборка рабочих снимков переноса отложена: '+Outcome.Warning;
+  end;
+end;
+
 procedure TfrmMain.ShowCollectionTransfer(Sender:TObject);
 begin
   if FTransferActive or CompressionBlocksCatalogChange(True) or not Assigned(FCollection) then Exit;
@@ -6161,6 +6186,9 @@ begin
       BookDeletionJournalRoot),False);
   CheckCompressionRecovery;
   LoadCollectionTransferState;
+  FTransferCleanupTimer:=TTimer.Create(Self); FTransferCleanupTimer.Name:='CollectionTransferCleanupTimer';
+  FTransferCleanupTimer.Interval:=30000; FTransferCleanupTimer.OnTimer:=CollectionTransferCleanupTick;
+  FTransferCleanupTimer.Enabled:=True;
   if (Length(FTransferPending)>0) or (FTransferRegistryError<>'') then
   begin
     var TransferNotice:=TTimer.Create(Self); TransferNotice.Name:='CollectionTransferNoticeTimer';
@@ -6458,6 +6486,8 @@ end;
 procedure TfrmMain.FormDestroy(Sender: TObject);
 var I: Integer; Message: TMsg;
 begin
+  FreeAndNil(FTransferCleanupTimer);
+  FreeAndNil(FTransferCleanup);
   FreeAndNil(FCompressionOffers);
   FreeAndNil(FBookCompressionTimer);
   FreeAndNil(FBookCompressionOperation);

@@ -12,10 +12,22 @@ uses System.SysUtils, System.Classes, System.IOUtils, System.JSON, System.Hash,
   unit_CollectionTransferCachePreparation,
   unit_CollectionTransferCacheInstallation,
   unit_CollectionTransferSpace,
+  unit_CollectionTransferCleanup,
   unit_ReaderHistoryAliases, unit_ReaderCache,
   unit_CollectionMerge, unit_Interfaces, unit_LibraryUpdateReview, unit_SystemDatabase_SQLite,
   unit_CollectionTransferLayout, unit_CollectionTransferFinalRows, unit_CollectionTransferFinalization,
   unit_CollectionTransferHistory, unit_CollectionTransferLocations, unit_BookCompressionImages, unit_BookCompressionReceipt, unit_BookCompressionPlan;
+
+function CleanupJSON(const Item:TTransferCleanupResult):TJSONObject;
+begin
+  Result:=TJSONObject.Create;
+  Result.AddPair('files_removed',TJSONNumber.Create(Item.FilesRemoved));
+  Result.AddPair('bytes_removed',TJSONNumber.Create(Item.BytesRemoved));
+  Result.AddPair('directories_removed',TJSONNumber.Create(Item.DirectoriesRemoved));
+  Result.AddPair('directories_missing',TJSONNumber.Create(Item.DirectoriesMissing));
+  Result.AddPair('directories_retained',TJSONNumber.Create(Item.DirectoriesRetained));
+  Result.AddPair('stopped',TJSONBool.Create(Item.Stopped)); Result.AddPair('warning',Item.Warning);
+end;
 
 procedure DisableFixtureTriggers(Context:TSQLite3Context; Count:Integer; Values:TSQLite3Value); cdecl;
 begin SQLite3_Result_Int(Context,0); end;
@@ -172,6 +184,49 @@ begin
         if Mode='reader-names' then
         begin
           Output:=TJSONObject.Create; Output.AddPair('reader_names',FixtureReaderNames(Request));
+          TFile.WriteAllText(Owned(ParamStr(2)),Output.ToJSON,TEncoding.UTF8); Exit;
+        end;
+        TransferCleanupTestPoint:=procedure(Stage,Path:string)
+          begin
+            if Path.StartsWith('\\?\') then Owned(Copy(Path,5,MaxInt)) else Owned(Path);
+            if Stage=Crash then begin Writeln('CRASH ',Stage); Flush(System.Output); Halt(97); end;
+            if Stage=Request.GetValue<string>('cancel_cleanup_stage','') then Stop:=True;
+          end;
+        if (Mode='cleanup-only') or (Mode='cleanup-queue') then
+        begin
+          Stop:=Request.GetValue<Boolean>('cleanup_cancel_immediately',False);
+          var PersonalFile:=Owned(Request.GetValue<string>('personal'));
+          var QueuedBefore:=Length(CompletedTransferCleanupQueue(PersonalFile));
+          var Clean:TTransferCleanupResult;
+          if Mode='cleanup-queue' then
+          begin
+            if Request.GetValue<Boolean>('cleanup_worker',False) then
+            begin
+              var Worker:=TTransferCleanupWorker.Create(PersonalFile);
+              try
+                Worker.Start; var Deadline:=GetTickCount64+60000;
+                while not Worker.Done and (GetTickCount64<Deadline) do Sleep(10);
+                if not Worker.Done then raise EReadError.Create('Background cleanup worker did not finish');
+                Clean:=Worker.Outcome;
+              finally Worker.Free; end;
+            end
+            else Clean:=CleanupRegisteredCompletedTransfers(PersonalFile,function:Boolean begin Result:=Stop; end);
+          end
+          else
+          begin
+            Control:=ReadJSON(ControlFile);
+            Journal:=TCollectionTransferJournal.OpenCompletedForCleanup(Owned(Request.GetValue<string>('work')),
+              Owned(Request.GetValue<string>('destination')),Owned(Control.GetValue<string>('directory')),
+              Request.GetValue<string>('override_review_sha256',Control.GetValue<string>('review_sha256')),
+              function:Boolean begin Result:=Stop; end);
+            var Refused:=False;
+            try Registry:=TCollectionTransferRegistry.Create(Journal); except on E:EReadError do Refused:=True; end;
+            if not Refused then raise EReadError.Create('Cleanup journal accepted a publication registry');
+            Clean:=Journal.CleanupCompletedCacheSnapshots(function:Boolean begin Result:=Stop; end);
+          end;
+          Output:=CleanupJSON(Clean);
+          Output.AddPair('queued_before',TJSONNumber.Create(QueuedBefore));
+          Output.AddPair('queued_after',TJSONNumber.Create(Length(CompletedTransferCleanupQueue(PersonalFile))));
           TFile.WriteAllText(Owned(ParamStr(2)),Output.ToJSON,TEncoding.UTF8); Exit;
         end;
         TransferFinalizationTestPoint:=procedure(Stage:string)
@@ -932,6 +987,7 @@ begin
         end;
       finally
         TransferCopyTestPoint:=nil; TransferJournalTestPoint:=nil;
+        TransferCleanupTestPoint:=nil;
         if IncompletePreparationHandle<>0 then CloseHandle(IncompletePreparationHandle);
         TransferReferenceTestPoint:=nil; TransferRegistryTestPoint:=nil; TransferFinalizationTestPoint:=nil;
         HistoryHits.Free; IDs.Free; Registry.Free; Journal.Free; Plan.Free; Capture.Free; Output.Free; Control.Free; Request.Free;

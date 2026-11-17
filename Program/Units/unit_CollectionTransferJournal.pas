@@ -11,6 +11,11 @@ type
     Files,Groups,Bytes,Removed,Missing,Retained:Int64;
     CompletedAt:string;
   end;
+  TTransferCleanupResult=record
+    FilesRemoved,BytesRemoved,DirectoriesRemoved,DirectoriesMissing,DirectoriesRetained:Int64;
+    Stopped:Boolean;
+    Warning:string;
+  end;
 
   TTransferJournalGroup = record
     ID, Files, Bytes: Int64;
@@ -49,7 +54,7 @@ type
     FProgress: TTransferJournalProgress;
     FNextReserveCheck: UInt64;
     FCreatedDirectoryKey,FCreatedCopiesKey:string;
-    FConstructionComplete,FPreviewOnly:Boolean;
+    FConstructionComplete,FPreviewOnly,FCleanupOnly:Boolean;
     FConstructionFiles:TDictionary<string,string>;
     procedure DiscardIncompletePreparation;
     procedure CheckStop;
@@ -67,11 +72,14 @@ type
     procedure CheckGroupImages(GroupID: Int64);
     procedure CheckGroupBindings(GroupID: Int64);
     procedure CheckPublishedFork(ForkID:Int64);
-    constructor OpenExisting(const WorkRoot, Destination, Directory, ReviewSHA: string);
+    constructor OpenExisting(const WorkRoot, Destination, Directory, ReviewSHA: string;
+      CleanupOnly:Boolean=False; const Cancelled:TFunc<Boolean>=nil);
   public
     constructor Create(const WorkRoot: string; Catalogue: TCollectionTransferCatalogue;
       Plan: TCollectionTransferPlan; const Cancelled: TFunc<Boolean> = nil; PreviewOnly:Boolean=False);
     class function Resume(const WorkRoot, Destination, Directory, ReviewSHA: string): TCollectionTransferJournal; static;
+    class function OpenCompletedForCleanup(const WorkRoot,Destination,Directory,ReviewSHA:string;
+      const Cancelled:TFunc<Boolean>=nil):TCollectionTransferJournal; static;
     destructor Destroy; override;
     procedure ForEachGroup(const Visit: TTransferJournalGroupVisitor);
     function PrepareGroup(GroupID: Int64; const Cancelled: TFunc<Boolean> = nil;
@@ -110,10 +118,12 @@ type
     // Caller has refreshed its DAO/view and supplies a read-only quiescence check.
     function CompleteTransfer(const ApplicationReady:TFunc<Boolean>;
       const Cancelled:TFunc<Boolean> = nil):TTransferCompletionResult;
+    function CleanupCompletedCacheSnapshots(const Cancelled:TFunc<Boolean> = nil):TTransferCleanupResult;
     property Directory: string read FDirectory;
     property ReviewSHA256: string read FReviewSHA;
     property Review: TSQLiteDatabase read FReview;
     property IsPreview:Boolean read FPreviewOnly;
+    property IsCleanupOnly:Boolean read FCleanupOnly;
   end;
 
 {$IFDEF MHL_TRANSFER_TEST}
@@ -126,7 +136,8 @@ uses System.IOUtils, System.Hash, unit_Globals, unit_Consts,
   unit_Settings, dm_user, unit_BookCompressionReceipt, unit_ZipMemberDeletion,
   unit_CollectionTransferReferences, unit_CollectionTransferForks, unit_CollectionTransferLocations,
   unit_CollectionTransferPublication, unit_CollectionTransferResources, unit_CollectionTransferLayout,
-  unit_CollectionTransferFinalization, unit_CollectionTransferCachePreparation, unit_CollectionTransferCompletion;
+  unit_CollectionTransferFinalization, unit_CollectionTransferCachePreparation, unit_CollectionTransferCompletion,
+  unit_CollectionTransferCleanup;
 
 const JournalKind='HomeLibre collection transfer preparation v1';
   PreviewKind='HomeLibre collection transfer space preview v1';
@@ -187,10 +198,15 @@ begin Result:=FCopies[Index]; end;
 
 procedure TCollectionTransferJournal.CheckStop;
 begin
-  if FPreviewOnly and FConstructionComplete then
-    raise EReadError.Create('План места предназначен только для просмотра. Начните перенос из обычного окна.');
   if Assigned(FCancelled) and FCancelled() then
     raise EAbort.Create('Подготовка переноса остановлена. Исходники и журнал сохранены.');
+  if FCleanupOnly then
+  begin
+    if FConstructionComplete then raise EReadError.Create('Завершённый журнал открыт только для уборки рабочих данных.');
+    Exit;
+  end;
+  if FPreviewOnly and FConstructionComplete then
+    raise EReadError.Create('План места предназначен только для просмотра. Начните перенос из обычного окна.');
   CheckSpace;
 end;
 
@@ -471,18 +487,23 @@ begin
   FCancelled:=nil; FConstructionComplete:=True;
 end;
 
-constructor TCollectionTransferJournal.OpenExisting(const WorkRoot,Destination,Directory,ReviewSHA:string);
+constructor TCollectionTransferJournal.OpenExisting(const WorkRoot,Destination,Directory,ReviewSHA:string;
+  CleanupOnly:Boolean; const Cancelled:TFunc<Boolean>);
 begin
-  inherited Create; FGuards:=TList<THandle>.Create;
+  inherited Create; FGuards:=TList<THandle>.Create; FCleanupOnly:=CleanupOnly; FCancelled:=Cancelled;
   if ReviewSHA='' then raise EReadError.Create('Не сохранена проверочная сумма плана переноса.');
-  FWorkRoot:=TransferCanonicalDirectory(WorkRoot); FDestination:=TransferCanonicalDirectory(Destination); CheckStop;
+  FWorkRoot:=TransferCanonicalDirectory(WorkRoot);
+  if CleanupOnly then FDestination:=IncludeTrailingPathDelimiter(ExpandFileName(Destination))
+  else FDestination:=TransferCanonicalDirectory(Destination);
+  CheckStop;
   FDirectory:=ExcludeTrailingPathDelimiter(ExpandFileName(Directory));
   var Leaf:=ExtractFileName(FDirectory);
   if not SameFileName(IncludeTrailingPathDelimiter(ExtractFileDir(FDirectory)),FWorkRoot) or not Leaf.StartsWith(Prefix) then
     raise EReadError.Create('Журнал находится вне выбранной рабочей папки.');
   var ID:=StringToGUID(Copy(Leaf,Length(Prefix)+1,MaxInt));
   if Leaf<>Prefix+GUIDToString(ID) then raise EReadError.Create('Неверное имя папки журнала.');
-  var WorkKey:=PinDirectory(FWorkRoot); var DestinationKey:=PinDirectory(FDestination);
+  var WorkKey:=PinDirectory(FWorkRoot); var DestinationKey:='';
+  if not CleanupOnly then DestinationKey:=PinDirectory(FDestination);
   PinDirectory(FDirectory); FCopiesRoot:=TPath.Combine(FDirectory,'copies'); PinDirectory(FCopiesRoot);
   FLease:=CreateFile(PChar(DeletionNativePath(TPath.Combine(FDirectory,'lease'))),GENERIC_READ or GENERIC_WRITE,
     0,nil,OPEN_EXISTING,FILE_FLAG_OPEN_REPARSE_POINT,0);
@@ -491,13 +512,24 @@ begin
   OpenReview(ReviewSHA);
   if (Meta('kind')<>JournalKind) or (Meta('directory')<>Leaf) or
     (Meta('work_root')<>FWorkRoot) or (Meta('destination')<>FDestination) or
-    (Meta('work_key')<>WorkKey) or (Meta('destination_key')<>DestinationKey) then
+    (Meta('work_key')<>WorkKey) or (not CleanupOnly and (Meta('destination_key')<>DestinationKey)) then
     raise EReadError.Create('Журнал относится к другому месту переноса. Исходники сохранены.');
-  OpenState;
+  if CleanupOnly then
+  begin
+    var Completed:TTransferCompletionResult;
+    if not ReadTransferCompletion(Self,Completed) then raise EReadError.Create('Уборка разрешена только после подтверждённого завершения переноса.');
+    FConstructionComplete:=True;
+  end
+  else OpenState;
+  FCancelled:=nil;
 end;
 
 class function TCollectionTransferJournal.Resume(const WorkRoot,Destination,Directory,ReviewSHA:string):TCollectionTransferJournal;
 begin Result:=TCollectionTransferJournal.OpenExisting(WorkRoot,Destination,Directory,ReviewSHA); end;
+
+class function TCollectionTransferJournal.OpenCompletedForCleanup(const WorkRoot,Destination,Directory,ReviewSHA:string;
+  const Cancelled:TFunc<Boolean>):TCollectionTransferJournal;
+begin Result:=TCollectionTransferJournal.OpenExisting(WorkRoot,Destination,Directory,ReviewSHA,True,Cancelled); end;
 
 destructor TCollectionTransferJournal.Destroy;
 begin
@@ -1197,7 +1229,7 @@ end;
 
 procedure TCollectionTransferJournal.OpenPublicationSession;
 begin
-  if FPreviewOnly then raise EReadError.Create('Проверка места не может менять каталоги.');
+  if FPreviewOnly or FCleanupOnly then raise EReadError.Create('Журнал просмотра или уборки не может менять каталоги.');
     if FPublicationSession=nil then
       FPublicationSession:=TTransferPublicationSession.Create(FReview,Meta('personal'),FWorkRoot,Meta('directory'),FReviewSHA,
         function(CID:Integer):string begin Result:=EffectiveCatalogue(CID); end,
@@ -1338,6 +1370,16 @@ begin
   var Handler:=TCollectionTransferFinalization.Create(Self,TTransferPublicationSession(FPublicationSession));
   try Result:=Handler.ApplyRoots(Cancelled);
   finally Handler.Free; end;
+end;
+
+function TCollectionTransferJournal.CleanupCompletedCacheSnapshots(const Cancelled:TFunc<Boolean>):TTransferCleanupResult;
+begin
+  var Completed:TTransferCompletionResult;
+  if not ReadTransferCompletion(Self,Completed) then raise EReadError.Create('Сначала требуется подтверждённое завершение переноса.');
+  // Completed publication guards can still own read leases on work snapshots.
+  // The durable result is already committed; release only this journal's session.
+  FreeAndNil(FPublicationSession);
+  Result:=CleanupCompletedTransferCaches(Self,Cancelled);
 end;
 
 end.

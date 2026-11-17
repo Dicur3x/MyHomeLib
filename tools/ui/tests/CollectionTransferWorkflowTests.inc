@@ -62,6 +62,10 @@ begin
         Require((not StopFirst) or (Stopped and Resumed),'Workflow omitted explicit stop/resume');
         Require(TForm(Dialog).FormStyle=fsStayOnTop,'Completion result did not come to the front');
         Require(not Run.Enabled and not Preview.Enabled,'Completed move can be started again');
+        Require(Pos('Удалено рабочих файлов:',TMemo(Dialog.FindComponent('TransferReport')).Text)>0,
+          'Completion omitted work-snapshot cleanup');
+        Require(Pos('Уборка оставшихся рабочих снимков',TMemo(Dialog.FindComponent('TransferReport')).Text)=0,
+          'Ordinary small transfer unexpectedly deferred cleanup');
         Completed:=True; TButton(Dialog.FindComponent('CloseCollectionTransfer')).Click; Exit;
       end;
       case Phase of
@@ -142,6 +146,13 @@ begin
     Require(Probe.SourcesSeen and Probe.WindowSeen and Probe.Completed,'Ordinary transfer workflow did not finish');
     Require(Settings.ActiveCollection=CID,'Transfer switched to another active collection');
     ExpectTitles(frmMain.tvBooksA,['До переноса 0','До переноса 1','До переноса 2','До переноса 3','До переноса 4']);
+    var CleanupTimer:=TTimer(frmMain.FindComponent('CollectionTransferCleanupTimer'));
+    Require(Assigned(CleanupTimer),'Ordinary startup omitted background transfer cleanup');
+    CleanupTimer.Interval:=1; var CleanupUntil:=GetTickCount64+15000;
+    while Assigned(frmMain.FindComponent('CollectionTransferCleanupTimer')) and (GetTickCount64<CleanupUntil) do
+    begin Application.ProcessMessages; CheckSynchronize(5); end;
+    Require(not Assigned(frmMain.FindComponent('CollectionTransferCleanupTimer')),'Background cleanup did not finish');
+    Writeln('PASS ordinary completion reports cleanup and delayed background cleanup finishes without a modal window');
     Writeln('PASS ordinary sources transfer refreshes the active Main book view and supports explicit stop resume and changed-plan invalidation');
   finally Probe.Timer.Free; Probe.Free; end;
 end;

@@ -578,8 +578,46 @@ IDs, reparse points, hardlinks and busy files preserve the draft. There is no
 recursive removal or check-then-delete path lookup. Completed constructors and
 all resumed journals are retained, including valid unregistered native reviews.
 Evidence: `docs/audits/2026-11-17-collection-transfer-preparation-cleanup.md`.
-Hard-exit orphan discovery and cleanup of large completed cache snapshots remain
-open; in-memory ownership of this draft is not authority to clean those folders.
+Hard-exit discovery of unregistered drafts remains open; in-memory ownership of
+this draft is not authority to clean arbitrary folders.
+
+### Completed work-snapshot cleanup
+
+After durable whole-operation completion, the journal releases its own remaining
+publication leases and can remove its cache-snapshot working directories. The
+completion receipt and frozen review remain as historical evidence. Installed
+cache versions, original cache databases, retained indexes and books are excluded.
+Ownership comes from the independent preparation intent and personal-database
+directory/file claims, persisted before large writes. All directory claims are
+validated against the intent, exact journal parent and allowed leaf names before
+any cleanup. Each directory is then held by physical ID and every current entry
+is opened by its recorded ID before the first unlink. Reparse points, hardlinks,
+unknown entries, extra data streams and busy or replacement objects retain the
+directory. Deletion uses the held handle. Byte totals describe logical working
+data, not measured filesystem space recovered.
+
+Cancellation or a process exit may leave some owned files already absent. A
+later pass skips those missing entries and resumes the same claims. A separate
+short personal transaction records cleanup attempts/done state; it cannot change
+completed back to pending or rewrite the transfer summary. Repeated successful
+cleanup does not rewrite an already-done marker. Failed cleanup has no authority
+to move books or switch source settings.
+
+The ordinary transfer window reports cleanup after completion and treats any
+cleanup failure as deferred housekeeping, retaining the completed move. Ordinary
+startup schedules a low-priority worker after 30 seconds and an idle check; review
+hashing and filesystem work stay off the UI thread. The worker owns no GUI state,
+can be cancelled when Main closes and handles a bounded queue of completed
+operations. Inaccessible or busy operations get a later-attempt stamp. A cleanup
+reader validates the immutable review and completed receipt without opening the
+mutable transfer state or requiring the destination to be online. It cannot be
+used to register or publish a transfer. It also skips transfer-allocation reserve
+checks so that cleanup is still possible when disk space is already low.
+
+Native and ordinary-window evidence is recorded in
+`docs/audits/2026-11-17-collection-transfer-completed-cleanup.md`. Unregistered
+hard-exit drafts, unknown SQLite side files in abandoned incomplete snapshots,
+large-volume peak use and final production gates remain separate requirements.
 
 ### Remaining end-to-end evidence
 

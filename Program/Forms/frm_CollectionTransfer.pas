@@ -40,6 +40,7 @@ type
     RootsReady,Stopped:Boolean;
     ReadyFlag,CancelFlag:Integer;
     Outcome:TTransferCompletionResult;
+    Cleanup:TTransferCleanupResult;
     constructor Create;
     destructor Destroy; override;
     function Cancelled:Boolean;
@@ -242,7 +243,13 @@ begin
             finally Operation.Free; end;
           end;
         tpComplete:
-          FContext.Outcome:=FContext.Journal.CompleteTransfer(FReady,Cancelled);
+          begin
+            FContext.Outcome:=FContext.Journal.CompleteTransfer(FReady,Cancelled);
+            Progress('Очистка рабочих снимков','',0,0,0,0);
+            // Completion is durable. A deferred cleanup cannot undo the move.
+            try FContext.Cleanup:=FContext.Journal.CleanupCompletedCacheSnapshots(Cancelled);
+            except on E:Exception do FContext.Cleanup.Warning:=E.Message; end;
+          end;
       end;
     except
       on E:EAbort do
@@ -541,6 +548,10 @@ begin
         'Книги не перепаковывались. Источники обновлений, личные данные и история чтения сохранены.'+sLineBreak+
         'Общие, занятые или изменённые исходники могли остаться на прежних местах.',
         [Result.Files,BookEstimateSizeText(Result.Bytes),Result.Removed,Result.Missing,Result.Retained]);
+      FReport.Lines.Add(sLineBreak+Format('Удалено рабочих файлов: %d (%s данных).',
+        [FContext.Cleanup.FilesRemoved,BookEstimateSizeText(FContext.Cleanup.BytesRemoved)]));
+      if FContext.Cleanup.Stopped or (FContext.Cleanup.DirectoriesRetained>0) or (FContext.Cleanup.Warning<>'') then
+        FReport.Lines.Add('Уборка оставшихся рабочих снимков будет повторена при следующем запуске.'+sLineBreak+FContext.Cleanup.Warning);
       SetState(usCompleted,'Перенос завершён. Открытая коллекция обновлена.');
       FSource.Caption:=FContext.Destination;
       FormStyle:=fsStayOnTop; FPin.Caption:='Открепить'; BringToFront;
