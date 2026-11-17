@@ -69,3 +69,19 @@ not replace the final clean-install/update checks.
 Ordinary final production applications and release/update installation checks remain.
 Pure vector SVG and old Kindle books without declared cover metadata remain
 separate work. No Desktop installation or public release has changed.
+
+## Production project compilation checkpoint
+
+The actual HomeLibre and HomeLibreReader projects subsequently build on both
+Win32 and Win64, with fresh binaries and matching C:/repository versus G:/mirror
+source hashes. Main links the new KFX preview path. Architecture, executable
+hashes, successful IDE reports and immutable original projects are consolidated
+in `G:/HL-b14-external/current-app-builds-r1509/report.json`.
+The x86 Main run needed its ordinary Community Edition information reminder
+dismissed; licence checks were unchanged and the build then completed normally.
+All owned IDE windows are closed.
+
+This is compilation/integration evidence, not a claim of four fresh runtime
+scenarios or final beta 14 installation packages. Development version resources
+still say 3.0.0.13 until the final release-version update; Desktop/public files
+remain unchanged.

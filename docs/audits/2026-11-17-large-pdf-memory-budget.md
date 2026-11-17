@@ -78,3 +78,8 @@ Final production applications and release/update packages are still required. Ea
 failed runs remain separate evidence and are not counted as successful exports.
 No Desktop installation or public asset has been changed. All new work stays
 on G:, E: is unused and C: retains its required reserve.
+
+The current production Main and Reader projects also subsequently compile on
+both architectures. Matching source/platform/binary identities are recorded in
+`G:/HL-b14-external/current-app-builds-r1509/report.json`. These development
+binaries retain version 3.0.0.13 and do not replace final runtime/package gates.
