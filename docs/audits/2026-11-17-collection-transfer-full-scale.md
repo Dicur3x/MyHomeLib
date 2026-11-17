@@ -58,10 +58,35 @@ root was the flat chosen folder. The final checks validate the derived identitie
 and the frozen child-root layout explicitly. These failed drafts are not passing
 application gates.
 
-## Large runs pending
+## Large results before the temp-routing change
 
-Win64 r1202 and Win32 r1203 use the same script and native binaries with 1,000,003
-main/source-A rows. Their outcomes, peak memory and allocation are not yet known.
-No real large archive throughput, all-format reading, ordinary UI, mounted-volume
-failure behavior or final update/release package is established by this fixture.
-Desktop binaries and user libraries have not been changed.
+Win64 r1202 and Win32 r1203 passed with 1,000,003 main/source-A rows and three
+source-B rows, including all three native phases. The consolidated 652-input
+evidence is `G:/HL-b14-external/transfer-full-million-validation-r1208/summary.json`.
+
+| Run | Move seconds | Complete seconds | Replay seconds | Peak process commit, move / complete |
+| --- | ---: | ---: | ---: | ---: |
+| Win64 r1202 | 1,714.829 | 294.203 | 4.562 | 290,668,544 / 117,149,696 bytes |
+| Win32 r1203 | 1,827.110 | 263.375 | 4.547 | 171,622,400 / 156,872,704 bytes |
+
+Total times including setup/parent guards are 2,222.094/2,303.047 seconds. The
+main book-table guard matches on both architectures:
+`d960a8c24ca9f0a9c8fb3de8c8fd6ea0a4afc6409b80ed1dc960bdbd8dfed4b9`.
+All compared non-locator user data and effective cached update identities match;
+both original cache/index sets and the unrelated neighbor remain unchanged.
+Two original carriers were removed only after their byte-exact destinations
+were published. Completion records zero pending operations, and fresh-process
+replay returns the exact saved result with unchanged database bytes. Both private
+runtimes were removed.
+
+Observed additional file allocation above the seeded baseline peaks at
+4,025,022,472 bytes on x64 and 4,021,377,032 bytes on x86. These are sampled file
+allocation observations, excluding directory/MFT overhead and possible short
+peaks; they are not exact volume use or a hard admission guarantee. The runs
+partly overlap and are not a controlled speed comparison.
+
+This proves the `d83f9f11` native workflow. The later per-connection SQLite
+temporary-file routing changes are not covered by these binaries and need their
+own integration evidence. No real large archive throughput, all-format reading,
+ordinary UI, mounted-volume failure behavior or final update/release package is
+established by this fixture. Desktop binaries and user libraries are unchanged.
