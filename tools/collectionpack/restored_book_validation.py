@@ -73,7 +73,7 @@ def validate_restored_books(request, *, canceled=lambda: False, notify=lambda va
             if extension in ('.fb2', '.epub'):
                 verify_non_image_content(old[0], new[0], extension)
             elif not book['raw_changed'] and old[2] != new[2]:
-                raise PackingError('Внешние картинки изменили содержимое книги другого формата.')
+                raise PackingError('Внешние картинки изменили содержимое книги другого формата: ' + book['member'] + ' (' + extension + ').')
             result['restored_payloads'].append(dict(member=book['member'], input_sha256=old[2],
                 output_sha256=new[2], input_size=old[1][2], size=new[1][2]))
             if originals is not None:

@@ -11,7 +11,7 @@ var Current:IBookCollection; Profile:TLibraryUpdateSource;
   Sizes:TDictionary<string,Int64>; Files,Raw:TDictionary<string,string>; History:string;
   CorrectTitles,PrimaryCorrect,SavedIgnore,Bound,HasArrival,ArrivalCompressed:Boolean;
   TargetID,ActiveSource,ArrivalSource,CopyCount:Integer; Sources:TCatalogSources;
-  Profiles:TArray<TLibraryUpdateSource>; SecondRoot,Downloads,CrashPhase:string; StartupMode:Boolean;
+  Profiles:TArray<TLibraryUpdateSource>; SecondRoot,Downloads,CrashPhase,PreferredRoot:string; StartupMode,TransferAfterCompression:Boolean;
 
   function HistoryStamp:string;
   var DB:TSQLiteDatabase; Q:TSQLiteQuery; Text:TStringBuilder;
@@ -155,7 +155,7 @@ var Current:IBookCollection; Profile:TLibraryUpdateSource;
       Require(Book.Title=Title,'Reviewed update changed preferred FLibrary metadata');
       if Bound then
       begin
-        Require(Book.GetBookFileName.Contains(SourceRoot),'Reviewed FLibrary update changed source priority');
+        Require(Book.GetBookFileName.Contains(PreferredRoot),'Reviewed FLibrary update changed source priority');
         var Copies:=Current.GetCatalogBookCopies(Book.BookKey);
         Require(Length(Copies)=2,'Reviewed FLibrary update lost a retained physical copy');
         for var CopyBook in Copies do CheckPhysical(Entry,CopyBook,Capture);
@@ -268,11 +268,21 @@ var Current:IBookCollection; Profile:TLibraryUpdateSource;
       var Destination:=TPath.Combine(SecondRoot,Relative); ForceDirectories(ExtractFileDir(Destination));
       TFile.Copy(FileName,Destination,False);
     end;
+    if TransferAfterCompression then
+    begin
+      PreferredRoot:=Settings.AppPath+'first-flibrary-source'; ForceDirectories(PreferredRoot);
+      for var FileName in TDirectory.GetFiles(SourceRoot,'*',TSearchOption.soAllDirectories) do
+      begin
+        var Relative:=Copy(FileName,Length(IncludeTrailingPathDelimiter(SourceRoot))+1,MaxInt);
+        var Destination:=TPath.Combine(PreferredRoot,Relative); ForceDirectories(ExtractFileDir(Destination));
+        TFile.Copy(FileName,Destination,False);
+      end;
+    end;
     SetLength(Sources,2);
     for var I:=0 to High(Sources) do
     begin
       Sources[I]:=Default(TCatalogSource); Sources[I].ID:=TCatalogSource.NewID;
-      Sources[I].Name:='FLibrary source '+IntToStr(I); Sources[I].Root:=SourceRoot;
+      Sources[I].Name:='FLibrary source '+IntToStr(I); Sources[I].Root:=PreferredRoot;
       if I=1 then Sources[I].Root:=SecondRoot;
       Sources[I].LibraryNamespace:='flibusta'; Sources[I].INPXFile:=Profiles[I].LocalFile;
       Profiles[I].CatalogSourceID:=Sources[I].ID; Profiles[I].BooksRoot:=Sources[I].Root;
@@ -280,7 +290,7 @@ var Current:IBookCollection; Profile:TLibraryUpdateSource;
       try Refresh.Start; Refresh.WaitFor; Require(Refresh.Success,'FLibrary bound source preparation: '+Refresh.Error);
       finally Refresh.Free; end;
     end;
-    TargetID:=SystemDB.CreateCollection('Bound FLibrary compression',SourceRoot,Settings.AppPath+'bound-flibrary.hlc2',
+    TargetID:=SystemDB.CreateCollection('Bound FLibrary compression',PreferredRoot,Settings.AppPath+'bound-flibrary.hlc2',
       CT_EXTERNAL_LOCAL_FB,Settings.SystemFileName[sfGenresFB2]);
     Current:=SystemDB.GetCollection(TargetID); SaveCatalogSources(Current,Sources);
     Merge:=TCatalogMergeWorker.CreatePreview(TargetID,Sources,mpSourcePriority);
@@ -391,8 +401,10 @@ var Current:IBookCollection; Profile:TLibraryUpdateSource;
     finally Proof.Free; end;
   end;
 
+  {$I CollectionTransferFLibraryUpdateTests.inc}
 begin
   RequireIsolatedRegression; Current:=Collection; TargetID:=Collection.CollectionID; CorrectTitles:=False; PrimaryCorrect:=False;
+  PreferredRoot:=SourceRoot; TransferAfterCompression:=FileExists(Settings.AppPath+'transfer-flibrary-compression.marker');
   Bound:=FileExists(Settings.AppPath+'reviewed-flibrary-bound.marker'); CopyCount:=IfThen(Bound,2,1);
   ArrivalSource:=CopyCount-1; HasArrival:=False; ArrivalCompressed:=False;
   StartupMode:=ParamStr(1)='library-flibrary-recovery-open'; CrashPhase:='';
@@ -414,7 +426,7 @@ begin
     for var I:=0 to CopyCount-1 do
       for var Pair in Manifest.GetValue<TJSONObject>('files') do
       begin
-        var Root:=SourceRoot; if I=1 then Root:=SecondRoot;
+        var Root:=PreferredRoot; if I=1 then Root:=SecondRoot;
         var Path:=TPath.Combine(Root,Pair.JsonString.Value); Files.Add(Path,UpdateSHA256(Path));
       end;
     History:=HistoryStamp;
@@ -425,7 +437,8 @@ begin
       begin var Path:=TPath.Combine(Downloads,Pair.JsonString.Value); Files.Add(Path,UpdateSHA256(Path)); end;
       CrashUpdate; Exit;
     end;
-    WriteIndex; ApplyIndex; ApplyIndex; Compress(True,0,4*CopyCount);
+    if TransferAfterCompression then MoveFLibraryFixture;
+    SelectSource(0); WriteIndex; ApplyIndex; ApplyIndex; Compress(True,0,4*CopyCount);
     CorrectTitles:=True;
     if Bound then begin SelectSource(1); WriteIndex; ApplyIndex; Compress(True,0,8); end;
     SelectSource(0); WriteIndex; ApplyIndex; Compress(True,0,4*CopyCount);

@@ -14,6 +14,23 @@ from pack_collection import (BLOCK, MAX_IMAGE_BOOK, PackingError, digest_file,
                              reserve_space)
 
 
+def is_nested_epub(source, work, decoder):
+    """Recognize the bounded EPUB resource root before generic byte sniffing.
+
+    Stored 7z streams can contain literal HTML/XML; those bytes do not make
+    their enclosing FLibrary EPUB an HTML book. No member is extracted here.
+    """
+    entries = archive_inventory(decoder, source, work)
+    files = [(name, item) for name, item in entries.items() if not item['directory']]
+    if not 0 < len(files) <= 20000 or sum(item['size'] for _, item in files) > MAX_IMAGE_BOOK:
+        return False
+    tops = {name.split('/', 1)[0] if '/' in name else '' for name, _ in files
+            if not name.lower().endswith('flibraryimageindex.json')}
+    prefix = next(iter(tops))+'/' if len(tops)==1 and '' not in tops else ''
+    names = {name.removeprefix(prefix) for name, _ in files}
+    return len(names) == len(files) and 'META-INF/container.xml' in names
+
+
 def optimize_nested_epub(source, stage, processor, decoder, history, verify, check):
     work = stage/'nested-epub'
     work.mkdir()

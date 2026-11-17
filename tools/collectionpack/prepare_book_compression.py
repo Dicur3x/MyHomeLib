@@ -478,13 +478,20 @@ def prepare_selected_file(source, members, workspace, seven_zip, *, profile='ori
                      and not ledger.get('retry_original', False))
             reason, optimized, image_outputs, checked = '', False, [], True
             detected_format = extension
+            nested_epub = False
+            if container_sevenzip and extension == '.epub':
+                with current.open('rb') as stream:
+                    nested_epub = stream.read(6) == b"7z\xbc\xaf'\x1c"
+                if nested_epub:
+                    from nested_epub_compression import is_nested_epub
+                    nested_epub = is_nested_epub(current, book_dir, decoder)
             images_reused = images_processed = 0
             if reuse:
                 reason = 'Уже сжата с этими настройками; повторная обработка изображений не нужна.'
                 if processor.converter is not None:
-                    detected = processor.converter.detect_input(current)
+                    detected = '.epub' if nested_epub else processor.converter.detect_input(current)
                     detected_format = detected
-                    if member not in previous and member in legacy and detected in IMAGE_SUFFIXES and current.stat().st_size <= MAX_IMAGE_BOOK:
+                    if member not in previous and member in legacy and detected in IMAGE_SUFFIXES and not nested_epub and current.stat().st_size <= MAX_IMAGE_BOOK:
                         collect = getattr(processor.converter, 'compressed_image_hashes', None)
                         if not callable(collect):
                             raise PackingError('Для переноса истории изображений обновите модуль подготовки книг.')
@@ -492,7 +499,7 @@ def prepare_selected_file(source, members, workspace, seven_zip, *, profile='ori
                         images_reused = len(image_outputs)
             elif processor.converter is not None:
                 try:
-                    detected = processor.converter.detect_input(current)
+                    detected = '.epub' if nested_epub else processor.converter.detect_input(current)
                     detected_format = detected
                     if detected in IMAGE_SUFFIXES or (detected == '.djvu' and profile == 'maximum'):
                         if detected != extension:

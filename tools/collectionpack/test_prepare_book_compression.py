@@ -273,6 +273,61 @@ class SelectedPreparationTests(unittest.TestCase):
             verify_non_image_content(before, decoded, extension)
         self.assertEqual(self.decoded(prepared.candidate, 'keep.txt'), b'Neighbor stays')
 
+    def stored_nested_source(self, entries):
+        content = self.root / 'nested-resources'
+        content.mkdir()
+        for name, body in entries.items():
+            path = content / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(body)
+        stage = self.root / 'outer-resources'
+        stage.mkdir()
+        inner = stage / 'one.epub'
+        self.decoder.run(['a', '-t7z', '-mx=0', '-ms=off', '-mmt=1', '-y', '--', str(inner), *entries], cwd=content)
+        (stage / 'neighbor.txt').write_bytes(b'Keep the other physical book exactly.')
+        source = self.root / 'books-named.zip'
+        self.decoder.run(['a', '-t7z', '-mx=0', '-ms=off', '-mmt=1', '-y', '--', str(source), 'one.epub', 'neighbor.txt'], cwd=stage)
+        return source, inner.read_bytes()
+
+    @unittest.skipUnless(TOOLS, 'Real HomeLibre Images runtime required')
+    def test_stored_flibrary_epub_uses_resource_structure_before_visible_html(self):
+        original = epub(image_fixture())
+        with zipfile.ZipFile(io.BytesIO(original)) as archive:
+            entries = {name: archive.read(name) for name in archive.namelist()}
+        source, raw_book = self.stored_nested_source(entries)
+        before = sha(source)
+        prepared = self.prepare(source, {'one.epub': '.epub'}, profile='balanced')
+        self.assertEqual(prepared.books[0]['format'], '.epub')
+        self.assertTrue(prepared.books[0]['checked'], prepared.books)
+        self.assertTrue(prepared.books[0]['optimized'], prepared.books)
+        retained = self.decoded(prepared.candidate or source, 'one.epub')
+        self.assertNotEqual(retained, raw_book)
+        inner = self.root / 'retained.epub'
+        inner.write_bytes(retained)
+        inventory = archive_inventory(self.decoder, inner, self.root)
+        output = self.root / 'restored.epub'
+        with zipfile.ZipFile(output, 'x') as archive:
+            for number, (name, info) in enumerate(inventory.items()):
+                if info['directory']: continue
+                piece = self.root / ('resource-' + str(number))
+                self.decoder.extract(inner, name, piece, self.root)
+                archive.writestr(name, piece.read_bytes())
+        baseline = self.root / 'baseline.epub'
+        baseline.write_bytes(original)
+        verify_non_image_content(baseline, output, '.epub')
+        self.assertEqual(self.decoded(prepared.candidate or source, 'neighbor.txt'), b'Keep the other physical book exactly.')
+        self.assertEqual(sha(source), before)
+
+    @unittest.skipUnless(TOOLS, 'Real HomeLibre Images runtime required')
+    def test_unrelated_nested_archive_with_html_is_not_optimized_as_epub(self):
+        source, raw_book = self.stored_nested_source({'chapter.xhtml': b'<html><body>Generic archive, not an EPUB.</body></html>'})
+        before = sha(source)
+        prepared = self.prepare(source, {'one.epub': '.epub'}, profile='balanced')
+        self.assertEqual(prepared.books[0]['format'], '.html')
+        self.assertFalse(prepared.books[0]['optimized'])
+        self.assertEqual(self.decoded(prepared.candidate or source, 'one.epub'), raw_book)
+        self.assertEqual(sha(source), before)
+
     @unittest.skipUnless(TOOLS, 'Real HomeLibre Images runtime required')
     def test_mistyped_extension_uses_actual_epub_without_format_roundtrip(self):
         body = epub(image_fixture())

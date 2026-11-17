@@ -345,13 +345,16 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
         update_recovery_phase=None, update_recovery_bound=False, update_recovery_preserve=None,
         update_recovery_neighbour=False, update_recovery_compressed=False, reviewed_flibrary_bound=False, flibrary_recovery_phase=None, recovery_interrupt=None,
         reader_runtime=None, reader_timeout=600, reader_recompress=False, cancel_compression_refresh=False, work_picker_source_volume=None,
-        transfer_bound=False):
+        transfer_bound=False, transfer_flibrary=False):
     for value in (binary, runtime, sqlite, icons, genres, stage, real_books, processing_package,
                   images, packing_codec, packing_codec_release, reader_runtime, work_picker_source_volume):
         if value is not None:
             path = Path(value)
             assert path.drive.casefold() != 'e:', 'Drive E: is forbidden for tests'
             assert path.resolve().drive.casefold() != 'e:', 'Resolved test path uses forbidden drive E:'
+    if transfer_flibrary:
+        assert reviewed_flibrary_bound and not any((reader_runtime, flibrary_recovery_phase, recovery_interrupt, real_books))
+        assert Path(stage).resolve().drive.casefold() == 'g:', 'Sidecar transfer fixture must use G:'
     if transfer_bound:
         assert reviewed_bound and not real_books, 'Transfer gate requires the private reviewed bound fixture'
         assert Path(stage).resolve().drive.casefold() == 'g:', 'Transfer fixture must use G:'
@@ -470,6 +473,8 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
             (root / 'transfer-bound-compression.marker').write_text('1', encoding='ascii')
         if reviewed_flibrary_bound:
             (root / 'reviewed-flibrary-bound.marker').write_text('1', encoding='ascii')
+        if transfer_flibrary:
+            (root / 'transfer-flibrary-compression.marker').write_text('1', encoding='ascii')
         real_stamps = {}
         if scenario == 'packing-fbd':
             assert not any((real_books, legacy_history, recovery_fault, refresh_index))
@@ -605,7 +610,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
         # discard the only evidence explaining where the private GUI stopped.
         # The real-book fixture itself allows 300 s *after* its application
         # bootstrap; leave separate room for bootstrap and orderly teardown.
-        deadline = 420 if work_picker_source_volume or real_books or refresh_index or reviewed_index or reviewed_bound or scenario in ('packing-fbd', 'packed-jxl-formats', 'packed-flibrary-sidecars', 'reviewed-flibrary-compression',
+        deadline = 900 if transfer_flibrary else 420 if work_picker_source_volume or real_books or refresh_index or reviewed_index or reviewed_bound or scenario in ('packing-fbd', 'packed-jxl-formats', 'packed-flibrary-sidecars', 'reviewed-flibrary-compression',
             'compression-continuation', 'library-update-sources', 'library-update-apply', 'library-update-cancel', 'library-update-window', 'catalog-merge-outcome', 'library-update-recovery') else 150
         attempt = dict(status='INCOMPLETE', platform=platform, mode=mode,
             native_binary_sha256=digest(binary), outer_timeout_seconds=deadline,
@@ -815,6 +820,8 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
             expected_lines.append('PASS bound measured-size updates preserve the existing personal card and roll back both stores if the size write fails')
         if transfer_bound:
             expected_lines.append('PASS actual bound transfer preserves compressed archive hashes book IDs source keys copies and personal fields with old roots offline')
+        if transfer_flibrary:
+            expected_lines.append('PASS FLibrary physical transfer preserves all sixteen archive hashes stable identities compression witnesses and independent update profiles with old roots offline')
         if scenario == 'reviewed-flibrary-compression' and not flibrary_recovery_phase:
             expected_lines.append('PASS FLibrary new external-image download compresses alone and retains old physical copies across full append and preferred-source updates')
         if update_recovery_compressed:
@@ -882,7 +889,7 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
                         reader_inspection=reader_result,
                         update_recovery_neighbour_preserved=update_recovery_neighbour,
                         update_recovery_compressed=update_recovery_compressed,
-                        reviewed_flibrary_bound=reviewed_flibrary_bound,
+                        reviewed_flibrary_bound=reviewed_flibrary_bound, transfer_flibrary=transfer_flibrary,
                         flibrary_recovery_phase=flibrary_recovery_phase,
                         recovery_interrupt=recovery_interrupt, recovery_foreign_files_preserved=bool(recovery_interrupt),
                         unrelated_archive_unchanged=True, native_log=str(log_path),
@@ -1076,6 +1083,8 @@ if __name__ == '__main__':
                         help='Use two FLibrary source roots with separate images and apply new downloads from another folder')
     parser.add_argument('--reviewed-bound', action='store_true',
                         help='Compress two physical bound sources, then apply source INPX and preserve sizes and priorities')
+    parser.add_argument('--transfer-flibrary', action='store_true',
+                        help='Transfer sixteen FLibrary book/image/cover archives before full/append INPX and one-arrival compression; private G: fixture only')
     parser.add_argument('--transfer-bound', action='store_true',
                         help='Physically transfer the private reviewed bound fixture before adding a new archive and applying full/append INPX; G: only')
     parser.add_argument('--reviewed-index', action='store_true',
