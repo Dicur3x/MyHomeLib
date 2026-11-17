@@ -6239,6 +6239,7 @@ end;
 {$I BookSavePlanningTests.inc}
 {$I SaveSettingsSyncTests.inc}
 {$I KindleBookSaveTests.inc}
+{$I CollectionNativeExportTests.inc}
 {$I AdvancedBookSaveTests.inc}
 {$I BookNameCollisionTests.inc}
 {$I ExportPathFeedbackTests.inc}
@@ -6339,6 +6340,7 @@ begin
       end;
       if ParamStr(1)='personal-author-reopen' then begin TestPersonalAuthorReopen; Halt(0); end;
       if ParamStr(1)='distribution-layout' then begin TestDistributionLayout; Flush(Output); Halt(0); end;
+      if ParamStr(1)='collection-native-export' then begin TestCollectionNativeExports; Flush(Output); Halt(0); end;
       if ParamStr(1)='flibrary-source-preparation' then begin TestFLibrarySourcePreparation; Flush(Output); Halt(0); end;
       if ParamStr(1)='packed-usr-zip' then begin TestPackedUsrZip; Flush(Output); Halt(0); end;
       if ParamStr(1)='packed-pdf-preparation' then begin TestPackedPdfPreparation; TestPackedPdfInpx; Flush(Output); Halt(0); end;
