@@ -128,6 +128,12 @@ begin
       Reply.OriginProcessID:=Reply.ProcessID; Reply.HasProgress:=True; Reply.Progress:=42;
       if Mode='foreign' then begin Reply.ProcessID:=High(Cardinal); Reply.OriginProcessID:=0; end;
       if Mode='detach' then begin Sleep(1000); Reply.Progress:=73; end;
+      if Mode='transfer-hold' then
+      begin
+        var UntilRelease:=GetTickCount64+120000;
+        while not FileExists(GetEnvironmentVariable('HLRU_TRANSFER_READER_RELEASE')) and
+          (GetTickCount64<UntilRelease) do Sleep(10);
+      end;
       if (Mode='restart') and (ParamStr(3)<>'--native-restarted') then
       begin
         Reply.State:='restarting'; WriteReaderSessionReply(Request,Reply); FreeAndNil(Lease);
