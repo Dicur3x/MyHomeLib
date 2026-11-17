@@ -31,6 +31,8 @@ type
     constructor Create(DB:TSQLiteDatabase; const Operation,ReviewSHA:string);
     destructor Destroy; override;
     function RecordMove(const Before,After:TBookRecord; RequireExisting:Boolean):string;
+    // Reads and validates a saved mapping without creating a personal card or alias.
+    function ExistingBinding(const Book:TBookRecord):string;
   end;
 
 implementation
@@ -148,6 +150,17 @@ begin
     'PRIMARY KEY(CollectionID,BookID,LibID,LocationSHA256,CurrentName)) WITHOUT ROWID');
   FLookup.Invalidate;
   FInsert:=FDB.NewQuery('INSERT INTO '+AliasTable+' VALUES(?,?,?,?,?,?,?,?,?)');
+end;
+
+function TReaderHistoryAliasWriter.ExistingBinding(const Book:TBookRecord):string;
+begin
+  Result:='';
+  if (Book.BookKey.BookID<=0) or (Book.BookKey.DatabaseID<=0) then
+    raise EReadError.Create('История чтения относится к другой книге.');
+  if not ReaderHistoryNeedsLocationProof(Book,'') then Exit;
+  var Name:=ReaderBaseHistoryName(Book,''); var OriginalName:string;
+  if FLookup.Find(Book,Name,OriginalName) then
+    Result:=MappingSHA(Book,LocationSHA(Book),Name,OriginalName);
 end;
 
 function TReaderHistoryAliasWriter.RecordMove(const Before,After:TBookRecord; RequireExisting:Boolean):string;

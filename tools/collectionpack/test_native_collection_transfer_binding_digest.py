@@ -73,6 +73,14 @@ class TransferBindingReceiptTests(locations.TransferLocationTests):
     def test_replay_old_receipts_with_location_based_reader_alias(self):
         self.check_legacy_replay(blank_ids=True)
 
+    def test_previous_writer_can_verify_new_receipts_with_present_cards(self):
+        self.run_case()
+        saved = self.receipts()
+        shutil.copy2(BASELINE, self.binary)
+        self.config['mode'] = 'resume'
+        self.assertEqual(self.run_case()['copy_streams'], 0)
+        self.assertEqual(self.receipts(), saved)
+
     def test_missing_personal_card_keeps_old_prefix_digest_without_restoring_card(self):
         # A scoped identity has no optional reader-history suffix in the old
         # receipt. Exercise the missing-row prefix, not a different old policy.

@@ -19,6 +19,40 @@ uses System.Classes, System.IOUtils, System.JSON, System.Hash, System.StrUtils, 
   unit_BookCompressionReceipt, unit_CollectionTransferLayout, unit_ReaderHistoryAliases,
   unit_CollectionTransferBindingDigest;
 
+function TransferBindingVersion(DB:TSQLiteDatabase; const Operation,ReviewSHA:string; GroupID:Int64):Integer;
+var Q:TSQLiteQuery; Present:Boolean; PreviousReview,PreviousBinding:string;
+begin
+  // Old receipts retain their exact digest. New receipts also read saved alias
+  // proofs for missing cards; card presence alone cannot change that digest.
+  Result:=2; Present:=False; PreviousReview:=''; PreviousBinding:=''; Q:=nil;
+  try
+    if DB.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE type=''table'' AND name=''HomeLibreTransferLocations''')=1 then
+    begin
+      Q:=DB.NewQuery('SELECT ReviewSHA256,BindingSHA256 FROM HomeLibreTransferLocations WHERE Operation=? AND GroupID=?',[Operation,GroupID]);
+      Q.Open; Present:=not Q.Eof;
+      if Present then
+      begin
+        PreviousReview:=Q.FieldAsString(0); PreviousBinding:=Q.FieldAsString(1); Result:=1;
+        if PreviousReview<>ReviewSHA then raise EReadError.Create('Квитанция расположений относится к другой проверке.');
+      end;
+      FreeAndNil(Q);
+    end;
+    if DB.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE type=''table'' AND name=''HomeLibreTransferLocationFormats''')=1 then
+    begin
+      Q:=DB.NewQuery('SELECT ReviewSHA256,BindingSHA256,Format FROM HomeLibreTransferLocationFormats WHERE Operation=? AND GroupID=?',[Operation,GroupID]);
+      Q.Open;
+      if not Q.Eof then
+      begin
+        if not Present then raise EReadError.Create('Нет квитанции сохранённых адресов этой группы.');
+        if (Q.FieldAsString(0)<>PreviousReview) or (Q.FieldAsString(1)<>PreviousBinding) then
+          raise EReadError.Create('Квитанция расположений не совпала с записью её формата.');
+        if Q.FieldAsInt(2)<>2 then raise EReadError.Create('Неизвестный формат квитанции расположений.');
+        Result:=2;
+      end;
+    end;
+  finally Q.Free; end;
+end;
+
 procedure EnableLocatorTriggers(Context:TSQLite3Context; Count:Integer; Values:TSQLite3Value); cdecl;
 begin SQLite3_Result_Int(Context,1); end;
 
@@ -197,6 +231,7 @@ begin
   Allowed:=TDictionary<string,Boolean>.Create; Seen:=TDictionary<string,Boolean>.Create;
   Unsafe:=TDictionary<string,Boolean>.Create; Bind:=TTransferBindingDigest.Create;
   try
+    var BindingVersion:=TransferBindingVersion(DB,Operation,ReviewSHA,Prepared.ID);
     ReaderAliases:=TReaderHistoryAliasWriter.Create(Personal,Operation,ReviewSHA);
     if Finalizing then FinalLayout:=TCollectionTransferLayout.Create(Review);
     if not VerifyOnly then DB.AddFunction('MHL_TRIGGERS_ON',0,EnableLocatorTriggers);
@@ -269,6 +304,10 @@ begin
       Row:=TJSONArray.Create;
       Row.Add(Key); Row.Add(Original.LibID); Row.Add(Original.Folder); Row.Add(Original.FileName); Row.Add(Original.FileExt);
       Row.Add(Original.InsideNo); Row.Add(Rows.FieldAsString(9)); Row.Add(Folder); Row.Add(FileName); Row.Add(Item.Identity); Row.Add(Item.SHA256);
+      var ReaderBefore:=Original; ReaderBefore.BookKey:=CreateBookKey(Rows.FieldAsInt(2),CID);
+      if (Kind<>2) or (Rows.FieldAsString(9)='') then
+        ReaderBefore.CollectionRoot:=Settings.ExpandCollectionRoot(Rows.FieldAsString(13));
+      var ReaderAfter:=ReaderBefore; ReaderAfter.Folder:=Folder; ReaderAfter.FileName:=FileName;
       var Table:='Books'; var Where:='BookID=?';
       if Kind=2 then begin Table:='CatalogBookCopies'; Where:='SourceKey=?'; end;
       if PersonalRows then Where:=Where+' AND DatabaseID=?';
@@ -280,6 +319,11 @@ begin
       if Live.Eof then
       begin
         FreeAndNil(Live); if not PersonalRows then raise EReadError.Create('Запись книги удалена после проверки.');
+        if BindingVersion=2 then
+        begin
+          var HistoryBinding:=ReaderAliases.ExistingBinding(ReaderAfter);
+          if HistoryBinding<>'' then Row.Add('reader-history:'+HistoryBinding);
+        end;
         Bind.AddRow(Row); FreeAndNil(Row);
         Rows.Next; Continue;
       end;
@@ -304,11 +348,10 @@ begin
       if VerifyOnly and not NewLocation then raise EReadError.Create('Новый адрес книги ещё не сохранён.');
       if ReconcileOnly and not PersonalRows and not NewLocation then
         raise EReadError.Create('Сохранённый адрес каталога изменился после публикации группы.');
-      var ReaderBefore:=Original; ReaderBefore.BookKey:=CreateBookKey(Rows.FieldAsInt(2),CID);
-      if (Kind<>2) or (Rows.FieldAsString(9)='') then
-        ReaderBefore.CollectionRoot:=Settings.ExpandCollectionRoot(Rows.FieldAsString(13));
-      var ReaderAfter:=ReaderBefore; ReaderAfter.Folder:=Folder; ReaderAfter.FileName:=FileName;
       var ReaderBinding:=ReaderAliases.RecordMove(ReaderBefore,ReaderAfter,VerifyOnly or ReconcileOnly);
+      // Keep the alias proof in the digest. Version 2 reads the same mapping
+      // whether the optional card is present or absent, and never creates one.
+      if BindingVersion=2 then ReaderBinding:=ReaderAliases.ExistingBinding(ReaderAfter);
       if ReaderBinding<>'' then Row.Add('reader-history:'+ReaderBinding);
       if not NewLocation then
       begin
@@ -341,6 +384,12 @@ begin
     begin
       if not PersonalRows and not ReconcileOnly then Result.History:=RebindTransferHistory(DB,Review,Prepared);
       DB.ExecSQL('INSERT OR IGNORE INTO HomeLibreTransferLocations VALUES(?,?,?,?)',[Operation,Prepared.ID,ReviewSHA,BindingSHA]);
+      if BindingVersion=2 then
+      begin
+        DB.ExecSQL('CREATE TABLE IF NOT EXISTS HomeLibreTransferLocationFormats(Operation TEXT,GroupID INTEGER,ReviewSHA256 TEXT,'+
+          'BindingSHA256 TEXT,Format INTEGER NOT NULL,PRIMARY KEY(Operation,GroupID)) WITHOUT ROWID');
+        DB.ExecSQL('INSERT OR IGNORE INTO HomeLibreTransferLocationFormats VALUES(?,?,?,?,2)',[Operation,Prepared.ID,ReviewSHA,BindingSHA]);
+      end;
     end;
   finally Row.Free; ReaderAliases.Free; FinalLayout.Free; Marker.Free; Live.Free; Rows.Free; R.Free; Bind.Free; Unsafe.Free; Seen.Free; Allowed.Free; end;
 end;

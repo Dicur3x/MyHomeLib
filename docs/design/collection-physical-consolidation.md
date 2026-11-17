@@ -646,6 +646,15 @@ bounded million-row measurements are recorded in
 
 ### Remaining end-to-end evidence
 
+New locator receipts use an explicitly bound format record so optional personal
+card deletion cannot remove an existing reader-alias suffix from the digest.
+The missing-card path reads and validates the saved destination mapping without
+creating it. Present cards retain normal alias validation, and the alias proof
+remains in the binding hash. Old receipts keep their original rules; ambiguous
+legacy recovery is refused without changing cards or proofs. The ordinary
+four-column receipt remains readable by the old writer when cards are present.
+Evidence: `docs/audits/2026-11-17-collection-transfer-personal-receipts.md`.
+
 The first real post-transfer INPX composition now passes on x86/x64: two
 compressed bound FB2/EPUB source archives, both former roots offline, full/append
 updates from a new incoming folder, exactly one new member, unchanged old archive
