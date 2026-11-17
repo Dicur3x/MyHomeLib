@@ -264,8 +264,9 @@ begin
   if FCatalogueKey=FPersonalKey then raise EReadError.Create('Каталог и личные данные должны быть разными базами.');
   FCatalogueLease:=AcquireCompressionDatabaseLease(FInfo.DBFileName,FCatalogueKey);
   FPersonalLease:=AcquireCompressionDatabaseLease(FPersonalFile,FPersonalKey);
-  FCatalogue:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(FInfo.DBFileName));
-  FPersonal:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(FPersonalFile));
+  FStore:=TCompressionPlanStore.Create(WorkRoot);
+  FCatalogue:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(FInfo.DBFileName),FStore.Folder);
+  FPersonal:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(FPersonalFile),FStore.Folder);
   FCatalogueVersion:=FCatalogue.QuerySingleInt('PRAGMA data_version');
   FPersonalVersion:=FPersonal.QuerySingleInt('PRAGMA data_version');
   FCatalogue.ExecSQL('BEGIN'); FPersonal.ExecSQL('BEGIN');
@@ -281,7 +282,6 @@ begin
       raise EReadError.Create('Подключение коллекции изменилось. Повторите подготовку переноса.');
   finally Q.Free; end;
   ReadRoots;
-  FStore:=TCompressionPlanStore.Create(WorkRoot);
   FStore.DB.ExecSQL('CREATE TABLE TransferCandidates(ID INTEGER PRIMARY KEY,RootID TEXT NOT NULL,Path TEXT NOT NULL,'+
     'Canonical TEXT,Identity TEXT,Bytes INTEGER,Available INTEGER,Reason TEXT,UNIQUE(RootID,Path))');
   FStore.DB.ExecSQL('CREATE TABLE TransferCatalogueBindings(ID INTEGER PRIMARY KEY,Kind INTEGER NOT NULL,BookID INTEGER NOT NULL,'+
@@ -305,8 +305,9 @@ end;
 
 destructor TCollectionTransferCatalogue.Destroy;
 begin
+  FPersonal.Free; FCatalogue.Free;
   FStore.Free; FContainers.Free; FAbsentContainers.Free; FRoots.Free;
-  FPersonal.Free; FCatalogue.Free; FPersonalLease:=nil; FCatalogueLease:=nil;
+  FPersonalLease:=nil; FCatalogueLease:=nil;
   inherited;
 end;
 

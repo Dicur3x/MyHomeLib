@@ -70,3 +70,55 @@ final report are not aborted by that status-file collision. Win64 r1226 remains
 on the original live wrapper; Win32 r1229 uses the corrected wrapper. The latter
 has 657 input files, differing in benchmark/test code rather than production
 SQLite/transfer code. Both scale outcomes remain pending.
+
+
+## Transfer connections use their owned work folders
+
+The explicit `temp_store=FILE` review connection was outside the original plan
+store change. Review creation/reopening, mutable state, reference readers,
+publication writers, registry mutations, catalogue forks, cache snapshots and
+preparation, finalization/completion and active cleanup now select the held
+operation folder. Catalogue capture first creates its disposable plan store and
+uses that folder for both source readers; the readers close before that store is
+removed. Snapshot readers/writers use the snapshot folder after it exists.
+Connections borrowing the review inherit its canonical `TemporaryDirectory`;
+the property is empty for connections without an opt-in VFS.
+
+This does not change the named journal location or process environment. The
+small operation-discovery/cleanup-queue queries, and an error-marker fallback
+without an opened journal, retain their default connection behavior. SQLite
+connections in unrelated application subsystems have not been audited here.
+
+The native transfer fixture now sorts 9,000 generated 2 KiB payloads on the
+actual sealed review connection, observes a live physical spill in the operation
+folder and checks the sum of all IDs. It repeats on fresh-process completion
+and completion replay, with database-byte and preserved-user-data guards. The
+review remains query-only: an initial fixture incorrectly tried creating a TEMP
+table and was rejected by that existing protection (`r1233`). The corrected
+fixture performs a read-only sort and leaves query-only protection enabled.
+That failed fixture is retained and is not a passing application scenario.
+
+`G:/HL-b14-external/transfer-work-temp-validation-r1244/summary.json`
+records 658 matching repository/build inputs and 16 passing methods across
+x64 r1240 / x86 r1241: 44 native calls, 20 expected safety refusals, no skips or
+remaining private runtimes. The three physical read-only sorts per architecture
+each observed 18,503,891 bytes in the operation folder; fresh completion and
+replay preserved the stored database bytes. The same run covers disposable
+constructor cancellation, foreign/replaced/linked/busy entry retention, cancelled
+space preview, Unicode/%/# approval attachment, long-path legacy approval,
+SQL cancellation and completed-snapshot cleanup/replay with installed caches
+preserved. The corrected driver binaries are x64 r1235 / x86 r1237.
+
+The two million-row runs r1226/r1229 still exercise the preceding,
+plan-store-only routing snapshot; they are not validation of this wider
+connection selection. Production Main builds and ordinary UI/release outcomes
+remain distinct evidence.
+
+
+Production `Program/HomeLibre.dproj` also compiles successfully on x64 r1242
+and x86 r1243 with these production sources, without transfer test hooks. The
+new executables have the correct PE machines and `HomeLibre.exe` original file
+name. Their current development resource remains `3.0.0.13` /
+`3.0.0_pre1.13`; release versioning is still a final beta14 gate. SHA256 and
+build stages are recorded in r1244. Compilation does not establish ordinary UI,
+update-package or final-release readiness; Desktop binaries remain unchanged.

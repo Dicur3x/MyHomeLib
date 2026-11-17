@@ -141,7 +141,7 @@ class function TCollectionTransferCachePreparation.HasIntent(Journal:TCollection
 begin
   var Path:=Journal.Review.QuerySingleString('SELECT Value FROM Context WHERE Name=''personal''');
   var Lease:=AcquireCompressionDatabaseLease(Path,Journal.Review.QuerySingleString('SELECT Value FROM Context WHERE Name=''personal_key'''));
-  var DB:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(Path));
+  var DB:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(Path),Journal.Directory);
   try Result:=HasTable(DB,IntentTable) and (DB.QuerySingleInt('SELECT count(*) FROM '+IntentTable+' WHERE Operation=?',
     [Journal.Review.QuerySingleString('SELECT Value FROM Context WHERE Name=''directory''')])=1);
   finally DB.Free; Lease:=nil; end;
@@ -306,7 +306,7 @@ begin
   for var Participant in FDatabases do if Participant.Key=Key then Result:=Participant.Database;
   if Result=nil then
   begin
-    Result:=TSQLiteDatabase.Create(DeletionNativePath(Canonical),False); FOwnedDBs.Add(Result); Result.ExecSQL('BEGIN IMMEDIATE');
+    Result:=TSQLiteDatabase.Create(DeletionNativePath(Canonical),False,False,FJournal.Directory); FOwnedDBs.Add(Result); Result.ExecSQL('BEGIN IMMEDIATE');
   end;
   FSourceDBs.Add(Key,Result);
 end;
@@ -551,7 +551,7 @@ class function TCollectionTransferCachePreparation.HasPublication(Journal:TColle
 begin
   var Path:=Journal.Review.QuerySingleString('SELECT Value FROM Context WHERE Name=''personal''');
   var Lease:=AcquireCompressionDatabaseLease(Path,Journal.Review.QuerySingleString('SELECT Value FROM Context WHERE Name=''personal_key'''));
-  var DB:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(Path));
+  var DB:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(Path),Journal.Directory);
   try Result:=HasTable(DB,PublicationTable) and (DB.QuerySingleInt('SELECT count(*) FROM '+PublicationTable+' WHERE Operation=?',
     [Journal.Review.QuerySingleString('SELECT Value FROM Context WHERE Name=''directory''')])<>0);
   finally DB.Free; Lease:=nil; end;

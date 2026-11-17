@@ -243,10 +243,10 @@ begin
   end;
 end;
 
-procedure RememberAttempt(const PersonalFile,PersonalKey,Operation,ReviewSHA:string; Done:Boolean);
+procedure RememberAttempt(const PersonalFile,PersonalKey,Operation,ReviewSHA:string; Done:Boolean; const TempDirectory:string='');
 begin
   var Lease:=AcquireCompressionDatabaseLease(PersonalFile,PersonalKey);
-  var DB:=TSQLiteDatabase.Create(DeletionNativePath(PersonalFile),False);
+  var DB:=TSQLiteDatabase.Create(DeletionNativePath(PersonalFile),False,False,TempDirectory);
   try
     DB.ExecSQL('BEGIN IMMEDIATE');
     if DB.QuerySingleInt('SELECT count(*) FROM '+Operations+' WHERE Operation=? AND PersonalKey=? AND ReviewSHA256=? AND State=''completed''',
@@ -269,7 +269,7 @@ begin
   if (Journal=nil) or not ReadTransferCompletion(Journal,Completed) then raise EReadError.Create('Нет подтверждённого завершения переноса.');
   var PersonalFile:=Meta(Journal,'personal'); var PersonalKey:=Meta(Journal,'personal_key');
   var Lease:=AcquireCompressionDatabaseLease(PersonalFile,PersonalKey);
-  var DB:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(PersonalFile)); var Directories:TObjectList<TWorkDirectory>:=nil;
+  var DB:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(PersonalFile),Journal.Directory); var Directories:TObjectList<TWorkDirectory>:=nil;
   try
     DB.ExecSQL('BEGIN'); Directories:=ReadDirectories(Journal,DB,Check);
   finally DB.Free; Lease:=nil; end;
@@ -288,7 +288,7 @@ begin
     if not Result.Stopped then
     begin
       Point('cleanup-before-record',Journal.Directory);
-      RememberAttempt(PersonalFile,PersonalKey,Meta(Journal,'directory'),Journal.ReviewSHA256,Result.DirectoriesRetained=0);
+      RememberAttempt(PersonalFile,PersonalKey,Meta(Journal,'directory'),Journal.ReviewSHA256,Result.DirectoriesRetained=0,Journal.Directory);
       Point('cleanup-after-record',Journal.Directory);
     end;
   finally Directories.Free; end;

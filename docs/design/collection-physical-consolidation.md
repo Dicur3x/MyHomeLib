@@ -686,3 +686,19 @@ Evidence: `docs/audits/2026-11-16-collection-transfer-inpx.md`.
   byte-exact; restore the same reading progress, favourites, ratings and notes.
 - Ordinary visible workflow, clear estimates/conflicts and stop/resume on both
   final Main architectures. No Desktop replacement until all release gates pass.
+
+
+### Transfer SQLite temporary placement
+
+All active transfer connections with a held work context now explicitly select
+that context for anonymous SQLite spills: catalogue capture uses its disposable
+plan folder, prepared cache snapshots use their own directory, and journal,
+reference, publication, registry mutation, completion and active cleanup use the
+held operation directory. Borrowed review connections expose the canonical
+opt-in temporary directory; default connections return an empty directory.
+Source readers close before their disposable plan folder is removed. Named
+main databases, rollback journals and WAL files retain their regular locations.
+Discovery/queue reads and failure-marker fallback without an opened journal are
+not covered by this selection; this does not globally alter SQLite or TEMP/TMP.
+The audit `2026-11-17-sqlite-plan-temp-routing.md` records native spill and
+focused lifecycle/compatibility evidence on both architectures.

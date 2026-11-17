@@ -138,10 +138,10 @@ begin
   Result:=nil; Lease:=AcquireCompressionDatabaseLease(FPersonal,FInfo.PersonalKey);
   if Writable then
   begin
-    Result:=TSQLiteDatabase.Create(DeletionNativePath(FPersonal));
+    Result:=TSQLiteDatabase.Create(DeletionNativePath(FPersonal),True,False,FJournal.Directory);
     try Result.ExecSQL('PRAGMA synchronous=FULL'); except Result.Free; raise; end;
   end
-  else Result:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(FPersonal));
+  else Result:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(FPersonal),FJournal.Directory);
 end;
 
 procedure TCollectionTransferRegistry.CheckRegistration(DB:TSQLiteDatabase);

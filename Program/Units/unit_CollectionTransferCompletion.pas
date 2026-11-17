@@ -43,7 +43,7 @@ begin
   Result:=False; Outcome:=Default(TTransferCompletionResult);
   var PersonalFile:=Meta(Journal,'personal'); var PersonalKey:=Meta(Journal,'personal_key');
   var Lease:=AcquireCompressionDatabaseLease(PersonalFile,PersonalKey);
-  var DB:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(PersonalFile));
+  var DB:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(PersonalFile),Journal.Directory);
   try
     if not HasTable(DB,'HomeLibreTransferOperations') then Exit;
     var Q:=DB.NewQuery('SELECT Directory,ReviewSHA256,PersonalKey,WorkRoot,Destination,CollectionID,State '+

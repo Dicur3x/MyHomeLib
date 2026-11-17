@@ -52,6 +52,7 @@ type
     function Name:PUTF8Char;
     function ErrorText:string;
     function FilesCreated:Integer;
+    property Directory:string read FDirectory;
   end;
 
 implementation

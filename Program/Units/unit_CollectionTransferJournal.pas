@@ -271,7 +271,7 @@ begin
     until N=0;
     FReviewSHA:=Hash.HashAsString;
     if (Expected<>'') and not SameText(Expected,FReviewSHA) then raise EReadError.Create('План переноса повреждён или изменён. Исходники сохранены.');
-    FReview:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(Path));
+    FReview:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(Path),FDirectory);
   except FreeAndNil(FReviewLease); raise; end;
 end;
 
@@ -279,7 +279,7 @@ procedure TCollectionTransferJournal.OpenState;
 begin
   var Path:=TPath.Combine(FDirectory,'state.sqlite');
   FStateLease:=AcquireCompressionDatabaseLease(Path,Meta('state_key'));
-  FState:=TSQLiteDatabase.Create(DeletionNativePath(Path),False);
+  FState:=TSQLiteDatabase.Create(DeletionNativePath(Path),False,False,FDirectory);
   if FState.QuerySingleString('PRAGMA integrity_check')<>'ok' then
     raise EReadError.Create('Журнал переноса повреждён. Исходники сохранены.');
   FState.QuerySingleString('PRAGMA journal_mode=DELETE'); FState.ExecSQL('PRAGMA synchronous=FULL');
@@ -454,13 +454,13 @@ begin
   FConstructionFiles.Add('review.sqlite',CreateEmptyFile(ReviewFile));
   FConstructionFiles.Add('state.sqlite',CreateEmptyFile(StateFile));
   Point('preparation-before-review',FDirectory,0,0); CheckStop;
-  FReview:=TSQLiteDatabase.Create(DeletionNativePath(ReviewFile));
+  FReview:=TSQLiteDatabase.Create(DeletionNativePath(ReviewFile),True,False,FDirectory);
   FReview.QuerySingleString('PRAGMA journal_mode=DELETE'); FReview.ExecSQL('PRAGMA synchronous=FULL');
   FReview.ExecSQL('PRAGMA cache_size=-4096'); FReview.ExecSQL('PRAGMA temp_store=FILE');
   BuildReview(Catalogue,Plan);
   Point('preparation-after-review',FDirectory,0,0); CheckStop;
   FStateLease:=AcquireCompressionDatabaseLease(StateFile,Meta('state_key'));
-  FState:=TSQLiteDatabase.Create(DeletionNativePath(StateFile));
+  FState:=TSQLiteDatabase.Create(DeletionNativePath(StateFile),True,False,FDirectory);
   FState.QuerySingleString('PRAGMA journal_mode=DELETE'); FState.ExecSQL('PRAGMA synchronous=FULL');
   FState.ExecSQL('CREATE TABLE FileState(FileID INTEGER PRIMARY KEY,Child TEXT NOT NULL DEFAULT '''','+
     'State TEXT NOT NULL DEFAULT ''planned'' CHECK(State IN (''planned'',''prepared'')),'+
@@ -664,8 +664,8 @@ begin
   try
     CatalogueLease:=AcquireCompressionDatabaseLease(Meta('catalogue'),Meta('catalogue_key'));
     PersonalLease:=AcquireCompressionDatabaseLease(Meta('personal'),Meta('personal_key'));
-    Catalogue:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(Meta('catalogue')));
-    Personal:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(Meta('personal')));
+    Catalogue:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(Meta('catalogue')),FDirectory);
+    Personal:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(Meta('personal')),FDirectory);
     Catalogue.ExecSQL('BEGIN'); Personal.ExecSQL('BEGIN');
     var CollectionID:=StrToInt(Meta('collection'));
     Q:=Personal.NewQuery('SELECT RootFolder,DBFileName FROM Bases WHERE DatabaseID=?',[CollectionID]);
@@ -811,7 +811,7 @@ procedure TCollectionTransferJournal.CheckPublishedFork(ForkID:Int64);
 var Personal:TSQLiteDatabase; PersonalLease:IInterface; Q,Live,Marker:TSQLiteQuery;
 begin
   PersonalLease:=AcquireCompressionDatabaseLease(Meta('personal'),Meta('personal_key'));
-  Personal:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(Meta('personal'))); Q:=nil; Live:=nil; Marker:=nil;
+  Personal:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(Meta('personal')),FDirectory); Q:=nil; Live:=nil; Marker:=nil;
   try
     Personal.ExecSQL('BEGIN');
     if Personal.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE type=''table'' AND name=''HomeLibreTransferForkReceipts''')=0 then
@@ -854,7 +854,7 @@ begin
     Child:=State.FieldAsString(0); Phase:=State.FieldAsString(1); OldIdentity:=State.FieldAsString(2);
     OldSHA:=State.FieldAsString(3); OldStreams:=State.FieldAsString(4); FreeAndNil(State);
     PersonalLease:=AcquireCompressionDatabaseLease(Meta('personal'),Meta('personal_key'));
-    Personal:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(Meta('personal')));
+    Personal:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(Meta('personal')),FDirectory);
     var HasMarker:=False;
     if Personal.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE type=''table'' AND name=''HomeLibreTransferForkReceipts''')<>0 then
       HasMarker:=Personal.QuerySingleInt('SELECT count(*) FROM HomeLibreTransferForkReceipts WHERE Operation=? AND ForkID=?',
@@ -895,7 +895,7 @@ begin
     var SourceID:=FReview.QuerySingleInt('SELECT SourceID FROM CatalogueForks WHERE ID=?',[ForkID]);
     SourceLease:=AcquireTransferForkSource(FReview,SourceID,function:Boolean begin CheckStop; Result:=False; end);
     CheckStop;
-    Personal:=TSQLiteDatabase.Create(DeletionNativePath(Meta('personal'))); Personal.ExecSQL('PRAGMA synchronous=FULL');
+    Personal:=TSQLiteDatabase.Create(DeletionNativePath(Meta('personal')),True,False,FDirectory); Personal.ExecSQL('PRAGMA synchronous=FULL');
     Personal.ExecSQL('BEGIN IMMEDIATE');
     try
       Personal.ExecSQL('CREATE TABLE IF NOT EXISTS HomeLibreTransferForkReceipts(Operation TEXT,ForkID INTEGER,RegistrationID INTEGER,'+

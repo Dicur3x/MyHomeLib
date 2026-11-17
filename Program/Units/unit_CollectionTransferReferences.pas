@@ -299,7 +299,7 @@ begin
       (FReview.QuerySingleString('SELECT Value FROM Context WHERE Name=''kind''')<>'HomeLibre collection transfer space preview v1')) or
     (CompressionFileKey(PersonalFile)<>FReview.QuerySingleString('SELECT Value FROM Context WHERE Name=''personal_key''')) then
     raise EArgumentException.Create('Нужен собственный незавершённый план переноса.');
-  FPersonal:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(PersonalFile));
+  FPersonal:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(PersonalFile),FReview.TemporaryDirectory);
   FPaths:=TDictionary<string,TPathInfo>.Create; FContainers:=TDictionary<string,string>.Create;
   FRootCanonical:=TDictionary<string,string>.Create; FResources:=TDictionary<string,Byte>.Create;
   FConnections:=TObjectList<TSQLiteDatabase>.Create; FLeases:=TList<IInterface>.Create;
@@ -353,7 +353,7 @@ begin
       Key:=Q.FieldAsString(3); DB:=nil;
       try
         FLeases.Add(AcquireCompressionDatabaseLease(Info.DBFileName,Key));
-        DB:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(Info.DBFileName));
+        DB:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(Info.DBFileName),FReview.TemporaryDirectory);
         try Version:=DB.QuerySingleInt('PRAGMA data_version');
         except FreeAndNil(DB); raise; end;
         FConnections.Add(DB); FVersions.Add(Version);

@@ -55,6 +55,7 @@ type
     FIdleStatements: TDictionary<string, TSQLiteStmt>;
     procedure ClearIdleStatements;
     function GetTemporaryFileCount:Integer;
+    function GetTemporaryDirectory:string;
     function TakeStatement(const SQL: string; out Generation: Integer): TSQLiteStmt;
     procedure ReturnStatement(const SQL: string; Statement: TSQLiteStmt; Generation: Integer);
 
@@ -144,6 +145,7 @@ type
     { SQLite database handler.}
     property DB: TSQLite3DB read FDB;
     property TemporaryFilesCreated:Integer read GetTemporaryFileCount;
+    property TemporaryDirectory:string read GetTemporaryDirectory;
   end;
 
   {: @abstract(Class for handling SQLite query result)}
@@ -499,6 +501,11 @@ end;
 function TSQLiteDatabase.GetTemporaryFileCount:Integer;
 begin
   Result:=0; if FTemporaryVFS<>nil then Result:=FTemporaryVFS.FilesCreated;
+end;
+
+function TSQLiteDatabase.GetTemporaryDirectory:string;
+begin
+  Result:=''; if FTemporaryVFS<>nil then Result:=FTemporaryVFS.Directory;
 end;
 
 procedure TSQLiteDatabase.ClearIdleStatements;

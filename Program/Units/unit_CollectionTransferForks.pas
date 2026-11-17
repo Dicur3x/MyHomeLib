@@ -153,7 +153,7 @@ begin
   Guard:=TPinnedCatalogue.Create(Source,Key,Cancelled); Lease:=Guard;
   if MetadataOnly then
   begin
-    DB:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(Guard.Path));
+    DB:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(Guard.Path),Review.TemporaryDirectory);
     try Bytes:=DB.QuerySingleInt('PRAGMA page_count')*DB.QuerySingleInt('PRAGMA page_size'); finally DB.Free; end;
     Result:=Review.QuerySingleInt('SELECT coalesce(max(ID),0)+1 FROM ForkSources');
     Review.ExecSQL('INSERT INTO ForkSources VALUES(?,?,?,?,?,?,?,?,?)',
@@ -169,7 +169,7 @@ begin
     raise EReadError.Create('Папка снимков каталога перенаправлена.');
   FileName:=TPath.Combine(Directory,GUIDToString(TGUID.NewGuid)+'.hlc2');
   Guard.PinParents(FileName);
-  DB:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(Guard.Path));
+  DB:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(Guard.Path),Review.TemporaryDirectory);
   try
     PageSize:=DB.QuerySingleInt('PRAGMA page_size'); RequireSpace(Directory,DB.QuerySingleInt('PRAGMA page_count')*PageSize);
   finally DB.Free; end;
@@ -177,7 +177,7 @@ begin
   if Handle=INVALID_HANDLE_VALUE then RaiseLastOSError;
   CloseHandle(Handle);
   SnapshotLease:=AcquireCompressionDatabaseLease(FileName,CompressionFileKey(FileName));
-  DB:=TSQLiteDatabase.Create(DeletionNativePath(FileName));
+  DB:=TSQLiteDatabase.Create(DeletionNativePath(FileName),True,False,Review.TemporaryDirectory);
   try
     DB.QuerySingleString('PRAGMA journal_mode=DELETE'); DB.ExecSQL('PRAGMA synchronous=FULL');
     DB.RestoreFrom(DeletionNativePath(Guard.Path),

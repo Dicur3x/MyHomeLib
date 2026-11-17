@@ -83,7 +83,7 @@ begin
   FIDs:=TList<Integer>.Create; FLeases:=TList<IInterface>.Create;
   FPersonalKey:=FReview.QuerySingleString('SELECT Value FROM Context WHERE Name=''personal_key''');
   FLeases.Add(AcquireCompressionDatabaseLease(FPersonalFile,FPersonalKey));
-  FPersonal:=TSQLiteDatabase.Create(DeletionNativePath(FPersonalFile),False);
+  FPersonal:=TSQLiteDatabase.Create(DeletionNativePath(FPersonalFile),False,False,FReview.TemporaryDirectory);
   FPersonal.ExecSQL('PRAGMA synchronous=FULL');
 end;
 
@@ -145,7 +145,7 @@ begin
           begin
             IDs:=TList<Integer>.Create; FLists.Add(Key,IDs); FPaths.Add(Key,Path);
             FLeases.Add(AcquireCompressionDatabaseLease(Path,Key));
-            var DB:=TSQLiteDatabase.Create(DeletionNativePath(Path),False);
+            var DB:=TSQLiteDatabase.Create(DeletionNativePath(Path),False,False,FReview.TemporaryDirectory);
             FDatabases.Add(Key,DB); DB.ExecSQL('PRAGMA synchronous=FULL');
           end;
           IDs.Add(CID);

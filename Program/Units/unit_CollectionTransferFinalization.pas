@@ -113,7 +113,7 @@ begin
   var Path:=Journal.Review.QuerySingleString('SELECT Value FROM Context WHERE Name=''personal''');
   var Key:=Journal.Review.QuerySingleString('SELECT Value FROM Context WHERE Name=''personal_key''');
   var Lease:=AcquireCompressionDatabaseLease(Path,Key);
-  var DB:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(Path));
+  var DB:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(Path),Journal.Directory);
   try
     Result:=HasTable(DB,IntentTable) and (DB.QuerySingleInt('SELECT count(*) FROM '+IntentTable+' WHERE Operation=?',
       [Journal.Review.QuerySingleString('SELECT Value FROM Context WHERE Name=''directory''')])=1);

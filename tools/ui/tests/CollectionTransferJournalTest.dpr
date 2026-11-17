@@ -34,6 +34,37 @@ end;
 procedure DisableFixtureTriggers(Context:TSQLite3Context; Count:Integer; Values:TSQLite3Value); cdecl;
 begin SQLite3_Result_Int(Context,0); end;
 
+procedure ProbeTransferTemporaryRouting(Journal:TCollectionTransferJournal; const Evidence:string);
+begin
+  var DB:=Journal.Review;
+  if not SameFileName(IncludeTrailingPathDelimiter(DB.TemporaryDirectory),IncludeTrailingPathDelimiter(DeletionNativePath(Journal.Directory))) then
+    raise EReadError.Create('Transfer review has no owned temporary directory');
+  DB.ExecSQL('PRAGMA temp_store=FILE'); DB.ExecSQL('PRAGMA temp.cache_size=8');
+  var Before:=DB.TemporaryFilesCreated;
+  var Q:=DB.NewQuery('WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<9000) '+
+    'SELECT x,randomblob(2048) AS Payload FROM n ORDER BY Payload');
+  try
+    Q.Open;
+    var Bytes:Int64:=0;
+    for var Path in TDirectory.GetFiles(DeletionNativePath(Journal.Directory),'sqlite-temp-*') do
+    begin
+      var Data:TWin32FileAttributeData;
+      if not GetFileAttributesEx(PChar(Path),GetFileExInfoStandard,@Data) then RaiseLastOSError;
+      Inc(Bytes,(Int64(Data.nFileSizeHigh) shl 32) or Data.nFileSizeLow);
+    end;
+    var Sum:Int64:=0;
+    while not Q.Eof do begin Inc(Sum,Q.FieldAsInt(0)); Q.Next; end;
+    if (Sum<>40504500) or (DB.TemporaryFilesCreated<=Before) or (Bytes<1024*1024) then
+      raise EReadError.Create('Transfer review did not produce the expected physical temporary sort');
+    var Row:=TJSONObject.Create;
+    try
+      Row.AddPair('directory',Journal.Directory); Row.AddPair('bytes',TJSONNumber.Create(Bytes));
+      Row.AddPair('created',TJSONNumber.Create(DB.TemporaryFilesCreated-Before)); Row.AddPair('sum',TJSONNumber.Create(Sum));
+      TFile.AppendAllText(Evidence,Row.ToJSON+sLineBreak,TEncoding.UTF8);
+    finally Row.Free; end;
+  finally Q.Free; end;
+end;
+
 function Owned(const Path:string):string;
 begin
   Result:=ExpandFileName(Path);
@@ -447,6 +478,8 @@ begin
             Owned(Request.GetValue<string>('destination')),Owned(Control.GetValue<string>('directory')),
             Request.GetValue<string>('override_review_sha256',Control.GetValue<string>('review_sha256')));
         end;
+        if Request.GetValue<Boolean>('probe_transfer_temp',False) then
+          ProbeTransferTemporaryRouting(Journal,Owned(TPath.Combine(ExtractFileDir(ControlFile),'temp-probe.jsonl')));
         Registry:=TCollectionTransferRegistry.Create(Journal);
         if Request.GetValue<Boolean>('register_operation',False) then Registry.RegisterOperation(function:Boolean begin Result:=Stop; end);
         var Wait:=Request.GetValue<string>('wait_for_release','');

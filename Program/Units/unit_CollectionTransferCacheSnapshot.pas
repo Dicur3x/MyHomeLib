@@ -244,7 +244,7 @@ begin
   FSourceLease:=AcquireCompressionDatabaseLease(Canonical,FSourceKey);
   if FSourceWriter=nil then
   begin
-    FSourceWriter:=TSQLiteDatabase.Create(DeletionNativePath(Canonical),False); FOwnsSourceWriter:=True;
+    FSourceWriter:=TSQLiteDatabase.Create(DeletionNativePath(Canonical),False,False,FDirectory); FOwnsSourceWriter:=True;
     FSourceWriter.ExecSQL('BEGIN IMMEDIATE');
   end
   else
@@ -255,7 +255,7 @@ begin
     if not FSourceWriter.InTransaction or (Actual<>FSourceKey) then raise EReadError.Create('Нет блокировки выбранного исходного кэша.');
   end;
   if CompressionFileKey(Canonical)<>FSourceKey then raise EReadError.Create('Исходный кэш изменился перед копированием.');
-  var Reader:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(Canonical));
+  var Reader:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(Canonical),FDirectory);
   try
     Reader.ExecSQL('BEGIN');
     var Pages:=Reader.QuerySingleInt('PRAGMA page_count'); var PageSize:=Reader.QuerySingleInt('PRAGMA page_size');
@@ -265,7 +265,7 @@ begin
     FProof.AddPair('source_file',Before); FProof.AddPair('source_key',FSourceKey);
     var Reserved:=Reserve('catalog.hlc2',False);
     try
-      var Target:=TSQLiteDatabase.Create(DeletionNativePath(TPath.Combine(FDirectory,'catalog.hlc2')),False);
+      var Target:=TSQLiteDatabase.Create(DeletionNativePath(TPath.Combine(FDirectory,'catalog.hlc2')),False,False,FDirectory);
       try
         Remember('cache-file-reserved',TPath.Combine(FDirectory,'catalog.hlc2'),Key(Reserved));
         Reader.BackupToEmpty(Target,procedure(Done,Total:Integer) begin Check; end);

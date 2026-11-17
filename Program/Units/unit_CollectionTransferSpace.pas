@@ -124,7 +124,7 @@ begin
       Stop; var Key:=Q.FieldAsString(1); var DB:TSQLiteDatabase;
       if not Databases.TryGetValue(Key,DB) then
       begin
-        DB:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(Q.FieldAsString(2))); Databases.Add(Key,DB);
+        DB:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(Q.FieldAsString(2)),Preview.Directory); Databases.Add(Key,DB);
         DB.ExecSQL('BEGIN'); var Size:=DatabaseBytes(DB);
         Add(Q.FieldAsString(2),0,0,0,AddBytes(Size,Size),512*MB);
       end;
@@ -134,7 +134,7 @@ begin
       Q.Next;
     end;
     FreeAndNil(Q);
-    var Personal:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(Meta('personal')));
+    var Personal:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(Meta('personal')),Preview.Directory);
     try var Size:=DatabaseBytes(Personal); Add(Meta('personal'),0,0,0,AddBytes(Size,Size),512*MB); finally Personal.Free; end;
     Q:=Preview.Review.NewQuery('SELECT Bytes FROM ForkSources'); Q.Open;
     while not Q.Eof do begin Add(Work,0,Q.FieldAsInt(0),0,0,512*MB); Q.Next; end; FreeAndNil(Q);
@@ -147,7 +147,7 @@ begin
         Stop; var Job:=TJSONObject(Value); var CachePath:=Job.GetValue<string>('before_file'); var DB:TSQLiteDatabase:=nil;
         try
           try
-            DB:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(CachePath));
+            DB:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(CachePath),Preview.Directory);
             var Size:=DatabaseBytes(DB); Add(Work,0,AddBytes(AddBytes(Size,Size),Size),0,0,512*MB);
             Add(DataRoot,0,0,AddBytes(Size,Size),0,512*MB);
           except
