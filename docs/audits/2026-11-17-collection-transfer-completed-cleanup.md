@@ -124,3 +124,10 @@ not guessed to be ours. Large-cache peak measurements, real space failures,
 additional volume/filesystem combinations, remaining post-transfer formats and
 production/offline/update release checks remain open. E: and user collections
 were not used; the Desktop copy and public release were not changed.
+
+Later extensions are recorded separately: unreturned draft ownership and
+nested constructor cleanup in `2026-11-17-collection-transfer-draft-recovery.md`
+and `2026-11-17-collection-transfer-nested-drafts.md`; completed shared-catalogue
+snapshots in `2026-11-17-collection-transfer-fork-cleanup.md`. The remaining-scope
+paragraph above describes the earlier cache-only validation, not those later
+extensions.

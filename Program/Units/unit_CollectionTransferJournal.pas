@@ -437,6 +437,9 @@ begin
       if Created then
       begin
         if FConstructionFiles.ContainsKey(Name) then raise EReadError.Create('Черновой снимок был заменён.');
+        // The sealed review, independently bound by the registry receipt, must
+        // prove directory ownership after the mutable draft lease is obsolete.
+        if Directory then SaveMeta('fork_snapshots_key',Key);
         TTransferDrafts.RecordEntry(FLease,Name,Key,Directory); FConstructionFiles.Add(Name,Key);
       end
       else if not FConstructionFiles.TryGetValue(Name,Existing) or (Existing<>Key) then

@@ -37,6 +37,7 @@ uses System.IOUtils, System.JSON, System.Hash, System.DateUtils, System.SyncObjs
 
 const Claims='HomeLibreTransferCacheClaims'; Intent='HomeLibreTransferCacheIntent';
   Cleanup='HomeLibreTransferCacheCleanup'; Operations='HomeLibreTransferOperations';
+  ForkReceipts='HomeLibreTransferForkReceipts'; ForkCleanup='HomeLibreTransferForkCleanup';
 
 constructor TTransferCleanupWorker.Create(const PersonalFile:string);
 begin inherited Create(True); FreeOnTerminate:=False; FPersonal:=PersonalFile; Priority:=tpLowest; end;
@@ -59,15 +60,21 @@ type
   TWorkDirectory=class
     Job,Path,Key:string;
     Files:TDictionary<string,string>;
+    Hashes:TDictionary<string,string>;
+    Sizes:TDictionary<string,Int64>;
+    Fork:Boolean;
     constructor Create;
     destructor Destroy; override;
   end;
   THeldWorkFile=record Handle:THandle; Path:string; Bytes:Int64; end;
 
 constructor TWorkDirectory.Create;
-begin inherited; Files:=TDictionary<string,string>.Create; end;
+begin
+  inherited; Files:=TDictionary<string,string>.Create;
+  Hashes:=TDictionary<string,string>.Create; Sizes:=TDictionary<string,Int64>.Create;
+end;
 destructor TWorkDirectory.Destroy;
-begin Files.Free; inherited; end;
+begin Sizes.Free; Hashes.Free; Files.Free; inherited; end;
 
 function WorkSetInformation(Handle:THandle; InfoClass:Integer; Data:Pointer; Bytes:DWORD):BOOL;
   stdcall; external kernel32 name 'SetFileInformationByHandle';
@@ -119,10 +126,11 @@ begin
   if Name<>'::$DATA' then raise EReadError.Create('Неизвестный поток рабочего файла.');
 end;
 
-function Hold(const Path,Expected:string; Directory:Boolean):THandle;
+function Hold(const Path,Expected:string; Directory:Boolean; ReadData:Boolean=False):THandle;
 begin
   var Share:DWORD:=0; if Directory then Share:=FILE_SHARE_READ or FILE_SHARE_WRITE;
-  Result:=CreateFile(PChar(DeletionNativePath(Path)),FILE_READ_ATTRIBUTES or Winapi.Windows._DELETE,Share,nil,
+  var Access:DWORD:=FILE_READ_ATTRIBUTES or Winapi.Windows._DELETE; if ReadData then Access:=Access or GENERIC_READ;
+  Result:=CreateFile(PChar(DeletionNativePath(Path)),Access,Share,nil,
     OPEN_EXISTING,FILE_FLAG_OPEN_REPARSE_POINT or FILE_FLAG_BACKUP_SEMANTICS,0);
   if Result=INVALID_HANDLE_VALUE then RaiseLastOSError;
   try
@@ -207,6 +215,66 @@ begin
   finally Q.Free; Seen.Free; Allowed.Free; end;
 end;
 
+procedure ReadForkSnapshots(Journal:TCollectionTransferJournal; DB:TSQLiteDatabase;
+  Items:TObjectList<TWorkDirectory>; const Check:TProc);
+begin
+  if Journal.Review.QuerySingleInt('SELECT count(*) FROM ForkSources')=0 then Exit;
+  if not HasTable(DB,ForkReceipts) then raise EReadError.Create('Нет подтверждения публикации копий общего каталога.');
+  var Expected:=Journal.Review.QuerySingleInt('SELECT count(*) FROM ForkMembers');
+  if (Expected=0) or (DB.QuerySingleInt('SELECT count(*) FROM '+ForkReceipts+' WHERE Operation=?',
+    [Meta(Journal,'directory')])<>Expected) then raise EReadError.Create('Изменились подтверждения копий общего каталога.');
+  var Q:=Journal.Review.NewQuery('SELECT m.ForkID,m.RegistrationID,f.Destination,s.SHA256 '+
+    'FROM ForkMembers m JOIN CatalogueForks f ON f.ID=m.ForkID JOIN ForkSources s ON s.ID=f.SourceID');
+  try
+    Q.Open; var Seen:=0;
+    while not Q.Eof do
+    begin
+      Check;
+      if DB.QuerySingleInt('SELECT count(*) FROM '+ForkReceipts+
+        ' WHERE Operation=? AND ForkID=? AND RegistrationID=? AND ReviewSHA256=? AND Target=? AND SnapshotSHA256=?',
+        [Meta(Journal,'directory'),Q.FieldAsInt(0),Q.FieldAsInt(1),Journal.ReviewSHA256,Q.FieldAsString(2),Q.FieldAsString(3)])<>1 then
+        raise EReadError.Create('Не совпало подтверждение копии общего каталога.');
+      Inc(Seen); Q.Next;
+    end;
+    if Seen<>Expected then raise EReadError.Create('Неполный план копий общего каталога.');
+  finally Q.Free; end;
+  var Item:=TWorkDirectory.Create; Items.Add(Item); Item.Fork:=True;
+  Item.Path:=TPath.Combine(Journal.Directory,'catalogue-snapshots');
+  Item.Key:=Meta(Journal,'fork_snapshots_key');
+  // Legacy experimental reviews have no sealed directory key. They remain
+  // recoverable but cannot authorize reclaiming this folder from a draft lease.
+  Q:=Journal.Review.NewQuery('SELECT Snapshot,Identity,Bytes,SHA256 FROM ForkSources');
+  try
+    Q.Open;
+    while not Q.Eof do
+    begin
+      Check; var Path:=Q.FieldAsString(0); var Name:=ExtractFileName(Path); var ID:TGUID;
+      if not Name.EndsWith('.hlc2') then raise EReadError.Create('Неизвестное имя снимка каталога.');
+      ID:=StringToGUID(ChangeFileExt(Name,''));
+      var Identity:=Q.FieldAsString(1); var SHA:=Q.FieldAsString(3); var Bytes:=StrToInt64(Q.FieldAsString(2));
+      if (Name<>GUIDToString(ID)+'.hlc2') or not SameFileName(ExtractFileDir(Path),Item.Path) or
+        not SameFileName(ExpandFileName(Path),Path) or (Length(Identity)<>59) or (Length(SHA)<>64) or
+        (Bytes<0) or Item.Files.ContainsKey(LowerCase(Name)) then raise EReadError.Create('Неверная привязка снимка общего каталога.');
+      Name:=LowerCase(Name); Item.Files.Add(Name,Copy(Identity,1,25));
+      Item.Hashes.Add(Name,SHA); Item.Sizes.Add(Name,Bytes); Q.Next;
+    end;
+  finally Q.Free; end;
+end;
+
+procedure VerifySnapshot(Item:TWorkDirectory; const FileItem:THeldWorkFile; const Check:TProc);
+begin
+  var Name:=LowerCase(ExtractFileName(FileItem.Path)); var Expected:string;
+  if not Item.Hashes.TryGetValue(Name,Expected) then Exit;
+  if FileItem.Bytes<>Item.Sizes[Name] then raise EReadError.Create('Размер рабочего снимка изменён.');
+  var Hash:=THashSHA2.Create; var Buffer:TBytes; SetLength(Buffer,1024*1024); var Count:DWORD; var Total:Int64:=0;
+  repeat
+    Check;
+    if not ReadFile(FileItem.Handle,Buffer[0],Length(Buffer),Count,nil) then RaiseLastOSError;
+    if Count>0 then begin Hash.Update(Buffer,Count); Inc(Total,Count); end;
+  until Count=0;
+  if (Total<>FileItem.Bytes) or (Hash.HashAsString<>Expected) then raise EReadError.Create('Содержимое рабочего снимка изменено.');
+end;
+
 procedure RemoveDirectoryFiles(Item:TWorkDirectory; const Check:TProc; var Outcome:TTransferCleanupResult);
 var Root:THandle; Files:TList<THeldWorkFile>;
 begin
@@ -224,8 +292,8 @@ begin
     begin
       Check; var Expected:string; var FileItem:=Default(THeldWorkFile);
       if not Item.Files.TryGetValue(LowerCase(ExtractFileName(Path)),Expected) then raise EReadError.Create('В рабочем снимке есть неизвестный файл.');
-      FileItem.Path:=Path; FileItem.Handle:=Hold(Path,Expected,False);
-      try ObjectKey(FileItem.Handle,False,FileItem.Bytes); Files.Add(FileItem);
+      FileItem.Path:=Path; FileItem.Handle:=Hold(Path,Expected,False,Item.Fork);
+      try ObjectKey(FileItem.Handle,False,FileItem.Bytes); VerifySnapshot(Item,FileItem,Check); Files.Add(FileItem);
       except CloseHandle(FileItem.Handle); raise; end;
     end;
     // Validate the entire directory and hold every file before deleting any.
@@ -243,19 +311,21 @@ begin
   end;
 end;
 
-procedure RememberAttempt(const PersonalFile,PersonalKey,Operation,ReviewSHA:string; Done:Boolean; const TempDirectory:string='');
+procedure RememberAttempt(const PersonalFile,PersonalKey,Operation,ReviewSHA:string; Done:Boolean;
+  const TempDirectory:string=''; Forks:Boolean=False);
 begin
+  var Marker:=Cleanup; if Forks then Marker:=ForkCleanup;
   var Lease:=AcquireCompressionDatabaseLease(PersonalFile,PersonalKey);
   var DB:=TSQLiteDatabase.Create(DeletionNativePath(PersonalFile),False,False,TempDirectory);
   try
     DB.ExecSQL('BEGIN IMMEDIATE');
     if DB.QuerySingleInt('SELECT count(*) FROM '+Operations+' WHERE Operation=? AND PersonalKey=? AND ReviewSHA256=? AND State=''completed''',
       [Operation,PersonalKey,ReviewSHA])<>1 then raise EReadError.Create('Регистрация завершённого переноса изменилась.');
-    if Done and HasTable(DB,Cleanup) and (DB.QuerySingleInt('SELECT count(*) FROM '+Cleanup+
+    if Done and HasTable(DB,Marker) and (DB.QuerySingleInt('SELECT count(*) FROM '+Marker+
       ' WHERE Operation=? AND ReviewSHA256=? AND Done=1',[Operation,ReviewSHA])=1) then
     begin DB.Rollback; Exit; end;
-    DB.ExecSQL('CREATE TABLE IF NOT EXISTS '+Cleanup+'(Operation TEXT PRIMARY KEY,ReviewSHA256 TEXT,Done INTEGER CHECK(Done IN (0,1)),LastAttempt TEXT) WITHOUT ROWID');
-    DB.ExecSQL('INSERT OR REPLACE INTO '+Cleanup+' VALUES(?,?,?,?)',
+    DB.ExecSQL('CREATE TABLE IF NOT EXISTS '+Marker+'(Operation TEXT PRIMARY KEY,ReviewSHA256 TEXT,Done INTEGER CHECK(Done IN (0,1)),LastAttempt TEXT) WITHOUT ROWID');
+    DB.ExecSQL('INSERT OR REPLACE INTO '+Marker+' VALUES(?,?,?,?)',
       [Operation,ReviewSHA,Ord(Done),DateToISO8601(TTimeZone.Local.ToUniversalTime(Now),True)]);
     DB.Commit;
   finally DB.Free; Lease:=nil; end;
@@ -271,24 +341,35 @@ begin
   var Lease:=AcquireCompressionDatabaseLease(PersonalFile,PersonalKey);
   var DB:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(PersonalFile),Journal.Directory); var Directories:TObjectList<TWorkDirectory>:=nil;
   try
-    DB.ExecSQL('BEGIN'); Directories:=ReadDirectories(Journal,DB,Check);
+    try
+      DB.ExecSQL('BEGIN'); Directories:=ReadDirectories(Journal,DB,Check);
+      ReadForkSnapshots(Journal,DB,Directories,Check);
+    except Directories.Free; raise; end;
   finally DB.Free; Lease:=nil; end;
   try
+    var CacheRetained:=False; var ForkRetained:=False; var HasForks:=False;
     try
       for var Item in Directories do
       begin
+        if Item.Fork then HasForks:=True;
         Check;
         try RemoveDirectoryFiles(Item,Check,Result);
         except
           on E:EAbort do raise;
-          on E:Exception do begin Inc(Result.DirectoriesRetained); if Result.Warning='' then Result.Warning:=Item.Path+': '+E.Message; end;
+          on E:Exception do
+          begin
+            if Item.Fork then ForkRetained:=True else CacheRetained:=True;
+            Inc(Result.DirectoriesRetained); if Result.Warning='' then Result.Warning:=Item.Path+': '+E.Message;
+          end;
         end;
       end;
     except on E:EAbort do Result.Stopped:=True; end;
     if not Result.Stopped then
     begin
       Point('cleanup-before-record',Journal.Directory);
-      RememberAttempt(PersonalFile,PersonalKey,Meta(Journal,'directory'),Journal.ReviewSHA256,Result.DirectoriesRetained=0,Journal.Directory);
+      RememberAttempt(PersonalFile,PersonalKey,Meta(Journal,'directory'),Journal.ReviewSHA256,not CacheRetained,Journal.Directory);
+      if HasForks then RememberAttempt(PersonalFile,PersonalKey,Meta(Journal,'directory'),Journal.ReviewSHA256,
+        not ForkRetained,Journal.Directory,True);
       Point('cleanup-after-record',Journal.Directory);
     end;
   finally Directories.Free; end;
@@ -300,16 +381,31 @@ begin
   var DB:=TSQLiteDatabase.CreateReadOnly(DeletionNativePath(PersonalFile)); var Items:=TList<TRegisteredCollectionTransfer>.Create;
   var Q:TSQLiteQuery:=nil;
   try
-    if not HasTable(DB,Operations) or not HasTable(DB,Claims) then Exit;
-    var Join:=''; var Filter:=''; var Order:='o.Operation';
+    if not HasTable(DB,Operations) then Exit;
+    var Join:string:=''; var Filter:string:='0'; var CacheOrder:string:=''''''; var ForkOrder:string:='''''';
     if HasTable(DB,Cleanup) then
     begin
       Join:=' LEFT JOIN '+Cleanup+' c ON c.Operation=o.Operation AND c.ReviewSHA256=o.ReviewSHA256';
-      Filter:=' AND coalesce(c.Done,0)=0'; Order:='coalesce(c.LastAttempt,''''),o.Operation';
+      CacheOrder:='coalesce(c.LastAttempt,'''')';
+    end;
+    if HasTable(DB,Claims) then
+    begin
+      Filter:='EXISTS(SELECT 1 FROM '+Claims+' x WHERE x.Operation=o.Operation AND x.Stage=''cache-directory-created'')';
+      if HasTable(DB,Cleanup) then Filter:='('+Filter+' AND coalesce(c.Done,0)=0)';
+    end;
+    if HasTable(DB,ForkCleanup) then
+    begin
+      Join:=Join+' LEFT JOIN '+ForkCleanup+' f ON f.Operation=o.Operation AND f.ReviewSHA256=o.ReviewSHA256';
+      ForkOrder:='coalesce(f.LastAttempt,'''')';
+    end;
+    if HasTable(DB,ForkReceipts) then
+    begin
+      var Pending:='EXISTS(SELECT 1 FROM '+ForkReceipts+' x WHERE x.Operation=o.Operation)';
+      if HasTable(DB,ForkCleanup) then Pending:='('+Pending+' AND coalesce(f.Done,0)=0)';
+      Filter:=Filter+' OR '+Pending;
     end;
     Q:=DB.NewQuery('SELECT o.Operation,o.Directory,o.ReviewSHA256,o.PersonalKey,o.WorkRoot,o.Destination,o.CollectionID FROM '+Operations+' o'+Join+
-      ' WHERE o.State=''completed'' AND EXISTS(SELECT 1 FROM '+Claims+' x WHERE x.Operation=o.Operation AND x.Stage=''cache-directory-created'')'+Filter+
-      ' ORDER BY '+Order+' LIMIT 1024'); Q.Open;
+      ' WHERE o.State=''completed'' AND ('+Filter+') ORDER BY max('+CacheOrder+','+ForkOrder+'),o.Operation LIMIT 1024'); Q.Open;
     while not Q.Eof do
     begin
       var Item:=Default(TRegisteredCollectionTransfer); Item.Operation:=Q.FieldAsString(0); Item.Directory:=Q.FieldAsString(1);

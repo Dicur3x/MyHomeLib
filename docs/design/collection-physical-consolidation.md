@@ -730,3 +730,15 @@ metadata is retained. Source/successful transactions remain durable; only
 unreturned scratch snapshots use MEMORY rollback, then return to DELETE/FULL.
 See `2026-11-17-collection-transfer-nested-drafts.md` for x86/x64 evidence and
 remaining ready-operation/unproven-cache/volume/scale/UI release gates.
+
+### Completed catalogue snapshot cleanup
+
+The frozen review now binds the physical ID of `catalogue-snapshots`. After the
+independently confirmed completion, publication receipts must match every frozen
+fork/member before that directory becomes eligible. Held present files must
+match physical IDs, sizes and SHA256; unknown/changed/linked/streamed/busy
+objects retain the directory. Cleanup preserves installed data and all durable
+completion proofs and works without a live destination. An independent fork
+cleanup marker keeps retries discoverable even after cache cleanup is done or
+no cache claims exist. Legacy reviews lacking the sealed directory key remain
+retained. Evidence and scope: `2026-11-17-collection-transfer-fork-cleanup.md`.
