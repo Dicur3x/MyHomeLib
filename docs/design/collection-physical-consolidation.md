@@ -742,3 +742,13 @@ completion proofs and works without a live destination. An independent fork
 cleanup marker keeps retries discoverable even after cache cleanup is done or
 no cache claims exist. Legacy reviews lacking the sealed directory key remain
 retained. Evidence and scope: `2026-11-17-collection-transfer-fork-cleanup.md`.
+
+### Reference capture reuse through source removal
+
+Removal uses the publication session's connection-version invalidation rather
+than unconditionally rescanning every catalogue twice for every group. Current
+locators/receipts and held-file validation still run for each group. Catalogue
+writer locks span the personal intent commit; reopening the same personal
+connection checks outside commits before reusing its validated binding view.
+New references invalidate approval before unlink, and final completion retains
+fresh verification. Evidence: `2026-11-17-collection-transfer-removal-scans.md`.

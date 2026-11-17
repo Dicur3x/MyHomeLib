@@ -169,7 +169,7 @@ begin
   finally Plan.Free; end;
 end;
 
-procedure ProbeVerificationLocks(Journal:TCollectionTransferJournal; Expected:Boolean);
+procedure ProbeVerificationLocks(Journal:TCollectionTransferJournal; Expected:Boolean; PersonalUnlocked:Boolean=False);
 var Paths:TList<string>; Q:TSQLiteQuery;
 begin
   Paths:=TList<string>.Create; Q:=nil;
@@ -191,7 +191,9 @@ begin
           if E.Message.ToLower.Contains('locked') or E.Message.ToLower.Contains('busy') then Locked:=True else raise;
         end;
         if DB.InTransaction then DB.Rollback;
-        if Locked<>Expected then raise EReadError.Create('Unexpected verification writer-lock state');
+        var Required:=Expected;
+        if PersonalUnlocked and SameFileName(Path,Paths[0]) then Required:=False;
+        if Locked<>Required then raise EReadError.Create('Unexpected verification writer-lock state');
       finally DB.Free; end;
     end;
   finally Q.Free; Paths.Free; end;
@@ -552,6 +554,8 @@ begin
             if (Stage='resources-before-commit') and Request.GetValue<Boolean>('cancel_resources',False) then Stop:=True;
             if (Stage='locations-before-verification') and Request.GetValue<Boolean>('probe_verification_locks',False) then
               ProbeVerificationLocks(Journal,True);
+            if (Stage='removal-intent-committed') and Request.GetValue<Boolean>('probe_removal_gap_locks',False) then
+              ProbeVerificationLocks(Journal,True,True);
             if (Stage='locations-after-catalogue-verification') and Request.GetValue<Boolean>('cancel_verification',False) then Stop:=True;
             if (Stage='resources-before-validation') and Request.GetValue<Boolean>('foreign_target_cover',False) then
             begin
@@ -576,13 +580,13 @@ begin
               else
               begin
                 var Path:=Request.GetValue<string>('catalogue');
-                if Edit='personal-note' then Path:=Request.GetValue<string>('personal');
+                if (Edit='personal-note') or (Edit='personal-reference') then Path:=Request.GetValue<string>('personal');
                 var DB:=TSQLiteDatabase.Create(DeletionNativePath(Owned(Path)));
                 try
                   DB.AddFunction('MHL_TRIGGERS_ON',0,DisableFixtureTriggers);
                   if Edit='personal-note' then DB.ExecSQL('UPDATE Books SET Annotation=''between archives'',Progress=92 WHERE BookID=1 AND DatabaseID=7')
                   else if Edit='title' then DB.ExecSQL('UPDATE Books SET Title=''between archives'',SearchTitle=''BETWEEN ARCHIVES'' WHERE BookID=1')
-                  else if Edit='new-reference' then
+                  else if (Edit='new-reference') or (Edit='personal-reference') then
                   begin
                     var Q:=DB.NewQuery('PRAGMA table_info(Books)'); var Columns,Values:string;
                     try

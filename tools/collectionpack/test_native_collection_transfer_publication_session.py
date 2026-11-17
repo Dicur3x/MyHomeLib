@@ -17,7 +17,7 @@ class TransferPublicationSessionTests(location_fixture.TransferLocationTests):
                 # rows still undergo the complete locator-only comparison.
                 with fixture.connect(path) as db:row=db.execute('select * from Books where BookID=991').fetchone()
                 self.assertIsNotNone(row);data=dict(zip(cols,row))
-                self.assertEqual(data['Folder'],str(self.b/'same.zip'))
+                self.assertEqual(data['Folder'],self.config.get('new_reference_container',str(self.b/'same.zip')))
                 rows.append(tuple(row))
                 sequences=before[path][1].get('sqlite_sequence',[])
                 for i,(name,value) in enumerate(sequences):

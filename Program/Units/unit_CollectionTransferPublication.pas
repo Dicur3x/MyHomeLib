@@ -268,9 +268,19 @@ end;
 
 procedure TTransferPublicationSession.RefreshLockedGroup(Prepared:TPreparedTransferGroup);
 begin
-  FreeAndNil(FSnapshot);
-  FSnapshot:=TTransferReferenceSnapshot.Create(FReview,FPersonalFile,FWorkRoot,FEffective,FTargets,CheckStop);
-  Inc(FScans); FSnapshot.CheckGroup(Prepared);
+  // Catalogue writer transactions span the personal intent commit. Only the
+  // personal connection is reopened; its data_version detects another writer
+  // in that gap without mistaking our own intent commit for a reference edit.
+  if not FPersonal.InTransaction then raise EReadError.Create('Нет личной транзакции освобождения исходников.');
+  for var Pair in FDatabases do
+    if not Pair.Value.InTransaction then raise EReadError.Create('Нет защищённой транзакции каталога.');
+  if VersionChanged(FPersonalKey,FPersonal) or UnknownChanged or (FSnapshot=nil) then
+  begin
+    FreeAndNil(FSnapshot);
+    FSnapshot:=TTransferReferenceSnapshot.Create(FReview,FPersonalFile,FWorkRoot,FEffective,FTargets,CheckStop);
+    Inc(FScans);
+  end;
+  FSnapshot.CheckGroup(Prepared);
 end;
 
 procedure TTransferPublicationSession.RemovePublished(Prepared:TPreparedTransferGroup;
@@ -282,7 +292,11 @@ begin
   FCancelled:=Cancelled;
   try
     try
-      LockGroup(Prepared,True); CheckLocations(Prepared,Point); RegistryCheck(FPersonal);
+      // Reuse the same validated binding/retention view as publication while
+      // all connection versions and registrations remain unchanged. Own
+      // locator commits do not change ownership; current locators and receipts
+      // are independently checked under reacquired writer locks below.
+      LockGroup(Prepared,False); CheckLocations(Prepared,Point); RegistryCheck(FPersonal);
       SaveIntent(FPersonal,FSnapshot.RetainedFiles(Prepared)); CheckStop;
       if Assigned(Point) then Point('removal-before-intent-commit'); CheckStop;
       FPersonal.ExecSQL('COMMIT');
