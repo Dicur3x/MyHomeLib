@@ -524,6 +524,39 @@ def read_docx_body(book, package, consume):
         book.fail('Некорректная структура XML: ' + str(error))
 
 
+def empty_docx_textbox(node):
+    """Recognize an unpainted VML textbox containing only empty paragraphs.
+
+    Filled/stroked default to true. Do not drop text, symbols, fields, images,
+    bookmarks or unknown shape children as if they were empty decoration.
+    """
+    vml = '{urn:schemas-microsoft-com:vml}'
+    shapes = [child for child in node if child.tag == vml+'shape']
+    if len(shapes) != 1 or any(child.tag not in {vml+'shapetype', vml+'shape'} for child in node):
+        return False
+    shape = shapes[0]
+    if any(shape.get(name, '').lower() not in {'f','false','0'} for name in ('filled','stroked')):
+        return False
+    boxes = [child for child in shape if child.tag == vml+'textbox']
+    if len(boxes) != 1 or any(child.tag not in {vml+'textbox','{urn:schemas-microsoft-com:office:word}wrap'} for child in shape):
+        return False
+    box = boxes[0]
+    if any(name not in {'style','inset'} for name in box.attrib):
+        return False
+    if any(declaration.strip() and declaration.split(':',1)[0].strip().lower() != 'mso-next-textbox'
+           for declaration in box.get('style','').split(';')):
+        return False
+    if len(box) != 1 or box[0].tag != '{'+W+'}txbxContent':
+        return False
+    def empty_content(item):
+        if (item.text or '').strip() or (item.tail or '').strip():
+            return False
+        if item.tag in {'{'+W+'}pPr','{'+W+'}rPr'}:
+            return True  # Paragraph/run formatting does not draw content.
+        return item.tag in {'{'+W+'}txbxContent','{'+W+'}p','{'+W+'}r'} and all(empty_content(child) for child in item)
+    return empty_content(box[0])
+
+
 def read_docx(book):
     p = Package(book); c = book.c
     try:
@@ -588,6 +621,9 @@ def read_docx(book):
                     identity = val(n, 'name')
                     if identity and identity != '_GoBack': dst.append(book.el('span', id=identity))
                 elif name in {'drawing', 'pict'}:
+                    if name == 'pict' and empty_docx_textbox(n):
+                        book.warnings.add('Пустая прозрачная рамка DOCX пропущена при переносе страничной вёрстки.')
+                        continue
                     # DocSharp may emit a standalone vertical rule anchored to
                     # the page margin. It carries no picture or drawing text.
                     if name == 'pict' and len(n) == 1:

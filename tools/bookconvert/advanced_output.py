@@ -152,7 +152,9 @@ def convert(api, source, destination, source_extension, profile, options):
             else:
                 engine.convert(api, prepared, output, warnings, check)
         elif epub_kobo:
-            command = [str(writer), '--no-add-dummy-titlepage', '--output', str(output), str(prepared)]
+            adapted = work / 'html-input.epub'
+            api.prepare_html_writer_epub(prepared, adapted, check)
+            command = [str(writer), '--no-add-dummy-titlepage', '--output', str(output), str(adapted)]
             run_writer(api, command, work, check)
         elif epub_kfx:
             # The embedded Windows Python excludes the script directory.

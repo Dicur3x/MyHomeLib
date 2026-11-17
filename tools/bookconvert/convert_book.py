@@ -395,6 +395,84 @@ def serialized(node):
     return ET.tostring(node, encoding='utf-8', xml_declaration=True)
 
 
+def local_foreign_namespaces(root, xhtml_uri):
+    """Keep actual QName bindings when the writer replaces the HTML root."""
+    xml_uri = 'http://www.w3.org/XML/1998/namespace'
+
+    def namespaces(node):
+        return {name[1:].split('}', 1)[0] for name in [node.tag, *node.attrib]
+                if isinstance(name, str) and name.startswith('{')
+                and name[1:].split('}', 1)[0] not in {xhtml_uri, xml_uri}}
+
+    uris = set()
+    for node in root.iter():
+        uris.update(namespaces(node))
+    if not uris:
+        return
+    preferred = {'http://www.w3.org/2000/svg': 'svg',
+                 'http://www.w3.org/1999/xlink': 'xlink',
+                 'http://www.w3.org/1998/Math/MathML': 'math',
+                 'http://www.idpf.org/2007/ops': 'epub'}
+    prefixes, used = {}, {'', 'xml', 'xmlns'}
+    for uri in sorted(uris):
+        prefix = preferred.get(uri, 'hlns' + str(len(prefixes)))
+        while prefix in used:
+            prefix += '_'
+        used.add(prefix)
+        ET.register_namespace(prefix, uri)
+        prefixes[uri] = prefix
+
+    def visit(node, inherited):
+        scope = inherited | namespaces(node)
+        for uri in scope - inherited:
+            node.set('xmlns:' + prefixes[uri], uri)
+        for child in node:
+            visit(child, scope)
+
+    # Root declarations alone are lost by the writer. Start the scope again
+    # on each retained subtree; QName URIs come from parsed XML, not guesses.
+    for child in root:
+        visit(child, set())
+
+
+
+def prepare_html_writer_epub(source, destination, check=None):
+    """Normalize XHTML syntax for HTML-oriented writers in a private EPUB.
+
+    Prefixes and XML empty non-void tags are valid XHTML but are misread by
+    kepubify's HTML parser. Preserve resources and actual foreign QName scopes.
+    """
+    archive = EpubArchive(source)
+    namespaces = ET._namespace_map.copy()
+    try:
+        documents = set()
+        container = xml(archive.read('META-INF/container.xml'))
+        for rootfile in (n for n in container.iter() if tag(n) == 'rootfile'):
+            package_path = archive.resolve('container.xml', rootfile.get('full-path',''))[0]
+            package = xml(archive.read(package_path))
+            for item in (n for n in package.iter() if tag(n) == 'item'):
+                if item.get('media-type') == 'application/xhtml+xml':
+                    documents.add(archive.resolve(package_path,item.get('href',''))[0])
+        if not documents:
+            raise ConversionError('В EPUB отсутствует текст книги.')
+        with zipfile.ZipFile(destination,'x') as target:
+            for entry in archive.archive.infolist():
+                if check is not None: check()
+                data = archive.read(entry.filename)
+                if entry.filename in documents:
+                    document = xhtml(data)
+                    if document.tag != '{'+XH+'}html':
+                        raise ConversionError('Некорректная глава EPUB.')
+                    ET.register_namespace('', XH)
+                    local_foreign_namespaces(document, XH)
+                    data = ET.tostring(document,encoding='utf-8',xml_declaration=True,short_empty_elements=False)
+                target.writestr(entry,data)
+    finally:
+        ET._namespace_map.clear()
+        ET._namespace_map.update(namespaces)
+        archive.close()
+
+
 def element(namespace, local_name, text=None, **attributes):
     node = ET.Element('{' + namespace + '}' + local_name, attributes)
     node.text = text

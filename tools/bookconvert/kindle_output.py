@@ -64,46 +64,6 @@ def gif_without_record_padding(data):
     return data
 
 
-def local_foreign_namespaces(root, xhtml_uri):
-    """Keep actual QName bindings when the writer replaces the HTML root."""
-    xml_uri = 'http://www.w3.org/XML/1998/namespace'
-
-    def namespaces(node):
-        return {name[1:].split('}', 1)[0] for name in [node.tag, *node.attrib]
-                if isinstance(name, str) and name.startswith('{')
-                and name[1:].split('}', 1)[0] not in {xhtml_uri, xml_uri}}
-
-    uris = set()
-    for node in root.iter():
-        uris.update(namespaces(node))
-    if not uris:
-        return
-    preferred = {'http://www.w3.org/2000/svg': 'svg',
-                 'http://www.w3.org/1999/xlink': 'xlink',
-                 'http://www.w3.org/1998/Math/MathML': 'math',
-                 'http://www.idpf.org/2007/ops': 'epub'}
-    prefixes, used = {}, {'', 'xml', 'xmlns'}
-    for uri in sorted(uris):
-        prefix = preferred.get(uri, 'hlns' + str(len(prefixes)))
-        while prefix in used:
-            prefix += '_'
-        used.add(prefix)
-        ET.register_namespace(prefix, uri)
-        prefixes[uri] = prefix
-
-    def visit(node, inherited):
-        scope = inherited | namespaces(node)
-        for uri in scope - inherited:
-            node.set('xmlns:' + prefixes[uri], uri)
-        for child in node:
-            visit(child, scope)
-
-    # Root declarations alone are lost by the writer. Start the scope again
-    # on each retained subtree; QName URIs come from parsed XML, not guesses.
-    for child in root:
-        visit(child, set())
-
-
 XLINK_HREF = '{http://www.w3.org/1999/xlink}href'
 CSS_COMMENT = rb'/\*[^*]*(?:\*(?!/)[^*]*)*\*/'
 CSS_STRING = rb'"(?:\\[\s\S]|[^"\\])*"|\'(?:\\[\s\S]|[^\'\\])*\''
@@ -162,6 +122,27 @@ def redundant_cover(api, archive, name, images):
         elif node.tag not in wrapper_tags:
             return False
     return picture_count == 1
+
+
+def regular_language_case(value):
+    # RFC 5646 section 2.1.1: case never changes a tag's meaning. Kindling's
+    # publishing validator nevertheless rejects e.g. UND; use conventional
+    # casing in this private copy, without guessing or replacing a language.
+    if not re.fullmatch(r'[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*', value):
+        return value
+    parts = value.split('-')
+    extension = False
+    for index, part in enumerate(parts):
+        if index == 0 or extension:
+            parts[index] = part.lower()
+        elif len(part) == 2 and part.isalpha():
+            parts[index] = part.upper()
+        elif len(part) == 4 and part.isalpha():
+            parts[index] = part.title()
+        else:
+            parts[index] = part.lower()
+        extension = extension or len(part) == 1
+    return '-'.join(parts)
 
 
 def canonical_input(api, source, destination, warnings=None):
@@ -252,7 +233,10 @@ def canonical_input(api, source, destination, warnings=None):
                                 del node.attrib[attribute]
                     if cover_pages:
                         keep_linked_covers(name, root.iter())
-                    local_foreign_namespaces(root, api.XH)
+                    normalize = getattr(api, 'local_foreign_namespaces', None)
+                    if normalize is None:
+                        raise api.ComponentRequired('BookProcessing', 'Обновите модуль обработки книг для сохранения Kindle.')
+                    normalize(root, api.XH)
                     # XHTML permits <p/>, but Kindling's HTML-oriented checks
                     # treat it as an unclosed paragraph. Pair non-void tags;
                     # keep void elements self-closing so <br></br> cannot turn
@@ -314,6 +298,8 @@ def canonical_input(api, source, destination, warnings=None):
                     for item in list(metadata):
                         if item.get('property', '').startswith('mhl:fb2-'):
                             metadata.remove(item)
+                        elif item.tag == '{' + api.DC + '}language' and item.text:
+                            item.text = regular_language_case(item.text)
                 target.writestr(archive.archive.getinfo(name),
                                 ET.tostring(package, encoding='utf-8', xml_declaration=True))
         return cover_declared

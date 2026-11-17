@@ -72,6 +72,38 @@ def rich_epub(path):
 
 
 class AdvancedOutputTest(unittest.TestCase):
+    def test_html_writer_input_keeps_foreign_namespaces_and_expands_empty_blocks(self):
+        source,output=self.work/'prefixed.epub',self.work/'html-input.epub'
+        rich_epub(source)
+        with zipfile.ZipFile(source) as z:entries={name:z.read(name) for name in z.namelist()}
+        chapter=('<html:html xmlns:html="'+conversion.XH+'" xmlns:s="http://www.w3.org/2000/svg" '
+                 'xmlns:l="'+conversion.XL+'" xmlns:m="http://www.w3.org/1998/Math/MathML">'
+                 '<html:head><html:title>Title</html:title></html:head><html:body>'+
+                 '<html:p/>'*450+'<html:p>Start <html:strong/>End.</html:p>'
+                 '<s:svg><s:image l:href="pixel.png"/></s:svg><m:math><m:mi>x</m:mi></m:math>'
+                 '</html:body></html:html>').encode()
+        entries['OPS/one.xhtml']=chapter
+        with zipfile.ZipFile(source,'w') as z:
+            for name,data in entries.items():z.writestr(name,data)
+        original=source.read_bytes()
+        conversion.prepare_html_writer_epub(source,output)
+        with zipfile.ZipFile(output) as z:
+            data=z.read('OPS/one.xhtml');root=conversion.xhtml(data)
+            self.assertEqual(sum(n.tag=='{'+conversion.XH+'}p' for n in root.iter()),451)
+            self.assertNotIn(b'html:html',data)
+            self.assertNotIn(b'<p />',data)
+            self.assertIn(b'<p></p>',data)
+            # HTML writers replace the root. Foreign QName bindings must remain
+            # valid on the retained SVG/MathML subtrees after that replacement.
+            replaced=re.sub(rb'<html\b[^>]*>',b'<html xmlns="'+conversion.XH.encode()+b'">',data,count=1)
+            tree=conversion.xml(replaced)
+            picture=next(n for n in tree.iter() if n.tag=='{http://www.w3.org/2000/svg}image')
+            self.assertEqual(picture.get('{'+conversion.XL+'}href'),'pixel.png')
+            self.assertTrue(any(n.tag=='{http://www.w3.org/1998/Math/MathML}mi' and n.text=='x' for n in tree.iter()))
+            for name,content in entries.items():
+                if name.endswith(('.png','.svg','.opf')):self.assertEqual(z.read(name),content)
+        self.assertEqual(source.read_bytes(),original)
+
     def setUp(self):
         scratch = tempfile.TemporaryDirectory()
         self.addCleanup(scratch.cleanup)

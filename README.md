@@ -62,7 +62,7 @@ HomeLibre Reader можно запустить отдельно, чтобы чи
 | Презентации | PPT, PPS, POT, PPTX, PPTM, PPSX, PPSM, POTX, POTM, ODP, OTP | BookProcessing. Для PPT, PPS и POT также нужен DocSharp |
 | Таблицы | XLS, XLT, XLSX, XLSM, XLTX, XLTM, ODS, OTS | BookProcessing. Для XLS и XLT также нужен DocSharp |
 | Works и WordPerfect | WPS, WPD | BookProcessing и libwps/libwpd. Требуется 64-разрядная Windows |
-| Документы с фиксированными страницами | PDF, DJVU, DJV, DJU, DJM, DJVM, XPS, OXPS | PDFium для PDF, DjVuLibre для DjVu, HomeLibXps и BookProcessing для XPS и OXPS |
+| Документы с фиксированными страницами | PDF, DJVU, DJV, DJU, DJM, DJVM, XPS, OXPS | PDFium для PDF, DjVuLibre для DjVu, HomeLibXps и BookProcessing для XPS и OXPS; OXPS требует Windows 8 или новее |
 | Книги Kindle | MOBI, AZW, AZW3, PRC | KindleUnpack и BookProcessing. Для некоторых старых вариантов также нужны кодеки calibre |
 | Интерактивные книги | SM | BookProcessing. Можно сохранить пройденную ветку |
 | Редкие книги и документы | CHM, LIT, LRF, RB, ABW, SXW, TCR, PDB, RGO, IBK, JUTOH, PAGES, CR3, B1, HA | BookProcessing. Для CHM нужен 7-Zip, для LIT и LRF — кодеки calibre, для IBK — данные ICE Book Reader. Поддержка зависит от варианта файла |

@@ -132,6 +132,33 @@ class TextInputs(unittest.TestCase):
             self.assertFalse(any(c.tag(node) == 'img' for node in body.iter()))
     def test_docx(self):
         source = self.root/'book.docx'; docx(source); self.outputs(source, [TEXT, 'Точная сноска', 'Ячейка'], True, True, True)
+    def test_docx_unpainted_empty_textbox_does_not_block_the_book(self):
+        source = self.root/'empty-box.docx'; docx(source)
+        with zipfile.ZipFile(source) as z: entries={n:z.read(n) for n in z.namelist()}
+        box = ('<w:p><w:r><w:pict xmlns:v="urn:schemas-microsoft-com:vml">'
+               '<v:shapetype id="empty-type"/><v:shape filled="f" stroked="f" type="#empty-type">'
+               '<v:textbox><w:txbxContent><w:p><w:pPr><w:spacing w:line="202"/></w:pPr>'
+               '<w:r><w:rPr><w:b/></w:rPr></w:r></w:p></w:txbxContent></v:textbox>'
+               '</v:shape></w:pict></w:r></w:p>').encode()
+        entries['word/document.xml']=entries['word/document.xml'].replace(b'</w:body>',box+b'</w:body>')
+        with zipfile.ZipFile(source,'w') as z:
+            for name,data in entries.items():z.writestr(name,data)
+        self.outputs(source,[TEXT,'Точная сноска','Ячейка'],True,True,True)
+        for index, changed in enumerate([
+            box.replace(b'</w:rPr>',b'</w:rPr><w:t>Keep this text</w:t>'),
+            box.replace(b'filled="f"',b'filled="t"'),
+            box.replace(b'</w:rPr>',b'</w:rPr><w:sym w:char="F041"/>'),
+            box.replace(b'<v:textbox>',b'<v:textbox style="background:red">'),
+            box.replace(b'</v:textbox>',b'</v:textbox><v:imagedata/>')]):
+            damaged=self.root/('visible-box-'+str(index)+'.docx')
+            with zipfile.ZipFile(damaged,'w') as z:
+                for name,data in entries.items():z.writestr(name,data.replace(box,changed) if name=='word/document.xml' else data)
+            before=damaged.read_bytes()
+            for suffix in ['.epub','.fb2']:
+                out=self.root/(damaged.stem+suffix)
+                with self.assertRaises(c.ConversionError):c.convert_book(damaged,out)
+                self.assertFalse(out.exists())
+            self.assertEqual(damaged.read_bytes(),before)
     def test_odt(self):
         source = self.root/'book.odt'; odt(source); self.outputs(source, [TEXT, 'Точная сноска'], True, True, True)
     def test_fb3(self):

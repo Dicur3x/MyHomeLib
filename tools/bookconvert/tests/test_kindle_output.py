@@ -73,6 +73,29 @@ class KindleOutputTests(unittest.TestCase):
             self.assertFalse(any(n.get('property', '').startswith('mhl:fb2-') for n in metadata.iter()))
         self.assert_clean()
 
+    def test_language_tag_case_is_normalized_only_in_private_metadata(self):
+        values = {'UND':'und', 'EN':'en', 'eN-us':'en-US', 'ZH-hANT-tw':'zh-Hant-TW',
+                  'AZ-lATN-X-LATN':'az-Latn-x-latn', 'en-A-LATN-US':'en-a-latn-us',
+                  'x-PRIVATE-LATN':'x-private-latn', 'RU_RU':'RU_RU', 'EN US':'EN US'}
+        source, output = self.root/'languages.epub', self.root/'private-languages.epub'
+        with zipfile.ZipFile(self.source) as z:
+            entries = {name:z.read(name) for name in z.namelist()}
+        entries['OPS/package.opf'] = entries['OPS/package.opf'].replace(
+            b'<dc:language>ru</dc:language>',
+            ''.join('<dc:language>'+value+'</dc:language>' for value in values).encode())
+        with zipfile.ZipFile(source, 'w') as z:
+            for name, data in entries.items(): z.writestr(name, data)
+        before = source.read_bytes()
+        k.canonical_input(c, source, output)
+        with zipfile.ZipFile(output) as z:
+            metadata = c.xml(z.read('OPS/package.opf'))
+            self.assertEqual([n.text for n in metadata.iter('{'+c.DC+'}language')], list(values.values()))
+            self.assertEqual(z.read('OPS/image.png'), self.image)
+            self.assertEqual(z.read('OPS/style.css'), self.css)
+            self.assertIn('Ёжик', ''.join(c.xhtml(z.read('OPS/chapter.xml')).itertext()))
+        self.assertEqual(source.read_bytes(), before)
+        self.assert_clean()
+
     def test_svg_math_and_note_namespaces_survive_replaced_html_root(self):
         source, output = self.root / 'foreign.epub', self.root / 'canonical.epub'
         with zipfile.ZipFile(self.source) as archive:
@@ -226,6 +249,17 @@ class KindleOutputTests(unittest.TestCase):
         result.stdout = '[error R4.2.1] No internal content cover image declared.\n'
         result.stderr = 'Native writer crashed.'
         self.assertFalse(k.only_publication_cover_required(result, False))
+        self.assert_clean()
+
+    def test_old_core_requests_book_processing_before_running_the_writer(self):
+        self.writer()
+        output=self.root/'old-core.mobi'
+        with mock.patch.object(c,'local_foreign_namespaces',None), mock.patch.object(subprocess,'run') as process:
+            with self.assertRaises(c.ComponentRequired) as caught:
+                k.convert(c,self.source,output,{'tools_root':self.root/'tools'})
+            self.assertEqual(caught.exception.component,'BookProcessing')
+            process.assert_not_called()
+        self.assertFalse(output.exists())
         self.assert_clean()
 
     def test_failed_native_process_never_publishes_a_partial_book(self):
