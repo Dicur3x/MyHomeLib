@@ -85,13 +85,22 @@ Markdown scripts/code, cover selection, animation and malformed navigation XML.
   `G:/HL-b14-external/legacy-resource-diagnosis-r1382/`.
 
 Both fresh private runtimes were removed, and their recorded Python overlays
-match the current source files. They used explicit pinned packages plus local
+match the repair cohort committed as `a7a6e5d3`. They used explicit pinned packages plus local
 matching Windows helpers. These are development validation cohorts, not final
 beta 14 module packages. Earlier matrix runs retain their own source hashes.
 
 The full task remains open for native TXT/FB2.ZIP and unchanged-source saving,
 unclassified/nested/oversized source groups, independent remaining outputs,
 cancellation, current native UI and final packages. E: was not used.
+
+An additional regression check found an incorrect estimate counter for small
+images: the unchanged-byte path reported selected images as encoded samples.
+The count is now zero, consistent with the absence of an encoder invocation.
+All 13 text-only export methods pass in `legacy-no-images-unit-r1408.log`,
+including WebP with no image decoder. The advanced-output suite separately
+passes ten methods, with three explicit installed-writer skips, in
+`legacy-advanced-output-unit-r1407.log`. This later count-only change is outside
+the recorded CHM/LIT source overlays; it does not change output book bytes.
 
 Primary implementation reference:
 [calibre LIT reader at the pinned commit](https://github.com/kovidgoyal/calibre/blob/1c1b407d76e23d4a1294d61bf73d915f247e3b83/src/calibre/ebooks/lit/reader.py).

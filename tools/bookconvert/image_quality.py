@@ -637,8 +637,10 @@ def apply(api, book, target_extension, profile, tools_root, progress, options_fi
             if grayscale: zip_sizes['original'] = zip_sizes['high']
             sizes['none'] = text_only_size
             zip_sizes['none'] = 512+deflated_size(candidate) if text_only_size else 0
+            # Tiny inputs are measured from unchanged bytes; no sample image
+            # was sent to the encoder, including when its module is absent.
             measured = {'format': target_extension[1:].upper(), 'images': len(pictures) or removed,
-                        'sampled': len(sample_indices), 'sizes': sizes, 'zip_sizes': zip_sizes,
+                        'sampled': 0 if small else len(sample_indices), 'sizes': sizes, 'zip_sizes': zip_sizes,
                         'preserved': sum(preserved)}
             if measurement is not None:
                 measurement(measured)
