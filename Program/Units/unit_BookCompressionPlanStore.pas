@@ -14,7 +14,7 @@ type
     FDB: TSQLiteDatabase;
     FSealed: Boolean;
   public
-    constructor Create(const Root: string);
+    constructor Create(const Root: string; EnableURI:Boolean=False);
     destructor Destroy; override;
     procedure Seal;
     procedure Edit(const Change: TProc<TSQLiteDatabase>);
@@ -112,7 +112,7 @@ begin
   finally System.SysUtils.FindClose(Search); end;
 end;
 
-constructor TCompressionPlanStore.Create(const Root:string);
+constructor TCompressionPlanStore.Create(const Root:string; EnableURI:Boolean);
 begin
   inherited Create;
   if (Root='') or not TPath.IsPathRooted(Root) then
@@ -131,7 +131,7 @@ begin
   Stream.Free;
   // SQLite must receive the extended path too, including on reopen: its
   // journal files cannot rely on the host executable being long-path aware.
-  FDB:=TSQLiteDatabase.Create(DeletionNativePath(FileName));
+  FDB:=TSQLiteDatabase.Create(DeletionNativePath(FileName),True,EnableURI);
   FDB.QuerySingleString('PRAGMA journal_mode=DELETE');
   FDB.ExecSQL('PRAGMA synchronous=NORMAL');
   FDB.ExecSQL('PRAGMA temp_store=FILE');

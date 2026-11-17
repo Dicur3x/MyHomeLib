@@ -2,14 +2,20 @@
 
 interface
 
-uses System.SysUtils, SQLiteWrap, unit_CollectionTransferJournal, unit_BookCompressionPlanStore;
+uses System.SysUtils, System.Classes, SQLiteWrap, unit_CollectionTransferJournal, unit_BookCompressionPlanStore;
 
 type TTransferReferenceSnapshot=class
   private
     FReview:TSQLiteDatabase;
     FStore:TCompressionPlanStore;
+    FIndexedApproval:Boolean;
+    FApprovalLease:TFileStream;
+    FSqlCancelled:Boolean;
+    FSqlError:string;
+    FPreviousSqlCancel:TSQLiteCancelCallback;
     FCancelled:TFunc<Boolean>;
     procedure Stop;
+    function PollSQL:Boolean;
     procedure Changed;
   public
     // Caller holds writer transactions on personal and every ready catalogue.
@@ -27,9 +33,33 @@ procedure CheckTransferPublicationReferences(Review:TSQLiteDatabase;
   const PersonalFile,WorkRoot:string; Prepared:TPreparedTransferGroup;
   const EffectiveCatalogue:TFunc<Integer,string>; const Cancelled:TFunc<Boolean>);
 
+{$IFDEF MHL_TRANSFER_TEST}
+var TransferApprovalTestPoint:TProc<Boolean>;
+    TransferApprovalReadOnlyProbe:TProc<TSQLiteDatabase>;
+    TransferApprovalSQLTestPoint:TProc;
+{$ENDIF}
+
 implementation
 
-uses System.Classes, System.Generics.Collections, unit_CollectionTransferReferences, unit_BookCompressionReceipt;
+uses System.IOUtils, System.Generics.Collections, unit_CollectionTransferReferences, unit_BookCompressionReceipt,
+  unit_ZipMemberDeletion;
+
+function FrozenReviewURI(Review:TSQLiteDatabase; out Path:string):string;
+begin
+  Result:=''; Path:=''; var Q:=Review.NewQuery('PRAGMA database_list');
+  try Q.Open; while not Q.Eof do
+    begin if Q.FieldAsString(1)='main' then begin Path:=Q.FieldAsString(2); Break; end; Q.Next; end;
+  finally Q.Free; end;
+  if Path.StartsWith('\\?\') then Delete(Path,1,4);
+  // Preserve the previous projection for UNC/very long work paths. No URI
+  // authority or host long-path assumptions are introduced for those callers.
+  if (Length(ExtractFileDrive(Path))<>2) or (Length(Path)>=240) then Exit;
+  var URI:='file:/'; var Raw:=TEncoding.UTF8.GetBytes(StringReplace(Path,'\','/',[rfReplaceAll]));
+  for var B in Raw do
+    if CharInSet(Char(B),['a'..'z','A'..'Z','0'..'9','/',':','-','_','.','~']) then URI:=URI+Char(B)
+    else URI:=URI+'%'+IntToHex(B,2);
+  Result:=URI+'?mode=ro&immutable=1';
+end;
 
 function ExpandTransferRetention(Review:TSQLiteDatabase; GroupID:Int64; const Seeds:TArray<Int64>):TArray<Int64>;
 var Kept:TDictionary<Int64,Boolean>; Q:TSQLiteQuery; Changed:Boolean;
@@ -71,6 +101,22 @@ begin
     raise EAbort.Create('Проверка новых ссылок остановлена. Исходные книги сохранены.');
 end;
 
+function TTransferReferenceSnapshot.PollSQL:Boolean;
+begin
+  Result:=False;
+  try
+{$IFDEF MHL_TRANSFER_TEST}
+    if Assigned(TransferApprovalSQLTestPoint) then TransferApprovalSQLTestPoint;
+{$ENDIF}
+    Stop;
+    if Assigned(FPreviousSqlCancel) and FPreviousSqlCancel() then FSqlCancelled:=True;
+    Result:=FSqlCancelled;
+  except
+    on E:EAbort do begin FSqlCancelled:=True; Result:=True; end;
+    on E:Exception do begin FSqlError:=E.Message; Result:=True; end;
+  end;
+end;
+
 procedure TTransferReferenceSnapshot.Changed;
 begin
   raise EReadError.Create('Ссылки на переносимые файлы или подключения изменились. '+
@@ -86,7 +132,7 @@ begin
   inherited Create; FReview:=Review; FCancelled:=Cancelled;
   if (Review=nil) or not Assigned(EffectiveCatalogue) then
     raise EArgumentException.Create('Нужна проверенная группа для повторной проверки ссылок.');
-  FStore:=TCompressionPlanStore.Create(WorkRoot); Fresh:=nil; Q:=nil; Found:=nil;
+  FStore:=TCompressionPlanStore.Create(WorkRoot,True); Fresh:=nil; Q:=nil; Found:=nil;
   try
     DB:=FStore.DB; DB.ExecSQL('BEGIN');
     DB.ExecSQL('CREATE TABLE Context(Name TEXT PRIMARY KEY,Value TEXT) WITHOUT ROWID');
@@ -130,7 +176,27 @@ begin
       FreeAndNil(Found); Fresh.Next;
     end;
     FreeAndNil(Fresh);
-    // Disk-backed approved keys avoid a per-live-row scan of the frozen list.
+    // New immutable reviews already index these exact keys. Old reviews retain
+    // the original disk-backed projection; no mutable source is cached here.
+    FIndexedApproval:=FReview.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE type=''index'' AND name=''TransferApprovedLookup''')=1;
+    var ApprovalPath:string; var URI:='';
+    if FIndexedApproval then URI:=FrozenReviewURI(FReview,ApprovalPath);
+    FIndexedApproval:=FIndexedApproval and (URI<>'');
+    if FIndexedApproval then
+    begin
+      // The caller supplies the sealed review. Hold it against writes/rename
+      // for the entire read-only attachment, independently of SQLite handles.
+      FApprovalLease:=TFileStream.Create(DeletionNativePath(ApprovalPath),fmOpenRead or fmShareDenyWrite);
+      DB.ExecSQL('ATTACH DATABASE ? AS fixed_approval',[URI]);
+{$IFDEF MHL_TRANSFER_TEST}
+      if Assigned(TransferApprovalReadOnlyProbe) then TransferApprovalReadOnlyProbe(DB);
+{$ENDIF}
+    end;
+{$IFDEF MHL_TRANSFER_TEST}
+    if Assigned(TransferApprovalTestPoint) then TransferApprovalTestPoint(FIndexedApproval);
+{$ENDIF}
+    if not FIndexedApproval then
+    begin
     DB.ExecSQL('CREATE TABLE Approved(RegistrationID INTEGER,Kind INTEGER,BookID INTEGER,SourceKey TEXT,FileID INTEGER,'+
       'RetainReason TEXT,Resource INTEGER,Owner TEXT,PRIMARY KEY(RegistrationID,Kind,BookID,SourceKey,FileID,Resource,Owner,RetainReason)) WITHOUT ROWID');
     Q:=FReview.NewQuery('SELECT r.RegistrationID,r.Kind,r.BookID,r.SourceKey,r.FileID,r.RetainReason,r.Resource,r.Owner '+
@@ -143,6 +209,7 @@ begin
     end;
     FreeAndNil(Q);
     DB.ExecSQL('CREATE INDEX PublicationApprovedFile ON Approved(FileID)');
+    end;
     Fresh:=DB.NewQuery('SELECT RegistrationID,Path,Reason FROM ReferenceIssues'); Fresh.Open;
     while not Fresh.Eof do
     begin
@@ -157,41 +224,39 @@ begin
 end;
 
 procedure TTransferReferenceSnapshot.CheckGroup(Prepared:TPreparedTransferGroup);
-var Fresh:TSQLiteQuery; DB:TSQLiteDatabase;
+var DB:TSQLiteDatabase; Table:string;
 begin
   if Prepared=nil then raise EArgumentException.Create('Не указана проверенная группа.');
-  DB:=FStore.DB; Fresh:=nil;
+  DB:=FStore.DB;
+  if FIndexedApproval then Table:='fixed_approval.RegisteredReferences' else Table:='Approved';
+  FSqlCancelled:=False; FSqlError:=''; FPreviousSqlCancel:=SQLiteCancelCallback; SQLiteCancelCallback:=PollSQL;
   try
-    Fresh:=DB.NewQuery('SELECT r.RegistrationID,r.Kind,r.BookID,r.SourceKey,r.FileID,r.RetainReason,r.Resource,r.Owner '+
-      'FROM RegisteredReferences r JOIN Files f ON f.ID=r.FileID WHERE f.GroupID=?',[Prepared.ID]); Fresh.Open;
-    while not Fresh.Eof do
-    begin
+    try
       Stop;
-      var Count:=DB.QuerySingleInt('SELECT count(*) FROM Approved WHERE RegistrationID=? AND Kind=? AND BookID=? AND SourceKey=? '+
-        'AND FileID=? AND RetainReason=? AND Resource=? AND Owner=?',
-        [Fresh.FieldAsInt(0),Fresh.FieldAsInt(1),Fresh.FieldAsInt(2),Fresh.FieldAsString(3),Fresh.FieldAsInt(4),
-         Fresh.FieldAsString(5),Fresh.FieldAsInt(6),Fresh.FieldAsString(7)]);
       // New personal cards for an already reviewed main book are reconciled by
       // ApplyTransferLocations in the locked personal transaction.
-      if (Count=0) and (Fresh.FieldAsInt(1)=1) and (Fresh.FieldAsInt(6)=0) and (Fresh.FieldAsString(5)='') then
-        Count:=DB.QuerySingleInt('SELECT count(*) FROM Approved WHERE RegistrationID=? AND Kind=0 AND BookID=? '+
-          'AND FileID=? AND Resource=0 AND RetainReason=''''',
-          [Fresh.FieldAsInt(0),Fresh.FieldAsInt(2),Fresh.FieldAsInt(4)]);
-      if Count=0 then Changed;
-      Fresh.Next;
+      if DB.QuerySingleInt('SELECT count(*) FROM RegisteredReferences r JOIN Files f ON f.ID=r.FileID WHERE f.GroupID=? AND NOT EXISTS '+
+        '(SELECT 1 FROM '+Table+' a WHERE a.RegistrationID=r.RegistrationID AND a.Kind=r.Kind AND a.BookID=r.BookID '+
+        'AND a.SourceKey=r.SourceKey AND a.FileID=r.FileID AND a.RetainReason=r.RetainReason AND a.Resource=r.Resource AND a.Owner=r.Owner) '+
+        'AND NOT(r.Kind=1 AND r.Resource=0 AND r.RetainReason='''' AND EXISTS(SELECT 1 FROM '+Table+' a WHERE '+
+        'a.RegistrationID=r.RegistrationID AND a.Kind=0 AND a.BookID=r.BookID AND a.FileID=r.FileID AND a.Resource=0 AND a.RetainReason=''''))',
+        [Prepared.ID])<>0 then Changed;
+      Stop;
+      // A disappeared non-personal reference must still prevent publication.
+      if DB.QuerySingleInt('SELECT count(*) FROM '+Table+' a JOIN Files f ON f.ID=a.FileID WHERE f.GroupID=? AND a.Kind<>1 AND NOT EXISTS '+
+        '(SELECT 1 FROM RegisteredReferences r WHERE r.RegistrationID=a.RegistrationID AND r.Kind=a.Kind '+
+        'AND r.BookID=a.BookID AND r.SourceKey=a.SourceKey AND r.FileID=a.FileID AND r.Resource=a.Resource)',[Prepared.ID])<>0 then Changed;
+      Stop;
+    except
+      if FSqlError<>'' then raise EReadError.Create(FSqlError);
+      if FSqlCancelled then raise EAbort.Create('Проверка новых ссылок остановлена. Исходные книги сохранены.');
+      raise;
     end;
-    FreeAndNil(Fresh);
-    // A disappeared non-personal reference can mean that its row now points
-    // elsewhere or an archive became unavailable; neither permits publication.
-    if DB.QuerySingleInt('SELECT count(*) FROM Approved a JOIN Files f ON f.ID=a.FileID WHERE f.GroupID=? AND a.Kind<>1 AND NOT EXISTS '+
-      '(SELECT 1 FROM RegisteredReferences r WHERE r.RegistrationID=a.RegistrationID AND r.Kind=a.Kind '+
-      'AND r.BookID=a.BookID AND r.SourceKey=a.SourceKey AND r.FileID=a.FileID AND r.Resource=a.Resource)',[Prepared.ID])<>0 then Changed;
-    Stop;
-  finally Fresh.Free; end;
+  finally SQLiteCancelCallback:=FPreviousSqlCancel; FPreviousSqlCancel:=nil; end;
 end;
 
 destructor TTransferReferenceSnapshot.Destroy;
-begin FStore.Free; inherited; end;
+begin FStore.Free; FApprovalLease.Free; inherited; end;
 
 procedure CheckTransferPublicationReferences(Review:TSQLiteDatabase;
   const PersonalFile,WorkRoot:string; Prepared:TPreparedTransferGroup;

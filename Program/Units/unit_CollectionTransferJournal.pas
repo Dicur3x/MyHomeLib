@@ -423,6 +423,8 @@ begin
   FReview.ExecSQL('CREATE UNIQUE INDEX Groups_ID ON Groups(ID)');
   CaptureTransferReferences(FReview,Catalogue.PersonalFile,
     function:Boolean begin CheckStop; Result:=False; end);
+  FReview.ExecSQL('CREATE INDEX TransferApprovedLookup ON RegisteredReferences('+
+    'RegistrationID,Kind,BookID,SourceKey,FileID,Resource,Owner,RetainReason)');
   CaptureTransferCatalogueForks(FReview,function:Boolean begin CheckStop; Result:=False; end,FPreviewOnly);
   Catalogue.CheckUnchanged; Plan.CheckUnchanged;
   FReview.ExecSQL('COMMIT');

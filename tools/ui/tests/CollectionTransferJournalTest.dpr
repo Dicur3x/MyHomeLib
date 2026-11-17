@@ -13,6 +13,7 @@ uses System.SysUtils, System.Classes, System.IOUtils, System.JSON, System.Hash,
   unit_CollectionTransferCacheInstallation,
   unit_CollectionTransferSpace,
   unit_CollectionTransferCleanup,
+  unit_CollectionTransferReferenceFence,
   unit_ReaderHistoryAliases, unit_ReaderCache,
   unit_CollectionMerge, unit_Interfaces, unit_LibraryUpdateReview, unit_SystemDatabase_SQLite,
   unit_CollectionTransferLayout, unit_CollectionTransferFinalRows, unit_CollectionTransferFinalization,
@@ -166,7 +167,7 @@ end;
 
 var Request,Control,Output:TJSONObject; Capture:TCollectionTransferCatalogue; Plan:TCollectionTransferPlan;
     Journal:TCollectionTransferJournal; Registry:TCollectionTransferRegistry; Info:TCollectionInfo; ControlFile,Mode,Crash:string;
-    Copies,PreparedFiles:Integer; Stop,BetweenEdited,CompletionBusy:Boolean; Groups,HistoryHits:TJSONArray; IDs:TList<Int64>; HistoryRows,VerifiedRetained:Int64;
+    Copies,PreparedFiles,IndexedApprovals,CopiedApprovals,ReadOnlyApprovals,SQLApprovalPolls:Integer; Stop,BetweenEdited,CompletionBusy:Boolean; Groups,HistoryHits:TJSONArray; IDs:TList<Int64>; HistoryRows,VerifiedRetained:Int64;
     Removed,Missing,RetainedSources,PendingSources,CachesPrepared,HeldPreparedCaches,PublishedCacheDatabases:Int64; RootsApplied:Boolean;
     IncompletePreparationHandle:THandle;
 begin
@@ -181,6 +182,26 @@ begin
         Crash:=Request.GetValue<string>('crash',''); Copies:=0; PreparedFiles:=0; Stop:=False; BetweenEdited:=False; HistoryRows:=0; VerifiedRetained:=0; HistoryHits:=TJSONArray.Create;
         Removed:=0; Missing:=0; RetainedSources:=0; PendingSources:=0; CachesPrepared:=0; HeldPreparedCaches:=0; PublishedCacheDatabases:=0; RootsApplied:=False;
         CompletionBusy:=Request.GetValue<Boolean>('application_busy',False); IncompletePreparationHandle:=0;
+        IndexedApprovals:=0; CopiedApprovals:=0;
+        ReadOnlyApprovals:=0; SQLApprovalPolls:=0;
+        TransferApprovalTestPoint:=procedure(Indexed:Boolean)
+          begin if Indexed then Inc(IndexedApprovals) else Inc(CopiedApprovals); end;
+        TransferApprovalReadOnlyProbe:=procedure(DB:TSQLiteDatabase)
+          begin
+            var Refused:=False;
+            try DB.ExecSQL('CREATE TABLE fixed_approval.HomeLibreWriteProbe(ID)');
+            except on E:ESQLiteException do
+              if E.Message.ToLower.Contains('readonly') then Refused:=True else raise;
+            end;
+            if not Refused then raise EReadError.Create('Frozen review attachment allowed writes');
+            Inc(ReadOnlyApprovals);
+          end;
+        TransferApprovalSQLTestPoint:=procedure
+          begin
+            Inc(SQLApprovalPolls);
+            if Request.GetValue<Boolean>('cancel_approval_sql',False) then
+            begin Writeln('TRACE cancelling approval SQL'); Flush(System.Output); Stop:=True; end;
+          end;
         if Mode='reader-names' then
         begin
           Output:=TJSONObject.Create; Output.AddPair('reader_names',FixtureReaderNames(Request));
@@ -325,6 +346,11 @@ begin
             StringToGUID('{A71B2224-0365-46A8-97E6-876445556001}'));
           TransferJournalTestPoint:=procedure(Stage,Directory:string; GroupID,FileID:Int64)
             begin
+                if (Stage='preparation-after-review') and Request.GetValue<Boolean>('legacy_approval_review',False) then
+                begin
+                  var DB:=TSQLiteDatabase.Create(DeletionNativePath(Owned(TPath.Combine(Directory,'review.sqlite'))),False);
+                  try DB.ExecSQL('DROP INDEX TransferApprovedLookup'); finally DB.Free; end;
+                end;
               if Stage<>Request.GetValue<string>('cancel_preparation_stage','') then Exit;
               var Foreign:=Request.GetValue<string>('preparation_foreign','');
               var Review:=Owned(TPath.Combine(Directory,'review.sqlite'));
@@ -669,6 +695,10 @@ begin
         end;
         Output.AddPair('history_rows',TJSONNumber.Create(HistoryRows)); Output.AddPair('history_hits',HistoryHits); HistoryHits:=nil;
         Output.AddPair('publication_scans',TJSONNumber.Create(Journal.PublicationScanCount));
+        Output.AddPair('indexed_approval_snapshots',TJSONNumber.Create(IndexedApprovals));
+        Output.AddPair('copied_approval_snapshots',TJSONNumber.Create(CopiedApprovals));
+        Output.AddPair('readonly_approval_probes',TJSONNumber.Create(ReadOnlyApprovals));
+        Output.AddPair('approval_sql_polls',TJSONNumber.Create(SQLApprovalPolls));
         Output.AddPair('verified_retained',TJSONNumber.Create(VerifiedRetained));
         Output.AddPair('removed_sources',TJSONNumber.Create(Removed));
         Output.AddPair('missing_sources',TJSONNumber.Create(Missing));
@@ -988,6 +1018,8 @@ begin
       finally
         TransferCopyTestPoint:=nil; TransferJournalTestPoint:=nil;
         TransferCleanupTestPoint:=nil;
+        TransferApprovalTestPoint:=nil;
+        TransferApprovalReadOnlyProbe:=nil; TransferApprovalSQLTestPoint:=nil;
         if IncompletePreparationHandle<>0 then CloseHandle(IncompletePreparationHandle);
         TransferReferenceTestPoint:=nil; TransferRegistryTestPoint:=nil; TransferFinalizationTestPoint:=nil;
         HistoryHits.Free; IDs.Free; Registry.Free; Journal.Free; Plan.Free; Capture.Free; Output.Free; Control.Free; Request.Free;

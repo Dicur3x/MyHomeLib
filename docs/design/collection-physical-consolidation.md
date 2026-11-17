@@ -293,6 +293,13 @@ replayed rather than overwritten. See
 `docs/audits/2026-11-16-collection-transfer-resources.md` for x86/x64 evidence.
 These resource receipts do not authorize original cleanup or replace its fresh
 live-reference/removal-intent proof. The normal UI
+uses a frozen approval index and a held read-only attachment for new short local
+reviews. Membership checks execute inside SQLite with scoped SQL cancellation;
+old reviews and long/UNC work paths retain their disk projection. The same fresh
+reference captures still occur. The first 100,003-row synthetic catalogue timing
+pair improves from 120.078 to 95.937 s; this is not archive-copy throughput or a
+million-row/peak-memory gate. Evidence and limits are in
+`docs/audits/2026-11-17-collection-transfer-approval-index.md`. The normal UI
 still has to close conflicting writable DAO
 connections, block other pending compression/update jobs, refresh registrations
 after a fork commit and account for snapshot/fork space. Fork publication keeps

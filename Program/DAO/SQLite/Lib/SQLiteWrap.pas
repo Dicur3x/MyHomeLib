@@ -69,7 +69,7 @@ type
       Pass FileName as AnsiString (if you are not using Unicode Delphi version)
       or as UnicodeString (on Delphi 2009 and higher)!
     }
-    constructor Create(const FileName: string; EnableWAL: Boolean = True);
+    constructor Create(const FileName: string; EnableWAL: Boolean = True; EnableURI:Boolean=False);
     // OPDS opens its own connection without creating or changing a database.
     constructor CreateReadOnly(const FileName: string);
 
@@ -371,9 +371,10 @@ begin
   try CopyDatabase(Source, Self, Progress); finally Source.Free; end;
 end;
 
-constructor TSQLiteDatabase.Create(const FileName: string; EnableWAL: Boolean);
+constructor TSQLiteDatabase.Create(const FileName: string; EnableWAL: Boolean; EnableURI:Boolean);
 var
   s: string;
+  Code:Integer;
 {$IFDEF MHL_SQL_PROFILE}
   ProfileMmap: Int64;
 {$ENDIF}
@@ -383,7 +384,11 @@ begin
   FProfileName := ExtractFileName(ExcludeTrailingPathDelimiter(ExtractFilePath(FileName))) +
     '/' + ExtractFileName(FileName);
   try
-    if SQLite3_Open(PUTF8Char(UTF8String(FileName)), FDB) <> SQLITE_OK then
+    if EnableURI then
+      Code:=SQLite3_Open_v2(PUTF8Char(UTF8String(FileName)),FDB,
+        SQLITE_OPEN_READWRITE or SQLITE_OPEN_CREATE or SQLITE_OPEN_URI or SQLITE_OPEN_PRIVATECACHE,nil)
+    else Code:=SQLite3_Open(PUTF8Char(UTF8String(FileName)), FDB);
+    if Code <> SQLITE_OK then
     begin
       if Assigned(FDB) then
         s := string(UTF8String(SQLite3_ErrMsg(FDB)))

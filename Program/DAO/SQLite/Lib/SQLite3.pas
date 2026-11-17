@@ -106,6 +106,7 @@ const
   SQLITE_OPEN_DELETEONCLOSE  =  $00000008;  // VFS only
   SQLITE_OPEN_EXCLUSIVE      =  $00000010;  // VFS only
   SQLITE_OPEN_AUTOPROXY      =  $00000020;  // VFS only
+  SQLITE_OPEN_URI            =  $00000040;  // Ok for sqlite3_open_v2()
   SQLITE_OPEN_MAIN_DB        =  $00000100;  // VFS only
   SQLITE_OPEN_TEMP_DB        =  $00000200;  // VFS only
   SQLITE_OPEN_TRANSIENT_DB   =  $00000400;  // VFS only
