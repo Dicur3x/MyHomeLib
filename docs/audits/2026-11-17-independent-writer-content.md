@@ -58,6 +58,35 @@ The pinned writer has a GIF format symbol. A temporary static-GIF conversion
 draft was rejected and removed from the working tree; animation was not silently
 discarded to make the checks pass. These four cells remain open.
 
+### Linked-image repair and the user's subsequent GIF decision
+
+The pinned writer flattens link/inline subtrees into text-only segments and
+silently skips image leaves. The new patch retains image nodes and inherited
+links, splitting neighboring text into separate runs so a KFX element does not
+mix a text reference with image children. All 34 storyline tests pass on x64,
+including new nested-link/text/image and image-only-link cases. Applying the
+complete patch to pristine pinned sources reproduces the tested UTF-8 source.
+
+The production x86/x64 builds were deliberately stopped when system free space
+fell below 8 GiB (observed 7,963,721,728 bytes). Their nonzero exits are not
+successful build evidence. Sources, toolchains and build work stay on G:.
+The new runtime packages and independent real-book readback are still pending.
+The intended KfxExport version is 3.0.0.6; the corresponding-source archive now
+has a distinct versioned name rather than replacing the published source ZIP.
+
+After this investigation the user explicitly chose a static GIF result for
+beta 14 export: one frame, with original source files unchanged. That conversion
+still needs implementation and validation. The earlier rejection of an
+unapproved static conversion remains a historical observation, not the current
+product decision. Do not claim that preserving an animated resource establishes
+animation support on a physical Kindle. After beta 14, count GIFs and animated
+GIFs in the actual collection before deciding whether to add animation or
+frame-by-frame export choices; frequency has not been measured.
+
+Evidence: `G:/HL-b14-external/kfx-inline-images-r1438/storyline-tests-cc.log`,
+`G:/HL-b14-external/kfx-patch-check-r1441/` and
+`G:/HL-b14-external/kfx-module-build-r1442/aborted-for-system-reserve.json`.
+
 ## Evidence
 
 - Consolidated result: `G:/HL-b14-external/independent-writer-validation-r1431/summary.json`.

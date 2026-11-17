@@ -12,7 +12,7 @@ diff --git a/src/epub/parser.rs b/src/epub/parser.rs
                      if attr.key.as_ref().as_bytes() == b"full-path" {
 @@ -1320,6 +1320,14 @@
      }
- 
+
      #[test]
 +    fn test_parse_container_xml_with_namespace_prefix() {
 +        let container = br#"<ocf:container xmlns:ocf="urn:oasis:names:tc:opendocument:xmlns:container" version="1.0">
@@ -29,7 +29,7 @@ diff --git a/src/import/epub.rs b/src/import/epub.rs
 --- a/src/import/epub.rs
 +++ b/src/import/epub.rs
 @@ -251,13 +251,14 @@
- 
+
          // Load the EPUB 3 nav document once, if declared: it serves both the
          // TOC fallback (step 5) and landmarks (step 6).
 -        let nav_str: Option<String> = opf.nav_href.as_ref().and_then(|nav_href| {
@@ -44,7 +44,7 @@ diff --git a/src/import/epub.rs b/src/import/epub.rs
 +                    (nav_path, nav_str)
                  })
          });
- 
+
 @@ -273,8 +274,8 @@
                  // Navigation is auxiliary: a malformed NCX degrades to an
                  // empty TOC (like a missing one) instead of failing the open.
@@ -69,7 +69,7 @@ diff --git a/src/import/epub.rs b/src/import/epub.rs
 -            toc = prepend_base_to_toc(&toc_entries, &opf_base);
 +            toc = prepend_base_to_toc(&toc_entries, nav_path);
          }
- 
+
          // 6. Parse landmarks from EPUB 3 nav document
 -        let landmarks = if let Some(nav_str) = &nav_str {
 +        let landmarks = if let Some((nav_path, nav_str)) = &nav_document {
@@ -85,7 +85,7 @@ diff --git a/src/import/epub.rs b/src/import/epub.rs
              parsed
 @@ -641,6 +642,15 @@
      }
- 
+
      #[test]
 +    fn test_toc_links_relative_to_navigation_document() {
 +        let mut chapter = TocEntry::new("Chapter", "../text/My%20chapter.xhtml#start");
@@ -99,3 +99,239 @@ diff --git a/src/import/epub.rs b/src/import/epub.rs
      fn test_prepend_base_to_toc_with_fragments() {
          let entries = vec![
              TocEntry::new("Section 1", "text/ch1.xhtml#section1"),
+diff --git a/src/kfx/storyline/export.rs b/src/kfx/storyline/export.rs
+--- a/src/kfx/storyline/export.rs
++++ b/src/kfx/storyline/export.rs
+@@ -234,7 +234,7 @@
+     // This produces non-overlapping style_events where each text segment
+     // carries the accumulated state from all ancestors.
+     if node.role == Role::Link || node.role == Role::Inline {
+-        emit_inline_content_flat(chapter, node_id, parent_style, sch, ctx, stream);
++        emit_inline_content_flat(chapter, node_id, parent_style, adjust, sch, ctx, stream);
+         return;
+     }
+
+@@ -475,19 +475,22 @@
+     // (no math font): the run wrapper must enclose it. As a KVG container it
+     // is a sibling element, closing any open run — like an inline image.
+     let math_is_flow = !ctx.math_renders_as_container();
+-    let is_inline_flow = |role: Role| {
+-        matches!(role, Role::Text | Role::Break | Role::Link | Role::Inline)
+-            || (role == Role::Math && math_is_flow)
++    let is_inline_flow = |id: NodeId| {
++        chapter.node(id).is_some_and(|n| {
++            (matches!(n.role, Role::Text | Role::Break | Role::Link | Role::Inline)
++                && !inline_contains_image(chapter, id))
++                || (n.role == Role::Math && math_is_flow)
++        })
+     };
+     let children: Vec<NodeId> = chapter.children(node_id).collect();
+     let has_own_text = !node.text.is_empty() && !chapter.text(node.text).is_empty();
+     let has_flow = has_own_text
+         || children
+             .iter()
+-            .any(|&c| chapter.node(c).is_some_and(|n| is_inline_flow(n.role)));
++            .any(|&c| is_inline_flow(c));
+     let has_elements = children
+         .iter()
+-        .any(|&c| chapter.node(c).is_some_and(|n| !is_inline_flow(n.role)));
++        .any(|&c| !is_inline_flow(c));
+
+     // Table cells are $270 containers; a container must never carry a text
+     // ref directly (a bare-text <th>/<td> would otherwise put one there), so
+@@ -535,7 +538,7 @@
+             stream.push(KfxToken::Text(chapter.text(node.text).to_string()));
+         }
+         for child in children {
+-            let child_is_flow = chapter.node(child).is_some_and(|n| is_inline_flow(n.role));
++            let child_is_flow = is_inline_flow(child);
+             if child_is_flow {
+                 open_run(stream, &mut run_open);
+             } else {
+@@ -584,6 +587,19 @@
+ pub(super) struct FlatSegment {
+     pub(super) text: String,
+     pub(super) state: InlineState,
++    pub(super) image_node: Option<NodeId>,
++}
++
++/// Images inside links/spans are element children, not text style events.
++/// Look through inline wrappers so their block parent also splits text runs.
++fn inline_contains_image(chapter: &Chapter, node_id: NodeId) -> bool {
++    chapter.node(node_id).is_some_and(|node| match node.role {
++        Role::Image => true,
++        Role::Link | Role::Inline => chapter
++            .children(node_id)
++            .any(|child| inline_contains_image(chapter, child)),
++        _ => false,
++    })
+ }
+
+ /// Flatten inline content into segments with computed state.
+@@ -644,6 +660,7 @@
+                     segments.push(FlatSegment {
+                         text: text.to_string(),
+                         state: effective_state,
++                        image_node: None,
+                     });
+                 }
+             }
+@@ -653,8 +670,14 @@
+             segments.push(FlatSegment {
+                 text: "\n".to_string(),
+                 state: effective_state,
++                image_node: None,
+             });
+         }
++        Role::Image => segments.push(FlatSegment {
++            text: String::new(),
++            state: effective_state,
++            image_node: Some(node_id),
++        }),
+         // MATH inside an inline element (e.g. `<span>… <math/> …</span>`):
+         // a math container cannot be nested mid-style-event, so emit the
+         // equation's readable linearization as an inline text segment rather
+@@ -667,6 +690,7 @@
+                     segments.push(FlatSegment {
+                         text,
+                         state: effective_state,
++                        image_node: None,
+                     });
+                 }
+             }
+@@ -679,6 +703,7 @@
+                 segments.push(FlatSegment {
+                     text: "\u{200B}".to_string(), // Zero-width space
+                     state: effective_state,
++                    image_node: None,
+                 });
+             } else {
+                 for child_id in children {
+@@ -942,6 +967,7 @@
+     chapter: &Chapter,
+     node_id: NodeId,
+     parent_style: crate::style::StyleId,
++    adjust: &super::collapse::MarginAdjustMap,
+     sch: &crate::kfx::schema::KfxSchema,
+     ctx: &mut ExportContext,
+     stream: &mut TokenStream,
+@@ -950,6 +976,49 @@
+     let mut segments = Vec::new();
+     flatten_inline_content(chapter, node_id, InlineState::default(), &mut segments);
+
+-    // Convert segments to tokens
+-    emit_flattened_segments(segments, chapter, parent_style, sch, ctx, stream);
+-}
++    if !segments.iter().any(|s| s.image_node.is_some()) {
++        emit_flattened_segments(segments, chapter, parent_style, sch, ctx, stream);
++        return;
++    }
++
++    // Keep images as sibling elements between contiguous text runs. A text
++    // reference and element children must never share one KFX element.
++    let mut run = Vec::new();
++    let flush = |run: &mut Vec<FlatSegment>, ctx: &mut ExportContext, stream: &mut TokenStream| {
++        if !run.is_empty() {
++            let mut elem = ElementStart::new(Role::Text);
++            elem.style_symbol = Some(ctx.register_style_id(parent_style, parent_style, &chapter.styles));
++            stream.push(KfxToken::StartElement(elem));
++            emit_flattened_segments(std::mem::take(run), chapter, parent_style, sch, ctx, stream);
++            stream.push(KfxToken::EndElement);
++        }
++    };
++    for segment in segments {
++        if let Some(image_id) = segment.image_node {
++            flush(&mut run, ctx, stream);
++            let mut image = TokenStream::new();
++            walk_node_for_export(chapter, image_id, parent_style, adjust, sch, ctx, &mut image);
++            for mut token in image {
++                if let KfxToken::StartElement(ref mut elem) = token
++                    && elem.role == Role::Image
++                {
++                    if let Some(ref href) = segment.state.link_to {
++                        let anchor = ctx.anchor_registry.get_or_create_href_symbol(href);
++                        elem.kfx_attrs.push((sym!(LinkTo), anchor));
++                    }
++                    // An image-only link can itself be a navigation target.
++                    if chapter.semantics.id(image_id).is_none()
++                        && let Some(ref id) = segment.state.element_id
++                    {
++                        elem.set_semantic(SemanticTarget::Id, id.clone());
++                        elem.node_id = segment.state.node_id;
++                    }
++                }
++                stream.push(token);
++            }
++        } else {
++            run.push(segment);
++        }
++    }
++    flush(&mut run, ctx, stream);
++}
+diff --git a/src/kfx/storyline/tests.rs b/src/kfx/storyline/tests.rs
+--- a/src/kfx/storyline/tests.rs
++++ b/src/kfx/storyline/tests.rs
+@@ -1109,6 +1109,63 @@
+         assert_eq!(all, ["before ", " after"]);
+     }
+
++    #[test]
++    fn image_inside_nested_link_preserves_resource_link_and_text_order() {
++        let mut chapter = Chapter::new();
++        let para = chapter.alloc_node(Node::new(Role::Paragraph));
++        chapter.append_child(chapter.root(), para);
++        text_child(&mut chapter, para, "before ");
++        let link = chapter.alloc_node(Node::new(Role::Link));
++        chapter.append_child(para, link);
++        chapter.semantics.set_href(link, "https://example.org/illustration");
++        text_child(&mut chapter, link, "linked ");
++        let span = chapter.alloc_node(Node::new(Role::Inline));
++        chapter.append_child(link, span);
++        image_child(&mut chapter, span, "animated.gif");
++        text_child(&mut chapter, link, " caption");
++        text_child(&mut chapter, para, " after");
++
++        let (ion, mut ctx) = export(&chapter);
++        let IonValue::List(elems) = ion else { panic!() };
++        let para_ion = as_struct(&elems[0]);
++        assert!(field(para_ion, KfxSymbol::Content).is_none());
++        let Some(IonValue::List(kids)) = field(para_ion, KfxSymbol::ContentList) else { panic!() };
++        assert_eq!(kids.len(), 5, "text, linked text, image, linked text, text: {kids:#?}");
++        let image = as_struct(&kids[2]);
++        assert!(field(image, KfxSymbol::ResourceName).is_some());
++        assert!(field(image, KfxSymbol::LinkTo).is_some());
++        for run in [0, 1, 3, 4] {
++            let fields = as_struct(&kids[run]);
++            assert!(field(fields, KfxSymbol::Content).is_some());
++            assert!(field(fields, KfxSymbol::ContentList).is_none());
++        }
++        let chunks = ctx.take_content_chunks();
++        let all: Vec<&String> = chunks.iter().flat_map(|(_, segs)| segs).collect();
++        assert_eq!(all, ["before ", "linked ", " caption", " after"]);
++    }
++
++    #[test]
++    fn image_only_link_is_not_dropped_or_replaced_with_anchor_text() {
++        let mut chapter = Chapter::new();
++        let para = chapter.alloc_node(Node::new(Role::Paragraph));
++        chapter.append_child(chapter.root(), para);
++        let link = chapter.alloc_node(Node::new(Role::Link));
++        chapter.append_child(para, link);
++        chapter.semantics.set_href(link, "#destination");
++        chapter.semantics.set_id(link, "image-link");
++        image_child(&mut chapter, link, "animated.gif");
++        let (ion, mut ctx) = export(&chapter);
++        let IonValue::List(elems) = ion else { panic!() };
++        let para_ion = as_struct(&elems[0]);
++        assert!(field(para_ion, KfxSymbol::Content).is_none());
++        let Some(IonValue::List(kids)) = field(para_ion, KfxSymbol::ContentList) else { panic!() };
++        assert_eq!(kids.len(), 1);
++        let image = as_struct(&kids[0]);
++        assert!(field(image, KfxSymbol::ResourceName).is_some());
++        assert!(field(image, KfxSymbol::LinkTo).is_some());
++        assert!(ctx.take_content_chunks().is_empty(), "image-only links add no placeholder text");
++    }
++
+     /// A styled span after an inline image gets run-relative event offsets.
+     #[test]
+     fn events_after_inline_image_are_run_relative() {
