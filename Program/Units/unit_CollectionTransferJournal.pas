@@ -137,7 +137,7 @@ uses System.IOUtils, System.Hash, unit_Globals, unit_Consts,
   unit_CollectionTransferReferences, unit_CollectionTransferForks, unit_CollectionTransferLocations,
   unit_CollectionTransferPublication, unit_CollectionTransferResources, unit_CollectionTransferLayout,
   unit_CollectionTransferFinalization, unit_CollectionTransferCachePreparation, unit_CollectionTransferCompletion,
-  unit_CollectionTransferCleanup;
+  unit_CollectionTransferCleanup, unit_CollectionTransferDrafts;
 
 const JournalKind='HomeLibre collection transfer preparation v1';
   PreviewKind='HomeLibre collection transfer space preview v1';
@@ -377,6 +377,7 @@ begin
       if (Binding.State=tbsMissing) and (Binding.Source<>'') then
         FReview.ExecSQL('INSERT OR IGNORE INTO NegativePaths VALUES(?)',[Binding.Source]);
     end);
+  Point('preparation-review-building',FDirectory,0,0); CheckStop;
   Catalogue.ForEachMissingContainer(
     procedure(Path:string)
     begin CheckStop; FReview.ExecSQL('INSERT OR IGNORE INTO NegativePaths VALUES(?)',[Path]); end);
@@ -440,6 +441,7 @@ begin
   FConstructionFiles:=TDictionary<string,string>.Create;
   FWorkRoot:=TransferCanonicalDirectory(WorkRoot); FDestination:=Plan.Destination; CheckStop;
   PinDirectory(FWorkRoot);
+  TTransferDrafts.CleanAbandoned(FWorkRoot,Cancelled);
   FDirectory:=TPath.Combine(FWorkRoot,Prefix+GUIDToString(TGUID.NewGuid));
   if not CreateDirectory(PChar(DeletionNativePath(FDirectory)),nil) then RaiseLastOSError;
   FCreatedDirectoryKey:=PinDirectory(FDirectory);
@@ -453,15 +455,25 @@ begin
   var ReviewFile:=TPath.Combine(FDirectory,'review.sqlite'); var StateFile:=TPath.Combine(FDirectory,'state.sqlite');
   FConstructionFiles.Add('review.sqlite',CreateEmptyFile(ReviewFile));
   FConstructionFiles.Add('state.sqlite',CreateEmptyFile(StateFile));
+  TTransferDrafts.Save(FLease,FDirectory,FCreatedDirectoryKey,FCreatedCopiesKey,FConstructionFiles);
   Point('preparation-before-review',FDirectory,0,0); CheckStop;
-  FReview:=TSQLiteDatabase.Create(DeletionNativePath(ReviewFile),True,False,FDirectory);
-  FReview.QuerySingleString('PRAGMA journal_mode=DELETE'); FReview.ExecSQL('PRAGMA synchronous=FULL');
+  // Before Ready these files are disposable, never a resumable operation.
+  // Keep their rollback journal in memory so a killed draft has no unclaimed
+  // named side file. Restore durable DELETE mode before sealing/returning.
+  FReview:=TSQLiteDatabase.Create(DeletionNativePath(ReviewFile),False,False,FDirectory);
+  if FReview.QuerySingleString('PRAGMA journal_mode=MEMORY')<>'memory' then
+    raise EWriteError.Create('Не удалось подготовить временный журнал проверки.');
+  FReview.ExecSQL('PRAGMA synchronous=FULL');
   FReview.ExecSQL('PRAGMA cache_size=-4096'); FReview.ExecSQL('PRAGMA temp_store=FILE');
   BuildReview(Catalogue,Plan);
+  if FReview.QuerySingleString('PRAGMA journal_mode=DELETE')<>'delete' then
+    raise EWriteError.Create('Не удалось сохранить журнал проверки.');
   Point('preparation-after-review',FDirectory,0,0); CheckStop;
   FStateLease:=AcquireCompressionDatabaseLease(StateFile,Meta('state_key'));
-  FState:=TSQLiteDatabase.Create(DeletionNativePath(StateFile),True,False,FDirectory);
-  FState.QuerySingleString('PRAGMA journal_mode=DELETE'); FState.ExecSQL('PRAGMA synchronous=FULL');
+  FState:=TSQLiteDatabase.Create(DeletionNativePath(StateFile),False,False,FDirectory);
+  if FState.QuerySingleString('PRAGMA journal_mode=MEMORY')<>'memory' then
+    raise EWriteError.Create('Не удалось подготовить временное состояние переноса.');
+  FState.ExecSQL('PRAGMA synchronous=FULL');
   FState.ExecSQL('CREATE TABLE FileState(FileID INTEGER PRIMARY KEY,Child TEXT NOT NULL DEFAULT '''','+
     'State TEXT NOT NULL DEFAULT ''planned'' CHECK(State IN (''planned'',''prepared'')),'+
     'Identity TEXT NOT NULL DEFAULT '''',SHA256 TEXT NOT NULL DEFAULT '''',StreamsJSON TEXT NOT NULL DEFAULT '''')');
@@ -481,11 +493,15 @@ begin
   try Q.Open; while not Q.Eof do begin FState.ExecSQL('INSERT INTO ForkState(ForkID) VALUES(?)',[Q.FieldAsInt(0)]); Q.Next; end;
   finally Q.Free; end;
   FState.ExecSQL('COMMIT');
+  if FState.QuerySingleString('PRAGMA journal_mode=DELETE')<>'delete' then
+    raise EWriteError.Create('Не удалось сохранить состояние переноса.');
   var ReviewKey:=CompressionFileKey(ReviewFile); FreeAndNil(FReview);
   // The newly created file is sealed under a read lease and hashed in bounded,
   // cancellable chunks. Its digest must be stored independently by the caller.
   OpenReview('',ReviewKey);
   Point('preparation-before-ready',FDirectory,0,0); CheckStop;
+  if not FPreviewOnly then TTransferDrafts.Ready(FLease);
+  Point('preparation-ready-durable',FDirectory,0,0);
   FCancelled:=nil; FConstructionComplete:=True;
 end;
 

@@ -12,7 +12,7 @@ uses System.SysUtils, System.Classes, System.IOUtils, System.JSON, System.Hash,
   unit_CollectionTransferCachePreparation,
   unit_CollectionTransferCacheInstallation,
   unit_CollectionTransferSpace,
-  unit_CollectionTransferCleanup,
+  unit_CollectionTransferCleanup, unit_CollectionTransferDrafts, unit_BookCompressionPlanStore,
   unit_CollectionTransferReferenceFence,
   unit_CollectionTransferBindingDigest,
   unit_ReaderHistoryAliases, unit_ReaderCache,
@@ -216,6 +216,7 @@ begin
         CompletionBusy:=Request.GetValue<Boolean>('application_busy',False); IncompletePreparationHandle:=0;
         IndexedApprovals:=0; CopiedApprovals:=0;
         ReadOnlyApprovals:=0; SQLApprovalPolls:=0;
+        TransferDraftTestPoint:=procedure(Stage,Directory:string) begin Writeln('TRACE draft-retained ',Stage,' ',Directory); end;
         TransferApprovalTestPoint:=procedure(Indexed:Boolean)
           begin if Indexed then Inc(IndexedApprovals) else Inc(CopiedApprovals); end;
         TransferApprovalReadOnlyProbe:=procedure(DB:TSQLiteDatabase)
@@ -234,6 +235,14 @@ begin
             if Request.GetValue<Boolean>('cancel_approval_sql',False) then
             begin Writeln('TRACE cancelling approval SQL'); Flush(System.Output); Stop:=True; end;
           end;
+        if Mode='clean-drafts' then
+        begin
+          var RemovedDrafts:=TTransferDrafts.CleanAbandoned(Owned(Request.GetValue<string>('work')),
+            function:Boolean begin Result:=Request.GetValue<Boolean>('cancel_draft_cleanup',False); end);
+          Output:=TJSONObject.Create; Output.AddPair('status','PASS'); Output.AddPair('drafts_removed',TJSONNumber.Create(RemovedDrafts));
+          Output.AddPair('plans_removed',TJSONNumber.Create(TCompressionPlanStore.CleanAbandoned(Owned(Request.GetValue<string>('work')))));
+          TFile.WriteAllText(Owned(ParamStr(2)),Output.ToJSON,TEncoding.UTF8); Exit;
+        end;
         if Mode='reader-names' then
         begin
           Output:=TJSONObject.Create; Output.AddPair('reader_names',FixtureReaderNames(Request));
@@ -395,6 +404,10 @@ begin
             StringToGUID('{A71B2224-0365-46A8-97E6-876445556001}'));
           TransferJournalTestPoint:=procedure(Stage,Directory:string; GroupID,FileID:Int64)
             begin
+              if (Stage='preparation-before-review') and Request.GetValue<Boolean>('probe_active_draft_cleanup',False) then
+                if TTransferDrafts.CleanAbandoned(Owned(Request.GetValue<string>('work')))<>0 then
+                  raise EReadError.Create('Draft cleanup removed an active preparation');
+              if Stage=Crash then begin Writeln('CRASH ',Stage); Flush(System.Output); Halt(97); end;
                 if (Stage='preparation-after-review') and Request.GetValue<Boolean>('legacy_approval_review',False) then
                 begin
                   var DB:=TSQLiteDatabase.Create(DeletionNativePath(Owned(TPath.Combine(Directory,'review.sqlite'))),False);

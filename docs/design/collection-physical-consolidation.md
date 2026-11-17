@@ -702,3 +702,17 @@ Discovery/queue reads and failure-marker fallback without an opened journal are
 not covered by this selection; this does not globally alter SQLite or TEMP/TMP.
 The audit `2026-11-17-sqlite-plan-temp-routing.md` records native spill and
 focused lifecycle/compatibility evidence on both architectures.
+
+
+### Unregistered preparation drafts
+
+A bounded, checksummed lease claim binds physical IDs before populating a new
+review/state. Disposable construction uses MEMORY rollback and returns to
+DELETE/FULL before a flushed ready tail protects the usable journal. On the
+next preparation in that same work root, only complete, unextended claims with
+an exact known entry set and empty copies directory are eligible. Deletion uses
+held identities; ready/legacy/active/foreign/damaged drafts stay intact. There
+is no all-volume startup scan. Nested catalogue-fork snapshots and remnants
+without a complete claim remain separate cleanup scope. See
+`2026-11-17-collection-transfer-draft-recovery.md` for crash/lifecycle evidence
+and explicit durability/cleanup boundaries.

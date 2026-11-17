@@ -122,3 +122,32 @@ name. Their current development resource remains `3.0.0.13` /
 `3.0.0_pre1.13`; release versioning is still a final beta14 gate. SHA256 and
 build stages are recorded in r1244. Compilation does not establish ordinary UI,
 update-package or final-release readiness; Desktop binaries remain unchanged.
+
+
+## Completed catalogue-scale runs with plan-store routing
+
+Both pending runs are now successful; consolidated evidence is
+`G:/HL-b14-external/transfer-routed-million-validation-r1247/summary.json`:
+
+- x64 r1226: move / fresh completion / replay 1833.688 / 348.953 / 5.078 s;
+  peak job commit 291,819,520 / 117,194,752 / 5,943,296 bytes.
+- x86 r1229: 2005.343 / 284.094 / 4.563 s;
+  peak job commit 171,786,240 / 157,040,640 / 5,148,672 bytes.
+
+Each has 1,000,003 main/source-A cache books and three source-B cache books.
+All compared non-locator user-data hashes and independently derived cache
+update identities match. Six protected cache/index/neighbor inputs remain
+unchanged. Both tiny carriers are moved byte-exactly and originals removed;
+final roots match the frozen plan, pending operations are zero and a new replay
+process leaves database bytes unchanged. All six native calls return zero, and
+both private runtimes are removed.
+
+Observed extra allocated file bytes are 4,048,721,928 / 4,049,369,096. Sampling
+does not include every volume metadata cost or necessarily every short peak;
+this is not an ENOSPC or quota guarantee. These partially overlapping runs,
+with other builds/tests in progress, do not establish a performance improvement.
+They exercise two small ZIP carriers, not a terabyte-scale archive workload.
+The fixed input snapshots are 656 / 657 files, with production SQLite routing
+from `6f76ac86`; the x86 wrapper includes the later status-file sharing fix.
+They precede `466a11a2` and the draft-recovery changes, so they cannot establish
+scale validation of those later changes or ordinary-app/release readiness.

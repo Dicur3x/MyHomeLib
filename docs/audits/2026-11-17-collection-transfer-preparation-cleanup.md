@@ -68,3 +68,10 @@ receipts, clean another operation's working root or measure volume-space peaks.
 Those remain separate release tasks. The new checks do not claim 7z coverage;
 their fixtures use ZIP and do not call the optional 7z test helper. No user
 library or Desktop installation was changed; E: was not used.
+
+
+The later draft-claim extension is audited in
+`2026-11-17-collection-transfer-draft-recovery.md`: simple owned drafts can now
+be reclaimed on the next same-root preparation after a hard exit. It preserves
+ready/legacy/unknown journals and does not close the nested-fork snapshot or
+unproven-remnant boundaries above.
