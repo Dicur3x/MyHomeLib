@@ -99,11 +99,35 @@ KFX source and 30 unrelated feed records are unchanged. No upload or removal
 was performed. See
 `G:/HL-b14-external/release-candidate-r1939-component-plan/verified-delta.json`.
 
+## Production binaries and candidate distributions
+
+The r1941 compatibility launcher and the r1942 catalogue builds passed on
+x86 and x64 with actual 3.0.0.14 Windows resources. The exact launchers
+passed the r1952 native argument and working-directory tests in both archive
+layouts. The packaged Reader and updater retain their checked r1915 builds.
+The overlapping tracked release source matches the local b98f43ab snapshot.
+
+`G:/HL-b14-external/r1950-distribution-verification/distribution-report.json`
+records independent preparation, installed-file verification and inventory
+checks for all six r1946/r1947 archives. The four minimal/bridge archives
+contain 241 managed files each. The full x86/x64 archives contain 1,625/1,626
+managed files, including 25 components each, fonts and all three pinned
+Microsoft installers. Test settings and other private files survived; the
+private workspaces were removed. The Microsoft installers were verified for
+availability and identity but not executed.
+
+The r1948 native installer test applied the verified production bridge
+archives over copies of the original published beta 13 archives on x86 and
+x64. All 241 managed files matched, the exact compatibility launcher was
+retained, and the settings and private SQLite test database hashes were
+unchanged. The old update window, restart and Windows shortcut are outside
+this test. The r1949 frontend test has verified inputs on both architectures.
+
 ## Still open
 
-Final main binaries, minimal and full ZIPs, install/remove/update verification
-for the distributed modules and the ordinary beta 13 to beta 14 update remain
-release gates. Clean-Windows prerequisite installation, offline GUI operation,
-Desktop replacement and publication remain open.
+The ordinary beta 13 to beta 14 update with restart, clean-Windows prerequisite
+installation, offline GUI operation, and the remaining install/remove/update
+and licensing/source checks are release gates. Desktop replacement and
+publication remain open.
 
 All preparation is on G:. No E: input or user-library modification is involved.
