@@ -509,6 +509,25 @@ passed. Guest receipts and screenshots are under
 `r1983-transfer-hotplug/release1988e/verified`. The per-device byte counts are
 in the adjoining `usb-controller.json`.
 
+## Transfer help and refreshed packages
+
+Both r1989 Main builds include the transfer guide. Four private-desktop tests
+completed the ordinary transfer workflow on x86 and x64 at 225% (direct move)
+and 100% (stop and continue). The six rebuilt ZIPs have the same member names
+as r1988. The only members with changed CRC or size were Main, the transfer
+help page and the transport manifest. Main and the help file were independently
+compared to the intended build and help source.
+
+The r1989 native distribution checks passed for all six ZIPs. Each full
+edition includes all 25 pinned optional components. The published beta 13
+frontend upgraded the private catalogue from the new compatibility ZIP and
+restarted twice on both architectures. The first parallel x86 attempt was
+declined by the test driver's existing-catalogue guard; its separate rerun
+passed. Reports: `r1989-distribution-verification/distribution-report.json`,
+`r1989-transfer-context/upgrade-Win32-retry/report.json` and
+`r1989-transfer-context/upgrade-Win64/report.json`. These were local package
+installations. The USB-disconnect and SMB results above used the r1988 Main.
+
 ## Remaining checks
 
 Remaining source checks, Desktop replacement and publication remain open.
