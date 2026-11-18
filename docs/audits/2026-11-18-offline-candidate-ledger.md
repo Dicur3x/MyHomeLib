@@ -407,6 +407,18 @@ source inventory and rejects each superseded worker even when its manifest
 and runtime descriptor agree with one another. It also rejects a stale
 descriptor when the manifest already matches the corrected source.
 
+The separate release worktree had the older plan generator which proposed
+removing downloads still used by installed clients. Its input matched the
+known Git revision before the retention fix. The current planner, two FLibrary
+workers, transfer recovery source and associated release inputs were copied
+after checking the previous contents. The r1977 plan already retains all 16
+downloads.
+
+A second checkout had different Git line endings in 31 otherwise identical
+source files. Source comparison accepts LF and CRLF for checked-out text.
+It still requires exact bytes for binary data and the generated API marker.
+Manifest and installed runtime checksums always refer to the actual ZIP bytes.
+
 Regenerate the BookProcessing update archives from the release checkout,
 refresh both offline input lists and the upload plan, and recheck the final
 full ZIPs and selected compression. The earlier installation and compatibility

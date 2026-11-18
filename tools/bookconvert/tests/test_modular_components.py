@@ -26,6 +26,17 @@ def stage(root, payload):
 
 
 class ModularComponents(unittest.TestCase):
+    def test_only_source_text_can_differ_by_git_line_endings(self):
+        lf = b'first\nsecond\n'
+        crlf = lf.replace(b'\n', b'\r\n')
+        for source, packaged in ((lf, crlf), (crlf, lf)):
+            digest = hashlib.sha256(packaged).hexdigest()
+            self.assertTrue(packages.matches_book_processing_source('tools/bookconvert/convert_book.py', source, digest))
+            for name in ('tools/bookconvert/ibk_tables.bin', 'tools/bookconvert/MODULAR_API.txt'):
+                self.assertFalse(packages.matches_book_processing_source(name, source, digest))
+            self.assertFalse(packages.matches_book_processing_source('file.txt', source + b'\0',
+                             hashlib.sha256(packaged + b'\0').hexdigest()))
+
     def test_release_rejects_outdated_workers_even_with_matching_internal_hashes(self):
         sources, required = packages.book_processing_sources()
         hashes = {path: hashlib.sha256(data).hexdigest() for path, data in sources.items()}

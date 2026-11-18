@@ -303,11 +303,23 @@ def book_processing_sources():
     return files, required
 
 
+def matches_book_processing_source(name, data, digest):
+    if helper.digest(data) == digest:
+        return True
+    # Git may check out a text file with LF or CRLF. The installed file must
+    # still match its own ZIP manifest and runtime descriptor byte for byte.
+    if (Path(name).suffix not in ('.py', '.js', '.json', '.md', '.txt', '.typed') or
+            name == 'tools/bookconvert/MODULAR_API.txt' or b'\0' in data):
+        return False
+    lf = data.replace(b'\r\n', b'\n')
+    return digest in (helper.digest(lf), helper.digest(lf.replace(b'\n', b'\r\n')))
+
+
 def verify_book_processing_sources(manifest, descriptor):
     """Compare a verified component manifest with the files used by the package writer."""
     current, required = book_processing_sources()
     recorded = {entry['path']: entry['sha256'] for entry in manifest['files']}
-    mismatches = [name for name, data in current.items() if recorded.get(name) != helper.digest(data)]
+    mismatches = [name for name, data in current.items() if not matches_book_processing_source(name, data, recorded.get(name))]
     if mismatches:
         raise ValueError('BookProcessing differs from release source: ' + ', '.join(sorted(mismatches)))
     for name in required:
