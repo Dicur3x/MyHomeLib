@@ -108,6 +108,7 @@ begin
   try
     Dialog.AppendSource(Source); Dialog.SaveSources;
     Require(not TButton(Dialog.FindComponent('btnApplyUpdateSource')).Enabled,'Unreviewed source can be applied');
+    Require(not TButton(Dialog.FindComponent('btnCopyNeededUpdateArchives')).Enabled,'Unreviewed source can clear the clipboard');
     Sources:=ReadLibraryUpdateSources(VarToStr(Target.GetProperty(PROP_LIBRARY_UPDATE_SOURCES)));
     Require((Length(Sources)=1) and (Sources[0].ID=Source.ID),'Source settings were not stored in this catalogue');
     OldTheme:=MHLThemeDark;
@@ -120,6 +121,7 @@ begin
     Revision:=Target.GetCatalogRevision;
     Dialog.CheckSource;
     Require(TButton(Dialog.FindComponent('btnApplyUpdateSource')).Enabled,'Reviewed source does not offer application');
+    Require(TButton(Dialog.FindComponent('btnCopyNeededUpdateArchives')).Enabled,'Missing archive names cannot be copied');
     Require(Assigned(Dialog.Prepared),'Source check did not retain its frozen index');
     Require(Dialog.Prepared.SHA256=OriginalHash,'Source check changed the index bytes');
     Require(Assigned(Dialog.Review) and Dialog.Review.Ready and Dialog.Review.PreviousIndex,
@@ -156,6 +158,7 @@ begin
     Require((Dialog.Review.FoundArchives.Count=1) and (Dialog.Review.NeededArchives.Count=0) and
       Dialog.Review.FoundArchives[0].Contains('f.fb2-100-200.7z'),
       'New archive folder or ZIP-to-7z fallback was ignored');
+    Require(not TButton(Dialog.FindComponent('btnCopyNeededUpdateArchives')).Enabled,'Empty download list can clear the clipboard');
     TFile.WriteAllText(TPath.Combine(CatalogSources[0].Root,'f.fb2-100-200.zip'),'another presence fixture',TEncoding.UTF8);
     Dialog.CheckSource;
     Require(Dialog.Review.AmbiguousArchives.Count=1,'Same named archives in both roots were silently treated as one');

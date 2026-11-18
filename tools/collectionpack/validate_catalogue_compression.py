@@ -612,6 +612,9 @@ def run(binary, runtime, sqlite, icons, genres, stage, platform, mode, real_book
         # bootstrap; leave separate room for bootstrap and orderly teardown.
         deadline = 900 if transfer_flibrary else 420 if work_picker_source_volume or real_books or refresh_index or reviewed_index or reviewed_bound or scenario in ('packing-fbd', 'packed-jxl-formats', 'packed-flibrary-sidecars', 'reviewed-flibrary-compression',
             'compression-continuation', 'library-update-sources', 'library-update-apply', 'library-update-cancel', 'library-update-window', 'catalog-merge-outcome', 'library-update-recovery') else 150
+        if scenario == 'library-update-apply':
+            # This suite applies successive indexes and creates a verified backup for each update.
+            deadline = 1200
         attempt = dict(status='INCOMPLETE', platform=platform, mode=mode,
             native_binary_sha256=digest(binary), outer_timeout_seconds=deadline,
             refresh_index=refresh_index, reviewed_index=reviewed_index, reviewed_bound=reviewed_bound,

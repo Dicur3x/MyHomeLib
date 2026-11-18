@@ -345,6 +345,9 @@ var Button: TComponent;
 begin
   Button:=FindComponent('btnApplyUpdateSource');
   if Button is TButton then TButton(Button).Enabled:=Assigned(FReview) and FReview.Ready and not FReview.Applied;
+  Button:=FindComponent('btnCopyNeededUpdateArchives');
+  if Button is TButton then TButton(Button).Enabled:=Assigned(FReview) and FReview.Ready and
+    (FReview.NeededArchives.Count>0);
   Button:=FindComponent('btnSaveMissingUpdateBooks');
   if Button is TButton then TButton(Button).Enabled:=Assigned(FReview) and
     FReview.MissingReportReady and (FReview.MissingBooks>0);
@@ -688,8 +691,8 @@ end;
 
 procedure TfrmLibraryUpdateSources.CopyNeeded(Sender: TObject);
 begin
-  if Assigned(FReview) and FReview.Ready then Clipboard.AsText:=FReview.NeededArchives.Text
-  else SetReport('Сначала проверьте обновление. Список будет содержать точные имена отсутствующих файлов с новыми или изменёнными записями.');
+  if Assigned(FReview) and FReview.Ready and (FReview.NeededArchives.Count>0) then
+    Clipboard.AsText:=FReview.NeededArchives.Text;
 end;
 
 procedure TfrmLibraryUpdateSources.SaveMissing(Sender: TObject);
@@ -714,8 +717,8 @@ procedure TfrmLibraryUpdateSources.Help(Sender: TObject);
 begin
   SetReport('1. Добавьте папку с новым индексом или адрес сервера и имя файла.'+sLineBreak+
     '2. Укажите, какую коллекцию или подключённый источник обновлять и где лежат архивы книг.'+sLineBreak+
-    '3. Нажмите «Проверить обновление»: появятся число новых записей и имена недостающих файлов. Список можно скопировать.'+sLineBreak+
-    '4. Нажмите «Применить обновление» и проверьте итоговый план. До подтверждения каталог не меняется; перед сохранением создаётся его резервная копия.'+sLineBreak+
+    '3. Нажмите «Проверить обновление». Если нужны архивы, нажмите «Копировать список». Докачайте файлы с этими именами и повторите проверку.'+sLineBreak+
+    '4. Нажмите «Применить обновление…». Программа проверит книги и покажет план для подтверждения. Если архив есть, а книги в нём нет, её имя и причину можно получить через «Сохранить пропуски…» даже после отмены плана.'+sLineBreak+
     'Импорт показывает настройки до сохранения. Записи из другого INI сначала отключены. '+
     'Индекс содержит список книг; адресов для загрузки любых книжных архивов в нём может не быть.');
 end;

@@ -979,7 +979,7 @@ begin
       'WHERE r.Active<>0 AND p.Key IS NULL AND e.Key IS NULL');
     FChangedBooks:=DB.QuerySingleInt('SELECT count(*) FROM ReviewRows r JOIN ReviewPrevious p ON p.Key=r.Key LEFT JOIN ReviewExcluded e ON e.Key=r.Key '+
       'WHERE r.Active<>0 AND p.State<>''excluded'' AND e.Key IS NULL AND (p.Stamp<>r.Stamp OR p.Physical<>r.Physical OR p.PackedPending<>0)');
-    var NeedBody:='(p.Stamp<>r.Stamp OR p.Physical<>r.Physical OR p.PackedPending<>0)';
+    var NeedBody:='(p.State IN (''missing'',''missing-retained'') OR p.Stamp<>r.Stamp OR p.Physical<>r.Physical OR p.PackedPending<>0)';
     if Assigned(BoundPackedCopy) then
       NeedBody:='(p.State IN (''missing'',''missing-retained'') OR p.PayloadStamp<>r.PayloadStamp '+
         'OR p.Location<>r.PublisherLocation OR (p.PackedCopy=0 AND p.Physical<>r.Physical))';
@@ -1010,7 +1010,7 @@ begin
     end;
     if FVersion=0 then Version:='не указана' else Version:=IntToStr(FVersion);
     FSummary:=Format('В индексе: %d записей, в том числе помеченных удалёнными: %d.%sНовых книг: %d. С изменёнными сведениями: %d.%s'+
-      'Версия индекса: %s.%sФайлов найдено: %d. Для новых/изменённых записей отсутствует: %d.%s'+
+      'Версия индекса: %s.%sФайлов найдено: %d. Для новых, изменённых и ранее пропущенных книг требуется докачать: %d.%s'+
       'Отсутствующих файлов только с прежними записями: %d. Одноимённых файлов в обеих папках: %d.',
       [FTotal,FDeleted,sLineBreak,FNewBooks,FChangedBooks,sLineBreak,Version,sLineBreak,FFound.Count,FNeeded.Count,sLineBreak,FHistorical.Count,FAmbiguous.Count]);
     if FIsMetabib then FSummary:=FSummary+sLineBreak+'Metabib используется как полный снимок каталога.';
@@ -1030,7 +1030,7 @@ begin
     else if FPreviousIndex then FSummary:=FSummary+sLineBreak+'Сравнение с сохранённым индексом этого источника.'
     else FSummary:=FSummary+sLineBreak+'Сравнение с текущим каталогом. Прежний полный индекс неизвестен: удалённые ранее записи могут выглядеть новыми.';
     FSummary:=FSummary+sLineBreak+'Сверяются ID, имена и форматы файлов; изменения — по названию, языку, размеру, дате и отметке удаления. '+
-      'Старые отсутствующие файлы не включены в список докачки: среди них могут быть удалённые дубли. '+
+      'В список докачки входят и файлы для книг, пропущенных при прошлом обновлении. '+
       'Изменение содержимого архива с прежним именем без изменения индекса таким сравнением не определяется. '+
       'Наличие файла проверено без чтения всех книг внутри него. Книги и текущий каталог не изменены.';
     if FNeeded.Count>0 then

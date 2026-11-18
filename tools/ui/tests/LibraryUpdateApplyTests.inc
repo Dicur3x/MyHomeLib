@@ -339,8 +339,9 @@ begin
   // must still be eligible for a later download from the same index.
   BookID:=Target.ResolveBookID('104',0); Target.GetBookRecord(CreateBookKey(BookID,ID),Book,True);
   var RetainedTitle:=Book.Title;
-  Index(IndexName,['books','new','new','books','only-new','only-new'],['101','102','103','104','105','106'],
-    ['Returned 101','New 102','Awaiting 103','Changed while offline 104','Downloaded with original disk offline','Pending new 106']);
+  Index(IndexName,['books','new','new','books','only-new','only-new','pending'],['101','102','103','104','105','106','107'],
+    ['Returned 101','New 102','Awaiting 103','Changed while offline 104','Downloaded with original disk offline',
+     'Pending new 106','Still awaiting archive 107']);
   OpenReview;
   try Apply(True);
     BookID:=Target.ResolveBookID('104',0); Require(BookID>0,'Missing replacement discarded its retained card');
@@ -349,8 +350,19 @@ begin
       'Missing replacement changed retained metadata or personal fields');
     Require(Target.ResolveBookID('106',0)=0,'Never-downloaded member was added prematurely');
   finally CloseReview; end;
+  OpenReview;
+  try
+    Require(Review.NeededArchives.Contains('books.zip') and Review.NeededArchives.Contains('pending.zip') and
+      not Review.NeededArchives.Contains('only-new.zip'),
+      'Rechecking the same index lost a pending download or requested an already present archive');
+  finally CloseReview; end;
   Target.DeleteBook(CreateBookKey(BookID,ID));
   OpenReview; try Apply(True); finally CloseReview; end;
+  OpenReview;
+  try
+    Require(not Review.NeededArchives.Contains('books.zip') and Review.NeededArchives.Contains('pending.zip'),
+      'The download list failed to distinguish a recorded exclusion from a pending book');
+  finally CloseReview; end;
   Archive(OldRoot,'books.zip',['101','104']); Archive(DownloadRoot,'only-new.zip',['105','106']);
   OpenReview;
   try Apply(True);
