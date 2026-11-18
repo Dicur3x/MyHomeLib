@@ -255,6 +255,52 @@ def main():
         assert state(destination)['version'] == '3.0.0.15'
         passed('newer installed Reader preserves both executable names and existing inventory')
 
+        # The published beta 13 helper installs the real component under OLD
+        # and leaves a receipt listing only that spelling.
+        for scenario in ('normal', 'partial', 'modified', 'occupied', 'no-receipt'):
+            directory = target('legacy-start-' + scenario)
+            reader = next_fixture.read_bytes()
+            payload = {**shared, OLD: reader}
+            for name, content in payload.items():
+                path = directory / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(content)
+            entries = [dict(path=name, size=len(content), sha256=sha(content))
+                       for name, content in payload.items()]
+            receipt = dict(format=1, component='HomeLibReader', version='3.0.0.14',
+                           platform=args.platform, files=entries)
+            inventory = directory / 'tools/component-state/homelibreader.json'
+            inventory.parent.mkdir()
+            if scenario == 'partial':
+                token = '{9B0C4D0A-25D4-4457-A21E-AF9681E82CEC}'
+                receipt['reader_name_stage'] = token
+                entries.append(dict(path=NEW, size=len(reader), sha256=sha(reader)))
+                (directory / ('.homelibre-update-' + token + '.tmp')).write_bytes(b'partial')
+            if scenario == 'modified':
+                (directory / OLD).write_bytes(reader + b'changed')
+            if scenario == 'occupied':
+                (directory / NEW).write_bytes(b'unrelated existing executable')
+            if scenario != 'no-receipt':
+                inventory.write_text(json.dumps(receipt), encoding='utf-8')
+            before = snapshot(directory)
+            run('--legacy-reader-start', directory)
+            if scenario in ('normal', 'partial'):
+                assert (directory / NEW).read_bytes() == (directory / OLD).read_bytes() == reader
+                updated = json.loads(inventory.read_bytes())
+                assert 'reader_name_stage' not in updated
+                assert not list(directory.glob('.homelibre-update-*.tmp'))
+                owned = {entry['path']: entry['sha256'] for entry in updated['files']}
+                assert owned[NEW] == owned[OLD] == sha(reader)
+                after = snapshot(directory)
+                for name, digest in before.items():
+                    if name != inventory.relative_to(directory).as_posix() and not name.endswith('.tmp'):
+                        assert after[name] == digest
+                run('--legacy-reader-start', directory)
+                assert snapshot(directory) == after
+            else:
+                assert snapshot(directory) == before
+            passed('standalone beta 13 helper receipt on Reader startup: ' + scenario)
+
         report['status'] = 'PASS'
     report['owned_profile_removed'] = not root.exists()
     (stage / 'reader-identity-report.json').write_text(json.dumps(report, indent=2), encoding='utf-8')

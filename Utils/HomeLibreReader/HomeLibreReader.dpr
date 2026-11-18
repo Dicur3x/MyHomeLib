@@ -6,7 +6,8 @@
 {$R '..\..\Program\HomeLibreManifest.res'}
 
 uses System.SysUtils, System.IOUtils, System.Win.ComObj, Winapi.Windows, Winapi.ActiveX, Vcl.Forms,
-  unit_Settings, unit_ReaderStartup, unit_Diagnostics, unit_MHLTheme, dm_user, frm_ReaderHost;
+  unit_Settings, unit_ReaderStartup, unit_Diagnostics, unit_MHLTheme, dm_user, frm_ReaderHost,
+  unit_ProgramUpdateInstaller;
 
 var Startup: TReaderStartup; Arguments: TArray<string>;
 begin
@@ -21,6 +22,11 @@ begin
   try
    try
     InitializeDiagnostics;
+    try
+      CompleteLegacyReaderName(ParamStr(0));
+    except
+      on E: Exception do LogDiagnosticError('reader-name-migration',E);
+    end;
     Application.CreateForm(TDMUser,DMUser); DMUser.Init;
     SetMHLTheme(Settings.DarkTheme);
     Application.CreateForm(TfrmReaderHost,ReaderHost);

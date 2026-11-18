@@ -91,6 +91,11 @@ begin
     end
     else if Mode='--resolve' then
     begin Guard(ParamStr(2)); Writeln(InstalledApplicationName(ParamStr(2),ParamStr(3))); end
+    else if Mode='--legacy-reader-start' then
+    begin
+      Guard(ParamStr(2));
+      CompleteLegacyReaderName(TPath.Combine(ParamStr(2),LEGACY_READER_APPLICATION));
+    end
     else if Mode='--parse' then
     begin
       if not ParseProgramReleases(TFile.ReadAllText(ParamStr(2)),Info) then raise Exception.Create('No release');

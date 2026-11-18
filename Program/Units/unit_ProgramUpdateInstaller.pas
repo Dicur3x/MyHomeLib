@@ -44,6 +44,7 @@ function ComponentReceiptName(const ID: string): string;
 function InstalledComponentFiles(const AppPath, ID: string): TUpdateFiles;
 function ComponentFilesFromManifest(const ManifestFile, ID: string): TUpdateFiles;
 procedure AdoptComponentFileInventory(const AppPath, ID, ManifestFile: string);
+procedure CompleteLegacyReaderName(const Executable: string);
 function CheckedUpdateChildPath(const Root, Name: string): string;
 function PreparedProgramUpdateHelper(const Job, Tag, Platform, ExpectedSHA256: string): string;
 function SafeComponentFile(const ID, Name: string): Boolean;
@@ -1750,6 +1751,76 @@ begin
     Result.Free;
     raise Exception.Create('Для этой папки уже выполняется другое обновление или восстановление.');
   end;
+end;
+
+// Beta 13 uses its installed helper for a standalone component. That helper
+// installs the new Reader under its old name, then restarts it. Its receipt
+// supplies the exact bytes we can publish under the new name.
+procedure CompleteLegacyReaderName(const Executable: string);
+const Component = 'HomeLibReader'; StageField = 'reader_name_stage';
+var Target, Legacy, Canonical, ReceiptPath, StageID, Stage: string;
+  Lock: TMutex; Receipt, Entry: TJSONObject; Files: TUpdateFiles;
+  Info, Expected: TUpdateFile; Entries: TJSONArray; HasCanonical: Boolean;
+begin
+  if not SameText(ExtractFileName(Executable),LEGACY_READER_APPLICATION) then Exit;
+  Target:=ExtractFileDir(Executable);
+  Canonical:=ChildPath(Target,READER_APPLICATION);
+  if FileExists(Canonical) then Exit;
+  ReceiptPath:=ChildPath(Target,ComponentReceiptName(Component));
+  if not FileExists(ReceiptPath) then Exit;
+  Lock:=AcquireUpdateTarget(Target);
+  try
+    if FileExists(Canonical) then Exit;
+    Files:=InstalledComponentFiles(Target,Component);
+    Expected:=Default(TUpdateFile); HasCanonical:=False;
+    for Info in Files do
+    begin
+      if SameText(Info.Name,LEGACY_READER_APPLICATION) then Expected:=Info;
+      if SameText(Info.Name,READER_APPLICATION) then HasCanonical:=True;
+    end;
+    if Expected.Name='' then Exit;
+    Legacy:=ChildPath(Target,LEGACY_READER_APPLICATION);
+    Receipt:=ReadJSON(ReceiptPath);
+    try
+      if not ReaderComponentUsesCanonicalName(Receipt) or
+         (UpdateFileVersion(Legacy)<>Receipt.GetValue<string>('version','')) then Exit;
+      StageID:=Receipt.GetValue<string>(StageField,'');
+      if HasCanonical and (StageID='') then Exit;
+      if (TFile.GetSize(Legacy)<>Expected.Size) or
+         not SameText(UpdateSHA256(Legacy),Expected.SHA256) then Exit;
+      if StageID='' then
+      begin
+        StageID:=TGUID.NewGuid.ToString;
+        Stage:=UpdateStagePath(Target,StageID);
+        if FileExists(Stage) or DirectoryExists(Stage) then Exit;
+        Entries:=Receipt.GetValue<TJSONArray>('files');
+        Entry:=TJSONObject.Create; Entries.AddElement(Entry);
+        Entry.AddPair('path',READER_APPLICATION);
+        Entry.AddPair('size',TJSONNumber.Create(Expected.Size));
+        Entry.AddPair('sha256',Expected.SHA256);
+        Receipt.AddPair(StageField,StageID);
+        ManifestFiles(Receipt);
+        WriteJSON(ReceiptPath,Receipt);
+      end
+      else
+      begin
+        if not HasCanonical then Exit;
+        for Info in Files do
+          if SameText(Info.Name,READER_APPLICATION) and
+             ((Info.Size<>Expected.Size) or not SameText(Info.SHA256,Expected.SHA256)) then Exit;
+        Stage:=UpdateStagePath(Target,StageID);
+        if FileExists(Stage) and not Winapi.Windows.DeleteFile(PChar(Stage)) then RaiseLastOSError;
+      end;
+      // The receipt records this private stage before the first write.
+      // A restart can recopy a partial stage. Never replace an existing EXE.
+      if not CopyFile(PChar(Legacy),PChar(Stage),True) then RaiseLastOSError;
+      if not SameText(UpdateSHA256(Stage),Expected.SHA256) then
+        raise EReadError.Create('Не удалось проверить копию HomeLibre Reader.');
+      if not MoveFileEx(PChar(Stage),PChar(Canonical),MOVEFILE_WRITE_THROUGH) then RaiseLastOSError;
+      Receipt.RemovePair(StageField).Free;
+      WriteJSON(ReceiptPath,Receipt);
+    finally Receipt.Free; end;
+  finally Lock.Release; Lock.Free; end;
 end;
 
 procedure RollbackProgramUpdate(const Job, Target: string);

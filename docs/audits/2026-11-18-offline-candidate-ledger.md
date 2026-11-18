@@ -121,15 +121,38 @@ archives over copies of the original published beta 13 archives on x86 and
 x64. All 241 managed files matched, the exact compatibility launcher was
 retained, and the settings and private SQLite test database hashes were
 unchanged. The old update window, restart and Windows shortcut are outside
-this test. The r1949 frontend test has verified inputs on both architectures.
-Its x64 run passed using the regular update window of the original published
+this test. The r1949 frontend test passed on x86 and x64 using the regular
+update window of the original published
 beta 13. The old process wrote its own installation request, exited normally,
 and the exact packaged helper restarted `HomeLibre.exe`. An unchanged Windows
 shortcut targeting `HomeLibRu.exe` opened the renamed catalogue. All 241
 managed files, the seven fixture books, the saved geometry and personal
 settings were verified after shutdown; private payloads were removed. This
 used a prepared package restored from the update cache, not the published
-GitHub download route. The x86 frontend run is separate.
+GitHub download route. Reports are in the two
+`release-candidate-r1949-frontend-{Win32,Win64}/report.json` files.
+
+The separate stock beta 13 Reader uses its installed helper for component
+updates. That helper installed the original beta 14 candidate entirely as
+`HomeLibReader.exe`. On restart the corrected Reader now uses the old
+helper's receipt to verify the executable and publish `HomeLibreReader.exe`
+alongside the existing file. The existing book opens on that first restart
+under the old process name. The component inventory owns both paths.
+
+Both stock Readers installed the prepared r1958 packages from their Components
+windows. The seven-book catalogue test above is separate. Here each Reader
+reopened the same test FB2. Both executable hashes and all package entries
+matched, and both private installations were removed. On x64 the stock helper
+reported a sharing failure before it changed any files on the first attempt.
+The old Reader reopened and its ordinary retry completed. On x86 installation
+completed on the first attempt. The two `r1960-stock-reader-gui-*.json`
+reports preserve the results. The r1961 publication plan and offline input
+lists reference the four new Reader archives.
+
+The native filename regression suite passed 18 case groups per architecture.
+The five additional groups cover first startup with the old receipt, resuming
+from a partial staging file, a modified legacy binary, an occupied destination
+and a missing receipt. The reports are under `r1959-reader-name-native`.
 
 ## Module maintenance on the exact release packages
 
@@ -172,8 +195,8 @@ record separate author terms if available before treating that item as closed.
 
 ## Still open
 
-The ordinary beta 13 to beta 14 update with restart, clean-Windows prerequisite
-installation, offline GUI operation, and the remaining install/remove/update
+Clean-Windows prerequisite installation, offline GUI operation, independent
+verification of full archives with the corrected Reader, and the remaining install/remove/update
 and licensing/source checks are release gates. Desktop replacement and
 publication remain open.
 

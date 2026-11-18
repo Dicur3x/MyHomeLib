@@ -109,7 +109,7 @@ def processes(root):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('prepare', 'seed-image-update', 'refresh-reader', 'launch', 'launch-catalogue', 'inspect', 'record-selection', 'record-position', 'record-ui-install', 'install', 'check', 'check-saved-copy', 'cleanup', 'cleanup-incomplete'))
+    parser.add_argument('action', choices=('prepare', 'seed-image-update', 'refresh-reader', 'launch', 'retry-caller', 'record-retry', 'launch-catalogue', 'inspect', 'record-selection', 'record-position', 'record-ui-install', 'install', 'check', 'check-saved-copy', 'cleanup', 'cleanup-incomplete'))
     parser.add_argument('--state', required=True, type=Path)
     parser.add_argument('--platform', choices=PACKAGE_HASH)
     parser.add_argument('--reader-package', type=Path)
@@ -303,6 +303,36 @@ def main():
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             creationflags=subprocess.CREATE_NO_WINDOW | subprocess.BELOW_NORMAL_PRIORITY_CLASS)
         state['catalogue'].update(original_pid=process.pid, command=command)
+    elif args.action == 'record-retry':
+        caller, = state['launches']
+        assert caller['label'] == 'caller' and state['status'] == 'INCOMPLETE'
+        assert not (job / 'journal.json').exists()
+        previous = json.loads((job / 'request.json').read_bytes())
+        assert previous == state['frontend_request'] and previous['pid'] == caller['original_pid']
+        error = (job / 'update-error.log').read_text(encoding='utf-8-sig')
+        assert 'HomeLibReader.exe' in error and 'Файл занят' in error
+        active, = processes(root)
+        assert Path(active['ExecutablePath']) == Path(caller['command'][0])
+        assert active['ProcessId'] != caller['original_pid']
+        assert sha(installed_reader(app)) == state['running_exe_sha256']
+        state.setdefault('failed_frontend_attempts', []).append(dict(request=previous, error=error))
+        caller['original_pid'] = active['ProcessId']
+        state.pop('frontend_request')
+        state.pop('helper_pid', None)
+    elif args.action == 'retry-caller':
+        caller, = state['launches']
+        assert caller['label'] == 'caller' and state.get('baseline_reader_version')
+        assert state['status'] == 'INCOMPLETE' and not processes(root)
+        assert not (job / 'request.json').exists() and not (job / 'journal.json').exists()
+        assert Path(json.loads((job.parent / 'ready.json').read_bytes())['job']) == job
+        executable = installed_reader(app)
+        assert sha(executable) == state['running_exe_sha256']
+        profile = app / 'Data/caller'
+        command = [str(executable), '--profile=' + str(profile), '--open=' + str(root / 'books/Книга инициатора.fb2')]
+        assert caller['command'] == command and caller['profile'] == str(profile)
+        process = subprocess.Popen(command, cwd=app, env=env, creationflags=subprocess.BELOW_NORMAL_PRIORITY_CLASS)
+        caller.setdefault('prior_pids', []).append(caller['original_pid'])
+        caller['original_pid'] = process.pid
     elif args.action == 'launch':
         assert args.label and not any(x['label'] == args.label for x in state['launches'])
         profile = app / 'Data' / args.label
@@ -416,6 +446,12 @@ def main():
                     manifest = json.loads(archive.read('HomeLibRu.update.json'))
                 for entry in manifest['files']:
                     assert sha(app / entry['path']) == entry['sha256']
+                receipt = json.loads((app / 'tools/component-state/homelibreader.json').read_bytes())
+                owned = {item['path']: item for item in receipt['files']}
+                for name in (READER_APPLICATION, LEGACY_READER_APPLICATION):
+                    assert owned[name]['sha256'] == sha(app / name) == state['reader_sha256']
+                assert 'reader_name_stage' not in receipt
+                state['reader_names_and_ownership_verified'] = True
         assert sha(app / 'HomeLibRuUpdater.exe') == state['helper_sha256']
         originals = {x['original_pid'] for x in state['launches']}
         if state.get('catalogue'):
@@ -491,6 +527,15 @@ def main():
             if not state['launches'] and not state.get('catalogue', {}).get('original_pid'):
                 assert not (job / 'request.json').exists() and not (job / 'journal.json').exists()
                 state['incomplete_teardown'] = dict(reason='Prepared fixture only; no installation requested')
+            elif state.get('baseline_reader_version') and state.get('frontend_request') and not (app / READER_APPLICATION).exists():
+                assert json.loads((job / 'journal.json').read_bytes())['state'] == 'installed'
+                assert sha(app / LEGACY_READER_APPLICATION) == state['reader_sha256']
+                owned = json.loads((app / 'tools/component-state/homelibreader.json').read_bytes())
+                assert LEGACY_READER_APPLICATION in {item['path'] for item in owned['files']}
+                assert READER_APPLICATION not in {item['path'] for item in owned['files']}
+                state['incomplete_teardown'] = dict(
+                    reason='The stock helper installed the updated Reader only under the legacy name',
+                    installed_receipt=owned)
             else:
                 assert not state.get('selected_archive_member'), 'Preserve unfinished selected-book evidence'
                 assert json.loads((job / 'journal.json').read_bytes())['state'] == 'installed'
