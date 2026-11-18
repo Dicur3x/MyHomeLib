@@ -75,6 +75,30 @@ their original digests. Private installations were cleaned. Results are in
 This used the native installer engine directly on stock files with neither a
 restart nor the published graphical update client.
 
+## Current BookProcessing package
+
+The estimate fix in `ae9c17fd` ships in the two BookProcessing 3.0.0.14 ZIPs
+in `G:/HL-b14-external/release-candidate-r1937-bookprocessing`. The earlier
+r1559 packages were unpublished. The new archives differ from those inputs
+only in the estimator, its descriptor checksum and the package manifest.
+The 12-test estimator suite passed with the staged tools on each architecture.
+The estimator extracted from each new ZIP also ran successfully with its own
+embedded Python in a separate standalone DjVu test.
+
+The r1937 `components-{Win32,Win64}.json` plans supersede r1917. Each changes
+only the BookProcessing archive and digest. The native installer restaged
+all 25 packages with each new plan and confirmed the exact matching estimator
+digest, Reader digest and installed component versions. Both private staging
+trees were removed. See
+`G:/HL-b14-external/release-candidate-r1938-offline-components/summary.json`.
+
+The r1939 selected publication plan was regenerated from the verified public
+baseline and the new archives. The output feed is byte-identical to r1922;
+the two BookProcessing ZIPs are the only uploads with new hashes. The matching
+KFX source and 30 unrelated feed records are unchanged. No upload or removal
+was performed. See
+`G:/HL-b14-external/release-candidate-r1939-component-plan/verified-delta.json`.
+
 ## Still open
 
 Final main binaries, minimal and full ZIPs, install/remove/update verification
