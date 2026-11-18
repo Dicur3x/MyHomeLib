@@ -10,6 +10,8 @@ update from its Components window and uses its own installed helper.
 import argparse
 import base64
 import configparser
+import ctypes
+from ctypes import wintypes
 import hashlib
 import json
 import os
@@ -18,6 +20,7 @@ import shutil
 import sqlite3
 import subprocess
 import tempfile
+import time
 import uuid
 import zipfile
 
@@ -90,6 +93,38 @@ def catalogue_books(app):
         return connection.execute('SELECT * FROM Books ORDER BY BookID').fetchall()
     finally:
         connection.close()
+
+
+def require_visible_catalogue(pid):
+    """Check the restored form independently of the updater's placement receipt."""
+    user32 = ctypes.WinDLL('user32')
+    callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    matches = []
+
+    @callback_type
+    def collect(window, unused):
+        owner = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(wintypes.HWND(window), ctypes.byref(owner))
+        if owner.value == pid:
+            name = ctypes.create_unicode_buffer(128)
+            user32.GetClassNameW(wintypes.HWND(window), name, len(name))
+            if name.value == 'TfrmMain' and user32.IsWindowVisible(wintypes.HWND(window)):
+                title = ctypes.create_unicode_buffer(512)
+                user32.GetWindowTextW(wintypes.HWND(window), title, len(title))
+                matches.append((window, title.value))
+        return True
+
+    deadline = time.monotonic() + 12
+    last = None
+    while time.monotonic() < deadline:
+        matches.clear()
+        user32.EnumWindows(collect, 0)
+        current = matches[0] if len(matches) == 1 and matches[0][1].endswith(' - One') else None
+        if current and current == last:
+            return current[1]
+        last = current
+        time.sleep(0.4)
+    raise AssertionError(f'Restarted catalogue {pid} lacks a visible collection window')
 
 
 def processes(root):
@@ -430,8 +465,17 @@ def main():
         state['helper_pid'] = process.pid
     elif args.action == 'check':
         active = processes(root)
-        assert state['helper_pid'] not in {p['ProcessId'] for p in active}, 'Update still running'
-        assert json.loads((job / 'journal.json').read_text(encoding='utf-8-sig'))['state'] == 'installed'
+        # A normally visible catalogue can consume the finished job before
+        # the observer gets a chance to copy its transient request or journal.
+        consumed = state.get('catalogue') and state.get('baseline_reader_version') and not job.exists()
+        if consumed:
+            assert not (job.parent / 'ready.json').exists()
+            result = (job.parent / 'result.txt').read_text(encoding='utf-8-sig').strip()
+            assert result == f"Установлена версия {state['release']}."
+            state['consumed_installation_result'] = result
+        else:
+            assert state['helper_pid'] not in {p['ProcessId'] for p in active}, 'Update still running'
+            assert json.loads((job / 'journal.json').read_text(encoding='utf-8-sig'))['state'] == 'installed'
         if manifest := state.get('component_manifest'):
             assert sha(installed_reader(app)) == state['running_exe_sha256']
             for entry in manifest['files']:
@@ -441,7 +485,7 @@ def main():
         else:
             assert sha(app / READER_APPLICATION) == state['reader_sha256'] != state['running_exe_sha256']
             if state.get('baseline_reader_version'):
-                assert state.get('frontend_request'), 'Published Reader must request its own update'
+                assert consumed or state.get('frontend_request'), 'Published Reader must request its own update'
                 with zipfile.ZipFile(state['archive']) as archive:
                     manifest = json.loads(archive.read('HomeLibRu.update.json'))
                 for entry in manifest['files']:
@@ -458,14 +502,19 @@ def main():
             originals.add(state['catalogue']['original_pid'])
         assert len(active) == len(state['launches']) + bool(state.get('catalogue'))
         assert not (originals & {p['ProcessId'] for p in active})
-        related = json.loads((job / 'restart-instances.json').read_text(encoding='utf-8-sig'))
-        assert related['phase'] == 'restored', related
+        related = None
+        if not consumed:
+            related = json.loads((job / 'restart-instances.json').read_text(encoding='utf-8-sig'))
+            assert related['phase'] == 'restored', related
         if core := state.get('catalogue'):
             restarted, = [p for p in active if Path(p['ExecutablePath']) == app / 'HomeLibre.exe']
-            captured, = [p for p in related['instances'] if p['pid'] == core['original_pid']]
-            assert captured['executable'] == str(app / 'HomeLibre.exe')
-            assert captured['close_requested'] and captured['restarted'] and captured['placement_restored']
-            assert captured['restart_pid'] == restarted['ProcessId']
+            if related:
+                captured, = [p for p in related['instances'] if p['pid'] == core['original_pid']]
+                assert captured['executable'] == str(app / 'HomeLibre.exe')
+                assert captured['close_requested'] and captured['restarted'] and captured['placement_restored']
+                assert captured['restart_pid'] == restarted['ProcessId']
+            assert all(Path(p['ExecutablePath']) == app / READER_APPLICATION for p in active if p != restarted)
+            core['visible_title_after_restart'] = require_visible_catalogue(restarted['ProcessId'])
             assert sha(app / 'HomeLibre.exe') == core['main_sha256']
             assert sha(app / 'Data/coordinated-personal-sentinel.txt') == core['personal_sentinel_sha256']
             assert catalogue_books(app) == [tuple(row) for row in core['books']]
@@ -547,7 +596,11 @@ def main():
         state['temporary_root_removed'] = not root.exists()
         if args.action == 'cleanup':
             assert state['temporary_root_removed']
-            state['status'] = 'PASS'
+            if state.get('catalogue') and not state['catalogue'].get('visible_title_after_restart'):
+                state['status'] = 'INCOMPLETE'
+                state['missing_check'] = 'Restored catalogue visibility was not confirmed'
+            else:
+                state['status'] = 'PASS'
     dump(args.state, state)
     print(json.dumps({k: state.get(k) for k in ('root', 'platform', 'helper_pid', 'helper_installation_checked', 'temporary_root_removed')}, ensure_ascii=False))
 

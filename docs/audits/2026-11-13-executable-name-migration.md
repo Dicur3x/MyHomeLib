@@ -93,6 +93,28 @@ Reports: `G:/HomeLibRu-build-cache/HomeLibre-post13-reader-coordination-20261113
 
 ## Remaining release gates
 
+On 18 November, the published beta 13 Reader initiated its component upgrade
+from its own Components window while a beta 14 catalogue and another beta 13
+Reader shared the installation. In the first run the catalogue process
+restarted and its placement receipt reported success, but the catalogue form
+was hidden. The native reproduction failed on x86 and x64. A redundant
+synchronous placement from the hidden helper made the visible form disappear.
+The current helper recognizes an already restored position, posts any needed
+change to the window owner and checks actual visibility and placement.
+
+With the corrected helper, the changed-position and maximized cases passed on
+both architectures. In the separate end-to-end GUI runs all three original
+processes were replaced. The catalogue window was visible with its collection
+title, seven rows and personal settings. Each Reader retained its independently
+bookmarked position and page quote, including the exact second book in a ZIP.
+All original source hashes matched. The returned catalogue could normally
+consume the temporary installer journal, so the probe also checks its durable
+completion message and the exact installed files. Both fixtures were closed
+and removed. Reports are `r1967-catalogue-visibility/final-*.json` and
+`r1971-coordinated-GUI-Win{32,64}.json` under `G:/HL-b14-external`.
+These runs used a predownloaded component and the helper supplied by the
+already-updated catalogue. Coverage of the stock standalone helper is separate.
+
 The Todo item remains open. Before claiming the full transition: exercise the unchanged published update UI against the final beta 14 package; prepare the final beta 14 identities and repeat the relevant final-package checks, including coordinated catalogue/Reader restart; update all four README languages and explain the portable/bridge assets on the release page. The old Windows shortcut and local production-helper coordination are now proven with the current real candidates on both architectures, but must still remain compatible in the final release. No publication has happened in this task.
 
 ## Retained failed-run folder

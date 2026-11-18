@@ -12,6 +12,7 @@ type
     ProcessHandle, RestartHandle: THandle;
     Executable, CommandLine, WindowClass, SessionFile: string;
     HasWindow, HasPlacement, WindowWasVisible, CloseRequested, Restarted, PlacementRestored: Boolean;
+    PlacementRequestedFor: HWND;
     Placement: TWindowPlacement;
     SourceLease, RequestLease, OriginalSourceLease: TFileStream;
     destructor Destroy; override;
@@ -60,6 +61,30 @@ type
   TArgumentPointers = array[0..32767] of PWideChar;
   PArgumentPointers = ^TArgumentPointers;
 
+function RestoreCapturedPlacement(Window: HWND; Instance: TUpdateRelatedInstance): Boolean;
+const
+  // Queue the change on the thread that owns the restarted window.
+  WPF_ASYNCWINDOWPLACEMENT = $0004;
+var Current, Desired: TWindowPlacement;
+begin
+  Result := False;
+  Current := Default(TWindowPlacement);
+  Current.length := SizeOf(Current);
+  if not GetWindowPlacement(Window, Current) then Exit;
+  Desired := Instance.Placement;
+  // The catalogue normally restores these settings itself. Reapplying the
+  // same placement from a hidden updater can hide an already visible form.
+  if (Current.showCmd = Desired.showCmd) and
+     EqualRect(Current.rcNormalPosition, Desired.rcNormalPosition) and
+     ((Desired.showCmd <> SW_SHOWMINIMIZED) or
+      ((Current.flags and WPF_RESTORETOMAXIMIZED) = (Desired.flags and WPF_RESTORETOMAXIMIZED))) then
+    Exit(IsWindowVisible(Window));
+  if Instance.PlacementRequestedFor = Window then Exit;
+  Desired.flags := Desired.flags or WPF_ASYNCWINDOWPLACEMENT;
+  if SetWindowPlacement(Window, Desired) then Instance.PlacementRequestedFor := Window;
+  // The next observation checks what actually happened on the UI thread.
+end;
+
 function RelatedWindow(Window: HWND; Data: LPARAM): BOOL; stdcall;
 var Context: PWindowContext; PID: Cardinal; Name: array[0..255] of Char;
   ClassName: string; ReaderWindow, BookWindow, VisibleApp: Boolean;
@@ -104,7 +129,7 @@ begin
         // Do not change native visibility while its modal book is initializing.
         if BookWindow then Context.Restored:=True
         else if Context.Instance.HasPlacement then
-          Context.Restored:=SetWindowPlacement(Window,Context.Instance.Placement)
+          Context.Restored:=RestoreCapturedPlacement(Window,Context.Instance)
         else Context.Restored:=True;
         Result:=False;
       end;
@@ -378,7 +403,7 @@ begin
   // for restoring window placement; slow document preparation may continue.
   Deadline:=GetTickCount64+WaitMS;
   for var Instance in FInstances do
-    if Instance.Restarted then
+    if Instance.Restarted and not Instance.PlacementRestored then
     begin
       repeat
         Context:=Default(TWindowContext); Context.Instance:=Instance; Context.Action:=waRestore;
