@@ -254,6 +254,23 @@ the official source archive contains the decoder interface and console entry
 point. The exact upstream revisions and digests are in
 `r1974-upstream-utilities/report.json`.
 
+## Component links used by older installations
+
+The Win32 and Win64 archives downloaded from the published beta 2, 8 and 13
+releases matched their GitHub asset SHA-256 digests. Their bundled component
+lists still refer to versioned downloads. In particular, the two beta 13
+archives together refer to all 16 files that the previous draft publication
+plan would have removed. The beta 2 and beta 8 archives also point to their
+respective Reader packages.
+
+The revised local plan retains those downloads, stages 19 uploads and replaces
+the component feed last. The draft component release description links directly
+to the new standalone Reader for each architecture and explains the two catalogue
+editions. Public assets and release text have not been modified. Evidence:
+`r1977-component-reference-audit/proof.json`,
+`r1977-component-reference-audit/component-body-after-beta14.md` and
+`r1977-component-plan`. Catalogue archive digests are unchanged.
+
 ## Remaining checks
 
 Clean-Windows prerequisite installation, offline GUI operation and remaining

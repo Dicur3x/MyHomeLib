@@ -292,15 +292,14 @@ def main():
     replacing_existing = [old_assets[item['name']] for item in uploads if item['name'] in old_assets]
     previous_owned = set(baseline) & (expected - reader_keys)
     previous_owned = {key for key in previous_owned if key[0] in OWNED}
-    obsolete = [old_assets[baseline[key]['archive']] for key in sorted(previous_owned)]
-    obsolete.extend(old_assets[baseline[key]['minimal_reader']['archive']]
-                    for key in sorted(reader_keys) if 'minimal_reader' in baseline[key])
-    obsolete_names = {asset['name'] for asset in obsolete}
-    assert len(obsolete_names) == len(obsolete)
-    assert not obsolete_names.intersection(archive_name(baseline[key]) for key in reader_keys)
+    # A client can still request its bundled bootstrap version after the public
+    # feed advances. Removal requires an independent check of shipped clients.
+    superseded = [old_assets[baseline[key]['archive']] for key in sorted(previous_owned)]
+    superseded.extend(old_assets[baseline[key]['minimal_reader']['archive']]
+                      for key in sorted(reader_keys) if 'minimal_reader' in baseline[key])
     feed = encoded(dict(format=1, components=list(merged.values())))
     retained_assets = [asset for name, asset in old_assets.items()
-                       if name not in obsolete_names | {asset['name'] for asset in replacing_existing} | {'HomeLibRu.components.json'}]
+                       if name not in {asset['name'] for asset in replacing_existing} | {'HomeLibRu.components.json'}]
     new_assets = [{key: item[key] for key in ('name', 'size', 'digest', 'browser_download_url')} for item in uploads]
     feed_asset = dict(name='HomeLibRu.components.json', size=len(feed), digest='sha256:' + digest(feed),
                       browser_download_url=PREFIX + 'HomeLibRu.components.json')
@@ -312,7 +311,8 @@ def main():
                 observed_feed_sha256=digest(base_bytes), replacement_feed_sha256=digest(feed),
                 upload_before_feed=uploads, replace_feed_last=feed_asset,
                 replace_existing_assets_before_upload=replacing_existing,
-                obsolete_assets_after_verified_publication=obsolete,
+                obsolete_assets_after_verified_publication=[],
+                superseded_assets_retained=[asset['name'] for asset in superseded],
                 retained_non_owned_entries=len(unchanged), preserved_external_assets=len(retained_assets))
     report = dict(status='PASS', published=False, components=checked,
                   merged_entries=len(merged), unchanged_entries_preserved=len(unchanged),
