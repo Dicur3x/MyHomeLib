@@ -6240,6 +6240,7 @@ end;
 {$I MetadataFillUiTests.inc}
 {$I ContextToolGuideTests.inc}
 {$I LibraryUpdateStorageTests.inc}
+{$I LibraryUpdateScaleTests.inc}
 {$I BookInfoPanelFooterTests.inc}
 {$I BookInfoPanelAdaptiveTests.inc}
 {$I BookReviewPreviewTests.inc}
@@ -6876,6 +6877,7 @@ begin
       else if ParamStr(1) = 'library-update-cancel' then TestLibraryUpdateCancellation
       else if ParamStr(1) = 'library-update-storage' then TestLibraryUpdateStorage
       else if ParamStr(1) = 'library-update-storage-full' then TestLibraryUpdateStorageFull
+      else if ParamStr(1) = 'library-update-scale' then TestLibraryUpdateScale
       else if (ParamStr(1) = 'library-update-window') or (ParamStr(1)='library-update-workspace') then TestLibraryUpdateWindow
       else if ParamStr(1) = 'library-update-recovery' then TestLibraryUpdateRecoveryCrash
       else if (ParamStr(1) = 'catalog-sources') or (ParamStr(1) = 'catalog-sources-ui') or
