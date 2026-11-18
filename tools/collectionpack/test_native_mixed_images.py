@@ -1,6 +1,7 @@
 """Mixed raster formats through complete native FLibrary publication/readback."""
 import base64
 import io
+import json
 from pathlib import Path
 import random
 from xml.etree import ElementTree as ET
@@ -9,7 +10,7 @@ import zipfile
 from PIL import Image, ImageChops
 
 from supervised_test_process import run_owned
-from test_native_compression_operation import NativeCompressionOperationTests
+from test_native_compression_operation import NativeCompressionOperationTests, OPERATOR
 from test_native_compression_receipt import database, png, sha
 from prepare_book_compression import verify_non_image_content
 
@@ -88,6 +89,42 @@ class NativeMixedImageTests(NativeCompressionOperationTests):
     def test_trial_replays_two_updates_to_a_shared_solid_side_archive(self):
         self.compare_shared_trial(True)
 
+    def test_single_selection_preserves_a_different_book_using_the_same_side_image(self):
+        paths, originals = self.make_shared_archives()
+        source_dir = self.root / 'input-books'
+        peer_file = source_dir / 'one.fb2'
+        peer_file.write_bytes(peer_file.read_bytes().replace(b'<p>one</p>', b'<p>Other text using image 1</p>'))
+        proc = run_owned([self.config['seven_zip'], 'a', '-t7z', '-mx=9', '-y', '--', str(paths[1]), 'one.fb2'],
+                         cwd=source_dir, capture_output=True, timeout=30)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        selected, other = self.config['selected']
+        peer = dict(other, file_name='one', member='one.fb2', inside_no=-1)
+        with database(self.fixture.catalogue) as db:
+            db.execute("UPDATE Books SET FileName='one', InsideNo=-1 WHERE BookID=102")
+        def read_peer():
+            self.config.update(selected=[peer], operation_mode='book-stream')
+            return Path(self.run_operation()['book_stream']).read_bytes()
+        before = read_peer()
+        self.assertIn(b'Other text using image 1', before)
+        self.assertIn(b'<binary', before)
+        self.config.update(selected=[selected], operation_mode='apply', profile='maximum', grayscale=True)
+        applied = self.run_operation(allow_warning=True)
+        self.assertEqual(applied['error'], '', applied)
+        self.assertIn('соседнем архиве', applied['warning'])
+        self.assertEqual(read_peer(), before)
+        self.assertEqual(self.read_shared_image(paths[2], 'one/1'), originals['one/1'])
+        self.config.update(selected=[selected,peer], operation_mode='apply', timeout_ms=90000)
+        both = self.run_operation(allow_warning=True)
+        self.assertEqual(both['error'], '', both)
+        self.assertIn('соседнем архиве', both['warning'])
+        self.assertEqual(read_peer(), before)
+        self.assertEqual(self.read_shared_image(paths[2], 'one/1'), originals['one/1'])
+        paths[1].rename(self.root / 'archived-peer.bin')
+        self.config.update(selected=[selected], operation_mode='apply')
+        retried = self.run_operation()
+        self.assertEqual(retried['error'], '', retried)
+        self.assertNotEqual(self.read_shared_image(paths[2], 'one/1'), originals['one/1'])
+
     def test_failed_shared_refresh_keeps_the_committed_job_recoverable(self):
         paths, originals = self.make_shared_archives()
         self.config.update(acknowledge=False, profile='maximum', grayscale=True, timeout_ms=90000,
@@ -111,6 +148,29 @@ class NativeMixedImageTests(NativeCompressionOperationTests):
         for name in ('one/1','neighbor/1'):
             self.assertNotEqual(self.read_shared_image(paths[2],name), originals[name])
         self.assertEqual(self.read_shared_image(paths[2],'untouched/1'), originals['untouched/1'])
+
+    def test_recovery_rechecks_a_peer_that_arrived_before_the_first_write(self):
+        paths, _ = self.make_shared_archives()
+        peer = paths[1]
+        parked = self.root / 'waiting-peer.bin'
+        peer.rename(parked)
+        before = {p: sha(p.read_bytes()) for p in [paths[0],paths[2],self.fixture.catalogue,self.fixture.personal]}
+        self.config.update(selected=self.config['selected'][:1], fault_at='job-published',
+                           profile='maximum', grayscale=True, timeout_ms=90000)
+        self.request.write_text(json.dumps(self.config), encoding='utf8')
+        crash = run_owned([str(OPERATOR), str(self.request), str(self.result)], capture_output=True, timeout=110)
+        self.assertEqual(crash.returncode, 73, crash.stderr)
+        parked.rename(peer)
+        self.config.update(operation_mode='recover', fault_at='')
+        refused = self.run_operation(allow_retained_work=True)
+        self.assertIn('набор архивов', refused['error'], refused)
+        self.assertEqual(refused['pending_after_ack'], 1, refused)
+        self.assertEqual(before, {p: sha(p.read_bytes()) for p in before})
+        peer.rename(parked)
+        resumed = self.run_operation()
+        self.assertEqual(resumed['error'], '', resumed)
+        self.assertEqual(resumed['pending_after_ack'], 0)
+        self.assertNotEqual(before[paths[2]], sha(paths[2].read_bytes()))
 
     def test_png_webp_and_external_jpeg_xl_survive_one_selected_operation(self):
         picture = png(False, random.Random(365).randbytes(128*128))

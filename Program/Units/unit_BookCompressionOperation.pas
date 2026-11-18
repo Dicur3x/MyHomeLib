@@ -1016,7 +1016,7 @@ var Request, Report, Receipt, Expected:TJSONObject; Output:TCompressionEventStre
     Job:TBookCompressionJob; Candidate, ReportFile:string; KeepWork:Boolean;
     InputBytes, OutputBytes:Int64;
     Backup:TCompressionOriginalBackup; BackupJSON:string; Fault:TProc<string>;
-    CapturedImages:TJSONArray;
+    CapturedImages:TJSONArray; PeerGuards:TArray<TFileStream>;
   procedure BindReceipt;
   var Choice:TJSONObject;
   begin
@@ -1171,6 +1171,7 @@ begin
         Exit;
       end;
       CheckStop;
+      PeerGuards:=GuardCompressionPeerSources(FilePlan.Source,Receipt.GetValue<TJSONArray>('image_peer_archives',nil),Stopping);
       BackupJSON:='';
       if FOptions.BackupOriginals then
       begin
@@ -1213,6 +1214,7 @@ begin
       finally TMonitor.Exit(FLock); end;
     finally Report.Free; end;
   finally
+    for var Guard in PeerGuards do Guard.Free;
     Job.Free; Backup.Free; CapturedImages.Free;
     if KeepWork then
     begin

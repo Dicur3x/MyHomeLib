@@ -676,6 +676,7 @@ def prepare_request(request, *, canceled=lambda: False, notify=lambda value: Non
             from external_image_preparation import _book_id
             books_by_member = {book['member']: book for book in result['books']}
             blocked = set(external['blocked_members'])
+            shared_with_peers = set(external['shared_with_other_archives'])
             for payload in receipt['payloads']:
                 member = payload['member']
                 book = books_by_member[member]
@@ -683,6 +684,9 @@ def prepare_request(request, *, canceled=lambda: False, notify=lambda value: Non
                 if member in blocked:
                     reason = ('Общие изображения сохранены. Выберите вместе книги с одинаковым именем '
                               'без расширения в этом архиве и повторите сжатие.')
+                    if member in shared_with_peers:
+                        reason = ('Эти изображения также использует книга в соседнем архиве с тем же именем '
+                                  'до расширения. Общие изображения сохранены в исходном качестве.')
                     if not book['checked'] and book['reason']:
                         reason += ' ' + book['reason']
                     book.update(checked=False, reason=reason)

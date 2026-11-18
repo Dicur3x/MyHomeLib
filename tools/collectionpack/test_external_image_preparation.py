@@ -413,6 +413,23 @@ class ExternalImagePreparationTests(unittest.TestCase):
         self.assertEqual(result.archives, [])
         self.assertEqual(self.snapshot(), self.before)
 
+    def test_sibling_collision_keeps_shared_cover_and_images_and_processes_unique_book(self):
+        peer = self.source.with_suffix('.zip')
+        self.archive(peer, {'other/ONE.epub': b'Another book using the same image names'}, '7z')
+        before = self.snapshot()
+        result = self.module.prepare_external_images(self.source, {'one.fb2':'.fb2', 'two.epub':'.epub'},
+            self.work, SEVEN, profile='maximum', grayscale=True, tools_root=RUNTIME/'tools', jpeg_xl_decoder=DECODER)
+        self.assertEqual(result.shared_with_other_archives, ['one.fb2'])
+        self.assertEqual(result.blocked_members, ['one.fb2'])
+        self.assertEqual([Path(item['path']) for item in result.peer_sources], [peer])
+        cases = {item['kind']:item for item in result.archives}
+        for kind, protected, eligible, original in (('covers','one','two',self.jxl),
+                                                    ('images','one/1','two/1',self.png)):
+            self.assertTrue(cases[kind]['candidate'])
+            self.assertEqual(self.read(cases[kind]['candidate'], protected), original)
+            self.assertNotEqual(self.read(cases[kind]['candidate'], eligible), self.png)
+        self.assertEqual(before, self.snapshot())
+
     def test_cancellation_after_preparing_one_archive_removes_its_candidate(self):
         stopped = False
         def notify(event):

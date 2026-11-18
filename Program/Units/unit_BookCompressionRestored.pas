@@ -131,7 +131,7 @@ procedure CompleteExternalCompressionReport(const Source, Identity, Workspace: s
   const Worker: TFunc<TJSONObject,TJSONObject>; const Cancelled: TFunc<Boolean>;
   const Progress: TProc<Int64,Int64>);
 var Dependencies, Files, Snapshots: TJSONArray; Receipt, Request, Measured: TJSONObject;
-  Guards: TArray<TFileStream>; OriginalImages, PreparedImages: TArray<string>;
+  Guards,PeerGuards: TArray<TFileStream>; OriginalImages, PreparedImages: TArray<string>;
   Candidate: string; InputBytes, OutputBytes: Int64;
   procedure Put(Data:TJSONObject; const Name:string; Value:TJSONValue);
   begin Data.RemovePair(Name).Free; Data.AddPair(Name,Value); end;
@@ -204,6 +204,13 @@ begin
     end;
     if Found<>External.GetValue<TJSONArray>('dependencies').Count then
       raise EReadError.Create('В отчёте посторонние источники изображений.');
+    if External.GetValue('peer_sources') is TJSONArray then
+    begin
+      var Peers:=External.GetValue<TJSONArray>('peer_sources');
+      if Receipt.GetValue('image_peer_archives')<>nil then raise EReadError.Create('Повторная привязка соседних архивов.');
+      PeerGuards:=GuardCompressionPeerSources(Source,Peers,Cancelled);
+      Receipt.AddPair('image_peer_archives',Peers.Clone as TJSONArray);
+    end;
     Guards:=GuardCompressionImageSources(Source,Dependencies,nil);
     if (Receipt.GetValue('group_files')<>nil) or (Receipt.GetValue('image_dependencies')<>nil) then
       raise EReadError.Create('Обработчик подменил привязку связанных архивов.');
@@ -239,6 +246,7 @@ begin
     if Files.Count>0 then begin Receipt.AddPair('group_files',Files); Files:=nil; end;
     Put(Report,'input_bytes',TJSONNumber.Create(InputBytes)); Put(Report,'output_bytes',TJSONNumber.Create(OutputBytes));
   finally
+    for var PeerGuard in PeerGuards do PeerGuard.Free;
     for var Guard in Guards do Guard.Free;
     Snapshots.Free; Files.Free; Dependencies.Free;
   end;

@@ -11,6 +11,8 @@ function CaptureCompressionImageSources(const Source: string; KnownSevenZip:Bool
 procedure CheckCompressionImageSources(const Source: string; Data: TJSONArray; Applied: Boolean;
   VerifiedFiles:TJSONArray=nil);
 function GuardCompressionImageSources(const Source: string; Data, Changed: TJSONArray): TArray<TFileStream>;
+function GuardCompressionPeerSources(const Source:string; Peers:TJSONArray;
+  const Cancelled:TFunc<Boolean>):TArray<TFileStream>;
 
 implementation
 
@@ -152,6 +154,42 @@ begin
       Result[Count]:=TFileStream.Create(DeletionNativePath(Path),fmOpenRead or fmShareDenyWrite);
     end;
     CheckCompressionImageSources(Source,Data,False);
+  except
+    for var Stream in Result do Stream.Free;
+    Result:=nil; raise;
+  end;
+end;
+
+function GuardCompressionPeerSources(const Source:string; Peers:TJSONArray;
+  const Cancelled:TFunc<Boolean>):TArray<TFileStream>;
+var Buffer:TBytes;
+begin
+  Result:=nil;
+  if Peers=nil then Exit;
+  try
+    for var Extension in ['.zip','.7z'] do
+    begin
+      var Path:=ChangeFileExt(Source,Extension);
+      if SameFileName(Path,Source) or not FileExists(DeletionNativePath(Path)) then Continue;
+      if not IsSevenZipArchive(DeletionNativePath(Path)) then Continue;
+      var Index:=Length(Result);
+      if (Index>=Peers.Count) or not SameFileName(Peers.Items[Index].GetValue<string>('path'),Path) then
+        raise EReadError.Create('Изменился набор архивов книг, использующих общие иллюстрации.');
+      SetLength(Result,Index+1);
+      Result[Index]:=TFileStream.Create(DeletionNativePath(Path),fmOpenRead or fmShareDenyWrite);
+      if Length(Buffer)=0 then SetLength(Buffer,1024*1024);
+      var Hash:=THashSHA2.Create;
+      repeat
+        if Assigned(Cancelled) and Cancelled() then Abort;
+        var Count:=Result[Index].Read(Buffer[0],Length(Buffer));
+        if Count=0 then Break;
+        Hash.Update(Buffer,Count);
+      until False;
+      if not SameText(Hash.HashAsString,Peers.Items[Index].GetValue<string>('sha256')) then
+        raise EReadError.Create('Соседний архив книг изменился после проверки общих иллюстраций.');
+    end;
+    if Length(Result)<>Peers.Count then
+      raise EReadError.Create('Соседний архив книг недоступен. Общие иллюстрации сохранены.');
   except
     for var Stream in Result do Stream.Free;
     Result:=nil; raise;

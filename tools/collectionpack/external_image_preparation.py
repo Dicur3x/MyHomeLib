@@ -40,6 +40,8 @@ class PreparedExternalImages:
     source_witness: dict
     dependencies: list
     blocked_members: list = field(default_factory=list)
+    shared_with_other_archives: list = field(default_factory=list)
+    peer_sources: list | None = None
     archives: list = field(default_factory=list)
     supported: bool = True
 
@@ -72,6 +74,18 @@ def _dependency_paths(source):
 
 def _dependencies(source, check):
     return [dict(kind=kind, **_witness(path, check)) for kind, path in _dependency_paths(source).items()]
+
+
+def _peer_book_archives(source):
+    # FLibrary derives both side-archive paths from the outer book archive's
+    # basename. An actual 7z can also be distributed with the ZIP suffix.
+    for extension in ('.zip', '.7z'):
+        peer = source.with_name(_stem(source.name) + extension)
+        if peer == source or not peer.is_file():
+            continue
+        with peer.open('rb') as stream:
+            if extension == '.7z' or stream.read(len(SEVENZIP_MAGIC)) == SEVENZIP_MAGIC:
+                yield peer
 
 
 def _stem(name):
@@ -182,14 +196,24 @@ def prepare_external_images(source, members, workspace, seven_zip, *, profile='o
                          if hint.lower() in ('.fb2', '.epub')}
             shared = ids.intersection(_book_id(name) for name, entry in outer.items()
                                       if not entry['directory'] and name not in members)
+            peer_ids = set()
+            if result.dependencies and (profile != 'original' or grayscale):
+                result.peer_sources = []
+                for peer in _peer_book_archives(source):
+                    witness = _witness(peer, check)
+                    entries = archive_inventory(decoder, peer, stage)
+                    peer_ids.update(_book_id(name) for name, entry in entries.items()
+                                    if not entry['directory'] and _book_id(name) in ids)
+                    result.peer_sources.append(witness)
             blocked = set()
+            blocked_by_peer = set()
             quality = None
             engine = ('illustrations-gray-ppmd' if grayscale else
                       'illustrations-ppmd' if profile != 'original' else 'reversible-ppmd')
             processor = Packer(dict(version=1, engine=engine,
                 images=profile, output=str(work), plan=str(stage / 'unused.sqlite'), dataset='external-images',
                 seven_zip=str(seven_zip), tools_root=str(tools_root) if tools_root else None), notify, canceled)
-            if ids - shared and result.dependencies and (profile != 'original' or grayscale):
+            if ids - shared - peer_ids and result.dependencies and (profile != 'original' or grayscale):
                 processor.load_image_processor()
                 quality_path = processor.tools_root / 'bookconvert/image_quality.py'
                 spec = importlib.util.spec_from_file_location('homelibre_external_image_quality', quality_path)
@@ -210,13 +234,15 @@ def prepare_external_images(source, members, workspace, seven_zip, *, profile='o
                         continue
                     owner = owner.casefold()
                     if owner in eligible:
-                        if owner in shared:
+                        if owner in shared or owner in peer_ids:
                             shared_here.add(owner)
                         else:
                             chosen.append(name)
                 if shared_here:
-                    blocked.update(name for name, hint in members.items() if _book_id(name) in shared_here
-                                   and (kind == 'covers' or hint.lower() in ('.fb2', '.epub')))
+                    affected = {name for name, hint in members.items() if _book_id(name) in shared_here
+                                and (kind == 'covers' or hint.lower() in ('.fb2', '.epub'))}
+                    blocked.update(affected)
+                    blocked_by_peer.update(name for name in affected if _book_id(name) in peer_ids)
                 if len(chosen) > MAX_SELECTED_IMAGES:
                     raise PackingError('Слишком много отдельных изображений в выбранной порции.')
                 if not chosen:
@@ -314,6 +340,10 @@ def prepare_external_images(source, members, workspace, seven_zip, *, profile='o
                     input_bytes=prepared.input_bytes, output_bytes=prepared.output_bytes, images=records))
                 notify(dict(stage='external-archive-prepared', kind=kind, candidate=bool(candidate)))
             result.blocked_members = sorted(blocked)
+            result.shared_with_other_archives = sorted(blocked_by_peer)
+            if result.peer_sources is not None and [
+                    _witness(peer, check) for peer in _peer_book_archives(source)] != result.peer_sources:
+                raise PackingError('Состав соседнего архива книг изменился во время проверки общих изображений.')
             if _witness(source, check) != source_witness or dependencies() != result.dependencies:
                 raise PackingError('Книга или внешние изображения изменились во время подготовки.')
         return result

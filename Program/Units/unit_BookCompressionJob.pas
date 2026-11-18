@@ -366,37 +366,43 @@ end;
 
 procedure TBookCompressionJob.ExecuteFileGroup(const Cancelled: TFunc<Boolean>;
   const Progress: TZipDeleteProgress; const Fault: TProc<string>);
-var Root: string;
+var Root: string; Started:Boolean; PeerGuards:TArray<TFileStream>;
 begin
   if FileExists(DeletionNativePath(TPath.Combine(FDirectory,'completed.json'))) then
   begin CheckCompleted; Exit; end;
   Root:=TPath.Combine(FDirectory,'files');
-  if not FileExists(DeletionNativePath(TPath.Combine(Root,'started'))) then
-  begin
-    GuardUnchangedBookSource;
-    if Length(FImageGuards)=0 then
-      FImageGuards:=GuardCompressionImageSources(FSource,
-        FData.GetValue<TJSONArray>('image_dependencies',nil),FData.GetValue<TJSONArray>('group_files'));
-  end;
-  if not Assigned(FGroup) then
-    if DirectoryExists(DeletionNativePath(Root)) then
-      FGroup:=TBookCompressionFileGroup.OpenExisting(Root,FGroupSHA256,FReceipt.SHA256,
-        FData.GetValue<TJSONArray>('group_files').ToJSON,Cancelled,Progress,Fault)
-    else
+  Started:=FileExists(DeletionNativePath(TPath.Combine(Root,'started')));
+  try
+    if not Started then
     begin
-      if (FOriginalsJSON<>'') and not Assigned(FOriginals) then
-        FOriginals:=TCompressionOriginalBackup.OpenExisting(FOriginalsJSON,FReceipt.ToJSON,Cancelled);
-      FReceipt.CheckBeforeWrite;
-      FGroup:=TBookCompressionFileGroup.CreatePrepared(Root,FData.GetValue<TJSONArray>('group_files').ToJSON,
-        FReceipt.SHA256,Cancelled,Progress,Fault);
+      PeerGuards:=GuardCompressionPeerSources(FSource,FData.GetValue<TJSONArray>('image_peer_archives',nil),Cancelled);
+      GuardUnchangedBookSource;
+      if Length(FImageGuards)=0 then
+        FImageGuards:=GuardCompressionImageSources(FSource,
+          FData.GetValue<TJSONArray>('image_dependencies',nil),FData.GetValue<TJSONArray>('group_files'));
     end;
-  if not FileExists(DeletionNativePath(TPath.Combine(Root,'started'))) then FReceipt.CheckBeforeWrite(True);
-  FGroup.Execute(
-    procedure(Engines: TArray<TZipMemberDeletion>) begin FReceipt.ApplyFileGroup(Engines,Fault); end,
-    procedure begin FReceipt.CheckApplied(True); end,Cancelled,Progress,Fault);
-  SaveCompleted;
-  if Assigned(Fault) then Fault('completed-published');
-  FCompleted:=True;
+    if not Assigned(FGroup) then
+      if DirectoryExists(DeletionNativePath(Root)) then
+        FGroup:=TBookCompressionFileGroup.OpenExisting(Root,FGroupSHA256,FReceipt.SHA256,
+          FData.GetValue<TJSONArray>('group_files').ToJSON,Cancelled,Progress,Fault)
+      else
+      begin
+        if (FOriginalsJSON<>'') and not Assigned(FOriginals) then
+          FOriginals:=TCompressionOriginalBackup.OpenExisting(FOriginalsJSON,FReceipt.ToJSON,Cancelled);
+        FReceipt.CheckBeforeWrite;
+        FGroup:=TBookCompressionFileGroup.CreatePrepared(Root,FData.GetValue<TJSONArray>('group_files').ToJSON,
+          FReceipt.SHA256,Cancelled,Progress,Fault);
+      end;
+    if not Started then FReceipt.CheckBeforeWrite(True);
+    FGroup.Execute(
+      procedure(Engines: TArray<TZipMemberDeletion>) begin FReceipt.ApplyFileGroup(Engines,Fault); end,
+      procedure begin FReceipt.CheckApplied(True); end,Cancelled,Progress,Fault);
+    SaveCompleted;
+    if Assigned(Fault) then Fault('completed-published');
+    FCompleted:=True;
+  finally
+    for var Guard in PeerGuards do Guard.Free;
+  end;
 end;
 
 procedure TBookCompressionJob.Execute(const Cancelled: TFunc<Boolean>;
