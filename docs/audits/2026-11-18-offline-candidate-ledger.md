@@ -213,6 +213,16 @@ byte for byte, including `Readers/AlReader/readme.txt`. Its SHA-256 is
 `c738703c7ab5f0f2d721a66b4a1266924aed9b94cae23b0274733e2e603d2acf`.
 The installation report is `r1963-exact-full-verification/distribution-report.json`.
 
+The r1965 maintenance check started from a manual extraction of each exact
+full ZIP. It removed AlReader, kept the modified reader settings and a private
+file beside them, then reinstalled AlReader and checked its remaining files
+against the component manifest. Next it removed all 25 components in one
+operation and reinstalled each from its selected local ZIP. The installer
+reported the intended version and a healthy module after each installation.
+Catalogue binaries, SQLite, pinned fonts and prerequisite installers kept
+their digests. Private data survived and both test directories were removed.
+See `r1965-module-maintenance/{Win32,Win64}/result.json`.
+
 The r1964 KindleExport source check matched both packaged builds to their
 recorded binary hashes and two shipped patches. Each build lists 218
 dependencies and carries 347 notice files. The nine source archives selected
@@ -222,8 +232,8 @@ for their MPL terms matched the upstream Cargo.lock checksums. See
 
 ## Still open
 
-Clean-Windows prerequisite installation, offline GUI operation and the remaining install/remove/update
-and licensing/source checks are release gates. Desktop replacement and
+Clean-Windows prerequisite installation, offline GUI operation and remaining
+source checks are open. Desktop replacement and
 publication remain open.
 
 All preparation is on G:. No E: input or user-library modification is involved.
