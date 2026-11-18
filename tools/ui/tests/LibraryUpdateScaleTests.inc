@@ -1,10 +1,96 @@
 ﻿// Sparse payloads isolate catalogue scale; they do not model terabyte archive I/O.
 type
+  TLibraryScaleProgressProbe=class
+    Percent:Integer;
+    Style:TProgressBarStyle;
+    LocationsZero,LocationsMiddle,LocationsEnd,KeysZero,KeysMiddle,KeysEnd,Unknown:Boolean;
+    LastLocations,LastKeys:Integer;
+    procedure Progress(Value:Integer);
+    procedure Hint(Value:TProgressBarStyle; State:TProgressBarState);
+    procedure Comment(const Text:string);
+    procedure Verify;
+  end;
+
   TLibraryScaleApplyProbe=class(TLibraryApplyProbe)
     AnalysisFile,TargetFile:string;
     PlanChecked:Boolean;
     function ConfirmPlan(const Text:string; Flags:Longint):Integer;
   end;
+
+  TLibraryScaleProgressForm=class(TImportProgressFormEx)
+    Observer:TLibraryScaleProgressProbe;
+    ApplyProbe:TLibraryScaleApplyProbe;
+  protected
+    procedure SetProgressHint(Style:TProgressBarStyle; State:TProgressBarState); override;
+    procedure ShowProgress(Percent:Integer); override;
+    procedure SetComment(const Text:string); override;
+    function ShowMessage(const Text:string; Flags:Longint=MB_OK):Integer; override;
+  public
+    procedure Run;
+  end;
+
+procedure TLibraryScaleProgressForm.SetProgressHint(Style:TProgressBarStyle; State:TProgressBarState);
+begin
+  inherited;
+  Require(ProgressBar.Style=Style,'Native progress form ignored the worker style');
+  Observer.Hint(Style,State);
+end;
+
+procedure TLibraryScaleProgressForm.ShowProgress(Percent:Integer);
+begin
+  inherited;
+  Require(ProgressBar.Position=Percent,'Native progress form ignored the worker position');
+  Observer.Progress(Percent);
+end;
+
+procedure TLibraryScaleProgressForm.SetComment(const Text:string);
+begin
+  inherited;
+  Require(txtComment.Caption=Text,'Native progress form ignored the worker stage caption');
+  Observer.Comment(Text);
+end;
+
+function TLibraryScaleProgressForm.ShowMessage(const Text:string; Flags:Longint):Integer;
+begin Result:=ApplyProbe.ConfirmPlan(Text,Flags); end;
+
+procedure TLibraryScaleProgressForm.Run;
+begin StartWorker; end;
+
+procedure TLibraryScaleProgressProbe.Progress(Value:Integer);
+begin Percent:=Value; end;
+
+procedure TLibraryScaleProgressProbe.Hint(Value:TProgressBarStyle; State:TProgressBarState);
+begin Style:=Value; end;
+
+procedure TLibraryScaleProgressProbe.Comment(const Text:string);
+begin
+  if Text='Подготовка состояния источника' then
+  begin
+    Require(Style=pbstMarquee,'Unknown-duration cache preparation retained the prior normal percentage');
+    Unknown:=True;
+  end;
+  if (Text<>'Сохранение путей источника') and (Text<>'Сохранение ключей источника') then Exit;
+  Require((Style=pbstNormal) and (Percent>=0) and (Percent<=100),'Known cache phase has no bounded normal progress');
+  if Text='Сохранение путей источника' then
+  begin
+    Require(Percent>=LastLocations,'Location progress moved backwards'); LastLocations:=Percent;
+    LocationsZero:=LocationsZero or (Percent=0); LocationsMiddle:=LocationsMiddle or ((Percent>0) and (Percent<100));
+    LocationsEnd:=LocationsEnd or (Percent=100);
+  end
+  else
+  begin
+    Require(Percent>=LastKeys,'Key progress moved backwards'); LastKeys:=Percent;
+    KeysZero:=KeysZero or (Percent=0); KeysMiddle:=KeysMiddle or ((Percent>0) and (Percent<100));
+    KeysEnd:=KeysEnd or (Percent=100);
+  end;
+end;
+
+procedure TLibraryScaleProgressProbe.Verify;
+begin
+  Require(Unknown and LocationsZero and LocationsMiddle and LocationsEnd and KeysZero and KeysMiddle and KeysEnd,
+    'Cache progress missed unknown style or zero/intermediate/final values in a long phase');
+  Writeln('PASS native source cache progress has marquee preparation and monotonic zero intermediate final paths and keys'); Flush(Output);
+end;
 
 function TLibraryScaleApplyProbe.ConfirmPlan(const Text:string; Flags:Longint):Integer;
 var DB:TSQLiteDatabase; Query:TSQLiteQuery; Searched:Boolean; Plan:string;
@@ -37,7 +123,8 @@ var Root,CountText,BaseInput,UpdateInput,TargetFile,BeforeFile,WorkFolder:string
   Count,ID:Integer; Target:IBookCollection; Importer:TImportInpxThread;
   Profile:TLibraryUpdateSource; Stage:TStagedLibraryIndex; Review:TLibraryUpdateReview;
   Worker:TCollectionWorker; Probe:TLibraryScaleApplyProbe; DB,Personal,Observer:TSQLiteDatabase;
-  Started:UInt64; Book:TBookRecord; DataVersion:Integer;
+  Started:UInt64; Book:TBookRecord; DataVersion:Integer; ProgressProbe:TLibraryScaleProgressProbe;
+  ProgressForm:TLibraryScaleProgressForm;
   procedure Metric(const Name:string; Since:UInt64);
   begin Writeln('METRIC scale stage=',Name,' elapsed_ms=',GetTickCount64-Since,' books=',Count); Flush(Output); end;
   procedure CheckWorker(const Context:string);
@@ -159,7 +246,7 @@ begin
   try DB.ExecSQL('CREATE TABLE IF NOT EXISTS CatalogCommitWitnesses(CollectionID INTEGER PRIMARY KEY,OperationID TEXT NOT NULL)');
   finally DB.Free; end;
   Personal:=TSQLiteDatabase.CreateReadOnly(Settings.SystemFileName[sfSystemDB]);
-  Stage:=nil; Review:=nil; Worker:=nil; Probe:=nil; Observer:=nil;
+  Stage:=nil; Review:=nil; Worker:=nil; Probe:=nil; Observer:=nil; ProgressProbe:=nil; ProgressForm:=nil;
   try
     PersonalRows:=PersonalDataRows;
     Profile:=TLibraryUpdateSource.NewSource; Profile.Name:='Owned scale source';
@@ -195,10 +282,21 @@ begin
       Require(Length(AnalysisFiles)=1,'Scale comparison database is ambiguous');
       Probe.AnalysisFile:=AnalysisFiles[0]; Probe.TargetFile:=TargetFile;
       Worker:=CreateLibraryApplyWorker(ID,Review,False); Worker.OnShowMessage:=Probe.ConfirmPlan;
+      if ParamStr(1)='library-update-progress' then
+      begin
+        ProgressProbe:=TLibraryScaleProgressProbe.Create;
+        ProgressForm:=TLibraryScaleProgressForm.Create(nil); ProgressForm.WorkerThread:=Worker;
+        ProgressForm.Observer:=ProgressProbe; ProgressForm.ApplyProbe:=Probe;
+      end;
       try
-        Worker.Start; Worker.WaitFor; CheckWorker('Scale apply');
+        if Assigned(ProgressForm) then ProgressForm.Run else Worker.Start;
+        Worker.WaitFor; CheckWorker('Scale apply');
         Require(Probe.Confirmed and Probe.PlanChecked and Worker.CommittedChanges and Review.Applied,'Scale apply did not confirm and commit');
-      finally FreeAndNil(Worker); FreeAndNil(Probe); end;
+        if Assigned(ProgressProbe) then ProgressProbe.Verify;
+      finally
+        if Assigned(ProgressForm) then begin ProgressForm.WorkerThread:=nil; FreeAndNil(ProgressForm); end;
+        FreeAndNil(Worker); FreeAndNil(ProgressProbe); FreeAndNil(Probe);
+      end;
       Target:=SystemDB.GetCollection(ID,True); Metric('apply-'+IntToStr(Pass),Started);
       FreeAndNil(Review); FreeAndNil(Stage);
       Require(not DirectoryExists(WorkFolder),'Scale review retained its workspace');
@@ -211,5 +309,8 @@ begin
       (THashSHA2.GetHashStringFromFile(Root+'\books.zip')=OldArchiveHash) and
       (THashSHA2.GetHashStringFromFile(Root+'\new.zip')=NewArchiveHash),'Scale update changed publisher inputs');
     Writeln('PASS reviewed scale original INPX and sparse old new payload bytes preserved'); Flush(Output);
-  finally Observer.Free; Probe.Free; Worker.Free; Review.Free; Stage.Free; Personal.Free; end;
+  finally
+    if Assigned(ProgressForm) then begin ProgressForm.WorkerThread:=nil; ProgressForm.Free; end;
+    Observer.Free; Probe.Free; Worker.Free; ProgressProbe.Free; Review.Free; Stage.Free; Personal.Free;
+  end;
 end;

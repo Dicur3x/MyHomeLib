@@ -4,9 +4,12 @@ type
     Worker: TCollectionWorker;
     Phase: string;
     Fail, Seen, Confirmed: Boolean;
+    Percent:Integer;
     function Confirm(const Text: string; Flags: Longint): Integer;
     function AlwaysCancel: Boolean;
     procedure Point(const Stage: string);
+    procedure Progress(Value:Integer);
+    procedure Comment(const Text:string);
   end;
 
 function TLibraryCancelProbe.Confirm(const Text: string; Flags: Longint): Integer;
@@ -18,6 +21,16 @@ end;
 
 function TLibraryCancelProbe.AlwaysCancel: Boolean;
 begin Result:=True; end;
+
+procedure TLibraryCancelProbe.Progress(Value:Integer);
+begin Percent:=Value; end;
+
+procedure TLibraryCancelProbe.Comment(const Text:string);
+begin
+  if Percent<=0 then Exit;
+  if Text='Сохранение путей источника' then Point('cache-locations');
+  if Text='Сохранение ключей источника' then Point('cache-keys');
+end;
 
 procedure TLibraryCancelProbe.Point(const Stage: string);
 begin
@@ -43,6 +56,7 @@ var Root, ArchivePath, ArchiveHash, OriginalID, CacheHash, TargetToken, Personal
   Probe: TLibraryCancelProbe; Book, Original: TBookRecord; History: TCatalogSource;
   ID, Count, PreviousID: Integer; Books: IBookIterator; Bound, Committed, Fail: Boolean;
   Witness: ISystemCatalogCommitWitness;
+  Phases:TArray<string>;
   procedure Index(const Name: string; Updated: Boolean);
   var Zip: TZipFile; Rows: string;
   begin
@@ -61,8 +75,10 @@ var Root, ArchivePath, ArchiveHash, OriginalID, CacheHash, TargetToken, Personal
 begin
   Require(Supports(SystemDB,ISystemCatalogCommitWitness,Witness),'Personal store has no commit witnesses');
   PreviousID:=0; PreviousToken:='';
+  if ParamStr(1)='library-update-progress-cancel' then Phases:=TArray<string>.Create('cache-locations','cache-keys')
+  else Phases:=TArray<string>.Create('rows-written','before-commit','commit-start','catalogue-committed','stores-committed','late-error');
   for Bound in TArray<Boolean>.Create(False,True) do
-    for var Phase in TArray<string>.Create('rows-written','before-commit','commit-start','catalogue-committed','stores-committed','late-error') do
+    for var Phase in Phases do
     begin
       Root:=TPath.Combine(Settings.AppPath,'cancel-'+TGUID.NewGuid.ToString); ForceDirectories(Root);
       ArchivePath:=TPath.Combine(Root,'books.zip');
@@ -137,7 +153,8 @@ begin
           LibraryUpdateTestPoint:=procedure(Value:string) begin Probe.Point(Value); end;
           MergeApplyTestPoint:=LibraryUpdateTestPoint;
           try
-            Worker.OnShowMessage:=Probe.Confirm; Worker.Start; Worker.WaitFor;
+            Worker.OnShowMessage:=Probe.Confirm; Worker.OnProgress:=Probe.Progress; Worker.OnSetComment:=Probe.Comment;
+            Worker.Start; Worker.WaitFor;
             Require(Probe.Confirmed and Probe.Seen and Worker.Canceled,'Cancellation point was not reached: '+Phase);
             Require(Worker.CommittedChanges=Committed,'Wrong committed state at '+Phase);
             Require(Worker.Success=(Committed and not Fail),'Wrong success state at '+Phase);
@@ -189,9 +206,14 @@ begin
         Writeln('PASS update cancellation bound='+BoolToStr(Bound,True)+' phase='+Phase);
       finally Review.Free; Stage.Free; end;
     end;
-  Writeln('PASS reviewed update cancellation rolls back before commit, finishes late saves, protects rollback and retains published baselines after post-commit errors');
-  Writeln('PASS reviewed update commit witnesses are paired with catalogue and personal transactions, roll back on early errors and remain isolated by collection');
-  Writeln('PASS missing catalogue and system properties return empty instead of reusing a previous value');
+  if ParamStr(1)='library-update-progress-cancel' then
+    Writeln('PASS actual cache progress cancellation preserves ordinary and bound catalogues personal data favourites input archives and previous baselines')
+  else
+  begin
+    Writeln('PASS reviewed update cancellation rolls back before commit, finishes late saves, protects rollback and retains published baselines after post-commit errors');
+    Writeln('PASS reviewed update commit witnesses are paired with catalogue and personal transactions, roll back on early errors and remain isolated by collection');
+    Writeln('PASS missing catalogue and system properties return empty instead of reusing a previous value');
+  end;
 end;
 {$ELSE}
 begin raise EInvalidOperation.Create('Cancellation diagnostics require the guarded test build.'); end;

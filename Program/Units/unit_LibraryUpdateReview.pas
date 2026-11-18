@@ -1026,11 +1026,12 @@ end;
 
 procedure TLibraryUpdateReview.PrepareCache(const Check: TProc; const Progress: TLibraryReviewProgress);
 var Folder, Base: string; SourceDB, Output: TSQLiteDatabase; Cached: IBookCollection;
-  Rows: TSQLiteQuery; Book: TBookRecord; ID: Integer;
+  Rows: TSQLiteQuery; Book: TBookRecord; ID, Done, Total: Integer;
   Cache: TImportCache; Genres: TDictionary<string,TGenreData>; Writer: IBookImportedLocationWriter;
   MergeSource: TMergeSource; Expected, Generated: string;
 begin
   Check; CheckSpace; CleanCache;
+  if Assigned(Progress) then Progress('Подготовка состояния источника',0,0);
   FPublishedSource:=FSourceInfo; FPublishedSource.CacheVersion:=TCatalogSource.NewID;
   FPublishedSource.UpdateProfileID:=FSource.ID;
   FPublishedSource.LibraryNamespace:=VarToStr(FSnapshot.GetProperty(PROP_SOURCE_LIBRARY));
@@ -1064,12 +1065,19 @@ begin
       raise ENotSupportedException.Create('Не поддержано сохранение путей импортированных книг.');
     Rows:=FActionDB.NewQuery('SELECT BookID,Folder,InsideNo FROM ApplyActions WHERE State IN (''known'',''missing-retained'') ORDER BY BookID');
     try
+      Total:=FActionDB.QuerySingleInt('SELECT count(*) FROM ApplyActions WHERE State IN (''known'',''missing-retained'')');
+      Done:=0;
+      if Assigned(Progress) then Progress('Сохранение путей источника',0,Total);
       Cached.BeginBulkOperation;
       try
         Rows.Open;
         while not Rows.Eof do
         begin
-          Check; Writer.SetImportedBookLocation(Rows.FieldAsInt(0),Rows.FieldAsString(1),Rows.FieldAsInt(2)); Rows.Next;
+          Check; Writer.SetImportedBookLocation(Rows.FieldAsInt(0),Rows.FieldAsString(1),Rows.FieldAsInt(2));
+          Inc(Done);
+          if Assigned(Progress) and ((Done mod 1000=0) or (Done=Total)) then
+            Progress('Сохранение путей источника',Done,Total);
+          Rows.Next;
         end;
         Cached.EndBulkOperation(True);
       except if Cached.InBulkOperation then Cached.EndBulkOperation(False); raise; end;
@@ -1150,6 +1158,8 @@ begin
         'JOIN review.ApplyActions a ON a.BookID=m.InputID '+
         'JOIN review.ReviewRows r ON r.BookID=a.BookID ORDER BY b.BookID');
     try
+      Done:=0;
+      if Assigned(Progress) then Progress('Сохранение ключей источника',0,FTotal);
       Output.Start; Rows.Open;
       try
         MergeSource.ID:=FPublishedSource.ID; MergeSource.Root:=FPublishedSource.Root;
@@ -1168,6 +1178,9 @@ begin
           if (Expected<>'') and (Generated<>Expected) then
             Output.ExecSQL('INSERT OR REPLACE INTO LibraryUpdateReviewKeys VALUES(?,?)',[Rows.FieldAsInt(0),Expected])
           else Output.ExecSQL('DELETE FROM LibraryUpdateReviewKeys WHERE BookID=?',[Rows.FieldAsInt(0)]);
+          Inc(Done);
+          if Assigned(Progress) and ((Done mod 1000=0) or (Done=FTotal)) then
+            Progress('Сохранение ключей источника',Done,FTotal);
           Rows.Next;
         end;
         Output.Commit;
@@ -1496,7 +1509,8 @@ begin
   try
     Check:=procedure begin Control.Check; end;
     Progress:=procedure(const Stage:string; Done,Total:Integer) begin
-      if Total>0 then begin SetProgressHint(pbstNormal); SetProgress(Integer(Int64(Done)*100 div Total)); end;
+      if Total>0 then begin SetProgressHint(pbstNormal); SetProgress(Integer(Int64(Done)*100 div Total)); end
+      else SetProgressHint(pbstMarquee);
       SetComment(Stage);
     end;
     try
@@ -1533,7 +1547,8 @@ begin
       Import(FReview.FPrepared.FileName,False,Collection); FReview.FSkipped:=FInvalidRows;
     end,
     FImportCheck,procedure(const Stage:string; Done,Total:Integer) begin
-      if Total>0 then begin SetProgressHint(pbstNormal); SetProgress(Integer(Int64(Done)*100 div Total)); end;
+      if Total>0 then begin SetProgressHint(pbstNormal); SetProgress(Integer(Int64(Done)*100 div Total)); end
+      else SetProgressHint(pbstMarquee);
       SetComment(Stage);
     end);
   FOperationSuccess:=True;
@@ -1554,7 +1569,8 @@ begin
       Import(FReview.FPrepared.FileName,False,Collection); FReview.FSkipped:=FInvalidRows;
     end,
     FImportCheck,procedure(const Stage:string; Done,Total:Integer) begin
-      if Total>0 then begin SetProgressHint(pbstNormal); SetProgress(Integer(Int64(Done)*100 div Total)); end;
+      if Total>0 then begin SetProgressHint(pbstNormal); SetProgress(Integer(Int64(Done)*100 div Total)); end
+      else SetProgressHint(pbstMarquee);
       SetComment(Stage);
     end);
   FOperationSuccess:=True;

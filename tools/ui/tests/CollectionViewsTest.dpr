@@ -6874,10 +6874,10 @@ begin
       else if ParamStr(1)='reader-history-evidence' then TestReaderHistoryEvidence
       else if (ParamStr(1) = 'library-update-apply') or (ParamStr(1)='transfer-empty-updates') or
         (ParamStr(1)='reviewed-id-reservation') or (ParamStr(1)='transfer-cross-volume-updates') then TestLibraryUpdateApplication
-      else if ParamStr(1) = 'library-update-cancel' then TestLibraryUpdateCancellation
+      else if (ParamStr(1) = 'library-update-cancel') or (ParamStr(1)='library-update-progress-cancel') then TestLibraryUpdateCancellation
       else if ParamStr(1) = 'library-update-storage' then TestLibraryUpdateStorage
       else if ParamStr(1) = 'library-update-storage-full' then TestLibraryUpdateStorageFull
-      else if ParamStr(1) = 'library-update-scale' then TestLibraryUpdateScale
+      else if (ParamStr(1) = 'library-update-scale') or (ParamStr(1)='library-update-progress') then TestLibraryUpdateScale
       else if (ParamStr(1) = 'library-update-window') or (ParamStr(1)='library-update-workspace') then TestLibraryUpdateWindow
       else if ParamStr(1) = 'library-update-recovery' then TestLibraryUpdateRecoveryCrash
       else if (ParamStr(1) = 'catalog-sources') or (ParamStr(1) = 'catalog-sources-ui') or
