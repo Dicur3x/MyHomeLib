@@ -553,7 +553,8 @@ def prepare_selected_file(source, members, workspace, seven_zip, *, profile='ori
                                      images_reused=images_reused, images_processed=images_processed, checked=checked))
             if preview is not None and optimized:
                 try:
-                    preview.add_book(original, current, extension, member)
+                    preview_original, preview_result = status.get('comparison_inputs', (original, current))
+                    preview.add_book(preview_original, preview_result, extension, member)
                 except (ValueError, ElementTree.ParseError, zipfile.BadZipFile):
                     preview.limited = True
             replacements[member] = current

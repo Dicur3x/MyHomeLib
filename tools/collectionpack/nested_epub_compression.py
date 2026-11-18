@@ -128,4 +128,5 @@ def optimize_nested_epub(source, stage, processor, decoder, history, verify, che
         return dict(image_result='unchanged', nested_epub_verified=True,
                     image_reason='Вложенная EPUB не стала меньше; исходные ресурсы сохранены.')
     prepared.candidate.replace(source)
-    return dict(status, image_result='optimized', nested_epub_verified=True)
+    return dict(status, image_result='optimized', nested_epub_verified=True,
+                comparison_inputs=(original_zip, current_zip))

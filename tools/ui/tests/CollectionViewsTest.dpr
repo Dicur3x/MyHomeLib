@@ -6387,6 +6387,8 @@ begin
     if (ParamStr(1)='catalogue-performance') or (ParamStr(1)='query-batch') then
       Writeln('TRACE cache-clear symbol RVA ',IntToHex(NativeUInt(@unit_BookCache.ClearBookCache)-NativeUInt(HInstance),8));
     Application.Initialize;
+    if ParamStr(1)='compression-raster-comparison' then
+    begin TestCompressionRasterComparison; Halt(0); end;
     if (ParamStr(1) = 'publisher-startup') or (ParamStr(1) = 'cancel-interactive') or
       ParamStr(1).StartsWith('startup-deferred') or (ParamStr(1) = 'view-session-reopen') or
       (ParamStr(1) = 'book-deletion-lifecycle') then

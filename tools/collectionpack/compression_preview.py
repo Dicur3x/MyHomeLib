@@ -2,6 +2,7 @@
 import base64
 import hashlib
 import json
+from collections import Counter
 from pathlib import Path
 from xml.etree import ElementTree as ET
 import zipfile
@@ -17,6 +18,10 @@ def image_kind(data):
                             (b'GIF8', 'gif'), (b'BM', 'bmp')):
         if data.startswith(signature):
             return kind
+    if data.startswith(b'RIFF') and data[8:12] == b'WEBP':
+        return 'webp'
+    if data.startswith((b'II\x2a\x00', b'MM\x00\x2a')):
+        return 'tiff'
     return None
 
 
@@ -99,21 +104,26 @@ class ComparisonPreview:
                     break
         elif extension in {'.epub', '.docx', '.odt', '.cbz'}:
             with zipfile.ZipFile(original) as old, zipfile.ZipFile(result) as new:
-                available = set(new.namelist())
+                old_names, new_names = Counter(old.namelist()), Counter(new.namelist())
                 for item in old.infolist():
                     self.check()
-                    if item.is_dir() or item.file_size > MAX_IMAGE or item.filename not in available:
+                    if (item.is_dir() or item.file_size > MAX_IMAGE or
+                            old_names[item.filename] != 1 or new_names[item.filename] != 1):
                         continue
-                    if Path(item.filename).suffix.lower() not in {'.png', '.jpg', '.jpeg', '.gif', '.bmp'}:
-                        continue
-                    if len(self.pairs) >= stop_at:
-                        self.limited = True
-                        break
-                    other = new.getinfo(item.filename)
-                    if other.file_size > MAX_IMAGE:
-                        self.limited = True
-                        continue
-                    if not self.add_pair(member, item.filename, old.read(item), new.read(other)):
+                    # EPUB can identify a picture by its manifest even if its path has no extension.
+                    with old.open(item) as source:
+                        header = source.read(12)
+                        if not image_kind(header):
+                            continue
+                        if len(self.pairs) >= stop_at:
+                            self.limited = True
+                            break
+                        other = new.getinfo(item.filename)
+                        if other.file_size > MAX_IMAGE:
+                            self.limited = True
+                            continue
+                        before = header + source.read()
+                    if not self.add_pair(member, item.filename, before, new.read(other)):
                         break
 
     def finish(self):

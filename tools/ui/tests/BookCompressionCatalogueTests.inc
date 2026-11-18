@@ -8,6 +8,36 @@ procedure TestCancelledCompressionRefresh(const Collection:IBookCollection;
 
 {$I CompressionCopyIndexTests.inc}
 
+procedure TestCompressionRasterComparison;
+var Dialog:TfrmBookCompressionCompare; Choices:TComboBox;
+  procedure CheckPane(const Which:string; Expected:TColor);
+  begin
+    var Picture:=(Dialog.FindComponent('Comparison'+Which+'Image') as TImage).Picture;
+    Require(Assigned(Picture.Graphic),Which+' picture is missing');
+    Require((Picture.Width=23) and (Picture.Height=17),Which+' picture dimensions changed');
+    var Bitmap:=TBitmap.Create;
+    try
+      Bitmap.SetSize(23,17); Bitmap.Canvas.Draw(0,0,Picture.Graphic);
+      Require(ColorToRGB(Bitmap.Canvas.Pixels[11,8])=ColorToRGB(Expected),Which+' first-frame pixel differs');
+    finally Bitmap.Free; end;
+  end;
+begin
+  var FileName:=ParamStr(2);
+  if FileName='' then FileName:=ExtractFilePath(ParamStr(0))+'comparison.zip';
+  Dialog:=TfrmBookCompressionCompare.CreateComparison(nil,FileName,THashSHA2.GetHashStringFromFile(FileName));
+  try
+    Dialog.Show; Application.ProcessMessages;
+    Choices:=Dialog.FindComponent('ComparisonImages') as TComboBox;
+    Require(Choices.Items.Count>=2,'Missing TIFF or WebP comparison');
+    for var I:=0 to Choices.Items.Count-1 do
+    begin
+      Choices.ItemIndex:=I; Choices.OnChange(Choices);
+      CheckPane('Before',clRed); CheckPane('After',clBlue);
+    end;
+    Writeln('PASS original dimensions and first-frame pixels for TIFF and WebP in the normal comparison window');
+  finally Dialog.Free; end;
+end;
+
 procedure TestCompressionIndexBoundaries;
 var Root,Source,Identity,Member,Key,Digest:string; DB:TSQLiteDatabase; Zip:TZipFile; Body:TBytes;
   procedure Seed(Archived:Boolean);

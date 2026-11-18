@@ -343,7 +343,7 @@ class SelectedPreparationTests(unittest.TestCase):
             entries = {name: archive.read(name) for name in archive.namelist()}
         source, raw_book = self.stored_nested_source(entries)
         before = sha(source)
-        prepared = self.prepare(source, {'one.epub': '.epub'}, profile='balanced')
+        prepared = self.prepare(source, {'one.epub': '.epub'}, profile='balanced', preview_images=True)
         self.assertEqual(prepared.books[0]['format'], '.epub')
         self.assertTrue(prepared.books[0]['checked'], prepared.books)
         self.assertTrue(prepared.books[0]['optimized'], prepared.books)
@@ -362,6 +362,13 @@ class SelectedPreparationTests(unittest.TestCase):
         baseline = self.root / 'baseline.epub'
         baseline.write_bytes(original)
         verify_non_image_content(baseline, output, '.epub')
+        self.assertIsNotNone(prepared.preview)
+        with zipfile.ZipFile(prepared.preview['path']) as samples, zipfile.ZipFile(output) as verified:
+            pairs = json.loads(samples.read('comparison.json'))['pairs']
+            self.assertEqual([(pair['member'], pair['image']) for pair in pairs], [('one.epub', 'picture.png')])
+            self.assertEqual(samples.read(pairs[0]['before']), entries['picture.png'])
+            self.assertEqual(samples.read(pairs[0]['after']), verified.read('picture.png'))
+            self.assertNotEqual(samples.read(pairs[0]['before']), samples.read(pairs[0]['after']))
         self.assertEqual(self.decoded(prepared.candidate or source, 'neighbor.txt'), b'Keep the other physical book exactly.')
         self.assertEqual(sha(source), before)
 

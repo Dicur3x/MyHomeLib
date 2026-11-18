@@ -1,6 +1,7 @@
 """Actual image pairs and preparation failure/skip cleanup."""
 import base64
 import json
+import os
 import subprocess
 import sys
 from types import SimpleNamespace
@@ -40,6 +41,55 @@ class CompressionPreviewTests(unittest.TestCase):
             self.assertNotEqual(archive.read(pair['before']), archive.read(pair['after']))
         self.assertEqual(sha(source), before)
         self.assertEqual(self.decoded(result.candidate, 'neighbor.bin'), b'Keep')
+
+    def test_webp_and_tiff_pairs_use_the_real_bytes_and_unique_resource_paths(self):
+        from io import BytesIO
+        from PIL import Image
+        import warnings
+
+        def encoded(kind, color):
+            stream = BytesIO()
+            with Image.new('RGB', (23, 17), color) as picture:
+                if kind == 'TIFF':
+                    with Image.new('RGB', picture.size, 'green') as second_page:
+                        picture.save(stream, format=kind, save_all=True, append_images=[second_page])
+                else:
+                    picture.save(stream, format=kind, lossless=True)
+            return stream.getvalue()
+
+        webp, tiff = encoded('WEBP', 'red'), encoded('TIFF', 'red')
+        blue = encoded('PNG', 'blue')
+        old, new = self.root/'before.epub', self.root/'after.epub'
+        for path, first in ((old, True), (new, False)):
+            with zipfile.ZipFile(path, 'w') as book:
+                book.writestr('image/resource', tiff if first else blue)
+                book.writestr('image/2.webp', webp if first else blue)
+                book.writestr('text.webp', b'not a picture')
+                book.writestr('duplicate', blue)
+                with warnings.catch_warnings():
+                    warnings.simplefilter('ignore', UserWarning)
+                    book.writestr('duplicate', blue)
+        with ComparisonPreview(self.work, lambda: None) as preview:
+            preview.add_book(old, new, '.epub', 'sample.epub')
+            fb2 = self.root/'old.fb2'
+            fb2.write_bytes(illustrated_fb2(webp).replace(b'image/png', b'image/webp'))
+            after = self.root/'new.fb2'
+            after.write_bytes(illustrated_fb2(blue))
+            preview.add_book(fb2, after, '.fb2', 'sample.fb2')
+            result = preview.finish()
+            with zipfile.ZipFile(result['path']) as archive:
+                pairs = json.loads(archive.read('comparison.json'))['pairs']
+                self.assertEqual([(row['member'], row['image']) for row in pairs],
+                                 [('sample.epub','image/resource'), ('sample.epub','image/2.webp'), ('sample.fb2','picture')])
+                for pair, expected in zip(pairs, (tiff, webp, webp)):
+                    self.assertEqual(archive.read(pair['before']), expected)
+                    self.assertEqual(archive.read(pair['after']), blue)
+            # A staged native test executable also opens the normal comparison window.
+            if native := os.environ.get('HL_COMPRESSION_PREVIEW_TEST'):
+                output = subprocess.run([native, 'compression-raster-comparison', result['path']],
+                                        cwd=Path(native).parent, capture_output=True, timeout=60)
+                self.assertEqual(output.returncode, 0, output.stdout + output.stderr)
+                self.assertIn(b'PASS original dimensions and first-frame pixels', output.stdout)
 
     def test_epub_quality_preview_pairs_the_same_image_path(self):
         image = image_fixture(False)

@@ -31,7 +31,31 @@ type
 implementation
 
 uses System.SysUtils, System.IOUtils, System.Hash, System.Math, System.Types,
-  Winapi.Windows, Vcl.Graphics, unit_FB2Utils, unit_MHLTheme;
+  Winapi.Windows, Winapi.ActiveX, Winapi.Wincodec, System.Win.ComObj, Vcl.Graphics,
+  unit_FB2Utils, unit_MHLTheme, unit_MHLExternalTools;
+
+const
+  ComparisonDecodeBudget = 32*1024*1024;
+
+// Read the first frame at its original size. Check dimensions before allocating pixels.
+function FirstComparisonFrame(Stream:TStream):TGraphic;
+var Adapter:IStream; Decoder:IWICBitmapDecoder; Frame:IWICBitmapFrameDecode;
+  Converter:IWICFormatConverter; Bitmap:IWICBitmap; Factory:IWICImagingFactory; W,H:UINT;
+begin
+  Result:=nil; Stream.Position:=0;
+  Adapter:=TStreamAdapter.Create(Stream,soReference);
+  OleCheck(CoCreateInstance(CLSID_WICImagingFactory,nil,CLSCTX_INPROC_SERVER,IWICImagingFactory,Factory));
+  OleCheck(Factory.CreateDecoderFromStream(Adapter,GUID_NULL,WICDecodeMetadataCacheOnDemand,Decoder));
+  OleCheck(Decoder.GetFrame(0,Frame));
+  OleCheck(Frame.GetSize(W,H));
+  if (W=0) or (H=0) or (UInt64(W)*H>ComparisonDecodeBudget div 4) then Exit;
+  OleCheck(Factory.CreateFormatConverter(Converter));
+  OleCheck(Converter.Initialize(Frame,GUID_WICPixelFormat32bppPBGRA,WICBitmapDitherTypeNone,nil,0,WICBitmapPaletteTypeCustom));
+  OleCheck(Factory.CreateBitmapFromSource(Converter,WICBitmapCacheOnLoad,Bitmap));
+  var Image:=TWICImage.Create;
+  try Image.Handle:=Bitmap; Result:=Image;
+  except Image.Free; raise; end;
+end;
 
 constructor TfrmBookCompressionCompare.CreateComparison(Owner: TComponent;
   const FileName, ExpectedSHA256: string);
@@ -135,7 +159,7 @@ begin FitImages; end;
 procedure TfrmBookCompressionCompare.Choose(Sender:TObject);
 var Pair:TJSONValue;
   procedure Load(Image:TImage; Title:TLabel; const Key, Caption:string);
-  var Name:string; Bytes:TBytes; Stream:TBytesStream; Graphic:TGraphic; Index:Integer;
+  var Name:string; Bytes:TBytes; Stream:TBytesStream; Graphic:TGraphic; Index:Integer; IsTiff:Boolean;
   begin
     Image.Picture.Assign(nil); Name:=Pair.GetValue<string>(Key,''); Index:=FZip.IndexOf(Name);
     if (Name<>Format('%.2d-%s',[FList.ItemIndex,Key])) or (Index<0) or
@@ -143,7 +167,25 @@ var Pair:TJSONValue;
       raise EReadError.Create('Некорректное изображение для сравнения.');
     FZip.Read(Name,Bytes); Stream:=TBytesStream.Create(Bytes); Graphic:=nil;
     try
-      Graphic:=CreateGraphicFromStream(Stream,32*1024*1024);
+      // TIFF samples keep their original encoded bytes, including additional pages.
+      IsTiff:=(Length(Bytes)>=4) and (((Bytes[0]=$49) and (Bytes[1]=$49) and (Bytes[2]=$2A) and (Bytes[3]=0)) or
+        ((Bytes[0]=$4D) and (Bytes[1]=$4D) and (Bytes[2]=0) and (Bytes[3]=$2A)));
+      if IsTiff then
+      begin
+        try Graphic:=FirstComparisonFrame(Stream); except on E:EOleSysError do Graphic:=nil; end;
+      end
+      else
+      try
+        Graphic:=CreateGraphicFromStream(Stream,ComparisonDecodeBudget);
+      except
+        on E:EMHLComponentRequired do
+        begin
+          // Windows may already have a WebP decoder, even on a minimal installation.
+          try Graphic:=FirstComparisonFrame(Stream); except on DecodeError:EOleSysError do Graphic:=nil; end;
+          if Graphic=nil then
+          begin Title.Caption:=Caption+' · для просмотра нужен модуль WebP'; Exit; end;
+        end;
+      end;
       if Graphic=nil then
       begin
         Title.Caption:=Caption+' · слишком большое или неподдерживаемое изображение';
@@ -151,6 +193,7 @@ var Pair:TJSONValue;
       end;
       Image.Picture.Assign(Graphic);
       Title.Caption:=Format('%s · %d × %d · %.1f КБ',[Caption,Graphic.Width,Graphic.Height,Length(Bytes)/1024]);
+      if IsTiff then Title.Caption:=Title.Caption+' · страница 1';
     finally Graphic.Free; Stream.Free; end;
   end;
 begin
