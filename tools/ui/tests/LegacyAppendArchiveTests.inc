@@ -19,10 +19,10 @@ begin
     end;
 end;
 
-procedure TestLegacyAppendArchive;
+procedure TestLegacyAppendArchive(MixedPaths: Boolean);
 const
   Folders: array[0..9] of string = ('base.zip','bridge.zip','split.zip','',
-    'add-empty.zip','add-zero.zip','add-text.zip','split.7z','bridge.7z','bridge.7z');
+    'add-empty.zip','add-zero.zip','different\base.zip','split.7z','bridge.7z','bridge.7z');
   Members: array[0..9] of string = ('same','bridge','same','same','same','same','same','same','bridge-new','bridge');
   LibIDs: array[0..9] of string = ('','legacy','0','','','0','legacy','0','','legacy');
   AliasRow = 9;
@@ -41,10 +41,18 @@ var
     Result:='Append fixture '+IntToStr(Index);
   end;
 
+  function IndexFolder(Index: Integer; Update: Boolean): string;
+  begin
+    Result:=Folders[Index];
+    if MixedPaths and (((Index=0) and not Update) or (Update and (Index in [1,2,AliasRow]))) then
+      Result:=TPath.Combine(Root,Result);
+  end;
+
   procedure CreateArchive(Index: Integer);
   var Path, Work: string; Zip:TZipFile; Sink:TMemoryStream; Files:TArray<string>;
   begin
     Path:=TPath.Combine(Root,Folders[Index]);
+    ForceDirectories(ExtractFileDir(Path));
     if SameText(ExtractFileExt(Path),'.zip') then
     begin
       Zip:=TZipFile.Create;
@@ -88,7 +96,7 @@ var
         Inside:=0;
         if I in [1,AliasRow] then Inside:=1;
         Row:='Author,Test:'#4'prose_contemporary:'#4+BookTitle(I)+#4#4#4+Members[I]+#4+
-          '100'#4+LibIDs[I]+#4'0'#4'txt'#4'2026-11-18'#4'ru'#4+Folders[I]+#4+IntToStr(Inside)+sLineBreak;
+          '100'#4+LibIDs[I]+#4'0'#4'txt'#4'2026-11-18'#4'ru'#4+IndexFolder(I,Update)+#4+IntToStr(Inside)+sLineBreak;
         Zip.Add(TEncoding.UTF8.GetBytes(Row),'page-'+IntToStr(I)+'.inp');
       end;
     finally Zip.Free; end;
@@ -126,8 +134,8 @@ var
       Require(Index>=0,'A previously indexed physical member was inserted again: '+Book.Title);
       Inc(Count);
       if CardIDs[Index]=0 then CardIDs[Index]:=Book.BookKey.BookID
-      else Require(CardIDs[Index]=Book.BookKey.BookID,'A record changed its stable card: '+Book.Title);
-      Require((Book.Folder=Folders[Index]) and (Book.FileName=Members[Index]) and
+      else Require(CardIDs[Index]=Book.BookKey.BookID,'A duplicate replaced or copied a stable card: '+Book.Title);
+      Require((Book.Folder=IndexFolder(Index,Index>=FirstNew)) and (Book.FileName=Members[Index]) and
         ((Index=3) or (Book.LibID=LibIDs[Index])),'Incorrect archived or local locator: '+Book.Title);
       Stream:=Book.GetBookStream(True,False);
       Require(Assigned(Stream),'Unreadable indexed book: '+Book.Title);
@@ -190,6 +198,8 @@ begin
     Require(Driver.Visits=2,'Did not exercise both real file-update dialogs');
     Require(ProtectedFiles=Bodies,'A source archive or index was modified');
   finally Timer.Free; Driver.Free; end;
+  if MixedPaths then
+    Writeln('PASS legacy file append matches absolute and relative archive paths in both directions');
   Writeln('PASS legacy file append distinguishes ZIP and 7z members, retains the resolved alias, and repeats cleanly');
   Flush(Output);
 end;

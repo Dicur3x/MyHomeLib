@@ -36,3 +36,22 @@ in isolated G: profiles. Both ordinary applications and both test hosts
 built successfully. Eight runs passed with 62 markers and 705 verified
 inputs. Receipts and the source list are at
 G:/HL-b14-external/legacy-append-final-r1908/summary.json.
+
+## Absolute and relative catalogue paths
+
+The normal append dialog also reproduces a duplicate when an old card names
+an absolute ZIP path and the updated index uses the equivalent relative name.
+The x64 baseline catches that duplicate by the changed stable BookID.
+
+The indexed lookup now searches both path forms and the corresponding ZIP/7z
+forms. Windows path normalization confirms an exact archive. ZIP fallback uses
+the reader's real archive resolution. Matching folder names in separate
+directories stay independent.
+
+Both x86 and x64 passed absolute-to-relative, relative-to-absolute, and the
+legacy ZIP-to-7z spelling with the original card, archive bytes, rating,
+progress and review intact. The fixture includes a different archive with the
+same basename in a subdirectory, two distinct ZIP/7z archives, and a clean
+repeat. Relative-only appends and the previous local and HTTP workspace
+controls passed. Four builds, six runs and 36 markers are bound to the 705
+sources in G:/HL-b14-external/legacy-paths-final-r1913/summary.json.

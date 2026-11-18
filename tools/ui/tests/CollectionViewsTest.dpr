@@ -6816,7 +6816,7 @@ begin
       else if ParamStr(1) = 'legacy-update-workspace' then
         TestLegacyUpdateWorkspace
       else if ParamStr(1) = 'legacy-append-archive' then
-        TestLegacyAppendArchive
+        TestLegacyAppendArchive(ParamStr(2)='paths')
       else if ParamStr(1) = 'packed-source-review' then
         TestPackedSourceReview
       else if ParamStr(1) = 'packed-legacy-source' then

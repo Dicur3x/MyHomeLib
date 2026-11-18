@@ -2504,31 +2504,36 @@ end;
 
 function TBookCollection_SQLite.AppendArchiveMember(const Book:TBookRecord; Cache:TImportCache):Integer;
 const
-  ExistingMember = 'SELECT Folder=?,Folder,LibID FROM Books '+
-    'WHERE FileName=? AND Ext=? AND Folder IN (?,?)';
+  ExistingMember = 'SELECT Folder,LibID FROM Books '+
+    'WHERE FileName=? AND Ext=? AND Folder IN (?,?,?,?,?,?)';
 var
-  Alternate: string;
+  ArchivePath, RelativePath, AlternateExtension: string;
   Incoming, Existing: TBookRecord;
   Query: TSQLiteQuery;
 begin
-  if SameText(ExtractFileExt(Book.Folder),ZIP_EXTENSION) then
-    Alternate:=ChangeFileExt(Book.Folder,SEVENZIP_ARCHIVE_EXTENSION)
+  Incoming:=Book;
+  Incoming.CollectionRoot:=IncludeTrailingPathDelimiter(TPath.GetFullPath(CollectionRoot));
+  ArchivePath:=TPath.GetFullPath(TPath.Combine(Incoming.CollectionRoot,Book.Folder));
+  RelativePath:=ExtractRelativePath(Incoming.CollectionRoot,ArchivePath);
+  if SameText(ExtractFileExt(ArchivePath),ZIP_EXTENSION) then
+    AlternateExtension:=SEVENZIP_ARCHIVE_EXTENSION
   else
-    Alternate:=ChangeFileExt(Book.Folder,ZIP_EXTENSION);
-  Query:=FDatabase.NewQuery(ExistingMember,[Book.Folder,Book.FileName,Book.FileExt,Book.Folder,Alternate]);
+    AlternateExtension:=ZIP_EXTENSION;
+  Query:=FDatabase.NewQuery(ExistingMember,[Book.FileName,Book.FileExt,
+    Book.Folder,ArchivePath,RelativePath,ChangeFileExt(Book.Folder,AlternateExtension),
+    ChangeFileExt(ArchivePath,AlternateExtension),ChangeFileExt(RelativePath,AlternateExtension)]);
   try
     Query.Open;
+    Existing:=Incoming;
     while not Query.Eof do
     begin
-      if Query.FieldAsBoolean(0) then Exit(0);
+      Existing.Folder:=Query.FieldAsString(0);
+      if SameFileName(ArchivePath,TPath.GetFullPath(TPath.Combine(Incoming.CollectionRoot,Existing.Folder))) then Exit(0);
       // A missing ZIP may be the old spelling of an existing 7z. Use the
       // normal reader's resolution, which keeps two present archives distinct.
-      Incoming:=Book;
-      Incoming.CollectionRoot:=CollectionRoot;
-      Existing:=Incoming;
-      Existing.Folder:=Query.FieldAsString(1);
-      Existing.LibID:=Query.FieldAsString(2);
-      if SameFileName(Incoming.GetBookContainer,Existing.GetBookContainer) then Exit(0);
+      Existing.LibID:=Query.FieldAsString(1);
+      if SameFileName(TPath.GetFullPath(Incoming.GetBookContainer),TPath.GetFullPath(Existing.GetBookContainer)) then
+        Exit(0);
       Query.Next;
     end;
   finally Query.Free; end;
