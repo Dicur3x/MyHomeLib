@@ -16,7 +16,7 @@ if __package__ in (None, ''):
     sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from archive_replacement import archive_inventory, member_path
-from pack_collection import (Canceled, IMAGE_SUFFIXES, MAX_BOOK, MAX_IMAGE_BOOK,
+from pack_collection import (Canceled, DJVU_SUFFIXES, IMAGE_SUFFIXES, MAX_BOOK, MAX_IMAGE_BOOK,
     Packer, PackingError, SevenZip, atomic_json, canonical, copy_exact, digest_file,
     reserve_space, temporary_work_directory)
 from prepare_book_compression import MAX_MEMBERS, _source_stamp, profile_digest
@@ -143,8 +143,12 @@ def estimate_selected_file(source, members, workspace, seven_zip, *, profile='ba
                             image_history.contains if image_history_database else None))
                         if row.get('images_reused'):
                             row['reason'] = f"Уже сжатые изображения сохраняются без изменений: {row['images_reused']}. Оцениваем только новые."
-                    elif extension in ('.djvu', '.djv', '.dju', '.djm', '.djvm') and profile == 'maximum':
-                        row['reason'] = 'Размер фона DjVu будет известен после подготовки; файл не изменён.'
+                    elif extension in DJVU_SUFFIXES and profile == 'maximum':
+                        # The background optimization preserves all offsets and
+                        # the payload length. Only the outer archive can shrink.
+                        reason = ('Размер DjVu до упаковки сохраняется. Экономия возможна в архиве.'
+                                  if member else 'Размер отдельного файла DjVu остаётся прежним.')
+                        row.update(output_bytes=sizes[member], exact=True, reason=reason)
                     else:
                         row.update(output_bytes=sizes[member], exact=True,
                             reason='Содержимое этого формата не меняется; возможна только перепаковка.')

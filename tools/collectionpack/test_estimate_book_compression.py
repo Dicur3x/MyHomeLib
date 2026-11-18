@@ -12,7 +12,7 @@ from estimate_book_compression import (MeasurementBudget, aggregate_estimates,
     estimate_selected_file)
 from pack_collection import Canceled, PackingError
 from prepare_book_compression import profile_digest
-from test_pack_collection import image_fixture, illustrated_fb2, sha
+from test_pack_collection import image_fixture, illustrated_fb2, layered_djvu, sha
 import test_prepare_book_compression as fixtures
 
 
@@ -58,6 +58,30 @@ class CompressionEstimateTests(unittest.TestCase):
                 self.assertLess(estimated['books'][0]['seconds'], 10)
                 # Only owned candidates are removed; the estimator left none.
                 Path(prepared.candidate).unlink()
+
+    @unittest.skipUnless(fixtures.TOOLS, 'Actual HomeLibre Images runtime required')
+    def test_maximum_djvu_keeps_payload_length_but_can_make_archive_smaller(self):
+        layered = layered_djvu()
+        plain = layered_djvu(mask=False)
+        source = self.source_zip({'scan.djv': layered, 'photo.djvu': plain, 'neighbor.txt': b'keep'})
+        original = sha(source)
+        members = {'scan.djv': '.djv', 'photo.djvu': '.djvu'}
+        estimated = self.estimate(source, members, profile='maximum')
+        self.assertEqual(estimated['unknown_books'], 0)
+        self.assertEqual(estimated['output_bytes'], len(layered) + len(plain))
+        self.assertEqual(estimated['archive_bytes'], source.stat().st_size)
+        self.assertIsNone(estimated['archive_output_bytes'])
+        self.assertTrue(all(row['exact'] for row in estimated['books']))
+        self.assertTrue(all('архив' in row['reason'] for row in estimated['books']))
+        self.assertEqual(list(self.work.iterdir()), [])
+
+        prepared = self.prepare(source, members, profile='maximum')
+        self.assertTrue(prepared.books[0]['optimized'])
+        self.assertFalse(prepared.books[1]['optimized'])
+        self.assertEqual([row['output_bytes'] for row in estimated['books']],
+                         [row['output_bytes'] for row in prepared.books])
+        self.assertLess(prepared.output_bytes, source.stat().st_size)
+        self.assertEqual(sha(source), original)
 
     @unittest.skipUnless(fixtures.TOOLS, 'Actual HomeLibre Images runtime required')
     def test_actual_format_detection_ignores_wrong_catalogue_extension(self):
