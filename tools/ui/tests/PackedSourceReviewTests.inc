@@ -74,6 +74,122 @@ var Folder,OriginalRoot,HeldRoot,PackedRoot,Incoming,BaseIndex,NextIndex:string;
     finally Dialog.Free; Personal.Free; Catalog.Free; end;
   end;
 
+  procedure ApplyPackedProfile(Full: Boolean);
+  var
+    Applied: IBookCollection;
+    NewID, ArrivalID: Integer;
+    PreviousFile, PreviousHash: string;
+    Stream: TStream;
+    Bytes: TBytes;
+    AppliedHistory: TCatalogSource;
+    procedure DeliverArchive(const Name, Entry, Content: string);
+    var Archive: TZipFile;
+    begin
+      Archive:=TZipFile.Create;
+      try
+        Archive.Open(TPath.Combine(Incoming,Name),zmWrite);
+        Archive.Add(TEncoding.UTF8.GetBytes(Content),Entry);
+      finally Archive.Free; end;
+    end;
+    function ApplyFromWindow: Integer;
+    var Driver: TLibraryWindowDriver; Timer: TTimer; Action: TAction; Choice: TMenuItem;
+    begin
+      Choice:=TMenuItem.Create(nil);
+      try Choice.Tag:=PackedID; frmMain.miActiveCollectionClick(Choice);
+      finally Choice.Free; end;
+      frmMain.Show; Application.ProcessMessages;
+      Driver:=TLibraryWindowDriver.Create; Timer:=TTimer.Create(nil);
+      try
+        Driver.Profile:=Profile; Driver.Accept:=True; Driver.Timer:=Timer;
+        Driver.PackedUpdate:=True; Driver.ProtectedCollectionID:=PackedID;
+        Timer.Interval:=1; Timer.OnTimer:=Driver.Tick; Timer.Enabled:=True;
+        Action:=TAction(frmMain.FindComponent('acUpdateLibrary'));
+        Action.Update; Require(Action.Enabled,'Packed source update action stayed disabled');
+        Action.Execute;
+        Require(Driver.Started and Driver.Confirmed and (Driver.Failure=''),
+          'Packed source window: '+Driver.Failure);
+        Result:=Driver.PublishedCollectionID;
+        Require((Result>0) and IsWindowEnabled(frmMain.Handle) and (Settings.ActiveCollection=Result),
+          'Closing the source window did not activate the new packed generation');
+      finally Timer.Free; Driver.Free; end;
+    end;
+    function ApplyTo(ID: Integer; Accept: Boolean; CancelBeforeRegistration: Boolean=False): Integer;
+    begin
+      Stage:=TStagedLibraryIndex.Fetch(Profile,Settings.UpdatePath,nil);
+      ReviewPlan:=TLibraryUpdateReview.Create(Profile,Stage);
+      try
+        ApplyWorker:=CreateLibraryReviewWorker(ID,ReviewPlan);
+        try TOORun(ApplyWorker); Require(ApplyWorker.Success,'Packed application review failed');
+        finally ApplyWorker.Free; end;
+        Probe:=TLibraryApplyProbe.Create;
+        Probe.Accept:=Accept;
+        ApplyWorker:=CreateLibraryApplyWorker(ID,ReviewPlan,False);
+        try
+          ApplyWorker.OnShowMessage:=Probe.Confirm;
+          if CancelBeforeRegistration then
+            LibraryUpdateTestPoint:=procedure(Point: string)
+            begin
+              if Point='packed-before-registration' then raise EAbort.Create('Verification cancellation');
+            end;
+          ApplyWorker.Start; ApplyWorker.WaitFor;
+          if Assigned(ApplyWorker.FatalException) then
+            raise Exception.Create('Packed application: '+Exception(ApplyWorker.FatalException).Message);
+          Require(Probe.Confirmed,'Packed application did not ask for confirmation');
+          Require(ApplyWorker.Success=(Accept and not CancelBeforeRegistration),'Packed application worker outcome mismatch');
+          Require(ApplyWorker.CommittedChanges=(Accept and not CancelBeforeRegistration),'Packed application committed unexpectedly');
+          Result:=ReviewPlan.PublishedCollectionID;
+          Require((Result>0)=(Accept and not CancelBeforeRegistration),'Packed application returned the wrong collection ID');
+        finally LibraryUpdateTestPoint:=nil; ApplyWorker.Free; Probe.Free; end;
+      finally ReviewPlan.Free; Stage.Free; end;
+    end;
+    procedure CheckBody(ID: Integer; const Expected: string);
+    begin
+      Applied.GetBookRecord(CreateBookKey(ID,Applied.CollectionID),Book,True);
+      Stream:=Book.GetBookStream(True,False);
+      try
+        SetLength(Bytes,Stream.Size);
+        Stream.ReadBuffer(Bytes,Length(Bytes));
+        Require(TEncoding.UTF8.GetString(Bytes)=Expected,'Unexpected packed payload for '+Book.FileName);
+      finally Stream.Free; end;
+    end;
+  begin
+    Profile.Full:=Full;
+    Index(NextIndex,True,True);
+    PackedCollection.SetProperty(PROP_LIBRARY_UPDATE_SOURCES,
+      WriteLibraryUpdateSources(TArray<TLibraryUpdateSource>.Create(Profile)));
+    PreviousFile:=PackedCollection.GetProperty(PROP_DATAFILE);
+    PreviousHash:=THashSHA2.GetHashStringFromFile(PreviousFile);
+    DeliverArchive('new.zip','1003.txt','New reviewed body');
+    ApplyTo(PackedID,False);
+    Require(THashSHA2.GetHashStringFromFile(PreviousFile)=PreviousHash,'Declining changed the original packed catalog');
+    ApplyTo(PackedID,True,True);
+    Require(THashSHA2.GetHashStringFromFile(PreviousFile)=PreviousHash,'Cancellation changed the original packed catalog');
+    NewID:=ApplyFromWindow;
+    Require(NewID<>PackedID,'Reviewed update replaced the original collection');
+    Applied:=SystemDB.GetCollection(NewID,True);
+    Require(Assigned(Applied) and LoadLibraryUpdateHistory(Applied,Profile,AppliedHistory),
+      'Reviewed packed generation has no published source history');
+    Require(Applied.ResolveBookID('1001',0)=FirstID,'Reviewed packed generation changed the stable book ID');
+    Require(Applied.ResolveBookID('1002',0)=0,'Reviewed packed generation restored a deleted card');
+    CheckBody(FirstID,'Original body 1001');
+    Require((Book.Title='Corrected publisher 1001') and (Book.Rate=4) and (Book.Progress=37) and
+      (Applied.GetReview(Book.BookKey)='Личная заметка ё'),'Reviewed packed generation lost metadata or personal data');
+    ArrivalID:=Applied.ResolveBookID('1003',0);
+    Require(ArrivalID>0,'Reviewed packed generation omitted the delivered new book');
+    CheckBody(ArrivalID,'New reviewed body');
+
+    DeliverArchive('books.zip','1001.txt','Delivered replacement body 1001');
+    NewID:=ApplyTo(NewID,True);
+    Applied:=SystemDB.GetCollection(NewID,True);
+    Require(Applied.ResolveBookID('1001',0)=FirstID,'Pending delivery changed the stable book ID');
+    Require(Applied.ResolveBookID('1003',0)=ArrivalID,'Pending delivery changed the previously delivered ID');
+    CheckBody(FirstID,'Delivered replacement body 1001');
+    CheckBody(ArrivalID,'New reviewed body');
+    Require(THashSHA2.GetHashStringFromFile(PreviousFile)=PreviousHash,'Publishing the new copy rewrote the original packed catalog');
+    Writeln('PASS packed source profile applied separately and completed pending delivery full=',Ord(Full));
+    Flush(Output);
+  end;
+
 begin
   RequireIsolatedRegression;
   Require(SameText(ExtractFileDrive(Settings.AppPath),'G:'),'Packed source review requires an isolated G: runtime');
@@ -160,6 +276,7 @@ begin
         try Review(Deleted,True,True); finally Index(NextIndex,True); end;
       finally TFile.Delete(TPath.Combine(Incoming,'books.zip')); end;
     end;
+    ApplyPackedProfile(WithHistory);
   finally Require(RenameFile(HeldRoot,OriginalRoot),'Cannot restore owned original folder'); end;
 end;
 

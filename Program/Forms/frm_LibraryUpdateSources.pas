@@ -40,6 +40,7 @@ type
     FSelectedIndex: Integer;
     FRebuilding, FLayoutBusy: Boolean;
     FCommitted: Boolean;
+    FPublishedCollectionID: Integer;
     FBeforeApply: TNotifyEvent;
     procedure Rebuild(Index: Integer);
     procedure Selected(Sender: TObject; Item: TListItem; Selected: Boolean);
@@ -79,6 +80,7 @@ type
     property Prepared: TStagedLibraryIndex read FPrepared;
     property Review: TLibraryUpdateReview read FReview;
     property Committed: Boolean read FCommitted;
+    property PublishedCollectionID: Integer read FPublishedCollectionID;
     property BeforeApply: TNotifyEvent read FBeforeApply write FBeforeApply;
   end;
 
@@ -550,7 +552,15 @@ begin
       Succeeded:=Worker.Success;
       if Assigned(Worker.FatalException) then Failure:=Exception(Worker.FatalException).Message;
       if Worker.CommittedChanges then
-        FCollection:=SystemDB.GetCollection(FCollection.CollectionID,True);
+      begin
+        FPublishedCollectionID:=FReview.PublishedCollectionID;
+        if FPublishedCollectionID>0 then
+        begin
+          FCollection:=SystemDB.GetCollection(FPublishedCollectionID,True);
+          Caption:='Источники обновлений — '+FCollection.CollectionDisplayName;
+        end
+        else FCollection:=SystemDB.GetCollection(FCollection.CollectionID,True);
+      end;
     finally Progress.Free; end;
   finally Worker.Free; end;
   Missing:=FReview.MissingDetails;
@@ -567,7 +577,10 @@ begin
   begin
     Details:=FReview.ApplySummary; LineEnd:=Pos(sLineBreak,Details);
     if LineEnd>0 then Delete(Details,1,LineEnd+Length(sLineBreak)-1);
-    SetReport('Обновление применено. Сохранены настройки источника и его новый индекс. '+
+    if FPublishedCollectionID>0 then
+      SetReport('Создана обновлённая упакованная коллекция. Она откроется после закрытия окна.'+
+        sLineBreak+Details+Missing)
+    else SetReport('Обновление применено. Сохранены настройки источника и его новый индекс. '+
       'Сами книги и архивы не менялись.'+sLineBreak+Details+Missing);
   end
   else SetReport('Обновление отменено. Текущий каталог не изменён.'+Missing);

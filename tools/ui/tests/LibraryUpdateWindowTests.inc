@@ -6,6 +6,8 @@
     TestWorkspace,WorkspaceValidated:Boolean;
     WorkspaceRoot:string;
     ProtectedCollectionID:Integer;
+    PackedUpdate: Boolean;
+    PublishedCollectionID: Integer;
     Timer: TTimer;
     procedure CheckWorkspace(Dialog:TfrmLibraryUpdateSources);
     procedure Tick(Sender: TObject);
@@ -103,6 +105,15 @@ begin
         Require(Confirmed and (Committed=Accept),'Unexpected window application outcome: '+Report);
         Require(TButton(Dialog.FindComponent('btnApplyUpdateSource')).Enabled<>Accept,
           'Source window retained an obsolete apply state');
+        if PackedUpdate then
+        begin
+          PublishedCollectionID:=Dialog.PublishedCollectionID;
+          Require((PublishedCollectionID>0) and (PublishedCollectionID<>ProtectedCollectionID) and
+            Report.Contains('Создана обновлённая упакованная коллекция'),
+            'Packed update window did not return its new collection: '+Report);
+          Require(Dialog.Review.MissingBooks=1,'Packed update window lost the pending replacement.');
+          Timer.Enabled:=False; Dialog.ModalResult:=mrOk; Exit;
+        end;
         var SaveButton:=TButton(Dialog.FindComponent('btnSaveMissingUpdateBooks'));
         Require(SaveButton.Enabled and Assigned(SaveButton.OnClick) and Dialog.Review.MissingReportReady and
           (Dialog.Review.MissingBooks=9),'Source window cannot save its verified missing members');

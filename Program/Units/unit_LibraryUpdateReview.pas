@@ -32,6 +32,15 @@ type
     FRecoveryError: string;
     FRemovedCount, FMissingCount, FNewCards, FUpdateCards, FPreviousLastID, FUnlistedCount: Integer;
     FLastSpaceCheck: UInt64;
+    FPacked: Boolean;
+    FPublishedCollectionID: Integer;
+    procedure PreparePackedApplication(PreferNewRoot: Boolean; const Check: TProc;
+      const Progress: TLibraryReviewProgress);
+    procedure ApplyPacked(const Target: IBookCollection; const SystemData: ISystemData;
+      const Check: TProc; const Progress: TLibraryReviewProgress);
+    procedure EditPackedSnapshot(const CatalogFile, PersonalFile: string; Info: TCollectionInfo;
+      const Check: TProc; const Progress: TLibraryReviewProgress);
+    procedure SeedPackedCache(const SystemData: ISystemData; const Check: TProc);
     function OpenWorkDatabase(const FileName:string; ReadOnly:Boolean=False):TSQLiteDatabase;
     procedure Analyze(const Target, Previous: IBookCollection; const SystemData:ISystemData; const Check: TProc;
       const Progress: TLibraryReviewProgress);
@@ -69,6 +78,7 @@ type
     property Snapshot: IBookCollection read FSnapshot;
     property ApplySummary: string read FApplySummary;
     property Applied: Boolean read FApplied;
+    property PublishedCollectionID: Integer read FPublishedCollectionID;
     property OperationID: string read FOperationID;
     property RecoveryPending: Boolean read FRecoveryPending;
     property RecoveryError: string read FRecoveryError;
@@ -91,7 +101,7 @@ uses Winapi.Windows, Vcl.ComCtrls, System.IOUtils, System.Hash, System.Variants,
   unit_Consts, unit_Database_SQLite, unit_LibrarySourceID, unit_UserData,
   unit_ImportInpxThread, unit_ImportMetabibThread, unit_MetabibReader, unit_LibraryUpdateIdentity,
   unit_MHLArchiveHelpers, unit_Settings, unit_LibraryUpdateHistory, unit_CollectionPacking,
-  unit_CollectionPackingPublisher, unit_LibraryUpdateJournal, dm_user;
+  unit_CollectionPackingPublisher, unit_LibraryUpdateJournal, unit_SystemDatabase_SQLite, dm_user;
 
 procedure NotifyLibraryUpdateTestPoint(const Stage: string); inline;
 begin
@@ -176,6 +186,7 @@ begin
   FReady:=False; CheckSpace; Check;
   FTargetFile:=Settings.ExpandCollectionFileName(VarToStr(Target.GetProperty(PROP_DATAFILE)));
   FOriginalTargetRoot:=Target.CollectionRoot;
+  FPacked:=IsPackedCollectionCatalog(FTargetFile);
   FreeAndNil(FRevisionDB); FRevisionDB:=OpenWorkDatabase(FTargetFile,True);
   FTargetRevision:=IntToStr(FRevisionDB.QuerySingleInt('PRAGMA data_version'));
   FSourceInfo.ID:=FSource.ID; FSourceInfo.Name:=FSource.Name;
@@ -501,6 +512,10 @@ var DB: TSQLiteDatabase; Insert, Query: TSQLiteQuery; Iterator: IPublisherSeries
         Insert.SetParam(5,State); Insert.SetParam(6,Book.BookKey.BookID);
         Insert.SetParam(7,Container); Insert.SetParam(8,Book.InsideNo); Insert.SetParam(9,Book.LibID);
         if Projected then Insert.SetParam(10,Publisher.PendingPayload) else Insert.SetParam(10,False);
+        if Projected then
+          Insert.SetParam(11,IntToStr(Publisher.Book.Size)+#1+FloatToStr(Publisher.Book.Date,TFormatSettings.Invariant))
+        else
+          Insert.SetParam(11,IntToStr(Book.Size)+#1+FloatToStr(Book.Date,TFormatSettings.Invariant));
       end
       else
       begin
@@ -510,6 +525,7 @@ var DB: TSQLiteDatabase; Insert, Query: TSQLiteQuery; Iterator: IPublisherSeries
         Container:=ReviewContainer(Book,FSource.BooksRoot,Containers);
         Insert.SetParam(5,BookPhysicalIdentityAtLocation(Book,Container));
         Insert.SetParam(6,Available(Book,Container)); Insert.SetParam(7,PublisherLocation(Book));
+        Insert.SetParam(8,IntToStr(Book.Size)+#1+FloatToStr(Book.Date,TFormatSettings.Invariant));
       end;
       Insert.ExecSQL; Inc(Count);
       if Assigned(Progress) and ((Count mod 1000=0) or (Count=Total)) then
@@ -531,6 +547,7 @@ var DB: TSQLiteDatabase; Insert, Query: TSQLiteQuery; Iterator: IPublisherSeries
       while Live.Next(Item,Unused) do
       begin
         Check; CheckSpace;
+        if IsLocalBookID(Item.LibID) then Continue;
         if not ReadPackingPublisher(PackedDB,Item.BookKey.BookID,Publisher) then Continue;
         if Publisher.Book.LibID<>Item.LibID then
           raise EReadError.Create('Исходные сведения упакованной книги больше не соответствуют её идентификатору: '+Item.Title);
@@ -601,7 +618,7 @@ begin
     // Saved source caches remain authoritative for publisher metadata and
     // exclusions. Their numeric IDs are not the live packed catalogue IDs.
     // Keep a separate logical-key map to the actual current packed payload.
-    if IsPackedCollectionCatalog(FTargetFile) then
+    if FPacked then
     begin
       PackedDB:=OpenWorkDatabase(FTargetFile,True);
       if PackedDB.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE type=''table'' AND name=''HomeLibrePackingPublishers''')=0 then FreeAndNil(PackedDB)
@@ -612,8 +629,8 @@ begin
           SameFileName(FTargetFile,Settings.ExpandCollectionFileName(VarToStr(Previous.GetProperty(PROP_DATAFILE))));
       end;
     end;
-    DB.ExecSQL('CREATE TABLE ReviewPrevious(Key TEXT PRIMARY KEY,Stamp TEXT,Location TEXT,SourceKey TEXT,Physical TEXT,State TEXT,BookID INTEGER,Container TEXT,InsideNo INTEGER,Copies INTEGER NOT NULL DEFAULT 1,LibID TEXT,PackedPending INTEGER NOT NULL DEFAULT 0) WITHOUT ROWID');
-    DB.ExecSQL('CREATE TABLE ReviewRows(Key TEXT,Stamp TEXT,BookID INTEGER,Location TEXT,Active INTEGER,Physical TEXT,Available INTEGER,PublisherLocation TEXT)');
+    DB.ExecSQL('CREATE TABLE ReviewPrevious(Key TEXT PRIMARY KEY,Stamp TEXT,Location TEXT,SourceKey TEXT,Physical TEXT,State TEXT,BookID INTEGER,Container TEXT,InsideNo INTEGER,Copies INTEGER NOT NULL DEFAULT 1,LibID TEXT,PackedPending INTEGER NOT NULL DEFAULT 0,PayloadStamp TEXT NOT NULL DEFAULT '''') WITHOUT ROWID');
+    DB.ExecSQL('CREATE TABLE ReviewRows(Key TEXT,Stamp TEXT,BookID INTEGER,Location TEXT,Active INTEGER,Physical TEXT,Available INTEGER,PublisherLocation TEXT,PayloadStamp TEXT)');
     DB.ExecSQL('CREATE TABLE ReviewExcluded(Key TEXT PRIMARY KEY) WITHOUT ROWID');
     DB.ExecSQL('CREATE TABLE ReviewPackedLocations(Key TEXT NOT NULL,BookID INTEGER PRIMARY KEY,Root TEXT,Folder TEXT,'+
       'FileName TEXT,Ext TEXT,InsideNo INTEGER,BookSize INTEGER,Physical TEXT,PendingPayload INTEGER,Container TEXT)');
@@ -644,10 +661,10 @@ begin
     DB.Start;
     try
       MapPackedLocations;
-      Insert:=DB.NewQuery('INSERT INTO ReviewPrevious(Key,Stamp,Location,SourceKey,Physical,State,BookID,Container,InsideNo,LibID,PackedPending) VALUES(?,?,?,?,?,?,?,?,?,?,?) '+
+      Insert:=DB.NewQuery('INSERT INTO ReviewPrevious(Key,Stamp,Location,SourceKey,Physical,State,BookID,Container,InsideNo,LibID,PackedPending,PayloadStamp) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) '+
         'ON CONFLICT(Key) DO UPDATE SET Copies=Copies+1'); Load(Previous,True); FreeAndNil(Insert);
       LoadPackedExclusions;
-      Insert:=DB.NewQuery('INSERT INTO ReviewRows VALUES(?,?,?,?,?,?,?,?)'); Load(FSnapshot,False); FreeAndNil(Insert);
+      Insert:=DB.NewQuery('INSERT INTO ReviewRows VALUES(?,?,?,?,?,?,?,?,?)'); Load(FSnapshot,False); FreeAndNil(Insert);
       if Assigned(PackedDB) then
       begin
         DB.ExecSQL('UPDATE ReviewPrevious AS p SET PackedPending=EXISTS '+
@@ -767,6 +784,153 @@ begin
   finally Collection.SetHideDeleted(Hide); Collection.SetShowLocalOnly(Local); end;
 end;
 
+procedure UpdateReviewedMetadata(const Source, Destination: IBookCollection;
+  const Incoming, Before: TBookRecord; const Folder: string; InsideNo: Integer;
+  ReplacePayload: Boolean; Cache: TImportCache);
+var Book: TBookRecord; Writer: IBookMergeMetadataDeltaUpdater;
+begin
+  if not Supports(Destination,IBookMergeMetadataDeltaUpdater,Writer) then
+    raise ENotSupportedException.Create('Каталог не поддерживает обновление карточки.');
+  Book:=Before;
+  Book.Title:=Incoming.Title; Book.Lang:=Incoming.Lang; Book.Date:=Incoming.Date;
+  Book.LibRate:=Incoming.LibRate; Book.KeyWords:=Incoming.KeyWords;
+  Book.Series:=Incoming.Series; Book.SeqNumber:=Incoming.SeqNumber;
+  Book.Translators:=Incoming.Translators; Book.Publisher:=Incoming.Publisher;
+  Book.City:=Incoming.City; Book.PubYear:=Incoming.PubYear; Book.ISBN:=Incoming.ISBN;
+  Book.PublisherSeries:=Incoming.PublisherSeries;
+  Book.PublisherSeriesKnown:=Incoming.PublisherSeriesKnown;
+  if bpIsDeleted in Incoming.BookProps then Include(Book.BookProps,bpIsDeleted)
+  else Exclude(Book.BookProps,bpIsDeleted);
+  if ReplacePayload then
+  begin
+    Book.Folder:=Folder; Book.FileName:=Incoming.FileName; Book.FileExt:=Incoming.FileExt;
+    Book.InsideNo:=InsideNo; Book.Size:=Incoming.Size;
+    Include(Book.BookProps,bpIsLocal);
+  end;
+  Book.Authors:=Copy(Incoming.Authors);
+  for var I:=0 to High(Book.Authors) do
+    Book.Authors[I]:=Destination.EnsureAuthor(Book.Authors[I]);
+  Book.Genres:=Copy(Incoming.Genres);
+  for var I:=0 to High(Book.Genres) do
+  begin
+    var Genre:=Book.Genres[I];
+    var Code:=Genre.FB2GenreCode;
+    if Code='' then Code:=Genre.GenreCode;
+    Book.Genres[I]:=Destination.EnsureGenre(Code,Genre.GenreAlias,Incoming.RootGenre.GenreAlias);
+  end;
+  Writer.UpdateBookMetadataDelta(Before,Book,False);
+  Destination.SetBookAuthors(Book.BookKey.BookID,Book.Authors,True);
+  Destination.SetBookGenres(Book.BookKey.BookID,Book.Genres,True);
+  for var Series in Source.GetBookSeries(Incoming.BookKey) do
+    Destination.AddBookSeries(Book.BookKey.BookID,Series.SeriesTitle,Series.SeqNumber,Cache);
+end;
+
+procedure TLibraryUpdateReview.PreparePackedApplication(PreferNewRoot: Boolean;
+  const Check: TProc; const Progress: TLibraryReviewProgress);
+var
+  Rows, Put: TSQLiteQuery;
+  Book, Resolved: TBookRecord;
+  ID, Done: Integer;
+  Eligible, NeedPayload, PackPayload: Boolean;
+  State, Reason, CheckedFile: string;
+begin
+  if FRevisionDB.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE name=''HomeLibrePackingPublishers'' AND type=''table''')=0 then
+    raise EReadError.Create('В этой упакованной копии отсутствуют исходные сведения издателя. Используйте обновление из INPX в меню коллекции.');
+  if FActionDB.QuerySingleInt('SELECT count(*) FROM (SELECT Key FROM ReviewPackedLocations GROUP BY Key HAVING count(*)>1)')>0 then
+    raise EReadError.Create('Несколько упакованных карточек соответствуют одной записи издателя.');
+  if FActionDB.QuerySingleInt('SELECT count(*) FROM (SELECT Key FROM ReviewRows GROUP BY Key HAVING count(*)>1)')>0 then
+    raise EReadError.Create('В новом индексе есть повторяющиеся записи. Не удалось однозначно сопоставить книги.');
+
+  FActionDB.ExecSQL('DROP TABLE IF EXISTS ApplyExcluded');
+  FActionDB.ExecSQL('CREATE TABLE ApplyExcluded AS SELECT Key FROM ReviewExcluded');
+  FActionDB.ExecSQL('CREATE UNIQUE INDEX ApplyExcludedKey ON ApplyExcluded(Key)');
+  FActionDB.ExecSQL('INSERT OR IGNORE INTO ApplyExcluded SELECT p.Key FROM ReviewPrevious p '+
+    'WHERE p.State=''excluded'' OR (p.State<>''missing'' AND NOT EXISTS '+
+    '(SELECT 1 FROM ReviewPackedLocations l WHERE l.Key=p.Key))');
+  FActionDB.ExecSQL('CREATE TABLE ApplyActions(BookID INTEGER PRIMARY KEY,TargetID INTEGER,Eligible INTEGER,'+
+    'PackPayload INTEGER,State TEXT,Folder TEXT,InsideNo INTEGER,SourceKey TEXT,MissingReason TEXT)');
+  Rows:=FActionDB.NewQuery('SELECT r.BookID,coalesce(l.BookID,0),e.Key IS NOT NULL,'+
+    '(l.BookID IS NULL OR p.Key IS NULL OR p.PayloadStamp<>r.PayloadStamp OR p.Location<>r.PublisherLocation '+
+    'OR p.State IN (''missing'',''missing-retained'') OR l.PendingPayload<>0),coalesce(p.SourceKey,'''') '+
+    'FROM ReviewRows r LEFT JOIN ReviewPrevious p ON p.Key=r.Key LEFT JOIN ReviewPackedLocations l ON l.Key=r.Key '+
+    'LEFT JOIN ApplyExcluded e ON e.Key=r.Key ORDER BY r.Location,r.BookID');
+  Put:=nil;
+  try
+    Put:=FActionDB.NewQuery('INSERT INTO ApplyActions VALUES(?,?,?,?,?,?,?,?,?)');
+    FActionDB.Start;
+    try
+      Rows.Open; Done:=0;
+      while not Rows.Eof do
+      begin
+        Check;
+        ID:=Rows.FieldAsInt(1);
+        FSnapshot.GetBookRecord(CreateBookKey(Rows.FieldAsInt(0),FSnapshot.CollectionID),Book,True);
+        Resolved:=Book; Eligible:=not Rows.FieldAsBoolean(2);
+        State:='known'; Reason:=''; PackPayload:=False;
+        NeedPayload:=Eligible and Rows.FieldAsBoolean(3) and not (bpIsDeleted in Book.BookProps);
+        if not Eligible then
+        begin
+          State:='excluded'; Inc(FRemovedCount);
+        end
+        else if NeedPayload then
+        begin
+          try PackPayload:=FInventory.Resolve(Resolved,FSource.BooksRoot,PreferNewRoot,Reason,CheckedFile);
+          except on E:EAbort do raise; on E:Exception do Reason:=E.Message; end;
+          Check;
+          if not PackPayload then
+          begin
+            if ID>0 then State:='missing-retained' else State:='missing';
+            Eligible:=ID>0;
+            if CheckedFile='' then CheckedFile:=Resolved.GetBookFileName;
+            Reason:=CheckedFile+' | '+Book.FileName+Book.FileExt+' | '+Reason;
+            Inc(FMissingCount);
+          end;
+        end;
+        if Eligible and (ID=0) and not PackPayload then
+        begin
+          Eligible:=False;
+          State:='missing';
+        end;
+        if Eligible and (ID=0) then Inc(FNewCards)
+        else if Eligible and PackPayload then Inc(FUpdateCards);
+        Put.Reset;
+        Put.SetParam(0,Book.BookKey.BookID); Put.SetParam(1,ID);
+        Put.SetParam(2,Eligible); Put.SetParam(3,PackPayload); Put.SetParam(4,State);
+        Put.SetParam(5,Resolved.Folder); Put.SetParam(6,Resolved.InsideNo);
+        Put.SetParam(7,Rows.FieldAsString(4)); Put.SetParam(8,Reason); Put.ExecSQL;
+        Inc(Done);
+        if Assigned(Progress) and ((Done mod 100=0) or (Done=FTotal)) then
+          Progress('Проверка книг в архивах',Done,FTotal);
+        Rows.Next;
+      end;
+      FActionDB.Commit;
+    except
+      FActionDB.Rollback;
+      raise;
+    end;
+  finally
+    Put.Free; Rows.Free;
+  end;
+  FIssuesReady:=True;
+  FActionDB.ExecSQL('DROP TABLE IF EXISTS PackedOmitted');
+  FActionDB.ExecSQL('CREATE TABLE PackedOmitted(BookID INTEGER PRIMARY KEY)');
+  if FSource.Full then
+  begin
+    FActionDB.ExecSQL('INSERT INTO PackedOmitted SELECT l.BookID FROM ReviewPackedLocations l '+
+      'JOIN ReviewPrevious p ON p.Key=l.Key WHERE NOT EXISTS (SELECT 1 FROM ReviewRows r WHERE r.Key=l.Key)');
+    FUnlistedCount:=FActionDB.QuerySingleInt('SELECT count(*) FROM PackedOmitted');
+  end;
+  FApplySummary:=Format('Применить обновление «%s» и создать новую копию коллекции?%s'+
+    'Новых книг: %d. Новых файлов для существующих книг: %d.%s'+
+    'Исключённых записей: %d. Недостающих файлов: %d.%s'+
+    'Прежняя коллекция останется доступна. Новые файлы упакуются по сохранённым настройкам.',
+    [FSource.Name,sLineBreak,FNewCards,FUpdateCards,sLineBreak,FRemovedCount,FMissingCount,sLineBreak]);
+  if FUnlistedCount>0 then
+    FApplySummary:=FApplySummary+sLineBreak+Format('Записей, отсутствующих в полном индексе: %d. '+
+      'Они останутся в прежней коллекции.',[FUnlistedCount]);
+  FApplicationReady:=True;
+end;
+
 procedure TLibraryUpdateReview.PrepareApplication(const Target: IBookCollection;
   const SystemData: ISystemData; PreferNewRoot: Boolean; const Check: TProc;
   const Progress: TLibraryReviewProgress);
@@ -790,8 +954,6 @@ begin
   if not FReady or FApplied then raise EInvalidOperation.Create('Сначала проверьте новый индекс.');
   if FSkipped<>0 then raise EReadError.Create('В индексе пропущены ошибочные записи. Исправьте файл перед применением.');
   if FSource.Full and (FTotal=0) then raise EReadError.Create('Полный индекс пуст. Существующую коллекцию не изменяем.');
-  if IsPackedCollectionCatalog(FTargetFile) then
-    raise ENotSupportedException.Create('Для упакованного каталога пока используйте обновление из INPX в меню коллекции.');
   if isOnlineCollection(Target.CollectionCode) then
     raise ENotSupportedException.Create('Применение через это окно пока рассчитано на локальные коллекции.');
   Bound:=FSource.CatalogSourceID<>'';
@@ -806,6 +968,12 @@ begin
   FNewCards:=0; FUpdateCards:=0; FRemovedCount:=0; FMissingCount:=0; FUnlistedCount:=0;
   FInventory:=TLibraryUpdateInventory.Create(Check);
   FActionDB:=OpenWorkDatabase(FAnalysisFile); DB:=FActionDB;
+  if FPacked then
+  begin
+    if Bound then raise ENotSupportedException.Create('Обновление конкретного источника упакованной объединённой коллекции пока недоступно.');
+    PreparePackedApplication(PreferNewRoot,Check,Progress);
+    Exit;
+  end;
   DB.ExecSQL('DROP TABLE IF EXISTS ApplyActions'); DB.ExecSQL('DROP TABLE IF EXISTS ApplyLive');
   DB.ExecSQL('DROP TABLE IF EXISTS ApplyDeltaInput');
   DB.ExecSQL('CREATE TABLE ApplyLive(Key TEXT,BookID INTEGER,Identity TEXT,Physical TEXT,LibID TEXT)');
@@ -1134,6 +1302,75 @@ begin
   FCacheOwned:=False;
 end;
 
+procedure TLibraryUpdateReview.SeedPackedCache(const SystemData: ISystemData; const Check: TProc);
+var
+  Source, Cached: IBookCollection;
+  Rows: TSQLiteQuery;
+  Publisher: TPackingPublisherState;
+  Book: TBookRecord;
+  Cache: TImportCache;
+  Genres: TDictionary<string,TGenreData>;
+  Data: TSQLiteDatabase;
+begin
+  // The first incremental delivery needs a raw baseline for books outside
+  // that delivery. Their cached IDs deliberately match ReviewPrevious.BookID.
+  TBookCollection_SQLite.CreateCollection(SystemData,FPublishedSource.CacheFile,CT_EXTERNAL_LOCAL_FB,
+    Settings.SystemFileName[sfGenresFB2],FPrepared.Folder);
+  Source:=OpenCatalogSnapshot(FSourceInfo,FTargetFile,SystemData,FPrepared.Folder);
+  Cached:=OpenCatalogSnapshot(FPublishedSource,FPublishedSource.CacheFile,SystemData,FPrepared.Folder);
+  Rows:=FActionDB.NewQuery('SELECT DISTINCT l.BookID FROM ReviewPackedLocations l JOIN ReviewPrevious p ON p.Key=l.Key '+
+    'WHERE p.BookID=l.BookID ORDER BY l.BookID');
+  Cache:=nil; Genres:=nil;
+  try
+    Cache:=TImportCache.Create;
+    Genres:=TDictionary<string,TGenreData>.Create;
+    Cached.BeginBulkOperation;
+    try
+      Cached.StartBatchUpdate;
+      Rows.Open;
+      while not Rows.Eof do
+      begin
+        Check;
+        var ID:=Rows.FieldAsInt(0);
+        if not ReadPackingPublisher(FRevisionDB,ID,Publisher) then
+          raise EReadError.Create('Исходные сведения упакованной книги больше недоступны.');
+        Source.GetBookRecord(CreateBookKey(ID,Source.CollectionID),Book,True);
+        Book.Folder:=Publisher.Book.Folder; Book.FileName:=Publisher.Book.FileName;
+        Book.FileExt:=Publisher.Book.FileExt; Book.InsideNo:=Publisher.Book.InsideNo;
+        Book.Size:=Publisher.Book.Size; Book.Date:=Publisher.Book.Date;
+        Book.Title:=Publisher.Book.Title; Book.Lang:=Publisher.Book.Lang;
+        if bpIsDeleted in Publisher.Book.BookProps then Include(Book.BookProps,bpIsDeleted)
+        else Exclude(Book.BookProps,bpIsDeleted);
+        Book.Rate:=0; Book.Progress:=0; Book.Review:=''; Book.Annotation:='';
+        if CopyReviewBook(Source,Cached,Book,Cache,Genres,False,ID)<>ID then
+          raise EWriteError.Create('Не удалось сохранить исходную запись упакованной книги.');
+        Rows.Next;
+      end;
+      Cached.AfterBatchUpdate;
+      Cached.EndBulkOperation(True);
+    except
+      if Cached.InBulkOperation then Cached.EndBulkOperation(False);
+      raise;
+    end;
+  finally
+    Cached.FinishBatchUpdate;
+    Rows.Free; Genres.Free; Cache.Free;
+    Cached:=nil; Source:=nil;
+  end;
+  // Keep the publisher locator for entries outside the first incremental
+  // package as well. That package cannot reconstruct their external paths.
+  Data:=OpenWorkDatabase(FPublishedSource.CacheFile);
+  try
+    Data.ExecSQL('ATTACH DATABASE ? AS review',[FAnalysisFile]);
+    Data.ExecSQL('CREATE TABLE LibraryUpdatePublisherLocations(BookID INTEGER PRIMARY KEY,Location TEXT NOT NULL)');
+    Data.ExecSQL('CREATE TABLE LibraryUpdateReviewKeys(BookID INTEGER PRIMARY KEY,Key TEXT NOT NULL)');
+    Data.ExecSQL('INSERT INTO LibraryUpdatePublisherLocations SELECT DISTINCT p.BookID,p.Location '+
+      'FROM review.ReviewPrevious p JOIN review.ReviewPackedLocations l ON l.Key=p.Key AND l.BookID=p.BookID');
+    Data.ExecSQL('INSERT INTO LibraryUpdateReviewKeys SELECT DISTINCT p.BookID,p.Key '+
+      'FROM review.ReviewPrevious p JOIN review.ReviewPackedLocations l ON l.Key=p.Key AND l.BookID=p.BookID');
+  finally Data.Free; end;
+end;
+
 procedure TLibraryUpdateReview.PrepareCache(const Check: TProc; const Progress: TLibraryReviewProgress);
 var Folder, Base: string; SourceDB, Output: TSQLiteDatabase; Cached: IBookCollection;
   Rows: TSQLiteQuery; Book: TBookRecord; ID, Done, Total: Integer;
@@ -1154,13 +1391,18 @@ begin
   if not CreateDirectory(PChar(Folder),nil) then RaiseLastOSError;
   FCacheOwned:=True;
   FCacheInput:=TPath.Combine(Folder,'source-'+TPath.GetFileName(FPrepared.FileName));
-  SourceDB:=OpenWorkDatabase(Base,True);
-  try
-    SourceDB.BackupTo(FPublishedSource.CacheFile,procedure(Done,Total:Integer) begin
-      Check; CheckReviewOutputSpace(Folder,0);
-      if Assigned(Progress) then Progress('Сохранение состояния источника',Done,Total);
-    end);
-  finally SourceDB.Free; end;
+  if FPacked and not FSource.Full and not FPreviousIndex then
+    SeedPackedCache(DMUser.GetSystemDBConnection,Check)
+  else
+  begin
+    SourceDB:=OpenWorkDatabase(Base,True);
+    try
+      SourceDB.BackupTo(FPublishedSource.CacheFile,procedure(Done,Total:Integer) begin
+        Check; CheckReviewOutputSpace(Folder,0);
+        if Assigned(Progress) then Progress('Сохранение состояния источника',Done,Total);
+      end);
+    finally SourceDB.Free; end;
+  end;
   TFile.Copy(FPrepared.FileName,FCacheInput,False);
   if not SameText(THashSHA2.GetHashStringFromFile(FCacheInput),FPrepared.SHA256) then
     raise EReadError.Create('Не совпала контрольная сумма сохранённого индекса.');
@@ -1208,7 +1450,9 @@ begin
       raise ENotSupportedException.Create('Не поддержано сохранение путей импортированных книг.');
     Cache:=TImportCache.Create; Genres:=TDictionary<string,TGenreData>.Create;
     Rows:=FActionDB.NewQuery('SELECT r.BookID,p.BookID,a.Folder,a.InsideNo,a.State FROM ReviewRows r '+
-      'LEFT JOIN ReviewPrevious p ON p.Key=r.Key JOIN ApplyActions a ON a.BookID=r.BookID ORDER BY r.BookID');
+      'LEFT JOIN ReviewPrevious p ON p.Key=r.Key'+IfThen(FPacked and not FPreviousIndex,
+        ' AND EXISTS(SELECT 1 FROM ReviewPackedLocations l WHERE l.Key=p.Key AND l.BookID=p.BookID)','')+
+      ' JOIN ApplyActions a ON a.BookID=r.BookID ORDER BY r.BookID');
     FActionDB.ExecSQL('DROP TABLE IF EXISTS ApplyCachedInput');
     FActionDB.ExecSQL('CREATE TABLE ApplyCachedInput(InputID INTEGER PRIMARY KEY,CacheID INTEGER)');
     try
@@ -1223,6 +1467,12 @@ begin
           begin
             Book.Folder:=Rows.FieldAsString(2); Book.InsideNo:=Rows.FieldAsInt(3);
             ID:=CopyReviewBook(FSnapshot,Cached,Book,Cache,Genres);
+          end
+          else if FPacked then
+          begin
+            var Prior: TBookRecord;
+            Cached.GetBookRecord(CreateBookKey(ID,Cached.CollectionID),Prior,True);
+            UpdateReviewedMetadata(FSnapshot,Cached,Book,Prior,Rows.FieldAsString(2),Rows.FieldAsInt(3),True,Cache);
           end
           else if (Rows.FieldAsString(4)='known') or (Rows.FieldAsString(4)='missing-retained') then
             Writer.SetImportedBookLocation(ID,Rows.FieldAsString(2),Rows.FieldAsInt(3));
@@ -1349,6 +1599,173 @@ procedure TLibraryUpdateReview.RestoreCopySizes(const Collection: IBookCollectio
       end;
     end;
   end;
+
+procedure TLibraryUpdateReview.EditPackedSnapshot(const CatalogFile, PersonalFile: string;
+  Info: TCollectionInfo; const Check: TProc; const Progress: TLibraryReviewProgress);
+var
+  PrivateSystem: ISystemData;
+  Catalog: IBookCollection;
+  Publisher: IPackingPublisherWriter;
+  IDWriter: IReviewedBookIDWriter;
+  Personal, Data: TSQLiteDatabase;
+  Rows: TSQLiteQuery;
+  Cache: TImportCache;
+  Genres: TDictionary<string,TGenreData>;
+  Book, Before, Incoming: TBookRecord;
+  ID, PreviousLastID, Done: Integer;
+  ReservedID: Int64;
+begin
+  // Collection methods that also touch user cards receive only the private
+  // personal database. They cannot remove cards or groups from the original.
+  PrivateSystem:=TSystemData_SQLite.Create(PersonalFile);
+  Info.DBFileName:=CatalogFile;
+  Catalog:=TBookCollection_SQLite.Create(Info,PrivateSystem,FPrepared.Folder);
+  if not Supports(Catalog,IPackingPublisherWriter,Publisher) or
+    not Supports(Catalog,IReviewedBookIDWriter,IDWriter) then
+    raise ENotSupportedException.Create('Каталог не поддерживает обновление упакованной копии.');
+  Personal:=OpenWorkDatabase(PersonalFile);
+  Cache:=nil; Genres:=nil; Rows:=nil;
+  try
+    Cache:=TImportCache.Create;
+    Genres:=TDictionary<string,TGenreData>.Create;
+    ReservedID:=Personal.QuerySingleInt('SELECT max(id) FROM ('+
+      'SELECT coalesce(max(BookID),0) AS id FROM Books WHERE DatabaseID=? UNION ALL '+
+      'SELECT coalesce(max(BookID),0) FROM BookGroups WHERE DatabaseID=?)',[Info.ID,Info.ID]);
+    if (ReservedID<0) or (ReservedID>High(Integer)) then
+      raise EReadError.Create('Нет допустимых номеров для новых книг.');
+    Catalog.BeginBulkOperation;
+    try
+      PreviousLastID:=Catalog.StartCatalogUpdateTracking(False);
+      IDWriter.ReserveReviewedBookIDs(Integer(ReservedID));
+      Catalog.StartBatchUpdate;
+      Rows:=FActionDB.NewQuery('SELECT BookID,TargetID,PackPayload,State,Folder,InsideNo FROM ApplyActions '+
+        'WHERE Eligible<>0 ORDER BY BookID');
+      Rows.Open; Done:=0;
+      while not Rows.Eof do
+      begin
+        Check;
+        FSnapshot.GetBookRecord(CreateBookKey(Rows.FieldAsInt(0),FSnapshot.CollectionID),Book,True);
+        ID:=Rows.FieldAsInt(1);
+        if ID=0 then
+        begin
+          Incoming:=Book;
+          Incoming.Folder:=Rows.FieldAsString(4); Incoming.InsideNo:=Rows.FieldAsInt(5);
+          Include(Incoming.BookProps,bpIsLocal);
+          ID:=CopyReviewBook(FSnapshot,Catalog,Incoming,Cache,Genres);
+          if ID<=0 then raise EWriteError.Create('Не удалось добавить книгу: '+Book.Title);
+        end
+        else
+        begin
+          Catalog.GetBookRecord(CreateBookKey(ID,Info.ID),Before,True);
+          UpdateReviewedMetadata(FSnapshot,Catalog,Book,Before,Rows.FieldAsString(4),Rows.FieldAsInt(5),
+            Rows.FieldAsBoolean(2),Cache);
+          if Rows.FieldAsBoolean(2) then
+            Personal.ExecSQL('UPDATE Books SET Folder=?,FileName=?,Ext=?,InsideNo=?,BookSize=?,IsLocal=1 '+
+              'WHERE DatabaseID=? AND BookID=? AND LibID=? AND (Folder=? OR Folder=?) AND FileName=? AND Ext=? AND InsideNo=?',
+              [Rows.FieldAsString(4),Book.FileName,Book.FileExt,Rows.FieldAsInt(5),Book.Size,
+               Info.ID,ID,Before.LibID,Before.Folder,TPath.Combine(Info.RootFolder,Before.Folder),
+               Before.FileName,Before.FileExt,Before.InsideNo]);
+        end;
+        Book.BookKey:=CreateBookKey(ID,Info.ID);
+        Publisher.StorePackingPublisherMetadata(Book,FSourceInfo.Root,Rows.FieldAsString(3)<>'missing-retained');
+        Inc(Done);
+        if Assigned(Progress) and (Done mod 100=0) then Progress('Обновление копии каталога',Done,FTotal);
+        Rows.Next;
+      end;
+      FreeAndNil(Rows);
+      Rows:=FActionDB.NewQuery('SELECT BookID FROM PackedOmitted ORDER BY BookID');
+      Rows.Open;
+      while not Rows.Eof do
+      begin
+        Check;
+        Catalog.DeleteBook(CreateBookKey(Rows.FieldAsInt(0),Info.ID));
+        Rows.Next;
+      end;
+      Catalog.SetProperty(PROP_DATAVERSION,FVersion);
+      StoreAppliedState(Catalog);
+      Catalog.FinishCatalogUpdateTracking(False,PreviousLastID);
+      Catalog.AfterBatchUpdate;
+      Catalog.EndBulkOperation(True);
+    except
+      if Catalog.InBulkOperation then Catalog.EndBulkOperation(False);
+      raise;
+    end;
+  finally
+    Catalog.FinishBatchUpdate;
+    Rows.Free; Genres.Free; Cache.Free; Personal.Free;
+    IDWriter:=nil; Publisher:=nil; Catalog:=nil; PrivateSystem:=nil;
+  end;
+  // An omitted publisher row may return in a later full edition. Remove its
+  // raw record from this private copy so its absence is not a user exclusion.
+  Data:=OpenWorkDatabase(CatalogFile);
+  try
+    Data.ExecSQL('ATTACH DATABASE ? AS review',[FAnalysisFile]);
+    Data.ExecSQL('DELETE FROM HomeLibrePackingPublishers WHERE BookID IN (SELECT BookID FROM review.PackedOmitted)');
+  finally Data.Free; end;
+end;
+
+procedure TLibraryUpdateReview.ApplyPacked(const Target: IBookCollection; const SystemData: ISystemData;
+  const Check: TProc; const Progress: TLibraryReviewProgress);
+var
+  Options: TCollectionPackingOptions;
+  Packing: TCollectionPackingSnapshot;
+  Required: TArray<string>;
+  Info: TCollectionInfo;
+  Name: string;
+  Suffix: Integer;
+begin
+  CheckTargetRevision(Target);
+  if TLibraryUpdateJournal.HasPendingForCollection(TPath.Combine(Settings.DataPath,'LibraryUpdateRecovery'),Target.CollectionID) then
+    raise EInvalidOperation.Create('Сначала завершите восстановление прежнего обновления.');
+  Info:=SystemData.GetCollectionInfo(Target.CollectionID);
+  Options:=Default(TCollectionPackingOptions);
+  Options.SourceID:=Target.CollectionID;
+  Options.CatalogFile:=FTargetFile;
+  Options.PersonalFile:=Settings.SystemFileName[sfSystemDB];
+  Options.SourceRoot:=FOriginalTargetRoot;
+  Options.OutputRoot:=FOriginalTargetRoot;
+  if not TryReadPackingImageProfile(Options.OutputRoot,Options.ImageProfile,Options.ImageGrayscale) then
+    raise EReadError.Create('В папке коллекции отсутствует описание упакованной копии.');
+  Required:=ResolvePackingTools(Settings.AppPath,Options);
+  if Length(Required)>0 then
+    raise EFileNotFoundException.Create('Установите модули сжатия и повторите обновление: '+string.Join(', ',Required));
+  Name:=Info.DisplayName+' (обновление)';
+  Options.DisplayName:=Name; Suffix:=1;
+  while SystemData.HasCollectionWithProp(PROP_DISPLAYNAME,Options.DisplayName) do
+  begin
+    Inc(Suffix);
+    Options.DisplayName:=Name+' '+IntToStr(Suffix);
+  end;
+  PrepareCache(Check,Progress);
+  Check;
+  Packing:=TCollectionPackingSnapshot.Create(Options);
+  try
+    Packing.Prepare(function: Boolean
+      begin
+        try Check; Result:=False; except on E:EAbort do Result:=True; end;
+      end,
+      procedure(const Stage: string; Done, Total: Int64)
+      begin
+        Check;
+        if Assigned(Progress) then
+          if (Total>0) and (Total<=High(Integer)) and (Done>=0) and (Done<=Total) then
+            Progress(Stage,Integer(Done),Integer(Total))
+          else Progress(Stage,0,0);
+      end,
+      procedure(const CatalogFile, PersonalFile: string)
+      begin
+        CheckTargetRevision(Target);
+        EditPackedSnapshot(CatalogFile,PersonalFile,Info,Check,Progress);
+      end);
+    Packing.Pack;
+    Packing.ApplyPrepared;
+    NotifyLibraryUpdateTestPoint('packed-before-registration');
+    CheckTargetRevision(Target);
+    FPublishedCollectionID:=Packing.RegisterNew(SystemData);
+    FCachePublished:=True;
+    FApplied:=True;
+  finally Packing.Free; end;
+end;
 
 procedure TLibraryUpdateReview.Apply(const Target: IBookCollection; const SystemData: ISystemData;
   const Check: TProc; const Progress: TLibraryReviewProgress; out Committed: Boolean);
@@ -1626,7 +2043,20 @@ begin
     try
       FReview.PrepareApplication(FCollection,FSystemData,FPreferNew,Check,Progress);
       if ShowMessage(FReview.ApplySummary,MB_YESNO or MB_ICONQUESTION or MB_DEFBUTTON2)<>IDYES then Exit;
-      FReview.Apply(FCollection,FSystemData,Check,Progress,FChangesCommitted);
+      if FReview.FPacked then
+      begin
+        try
+          FReview.ApplyPacked(FCollection,FSystemData,Check,Progress);
+        except
+          on E:EAbort do
+          begin
+            if Control.Error<>'' then raise EWriteError.Create(Control.Error);
+            Exit;
+          end;
+        end;
+        FChangesCommitted:=FReview.PublishedCollectionID>0;
+      end
+      else FReview.Apply(FCollection,FSystemData,Check,Progress,FChangesCommitted);
       FOperationSuccess:=FChangesCommitted;
     except
       if Control.Error<>'' then raise EWriteError.Create(Control.Error);

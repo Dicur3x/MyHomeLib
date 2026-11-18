@@ -13455,7 +13455,7 @@ begin
 end;
 
 procedure TfrmMain.LibraryUpdateSourcesExecute(Sender: TObject);
-var Dialog: TfrmLibraryUpdateSources; CollectionID: Integer; Changed: Boolean;
+var Dialog: TfrmLibraryUpdateSources; CollectionID, NewID: Integer; Changed: Boolean;
 begin
   if not Assigned(FCollection) or FFormBusy or FStartupLoading or FBookListLoading then Exit;
   if CompressionBlocksCatalogChange then Exit;
@@ -13464,12 +13464,14 @@ begin
   FFormBusy:=True;
   try
     Dialog.BeforeApply:=LibraryUpdateSourcesBeginApply;
-    Dialog.ShowModal; Changed:=Dialog.Committed;
+    Dialog.ShowModal; Changed:=Dialog.Committed; NewID:=Dialog.PublishedCollectionID;
   finally Dialog.Free; FFormBusy:=False; end;
   if Changed then
   begin
+    if NewID>0 then CollectionID:=NewID;
     NotifyFavoriteCatalogChanged(TArray<Integer>.Create(CollectionID));
-    Settings.ActiveCollection:=CollectionID; InitCollection; QueueCollectionCompressionOffer(CollectionID);
+    Settings.ActiveCollection:=CollectionID; InitCollection;
+    if NewID=0 then QueueCollectionCompressionOffer(CollectionID);
   end;
 end;
 
