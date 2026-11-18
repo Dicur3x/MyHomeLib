@@ -1,11 +1,43 @@
 ﻿// Sparse payloads isolate catalogue scale; they do not model terabyte archive I/O.
+type
+  TLibraryScaleApplyProbe=class(TLibraryApplyProbe)
+    AnalysisFile,TargetFile:string;
+    PlanChecked:Boolean;
+    function ConfirmPlan(const Text:string; Flags:Longint):Integer;
+  end;
+
+function TLibraryScaleApplyProbe.ConfirmPlan(const Text:string; Flags:Longint):Integer;
+var DB:TSQLiteDatabase; Query:TSQLiteQuery; Searched:Boolean; Plan:string;
+begin
+  DB:=TSQLiteDatabase.CreateReadOnly(AnalysisFile);
+  try
+    DB.ExecSQL('ATTACH DATABASE ? AS personalSource',[TargetFile]);
+    Query:=DB.NewQuery('EXPLAIN QUERY PLAN SELECT count(*) FROM ApplyLive l '+
+      'JOIN personalSource.Books b ON b.BookID=l.BookID WHERE coalesce(b.IsLocal,0)=0 '+
+      'AND NOT EXISTS(SELECT 1 FROM ReviewRows r WHERE r.Key=l.Key)');
+    try
+      Query.Open; Searched:=False; Plan:='';
+      while not Query.Eof do
+      begin
+        var Detail:=Query.FieldAsString(3); Plan:=Plan+' | '+Detail;
+        Require(not Detail.Contains('SCAN r'),'Scale update still scans the incoming table for each live key');
+        if Detail.Contains('SEARCH r') and Detail.Contains('ReviewRowsKey') then Searched:=True;
+        Query.Next;
+      end;
+      Require(Searched,'Scale unlisted-card lookup did not use its key index: '+Plan); PlanChecked:=True;
+      Writeln('PASS reviewed scale exact native unlisted-card query searches ReviewRowsKey',Plan); Flush(Output);
+    finally Query.Free; end;
+  finally DB.Free; end;
+  Result:=Confirm(Text,Flags);
+end;
+
 procedure TestLibraryUpdateScale;
 var Root,CountText,BaseInput,UpdateInput,TargetFile,BeforeFile,WorkFolder:string;
   BaseHash,UpdateHash,OldArchiveHash,NewArchiveHash,TargetHash,PersonalRows:string;
   Count,ID:Integer; Target:IBookCollection; Importer:TImportInpxThread;
   Profile:TLibraryUpdateSource; Stage:TStagedLibraryIndex; Review:TLibraryUpdateReview;
-  Worker:TCollectionWorker; Probe:TLibraryApplyProbe; DB,Personal:TSQLiteDatabase;
-  Started:UInt64; Book:TBookRecord;
+  Worker:TCollectionWorker; Probe:TLibraryScaleApplyProbe; DB,Personal,Observer:TSQLiteDatabase;
+  Started:UInt64; Book:TBookRecord; DataVersion:Integer;
   procedure Metric(const Name:string; Since:UInt64);
   begin Writeln('METRIC scale stage=',Name,' elapsed_ms=',GetTickCount64-Since,' books=',Count); Flush(Output); end;
   procedure CheckWorker(const Context:string);
@@ -46,10 +78,12 @@ var Root,CountText,BaseInput,UpdateInput,TargetFile,BeforeFile,WorkFolder:string
         begin
           Name:=Columns.FieldAsString(1);
           Condition:='b."'+Name+'" IS NOT p."'+Name+'"';
+          // Memo setters may store UTF-8 as BLOB; catalogue import uses TEXT.
+          // Compare the complete bytes while keeping NULL distinct from empty.
+          if MatchText(Name,['Annotation','Review']) then
+            Condition:='CAST(b."'+Name+'" AS BLOB) IS NOT CAST(p."'+Name+'" AS BLOB)';
           if MatchText(Name,['Title','SearchTitle','Folder','SearchFolder']) then
-            Condition:='('+Condition+') AND b.BookID<>2'
-          else if MatchText(Name,['Rate','Progress','Annotation','Review','SearchAnnotation']) then
-            Condition:='('+Condition+') AND b.BookID NOT IN(1,2)';
+            Condition:='('+Condition+') AND b.BookID<>2';
           if Predicate<>'' then Predicate:=Predicate+' OR ';
           Predicate:=Predicate+'('+Condition+')';
           Columns.Next;
@@ -119,12 +153,13 @@ begin
     Target.SetReview(Key,'Scale personal note '+IntToStr(Number));
     Target.SetAnnotation(Key,'Scale private annotation '+IntToStr(Number));
   end;
-  TFile.Copy(TargetFile,BeforeFile,False);
+  DB:=TSQLiteDatabase.CreateReadOnly(TargetFile);
+  try DB.BackupTo(BeforeFile,nil); finally DB.Free; end;
   DB:=TSQLiteDatabase.Create(Settings.SystemFileName[sfSystemDB]);
   try DB.ExecSQL('CREATE TABLE IF NOT EXISTS CatalogCommitWitnesses(CollectionID INTEGER PRIMARY KEY,OperationID TEXT NOT NULL)');
   finally DB.Free; end;
   Personal:=TSQLiteDatabase.CreateReadOnly(Settings.SystemFileName[sfSystemDB]);
-  Stage:=nil; Review:=nil; Worker:=nil; Probe:=nil;
+  Stage:=nil; Review:=nil; Worker:=nil; Probe:=nil; Observer:=nil;
   try
     PersonalRows:=PersonalDataRows;
     Profile:=TLibraryUpdateSource.NewSource; Profile.Name:='Owned scale source';
@@ -133,6 +168,8 @@ begin
     begin
       TargetHash:=THashSHA2.GetHashStringFromFile(TargetFile);
       var FullPersonalBefore:=ReaderAllCatalogRows(Personal);
+      Observer:=TSQLiteDatabase.CreateReadOnly(TargetFile);
+      DataVersion:=Observer.QuerySingleInt('PRAGMA data_version');
       Started:=GetTickCount64; Stage:=TStagedLibraryIndex.Fetch(Profile,Settings.LibraryUpdateWorkPath,nil);
       WorkFolder:=Stage.Folder; Review:=TLibraryUpdateReview.Create(Profile,Stage);
       Worker:=CreateLibraryReviewWorker(ID,Review);
@@ -142,7 +179,9 @@ begin
       else Require(Review.PreviousIndex and (Review.NewBooks=0) and (Review.ChangedBooks=0),
         'Repeated scale review did not use the published baseline');
       Require((THashSHA2.GetHashStringFromFile(TargetFile)=TargetHash) and
+        (Observer.QuerySingleInt('PRAGMA data_version')=DataVersion) and
         (ReaderAllCatalogRows(Personal)=FullPersonalBefore),'Scale review wrote to current data before confirmation');
+      FreeAndNil(Observer);
       Metric('review-'+IntToStr(Pass),Started);
       if Pass=2 then
       begin
@@ -151,11 +190,14 @@ begin
         Writeln('PASS reviewed scale repeat review has zero delta and preserves every current catalogue byte personal row and closed workspace'); Flush(Output);
         Break;
       end;
-      Started:=GetTickCount64; Probe:=TLibraryApplyProbe.Create; Probe.Accept:=True;
-      Worker:=CreateLibraryApplyWorker(ID,Review,False); Worker.OnShowMessage:=Probe.Confirm;
+      Started:=GetTickCount64; Probe:=TLibraryScaleApplyProbe.Create; Probe.Accept:=True;
+      var AnalysisFiles:=TDirectory.GetFiles(Stage.Folder,'comparison-*.sqlite');
+      Require(Length(AnalysisFiles)=1,'Scale comparison database is ambiguous');
+      Probe.AnalysisFile:=AnalysisFiles[0]; Probe.TargetFile:=TargetFile;
+      Worker:=CreateLibraryApplyWorker(ID,Review,False); Worker.OnShowMessage:=Probe.ConfirmPlan;
       try
         Worker.Start; Worker.WaitFor; CheckWorker('Scale apply');
-        Require(Probe.Confirmed and Worker.CommittedChanges and Review.Applied,'Scale apply did not confirm and commit');
+        Require(Probe.Confirmed and Probe.PlanChecked and Worker.CommittedChanges and Review.Applied,'Scale apply did not confirm and commit');
       finally FreeAndNil(Worker); FreeAndNil(Probe); end;
       Target:=SystemDB.GetCollection(ID,True); Metric('apply-'+IntToStr(Pass),Started);
       FreeAndNil(Review); FreeAndNil(Stage);
@@ -169,5 +211,5 @@ begin
       (THashSHA2.GetHashStringFromFile(Root+'\books.zip')=OldArchiveHash) and
       (THashSHA2.GetHashStringFromFile(Root+'\new.zip')=NewArchiveHash),'Scale update changed publisher inputs');
     Writeln('PASS reviewed scale original INPX and sparse old new payload bytes preserved'); Flush(Output);
-  finally Probe.Free; Worker.Free; Review.Free; Stage.Free; Personal.Free; end;
+  finally Observer.Free; Probe.Free; Worker.Free; Review.Free; Stage.Free; Personal.Free; end;
 end;

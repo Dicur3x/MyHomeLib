@@ -44,6 +44,10 @@ and LegacyBooks 6 reproduced those existing archives byte for byte on both
 architectures. These are identity checks, not four new functional test passes.
 The final plans use the existing tested archives. Intermediate r1673/r1675/
 r1676 lists are superseded by r1677, which also verifies the mapped workers.
+The three owned duplicate-package/workspace directories were then removed;
+duplicate-candidate-cleanup-r1685.json retains the equality checks and original
+archive hashes. The retained candidate plans reference none of those removed
+directories.
 
 Existing evidence remains separate: sealed-writer-validation-r1467,
 sealed-all-formats-validation-r1469, kfx-cover-package-validation-r1505 and

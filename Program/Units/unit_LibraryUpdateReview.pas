@@ -546,6 +546,9 @@ begin
     // Build the empty index before streaming rows. GROUP BY/ORDER BY can walk
     // it without a large sort spilling to Windows TEMP on the system drive.
     DB.ExecSQL('CREATE INDEX ReviewRowsLocation ON ReviewRows(Location)');
+    // Full updates test every live key for absence from the new index.
+    // Keep duplicate keys valid while avoiding a correlated full-table scan.
+    DB.ExecSQL('CREATE INDEX ReviewRowsKey ON ReviewRows(Key)');
     DB.Start;
     try
       Insert:=DB.NewQuery('INSERT INTO ReviewPrevious(Key,Stamp,Location,SourceKey,Physical,State,BookID,Container,InsideNo,LibID) VALUES(?,?,?,?,?,?,?,?,?,?) '+
