@@ -73,6 +73,7 @@ class CompressionEstimateTests(unittest.TestCase):
         self.assertIsNone(estimated['archive_output_bytes'])
         self.assertTrue(all(row['exact'] for row in estimated['books']))
         self.assertTrue(all('архив' in row['reason'] for row in estimated['books']))
+        self.assertEqual([row['djvu_background_pages'] for row in estimated['books']], [1, 0])
         self.assertEqual(list(self.work.iterdir()), [])
 
         prepared = self.prepare(source, members, profile='maximum')

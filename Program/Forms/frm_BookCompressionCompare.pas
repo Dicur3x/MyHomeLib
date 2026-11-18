@@ -192,8 +192,13 @@ var Pair:TJSONValue;
         Exit;
       end;
       Image.Picture.Assign(Graphic);
-      Title.Caption:=Format('%s · %d × %d · %.1f КБ',[Caption,Graphic.Width,Graphic.Height,Length(Bytes)/1024]);
-      if IsTiff then Title.Caption:=Title.Caption+' · страница 1';
+      if Pair.GetValue<string>('kind','')='djvu_fragment' then
+        Title.Caption:=Format('%s · %d × %d пикс.',[Caption,Graphic.Width,Graphic.Height])
+      else
+      begin
+        Title.Caption:=Format('%s · %d × %d · %.1f КБ',[Caption,Graphic.Width,Graphic.Height,Length(Bytes)/1024]);
+        if IsTiff then Title.Caption:=Title.Caption+' · страница 1';
+      end;
     finally Graphic.Free; Stream.Free; end;
   end;
 begin
@@ -205,6 +210,9 @@ begin
   FAfter.HorzScrollBar.Position:=0; FAfter.VertScrollBar.Position:=0;
   FNote.Caption:=Format('Изображение %d из %d. Для сравнения берётся до 12 иллюстраций выбранных книг. '+
     'Проверьте мелкий текст и важные детали перед применением.',[FList.ItemIndex+1,FList.Items.Count]);
+  if Pair.GetValue<string>('kind','')='djvu_fragment' then
+    FNote.Caption:='Показан один и тот же участок исходной и подготовленной страницы DjVu. '+
+      'Снимите «Вписать в окно», чтобы проверить мелкие детали фона в масштабе 100%.';
   FitImages;
 end;
 

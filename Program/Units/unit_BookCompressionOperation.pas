@@ -15,7 +15,7 @@ type
   end;
   TBookCompressionOperationStatus = record
     Stage, Source, Member, Error, Warning, ReportFile, PendingJob, BackupFolder: string;
-    PreviewFile, PreviewSHA256: string;
+    PreviewFile, PreviewSHA256, PreviewNote: string;
     Current, Total, FilesDone, FilesTotal, BooksDone, BooksTotal: Int64;
     ChangedFiles, UnchangedFiles, SkippedFiles, SavedBytes: Int64;
     PreviouslyProcessedBooks: Int64;
@@ -24,6 +24,7 @@ type
     ImageChanges: Int64;
     EstimateInputBytes, EstimateKnownInputBytes, EstimateOutputBytes, EstimateArchiveBytes: Int64;
     EstimateUnknownBooks: Int64;
+    EstimateDjvuBooks, EstimateDjvuPages: Int64;
     TrialInputBytes, TrialOutputBytes, TrialSharedFiles: Int64;
     TrialRunning, TrialReady, AwaitingRefresh: Boolean;
     Estimating, AwaitingEstimate, EstimateOnly: Boolean;
@@ -802,6 +803,12 @@ begin
         Inc(FState.EstimateInputBytes,Input); Inc(FState.EstimateKnownInputBytes,KnownInput);
         Inc(FState.EstimateOutputBytes,KnownOutput); Inc(FState.EstimateUnknownBooks,Unknown);
         Inc(FState.EstimateArchiveBytes,ArchiveSize);
+        for var Book in Report.GetValue<TJSONArray>('books') do
+          if (Book is TJSONObject) and (TJSONObject(Book).GetValue('djvu_background_pages') is TJSONNumber) then
+          begin
+            Inc(FState.EstimateDjvuBooks);
+            Inc(FState.EstimateDjvuPages,Book.GetValue<Integer>('djvu_background_pages'));
+          end;
         Inc(FState.FilesDone); Inc(FState.BooksDone,FilePlan.MemberCount);
       finally TMonitor.Exit(FLock); end;
     finally Report.Free; end;
@@ -1067,7 +1074,7 @@ begin
   try
     FState.Source:=FilePlan.Source; FState.Member:='';
     FState.InputBytes:=0; FState.OutputBytes:=0; FState.WorkingBytes:=0;
-    FState.PreviewFile:=''; FState.PreviewSHA256:=''; FState.ImageChanges:=0;
+    FState.PreviewFile:=''; FState.PreviewSHA256:=''; FState.PreviewNote:=''; FState.ImageChanges:=0;
   finally TMonitor.Exit(FLock); end;
   try
     CapturedImages:=CaptureCompressionImageSources(FilePlan.Source);
@@ -1126,6 +1133,7 @@ begin
         FState.InputBytes:=InputBytes; FState.OutputBytes:=OutputBytes;
         FState.WorkingBytes:=Report.GetValue<Int64>('working_bytes',FState.WorkingBytes);
         FState.ReportFile:=ReportFile;
+        FState.PreviewNote:=Report.GetValue<string>('preview_note','');
         if Report.GetValue('books') is TJSONArray then
           for var Book in Report.GetValue<TJSONArray>('books') do
             if Book.GetValue<Boolean>('optimized',False) then Inc(FState.ImageChanges);

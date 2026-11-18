@@ -2,10 +2,13 @@
 import base64
 import hashlib
 import json
+import tempfile
 from collections import Counter
 from pathlib import Path
 from xml.etree import ElementTree as ET
 import zipfile
+
+from pack_collection import run_bounded_codec
 
 MAX_PAIRS = 12
 MAX_IMAGE = 8 * 1024 * 1024
@@ -125,6 +128,45 @@ class ComparisonPreview:
                         before = header + source.read()
                     if not self.add_pair(member, item.filename, before, new.read(other)):
                         break
+
+    def add_djvu_pages(self, original, result, member, pages, renderer):
+        """Render the same full-resolution region of actual changed pages on each side."""
+        if not renderer.is_file():
+            return 'Для сравнения фрагментов DjVu установите модуль DjVuLibre в окне обновлений.'
+        count = min(3, len(pages), self.book_limit, MAX_PAIRS - len(self.pairs))
+        self.limited |= count < len(pages)
+        if not count:
+            return ''
+        indexes = [0] if count == 1 else [i * (len(pages) - 1) // (count - 1) for i in range(count)]
+        with tempfile.TemporaryDirectory(dir=original.parent) as staging:
+            work = Path(staging)
+            output = work / 'page.tif'
+            for index in indexes:
+                page, width, height = pages[index]
+                # Keep the same square inside both portrait and rotated page bounds.
+                short_side = min(width, height)
+                side = min(short_side, 1000)
+                offset = (short_side - side) // 2
+                region = f'-segment={side}x{side}+{offset}+{offset}'
+                samples = []
+                for book in (original, result):
+                    args = ['-format=tiff', '-subsample=1', f'-page={page}', region,
+                            str(Path('..') / book.name), output.name]
+                    try:
+                        rendered = run_bounded_codec(renderer, args, work, output, MAX_IMAGE, self.check, timeout=15)
+                    except OSError:
+                        rendered = False
+                    if not rendered:
+                        return f'Не удалось показать фрагмент страницы {page} DjVu.'
+                    data = output.read_bytes()
+                    if image_kind(data) != 'tiff':
+                        return f'Не удалось прочитать фрагмент страницы {page} DjVu.'
+                    samples.append(data)
+                    output.unlink()
+                if not self.add_pair(member, f'Страница {page} · фрагмент 1:1', *samples):
+                    break
+                self.pairs[-1]['kind'] = 'djvu_fragment'
+        return ''
 
     def finish(self):
         if self.archive is None:

@@ -207,6 +207,7 @@ class PreparedBookCompression:
     working_bytes: int = 0
     originals: dict | None = None
     preview: dict | None = None
+    preview_note: str = ''
 
     @property
     def savings(self):
@@ -531,6 +532,12 @@ def prepare_selected_file(source, members, workspace, seven_zip, *, profile='ori
                                 from nested_epub_compression import optimize_nested_epub
                                 status = optimize_nested_epub(current, book_dir, processor, decoder,
                                     image_history.contains, verify_non_image_content, check)
+                            elif extension == '.djvu' and not member:
+                                # The transformation preserves DjVu offsets and file length.
+                                # A standalone file can never pass the replacement size check.
+                                status = dict(image_reason='Размер отдельного файла DjVu остаётся прежним.')
+                            elif extension == '.djvu' and preview is not None:
+                                status = processor.optimize_djvu(current, book_dir, None, report_pages=True)
                             else:
                                 status = processor.optimize_book(current, book_dir,
                                     image_history=image_history.contains, collect_image_history=extension in IMAGE_SUFFIXES)
@@ -569,7 +576,15 @@ def prepare_selected_file(source, members, workspace, seven_zip, *, profile='ori
             if preview is not None and optimized:
                 try:
                     preview_original, preview_result = status.get('comparison_inputs', (original, current))
-                    preview.add_book(preview_original, preview_result, extension, member)
+                    if status.get('djvu_pages'):
+                        note = preview.add_djvu_pages(original, current, member, status['djvu_pages'],
+                            processor.tools_root / 'djvu/ddjvu.exe')
+                        if note:
+                            result.preview_note = note
+                    else:
+                        preview.add_book(preview_original, preview_result, extension, member)
+                except Canceled:
+                    raise
                 except (ValueError, ElementTree.ParseError, zipfile.BadZipFile):
                     preview.limited = True
             replacements[member] = current

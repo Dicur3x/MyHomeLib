@@ -8,6 +8,7 @@ import argparse
 import importlib.util
 import json
 import math
+import mmap
 from pathlib import Path
 import sys
 import time
@@ -16,9 +17,9 @@ if __package__ in (None, ''):
     sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from archive_replacement import archive_inventory, member_path
-from pack_collection import (Canceled, DJVU_SUFFIXES, IMAGE_SUFFIXES, MAX_BOOK, MAX_IMAGE_BOOK,
+from pack_collection import (Canceled, DJVU_LIMIT, DJVU_MIN_SAVINGS, DJVU_SUFFIXES, IMAGE_SUFFIXES, MAX_BOOK, MAX_IMAGE_BOOK,
     Packer, PackingError, SevenZip, atomic_json, canonical, copy_exact, digest_file,
-    reserve_space, temporary_work_directory)
+    djvu_refinements, reserve_space, temporary_work_directory)
 from prepare_book_compression import MAX_MEMBERS, _source_stamp, profile_digest
 from compression_image_history import CompressedImageHistory
 
@@ -148,6 +149,17 @@ def estimate_selected_file(source, members, workspace, seven_zip, *, profile='ba
                         # the payload length. Only the outer archive can shrink.
                         reason = ('Размер DjVu до упаковки сохраняется. Экономия возможна в архиве.'
                                   if member else 'Размер отдельного файла DjVu остаётся прежним.')
+                        if member and book.stat().st_size <= DJVU_LIMIT:
+                            try:
+                                with book.open('rb') as stream, mmap.mmap(stream.fileno(), 0, access=mmap.ACCESS_READ) as data:
+                                    ranges = djvu_refinements(data, check)
+                            except MeasurementBudget:
+                                reason += ' Фон страниц не удалось проверить за отведённое время.'
+                            else:
+                                eligible = sum(end - start for _, start, end in ranges) >= DJVU_MIN_SAVINGS
+                                row['djvu_background_pages'] = len(ranges) if eligible else 0
+                                reason += (f' Страниц с подходящим фоном: {len(ranges)}.' if eligible else
+                                           ' Подходящего фона для уменьшения не найдено.')
                         row.update(output_bytes=sizes[member], exact=True, reason=reason)
                     else:
                         row.update(output_bytes=sizes[member], exact=True,

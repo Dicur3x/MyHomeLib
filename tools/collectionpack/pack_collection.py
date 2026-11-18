@@ -434,7 +434,7 @@ def djvu_page_refinement(data, start, end, check):
     return payload - 8, payload, limit
 
 
-def djvu_refinements(data, check):
+def djvu_refinements(data, check, pages=None):
     if data[:8] != b'AT&TFORM' or len(data) < 16:
         return []
     try:
@@ -443,6 +443,8 @@ def djvu_refinements(data, check):
         kind = data[payload:payload + 4]
         if kind == b'DJVU':
             region = djvu_page_refinement(data, payload + 4, limit, check)
+            if region and pages is not None:
+                pages.append((1, *struct.unpack_from('>HH', data, payload + 12)))
             return [region] if region else []
         if kind != b'DJVM':
             return []
@@ -456,19 +458,29 @@ def djvu_refinements(data, check):
         count = struct.unpack_from('>H', data, start + 1)[0]
         if count == 0 or start + 3 + count * 4 >= end:
             return []
-        offsets = {struct.unpack_from('>I', data, offset)[0]
-                   for offset in range(start + 3, start + 3 + count * 4, 4)}
+        directory_order = [struct.unpack_from('>I', data, offset)[0]
+                           for offset in range(start + 3, start + 3 + count * 4, 4)]
+        offsets = set(directory_order)
         if len(offsets) != count:
             return []
         ranges = []
+        page_shapes = {}
         for chunk, start, end in components:
             if chunk == b'FORM':
                 offsets.remove(start - 8)
                 if data[start:start + 4] == b'DJVU':
                     region = djvu_page_refinement(data, start + 4, end, check)
+                    if pages is not None:
+                        page_shapes[start - 8] = struct.unpack_from('>HH', data, start + 12) if region else None
                     if region:
                         ranges.append(region)
-        return [] if offsets else ranges
+        if offsets:
+            return []
+        if pages is not None:
+            # Logical page order comes from DIRM. Dictionaries do not occupy page numbers.
+            ordered = (page_shapes[key] for key in directory_order if key in page_shapes)
+            pages.extend((number, *shape) for number, shape in enumerate(ordered, 1) if shape)
+        return ranges
     except Canceled:
         raise
     except (KeyError, struct.error, ValueError):
@@ -511,6 +523,26 @@ def write_pdf_range(pdf, output, start, end, check):
         output.write(pdf[offset:min(end, offset + BLOCK)])
 
 
+def run_bounded_codec(executable, arguments, directory, output, limit, check, timeout=60):
+    check()
+    with process_working_directory(directory) as child_cwd, subprocess.Popen([str(executable), *arguments], cwd=child_cwd,
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                          creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)) as process:
+        started = time.monotonic()
+        try:
+            while process.poll() is None:
+                check()
+                if (time.monotonic() - started > timeout or
+                        (output.exists() and output.stat().st_size > limit)):
+                    return False
+                time.sleep(.025)
+            check()
+            return process.returncode == 0 and output.is_file() and output.stat().st_size <= limit
+        finally:
+            if process.poll() is None:
+                process.kill()
+            process.wait()
+
 class JpegXL:
     def __init__(self, encoder, decoder, check, reader_fb2_namespaces=False):
         self.encoder = Path(encoder).absolute() if encoder else None
@@ -520,37 +552,17 @@ class JpegXL:
         self.check = check
         self.reader_fb2_namespaces = reader_fb2_namespaces is True
 
-    def run(self, executable, arguments, directory, output, limit):
-        self.check()
-        with process_working_directory(directory) as child_cwd, subprocess.Popen([str(executable), *arguments], cwd=child_cwd,
-                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                              creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)) as process:
-            started = time.monotonic()
-            try:
-                while process.poll() is None:
-                    self.check()
-                    if (time.monotonic() - started > 60 or
-                            (output.exists() and output.stat().st_size > limit)):
-                        return False
-                    time.sleep(.025)
-                self.check()
-                return process.returncode == 0 and output.is_file() and output.stat().st_size <= limit
-            finally:
-                if process.poll() is None:
-                    process.kill()
-                process.wait()
-
     def encode(self, image, directory):
         if len(image) > 16 * 1024 * 1024 or not image.startswith(b'\xff\xd8\xff'):
             return None
         original, encoded, restored = (directory / name for name in ('input.jpg', 'output.jxl', 'decoded.jpg'))
         try:
             original.write_bytes(image)
-            if not self.run(self.encoder, ['input.jpg', 'output.jxl', '-e', '3', '--num_threads=1'],
-                            directory, encoded, len(image) - 1):
+            if not run_bounded_codec(self.encoder, ['input.jpg', 'output.jxl', '-e', '3', '--num_threads=1'],
+                            directory, encoded, len(image) - 1, self.check):
                 return None
-            if not self.run(self.decoder, ['output.jxl', 'decoded.jpg', '--reconstruct_jpeg', '--num_threads=1'],
-                            directory, restored, len(image)) or restored.read_bytes() != image:
+            if not run_bounded_codec(self.decoder, ['output.jxl', 'decoded.jpg', '--reconstruct_jpeg', '--num_threads=1'],
+                            directory, restored, len(image), self.check) or restored.read_bytes() != image:
                 return None
             return encoded.read_bytes()
         finally:
@@ -781,14 +793,15 @@ class Packer:
             self.check()
         self.converter = converter
 
-    def optimize_djvu(self, target, stage, entry):
+    def optimize_djvu(self, target, stage, entry, *, report_pages=False):
         size = target.stat().st_size
         if not 0 < size <= DJVU_LIMIT:
             return dict(image_result='skipped')
         candidate = stage / 'image-candidate.djvu'
         try:
             with target.open('rb') as stream, mmap.mmap(stream.fileno(), 0, access=mmap.ACCESS_READ) as data:
-                ranges = djvu_refinements(data, self.check)
+                pages = [] if report_pages else None
+                ranges = djvu_refinements(data, self.check, pages)
                 if sum(end - payload for _, payload, end in ranges) < DJVU_MIN_SAVINGS:
                     return {}
                 reserve_space(stage, size)
@@ -801,7 +814,10 @@ class Packer:
                     return {}
                 original_sha256 = digest_file(target, self.check)
             candidate.replace(target)
-            return dict(image_result='optimized', original_sha256=original_sha256)
+            result = dict(image_result='optimized', original_sha256=original_sha256)
+            if report_pages:
+                result['djvu_pages'] = pages
+            return result
         finally:
             candidate.unlink(missing_ok=True)
 

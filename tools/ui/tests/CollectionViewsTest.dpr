@@ -6389,6 +6389,8 @@ begin
     Application.Initialize;
     if ParamStr(1)='compression-raster-comparison' then
     begin TestCompressionRasterComparison; Halt(0); end;
+    if ParamStr(1)='compression-djvu-comparison' then
+    begin TestDjvuComparison; Halt(0); end;
     if (ParamStr(1) = 'publisher-startup') or (ParamStr(1) = 'cancel-interactive') or
       ParamStr(1).StartsWith('startup-deferred') or (ParamStr(1) = 'view-session-reopen') or
       (ParamStr(1) = 'book-deletion-lifecycle') then

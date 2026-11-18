@@ -8,6 +8,55 @@ procedure TestCancelledCompressionRefresh(const Collection:IBookCollection;
 
 {$I CompressionCopyIndexTests.inc}
 
+procedure TestDjvuComparison;
+var Dialog:TfrmBookCompressionCompare; Choices:TComboBox;
+begin
+  var Progress:=TfrmBookCompressionProgress.CreateProgress(nil,nil,nil);
+  try
+    var State:=Default(TBookCompressionOperationStatus);
+    State.AwaitingEstimate:=True; State.AwaitingReview:=True;
+    State.EstimateDjvuBooks:=2; State.EstimateDjvuPages:=7; State.PreviouslyProcessedBooks:=1;
+    Progress.UpdateProgress(State);
+    var Note:=Progress.FindComponent('CompressionNote') as TLabel;
+    Require((Pos('фоном: 7',Note.Caption)>0) and (Pos('Пробная упаковка',Note.Caption)>0) and
+      (Pos('Ранее проверено',Note.Caption)>0),'Incomplete estimate for mixed books');
+    State.AwaitingEstimate:=False; State.ImageChanges:=1;
+    State.PreviewNote:='Для сравнения фрагментов DjVu установите модуль DjVuLibre в окне обновлений.';
+    Progress.UpdateProgress(State);
+    Require((Pos('DjVuLibre',Note.Caption)>0) and not (Progress.FindComponent('CompressionCompare') as TButton).Visible,
+      'Missing renderer guidance');
+  finally Progress.Free; end;
+  var FileName:=ParamStr(2);
+  Dialog:=TfrmBookCompressionCompare.CreateComparison(nil,FileName,THashSHA2.GetHashStringFromFile(FileName));
+  try
+    Dialog.Show; Application.ProcessMessages;
+    Choices:=Dialog.FindComponent('ComparisonImages') as TComboBox;
+    Require(Choices.Items.Count>0,'Missing DjVu fragments');
+    for var I:=0 to Choices.Items.Count-1 do
+    begin
+      Choices.ItemIndex:=I; Choices.OnChange(Choices);
+      Require(Pos('фрагмент 1:1',Choices.Text)>0,'Missing page and scale');
+      for var Side in TArray<string>.Create('Before','After') do
+      begin
+        var Picture:=(Dialog.FindComponent('Comparison'+Side+'Image') as TImage).Picture;
+        Require(Assigned(Picture.Graphic),'Missing rendered '+Side+' fragment');
+        var Title:=(Dialog.FindComponent('Comparison'+Side+'Title') as TLabel).Caption;
+        Require((Pos('пикс.',Title)>0) and (Pos('КБ',Title)=0),'Unexpected file size for a scan fragment');
+        var Bitmap:=TBitmap.Create;
+        try
+          Bitmap.SetSize(Picture.Width,Picture.Height);
+          Bitmap.Canvas.Draw(0,0,Picture.Graphic);
+          Write('PIXELS ',I,' ',Side,' ',Picture.Width,' ',Picture.Height);
+          for var Y:=1 to 5 do for var X:=1 to 5 do
+            Write(' ',IntToHex(ColorToRGB(Bitmap.Canvas.Pixels[X*Picture.Width div 6,Y*Picture.Height div 6]),6));
+          Writeln;
+        finally Bitmap.Free; end;
+      end;
+    end;
+    Writeln('PASS DjVu fragments in the normal comparison window');
+  finally Dialog.Free; end;
+end;
+
 procedure TestCompressionRasterComparison;
 var Dialog:TfrmBookCompressionCompare; Choices:TComboBox;
   procedure CheckPane(const Which:string; Expected:TColor);

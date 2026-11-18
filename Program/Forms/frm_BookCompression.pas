@@ -159,6 +159,7 @@ begin
     '«Оценить размер» проверяет образцы и не заменяет книги. Прогноз может отличаться от результата.'+sLineBreak+
     '«Подготовить сжатие» обрабатывает книги по нынешним путям. За раз готовится один архив или файл; соседние книги сохраняются.'+sLineBreak+
     'Режимы с уменьшением качества могут ухудшить мелкий текст и схемы. Включите проверку результата и смотрите образцы в масштабе 100%.'+sLineBreak+
+    'Для побайтового восстановления JPEG в FB2, EPUB и PDF выберите «Коллекция → Создать сжатую копию… → JPEG XL без потери качества». Эта команда создаёт отдельную коллекцию.'+sLineBreak+
     'Для возврата включите сохранение оригиналов и выберите папку. Это копии обрабатываемых книг, а не всей коллекции; журнал восстановления не заменяет оригиналы.',
     110,'compression');
   FToolGuide.Name:='CompressionContextGuide';
@@ -418,6 +419,8 @@ begin
   else FNote.Caption:='Можно продолжать работу с каталогом. Закрытие этого окна не останавливает сжатие.';
   if State.AwaitingReview and not State.AwaitingEstimate and (State.ImageChanges=0) then
     FNote.Caption:=FNote.Caption+sLineBreak+'Изображения не изменялись; меняется только упаковка.'
+  else if State.AwaitingReview and not State.AwaitingEstimate and (State.PreviewNote<>'') then
+    FNote.Caption:=FNote.Caption+sLineBreak+State.PreviewNote
   else if State.AwaitingReview and not State.AwaitingEstimate and (FPreviewFile='') then
     FNote.Caption:=FNote.Caption+sLineBreak+'Визуальное сравнение для этих изображений пока недоступно.';
   if State.Finished then
@@ -444,6 +447,9 @@ begin
     if State.AwaitingEstimate then FNote.Caption:=FNote.Caption+' Для записи нажмите «Начать сжатие».';
     if State.Warning<>'' then FNote.Caption:=FNote.Caption+sLineBreak+State.Warning;
   end;
+  if State.AwaitingEstimate and not State.TrialReady and (State.EstimateDjvuBooks>0) then
+    FNote.Caption:=FNote.Caption+sLineBreak+Format('Проверено DjVu в архивах: %d. Страниц с подходящим фоном: %d. '+
+      'Размер отдельного DjVu сохраняется.',[State.EstimateDjvuBooks,State.EstimateDjvuPages]);
   if State.PreviouslyProcessedBooks>0 then FNote.Caption:=FNote.Caption+sLineBreak+
     Format('Ранее проверено книг с этими настройками: %d.',[State.PreviouslyProcessedBooks]);
   if State.BackupFiles>0 then FNote.Caption:=FNote.Caption+sLineBreak+

@@ -911,6 +911,24 @@ class PackingTests(unittest.TestCase):
         self.assertEqual(sha(source), original_sha256)
         self.assertEqual(Packer(self.job).execute().reused, 1)
 
+    def test_djvu_preview_uses_directory_order_and_excludes_shared_dictionaries(self):
+        def chunk(kind, payload):
+            return kind + struct.pack('>I', len(payload)) + payload + bytes(len(payload) % 2)
+        page = layered_djvu(bundled=False)[4:]
+        unchanged = layered_djvu(mask=False, bundled=False)[4:]
+        dictionary = chunk(b'FORM', b'DJVI')
+        def directory(offsets):
+            return chunk(b'DIRM', struct.pack('>BH3I', 0x81, 3, *offsets) + b'x')
+        start = 16 + len(directory([0, 0, 0]))
+        positions = [start + len(page) + len(dictionary), start + len(page), start]
+        original = b'AT&T' + chunk(b'FORM', b'DJVM' + directory(positions) + page + dictionary + unchanged)
+        pages = []
+        self.assertEqual(len(djvu_refinements(original, lambda: None, pages)), 1)
+        self.assertEqual(pages, [(2, 1200, 1800)])
+        pages.clear()
+        self.assertEqual(djvu_refinements(original[:-20], lambda: None, pages), [])
+        self.assertEqual(pages, [])
+
     def test_djvu_refinement_requires_a_mask_and_valid_offsets(self):
         check = lambda: None
         original = layered_djvu()
