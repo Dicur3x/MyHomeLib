@@ -122,6 +122,53 @@ x64. All 241 managed files matched, the exact compatibility launcher was
 retained, and the settings and private SQLite test database hashes were
 unchanged. The old update window, restart and Windows shortcut are outside
 this test. The r1949 frontend test has verified inputs on both architectures.
+Its x64 run passed using the regular update window of the original published
+beta 13. The old process wrote its own installation request, exited normally,
+and the exact packaged helper restarted `HomeLibre.exe`. An unchanged Windows
+shortcut targeting `HomeLibRu.exe` opened the renamed catalogue. All 241
+managed files, the seven fixture books, the saved geometry and personal
+settings were verified after shutdown; private payloads were removed. This
+used a prepared package restored from the update cache, not the published
+GitHub download route. The x86 frontend run is separate.
+
+## Module maintenance on the exact release packages
+
+The r1953 run used the new BookProcessing and ImageProcessing ZIPs from the
+local publication plan, with the verified distribution's core runtime. The
+native removal path removed each module separately and reinstalled it. FB2
+to EPUB conversion still worked without ImageProcessing and again after both
+modules were restored. It retained the input book, settings, and the catalogue
+marker, and restored package ownership records. Both architectures also
+passed the existing rollback, lock, changed-file and removal-recovery cases.
+
+The r1954 run installed the published BookProcessing 3.0.0.13 and
+ImageProcessing 3.0.0.8, then updated both to the exact 3.0.0.14 candidates
+using the stock release SHA-256 records and the native installer. The installed
+versions and managed-file digests matched. The catalogue executable, settings,
+and private SQLite fixture retained their digests. Both private workspaces
+were removed. These are native engine checks; the update window and removal
+of the other modules were not covered by these two runs.
+
+The r1956 native downloader obtained both exact compatible catalogue archives
+from an owned loopback HTTP server and authenticated the staged catalogue.
+A deliberately wrong checksum was rejected without creating a prepared
+manifest on either architecture. These are transport and validation checks;
+the production server and graphical download command were not used.
+
+Microsoft documents bundling the [WebView2 Evergreen Standalone Installer](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution#offline-deployment)
+and the [.NET Framework offline redistributable](https://learn.microsoft.com/en-us/dotnet/framework/deployment/deployment-guide-for-developers#redistributable-packages).
+The full packages include the pinned installers, and their availability was
+verified; clean-Windows execution remains open. r1955 verified that each of
+the 25 modules' notices or licence texts survived unchanged in each full ZIP
+(with the documented merged `NOTICE` exception), plus the fonts' OFL texts,
+bundled DjVu and legacy Office source, and the two export source links. The
+FB2 source link matches the public asset digest; the matching KFX source is
+verified locally and must be available when the KFX binaries are published.
+The exact AlReader archive
+retains the upstream Windows readme, which allows non-commercial use and asks
+users to contact the author about preinstallation or commercial use. This
+readme is not evidence of explicit permission for bundling in a new ZIP;
+record separate author terms if available before treating that item as closed.
 
 ## Still open
 
