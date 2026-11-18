@@ -372,6 +372,23 @@ digests against the shipped ZIPs. Receipts and screenshots are in
 copying and the real low-space guard. Loss of the destination during a write
 and failure of a network share require separate evidence.
 
+## Recovery when the verified staging file disappears
+
+The existing x86 and x64 copy test executables reproduced a separate failure
+in private directories on G:. The test stopped immediately after the copier
+verified the staged book and before the rename. The fixture removed that
+temporary file. Both executables returned Windows error 2 on resume, with the
+source intact. A second case confirmed that a missing file already recorded as
+published was reported on both architectures. The baseline logs and journal
+records are in `r1984-copy-resume/{Win32,Win64}`.
+
+The recovery branch now permits a new copy attempt when both destination names
+are missing in the verified phase and the original streams still match the
+journal. The published phase retains its separate missing-file check. The
+source change and focused tests await a native rebuild. The six r1982 ZIPs
+predate this change. A separate unplug-during-write fixture is prepared under
+`r1983-transfer-hotplug`. Only its scripts and inputs were checked in this step.
+
 ## Remaining checks
 
 Remaining source checks, Desktop replacement and publication remain open.

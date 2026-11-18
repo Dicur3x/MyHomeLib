@@ -844,10 +844,9 @@ begin
     end;
     if Text('phase')='ready' then raise EReadError.Create('Готовая копия исчезла после завершённой записи.');
 
-    // Some CopyFileEx stop/error paths remove their incomplete output. There
-    // is no published result yet; recreate a reserved attempt from the same
-    // guarded, checksum-matched source rather than requiring a missing temp.
-    if (Text('key')<>'') and MatchText(Text('phase'),['allocated','copying']) and not Present(Temporary) then
+    // After interruption even a fully verified staging file can be missing.
+    // The final name is absent and the source streams still match the journal.
+    if (Text('key')<>'') and MatchText(Text('phase'),['allocated','copying','verified']) and not Present(Temporary) then
     begin Put('key',''); Put('phase','planned'); SaveState; end;
 
     if Text('key')='' then

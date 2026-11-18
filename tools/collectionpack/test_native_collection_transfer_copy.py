@@ -168,8 +168,16 @@ class TransferCopyTests(unittest.TestCase):
         self.assertNotEqual(first['sha256'], second['sha256'])
 
     def test_real_cross_volume_copy_preserves_named_streams(self):
-        self.assertGreater(shutil.disk_usage('E:/').free, 512 * 1024**2)
-        with temporary_work_directory(Path('E:/'), 'HomeLibRu-native-source-') as value:
+        configured = os.environ.get('HL_TRANSFER_SOURCE_VOLUME')
+        if not configured:
+            self.skipTest('set HL_TRANSFER_SOURCE_VOLUME to a dedicated second NTFS drive root')
+        volume = Path(configured)
+        self.assertTrue(volume.is_absolute() and len(volume.drive) == 2 and volume == Path(volume.anchor),
+                        'HL_TRANSFER_SOURCE_VOLUME must be a drive root')
+        self.assertNotIn(volume.drive.upper(), {'C:', self.root.drive.upper()},
+                         'use a separate test volume for the source')
+        self.assertGreater(shutil.disk_usage(volume).free, 512 * 1024**2)
+        with temporary_work_directory(volume, 'HomeLibRu-native-source-') as value:
             external = Path(value)
             (external / 'transfer-source.marker').write_bytes(
                 ('HomeLibre isolated transfer source v1' + os.linesep + str(self.root)).encode('utf-8'))
@@ -212,6 +220,27 @@ class TransferCopyTests(unittest.TestCase):
         data = self.run_case(self.resume())
         self.assertEqual(data['copy_streams'], 0)
         self.assertEqual(target.stat().st_ino, identity)
+
+    def test_resume_when_verified_temporary_is_missing(self):
+        self.config['crash'] = 'after-verified'
+        self.run_case(expected=97)
+        self.assertEqual(self.state()['phase'], 'verified')
+        temporary = self.temporary()
+        self.assertEqual(sha(temporary), self.before)
+        self.assertFalse(Path(self.config['destination']).exists())
+        temporary.unlink()
+        resumed = self.run_case(self.resume())
+        self.assertGreater(resumed['copy_streams'], 0)
+        self.assertEqual(self.state()['phase'], 'ready')
+
+    def test_missing_published_copy_is_reported(self):
+        self.run_case()
+        self.assertEqual(self.state()['phase'], 'ready')
+        target = Path(self.config['destination'])
+        target.unlink()
+        self.run_case(self.resume(), 'fail')
+        self.assertFalse(target.exists())
+        self.assertEqual(sha(self.source), self.before)
 
     def test_read_only_flag_recovers_after_publication_crash(self):
         self.source.chmod(stat.S_IREAD)
