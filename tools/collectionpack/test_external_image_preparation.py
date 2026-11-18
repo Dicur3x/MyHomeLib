@@ -373,6 +373,30 @@ class ExternalImagePreparationTests(unittest.TestCase):
         images = next(row for row in result.archives if row['kind'] == 'images')['images']
         self.assertTrue(all(item['reused'] and not item['changed'] for item in images))
 
+    def test_replaced_picture_at_same_member_path_is_processed_again(self):
+        first = self.prepare(profile='maximum')
+        archive = next(item for item in first.archives if item['kind'] == 'images')
+        self.assertTrue(all(item['changed'] for item in archive['images']))
+        history = {item['output_sha256'] for item in archive['images']}
+        retained = self.read(archive['candidate'], 'one/2')
+        # The next delivery replaces one illustration with the original PNG.
+        # Its sibling and all book and illustration names stay the same.
+        self.pictures.unlink()
+        self.archive(self.pictures, {**self.picture_entries, 'one/2': retained}, '7z')
+        before = self.snapshot()
+        self.work = self.root / 'second-pass'
+        self.work.mkdir()
+        second = self.prepare(profile='maximum', preserve_image=history.__contains__)
+        archive = next(item for item in second.archives if item['kind'] == 'images')
+        images = {item['member']: item for item in archive['images']}
+        self.assertEqual(images['one/1']['input_sha256'], sha(self.png))
+        self.assertFalse(images['one/1']['reused'])
+        self.assertTrue(images['one/1']['changed'])
+        self.assertTrue(images['one/2']['reused'])
+        self.assertFalse(images['one/2']['changed'])
+        self.assertEqual(self.read(archive['candidate'], 'one/2'), retained)
+        self.assertEqual(self.snapshot(), before)
+
     def test_missing_jpeg_xl_decoder_cleans_preparation_without_changing_sources(self):
         with self.assertRaises(self.module.ImageComponentRequired) as error:
             self.prepare(profile='maximum', jpeg_xl_decoder=None)

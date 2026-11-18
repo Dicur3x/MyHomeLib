@@ -658,23 +658,37 @@ def prepare_request(request, *, canceled=lambda: False, notify=lambda value: Non
             # history. Discarded encodings never suppress a later retry.
             by_id = {}
             from external_image_preparation import _book_id
+            books_by_member = {book['member']: book for book in result['books']}
+            blocked = set(external['blocked_members'])
             for payload in receipt['payloads']:
-                by_id.setdefault(_book_id(payload['member']), []).append(payload)
+                member = payload['member']
+                book = books_by_member[member]
+                by_id.setdefault(_book_id(member), []).append(payload)
+                if member in blocked:
+                    reason = ('Общие изображения сохранены. Выберите вместе книги с одинаковым именем '
+                              'без расширения в этом архиве и повторите сжатие.')
+                    if not book['checked'] and book['reason']:
+                        reason += ' ' + book['reason']
+                    book.update(checked=False, reason=reason)
+                    payload['checked'] = False
             for archive in external['archives']:
                 for image in archive['images']:
                     identity = image['member'].split('/', 1)[0].casefold()
                     for payload in by_id.get(identity, []):
+                        member = payload['member']
+                        if archive['kind'] == 'images' and request['members'][member].lower() not in ('.fb2', '.epub'):
+                            continue
+                        book = books_by_member[member]
                         if image['changed'] or image['reused']:
                             payload.setdefault('image_outputs', []).append(image['output_sha256'])
                         if image['changed']:
-                            for book in result['books']:
-                                if book['member'] == payload['member']:
-                                    book['optimized'] = True
+                            book['optimized'] = True
                         if not image['checked']:
                             payload['checked'] = False
-                            for book in result['books']:
-                                if book['member'] == payload['member']:
-                                    book.update(checked=False, reason=image['reason'])
+                            book.update(checked=False, reason=image['reason'])
+            for payload in receipt['payloads']:
+                if not payload['checked']:
+                    payload.pop('source_image_outputs', None)
             if not changed:
                 for payload in receipt['payloads']:
                     retained = payload.get('image_outputs', [])

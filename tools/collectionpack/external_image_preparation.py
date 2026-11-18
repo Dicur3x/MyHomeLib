@@ -168,23 +168,19 @@ def prepare_external_images(source, members, workspace, seven_zip, *, profile='o
             outer = archive_inventory(decoder, source, stage)
             if any(name not in outer or outer[name]['directory'] for name in members):
                 raise PackingError('Выбранная книга не найдена по точному имени во внешнем архиве.')
-            identities = {}
-            for name, entry in outer.items():
-                if not entry['directory']:
-                    identities.setdefault(_book_id(name), set()).add(name)
-            selected = set(members)
-            blocked = {key for key, names in identities.items() if names & selected and names - selected}
-            result.blocked_members = sorted(name for name in members if _book_id(name) in blocked)
-            ids = {_book_id(name) for name in members if _book_id(name) not in blocked}
+            ids = {_book_id(name) for name in members}
             image_ids = {_book_id(name) for name, hint in members.items()
-                         if hint.lower() in ('.fb2', '.epub') and _book_id(name) not in blocked}
+                         if hint.lower() in ('.fb2', '.epub')}
+            shared = ids.intersection(_book_id(name) for name, entry in outer.items()
+                                      if not entry['directory'] and name not in members)
+            blocked = set()
             quality = None
             engine = ('illustrations-gray-ppmd' if grayscale else
                       'illustrations-ppmd' if profile != 'original' else 'reversible-ppmd')
             processor = Packer(dict(version=1, engine=engine,
                 images=profile, output=str(work), plan=str(stage / 'unused.sqlite'), dataset='external-images',
                 seven_zip=str(seven_zip), tools_root=str(tools_root) if tools_root else None), notify, canceled)
-            if ids and result.dependencies and (profile != 'original' or grayscale):
+            if ids - shared and result.dependencies and (profile != 'original' or grayscale):
                 processor.load_image_processor()
                 quality_path = processor.tools_root / 'bookconvert/image_quality.py'
                 spec = importlib.util.spec_from_file_location('homelibre_external_image_quality', quality_path)
@@ -197,9 +193,21 @@ def prepare_external_images(source, members, workspace, seven_zip, *, profile='o
                 folder = stage / kind
                 folder.mkdir()
                 inventory = archive_inventory(decoder, archive, folder)
-                chosen = [name for name, entry in inventory.items() if not entry['directory'] and
-                    ((kind == 'covers' and '/' not in name and name.casefold() in ids) or
-                     (kind == 'images' and '/' in name and name.split('/', 1)[0].casefold() in image_ids))]
+                eligible = ids if kind == 'covers' else image_ids
+                chosen, shared_here = [], set()
+                for name, entry in inventory.items():
+                    owner, separator, _ = name.partition('/')
+                    if entry['directory'] or bool(separator) != (kind == 'images'):
+                        continue
+                    owner = owner.casefold()
+                    if owner in eligible:
+                        if owner in shared:
+                            shared_here.add(owner)
+                        else:
+                            chosen.append(name)
+                if shared_here:
+                    blocked.update(name for name, hint in members.items() if _book_id(name) in shared_here
+                                   and (kind == 'covers' or hint.lower() in ('.fb2', '.epub')))
                 if len(chosen) > MAX_SELECTED_IMAGES:
                     raise PackingError('Слишком много отдельных изображений в выбранной порции.')
                 if not chosen:
@@ -296,6 +304,7 @@ def prepare_external_images(source, members, workspace, seven_zip, *, profile='o
                     source_sha256=prepared.original_sha256, result_sha256=prepared.prepared_sha256,
                     input_bytes=prepared.input_bytes, output_bytes=prepared.output_bytes, images=records))
                 notify(dict(stage='external-archive-prepared', kind=kind, candidate=bool(candidate)))
+            result.blocked_members = sorted(blocked)
             if _witness(source, check) != source_witness or _dependencies(source, check) != result.dependencies:
                 raise PackingError('Книга или внешние изображения изменились во время подготовки.')
         return result

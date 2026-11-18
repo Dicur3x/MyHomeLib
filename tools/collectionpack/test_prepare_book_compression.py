@@ -77,6 +77,53 @@ class SelectedPreparationTests(unittest.TestCase):
     def prepare(self, source, members, **options):
         return prepare_selected_file(source, members, self.work, SEVEN, tools_root=TOOLS, **options)
 
+    def test_shared_flibrary_images_remain_eligible_until_all_owners_are_selected(self):
+        source = self.root / 'books.7z'
+        members = ['first/one.fb2', 'second/ONE.fb2', 'first/two.fb2', 'second/two.fb2',
+                   'first/three.txt', 'second/THREE.txt']
+        for name in members:
+            path = self.root / name
+            path.parent.mkdir(exist_ok=True)
+            path.write_bytes(b'<FictionBook><body/></FictionBook>' if path.suffix == '.fb2' else b'Plain text')
+        self.decoder.run(['a', '-t7z', '-mx=0', '-ms=off', '-mmt=1', '--', str(source), *members],
+                         cwd=self.root)
+        sidecar = self.root / 'images/books.zip'
+        sidecar.parent.mkdir()
+        with zipfile.ZipFile(sidecar, 'w') as pictures:
+            pictures.writestr('oNe/1', b'shared illustration')
+            pictures.writestr('unselected/1', b'untouched illustration')
+        covers = self.root / 'covers/books.zip'
+        covers.parent.mkdir()
+        with zipfile.ZipFile(covers, 'w') as images:
+            images.writestr('Three', b'shared cover')
+        initial = sha(source), sha(sidecar), sha(covers)
+        for selected in (members[::2], members):
+            with self.subTest(selected=selected):
+                work = self.root / f'pass-{len(selected)}' / 'work'
+                work.mkdir(parents=True)
+                template = dict(schema=1, kind='HomeLibre book compression', source=str(source),
+                                rows=[dict(member=name) for name in selected])
+                request = dict(source=str(source), workspace=str(work), seven_zip=str(SEVEN),
+                               members={name: Path(name).suffix for name in selected}, external_images=True,
+                               receipt_template=template)
+                report, _ = preparation.prepare_request(request)
+                receipt = report.get('receipt') or report['inspection_receipt']
+                books = {row['member']: row for row in report['books']}
+                checked = {row['member']: row['checked'] for row in receipt['payloads']}
+                partial = len(selected) != len(members)
+                blocked = [members[0], members[4]] if partial else []
+                self.assertEqual(checked, {name: name not in blocked for name in selected})
+                self.assertEqual({name: book['checked'] for name, book in books.items()}, checked)
+                external = report['external_images']
+                self.assertEqual(external['blocked_members'], sorted(blocked))
+                if partial:
+                    self.assertIn('Выберите', books[members[0]]['reason'])
+                    self.assertEqual(external['archives'], [])
+                else:
+                    self.assertEqual({a['kind']: [i['member'] for i in a['images']] for a in external['archives']},
+                                     {'covers': ['Three'], 'images': ['oNe/1']})
+                self.assertEqual((sha(source), sha(sidecar), sha(covers)), initial)
+
     def deep_image_folder(self):
         folder = self.root / 'Проверка изображений ё'
         while len(str(folder)) < 310:
