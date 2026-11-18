@@ -1,7 +1,7 @@
-﻿procedure TestPackedSourceReview;
+﻿procedure TestPackedSourceReview(LegacyOnly:Boolean=False);
   procedure Scenario(WithHistory:Boolean);
 var Folder,OriginalRoot,HeldRoot,PackedRoot,Incoming,BaseIndex,NextIndex:string;
-  Source,PackedCollection:IBookCollection; SourceID,PackedID,FirstID,SecondID:Integer;
+  Source,PackedCollection:IBookCollection; SourceID,PackedID,FirstID,SecondID,UntouchedID:Integer;
   Options:TCollectionPackingOptions; Snapshot:TCollectionPackingSnapshot;
   Profile:TLibraryUpdateSource; Dialog:TfrmLibraryUpdateSources;
   Catalog,Personal:TSQLiteDatabase; BeforeRows,BeforePersonal,BeforeINI:string;
@@ -24,6 +24,8 @@ var Folder,OriginalRoot,HeldRoot,PackedRoot,Incoming,BaseIndex,NextIndex:string;
       Z.Open(FileName,zmWrite);
       Z.Add(TEncoding.UTF8.GetBytes('AUTHOR;GENRE;TITLE;SERIES;SERNO;FILE;SIZE;LIBID;DEL;EXT;DATE;LANG'),'structure.info');
       Z.Add(TEncoding.UTF8.GetBytes(Row(1001)+Row(1002)),'books.inp');
+      if LegacyOnly and not NewBook then
+        Z.Add(TEncoding.UTF8.GetBytes(Row(1004)),'untouched.inp');
       if NewBook then Z.Add(TEncoding.UTF8.GetBytes(Row(1003)),'new.inp');
     finally Z.Free; end;
   end;
@@ -65,8 +67,12 @@ var Folder,OriginalRoot,HeldRoot,PackedRoot,Incoming,BaseIndex,NextIndex:string;
       finally Stream.Free; end;
       Require((Book.Rate=4) and (Book.Progress=37) and (PackedCollection.GetReview(Book.BookKey)='Личная заметка ё'),
         'Packed source review lost personal data');
-      Require(Catalog.QuerySingleInt('SELECT BookSize FROM HomeLibrePackingPublishers WHERE BookID=?',[FirstID])=123,
-        'Packed publisher snapshot lost the original nominal index size');
+      if LegacyOnly then
+        Require(Catalog.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE name=''HomeLibrePackingPublishers''')=0,
+          'Legacy preview wrote publisher metadata into the original catalogue')
+      else
+        Require(Catalog.QuerySingleInt('SELECT BookSize FROM HomeLibrePackingPublishers WHERE BookID=?',[FirstID])=123,
+          'Packed publisher snapshot lost the original nominal index size');
       if Deleted then Require(PackedCollection.ResolveBookID('1002',0)=0,'Packed review resurrected a deleted card');
       if WithHistory then Require(THashSHA2.GetHashStringFromFile(CacheInfo.CacheFile)=CacheHash,
         'Packed source review rewrote the authoritative pre-packing cache');
@@ -177,6 +183,16 @@ var Folder,OriginalRoot,HeldRoot,PackedRoot,Incoming,BaseIndex,NextIndex:string;
     ArrivalID:=Applied.ResolveBookID('1003',0);
     Require(ArrivalID>0,'Reviewed packed generation omitted the delivered new book');
     CheckBody(ArrivalID,'New reviewed body');
+    if LegacyOnly then
+    begin
+      Require(Applied.ResolveBookID('1004',0)=UntouchedID,'Legacy append removed a book outside the delivery');
+      CheckBody(UntouchedID,'Untouched legacy body');
+      Catalog:=TSQLiteDatabase.CreateReadOnly(Applied.GetProperty(PROP_DATAFILE));
+      try
+        Require(Catalog.QuerySingleInt('SELECT BookSize FROM HomeLibrePackingPublishers WHERE BookID=?',[UntouchedID])=123,
+          'Legacy append did not restore publisher metadata for a book outside the delivery');
+      finally Catalog.Free; end;
+    end;
 
     DeliverArchive('books.zip','1001.txt','Delivered replacement body 1001');
     NewID:=ApplyTo(NewID,True);
@@ -185,6 +201,11 @@ var Folder,OriginalRoot,HeldRoot,PackedRoot,Incoming,BaseIndex,NextIndex:string;
     Require(Applied.ResolveBookID('1003',0)=ArrivalID,'Pending delivery changed the previously delivered ID');
     CheckBody(FirstID,'Delivered replacement body 1001');
     CheckBody(ArrivalID,'New reviewed body');
+    if LegacyOnly then
+    begin
+      CheckBody(UntouchedID,'Untouched legacy body');
+      Writeln('PASS legacy packed INPX uses a trusted previous index and preserves untouched and deleted books');
+    end;
     Require(THashSHA2.GetHashStringFromFile(PreviousFile)=PreviousHash,'Publishing the new copy rewrote the original packed catalog');
     Writeln('PASS packed source profile applied separately and completed pending delivery full=',Ord(Full));
     Flush(Output);
@@ -203,6 +224,14 @@ begin
     Zip.Add(TEncoding.UTF8.GetBytes('Original body 1001'),'1001.txt');
     Zip.Add(TEncoding.UTF8.GetBytes('Original body 1002'),'1002.txt');
   finally Zip.Free; end;
+  if LegacyOnly then
+  begin
+    Zip:=TZipFile.Create;
+    try
+      Zip.Open(TPath.Combine(OriginalRoot,'untouched.zip'),zmWrite);
+      Zip.Add(TEncoding.UTF8.GetBytes('Untouched legacy body'),'1004.txt');
+    finally Zip.Free; end;
+  end;
   SourceID:=SystemDB.CreateCollection('Packed source review originals '+IntToStr(Ord(WithHistory)),OriginalRoot,Folder+'source.hlc2',
     CT_EXTERNAL_LOCAL_FB,Settings.SystemFileName[sfGenresFB2]);
   Worker:=TManualUpdateThread.Create(SourceID,BaseIndex,False,gtFb2);
@@ -263,6 +292,16 @@ begin
   try Snapshot.Prepare; Snapshot.Pack; Snapshot.ApplyPrepared; PackedID:=Snapshot.RegisterNew(SystemDB);
   finally Snapshot.Free; end;
   PackedCollection:=SystemDB.GetCollection(PackedID);
+  if LegacyOnly then
+  begin
+    UntouchedID:=PackedCollection.ResolveBookID('1004',0);
+    Require(UntouchedID>0,'Legacy fixture is missing its untouched baseline card');
+    Catalog:=TSQLiteDatabase.Create(PackedCollection.GetProperty(PROP_DATAFILE));
+    try
+      Catalog.ExecSQL('DROP TABLE HomeLibrePackingPublishers');
+    finally Catalog.Free; end;
+    PackedCollection:=SystemDB.GetCollection(PackedID,True);
+  end;
   Require(RenameFile(OriginalRoot,HeldRoot),'Cannot hide owned original archive folder');
   try
     for var Deleted:=False to True do
@@ -276,12 +315,13 @@ begin
         try Review(Deleted,True,True); finally Index(NextIndex,True); end;
       finally TFile.Delete(TPath.Combine(Incoming,'books.zip')); end;
     end;
-    ApplyPackedProfile(WithHistory);
+    ApplyPackedProfile(WithHistory and not LegacyOnly);
   finally Require(RenameFile(HeldRoot,OriginalRoot),'Cannot restore owned original folder'); end;
 end;
 
 begin
-  Scenario(False); Scenario(True);
+  if not LegacyOnly then Scenario(False);
+  Scenario(True);
 end;
 
 procedure TestPackedBoundSourceApply;

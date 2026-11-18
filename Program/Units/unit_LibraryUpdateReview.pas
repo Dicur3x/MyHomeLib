@@ -32,7 +32,8 @@ type
     FRecoveryError: string;
     FRemovedCount, FMissingCount, FNewCards, FUpdateCards, FPreviousLastID, FUnlistedCount: Integer;
     FLastSpaceCheck: UInt64;
-    FPacked: Boolean;
+    FPacked, FLegacyPackedBaseline: Boolean;
+    FPreviousRoot: string;
     FPublishedCollectionID: Integer;
     procedure PreparePackedApplication(PreferNewRoot: Boolean; const Check: TProc;
       const Progress: TLibraryReviewProgress);
@@ -222,7 +223,11 @@ begin
   begin Previous:=OpenCatalogSnapshot(FSourceInfo,FSourceInfo.CacheFile,SystemData,FPrepared.Folder); FPreviousIndex:=True; end;
   if (FSource.CatalogSourceID<>'') and not FSourceInfo.IsINPX then
   begin Previous:=OpenCatalogSource(FSourceInfo,SystemData); FPreviousIndex:=True; end;
-  if FPreviousIndex then FPreviousFile:=VarToStr(Previous.GetProperty(PROP_DATAFILE));
+  if FPreviousIndex then
+  begin
+    FPreviousFile:=VarToStr(Previous.GetProperty(PROP_DATAFILE));
+    FPreviousRoot:=Previous.CollectionRoot;
+  end;
   SnapshotFile:=TPath.Combine(FPrepared.Folder,'review-'+TGUID.NewGuid.ToString+'.hlc2');
   if FileExists(SnapshotFile) then raise EWriteError.Create('Рабочий файл проверки уже существует.');
   FDatabaseFile:=SnapshotFile;
@@ -352,7 +357,12 @@ var DB: TSQLiteDatabase; Insert, Query: TSQLiteQuery; Iterator: IPublisherSeries
   Availability: TDictionary<string,Boolean>;
   PackedProjected,PackedMapped:Integer;
   PackedBatch,ProjectPackedPrevious:Boolean;
-  BoundPackedCopy:TSQLiteQuery;
+  BoundPackedCopy,LegacyInput:TSQLiteQuery;
+  function LegacyArtifact(const Path, Name: string; const Item: TBookRecord): string;
+  begin
+    Result:=THashSHA2.GetHashString(TPath.GetFullPath(Path)+#1+Name+#1+Item.FileExt+#1+
+      Item.LibID+#1+FloatToStr(Item.Date,TFormatSettings.Invariant));
+  end;
   procedure RecoverPublisherLocations;
   var Missing:TSQLiteQuery; Needed:Boolean; Lease:TFileStream;
     Hash:THashSHA2; Bytes:TBytes; Count:Integer;
@@ -527,6 +537,19 @@ var DB: TSQLiteDatabase; Insert, Query: TSQLiteQuery; Iterator: IPublisherSeries
           Insert.SetParam(11,IntToStr(Publisher.Book.Size)+#1+FloatToStr(Publisher.Book.Date,TFormatSettings.Invariant))
         else
           Insert.SetParam(11,IntToStr(Book.Size)+#1+FloatToStr(Book.Date,TFormatSettings.Invariant));
+        if Assigned(LegacyInput) then
+        begin
+          LegacyInput.Reset;
+          LegacyInput.SetParam(0,LegacyArtifact(Book.GetBookFileName(Container),Book.FileName,Book));
+          LegacyInput.SetParam(1,Book.BookKey.BookID);
+          LegacyInput.SetParam(2,Key);
+          LegacyInput.SetParam(3,Book.Folder); LegacyInput.SetParam(4,Book.FileName);
+          LegacyInput.SetParam(5,Book.FileExt); LegacyInput.SetParam(6,Book.InsideNo);
+          LegacyInput.SetParam(7,Book.Size); LegacyInput.SetParam(8,Book.Date);
+          LegacyInput.SetParam(9,Book.Title); LegacyInput.SetParam(10,Book.Lang);
+          LegacyInput.SetParam(11,bpIsDeleted in Book.BookProps); LegacyInput.SetParam(12,Book.LibID);
+          LegacyInput.ExecSQL;
+        end;
       end
       else
       begin
@@ -547,24 +570,52 @@ var DB: TSQLiteDatabase; Insert, Query: TSQLiteQuery; Iterator: IPublisherSeries
   end;
   procedure MapPackedLocations;
   var Live:IPublisherSeriesIndexIterator; Item:TBookRecord; Publisher:TPackingPublisherState;
-    Put:TSQLiteQuery; Unused,PublisherRoot,SpaceNamespace,PhysicalContainer:string;
+    Put,Origin,Matched:TSQLiteQuery; Unused,PublisherRoot,SpaceNamespace,PhysicalContainer,Key:string;
   begin
     if not Assigned(PackedDB) then Exit;
     SpaceNamespace:=VarToStr(Target.GetProperty(PROP_SOURCE_LIBRARY));
     if SpaceNamespace='' then SpaceNamespace:=FSourceInfo.LibraryNamespace;
     Put:=DB.NewQuery('INSERT INTO ReviewPackedLocations VALUES(?,?,?,?,?,?,?,?,?,?,?)');
+    Origin:=nil; Matched:=nil;
     try
+      if FLegacyPackedBaseline then
+      begin
+        Origin:=PackedDB.NewQuery('SELECT Source,OriginalFileName FROM HomeLibPackingOrigins '+
+          'WHERE Folder=? AND FileName=? AND Ext=?');
+        Matched:=DB.NewQuery('SELECT p.Key,p.State,p.Copies FROM ReviewLegacyArtifacts a JOIN ReviewPrevious p '+
+          'ON p.Key=a.Key WHERE a.Artifact=? LIMIT 2');
+      end;
       Live:=Target.GetPublisherSeriesIndexIterator;
       while Live.Next(Item,Unused) do
       begin
         Check; CheckSpace;
         if IsLocalBookID(Item.LibID) then Continue;
-        if not ReadPackingPublisher(PackedDB,Item.BookKey.BookID,Publisher) then Continue;
-        if Publisher.Book.LibID<>Item.LibID then
-          raise EReadError.Create('Исходные сведения упакованной книги больше не соответствуют её идентификатору: '+Item.Title);
-        PublisherRoot:=Publisher.Root; if PublisherRoot='' then PublisherRoot:=FSourceInfo.Root;
+        if Assigned(Origin) then
+        begin
+          Origin.Reset; Origin.SetParam(0,Item.Folder); Origin.SetParam(1,Item.FileName);
+          Origin.SetParam(2,Item.FileExt); Origin.Open;
+          if Origin.Eof then
+            raise EReadError.Create('Нет исходного пути упакованной книги: '+Item.Title);
+          Matched.Reset;
+          Matched.SetParam(0,LegacyArtifact(Origin.FieldAsString(0),Origin.FieldAsString(1),Item)); Matched.Open;
+          if Matched.Eof or (Matched.FieldAsInt(2)<>1) then
+            raise EReadError.Create('Сохранённый прежний индекс не подтверждает исходный файл упакованной книги: '+Item.Title);
+          Key:=Matched.FieldAsString(0);
+          Publisher.PendingPayload:=(Matched.FieldAsString(1)='missing') or (Matched.FieldAsString(1)='missing-retained');
+          Matched.Next;
+          if not Matched.Eof then
+            raise EReadError.Create('Несколько записей прежнего индекса соответствуют упакованной книге: '+Item.Title);
+        end
+        else
+        begin
+          if not ReadPackingPublisher(PackedDB,Item.BookKey.BookID,Publisher) then Continue;
+          if Publisher.Book.LibID<>Item.LibID then
+            raise EReadError.Create('Исходные сведения упакованной книги больше не соответствуют её идентификатору: '+Item.Title);
+          PublisherRoot:=Publisher.Root; if PublisherRoot='' then PublisherRoot:=FSourceInfo.Root;
+          Key:=ReviewBookKey(Publisher.Book,SpaceNamespace,PublisherRoot);
+        end;
         PhysicalContainer:=ReviewContainer(Item,'',Containers);
-        Put.Reset; Put.SetParam(0,ReviewBookKey(Publisher.Book,SpaceNamespace,PublisherRoot));
+        Put.Reset; Put.SetParam(0,Key);
         Put.SetParam(1,Item.BookKey.BookID); Put.SetParam(2,Item.CollectionRoot);
         Put.SetParam(3,Item.Folder); Put.SetParam(4,Item.FileName); Put.SetParam(5,Item.FileExt);
         Put.SetParam(6,Item.InsideNo); Put.SetParam(7,Item.Size);
@@ -574,7 +625,7 @@ var DB: TSQLiteDatabase; Insert, Query: TSQLiteQuery; Iterator: IPublisherSeries
         if Assigned(Progress) and ((PackedMapped mod 1000=0) or (PackedMapped=Live.RecordCount)) then
           Progress('Сопоставление готовых упакованных файлов',PackedMapped,Live.RecordCount);
       end;
-    finally Live:=nil; Put.Free; end;
+    finally Live:=nil; Matched.Free; Origin.Free; Put.Free; end;
   end;
   procedure LoadPackedExclusions;
   var Removed,Save:TSQLiteQuery; Publisher:TPackingPublisherState; PublisherRoot:string;
@@ -611,7 +662,7 @@ begin
   Containers:=TDictionary<string,string>.Create; Availability:=TDictionary<string,Boolean>.Create;
   StateDB:=nil; PackedDB:=nil; PackedProjected:=0; PackedMapped:=0; PackedBatch:=False; ProjectPackedPrevious:=False;
   StateQuery:=nil; SourceKeyQuery:=nil; PublisherQuery:=nil; RecoveredQuery:=nil; ReviewKeyQuery:=nil;
-  BoundPackedCopy:=nil;
+  BoundPackedCopy:=nil; LegacyInput:=nil; FLegacyPackedBaseline:=False;
   try
     if FPreviousIndex then
     begin
@@ -640,7 +691,19 @@ begin
     else if FPacked then
     begin
       PackedDB:=OpenWorkDatabase(FTargetFile,True);
-      if PackedDB.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE type=''table'' AND name=''HomeLibrePackingPublishers''')=0 then FreeAndNil(PackedDB)
+      if PackedDB.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE type=''table'' AND name=''HomeLibrePackingPublishers''')=0 then
+      begin
+        if not FPreviousIndex or
+          (PackedDB.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE type=''table'' AND name=''HomeLibPackingOrigins''')=0) then
+          raise EReadError.Create('Для сравнения этой упакованной коллекции нужны исходные пути книг и сохранённый прежний индекс. '+
+            'Можно воспользоваться командой обновления сжатой коллекции из INPX в меню «Коллекция».');
+        FLegacyPackedBaseline:=True;
+        DB.ExecSQL('CREATE TABLE ReviewLegacyArtifacts(Artifact TEXT NOT NULL,BookID INTEGER PRIMARY KEY,Key TEXT NOT NULL,'+
+          'Folder TEXT,FileName TEXT,Ext TEXT,InsideNo INTEGER,BookSize INTEGER,UpdateDate TEXT,Title TEXT,Lang TEXT,'+
+          'IsDeleted INTEGER,LibID TEXT)');
+        DB.ExecSQL('CREATE INDEX ReviewLegacyArtifact ON ReviewLegacyArtifacts(Artifact)');
+        LegacyInput:=DB.NewQuery('INSERT INTO ReviewLegacyArtifacts VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)');
+      end
       else
       begin
         PackedDB.BeginQueryBatch; PackedBatch:=True;
@@ -679,10 +742,17 @@ begin
     DB.ExecSQL('CREATE INDEX ReviewRowsKey ON ReviewRows(Key)');
     DB.Start;
     try
-      if not Assigned(BoundPackedCopy) then MapPackedLocations;
       Insert:=DB.NewQuery('INSERT INTO ReviewPrevious(Key,Stamp,Location,SourceKey,Physical,State,BookID,Container,InsideNo,LibID,PackedPending,PayloadStamp,PackedCopy) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) '+
         'ON CONFLICT(Key) DO UPDATE SET Copies=Copies+1'); Load(Previous,True); FreeAndNil(Insert);
-      if not Assigned(BoundPackedCopy) then LoadPackedExclusions;
+      if not Assigned(BoundPackedCopy) then
+      begin
+        MapPackedLocations;
+        if FLegacyPackedBaseline then
+          DB.ExecSQL('INSERT OR IGNORE INTO ReviewExcluded SELECT p.Key FROM ReviewPrevious p '+
+            'WHERE p.State=''excluded'' OR (p.State<>''missing'' AND NOT EXISTS '+
+            '(SELECT 1 FROM ReviewPackedLocations l WHERE l.Key=p.Key))')
+        else LoadPackedExclusions;
+      end;
       Insert:=DB.NewQuery('INSERT INTO ReviewRows VALUES(?,?,?,?,?,?,?,?,?)'); Load(FSnapshot,False); FreeAndNil(Insert);
       if Assigned(BoundPackedCopy) then
         DB.ExecSQL('UPDATE ReviewRows AS r SET Physical=(SELECT p.Physical FROM ReviewPrevious p WHERE p.Key=r.Key) '+
@@ -754,6 +824,8 @@ begin
       FSource.BooksRoot+'. Само отсутствие прежнего диска не делает старые записи новыми.';
     if Assigned(BoundPackedCopy) then FSummary:=FSummary+sLineBreak+
       'Прежние файлы проверяются по сохранённым связям выбранного источника.'
+    else if FLegacyPackedBaseline then FSummary:=FSummary+sLineBreak+
+      Format('В упакованной копии сопоставлено с сохранённым прежним индексом: %d записей.',[PackedMapped])
     else if Assigned(PackedDB) then FSummary:=FSummary+sLineBreak+
       Format('Сопоставлено с текущими файлами упакованной копии: %d записей. '+
         'Исходные сведения самой копии использованы для %d записей. '+
@@ -774,7 +846,7 @@ begin
       end;
     end;
   finally Iterator:=nil; ReviewKeyQuery.Free; RecoveredQuery.Free; PublisherQuery.Free; SourceKeyQuery.Free; StateQuery.Free; StateDB.Free;
-    BoundPackedCopy.Free;
+    BoundPackedCopy.Free; LegacyInput.Free;
     if PackedBatch then PackedDB.EndQueryBatch; PackedDB.Free;
     Availability.Free; Containers.Free; Query.Free; Insert.Free; DB.Free; end;
 end;
@@ -865,8 +937,6 @@ var
   Eligible, NeedPayload, PackPayload: Boolean;
   State, Reason, CheckedFile: string;
 begin
-  if FRevisionDB.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE name=''HomeLibrePackingPublishers'' AND type=''table''')=0 then
-    raise EReadError.Create('В этой упакованной копии отсутствуют исходные сведения издателя. Используйте обновление из INPX в меню коллекции.');
   if FActionDB.QuerySingleInt('SELECT count(*) FROM (SELECT Key FROM ReviewPackedLocations GROUP BY Key HAVING count(*)>1)')>0 then
     raise EReadError.Create('Несколько упакованных карточек соответствуют одной записи издателя.');
   if FActionDB.QuerySingleInt('SELECT count(*) FROM (SELECT Key FROM ReviewRows GROUP BY Key HAVING count(*)>1)')>0 then
@@ -1715,6 +1785,30 @@ var
   Book, Before, Incoming: TBookRecord;
   ID, PreviousLastID, Done: Integer;
   ReservedID: Int64;
+  procedure SeedLegacyPublishers;
+  var Archived:TSQLiteQuery; Prior:TBookRecord;
+  begin
+    Archived:=FActionDB.NewQuery('SELECT l.BookID,a.Folder,a.FileName,a.Ext,a.InsideNo,a.BookSize,'+
+      'a.UpdateDate,a.Title,a.Lang,a.IsDeleted,a.LibID,l.PendingPayload FROM ReviewPackedLocations l '+
+      'JOIN ReviewPrevious p ON p.Key=l.Key JOIN ReviewLegacyArtifacts a ON a.BookID=p.BookID ORDER BY l.BookID');
+    try
+      Archived.Open;
+      while not Archived.Eof do
+      begin
+        Check;
+        Prior:=Default(TBookRecord);
+        Prior.BookKey:=CreateBookKey(Archived.FieldAsInt(0),Info.ID);
+        Prior.Folder:=Archived.FieldAsString(1); Prior.FileName:=Archived.FieldAsString(2);
+        Prior.FileExt:=Archived.FieldAsString(3); Prior.InsideNo:=Archived.FieldAsInt(4);
+        Prior.Size:=Archived.FieldAsInt(5); Prior.Date:=Archived.FieldAsDateTime(6);
+        Prior.Title:=Archived.FieldAsString(7); Prior.Lang:=Archived.FieldAsString(8);
+        if Archived.FieldAsBoolean(9) then Include(Prior.BookProps,bpIsDeleted);
+        Prior.LibID:=Archived.FieldAsString(10); Prior.CollectionRoot:=FPreviousRoot;
+        Publisher.StorePackingPublisherMetadata(Prior,FPreviousRoot,not Archived.FieldAsBoolean(11));
+        Archived.Next;
+      end;
+    finally Archived.Free; end;
+  end;
 begin
   // Collection methods that also touch user cards receive only the private
   // personal database. They cannot remove cards or groups from the original.
@@ -1774,6 +1868,7 @@ begin
       PreviousLastID:=Catalog.StartCatalogUpdateTracking(False);
       IDWriter.ReserveReviewedBookIDs(Integer(ReservedID));
       Catalog.StartBatchUpdate;
+      if FLegacyPackedBaseline then SeedLegacyPublishers;
       Rows:=FActionDB.NewQuery('SELECT BookID,TargetID,PackPayload,State,Folder,InsideNo FROM ApplyActions '+
         'WHERE Eligible<>0 ORDER BY BookID');
       Rows.Open; Done:=0;
@@ -1833,11 +1928,14 @@ begin
   end;
   // An omitted publisher row may return in a later full edition. Remove its
   // raw record from this private copy so its absence is not a user exclusion.
-  Data:=OpenWorkDatabase(CatalogFile);
-  try
-    Data.ExecSQL('ATTACH DATABASE ? AS review',[FAnalysisFile]);
-    Data.ExecSQL('DELETE FROM HomeLibrePackingPublishers WHERE BookID IN (SELECT BookID FROM review.PackedOmitted)');
-  finally Data.Free; end;
+  if FUnlistedCount>0 then
+  begin
+    Data:=OpenWorkDatabase(CatalogFile);
+    try
+      Data.ExecSQL('ATTACH DATABASE ? AS review',[FAnalysisFile]);
+      Data.ExecSQL('DELETE FROM HomeLibrePackingPublishers WHERE BookID IN (SELECT BookID FROM review.PackedOmitted)');
+    finally Data.Free; end;
+  end;
 end;
 
 procedure TLibraryUpdateReview.ApplyPacked(const Target: IBookCollection; const SystemData: ISystemData;
