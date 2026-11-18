@@ -138,6 +138,7 @@ type
     InspectionDeadline, Started: UInt64;
     LastStage: string;
     OptionsSeen, ReviewSeen, ResultSeen, DecisionSent, ComparisonSeen: Boolean;
+    TransferGuardSeen:Boolean;
     procedure Tick(Sender: TObject);
   end;
 
@@ -269,6 +270,13 @@ begin
         end;
         Require(THashSHA2.GetHashStringFromFile(Source)=OriginalSHA,'Review changed the original before approval');
         Require(Length(TDirectory.GetFiles(BackupFolder,'*.zip'))=0,'Skipped review already published a backup');
+        if GetEnvironmentVariable('HLRU_TEST_TRANSFER_BUSY_JOBS')='1' then
+        begin
+          Timer.Enabled:=False;
+          try VerifyTransferJobGuard(False,'active-compression',Source,'Сначала завершите сжатие книг.');
+          finally Timer.Enabled:=True; end;
+          TransferGuardSeen:=True;
+        end;
         // Browsing remains available while the background operation waits.
         ShowPage(PAGE_AUTHORS);
         Application.ProcessMessages;
@@ -618,6 +626,11 @@ begin
       Options.ReviewResults and Options.BackupOriginals and (Options.BackupFolder=Driver.BackupFolder),
       'Normal catalogue command lost its own selected compression choices');
     Require(Length(TBookCompressionJob.Pending(CompressionQueueRoot(Options)))=0,'Completed GUI action left a pending job');
+    if GetEnvironmentVariable('HLRU_TEST_TRANSFER_BUSY_JOBS')='1' then
+    begin
+      Require(Driver.TransferGuardSeen,'Actual compression did not exercise its transfer guard');
+      VerifyTransferJobGuard(True,'completed-compression',Source);
+    end;
     if Driver.InspectWorkPicker then
     begin
       Require(Options.WorkRoot=Driver.WorkPickerExpected,'Compression ignored the folder selected through Windows');

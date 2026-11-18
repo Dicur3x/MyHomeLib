@@ -6698,6 +6698,7 @@ begin
       else if ParamStr(1) = 'book-deletion' then TestBookDeletionSafety
       else if ParamStr(1) = 'book-deletion-lifecycle' then TestBookDeletionSafety(bdsLifecycle)
       else if ParamStr(1) = 'book-deletion-filtered' then TestBookDeletionSafety(bdsFiltered)
+      else if ParamStr(1) = 'transfer-busy-deletion' then TestBookDeletionSafety(bdsTransferGuard)
       else if ParamStr(1) = 'flibrary-deletion' then TestBookDeletionSafety(bdsFLibrary)
       else if ParamStr(1) = 'flibrary-real-deletion' then TestBookDeletionSafety(bdsFLibraryReal)
       else if ParamStr(1) = 'fb2-encoding' then TestFB2Encoding
@@ -6904,6 +6905,7 @@ begin
         TestMainSmallFB2Opening
       else if ParamStr(1) = 'catalog-sources-workflow' then TestCatalogSourcesWorkflow
       else if ParamStr(1) = 'transfer-busy-readers' then TestTransferBusyReaders(One,FirstBook)
+      else if ParamStr(1) = 'transfer-download-lifetime' then TestTransferDownloadLifetime(One)
       else if ParamStr(1) = 'catalog-merge-outcome' then TestCatalogCommittedOutcome
       else if ParamStr(1) = 'compact-book-views' then TestCompactBookViews
       else if ParamStr(1) = 'update-repair' then TestUpdateRepair

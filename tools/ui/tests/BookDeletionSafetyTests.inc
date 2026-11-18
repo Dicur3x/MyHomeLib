@@ -77,7 +77,7 @@ begin
   if Confirm.Visible then Confirm.Click;
 end;
 
-type TBookDeletionSafetyScenario = (bdsGeneral, bdsFLibrary, bdsLifecycle, bdsFLibraryReal, bdsFiltered);
+type TBookDeletionSafetyScenario = (bdsGeneral, bdsFLibrary, bdsLifecycle, bdsFLibraryReal, bdsFiltered, bdsTransferGuard);
 
 procedure TestBookDeletionSafety(Scenario: TBookDeletionSafetyScenario = bdsGeneral);
 var PrivateID, OnlineID, ExternalID, RawID, ArchiveID, OtherID, PrivateFBD, FailID, GoodID,
@@ -895,6 +895,26 @@ begin
       bdsFLibraryReal: begin DeleteRealFLibraryDuplicate; Exit; end;
       bdsLifecycle: begin StopOrCloseDeletion(False); StopOrCloseDeletion(True); Exit; end;
       bdsFiltered: begin FilteredArchives; DeletionLayouts; Exit; end;
+      bdsTransferGuard:
+        begin
+          Settings.DeleteFiles:=True; Sources('transfer-busy'); Rows([ArchiveID]);
+          VerifyTransferJobGuard(True,'before-deletion',RawPath);
+          var Checked:=False;
+          Execute(True,False,1,1,0,nil,20000,
+            procedure(Progress:TForm)
+            begin
+              // The live archive is held for its pending write. Check the
+              // unrelated loose input here; ProtectedArchive verifies the
+              // archive's retained member after its authorised deletion.
+              VerifyTransferJobGuard(False,'active-deletion',RawPath); Checked:=True;
+            end,1);
+          Require(Checked,'Actual archive deletion did not exercise its transfer guard');
+          Require(not Exists(ArchiveID),'Confirmed archive deletion kept its selected card');
+          ProtectedArchive(True);
+          VerifyTransferJobGuard(True,'completed-deletion',RawPath);
+          Writeln('PASS actual archive deletion resumes after transfer refusal and preserves its neighbour');
+          Exit;
+        end;
     end;
 
     Trace('delete safety cancellation');

@@ -1261,6 +1261,7 @@ type
     procedure SetHeaderPopUp;
     procedure DownloadBooks(CurrentBookOnly: boolean = False);
     function CheckActiveDownloads: Boolean;
+    function DownloadManagerBusy: Boolean;
     procedure PurgeDownloadsForCollection(const DatabaseID: Integer);
     procedure UpdateDownloadCount;
 
@@ -4680,7 +4681,7 @@ begin
   begin
     MessageDlg('Сначала завершите текущее удаление книг.',mtInformation,[mbOK],0); Abort;
   end;
-  if Assigned(FDMThread) or ReaderPreparationsPending(Self) then
+  if DownloadManagerBusy or ReaderPreparationsPending(Self) then
   begin
     MessageDlg('Дождитесь завершения загрузки и подготовки книг перед объединением.',mtInformation,[mbOK],0); Abort;
   end;
@@ -5421,11 +5422,18 @@ begin
   except on E:Exception do FTransferRegistryError:=E.Message; end;
 end;
 
+function TfrmMain.DownloadManagerBusy:Boolean;
+begin
+  // The queue manager stays allocated for restart after Execute completes.
+  // Keep blocking through its actual thread cleanup, not through object retention.
+  Result:=Assigned(FDMThread) and (WaitForSingleObject(FDMThread.Handle,0)<>WAIT_OBJECT_0);
+end;
+
 function TfrmMain.TransferApplicationReady:Boolean;
 begin
   Result:=Assigned(FCollection) and not FFormBusy and not FStartupLoading and not FBookListLoading and
     not Assigned(FBookCompressionOperation) and not Assigned(FBookDeletionOperation) and
-    not FBookDeletionNeedsRecovery and not FCompressionNeedsRecovery and not Assigned(FDMThread) and
+    not FBookDeletionNeedsRecovery and not FCompressionNeedsRecovery and not DownloadManagerBusy and
     not FPendingReaderSaved and not ReaderPreparationsPending(Self) and not ReaderSessionRunnersPending(Self);
   if Result then
     for var I:=0 to Screen.FormCount-1 do if Screen.Forms[I] is TfrmReaderHost then Exit(False);
