@@ -188,6 +188,15 @@ begin
     Report:=Dialog.FindComponent('mmBackupPreview') as TMemo;
     Require(Button.Enabled and NameEdit.Enabled and RootEdit.Enabled and
       (Pos('Записей книг: 1',Report.Text)>0),'Restore UI preview did not publish the validated snapshot');
+    NameEdit.Text:='Моя восстановленная коллекция'; RootEdit.Text:=MovedRoot;
+    var ReadyReport:=Report.Text;
+    var Tool:=Dialog.FindComponent('BackupContextGuide') as TContextToolGuide;
+    Tool.HelpButton.Click; Application.ProcessMessages;
+    (Tool.FindComponent('ToolGuidePopupcollectionbackup') as TForm).Close;
+    Application.ProcessMessages; Dialog.OnActivate(Dialog);
+    Require(Button.Enabled and (NameEdit.Text='Моя восстановленная коллекция') and
+      (RootEdit.Text=MovedRoot) and (Report.Text=ReadyReport),
+      'Returning from the backup guide discarded the verified preview or edited destination');
     for var PPI in [96,144,192,96] do
     begin
       Dialog.ScaleForPPI(PPI); Application.ProcessMessages;
@@ -207,6 +216,9 @@ begin
       Writeln('PROFILE snapshot return dpi=',Dialog.CurrentPPI,' client=',Dialog.ClientWidth,'x',Dialog.ClientHeight);
       Dialog.Hide; Dialog.ShowModal;
     end;
+    (Dialog.FindComponent('btnRefreshBackups') as TButton).Click;
+    Require(not Button.Enabled and (NameEdit.Text='') and (RootEdit.Text=''),
+      'Explicit backup refresh kept the previous verification');
   finally Dialog.Free; end;
   Writeln('PASS snapshot restore creates an isolated catalog, preserves raw cards and group notes, rolls back failures and cancellation');
 end;

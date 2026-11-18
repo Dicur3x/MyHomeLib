@@ -123,6 +123,17 @@ begin
     Require(TButton(Dialog.FindComponent('btnApplyUpdateSource')).Enabled,'Reviewed source does not offer application');
     Require(TButton(Dialog.FindComponent('btnCopyNeededUpdateArchives')).Enabled,'Missing archive names cannot be copied');
     Require(Assigned(Dialog.Prepared),'Source check did not retain its frozen index');
+    Dialog.Show; Application.ProcessMessages;
+    var ReportLabel:=Dialog.FindComponent('lblUpdateSourceReport') as TLabel;
+    var ReadyReport:=ReportLabel.Caption;
+    var Guide:=Dialog.FindComponent('UpdateSourcesContextGuide') as TContextToolGuide;
+    Guide.HelpButton.Click; Application.ProcessMessages;
+    (Guide.FindComponent('ToolGuidePopuplibraryupdatesources') as TForm).Close;
+    Application.ProcessMessages;
+    Require((ReportLabel.Caption=ReadyReport) and Assigned(Dialog.Review) and
+      Dialog.Review.Ready and TButton(Dialog.FindComponent('btnCopyNeededUpdateArchives')).Enabled,
+      'Update help replaced a completed report or invalidated its archive list');
+    Dialog.Hide;
     Require(Dialog.Prepared.SHA256=OriginalHash,'Source check changed the index bytes');
     Require(Assigned(Dialog.Review) and Dialog.Review.Ready and Dialog.Review.PreviousIndex,
       'Actual index review did not use the saved source index');

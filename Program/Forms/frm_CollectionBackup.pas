@@ -2,12 +2,14 @@
 
 interface
 
-uses System.Classes, System.Generics.Collections, Vcl.Forms, Vcl.StdCtrls, unit_CollectionBackup, frm_CatalogSources;
+uses System.Classes, System.Generics.Collections, Vcl.Forms, Vcl.StdCtrls, unit_CollectionBackup,
+  frm_CatalogSources, unit_ContextToolGuide;
 
 type
   TfrmCollectionBackup = class(TSourceDialogForm)
   private
     FPlan: TCollectionBackupPlan;
+    FToolGuide: TContextToolGuide;
     FList: TListBox;
     FFolderPaths: TStringList;
     FFolderDates: TList<TDateTime>;
@@ -25,6 +27,8 @@ type
     procedure RemoveFolders(Sender: TObject);
   protected
     procedure Resize; override;
+    procedure DoShow; override;
+    procedure DoHide; override;
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
@@ -131,7 +135,8 @@ begin
   FFolderPaths:=TStringList.Create; FFolderDates:=TList<TDateTime>.Create;
   Top:=TPanel.Create(Self); Top.Parent:=Self; Top.Height:=242; Top.Align:=alTop; Top.BevelOuter:=bvNone;
   LabelText:=TLabel.Create(Self); LabelText.Parent:=Top; LabelText.AutoSize:=False;
-  LabelText.SetBounds(12,10,736,42); LabelText.Anchors:=[akLeft,akTop,akRight]; LabelText.WordWrap:=True;
+  LabelText.Name:='BackupIntro';
+  LabelText.SetBounds(12,10,696,42); LabelText.Anchors:=[akLeft,akTop,akRight]; LabelText.WordWrap:=True;
   LabelText.Caption:='Копия будет восстановлена в этой программе и открыта. Исходная коллекция останется в меню «Коллекция», чтобы к ней можно было вернуться.';
   FList:=TListBox.Create(Self); FList.Parent:=Top; FList.Name:='lbCollectionBackups';
   FList.MultiSelect:=True; FList.ExtendedSelect:=True;
@@ -162,7 +167,26 @@ begin
   FReport.Name:='mmBackupPreview'; FReport.ReadOnly:=True; FReport.WordWrap:=True; FReport.ScrollBars:=ssVertical;
   FReport.AlignWithMargins:=True; FReport.Margins.Left:=12; FReport.Margins.Right:=12;
   FReport.Lines.Text:='Проверка и копирование выполняются по вашей команде, с возможностью отмены. Для отдельного каталога потребуется дополнительное место на диске.';
+  FToolGuide:=TContextToolGuide.CreateForTool(Self,Top,'collection-backup','Как восстановить коллекцию',
+    'Из копии HomeLibre создаст отдельный каталог. Файлы книг будут читаться из указанной вами папки.',
+    'Выберите копию по дате и нажмите «Проверить копию». Для копии на другом диске нажмите «Другая папка…» и выберите restore-paths.txt.'+sLineBreak+
+    'Проверьте число книг и требуемое место. Введите новое название и укажите папку, где сейчас лежат книги и архивы.'+sLineBreak+
+    'Нажмите «Восстановить и открыть в HomeLibre». Обе коллекции будут доступны в меню «Коллекция».',
+    110,'backups');
+  FToolGuide.Name:='BackupContextGuide';
   RefreshFolders(nil); OnActivate:=RefreshFolders; ScaleForPPI(Screen.PixelsPerInch); Resize;
+end;
+
+procedure TfrmCollectionBackup.DoShow;
+begin
+  inherited;
+  FToolGuide.FirstUse;
+end;
+
+procedure TfrmCollectionBackup.DoHide;
+begin
+  if Assigned(FToolGuide) then FToolGuide.Hide;
+  inherited;
 end;
 
 procedure TfrmCollectionBackup.Resize;
@@ -207,6 +231,12 @@ begin
   else FReport.Lines.Text:='В стандартной папке нет резервных копий. Можно выбрать restore-paths.txt в другой папке.';
 end;
 
+function BackupFilesPresent(const Folder: string): Boolean;
+begin
+  Result:=FileExists(TPath.Combine(Folder,'destination.hlc2')) and
+    FileExists(TPath.Combine(Folder,'system.hlc2')) and FileExists(TPath.Combine(Folder,'restore-paths.txt'));
+end;
+
 procedure TfrmCollectionBackup.AddFolder(const Folder: string);
 var I: Integer; Info: TCollectionBackupInfo; Date: TDateTime;
 begin
@@ -220,8 +250,7 @@ begin
     while (I<FFolderDates.Count) and (FFolderDates[I]>=Date) do Inc(I);
     FFolderPaths.Insert(I,TPath.GetFullPath(Folder)); FFolderDates.Insert(I,Date);
     var Text:=CollectionBackupDateText(Info,False)+' — '+CollectionBackupOperationText(Info.Operation);
-    if not (FileExists(TPath.Combine(Folder,'destination.hlc2')) and FileExists(TPath.Combine(Folder,'system.hlc2')) and
-      FileExists(TPath.Combine(Folder,'restore-paths.txt'))) then Text:=Text+' — неполный набор файлов';
+    if not BackupFilesPresent(Folder) then Text:=Text+' — неполный набор файлов';
     FList.Items.Insert(I,Text);
   end;
   if not FRefreshing then begin FList.ClearSelection; FList.Selected[I]:=True; end;
@@ -229,9 +258,13 @@ begin
 end;
 
 procedure TfrmCollectionBackup.RefreshFolders(Sender: TObject);
-var Folders, Selection: TStringList; Folder, Current: string; Focus: Integer;
+var Folders, Selection: TStringList; Folder, Current, VerifiedFolder: string; Focus: Integer;
 begin
   if FBusy or FRefreshing then Exit;
+  VerifiedFolder:='';
+  Focus:=SelectedFolderIndex;
+  if (Sender=Self) and Assigned(FPlan) and FPlan.Ready and (Focus>=0) then
+    VerifiedFolder:=FFolderPaths[Focus];
   Folders:=TStringList.Create; Selection:=TStringList.Create;
   FRefreshing:=True; Focus:=FList.ItemIndex; Current:='';
   if Focus>=0 then Current:=FFolderPaths[Focus];
@@ -246,7 +279,7 @@ begin
     if DirectoryExists(TPath.Combine(Settings.DataPath,'Backups')) then
       for Folder in TDirectory.GetDirectories(TPath.Combine(Settings.DataPath,'Backups')) do
         if CollectionBackupFolderAvailable(Folder) and (Folders.IndexOf(Folder)<0) then Folders.Add(Folder);
-    FreeAndNil(FPlan); FFolderPaths.Clear; FFolderDates.Clear; FList.Clear;
+    FFolderPaths.Clear; FFolderDates.Clear; FList.Clear;
     for Folder in Folders do AddFolder(Folder);
     FList.ClearSelection;
     for var I:=0 to FFolderPaths.Count-1 do FList.Selected[I]:=Selection.IndexOf(FFolderPaths[I])>=0;
@@ -257,6 +290,9 @@ begin
   finally
     FList.Items.EndUpdate; FRefreshing:=False; Folders.Free; Selection.Free;
   end;
+  Focus:=SelectedFolderIndex;
+  if (VerifiedFolder<>'') and (Focus>=0) and SameFileName(FFolderPaths[Focus],VerifiedFolder) and
+    BackupFilesPresent(VerifiedFolder) then Exit;
   Selected(nil);
 end;
 

@@ -6962,6 +6962,7 @@ begin
       else if ParamStr(1) = 'reader-scroll' then TestReaderContinuousScrolling
       else if ParamStr(1) = 'reader-scroll-live' then TestReaderLiveFeedback
       else if ParamStr(1) = 'tool-context-guides' then TestContextToolGuides(OneID)
+      else if ParamStr(1) = 'backup-restore' then TestCollectionBackupRestore
       else if ParamStr(1) = 'metadata-fill-layout' then TestMetadataFillLayout(OneID)
       else if ParamStr(1) = 'metadata-fill-ui' then TestMetadataFillUI(OneID)
       else if ParamStr(1) = 'collection-metadata-sync' then TestCollectionMetadataSync

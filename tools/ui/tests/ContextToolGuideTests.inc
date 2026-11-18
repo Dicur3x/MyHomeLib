@@ -1,8 +1,12 @@
 ﻿procedure TestContextToolGuides(CID:Integer);
-const Topics:array[0..2] of string=('book-compression','book-duplicates','book-metadata-fill');
-  Names:array[0..2] of string=('CompressionContextGuide','DuplicatesContextGuide','MetadataContextGuide');
-  Inputs:array[0..2] of string=('CompressionProfile','btnFindBookDuplicates','cbMetadataField0');
-  Intros:array[0..2] of string=('CompressionOptionsIntro','DuplicateIntro','lblMetadataFillScope');
+const Topics:array[0..4] of string=('book-compression','book-duplicates','book-metadata-fill',
+    'collection-backup','library-update-sources');
+  Names:array[0..4] of string=('CompressionContextGuide','DuplicatesContextGuide','MetadataContextGuide',
+    'BackupContextGuide','UpdateSourcesContextGuide');
+  Inputs:array[0..4] of string=('CompressionProfile','btnFindBookDuplicates','cbMetadataField0',
+    'lbCollectionBackups','lvLibraryUpdateSources');
+  Intros:array[0..4] of string=('CompressionOptionsIntro','DuplicateIntro','lblMetadataFillScope',
+    'BackupIntro','UpdateSourcesIntro');
 var OriginalTheme:Boolean; Host,Popup:TForm; Tool:TContextToolGuide; Guide:TFirstUseGuide;
   Collection:IBookCollection; BeforeData,PreferencesSHA:string; Ini:TMemIniFile;
   FocusBefore:TWinControl; ActiveBefore,ForegroundBefore:HWND; FocusChecks:Integer; FocusFailure:string;
@@ -32,6 +36,8 @@ var OriginalTheme:Boolean; Host,Popup:TForm; Tool:TContextToolGuide; Guide:TFirs
       end;
       1: Host:=TfrmBookDuplicates.CreateForCollection(frmMain,Collection);
       2: Host:=TfrmBookMetadataFill.CreateForCollection(frmMain,CID);
+      3: Host:=TfrmCollectionBackup.Create(frmMain);
+      4: Host:=TfrmLibraryUpdateSources.CreateForCollection(frmMain,Collection);
     end;
     Host.ScaleForPPI(PPI);
     Tool:=Host.FindComponent(Names[Kind]) as TContextToolGuide;
@@ -91,6 +97,10 @@ var OriginalTheme:Boolean; Host,Popup:TForm; Tool:TContextToolGuide; Guide:TFirs
         not TfrmBookDuplicates(Host).CatalogChanged,'Help scanned or changed duplicates');
       2: Require(not TfrmBookMetadataFill(Host).Busy and
         not TfrmBookMetadataFill(Host).CommittedChanges,'Help started metadata processing');
+      3: Require((TfrmCollectionBackup(Host).NewCollectionID=INVALID_COLLECTION_ID) and
+        not TButton(Host.FindComponent('btnRestoreBackup')).Enabled,'Help restored a backup or enabled restoration');
+      4: Require(not Assigned(TfrmLibraryUpdateSources(Host).Prepared) and
+        not TfrmLibraryUpdateSources(Host).Committed,'Help prepared or applied an update');
     end;
   end;
 begin
@@ -114,7 +124,7 @@ begin
   try
     for var Dark in [False,True] do
       for var PPI in [96,216] do
-        for var Kind:=0 to 2 do
+        for var Kind:=Low(Topics) to High(Topics) do
         begin
           SetMHLTheme(Dark); Pump; Preferences(Kind,'earlier-release',False);
           PreferencesSHA:=THashSHA2.GetHashStringFromFile(Settings.SettingsFileName);

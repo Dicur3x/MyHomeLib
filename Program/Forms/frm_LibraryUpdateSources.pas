@@ -5,7 +5,7 @@ interface
 uses System.Classes, Vcl.Forms, Vcl.Controls, Vcl.StdCtrls, Vcl.ComCtrls, Vcl.ExtCtrls,
   unit_Interfaces, unit_CatalogSources, unit_LibraryUpdateSources, unit_LibraryUpdateFetch,
   unit_LibraryUpdateReview, unit_LibraryUpdateContinuation,
-  frm_CatalogSources;
+  frm_CatalogSources, unit_ContextToolGuide;
 
 type
   TfrmLibraryUpdateSourceEditor = class(TSourceDialogForm)
@@ -33,6 +33,7 @@ type
     FSources: TLibraryUpdateSources;
     FBody: TSourceScrollBox;
     FHeader, FFooter: TPanel;
+    FToolGuide: TContextToolGuide;
     FIntro, FReport: TLabel;
     FList: TListView;
     FButtons: TArray<TButton>;
@@ -63,13 +64,13 @@ type
     procedure UpdateApplyAction;
     procedure FetchAndReview(const Restart:ILibraryUpdateRestart);
     procedure ReviewIndex(const Proof:TLibraryUpdateRestartRequest; var Previous:TStagedLibraryIndex);
-    procedure Help(Sender: TObject);
     procedure Layout;
     procedure Resize; override;
     procedure SetReport(const Text: string);
     function GetSources: TLibraryUpdateSources;
     function SelectionIndex: Integer;
     procedure DoShow; override;
+    procedure DoHide; override;
   public
     constructor CreateForCollection(AOwner: TComponent; const Collection: IBookCollection);
     destructor Destroy; override;
@@ -306,11 +307,19 @@ begin
   FHeader:=TPanel.Create(Self); FHeader.Parent:=FBody; FHeader.SetBounds(0,0,900,90); FHeader.Align:=alTop;
   FHeader.BevelOuter:=bvNone;
   FIntro:=TLabel.Create(Self); FIntro.Parent:=FHeader; FIntro.AutoSize:=False; FIntro.WordWrap:=True;
+  FIntro.Name:='UpdateSourcesIntro';
   FIntro.Caption:='Задайте, где искать новый список книг: на сервере или в локальной/сетевой папке. '+
     'Архивы книг скачиваются отдельно. Настройки сохраняются для этой коллекции и сохраняют привязку при её переименовании.';
-  B:=TButton.Create(Self); B.Parent:=FHeader; B.Caption:='?'; B.Name:='btnUpdateSourcesHelp';
-  B.SetBounds(856,10,30,28); B.Anchors:=[akTop,akRight]; B.Hint:='Как настроить обновление этой коллекции';
-  B.ShowHint:=True; B.OnClick:=Help;
+  FToolGuide:=TContextToolGuide.CreateForTool(Self,FHeader,'library-update-sources','Как обновить библиотеку',
+    'Укажите новый индекс и папку, куда вы докачали книжные архивы.',
+    'Нажмите «Добавить…» и выберите папку или сервер с индексом. Если объединены несколько библиотек, выберите нужный источник.'+sLineBreak+
+    'Нажмите «Проверить обновление». Кнопка «Копировать список» даст точные имена недостающих архивов. После докачки повторите проверку.'+sLineBreak+
+    '«Применить обновление…» откроет план. Просмотрите его и подтвердите запись в каталог.'+sLineBreak+
+    'Если у вас есть collections.ini, нажмите «Импорт настроек…», проверьте пути и включите нужные записи.',
+    113,'sources');
+  FToolGuide.Name:='UpdateSourcesContextGuide';
+  FToolGuide.HelpButton.Name:='btnUpdateSourcesHelp';
+  FToolGuide.HelpButton.Hint:='Как обновить библиотеку';
   FList:=TListView.Create(Self); FList.Parent:=FBody; FList.SetBounds(0,90,900,210); FList.Align:=alTop;
   FList.Name:='lvLibraryUpdateSources'; FList.ViewStyle:=vsReport; FList.ReadOnly:=True;
   FList.RowSelect:=True; FList.HideSelection:=False; FList.OnSelectItem:=Selected;
@@ -331,7 +340,8 @@ begin
   Button('btnCopyNeededUpdateArchives','Копировать список',CopyNeeded);
   Button('btnSaveMissingUpdateBooks','Сохранить пропуски…',SaveMissing); B.Enabled:=False;
   Button('btnCloseUpdateSources','Закрыть',nil); B.Cancel:=True; B.ModalResult:=mrCancel;
-  Help(nil); Rebuild(0); ScaleForPPI(Screen.PixelsPerInch); FitWindow(Self); Layout;
+  SetReport('Добавьте источник или выберите его в списке и нажмите «Проверить обновление».');
+  Rebuild(0); ScaleForPPI(Screen.PixelsPerInch); FitWindow(Self); Layout;
 end;
 
 destructor TfrmLibraryUpdateSources.Destroy;
@@ -366,7 +376,17 @@ begin
 end;
 
 procedure TfrmLibraryUpdateSources.DoShow;
-begin inherited; SelectionIndex; end;
+begin
+  inherited;
+  SelectionIndex;
+  if not FResumed then FToolGuide.FirstUse;
+end;
+
+procedure TfrmLibraryUpdateSources.DoHide;
+begin
+  if Assigned(FToolGuide) then FToolGuide.Hide;
+  inherited;
+end;
 
 procedure TfrmLibraryUpdateSources.Layout;
 var DPI, Gap, Width, Height, PerRow, Rows, I: Integer; R: TRect;
@@ -711,16 +731,6 @@ begin
         SetReport(string(FReport.Caption)+sLineBreak+'Полный список сохранён: '+Dialog.FileName);
       except on E:Exception do SetReport('Не удалось сохранить список: '+E.Message+sLineBreak+FReview.MissingDetails); end;
   finally Dialog.Free; end;
-end;
-
-procedure TfrmLibraryUpdateSources.Help(Sender: TObject);
-begin
-  SetReport('1. Добавьте папку с новым индексом или адрес сервера и имя файла.'+sLineBreak+
-    '2. Укажите, какую коллекцию или подключённый источник обновлять и где лежат архивы книг.'+sLineBreak+
-    '3. Нажмите «Проверить обновление». Если нужны архивы, нажмите «Копировать список». Докачайте файлы с этими именами и повторите проверку.'+sLineBreak+
-    '4. Нажмите «Применить обновление…». Программа проверит книги и покажет план для подтверждения. Если архив есть, а книги в нём нет, её имя и причину можно получить через «Сохранить пропуски…» даже после отмены плана.'+sLineBreak+
-    'Импорт показывает настройки до сохранения. Записи из другого INI сначала отключены. '+
-    'Индекс содержит список книг; адресов для загрузки любых книжных архивов в нём может не быть.');
 end;
 
 end.
