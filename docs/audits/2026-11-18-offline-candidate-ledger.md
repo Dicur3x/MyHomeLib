@@ -189,14 +189,40 @@ FB2 source link matches the public asset digest; the matching KFX source is
 verified locally and must be available when the KFX binaries are published.
 The exact AlReader archive
 retains the upstream Windows readme, which allows non-commercial use and asks
-users to contact the author about preinstallation or commercial use. This
-readme is not evidence of explicit permission for bundling in a new ZIP;
-record separate author terms if available before treating that item as closed.
+users to contact the author about preinstallation or commercial use. The
+maintainer confirmed the noncommercial distribution and chose to retain the
+Windows module with its original terms. The release notes link to the
+[author's Windows downloads](https://alreader.com/downloads.php?lang=ru).
+
+## Full archives with the corrected Reader
+
+The r1963 check installed both r1962 full archives with the production installer
+and also checked their contents after manual extraction. All 25 packaged modules
+reported the expected version in both layouts. Installed files and ownership
+records matched the manifest. The seeded catalogue data and application and
+AlReader settings survived. Each archive carried the three pinned prerequisite
+installers. The check verified their bytes without running them.
+
+| Archive | Managed files | SHA-256 |
+| --- | ---: | --- |
+| `HomeLibre_full.zip` | 1,625 | `61028e5240af390712d7acf12097a5aa16b5e88620e57a970797eb36000ff8a5` |
+| `HomeLibre_x64_full.zip` | 1,626 | `117a60496b16572473b9d9c17c72120f4728a7d0a66d3b2b77035e3d96a450b4` |
+
+All 15 AlReader files in each full ZIP matched the selected Windows component
+byte for byte, including `Readers/AlReader/readme.txt`. Its SHA-256 is
+`c738703c7ab5f0f2d721a66b4a1266924aed9b94cae23b0274733e2e603d2acf`.
+The installation report is `r1963-exact-full-verification/distribution-report.json`.
+
+The r1964 KindleExport source check matched both packaged builds to their
+recorded binary hashes and two shipped patches. Each build lists 218
+dependencies and carries 347 notice files. The nine source archives selected
+for their MPL terms matched the upstream Cargo.lock checksums. See
+`r1964-kindle-export-source/sources.json` and the
+[pinned Kindling source](https://github.com/ciscoriordan/kindling/tree/3b91b1ea21f892779be09149f21fe4053b1b3569).
 
 ## Still open
 
-Clean-Windows prerequisite installation, offline GUI operation, independent
-verification of full archives with the corrected Reader, and the remaining install/remove/update
+Clean-Windows prerequisite installation, offline GUI operation and the remaining install/remove/update
 and licensing/source checks are release gates. Desktop replacement and
 publication remain open.
 
