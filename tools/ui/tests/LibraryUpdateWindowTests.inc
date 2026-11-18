@@ -3,10 +3,60 @@
     Profile: TLibraryUpdateSource;
     Accept, Started, Applying, Checked, Confirmed, Committed: Boolean;
     Failure, Report: string;
+    TestWorkspace,WorkspaceValidated:Boolean;
+    WorkspaceRoot:string;
+    ProtectedCollectionID:Integer;
     Timer: TTimer;
+    procedure CheckWorkspace(Dialog:TfrmLibraryUpdateSources);
     procedure Tick(Sender: TObject);
     function Confirm(const Text: string; Flags: Longint): Integer;
   end;
+
+procedure TLibraryWindowDriver.CheckWorkspace(Dialog:TfrmLibraryUpdateSources);
+var Catalogue,Personal:TSQLiteDatabase; Rows,PersonalRows,BeforeINI,BeforeFallback,Configured,Text:string;
+begin
+  RequireIsolatedRegression;
+  Require(SameText(ExtractFileDrive(Settings.AppPath),'G:'),'Workspace window test requires G:');
+  WorkspaceRoot:=Settings.AppPath+'update-workspace-'+BoolToStr(Accept,True);
+  Require(not FileExists(WorkspaceRoot) and not DirectoryExists(WorkspaceRoot),'Workspace fixture already exists');
+  ForceDirectories(WorkspaceRoot); Settings.UpdateDir:=WorkspaceRoot; Configured:=Settings.UpdateDir;
+  TDirectory.Delete(WorkspaceRoot,False);
+  if Accept then TFile.WriteAllText(WorkspaceRoot,'Owned file must remain unchanged',TEncoding.UTF8);
+  Catalogue:=TSQLiteDatabase.CreateReadOnly(SystemDB.GetCollectionInfo(ProtectedCollectionID).DBFileName);
+  Personal:=TSQLiteDatabase.CreateReadOnly(Settings.SystemFileName[sfSystemDB]);
+  try
+    Rows:=ReaderAllCatalogRows(Catalogue); PersonalRows:=ReaderAllCatalogRows(Personal);
+    BeforeINI:=THashSHA2.GetHashStringFromFile(Settings.SettingsFileName);
+    BeforeFallback:=string.Join(#0,TDirectory.GetDirectories(Settings.WorkPath,'HomeLibre-index-*'));
+    TButton(Dialog.FindComponent('btnCheckUpdateSource')).Click;
+    Text:=TLabel(Dialog.FindComponent('lblUpdateSourceReport')).Caption;
+    Require(not Assigned(Dialog.Review) and not TButton(Dialog.FindComponent('btnApplyUpdateSource')).Enabled,
+      'Unavailable workspace produced a review through the fallback directory');
+    Require(Text.ToLower.Contains('рабочая папка') and Text.Contains(WorkspaceRoot) and
+      Text.Contains('Папки/Устройства'),'Workspace failure did not name its folder and recovery setting: '+Text);
+    Require(Settings.UpdateDir=Configured,'Workspace refusal erased the configured folder');
+    Require(THashSHA2.GetHashStringFromFile(Settings.SettingsFileName)=BeforeINI,'Workspace refusal rewrote settings');
+    Require(string.Join(#0,TDirectory.GetDirectories(Settings.WorkPath,'HomeLibre-index-*'))=BeforeFallback,
+      'Workspace refusal allocated an index in the fallback directory');
+    Require((ReaderAllCatalogRows(Catalogue)=Rows) and (ReaderAllCatalogRows(Personal)=PersonalRows),
+      'Workspace refusal changed catalogue or personal rows/schema');
+    if Accept then
+    begin
+      Require(TFile.ReadAllText(WorkspaceRoot,TEncoding.UTF8)='Owned file must remain unchanged',
+        'Workspace refusal changed a file occupying the configured path');
+      TFile.Delete(WorkspaceRoot);
+    end
+    else Require(not DirectoryExists(WorkspaceRoot),'Workspace refusal recreated the unavailable folder');
+    ForceDirectories(WorkspaceRoot);
+    TButton(Dialog.FindComponent('btnCheckUpdateSource')).Click;
+    Require(Assigned(Dialog.Review) and Dialog.Review.Ready,'Restored workspace did not allow retry: '+
+      TLabel(Dialog.FindComponent('lblUpdateSourceReport')).Caption);
+    Require(Length(TDirectory.GetDirectories(WorkspaceRoot,'HomeLibre-index-*'))=1,
+      'Restored review did not use the configured folder');
+    WorkspaceValidated:=True;
+    Writeln('PASS actual source window refuses unavailable workspace preserves configured folder settings rows and fallback then retries in restored folder file=',Ord(Accept)); Flush(Output);
+  finally Personal.Free; Catalogue.Free; end;
+end;
 
 function TLibraryWindowDriver.Confirm(const Text: string; Flags: Longint): Integer;
 begin
@@ -41,7 +91,8 @@ begin
         Require(not Action.Enabled and not IsWindowEnabled(frmMain.Handle),
           'Main library actions remain available behind source settings');
         Dialog.SelectProfile(Profile.ID);
-        TButton(Dialog.FindComponent('btnCheckUpdateSource')).Click;
+        if TestWorkspace then CheckWorkspace(Dialog)
+        else TButton(Dialog.FindComponent('btnCheckUpdateSource')).Click;
         Require(Assigned(Dialog.Review) and Dialog.Review.Ready,'Window review failed: '+TLabel(Dialog.FindComponent('lblUpdateSourceReport')).Caption);
         Require(not TButton(Dialog.FindComponent('btnSaveMissingUpdateBooks')).Enabled,
           'Source window offers an obsolete missing-member report before verification');
@@ -81,7 +132,7 @@ procedure TestLibraryUpdateWindow;
 var Root, IndexFile, IndexHash, ArchiveHash: string; ID: Integer;
   Target: IBookCollection; Book: TBookRecord; Profile: TLibraryUpdateSource;
   Driver: TLibraryWindowDriver; Timer: TTimer; Choice: TMenuItem; Button: TToolButton;
-  Action: TAction; Options: TBookCompressionOperationOptions; OldTheme: Boolean;
+  Action: TAction; Options: TBookCompressionOperationOptions; OldTheme: Boolean; SavedUpdateDir:string;
 begin
   Root:=TPath.Combine(Settings.AppPath,'window-update'); ForceDirectories(Root);
   var Zip:=TZipFile.Create;
@@ -135,14 +186,16 @@ begin
   finally SetMHLTheme(OldTheme); end;
   for var Accept in TArray<Boolean>.Create(False,True) do
   begin
-    Driver:=TLibraryWindowDriver.Create; Timer:=TTimer.Create(nil);
+    Driver:=TLibraryWindowDriver.Create; Timer:=TTimer.Create(nil); SavedUpdateDir:=Settings.UpdateDir;
     try
       Driver.Profile:=Profile; Driver.Accept:=Accept; Driver.Timer:=Timer;
+      Driver.TestWorkspace:=ParamStr(1)='library-update-workspace'; Driver.ProtectedCollectionID:=ID;
       Timer.Interval:=1; Timer.OnTimer:=Driver.Tick; Timer.Enabled:=True;
       Action.Update; Require(Action.Enabled,'Library update action stayed disabled');
       if Accept then Action.Execute else TMenuItem(frmMain.FindComponent('miLibraryUpdateSources')).Click;
       Require(Driver.Started and Driver.Checked and Driver.Confirmed and (Driver.Failure=''),
         'Source window integration failed: '+Driver.Failure);
+      Require(not Driver.TestWorkspace or Driver.WorkspaceValidated,'Workspace refusal/retry was not observed');
       Require(IsWindowEnabled(frmMain.Handle) and (Settings.ActiveCollection=ID),
         'Source update did not restore the main window');
       if Accept then
@@ -162,7 +215,15 @@ begin
         Require(not Assigned(Offer) or not Offer.Visible,'Declined update offered compression');
       end;
       Action.Update; Require(Action.Enabled,'Library update action did not recover after closing settings');
-    finally Timer.Free; Driver.Free; end;
+    finally
+      Settings.UpdateDir:=SavedUpdateDir;
+      if Driver.WorkspaceValidated then
+      begin
+        Require(TDirectory.IsEmpty(Driver.WorkspaceRoot),'Closed source window retained workspace files');
+        TDirectory.Delete(Driver.WorkspaceRoot,False);
+      end;
+      Timer.Free; Driver.Free;
+    end;
   end;
   Require((THashSHA2.GetHashStringFromFile(IndexFile)=IndexHash) and
     (THashSHA2.GetHashStringFromFile(TPath.Combine(Root,'books.zip'))=ArchiveHash),

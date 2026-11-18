@@ -89,7 +89,7 @@ Final release resources/packages, large reviewed-update measurements, actual
 volume exhaustion/loss and remaining workspace-selection/retention controls
 are separate work.
 
-In particular, Settings.GetUpdatePath still falls back to WorkPath when an
-explicit UpdateDir is unavailable, and the ordinary source-preparation worker
-uses that property. A strict unavailable-workspace error needs a separate
-change and test; this batch does not remove that fallback.
+The subsequent [workspace fix](2026-11-18-library-update-workspace.md) adds a
+strict path for ordinary source preparation and verifies its error/retry flow.
+The legacy getter remains available for settings loading; its other write-time
+callers and actual volume interruptions still require their separate audit.

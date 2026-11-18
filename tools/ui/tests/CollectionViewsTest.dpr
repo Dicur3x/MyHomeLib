@@ -4297,6 +4297,7 @@ begin
   frmMain.pgControlChange(nil);
 end;
 
+function ReaderAllCatalogRows(DB:TSQLiteDatabase):string; forward;
 {$I LibraryUpdateWindowTests.inc}
 
 procedure TestAdjacentSeriesSelection(const Collection: IBookCollection; OneID, TwoID: Integer);
@@ -6875,7 +6876,7 @@ begin
       else if ParamStr(1) = 'library-update-cancel' then TestLibraryUpdateCancellation
       else if ParamStr(1) = 'library-update-storage' then TestLibraryUpdateStorage
       else if ParamStr(1) = 'library-update-storage-full' then TestLibraryUpdateStorageFull
-      else if ParamStr(1) = 'library-update-window' then TestLibraryUpdateWindow
+      else if (ParamStr(1) = 'library-update-window') or (ParamStr(1)='library-update-workspace') then TestLibraryUpdateWindow
       else if ParamStr(1) = 'library-update-recovery' then TestLibraryUpdateRecoveryCrash
       else if (ParamStr(1) = 'catalog-sources') or (ParamStr(1) = 'catalog-sources-ui') or
         (ParamStr(1) = 'library-update-sources') then

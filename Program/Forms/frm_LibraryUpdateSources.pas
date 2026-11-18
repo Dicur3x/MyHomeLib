@@ -219,14 +219,15 @@ function TFetchIndexWorker.TakePrepared: TStagedLibraryIndex;
 begin Result:=FPrepared; FPrepared:=nil; end;
 
 procedure TFetchIndexWorker.WorkFunction;
-var HTTP: THTTPClient; LastUpdate: UInt64;
+var HTTP: THTTPClient; LastUpdate: UInt64; WorkRoot:string;
 begin
   HTTP:=nil; LastUpdate:=0;
   try
     try
       SetComment('Получение служебной копии индекса');
+      WorkRoot:=Settings.LibraryUpdateWorkPath;
       if FSource.IsRemote then HTTP:=CreateHTTPClientUpdate;
-      FPrepared:=TStagedLibraryIndex.Fetch(FSource,Settings.UpdatePath,HTTP,
+      FPrepared:=TStagedLibraryIndex.Fetch(FSource,WorkRoot,HTTP,
         procedure begin if Canceled then raise EAbort.Create('Получение индекса отменено.'); end,
         procedure(Done,Total:Int64)
         begin

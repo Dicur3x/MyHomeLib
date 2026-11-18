@@ -279,6 +279,7 @@ type
 
     procedure SetUpdateDir(const Value: string);
     function GetUpdatePath: string;
+    function GetLibraryUpdateWorkPath: string;
 
     procedure SetImportDir(const Value: string);
     function GetImportPath: string;
@@ -313,6 +314,7 @@ type
 
     property UpdateDir: string read FUpdateDir write SetUpdateDir;
     property UpdatePath: string read GetUpdatePath;
+    property LibraryUpdateWorkPath: string read GetLibraryUpdateWorkPath;
     property SystemFileName[fileType: TMHLSystemFile]: string read GetSystemFileName;
 
     property SettingsFileName: string read GetSettingsFileName;
@@ -1401,6 +1403,15 @@ begin
     Result := WorkPath
   else
     Result := IncludeTrailingPathDelimiter(FUpdateDir);
+end;
+
+function TMHLSettings.GetLibraryUpdateWorkPath:string;
+begin
+  if FUpdateDir='' then Result:=WorkPath
+  else Result:=IncludeTrailingPathDelimiter(FUpdateDir);
+  if not TDirectory.Exists(Result) then
+    raise EDirectoryNotFoundException.Create('Недоступна рабочая папка проверки индекса: '+Result+sLineBreak+
+      'Подключите диск или выберите «Папку с обновлениями» в настройках «Папки/Устройства», затем повторите проверку.');
 end;
 
 procedure TMHLSettings.SetImportDir(const Value: string);
