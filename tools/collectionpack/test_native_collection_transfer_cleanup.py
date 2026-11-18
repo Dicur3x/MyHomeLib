@@ -2,6 +2,8 @@
 import ctypes
 from ctypes import wintypes
 import os
+import subprocess
+import sys
 from pathlib import Path
 
 import test_native_collection_transfer_catalogue as fixture
@@ -66,6 +68,43 @@ class TransferCleanupTests(completion.TransferCompletionTests):
         self.assertIn('подтверждённого завершения', self.clean('fail'))
         self.assertEqual(self.database_bytes(), before)
         self.assertEqual({p: fixture.digest(p) for p in files}, files)
+
+    def test_cleanup_preserves_other_sqlite_journals_in_source_and_work_folders(self):
+        self.seed()
+        # A different catalogue committed to WAL and exited before its checkpoint.
+        cold = self.work / 'another-catalogue.hlc2'
+        writer = (
+            "import os, sqlite3, sys\n"
+            "db = sqlite3.connect(sys.argv[1])\n"
+            "assert db.execute('pragma journal_mode=wal').fetchone()[0] == 'wal'\n"
+            "db.execute('create table notes(value text)')\n"
+            "db.execute('insert into notes values (?)', ('saved',))\n"
+            "db.commit()\n"
+            "os._exit(0)\n"
+        )
+        subprocess.run([sys.executable, '-B', '-c', writer, str(cold)], check=True, timeout=30)
+        cold_files = [cold, Path(str(cold) + '-wal'), Path(str(cold) + '-shm')]
+        before = {path: fixture.digest(path) for path in cold_files}
+
+        live = self.a / 'other-library.hlc2'
+        with fixture.connect(live) as db:
+            self.assertEqual(db.execute('pragma journal_mode=delete').fetchone()[0], 'delete')
+            db.execute('create table notes(value text)')
+            db.execute("insert into notes values ('original')")
+            db.commit()
+            db.execute("update notes set value='editing'")
+            journal = Path(str(live) + '-journal')
+            self.assertTrue(journal.is_file())
+            result = self.clean(mode='cleanup-queue')
+            self.assertEqual(result['files_removed'], len(self.work_files))
+            self.assertTrue(journal.is_file())
+            self.assertEqual(db.execute('select value from notes').fetchone(), ('editing',))
+            db.rollback()
+            self.assertEqual(db.execute('select value from notes').fetchone(), ('original',))
+        self.assertEqual({path: fixture.digest(path) for path in cold_files}, before)
+        with fixture.connect(cold) as db:
+            self.assertEqual(db.execute('pragma integrity_check').fetchone(), ('ok',))
+            self.assertEqual(db.execute('select value from notes').fetchone(), ('saved',))
 
     def test_foreign_entry_retains_entire_directory_then_queue_retries(self):
         self.seed()

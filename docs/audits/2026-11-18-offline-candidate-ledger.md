@@ -468,6 +468,30 @@ while the fixtures were committing successive catalogue updates. The complete
 private-desktop runs finished in 583 and 582 seconds respectively. Results
 are in `r1987-production-refresh/library-update-*-private-{Win32,Win64}`.
 
+## Network destination and unrelated SQLite work
+
+In a disposable Windows 10 guest, the r1988 release executable transferred a
+book through an authenticated Windows SMB share. Source and working folders
+were local to the guest. The destination used a UNC path through its single
+isolated adapter. Verification matched the book SHA-256 and resolved the
+live catalogue address to that copy, confirmed the old file was released,
+and checked the neighbouring file and the other catalogue records.
+The server and client were on the same test Windows system.
+
+- x64 evidence: `r1988-transfer-share/share2/verified`. The x86 attempt in
+  that run stopped at the startup-busy notice before performing the move.
+- x86 evidence: `r1988-transfer-share/share3/verified`. The corrected driver
+  selected the notice's actual OK button when the catalogue was loading.
+
+The ordinary queued cleanup also preserved two unrelated catalogues. The
+first had an open rollback transaction in the source folder. It rolled back
+successfully after cleanup. The second, in the working folder, had an
+uncheckpointed committed WAL after process exit. Its database, WAL and SHM
+remained byte-identical, then SQLite recovered the committed note and passed
+its integrity check. HomeLibre removed its own claimed snapshots. Results
+from the native journal harness on x86 and x64 are in
+`r1989-transfer-context/other-sqlite-{Win32,Win64}/test.log`.
+
 ## Remaining checks
 
 Remaining source checks, Desktop replacement and publication remain open.
