@@ -67,7 +67,10 @@ var OriginalTheme:Boolean; Host,Popup:TForm; Tool:TContextToolGuide; Guide:TFirs
       Require((Bounds.Height<=LabelControl.Height) and
         (LabelControl.BoundsRect.Bottom<=Guide.ClientHeight),'Guide text is clipped');
     end;
-    for var Name in ['GuideContextHelp','GuideToggle','GuideMore','GuideNever'] do
+    Require(Guide.FindComponent('GuideContextHelp')=nil,'Popup contains a redundant help button');
+    Require(TControl(Guide.FindComponent('GuideSummary')).Width=TControl(Guide.FindComponent('GuideDetails')).Width,
+      'Popup still reserves a help-button column');
+    for var Name in ['GuideToggle','GuideMore','GuideNever'] do
     begin
       var Control:=Guide.FindComponent(Name) as TControl;
       Require(Control.Visible and (Control.Left>=0) and

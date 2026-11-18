@@ -123,3 +123,13 @@ before preview on Win32 and Win64, asserted that it did not enable the move or
 overlap the introduction, then completed the move and checked the reader data.
 Both native test binaries were rebuilt. Reports are under
 `G:/HL-b14-external/r1989-transfer-context/workflow-{Win32,Win64}-apply`.
+
+## Standalone guide window, 19 November
+
+The previous x64 test executable reproduced the redundant question button. The
+updated test checks that the host button opens the guide again after dismissal,
+the popup contains no second question button, and the summary uses the full
+text width. All 12 combinations of the three tools, both themes and 100%/225%
+scaling passed on each of x86 and x64. Inline help in Scripts and Sources was
+also exercised. Build receipts and native logs are in
+`G:/HL-b14-external/r1993-guide-question`.

@@ -26,7 +26,7 @@ type
     procedure ChangeScale(M, D: Integer; IsDpiChange: Boolean); override;
   public
     constructor CreateGuide(AOwner: TComponent; AParent: TWinControl;
-      const Topic, Version, Preferences, Summary, Details: string);
+      const Topic, Version, Preferences, Summary, Details: string; ShowHelpButton:Boolean=True);
     procedure Expand;
     procedure Dismiss;
     property Expanded: Boolean read FExpanded;
@@ -39,7 +39,7 @@ uses Winapi.Windows, System.SysUtils, System.IniFiles, System.Math,
   System.Types, unit_AtomicIniFile;
 
 constructor TFirstUseGuide.CreateGuide(AOwner: TComponent; AParent: TWinControl;
-  const Topic, Version, Preferences, Summary, Details: string);
+  const Topic, Version, Preferences, Summary, Details: string; ShowHelpButton:Boolean);
 var Ini: TMemIniFile; Suppressed: Boolean;
 begin
   inherited Create(AOwner);
@@ -70,9 +70,12 @@ begin
   FMore.Name := 'GuideMore'; FMore.Caption := 'Подробнее…'; FMore.OnClick := More;
   FNever := TCheckBox.Create(Self); FNever.Parent := Self;
   FNever.Name := 'GuideNever'; FNever.Caption := 'Не раскрывать автоматически'; FNever.Checked := Suppressed;
-  FHelp := TButton.Create(Self); FHelp.Parent := Self;
-  FHelp.Name := 'GuideContextHelp'; FHelp.Caption := '?';
-  FHelp.Hint := 'Об этом разделе'; FHelp.ShowHint := True; FHelp.OnClick := ShowGuide;
+  if ShowHelpButton then
+  begin
+    FHelp := TButton.Create(Self); FHelp.Parent := Self;
+    FHelp.Name := 'GuideContextHelp'; FHelp.Caption := '?';
+    FHelp.Hint := 'Об этом разделе'; FHelp.ShowHint := True; FHelp.OnClick := ShowGuide;
+  end;
   Parent := AParent; Align := alTop; Top := 0;
   Layout;
 end;
@@ -94,16 +97,19 @@ var Margin, Gap, WidthAvailable, Y, ButtonHeight, WidthBefore: Integer;
     Result := Bounds.Height + S(4);
   end;
 begin
-  if FLayout or (csDestroying in ComponentState) or not Assigned(FHelp) then Exit;
+  if FLayout or (csDestroying in ComponentState) or not Assigned(FNever) then Exit;
   WidthBefore:=ClientWidth;
   FLayout := True;
   try
     Margin := S(6); Gap := S(6); WidthAvailable := Max(S(100),ClientWidth-2*Margin);
     Y := Margin;
-    FHelp.SetBounds(ClientWidth-Margin-S(28),Margin,S(28),S(28));
-    Dec(WidthAvailable,S(36));
+    if Assigned(FHelp) then
+    begin
+      FHelp.SetBounds(ClientWidth-Margin-S(28),Margin,S(28),S(28));
+      Dec(WidthAvailable,S(36));
+    end;
     FSummary.SetBounds(Margin,Y,WidthAvailable,Max(S(28),Fit(FSummary)));
-    Inc(WidthAvailable,S(36)); Inc(Y,FSummary.Height+Gap);
+    WidthAvailable:=Max(S(100),ClientWidth-2*Margin); Inc(Y,FSummary.Height+Gap);
     FDetails.Visible := FExpanded; FNever.Visible := FExpanded;
     FToggle.Visible := FExpanded; FMore.Visible := FExpanded;
     if FExpanded then

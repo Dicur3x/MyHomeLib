@@ -108,7 +108,7 @@ begin
   FBody.Name:='ToolGuideBody'; FBody.BorderStyle:=bsNone;
   FBody.HorzScrollBar.Visible:=False; FBody.VertScrollBar.Tracking:=True;
   FGuide:=TFirstUseGuide.CreateGuide(FPopup,FBody,FTopic,PROGRAM_RELEASE_VERSION,
-    Settings.SettingsFileName,FSummary,FDetails);
+    Settings.SettingsFileName,FSummary,FDetails,False);
   FGuide.Name:='ToolFirstUseGuide'; FGuide.OnMore:=More; FGuide.OnResize:=GuideResized;
   FPopup.OnResize:=PopupResized; FPopup.OnClose:=PopupClose;
   FPopup.KeyPreview:=True; FPopup.OnKeyDown:=PopupKey;
