@@ -1,6 +1,37 @@
-﻿procedure TestPackedSourceReview(LegacyOnly:Boolean=False);
+﻿type
+  TPreviousIndexEditorProbe = class
+    Timer:TTimer;
+    Path, Failure:string;
+    Visited:Boolean;
+    procedure FillPreviousIndex(Sender:TObject);
+  end;
+
+procedure TPreviousIndexEditorProbe.FillPreviousIndex(Sender:TObject);
+begin
+  for var I:=0 to Screen.FormCount-1 do
+    if (Screen.Forms[I] is TfrmLibraryUpdateSourceEditor) and
+      (fsModal in Screen.Forms[I].FormState) then
+    begin
+      var Editor:=TfrmLibraryUpdateSourceEditor(Screen.Forms[I]);
+      Timer.Enabled:=False;
+      try
+        var Previous:=Editor.FindComponent('edUpdateSourcePreviousIndex');
+        Require((Previous is TEdit) and TEdit(Previous).Visible,'Old catalogue source has no previous INPX field');
+        TEdit(Previous).Text:=Path;
+        TButton(Editor.FindComponent('btnAcceptUpdateSource')).Click;
+        Require(Editor.ModalResult=mrOk,'Previous INPX editor did not accept the selected path');
+        Visited:=True;
+      except
+        on E:Exception do
+        begin Failure:=E.Message; Editor.ModalResult:=mrCancel; end;
+      end;
+      Exit;
+    end;
+end;
+
+procedure TestPackedSourceReview(LegacyOnly:Boolean=False; ManualPrevious:Boolean=False);
   procedure Scenario(WithHistory:Boolean);
-var Folder,OriginalRoot,HeldRoot,PackedRoot,Incoming,BaseIndex,NextIndex:string;
+var Folder,OriginalRoot,HeldRoot,PackedRoot,Incoming,BaseIndex,NextIndex,PreviousInput:string;
   Source,PackedCollection:IBookCollection; SourceID,PackedID,FirstID,SecondID,UntouchedID:Integer;
   Options:TCollectionPackingOptions; Snapshot:TCollectionPackingSnapshot;
   Profile:TLibraryUpdateSource; Dialog:TfrmLibraryUpdateSources;
@@ -9,7 +40,7 @@ var Folder,OriginalRoot,HeldRoot,PackedRoot,Incoming,BaseIndex,NextIndex:string;
   Stage:TStagedLibraryIndex; ReviewPlan:TLibraryUpdateReview; ApplyWorker:TCollectionWorker;
   Probe:TLibraryApplyProbe; CacheInfo:TCatalogSource; CacheHash:string;
 
-  procedure Index(const FileName:string; NewBook:Boolean; Changed:Boolean=False);
+  procedure Index(const FileName:string; NewBook:Boolean; Changed:Boolean=False; Version:Integer=0);
     function Row(ID:Integer):string;
     begin
       if Changed and (ID=1001) then
@@ -23,11 +54,75 @@ var Folder,OriginalRoot,HeldRoot,PackedRoot,Incoming,BaseIndex,NextIndex:string;
     try
       Z.Open(FileName,zmWrite);
       Z.Add(TEncoding.UTF8.GetBytes('AUTHOR;GENRE;TITLE;SERIES;SERNO;FILE;SIZE;LIBID;DEL;EXT;DATE;LANG'),'structure.info');
+      if ManualPrevious then
+      begin
+        if Version=0 then Version:=20261117+Ord(NewBook);
+        Z.Add(TEncoding.UTF8.GetBytes(IntToStr(Version)),'version.info');
+      end;
       Z.Add(TEncoding.UTF8.GetBytes(Row(1001)+Row(1002)),'books.inp');
       if LegacyOnly and not NewBook then
         Z.Add(TEncoding.UTF8.GetBytes(Row(1004)),'untouched.inp');
       if NewBook then Z.Add(TEncoding.UTF8.GetBytes(Row(1003)),'new.inp');
     finally Z.Free; end;
+  end;
+
+  procedure CheckManualPreviousSelection;
+  var EditorProbe:TPreviousIndexEditorProbe; SavedProfile:TLibraryUpdateSource;
+    WrongVersion,WrongBook,Warnings,BeforeHash:string; BeforeWorkspace:Integer;
+    Restored:TLibraryUpdateSources;
+    procedure Reject(const Path, Explanation:string);
+    var Report:string;
+    begin
+      Dialog:=TfrmLibraryUpdateSources.CreateForCollection(frmMain,PackedCollection);
+      try
+        var Input:=Profile;
+        Input.PreviousIndexFile:=Path;
+        Dialog.AppendSource(Input);
+        TButton(Dialog.FindComponent('btnCheckUpdateSource')).Click;
+        Report:=TLabel(Dialog.FindComponent('lblUpdateSourceReport')).Caption;
+        Require(not Assigned(Dialog.Review) and not TButton(Dialog.FindComponent('btnApplyUpdateSource')).Enabled and
+          Report.Contains(Explanation),'Previous INPX check for "'+ExtractFileName(Path)+'" expected "'+Explanation+'": '+Report);
+      finally FreeAndNil(Dialog); end;
+    end;
+  begin
+    WrongVersion:=TPath.Combine(Folder,'wrong-version.inpx');
+    WrongBook:=TPath.Combine(Folder,'wrong-book.inpx');
+    Index(WrongVersion,False,False,20261118);
+    Index(WrongBook,False,True,20261117);
+    BeforeHash:=THashSHA2.GetHashStringFromFile(PackedCollection.GetProperty(PROP_DATAFILE));
+    BeforeWorkspace:=Length(TDirectory.GetDirectories(Settings.UpdatePath,'HomeLibre-index-*'));
+    Reject('','выберите его в настройке источника');
+    Reject(WrongVersion,'не совпадает с версией сжатой коллекции');
+    Reject(WrongBook,'не подтверждает исходный файл');
+    Require(THashSHA2.GetHashStringFromFile(PackedCollection.GetProperty(PROP_DATAFILE))=BeforeHash,
+      'Rejected previous INPX changed the original catalogue');
+    Require(Length(TDirectory.GetDirectories(Settings.UpdatePath,'HomeLibre-index-*'))=BeforeWorkspace,
+      'Rejected previous INPX leaked a private review folder');
+    Dialog:=TfrmLibraryUpdateSources.CreateForCollection(frmMain,PackedCollection);
+    EditorProbe:=TPreviousIndexEditorProbe.Create;
+    try
+      Dialog.AppendSource(Profile);
+      EditorProbe.Path:=PreviousInput;
+      EditorProbe.Timer:=TTimer.Create(Dialog);
+      EditorProbe.Timer.Interval:=1;
+      EditorProbe.Timer.OnTimer:=EditorProbe.FillPreviousIndex;
+      EditorProbe.Timer.Enabled:=True;
+      TButton(Dialog.FindComponent('btnEditUpdateSource')).Click;
+      Require(EditorProbe.Visited and (EditorProbe.Failure=''),'Could not edit the previous index path: '+EditorProbe.Failure);
+      SavedProfile:=Dialog.Sources[0];
+      Require(SavedProfile.PreviousIndexFile=PreviousInput,'Edited previous index did not reach the profile');
+      Restored:=ReadLibraryUpdateSources(WriteLibraryUpdateSources(Dialog.Sources));
+      Require((Length(Restored)=1) and (Restored[0].PreviousIndexFile=PreviousInput),'JSON lost the previous index path');
+      Restored:=ImportLegacyUpdateSources(ExportLegacyUpdateSources(Dialog.Sources),'',Warnings);
+      Require((Length(Restored)=1) and (Restored[0].PreviousIndexFile=PreviousInput),'INI lost the previous index path');
+      Profile:=SavedProfile;
+    finally
+      EditorProbe.Timer.Free;
+      EditorProbe.Free;
+      FreeAndNil(Dialog);
+    end;
+    Writeln('PASS legacy packed source editor accepts the previous INPX and rejects missing version and artifact mismatches');
+    Flush(Output);
   end;
 
   procedure Review(Deleted,OldArchiveDelivered:Boolean; Changed:Boolean=False);
@@ -194,6 +289,8 @@ var Folder,OriginalRoot,HeldRoot,PackedRoot,Incoming,BaseIndex,NextIndex:string;
       finally Catalog.Free; end;
     end;
 
+    if ManualPrevious then
+      Require(RenameFile(PreviousInput,PreviousInput+'.held'),'Could not hide the chosen previous INPX for retry');
     DeliverArchive('books.zip','1001.txt','Delivered replacement body 1001');
     NewID:=ApplyTo(NewID,True);
     Applied:=SystemDB.GetCollection(NewID,True);
@@ -205,6 +302,7 @@ var Folder,OriginalRoot,HeldRoot,PackedRoot,Incoming,BaseIndex,NextIndex:string;
     begin
       CheckBody(UntouchedID,'Untouched legacy body');
       Writeln('PASS legacy packed INPX uses a trusted previous index and preserves untouched and deleted books');
+      if ManualPrevious then Writeln('PASS legacy packed update creates reusable history for a manually selected previous INPX');
     end;
     Require(THashSHA2.GetHashStringFromFile(PreviousFile)=PreviousHash,'Publishing the new copy rewrote the original packed catalog');
     Writeln('PASS packed source profile applied separately and completed pending delivery full=',Ord(Full));
@@ -218,13 +316,28 @@ begin
   PackedRoot:=Folder+'packed'; Incoming:=Folder+'incoming'; ForceDirectories(OriginalRoot); ForceDirectories(Incoming);
   BaseIndex:=TPath.Combine(OriginalRoot,'base.inpx'); NextIndex:=TPath.Combine(Incoming,'next.inpx');
   Index(BaseIndex,False); Index(NextIndex,True);
+  if ManualPrevious then
+  begin
+    PreviousInput:=TPath.Combine(Folder,'прежний полный.inpx');
+    TFile.Copy(BaseIndex,PreviousInput,False);
+  end;
   Zip:=TZipFile.Create;
   try
     Zip.Open(TPath.Combine(OriginalRoot,'books.zip'),zmWrite);
     Zip.Add(TEncoding.UTF8.GetBytes('Original body 1001'),'1001.txt');
     Zip.Add(TEncoding.UTF8.GetBytes('Original body 1002'),'1002.txt');
   finally Zip.Free; end;
-  if LegacyOnly then
+  if ManualPrevious then
+  begin
+    var TextFile:=TPath.Combine(Folder,'1004.txt');
+    TFile.WriteAllBytes(TextFile,TEncoding.UTF8.GetBytes('Untouched legacy body'));
+    var Sink:=TMemoryStream.Create;
+    try
+      RunExternalToolToStream(Settings.AppPath+'tools\7zip\7za.exe',
+        TArray<string>.Create('a','-t7z','-mx=0','-y',TPath.Combine(OriginalRoot,'untouched.7z'),TextFile),Sink);
+    finally Sink.Free; end;
+  end
+  else if LegacyOnly then
   begin
     Zip:=TZipFile.Create;
     try
@@ -304,6 +417,7 @@ begin
   end;
   Require(RenameFile(OriginalRoot,HeldRoot),'Cannot hide owned original archive folder');
   try
+    if ManualPrevious then CheckManualPreviousSelection;
     for var Deleted:=False to True do
     begin
       if Deleted then PackedCollection.DeleteBook(CreateBookKey(SecondID,PackedID));
@@ -320,8 +434,8 @@ begin
 end;
 
 begin
-  if not LegacyOnly then Scenario(False);
-  Scenario(True);
+  if not LegacyOnly or ManualPrevious then Scenario(False);
+  if not ManualPrevious then Scenario(True);
 end;
 
 procedure TestPackedBoundSourceApply;

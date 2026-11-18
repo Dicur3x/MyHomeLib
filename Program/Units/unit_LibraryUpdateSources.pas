@@ -7,6 +7,7 @@ uses System.SysUtils, System.Classes;
 type
   TLibraryUpdateSource = record
     ID, Name, Location, IndexFile, VersionFile, CatalogSourceID, BooksRoot: string;
+    PreviousIndexFile: string;
     Full, Enabled: Boolean;
     LegacyCode: Integer;
     class function NewSource: TLibraryUpdateSource; static;
@@ -84,6 +85,9 @@ begin
     raise EArgumentException.Create('Повреждена привязка к источнику коллекции.');
   if (BooksRoot<>'') and not AbsoluteFolder(BooksRoot) then
     raise EArgumentException.Create('Папка книг должна иметь полный путь.');
+  if (PreviousIndexFile<>'') and ((Pos(#0,PreviousIndexFile)>0) or
+    not AbsoluteFolder(PreviousIndexFile) or not SameText(TPath.GetExtension(PreviousIndexFile),'.inpx')) then
+    raise EArgumentException.Create('Укажите полный путь к прежнему файлу INPX.');
 end;
 
 function WriteLibraryUpdateSources(const Sources: TLibraryUpdateSources): string;
@@ -105,6 +109,7 @@ begin
       Item.AddPair('location',Source.Location); Item.AddPair('index',Source.IndexFile);
       Item.AddPair('version_file',Source.VersionFile); Item.AddPair('source_id',Source.CatalogSourceID);
       Item.AddPair('books_root',Source.BooksRoot); Item.AddPair('full',TJSONBool.Create(Source.Full));
+      if Source.PreviousIndexFile<>'' then Item.AddPair('previous_index',Source.PreviousIndexFile);
       Item.AddPair('enabled',TJSONBool.Create(Source.Enabled));
       Item.AddPair('legacy_code',TJSONNumber.Create(Source.LegacyCode));
     end;
@@ -136,6 +141,7 @@ begin
       Result[I].VersionFile:=Item.GetValue<string>('version_file','');
       Result[I].CatalogSourceID:=Item.GetValue<string>('source_id','');
       Result[I].BooksRoot:=Item.GetValue<string>('books_root','');
+      Result[I].PreviousIndexFile:=Item.GetValue<string>('previous_index','');
       Result[I].Full:=Item.GetValue<Boolean>('full',True);
       Result[I].Enabled:=Item.GetValue<Boolean>('enabled',True);
       Result[I].LegacyCode:=Item.GetValue<Integer>('legacy_code',0);
@@ -189,6 +195,7 @@ begin
       if Fields.Count>8 then Source.BooksRoot:=Fields[8];
       if (Fields.Count>9) and (Fields[9]<>'') and not TryStrToBool(Fields[9],Source.Enabled) then
       begin Notes.Add(Format('Строка %d пропущена: неверный флаг включения.',[Number])); Continue; end;
+      if Fields.Count>10 then Source.PreviousIndexFile:=Fields[10];
       try Source.Validate;
       except on E:Exception do
         begin Notes.Add(Format('Строка %d: %s',[Number,E.Message])); Continue; end;
@@ -216,7 +223,7 @@ begin
   Lines:=TStringList.Create; Fields:=TStringList.Create;
   try
     Lines.Add('; HomeLibre: первые шесть полей совместимы со старым collections.ini.');
-    Lines.Add('; Дополнительные поля: ID, источник коллекции, папка книг, включён.');
+    Lines.Add('; Дополнительные поля: ID, источник коллекции, папка книг, включён, прежний INPX.');
     Lines.Add('[UPDATES]'); I:=0;
     Fields.Delimiter:=';'; Fields.QuoteChar:='"'; Fields.StrictDelimiter:=True;
     for Source in Sources do
@@ -226,6 +233,7 @@ begin
       Fields.Add(Source.IndexFile); Fields.Add(IntToStr(Ord(Source.Full))); Fields.Add(IntToStr(Source.LegacyCode));
       Fields.Add(Source.ID); Fields.Add(Source.CatalogSourceID); Fields.Add(Source.BooksRoot);
       Fields.Add(IntToStr(Ord(Source.Enabled)));
+      if Source.PreviousIndexFile<>'' then Fields.Add(Source.PreviousIndexFile);
       Lines.Add('Update'+IntToStr(I)+'='+Fields.DelimitedText); Inc(I);
     end;
     Result:=Lines.Text;

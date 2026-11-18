@@ -21,7 +21,7 @@ type
     FPreviousIndex, FReady, FOriginalRootOffline: Boolean;
     FDelta: IBookCollection;
     FDeltaFile, FApplySummary, FCacheInput, FPreviousFile, FOperationID: string;
-    FPreviousInput, FPreviousInputSHA, FPublisherFile: string;
+    FPreviousInput, FPreviousInputSHA, FPublisherFile, FSelectedPreviousFile: string;
     FPlan: TCollectionMergePlan;
     FActionDB: TSQLiteDatabase;
     FRevisionDB: TSQLiteDatabase;
@@ -35,6 +35,8 @@ type
     FPacked, FLegacyPackedBaseline: Boolean;
     FPreviousRoot: string;
     FPublishedCollectionID: Integer;
+    function ImportSelectedPreviousIndex(const OriginalRoot: string; const Target: IBookCollection;
+      const SystemData: ISystemData; const Check: TProc; const Progress: TLibraryReviewProgress): IBookCollection;
     procedure PreparePackedApplication(PreferNewRoot: Boolean; const Check: TProc;
       const Progress: TLibraryReviewProgress);
     procedure ApplyPacked(const Target: IBookCollection; const SystemData: ISystemData;
@@ -141,7 +143,7 @@ begin
   FPlan.Free; FActionLookup.Free; FActionDB.Free; FInventory.Free; FRevisionDB.Free;
   FDelta:=nil; FSnapshot:=nil; CleanCache;
   // Only files explicitly created by this review; never recursive cleanup.
-  for var Name in TArray<string>.Create(FDatabaseFile,FAnalysisFile,FDeltaFile,FPublisherFile) do
+  for var Name in TArray<string>.Create(FDatabaseFile,FAnalysisFile,FDeltaFile,FPublisherFile,FSelectedPreviousFile) do
     if Name<>'' then
       for var Suffix in TArray<string>.Create('','-wal','-shm','-journal') do
         if FileExists(Name+Suffix) then
@@ -223,6 +225,15 @@ begin
   begin Previous:=OpenCatalogSnapshot(FSourceInfo,FSourceInfo.CacheFile,SystemData,FPrepared.Folder); FPreviousIndex:=True; end;
   if (FSource.CatalogSourceID<>'') and not FSourceInfo.IsINPX then
   begin Previous:=OpenCatalogSource(FSourceInfo,SystemData); FPreviousIndex:=True; end;
+  if not FPreviousIndex and FPacked and (FSource.CatalogSourceID='') and (FSource.PreviousIndexFile<>'') then
+  begin
+    var OriginalRoot:=LegacyPackingSourceRoot(FRevisionDB);
+    if OriginalRoot<>'' then
+    begin
+      Previous:=ImportSelectedPreviousIndex(OriginalRoot,Target,SystemData,Check,Progress);
+      FPreviousIndex:=True;
+    end;
+  end;
   if FPreviousIndex then
   begin
     FPreviousFile:=VarToStr(Previous.GetProperty(PROP_DATAFILE));
@@ -315,6 +326,58 @@ begin
   except SQLiteCancelCallback:=nil; if Scratch.InBulkOperation then Scratch.EndBulkOperation(False); raise; end;
   FOperationSuccess:=True;
   finally SQLiteCancelCallback:=Saved; end;
+end;
+
+function TLibraryUpdateReview.ImportSelectedPreviousIndex(const OriginalRoot: string;
+  const Target: IBookCollection; const SystemData: ISystemData; const Check: TProc;
+  const Progress: TLibraryReviewProgress): IBookCollection;
+var LocalSource:TLibraryUpdateSource; Info:TCatalogSource; Staged:TStagedLibraryIndex;
+  Worker:TPreviousInpxWorker; ExpectedVersion,ActualVersion:Integer; LastUpdate:UInt64;
+begin
+  LocalSource:=TLibraryUpdateSource.NewSource;
+  LocalSource.Name:='Прежний INPX';
+  LocalSource.Location:=TPath.GetDirectoryName(FSource.PreviousIndexFile);
+  LocalSource.IndexFile:=TPath.GetFileName(FSource.PreviousIndexFile);
+  LastUpdate:=0;
+  Staged:=TStagedLibraryIndex.Fetch(LocalSource,FPrepared.Folder,nil,Check,
+    procedure(Done,Total:Int64)
+    begin
+      if Assigned(Progress) and ((GetTickCount64-LastUpdate>=200) or (Done=Total)) then
+      begin
+        LastUpdate:=GetTickCount64;
+        Progress('Копирование прежнего INPX',Integer(Done),Integer(Total));
+      end;
+    end);
+  try
+    FSelectedPreviousFile:=TPath.Combine(FPrepared.Folder,'previous-'+TGUID.NewGuid.ToString+'.hlc2');
+    TBookCollection_SQLite.CreateCollection(SystemData,FSelectedPreviousFile,CT_EXTERNAL_LOCAL_FB,
+      Settings.SystemFileName[sfGenresFB2],FPrepared.Folder);
+    Info:=FSourceInfo;
+    Info.Root:=OriginalRoot;
+    Result:=OpenCatalogSnapshot(Info,FSelectedPreviousFile,SystemData,FPrepared.Folder);
+    if Info.LibraryNamespace<>'' then Result.SetProperty(PROP_SOURCE_LIBRARY,Info.LibraryNamespace);
+    Result.SetProperty(PROP_MIXED_LIBRARY_IDS,Target.GetProperty(PROP_MIXED_LIBRARY_IDS));
+    if Assigned(Progress) then Progress('Чтение прежнего INPX',0,0);
+    Worker:=TPreviousInpxWorker.Create(MHL_INVALID_ID);
+    try
+      Worker.Input:=Staged.FileName;
+      Worker.Scratch:=Result;
+      Worker.Check:=procedure begin Check; CheckSpace; end;
+      Worker.Cancellation:=SQLiteCancelCallback;
+      Worker.Start;
+      Worker.WaitFor;
+      if Worker.FatalException is EAbort then
+        raise EAbort.Create(Exception(Worker.FatalException).Message);
+      if Assigned(Worker.FatalException) then
+        raise EReadError.Create('Не удалось прочитать прежний INPX: '+Exception(Worker.FatalException).Message);
+      if not Worker.Success then raise EReadError.Create('Не удалось прочитать прежний INPX.');
+    finally Worker.Free; end;
+    ExpectedVersion:=StrToIntDef(VarToStr(Target.GetProperty(PROP_DATAVERSION)),0);
+    ActualVersion:=StrToIntDef(VarToStr(Result.GetProperty(PROP_DATAVERSION)),0);
+    if (ExpectedVersion>0) and (ActualVersion<>ExpectedVersion) then
+      raise EReadError.CreateFmt('Версия прежнего INPX (%d) не совпадает с версией сжатой коллекции (%d).',
+        [ActualVersion,ExpectedVersion]);
+  finally Staged.Free; end;
 end;
 
 procedure TPreviousMetabibWorker.WorkFunction;
@@ -597,7 +660,15 @@ var DB: TSQLiteDatabase; Insert, Query: TSQLiteQuery; Iterator: IPublisherSeries
           if Origin.Eof then
             raise EReadError.Create('Нет исходного пути упакованной книги: '+Item.Title);
           Matched.Reset;
-          Matched.SetParam(0,LegacyArtifact(Origin.FieldAsString(0),Origin.FieldAsString(1),Item)); Matched.Open;
+          var OriginalPath:=Origin.FieldAsString(0);
+          var OriginalName:=Origin.FieldAsString(1);
+          Matched.SetParam(0,LegacyArtifact(OriginalPath,OriginalName,Item)); Matched.Open;
+          // INPX can still name a ZIP when the recorded original is a 7z archive.
+          if Matched.Eof and SameText(ExtractFileExt(OriginalPath),SEVENZIP_EXTENSION) then
+          begin
+            Matched.Reset;
+            Matched.SetParam(0,LegacyArtifact(ChangeFileExt(OriginalPath,ZIP_EXTENSION),OriginalName,Item)); Matched.Open;
+          end;
           if Matched.Eof or (Matched.FieldAsInt(2)<>1) then
             raise EReadError.Create('Сохранённый прежний индекс не подтверждает исходный файл упакованной книги: '+Item.Title);
           Key:=Matched.FieldAsString(0);
@@ -695,8 +766,8 @@ begin
       begin
         if not FPreviousIndex or
           (PackedDB.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE type=''table'' AND name=''HomeLibPackingOrigins''')=0) then
-          raise EReadError.Create('Для сравнения этой упакованной коллекции нужны исходные пути книг и сохранённый прежний индекс. '+
-            'Можно воспользоваться командой обновления сжатой коллекции из INPX в меню «Коллекция».');
+          raise EReadError.Create('Для сравнения этой упакованной коллекции нужны исходные пути книг и прежний индекс. '+
+            'Если есть прежний полный INPX, выберите его в настройке источника.');
         FLegacyPackedBaseline:=True;
         DB.ExecSQL('CREATE TABLE ReviewLegacyArtifacts(Artifact TEXT NOT NULL,BookID INTEGER PRIMARY KEY,Key TEXT NOT NULL,'+
           'Folder TEXT,FileName TEXT,Ext TEXT,InsideNo INTEGER,BookSize INTEGER,UpdateDate TEXT,Title TEXT,Lang TEXT,'+
@@ -825,7 +896,7 @@ begin
     if Assigned(BoundPackedCopy) then FSummary:=FSummary+sLineBreak+
       'Прежние файлы проверяются по сохранённым связям выбранного источника.'
     else if FLegacyPackedBaseline then FSummary:=FSummary+sLineBreak+
-      Format('В упакованной копии сопоставлено с сохранённым прежним индексом: %d записей.',[PackedMapped])
+      Format('В упакованной копии сопоставлено с прежним индексом: %d записей.',[PackedMapped])
     else if Assigned(PackedDB) then FSummary:=FSummary+sLineBreak+
       Format('Сопоставлено с текущими файлами упакованной копии: %d записей. '+
         'Исходные сведения самой копии использованы для %d записей. '+

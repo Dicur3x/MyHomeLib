@@ -12,16 +12,17 @@ type
   private
     FSource: TLibraryUpdateSource;
     FCatalogSources: TCatalogSources;
-    FName, FLocation, FIndex, FVersion, FBooks: TEdit;
+    FName, FLocation, FIndex, FVersion, FBooks, FPreviousIndex: TEdit;
     FTarget: TComboBox;
     FFull, FEnabled: TCheckBox;
     procedure BrowseLocation(Sender: TObject);
     procedure BrowseBooks(Sender: TObject);
     procedure BrowseIndex(Sender: TObject);
+    procedure BrowsePreviousIndex(Sender: TObject);
     procedure Accept(Sender: TObject);
   public
     constructor CreateForSource(AOwner: TComponent; const Source: TLibraryUpdateSource;
-      const CatalogSources: TCatalogSources);
+      const CatalogSources: TCatalogSources; AllowPreviousIndex: Boolean = False);
     function EditedSource: TLibraryUpdateSource;
     property Source: TLibraryUpdateSource read FSource;
   end;
@@ -38,7 +39,7 @@ type
     FPrepared: TStagedLibraryIndex;
     FReview: TLibraryUpdateReview;
     FSelectedIndex: Integer;
-    FRebuilding, FLayoutBusy: Boolean;
+    FRebuilding, FLayoutBusy, FAllowPreviousIndex: Boolean;
     FCommitted: Boolean;
     FPublishedCollectionID: Integer;
     FBeforeApply: TNotifyEvent;
@@ -89,7 +90,7 @@ implementation
 uses System.SysUtils, System.IOUtils, System.Math, System.Variants, System.Net.HttpClient,
   Winapi.Windows, Vcl.Dialogs, Vcl.FileCtrl, Vcl.Clipbrd,
   unit_Consts, unit_Settings, unit_WorkerThread, unit_CollectionWorkerThread, unit_MHLHttpClient, dm_user,
-  frm_ImportProgressFormEx;
+  frm_ImportProgressFormEx, unit_CollectionPacking;
 
 procedure FitWindow(Form: TCustomForm);
 var Area: TRect;
@@ -99,7 +100,7 @@ begin
 end;
 
 constructor TfrmLibraryUpdateSourceEditor.CreateForSource(AOwner: TComponent;
-  const Source: TLibraryUpdateSource; const CatalogSources: TCatalogSources);
+  const Source: TLibraryUpdateSource; const CatalogSources: TCatalogSources; AllowPreviousIndex: Boolean);
 var Body: TSourceScrollBox; Footer: TPanel; B: TButton; L: TLabel; Y: Integer;
   function Edit(const Caption, Name, Text: string): TEdit;
   begin
@@ -135,6 +136,12 @@ begin
     'edUpdateSourceVersion',Source.VersionFile);
   FBooks:=Edit('Папка с архивами книг (пусто — сохранить текущую папку)',
     'edUpdateSourceBooks',Source.BooksRoot); BrowseButton(FBooks.Top,BrowseBooks);
+  if AllowPreviousIndex then
+  begin
+    FPreviousIndex:=Edit('Прежний полный INPX, по которому создавалась сжатая коллекция',
+      'edUpdateSourcePreviousIndex',Source.PreviousIndexFile);
+    BrowseButton(FPreviousIndex.Top,BrowsePreviousIndex);
+  end;
   L:=TLabel.Create(Self); L.Parent:=Body; L.AutoSize:=False; L.WordWrap:=True;
   L.SetBounds(12,Y,712,36); L.Anchors:=[akLeft,akTop,akRight]; L.Caption:='Что обновлять в этой коллекции';
   FTarget:=TComboBox.Create(Self); FTarget.Parent:=Body; FTarget.Name:='cbUpdateSourceTarget';
@@ -180,10 +187,24 @@ begin
   finally Dialog.Free; end;
 end;
 
+procedure TfrmLibraryUpdateSourceEditor.BrowsePreviousIndex(Sender: TObject);
+var Dialog:TOpenDialog;
+begin
+  Dialog:=TOpenDialog.Create(Self);
+  try
+    Dialog.Title:='Выберите прежний полный INPX';
+    Dialog.FileName:=FPreviousIndex.Text;
+    Dialog.Filter:='Индекс книг INPX|*.inpx';
+    Dialog.Options:=[ofFileMustExist,ofPathMustExist,ofEnableSizing];
+    if Dialog.Execute then FPreviousIndex.Text:=Dialog.FileName;
+  finally Dialog.Free; end;
+end;
+
 function TfrmLibraryUpdateSourceEditor.EditedSource: TLibraryUpdateSource;
 begin
   Result:=FSource; Result.Name:=Trim(FName.Text); Result.Location:=Trim(FLocation.Text);
   Result.IndexFile:=Trim(FIndex.Text); Result.VersionFile:=Trim(FVersion.Text); Result.BooksRoot:=Trim(FBooks.Text);
+  if Assigned(FPreviousIndex) then Result.PreviousIndexFile:=Trim(FPreviousIndex.Text);
   Result.Full:=FFull.Checked; Result.Enabled:=FEnabled.Checked;
   if FTarget.ItemIndex=0 then Result.CatalogSourceID:=''
   else if FTarget.ItemIndex>0 then Result.CatalogSourceID:=FCatalogSources[FTarget.ItemIndex-1].ID
@@ -252,6 +273,8 @@ var B: TButton;
 begin
   inherited CreateNew(AOwner); FCollection:=Collection; FSelectedIndex:=-1;
   FSources:=ReadLibraryUpdateSources(VarToStr(Collection.GetProperty(PROP_LIBRARY_UPDATE_SOURCES)));
+  FAllowPreviousIndex:=(Length(LoadCatalogSources(Collection))=0) and
+    (LegacyPackingSourceRoot(Settings.ExpandCollectionFileName(VarToStr(Collection.GetProperty(PROP_DATAFILE))))<>'');
   Caption:='Источники обновлений — '+Collection.CollectionDisplayName;
   PixelsPerInch:=96; Font.PixelsPerInch:=96; Font.Name:='Segoe UI'; Font.Size:=9;
   ClientWidth:=900; ClientHeight:=580; Constraints.MinWidth:=480; Constraints.MinHeight:=280;
@@ -394,7 +417,7 @@ begin
   Source:=TLibraryUpdateSource.NewSource; Source.Name:='Новый источник';
   Source.Location:=Settings.UpdateURL;
   if Source.Location='' then Source.Location:=VarToStr(FCollection.GetProperty(PROP_ROOTFOLDER));
-  Editor:=TfrmLibraryUpdateSourceEditor.CreateForSource(Self,Source,LoadCatalogSources(FCollection));
+  Editor:=TfrmLibraryUpdateSourceEditor.CreateForSource(Self,Source,LoadCatalogSources(FCollection),FAllowPreviousIndex);
   try if Editor.ShowModal=mrOk then AppendSource(Editor.Source); finally Editor.Free; end;
 end;
 
@@ -402,7 +425,7 @@ procedure TfrmLibraryUpdateSources.EditSource(Sender: TObject);
 var Editor: TfrmLibraryUpdateSourceEditor; Index: Integer;
 begin
   Index:=SelectionIndex; if Index<0 then Exit;
-  Editor:=TfrmLibraryUpdateSourceEditor.CreateForSource(Self,FSources[Index],LoadCatalogSources(FCollection));
+  Editor:=TfrmLibraryUpdateSourceEditor.CreateForSource(Self,FSources[Index],LoadCatalogSources(FCollection),FAllowPreviousIndex);
   try if Editor.ShowModal=mrOk then ReplaceSource(Index,Editor.Source); finally Editor.Free; end;
 end;
 

@@ -87,6 +87,8 @@ type
   end;
 
 function IsPackedCollectionCatalog(const CatalogFile: string): Boolean;
+function LegacyPackingSourceRoot(const Catalog: TSQLiteDatabase): string; overload;
+function LegacyPackingSourceRoot(const CatalogFile: string): string; overload;
 function TryReadPackingImageProfile(const Folder: string; out Profile: TPackingImageProfile;
   out Grayscale: Boolean; const Dataset: string = ''): Boolean;
 function PackingImageProfileCaption(Profile: TPackingImageProfile; Grayscale: Boolean = False): string;
@@ -365,6 +367,26 @@ begin
     Result:=Catalog.QuerySingleInt('SELECT count(*) FROM sqlite_master '+
       'WHERE type=''table'' AND name=''HomeLibPackingState''')<>0;
   finally Catalog.Free; end;
+end;
+
+function LegacyPackingSourceRoot(const Catalog: TSQLiteDatabase): string;
+begin
+  Result:='';
+  if Catalog.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE type=''table'' '+
+    'AND name IN (''HomeLibPackingState'',''HomeLibPackingOrigins'')')<>2 then Exit;
+  if Catalog.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE type=''table'' '+
+    'AND name=''HomeLibrePackingPublishers''')<>0 then Exit;
+  Result:=Catalog.QuerySingleString('SELECT coalesce(max(Value),'''') FROM HomeLibPackingState WHERE Key=''source_root''');
+  if not TPath.IsPathRooted(Result) then Result:='';
+end;
+
+function LegacyPackingSourceRoot(const CatalogFile: string): string;
+var Catalog: TSQLiteDatabase;
+begin
+  Result:='';
+  if not TFile.Exists(CatalogFile) then Exit;
+  Catalog:=TSQLiteDatabase.CreateReadOnly(CatalogFile);
+  try Result:=LegacyPackingSourceRoot(Catalog); finally Catalog.Free; end;
 end;
 
 function PackingInputIdentity(const FileName: string; IncludeWriteTime: Boolean): string;

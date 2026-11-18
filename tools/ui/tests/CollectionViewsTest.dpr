@@ -6814,6 +6814,8 @@ begin
         TestPackedSourceReview
       else if ParamStr(1) = 'packed-legacy-source' then
         TestPackedSourceReview(True)
+      else if ParamStr(1) = 'packed-legacy-manual-source' then
+        TestPackedSourceReview(True,True)
       else if ParamStr(1) = 'packed-bound-apply' then
         TestPackedBoundSourceApply
       else if ParamStr(1) = 'favorite-book-menu' then
