@@ -98,7 +98,7 @@ implementation
 uses System.SysUtils, System.IOUtils, System.Math, System.Variants, System.Net.HttpClient,
   Winapi.Windows, Vcl.Dialogs, Vcl.FileCtrl, Vcl.Clipbrd,
   unit_Consts, unit_Settings, unit_WorkerThread, unit_CollectionWorkerThread, unit_MHLHttpClient, dm_user,
-  frm_ImportProgressFormEx, unit_CollectionPacking;
+  frm_ImportProgressFormEx, unit_CollectionPacking, unit_CatalogComponents;
 
 procedure FitWindow(Form: TCustomForm);
 var Area: TRect;
@@ -542,7 +542,16 @@ begin
       Previous:=Worker.TakePrevious;
     finally Progress.Free; end;
   finally Worker.Free; end;
-  try ReviewIndex(Proof,Previous); finally Previous.Free; end;
+  try
+    try
+      if not EnsureCatalogReaderComponent(Self,FPrepared.FileName) then
+        raise EAbort.Create('Проверка отменена. Для этого индекса требуется модуль Zstandard.');
+      ReviewIndex(Proof,Previous);
+    except
+      InvalidatePrepared;
+      raise;
+    end;
+  finally Previous.Free; end;
 end;
 
 procedure TfrmLibraryUpdateSources.ReviewIndex(const Proof:TLibraryUpdateRestartRequest; var Previous:TStagedLibraryIndex);

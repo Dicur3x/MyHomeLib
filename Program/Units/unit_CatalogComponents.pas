@@ -2,14 +2,29 @@
 
 interface
 
-uses System.Classes;
+uses
+{$IFDEF MHL_COMPRESSION_TEST}
+  frm_ProgramUpdate,
+{$ENDIF}
+  System.Classes;
 
 function RequiredCatalogComponent(const AppPath, FileName: string): string;
 function EnsureCatalogReaderComponent(AOwner: TComponent; const FileName: string): Boolean;
 
+{$IFDEF MHL_COMPRESSION_TEST}
+type
+  TCatalogComponentTestFactory = reference to function(AOwner: TComponent): TfrmProgramUpdate;
+var
+  CatalogComponentDialogForTest: TCatalogComponentTestFactory;
+{$ENDIF}
+
 implementation
 
-uses System.SysUtils, unit_ProgramUpdateInstaller, frm_ProgramUpdate, unit_Settings, dm_user;
+uses
+{$IFNDEF MHL_COMPRESSION_TEST}
+  frm_ProgramUpdate,
+{$ENDIF}
+  System.SysUtils, unit_ProgramUpdateInstaller, unit_Settings, dm_user;
 
 function RequiredCatalogComponent(const AppPath, FileName: string): string;
 begin
@@ -25,7 +40,11 @@ begin
   if not FileExists(FileName) then Exit;
   ID:=RequiredCatalogComponent(Settings.AppPath,FileName);
   if ID='' then Exit;
-  Dialog:=TfrmProgramUpdate.Create(AOwner);
+{$IFDEF MHL_COMPRESSION_TEST}
+  if Assigned(CatalogComponentDialogForTest) then Dialog:=CatalogComponentDialogForTest(AOwner)
+  else
+{$ENDIF}
+    Dialog:=TfrmProgramUpdate.Create(AOwner);
   try
     Result:=Dialog.InstallComponentForOperation(ID,
       'Для открытия выбранного каталога нужна эта библиотека. Сам файл каталога не изменится.');

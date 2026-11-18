@@ -6671,6 +6671,7 @@ begin
       else if ParamStr(1) = 'published-components' then TestPublishedComponents
       else if ParamStr(1) = 'optional-mcp' then TestOptionalMCPModule
       else if ParamStr(1) = 'optional-zstd' then TestOptionalZstdModule
+      else if ParamStr(1) = 'source-window-zstd' then TestOptionalZstdModule(True)
       else if ParamStr(1) = 'format-components' then TestFormatComponents
       else if ParamStr(1) = 'component-receipts' then TestComponentReceipts
       else if ParamStr(1) = 'component-removal' then TestComponentRemoval
