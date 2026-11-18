@@ -781,8 +781,16 @@ end;
 
 function TImportInpxThreadBase.StoreImportedBook(const Book: TBookRecord; CheckFiles: Boolean;
   const Collection: IBookCollection; Cache: TImportCache): Integer;
+var Appender:IArchiveIndexAppender;
 begin
-  Result := Collection.InsertBook(Book, CheckFiles, False, Cache);
+  if CheckFiles and IsArchiveExt(Book.Folder) and not isOnlineCollection(Collection.CollectionCode) then
+  begin
+    if not Supports(Collection,IArchiveIndexAppender,Appender) then
+      raise ENotSupportedException.Create('Каталог не поддерживает добавление книг из архивов INPX.');
+    Result:=Appender.AppendArchiveMember(Book,Cache);
+  end
+  else
+    Result:=Collection.InsertBook(Book,CheckFiles,False,Cache);
 end;
 
 constructor TImportInpxThread.Create(const CollectionID: Integer; const INPXFileName: string; GenresType: TGenresType);

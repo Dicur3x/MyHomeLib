@@ -29,7 +29,7 @@ uses
   unit_Database_Abstract;
 
 type
-  TBookCollection_SQLite = class(TBookCollection, IBookCollection, IBookSeriesStreamProvider, IBookMergeMetadataUpdater, IBookMergeMetadataDeltaUpdater, IPackingPublisherWriter, IBookImportedLocationWriter, IReviewedBookIDWriter, IBookMergeOriginalCopyRecorder, IAuthorFavoriteCollectionView, IBookIdentityDeletionWriter, IBookIdentityProgressWriter, IBookIdentityPersonalWriter, IBookMetadataFillWriter, ICatalogUserDataRestorer, ICatalogContentDigest)
+  TBookCollection_SQLite = class(TBookCollection, IBookCollection, IBookSeriesStreamProvider, IBookMergeMetadataUpdater, IBookMergeMetadataDeltaUpdater, IPackingPublisherWriter, IBookImportedLocationWriter, IArchiveIndexAppender, IReviewedBookIDWriter, IBookMergeOriginalCopyRecorder, IAuthorFavoriteCollectionView, IBookIdentityDeletionWriter, IBookIdentityProgressWriter, IBookIdentityPersonalWriter, IBookMetadataFillWriter, ICatalogUserDataRestorer, ICatalogContentDigest)
   strict private type
     TStreamAuthor = record
       Data: TAuthorData;
@@ -258,6 +258,7 @@ type
     procedure UpdateBookPreservingSeries(BookRecord: TBookRecord);
     procedure UpdateBookMetadataDelta(const Before: TBookRecord; BookRecord: TBookRecord; UpdateUserCard: Boolean = True);
     procedure StorePackingPublisherMetadata(const Book:TBookRecord; const Root:string; PayloadAvailable:Boolean);
+    function AppendArchiveMember(const Book:TBookRecord; Cache:TImportCache):Integer;
     function SeriesTriggersEnabled: Boolean;
     procedure DeleteBook(const BookKey: TBookKey);
     function DeleteBookIfIdentity(const Expected: TBookRecord;
@@ -2499,6 +2500,39 @@ begin
   finally
     query.Free;
   end;
+end;
+
+function TBookCollection_SQLite.AppendArchiveMember(const Book:TBookRecord; Cache:TImportCache):Integer;
+const
+  ExistingMember = 'SELECT Folder=?,Folder,LibID FROM Books '+
+    'WHERE FileName=? AND Ext=? AND Folder IN (?,?)';
+var
+  Alternate: string;
+  Incoming, Existing: TBookRecord;
+  Query: TSQLiteQuery;
+begin
+  if SameText(ExtractFileExt(Book.Folder),ZIP_EXTENSION) then
+    Alternate:=ChangeFileExt(Book.Folder,SEVENZIP_ARCHIVE_EXTENSION)
+  else
+    Alternate:=ChangeFileExt(Book.Folder,ZIP_EXTENSION);
+  Query:=FDatabase.NewQuery(ExistingMember,[Book.Folder,Book.FileName,Book.FileExt,Book.Folder,Alternate]);
+  try
+    Query.Open;
+    while not Query.Eof do
+    begin
+      if Query.FieldAsBoolean(0) then Exit(0);
+      // A missing ZIP may be the old spelling of an existing 7z. Use the
+      // normal reader's resolution, which keeps two present archives distinct.
+      Incoming:=Book;
+      Incoming.CollectionRoot:=CollectionRoot;
+      Existing:=Incoming;
+      Existing.Folder:=Query.FieldAsString(1);
+      Existing.LibID:=Query.FieldAsString(2);
+      if SameFileName(Incoming.GetBookContainer,Existing.GetBookContainer) then Exit(0);
+      Query.Next;
+    end;
+  finally Query.Free; end;
+  Result:=InternalInsertBook(Book,False,False,Cache);
 end;
 
 function TBookCollection_SQLite.EnsureGenre(const FB2Code, Alias, Category: string): TGenreData;

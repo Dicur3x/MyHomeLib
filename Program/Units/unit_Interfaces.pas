@@ -134,6 +134,11 @@ type
     procedure SetImportedBookLocation(BookID: Integer; const Folder: string; InsideNo: Integer);
   end;
 
+  IArchiveIndexAppender = interface
+    ['{E3EBB46F-C946-49BE-A8CC-66140C0366E8}']
+    function AppendArchiveMember(const Book:TBookRecord; Cache:TImportCache):Integer;
+  end;
+
   // Capture the pre-merge file provenance once, without replacing original
   // metadata with the preferred source selected by a later or repeated merge.
   IBookMergeOriginalCopyRecorder = interface
