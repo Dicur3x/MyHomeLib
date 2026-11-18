@@ -4,6 +4,7 @@ procedure RunKindleSaveModuleRestartChild; forward;
 procedure RunPackingModuleRestartChild; forward;
 procedure RunSqlCatalogueModuleRestartChild; forward;
 procedure RunCompressionModuleRestartChild; forward;
+procedure RunPackedUpdateInstallerChild; forward;
 type
   TSaveModuleExceptionHandler = class
     Report: string;
@@ -89,6 +90,7 @@ begin
   if ParamStr(2)='packing' then begin RunPackingModuleRestartChild; Exit; end;
   if ParamStr(2)='sql' then begin RunSqlCatalogueModuleRestartChild; Exit; end;
   if ParamStr(2)='compression' then begin RunCompressionModuleRestartChild; Exit; end;
+  if ParamStr(2)='packed-update' then begin RunPackedUpdateInstallerChild; Exit; end;
   // This early child entry precedes the shared DMUser/Settings bootstrap.
   Report:=ExtractFilePath(ParamStr(0))+'save-module-result.txt';
   Source:=ExtractFilePath(ParamStr(0))+'module-source.pdf'; SourceHash:=UpdateSHA256(Source);
@@ -218,7 +220,7 @@ begin
   // separately queued and must cover every updater/reader filename consumer.
   if Child='kindle' then Child:='HomeLibReader.exe';
   if (Child='legacy-request') or (Child='packing') or (Child='sql') then Child:='HomeLibRu.exe';
-  if Child='compression' then Child:='HomeLibre.exe';
+  if (Child='compression') or (Child='packed-update') then Child:='HomeLibre.exe';
   if Child='' then Child:='HomeLibReader.exe';
   Require(IsProgramUpdateApplicationName(Child),'Unexpected real updater regression application');
   Writeln('TRACE actual installer application ',Child);
@@ -230,6 +232,7 @@ begin
   if ParamStr(2)='packing' then Command:=Command+' packing';
   if ParamStr(2)='sql' then Command:=Command+' sql';
   if ParamStr(2)='compression' then Command:=Command+' compression';
+  if ParamStr(2)='packed-update' then Command:=Command+' packed-update';
   if ParamStr(2)='legacy-request' then
   begin Command:=Command+' legacy-request'; Writeln('TRACE pre5.33 request omits application'); end;
   // The real reader restart protection pins its --open input. Test mode

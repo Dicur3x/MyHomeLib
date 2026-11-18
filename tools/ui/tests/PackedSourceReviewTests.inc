@@ -1,4 +1,11 @@
 ﻿type
+  TPackedInstallFixture = record
+    CollectionID:Integer;
+    ProfileID,IncomingFile,PreviousFile,OriginalRoot:string;
+  end;
+  TPackedInstaller = reference to procedure(const Plan:ILibraryUpdateRestart;
+    const Required:TArray<string>; const Fixture:TPackedInstallFixture);
+
   TPreviousIndexEditorProbe = class
     Timer:TTimer;
     Path, Failure:string;
@@ -29,7 +36,8 @@ begin
     end;
 end;
 
-procedure TestPackedSourceReview(LegacyOnly:Boolean=False; ManualPrevious:Boolean=False; ModuleRestart:Boolean=False);
+procedure TestPackedSourceReview(LegacyOnly:Boolean=False; ManualPrevious:Boolean=False; ModuleRestart:Boolean=False;
+  const StartInstaller:TPackedInstaller=nil);
   procedure Scenario(WithHistory:Boolean);
 var Folder,OriginalRoot,HeldRoot,PackedRoot,Incoming,BaseIndex,NextIndex,PreviousInput:string;
   Source,PackedCollection:IBookCollection; SourceID,PackedID,FirstID,SecondID,UntouchedID:Integer;
@@ -214,24 +222,48 @@ var Folder,OriginalRoot,HeldRoot,PackedRoot,Incoming,BaseIndex,NextIndex,Previou
           'Closing the source window did not activate the new packed generation');
       finally Timer.Free; Driver.Free; end;
     end;
+    function QueueModuleRestart(out Required:TArray<string>):ILibraryUpdateRestart;
+    var Dialog:TfrmLibraryUpdateSources;
+    begin
+      Dialog:=TfrmLibraryUpdateSources.CreateForCollection(frmMain,PackedCollection);
+      try
+        Dialog.AllowModuleRestart:=True;
+        Dialog.SelectProfile(Profile.ID);
+        Dialog.CheckSource;
+        Dialog.ApplyReviewed(True);
+        Result:=Dialog.PendingRestart;
+        Required:=Dialog.RestartComponents;
+        Require(Assigned(Result) and not Dialog.Committed and (Length(Required)=1) and
+          SameText(Required[0],'BookProcessing'),
+          'Missing module did not defer the checked update: '+TLabel(Dialog.FindComponent('lblUpdateSourceReport')).Caption);
+      finally Dialog.Free; end;
+    end;
+    procedure StartActualInstaller;
+    var Pending:ILibraryUpdateRestart; Required:TArray<string>; Fixture:TPackedInstallFixture; Archive:TZipFile;
+    begin
+      Archive:=TZipFile.Create;
+      try
+        Archive.Open(TPath.Combine(PackedRoot,'new.zip'),zmWrite);
+        Archive.Add(TEncoding.UTF8.GetBytes('Other archive from the collection root'),'1003.txt');
+      finally Archive.Free; end;
+      var Tool:=Settings.AppPath+'tools\python\python.exe';
+      Require(RenameFile(Tool,Tool+'.held'),'Could not hide the private module runtime before real installation');
+      Pending:=QueueModuleRestart(Required);
+      Require(THashSHA2.GetHashStringFromFile(PreviousFile)=PreviousHash,'Preparing module installation wrote the catalogue');
+      Require(RenameFile(NextIndex,NextIndex+'.held'),'Could not take the new INPX offline');
+      Require(RenameFile(PreviousInput,PreviousInput+'.held'),'Could not take the earlier INPX offline');
+      Fixture.CollectionID:=PackedID; Fixture.ProfileID:=Profile.ID;
+      Fixture.IncomingFile:=NextIndex; Fixture.PreviousFile:=PreviousInput; Fixture.OriginalRoot:=OriginalRoot;
+      Settings.ActiveCollection:=PackedID;
+      Settings.SaveSettings;
+      StartInstaller(Pending,Required,Fixture);
+    end;
     function ApplyThroughModuleRestart:Integer;
     var Pending,Restored:ILibraryUpdateRestart; Dialog:TfrmLibraryUpdateSources;
       WorkRoot,Tool,Argument,BackupFile:string; Probe:TLibraryApplyProbe;
-      ApplyWorker:TCollectionWorker;
+      ApplyWorker:TCollectionWorker; Required:TArray<string>;
       function Queue:ILibraryUpdateRestart;
-      begin
-        Dialog:=TfrmLibraryUpdateSources.CreateForCollection(frmMain,PackedCollection);
-        try
-          Dialog.AllowModuleRestart:=True;
-          Dialog.SelectProfile(Profile.ID);
-          Dialog.CheckSource;
-          Dialog.ApplyReviewed(True);
-          Result:=Dialog.PendingRestart;
-          Require(Assigned(Result) and not Dialog.Committed and (Length(Dialog.RestartComponents)=1) and
-            SameText(Dialog.RestartComponents[0],'BookProcessing'),
-            'Missing module did not defer the checked update: '+TLabel(Dialog.FindComponent('lblUpdateSourceReport')).Caption);
-        finally Dialog.Free; end;
-      end;
+      begin Result:=QueueModuleRestart(Required); end;
       procedure Decline;
       var Abandoned:ILibraryUpdateRestart;
       begin
@@ -364,6 +396,11 @@ var Folder,OriginalRoot,HeldRoot,PackedRoot,Incoming,BaseIndex,NextIndex,Previou
     PreviousFile:=PackedCollection.GetProperty(PROP_DATAFILE);
     PreviousHash:=THashSHA2.GetHashStringFromFile(PreviousFile);
     DeliverArchive('new.zip','1003.txt','New reviewed body');
+    if Assigned(StartInstaller) then
+    begin
+      StartActualInstaller;
+      Exit;
+    end;
     ApplyTo(PackedID,False);
     Require(THashSHA2.GetHashStringFromFile(PreviousFile)=PreviousHash,'Declining changed the original packed catalog');
     ApplyTo(PackedID,True,True);
@@ -520,6 +557,13 @@ begin
   end;
   Require(RenameFile(OriginalRoot,HeldRoot),'Cannot hide owned original archive folder');
   try
+    if Assigned(StartInstaller) then
+    begin
+      Profile.PreviousIndexFile:=PreviousInput;
+      PackedCollection.DeleteBook(CreateBookKey(SecondID,PackedID));
+      ApplyPackedProfile(False);
+      Exit;
+    end;
     if ManualPrevious then CheckManualPreviousSelection;
     for var Deleted:=False to True do
     begin
@@ -533,7 +577,10 @@ begin
       finally TFile.Delete(TPath.Combine(Incoming,'books.zip')); end;
     end;
     ApplyPackedProfile(WithHistory and not LegacyOnly);
-  finally Require(RenameFile(HeldRoot,OriginalRoot),'Cannot restore owned original folder'); end;
+  finally
+    if not Assigned(StartInstaller) then
+      Require(RenameFile(HeldRoot,OriginalRoot),'Cannot restore owned original folder');
+  end;
 end;
 
 begin

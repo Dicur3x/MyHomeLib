@@ -34,11 +34,39 @@ requires confirmation and publishes the expected new collection. The old
 catalogue hash, prior deletion, pending delivery, unchanged 7z-backed book
 and personal fields are checked through the existing fixture assertions.
 
-The native fixture models the component's arrival inside the same process.
-A full download, external installer and successor-process test of this
-specific continuation remains to be run.
+This first fixture models the component's arrival inside the same process.
 
 Both x86 and x64 builds also pass the existing bound packed and normal
 source-profile tests. The record binds six native runs, four builds, 60
 pass markers and 702 files. The native test profiles were removed. See
 `G:/HL-b14-external/packed-module-restart-validation-r1840/summary.json`.
+
+## External installer and an actual new process
+
+Both architectures also pass the real component installer. The test hides
+the private BookProcessing executable, serves the verified same-version
+repair package over loopback and drives the compact component prompt. The
+external updater receives the original review token and starts another
+HomeLibre process. The driver confirms the process ID changed and verifies
+all installed package members against the archive manifest.
+
+The new process loads through the ordinary startup entry point. It opens the
+previously checked profile, with both original indexes and the old source
+folder offline. The catalogue digest and the number of registered collections
+are checked when the source dialog opens and again at confirmation. The
+confirmation asks to create a new copy and defaults to No. After explicit
+approval, HomeLibre activates the new collection and reads the selected
+downloaded body even though an archive with the same name is present in the
+collection folder. The check also covers the retained 7z payload, stable book
+ID, earlier deletion, rating, progress, review, pending replacement and
+consumption of the one-time token.
+
+The first x64 run reached confirmation but the test expected the wording
+used by a merged source. The assertion now checks the existing wording for
+a standalone packed collection. Production code did not need a change.
+
+The final x64 and x86 receipts are in
+`G:/HL-b14-external/packed-real-installer-validation-r1854/summary.json`.
+The runs verify 173 and 172 installed files respectively and remove their
+isolated profiles. Network transport is loopback, with verified local release
+artifacts. The final release packages and GitHub download are separate checks.

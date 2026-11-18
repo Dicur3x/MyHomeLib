@@ -6339,6 +6339,7 @@ end;
 {$I ComponentInventoryUITests.inc}
 {$I CollectionPackingFbdTests.inc}
 {$I CollectionPackingRestartTests.inc}
+{$I PackedUpdateInstallerTests.inc}
 {$I SqlCatalogueRestartTests.inc}
 {$I LibraryUpdateCompressionTests.inc}
 {$I LibraryUpdateBoundCompressionTests.inc}
