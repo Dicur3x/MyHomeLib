@@ -26,25 +26,25 @@ TOOLS = os.environ.get('HLRU_PACK_IMAGE_TOOLS')
 CLI_SCRIPT = os.environ.get('HL_SELECTED_PREPARER', preparation.__file__)
 
 
-def epub(picture):
+def epub(picture, image_path='picture.png', image_type='image/png'):
     result = io.BytesIO()
     with zipfile.ZipFile(result, 'w', zipfile.ZIP_DEFLATED) as archive:
         archive.writestr('mimetype', 'application/epub+zip', compress_type=zipfile.ZIP_STORED)
         archive.writestr('META-INF/container.xml',
             '<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles>'
             '<rootfile full-path="book.opf"/></rootfiles></container>')
-        archive.writestr('book.opf', '''<package xmlns="http://www.idpf.org/2007/opf" version="2.0">
+        archive.writestr('book.opf', f'''<package xmlns="http://www.idpf.org/2007/opf" version="2.0">
 <manifest><item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/>
-<item id="pic" href="picture.png" media-type="image/png"/><item id="style" href="book.css" media-type="text/css"/>
+<item id="pic" href="{image_path}" media-type="{image_type}"/><item id="style" href="book.css" media-type="text/css"/>
 <item id="font" href="font.ttf" media-type="application/x-font-truetype"/>
 <item id="svg" href="drawing.svg" media-type="image/svg+xml"/></manifest><spine><itemref idref="chapter"/></spine></package>''')
         archive.writestr('chapter.xhtml', '<html xmlns="http://www.w3.org/1999/xhtml"><body><p id="chapter">'
                          'Keep <em>this text</em> and <a href="#note">footnote</a>.</p><p id="note">Note</p>'
-                         '<img src="picture.png"/><img src="drawing.svg"/></body></html>')
+                         f'<img src="{image_path}"/><img src="drawing.svg"/></body></html>')
         archive.writestr('book.css', '@font-face {font-family: Book;src: url(font.ttf)} p {line-height:1.25}')
         archive.writestr('font.ttf', b'Preserve embedded font bytes exactly')
         archive.writestr('drawing.svg', '<svg xmlns="http://www.w3.org/2000/svg"><text>Keep vector text</text></svg>')
-        archive.writestr('picture.png', picture)
+        archive.writestr(image_path, picture)
     return result.getvalue()
 
 
@@ -338,12 +338,24 @@ class SelectedPreparationTests(unittest.TestCase):
 
     @unittest.skipUnless(TOOLS, 'Real HomeLibre Images runtime required')
     def test_stored_flibrary_epub_uses_resource_structure_before_visible_html(self):
-        original = epub(image_fixture())
+        self.check_stored_epub_preview(epub(image_fixture()), 'picture.png')
+
+    @unittest.skipUnless(TOOLS, 'Real HomeLibre Images runtime required')
+    def test_stored_flibrary_webp_resource_without_filename_extension(self):
+        from PIL import Image
+        color = io.BytesIO()
+        with Image.open(io.BytesIO(image_fixture())) as bitmap:
+            bitmap.save(color, 'WEBP', lossless=True)
+        self.check_stored_epub_preview(epub(color.getvalue(), 'illustration', 'image/webp'),
+                                       'illustration', grayscale=True)
+
+    def check_stored_epub_preview(self, original, image_path, grayscale=False):
         with zipfile.ZipFile(io.BytesIO(original)) as archive:
             entries = {name: archive.read(name) for name in archive.namelist()}
         source, raw_book = self.stored_nested_source(entries)
         before = sha(source)
-        prepared = self.prepare(source, {'one.epub': '.epub'}, profile='balanced', preview_images=True)
+        prepared = self.prepare(source, {'one.epub': '.epub'}, profile='balanced',
+                                grayscale=grayscale, preview_images=True)
         self.assertEqual(prepared.books[0]['format'], '.epub')
         self.assertTrue(prepared.books[0]['checked'], prepared.books)
         self.assertTrue(prepared.books[0]['optimized'], prepared.books)
@@ -365,9 +377,9 @@ class SelectedPreparationTests(unittest.TestCase):
         self.assertIsNotNone(prepared.preview)
         with zipfile.ZipFile(prepared.preview['path']) as samples, zipfile.ZipFile(output) as verified:
             pairs = json.loads(samples.read('comparison.json'))['pairs']
-            self.assertEqual([(pair['member'], pair['image']) for pair in pairs], [('one.epub', 'picture.png')])
-            self.assertEqual(samples.read(pairs[0]['before']), entries['picture.png'])
-            self.assertEqual(samples.read(pairs[0]['after']), verified.read('picture.png'))
+            self.assertEqual([(pair['member'], pair['image']) for pair in pairs], [('one.epub', image_path)])
+            self.assertEqual(samples.read(pairs[0]['before']), entries[image_path])
+            self.assertEqual(samples.read(pairs[0]['after']), verified.read(image_path))
             self.assertNotEqual(samples.read(pairs[0]['before']), samples.read(pairs[0]['after']))
         self.assertEqual(self.decoded(prepared.candidate or source, 'neighbor.txt'), b'Keep the other physical book exactly.')
         self.assertEqual(sha(source), before)

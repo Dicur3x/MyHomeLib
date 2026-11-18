@@ -79,15 +79,30 @@ def _epub_content(path, output=False):
         names = archive.namelist()
         if len(names) != len(set(names)):
             raise PackingError('EPUB содержит повторяющиеся внутренние имена.')
-        images = {name: _image_mime(archive.read(name)) for name in names
-                  if Path(name).suffix.lower() in {'.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.tif', '.tiff'}}
-        images = {name: mime for name, mime in images.items() if mime}
+        def resource_name(package, href):
+            url = urlsplit(href)
+            if url.scheme or url.netloc or not url.path:
+                return None
+            return posixpath.normpath(posixpath.join(posixpath.dirname(package), unquote(url.path)))
+
+        packages = {name: ElementTree.fromstring(archive.read(name)) for name in names if name.lower().endswith('.opf')}
+        item_tag = '{http://www.idpf.org/2007/opf}item'
+        declared_images = {resource_name(name, item.get('href', '')) for name, package in packages.items()
+                           for item in package.iter(item_tag) if item.get('media-type', '').lower().startswith('image/')}
+        image_extensions = {'.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.tif', '.tiff'}
+        images = {}
+        for item in archive.infolist():
+            if item.is_dir() or (item.filename not in declared_images and Path(item.filename).suffix.lower() not in image_extensions):
+                continue
+            with archive.open(item) as stream:
+                media_type = _image_mime(stream.read(12))
+            if media_type:
+                images[item.filename] = media_type
 
         def opf_node(element, package):
             attributes = dict(element.attrib)
-            if element.tag == '{http://www.idpf.org/2007/opf}item':
-                name = posixpath.normpath(posixpath.join(posixpath.dirname(package),
-                                                       unquote(urlsplit(attributes.get('href', '')).path)))
+            if element.tag == item_tag:
+                name = resource_name(package, attributes.get('href', ''))
                 if name in images:
                     if output and attributes.get('media-type') != images[name]:
                         raise PackingError('Тип изображения EPUB не совпал с его содержимым.')
@@ -100,10 +115,10 @@ def _epub_content(path, output=False):
                 result[item.filename] = None
             elif item.filename in images:
                 result[item.filename] = 'image'
-            elif item.filename.lower().endswith('.opf'):
+            elif item.filename in packages:
                 # Compare the whole package tree. Exempt only the MIME of an
                 # actual raster image, and require its new MIME to be correct.
-                result[item.filename] = opf_node(ElementTree.fromstring(archive.read(item)), item.filename)
+                result[item.filename] = opf_node(packages[item.filename], item.filename)
             else:
                 result[item.filename] = archive.read(item)
     return result

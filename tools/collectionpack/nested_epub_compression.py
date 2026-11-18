@@ -4,12 +4,12 @@ External images remain external. The native owner still reconstructs and checks
 the complete before/after EPUB before publishing any book or image archive.
 """
 import hashlib
-from pathlib import Path
 import tempfile
 import zipfile
 import zlib
 
 from archive_replacement import archive_inventory, prepare_archive_replacement
+from compression_preview import image_kind
 from pack_collection import (BLOCK, MAX_IMAGE_BOOK, PackingError, digest_file,
                              reserve_space)
 
@@ -41,6 +41,7 @@ def optimize_nested_epub(source, stage, processor, decoder, history, verify, che
         raise PackingError('Вложенная EPUB слишком велика для обработки иллюстраций.')
     reserve_space(work, 4*total+source.stat().st_size)
     materialized = []
+    has_raster = False
     # -so creates no filesystem paths from archive names. The per-member CRC
     # confirms stream order; unfamiliar/missing CRCs use exact-name reads.
     with tempfile.TemporaryFile(dir=work) as batch:
@@ -75,9 +76,10 @@ def optimize_nested_epub(source, stage, processor, decoder, history, verify, che
             if target.stat().st_size != item['size']:
                 raise PackingError('Изменился размер ресурса вложенной EPUB: '+name)
             materialized.append((name, target, digest_file(target, check)))
-    image_suffixes = {'.png','.jpg','.jpeg','.gif','.webp','.bmp','.tif','.tiff'}
-    if not any(Path(name).suffix.lower() in image_suffixes and path.stat().st_size
-               for name, path, _ in materialized):
+            if not has_raster:
+                with target.open('rb') as entry:
+                    has_raster = image_kind(entry.read(12)) is not None
+    if not has_raster:
         return dict(image_result='unchanged', nested_epub_verified=True,
                     image_reason='Вложенная упаковка EPUB сохранена; отдельные картинки обрабатываются вместе с книгой.')
     tops = {name.split('/',1)[0] if '/' in name else '' for name, _, _ in materialized

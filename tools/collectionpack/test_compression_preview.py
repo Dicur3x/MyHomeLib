@@ -1,7 +1,9 @@
 """Actual image pairs and preparation failure/skip cleanup."""
 import base64
+import io
 import json
 import os
+import random
 import subprocess
 import sys
 from types import SimpleNamespace
@@ -90,6 +92,54 @@ class CompressionPreviewTests(unittest.TestCase):
                                         cwd=Path(native).parent, capture_output=True, timeout=60)
                 self.assertEqual(output.returncode, 0, output.stdout + output.stderr)
                 self.assertIn(b'PASS original dimensions and first-frame pixels', output.stdout)
+
+    @unittest.skipUnless(fixtures.TOOLS, 'Real HomeLibre Images runtime required')
+    def test_grayscale_webp_in_selected_books_matches_both_preview_panes(self):
+        from PIL import Image, ImageChops
+
+        color = io.BytesIO()
+        with Image.frombytes('RGB', (320, 256), random.Random(1991).randbytes(320*256*3)) as pixels:
+            pixels.save(color, 'WEBP', lossless=True)
+        original = color.getvalue()
+        books = {'one.fb2': illustrated_fb2(original).replace(b'image/png', b'image/webp'),
+                 'two.epub': fixtures.epub(original, 'picture.webp', 'image/webp'),
+                 'three.epub': fixtures.epub(original, 'picture', 'image/webp')}
+        source = self.source_zip(dict(books, neighbor=b'keep neighbor'))
+        before = sha(source)
+        prepared = self.prepare(source, {n: Path(n).suffix for n in books},
+                                profile='maximum', grayscale=True, preview_images=True)
+        self.assertEqual(sha(source), before)
+        self.assertEqual(self.decoded(prepared.candidate, 'neighbor'), b'keep neighbor')
+        self.assertTrue(all(b['optimized'] for b in prepared.books), prepared.books)
+        with zipfile.ZipFile(prepared.preview['path']) as samples:
+            pairs = json.loads(samples.read('comparison.json'))['pairs']
+            self.assertEqual([p['member'] for p in pairs], list(books))
+            for pair in pairs:
+                member = pair['member']
+                actual_book = self.decoded(prepared.candidate, member)
+                if member.endswith('.fb2'):
+                    node = ET.fromstring(actual_book).find('{http://www.gribuser.ru/xml/fictionbook/2.0}binary')
+                    picture = base64.b64decode(node.text)
+                else:
+                    with zipfile.ZipFile(io.BytesIO(actual_book)) as epub:
+                        picture = epub.read(pair['image'])
+                        self.assertIn(b'Keep <em>this text</em>', epub.read('chapter.xhtml'))
+                self.assertEqual(samples.read(pair['before']), original)
+                self.assertEqual(samples.read(pair['after']), picture)
+                self.assertLess(len(actual_book), len(books[member]))
+                with Image.open(io.BytesIO(picture)) as after:
+                    red, green, blue = after.convert('RGB').split()
+                    self.assertIsNone(ImageChops.difference(red, green).getbbox())
+                    self.assertIsNone(ImageChops.difference(red, blue).getbbox())
+                    self.assertGreater(red.getextrema()[1], red.getextrema()[0])
+
+    def test_extensionless_epub_attachment_requires_a_raster_declaration(self):
+        original = self.root / 'original.epub'
+        result = self.root / 'result.epub'
+        original.write_bytes(fixtures.epub(image_fixture(), 'resource', 'application/octet-stream'))
+        result.write_bytes(fixtures.epub(image_fixture(True), 'resource', 'application/octet-stream'))
+        with self.assertRaises(fixtures.PackingError):
+            fixtures.verify_non_image_content(original, result, '.epub')
 
     def test_epub_quality_preview_pairs_the_same_image_path(self):
         image = image_fixture(False)
