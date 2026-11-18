@@ -4,6 +4,8 @@
 
 [О программе](../../README.md) · [Сборка и проверки](../../BUILDING.md)
 
+Готовится [HomeLibre 3.0 beta 14](RELEASE_NOTES_3.0.0_pre1.14.md).
+
 - [HomeLibre 3.0 beta 13](RELEASE_NOTES_3.0.0_pre1.13.md)
 - [HomeLibre 3.0 beta 12](RELEASE_NOTES_3.0.0_pre1.12.md)
 - [HomeLibre 3.0 beta 11](RELEASE_NOTES_3.0.0_pre1.11.md)
