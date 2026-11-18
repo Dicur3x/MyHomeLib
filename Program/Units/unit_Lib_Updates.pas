@@ -61,7 +61,6 @@ type
   TUpdateInfoList = class(TCollection)
   private
     FURL: string;
-    FPath: string;
     FConnectionError: Boolean;
 
     function GetUpdate(Index: Integer): TUpdateInfo;
@@ -85,11 +84,8 @@ type
 
     procedure UpdateExternalVersions;
 
-    function DownloadUpdate(Index: Integer; HTTP: THTTPClient): Boolean;
-
     property Items[Index: Integer]: TUpdateInfo read GetUpdate write SetUpdate; default;
     property URL: string read FURL write SetURL;
-    property Path: string read FPath write FPath;
     property ConnectionError: Boolean read FConnectionError;
   end;
 
@@ -202,33 +198,6 @@ end;
 constructor TUpdateInfoList.Create;
 begin
   inherited Create(TUpdateInfo);
-end;
-
-function TUpdateInfoList.DownloadUpdate(Index: Integer; HTTP: THTTPClient): Boolean;
-var
-  MS: TMemoryStream;
-  URL: string;
-  FileName: string;
-begin
-  Result := False;
-
-  if Items[Index].URL = '' then
-    URL := FURL + Items[Index].FUpdateFile
-  else
-    URL := Items[Index].URL + Items[Index].FUpdateFile;
-  FileName := FPath + Items[Index].FUpdateFile;
-
-  MS := TMemoryStream.Create;
-  try
-    try
-      HTTP.Get(URL, MS);
-      MS.SaveToFile(FileName);
-      Result := True;
-    except
-    end;
-  finally
-    MS.Free;
-  end;
 end;
 
 function TUpdateInfoList.GetUpdate(Index: Integer): TUpdateInfo;

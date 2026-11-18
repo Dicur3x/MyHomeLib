@@ -6206,6 +6206,7 @@ end;
 {$I FavoriteAuthorColumnTests.inc}
 {$I SystemBookRemapTests.inc}
 {$I UpdateOutcomeTests.inc}
+{$I LegacyUpdateWorkspaceTests.inc}
 {$I FB2EncodingTests.inc}
 {$I LocalBookImportTests.inc}
 {$I FavoriteAuthorUiTests.inc}
@@ -6805,6 +6806,8 @@ begin
         TestSystemBookRemapSafety
       else if ParamStr(1) = 'update-outcomes' then
         TestUpdateOutcomes
+      else if ParamStr(1) = 'legacy-update-workspace' then
+        TestLegacyUpdateWorkspace
       else if ParamStr(1) = 'favorite-book-menu' then
         TestFavoriteBookMenu(One)
       else if ParamStr(1) = 'favorite-ui' then

@@ -109,6 +109,8 @@ uses
   unit_Logger,
   unit_MHLHttpClient,
   unit_MHLArchiveHelpers,
+  unit_LibraryUpdateSources,
+  unit_LibraryUpdateFetch,
   unit_CollectionPacking,
   unit_UserData;
 
@@ -285,14 +287,19 @@ end;
 procedure TLibUpdateThread.WorkFunction;
 var
   i: integer;
-  InpxFileName: string;
+  WorkRoot: string;
   updateInfo: TUpdateInfo;
   HadFailure: Boolean;
+  Source:TLibraryUpdateSource;
+  Prepared:TStagedLibraryIndex;
 begin
   HadFailure := False;
   SetComment(rstrCheckingUpdate);
 
   try
+    // Resolve once at write time. Never silently change the user's workspace
+    // when a configured disk/folder disappears after the availability check.
+    WorkRoot:=Settings.LibraryUpdateWorkPath;
     for i := 0 to Settings.Updates.Count - 1 do
     begin
       updateInfo := Settings.Updates[i];
@@ -314,55 +321,48 @@ begin
         SetComment(rstrConnectingToServer);
         FStartDate := Now;
         SetProgress(0);
-        if not Settings.Updates.DownloadUpdate(i, FHTTPClient) then
-        begin
-          HadFailure := True;
-          Teletype(rstrUpdateFailedDownload, tsInfo);
-          Continue;
+      end;
+
+      Source:=TLibraryUpdateSource.NewSource;
+      Source.Name:=updateInfo.Name; Source.IndexFile:=updateInfo.UpdateFile;
+      if updateInfo.Local then Source.Location:=WorkRoot else Source.Location:=updateInfo.URL;
+      Prepared:=nil;
+      try
+        try
+          // The same held staging implementation as reviewed sources: streamed
+          // downloads, HTTP status/size/space checks and read-only local inputs.
+          // No shared filename in the user's update folder is overwritten.
+          Prepared:=TStagedLibraryIndex.Fetch(Source,WorkRoot,FHTTPClient,
+            procedure begin if Canceled then Abort; end,
+            procedure(Done,Total:Int64)
+            begin if Total>0 then SetProgress(Done*100 div Total); end);
+        except
+          on E:Exception do
+          begin
+            if Canceled then begin Teletype(rstrCancelledByUser,tsInfo); Exit; end;
+            HadFailure:=True; Teletype(rstrUpdateFailedDownload,tsError);
+            Teletype(E.Message,tsError); Continue;
+          end;
         end;
-      end;
-
-      InpxFileName := TPath.Combine(Settings.UpdatePath, updateInfo.UpdateFile);
-
-      if Canceled then
-      begin
-        DeleteFile(InpxFileName);
-        Teletype(rstrCancelledByUser, tsInfo);
-        Exit;
-      end;
-
-      // Отмена во время импорта: изменения уже отменены, файлы обновлений
-      // оставляем на месте, чтобы можно было повторить попытку.
-      if not UpdateCollection(InpxFileName, updateInfo.CollectionID, updateInfo.Full, updateInfo.Name) then
-        Exit;
-      FUpdated := True;
+        if Canceled then begin Teletype(rstrCancelledByUser,tsInfo); Exit; end;
+        if not UpdateCollection(Prepared.FileName,updateInfo.CollectionID,updateInfo.Full,updateInfo.Name) then Exit;
+        FUpdated:=True;
+      finally Prepared.Free; end;
 
       Teletype(rstrReady, tsInfo);
     end;
 
     Teletype(rstrUpdateComplete, tsInfo);
-    for i := 0 to Settings.Updates.Count - 1 do
-    begin
-      updateInfo := Settings.Updates[i];
-      InpxFileName := TPath.Combine(Settings.UpdatePath, updateInfo.UpdateFile);
-      if FileExists(InpxFileName) then
-         DeleteFile(InpxFileName);
-    end;
-
     SetComment(rstrReady);
     FOperationSuccess := not HadFailure and not Canceled;
   except
     on E: Exception do
     begin
       Teletype(rstrUpdateFailed, tsError);
+      Teletype(E.Message, tsError);
 {$IFDEF USELOGGER}
       GetLogger.Log('TLibUpdateThread.WorkFunction ERROR', E.Message);
 {$ENDIF}
-      // InpxFileName - файл, на котором произошла ошибка обработки; до первой итерации цикла
-      // он пуст. Ранее здесь использовался счетчик i, неопределенный
-      // за пределами цикла, да еще и с другой папкой.
-      if (InpxFileName <> '') and FileExists(InpxFileName) then
-        DeleteFile(InpxFileName);
     end;
   end;
 end;

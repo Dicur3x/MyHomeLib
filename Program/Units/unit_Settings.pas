@@ -1113,7 +1113,6 @@ begin
   FUpdateList.Clear;
 
   FUpdateList.URL := FUpdateURL;
-  FUpdateList.Path := UpdatePath;
 
   INIFile := TMemIniFile.Create(SystemFileName[sfCollectionsStore]);
   try
