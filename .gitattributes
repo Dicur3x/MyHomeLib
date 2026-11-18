@@ -8,3 +8,7 @@ Installer/ReaderFonts/** -text
 # Corresponding-source archives and runtime notices bind exact build file bytes.
 /scripts/build-kfx-export.py text eol=lf
 /scripts/boko-epub-navigation.patch text eol=lf
+
+# Release feed bytes are copied into the shipped packages.
+/Installer/Components.json text eol=lf
+/Installer/Release.json text eol=lf

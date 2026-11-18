@@ -148,9 +148,13 @@
     {
       "id": "HomeLibReader",
       "platform": "Win32",
-      "version": "3.0.0.13",
-      "archive": "HomeLibRu-HomeLibReader-3.0.0.13-Win32.zip",
+      "version": "3.0.0.14",
+      "archive": "HomeLibRu-HomeLibReader-3.0.0.14-Win32.zip",
       "history": [
+        {
+          "version": "3.0.0.14",
+          "notes": "Исправлены метки глав и окно шрифтов. Улучшены цвета, масштаб и выбор шрифта."
+        },
         {
           "version": "3.0.0.13",
           "date": "2026-11-11",
@@ -233,9 +237,13 @@
     {
       "id": "HomeLibReader",
       "platform": "Win64",
-      "version": "3.0.0.13",
-      "archive": "HomeLibRu-HomeLibReader-3.0.0.13-Win64.zip",
+      "version": "3.0.0.14",
+      "archive": "HomeLibRu-HomeLibReader-3.0.0.14-Win64.zip",
       "history": [
+        {
+          "version": "3.0.0.14",
+          "notes": "Исправлены метки глав и окно шрифтов. Улучшены цвета, масштаб и выбор шрифта."
+        },
         {
           "version": "3.0.0.13",
           "date": "2026-11-11",
@@ -318,9 +326,13 @@
     {
       "id": "BookProcessing",
       "platform": "Win32",
-      "version": "3.0.0.13",
-      "archive": "HomeLibRu-BookProcessing-3.0.0.13-Win32.zip",
+      "version": "3.0.0.14",
+      "archive": "HomeLibRu-BookProcessing-3.0.0.14-Win32.zip",
       "history": [
+        {
+          "version": "3.0.0.14",
+          "notes": "Обновлены инструменты подготовки, преобразования и сжатия книг."
+        },
         {
           "version": "3.0.0.13",
           "date": "2026-11-11",
@@ -359,9 +371,13 @@
     {
       "id": "ImageProcessing",
       "platform": "Win32",
-      "version": "3.0.0.8",
-      "archive": "HomeLibRu-ImageProcessing-3.0.0.8-Win32.zip",
+      "version": "3.0.0.14",
+      "archive": "HomeLibRu-ImageProcessing-3.0.0.14-Win32.zip",
       "history": [
+        {
+          "version": "3.0.0.14",
+          "notes": "Обновлена подготовка иллюстраций, включая обработку статического кадра GIF."
+        },
         {
           "version": "3.0.0.8",
           "notes": "Максимальная экономия и оттенки серого для растровых страниц, обработка ориентации изображений."
@@ -403,9 +419,13 @@
     {
       "id": "LegacyBooks",
       "platform": "Win32",
-      "version": "3.0.0.5",
-      "archive": "HomeLibRu-LegacyBooks-3.0.0.5-Win32.zip",
+      "version": "3.0.0.6",
+      "archive": "HomeLibRu-LegacyBooks-3.0.0.6-Win32.zip",
       "history": [
+        {
+          "version": "3.0.0.6",
+          "notes": "Улучшено чтение старых книжных форматов и их иллюстраций."
+        },
         {
           "version": "3.0.0.5",
           "notes": "Дополнительные кодеки старых LIT/LRF и отдельных вариантов Mobipocket."
@@ -443,9 +463,13 @@
     {
       "id": "XPS",
       "platform": "Win32",
-      "version": "3.0.0.5",
-      "archive": "HomeLibRu-XPS-3.0.0.5-Win32.zip",
+      "version": "3.0.0.6",
+      "archive": "HomeLibRu-XPS-3.0.0.6-Win32.zip",
       "history": [
+        {
+          "version": "3.0.0.6",
+          "notes": "Поддержано чтение документов XPS и OpenXPS."
+        },
         {
           "version": "3.0.0.5",
           "notes": "Чтение документов XPS. Для обычных FB2/EPUB этот компонент не нужен."
@@ -463,9 +487,13 @@
     {
       "id": "BookProcessing",
       "platform": "Win64",
-      "version": "3.0.0.13",
-      "archive": "HomeLibRu-BookProcessing-3.0.0.13-Win64.zip",
+      "version": "3.0.0.14",
+      "archive": "HomeLibRu-BookProcessing-3.0.0.14-Win64.zip",
       "history": [
+        {
+          "version": "3.0.0.14",
+          "notes": "Обновлены инструменты подготовки, преобразования и сжатия книг."
+        },
         {
           "version": "3.0.0.13",
           "date": "2026-11-11",
@@ -504,9 +532,13 @@
     {
       "id": "ImageProcessing",
       "platform": "Win64",
-      "version": "3.0.0.8",
-      "archive": "HomeLibRu-ImageProcessing-3.0.0.8-Win64.zip",
+      "version": "3.0.0.14",
+      "archive": "HomeLibRu-ImageProcessing-3.0.0.14-Win64.zip",
       "history": [
+        {
+          "version": "3.0.0.14",
+          "notes": "Обновлена подготовка иллюстраций, включая обработку статического кадра GIF."
+        },
         {
           "version": "3.0.0.8",
           "notes": "Максимальная экономия и оттенки серого для растровых страниц, обработка ориентации изображений."
@@ -548,9 +580,13 @@
     {
       "id": "LegacyBooks",
       "platform": "Win64",
-      "version": "3.0.0.5",
-      "archive": "HomeLibRu-LegacyBooks-3.0.0.5-Win64.zip",
+      "version": "3.0.0.6",
+      "archive": "HomeLibRu-LegacyBooks-3.0.0.6-Win64.zip",
       "history": [
+        {
+          "version": "3.0.0.6",
+          "notes": "Улучшено чтение старых книжных форматов и их иллюстраций."
+        },
         {
           "version": "3.0.0.5",
           "notes": "Дополнительные кодеки старых LIT/LRF и отдельных вариантов Mobipocket."
@@ -588,9 +624,13 @@
     {
       "id": "XPS",
       "platform": "Win64",
-      "version": "3.0.0.5",
-      "archive": "HomeLibRu-XPS-3.0.0.5-Win64.zip",
+      "version": "3.0.0.6",
+      "archive": "HomeLibRu-XPS-3.0.0.6-Win64.zip",
       "history": [
+        {
+          "version": "3.0.0.6",
+          "notes": "Поддержано чтение документов XPS и OpenXPS."
+        },
         {
           "version": "3.0.0.5",
           "notes": "Чтение документов XPS. Для обычных FB2/EPUB этот компонент не нужен."
@@ -672,9 +712,13 @@
     {
       "id": "KindleExport",
       "platform": "Win32",
-      "version": "3.0.0.8",
-      "archive": "HomeLibRu-KindleExport-3.0.0.8-Win32.zip",
+      "version": "3.0.0.9",
+      "archive": "HomeLibRu-KindleExport-3.0.0.9-Win32.zip",
       "history": [
+        {
+          "version": "3.0.0.9",
+          "notes": "Исправлена подготовка книг и встроенных ссылок при экспорте в Kindle."
+        },
         {
           "version": "3.0.0.8",
           "notes": "Исправлены повторяющиеся обложки EPUB при сохранении в MOBI и AZW3. Точная причина ошибки показывается даже в длинном отчёте."
@@ -696,9 +740,13 @@
     {
       "id": "KindleExport",
       "platform": "Win64",
-      "version": "3.0.0.8",
-      "archive": "HomeLibRu-KindleExport-3.0.0.8-Win64.zip",
+      "version": "3.0.0.9",
+      "archive": "HomeLibRu-KindleExport-3.0.0.9-Win64.zip",
       "history": [
+        {
+          "version": "3.0.0.9",
+          "notes": "Исправлена подготовка книг и встроенных ссылок при экспорте в Kindle."
+        },
         {
           "version": "3.0.0.8",
           "notes": "Исправлены повторяющиеся обложки EPUB при сохранении в MOBI и AZW3. Точная причина ошибки показывается даже в длинном отчёте."
@@ -794,9 +842,13 @@
     {
       "id": "EpubPdfExport",
       "platform": "Win32",
-      "version": "3.0.0.8",
-      "archive": "HomeLibRu-EpubPdfExport-3.0.0.8-Win32.zip",
+      "version": "3.0.0.9",
+      "archive": "HomeLibRu-EpubPdfExport-3.0.0.9-Win32.zip",
       "history": [
+        {
+          "version": "3.0.0.9",
+          "notes": "Улучшено сохранение EPUB в PDF с помощью WebView2."
+        },
         {
           "version": "3.0.0.8",
           "notes": "Исправлен запуск WebView2 из глубоко вложенных папок. Временный профиль удаляется после завершения."
@@ -814,9 +866,13 @@
     {
       "id": "EpubPdfExport",
       "platform": "Win64",
-      "version": "3.0.0.8",
-      "archive": "HomeLibRu-EpubPdfExport-3.0.0.8-Win64.zip",
+      "version": "3.0.0.9",
+      "archive": "HomeLibRu-EpubPdfExport-3.0.0.9-Win64.zip",
       "history": [
+        {
+          "version": "3.0.0.9",
+          "notes": "Улучшено сохранение EPUB в PDF с помощью WebView2."
+        },
         {
           "version": "3.0.0.8",
           "notes": "Исправлен запуск WebView2 из глубоко вложенных папок. Временный профиль удаляется после завершения."
@@ -834,9 +890,13 @@
     {
       "id": "KfxExport",
       "platform": "Win32",
-      "version": "3.0.0.5",
-      "archive": "HomeLibRu-KfxExport-3.0.0.5-Win32.zip",
+      "version": "3.0.0.6",
+      "archive": "HomeLibRu-KfxExport-3.0.0.6-Win32.zip",
       "history": [
+        {
+          "version": "3.0.0.6",
+          "notes": "Добавлено извлечение обложек KFX и AZW8 для каталога."
+        },
         {
           "version": "3.0.0.5",
           "notes": "Boko — прямое сохранение EPUB в KFX и AZW8 с подготовкой иллюстраций через resvg."
@@ -846,9 +906,13 @@
     {
       "id": "KfxExport",
       "platform": "Win64",
-      "version": "3.0.0.5",
-      "archive": "HomeLibRu-KfxExport-3.0.0.5-Win64.zip",
+      "version": "3.0.0.6",
+      "archive": "HomeLibRu-KfxExport-3.0.0.6-Win64.zip",
       "history": [
+        {
+          "version": "3.0.0.6",
+          "notes": "Добавлено извлечение обложек KFX и AZW8 для каталога."
+        },
         {
           "version": "3.0.0.5",
           "notes": "Boko — прямое сохранение EPUB в KFX и AZW8 с подготовкой иллюстраций через resvg."
