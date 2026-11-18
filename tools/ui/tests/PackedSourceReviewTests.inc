@@ -67,16 +67,58 @@ begin
 end;
 
 procedure TestPackedSourceReview(LegacyOnly:Boolean=False; ManualPrevious:Boolean=False; ModuleRestart:Boolean=False;
-  const StartInstaller:TPackedInstaller=nil);
+  const StartInstaller:TPackedInstaller=nil; const IncomingFormat:string='inpx');
   procedure Scenario(WithHistory:Boolean);
 var Folder,OriginalRoot,HeldRoot,PackedRoot,Incoming,BaseIndex,NextIndex,PreviousInput:string;
-  Source,PackedCollection:IBookCollection; SourceID,PackedID,FirstID,SecondID,UntouchedID:Integer;
+  Source,PackedCollection:IBookCollection; SourceID,PackedID,FirstID,SecondID,UntouchedID,OmittedID:Integer;
   Options:TCollectionPackingOptions; Snapshot:TCollectionPackingSnapshot;
   Profile:TLibraryUpdateSource; Dialog:TfrmLibraryUpdateSources;
   Catalog,Personal:TSQLiteDatabase; BeforeRows,BeforePersonal,BeforeINI:string;
   Zip:TZipFile; Worker:TManualUpdateThread; Book:TBookRecord;
   Stage:TStagedLibraryIndex; ReviewPlan:TLibraryUpdateReview; ApplyWorker:TCollectionWorker;
   Probe:TLibraryApplyProbe; CacheInfo:TCatalogSource; CacheHash:string;
+
+  procedure MetabibIndex(const FileName:string; Changed:Boolean);
+  var Records:TMemoryStream; Dataset:TFileStream; Archives:TArray<TMetabibExportArchive>; BookCount:Integer;
+    procedure AddRecord(ID:Integer; const Carrier:string);
+    var Item:TBookRecord; Location:TMetabibExportLocation; Genre:TMetabibGenre;
+    begin
+      Item:=Default(TBookRecord);
+      Item.LibID:=IntToStr(ID); Item.Title:='Publisher '+Item.LibID;
+      Item.Lang:='ru'; Item.Date:=EncodeDate(2026,11,18);
+      TAuthorsHelper.Add(Item.Authors,'Автор','Тест','');
+      Genre:=Default(TMetabibGenre); Genre.Code:='prose_contemporary';
+      Location:=Default(TMetabibExportLocation);
+      Location.ArchiveID:=Carrier; Location.EntryName:=Item.LibID+'.txt';
+      Location.ExportBookID:=ID; Location.UncompressedSize:=123;
+      if ID=1002 then Location.EntryIndex:=1;
+      if Changed and (ID=1001) then
+      begin
+        Item.Title:='Corrected publisher 1001';
+        Item.Date:=EncodeDate(2026,11,19); Location.UncompressedSize:=456;
+      end;
+      TMetabibWriter.WriteRecord(Records,Item,TArray<TMetabibGenre>.Create(Genre),Location,'flibusta','fixture');
+      Inc(BookCount);
+    end;
+    procedure AddArchive(const Name:string; Entries:Integer);
+    var Entry:TMetabibExportArchive;
+    begin
+      Entry:=Default(TMetabibExportArchive);
+      Entry.ID:=Name; Entry.Name:=Name+'.zip'; Entry.Ordinal:=Length(Archives); Entry.Entries:=Entries;
+      Archives:=Archives+[Entry];
+    end;
+  begin
+    BookCount:=0; Records:=TMemoryStream.Create;
+    try
+      AddArchive('books',2); AddRecord(1001,'books'); AddRecord(1002,'books');
+      AddArchive('new',1); AddRecord(1003,'new');
+      if LegacyOnly then begin AddArchive('untouched',1); AddRecord(1004,'untouched'); end;
+      Dataset:=TFileStream.Create(FileName,fmCreate);
+      try TMetabibWriter.WriteDataset(Dataset,Records,'packed-standalone-fixture','flibusta','3.0',
+        EncodeDate(2026,11,19),BookCount,Archives);
+      finally Dataset.Free; end;
+    finally Records.Free; end;
+  end;
 
   procedure Index(const FileName:string; NewBook:Boolean; Changed:Boolean=False; Version:Integer=0);
     function Row(ID:Integer):string;
@@ -88,6 +130,11 @@ var Folder,OriginalRoot,HeldRoot,PackedRoot,Incoming,BaseIndex,NextIndex,Previou
     end;
   var Z:TZipFile;
   begin
+    if SameText(ExtractFileExt(FileName),'.jsonl') then
+    begin
+      MetabibIndex(FileName,Changed);
+      Exit;
+    end;
     Z:=TZipFile.Create;
     try
       Z.Open(FileName,zmWrite);
@@ -100,6 +147,8 @@ var Folder,OriginalRoot,HeldRoot,PackedRoot,Incoming,BaseIndex,NextIndex,Previou
       Z.Add(TEncoding.UTF8.GetBytes(Row(1001)+Row(1002)),'books.inp');
       if LegacyOnly and not NewBook then
         Z.Add(TEncoding.UTF8.GetBytes(Row(1004)),'untouched.inp');
+      if (IncomingFormat<>'inpx') and not NewBook then
+        Z.Add(TEncoding.UTF8.GetBytes(Row(1005)),'omitted.inp');
       if NewBook then Z.Add(TEncoding.UTF8.GetBytes(Row(1003)),'new.inp');
     finally Z.Free; end;
   end;
@@ -396,6 +445,19 @@ var Folder,OriginalRoot,HeldRoot,PackedRoot,Incoming,BaseIndex,NextIndex,Previou
         Require(TEncoding.UTF8.GetString(Bytes)=Expected,'Unexpected packed payload for '+Book.FileName);
       finally Stream.Free; end;
     end;
+    procedure CheckRepeatReview(ID:Integer);
+    begin
+      Stage:=TStagedLibraryIndex.Fetch(Profile,Settings.UpdatePath,nil);
+      ReviewPlan:=TLibraryUpdateReview.Create(Profile,Stage);
+      try
+        ApplyWorker:=CreateLibraryReviewWorker(ID,ReviewPlan);
+        try TOORun(ApplyWorker);
+          Require(ApplyWorker.Success and (ReviewPlan.NewBooks=0) and
+            (ReviewPlan.ChangedBooks=0) and (ReviewPlan.NeededArchives.Count=0),
+            'Repeating the same snapshot still schedules a change: '+ReviewPlan.Summary);
+        finally ApplyWorker.Free; end;
+      finally ReviewPlan.Free; Stage.Free; end;
+    end;
   begin
     Profile.Full:=Full;
     Index(NextIndex,True,True);
@@ -420,6 +482,14 @@ var Folder,OriginalRoot,HeldRoot,PackedRoot,Incoming,BaseIndex,NextIndex,Previou
       'Reviewed packed generation has no published source history');
     Require(Applied.ResolveBookID('1001',0)=FirstID,'Reviewed packed generation changed the stable book ID');
     Require(Applied.ResolveBookID('1002',0)=0,'Reviewed packed generation restored a deleted card');
+    if IncomingFormat<>'inpx' then
+    begin
+      Require(PackedCollection.ResolveBookID('1005',0)=OmittedID,'Publishing changed the original collection');
+      if Full or (IncomingFormat='jsonl') then
+        Require(Applied.ResolveBookID('1005',0)=0,'The new full catalogue retained a record missing from its index')
+      else
+        Require(Applied.ResolveBookID('1005',0)=OmittedID,'An incremental package removed an unrelated record');
+    end;
     CheckBody(FirstID,'Original body 1001');
     Require((Book.Title='Corrected publisher 1001') and (Book.Rate=4) and (Book.Progress=37) and
       (Applied.GetReview(Book.BookKey)='Личная заметка ё'),'Reviewed packed generation lost metadata or personal data');
@@ -428,12 +498,12 @@ var Folder,OriginalRoot,HeldRoot,PackedRoot,Incoming,BaseIndex,NextIndex,Previou
     CheckBody(ArrivalID,'New reviewed body');
     if LegacyOnly then
     begin
-      Require(Applied.ResolveBookID('1004',0)=UntouchedID,'Legacy append removed a book outside the delivery');
+      Require(Applied.ResolveBookID('1004',0)=UntouchedID,'Legacy update lost the unrelated existing book');
       CheckBody(UntouchedID,'Untouched legacy body');
       Catalog:=TSQLiteDatabase.CreateReadOnly(Applied.GetProperty(PROP_DATAFILE));
       try
         Require(Catalog.QuerySingleInt('SELECT BookSize FROM HomeLibrePackingPublishers WHERE BookID=?',[UntouchedID])=123,
-          'Legacy append did not restore publisher metadata for a book outside the delivery');
+          'Legacy update did not restore publisher metadata for the unrelated book');
       finally Catalog.Free; end;
     end;
 
@@ -454,6 +524,12 @@ var Folder,OriginalRoot,HeldRoot,PackedRoot,Incoming,BaseIndex,NextIndex,Previou
     end;
     Require(THashSHA2.GetHashStringFromFile(PreviousFile)=PreviousHash,'Publishing the new copy rewrote the original packed catalog');
     Writeln('PASS packed source profile applied separately and completed pending delivery full=',Ord(Full));
+    if IncomingFormat<>'inpx' then
+    begin
+      CheckRepeatReview(NewID);
+      Writeln('PASS standalone packed publisher update through the ordinary window format=',IncomingFormat,
+        ' history=',Ord(WithHistory),' manual=',Ord(ManualPrevious));
+    end;
     Flush(Output);
   end;
 
@@ -462,7 +538,8 @@ begin
   Require(SameText(ExtractFileDrive(Settings.AppPath),'G:'),'Packed source review requires an isolated G: runtime');
   Folder:=Settings.AppPath+'packed-source-review-'+IntToStr(Ord(WithHistory))+'\'; OriginalRoot:=Folder+'original'; HeldRoot:=Folder+'original-held';
   PackedRoot:=Folder+'packed'; Incoming:=Folder+'incoming'; ForceDirectories(OriginalRoot); ForceDirectories(Incoming);
-  BaseIndex:=TPath.Combine(OriginalRoot,'base.inpx'); NextIndex:=TPath.Combine(Incoming,'next.inpx');
+  BaseIndex:=TPath.Combine(OriginalRoot,'base.inpx');
+  NextIndex:=TPath.Combine(Incoming,'next.'+IncomingFormat);
   Index(BaseIndex,False); Index(NextIndex,True);
   if ManualPrevious then
   begin
@@ -475,6 +552,14 @@ begin
     Zip.Add(TEncoding.UTF8.GetBytes('Original body 1001'),'1001.txt');
     Zip.Add(TEncoding.UTF8.GetBytes('Original body 1002'),'1002.txt');
   finally Zip.Free; end;
+  if IncomingFormat<>'inpx' then
+  begin
+    Zip:=TZipFile.Create;
+    try
+      Zip.Open(TPath.Combine(OriginalRoot,'omitted.zip'),zmWrite);
+      Zip.Add(TEncoding.UTF8.GetBytes('Body outside the update'),'1005.txt');
+    finally Zip.Free; end;
+  end;
   if ManualPrevious then
   begin
     var TextFile:=TPath.Combine(Folder,'1004.txt');
@@ -501,7 +586,7 @@ begin
   Source.SetRate(CreateBookKey(FirstID,SourceID),4); Source.SetProgress(CreateBookKey(FirstID,SourceID),37);
   Source.SetReview(CreateBookKey(FirstID,SourceID),'Личная заметка ё');
   Profile:=TLibraryUpdateSource.NewSource; Profile.Name:='Packed publisher';
-  Profile.Location:=Incoming; Profile.IndexFile:='next.inpx'; Profile.BooksRoot:=Incoming;
+  Profile.Location:=Incoming; Profile.IndexFile:=ExtractFileName(NextIndex); Profile.BooksRoot:=Incoming;
   if WithHistory then
   begin
     // The raw cache numbers deliberately differ from the live stable IDs.
@@ -553,6 +638,11 @@ begin
   try Snapshot.Prepare; Snapshot.Pack; Snapshot.ApplyPrepared; PackedID:=Snapshot.RegisterNew(SystemDB);
   finally Snapshot.Free; end;
   PackedCollection:=SystemDB.GetCollection(PackedID);
+  if IncomingFormat<>'inpx' then
+  begin
+    OmittedID:=PackedCollection.ResolveBookID('1005',0);
+    Require(OmittedID>0,'The packed original lacks the book omitted by the new index');
+  end;
   if LegacyOnly then
   begin
     UntouchedID:=PackedCollection.ResolveBookID('1004',0);
@@ -592,6 +682,7 @@ begin
 end;
 
 begin
+  Require(MatchText(IncomingFormat,['inpx','jsonl','zip']),'Unsupported standalone fixture format');
   if not LegacyOnly or ManualPrevious then Scenario(False);
   if not ManualPrevious then Scenario(True);
 end;

@@ -6819,6 +6819,8 @@ begin
         TestPackedSourceReview(True)
       else if ParamStr(1) = 'packed-legacy-manual-source' then
         TestPackedSourceReview(True,True)
+      else if ParamStr(1) = 'packed-standalone-updates' then
+        TestPackedSourceReview(ParamStr(3)='manual',ParamStr(3)='manual',False,nil,ParamStr(2))
       else if ParamStr(1) = 'packed-module-continuation' then
         TestPackedSourceReview(True,True,True)
       else if ParamStr(1) = 'packed-bound-apply' then
