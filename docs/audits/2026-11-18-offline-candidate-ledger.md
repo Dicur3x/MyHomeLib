@@ -254,6 +254,17 @@ the official source archive contains the decoder interface and console entry
 point. The exact upstream revisions and digests are in
 `r1974-upstream-utilities/report.json`.
 
+For the two exact full ZIPs, independent downloads from the PDFium binaries
+project, Zstandard and libjxl matched the packaged PDFium and Zstandard DLLs
+and both JPEG XL executables byte for byte. The WebP 1.6.0 source archive
+matched the recorded digest, and its AUTHORS, COPYING and PATENTS texts matched
+the installed notices after line-ending normalization. For the locally built
+WebP DLLs the check used the recorded binary digests. Evidence is in
+`r1978-codec-upstreams/report.json`. The four Office reader DLLs in each archive
+also matched the .NET Framework 4.6.2 files in the recorded NuGet packages.
+Both the local helper source and its packaged executable matched their pinned
+digests (`r1978-codec-upstreams/docsharp.json`).
+
 ## Component links used by older installations
 
 The Win32 and Win64 archives downloaded from the published beta 2, 8 and 13
@@ -271,10 +282,34 @@ editions. Public assets and release text have not been modified. Evidence:
 `r1977-component-reference-audit/component-body-after-beta14.md` and
 `r1977-component-plan`. Catalogue archive digests are unchanged.
 
+## Offline use on a clean Windows installation
+
+The previous Windows 10 LTSC 2021 x64 evaluation ISO was downloaded again
+from Microsoft. Its SHA-256 matched the receipt from 8 November. Two separate
+writable copies of a newly installed build 19044 had no network adapter, no
+default route and no WebView2. The shipped x86 and x64 full ZIPs matched the
+catalogue digests above. All 25 modules were recognized in each. Both WebView2
+installers and the .NET Framework installer passed the production checks for
+size, digest, version and Microsoft signature without network access.
+
+On both copies the standalone Reader opened an illustrated EPUB. Its Save As
+command offered the local WebView2 installer and installed version 157.0.4341.60
+from the kit, then produced a PDF. Opening the source FB2 in the catalogue's
+Reader and saving it as EPUB also succeeded on both copies. Independent checks
+of all four GUI exports found the three text passages in source order. Each
+EPUB linked to the exact source illustration, and the illustration was visible
+in each rendered PDF. The source FB2 kept its digest, and the catalogues closed
+normally. The managed image utility also produced a grayscale PNG in each kit.
+Windows already included .NET Framework 4.8 (release 528372), so a fresh
+installation of .NET on an older OS was not exercised. Both application
+architectures ran on x64 Windows.
+
+The receipts are in `G:/HL-b14-external/r1976-offline-vm/report.json` and
+`w32e/verified`, `w64e/verified` under that folder. Both guests shut down.
+The reusable OS image and the Microsoft ISO are on G:.
+
 ## Remaining checks
 
-Clean-Windows prerequisite installation, offline GUI operation and remaining
-source checks are open. Desktop replacement and
-publication remain open.
+Remaining source checks, Desktop replacement and publication remain open.
 
 All preparation is on G:. No E: input or user-library modification is involved.
