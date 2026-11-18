@@ -51,12 +51,17 @@ type
     procedure CaptureStamps;
     procedure CheckResolvedContainers;
     procedure CheckStamps;
+    procedure ApplyInternal(const BackupFolder: string; const Progress: TMergeProgress;
+      const Canceled: TMergeCanceled);
   public
     constructor Create(const Target: IBookCollection; const Sources: TMergeSources;
       const SystemData: ISystemData = nil; Policy: TCollectionMergePolicy = mpKeepAll);
     destructor Destroy; override;
     procedure Preview(const Progress: TMergeProgress = nil; const Canceled: TMergeCanceled = nil);
     procedure Apply(const BackupFolder: string; const Progress: TMergeProgress = nil;
+      const Canceled: TMergeCanceled = nil);
+    // Both databases are disposable copies owned by the caller.
+    procedure ApplyToSnapshot(const Progress: TMergeProgress = nil;
       const Canceled: TMergeCanceled = nil);
     property Report: TStringList read FReport;
     property FullReportFile: string read FFullReportFile;
@@ -493,6 +498,18 @@ end;
 
 procedure TCollectionMergePlan.Apply(const BackupFolder: string; const Progress: TMergeProgress;
   const Canceled: TMergeCanceled);
+begin
+  if BackupFolder='' then raise EArgumentException.Create('Укажите папку резервной копии объединения.');
+  ApplyInternal(BackupFolder,Progress,Canceled);
+end;
+
+procedure TCollectionMergePlan.ApplyToSnapshot(const Progress: TMergeProgress; const Canceled: TMergeCanceled);
+begin
+  ApplyInternal('',Progress,Canceled);
+end;
+
+procedure TCollectionMergePlan.ApplyInternal(const BackupFolder: string; const Progress: TMergeProgress;
+  const Canceled: TMergeCanceled);
 var Source: TMergeSource; Iterator: IBookIterator; Book, Existing: TBookRecord;
   ID, I, Count, OriginalID: Integer; Physical, SourceKey, Identity: string; DestinationKey: TBookKey;
   IncomingCopy, UserFields: TBookRecord; KeepExistingFile, KeepExistingMetadata, Changed, AuthorsChanged, GenresChanged: Boolean;
@@ -657,28 +674,32 @@ begin
   if not FReady then raise Exception.Create('Сначала выполните предпросмотр объединения.');
   FCommitted:=False; FCatalogCommitted:=False; CheckStamps; CheckResolvedContainers;
   if Assigned(Canceled) and Canceled() then raise EAbort.Create('Объединение отменено.');
-  if DirectoryExists(BackupFolder) then raise Exception.Create('Для резервной копии требуется новая папка.');
-  ForceDirectories(BackupFolder);
-  WriteCollectionBackupInfo(BackupFolder,cboCollections);
-  TargetFile := Settings.ExpandCollectionFileName(VarToStr(FTarget.GetProperty(PROP_DATAFILE)));
-  Backup(TargetFile, 'destination.hlc2', 'Резервная копия текущей коллекции');
-  Backup(Settings.SystemFileName[sfSystemDB], 'system.hlc2', 'Резервная копия групп и настроек');
-  // Sources are read-only inputs to this operation. Copying every source DB
-  // again wastes gigabytes and cannot help roll back the two stores we change.
-  TFile.Copy(FFullReportFile,TPath.Combine(BackupFolder, 'preview.txt'),False);
-  Manifest := TStringList.Create;
-  try
-    Manifest.Add('Назначение: ' + TargetFile);
-    Manifest.Add('Группы и настройки: ' + Settings.SystemFileName[sfSystemDB]);
-    Manifest.Add('Папка книг: ' + Settings.ExpandCollectionRoot(VarToStr(FTarget.GetProperty(PROP_ROOTFOLDER))));
-    for I := 0 to High(FSources) do Manifest.Add(Format('Источник %d (не изменяется): %s | %s',
-      [I+1, FSources[I].Name, FSources[I].DatabaseFile]));
-    Manifest.Add('Исходные книги не изменяются. Копии SQLite включают данные из WAL.');
-    Manifest.SaveToFile(TPath.Combine(BackupFolder, 'restore-paths.txt'), TEncoding.UTF8);
-  finally Manifest.Free; end;
+  if BackupFolder<>'' then
+  begin
+    if DirectoryExists(BackupFolder) then raise Exception.Create('Для резервной копии требуется новая папка.');
+    ForceDirectories(BackupFolder);
+    WriteCollectionBackupInfo(BackupFolder,cboCollections);
+    TargetFile := Settings.ExpandCollectionFileName(VarToStr(FTarget.GetProperty(PROP_DATAFILE)));
+    Backup(TargetFile, 'destination.hlc2', 'Резервная копия текущей коллекции');
+    Backup(Settings.SystemFileName[sfSystemDB], 'system.hlc2', 'Резервная копия групп и настроек');
+    // Sources are read-only inputs to this operation. Copying every source DB
+    // again wastes gigabytes and cannot help roll back the two stores we change.
+    TFile.Copy(FFullReportFile,TPath.Combine(BackupFolder, 'preview.txt'),False);
+    Manifest := TStringList.Create;
+    try
+      Manifest.Add('Назначение: ' + TargetFile);
+      Manifest.Add('Группы и настройки: ' + Settings.SystemFileName[sfSystemDB]);
+      Manifest.Add('Папка книг: ' + Settings.ExpandCollectionRoot(VarToStr(FTarget.GetProperty(PROP_ROOTFOLDER))));
+      for I := 0 to High(FSources) do Manifest.Add(Format('Источник %d (не изменяется): %s | %s',
+        [I+1, FSources[I].Name, FSources[I].DatabaseFile]));
+      Manifest.Add('Исходные книги не изменяются. Копии SQLite включают данные из WAL.');
+      Manifest.SaveToFile(TPath.Combine(BackupFolder, 'restore-paths.txt'), TEncoding.UTF8);
+    finally Manifest.Free; end;
+  end;
   CheckStamps; CheckResolvedContainers; FResolvedContainers.Clear;
   if Assigned(FBeforeBegin) then FBeforeBegin(FTarget);
-  TFile.WriteAllText(TPath.Combine(BackupFolder, 'status.txt'), 'Подготовлено', TEncoding.UTF8);
+  if BackupFolder<>'' then
+    TFile.WriteAllText(TPath.Combine(BackupFolder, 'status.txt'), 'Подготовлено', TEncoding.UTF8);
   // The validated preview already contains this index. CheckStamps above keeps
   // it valid until the write transaction; rebuilding it was a second full scan.
   Seen := TDictionary<Integer, Boolean>.Create; Remap := TDictionary<string, Integer>.Create;
@@ -945,7 +966,8 @@ begin
         end;
       finally UserData.Free; end;
     end;
-    Mapped.Save(TPath.Combine(BackupFolder, 'merged-groups.cxml2'));
+    if BackupFolder<>'' then
+      Mapped.Save(TPath.Combine(BackupFolder, 'merged-groups.cxml2'));
     // This operation already owns the catalog/system transactions. Mapped
     // contains only groups with resolved target BookIDs; the legacy file
     // importer would try to start a second cross-database transaction here.
@@ -961,7 +983,8 @@ begin
       SQLiteCancelCallback:=nil;
       if Assigned(FStageProgress) then FStageProgress('Сохранение каталогов',Count,FTotal);
       NotifyMergeTestPoint('commit-start');
-      TFile.WriteAllText(TPath.Combine(BackupFolder, 'status.txt'), 'Сохранение: при аварийном завершении проверьте обе резервные копии.', TEncoding.UTF8);
+      if BackupFolder<>'' then
+        TFile.WriteAllText(TPath.Combine(BackupFolder, 'status.txt'), 'Сохранение: при аварийном завершении проверьте обе резервные копии.', TEncoding.UTF8);
       RecordSQLiteProfile('merge','phase','merge-groups',PhaseStarted);
       PhaseStarted := SQLiteProfileClock;
       FTarget.EndBulkOperation(True); FCatalogCommitted := True;
@@ -973,18 +996,20 @@ begin
       SQLiteCancelCallback:=nil;
       if FTarget.InBulkOperation then FTarget.EndBulkOperation(False);
       if SystemStarted then FSystem.EndDataUpdate(False);
-      if FCatalogCommitted then
+      if FCatalogCommitted and (BackupFolder<>'') then
       begin
         FTarget.RestoreCollectionBackup(TPath.Combine(BackupFolder, 'destination.hlc2'));
         FCatalogCommitted:=False;
       end;
-      TFile.WriteAllText(TPath.Combine(BackupFolder, 'status.txt'), 'Отменено: изменения отменены.', TEncoding.UTF8);
+      if BackupFolder<>'' then
+        TFile.WriteAllText(TPath.Combine(BackupFolder, 'status.txt'), 'Отменено: изменения отменены.', TEncoding.UTF8);
       FReady := False;
       raise;
     end;
     RecordSQLiteProfile('merge','phase','commit',PhaseStarted);
     NotifyMergeTestPoint('stores-committed');
-    TFile.WriteAllText(TPath.Combine(BackupFolder, 'status.txt'), 'Завершено', TEncoding.UTF8);
+    if BackupFolder<>'' then
+      TFile.WriteAllText(TPath.Combine(BackupFolder, 'status.txt'), 'Завершено', TEncoding.UTF8);
     if Assigned(Progress) then Progress(FTotal, FTotal);
   finally
     SQLiteCancelCallback:=SavedCancel;

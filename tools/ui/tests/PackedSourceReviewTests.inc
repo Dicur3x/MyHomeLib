@@ -283,3 +283,232 @@ end;
 begin
   Scenario(False); Scenario(True);
 end;
+
+procedure TestPackedBoundSourceApply;
+var
+  Folder, Download, PackedRoot, OriginalFile, OriginalSHA: string;
+  Sources: TCatalogSources;
+  Profile: TLibraryUpdateSource;
+  SourceID, PackedID, SharedID, OtherID, ResultID: Integer;
+  Source, Target: IBookCollection;
+  Options: TCollectionPackingOptions;
+  Snapshot: TCollectionPackingSnapshot;
+  Merge: TCatalogMergeWorker;
+  Plan: TCollectionMergePlan;
+  Refresh: TCatalogRefreshWorker;
+  Book: TBookRecord;
+  PreferredPath, OriginalLowerPath, OriginalOtherPath, PreferredSourceName: string;
+
+  function Row(ID: Integer; const Name, Title: string; Replaced: Boolean=False): string;
+  begin
+    Result:='Author,Test:'#4'prose_contemporary:'#4+Title+#4#4#4+Name+#4+
+      IntToStr(123+Ord(Replaced))+#4+IntToStr(ID)+#4'0'#4'txt'#4'2026-11-18'#4'ru'+sLineBreak;
+  end;
+
+  procedure WriteArchive(const FileName, Member, Body: string);
+  var Archive: TZipFile;
+  begin
+    Archive:=TZipFile.Create;
+    try
+      Archive.Open(FileName,zmWrite);
+      Archive.Add(TEncoding.UTF8.GetBytes(Body),Member+'.txt');
+    finally Archive.Free; end;
+  end;
+
+  procedure WriteIndex(const FileName, SharedTitle, OtherTitle: string; Revised: Boolean);
+  var Archive: TZipFile;
+  begin
+    Archive:=TZipFile.Create;
+    try
+      Archive.Open(FileName,zmWrite);
+      Archive.Add(TEncoding.UTF8.GetBytes('AUTHOR;GENRE;TITLE;SERIES;SERNO;FILE;SIZE;LIBID;DEL;EXT;DATE;LANG'),'structure.info');
+      Archive.Add(TEncoding.UTF8.GetBytes('20261118'),'version.info');
+      Archive.Add(TEncoding.UTF8.GetBytes(Row(2001,'shared',SharedTitle,Revised)),'shared.inp');
+      if OtherTitle<>'' then Archive.Add(TEncoding.UTF8.GetBytes(Row(2002,'other',OtherTitle)),'other.inp');
+      if Revised then Archive.Add(TEncoding.UTF8.GetBytes(Row(2003,'arrival','Bound arrival')),'arrival.inp');
+    finally Archive.Free; end;
+  end;
+
+  function FindID(const Collection: IBookCollection; const ID: string): Integer;
+  var Books: IBookIterator; Item: TBookRecord;
+  begin
+    Books:=Collection.GetBookIterator(bmAll,True);
+    while Books.Next(Item) do
+      if Item.DisplayLibID=ID then Exit(Item.BookKey.BookID);
+    Result:=0;
+  end;
+
+  function Content(const Item: TBookRecord): string;
+  var Stream: TStream; Bytes: TBytes;
+  begin
+    Stream:=Item.GetBookStream(True,False);
+    Require(Assigned(Stream),'Packed bound source has an unreadable copy');
+    try
+      SetLength(Bytes,Stream.Size);
+      Stream.ReadBuffer(Bytes,Length(Bytes));
+      Result:=TEncoding.UTF8.GetString(Bytes);
+    finally Stream.Free; end;
+  end;
+
+  function Update(ID, NewBooks, ChangedBooks, MissingBooks: Integer): Integer;
+  var Stage: TStagedLibraryIndex; Review: TLibraryUpdateReview;
+    Worker: TCollectionWorker; Probe: TLibraryApplyProbe;
+  begin
+    Stage:=TStagedLibraryIndex.Fetch(Profile,Settings.UpdatePath,nil);
+    Review:=TLibraryUpdateReview.Create(Profile,Stage);
+    try
+      Worker:=CreateLibraryReviewWorker(ID,Review);
+      try TOORun(Worker); Require(Worker.Success and Review.Ready,'Bound packed review failed');
+      finally Worker.Free; end;
+      Require((Review.NewBooks=NewBooks) and (Review.ChangedBooks=ChangedBooks) and
+        (Review.NeededArchives.Count=MissingBooks),
+        'Bound packed review requests an old archive or miscounts changes: '+Review.Summary);
+      if MissingBooks>0 then Require(SameText(Review.NeededArchives[0],'shared.zip'),
+        'The bound packed review requested the wrong archive');
+      Probe:=TLibraryApplyProbe.Create;
+      Probe.Accept:=True;
+      Worker:=CreateLibraryApplyWorker(ID,Review,False);
+      try
+        Worker.OnShowMessage:=Probe.Confirm;
+        Worker.Start; Worker.WaitFor;
+        if Assigned(Worker.FatalException) then
+          raise Exception.Create('Bound packed apply: '+Exception(Worker.FatalException).Message);
+        Result:=Review.PublishedCollectionID;
+        Require(Probe.Confirmed and Worker.Success and Worker.CommittedChanges and (Result>0) and (Result<>ID),
+          'Bound packed apply did not publish a new collection');
+        Require(Review.MissingBooks=MissingBooks,'Bound packed apply miscounts missing books: '+Review.MissingDetails);
+      finally Worker.Free; Probe.Free; end;
+    finally Review.Free; Stage.Free; end;
+  end;
+
+  procedure CheckUpdated(ID: Integer; ReplacementArrived: Boolean);
+  var Copies: TArray<TBookRecord>; FoundFirst, FoundSecond: Boolean; Baseline: TCatalogSource;
+  begin
+    Target:=SystemDB.GetCollection(ID,True);
+    Require(LoadLibraryUpdateHistory(Target,Profile,Baseline),'Bound packed apply lost its source-specific publisher history');
+    Require((FindID(Target,'2001')=SharedID) and (FindID(Target,'2002')=OtherID),
+      'Bound packed update changed retained book IDs');
+    Target.GetBookRecord(CreateBookKey(SharedID,ID),Book,True);
+    Require((Book.Title='Preferred original') and (Content(Book)='Preferred original body') and
+      (Book.GetBookFileName=PreferredPath) and (Book.CollectionName=PreferredSourceName) and
+      (Book.Rate=4) and (Book.Progress=42) and (Target.GetReview(Book.BookKey)='Saved bound review'),
+      'Bound packed update changed preferred copy or personal fields');
+    var UserData:=TSQLiteDatabase.CreateReadOnly(Settings.SystemFileName[sfSystemDB]);
+    try
+      Require(UserData.QuerySingleInt('SELECT count(*) FROM BookGroups WHERE DatabaseID=? AND BookID=? AND GroupID=?',
+        [ID,SharedID,FAVORITES_GROUP_ID])=1,'Bound packed update lost the favorites membership');
+    finally UserData.Free; end;
+    Copies:=Target.GetCatalogBookCopies(Book.BookKey);
+    Require(Length(Copies)=2,'Bound packed update duplicated or lost a copy');
+    FoundFirst:=False; FoundSecond:=False;
+    for var CopyBook in Copies do
+    begin
+      if CopyBook.CollectionName=Sources[0].Name then
+        FoundFirst:=(Content(CopyBook)='Preferred original body') and (CopyBook.GetBookFileName=PreferredPath);
+      if CopyBook.CollectionName=Sources[1].Name then
+        if ReplacementArrived then
+          FoundSecond:=(Content(CopyBook)='Replaced lower body') and (CopyBook.GetBookFileName<>OriginalLowerPath)
+        else FoundSecond:=(Content(CopyBook)='Lower original body') and (CopyBook.GetBookFileName=OriginalLowerPath);
+    end;
+    Require(FoundFirst and FoundSecond,'Bound packed update replaced the wrong payload');
+    Target.GetBookRecord(CreateBookKey(OtherID,ID),Book,True);
+    Require((Book.Title='Corrected other title') and (Content(Book)='Retained other body') and
+      (Book.GetBookFileName=OriginalOtherPath),'Metadata-only update replaced an existing packed payload');
+    var ArrivalID:=FindID(Target,'2003');
+    Require(ArrivalID>0,'Bound packed apply lost the new book');
+    Target.GetBookRecord(CreateBookKey(ArrivalID,ID),Book,True);
+    Require(Content(Book)='Bound arrival body','Bound packed apply did not install the new member');
+    Require(THashSHA2.GetHashStringFromFile(OriginalFile)=OriginalSHA,'Bound packed publication rewrote the original catalogue');
+  end;
+
+begin
+  RequireIsolatedRegression;
+  Folder:=Settings.AppPath+'packed-bound-update';
+  Download:=TPath.Combine(Folder,'download'); ForceDirectories(Download);
+  PackedRoot:=TPath.Combine(Folder,'packed');
+  SetLength(Sources,2);
+  for var I:=0 to High(Sources) do
+  begin
+    Sources[I].ID:=TCatalogSource.NewID;
+    Sources[I].Name:='Bound source '+IntToStr(I);
+    Sources[I].Root:=TPath.Combine(Folder,'source-'+IntToStr(I));
+    Sources[I].LibraryNamespace:='flibusta';
+    ForceDirectories(Sources[I].Root);
+    Sources[I].INPXFile:=TPath.Combine(Sources[I].Root,'original.inpx');
+    if I=0 then
+    begin
+      WriteIndex(Sources[I].INPXFile,'Preferred original','',False);
+      WriteArchive(TPath.Combine(Sources[I].Root,'shared.zip'),'shared','Preferred original body');
+    end
+    else
+    begin
+      WriteIndex(Sources[I].INPXFile,'Preferred original','Old other title',False);
+      WriteArchive(TPath.Combine(Sources[I].Root,'shared.zip'),'shared','Lower original body');
+      WriteArchive(TPath.Combine(Sources[I].Root,'other.zip'),'other','Retained other body');
+    end;
+    Refresh:=TCatalogRefreshWorker.Create(Sources[I]);
+    try Refresh.Start; Refresh.WaitFor; Require(Refresh.Success,'Could not refresh the packed source fixture: '+Refresh.Error);
+      Sources[I]:=Refresh.Source;
+    finally Refresh.Free; end;
+  end;
+  SourceID:=SystemDB.CreateCollection('Original bound collection',Folder,TPath.Combine(Folder,'original.hlc2'),
+    CT_EXTERNAL_LOCAL_FB,Settings.SystemFileName[sfGenresFB2]);
+  Source:=SystemDB.GetCollection(SourceID); SaveCatalogSources(Source,Sources);
+  Merge:=TCatalogMergeWorker.CreatePreview(SourceID,Sources,mpSourcePriority);
+  try Merge.Start; Merge.WaitFor; Require(Merge.Success,Merge.Error); Plan:=Merge.TakePlan;
+  finally Merge.Free; end;
+  try
+    Merge:=TCatalogMergeWorker.CreateApply(Plan,TPath.Combine(Folder,'merge-backup'));
+    try Merge.Start; Merge.WaitFor; Require(Merge.Success,Merge.Error);
+    finally Merge.Free; end;
+  finally Plan.Free; end;
+  Source:=SystemDB.GetCollection(SourceID,True);
+  SharedID:=FindID(Source,'2001'); OtherID:=FindID(Source,'2002');
+  Require((SharedID>0) and (OtherID>0) and (SharedID<>OtherID) and
+    (Length(Source.GetCatalogBookCopies(CreateBookKey(SharedID,SourceID)))=2),
+    'Bound source fixture did not merge both copies into one card');
+  Source.SetRate(CreateBookKey(SharedID,SourceID),4);
+  Source.SetProgress(CreateBookKey(SharedID,SourceID),42);
+  Source.SetReview(CreateBookKey(SharedID,SourceID),'Saved bound review');
+  Source.AddBookToGroup(CreateBookKey(SharedID,SourceID),FAVORITES_GROUP_ID);
+
+  Options:=Default(TCollectionPackingOptions);
+  Options.SourceID:=SourceID; Options.CatalogFile:=Source.GetProperty(PROP_DATAFILE);
+  Options.PersonalFile:=Settings.SystemFileName[sfSystemDB]; Options.SourceRoot:=Folder;
+  Options.OutputRoot:=PackedRoot; Options.DisplayName:='Packed bound collection';
+  Options.Python:=Settings.AppPath+'tools\python\python.exe';
+  Options.Script:=Settings.AppPath+'tools\bookconvert\pack_collection.py';
+  Options.SevenZip:=Settings.AppPath+'tools\7zip\7za.exe';
+  Snapshot:=TCollectionPackingSnapshot.Create(Options);
+  try Snapshot.Prepare; Snapshot.Pack; Snapshot.ApplyPrepared; PackedID:=Snapshot.RegisterNew(SystemDB);
+  finally Snapshot.Free; end;
+  Target:=SystemDB.GetCollection(PackedID);
+  Target.GetBookRecord(CreateBookKey(SharedID,PackedID),Book,True);
+  Require(Content(Book)='Preferred original body','Packed fixture picked the wrong preferred source');
+  PreferredPath:=Book.GetBookFileName; PreferredSourceName:=Book.CollectionName;
+  var OriginalCopies:=Target.GetCatalogBookCopies(Book.BookKey);
+  Require(Length(OriginalCopies)=2,'Packing did not retain both original copies');
+  for var OriginalCopy in OriginalCopies do
+    if (OriginalCopy.CollectionName=Sources[1].Name) and (Content(OriginalCopy)='Lower original body') then
+      OriginalLowerPath:=OriginalCopy.GetBookFileName;
+  Require((OriginalLowerPath<>'') and (OriginalLowerPath<>PreferredPath),
+    'Packing did not retain the independent lower-priority payload');
+  Target.GetBookRecord(CreateBookKey(OtherID,PackedID),Book,True); OriginalOtherPath:=Book.GetBookFileName;
+  OriginalFile:=Target.GetProperty(PROP_DATAFILE);
+  OriginalSHA:=THashSHA2.GetHashStringFromFile(OriginalFile);
+
+  for var S in Sources do Require(RenameFile(S.Root,S.Root+'-held'),'Could not hide the source archive root');
+  Profile:=TLibraryUpdateSource.NewSource;
+  Profile.Name:='Packed bound publisher'; Profile.CatalogSourceID:=Sources[1].ID;
+  Profile.Location:=Download; Profile.BooksRoot:=Download; Profile.IndexFile:='revised.inpx';
+  WriteIndex(TPath.Combine(Download,Profile.IndexFile),'Lower revised','Corrected other title',True);
+  WriteArchive(TPath.Combine(Download,'arrival.zip'),'arrival','Bound arrival body');
+  ResultID:=Update(PackedID,1,2,1); CheckUpdated(ResultID,False);
+  Writeln('PASS missing archive retains the earlier packed source copy'); Flush(Output);
+  Profile.Full:=False;
+  WriteArchive(TPath.Combine(Download,'shared.zip'),'shared','Replaced lower body');
+  ResultID:=Update(ResultID,0,1,0); CheckUpdated(ResultID,True);
+  ResultID:=Update(ResultID,0,0,0); CheckUpdated(ResultID,True);
+  Writeln('PASS packed bound update replaces only the selected source and retains preferred and metadata-only payloads');
+  Flush(Output);
+end;

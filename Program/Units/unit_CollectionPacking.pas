@@ -781,10 +781,33 @@ var Catalog, Personal: TSQLiteDatabase;
         if Root='' then Root:=FOptions.SourceRoot;
         Book.CollectionRoot:=IncludeTrailingPathDelimiter(Root);
         Keep:=False; Missing:=False;
-        if Assigned(Origin) and SameFileName(ExcludeTrailingPathDelimiter(Root),FOptions.OutputRoot) then
+        if Assigned(Origin) then
         begin
-          Origin.Reset; Origin.SetParam(0,Book.Folder); Origin.SetParam(1,Book.FileName); Origin.SetParam(2,Book.FileExt);
-          Origin.Open; Keep:=not Origin.Eof;
+          var PreviousFolder:=Book.Folder;
+          var RootMatches:=SameFileName(ExcludeTrailingPathDelimiter(Root),FOptions.OutputRoot);
+          if TPath.IsPathRooted(PreviousFolder) then
+          begin
+            // A reviewed source update may have written an absolute path to
+            // an existing packed copy. Reuse it only with an exact origin.
+            var Prefix:=IncludeTrailingPathDelimiter(FOptions.OutputRoot);
+            var AbsoluteFolder:=TPath.GetFullPath(PreviousFolder);
+            RootMatches:=AbsoluteFolder.StartsWith(Prefix,True);
+            if RootMatches then
+            begin
+              PreviousFolder:=Copy(AbsoluteFolder,Length(Prefix)+1,MaxInt);
+              if Book.Folder.EndsWith(PathDelim) then PreviousFolder:=IncludeTrailingPathDelimiter(PreviousFolder);
+            end;
+          end;
+          if RootMatches then
+          begin
+            Origin.Reset; Origin.SetParam(0,PreviousFolder); Origin.SetParam(1,Book.FileName); Origin.SetParam(2,Book.FileExt);
+            Origin.Open; Keep:=not Origin.Eof;
+            if Keep then
+            begin
+              Book.Folder:=PreviousFolder;
+              Book.CollectionRoot:=IncludeTrailingPathDelimiter(FOptions.OutputRoot);
+            end;
+          end;
         end;
         Inc(ID);
         if Keep then

@@ -6812,6 +6812,8 @@ begin
         TestLegacyUpdateWorkspace
       else if ParamStr(1) = 'packed-source-review' then
         TestPackedSourceReview
+      else if ParamStr(1) = 'packed-bound-apply' then
+        TestPackedBoundSourceApply
       else if ParamStr(1) = 'favorite-book-menu' then
         TestFavoriteBookMenu(One)
       else if ParamStr(1) = 'favorite-ui' then
