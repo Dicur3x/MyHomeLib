@@ -2,7 +2,7 @@
   TPackingReviewProbe = class
     Dialog: TfrmCollectionPackingProgress;
     OutputRoot: string;
-    Cancel, SawEstimate, CheckFreshOutput: Boolean;
+    Cancel, SawEstimate, CheckFreshOutput, ExpectRetainedOnly: Boolean;
     ExpectedBooks, ExpectedUnavailable: Integer;
     procedure Tick(Sender: TObject);
   end;
@@ -20,7 +20,9 @@ begin
   if SawEstimate or not StartButton.Visible then Exit;
   Status:=Dialog.ReadStatus;
   Require((Status.BooksTotal=ExpectedBooks) and (Status.Unavailable=ExpectedUnavailable) and
-    (Status.PlannedInputBytes>0) and (Status.WorkingBytes>0) and (Status.FreeBytes>0),
+    ((ExpectRetainedOnly and (Status.PlannedInputBytes=0)) or
+     (not ExpectRetainedOnly and (Status.PlannedInputBytes>0))) and
+    (Status.WorkingBytes>0) and (Status.FreeBytes>0),
     Format('Packing review figures differ: books %d, unavailable %d, input %d, working %d, free %d',
       [Status.BooksTotal,Status.Unavailable,Status.PlannedInputBytes,Status.WorkingBytes,Status.FreeBytes]));
   Require((Pos('Без файла: '+IntToStr(ExpectedUnavailable),TLabel(Dialog.FindComponent('lblPackingCounts')).Caption)>0) and

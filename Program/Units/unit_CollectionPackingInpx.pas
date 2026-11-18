@@ -209,6 +209,29 @@ function TCollectionPackingInpxWorker.StoreImportedBook(const Book: TBookRecord;
   const Collection: IBookCollection; Cache: TImportCache): Integer;
 var Incoming, Old, Updated: TBookRecord; Available: Boolean; Identity: string;
   Updater: IBookMergeMetadataDeltaUpdater;
+  AuthorKey:string; AuthorID:Integer;
+  function HasAuthor(const Authors:TBookAuthors; ID:Integer):Boolean;
+  begin
+    for var Item in Authors do if Item.AuthorID=ID then Exit(True);
+    Result:=False;
+  end;
+  function HasGenre(const Genres:TBookGenres; const Code:string):Boolean;
+  begin
+    for var Item in Genres do if Item.GenreCode=Code then Exit(True);
+    Result:=False;
+  end;
+  function SameAuthors:Boolean;
+  begin
+    for var Item in Updated.Authors do if not HasAuthor(Old.Authors,Item.AuthorID) then Exit(False);
+    for var Item in Old.Authors do if not HasAuthor(Updated.Authors,Item.AuthorID) then Exit(False);
+    Result:=True;
+  end;
+  function SameGenres:Boolean;
+  begin
+    for var Item in Updated.Genres do if not HasGenre(Old.Genres,Item.GenreCode) then Exit(False);
+    for var Item in Old.Genres do if not HasGenre(Updated.Genres,Item.GenreCode) then Exit(False);
+    Result:=True;
+  end;
 begin
   if (Trim(Book.LibID)='') or (Book.LibID='0') then
     raise EArgumentException.Create('В записи INPX отсутствует устойчивый идентификатор: '+Book.Title);
@@ -238,6 +261,28 @@ begin
   Collection.GetBookRecord(CreateBookKey(Result,Collection.CollectionID),Old,True);
   Updated:=Old;
   Updated.Title:=Book.Title;
+  Updated.Series:=Book.Series; Updated.SeqNumber:=Book.SeqNumber;
+  Updated.Authors:=Copy(Book.Authors); Updated.Genres:=Copy(Book.Genres);
+  Updated.Normalize;
+  // The delta writer deliberately leaves memberships to its caller. Resolve
+  // incoming source metadata in this private catalogue, including retained
+  // payloads whose original archives are no longer available. Share the parser
+  // cache and leave identical membership sets untouched on repeated indexes.
+  for var I:=0 to High(Updated.Authors) do
+  begin
+    AuthorKey:='';
+    if Assigned(Cache) then AuthorKey:=Cache.AuthorKey(Updated.Authors[I].LastName,
+      Updated.Authors[I].FirstName,Updated.Authors[I].MiddleName);
+    if Assigned(Cache) and Cache.TryGetAuthor(AuthorKey,AuthorID) then Updated.Authors[I].AuthorID:=AuthorID
+    else
+    begin
+      Updated.Authors[I]:=Collection.EnsureAuthor(Updated.Authors[I]);
+      if Assigned(Cache) then Cache.AddAuthor(AuthorKey,Updated.Authors[I].AuthorID);
+    end;
+  end;
+  for var I:=0 to High(Updated.Genres) do
+    if Updated.Genres[I].FB2GenreCode<>'' then
+      Updated.Genres[I]:=Collection.EnsureGenre(Updated.Genres[I].FB2GenreCode,Updated.Genres[I].GenreAlias,'');
   Updated.Lang:=Book.Lang;
   Updated.Date:=Book.Date;
   Updated.LibRate:=Book.LibRate;
@@ -257,6 +302,8 @@ begin
   if not Supports(Collection,IBookMergeMetadataDeltaUpdater,Updater) then
     raise ENotSupportedException.Create('Коллекция не поддерживает обновление карточки книги.');
   Updater.UpdateBookMetadataDelta(Old,Updated,False);
+  if not SameAuthors then Collection.SetBookAuthors(Result,Updated.Authors,True);
+  if not SameGenres then Collection.SetBookGenres(Result,Updated.Genres,True);
   Collection.AddBookSeries(Result,Book.Series,Book.SeqNumber,Cache);
 end;
 

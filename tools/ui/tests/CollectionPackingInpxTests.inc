@@ -111,7 +111,10 @@ var Source, PackedSource, Updated: IBookCollection; Book, Card: TBookRecord;
 
   function Row(const Title, FileName, LibID: string; const Ext: string = 'txt'): string;
   begin
-    Result:='Автор,Тест:'#4'prose_contemporary:'#4+Title+#4'Цикл из INPX'#4'1'#4+
+    if ParamStr(1)='packing-inpx-metadata' then
+      Result:='Новый,Первый:Соавтор,Второй:Новый,Первый:'#4'sf_history:science_history:sf_history:'#4
+    else Result:='Автор,Тест:'#4'prose_contemporary:'#4;
+    Result:=Result+Title+#4'Цикл из INPX'#4'1'#4+
       FileName+#4'123'#4+LibID+#4'0'#4+Ext+#4'2026-11-04'#4'ru';
   end;
 
@@ -124,7 +127,7 @@ var Source, PackedSource, Updated: IBookCollection; Book, Card: TBookRecord;
     TFile.WriteAllBytes(TPath.Combine(Root,Name+'.txt'),TEncoding.UTF8.GetBytes(Value));
   end;
 
-  function ReviewUpdate(Cancel: Boolean): TCollectionPackingSnapshot;
+  function ReviewUpdate(Cancel: Boolean; RetainedOnly:Boolean=False): TCollectionPackingSnapshot;
   var Dialog: TfrmCollectionPackingProgress; Probe: TPackingReviewProbe; Timer: TTimer;
   begin
     Result:=nil;
@@ -133,6 +136,7 @@ var Source, PackedSource, Updated: IBookCollection; Book, Card: TBookRecord;
     Timer:=TTimer.Create(nil);
     try
       Probe.Dialog:=Dialog; Probe.Cancel:=Cancel;
+      Probe.ExpectRetainedOnly:=RetainedOnly;
       Probe.ExpectedBooks:=4; Probe.ExpectedUnavailable:=1;
       Timer.Interval:=20; Timer.OnTimer:=Probe.Tick;
       try
@@ -157,6 +161,21 @@ var Source, PackedSource, Updated: IBookCollection; Book, Card: TBookRecord;
       SetLength(Bytes,Stream.Size); Stream.ReadBuffer(Bytes,Length(Bytes));
       Result:=TEncoding.UTF8.GetString(Bytes);
     finally Stream.Free; end;
+  end;
+
+  procedure CheckMetadata(const Collection:IBookCollection; ID:Integer);
+  var Item:TBookRecord; Authors,Genres:string;
+  begin
+    Collection.GetBookRecord(CreateBookKey(ID,Collection.CollectionID),Item,True);
+    Authors:=''; Genres:='';
+    for var Author in Item.Authors do Authors:=Authors+'|'+Author.LastName+','+Author.FirstName;
+    for var Genre in Item.Genres do Genres:=Genres+'|'+Genre.FB2GenreCode;
+    Require((Length(Item.Authors)=2) and Authors.Contains('|Новый,Первый') and Authors.Contains('|Соавтор,Второй'),
+      'Packed INPX failed to replace author memberships with incoming source metadata: '+Authors);
+    Require((Length(Item.Genres)=2) and Genres.Contains('|sf_history') and Genres.Contains('|science_history'),
+      'Packed INPX failed to replace genre memberships with incoming source metadata: '+Genres);
+    Require((Item.Series='Цикл из INPX') and (Item.SeqNumber=1),
+      'Packed INPX failed to update the primary source series');
   end;
 
   procedure CheckRecoveredPictures(Stream: TStream);
@@ -347,6 +366,11 @@ begin
     'INPX update lost personal data or left its physical card pointing at the old edition');
   Require(ReadText(Updated,ChangedID)='Changed bytes from INPX','Changed archive member was not updated exactly');
   Require(ReadText(Updated,RetainedID)='Untouched bytes','INPX update changed a retained book');
+  if ParamStr(1)='packing-inpx-metadata' then
+  begin
+    CheckMetadata(Updated,ChangedID); CheckMetadata(Updated,RetainedID);
+    Writeln('PASS packed INPX replaces authors genres and primary series for changed and retained payloads without duplicate memberships'); Flush(Output);
+  end;
   Updated.GetBookRecord(CreateBookKey(RetainedID,UpdatedID),Book,True);
   Require(SameFileName(Book.GetBookFileName,BeforePackedPath),'INPX changed the untouched archive locator');
   NewID:=Updated.ResolveBookID('10003',0);
@@ -395,6 +419,45 @@ begin
   Writeln('PASS selected INPX adds and replaces exact books, retains prior archives and IDs, and publishes a separate generation');
   Writeln('PASS an empty INPX replacement retains the previously readable book');
   Writeln('PASS selected INPX estimate cancels and continues, and legacy full import refuses a packed catalogue');
+  if ParamStr(1)='packing-inpx-metadata' then
+  begin
+    var OriginalID:=UpdatedID;
+    var OriginalCatalog:=VarToStr(Updated.GetProperty(PROP_DATAFILE));
+    var OriginalHash:=THashSHA2.GetHashStringFromFile(OriginalCatalog);
+    var SavedIndex:=Settings.AppPath+'packing-repeat.inpx';
+    TFile.Copy(IndexFile,SavedIndex,False); IndexFile:=SavedIndex;
+    Require(RenameFile(Root,Root+'-held'),'Cannot hide owned original sources');
+    Require(RenameFile(UpdateRoot,UpdateRoot+'-held'),'Cannot hide owned update archives');
+    try
+      ForceDirectories(UpdateRoot);
+      Options.CatalogFile:=OriginalCatalog; Options.SourceID:=OriginalID;
+      Options.DisplayName:='Packed metadata repeat without inputs';
+      Snapshot:=ReviewUpdate(False,True);
+      try
+        var RepeatedStatus:=Snapshot.Status;
+        Require((RepeatedStatus.PlannedInputBytes=0) and (RepeatedStatus.SourcesTotal>0) and
+          (RepeatedStatus.Reused=RepeatedStatus.SourcesTotal),'Metadata repeat recompressed an already packed source');
+        UpdatedID:=Snapshot.RegisterNew(SystemDB);
+      finally Snapshot.Free; end;
+      var Repeated:=SystemDB.GetCollection(UpdatedID);
+      for var ID in TArray<Integer>.Create(ChangedID,RetainedID,NewID) do
+      begin
+        CheckMetadata(Repeated,ID);
+        Require(ReadText(Repeated,ID)=ReadText(Updated,ID),'Metadata repeat changed a packed payload');
+      end;
+      Require((Repeated.ResolveBookID('10001',0)=ChangedID) and (Repeated.ResolveBookID('10002',0)=RetainedID) and
+        (Repeated.ResolveBookID('10003',0)=NewID),'Metadata repeat renumbered stable cards');
+      Require(THashSHA2.GetHashStringFromFile(OriginalCatalog)=OriginalHash,'Metadata repeat changed the previous catalogue');
+      SystemDB.GetBookRecord(CreateBookKey(ChangedID,UpdatedID),Card);
+      Require((Card.Rate=4) and (Card.Progress=37) and (SystemDB.GetReview(Card.BookKey)='Личная заметка'),
+        'Metadata repeat lost personal reading data');
+      Writeln('PASS repeated packed INPX without original or incoming archives retains exact bytes IDs personal fields and unique corrected memberships'); Flush(Output);
+    finally
+      TDirectory.Delete(UpdateRoot,False);
+      Require(RenameFile(UpdateRoot+'-held',UpdateRoot),'Cannot restore owned update archives');
+      Require(RenameFile(Root+'-held',Root),'Cannot restore owned original sources');
+    end;
+  end;
   if GetEnvironmentVariable('HOMELIB_PACKED_RESULT_COMPONENTS')<>'' then
   begin
     Settings.ActiveCollection:=PackedID;

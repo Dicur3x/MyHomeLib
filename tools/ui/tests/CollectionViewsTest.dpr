@@ -6442,6 +6442,7 @@ begin
       if ParamStr(1) = 'compression-resume-review-child' then begin TestCompressionResumeReviewChild; Halt(0); end;
       if ParamStr(1) = 'packed-catalogue-sizes' then begin TestPackedCatalogueSizes; Halt(0); end;
       if ParamStr(1) = 'packing-fbd' then begin TestPackingFbd; Halt(0); end;
+      if ParamStr(1) = 'packing-inpx-metadata' then begin TestPackingInpx; Flush(Output); Halt(0); end;
       if ParamStr(1) = 'packing-inpx-result-child' then
       begin
         TestPackedInpxResultChild;
