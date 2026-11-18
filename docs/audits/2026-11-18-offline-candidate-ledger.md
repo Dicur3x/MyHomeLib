@@ -54,13 +54,32 @@ sealed-all-formats-validation-r1469, kfx-cover-package-validation-r1505 and
 transfer-flibrary-update-validation-r1565. The old r691 BookProcessing archive
 must not replace r1559; the r691 image helper predates the static-GIF API.
 
+## Beta 14 Reader and combined staging
+
+The historical r1677 plans retained Reader 3.0.0.13. The r1917 plans replace
+it with the verified 3.0.0.14 component for each architecture. The production
+packaging stage applied all 25 inputs from each plan with the existing native
+installer probe. A second inventory check confirmed every intended version and
+no module needing repair. The staged `HomeLibreReader.exe` matches the byte
+digest of the separately checked beta 14 Reader and uses the canonical version
+resource. The native staging receipt is
+`G:/HL-b14-external/release-candidate-r1926-offline-components/summary.json`.
+
+Separately, the stock main and Reader archives were matched to the published
+asset sizes and digests. On x86 and x64 the native installer first installed the
+published Reader 3.0.0.13, then applied the exact 3.0.0.14 component. Both the
+canonical filename and the retained legacy launch path contained the same new
+Reader. The existing catalogue executable and seeded Reader settings retained
+their original digests. Private installations were cleaned. Results are in
+`G:/HL-b14-external/release-candidate-r1930-stock-reader-upgrade/{Win32,Win64}.json`.
+This used the native installer engine directly on stock files with neither a
+restart nor the published graphical update client.
+
 ## Still open
 
-The plans deliberately retain the currently available Reader 3.0.0.13 and are
-labelled CANDIDATE_LEDGER_ONLY. They are not final beta-14 installation inputs.
-Replace Reader with its checked final beta-14 package, update the component
-feed/release identity, then perform the final native install/remove/update and
-minimal/full distribution gates. No clean-Windows prerequisite installation,
-offline GUI proof, Desktop replacement or publication is established here.
+Final main binaries, minimal and full ZIPs, install/remove/update verification
+for the distributed modules and the ordinary beta 13 to beta 14 update remain
+release gates. Clean-Windows prerequisite installation, offline GUI operation,
+Desktop replacement and publication remain open.
 
 All preparation is on G:. No E: input or user-library modification is involved.

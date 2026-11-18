@@ -35,6 +35,8 @@ IMAGE_PACKAGE_HASH = {
     'Win32': '4aabdd2166566629e20ba0ec5c2e6a8712606974114bcc6c4a49dfb349d37bc2',
     'Win64': '42246164f0fc12c99b24453ce11ade64619595c1b9f61c39b56444683d1776c5',
 }
+READER_APPLICATION = 'HomeLibreReader.exe'
+LEGACY_READER_APPLICATION = 'HomeLibReader.exe'
 
 
 def sha(path):
@@ -43,6 +45,11 @@ def sha(path):
 
 def dump(path, value):
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding='utf-8')
+
+
+def installed_reader(directory):
+    canonical = directory / READER_APPLICATION
+    return canonical if canonical.is_file() else directory / LEGACY_READER_APPLICATION
 
 
 def extract_reader(package, destination, platform):
@@ -90,7 +97,7 @@ def processes(root):
     # which can cancel enumeration during repeated process exit/restart.
     # Restart arguments are checked separately against the helper's request.
     query = ("[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); "
-             "@(Get-Process HomeLibre,HomeLibRu,HomeLibReader,HomeLibRuUpdater -ErrorAction SilentlyContinue | "
+             "@(Get-Process HomeLibre,HomeLibRu,HomeLibreReader,HomeLibReader,HomeLibRuUpdater -ErrorAction SilentlyContinue | "
              "ForEach-Object {[pscustomobject]@{ProcessId=$_.Id;ExecutablePath=$_.Path}}) | ConvertTo-Json -Compress")
     raw = subprocess.check_output(['powershell', '-NoProfile', '-NonInteractive', '-Command', query],
         encoding='utf-8-sig', stderr=subprocess.STDOUT, timeout=30,
@@ -157,20 +164,23 @@ def main():
         manifest = extract_reader(package, candidate, platform)
         reader = REPO / f'Utils/HomeLibreReader/Out/{platform}/HomeLibreReader.exe'
         helper = REPO / ('Program/Out/Bin64' if platform == 'Win64' else 'Program/Out/Bin') / 'HomeLibRuUpdater.exe'
-        if args.reader_package:
-            assert sha(candidate / reader.name) == sha(reader)
-            assert sha(candidate / helper.name) == sha(helper)
-        shutil.copyfile(reader, candidate / reader.name)
-        shutil.copyfile(helper, candidate / helper.name)
-        manifest_path = candidate / 'HomeLibRu.update.json'
-        for entry in manifest['files']:
-            file = candidate / entry['path']
-            entry.update(size=file.stat().st_size, sha256=sha(file))
-        dump(manifest_path, manifest)
+        candidate_reader = installed_reader(candidate)
         archive_path = root / 'candidate.zip'
         if args.reader_package:
+            assert sha(candidate_reader) == sha(reader)
+            assert sha(candidate / helper.name) == sha(helper)
             shutil.copyfile(package, archive_path)
         else:
+            if candidate_reader.name != reader.name:
+                entry, = [item for item in manifest['files'] if item['path'] == candidate_reader.name]
+                entry['path'] = reader.name
+                candidate_reader = candidate_reader.rename(candidate / reader.name)
+            shutil.copyfile(reader, candidate_reader)
+            shutil.copyfile(helper, candidate / helper.name)
+            for entry in manifest['files']:
+                file = candidate / entry['path']
+                entry.update(size=file.stat().st_size, sha256=sha(file))
+            dump(candidate / 'HomeLibRu.update.json', manifest)
             with zipfile.ZipFile(archive_path, 'w', zipfile.ZIP_DEFLATED) as archive:
                 for file in sorted(candidate.rglob('*')):
                     if file.is_file():
@@ -189,7 +199,7 @@ def main():
                          baseline_helper_sha256=sha(app / helper.name), job_path=str(job))
         elif not app.exists():
             shutil.copytree(candidate, app)
-            with (app / 'HomeLibreReader.exe').open('ab') as file:
+            with installed_reader(app).open('ab') as file:
                 file.write(b'\nOwned running development EXE overlay to require replacement\n')
         if args.catalogue_package:
             assert sha(args.catalogue_package) == args.catalogue_sha256
@@ -249,7 +259,7 @@ def main():
             shutil.copyfile(helper, job / helper.name)
         state.update(archive=str(archive_path), archive_sha256=sha(archive_path), release=manifest['release'],
                      exact_release_package=bool(args.reader_package),
-                     reader_sha256=sha(reader), helper_sha256=sha(helper), running_exe_sha256=sha(app / reader.name),
+                     reader_sha256=sha(reader), helper_sha256=sha(helper), running_exe_sha256=sha(installed_reader(app)),
                      source_hashes={str(p.relative_to(root)): sha(p) for p in (root / 'books').iterdir()})
     elif args.action == 'seed-image-update':
         assert not state['launches'] and not processes(root)
@@ -306,7 +316,7 @@ def main():
             text = ini.read_text(encoding='utf-8-sig') if ini.exists() else ''
             ini.write_text(text + '\n[PATH]\nSyncExport=' + str(output) + '\n[SYSTEM]\nClearBookCacheOnExit=1\nSaveAsUseSubfolders=0\nFileNameTemplate=%t\n', encoding='utf-8-sig')
         source = root / 'books' / ('Первоначальная книга.fb2' if args.label == 'peer' else 'Книга инициатора.fb2')
-        command = [str(app / 'HomeLibreReader.exe'), '--profile=' + str(profile), '--open=' + str(source)]
+        command = [str(installed_reader(app)), '--profile=' + str(profile), '--open=' + str(source)]
         if args.archive_session:
             source = root / 'books/Сборник.zip'
             session = root / 'catalogue-session/request.json'
@@ -368,7 +378,7 @@ def main():
     elif args.action == 'record-ui-install':
         caller, = [x for x in state['launches'] if x['label'] == 'caller']
         request = json.loads((job / 'request.json').read_bytes())
-        assert request['pid'] == caller['original_pid'] and request['application'] == 'HomeLibreReader.exe'
+        assert request['pid'] == caller['original_pid'] and request['application'] == Path(caller['command'][0]).name
         assert request['target'] == str(app) and request['sha256'] == state['archive_sha256']
         assert request['tag'] == state['release'] and request['args'] == caller['command'][1:]
         assert request['commandLine'] == subprocess.list2cmdline(caller['command'])
@@ -382,7 +392,7 @@ def main():
         assert caller['original_pid'] not in {p['ProcessId'] for p in processes(root)}, 'Close own caller normally through Computer Use first'
         assert sha(Path(state['archive'])) == state['archive_sha256']
         dump(job / 'request.json', dict(target=str(app), pid=caller['original_pid'], tag=state['release'],
-             sha256=state['archive_sha256'], application='HomeLibreReader.exe', args=caller['command'][1:],
+             sha256=state['archive_sha256'], application=Path(caller['command'][0]).name, args=caller['command'][1:],
              commandLine=subprocess.list2cmdline(caller['command'])))
         process = subprocess.Popen([str(job / 'HomeLibRuUpdater.exe'), '--job', str(job)], cwd=job, env=env,
                                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -393,13 +403,13 @@ def main():
         assert state['helper_pid'] not in {p['ProcessId'] for p in active}, 'Update still running'
         assert json.loads((job / 'journal.json').read_text(encoding='utf-8-sig'))['state'] == 'installed'
         if manifest := state.get('component_manifest'):
-            assert sha(app / 'HomeLibreReader.exe') == state['running_exe_sha256']
+            assert sha(installed_reader(app)) == state['running_exe_sha256']
             for entry in manifest['files']:
                 assert sha(app / entry['path']) == entry['sha256']
             assert {p.name for p in (app / 'tools').iterdir() if p.is_dir()} == {'fonts', 'images'}
             state['only_requested_module_installed'] = True
         else:
-            assert sha(app / 'HomeLibreReader.exe') == state['reader_sha256'] != state['running_exe_sha256']
+            assert sha(app / READER_APPLICATION) == state['reader_sha256'] != state['running_exe_sha256']
             if state.get('baseline_reader_version'):
                 assert state.get('frontend_request'), 'Published Reader must request its own update'
                 with zipfile.ZipFile(state['archive']) as archive:
@@ -476,13 +486,17 @@ def main():
             assert state.get('helper_installation_checked'), 'Use explicit incomplete teardown for an interrupted fixture'
         else:
             assert state['status'] == 'INCOMPLETE' and not state.get('helper_installation_checked')
-            assert not state.get('selected_archive_member'), 'Preserve unfinished selected-book evidence'
-            assert json.loads((job / 'journal.json').read_bytes())['state'] == 'installed'
             for path, digest in state['source_hashes'].items():
                 assert sha(root / path) == digest
-            state['incomplete_teardown'] = dict(reason='Initial archive chooser was not targetable; no member selected',
-                normal_close='Production updater sent WM_CLOSE; final caller closed with Alt+F4',
-                related_state=json.loads((job / 'restart-instances.json').read_bytes()))
+            if not state['launches'] and not state.get('catalogue', {}).get('original_pid'):
+                assert not (job / 'request.json').exists() and not (job / 'journal.json').exists()
+                state['incomplete_teardown'] = dict(reason='Prepared fixture only; no installation requested')
+            else:
+                assert not state.get('selected_archive_member'), 'Preserve unfinished selected-book evidence'
+                assert json.loads((job / 'journal.json').read_bytes())['state'] == 'installed'
+                state['incomplete_teardown'] = dict(reason='Initial archive chooser was not targetable; no member selected',
+                    normal_close='Production updater sent WM_CLOSE; final caller closed with Alt+F4',
+                    related_state=json.loads((job / 'restart-instances.json').read_bytes()))
         assert not any(p.is_symlink() or p.is_junction() for p in root.rglob('*'))
         shutil.rmtree(root)
         state['temporary_root_removed'] = not root.exists()
