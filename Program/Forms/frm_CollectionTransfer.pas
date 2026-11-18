@@ -16,6 +16,9 @@ uses Winapi.Windows, Winapi.Messages, Winapi.ActiveX, System.IOUtils, System.Syn
   unit_CollectionTransferCatalogue, unit_CollectionTransferPlan, unit_CollectionTransferJournal,
   unit_CollectionTransferOperation, unit_CollectionTransferCompletion, unit_CollectionTransferSpace;
 
+const
+  DestinationUnavailable = 'Папка назначения «%s» недоступна. Подключите диск или восстановите доступ к папке и повторите попытку.';
+
 type
   TTransferUIPhase=(tpPreview,tpRun,tpComplete);
   TTransferUIState=(usIdle,usPreview,usReady,usRunning,usWaiting,usCompleting,usStopped,usFailed,usCompleted);
@@ -132,12 +135,15 @@ begin
   if not GetDiskFreeSpaceEx(PChar(IncludeTrailingPathDelimiter(SystemDrive)),Available,Capacity,nil) then RaiseLastOSError;
   if Available<UInt64(8)*1024*1024*1024 then
     raise EWriteError.Create('На системном диске нужно сохранить не менее 8 ГБ. Подготовка остановлена.');
+  if (Destination<>'') and not DirectoryExists(Destination) then
+    raise EDirectoryNotFoundException.CreateFmt(DestinationUnavailable,[Destination]);
   for var Path in TArray<string>.Create(WorkRoot,Destination) do
     if (Path<>'') and DirectoryExists(Path) then
     begin
       if not GetDiskFreeSpaceEx(PChar(IncludeTrailingPathDelimiter(Path)),Available,Capacity,nil) then RaiseLastOSError;
       if Available<UInt64(512)*1024*1024 then
-        raise EWriteError.Create('В рабочей папке и назначении нужно сохранить резерв 512 МБ. Подготовка остановлена.');
+        raise EWriteError.CreateFmt('В папке «%s» доступно %s. Освободите место, чтобы сохранить резерв 512 МБ, и повторите попытку.',
+          [Path,BookEstimateSizeText(Available)]);
     end;
 end;
 
@@ -192,8 +198,6 @@ begin
         tpPreview:
           begin
             FreeAndNil(FContext.Plan); FreeAndNil(FContext.Capture);
-            if not DirectoryExists(FContext.Destination) then
-              raise EDirectoryNotFoundException.Create('Выберите существующую папку назначения.');
             ForceDirectories(FContext.WorkRoot);
             FContext.Capture:=TCollectionTransferCatalogue.Create(FContext.Info,FContext.Personal,FContext.WorkRoot,
               function:Boolean begin Context.CheckSpace; Result:=Context.Cancelled; end,
@@ -258,7 +262,10 @@ begin
         if FPhase=tpPreview then FContext.Error:='Проверка остановлена. Книги не перемещались.'
         else FContext.Error:='Остановлено. Готовые копии и журнал сохранены.';
       end;
-      on E:Exception do FContext.Error:=E.Message;
+      on E:Exception do
+        if (E is EOSError) and (FContext.Destination<>'') and not DirectoryExists(FContext.Destination) then
+          FContext.Error:=Format(DestinationUnavailable,[FContext.Destination])
+        else FContext.Error:=E.Message;
     end;
   finally
     if Succeeded(COM) then CoUninitialize;
@@ -525,7 +532,8 @@ begin
     try RefreshView;
     except on E:Exception do FContext.Error:=FContext.Error+sLineBreak+'Не удалось обновить открытый каталог: '+E.Message; end;
     if FContext.Journal=nil then begin FreeAndNil(FContext.Plan); FreeAndNil(FContext.Capture); end;
-    FRun.Caption:='Продолжить';
+    if (FContext.Journal<>nil) or (FContext.Pending.Operation<>'') then FRun.Caption:='Продолжить'
+    else FRun.Caption:='Перенести';
     if FContext.Error<>'' then SetState(usStopped,FContext.Error)
     else if FContext.RootsReady then SetState(usWaiting,'Файлы обработаны. Ожидание обновления открытой коллекции…')
     else SetState(usStopped,'Освобождение исходных файлов отложено. Закройте внешнюю читалку и нажмите «Продолжить».');

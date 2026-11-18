@@ -332,6 +332,46 @@ the other six book files and their catalogue rows matched their initial state.
 Both applications closed normally. Only synthetic copies were used.
 The reports are in `r1980-selected-production/{Win32,Win64}-report.json`.
 
+## Catalogue rebuild after the transfer diagnostic change
+
+The x86 and x64 catalogues were rebuilt with the transfer destination check.
+The six local archives in `G:/HL-b14-external/r1982-main-release` include
+these executables and the revised release history. The previous r1975 archive
+digests matched their saved list. A comparison of all six pairs found exactly
+two changed payloads in each archive, the catalogue executable and
+`Help/CHANGES.txt`. The updater manifests record both new digests.
+Every member listed by each new manifest was read and checked against its size
+and SHA-256, including the catalogue at its compatibility path in the two
+update archives. File inventories and component payloads matched the previous
+packages. The six new archive digests are in `r1982-main-release/SHA256SUMS.txt`.
+The comparison receipt is `r1982-package-work/verification.json`.
+The native installer then prepared and installed all six revised ZIPs into
+private profiles. The checks verified installed file hashes, preserved personal
+files, module ownership and inventory. Both full installations recognized the
+25 modules and the bundled Microsoft installers. All six profiles were removed.
+The receipt is `r1982-distribution-verification/distribution-report.json`.
+
+## Losing the destination after reviewing a transfer
+
+The packaged x86 and x64 catalogues were run separately inside an offline
+Windows 10 x64 guest. Each fixture had seven FB2 files, a neighbouring text
+file and a separate 1 GiB NTFS destination. With about 480 MiB free, the
+preview identified the folder and its available space, explained the 512 MiB
+reserve and disabled transfer. After space was freed, the plan was accepted.
+Detaching the virtual disk after review and before pressing Transfer produced
+a message naming the unavailable folder and asking the user to reconnect it.
+The seven source files, catalogue identities and old locations were unchanged
+after both refusals. The previous x64 candidate had shown Windows error 3.
+
+After reattachment, reviewing the plan again and confirming completed the
+operation in both applications. All seven new catalogue paths resolved to
+the original bytes, all seven old book files were gone and the unrelated text
+file remained. The guest shut down normally. The host checked both executable
+digests against the shipped ZIPs. Receipts and screenshots are in
+`r1981-transfer-volume/volume3/verified`. This exercises disconnection before
+copying and the real low-space guard. Loss of the destination during a write
+and failure of a network share require separate evidence.
+
 ## Remaining checks
 
 Remaining source checks, Desktop replacement and publication remain open.
