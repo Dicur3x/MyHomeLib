@@ -279,6 +279,42 @@ def opds_tls_payload(platform, go):
     return payload, list(payload)
 
 
+def book_processing_sources():
+    files = tree(REPO/'tools/bookconvert', 'tools/bookconvert',
+                 ('vendor/calibre_legacy', 'kindle_input.py', 'kindle_output.py', 'legacy_helper.py',
+                  'epub_pdf_output.py', 'COMPONENT.json', 'MODULAR_RUNTIME.json'))
+    # These workers use bookconvert paths so older updaters can install them.
+    workers = {}
+    for name in ('pack_collection.py', 'archive_replacement.py', 'prepare_book_compression.py',
+                 'compression_image_history.py', 'compression_preview.py', 'estimate_book_compression.py',
+                 'external_image_preparation.py', 'restored_book_validation.py', 'nested_epub_compression.py'):
+        workers['tools/bookconvert/' + name] = REPO/'tools/collectionpack'/name
+    for name in ('build_index.py', 'mysql_dump.py'):
+        workers['tools/bookconvert/catalogdump/' + name] = REPO/'tools/catalogdump'/name
+    files.update({name: path.read_bytes() for name, path in workers.items()})
+    files['tools/bookconvert/MODULAR_API.txt'] = b'1\n'
+    required = ['tools/python/python.exe', 'tools/bookconvert/convert_book.py',
+                'tools/bookconvert/MODULAR_API.txt', 'tools/bookconvert/IMAGE_CONTAINER_API.txt', 'tools/python/python313.dll',
+                'tools/python/python313.zip', 'tools/python/python313._pth',
+                'tools/bookconvert/ADVANCED_EXPORT_API.txt', 'tools/bookconvert/advanced_output.py',
+                'tools/bookconvert/markdown_output.py', 'tools/bookconvert/epub2_output.py', 'tools/bookconvert/epub3_output.py',
+                'tools/bookconvert/epub_kfx_output.py', 'tools/bookconvert/kfx_image_input.py', 'tools/bookconvert/gif_static.py',
+                'tools/bookconvert/image_quality.py', 'tools/bookconvert/container_image_quality.py', *workers]
+    return files, required
+
+
+def verify_book_processing_sources(manifest, descriptor):
+    """Compare a verified component manifest with the files used by the package writer."""
+    current, required = book_processing_sources()
+    recorded = {entry['path']: entry['sha256'] for entry in manifest['files']}
+    mismatches = [name for name, data in current.items() if recorded.get(name) != helper.digest(data)]
+    if mismatches:
+        raise ValueError('BookProcessing differs from release source: ' + ', '.join(sorted(mismatches)))
+    for name in required:
+        if name not in recorded or descriptor['identities'].get(name) != recorded[name]:
+            raise ValueError('BookProcessing runtime checksum differs from the release manifest: ' + name)
+
+
 def payload_for(platform, component, kindle_export_root=None, advanced_export_root=None, opds_tls_go=None,
                 kfx_export_root=None, image_processing_root=None):
     if component == 'OPDSTls':
@@ -294,28 +330,8 @@ def payload_for(platform, component, kindle_export_root=None, advanced_export_ro
     runtime = REPO/'Program/Out'/('Bin' if platform == 'Win32' else 'Bin64')/'tools'
     if component == 'BookProcessing':
         payload = tree(runtime/'kindle/python', 'tools/python')
-        payload.update(tree(REPO/'tools/bookconvert', 'tools/bookconvert',
-                            ('vendor/calibre_legacy', 'kindle_input.py', 'kindle_output.py', 'legacy_helper.py',
-                             'epub_pdf_output.py', 'COMPONENT.json')))
-        # The installed path is within the existing BookProcessing allowlist,
-        # so older updater helpers can install the same component ZIP.
-        packing_workers = ['tools/bookconvert/' + name for name in
-                           ('pack_collection.py', 'archive_replacement.py', 'prepare_book_compression.py', 'compression_image_history.py',
-                            'compression_preview.py', 'estimate_book_compression.py', 'external_image_preparation.py',
-                            'restored_book_validation.py', 'nested_epub_compression.py')]
-        for worker in packing_workers:
-            payload[worker] = (REPO/'tools/collectionpack'/Path(worker).name).read_bytes()
-        sql_workers = ['tools/bookconvert/catalogdump/' + name for name in ('build_index.py', 'mysql_dump.py')]
-        for name in sql_workers:
-            payload[name] = (REPO/'tools/catalogdump'/Path(name).name).read_bytes()
-        payload['tools/bookconvert/MODULAR_API.txt'] = b'1\n'
-        required = ['tools/python/python.exe', 'tools/bookconvert/convert_book.py',
-                    'tools/bookconvert/MODULAR_API.txt', 'tools/bookconvert/IMAGE_CONTAINER_API.txt', 'tools/python/python313.dll',
-                    'tools/python/python313.zip', 'tools/python/python313._pth',
-                    'tools/bookconvert/ADVANCED_EXPORT_API.txt', 'tools/bookconvert/advanced_output.py',
-                    'tools/bookconvert/markdown_output.py', 'tools/bookconvert/epub2_output.py', 'tools/bookconvert/epub3_output.py',
-                    'tools/bookconvert/epub_kfx_output.py', 'tools/bookconvert/kfx_image_input.py', 'tools/bookconvert/gif_static.py',
-                    'tools/bookconvert/image_quality.py', 'tools/bookconvert/container_image_quality.py', *packing_workers, *sql_workers]
+        sources, required = book_processing_sources()
+        payload.update(sources)
         helper.binary_platform(payload['tools/python/python.exe'], platform)
     elif component == 'ImageProcessing':
         source = Path(image_processing_root)/platform if image_processing_root else runtime/'images'

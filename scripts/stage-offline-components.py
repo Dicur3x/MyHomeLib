@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import re
+import runpy
 import shutil
 import subprocess
 import tempfile
@@ -107,6 +108,17 @@ def stage(payload, definition, native, *, required=COMPONENTS):
             job = work / f'job-{index}'
             run('--prepare-component', download, row['sha256'], manifest['release'], job, row['id'], row['version'])
             verified = json.loads((job / 'manifest.json').read_text(encoding='utf-8-sig'))
+            if row['id'] == 'BookProcessing':
+                scripts = Path(__file__).resolve().parent
+                release = json.loads((scripts.parent / 'Installer/Release.json').read_bytes())
+                pinned = release.get('component_versions', {}).get('BookProcessing', release['components_version'])
+                if required == COMPONENTS and row['version'] != pinned:
+                    raise ValueError('Offline BookProcessing version differs from the release: ' + row['version'])
+                # Pinned older versions can legitimately predate this checkout.
+                if row['version'] == release['version']:
+                    packaging = runpy.run_path(str(scripts / 'package-format-components.py'))
+                    descriptor = job / 'payload' / packaging['DESCRIPTORS']['BookProcessing']
+                    packaging['verify_book_processing_sources'](verified, json.loads(descriptor.read_bytes()))
             for item in verified['files']:
                 original = item['path']
                 target_name = 'HomeLibreReader.exe' if row['id'] == 'HomeLibReader' and \

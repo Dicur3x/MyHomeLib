@@ -185,6 +185,10 @@ def main():
                     assert '..' not in Path(name).parts
                     payload = archive.read(name)
                     assert len(payload) == item['size'] and digest(payload) == item['sha256'], name
+                if key[0] == 'BookProcessing':
+                    packaging = runpy.run_path(str(ROOT / 'scripts/package-format-components.py'))
+                    descriptor = json.loads(archive.read(packaging['DESCRIPTORS']['BookProcessing']))
+                    packaging['verify_book_processing_sources'](manifest, descriptor)
                 if key[0] == 'HomeLibReader':
                     assert 'libzstd.dll' not in payload_names, 'Reader package must not bundle Zstandard'
                     current = ROOT / 'Utils/HomeLibreReader/Out' / key[1] / 'HomeLibreReader.exe'

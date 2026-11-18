@@ -389,6 +389,29 @@ source change and focused tests await a native rebuild. The six r1982 ZIPs
 predate this change. A separate unplug-during-write fixture is prepared under
 `r1983-transfer-hotplug`. Only its scripts and inputs were checked in this step.
 
+## BookProcessing sources after the shared-illustration fix
+
+The two r1937 update modules and both r1982 full distributions were compared
+with the release checkout after `eba46a33`. Each contains 138 source files
+and markers owned by BookProcessing. In all four archives the same two files,
+`prepare_book_compression.py` and `external_image_preparation.py`, still have
+their previous contents. All 138 archived files matched their own manifests.
+Both release routes point to those same module digests. The exact old and new
+file hashes are in `r1986-release-module-sources/source-comparison.json`.
+
+The component publication planner now checks the module against the same
+source selection used by its writer. Full-distribution staging checks the
+release-pinned version and applies the source check to the current release
+after native package verification. The regression test accepts the matching
+source inventory and rejects each superseded worker even when its manifest
+and runtime descriptor agree with one another. It also rejects a stale
+descriptor when the manifest already matches the corrected source.
+
+Regenerate the BookProcessing update archives from the release checkout,
+refresh both offline input lists and the upload plan, and recheck the final
+full ZIPs and selected compression. The earlier installation and compatibility
+results above identify the tested candidate. They do not cover the new bytes.
+
 ## Remaining checks
 
 Remaining source checks, Desktop replacement and publication remain open.

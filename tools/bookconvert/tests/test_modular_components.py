@@ -26,6 +26,27 @@ def stage(root, payload):
 
 
 class ModularComponents(unittest.TestCase):
+    def test_release_rejects_outdated_workers_even_with_matching_internal_hashes(self):
+        sources, required = packages.book_processing_sources()
+        hashes = {path: hashlib.sha256(data).hexdigest() for path, data in sources.items()}
+        for path in required:
+            hashes.setdefault(path, 'f' * 64)  # Platform binaries are verified by the native installer.
+        manifest = {'files': [{'path': path, 'sha256': digest} for path, digest in hashes.items()]}
+        descriptor = {'identities': {path: hashes[path] for path in required}}
+        packages.verify_book_processing_sources(manifest, descriptor)
+
+        for name in ('prepare_book_compression.py', 'external_image_preparation.py'):
+            path = 'tools/bookconvert/' + name
+            with self.subTest(name=name):
+                entry = next(row for row in manifest['files'] if row['path'] == path)
+                descriptor['identities'][path] = entry['sha256'] = hashlib.sha256(b'previous version').hexdigest()
+                with self.assertRaisesRegex(ValueError, 'differs from release source: ' + path):
+                    packages.verify_book_processing_sources(manifest, descriptor)
+                entry['sha256'] = hashes[path]
+                with self.assertRaisesRegex(ValueError, 'runtime checksum differs'):
+                    packages.verify_book_processing_sources(manifest, descriptor)
+                descriptor['identities'][path] = hashes[path]
+
     def test_pdf_conversion_with_only_common_processing_and_pdfium(self):
         hashes={'Win32':'bb2d8354652e7cdb21998b46a4f7e0d7d25636405c5718a099daddcd326b2f33',
                 'Win64':'455475d3df2d488ab4b1d7d6bd75986fe17dad745c87b2785c688be03b6e75fe'}
