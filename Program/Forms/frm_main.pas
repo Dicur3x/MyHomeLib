@@ -82,7 +82,7 @@ uses
   unit_Localization, unit_BookInfoPreview, unit_MHLTheme, System.Generics.Collections,
   unit_AuthorFavorites, unit_AuthorFavoriteRefresh, unit_ReaderAnnotations, unit_ReaderSession,
   unit_BookSaveContinuation, unit_BookReviewPreview, unit_CollectionPacking, unit_BookCompressionContinuation,
-  unit_BookCompressionOperation, frm_BookCompression, unit_CollectionTransferCleanup;
+  unit_BookCompressionOperation, frm_BookCompression, unit_CollectionTransferCleanup, unit_LibraryUpdateContinuation;
 
 const
   WM_RESUME_SQL_CATALOGUE = $8000+372;
@@ -1007,6 +1007,8 @@ type
     function TransferApplicationReady:Boolean;
     function CollectionTransferPending:Boolean;
     procedure ResumePacking(var Message: TMessage); message WM_RESUME_COLLECTION_PACKING;
+    procedure ResumeLibraryUpdate(var Message:TMessage); message WM_RESUME_LIBRARY_UPDATE;
+    procedure OpenLibraryUpdateSources(const Restart:ILibraryUpdateRestart);
     procedure ResumeBookCompression(var Message: TMessage); message WM_RESUME_BOOK_COMPRESSION;
     procedure ResumeSqlCatalogue(var Message: TMessage); message WM_RESUME_SQL_CATALOGUE;
     procedure ShowBookDuplicates(Sender: TObject);
@@ -5398,6 +5400,23 @@ begin
   end;
 end;
 
+procedure TfrmMain.ResumeLibraryUpdate(var Message:TMessage);
+var Restart:ILibraryUpdateRestart;
+begin
+  if Application.Terminated or (csDestroying in ComponentState) then Exit;
+  try
+    for var I:=ParamCount downto 1 do
+      if ParamStr(I).StartsWith(LIBRARY_UPDATE_RESUME_SWITCH) then
+      begin
+        Restart:=TakeLibraryUpdateRestart(Settings.LibraryUpdateWorkPath,ParamStr(I));
+        if Assigned(Restart) then OpenLibraryUpdateSources(Restart);
+        Break;
+      end;
+  except on E:Exception do
+    begin LogDiagnosticError('library-update-resume',E); MHLShowError(E.Message); end;
+  end;
+end;
+
 procedure TfrmMain.ResumeSqlCatalogue(var Message: TMessage);
 begin
   if FSqlCatalogueResumed or Application.Terminated or (csDestroying in ComponentState) then Exit;
@@ -6291,6 +6310,9 @@ begin
   for var I:=1 to ParamCount do
     if ParamStr(I).StartsWith(PACKING_RESUME_SWITCH) then
     begin PostMessage(Handle,WM_RESUME_COLLECTION_PACKING,0,0); Break; end;
+  for var I:=1 to ParamCount do
+    if ParamStr(I).StartsWith(LIBRARY_UPDATE_RESUME_SWITCH) then
+    begin PostMessage(Handle,WM_RESUME_LIBRARY_UPDATE,0,0); Break; end;
   for var I:=1 to ParamCount do
     if ParamStr(I).StartsWith(BOOK_COMPRESSION_RESUME_SWITCH) then
     begin PostMessage(Handle,WM_RESUME_BOOK_COMPRESSION,0,0); Break; end;
@@ -13455,18 +13477,46 @@ begin
 end;
 
 procedure TfrmMain.LibraryUpdateSourcesExecute(Sender: TObject);
-var Dialog: TfrmLibraryUpdateSources; CollectionID, NewID: Integer; Changed: Boolean;
+begin OpenLibraryUpdateSources(nil); end;
+
+procedure TfrmMain.OpenLibraryUpdateSources(const Restart:ILibraryUpdateRestart);
+var Dialog:TfrmLibraryUpdateSources; CollectionID,NewID:Integer; Changed:Boolean;
+  Target:IBookCollection; Pending:ILibraryUpdateRestart; Required:TArray<string>;
+  Request:TLibraryUpdateRestartRequest;
 begin
-  if not Assigned(FCollection) or FFormBusy or FStartupLoading or FBookListLoading then Exit;
-  if CompressionBlocksCatalogChange then Exit;
-  CollectionID:=FCollection.CollectionID; Changed:=False;
-  Dialog:=TfrmLibraryUpdateSources.CreateForCollection(Self,FCollection);
+  if FFormBusy or FStartupLoading or FBookListLoading or CompressionBlocksCatalogChange then
+  begin
+    if Assigned(Restart) then raise EInvalidOperation.Create('Коллекция занята. Проверьте обновление заново.');
+    Exit;
+  end;
+  Target:=FCollection;
+  if Assigned(Restart) then
+  begin
+    Request:=Restart.Request;
+    Target:=FSystemData.GetCollection(Request.Identity.SourceID);
+    if not Assigned(Target) then raise EReadError.Create('Коллекция для продолжения обновления недоступна.');
+  end;
+  if not Assigned(Target) then Exit;
+  CollectionID:=Target.CollectionID; Changed:=False;
+  Dialog:=TfrmLibraryUpdateSources.CreateForCollection(Self,Target);
   FFormBusy:=True;
   try
     Dialog.BeforeApply:=LibraryUpdateSourcesBeginApply;
+    Dialog.AllowModuleRestart:=True;
+    if Assigned(Restart) then Dialog.RestoreRestart(Restart);
     Dialog.ShowModal; Changed:=Dialog.Committed; NewID:=Dialog.PublishedCollectionID;
+    Pending:=Dialog.PendingRestart;
+    Required:=Copy(Dialog.RestartComponents);
   finally Dialog.Free; FFormBusy:=False; end;
-  if Changed then
+  if Assigned(Pending) then
+  begin
+    EnsureProgramUpdateForm;
+    FProgramUpdateForm.RequestComponents(Required,
+      'Для упаковки новых книг нужны дополнительные модули. После установки откроется проверенное обновление.',
+      True,function:string begin Result:=Pending.Arm; end,
+      procedure begin Pending.Disarm; end);
+  end
+  else if Changed then
   begin
     if NewID>0 then CollectionID:=NewID;
     NotifyFavoriteCatalogChanged(TArray<Integer>.Create(CollectionID));

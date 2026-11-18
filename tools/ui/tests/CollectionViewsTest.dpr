@@ -56,6 +56,7 @@ uses
   frame_NCWCollectionNameAndLocation, frame_NCWCollectionFileTypes, frame_NCWInpxSource,
   frame_NCWFinish, frame_WizardPageBase, frm_ConverToFBD, unit_FileMutex,
   unit_CollectionPacking in '..\..\..\Program\Units\unit_CollectionPacking.pas',
+  unit_LibraryUpdateContinuation in '..\..\..\Program\Units\unit_LibraryUpdateContinuation.pas',
   unit_BookCompressionRuntime, unit_BookCompressionOperation, unit_BookCompressionJob, unit_BookCompressionContinuation,
   frm_BookCompression, frm_BookCompressionCompare,
   frm_CollectionPackingProgress in '..\..\..\Program\Forms\frm_CollectionPackingProgress.pas',
@@ -6816,6 +6817,8 @@ begin
         TestPackedSourceReview(True)
       else if ParamStr(1) = 'packed-legacy-manual-source' then
         TestPackedSourceReview(True,True)
+      else if ParamStr(1) = 'packed-module-continuation' then
+        TestPackedSourceReview(True,True,True)
       else if ParamStr(1) = 'packed-bound-apply' then
         TestPackedBoundSourceApply
       else if ParamStr(1) = 'favorite-book-menu' then

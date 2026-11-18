@@ -4,7 +4,8 @@ interface
 
 uses System.SysUtils, System.Classes, System.Generics.Collections, SQLiteWrap, unit_Interfaces, unit_Globals,
   unit_CatalogSources, unit_LibraryUpdateSources, unit_LibraryUpdateFetch,
-  unit_CollectionWorkerThread, unit_CollectionMerge, unit_LibraryUpdateInventory;
+  unit_CollectionWorkerThread, unit_CollectionMerge, unit_LibraryUpdateInventory,
+  unit_CollectionPacking, unit_LibraryUpdateContinuation;
 
 type
   TLibraryReviewProgress = reference to procedure(const Stage: string; Done, Total: Integer);
@@ -22,6 +23,12 @@ type
     FDelta: IBookCollection;
     FDeltaFile, FApplySummary, FCacheInput, FPreviousFile, FOperationID: string;
     FPreviousInput, FPreviousInputSHA, FPublisherFile, FSelectedPreviousFile: string;
+    FSelectedPreviousIndex:TStagedLibraryIndex;
+    FPreviousRevisionDB:TSQLiteDatabase;
+    FPreviousRevision:Integer;
+    FRestartProof:TLibraryUpdateRestartRequest;
+    FPendingRestart:ILibraryUpdateRestart;
+    FMissingComponents:TArray<string>;
     FPlan: TCollectionMergePlan;
     FActionDB: TSQLiteDatabase;
     FRevisionDB: TSQLiteDatabase;
@@ -37,6 +44,9 @@ type
     FPublishedCollectionID: Integer;
     function ImportSelectedPreviousIndex(const OriginalRoot: string; const Target: IBookCollection;
       const SystemData: ISystemData; const Check: TProc; const Progress: TLibraryReviewProgress): IBookCollection;
+    function PackedOptions(const Target:IBookCollection):TCollectionPackingOptions;
+    procedure PrepareModuleRestart(const Target:IBookCollection; PreferNewRoot:Boolean;
+      const Check:TProc; const Progress:TLibraryReviewProgress);
     procedure PreparePackedApplication(PreferNewRoot: Boolean; const Check: TProc;
       const Progress: TLibraryReviewProgress);
     procedure ApplyPacked(const Target: IBookCollection; const SystemData: ISystemData;
@@ -62,6 +72,7 @@ type
     destructor Destroy; override;
     procedure CheckSpace;
     procedure SetSourceProfiles(const Profiles: TLibraryUpdateSources);
+    procedure RestoreRestartProof(const Proof:TLibraryUpdateRestartRequest; var Previous:TStagedLibraryIndex);
     function MissingDetails(Maximum: Integer = 5): string;
     procedure SaveMissingReport(const FileName: string);
     procedure Build(const Target: IBookCollection; const SystemData: ISystemData;
@@ -88,11 +99,13 @@ type
     property RecoveryError: string read FRecoveryError;
     property MissingReportReady: Boolean read FIssuesReady;
     property MissingBooks: Integer read FMissingCount;
+    property PendingRestart:ILibraryUpdateRestart read FPendingRestart;
+    property MissingComponents:TArray<string> read FMissingComponents;
   end;
 
 function CreateLibraryReviewWorker(CollectionID: Integer; Review: TLibraryUpdateReview): TCollectionWorker;
 function CreateLibraryApplyWorker(CollectionID: Integer; Review: TLibraryUpdateReview;
-  PreferNewRoot: Boolean): TCollectionWorker;
+  PreferNewRoot: Boolean; AllowModuleRestart:Boolean=False): TCollectionWorker;
 
 {$IFDEF MHL_COMPRESSION_TEST}
 var LibraryUpdateTestPoint: TProc<string>;
@@ -104,8 +117,9 @@ implementation
 uses Winapi.Windows, Vcl.ComCtrls, System.IOUtils, System.Hash, System.Variants, System.JSON, System.StrUtils, System.Math,
   unit_Consts, unit_Database_SQLite, unit_LibrarySourceID, unit_UserData,
   unit_ImportInpxThread, unit_ImportMetabibThread, unit_MetabibReader, unit_LibraryUpdateIdentity,
-  unit_MHLArchiveHelpers, unit_Settings, unit_LibraryUpdateHistory, unit_CollectionPacking,
-  unit_CollectionPackingPublisher, unit_LibraryUpdateJournal, unit_SystemDatabase_SQLite, dm_user;
+  unit_MHLArchiveHelpers, unit_Settings, unit_LibraryUpdateHistory,
+  unit_CollectionPackingPublisher, unit_LibraryUpdateJournal, unit_SystemDatabase_SQLite,
+  unit_CatalogContentDigest, dm_user;
 
 procedure NotifyLibraryUpdateTestPoint(const Stage: string); inline;
 begin
@@ -141,6 +155,7 @@ begin WriteLibraryUpdateSources(Profiles); FProfiles:=Copy(Profiles); end;
 destructor TLibraryUpdateReview.Destroy;
 begin
   FPlan.Free; FActionLookup.Free; FActionDB.Free; FInventory.Free; FRevisionDB.Free;
+  FPreviousRevisionDB.Free; FSelectedPreviousIndex.Free;
   FDelta:=nil; FSnapshot:=nil; CleanCache;
   // Only files explicitly created by this review; never recursive cleanup.
   for var Name in TArray<string>.Create(FDatabaseFile,FAnalysisFile,FDeltaFile,FPublisherFile,FSelectedPreviousFile) do
@@ -150,6 +165,14 @@ begin
           try TFile.Delete(Name+Suffix); except end;
   FNeeded.Free; FHistorical.Free; FFound.Free; FAmbiguous.Free;
   inherited;
+end;
+
+procedure TLibraryUpdateReview.RestoreRestartProof(const Proof:TLibraryUpdateRestartRequest;
+  var Previous:TStagedLibraryIndex);
+begin
+  FRestartProof:=Proof;
+  FSelectedPreviousIndex:=Previous;
+  Previous:=nil;
 end;
 
 procedure TLibraryUpdateReview.CheckSpace;
@@ -193,6 +216,13 @@ begin
   FPacked:=IsPackedCollectionCatalog(FTargetFile);
   FreeAndNil(FRevisionDB); FRevisionDB:=OpenWorkDatabase(FTargetFile,True);
   FTargetRevision:=IntToStr(FRevisionDB.QuerySingleInt('PRAGMA data_version'));
+  if FRestartProof.CatalogDigest<>'' then
+  begin
+    FRestartProof.Identity.CheckIdentity(FTargetFile,FOriginalTargetRoot,Target.CollectionID);
+    if Assigned(Progress) then Progress('Сверка каталога после установки',0,0);
+    if not FPacked or not SameText(CatalogContentDigest(FRevisionDB,Check),FRestartProof.CatalogDigest) then
+      raise EReadError.Create('После перезапуска каталог изменился. Проверьте обновление заново.');
+  end;
   FSourceInfo.ID:=FSource.ID; FSourceInfo.Name:=FSource.Name;
   FSourceInfo.Root:=Target.CollectionRoot;
   FSourceInfo.LibraryNamespace:=VarToStr(Target.GetProperty(PROP_SOURCE_LIBRARY));
@@ -238,6 +268,19 @@ begin
   begin
     FPreviousFile:=VarToStr(Previous.GetProperty(PROP_DATAFILE));
     FPreviousRoot:=Previous.CollectionRoot;
+    if FPacked and not Assigned(FSelectedPreviousIndex) then
+    begin
+      FreeAndNil(FPreviousRevisionDB);
+      FPreviousRevisionDB:=OpenWorkDatabase(FPreviousFile,True);
+      FPreviousRevision:=FPreviousRevisionDB.QuerySingleInt('PRAGMA data_version');
+    end;
+  end;
+  if FRestartProof.PreviousDigest<>'' then
+  begin
+    if Assigned(Progress) then Progress('Сверка прежнего индекса после установки',0,0);
+    if not Assigned(FPreviousRevisionDB) or
+      not SameText(CatalogContentDigest(FPreviousRevisionDB,Check),FRestartProof.PreviousDigest) then
+      raise EReadError.Create('После перезапуска прежний индекс изменился. Проверьте обновление заново.');
   end;
   SnapshotFile:=TPath.Combine(FPrepared.Folder,'review-'+TGUID.NewGuid.ToString+'.hlc2');
   if FileExists(SnapshotFile) then raise EWriteError.Create('Рабочий файл проверки уже существует.');
@@ -331,7 +374,7 @@ end;
 function TLibraryUpdateReview.ImportSelectedPreviousIndex(const OriginalRoot: string;
   const Target: IBookCollection; const SystemData: ISystemData; const Check: TProc;
   const Progress: TLibraryReviewProgress): IBookCollection;
-var LocalSource:TLibraryUpdateSource; Info:TCatalogSource; Staged:TStagedLibraryIndex;
+var LocalSource:TLibraryUpdateSource; Info:TCatalogSource;
   Worker:TPreviousInpxWorker; ExpectedVersion,ActualVersion:Integer; LastUpdate:UInt64;
 begin
   LocalSource:=TLibraryUpdateSource.NewSource;
@@ -339,7 +382,8 @@ begin
   LocalSource.Location:=TPath.GetDirectoryName(FSource.PreviousIndexFile);
   LocalSource.IndexFile:=TPath.GetFileName(FSource.PreviousIndexFile);
   LastUpdate:=0;
-  Staged:=TStagedLibraryIndex.Fetch(LocalSource,FPrepared.Folder,nil,Check,
+  if not Assigned(FSelectedPreviousIndex) then
+    FSelectedPreviousIndex:=TStagedLibraryIndex.Fetch(LocalSource,FPrepared.Folder,nil,Check,
     procedure(Done,Total:Int64)
     begin
       if Assigned(Progress) and ((GetTickCount64-LastUpdate>=200) or (Done=Total)) then
@@ -348,36 +392,34 @@ begin
         Progress('Копирование прежнего INPX',Integer(Done),Integer(Total));
       end;
     end);
+  FSelectedPreviousFile:=TPath.Combine(FPrepared.Folder,'previous-'+TGUID.NewGuid.ToString+'.hlc2');
+  TBookCollection_SQLite.CreateCollection(SystemData,FSelectedPreviousFile,CT_EXTERNAL_LOCAL_FB,
+    Settings.SystemFileName[sfGenresFB2],FPrepared.Folder);
+  Info:=FSourceInfo;
+  Info.Root:=OriginalRoot;
+  Result:=OpenCatalogSnapshot(Info,FSelectedPreviousFile,SystemData,FPrepared.Folder);
+  if Info.LibraryNamespace<>'' then Result.SetProperty(PROP_SOURCE_LIBRARY,Info.LibraryNamespace);
+  Result.SetProperty(PROP_MIXED_LIBRARY_IDS,Target.GetProperty(PROP_MIXED_LIBRARY_IDS));
+  if Assigned(Progress) then Progress('Чтение прежнего INPX',0,0);
+  Worker:=TPreviousInpxWorker.Create(MHL_INVALID_ID);
   try
-    FSelectedPreviousFile:=TPath.Combine(FPrepared.Folder,'previous-'+TGUID.NewGuid.ToString+'.hlc2');
-    TBookCollection_SQLite.CreateCollection(SystemData,FSelectedPreviousFile,CT_EXTERNAL_LOCAL_FB,
-      Settings.SystemFileName[sfGenresFB2],FPrepared.Folder);
-    Info:=FSourceInfo;
-    Info.Root:=OriginalRoot;
-    Result:=OpenCatalogSnapshot(Info,FSelectedPreviousFile,SystemData,FPrepared.Folder);
-    if Info.LibraryNamespace<>'' then Result.SetProperty(PROP_SOURCE_LIBRARY,Info.LibraryNamespace);
-    Result.SetProperty(PROP_MIXED_LIBRARY_IDS,Target.GetProperty(PROP_MIXED_LIBRARY_IDS));
-    if Assigned(Progress) then Progress('Чтение прежнего INPX',0,0);
-    Worker:=TPreviousInpxWorker.Create(MHL_INVALID_ID);
-    try
-      Worker.Input:=Staged.FileName;
-      Worker.Scratch:=Result;
-      Worker.Check:=procedure begin Check; CheckSpace; end;
-      Worker.Cancellation:=SQLiteCancelCallback;
-      Worker.Start;
-      Worker.WaitFor;
-      if Worker.FatalException is EAbort then
-        raise EAbort.Create(Exception(Worker.FatalException).Message);
-      if Assigned(Worker.FatalException) then
-        raise EReadError.Create('Не удалось прочитать прежний INPX: '+Exception(Worker.FatalException).Message);
-      if not Worker.Success then raise EReadError.Create('Не удалось прочитать прежний INPX.');
-    finally Worker.Free; end;
-    ExpectedVersion:=StrToIntDef(VarToStr(Target.GetProperty(PROP_DATAVERSION)),0);
-    ActualVersion:=StrToIntDef(VarToStr(Result.GetProperty(PROP_DATAVERSION)),0);
-    if (ExpectedVersion>0) and (ActualVersion<>ExpectedVersion) then
-      raise EReadError.CreateFmt('Версия прежнего INPX (%d) не совпадает с версией сжатой коллекции (%d).',
-        [ActualVersion,ExpectedVersion]);
-  finally Staged.Free; end;
+    Worker.Input:=FSelectedPreviousIndex.FileName;
+    Worker.Scratch:=Result;
+    Worker.Check:=procedure begin Check; CheckSpace; end;
+    Worker.Cancellation:=SQLiteCancelCallback;
+    Worker.Start;
+    Worker.WaitFor;
+    if Worker.FatalException is EAbort then
+      raise EAbort.Create(Exception(Worker.FatalException).Message);
+    if Assigned(Worker.FatalException) then
+      raise EReadError.Create('Не удалось прочитать прежний INPX: '+Exception(Worker.FatalException).Message);
+    if not Worker.Success then raise EReadError.Create('Не удалось прочитать прежний INPX.');
+  finally Worker.Free; end;
+  ExpectedVersion:=StrToIntDef(VarToStr(Target.GetProperty(PROP_DATAVERSION)),0);
+  ActualVersion:=StrToIntDef(VarToStr(Result.GetProperty(PROP_DATAVERSION)),0);
+  if (ExpectedVersion>0) and (ActualVersion<>ExpectedVersion) then
+    raise EReadError.CreateFmt('Версия прежнего INPX (%d) не совпадает с версией сжатой коллекции (%d).',
+      [ActualVersion,ExpectedVersion]);
 end;
 
 procedure TPreviousMetabibWorker.WorkFunction;
@@ -2009,6 +2051,63 @@ begin
   end;
 end;
 
+function TLibraryUpdateReview.PackedOptions(const Target:IBookCollection):TCollectionPackingOptions;
+begin
+  CheckTargetRevision(Target);
+  if TLibraryUpdateJournal.HasPendingForCollection(TPath.Combine(Settings.DataPath,'LibraryUpdateRecovery'),Target.CollectionID) then
+    raise EInvalidOperation.Create('Сначала завершите восстановление прежнего обновления.');
+  Result:=Default(TCollectionPackingOptions);
+  Result.SourceID:=Target.CollectionID;
+  Result.CatalogFile:=FTargetFile;
+  Result.PersonalFile:=Settings.SystemFileName[sfSystemDB];
+  Result.SourceRoot:=FOriginalTargetRoot;
+  Result.OutputRoot:=FOriginalTargetRoot;
+  if not TryReadPackingImageProfile(Result.OutputRoot,Result.ImageProfile,Result.ImageGrayscale) then
+    raise EReadError.Create('В папке коллекции отсутствует описание упакованной копии.');
+  if (FRestartProof.CatalogDigest<>'') and
+    ((Result.ImageProfile<>FRestartProof.Identity.ImageProfile) or
+     (Result.ImageGrayscale<>FRestartProof.Identity.ImageGrayscale)) then
+    raise EReadError.Create('После перезапуска изменились настройки сжатой копии. Проверьте обновление заново.');
+end;
+
+procedure TLibraryUpdateReview.PrepareModuleRestart(const Target:IBookCollection; PreferNewRoot:Boolean;
+  const Check:TProc; const Progress:TLibraryReviewProgress);
+var Options:TCollectionPackingOptions; Request:TLibraryUpdateRestartRequest; LastUpdate:UInt64;
+begin
+  Options:=PackedOptions(Target);
+  FMissingComponents:=ResolvePackingTools(Settings.AppPath,Options);
+  if Length(FMissingComponents)=0 then Exit;
+  Request:=Default(TLibraryUpdateRestartRequest);
+  Request.Identity.SourceID:=Target.CollectionID;
+  Request.Identity.CatalogFile:=FTargetFile;
+  Request.Identity.SourceRoot:=FOriginalTargetRoot;
+  Request.Identity.ImageProfile:=Options.ImageProfile;
+  Request.Identity.ImageGrayscale:=Options.ImageGrayscale;
+  Request.Identity.CaptureIdentity;
+  Request.SourceID:=FSource.ID;
+  Request.Profiles:=FProfiles;
+  if Length(Request.Profiles)=0 then Request.Profiles:=TArray<TLibraryUpdateSource>.Create(FSource);
+  Request.PreferNewRoot:=PreferNewRoot;
+  if Assigned(Progress) then Progress('Сохранение проверенного обновления',0,0);
+  Request.CatalogDigest:=CatalogContentDigest(FRevisionDB,Check);
+  if Assigned(FPreviousRevisionDB) then
+  begin
+    Request.PreviousDigest:=CatalogContentDigest(FPreviousRevisionDB,Check);
+    if FPreviousRevisionDB.QuerySingleInt('PRAGMA data_version')<>FPreviousRevision then
+      raise EReadError.Create('Прежний индекс изменился. Проверьте обновление заново.');
+  end;
+  Check;
+  CheckTargetRevision(Target);
+  LastUpdate:=0;
+  FPendingRestart:=PrepareLibraryUpdateRestart(Settings.LibraryUpdateWorkPath,Request,FPrepared,FSelectedPreviousIndex,
+    Check,procedure(Done,Total:Int64)
+    begin
+      if not Assigned(Progress) or ((Done<>Total) and (GetTickCount64-LastUpdate<200)) then Exit;
+      LastUpdate:=GetTickCount64;
+      Progress('Сохранение проверенных индексов',Integer(Done),Integer(Total));
+    end);
+end;
+
 procedure TLibraryUpdateReview.ApplyPacked(const Target: IBookCollection; const SystemData: ISystemData;
   const Check: TProc; const Progress: TLibraryReviewProgress);
 var
@@ -2019,18 +2118,8 @@ var
   Name: string;
   Suffix: Integer;
 begin
-  CheckTargetRevision(Target);
-  if TLibraryUpdateJournal.HasPendingForCollection(TPath.Combine(Settings.DataPath,'LibraryUpdateRecovery'),Target.CollectionID) then
-    raise EInvalidOperation.Create('Сначала завершите восстановление прежнего обновления.');
+  Options:=PackedOptions(Target);
   Info:=SystemData.GetCollectionInfo(Target.CollectionID);
-  Options:=Default(TCollectionPackingOptions);
-  Options.SourceID:=Target.CollectionID;
-  Options.CatalogFile:=FTargetFile;
-  Options.PersonalFile:=Settings.SystemFileName[sfSystemDB];
-  Options.SourceRoot:=FOriginalTargetRoot;
-  Options.OutputRoot:=FOriginalTargetRoot;
-  if not TryReadPackingImageProfile(Options.OutputRoot,Options.ImageProfile,Options.ImageGrayscale) then
-    raise EReadError.Create('В папке коллекции отсутствует описание упакованной копии.');
   Required:=ResolvePackingTools(Settings.AppPath,Options);
   if Length(Required)>0 then
     raise EFileNotFoundException.Create('Установите модули сжатия и повторите обновление: '+string.Join(', ',Required));
@@ -2289,9 +2378,9 @@ type
   end;
 
   TReviewedApplyWorker = class(TCollectionWorker)
-  private FReview: TLibraryUpdateReview; FPreferNew: Boolean;
+  private FReview: TLibraryUpdateReview; FPreferNew,FAllowModuleRestart: Boolean;
   protected procedure WorkFunction; override;
-  public constructor Create(CollectionID: Integer; Review: TLibraryUpdateReview; PreferNew: Boolean);
+  public constructor Create(CollectionID: Integer; Review: TLibraryUpdateReview; PreferNew,AllowModuleRestart: Boolean);
   end;
 
   TInpxReviewWorker = class(TImportInpxThreadBase)
@@ -2331,8 +2420,13 @@ begin
   FReview.CheckSpace;
 end;
 
-constructor TReviewedApplyWorker.Create(CollectionID: Integer; Review: TLibraryUpdateReview; PreferNew: Boolean);
-begin inherited Create(CollectionID); FReview:=Review; FPreferNew:=PreferNew; end;
+constructor TReviewedApplyWorker.Create(CollectionID: Integer; Review: TLibraryUpdateReview; PreferNew,AllowModuleRestart: Boolean);
+begin
+  inherited Create(CollectionID);
+  FReview:=Review;
+  FPreferNew:=PreferNew;
+  FAllowModuleRestart:=AllowModuleRestart;
+end;
 
 procedure TReviewedApplyWorker.WorkFunction;
 var Control: TLibraryUpdateControl; Check: TProc; Progress: TLibraryReviewProgress;
@@ -2346,6 +2440,11 @@ begin
       SetComment(Stage);
     end;
     try
+      if FAllowModuleRestart and FReview.FPacked then
+      begin
+        FReview.PrepareModuleRestart(FCollection,FPreferNew,Check,Progress);
+        if Assigned(FReview.PendingRestart) then Exit;
+      end;
       FReview.PrepareApplication(FCollection,FSystemData,FPreferNew,Check,Progress);
       if ShowMessage(FReview.ApplySummary,MB_YESNO or MB_ICONQUESTION or MB_DEFBUTTON2)<>IDYES then Exit;
       if FReview.FPacked then
@@ -2429,7 +2528,7 @@ begin
 end;
 
 function CreateLibraryApplyWorker(CollectionID: Integer; Review: TLibraryUpdateReview;
-  PreferNewRoot: Boolean): TCollectionWorker;
-begin Result:=TReviewedApplyWorker.Create(CollectionID,Review,PreferNewRoot); end;
+  PreferNewRoot,AllowModuleRestart: Boolean): TCollectionWorker;
+begin Result:=TReviewedApplyWorker.Create(CollectionID,Review,PreferNewRoot,AllowModuleRestart); end;
 
 end.

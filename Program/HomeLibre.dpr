@@ -147,6 +147,7 @@ uses
   unit_CollectionMerge in 'Units\unit_CollectionMerge.pas',
   unit_CollectionBackup in 'Units\unit_CollectionBackup.pas',
   unit_CollectionPacking in 'Units\unit_CollectionPacking.pas',
+  unit_LibraryUpdateContinuation in 'Units\unit_LibraryUpdateContinuation.pas',
   unit_CollectionPackingInpx in 'Units\unit_CollectionPackingInpx.pas',
   unit_BookDuplicates in 'Units\unit_BookDuplicates.pas',
   unit_MetadataSyncTypes in 'Units\unit_MetadataSyncTypes.pas',

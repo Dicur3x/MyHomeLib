@@ -41,6 +41,7 @@ type
     FRequestedComponent, FRequestReason: string;
     FRequestedComponents: TArray<string>;
     FComponentRestartArgument: TFunc<string>;
+    FComponentRestartAborted:TProc;
     FRequestedCheckPending: Boolean;
     FReaderOnly: Boolean;
     FOperationComponent: string;
@@ -150,7 +151,7 @@ type
     procedure UseReaderComponents;
     procedure RequestComponent(const ID, Reason: string; Compact: Boolean = False);
     procedure RequestComponents(const IDs: TArray<string>; const Reason: string; Compact: Boolean = True;
-      const RestartArgument: TFunc<string> = nil);
+      const RestartArgument: TFunc<string> = nil; const RestartAborted:TProc=nil);
     function InstallComponentForOperation(const ID, Reason: string): Boolean;
     procedure UseFullWindow;
     procedure ShowFullWindow;
@@ -629,7 +630,8 @@ end;
 procedure TfrmProgramUpdate.HistoryComponentSelected(Sender: TObject);
 begin
   if FRefreshingComponents or (FHistorySelector.ItemIndex<0) then Exit;
-  FRequestedComponent:=''; FRequestedComponents:=nil; FRequestReason:=''; FComponentRestartArgument:=nil;
+  FRequestedComponent:=''; FRequestedComponents:=nil; FRequestReason:='';
+  FComponentRestartArgument:=nil; FComponentRestartAborted:=nil;
   SelectRow(FRowIDs[FHistorySelector.ItemIndex]); ComponentSelected(nil);
 end;
 
@@ -945,7 +947,8 @@ begin
   end;
   if (Item.Index<0) or (Item.Index>High(FRowIDs)) then Exit;
   if FSelectedRow=FRowIDs[Item.Index] then Exit;
-  FRequestedComponent:=''; FRequestedComponents:=nil; FRequestReason:=''; FComponentRestartArgument:=nil;
+  FRequestedComponent:=''; FRequestedComponents:=nil; FRequestReason:='';
+  FComponentRestartArgument:=nil; FComponentRestartAborted:=nil;
   FSelectedRow:=FRowIDs[Item.Index]; ComponentSelected(nil);
 end;
 
@@ -1219,7 +1222,8 @@ begin
   end;
   if not FReady and (FRequestedComponent='') and (FOperationComponent='') then RestoreReady;
   if FReady then begin if not Automatic then Present; Exit; end;
-  FRequestedComponent:=''; FRequestedComponents:=nil; FRequestReason:=''; FComponentRestartArgument:=nil;
+  FRequestedComponent:=''; FRequestedComponents:=nil; FRequestReason:='';
+  FComponentRestartArgument:=nil; FComponentRestartAborted:=nil;
   RefreshInstalledComponents;
   FCycleAutomatic := Automatic; FCycleWasShown:=UpdateWindowVisible;
   FCheckingCycle := True; FAppPending := True; FComponentsPending := True;
@@ -1300,7 +1304,11 @@ end;
 procedure TfrmProgramUpdate.ComponentCheckClick(Sender: TObject);
 begin
   if Assigned(FThread) or FReady or FCheckingCycle then Exit;
-  if Sender<>nil then begin FRequestedComponent:=''; FRequestedComponents:=nil; FRequestReason:=''; FComponentRestartArgument:=nil; end;
+  if Sender<>nil then
+  begin
+    FRequestedComponent:=''; FRequestedComponents:=nil; FRequestReason:='';
+    FComponentRestartArgument:=nil; FComponentRestartAborted:=nil;
+  end;
   if FRequestedComponent<>'' then begin FComponentExplicit:=True; CheckComponents(False); Exit; end;
   if Assigned(FCheck) then FCheck(Self)
   else begin FComponentExplicit:=True; CheckComponents(False); end;
@@ -1509,7 +1517,7 @@ procedure TfrmProgramUpdate.RequestComponent(const ID, Reason: string; Compact: 
 begin RequestComponents(TArray<string>.Create(ID),Reason,Compact); end;
 
 procedure TfrmProgramUpdate.RequestComponents(const IDs: TArray<string>; const Reason: string; Compact: Boolean;
-  const RestartArgument: TFunc<string>);
+  const RestartArgument: TFunc<string>; const RestartAborted:TProc);
 var Index: Integer; Purpose, ID: string; Requested: TArray<string>;
 begin
   Requested:=nil; Index:=-1;
@@ -1526,6 +1534,7 @@ begin
   if Assigned(FThread) or FReady then begin Present; Exit; end;
   FRequestedComponents:=Requested; FRequestedComponent:=Requested[0]; FRequestReason:=Trim(Reason);
   FComponentRestartArgument:=RestartArgument;
+  FComponentRestartAborted:=RestartAborted;
   for ID in Requested do
   begin
     Purpose:=ComponentPurpose(ID);
@@ -1872,6 +1881,7 @@ end;
 procedure TfrmProgramUpdate.LaterClick(Sender: TObject);
 begin
   FComponentRestartArgument:=nil;
+  FComponentRestartAborted:=nil;
   if Assigned(FThread) then
   begin
     FThread.Terminate; FLater.Enabled := False;
@@ -2225,6 +2235,7 @@ begin
   except
     on E: Exception do
     begin
+      if (Argument<>'') and Assigned(FComponentRestartAborted) then FComponentRestartAborted();
       FStatus.Caption := 'Не удалось начать установку: ' + E.Message;
       DisarmBookSaveContinuation(Settings.SettingsFileName);
       FPendingInstall := False; Present;

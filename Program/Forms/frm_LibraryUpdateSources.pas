@@ -4,7 +4,7 @@ interface
 
 uses System.Classes, Vcl.Forms, Vcl.Controls, Vcl.StdCtrls, Vcl.ComCtrls, Vcl.ExtCtrls,
   unit_Interfaces, unit_CatalogSources, unit_LibraryUpdateSources, unit_LibraryUpdateFetch,
-  unit_LibraryUpdateReview,
+  unit_LibraryUpdateReview, unit_LibraryUpdateContinuation,
   frm_CatalogSources;
 
 type
@@ -43,6 +43,9 @@ type
     FCommitted: Boolean;
     FPublishedCollectionID: Integer;
     FBeforeApply: TNotifyEvent;
+    FAllowModuleRestart,FResumed,FPreferNewOnResume:Boolean;
+    FPendingRestart:ILibraryUpdateRestart;
+    FRestartComponents:TArray<string>;
     procedure Rebuild(Index: Integer);
     procedure Selected(Sender: TObject; Item: TListItem; Selected: Boolean);
     procedure AddSource(Sender: TObject);
@@ -58,7 +61,8 @@ type
     procedure SaveMissing(Sender: TObject);
     procedure InvalidatePrepared;
     procedure UpdateApplyAction;
-    procedure ReviewIndex;
+    procedure FetchAndReview(const Restart:ILibraryUpdateRestart);
+    procedure ReviewIndex(const Proof:TLibraryUpdateRestartRequest; var Previous:TStagedLibraryIndex);
     procedure Help(Sender: TObject);
     procedure Layout;
     procedure Resize; override;
@@ -75,6 +79,7 @@ type
     procedure ExportFile(const FileName: string);
     procedure SaveSources;
     procedure CheckSource;
+    procedure RestoreRestart(const Restart:ILibraryUpdateRestart);
     procedure ApplyReviewed(PreferNewRoot: Boolean);
     procedure SelectProfile(const ID: string);
     property Sources: TLibraryUpdateSources read GetSources;
@@ -83,6 +88,9 @@ type
     property Committed: Boolean read FCommitted;
     property PublishedCollectionID: Integer read FPublishedCollectionID;
     property BeforeApply: TNotifyEvent read FBeforeApply write FBeforeApply;
+    property AllowModuleRestart:Boolean read FAllowModuleRestart write FAllowModuleRestart;
+    property PendingRestart:ILibraryUpdateRestart read FPendingRestart;
+    property RestartComponents:TArray<string> read FRestartComponents;
   end;
 
 implementation
@@ -222,36 +230,49 @@ type
   TFetchIndexWorker = class(TWorker)
   private
     FSource: TLibraryUpdateSource;
-    FPrepared: TStagedLibraryIndex;
+    FPrepared,FPrevious:TStagedLibraryIndex;
+    FRestart:ILibraryUpdateRestart;
     FError: string;
   protected
     procedure WorkFunction; override;
   public
-    constructor Create(const Source: TLibraryUpdateSource);
+    constructor Create(const Source: TLibraryUpdateSource; const Restart:ILibraryUpdateRestart);
     destructor Destroy; override;
     function TakePrepared: TStagedLibraryIndex;
+    function TakePrevious:TStagedLibraryIndex;
   end;
 
-constructor TFetchIndexWorker.Create(const Source: TLibraryUpdateSource);
-begin inherited Create; FSource:=Source; end;
+constructor TFetchIndexWorker.Create(const Source: TLibraryUpdateSource; const Restart:ILibraryUpdateRestart);
+begin inherited Create; FSource:=Source; FRestart:=Restart; end;
 
 destructor TFetchIndexWorker.Destroy;
-begin FPrepared.Free; inherited; end;
+begin FPrevious.Free; FPrepared.Free; inherited; end;
 
 function TFetchIndexWorker.TakePrepared: TStagedLibraryIndex;
 begin Result:=FPrepared; FPrepared:=nil; end;
 
+function TFetchIndexWorker.TakePrevious:TStagedLibraryIndex;
+begin Result:=FPrevious; FPrevious:=nil; end;
+
 procedure TFetchIndexWorker.WorkFunction;
-var HTTP: THTTPClient; LastUpdate: UInt64; WorkRoot:string;
+var HTTP: THTTPClient; LastUpdate: UInt64; WorkRoot:string; Check:TProc;
 begin
   HTTP:=nil; LastUpdate:=0;
   try
     try
       SetComment('Получение служебной копии индекса');
+      Check:=procedure begin if Canceled then raise EAbort.Create('Получение индекса отменено.'); end;
+      if Assigned(FRestart) then
+      begin
+        SetComment('Проверка сохранённых копий индексов');
+        FPrepared:=FRestart.OpenIndex(False,Check);
+        FPrevious:=FRestart.OpenIndex(True,Check);
+        Exit;
+      end;
       WorkRoot:=Settings.LibraryUpdateWorkPath;
       if FSource.IsRemote then HTTP:=CreateHTTPClientUpdate;
       FPrepared:=TStagedLibraryIndex.Fetch(FSource,WorkRoot,HTTP,
-        procedure begin if Canceled then raise EAbort.Create('Получение индекса отменено.'); end,
+        Check,
         procedure(Done,Total:Int64)
         begin
           if (GetTickCount64-LastUpdate<200) and (Done<>Total) then Exit;
@@ -317,7 +338,7 @@ destructor TfrmLibraryUpdateSources.Destroy;
 begin InvalidatePrepared; inherited; end;
 
 procedure TfrmLibraryUpdateSources.InvalidatePrepared;
-begin FreeAndNil(FReview); FreeAndNil(FPrepared); UpdateApplyAction; end;
+begin FResumed:=False; FreeAndNil(FReview); FreeAndNil(FPrepared); UpdateApplyAction; end;
 
 procedure TfrmLibraryUpdateSources.UpdateApplyAction;
 var Button: TComponent;
@@ -481,10 +502,31 @@ begin
 end;
 
 procedure TfrmLibraryUpdateSources.CheckSource;
+begin FetchAndReview(nil); end;
+
+procedure TfrmLibraryUpdateSources.RestoreRestart(const Restart:ILibraryUpdateRestart);
+var Proof:TLibraryUpdateRestartRequest;
+begin
+  Proof:=Restart.Request;
+  FSources:=Copy(Proof.Profiles);
+  SelectProfile(Proof.SourceID);
+  FetchAndReview(Restart);
+  FResumed:=True;
+  FPreferNewOnResume:=Proof.PreferNewRoot;
+  SetReport('Обновление после установки модулей. Проверьте результат и нажмите «Применить обновление».'+
+    sLineBreak+sLineBreak+FReview.Summary);
+end;
+
+procedure TfrmLibraryUpdateSources.FetchAndReview(const Restart:ILibraryUpdateRestart);
 var Worker: TFetchIndexWorker; Progress: TImportProgressFormEx; Index: Integer;
+  Proof:TLibraryUpdateRestartRequest; Previous:TStagedLibraryIndex;
 begin
   Index:=SelectionIndex; if Index<0 then raise EArgumentException.Create('Выберите источник для проверки.');
-  InvalidatePrepared; Worker:=TFetchIndexWorker.Create(FSources[Index]);
+  InvalidatePrepared;
+  Proof:=Default(TLibraryUpdateRestartRequest);
+  if Assigned(Restart) then Proof:=Restart.Request;
+  Previous:=nil;
+  Worker:=TFetchIndexWorker.Create(FSources[Index],Restart);
   try
     Progress:=TImportProgressFormEx.Create(Self);
     try
@@ -497,17 +539,19 @@ begin
       if not Assigned(FPrepared) then raise EReadError.Create('Проверка файла не завершена.');
       SetReport(Format('Получен индекс: %s%sРазмер: %.2f МБ.%sИсходный файл сохранён. Подготовлена служебная копия для проверки содержимого.',
         [FSources[Index].IndexFile,sLineBreak,TFile.GetSize(FPrepared.FileName)/1048576,sLineBreak]));
+      Previous:=Worker.TakePrevious;
     finally Progress.Free; end;
   finally Worker.Free; end;
-  ReviewIndex;
+  try ReviewIndex(Proof,Previous); finally Previous.Free; end;
 end;
 
-procedure TfrmLibraryUpdateSources.ReviewIndex;
+procedure TfrmLibraryUpdateSources.ReviewIndex(const Proof:TLibraryUpdateRestartRequest; var Previous:TStagedLibraryIndex);
 var Worker: TCollectionWorker; Progress: TImportProgressFormEx;
 begin
   FReview:=TLibraryUpdateReview.Create(FSources[SelectionIndex],FPrepared);
-  FReview.SetSourceProfiles(FSources);
   try
+    FReview.SetSourceProfiles(FSources);
+    if Proof.CatalogDigest<>'' then FReview.RestoreRestartProof(Proof,Previous);
     Worker:=CreateLibraryReviewWorker(FCollection.CollectionID,FReview);
     try
       Progress:=TImportProgressFormEx.Create(Self);
@@ -564,13 +608,20 @@ var Worker: TCollectionWorker; Progress: TImportProgressFormEx; Succeeded: Boole
 begin
   if not Assigned(FReview) or not FReview.Ready or FReview.Applied then raise EReadError.Create('Сначала проверьте обновление.');
   if Assigned(FBeforeApply) then FBeforeApply(Self);
-  Worker:=CreateLibraryApplyWorker(FCollection.CollectionID,FReview,PreferNewRoot);
+  Worker:=CreateLibraryApplyWorker(FCollection.CollectionID,FReview,PreferNewRoot,FAllowModuleRestart);
   try
     Progress:=TImportProgressFormEx.Create(Self);
     try
       Progress.Caption:='Обновление библиотеки'; Progress.WorkerThread:=Worker;
       Progress.CloseOnTimer:=True; Progress.PopupMode:=pmExplicit; Progress.PopupParent:=Self; Progress.Timer.Interval:=1;
       Progress.ShowModal; Worker.WaitFor;
+      if Assigned(FReview.PendingRestart) then
+      begin
+        FPendingRestart:=FReview.PendingRestart;
+        FRestartComponents:=Copy(FReview.MissingComponents);
+        ModalResult:=mrOk;
+        Exit;
+      end;
       if Worker.CommittedChanges then FCommitted:=True;
       Succeeded:=Worker.Success;
       if Assigned(Worker.FatalException) then Failure:=Exception(Worker.FatalException).Message;
@@ -613,8 +664,8 @@ procedure TfrmLibraryUpdateSources.ApplyClick(Sender: TObject);
 var PreferNew: Boolean; Choice: Integer;
 begin
   try
-    PreferNew:=False;
-    if Assigned(FReview) and (FReview.AmbiguousArchives.Count>0) then
+    PreferNew:=FResumed and FPreferNewOnResume;
+    if not FResumed and Assigned(FReview) and (FReview.AmbiguousArchives.Count>0) then
     begin
       Choice:=MessageDlg('Одноимённые архивы есть в прежней папке и папке докачки.'+sLineBreak+
         'Использовать версии из папки докачки?'+sLineBreak+'«Нет» — использовать прежние файлы.',

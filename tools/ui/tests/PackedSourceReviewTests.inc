@@ -29,7 +29,7 @@ begin
     end;
 end;
 
-procedure TestPackedSourceReview(LegacyOnly:Boolean=False; ManualPrevious:Boolean=False);
+procedure TestPackedSourceReview(LegacyOnly:Boolean=False; ManualPrevious:Boolean=False; ModuleRestart:Boolean=False);
   procedure Scenario(WithHistory:Boolean);
 var Folder,OriginalRoot,HeldRoot,PackedRoot,Incoming,BaseIndex,NextIndex,PreviousInput:string;
   Source,PackedCollection:IBookCollection; SourceID,PackedID,FirstID,SecondID,UntouchedID:Integer;
@@ -214,6 +214,109 @@ var Folder,OriginalRoot,HeldRoot,PackedRoot,Incoming,BaseIndex,NextIndex,Previou
           'Closing the source window did not activate the new packed generation');
       finally Timer.Free; Driver.Free; end;
     end;
+    function ApplyThroughModuleRestart:Integer;
+    var Pending,Restored:ILibraryUpdateRestart; Dialog:TfrmLibraryUpdateSources;
+      WorkRoot,Tool,Argument,BackupFile:string; Probe:TLibraryApplyProbe;
+      ApplyWorker:TCollectionWorker;
+      function Queue:ILibraryUpdateRestart;
+      begin
+        Dialog:=TfrmLibraryUpdateSources.CreateForCollection(frmMain,PackedCollection);
+        try
+          Dialog.AllowModuleRestart:=True;
+          Dialog.SelectProfile(Profile.ID);
+          Dialog.CheckSource;
+          Dialog.ApplyReviewed(True);
+          Result:=Dialog.PendingRestart;
+          Require(Assigned(Result) and not Dialog.Committed and (Length(Dialog.RestartComponents)=1) and
+            SameText(Dialog.RestartComponents[0],'BookProcessing'),
+            'Missing module did not defer the checked update: '+TLabel(Dialog.FindComponent('lblUpdateSourceReport')).Caption);
+        finally Dialog.Free; end;
+      end;
+      procedure Decline;
+      var Abandoned:ILibraryUpdateRestart;
+      begin
+        Abandoned:=Queue;
+        Require(Assigned(Abandoned),'No update was prepared to decline');
+      end;
+      function ArmUpdate:string;
+      var Plan:ILibraryUpdateRestart;
+      begin
+        Plan:=Queue;
+        Result:=Plan.Arm;
+      end;
+      procedure RejectTampered(const Name,Reason:string);
+      var Token,PrivateDirectory:string; Plan:ILibraryUpdateRestart; Invalid:TStagedLibraryIndex; Denied:Boolean;
+      begin
+        Token:=ArmUpdate;
+        PrivateDirectory:=TPath.Combine(WorkRoot,'HomeLibre-library-resume-'+
+          Copy(Token,Length(LIBRARY_UPDATE_RESUME_SWITCH)+1,38));
+        TFile.AppendAllText(TPath.Combine(PrivateDirectory,Name),'changed',TEncoding.UTF8);
+        Denied:=False;
+        try
+          Plan:=TakeLibraryUpdateRestart(WorkRoot,Token);
+          Require(Assigned(Plan),'Corruption test did not reach the restart plan');
+          Invalid:=Plan.OpenIndex(False);
+          Invalid.Free;
+        except on E:EReadError do Denied:=Pos(Reason,E.Message)>0; end;
+        Require(Denied,'Changed restart data was accepted: '+Name);
+      end;
+    begin
+      WorkRoot:=Settings.LibraryUpdateWorkPath;
+      Tool:=Settings.AppPath+'tools\python\python.exe';
+      BackupFile:=Tool+'.held';
+      Require(RenameFile(Tool,BackupFile),'Could not hide the private BookProcessing runtime');
+      try
+        Decline;
+        Require(Length(TDirectory.GetDirectories(WorkRoot,'HomeLibre-library-resume-*'))=0,
+          'Declining the missing module left a saved restart');
+        RejectTampered('resume.json','Параметры продолжения обновления изменились');
+        RejectTampered('incoming.inpx','Служебная копия индекса обновления изменилась');
+        Require(Length(TDirectory.GetDirectories(WorkRoot,'HomeLibre-library-resume-*'))=0,
+          'Rejecting changed restart data retained a private bundle');
+        Pending:=Queue;
+        Argument:=Pending.Arm;
+        Pending.Disarm;
+        Require(not Assigned(TakeLibraryUpdateRestart(WorkRoot,Argument)),
+          'A failed installer launch left a usable restart token');
+        Argument:=Pending.Arm;
+        Require(not Assigned(TakeLibraryUpdateRestart(WorkRoot,LIBRARY_UPDATE_RESUME_SWITCH+
+          TGUID.NewGuid.ToString+':'+StringOfChar('0',64))),'A different token claimed another update');
+        Pending:=nil;
+      finally Require(RenameFile(BackupFile,Tool),'Could not restore the private BookProcessing runtime'); end;
+      Require(RenameFile(NextIndex,NextIndex+'.held'),'Could not hide the incoming index');
+      Require(RenameFile(PreviousInput,PreviousInput+'.restart-held'),'Could not hide the earlier index');
+      try
+        Restored:=TakeLibraryUpdateRestart(WorkRoot,Argument);
+        Require(Assigned(Restored) and Restored.Request.PreferNewRoot and
+          not Assigned(TakeLibraryUpdateRestart(WorkRoot,Argument)),'Continuation did not keep the archive choice or was consumed twice');
+        Dialog:=TfrmLibraryUpdateSources.CreateForCollection(frmMain,PackedCollection);
+        try
+          Dialog.RestoreRestart(Restored);
+          Require(Assigned(Dialog.Review) and Dialog.Review.Ready and not Dialog.Committed and
+            (Dialog.Review.NewBooks=1) and (Dialog.Review.ChangedBooks=1),
+            'Restoring the update did not present the original review');
+          Restored:=nil;
+          Probe:=TLibraryApplyProbe.Create;
+          Probe.Accept:=True;
+          ApplyWorker:=CreateLibraryApplyWorker(PackedID,Dialog.Review,True);
+          try
+            ApplyWorker.OnShowMessage:=Probe.Confirm;
+            ApplyWorker.Start; ApplyWorker.WaitFor;
+            if Assigned(ApplyWorker.FatalException) then
+              raise Exception.Create('Resumed update: '+Exception(ApplyWorker.FatalException).Message);
+            Require(Probe.Confirmed and ApplyWorker.CommittedChanges,'Resumed update bypassed confirmation or failed to publish');
+            Result:=Dialog.Review.PublishedCollectionID;
+          finally ApplyWorker.Free; Probe.Free; end;
+        finally Dialog.Free; end;
+      finally
+        Require(RenameFile(NextIndex+'.held',NextIndex),'Could not restore the incoming index');
+        Require(RenameFile(PreviousInput+'.restart-held',PreviousInput),'Could not restore the earlier index');
+      end;
+      Require((Result>0) and (Result<>PackedID) and (Length(TDirectory.GetDirectories(WorkRoot,'HomeLibre-library-resume-*'))=0),
+        'Resumed update did not publish separately or left restart data');
+      Writeln('PASS missing BookProcessing resumes a verified packed update with both original indexes offline');
+      Flush(Output);
+    end;
     function ApplyTo(ID: Integer; Accept: Boolean; CancelBeforeRegistration: Boolean=False): Integer;
     begin
       Stage:=TStagedLibraryIndex.Fetch(Profile,Settings.UpdatePath,nil);
@@ -265,7 +368,7 @@ var Folder,OriginalRoot,HeldRoot,PackedRoot,Incoming,BaseIndex,NextIndex,Previou
     Require(THashSHA2.GetHashStringFromFile(PreviousFile)=PreviousHash,'Declining changed the original packed catalog');
     ApplyTo(PackedID,True,True);
     Require(THashSHA2.GetHashStringFromFile(PreviousFile)=PreviousHash,'Cancellation changed the original packed catalog');
-    NewID:=ApplyFromWindow;
+    if ModuleRestart then NewID:=ApplyThroughModuleRestart else NewID:=ApplyFromWindow;
     Require(NewID<>PackedID,'Reviewed update replaced the original collection');
     Applied:=SystemDB.GetCollection(NewID,True);
     Require(Assigned(Applied) and LoadLibraryUpdateHistory(Applied,Profile,AppliedHistory),

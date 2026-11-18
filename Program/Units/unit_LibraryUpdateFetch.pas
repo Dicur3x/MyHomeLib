@@ -19,6 +19,8 @@ type
     class function Fetch(const Source: TLibraryUpdateSource; const CacheRoot: string;
       HTTP: THTTPClient; const Check: TProc = nil;
       const Progress: TLibraryIndexProgress = nil): TStagedLibraryIndex; static;
+    procedure CopyVerified(const Destination: string; const Check: TProc;
+      const Progress: TLibraryIndexProgress = nil);
     property FileName: string read FFileName;
     property Folder: string read FFolder;
     property SHA256: string read FSHA256;
@@ -156,6 +158,24 @@ begin
     if Result.FLease.Size<=0 then raise EReadError.Create('Получен пустой индекс.');
     Result.FSHA256:=THashSHA2.GetHashString(Result.FLease); Result.FLease.Position:=0;
   except Result.Free; raise; end;
+end;
+
+procedure TStagedLibraryIndex.CopyVerified(const Destination: string; const Check: TProc;
+  const Progress: TLibraryIndexProgress);
+var Input:TFileStream; Output:TIndexOutput; Folder:string;
+begin
+  Folder:=TPath.GetDirectoryName(Destination);
+  Input:=TFileStream.Create(NativePath(FFileName),fmOpenRead or fmShareDenyWrite);
+  try
+    CheckSpace(Folder,UInt64(Input.Size));
+    Output:=TIndexOutput.Create(Destination,Folder,Check,Progress,Input.Size);
+    try
+      Output.CopyFrom(Input,Input.Size);
+      if not FlushFileBuffers(Output.Handle) then RaiseLastOSError;
+    finally Output.Free; end;
+  finally Input.Free; end;
+  if not SameText(THashSHA2.GetHashStringFromFile(NativePath(Destination)),FSHA256) then
+    raise EReadError.Create('Не совпала контрольная сумма копии индекса обновления.');
 end;
 
 destructor TStagedLibraryIndex.Destroy;
