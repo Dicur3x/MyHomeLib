@@ -118,9 +118,11 @@ already-updated catalogue. Coverage of the stock standalone helper is separate.
 ## Remaining release gates
 
 The six r1972 distribution archives subsequently passed the native installation
-and inventory checks. The published download URLs and the release page still
-need verification when beta 14 is published. The four READMEs and the release
-page must point readers to the correct manual portable and full packages.
+and inventory checks. All four READMEs name the six actual files and the two
+canonical executables. The local main-release directory `r1975-main-release`
+contains the six verified archives and `SHA256SUMS.txt` using the beta 13
+checksum layout. Published download URLs and the release page still need
+verification when beta 14 is published.
 
 ## Retained failed-run folder
 
