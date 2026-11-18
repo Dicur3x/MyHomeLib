@@ -492,6 +492,23 @@ its integrity check. HomeLibre removed its own claimed snapshots. Results
 from the native journal harness on x86 and x64 are in
 `r1989-transfer-context/other-sqlite-{Win32,Win64}/test.log`.
 
+## Destination disconnected during a real write
+
+The exact r1988 x64 and x86 portable executables each moved a 100,663,421-byte
+book through the normal transfer window of an offline Windows 10 guest. A
+private virtual USB drive was detached after its frontend reported 6,361,088
+written bytes on x64 and 6,328,320 on x86, while the on-disk journal still
+said copying. The source and original catalogue addresses survived. After
+reconnection the runner found no published partial book, pressed Continue
+and verified the complete destination SHA-256, catalogue address and removal
+of the old book. A neighbouring, unrelated file remained intact. The working
+folder for the journal stayed online in this test.
+
+Both application runs, the device controller and the independent verification
+passed. Guest receipts and screenshots are under
+`r1983-transfer-hotplug/release1988e/verified`. The per-device byte counts are
+in the adjoining `usb-controller.json`.
+
 ## Remaining checks
 
 Remaining source checks, Desktop replacement and publication remain open.
