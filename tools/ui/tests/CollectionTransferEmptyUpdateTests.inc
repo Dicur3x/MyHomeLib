@@ -2,6 +2,7 @@
   const Names:array[0..3] of string=('empty','zero','opaque','arrived');
     LibraryIDs:array[0..3] of string=('','0','file:opaque','');
   var HistoryMode:Integer; Histories:array[0..2] of string; ReaderFiles:TDictionary<string,string>;
+    CrossVolume:Boolean; SourceBase,SourceToken:string;
     BoundMode,Arrived,Corrected,Excluded:Boolean; StoredIDs:array[0..2] of Integer;
     StoredLibs:array[0..2] of string; MoveRoot,Work,OldArchiveHash,ProfileID:string;
     Capture:TCollectionTransferCatalogue; FilePlan:TCollectionTransferPlan;
@@ -82,12 +83,44 @@
   begin
     RequireIsolatedRegression;
     Require(SameText(ExtractFileDrive(Settings.AppPath),'G:'),'Empty-ID transfer tests require G:');
-    for var CaseNo:=0 to 5 do
+    CrossVolume:=ParamStr(1)='transfer-cross-volume-updates';
+    if CrossVolume then
     begin
+      var Config:=TJSONObject.ParseJSONValue(TFile.ReadAllText(Settings.AppPath+'cross-volume-source.json',TEncoding.UTF8)) as TJSONObject;
+      try
+        Require(Config<>nil,'Missing isolated cross-volume source configuration');
+        SourceBase:=TPath.GetFullPath(Config.GetValue<string>('root')); SourceToken:=Config.GetValue<string>('token');
+      finally Config.Free; end;
+      Require((Length(SourceToken)=32) and
+        SameText(ExtractFileName(SourceBase),'HomeLibre-transfer-source-'+SourceToken) and
+        SameFileName(ExtractFileDir(SourceBase),TPath.Combine(GetEnvironmentVariable('USERPROFILE'),'AppData\Local\Temp')) and
+        SameText(ExtractFileDrive(SourceBase),'C:'),
+        'Cross-volume source is outside its exact private C: directory');
+      Require(TFile.ReadAllText(SourceBase+'\owned-source.marker',TEncoding.UTF8)=SourceToken,
+        'Cross-volume source ownership marker changed');
+      Require((Length(TDirectory.GetDirectories(SourceBase))=0) and (Length(TDirectory.GetFiles(SourceBase))=1),
+        'Cross-volume source must start with only its ownership marker');
+      var SourceVolume,TargetVolume:array[0..MAX_PATH] of Char;
+      Win32Check(GetVolumeNameForVolumeMountPoint(PChar('C:\'),SourceVolume,Length(SourceVolume)));
+      Win32Check(GetVolumeNameForVolumeMountPoint(PChar('G:\'),TargetVolume,Length(TargetVolume)));
+      Require(not SameText(string(SourceVolume),string(TargetVolume)),'Cross-volume source and destination are the same actual volume');
+    end;
+    for var PassNo:=0 to IfThen(CrossVolume,1,5) do
+    begin
+      var CaseNo:=PassNo; if CrossVolume then CaseNo:=PassNo*3;
       BoundMode:=CaseNo>=3; HistoryMode:=CaseNo mod 3; Arrived:=False; Corrected:=False; Excluded:=False;
+      if CrossVolume then HistoryMode:=1+Ord(BoundMode);
       Root:=Settings.AppPath+'empty-transfer-'+IntToStr(CaseNo); ForceDirectories(Root);
       OldRoot:=Root+'\old'; DownloadRoot:=Root+'\downloads'; IndexName:=Root+'\publisher.inpx';
+      if CrossVolume then OldRoot:=TPath.Combine(SourceBase,'case-'+IntToStr(CaseNo));
       Archive(OldRoot,'books.zip',['empty','zero','opaque']); Archive(DownloadRoot,'new.zip',['arrived']);
+      if CrossVolume then
+      begin
+        var NamedStream:=TFileStream.Create(DeletionNativePath(OldRoot+'\books.zip')+':HomeLibreFixtureNote',fmCreate);
+        try
+          var Bytes:=TEncoding.UTF8.GetBytes(SourceToken); NamedStream.WriteBuffer(Bytes[0],Length(Bytes));
+        finally NamedStream.Free; end;
+      end;
       WriteEmptyIndex; SetLength(Sources,1); Sources[0]:=Default(TCatalogSource);
       Sources[0].ID:=TCatalogSource.NewID; Sources[0].Name:='Empty-ID source'; Sources[0].Root:=OldRoot;
       Sources[0].INPXFile:=IndexName; Sources[0].LibraryNamespace:='flibusta';
@@ -172,6 +205,13 @@
       Target:=SystemDB.GetCollection(ID,True); CheckBooks(False);
       Require(FindName('empty',Book) and (THashSHA2.GetHashStringFromFile(Book.GetBookFileName)=OldArchiveHash),
         'Empty-ID transfer changed archive bytes');
+      if CrossVolume then
+      begin
+        var NamedStream:=TFileStream.Create(DeletionNativePath(Book.GetBookFileName)+':HomeLibreFixtureNote',fmOpenRead or fmShareDenyWrite);
+        try Require(THashSHA2.GetHashString(NamedStream)=THashSHA2.GetHashString(SourceToken),
+          'Cross-volume transfer lost the named archive stream');
+        finally NamedStream.Free; end;
+      end;
       Require(not FileExists(OldRoot+'\books.zip'),'Exclusive empty-ID original was not released');
       TDirectory.Move(OldRoot,OldRoot+'-offline');
       var Saved:=ReadLibraryUpdateSources(VarToStr(Target.GetProperty(PROP_LIBRARY_UPDATE_SOURCES)));
@@ -186,5 +226,6 @@
       Writeln('PASS deleted transferred empty-ID card stays excluded without losing the new download or personal fields bound=',BoolToStr(BoundMode,True),' history=',HistoryMode);
       for var Pair in ReaderFiles do Require(THashSHA2.GetHashStringFromFile(Pair.Key)=Pair.Value,'Transfer/update rewrote reader settings or notes');
       ReaderFiles.Free; ReaderFiles:=nil;
+      if CrossVolume then Writeln('PASS actual C to G transfer preserves archive named stream history and offline-root full repeated append INPX bound=',BoolToStr(BoundMode,True));
     end;
   end;

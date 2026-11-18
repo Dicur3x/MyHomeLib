@@ -6868,7 +6868,7 @@ begin
         TestBookGallery
       else if ParamStr(1)='reader-history-evidence' then TestReaderHistoryEvidence
       else if (ParamStr(1) = 'library-update-apply') or (ParamStr(1)='transfer-empty-updates') or
-        (ParamStr(1)='reviewed-id-reservation') then TestLibraryUpdateApplication
+        (ParamStr(1)='reviewed-id-reservation') or (ParamStr(1)='transfer-cross-volume-updates') then TestLibraryUpdateApplication
       else if ParamStr(1) = 'library-update-cancel' then TestLibraryUpdateCancellation
       else if ParamStr(1) = 'library-update-window' then TestLibraryUpdateWindow
       else if ParamStr(1) = 'library-update-recovery' then TestLibraryUpdateRecoveryCrash

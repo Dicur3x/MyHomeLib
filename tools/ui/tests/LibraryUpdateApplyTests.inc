@@ -217,7 +217,8 @@ var Root, OldRoot, DownloadRoot, IndexName, OldHash, DownloadHash, ExpectedTitle
   end;
 begin
   Stage:=nil; Review:=nil;
-  if ParamStr(1)='transfer-empty-updates' then begin TestTransferredEmptyIDs; Exit; end;
+  if (ParamStr(1)='transfer-empty-updates') or (ParamStr(1)='transfer-cross-volume-updates') then
+    begin TestTransferredEmptyIDs; Exit; end;
   if ParamStr(1)='reviewed-id-reservation' then begin TestReviewedIDReservation; Exit; end;
   Root:=TPath.Combine(Settings.AppPath,'library-apply-fixture'); ForceDirectories(Root);
   OldRoot:=TPath.Combine(Root,'old'); DownloadRoot:=TPath.Combine(Root,'downloads');
