@@ -29,7 +29,7 @@ uses
   unit_Database_Abstract;
 
 type
-  TBookCollection_SQLite = class(TBookCollection, IBookCollection, IBookSeriesStreamProvider, IBookMergeMetadataUpdater, IBookMergeMetadataDeltaUpdater, IBookImportedLocationWriter, IReviewedBookIDWriter, IBookMergeOriginalCopyRecorder, IAuthorFavoriteCollectionView, IBookIdentityDeletionWriter, IBookIdentityProgressWriter, IBookIdentityPersonalWriter, IBookMetadataFillWriter, ICatalogUserDataRestorer, ICatalogContentDigest)
+  TBookCollection_SQLite = class(TBookCollection, IBookCollection, IBookSeriesStreamProvider, IBookMergeMetadataUpdater, IBookMergeMetadataDeltaUpdater, IPackingPublisherWriter, IBookImportedLocationWriter, IReviewedBookIDWriter, IBookMergeOriginalCopyRecorder, IAuthorFavoriteCollectionView, IBookIdentityDeletionWriter, IBookIdentityProgressWriter, IBookIdentityPersonalWriter, IBookMetadataFillWriter, ICatalogUserDataRestorer, ICatalogContentDigest)
   strict private type
     TStreamAuthor = record
       Data: TAuthorData;
@@ -257,6 +257,7 @@ type
     procedure UpdateBook(BookRecord: TBookRecord);
     procedure UpdateBookPreservingSeries(BookRecord: TBookRecord);
     procedure UpdateBookMetadataDelta(const Before: TBookRecord; BookRecord: TBookRecord; UpdateUserCard: Boolean = True);
+    procedure StorePackingPublisherMetadata(const Book:TBookRecord; const Root:string; PayloadAvailable:Boolean);
     function SeriesTriggersEnabled: Boolean;
     procedure DeleteBook(const BookKey: TBookKey);
     function DeleteBookIfIdentity(const Expected: TBookRecord;
@@ -380,6 +381,7 @@ uses
   unit_LibrarySourceID,
   unit_SearchUtils,
   unit_BookCompressionIndex,
+  unit_CollectionPackingPublisher,
   dm_user,
   unit_Errors,
   unit_SQLiteUtils;
@@ -3755,6 +3757,14 @@ begin
   finally
     if OwnRootGuard then RootGuard.EndMetadataRootGuard;
   end;
+end;
+
+procedure TBookCollection_SQLite.StorePackingPublisherMetadata(const Book:TBookRecord;
+  const Root:string; PayloadAvailable:Boolean);
+begin
+  if not InBulkOperation or (Book.BookKey.DatabaseID<>CollectionID) then
+    raise EInvalidOperation.Create('Сведения издателя должны относиться к активному обновлению этой коллекции.');
+  StorePackingPublisher(FDatabase,Book,Root,PayloadAvailable);
 end;
 
 procedure TBookCollection_SQLite.SetImportedBookLocation(BookID: Integer; const Folder: string; InsideNo: Integer);

@@ -90,7 +90,8 @@ implementation
 uses Winapi.Windows, Vcl.ComCtrls, System.IOUtils, System.Hash, System.Variants, System.JSON, System.StrUtils, System.Math,
   unit_Consts, unit_Database_SQLite, unit_LibrarySourceID, unit_UserData,
   unit_ImportInpxThread, unit_ImportMetabibThread, unit_MetabibReader, unit_LibraryUpdateIdentity,
-  unit_MHLArchiveHelpers, unit_Settings, unit_LibraryUpdateHistory, unit_CollectionPacking, unit_LibraryUpdateJournal, dm_user;
+  unit_MHLArchiveHelpers, unit_Settings, unit_LibraryUpdateHistory, unit_CollectionPacking,
+  unit_CollectionPackingPublisher, unit_LibraryUpdateJournal, dm_user;
 
 procedure NotifyLibraryUpdateTestPoint(const Stage: string); inline;
 begin
@@ -334,9 +335,11 @@ var DB: TSQLiteDatabase; Insert, Query: TSQLiteQuery; Iterator: IPublisherSeries
   Book, Candidate: TBookRecord; Stamp, Namespace, Key, Name, OldPath, NewPath, Path, Version, SourceKey: string;
   Count, Total, NewCount, ChangedCount: Integer; Existing, CandidateExists: Boolean;
   MergeSource: TMergeSource; Containers: TDictionary<string,string>;
-  StateDB: TSQLiteDatabase; StateQuery, SourceKeyQuery, PublisherQuery, RecoveredQuery, ReviewKeyQuery: TSQLiteQuery;
+  StateDB, PackedDB: TSQLiteDatabase; StateQuery, SourceKeyQuery, PublisherQuery, RecoveredQuery, ReviewKeyQuery: TSQLiteQuery;
   State, Container, Comparison, Alternate, AlternateKey, RawLocation: string;
   Availability: TDictionary<string,Boolean>;
+  PackedProjected:Integer;
+  PackedBatch:Boolean;
   procedure RecoverPublisherLocations;
   var Missing:TSQLiteQuery; Needed:Boolean; Lease:TFileStream;
     Hash:THashSHA2; Bytes:TBytes; Count:Integer;
@@ -426,6 +429,7 @@ var DB: TSQLiteDatabase; Insert, Query: TSQLiteQuery; Iterator: IPublisherSeries
     else Result:=FileExists(FileName);
   end;
   procedure Load(const Collection: IBookCollection; IsPrevious: Boolean);
+  var Publisher:TPackingPublisherState; Projected:Boolean; PublisherRoot:string;
   begin
     Namespace:=VarToStr(Collection.GetProperty(PROP_SOURCE_LIBRARY));
     if IsPrevious and (Namespace='') then Namespace:=FSourceInfo.LibraryNamespace;
@@ -434,12 +438,23 @@ var DB: TSQLiteDatabase; Insert, Query: TSQLiteQuery; Iterator: IPublisherSeries
     begin
       Check; CheckSpace;
       Key:=ReviewBookKey(Book,Namespace,FSourceInfo.Root);
+      Projected:=False;
+      if IsPrevious and Assigned(PackedDB) then
+        Projected:=ReadPackingPublisher(PackedDB,Book.BookKey.BookID,Publisher);
+      if Projected then
+      begin
+        if Publisher.Book.LibID<>Book.LibID then
+          raise EReadError.Create('Исходные сведения упакованной книги больше не соответствуют её идентификатору: '+Book.Title);
+        PublisherRoot:=Publisher.Root; if PublisherRoot='' then PublisherRoot:=FSourceInfo.Root;
+        Key:=ReviewBookKey(Publisher.Book,Namespace,PublisherRoot); Inc(PackedProjected);
+      end;
       if IsPrevious and Assigned(ReviewKeyQuery) then
       begin
         ReviewKeyQuery.Reset; ReviewKeyQuery.SetParam(0,Book.BookKey.BookID); ReviewKeyQuery.Open;
         if not ReviewKeyQuery.Eof then Key:=ReviewKeyQuery.FieldAsString(0);
       end;
-      Insert.Reset; Insert.SetParam(0,Key); Insert.SetParam(1,ReviewStamp(Book));
+      Insert.Reset; Insert.SetParam(0,Key);
+      if Projected then Insert.SetParam(1,ReviewStamp(Publisher.Book)) else Insert.SetParam(1,ReviewStamp(Book));
       if IsPrevious then
       begin
         MergeSource.ID:=FSourceInfo.ID; MergeSource.Root:=Collection.CollectionRoot;
@@ -460,6 +475,7 @@ var DB: TSQLiteDatabase; Insert, Query: TSQLiteQuery; Iterator: IPublisherSeries
           if not SourceKeyQuery.Eof then SourceKey:=SourceKeyQuery.FieldAsString(0);
         end;
         RawLocation:=LegacyPublisherLocation(Book);
+        if Projected then RawLocation:=LegacyPublisherLocation(Publisher.Book);
         if Assigned(PublisherQuery) then
         begin
           PublisherQuery.Reset; PublisherQuery.SetParam(0,Book.BookKey.BookID); PublisherQuery.Open;
@@ -484,6 +500,7 @@ var DB: TSQLiteDatabase; Insert, Query: TSQLiteQuery; Iterator: IPublisherSeries
         end;
         Insert.SetParam(5,State); Insert.SetParam(6,Book.BookKey.BookID);
         Insert.SetParam(7,Container); Insert.SetParam(8,Book.InsideNo); Insert.SetParam(9,Book.LibID);
+        if Projected then Insert.SetParam(10,Publisher.PendingPayload) else Insert.SetParam(10,False);
       end
       else
       begin
@@ -501,13 +518,37 @@ var DB: TSQLiteDatabase; Insert, Query: TSQLiteQuery; Iterator: IPublisherSeries
     end;
     Iterator:=nil;
   end;
+  procedure LoadPackedExclusions;
+  var Removed,Save:TSQLiteQuery; Publisher:TPackingPublisherState; PublisherRoot:string;
+  begin
+    if not Assigned(PackedDB) then Exit;
+    Removed:=PackedDB.NewQuery('SELECT p.BookID FROM HomeLibrePackingPublishers p '+
+      'LEFT JOIN Books b ON b.BookID=p.BookID WHERE b.BookID IS NULL');
+    Save:=DB.NewQuery('INSERT OR IGNORE INTO ReviewPrevious(Key,Stamp,Location,State,BookID,LibID) VALUES(?,?,?,''excluded'',?,?)');
+    try
+      Removed.Open;
+      while not Removed.Eof do
+      begin
+        Check; CheckSpace;
+        if not ReadPackingPublisher(PackedDB,Removed.FieldAsInt(0),Publisher) then
+          raise EReadError.Create('Не найдены исходные сведения удалённой упакованной книги.');
+        PublisherRoot:=Publisher.Root; if PublisherRoot='' then PublisherRoot:=FSourceInfo.Root;
+        Save.Reset; Save.SetParam(0,ReviewBookKey(Publisher.Book,Namespace,PublisherRoot));
+        Save.SetParam(1,ReviewStamp(Publisher.Book)); Save.SetParam(2,LegacyPublisherLocation(Publisher.Book));
+        Save.SetParam(3,Publisher.Book.BookKey.BookID); Save.SetParam(4,Publisher.Book.LibID); Save.ExecSQL;
+        Removed.Next;
+      end;
+      DB.ExecSQL('INSERT OR IGNORE INTO ReviewExcluded SELECT Key FROM ReviewPrevious WHERE State=''excluded''');
+    finally Save.Free; Removed.Free; end;
+  end;
 begin
   Comparison:=TPath.Combine(FPrepared.Folder,'comparison-'+TGUID.NewGuid.ToString+'.sqlite');
   if FileExists(Comparison) then raise EWriteError.Create('Рабочее сравнение уже существует.');
   FAnalysisFile:=Comparison;
   DB:=OpenWorkDatabase(FAnalysisFile); Insert:=nil; Query:=nil;
   Containers:=TDictionary<string,string>.Create; Availability:=TDictionary<string,Boolean>.Create;
-  StateDB:=nil; StateQuery:=nil; SourceKeyQuery:=nil; PublisherQuery:=nil; RecoveredQuery:=nil; ReviewKeyQuery:=nil;
+  StateDB:=nil; PackedDB:=nil; PackedProjected:=0; PackedBatch:=False;
+  StateQuery:=nil; SourceKeyQuery:=nil; PublisherQuery:=nil; RecoveredQuery:=nil; ReviewKeyQuery:=nil;
   try
     if FPreviousIndex then
     begin
@@ -523,7 +564,16 @@ begin
       if StateDB.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE name=''LibraryUpdateReviewKeys'' AND type=''table''')>0 then
         ReviewKeyQuery:=StateDB.NewQuery('SELECT Key FROM LibraryUpdateReviewKeys WHERE BookID=?');
     end;
-    DB.ExecSQL('CREATE TABLE ReviewPrevious(Key TEXT PRIMARY KEY,Stamp TEXT,Location TEXT,SourceKey TEXT,Physical TEXT,State TEXT,BookID INTEGER,Container TEXT,InsideNo INTEGER,Copies INTEGER NOT NULL DEFAULT 1,LibID TEXT) WITHOUT ROWID');
+    // Only the packed target uses this baseline here. Applying a packed source
+    // inside an ordinary merged target also needs a physical-name/size map;
+    // keep that existing path unchanged until its operation is integrated.
+    if not Assigned(ReviewKeyQuery) and IsPackedCollectionCatalog(FTargetFile) then
+    begin
+      PackedDB:=OpenWorkDatabase(VarToStr(Previous.GetProperty(PROP_DATAFILE)),True);
+      if PackedDB.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE type=''table'' AND name=''HomeLibrePackingPublishers''')=0 then FreeAndNil(PackedDB)
+      else begin PackedDB.BeginQueryBatch; PackedBatch:=True; end;
+    end;
+    DB.ExecSQL('CREATE TABLE ReviewPrevious(Key TEXT PRIMARY KEY,Stamp TEXT,Location TEXT,SourceKey TEXT,Physical TEXT,State TEXT,BookID INTEGER,Container TEXT,InsideNo INTEGER,Copies INTEGER NOT NULL DEFAULT 1,LibID TEXT,PackedPending INTEGER NOT NULL DEFAULT 0) WITHOUT ROWID');
     DB.ExecSQL('CREATE TABLE ReviewRows(Key TEXT,Stamp TEXT,BookID INTEGER,Location TEXT,Active INTEGER,Physical TEXT,Available INTEGER,PublisherLocation TEXT)');
     DB.ExecSQL('CREATE TABLE ReviewExcluded(Key TEXT PRIMARY KEY) WITHOUT ROWID');
     RecoverPublisherLocations;
@@ -551,8 +601,9 @@ begin
     DB.ExecSQL('CREATE INDEX ReviewRowsKey ON ReviewRows(Key)');
     DB.Start;
     try
-      Insert:=DB.NewQuery('INSERT INTO ReviewPrevious(Key,Stamp,Location,SourceKey,Physical,State,BookID,Container,InsideNo,LibID) VALUES(?,?,?,?,?,?,?,?,?,?) '+
+      Insert:=DB.NewQuery('INSERT INTO ReviewPrevious(Key,Stamp,Location,SourceKey,Physical,State,BookID,Container,InsideNo,LibID,PackedPending) VALUES(?,?,?,?,?,?,?,?,?,?,?) '+
         'ON CONFLICT(Key) DO UPDATE SET Copies=Copies+1'); Load(Previous,True); FreeAndNil(Insert);
+      LoadPackedExclusions;
       Insert:=DB.NewQuery('INSERT INTO ReviewRows VALUES(?,?,?,?,?,?,?,?)'); Load(FSnapshot,False); FreeAndNil(Insert);
       // Missing files cannot prove a new physical container. Compare the raw
       // publisher locator, retaining the last resolved identity only when both
@@ -567,8 +618,8 @@ begin
     FNewBooks:=DB.QuerySingleInt('SELECT count(*) FROM ReviewRows r LEFT JOIN ReviewPrevious p ON p.Key=r.Key LEFT JOIN ReviewExcluded e ON e.Key=r.Key '+
       'WHERE r.Active<>0 AND p.Key IS NULL AND e.Key IS NULL');
     FChangedBooks:=DB.QuerySingleInt('SELECT count(*) FROM ReviewRows r JOIN ReviewPrevious p ON p.Key=r.Key LEFT JOIN ReviewExcluded e ON e.Key=r.Key '+
-      'WHERE r.Active<>0 AND p.State<>''excluded'' AND e.Key IS NULL AND (p.Stamp<>r.Stamp OR p.Physical<>r.Physical)');
-    Query:=DB.NewQuery('SELECT r.Location,min(r.BookID),sum(r.Active<>0 AND p.Key IS NULL),sum(r.Active<>0 AND p.Key IS NOT NULL AND (p.Stamp<>r.Stamp OR p.Physical<>r.Physical)) '+
+      'WHERE r.Active<>0 AND p.State<>''excluded'' AND e.Key IS NULL AND (p.Stamp<>r.Stamp OR p.Physical<>r.Physical OR p.PackedPending<>0)');
+    Query:=DB.NewQuery('SELECT r.Location,min(r.BookID),sum(r.Active<>0 AND p.Key IS NULL),sum(r.Active<>0 AND p.Key IS NOT NULL AND (p.Stamp<>r.Stamp OR p.Physical<>r.Physical OR p.PackedPending<>0)) '+
       'FROM ReviewRows r LEFT JOIN ReviewPrevious p ON p.Key=r.Key LEFT JOIN ReviewExcluded e ON e.Key=r.Key '+
       'WHERE e.Key IS NULL AND coalesce(p.State,''known'')<>''excluded'' GROUP BY r.Location HAVING sum(r.Active)>0 ORDER BY r.Location');
     Query.Open;
@@ -602,7 +653,10 @@ begin
     if FOriginalRootOffline then FSummary:=FSummary+sLineBreak+
       'Исходная папка книг сейчас недоступна: '+FSourceInfo.Root+'. Проверяем доступные архивы в папке докачки: '+
       FSource.BooksRoot+'. Само отсутствие прежнего диска не делает старые записи новыми.';
-    if FPreviousIndex then FSummary:=FSummary+sLineBreak+'Сравнение с сохранённым индексом этого источника.'
+    if Assigned(PackedDB) then FSummary:=FSummary+sLineBreak+
+      Format('Сопоставлено с исходными сведениями упакованной копии: %d записей. '+
+        'Удаления после сохранения этих сведений учитываются; для более ранних удалений нужен прежний индекс.',[PackedProjected])
+    else if FPreviousIndex then FSummary:=FSummary+sLineBreak+'Сравнение с сохранённым индексом этого источника.'
     else FSummary:=FSummary+sLineBreak+'Сравнение с текущим каталогом. Прежний полный индекс неизвестен: удалённые ранее записи могут выглядеть новыми.';
     FSummary:=FSummary+sLineBreak+'Сверяются ID, имена и форматы файлов; изменения — по названию, языку, размеру, дате и отметке удаления. '+
       'Старые отсутствующие файлы не включены в список докачки: среди них могут быть удалённые дубли. '+
@@ -618,6 +672,7 @@ begin
       end;
     end;
   finally Iterator:=nil; ReviewKeyQuery.Free; RecoveredQuery.Free; PublisherQuery.Free; SourceKeyQuery.Free; StateQuery.Free; StateDB.Free;
+    if PackedBatch then PackedDB.EndQueryBatch; PackedDB.Free;
     Availability.Free; Containers.Free; Query.Free; Insert.Free; DB.Free; end;
 end;
 

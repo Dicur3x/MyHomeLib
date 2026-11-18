@@ -105,7 +105,8 @@ implementation
 uses System.IOUtils, System.Hash, System.Math, System.StrUtils,
   System.Generics.Collections, SQLite3, unit_MHLArchiveHelpers, unit_CollectionSpace,
   unit_MHLExternalTools, unit_AtomicIniFile, System.DateUtils,
-  unit_FormatComponents, unit_ProgramUpdateInstaller, dm_user, unit_ReaderCache;
+  unit_FormatComponents, unit_ProgramUpdateInstaller, dm_user, unit_ReaderCache,
+  unit_CollectionPackingPublisher;
 
 const
   PACKING_LEASE = 'HomeLibRu-native-packing.lock';
@@ -1040,6 +1041,15 @@ begin
     Catalog.AddFunction('MHL_SERIES_TRIGGERS_ON',0,PackingTriggers);
     Total:=Locations.QuerySingleInt('SELECT count(*) FROM locations');
     if Total<>FCount then raise Exception.Create('Не все книги получили новое расположение.');
+    CaptureInitialPackingPublishers(Catalog,FOptions.SourceRoot,
+      procedure begin CheckCanceled; end,
+      procedure(Done,Total:Int64)
+      begin
+        if (CollectionDiskFree(GetEnvironmentVariable('SystemDrive')+'\')<Int64(8)*1024*1024*1024) or
+          (CollectionDiskFree(FOptions.OutputRoot)<Int64(512)*1024*1024) then
+          raise EWriteError.Create('Недостаточно свободного места для исходных сведений индекса.');
+        Report('Сохранение исходных сведений индекса',Done,Total);
+      end);
     Catalog.ExecSQL('CREATE TABLE IF NOT EXISTS HomeLibPackingState(Key TEXT PRIMARY KEY,Value TEXT NOT NULL)');
     Catalog.ExecSQL('INSERT OR REPLACE INTO HomeLibPackingState VALUES(?,?)',['dataset',FOptions.Dataset]);
     Catalog.ExecSQL('INSERT OR REPLACE INTO HomeLibPackingState VALUES(?,?)',['engine',PackingEngine(FOptions.ImageProfile,FOptions.ImageGrayscale)]);

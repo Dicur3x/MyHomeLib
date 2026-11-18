@@ -209,6 +209,7 @@ function TCollectionPackingInpxWorker.StoreImportedBook(const Book: TBookRecord;
   const Collection: IBookCollection; Cache: TImportCache): Integer;
 var Incoming, Old, Updated: TBookRecord; Available: Boolean; Identity: string;
   Updater: IBookMergeMetadataDeltaUpdater;
+  Publisher:IPackingPublisherWriter;
   AuthorKey:string; AuthorID:Integer;
   function HasAuthor(const Authors:TBookAuthors; ID:Integer):Boolean;
   begin
@@ -231,6 +232,14 @@ var Incoming, Old, Updated: TBookRecord; Available: Boolean; Identity: string;
     for var Item in Updated.Genres do if not HasGenre(Old.Genres,Item.GenreCode) then Exit(False);
     for var Item in Old.Genres do if not HasGenre(Updated.Genres,Item.GenreCode) then Exit(False);
     Result:=True;
+  end;
+  procedure SavePublisher(ID:Integer);
+  var Original:TBookRecord;
+  begin
+    if not Supports(Collection,IPackingPublisherWriter,Publisher) then
+      raise ENotSupportedException.Create('Коллекция не поддерживает сохранение исходных сведений индекса.');
+    Original:=Book; Original.BookKey:=CreateBookKey(ID,Collection.CollectionID);
+    Publisher.StorePackingPublisherMetadata(Original,FUpdateRoot,Available);
   end;
 begin
   if (Trim(Book.LibID)='') or (Book.LibID='0') then
@@ -256,7 +265,12 @@ begin
         raise EInvalidOperation.Create('В сжатой коллекции несколько записей с этим исходным именем: '+Book.Title);
     end;
   finally FLookup.Reset; end;
-  if Result=0 then Exit(Collection.InsertBook(Incoming,False,False,Cache));
+  if Result=0 then
+  begin
+    Result:=Collection.InsertBook(Incoming,False,False,Cache);
+    if Result>0 then SavePublisher(Result);
+    Exit;
+  end;
 
   Collection.GetBookRecord(CreateBookKey(Result,Collection.CollectionID),Old,True);
   Updated:=Old;
@@ -305,6 +319,7 @@ begin
   if not SameAuthors then Collection.SetBookAuthors(Result,Updated.Authors,True);
   if not SameGenres then Collection.SetBookGenres(Result,Updated.Genres,True);
   Collection.AddBookSeries(Result,Book.Series,Book.SeqNumber,Cache);
+  SavePublisher(Result);
 end;
 
 end.

@@ -6207,6 +6207,7 @@ end;
 {$I SystemBookRemapTests.inc}
 {$I UpdateOutcomeTests.inc}
 {$I LegacyUpdateWorkspaceTests.inc}
+{$I PackedSourceReviewTests.inc}
 {$I FB2EncodingTests.inc}
 {$I LocalBookImportTests.inc}
 {$I FavoriteAuthorUiTests.inc}
@@ -6809,6 +6810,8 @@ begin
         TestUpdateOutcomes
       else if ParamStr(1) = 'legacy-update-workspace' then
         TestLegacyUpdateWorkspace
+      else if ParamStr(1) = 'packed-source-review' then
+        TestPackedSourceReview
       else if ParamStr(1) = 'favorite-book-menu' then
         TestFavoriteBookMenu(One)
       else if ParamStr(1) = 'favorite-ui' then

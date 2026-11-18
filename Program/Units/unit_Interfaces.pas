@@ -118,6 +118,14 @@ type
     procedure UpdateBookMetadataDelta(const Before: TBookRecord; BookRecord: TBookRecord; UpdateUserCard: Boolean = True);
   end;
 
+  IPackingPublisherWriter = interface
+    ['{E7C58524-8834-4BA0-A79B-F91A7FA89253}']
+    // Original index metadata belongs to the same private catalogue transaction
+    // as the incoming row; a physical packed size is not its publisher size.
+    procedure StorePackingPublisherMetadata(const Book:TBookRecord; const Root:string;
+      PayloadAvailable:Boolean);
+  end;
+
   // A private/bulk import can retain a verified physical locator without
   // rewriting metadata, series or personal cards. Derived search fields use
   // the catalogue writer's normal triggers.

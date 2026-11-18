@@ -451,6 +451,31 @@ begin
       SystemDB.GetBookRecord(CreateBookKey(ChangedID,UpdatedID),Card);
       Require((Card.Rate=4) and (Card.Progress=37) and (SystemDB.GetReview(Card.BookKey)='Личная заметка'),
         'Metadata repeat lost personal reading data');
+      var PublisherDB:=TSQLiteDatabase.CreateReadOnly(Repeated.GetProperty(PROP_DATAFILE));
+      try
+        Require(PublisherDB.QuerySingleInt('SELECT count(*) FROM HomeLibrePackingPublishers WHERE BookSize=123')=4,
+          'Repeated packing replaced nominal publisher sizes with physical compressed sizes');
+        Require((PublisherDB.QuerySingleInt('SELECT PendingPayload FROM HomeLibrePackingPublishers WHERE BookID=?',[ChangedID])=0) and
+          (PublisherDB.QuerySingleInt('SELECT PendingPayload FROM HomeLibrePackingPublishers WHERE BookID=?',[NewID])=0) and
+          (PublisherDB.QuerySingleInt('SELECT PendingPayload FROM HomeLibrePackingPublishers WHERE BookID=?',[MissingID])=1),
+          'Repeated packing lost the pending unavailable payload or requeued a completed book');
+      finally PublisherDB.Free; end;
+      var UpdateSource:=TLibraryUpdateSource.NewSource;
+      UpdateSource.Name:='Повторная докачка'; UpdateSource.Location:=Settings.AppPath;
+      UpdateSource.IndexFile:=ExtractFileName(IndexFile); UpdateSource.BooksRoot:=UpdateRoot;
+      var PreparedIndex:=TStagedLibraryIndex.Fetch(UpdateSource,Settings.LibraryUpdateWorkPath,nil);
+      var PendingReview:=TLibraryUpdateReview.Create(UpdateSource,PreparedIndex);
+      try
+        var PendingWorker:=CreateLibraryReviewWorker(UpdatedID,PendingReview);
+        try
+          PendingWorker.Start; PendingWorker.WaitFor;
+          Require(PendingWorker.Success and PendingReview.Ready,'Packed pending-payload review failed');
+        finally PendingWorker.Free; end;
+        Require((PendingReview.NewBooks=0) and (PendingReview.NeededArchives.IndexOf('books.zip')>=0) and
+          (PendingReview.NeededArchives.IndexOf('absent.zip')>=0) and (PendingReview.NeededArchives.Count=2),
+          'Packed pending payloads vanished from the next download list: '+PendingReview.Summary);
+        Writeln('PASS packed publisher sizes survive repeat and unfinished payloads remain in the exact archive download list'); Flush(Output);
+      finally PendingReview.Free; PreparedIndex.Free; end;
       Writeln('PASS repeated packed INPX without original or incoming archives retains exact bytes IDs personal fields and unique corrected memberships'); Flush(Output);
     finally
       TDirectory.Delete(UpdateRoot,False);
