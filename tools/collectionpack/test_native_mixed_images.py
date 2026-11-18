@@ -59,10 +59,16 @@ class NativeMixedImageTests(NativeCompressionOperationTests):
         before = self.root/'complete-before.fb2'
         Path(opened['book_stream']).replace(before)
         backups = self.enable_backup()
-        self.config.update(operation_mode='apply',profile='maximum',grayscale=True)
+        self.config.update(operation_mode='trial-apply',estimate_first=True,profile='maximum',grayscale=True)
         physical_before = sum(p.stat().st_size for p in [self.fixture.source,*sides])
         result = self.run_operation()
         self.assertEqual(result['error'],'',result)
+        self.assertTrue(result['trial_ready'])
+        self.assertEqual(result['trial_shared_files'],0)
+        self.assertEqual(result['trial_input_bytes'],physical_before)
+        # A rebuilt 7z can encode different file timestamps in its compressed header.
+        self.assertLessEqual(abs(result['trial_output_bytes']-
+                                 sum(p.stat().st_size for p in [self.fixture.source,*sides])),64)
         self.assertEqual(result['changed_files'],1,result)
         self.assertEqual(result['pending_after_ack'],0,result)
         self.assertEqual(result['saved_bytes'],physical_before-sum(p.stat().st_size for p in [self.fixture.source,*sides]))

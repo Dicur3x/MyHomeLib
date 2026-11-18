@@ -34,7 +34,8 @@ class NativeCompressionOperationTests(unittest.TestCase):
                            work_root=str(self.root / 'operation'),
                            python=str(self.tools / 'python' / 'python.exe'),
                            script=str(self.tools / 'bookconvert' / 'prepare_book_compression.py'),
-                           seven_zip=str(self.tools / '7zip' / '7za.exe'), tools_root=str(self.tools),
+                           seven_zip=str(next(path for path in (self.tools/'7zip/7z.exe', self.tools/'7zip/7za.exe')
+                                              if path.is_file())), tools_root=str(self.tools),
                            profile='original', grayscale=True, operation_mode='apply')
         self.before = {p: sha(p.read_bytes()) for p in (self.fixture.source, self.fixture.catalogue, self.fixture.personal)}
         self.catalogue = self.fixture.snapshot(self.fixture.catalogue, sizes=False)
@@ -392,6 +393,60 @@ class NativeCompressionOperationTests(unittest.TestCase):
         self.assertFalse(result['estimate_only'])
         self.assertGreater(result['estimate_input_bytes'], 0)
         self.assert_applied(result)
+
+    def test_trial_measures_the_whole_zip_then_discards_it_without_recording_history(self):
+        folder = self.enable_backup()
+        self.config.update(estimate_first=True, operation_mode='trial-only')
+        measured = self.run_operation()
+        self.assertEqual(measured['error'], '', measured)
+        self.assertTrue(measured['trial_ready'])
+        self.assertTrue(measured['estimate_only'])
+        self.assertEqual(measured['trial_shared_files'], 0)
+        self.assertEqual(measured['trial_input_bytes'], self.fixture.source.stat().st_size)
+        self.assertLess(measured['trial_output_bytes'], measured['trial_input_bytes'])
+        self.assertEqual((measured['changed_files'], measured['pending_before_ack']), (0, 0))
+        self.assertEqual(list(folder.iterdir()), [])
+        self.unchanged()
+        self.config.update(estimate_first=False, operation_mode='apply')
+        self.assert_applied(self.run_operation())
+        self.assertEqual(measured['trial_output_bytes'], self.fixture.source.stat().st_size)
+
+    def test_canceling_a_trial_leaves_both_databases_and_archive_intact(self):
+        self.config.update(estimate_first=True, operation_mode='trial-stop')
+        result = self.run_operation()
+        self.assertTrue(result['stopping'])
+        self.assertFalse(result['trial_ready'])
+        self.assertEqual((result['changed_files'], result['pending_before_ack']), (0, 0))
+        self.unchanged()
+
+    def test_trial_includes_the_unselected_neighbor_in_a_solid_block(self):
+        folder = self.root / 'solid-inputs'
+        folder.mkdir()
+        for name, data in [('one.fb2', self.fixture.original_book), ('neighbor.fb2', self.fixture.neighbor)]:
+            (folder/name).write_bytes(data)
+        solid = self.root/'solid-fixture.7z'
+        run_owned([self.config['seven_zip'],'a','-t7z','-m0=LZMA2','-ms=on','-mmt=1','--',
+                   str(solid),'one.fb2','neighbor.fb2'], cwd=folder, capture_output=True, check=True, timeout=30)
+        listing = run_owned([self.config['seven_zip'],'l','-slt','-ba','--',str(solid)],
+                            capture_output=True, check=True, timeout=30).stdout.splitlines()
+        self.assertEqual([line for line in listing if line.startswith(b'Block =')], [b'Block = 0']*2)
+        solid.replace(self.fixture.source)
+        self.before[self.fixture.source] = sha(self.fixture.source.read_bytes())
+        self.config.update(estimate_first=True, operation_mode='trial-only')
+        measured = self.run_operation()
+        self.assertEqual(measured['error'], '', measured)
+        self.assertTrue(measured['trial_ready'])
+        self.assertEqual(measured['trial_input_bytes'], self.fixture.source.stat().st_size)
+        self.unchanged()
+        self.config.update(estimate_first=False, operation_mode='apply')
+        actual = self.run_operation()
+        self.assertEqual((actual['error'],actual['changed_files'],actual['pending_after_ack']), ('',1,0), actual)
+        self.assertEqual(self.fixture.snapshot(self.fixture.catalogue, sizes=False), self.catalogue)
+        self.assertEqual(self.fixture.snapshot(self.fixture.personal, sizes=False), self.personal)
+        self.assertLessEqual(abs(measured['trial_output_bytes']-self.fixture.source.stat().st_size),64)
+        neighbor = run_owned([self.config['seven_zip'],'x','-so','--',str(self.fixture.source),'neighbor.fb2'],
+                             capture_output=True, check=True, timeout=30).stdout
+        self.assertEqual(neighbor, self.fixture.neighbor)
 
     def test_preview_skip_preserves_both_stores_and_source(self):
         self.config['operation_mode'] = 'review-skip'

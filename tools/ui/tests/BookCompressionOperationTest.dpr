@@ -2,7 +2,7 @@
 
 {$APPTYPE CONSOLE}
 
-uses System.SysUtils, System.Classes, System.IOUtils, System.JSON, System.Hash,
+uses System.SysUtils, System.StrUtils, System.Classes, System.IOUtils, System.JSON, System.Hash,
   Winapi.Windows, unit_BookCompressionPlan, unit_BookCompressionOperation,
   unit_BookCompressionJob, unit_BookCompressionRuntime, unit_ZipMemberDeletion, unit_CollectionPacking, unit_Globals, unit_Settings, dm_user,
   SQLiteWrap, unit_BookCompressionIndex;
@@ -180,7 +180,9 @@ begin
                 Writeln('TRACE terminated before compression approval'); Flush(System.Output);
                 if not TerminateProcess(GetCurrentProcess,73) then RaiseLastOSError;
               end;
-              if (Mode='review-skip') or ((Mode='estimate-only') and State.AwaitingEstimate) then Operation.Approve(crSkip)
+              if MatchText(Mode,['trial-only','trial-apply','trial-stop']) and State.AwaitingEstimate and not State.TrialReady then
+                Operation.Approve(crTrial)
+              else if (Mode='review-skip') or (MatchText(Mode,['estimate-only','trial-only']) and State.AwaitingEstimate) then Operation.Approve(crSkip)
               else if Mode='review-stop' then Operation.RequestStop
               else if Mode='review-all' then Operation.Approve(crApplyRemaining)
               else if Mode='dispose-at-review' then
@@ -189,6 +191,7 @@ begin
             end;
             if Mode='stop-producer' then
               if State.Stage='slow-worker' then Operation.RequestStop;
+            if (Mode='trial-stop') and State.TrialRunning then Operation.RequestStop;
             if (Mode='crash-producer') and (State.Stage='scratch-ready') then
             begin
               Writeln('TRACE terminated during compression preparation'); Flush(System.Output);
@@ -230,6 +233,10 @@ begin
               Output.AddPair('estimate_known_input_bytes',TJSONNumber.Create(State.EstimateKnownInputBytes));
               Output.AddPair('estimate_output_bytes',TJSONNumber.Create(State.EstimateOutputBytes));
               Output.AddPair('estimate_archive_bytes',TJSONNumber.Create(State.EstimateArchiveBytes));
+              Output.AddPair('trial_ready',TJSONBool.Create(State.TrialReady));
+              Output.AddPair('trial_input_bytes',TJSONNumber.Create(State.TrialInputBytes));
+              Output.AddPair('trial_output_bytes',TJSONNumber.Create(State.TrialOutputBytes));
+              Output.AddPair('trial_shared_files',TJSONNumber.Create(State.TrialSharedFiles));
               Output.AddPair('estimate_unknown_books',TJSONNumber.Create(State.EstimateUnknownBooks));
               Output.AddPair('backup_files',TJSONNumber.Create(State.BackupFiles));
               Output.AddPair('discarded_preparations',TJSONNumber.Create(State.DiscardedPreparations));

@@ -39,7 +39,7 @@ type
   private
     FStage, FSource, FMember, FCounts, FSizes, FNote: TLabel;
     FProgress: TProgressBar;
-    FStop, FApply, FApplyAll, FSkip, FPin, FCompare: TButton;
+    FStop, FApply, FApplyAll, FSkip, FPin, FCompare, FTrial: TButton;
     FPreviewFile, FPreviewSHA256: string;
     FOnStop: TNotifyEvent;
     FOnReview: TCompressionReviewEvent;
@@ -287,6 +287,8 @@ begin
   FApply.Anchors:=[akLeft,akBottom];
   FApplyAll:=MakeButton(Self,'CompressionApplyAll','Применять остальные',150,414,184,ReviewClick); FApplyAll.Tag:=Ord(crApplyRemaining);
   FApplyAll.Anchors:=[akLeft,akBottom];
+  FTrial:=MakeButton(Self,'CompressionTrial','Пробная упаковка…',150,414,184,ReviewClick);
+  FTrial.Tag:=Ord(crTrial); FTrial.Anchors:=[akLeft,akBottom];
   FSkip:=MakeButton(Self,'CompressionSkip','Пропустить',342,414,126,ReviewClick); FSkip.Tag:=Ord(crSkip);
   FSkip.Anchors:=[akLeft,akBottom];
   FStop:=MakeButton(Self,'CompressionStop','Остановить',558,414,126,StopClick);
@@ -320,7 +322,7 @@ end;
 
 procedure TfrmBookCompressionProgress.ReviewClick(Sender: TObject);
 begin
-  FApply.Enabled:=False; FApplyAll.Enabled:=False; FSkip.Enabled:=False;
+  FApply.Enabled:=False; FApplyAll.Enabled:=False; FSkip.Enabled:=False; FTrial.Enabled:=False;
   if Assigned(FOnReview) then FOnReview(TCompressionReview(TButton(Sender).Tag));
 end;
 
@@ -367,9 +369,17 @@ begin
       FSizes.Caption:='Выбранные книги: '+SizeText(State.EstimateInputBytes)+' → ≈ '+SizeText(State.EstimateOutputBytes)
     else FSizes.Caption:='Оценённая часть: '+SizeText(State.EstimateKnownInputBytes)+' → ≈ '+
       SizeText(State.EstimateOutputBytes)+' · Без оценки: '+IntToStr(State.EstimateUnknownBooks);
-    FSizes.Caption:=FSizes.Caption+sLineBreak+'На диске: файлы и общие архивы целиком — '+SizeText(State.EstimateArchiveBytes);
+    if State.TrialReady then
+    begin
+      var Scope:='Файлы и архивы';
+      if State.TrialSharedFiles>0 then Scope:='Измеренная часть';
+      FSizes.Caption:=FSizes.Caption+sLineBreak+Scope+': '+SizeText(State.TrialInputBytes)+' → '+
+        SizeText(State.TrialOutputBytes)+' · Уменьшение: '+SizeText(State.TrialInputBytes-State.TrialOutputBytes);
+    end
+    else FSizes.Caption:=FSizes.Caption+sLineBreak+'На диске: файлы и общие архивы целиком — '+SizeText(State.EstimateArchiveBytes);
     FCounts.Caption:=Format('Выбрано книг: %d · Архивов и отдельных файлов: %d',[State.BooksTotal,State.FilesTotal]);
   end
+  else if State.TrialRunning then FSizes.Caption:='Пробная упаковка · исходные файлы сохраняются.'
   else if State.Estimating then FSizes.Caption:='Оценка ещё идёт. Исходные файлы не изменяются.'
   else if State.AwaitingReview then FSizes.Caption:='Этот файл: '+SizeText(State.InputBytes)+' → '+
     SizeText(State.OutputBytes)+' · Уменьшение: '+SizeText(State.InputBytes-State.OutputBytes)
@@ -379,6 +389,7 @@ begin
   if State.WorkingBytes>0 then FSizes.Caption:=FSizes.Caption+sLineBreak+
     'Ориентир временного места для текущего файла: '+SizeText(State.WorkingBytes);
   FApply.Visible:=State.AwaitingReview; FApplyAll.Visible:=State.AwaitingReview and not State.AwaitingEstimate;
+  FTrial.Visible:=State.AwaitingEstimate and not State.TrialReady; FTrial.Enabled:=FTrial.Visible and not State.Stopping;
   FSkip.Visible:=State.AwaitingReview;
   if State.AwaitingEstimate then
   begin FApply.Caption:='Начать сжатие'; FSkip.Caption:='Закончить оценку'; end
@@ -392,14 +403,15 @@ begin
   if State.Finished then FStop.Caption:='Закрыть' else FStop.Caption:='Остановить';
   if State.Stopping and not State.Finished then
     FNote.Caption:='Останавливаем обработку. Если запись архива уже началась, сначала безопасно завершим её.'
+  else if State.TrialRunning then
+    FNote.Caption:='Каждый архив упаковывается во временной папке. После измерения временная копия удаляется.'
   else if State.Estimating then
     FNote.Caption:='Проверяем выбранные книги и образцы иллюстраций. Полный архив для оценки не создаётся. '+
       'На одну книгу выделяется до 10 секунд; расчёт всего набора может занять дольше. '+
       'Начать сжатие можно будет отдельно после расчёта.'
   else if State.AwaitingEstimate then
     FNote.Caption:='В первой строке — выбранные книги до внешней упаковки; во второй — архивы целиком, с остальными книгами. '+
-      'Расчёт по образцам. Экономия на диске зависит от архива. '+
-      '«Начать сжатие» подготовит результат; «Закончить оценку» ничего не изменит.'
+      '«Пробная упаковка» измерит результат во временной папке. Она займёт примерно столько же времени, сколько сжатие.'
   else if State.AwaitingReview then
     FNote.Caption:='Исходный файл ещё не изменён. «Применить» заменит его подготовленным результатом. '+
       '«Пропустить» сохранит исходник. Текст и остальные книги проверены автоматически.'
@@ -421,6 +433,15 @@ begin
     else FNote.Caption:=Format('Уменьшено файлов: %d · Без уменьшения: %d · Пропущено по вашему выбору: %d.',
       [State.ChangedFiles,State.UnchangedFiles,State.SkippedFiles]);
     if State.Error<>'' then FNote.Caption:=FNote.Caption+sLineBreak+State.Error;
+    if State.Warning<>'' then FNote.Caption:=FNote.Caption+sLineBreak+State.Warning;
+  end;
+  if State.TrialReady and (State.AwaitingEstimate or State.EstimateOnly) then
+  begin
+    FNote.Caption:='Показан размер подготовленных файлов, включая архивы обложек и картинок. '+
+      'Отдельные резервные копии сюда не входят. Временные файлы удалены.';
+    if State.TrialSharedFiles>0 then FNote.Caption:=FNote.Caption+sLineBreak+
+      Format('Не включено общих архивов: %d. Их изменение зависит от нескольких заданий.',[State.TrialSharedFiles]);
+    if State.AwaitingEstimate then FNote.Caption:=FNote.Caption+' Для записи нажмите «Начать сжатие».';
     if State.Warning<>'' then FNote.Caption:=FNote.Caption+sLineBreak+State.Warning;
   end;
   if State.PreviouslyProcessedBooks>0 then FNote.Caption:=FNote.Caption+sLineBreak+

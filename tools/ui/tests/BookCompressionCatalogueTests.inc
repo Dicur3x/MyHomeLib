@@ -163,7 +163,7 @@ type
     ExpectedMembers:TArray<string>;
     Grayscale, CancelOptions, InspectWorkPicker: Boolean;
     WorkPickerInitial, WorkPickerExpected:string;
-    InspectComparison, EstimateFirst, EstimateSeen, Whole, OnlyNew: Boolean;
+    InspectComparison, EstimateFirst, EstimateSeen, TrialSeen, Whole, OnlyNew: Boolean;
     ProducerStageSeen, EstimateStageSeen: Boolean;
     InspectionDeadline, Started: UInt64;
     LastStage: string;
@@ -273,14 +273,28 @@ begin
       if TButton(Form.FindComponent('CompressionApply')).Visible and
         (TButton(Form.FindComponent('CompressionApply')).Caption='Начать сжатие') then
       begin
-        if EstimateSeen then Exit;
+        var TrialButton:=TButton(Form.FindComponent('CompressionTrial'));
+        if EstimateSeen then
+        begin
+          if (GetEnvironmentVariable('HLRU_TEST_TRIAL_PACK')<>'1') or TrialSeen or TrialButton.Visible then Exit;
+          Require(Pos('Уменьшение:',TLabel(Form.FindComponent('CompressionSizes')).Caption)>0,
+            'Missing measured archive size after trial');
+          Require(THashSHA2.GetHashStringFromFile(Source)=OriginalSHA,'Trial changed original archive');
+          Require(Length(TDirectory.GetFiles(BackupFolder,'*.zip'))=0,'Trial published a backup');
+          TrialSeen:=True;
+          if Mode='estimate' then TButton(Form.FindComponent('CompressionSkip')).Click
+          else TButton(Form.FindComponent('CompressionApply')).Click;
+          Exit;
+        end;
         EstimateSeen:=True; ReviewSeen:=True;
         Require(THashSHA2.GetHashStringFromFile(Source)=OriginalSHA,'Estimate changed original archive');
         Require(Length(TDirectory.GetFiles(BackupFolder,'*.zip'))=0,'Estimate published a backup');
         Require(not TButton(Form.FindComponent('CompressionApplyAll')).Visible,'Estimate applies later quality choices implicitly');
         Require(Pos('до внешней упаковки',TLabel(Form.FindComponent('CompressionNote')).Caption)>0,
           'Estimate confused payload sizes with disk savings');
-        if Mode='estimate' then TButton(Form.FindComponent('CompressionSkip')).Click
+        if GetEnvironmentVariable('HLRU_TEST_TRIAL_PACK')='1' then
+        begin Require(TrialButton.Visible and TrialButton.Enabled,'Missing trial action'); TrialButton.Click; end
+        else if Mode='estimate' then TButton(Form.FindComponent('CompressionSkip')).Click
         else TButton(Form.FindComponent('CompressionApply')).Click;
         Exit;
       end;
@@ -589,6 +603,8 @@ begin
     Require(Driver.OptionsSeen and Driver.ReviewSeen and Driver.ResultSeen and
       ((Mode='estimate') or Driver.ComparisonSeen) and (not Driver.EstimateFirst or Driver.EstimateSeen),
       'Normal catalogue compression did not reach options, review and result; last stage: '+Driver.LastStage);
+    if GetEnvironmentVariable('HLRU_TEST_TRIAL_PACK')='1' then
+      Require(Driver.TrialSeen,'Normal catalogue did not display a measured archive trial');
     // Read actual decoded producer events: a short stage may finish between
     // two GUI timer ticks even for an illustrated EPUB.
     if Members[1]='two.epub' then
