@@ -86,7 +86,7 @@ target catalogue. Both final 10,000-row pilots require:
 | Ordinary Main build | r1683, PASS | r1684, PASS |
 | Main SHA-256 | 3e5accbc7da69fe36d7600ca76af940f69b3d4c8140fa5107bb3fb3d9788315f | 8912bad88037bbbb3ce19631bbc07cd928276693238277f79eb3bb5a5aaf74e0 |
 | Existing whole/bound update matrix | r1684, PASS | r1685, PASS |
-| Fixed million-row run | r1686, running | r1687, queued |
+| Fixed million-row run | r1686, PASS | r1687, running |
 
 Each final pilot has six PASS markers including bootstrap, the indexed native
 plan, complete application and repeat review. Ordinary Main builds verify the
@@ -100,8 +100,39 @@ checkpoint-r1685.json binds the four passing native runs (40 PASS markers
 including bootstrap), the old scan and both ordinary Main receipts.
 The two large runs use the same five pinned publisher files. Their sequential
 controller is library-scale-fixed-pipeline-r1685; its report is authoritative
-for pending/finished stages. Until those reports pass, no fixed million-row
-completion or paired large performance comparison is claimed.
+for pending/finished stages. Paired large completion is still pending Win32.
+
+## Completed Win64 million-row run
+
+The final Win64 run exited successfully with six PASS markers and removed its
+private runtime. Every old ID/field/relation and protected personal row passed
+the checks above, the new card reads correctly, and repeat review has no new
+or changed records. Both original INPX files and both ZIPs retain their hashes.
+
+| Phase | Seconds |
+| --- | ---: |
+| Native initial import | 145.484 |
+| First review | 398.328 |
+| Apply, including preparation, cache and backup | 399.359 |
+| Independent stored-data checks | 6.968 |
+| Repeat read-only review | 388.907 |
+| Whole fixture wall time, including setup | 1368.828 |
+
+This is about 13 minutes 18 seconds for the first review plus application on
+this host/input. The full fixture's 22 minutes 49 seconds also includes seed
+import, independent verification and repeat review. The old run never finished
+application, so it does not support a whole-operation before/after speedup
+factor. Repeat review is not a second apply.
+
+The two-second sampler observed at most 6,546,589,025 bytes across the whole
+runtime, 1,225,256,960 bytes of private process memory and an OS peak working set
+of 1,900,351,488 bytes. Runtime bytes include the extra baseline reference and
+binaries; they are not physical allocation, a guaranteed peak or a storage
+forecast. Observed C: free space stayed at or above 22,984,687,616 bytes.
+
+G:/HL-b14-external/library-update-scale-validation-r1667/summary64-r1690.json
+binds the native receipt, all 697 matching source inputs and the shared publisher
+manifest. Win32 is running separately; its result is not implied by Win64.
 
 Earlier guard/fixture failures remain diagnostic reports, with successful
 owned-runtime cleanup recorded separately where required. No E: input, real
