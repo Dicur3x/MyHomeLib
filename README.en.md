@@ -17,15 +17,24 @@ originally created by **Олексій Пеньков (Oleksiy Penkov)**.
 
 [HomeLibre releases for Windows](https://github.com/Dicur3x/MyHomeLib/releases) · [Release history](docs/releases/README.md)
 
-In the selected release, choose `HomeLibre_x64.zip` for 64-bit Windows or
-`HomeLibre.zip` for 32-bit Windows. The same page has `SHA256SUMS.txt`
-for checking the archives.
+Starting with 3.0 beta 14, choose one of these archives for a manual installation.
+
+| Package | Windows x64 | Windows x86 |
+| --- | --- | --- |
+| Minimal | `HomeLibre_x64_portable.zip` | `HomeLibre_portable.zip` |
+| Full offline | `HomeLibre_x64_full.zip` | `HomeLibre_full.zip` |
+
+The minimal package downloads modules when needed. The full package includes
+the reader, additional modules, and the WebView2 and .NET Framework installers.
+The built-in updater in earlier versions uses `HomeLibre_x64.zip` and
+`HomeLibre.zip`. Choose one of those two archives to install beta 13 manually.
+The release page lists archive checksums in `SHA256SUMS.txt`.
 
 Requires **Windows 10 or later**. The archive contains the catalogue app.
 Books are obtained separately.
 
 1. Extract the archive to a folder you can write to.
-2. Run **HomeLibre.exe**.
+2. Run **HomeLibre.exe**. For beta 13, run **HomeLibRu.exe**.
 3. Use the **Collection** menu to create an empty collection, import INPX or
    open an existing `.hlc2` catalogue.
 4. Choose your books folder. Use **Collection → Import → Add file…** or drag
@@ -40,7 +49,8 @@ Books are obtained separately.
 ## HomeLibre Reader
 
 [Download HomeLibre Reader and components](https://github.com/Dicur3x/MyHomeLib/releases/tag/optional-alreader-2.5.1009.25)
-Choose the HomeLibre Reader archive for Windows x86 or x64 from the list of assets.
+Starting with beta 14, choose the standalone `HomeLibreReader-…-Win64.zip`
+or `HomeLibreReader-…-Win32.zip` archive.
 
 To read files without the catalogue app, extract the Reader archive, run
 **HomeLibreReader.exe** and press **Ctrl+O**. If you open a book from the catalogue,
