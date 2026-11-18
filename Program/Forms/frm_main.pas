@@ -5102,10 +5102,10 @@ begin
   if not Assigned(FBookCompressionOperation) then Exit;
   State:=FBookCompressionOperation.Status;
   FBookCompressionProgress.UpdateProgress(State);
-  if not State.Finished then Exit;
+  if not (State.Finished or State.AwaitingRefresh) then Exit;
   if FStartupLoading or FBookListLoading or FFormBusy then Exit;
   FBookCompressionTimer.Enabled:=False;
-  FBookCompressionOperation.WaitFor;
+  if State.Finished then FBookCompressionOperation.WaitFor;
   RefreshError:='';
   try
     if State.ChangedFiles>0 then
@@ -5120,12 +5120,18 @@ begin
           raise EAbort.Create('Обновление списка книг отменено.');
       end;
     end;
-    FBookCompressionOperation.AcknowledgeCompletedJobs;
+    if State.Finished then FBookCompressionOperation.AcknowledgeCompletedJobs;
   except on E:Exception do
     begin
       RefreshError:='Файлы обработаны, но обновление окна не завершено. Журнал сохранён для следующего запуска. '+E.Message;
       LogDiagnosticError('book-compression-refresh',E);
     end;
+  end;
+  if State.AwaitingRefresh then
+  begin
+    FBookCompressionOperation.ConfirmRefresh(RefreshError);
+    FBookCompressionTimer.Enabled:=True;
+    Exit;
   end;
   State:=FBookCompressionOperation.Status;
   FCompressionNeedsRecovery:=(Length(TBookCompressionJob.Pending(FBookCompressionOperation.QueueRoot))>0) or

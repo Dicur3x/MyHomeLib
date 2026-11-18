@@ -150,6 +150,11 @@ begin
           Operation.Start;
           repeat
             State:=Operation.Status;
+            if State.AwaitingRefresh then
+            begin
+              if Mode='stop-shared-refresh' then Operation.RequestStop
+              else Operation.ConfirmRefresh(Text(Data,'refresh_error'));
+            end;
             if State.AwaitingReview then
             begin
               if (AllowedSource<>'') and not State.AwaitingEstimate then

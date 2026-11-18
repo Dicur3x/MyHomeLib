@@ -44,6 +44,7 @@ type
     function CreateRequest(const Workspace, ReportFile, SevenZip, ToolsRoot,
       Profile: string; Grayscale: Boolean): TJSONObject;
     function ReceiptTemplate: string;
+    function TrialImageGroup: TJSONObject;
     function MemberCount: Integer;
     function RowCount: Integer;
     property Source: string read FSource;
@@ -277,6 +278,16 @@ end;
 
 function TCompressionFilePlan.MemberCount: Integer;
 begin Result:=FMembers.Count; end;
+
+function TCompressionFilePlan.TrialImageGroup:TJSONObject;
+begin
+  Result:=TJSONObject.Create;
+  try
+    Result.AddPair('source',FSource);
+    Result.AddPair('members',FMembers.Clone as TJSONObject);
+    Result.AddPair('catalogue',FTemplate.GetValue<string>('catalogue'));
+  except Result.Free; raise; end;
+end;
 
 function TCompressionFilePlan.RowCount: Integer;
 begin Result:=FRows.Count; end;

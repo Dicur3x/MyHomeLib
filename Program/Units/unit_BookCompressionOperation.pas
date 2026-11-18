@@ -25,7 +25,7 @@ type
     EstimateInputBytes, EstimateKnownInputBytes, EstimateOutputBytes, EstimateArchiveBytes: Int64;
     EstimateUnknownBooks: Int64;
     TrialInputBytes, TrialOutputBytes, TrialSharedFiles: Int64;
-    TrialRunning, TrialReady: Boolean;
+    TrialRunning, TrialReady, AwaitingRefresh: Boolean;
     Estimating, AwaitingEstimate, EstimateOnly: Boolean;
     Finished, Stopping, AwaitingReview, Recovery, SavingsKnown: Boolean;
   end;
@@ -37,10 +37,14 @@ type
   private type
     TTrialFile = record
       InputBytes, OutputBytes: Int64;
-      Shared: Boolean;
+      Path, Identity: string;
+      Shared, SideOnly: Boolean;
     end;
   private
     FTrialFiles: TDictionary<string,TTrialFile>;
+    FTrialSkipped: TDictionary<string,Boolean>;
+    FCompletedFileKeys: TDictionary<string,Boolean>;
+    FRefreshError: string;
     FOptions: TBookCompressionOperationOptions;
     FFactory: TCompressionPlanFactory;
     FLock: TObject;
@@ -67,7 +71,9 @@ type
     procedure CleanAbandonedWork;
     function EngineFingerprint: string;
     function Review(Estimate: Boolean = False): TCompressionReview;
+    procedure RefreshBeforeSharedFile(const SourceIdentity:string; Images:TJSONArray);
     procedure MeasureTrialFiles(FilePlan:TCompressionFilePlan; Images:TJSONArray; Report:TJSONObject);
+    procedure MeasureSharedTrial(Plan:TBookCompressionPlan);
     procedure EstimateFile(FilePlan: TCompressionFilePlan);
     function ValidateRestored(JobRequest: TJSONObject): TJSONObject;
     procedure RunFile(FilePlan: TCompressionFilePlan; Trial:Boolean);
@@ -85,6 +91,7 @@ type
     function QueueRoot: string;
     // Call only after WaitFor and after refreshing affected application views.
     procedure AcknowledgeCompletedJobs;
+    procedure ConfirmRefresh(const ErrorMessage:string);
   end;
 
 function CompressionQueueRoot(const Options: TBookCompressionOperationOptions): string;
@@ -311,6 +318,7 @@ begin
   inherited Create(True); FreeOnTerminate:=False; Priority:=tpLower;
   FLock:=TObject.Create; FReviewEvent:=TEvent.Create(nil,True,False,'');
   FCompleted:=TObjectList<TBookCompressionJob>.Create(True);
+  FCompletedFileKeys:=TDictionary<string,Boolean>.Create;
   FOptions:=Options; FFactory:=Factory;
   if (Options.WorkRoot='') or not TPath.IsPathRooted(Options.WorkRoot) then
     raise EArgumentException.Create('Нужна папка для временных файлов сжатия.');
@@ -340,7 +348,7 @@ begin
   if Assigned(FLock) and Assigned(FReviewEvent) and not Finished then RequestStop;
   inherited;
   ReleaseWorkHandles;
-  FTrialFiles.Free; FCompleted.Free; FReviewEvent.Free; FLock.Free;
+  FTrialSkipped.Free; FTrialFiles.Free; FCompletedFileKeys.Free; FCompleted.Free; FReviewEvent.Free; FLock.Free;
 end;
 
 function TBookCompressionOperation.QueueRoot:string;
@@ -694,6 +702,58 @@ begin
   end;
 end;
 
+procedure TBookCompressionOperation.ConfirmRefresh(const ErrorMessage:string);
+begin
+  TMonitor.Enter(FLock);
+  try
+    if not FState.AwaitingRefresh then Exit;
+    FRefreshError:=ErrorMessage;
+    FState.AwaitingRefresh:=False;
+    FReviewEvent.SetEvent;
+  finally TMonitor.Exit(FLock); end;
+end;
+
+procedure TBookCompressionOperation.RefreshBeforeSharedFile(const SourceIdentity:string; Images:TJSONArray);
+begin
+  if FCompletedFileKeys.Count=0 then Exit;
+  var Shared:=FCompletedFileKeys.ContainsKey(Copy(SourceIdentity,1,25));
+  for var Image in Images do
+    if FCompletedFileKeys.ContainsKey(Copy(Image.GetValue<string>('source_identity'),1,25)) then Shared:=True;
+  if not Shared then Exit;
+  // Retire preceding receipts while they still describe the on-disk files.
+  // A failed refresh or stop keeps them recoverable before any further write.
+  TMonitor.Enter(FLock);
+  try
+    FReviewEvent.ResetEvent;
+    FRefreshError:='';
+    FState.Stage:='Обновляем список книг перед продолжением работы с общим архивом';
+    FState.AwaitingRefresh:=True;
+  finally TMonitor.Exit(FLock); end;
+  try
+    repeat
+      CheckStop;
+      TMonitor.Enter(FLock);
+      try
+        if not FState.AwaitingRefresh then
+        begin
+          if FRefreshError<>'' then raise EReadError.Create(FRefreshError);
+          Break;
+        end;
+      finally TMonitor.Exit(FLock); end;
+      FReviewEvent.WaitFor(100);
+    until False;
+    for var I:=FCompleted.Count-1 downto 0 do
+    begin
+      FCompleted[I].Forget;
+      FCompleted.Delete(I);
+    end;
+    FCompletedFileKeys.Clear;
+  finally
+    TMonitor.Enter(FLock);
+    try FState.AwaitingRefresh:=False; finally TMonitor.Exit(FLock); end;
+  end;
+end;
+
 procedure TBookCompressionOperation.EstimateFile(FilePlan:TCompressionFilePlan);
 var Request,Report:TJSONObject; Output:TCompressionEventStream;
     Script,ReportFile:string; Input,KnownInput,KnownOutput,Unknown,ArchiveSize:Int64;
@@ -797,13 +857,14 @@ function TBookCompressionOperation.ValidateRestored(JobRequest:TJSONObject):TJSO
 procedure TBookCompressionOperation.MeasureTrialFiles(FilePlan:TCompressionFilePlan; Images:TJSONArray;
   Report:TJSONObject);
 var Related:TJSONArray; Saved:Int64; Candidate:string;
-  procedure CountFile(const Path,Identity,Prepared:string);
+  procedure CountFile(const Path,Identity,Prepared:string; Side:Boolean);
   var Item,Prior:TTrialFile;
   begin
     CheckStop;
     if (Identity='') or (ArchiveDeletionSourceIdentity(Path)<>Identity) then
       raise EReadError.Create('Во время пробной упаковки изменился файл: '+Path);
     Item.InputBytes:=TFile.GetSize(DeletionNativePath(Path));
+    Item.Path:=Path; Item.Identity:=Identity; Item.SideOnly:=Side;
     Item.OutputBytes:=Item.InputBytes; Item.Shared:=False;
     if Prepared<>'' then Item.OutputBytes:=TFile.GetSize(DeletionNativePath(Prepared));
     if (Item.OutputBytes<=0) or (Item.OutputBytes>Item.InputBytes) then
@@ -816,13 +877,15 @@ var Related:TJSONArray; Saved:Int64; Candidate:string;
     try
       if FTrialFiles.TryGetValue(Key,Prior) then
       begin
-        if (Prior.InputBytes<>Item.InputBytes) then
-          raise EReadError.Create('Размер общего файла изменился во время расчёта.');
+        if (Prior.InputBytes<>Item.InputBytes) or (Prior.Identity<>Identity) then
+          raise EReadError.Create('Общий файл изменился во время расчёта.');
+        Prior.SideOnly:=Prior.SideOnly and Side and SameFileName(Prior.Path,Path);
         if not Prior.Shared and ((Prior.InputBytes<>Prior.OutputBytes) or (Prepared<>'')) then
         begin
           Dec(FState.TrialInputBytes,Prior.InputBytes); Dec(FState.TrialOutputBytes,Prior.OutputBytes);
-          Prior.Shared:=True; FTrialFiles[Key]:=Prior; Inc(FState.TrialSharedFiles);
+          Prior.Shared:=True; Inc(FState.TrialSharedFiles);
         end;
+        FTrialFiles[Key]:=Prior;
       end
       else
       begin
@@ -845,7 +908,8 @@ begin
     var Receipt:=Report.GetValue<TJSONObject>('receipt',nil);
     if Receipt<>nil then Related:=Receipt.GetValue<TJSONArray>('group_files',nil);
   end;
-  CountFile(FilePlan.Source,FilePlan.SourceIdentity,Candidate);
+  CountFile(FilePlan.Source,FilePlan.SourceIdentity,Candidate,False);
+  if Report=nil then FTrialSkipped.AddOrSetValue(FilePlan.FileKey,True);
   for var Image in Images do
   begin
     var Path:=Image.GetValue<string>('path','');
@@ -854,10 +918,97 @@ begin
     if Related<>nil then
       for var Ref in Related do
         if SameFileName(Ref.GetValue<string>('source'),Path) then Candidate:=Ref.GetValue<string>('candidate');
-    CountFile(Path,Image.GetValue<string>('source_identity'),Candidate);
+    CountFile(Path,Image.GetValue<string>('source_identity'),Candidate,True);
   end;
   if (Report<>nil) and (Saved<>Report.GetValue<Int64>('input_bytes')-Report.GetValue<Int64>('output_bytes')) then
     raise EReadError.Create('Размер пробной упаковки не совпал с проверенными файлами.');
+end;
+
+procedure TBookCompressionOperation.MeasureSharedTrial(Plan:TBookCompressionPlan);
+var Shared:TDictionary<string,TTrialFile>; Request,Report:TJSONObject;
+    Groups,Paths:TJSONArray; Events:TCompressionEventStream;
+begin
+  if FState.TrialSharedFiles=0 then Exit;
+  Shared:=TDictionary<string,TTrialFile>.Create;
+  Request:=TJSONObject.Create;
+  try
+    Paths:=TJSONArray.Create; Request.AddPair('shared',Paths);
+    for var Info in FTrialFiles.Values do
+      if Info.Shared and Info.SideOnly then
+      begin
+        Shared.Add(UpperCase(Info.Path),Info);
+        Paths.Add(Info.Path);
+      end;
+    if Shared.Count=0 then Exit;
+    SetStage('Пробная упаковка общих архивов иллюстраций');
+    Groups:=TJSONArray.Create; Request.AddPair('groups',Groups);
+    Plan.ForEachFile(
+      procedure(FilePlan:TCompressionFilePlan)
+      var Group,Refs:TJSONObject; Images:TJSONArray;
+      begin
+        CheckStop; Group:=nil; Refs:=nil;
+        Images:=CaptureCompressionImageSources(FilePlan.Source);
+        try
+          for var Image in Images do
+          begin
+            var Path:=Image.GetValue<string>('path');
+            var Item:TTrialFile;
+            if not Shared.TryGetValue(UpperCase(Path),Item) then Continue;
+            if Image.GetValue<string>('source_identity')<>Item.Identity then
+              raise EReadError.Create('Общий архив иллюстраций изменился перед расчётом: '+Path);
+            if Group=nil then
+            begin
+              Group:=FilePlan.TrialImageGroup; Groups.AddElement(Group);
+              if Request.GetValue('catalogue')=nil then Request.AddPair('catalogue',Group.GetValue<string>('catalogue'));
+              Group.AddPair('already_checked',TJSONBool.Create(FTrialSkipped.ContainsKey(FilePlan.FileKey)));
+              Refs:=TJSONObject.Create; Group.AddPair('shared',Refs);
+            end;
+            Refs.AddPair(Image.GetValue<string>('kind'),Item.Path);
+          end;
+        finally Images.Free; end;
+      end);
+    try
+      CreateWork;
+      Request.AddPair('version',TJSONNumber.Create(1)); Request.AddPair('kind','HomeLibre shared archive trial');
+      Request.AddPair('profile',FOptions.Profile); Request.AddPair('grayscale',TJSONBool.Create(FOptions.Grayscale));
+      Request.AddPair('workspace',TPath.Combine(FWork,'payload')); Request.AddPair('seven_zip',FOptions.SevenZip);
+      Request.AddPair('tools_root',FOptions.ToolsRoot); Request.AddPair('jpeg_xl_decoder',FindExternalTool('djxl.exe','jpeg-xl'));
+      var ReportName:=TPath.Combine(FWork,'report.json'); Request.AddPair('report',ReportName);
+      var JobName:=TPath.Combine(FWork,'request.json'); SaveText(JobName,Request.ToJSON);
+      Events:=TCompressionEventStream.Create(Self);
+      try
+        try
+          RunExternalToolToStream(FOptions.Python,
+            ['-I','-B','-X','utf8',TPath.Combine(FOptions.ToolsRoot,'bookconvert\external_image_preparation.py'),
+             '--job',JobName,'--cancel',FCancelFile,'--shared-trial'],
+            Events,CancelProducer,0,True,NativeUInt(512)*1024*1024);
+        except on E:EMHLExternalToolError do
+          begin CheckStop; if FLastError<>'' then raise EReadError.Create(FLastError); raise; end;
+        end;
+      finally Events.Free; end;
+      CheckStop; Report:=ReadObject(ReportName);
+      try
+        var Input,Output:Int64;
+        Input:=0; Output:=0;
+        var Files:=Report.GetValue<TJSONArray>('files');
+        for var FileData in Files do
+        begin
+          var Key:=UpperCase(FileData.GetValue<string>('source'));
+          var Item:TTrialFile;
+          var Size:=FileData.GetValue<Int64>('output_bytes');
+          if not Shared.TryGetValue(Key,Item) or (FileData.GetValue<Int64>('input_bytes')<>Item.InputBytes) or
+            (ArchiveDeletionSourceIdentity(Item.Path)<>Item.Identity) or (Size<=0) or (Size>Item.InputBytes) then
+            raise EReadError.Create('Измерение общего архива не соответствует исходному файлу.');
+          Inc(Input,Item.InputBytes); Inc(Output,Size); Shared.Remove(Key);
+        end;
+        if Shared.Count<>0 then raise EReadError.Create('Измерены не все общие архивы.');
+        TMonitor.Enter(FLock);
+        try
+          Inc(FState.TrialInputBytes,Input); Inc(FState.TrialOutputBytes,Output); Dec(FState.TrialSharedFiles,Files.Count);
+        finally TMonitor.Exit(FLock); end;
+      finally Report.Free; end;
+    finally CleanWork; end;
+  finally Request.Free; Shared.Free; end;
 end;
 
 procedure TBookCompressionOperation.RunFile(FilePlan:TCompressionFilePlan; Trial:Boolean);
@@ -919,6 +1070,9 @@ begin
     FState.PreviewFile:=''; FState.PreviewSHA256:=''; FState.ImageChanges:=0;
   finally TMonitor.Exit(FLock); end;
   try
+    CapturedImages:=CaptureCompressionImageSources(FilePlan.Source);
+    if not Trial then RefreshBeforeSharedFile(FilePlan.SourceIdentity,CapturedImages);
+    CheckStop;
     SetStage('Проверяем ранее обработанный файл');
     if FilePlan.AlreadyChecked(FOptions.Profile,FOptions.Grayscale,EngineFingerprint,Stopping,
       procedure(Done,Total:Int64) begin SetStage('Проверяем ранее обработанный файл',Done,Total); end) then
@@ -926,7 +1080,6 @@ begin
       SetStage('Уже проверено с этими настройками. Файл не изменился.');
       if Trial then
       begin
-        CapturedImages:=CaptureCompressionImageSources(FilePlan.Source);
         MeasureTrialFiles(FilePlan,CapturedImages,nil);
       end
       else begin
@@ -936,7 +1089,6 @@ begin
       Exit;
     end;
     CreateWork;
-    CapturedImages:=CaptureCompressionImageSources(FilePlan.Source);
     ReportFile:=TPath.Combine(FWork,'report.json');
     Request:=FilePlan.CreateRequest(TPath.Combine(FWork,'payload'),ReportFile,
       FOptions.SevenZip,FOptions.ToolsRoot,FOptions.Profile,FOptions.Grayscale);
@@ -1048,6 +1200,12 @@ begin
         procedure(const Stage:string; Done,Total:Int64) begin SetStage(Stage,Done,Total); end,Fault);
       KeepWork:=False;
       FCompleted.Add(Job); Job:=nil;
+      FCompletedFileKeys.AddOrSetValue(Copy(FilePlan.SourceIdentity,1,25),True);
+      for var Image in CapturedImages do
+      begin
+        var Key:=Copy(Image.GetValue<string>('source_identity'),1,25);
+        if Key<>'' then FCompletedFileKeys.AddOrSetValue(Key,True);
+      end;
       TMonitor.Enter(FLock);
       try
         FState.PendingJob:=''; Inc(FState.ChangedFiles);
@@ -1151,9 +1309,13 @@ begin
           if Decision=crTrial then
           begin
             FTrialFiles:=TDictionary<string,TTrialFile>.Create;
+            FTrialSkipped:=TDictionary<string,Boolean>.Create;
             TMonitor.Enter(FLock);
             try FState.TrialRunning:=True; finally TMonitor.Exit(FLock); end;
-            try ProcessFiles(True); finally FreeAndNil(FTrialFiles); end;
+            try
+              ProcessFiles(True);
+              MeasureSharedTrial(Plan);
+            finally FreeAndNil(FTrialSkipped); FreeAndNil(FTrialFiles); end;
             TMonitor.Enter(FLock);
             try
               FState.TrialRunning:=False; FState.TrialReady:=True; FState.WorkingBytes:=0;

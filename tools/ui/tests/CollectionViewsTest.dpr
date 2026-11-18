@@ -6620,9 +6620,10 @@ begin
         FreeAndNil(DMUser); FreeAndNil(frmSplash);
         Application.OnException:=nil; ExceptionHandler.Free; Halt(0);
       end;
-      if (ParamStr(1)='selected-compression-ui') or (ParamStr(1)='compression-preferences') then
+      if MatchText(ParamStr(1),['selected-compression-ui','compression-preferences','shared-compression-refresh']) then
       begin
         if ParamStr(1)='compression-preferences' then TestCompressionPreferences(One,Two)
+        else if ParamStr(1)='shared-compression-refresh' then TestSharedArchiveRefresh(One,FirstBook,LastBook)
         else TestSelectedCompressionCatalogue(One,FirstBook,LastBook);
         Flush(Output);
         FreeAndNil(frmMain); FreeAndNil(dmImages); One:=nil; Two:=nil;

@@ -58,16 +58,20 @@ def _witness(path, check):
     return value
 
 
-def _dependencies(source, check):
+def _dependency_paths(source):
     # Match FindSiblingArchive: ZIP has priority, including a 7z named .zip.
-    result = []
+    result = {}
     for kind in ('covers', 'images'):
         for suffix in ('.zip', '.7z'):
             path = source.parent / kind / (_stem(source.name) + suffix)
             if path.is_file():
-                result.append(dict(kind=kind, **_witness(path, check)))
+                result[kind] = path
                 break
     return result
+
+
+def _dependencies(source, check):
+    return [dict(kind=kind, **_witness(path, check)) for kind, path in _dependency_paths(source).items()]
 
 
 def _stem(name):
@@ -121,7 +125,7 @@ def _decode_jpeg_xl(data, decoder, directory, check, mime):
 
 def prepare_external_images(source, members, workspace, seven_zip, *, profile='original',
         grayscale=False, tools_root=None, jpeg_xl_decoder=None, preserve_image=lambda digest: False,
-        canceled=lambda: False, notify=lambda event: None):
+        canceled=lambda: False, notify=lambda event: None, trial_inputs=None):
     """Return independent, verified, smaller side-archive candidates.
 
     ``members`` names exact selected outer book members and their extensions.
@@ -155,7 +159,12 @@ def prepare_external_images(source, members, workspace, seven_zip, *, profile='o
     result = PreparedExternalImages(str(source), source_witness, [], supported=supported)
     if not supported:
         return result
-    result.dependencies = _dependencies(source, check)
+    def dependencies():
+        if trial_inputs is None:
+            return _dependencies(source, check)
+        return [dict(kind=kind, **_witness(path, check)) for kind, path in trial_inputs.items()]
+
+    result.dependencies = dependencies()
     if any(Path(dep['path']).stat().st_nlink != 1 for dep in result.dependencies):
         raise PackingError('Архив внешних изображений имеет несколько жёстких ссылок; нужен общий план его использования.')
     if any(Path(canonical(dep['path'])).is_relative_to(Path(canonical(work))) for dep in result.dependencies):
@@ -305,7 +314,7 @@ def prepare_external_images(source, members, workspace, seven_zip, *, profile='o
                     input_bytes=prepared.input_bytes, output_bytes=prepared.output_bytes, images=records))
                 notify(dict(stage='external-archive-prepared', kind=kind, candidate=bool(candidate)))
             result.blocked_members = sorted(blocked)
-            if _witness(source, check) != source_witness or _dependencies(source, check) != result.dependencies:
+            if _witness(source, check) != source_witness or dependencies() != result.dependencies:
                 raise PackingError('Книга или внешние изображения изменились во время подготовки.')
         return result
     except BaseException:
@@ -328,10 +337,67 @@ def reader_sources(prepared, *, candidates):
     return [sources.get(kind, '') for kind in ('covers', 'images')]
 
 
+def measure_shared_trial(request, canceled, notify):
+    from compression_image_history import CompressedImageHistory
+    from prepare_book_compression import profile_digest
+
+    def check():
+        if canceled():
+            raise Canceled('Пробная упаковка общих архивов остановлена.')
+
+    profile, gray = request['profile'], request['grayscale']
+    work = Path(request['workspace'])
+    originals = {Path(path) for path in request['shared']}
+    if not originals or len(originals) != len(request['shared']):
+        raise PackingError('Не совпал список общих архивов для пробной упаковки.')
+    witnesses = {path: _witness(path, check) for path in originals}
+    current = {path: path for path in originals}
+    uses = dict.fromkeys(originals, 0)
+    produced = set()
+    with CompressedImageHistory(request['catalogue'], profile_digest(profile, gray), check) as history, \
+            temporary_work_directory(work, '.selected-') as scratch:
+        for group in request['groups']:
+            check()
+            source = Path(group['source'])
+            found = _dependency_paths(source)
+            inputs = {}
+            for kind, name in group['shared'].items():
+                original = Path(name)
+                if original not in originals or found.get(kind) != original:
+                    raise PackingError('Изменилась привязка общего архива иллюстраций.')
+                uses[original] += 1
+                inputs[kind] = current[original]
+            if group['already_checked'] and all(path == found[kind] for kind, path in inputs.items()):
+                continue
+            with temporary_work_directory(scratch, 'group-') as folder:
+                prepared = prepare_external_images(source, group['members'], folder, request['seven_zip'],
+                    profile=profile, grayscale=gray, tools_root=request['tools_root'],
+                    jpeg_xl_decoder=request['jpeg_xl_decoder'], trial_inputs=inputs,
+                    preserve_image=lambda digest: digest in produced or history.contains(digest),
+                    canceled=canceled, notify=notify)
+                if not prepared.supported:
+                    raise PackingError('Исходный архив больше не содержит книги FLibrary.')
+                for entry in prepared.archives:
+                    if not entry['candidate']:
+                        continue
+                    original = found[entry['kind']]
+                    if current[original] == original:
+                        current[original] = scratch / (hashlib.sha256(str(original).encode('utf-8')).hexdigest() + '.bin')
+                    Path(entry['candidate']).replace(current[original])
+                    produced.update(item['output_sha256'] for item in entry['images'] if item['changed'] or item['reused'])
+        files = []
+        for path in originals:
+            if uses[path] < 2 or _witness(path, check) != witnesses[path]:
+                raise PackingError('Общий архив изменился во время пробной упаковки.')
+            files.append(dict(source=str(path), input_bytes=path.stat().st_size, output_bytes=current[path].stat().st_size))
+        return dict(files=files)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--job', type=Path, required=True)
     parser.add_argument('--cancel', type=Path)
+    parser.add_argument('--shared-trial', action='store_true')
     arguments = parser.parse_args()
     prepared = None
 
@@ -342,9 +408,15 @@ def main():
         return arguments.cancel is not None and arguments.cancel.exists()
 
     try:
-        if not 0 < arguments.job.stat().st_size <= 16 * 1024 * 1024:
+        if not 0 < arguments.job.stat().st_size <= (128 if arguments.shared_trial else 16) * 1024 * 1024:
             raise PackingError('Неверный размер задания внешних изображений.')
         request = json.loads(arguments.job.read_text(encoding='utf-8-sig'))
+        if arguments.shared_trial:
+            if request.get('version') != 1 or request.get('kind') != 'HomeLibre shared archive trial':
+                raise PackingError('Неизвестное задание пробной упаковки.')
+            result = measure_shared_trial(request, canceled, emit)
+            atomic_json(request['report'], result, replace=False)
+            return 0
         if (not isinstance(request, dict) or type(request.get('version')) is not int or
                 request['version'] != 1 or request.get('kind') != 'HomeLibre external image preparation'):
             raise PackingError('Неизвестное задание внешних изображений.')

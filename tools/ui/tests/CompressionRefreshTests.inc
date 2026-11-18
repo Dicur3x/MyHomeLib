@@ -100,3 +100,56 @@ begin
     Writeln('PASS recovery hook acknowledges a successful list refresh without changing approved books or backup');
   finally Driver.Timer.Free; Driver.Free; end;
 end;
+
+procedure TestSharedArchiveRefresh(const Collection:IBookCollection; FirstID,SecondID:Integer);
+var Options:TBookCompressionOperationOptions; Books:TArray<TBookRecord>; State:TBookCompressionOperationStatus;
+    Info:TCollectionInfo; PersonalFile,Queue:string; Operation:TBookCompressionOperation; Started:UInt64;
+begin
+  SetLength(Books,2);
+  for var I:=0 to 1 do
+  begin
+    Collection.GetBookRecord(CreateBookKey(IfThen(I=0,FirstID,SecondID),Collection.CollectionID),Books[I],True);
+    Books[I].Folder:=IfThen(I=0,'books.zip','books.7z');
+    Books[I].FileName:=IfThen(I=0,'one','neighbor'); Books[I].FileExt:='.fb2'; Books[I].InsideNo:=0;
+    Books[I].Size:=123; Collection.UpdateBook(Books[I]);
+  end;
+  Require(TryStoreReaderBookProgress(Collection,Books[0],37),'Cannot seed shared-archive reader progress');
+  Options:=Default(TBookCompressionOperationOptions);
+  Options.WorkRoot:=Settings.AppPath+'compression-work'; Options.Profile:='maximum'; Options.Grayscale:=True;
+  Options.ToolsRoot:=Settings.AppPath+'tools'; Options.Python:=Options.ToolsRoot+'\python\python.exe';
+  Options.SevenZip:=Options.ToolsRoot+'\7zip\7z.exe'; Options.Script:=Options.ToolsRoot+'\bookconvert\prepare_book_compression.py';
+  Queue:=CompressionQueueRoot(Options); Info:=SystemDB.GetCollectionInfo(Collection.CollectionID);
+  PersonalFile:=Settings.SystemFileName[sfSystemDB];
+  Operation:=TBookCompressionOperation.Create(Options,
+    function(const Cancelled:TFunc<Boolean>; const Progress:TProc<Int64>):TBookCompressionPlan
+    begin Result:=BuildSelectedCompressionPlan(Info,PersonalFile,Books,Cancelled,Progress); end);
+  frmMain.StartBookCompression(Operation);
+  Started:=GetTickCount64;
+  repeat
+    State:=Operation.Status;
+    if State.AwaitingRefresh or State.Finished then Break;
+    Require(GetTickCount64-Started<90000,'Timed out before shared archive refresh: '+State.Stage);
+    Sleep(10);
+  until False;
+  Require(State.AwaitingRefresh and (State.ChangedFiles=1),'Missing intermediate list refresh: '+State.Error);
+  Require(Length(TBookCompressionJob.Pending(Queue))=1,'First result was forgotten before Main refreshed');
+  frmMain.BookCompressionTick(nil);
+  Started:=GetTickCount64;
+  while not Operation.Finished and (GetTickCount64-Started<90000) do Sleep(10);
+  State:=Operation.Status;
+  Require(State.Finished and (State.ChangedFiles=2) and (State.Error=''),'Second archive did not finish: '+State.Stage+' '+State.Error);
+  Require(Length(TBookCompressionJob.Pending(Queue))=1,'Earlier receipt still refers to the changed shared archive');
+  frmMain.BookCompressionTick(nil);
+  Require(Length(TBookCompressionJob.Pending(Queue))=0,'Main did not acknowledge the second group');
+  var Reloaded:=SystemDB.GetCollection(Collection.CollectionID,True);
+  for var I:=0 to 1 do
+  begin
+    var Updated:TBookRecord;
+    Reloaded.GetBookRecord(Books[I].BookKey,Updated,True);
+    Require((Updated.Size>123) and (Updated.Size=TFile.GetSize(PrepareReaderFile(Updated,True))),
+      'Catalogue size differs from the restored book after the shared refresh');
+  end;
+  var Personal:TBookRecord; SystemDB.GetBookRecord(Books[0].BookKey,Personal);
+  Require(Personal.Progress=37,'Shared archive refresh lost reading progress');
+  Writeln('PASS Main refreshes before reusing the shared archive, acknowledges both results, and opens both complete books');
+end;
