@@ -91,7 +91,7 @@ This is a local production-helper coordination test. To require actual EXE repla
 
 Reports: `G:/HomeLibRu-build-cache/HomeLibre-post13-reader-coordination-20261113/Win64-r2-state.json` and `Win32-state.json`, both PASS for the strengthened checks. Exact ZIPs and `reader-component-report.json` remain in that stage's `packages` directory. All three private runtime directories, including the initial partial attempt, were closed normally and removed. No Desktop installation or user books were changed.
 
-## Remaining release gates
+## Published Reader and visible catalogue on 18 November
 
 On 18 November, the published beta 13 Reader initiated its component upgrade
 from its own Components window while a beta 14 catalogue and another beta 13
@@ -115,7 +115,12 @@ and removed. Reports are `r1967-catalogue-visibility/final-*.json` and
 These runs used a predownloaded component and the helper supplied by the
 already-updated catalogue. Coverage of the stock standalone helper is separate.
 
-The Todo item remains open. Before claiming the full transition: exercise the unchanged published update UI against the final beta 14 package; prepare the final beta 14 identities and repeat the relevant final-package checks, including coordinated catalogue/Reader restart; update all four README languages and explain the portable/bridge assets on the release page. The old Windows shortcut and local production-helper coordination are now proven with the current real candidates on both architectures, but must still remain compatible in the final release. No publication has happened in this task.
+## Remaining release gates
+
+The six r1972 distribution archives subsequently passed the native installation
+and inventory checks. The published download URLs and the release page still
+need verification when beta 14 is published. The four READMEs and the release
+page must point readers to the correct manual portable and full packages.
 
 ## Retained failed-run folder
 

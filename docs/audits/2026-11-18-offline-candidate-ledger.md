@@ -230,7 +230,31 @@ for their MPL terms matched the upstream Cargo.lock checksums. See
 `r1964-kindle-export-source/sources.json` and the
 [pinned Kindling source](https://github.com/ciscoriordan/kindling/tree/3b91b1ea21f892779be09149f21fe4053b1b3569).
 
-## Still open
+## Superseding full and minimal candidates
+
+The r1972 ZIPs carry the updater which restores the visible catalogue after a
+Reader update. Relative to r1962 the full manifests differ in exactly two
+payloads, the updater and the embedded release history. Both reader component
+archives and their standalone variants retain the same Reader executable.
+The new full archive digests are
+`5c9873ecd1b6951b6f2850ccf2ebbe2a9b06c20a3cade35c26c91919bf3a6c4b`
+(x86) and `e6ae65c06d5930fde3b55988698fb682472598041d886f3d77c16b3f51565c86`
+(x64). See `r1970-offline-inputs/verified-delta.json`.
+
+Production preparation, manual extraction, installation over a seeded private
+target and module inventory passed for both full and all four minimal archives.
+The full runs checked 1,625 and 1,626 files, 25 module versions, all bundled
+prerequisites and preservation of settings. The four minimal runs checked
+241 files apiece. See `r1973-distribution-verification/distribution-report.json`.
+
+Independent upstream downloads of SumatraPDF 3.6.1, kepubify 4.0.4 and
+7-Zip 26.05 match the executables shipped on both architectures. For 7-Zip
+the DLL and licence also matched the files inside the official installer, and
+the official source archive contains the decoder interface and console entry
+point. The exact upstream revisions and digests are in
+`r1974-upstream-utilities/report.json`.
+
+## Remaining checks
 
 Clean-Windows prerequisite installation, offline GUI operation and remaining
 source checks are open. Desktop replacement and
