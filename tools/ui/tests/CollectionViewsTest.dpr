@@ -6238,6 +6238,7 @@ end;
 {$I InpxWizardSourceTests.inc}
 {$I MetadataFillUiTests.inc}
 {$I ContextToolGuideTests.inc}
+{$I LibraryUpdateStorageTests.inc}
 {$I BookInfoPanelFooterTests.inc}
 {$I BookInfoPanelAdaptiveTests.inc}
 {$I BookReviewPreviewTests.inc}
@@ -6872,6 +6873,8 @@ begin
       else if (ParamStr(1) = 'library-update-apply') or (ParamStr(1)='transfer-empty-updates') or
         (ParamStr(1)='reviewed-id-reservation') or (ParamStr(1)='transfer-cross-volume-updates') then TestLibraryUpdateApplication
       else if ParamStr(1) = 'library-update-cancel' then TestLibraryUpdateCancellation
+      else if ParamStr(1) = 'library-update-storage' then TestLibraryUpdateStorage
+      else if ParamStr(1) = 'library-update-storage-full' then TestLibraryUpdateStorageFull
       else if ParamStr(1) = 'library-update-window' then TestLibraryUpdateWindow
       else if ParamStr(1) = 'library-update-recovery' then TestLibraryUpdateRecoveryCrash
       else if (ParamStr(1) = 'catalog-sources') or (ParamStr(1) = 'catalog-sources-ui') or

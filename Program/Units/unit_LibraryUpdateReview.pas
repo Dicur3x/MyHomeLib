@@ -32,6 +32,7 @@ type
     FRecoveryError: string;
     FRemovedCount, FMissingCount, FNewCards, FUpdateCards, FPreviousLastID, FUnlistedCount: Integer;
     FLastSpaceCheck: UInt64;
+    function OpenWorkDatabase(const FileName:string; ReadOnly:Boolean=False):TSQLiteDatabase;
     procedure Analyze(const Target, Previous: IBookCollection; const SystemData:ISystemData; const Check: TProc;
       const Progress: TLibraryReviewProgress);
     procedure PrepareApplication(const Target: IBookCollection; const SystemData: ISystemData;
@@ -81,6 +82,7 @@ function CreateLibraryApplyWorker(CollectionID: Integer; Review: TLibraryUpdateR
 
 {$IFDEF MHL_COMPRESSION_TEST}
 var LibraryUpdateTestPoint: TProc<string>;
+var LibraryUpdateTestDatabase: TProc<TSQLiteDatabase>;
 {$ENDIF}
 
 implementation
@@ -104,6 +106,18 @@ begin
   FSource:=Source; FPrepared:=Prepared;
   FNeeded:=TStringList.Create; FHistorical:=TStringList.Create;
   FFound:=TStringList.Create; FAmbiguous:=TStringList.Create;
+end;
+
+function TLibraryUpdateReview.OpenWorkDatabase(const FileName:string; ReadOnly:Boolean):TSQLiteDatabase;
+begin
+  if ReadOnly then Result:=TSQLiteDatabase.CreateReadOnly(FileName,FPrepared.Folder)
+  else Result:=TSQLiteDatabase.Create(FileName,True,False,FPrepared.Folder);
+  try
+    Result.ExecSQL('PRAGMA temp_store=FILE');
+{$IFDEF MHL_COMPRESSION_TEST}
+    if Assigned(LibraryUpdateTestDatabase) then LibraryUpdateTestDatabase(Result);
+{$ENDIF}
+  except Result.Free; raise; end;
 end;
 
 procedure TLibraryUpdateReview.SetSourceProfiles(const Profiles: TLibraryUpdateSources);
@@ -161,7 +175,7 @@ begin
   FReady:=False; CheckSpace; Check;
   FTargetFile:=Settings.ExpandCollectionFileName(VarToStr(Target.GetProperty(PROP_DATAFILE)));
   FOriginalTargetRoot:=Target.CollectionRoot;
-  FreeAndNil(FRevisionDB); FRevisionDB:=TSQLiteDatabase.CreateReadOnly(FTargetFile);
+  FreeAndNil(FRevisionDB); FRevisionDB:=OpenWorkDatabase(FTargetFile,True);
   FTargetRevision:=IntToStr(FRevisionDB.QuerySingleInt('PRAGMA data_version'));
   FSourceInfo.ID:=FSource.ID; FSourceInfo.Name:=FSource.Name;
   FSourceInfo.Root:=Target.CollectionRoot;
@@ -188,19 +202,19 @@ begin
     if not FileExists(PreviousInfo.CacheFile) then
       raise EReadError.Create('Сохранённый индекс обновления недоступен: '+PreviousInfo.CacheFile+
         '. Восстановите служебный каталог источника перед повторной проверкой.');
-    Previous:=OpenCatalogSnapshot(PreviousInfo,PreviousInfo.CacheFile,SystemData); FPreviousIndex:=True;
+    Previous:=OpenCatalogSnapshot(PreviousInfo,PreviousInfo.CacheFile,SystemData,FPrepared.Folder); FPreviousIndex:=True;
     FPreviousInput:=PreviousInfo.INPXFile;
   end
   else if (FSource.CatalogSourceID<>'') and FSourceInfo.IsINPX and FileExists(FSourceInfo.CacheFile) then
-  begin Previous:=OpenCatalogSource(FSourceInfo,SystemData); FPreviousIndex:=True; end;
+  begin Previous:=OpenCatalogSnapshot(FSourceInfo,FSourceInfo.CacheFile,SystemData,FPrepared.Folder); FPreviousIndex:=True; end;
   if (FSource.CatalogSourceID<>'') and not FSourceInfo.IsINPX then
   begin Previous:=OpenCatalogSource(FSourceInfo,SystemData); FPreviousIndex:=True; end;
   if FPreviousIndex then FPreviousFile:=VarToStr(Previous.GetProperty(PROP_DATAFILE));
   SnapshotFile:=TPath.Combine(FPrepared.Folder,'review-'+TGUID.NewGuid.ToString+'.hlc2');
   if FileExists(SnapshotFile) then raise EWriteError.Create('Рабочий файл проверки уже существует.');
   FDatabaseFile:=SnapshotFile;
-  TBookCollection_SQLite.CreateCollection(SystemData,FDatabaseFile,CT_EXTERNAL_LOCAL_FB,Settings.SystemFileName[sfGenresFB2]);
-  FSnapshot:=OpenCatalogSnapshot(FSourceInfo,FDatabaseFile,SystemData);
+  TBookCollection_SQLite.CreateCollection(SystemData,FDatabaseFile,CT_EXTERNAL_LOCAL_FB,Settings.SystemFileName[sfGenresFB2],FPrepared.Folder);
+  FSnapshot:=OpenCatalogSnapshot(FSourceInfo,FDatabaseFile,SystemData,FPrepared.Folder);
   FSnapshot.BeginBulkOperation;
   try
     Namespace:=FSourceInfo.LibraryNamespace;
@@ -331,8 +345,8 @@ var DB: TSQLiteDatabase; Insert, Query: TSQLiteQuery; Iterator: IPublisherSeries
       Scratch:IBookCollection; Source:TCatalogSource; Helper:TCollectionWorker;
       RecoveredIterator:IPublisherSeriesIndexIterator;
     begin
-      TBookCollection_SQLite.CreateCollection(SystemData,FPublisherFile,CT_EXTERNAL_LOCAL_FB,Settings.SystemFileName[sfGenresFB2]);
-      Source:=FSourceInfo; Source.Root:=Previous.CollectionRoot; Scratch:=OpenCatalogSnapshot(Source,FPublisherFile,SystemData);
+      TBookCollection_SQLite.CreateCollection(SystemData,FPublisherFile,CT_EXTERNAL_LOCAL_FB,Settings.SystemFileName[sfGenresFB2],FPrepared.Folder);
+      Source:=FSourceInfo; Source.Root:=Previous.CollectionRoot; Scratch:=OpenCatalogSnapshot(Source,FPublisherFile,SystemData,FPrepared.Folder);
       SpaceNamespace:=VarToStr(Previous.GetProperty(PROP_SOURCE_LIBRARY)); if SpaceNamespace='' then SpaceNamespace:=FSourceInfo.LibraryNamespace;
       if SpaceNamespace<>'' then Scratch.SetProperty(PROP_SOURCE_LIBRARY,SpaceNamespace);
       var Mixed:=Previous.GetProperty(PROP_MIXED_LIBRARY_IDS); if not VarIsEmpty(Mixed) and not VarIsNull(Mixed) then Scratch.SetProperty(PROP_MIXED_LIBRARY_IDS,Mixed);
@@ -491,13 +505,13 @@ begin
   Comparison:=TPath.Combine(FPrepared.Folder,'comparison-'+TGUID.NewGuid.ToString+'.sqlite');
   if FileExists(Comparison) then raise EWriteError.Create('Рабочее сравнение уже существует.');
   FAnalysisFile:=Comparison;
-  DB:=TSQLiteDatabase.Create(FAnalysisFile); Insert:=nil; Query:=nil;
+  DB:=OpenWorkDatabase(FAnalysisFile); Insert:=nil; Query:=nil;
   Containers:=TDictionary<string,string>.Create; Availability:=TDictionary<string,Boolean>.Create;
   StateDB:=nil; StateQuery:=nil; SourceKeyQuery:=nil; PublisherQuery:=nil; RecoveredQuery:=nil; ReviewKeyQuery:=nil;
   try
     if FPreviousIndex then
     begin
-      StateDB:=TSQLiteDatabase.CreateReadOnly(VarToStr(Previous.GetProperty(PROP_DATAFILE)));
+      StateDB:=OpenWorkDatabase(VarToStr(Previous.GetProperty(PROP_DATAFILE)),True);
       if StateDB.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE name=''LibraryUpdateAvailability'' AND type=''table''')>0 then
         if StateDB.QuerySingleInt('SELECT count(*) FROM LibraryUpdateAvailability')>0 then
           StateQuery:=StateDB.NewQuery('SELECT State FROM LibraryUpdateAvailability WHERE BookID=?');
@@ -678,7 +692,7 @@ begin
   FOperationID:=GUIDToString(TGUID.NewGuid);
   FNewCards:=0; FUpdateCards:=0; FRemovedCount:=0; FMissingCount:=0; FUnlistedCount:=0;
   FInventory:=TLibraryUpdateInventory.Create(Check);
-  FActionDB:=TSQLiteDatabase.Create(FAnalysisFile); DB:=FActionDB;
+  FActionDB:=OpenWorkDatabase(FAnalysisFile); DB:=FActionDB;
   DB.ExecSQL('DROP TABLE IF EXISTS ApplyActions'); DB.ExecSQL('DROP TABLE IF EXISTS ApplyLive');
   DB.ExecSQL('DROP TABLE IF EXISTS ApplyDeltaInput');
   DB.ExecSQL('CREATE TABLE ApplyLive(Key TEXT,BookID INTEGER,Identity TEXT,Physical TEXT,LibID TEXT)');
@@ -747,7 +761,7 @@ begin
   Put:=DB.NewQuery('INSERT INTO ApplyActions VALUES(?,?,?,?,?,?,?,?,?,?)');
   Copies:=nil; CopyDB:=nil; CurrentLocation:=nil;
   try
-    CopyDB:=TSQLiteDatabase.CreateReadOnly(FTargetFile);
+    CopyDB:=OpenWorkDatabase(FTargetFile,True);
     CurrentLocation:=CopyDB.NewQuery('SELECT Folder,InsideNo FROM Books WHERE BookID=?');
     if Bound then
     begin
@@ -875,8 +889,8 @@ begin
   Name:=TPath.Combine(FPrepared.Folder,'apply-'+TGUID.NewGuid.ToString+'.hlc2');
   if FileExists(Name) then raise EWriteError.Create('Файл подготовки уже существует.');
   FDeltaFile:=Name;
-  TBookCollection_SQLite.CreateCollection(SystemData,FDeltaFile,CT_EXTERNAL_LOCAL_FB,Settings.SystemFileName[sfGenresFB2]);
-  FDelta:=OpenCatalogSnapshot(FSourceInfo,FDeltaFile,SystemData);
+  TBookCollection_SQLite.CreateCollection(SystemData,FDeltaFile,CT_EXTERNAL_LOCAL_FB,Settings.SystemFileName[sfGenresFB2],FPrepared.Folder);
+  FDelta:=OpenCatalogSnapshot(FSourceInfo,FDeltaFile,SystemData,FPrepared.Folder);
   Cache:=TImportCache.Create; Genres:=TDictionary<string,TGenreData>.Create;
   Lookup:=DB.NewQuery('SELECT TargetID,KeepMetadata,Folder,InsideNo FROM ApplyActions WHERE BookID=?');
   Rows:=DB.NewQuery('SELECT BookID FROM ApplyActions WHERE Eligible<>0'+
@@ -1026,7 +1040,7 @@ begin
   if not CreateDirectory(PChar(Folder),nil) then RaiseLastOSError;
   FCacheOwned:=True;
   FCacheInput:=TPath.Combine(Folder,'source-'+TPath.GetFileName(FPrepared.FileName));
-  SourceDB:=TSQLiteDatabase.CreateReadOnly(Base);
+  SourceDB:=OpenWorkDatabase(Base,True);
   try
     SourceDB.BackupTo(FPublishedSource.CacheFile,procedure(Done,Total:Integer) begin
       Check; CheckReviewOutputSpace(Folder,0);
@@ -1037,12 +1051,12 @@ begin
   if not SameText(THashSHA2.GetHashStringFromFile(FCacheInput),FPrepared.SHA256) then
     raise EReadError.Create('Не совпала контрольная сумма сохранённого индекса.');
   FPublishedSource.INPXFile:=FCacheInput;
-  Output:=TSQLiteDatabase.Create(FPublishedSource.CacheFile);
+  Output:=OpenWorkDatabase(FPublishedSource.CacheFile);
   try Output.ExecSQL('CREATE TABLE IF NOT EXISTS LibraryUpdateAvailability(BookID INTEGER PRIMARY KEY,State TEXT NOT NULL)');
   finally Output.Free; end;
   if FSource.Full then
   begin
-    Cached:=OpenCatalogSnapshot(FPublishedSource,FPublishedSource.CacheFile,DMUser.GetSystemDBConnection);
+    Cached:=OpenCatalogSnapshot(FPublishedSource,FPublishedSource.CacheFile,DMUser.GetSystemDBConnection,FPrepared.Folder);
     if not Supports(Cached,IBookImportedLocationWriter,Writer) then
       raise ENotSupportedException.Create('Не поддержано сохранение путей импортированных книг.');
     Rows:=FActionDB.NewQuery('SELECT BookID,Folder,InsideNo FROM ApplyActions WHERE State IN (''known'',''missing-retained'') ORDER BY BookID');
@@ -1057,7 +1071,7 @@ begin
         Cached.EndBulkOperation(True);
       except if Cached.InBulkOperation then Cached.EndBulkOperation(False); raise; end;
     finally Rows.Free; Writer:=nil; Cached:=nil; end;
-    Output:=TSQLiteDatabase.Create(FPublishedSource.CacheFile);
+    Output:=OpenWorkDatabase(FPublishedSource.CacheFile);
     try
       Output.ExecSQL('ATTACH DATABASE ? AS review',[FAnalysisFile]); Output.Start;
       try
@@ -1068,7 +1082,7 @@ begin
   end
   else
   begin
-    Cached:=OpenCatalogSnapshot(FPublishedSource,FPublishedSource.CacheFile,DMUser.GetSystemDBConnection);
+    Cached:=OpenCatalogSnapshot(FPublishedSource,FPublishedSource.CacheFile,DMUser.GetSystemDBConnection,FPrepared.Folder);
     if not Supports(Cached,IBookImportedLocationWriter,Writer) then
       raise ENotSupportedException.Create('Не поддержано сохранение путей импортированных книг.');
     Cache:=TImportCache.Create; Genres:=TDictionary<string,TGenreData>.Create;
@@ -1099,7 +1113,7 @@ begin
     finally Cached.FinishBatchUpdate; Writer:=nil; Rows.Free; Genres.Free; Cache.Free; Cached:=nil; end;
     // Availability is keyed by the raw record identity, which survives a
     // native cache append even when its numeric IDs differ from the package.
-    Output:=TSQLiteDatabase.Create(FPublishedSource.CacheFile);
+    Output:=OpenWorkDatabase(FPublishedSource.CacheFile);
     try
       Output.ExecSQL('ATTACH DATABASE ? AS review',[FAnalysisFile]);
       Output.ExecSQL('INSERT OR REPLACE INTO LibraryUpdateAvailability '+
@@ -1110,7 +1124,7 @@ begin
         'WHERE a.State=''known'')');
     finally Output.Free; end;
   end;
-  Output:=TSQLiteDatabase.Create(FPublishedSource.CacheFile);
+  Output:=OpenWorkDatabase(FPublishedSource.CacheFile);
   try
     Output.ExecSQL('CREATE TABLE IF NOT EXISTS LibraryUpdateSourceKeys(BookID INTEGER PRIMARY KEY,SourceKey TEXT NOT NULL)');
     Output.ExecSQL('CREATE TABLE IF NOT EXISTS LibraryUpdateReviewKeys(BookID INTEGER PRIMARY KEY,Key TEXT NOT NULL)');
@@ -1269,7 +1283,7 @@ begin
   Folder:=TPath.Combine(Settings.DataPath,'LibraryUpdateBackups'); ForceDirectories(Folder);
   Backup:=TPath.Combine(Folder,FOperationID+'.hlc2');
   CheckReviewOutputSpace(Folder,UInt64(TFile.GetSize(FTargetFile)));
-  var BackupDB:=TSQLiteDatabase.CreateReadOnly(FTargetFile);
+  var BackupDB:=OpenWorkDatabase(FTargetFile,True);
   NextID:=0;
   try
     if FSource.Full then
@@ -1304,7 +1318,7 @@ begin
         // Reserve the personal writer before allocating new catalogue IDs.
         SystemData.BeginDataUpdate; SystemStarted:=True;
         Witness.SetCatalogCommitWitness(Target.CollectionID,FOperationID);
-        var PersonalBounds:=TSQLiteDatabase.CreateReadOnly(Settings.SystemFileName[sfSystemDB]);
+        var PersonalBounds:=OpenWorkDatabase(Settings.SystemFileName[sfSystemDB],True);
         try
           NextID:=Max(NextID,PersonalBounds.QuerySingleInt('SELECT coalesce(max(BookID),0) FROM Books WHERE DatabaseID=?',[Target.CollectionID]));
           NextID:=Max(NextID,PersonalBounds.QuerySingleInt('SELECT coalesce(max(BookID),0) FROM BookGroups WHERE DatabaseID=?',[Target.CollectionID]));

@@ -191,7 +191,8 @@ type
       const SystemData: ISystemData;
       const DBFileName: string;
       CollectionType: COLLECTION_TYPE;
-      const GenresFileName: string
+      const GenresFileName: string;
+      const TempDirectory: string = ''
     );
 
     class function IsValidCollection(
@@ -200,8 +201,8 @@ type
     ): Boolean;
 
   public
-    constructor Create(const CollectionInfo: TCollectionInfo; const SystemData: ISystemData);
-    constructor CreateTemp(const DBFileName: string; const SystemData: ISystemData);
+    constructor Create(const CollectionInfo: TCollectionInfo; const SystemData: ISystemData; const TempDirectory:string='');
+    constructor CreateTemp(const DBFileName: string; const SystemData: ISystemData; const TempDirectory:string='');
     destructor Destroy; override;
 
   protected
@@ -403,11 +404,20 @@ begin
   finally Builder.Free; Seen.Free; end;
 end;
 
+function OpenCollectionDatabase(const FileName,TempDirectory:string):TSQLiteDatabase;
+begin
+  Result:=TSQLiteDatabase.Create(FileName,True,False,TempDirectory);
+  try
+    if TempDirectory<>'' then Result.ExecSQL('PRAGMA temp_store=FILE');
+  except Result.Free; raise; end;
+end;
+
 class procedure TBookCollection_SQLite.CreateCollection(
   const SystemData: ISystemData;
   const DBFileName: string;
   CollectionType: COLLECTION_TYPE;
-  const GenresFileName: string
+  const GenresFileName: string;
+  const TempDirectory: string
 );
 var
   ADatabase: TSQLiteDatabase;
@@ -415,7 +425,7 @@ var
   StructureDDL: string;
   BookCollection: IBookCollection;
 begin
-  ADatabase := TSQLiteDatabase.Create(DBFileName);
+  ADatabase := OpenCollectionDatabase(DBFileName,TempDirectory);
   try
     StringList := ReadResourceAsStringList('CreateCollectionDB_SQLite');
     try
@@ -438,7 +448,7 @@ begin
     FreeAndNil(ADatabase);
   end;
 
-  BookCollection := TBookCollection_SQLite.CreateTemp(DBFileName, SystemData);
+  BookCollection := TBookCollection_SQLite.CreateTemp(DBFileName, SystemData,TempDirectory);
   BookCollection.BeginBulkOperation;
   try
     BookCollection.SetProperty(PROP_SCHEMA_VERSION, DATABASE_VERSION);
@@ -2210,13 +2220,13 @@ begin
   else SQLite3_Result_Int(pCtx,1);
 end;
 
-constructor TBookCollection_SQLite.Create(const CollectionInfo: TCollectionInfo; const SystemData: ISystemData);
+constructor TBookCollection_SQLite.Create(const CollectionInfo: TCollectionInfo; const SystemData: ISystemData; const TempDirectory:string);
 begin
   Assert(Assigned(SystemData));
 
   inherited Create(SystemData, CollectionInfo);
 
-  FDatabase := TSQLiteDatabase.Create(CollectionInfo.DBFileName);
+  FDatabase := OpenCollectionDatabase(CollectionInfo.DBFileName,TempDirectory);
 
   FTriggersEnabled := True;
 
@@ -2232,13 +2242,13 @@ begin
   InternalLoadGenres;
 end;
 
-constructor TBookCollection_SQLite.CreateTemp(const DBFileName: string; const SystemData: ISystemData);
+constructor TBookCollection_SQLite.CreateTemp(const DBFileName: string; const SystemData: ISystemData; const TempDirectory:string);
 begin
   Assert(Assigned(SystemData));
 
   inherited CreateTemp(SystemData);
 
-  FDatabase := TSQLiteDatabase.Create(DBFileName);
+  FDatabase := OpenCollectionDatabase(DBFileName,TempDirectory);
 
   FTriggersEnabled := True;
 

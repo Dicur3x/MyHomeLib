@@ -54,7 +54,7 @@ type
 function LoadCatalogSources(const Collection: IBookCollection): TCatalogSources;
 procedure SaveCatalogSources(const Collection: IBookCollection; const Sources: TCatalogSources);
 function OpenCatalogSnapshot(const Source: TCatalogSource; const FileName: string;
-  const SystemData: ISystemData): IBookCollection;
+  const SystemData: ISystemData; const TempDirectory:string=''): IBookCollection;
 function OpenCatalogSource(const Source: TCatalogSource; const SystemData: ISystemData): IBookCollection;
 
 implementation
@@ -186,13 +186,13 @@ begin
 end;
 
 function OpenCatalogSnapshot(const Source: TCatalogSource; const FileName: string;
-  const SystemData: ISystemData): IBookCollection;
+  const SystemData: ISystemData; const TempDirectory:string): IBookCollection;
 var Info: TCollectionInfo;
 begin
   Info.Clear; Info.ID := $60000001; Info.DisplayName := Source.Name;
   Info.RootFolder := IncludeTrailingPathDelimiter(TPath.GetFullPath(Source.Root));
   Info.DBFileName := FileName; Info.CollectionType := CT_EXTERNAL_LOCAL_FB;
-  Result := TCatalogSnapshot.Create(Info, SystemData);
+  Result := TCatalogSnapshot.Create(Info, SystemData,TempDirectory);
 end;
 
 function OpenCatalogSource(const Source: TCatalogSource; const SystemData: ISystemData): IBookCollection;
