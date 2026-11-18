@@ -86,7 +86,7 @@ target catalogue. Both final 10,000-row pilots require:
 | Ordinary Main build | r1683, PASS | r1684, PASS |
 | Main SHA-256 | 3e5accbc7da69fe36d7600ca76af940f69b3d4c8140fa5107bb3fb3d9788315f | 8912bad88037bbbb3ce19631bbc07cd928276693238277f79eb3bb5a5aaf74e0 |
 | Existing whole/bound update matrix | r1684, PASS | r1685, PASS |
-| Fixed million-row run | r1686, PASS | r1687, running |
+| Fixed million-row run | r1686, PASS | r1687, PASS |
 
 Each final pilot has six PASS markers including bootstrap, the indexed native
 plan, complete application and repeat review. Ordinary Main builds verify the
@@ -99,8 +99,8 @@ G:/HL-b14-external/library-update-scale-validation-r1667/source-inputs-r1682.jso
 checkpoint-r1685.json binds the four passing native runs (40 PASS markers
 including bootstrap), the old scan and both ordinary Main receipts.
 The two large runs use the same five pinned publisher files. Their sequential
-controller is library-scale-fixed-pipeline-r1685; its report is authoritative
-for pending/finished stages. Paired large completion is still pending Win32.
+controller is library-scale-fixed-pipeline-r1685; its terminal report is PASS.
+Both ordinary million-card runs and both private-runtime cleanups completed.
 
 ## Completed Win64 million-row run
 
@@ -132,7 +132,37 @@ forecast. Observed C: free space stayed at or above 22,984,687,616 bytes.
 
 G:/HL-b14-external/library-update-scale-validation-r1667/summary64-r1690.json
 binds the native receipt, all 697 matching source inputs and the shared publisher
-manifest. Win32 is running separately; its result is not implied by Win64.
+manifest. The subsequently completed Win32 run has its own receipt.
+
+## Completed paired gate
+
+Win32 also passed all six native markers: full application, unchanged old
+identities/fields/relations/personal data, readable arrival, indexed query plan,
+zero-delta repeat review, unchanged publisher files and removed runtime.
+
+| Phase | Win64 seconds | Win32 seconds |
+| --- | ---: | ---: |
+| Native initial import | 145.484 | 177.875 |
+| First review | 398.328 | 452.906 |
+| Apply including preparation/cache/backup | 399.359 | 533.859 |
+| Stored-data checks | 6.968 | 7.765 |
+| Repeat read-only review | 388.907 | 494.407 |
+| Whole fixture wall time | 1368.828 | 1695.641 |
+
+First review plus application is about 13 minutes 18 seconds on x64 and
+16 minutes 27 seconds on x86 for these inputs/host. Whole fixture time includes
+setup/import and repeat review; it is not the first update's duration.
+
+Win32's sampler observed 6,536,830,055 runtime bytes, 473,227,264 private bytes
+and an OS peak working set of 590,340,096 bytes. Both observed C: reserves stayed
+above 22.93 billion bytes. The earlier caveats about sampled whole-runtime size,
+fixture overhead and physical allocation apply to both architectures.
+
+summary-paired-r1695.json binds both receipts, the shared five publisher files,
+the PASS pipeline and all 697 inputs. frozen-sources-r1682 preserves those
+exact native sources so subsequent UI-only work does not erase the tested
+baseline. This gate does not cover a million-card merged catalogue, terabyte
+archive I/O, a second apply or a before/after whole-operation speedup ratio.
 
 Earlier guard/fixture failures remain diagnostic reports, with successful
 owned-runtime cleanup recorded separately where required. No E: input, real
