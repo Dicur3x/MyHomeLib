@@ -212,7 +212,7 @@ begin
           end;
         end;
         if Archive=nil then raise EReadError.Create(ArchiveError);
-        Result:=Archive.ResolveBookName(Book.FileName+Book.FileExt,Book.InsideNo,True);
+        Result:=Archive.ResolveBookName(Book.FileName+Book.FileExt,Book.InsideNo,True).Replace('\','/');
       end,Cancelled,Progress);
   finally Archive.Free; Containers.Free; end;
 end;
@@ -261,7 +261,7 @@ begin
           Archive:=TMHLZip.Create(Source,True,False,Cancelled);
           Archives.Add(Key,Archive);
         end;
-        Result:=Archive.ResolveBookName(Book.FileName+Book.FileExt,Book.InsideNo,True);
+        Result:=Archive.ResolveBookName(Book.FileName+Book.FileExt,Book.InsideNo,True).Replace('\','/');
       end,Cancelled,Progress);
   finally Containers.Free; Archives.Free; end;
 end;

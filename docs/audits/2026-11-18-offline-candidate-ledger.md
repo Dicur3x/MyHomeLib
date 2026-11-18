@@ -424,6 +424,32 @@ refresh both offline input lists and the upload plan, and recheck the final
 full ZIPs and selected compression. The earlier installation and compatibility
 results above identify the tested candidate. They do not cover the new bytes.
 
+## Native packages and shared FLibrary illustrations, 19 November
+
+The r1987 BookProcessing ZIPs contain the corrected workers (172 managed files
+on x86 and 173 on x64). The publication plan changes only those two archive
+digests relative to r1977 and retains the same older downloads. The native
+installer checked all six r1987 distributions. Each full installation contained
+25 components. All 26 local transfer-copy tests passed on each architecture,
+including the missing verified staging file. The optional cross-volume test
+was skipped in these two runs.
+
+A private run of the production catalogue exposed a separate problem with
+books in subdirectories of a 7z archive. The app sent `first\one.fb2` while
+the compression worker indexed `first/one.fb2`. The operation stopped before
+changing the files. The selected-book and whole-collection commands now
+preserve the resolved name and case and pass archive paths with `/` separators.
+
+On x86 and x64, the r1988 catalogue ran both commands against the same pair
+of synthetic FB2s sharing one external picture. Selecting one book left the
+picture archive byte-identical and recorded no completed check for that book.
+Selecting the full collection recorded both books and reduced the archive
+from 1,040,307 to 262,207 bytes with grayscale enabled. Both FB2 members and
+the unrelated illustration retained their contents. The channel comparison
+confirmed grayscale in the shared output. Reports and before/after screenshots
+are in `r1987-shared-production`, build receipts in `r1988-nested-members`,
+and the earlier installer report in `r1987-distribution-verification`.
+
 ## Remaining checks
 
 Remaining source checks, Desktop replacement and publication remain open.
