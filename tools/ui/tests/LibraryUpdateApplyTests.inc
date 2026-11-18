@@ -156,8 +156,69 @@ var Root, OldRoot, DownloadRoot, IndexName, OldHash, DownloadHash, ExpectedTitle
     Books:=Target.GetBookIterator(bmAll,True); Result:=False;
     while Books.Next(Item) do if Item.DisplayLibID=Number then Exit(True);
   end;
+  {$I CollectionTransferEmptyUpdateTests.inc}
+  procedure TestReviewedIDReservation;
+  var LocalID,ArrivalID:Integer; LocalLib:string;
+  begin
+    RequireIsolatedRegression;
+    Root:=Settings.AppPath+'reviewed-id-reservation'; ForceDirectories(Root);
+    OldRoot:=Root+'\old'; DownloadRoot:=Root+'\downloads'; IndexName:=Root+'\publisher.inpx';
+    Archive(OldRoot,'books.zip',['101']); Archive(DownloadRoot,'new.zip',['102','103']);
+    Index(IndexName,['books','new'],['101','102'],['Kept 101','New 102']);
+    ID:=SystemDB.CreateCollection('Reviewed stable IDs',OldRoot,Root+'\target.hlc2',
+      CT_EXTERNAL_LOCAL_FB,Settings.SystemFileName[sfGenresFB2]);
+    Target:=SystemDB.GetCollection(ID); Seed:=Default(TBookRecord);
+    Seed.Title:='Original'; Seed.LibID:='101'; Seed.Folder:='books.zip';
+    Seed.FileName:='101'; Seed.FileExt:='.fb2';
+    BookID:=Target.InsertBook(Seed,False,False); Seed.BookKey:=CreateBookKey(BookID,ID);
+    Target.SetRate(Seed.BookKey,4);
+    DB:=TSQLiteDatabase.Create(Root+'\target.hlc2');
+    try DB.ExecSQL('UPDATE sqlite_sequence SET seq=19 WHERE name=''Books'''); finally DB.Free; end;
+    var Own:=Seed; Own.LibID:=NewLocalBookID; LocalLib:=Own.LibID;
+    Own.Title:='Manual local book'; Own.Folder:=''; Own.FileName:='own'; Include(Own.BookProps,bpIsLocal);
+    TFile.WriteAllText(OldRoot+'\own.fb2',XML('own'),TEncoding.UTF8);
+    LocalID:=Target.InsertBook(Own,False,False); Require(LocalID=20,'Local ID gap fixture was not created');
+    Target.SetProgress(CreateBookKey(LocalID,ID),63);
+    DB:=TSQLiteDatabase.Create(Root+'\target.hlc2');
+    try DB.ExecSQL('UPDATE sqlite_sequence SET seq=90 WHERE name=''Books'''); finally DB.Free; end;
+    DB:=TSQLiteDatabase.Create(Settings.SystemFileName[sfSystemDB]);
+    try
+      DB.ExecSQL('INSERT INTO Books(BookID,DatabaseID,LibID,Title,UpdateDate,LibRate,FileName,InsideNo,IsLocal,IsDeleted,Rate,Progress) '+
+        'VALUES(120,?,'''',''Retired personal card'',''2026-11-18'',0,''retired'',0,0,0,5,88)',[ID]);
+      DB.ExecSQL('INSERT INTO BookGroups(BookID,DatabaseID,GroupID) VALUES(130,?,?)',[ID,FAVORITES_GROUP_ID]);
+    finally DB.Free; end;
+    Profile:=TLibraryUpdateSource.NewSource; Profile.Name:='Reviewed ID reservation';
+    Profile.Location:=Root; Profile.IndexFile:='publisher.inpx'; Profile.BooksRoot:=DownloadRoot;
+    OpenReview;
+    try Apply(True); finally CloseReview; end;
+    Require(Target.ResolveBookID('101',0)=BookID,'Full review renumbered the retained published book');
+    Require(Target.ResolveBookID(LocalLib,0)=LocalID,'Full review renumbered a manually added book');
+    Target.GetBookRecord(CreateBookKey(LocalID,ID),Book,True);
+    Require((Book.Progress=63) and (Book.Title='Manual local book') and (bpIsLocal in Book.BookProps),
+      'Full review changed local-book fields');
+    RequireBody(Book,'own');
+    ArrivalID:=Target.ResolveBookID('102',0);
+    Require(ArrivalID>130,'New arrival reused a retired personal/group number');
+    DB:=TSQLiteDatabase.Create(Root+'\target.hlc2');
+    try DB.ExecSQL('UPDATE sqlite_sequence SET seq=200 WHERE name=''Books'''); finally DB.Free; end;
+    Index(IndexName,['books','new','new'],['101','102','103'],['Kept 101','New 102','New 103']);
+    OpenReview;
+    try Apply(True); finally CloseReview; end;
+    Require((Target.ResolveBookID('101',0)=BookID) and (Target.ResolveBookID(LocalLib,0)=LocalID) and
+      (Target.ResolveBookID('102',0)=ArrivalID) and (Target.ResolveBookID('103',0)>200),
+      'Repeated full review lost stable IDs or reused the retired catalogue sequence');
+    DB:=TSQLiteDatabase.Create(Settings.SystemFileName[sfSystemDB]);
+    try
+      Require((DB.QuerySingleInt('SELECT Progress FROM Books WHERE DatabaseID=? AND BookID=120',[ID])=88) and
+        (DB.QuerySingleInt('SELECT count(*) FROM BookGroups WHERE DatabaseID=? AND BookID=130',[ID])=1),
+        'Full review changed an unrelated retired personal card or group link');
+    finally DB.Free; end;
+    Writeln('PASS reviewed full imports preserve published and local UUID IDs and allocate beyond retired catalogue personal and group numbers');
+  end;
 begin
   Stage:=nil; Review:=nil;
+  if ParamStr(1)='transfer-empty-updates' then begin TestTransferredEmptyIDs; Exit; end;
+  if ParamStr(1)='reviewed-id-reservation' then begin TestReviewedIDReservation; Exit; end;
   Root:=TPath.Combine(Settings.AppPath,'library-apply-fixture'); ForceDirectories(Root);
   OldRoot:=TPath.Combine(Root,'old'); DownloadRoot:=TPath.Combine(Root,'downloads');
   Archive(OldRoot,'books.zip',['101','104']); Archive(DownloadRoot,'new.zip',['102']);

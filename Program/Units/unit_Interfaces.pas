@@ -219,6 +219,16 @@ type
     Series: TBookSeries;
   end;
 
+  // Reviewed full imports already verified the old/new artifact mapping.
+  // Explicit IDs prevent placeholder personal rows from being reused.
+  IReviewedBookIDWriter = interface
+    ['{73C214B5-0486-413D-8652-D4DCC5ECB16C}']
+    procedure ReserveReviewedBookIDs(ThroughID:Integer);
+    procedure RestoreReviewedLocalBooks(const Books:TArray<TLocalCatalogBook>);
+    function InsertReviewedBook(BookRecord:TBookRecord; PreferredID:Integer;
+      Cache:TImportCache):Integer;
+  end;
+
   IBookCollection = interface;
 
   ISystemData = interface

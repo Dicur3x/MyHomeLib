@@ -7,7 +7,7 @@
 {$R '..\..\..\Program\lang.res'}
 
 uses
-  unit_BookCompressionIndex, unit_BookCompressionPlan,
+  unit_BookCompressionIndex, unit_BookCompressionPlan, unit_ReaderHistoryAliases, unit_ReaderHistoryEvidence,
   unit_CollectionTransferCatalogue, unit_CollectionTransferPlan, unit_CollectionTransferJournal,
   unit_CollectionTransferOperation, unit_CollectionTransferRegistry,
   unit_Utils, frm_search, frm_MCPSetup, Xml.XMLDoc, Xml.XMLIntf,
@@ -3981,6 +3981,7 @@ end;
 {$I BookDuplicateTests.inc}
 {$I Feedback529Tests.inc}
 {$I LibraryUpdateApplyTests.inc}
+{$I ReaderHistoryEvidenceTests.inc}
 {$I LibraryUpdateCancelTests.inc}
 {$I LibraryUpdateSourcesTests.inc}
 
@@ -6865,7 +6866,9 @@ begin
         TestBookInformation(ParamStr(1) = 'book-information-external')
       else if ParamStr(1) = 'book-gallery' then
         TestBookGallery
-      else if ParamStr(1) = 'library-update-apply' then TestLibraryUpdateApplication
+      else if ParamStr(1)='reader-history-evidence' then TestReaderHistoryEvidence
+      else if (ParamStr(1) = 'library-update-apply') or (ParamStr(1)='transfer-empty-updates') or
+        (ParamStr(1)='reviewed-id-reservation') then TestLibraryUpdateApplication
       else if ParamStr(1) = 'library-update-cancel' then TestLibraryUpdateCancellation
       else if ParamStr(1) = 'library-update-window' then TestLibraryUpdateWindow
       else if ParamStr(1) = 'library-update-recovery' then TestLibraryUpdateRecoveryCrash

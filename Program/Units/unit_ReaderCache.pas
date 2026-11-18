@@ -9,6 +9,7 @@ function ReaderCopyName(const Book: TBookRecord): string;
 function ReaderHistoryName(const Book: TBookRecord; const LibraryNamespace: string): string;
 function ReaderBaseHistoryName(const Book:TBookRecord; const LibraryNamespace:string):string;
 function ReaderHistoryNeedsLocationProof(const Book:TBookRecord; const LibraryNamespace:string):Boolean;
+function ReaderHistoryUsesStoredFolder(const Book:TBookRecord):Boolean;
 function TryReaderHistoryAlias(const Book:TBookRecord; const LibraryNamespace:string; out OriginalName:string):Boolean;
 function PrepareExternalReaderFile(const Book: TBookRecord; const PreparedFile, LibraryNamespace: string;
   ForceCopy: Boolean = False): string;
@@ -240,6 +241,9 @@ begin
   Result := 'homelib-' + IntToStr(Book.BookKey.DatabaseID) + '-' +
     Copy(THashSHA2.GetHashString('reader-physical-history-v1' + #1 + Physical), 1, 32) + Extension;
 end;
+
+function ReaderHistoryUsesStoredFolder(const Book:TBookRecord):Boolean;
+begin Result:=ReaderPlaceholderIdentity(Book.LibID); end;
 
 function ReaderHistoryNeedsLocationProof(const Book:TBookRecord; const LibraryNamespace:string):Boolean;
 begin

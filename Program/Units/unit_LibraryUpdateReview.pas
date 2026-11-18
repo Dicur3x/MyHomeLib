@@ -469,7 +469,7 @@ var DB: TSQLiteDatabase; Insert, Query: TSQLiteQuery; Iterator: IPublisherSeries
           if not StateQuery.Eof then State:=StateQuery.FieldAsString(0);
         end;
         Insert.SetParam(5,State); Insert.SetParam(6,Book.BookKey.BookID);
-        Insert.SetParam(7,Container); Insert.SetParam(8,Book.InsideNo);
+        Insert.SetParam(7,Container); Insert.SetParam(8,Book.InsideNo); Insert.SetParam(9,Book.LibID);
       end
       else
       begin
@@ -509,7 +509,7 @@ begin
       if StateDB.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE name=''LibraryUpdateReviewKeys'' AND type=''table''')>0 then
         ReviewKeyQuery:=StateDB.NewQuery('SELECT Key FROM LibraryUpdateReviewKeys WHERE BookID=?');
     end;
-    DB.ExecSQL('CREATE TABLE ReviewPrevious(Key TEXT PRIMARY KEY,Stamp TEXT,Location TEXT,SourceKey TEXT,Physical TEXT,State TEXT,BookID INTEGER,Container TEXT,InsideNo INTEGER,Copies INTEGER NOT NULL DEFAULT 1) WITHOUT ROWID');
+    DB.ExecSQL('CREATE TABLE ReviewPrevious(Key TEXT PRIMARY KEY,Stamp TEXT,Location TEXT,SourceKey TEXT,Physical TEXT,State TEXT,BookID INTEGER,Container TEXT,InsideNo INTEGER,Copies INTEGER NOT NULL DEFAULT 1,LibID TEXT) WITHOUT ROWID');
     DB.ExecSQL('CREATE TABLE ReviewRows(Key TEXT,Stamp TEXT,BookID INTEGER,Location TEXT,Active INTEGER,Physical TEXT,Available INTEGER,PublisherLocation TEXT)');
     DB.ExecSQL('CREATE TABLE ReviewExcluded(Key TEXT PRIMARY KEY) WITHOUT ROWID');
     RecoverPublisherLocations;
@@ -534,7 +534,7 @@ begin
     DB.ExecSQL('CREATE INDEX ReviewRowsLocation ON ReviewRows(Location)');
     DB.Start;
     try
-      Insert:=DB.NewQuery('INSERT INTO ReviewPrevious(Key,Stamp,Location,SourceKey,Physical,State,BookID,Container,InsideNo) VALUES(?,?,?,?,?,?,?,?,?) '+
+      Insert:=DB.NewQuery('INSERT INTO ReviewPrevious(Key,Stamp,Location,SourceKey,Physical,State,BookID,Container,InsideNo,LibID) VALUES(?,?,?,?,?,?,?,?,?,?) '+
         'ON CONFLICT(Key) DO UPDATE SET Copies=Copies+1'); Load(Previous,True); FreeAndNil(Insert);
       Insert:=DB.NewQuery('INSERT INTO ReviewRows VALUES(?,?,?,?,?,?,?,?)'); Load(FSnapshot,False); FreeAndNil(Insert);
       // Missing files cannot prove a new physical container. Compare the raw
@@ -605,8 +605,8 @@ begin
 end;
 
 function CopyReviewBook(const Source, Destination: IBookCollection; Book: TBookRecord;
-  Cache: TImportCache; Genres: TDictionary<string,TGenreData>; CheckName: Boolean = False): Integer;
-var OriginalKey: TBookKey; Key: string; Genre: TGenreData;
+  Cache: TImportCache; Genres: TDictionary<string,TGenreData>; CheckName: Boolean = False; PreferredID:Integer=0): Integer;
+var Writer:IReviewedBookIDWriter; OriginalKey: TBookKey; Key: string; Genre: TGenreData;
 begin
   OriginalKey:=Book.BookKey; Book.Authors:=Copy(Book.Authors); Book.Genres:=Copy(Book.Genres);
   for var I:=0 to High(Book.Genres) do
@@ -619,7 +619,13 @@ begin
       Genres.Add(Key,Book.Genres[I]);
     end;
   end;
-  Result:=Destination.InsertBook(Book,CheckName,False,Cache);
+  if PreferredID>0 then
+  begin
+    if not Supports(Destination,IReviewedBookIDWriter,Writer) then
+      raise ENotSupportedException.Create('Каталог не поддерживает сохранение проверенных номеров книг.');
+    Result:=Writer.InsertReviewedBook(Book,PreferredID,Cache);
+  end
+  else Result:=Destination.InsertBook(Book,CheckName,False,Cache);
   if Result<>0 then
     for var Series in Source.GetBookSeries(OriginalKey) do
       Destination.AddBookSeries(Result,Series.SeriesTitle,Series.SeqNumber,Cache);
@@ -675,11 +681,11 @@ begin
   FActionDB:=TSQLiteDatabase.Create(FAnalysisFile); DB:=FActionDB;
   DB.ExecSQL('DROP TABLE IF EXISTS ApplyActions'); DB.ExecSQL('DROP TABLE IF EXISTS ApplyLive');
   DB.ExecSQL('DROP TABLE IF EXISTS ApplyDeltaInput');
-  DB.ExecSQL('CREATE TABLE ApplyLive(Key TEXT,BookID INTEGER,Identity TEXT,Physical TEXT)');
+  DB.ExecSQL('CREATE TABLE ApplyLive(Key TEXT,BookID INTEGER,Identity TEXT,Physical TEXT,LibID TEXT)');
   DB.ExecSQL('CREATE INDEX ApplyLiveKey ON ApplyLive(Key)');
   DB.ExecSQL('CREATE INDEX ApplyLiveIdentity ON ApplyLive(Identity)');
   DB.ExecSQL('CREATE INDEX ApplyLivePhysical ON ApplyLive(Physical)');
-  Put:=DB.NewQuery('INSERT INTO ApplyLive VALUES(?,?,?,?)');
+  Put:=DB.NewQuery('INSERT INTO ApplyLive VALUES(?,?,?,?,?)');
   try
     Namespace:=VarToStr(Target.GetProperty(PROP_SOURCE_LIBRARY));
     if Namespace='' then Namespace:=FSourceInfo.LibraryNamespace;
@@ -690,13 +696,31 @@ begin
       begin
         Check; Key:=ReviewBookKey(Item,Namespace,Target.CollectionRoot);
         Put.Reset; Put.SetParam(0,Key); Put.SetParam(1,Item.BookKey.BookID);
-        Put.SetParam(2,BookLibraryIdentity(Item,Namespace)); Put.SetParam(3,BookPhysicalIdentity(Item)); Put.ExecSQL;
+        Put.SetParam(2,BookLibraryIdentity(Item,Namespace)); Put.SetParam(3,BookPhysicalIdentity(Item)); Put.SetParam(4,Item.LibID); Put.ExecSQL;
         Inc(Done);
         if Assigned(Progress) and (Done mod 1000=0) then Progress('Проверка текущих карточек',Done,Iterator.RecordCount);
       end;
       DB.Commit;
     except DB.Rollback; raise; end;
   finally Iterator:=nil; Put.Free; end;
+  if not Bound and FPreviousIndex then
+  begin
+    // A published empty-ID book can live in an independent download folder.
+    // Match its saved publisher key only through a unique exact old physical
+    // locator and the same empty raw ID. Missing/deleted rows gain no match.
+    DB.ExecSQL('CREATE INDEX ApplyLiveEmptyPhysical ON ApplyLive(Physical) WHERE LibID=''''');
+    DB.ExecSQL('CREATE INDEX ReviewPreviousEmptyPhysical ON ReviewPrevious(Physical) WHERE LibID=''''');
+    var EmptyMatch:='p.LibID='''' AND l.LibID='''' AND p.Physical<>'''' AND p.Physical=l.Physical '+
+      'AND p.State IN (''known'',''missing-retained'') AND '+
+      'NOT EXISTS(SELECT 1 FROM ApplyLive exact WHERE exact.Key=p.Key) AND '+
+      'NOT EXISTS(SELECT 1 FROM ReviewPrevious exact WHERE exact.Key=l.Key)';
+    if DB.QuerySingleInt('SELECT count(*) FROM ReviewPrevious p JOIN ApplyLive l ON '+EmptyMatch+
+      ' WHERE p.Copies<>1 OR (SELECT count(*) FROM ReviewPrevious x WHERE x.LibID='''' AND x.Physical=p.Physical)<>1 '+
+      'OR (SELECT count(*) FROM ApplyLive x WHERE x.LibID='''' AND x.Physical=l.Physical)<>1')<>0 then
+      raise EReadError.Create('Для прежнего файла без LIBID найдено несколько карточек. Обновление неоднозначно.');
+    DB.ExecSQL('UPDATE ApplyLive AS l SET Key=(SELECT p.Key FROM ReviewPrevious p WHERE '+EmptyMatch+') '+
+      'WHERE EXISTS(SELECT 1 FROM ReviewPrevious p WHERE '+EmptyMatch+')');
+  end;
   DB.ExecSQL('DROP TABLE IF EXISTS ApplyExcluded');
   DB.ExecSQL('CREATE TABLE ApplyExcluded(Key TEXT PRIMARY KEY) WITHOUT ROWID');
   DB.ExecSQL('INSERT OR IGNORE INTO ApplyExcluded SELECT Key FROM ReviewExcluded');
@@ -1193,6 +1217,7 @@ var Backup, Folder: string; Books: IBookIterator; Book, Prepared: TBookRecord;
   LocalBooks: TArray<TLocalCatalogBook>; Done: Integer;
   SavedSQL: TSQLiteCancelCallback;
   Witness: ISystemCatalogCommitWitness; SystemStarted: Boolean;
+  IDWriter:IReviewedBookIDWriter; NextID:Int64; PreferredID:Integer;
   Journal: TLibraryUpdateJournal; Failed, RemapComplete: Boolean; FinalCancel: TSQLiteCancelCallback;
 begin
   Committed:=False;
@@ -1245,7 +1270,14 @@ begin
   Backup:=TPath.Combine(Folder,FOperationID+'.hlc2');
   CheckReviewOutputSpace(Folder,UInt64(TFile.GetSize(FTargetFile)));
   var BackupDB:=TSQLiteDatabase.CreateReadOnly(FTargetFile);
+  NextID:=0;
   try
+    if FSource.Full then
+    begin
+      NextID:=BackupDB.QuerySingleInt('SELECT coalesce(max(BookID),0) FROM Books');
+      if BackupDB.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE name=''sqlite_sequence''')>0 then
+        NextID:=Max(NextID,BackupDB.QuerySingleInt('SELECT coalesce(max(seq),0) FROM sqlite_sequence WHERE name=''Books'''));
+    end;
     BackupDB.BackupTo(Backup,procedure(Done,Total:Integer) begin
       Check; CheckReviewOutputSpace(Folder,0);
       if Assigned(Progress) then Progress('Резервная копия каталога',Done,Total);
@@ -1266,7 +1298,21 @@ begin
       CheckTargetRevision(Target);
       FPreviousLastID:=Target.StartCatalogUpdateTracking(FSource.Full);
       if FSource.Full then
-      begin LocalBooks:=Target.CaptureLocalBooks; Target.TruncateTablesBeforeImport; end;
+      begin
+        if not Supports(Target,IReviewedBookIDWriter,IDWriter) then
+          raise ENotSupportedException.Create('Каталог не поддерживает сохранение проверенных номеров книг.');
+        // Reserve the personal writer before allocating new catalogue IDs.
+        SystemData.BeginDataUpdate; SystemStarted:=True;
+        Witness.SetCatalogCommitWitness(Target.CollectionID,FOperationID);
+        var PersonalBounds:=TSQLiteDatabase.CreateReadOnly(Settings.SystemFileName[sfSystemDB]);
+        try
+          NextID:=Max(NextID,PersonalBounds.QuerySingleInt('SELECT coalesce(max(BookID),0) FROM Books WHERE DatabaseID=?',[Target.CollectionID]));
+          NextID:=Max(NextID,PersonalBounds.QuerySingleInt('SELECT coalesce(max(BookID),0) FROM BookGroups WHERE DatabaseID=?',[Target.CollectionID]));
+        finally PersonalBounds.Free; end;
+        if (NextID<0) or (NextID>High(Integer)) then raise EReadError.Create('Нет допустимых свободных номеров для новых книг.');
+        LocalBooks:=Target.CaptureLocalBooks; Target.TruncateTablesBeforeImport;
+        IDWriter.ReserveReviewedBookIDs(Integer(NextID));
+      end;
       Target.StartBatchUpdate;
       try
         if FSource.Full then Books:=ReviewAllBooks(FSnapshot) else Books:=ReviewAllBooks(FDelta);
@@ -1295,8 +1341,14 @@ begin
               Book.Rate:=Rows.FieldAsInt(5); Book.Progress:=Rows.FieldAsInt(6);
               Book.Review:=Rows.FieldAsBlobString(7); Book.Annotation:=Rows.FieldAsString(8);
             end;
-            if Rows.FieldAsInt(3)>0 then CopyReviewBook(FDelta,Target,Book,Cache,Genres)
-            else CopyReviewBook(FSnapshot,Target,Book,Cache,Genres);
+            PreferredID:=Rows.FieldAsInt(4);
+            if PreferredID<=0 then
+            begin
+              if NextID>=High(Integer) then raise EReadError.Create('Исчерпаны допустимые номера новых книг.');
+              Inc(NextID); PreferredID:=Integer(NextID);
+            end;
+            if Rows.FieldAsInt(3)>0 then CopyReviewBook(FDelta,Target,Book,Cache,Genres,False,PreferredID)
+            else CopyReviewBook(FSnapshot,Target,Book,Cache,Genres,False,PreferredID);
           end
           else CopyReviewBook(FDelta,Target,Book,Cache,Genres,True);
           Inc(Done); NotifyLibraryUpdateTestPoint('rows-written');
@@ -1309,9 +1361,9 @@ begin
         Target.SetProperty(PROP_SOURCE_LIBRARY,FSnapshot.GetProperty(PROP_SOURCE_LIBRARY));
       Target.FinishCatalogUpdateTracking(FSource.Full,FPreviousLastID);
       if FSource.Full then
-        Target.RestoreLocalBooks(LocalBooks);
+        IDWriter.RestoreReviewedLocalBooks(LocalBooks);
       Check;
-      SystemData.BeginDataUpdate; SystemStarted:=True;
+      if not SystemStarted then begin SystemData.BeginDataUpdate; SystemStarted:=True; end;
       StoreAppliedState(Target); Witness.SetCatalogCommitWitness(Target.CollectionID,FOperationID);
       if Assigned(Progress) then Progress('Проверка подготовленного каталога',0,0);
       Journal.Seal(Target,Check);

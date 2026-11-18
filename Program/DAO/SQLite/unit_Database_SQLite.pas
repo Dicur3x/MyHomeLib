@@ -29,7 +29,7 @@ uses
   unit_Database_Abstract;
 
 type
-  TBookCollection_SQLite = class(TBookCollection, IBookCollection, IBookSeriesStreamProvider, IBookMergeMetadataUpdater, IBookMergeMetadataDeltaUpdater, IBookImportedLocationWriter, IBookMergeOriginalCopyRecorder, IAuthorFavoriteCollectionView, IBookIdentityDeletionWriter, IBookIdentityProgressWriter, IBookIdentityPersonalWriter, IBookMetadataFillWriter, ICatalogUserDataRestorer, ICatalogContentDigest)
+  TBookCollection_SQLite = class(TBookCollection, IBookCollection, IBookSeriesStreamProvider, IBookMergeMetadataUpdater, IBookMergeMetadataDeltaUpdater, IBookImportedLocationWriter, IReviewedBookIDWriter, IBookMergeOriginalCopyRecorder, IAuthorFavoriteCollectionView, IBookIdentityDeletionWriter, IBookIdentityProgressWriter, IBookIdentityPersonalWriter, IBookMetadataFillWriter, ICatalogUserDataRestorer, ICatalogContentDigest)
   strict private type
     TStreamAuthor = record
       Data: TAuthorData;
@@ -243,6 +243,9 @@ type
     function GetCatalogRevision: string;
     function CaptureContentDigest(const Check: TProc): string;
     procedure SetImportedBookLocation(BookID: Integer; const Folder: string; InsideNo: Integer);
+    procedure ReserveReviewedBookIDs(ThroughID:Integer);
+    procedure RestoreReviewedLocalBooks(const Books:TArray<TLocalCatalogBook>);
+    function InsertReviewedBook(BookRecord:TBookRecord; PreferredID:Integer; Cache:TImportCache):Integer;
     procedure RestoreCollectionBackup(const FileName: string);
     function GetCatalogBookID(const SourceKey: string): Integer;
     procedure SetCatalogBookID(const SourceKey: string; BookID: Integer);
@@ -342,7 +345,8 @@ type
     function InsertAuthorIfMissing(const Author: TAuthorData): Integer; overload;
     function InsertAuthorIfMissing(const Author: TAuthorData; Cache: TImportCache): Integer; overload;
     function InternalInsertBook(BookRecord: TBookRecord; const CheckFileName: Boolean;
-      const FullCheck: Boolean; Cache: TImportCache): Integer;
+      const FullCheck: Boolean; Cache: TImportCache; PreferredID:Integer=0): Integer;
+    procedure InternalRestoreLocalBooks(const Books:TArray<TLocalCatalogBook>; KeepIDs:Boolean);
     function IsFileNameConflict(const BookRecord: TBookRecord; const IncludeFolder: Boolean): Boolean;
     procedure InternalSetBookPublisherSeries(const BookKey: TBookKey;
       const Series: TBookSeries; const SourceKey: string; const Publisher: string = '';
@@ -2964,8 +2968,24 @@ begin
   Result := InternalInsertBook(BookRecord, CheckFileName, FullCheck, Cache);
 end;
 
+procedure TBookCollection_SQLite.ReserveReviewedBookIDs(ThroughID:Integer);
+begin
+  if not InBulkOperation or (ThroughID<0) then
+    raise EInvalidOperation.Create('Нужен проверенный массовый импорт с допустимой границей номеров.');
+  FDatabase.ExecSQL('INSERT INTO sqlite_sequence(name,seq) SELECT ''Books'',? '+
+    'WHERE NOT EXISTS(SELECT 1 FROM sqlite_sequence WHERE name=''Books'')',[ThroughID]);
+  FDatabase.ExecSQL('UPDATE sqlite_sequence SET seq=? WHERE name=''Books'' AND seq<?',[ThroughID,ThroughID]);
+end;
+
+function TBookCollection_SQLite.InsertReviewedBook(BookRecord:TBookRecord; PreferredID:Integer; Cache:TImportCache):Integer;
+begin
+  if not InBulkOperation or (PreferredID<=0) then
+    raise EInvalidOperation.Create('Нужен проверенный массовый импорт с положительным номером книги.');
+  Result:=InternalInsertBook(BookRecord,False,False,Cache,PreferredID);
+end;
+
 function TBookCollection_SQLite.InternalInsertBook(BookRecord: TBookRecord;
-  const CheckFileName, FullCheck: Boolean; Cache: TImportCache): Integer;
+  const CheckFileName, FullCheck: Boolean; Cache: TImportCache; PreferredID:Integer): Integer;
 const
   SQL_INSERT =
     'INSERT INTO Books (' +
@@ -2973,10 +2993,10 @@ const
     'SeriesID,  SeqNumber, BookSize,   LibID, ' +
     'IsDeleted, IsLocal,   UpdateDate, Lang,     LibRate, ' +
     'KeyWords,  Rate,      Progress,   Review,   Annotation, ' +
-    'Translators, Publisher, City,     PubYear,  ISBN' +
+    'Translators, Publisher, City,     PubYear,  ISBN, BookID' +
     ') ' +
     'VALUES (' +
-    '?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? ' +
+    '?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? ' +
     ')';
 var
   i: Integer;
@@ -3021,6 +3041,7 @@ begin
 
     query := FDatabase.NewQuery(SQL_INSERT);
     try
+      if PreferredID>0 then query.SetParam(24,PreferredID) else query.SetNullParam(24);
       query.SetParam(0, BookRecord.Title);
       query.SetParam(1, BookRecord.Folder);
       query.SetParam(2, BookRecord.FileName);
@@ -4688,6 +4709,12 @@ begin
 end;
 
 procedure TBookCollection_SQLite.RestoreLocalBooks(const Books: TArray<TLocalCatalogBook>);
+begin InternalRestoreLocalBooks(Books,False); end;
+
+procedure TBookCollection_SQLite.RestoreReviewedLocalBooks(const Books:TArray<TLocalCatalogBook>);
+begin InternalRestoreLocalBooks(Books,True); end;
+
+procedure TBookCollection_SQLite.InternalRestoreLocalBooks(const Books:TArray<TLocalCatalogBook>; KeepIDs:Boolean);
 var
   Entry: TLocalCatalogBook;
   Series: TBookSeriesData;
@@ -4703,7 +4730,8 @@ begin
     begin
       if ResolveBookID(Entry.Book.LibID,0)<>0 then
         raise EInvalidOperation.Create('Обновление содержит зарезервированный идентификатор своей книги.');
-      ID := InsertBook(Entry.Book,False,False,Cache);
+      if KeepIDs then ID:=InsertReviewedBook(Entry.Book,Entry.Book.BookKey.BookID,Cache)
+      else ID := InsertBook(Entry.Book,False,False,Cache);
       if ID=0 then raise EInvalidOperation.CreateFmt('Не удалось восстановить свою книгу «%s».',[Entry.Book.Title]);
       for Series in Entry.Series do
         if not Series.IsPrimary then

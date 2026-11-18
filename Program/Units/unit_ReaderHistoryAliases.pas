@@ -2,7 +2,7 @@
 
 interface
 
-uses System.SysUtils, SQLiteWrap, unit_Globals;
+uses System.SysUtils, System.Generics.Collections, SQLiteWrap, unit_Globals, unit_ReaderHistoryEvidence;
 
 type
   // Borrows the existing personal connection; never opens a database per book.
@@ -26,6 +26,7 @@ type
     FInsert:TSQLiteQuery;
     FOperation,FReviewSHA:string;
     FNextSpaceCheck:UInt64;
+    FEvidence:TReaderHistoryEvidence;
     procedure PrepareInsert;
   public
     constructor Create(DB:TSQLiteDatabase; const Operation,ReviewSHA:string);
@@ -126,11 +127,11 @@ begin
   inherited Create;
   if (DB=nil) or not DB.InTransaction or (Operation='') or (Length(ReviewSHA)<>64) then
     raise EArgumentException.Create('Нужна привязанная транзакция истории чтения.');
-  FDB:=DB; FOperation:=Operation; FReviewSHA:=ReviewSHA; FLookup:=TReaderHistoryAliasLookup.Create(DB);
+  FDB:=DB; FOperation:=Operation; FReviewSHA:=ReviewSHA; FLookup:=TReaderHistoryAliasLookup.Create(DB); FEvidence:=TReaderHistoryEvidence.Create;
 end;
 
 destructor TReaderHistoryAliasWriter.Destroy;
-begin FInsert.Free; FLookup.Free; inherited; end;
+begin FEvidence.Free; FInsert.Free; FLookup.Free; inherited; end;
 
 procedure TReaderHistoryAliasWriter.PrepareInsert;
 begin
@@ -172,7 +173,38 @@ begin
   if not ReaderHistoryNeedsLocationProof(Before,'') and not ReaderHistoryNeedsLocationProof(After,'') then Exit;
   var PriorName:=ReaderBaseHistoryName(Before,''); var CurrentName:=ReaderBaseHistoryName(After,'');
   var OriginalName:string;
-  if not FLookup.Find(Before,PriorName,OriginalName) then OriginalName:=PriorName;
+  var HasPriorAlias:=FLookup.Find(Before,PriorName,OriginalName);
+  var Variants:=TList<string>.Create;
+  var StoredCount:=0;
+  try
+    Variants.Add(PriorName);
+    // Only equivalent physical representations of this exact book qualify.
+    // No other book/history name is accepted as a benign legacy variant.
+    if ReaderHistoryUsesStoredFolder(Before) then
+    begin
+      var Physical:=ReaderBookPhysicalIdentity(Before);
+      for var Absolute in [False,True] do
+      begin
+        var Variant:=Before;
+        if Absolute then Variant.Folder:=ExpandFileName(TPath.Combine(Before.CollectionRoot,Before.Folder))
+        else if TPath.IsPathRooted(Before.Folder) then
+          Variant.Folder:=ExtractRelativePath(IncludeTrailingPathDelimiter(ExpandFileName(Before.CollectionRoot)),ExpandFileName(Before.Folder));
+        if (Physical<>'') and (Physical=ReaderBookPhysicalIdentity(Variant)) then
+        begin
+          var Name:=ReaderBaseHistoryName(Variant,'');
+          if not Variants.Contains(Name) then Variants.Add(Name);
+        end;
+      end;
+    end;
+    if not HasPriorAlias then
+    begin
+      OriginalName:=PriorName;
+      if Variants.Count>1 then
+        for var Name in Variants do
+          if FEvidence.Contains(Name) then begin Inc(StoredCount); OriginalName:=Name; end;
+      if StoredCount>1 then
+        raise EReadError.Create('Для одной книги сохранены две истории чтения по разным старым путям. Перенос остановлен; обе истории сохранены.');
+    end;
   var Location:=LocationSHA(After);
   if (LocationSHA(Before)=Location) and (PriorName=CurrentName) and (OriginalName=CurrentName) then Exit;
   CheckName(CurrentName,After.BookKey.DatabaseID); CheckName(OriginalName,After.BookKey.DatabaseID);
@@ -180,7 +212,15 @@ begin
   var Existing:string;
   if FLookup.Find(After,CurrentName,Existing) then
   begin
-    if Existing<>OriginalName then raise EReadError.Create('Конфликт сохранённых историй чтения. Обе истории оставлены без изменений.');
+    if Existing<>OriginalName then
+    begin
+      if HasPriorAlias or (StoredCount<>0) or not Variants.Contains(Existing) then
+        raise EReadError.Create('Конфликт сохранённых историй чтения. Обе истории оставлены без изменений.');
+      // The other representation has no saved reader state. Reuse the exact
+      // already validated binding instead of creating a conflicting mapping.
+      FEvidence.CheckStable;
+      Result:=MappingSHA(After,Location,CurrentName,Existing);
+    end;
     Exit;
   end;
   if RequireExisting then raise EReadError.Create('Потеряна подтверждённая связь истории чтения.');
@@ -190,6 +230,7 @@ begin
   FInsert.SetParam(5,OriginalName); FInsert.SetParam(6,Result); FInsert.SetParam(7,FOperation); FInsert.SetParam(8,FReviewSHA);
   FInsert.ExecSQL;
   if FDB.LastChangedRows<>1 then raise EWriteError.Create('Не сохранена связь истории чтения.');
+  finally Variants.Free; end;
 end;
 
 end.
