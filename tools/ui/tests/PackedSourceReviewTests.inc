@@ -36,6 +36,36 @@ begin
     end;
 end;
 
+function ApplyPackedUpdateFromMain(const Profile: TLibraryUpdateSource; ID: Integer;
+  const MissingArchive: string=''; NewBooks: Integer=0; ChangedBooks: Integer=0): Integer;
+var
+  Driver: TLibraryWindowDriver;
+  Timer: TTimer;
+  Action: TAction;
+  Choice: TMenuItem;
+begin
+  Choice:=TMenuItem.Create(nil);
+  try Choice.Tag:=ID; frmMain.miActiveCollectionClick(Choice);
+  finally Choice.Free; end;
+  frmMain.Show; Application.ProcessMessages;
+  Driver:=TLibraryWindowDriver.Create; Timer:=TTimer.Create(nil);
+  try
+    Driver.Profile:=Profile; Driver.Accept:=True; Driver.Timer:=Timer;
+    Driver.PackedUpdate:=True; Driver.ProtectedCollectionID:=ID;
+    Driver.ExpectedMissingArchive:=MissingArchive;
+    Driver.ExpectedNewBooks:=NewBooks; Driver.ExpectedChangedBooks:=ChangedBooks;
+    Timer.Interval:=1; Timer.OnTimer:=Driver.Tick; Timer.Enabled:=True;
+    Action:=TAction(frmMain.FindComponent('acUpdateLibrary'));
+    Action.Update; Require(Action.Enabled,'Packed source update action stayed disabled');
+    Action.Execute;
+    Require(Driver.Started and Driver.Confirmed and (Driver.Failure=''),
+      'Packed source window: '+Driver.Failure);
+    Result:=Driver.PublishedCollectionID;
+    Require((Result>0) and IsWindowEnabled(frmMain.Handle) and (Settings.ActiveCollection=Result),
+      'Closing the source window did not activate the new packed generation');
+  finally Timer.Free; Driver.Free; end;
+end;
+
 procedure TestPackedSourceReview(LegacyOnly:Boolean=False; ManualPrevious:Boolean=False; ModuleRestart:Boolean=False;
   const StartInstaller:TPackedInstaller=nil);
   procedure Scenario(WithHistory:Boolean);
@@ -199,28 +229,6 @@ var Folder,OriginalRoot,HeldRoot,PackedRoot,Incoming,BaseIndex,NextIndex,Previou
         Archive.Open(TPath.Combine(Incoming,Name),zmWrite);
         Archive.Add(TEncoding.UTF8.GetBytes(Content),Entry);
       finally Archive.Free; end;
-    end;
-    function ApplyFromWindow: Integer;
-    var Driver: TLibraryWindowDriver; Timer: TTimer; Action: TAction; Choice: TMenuItem;
-    begin
-      Choice:=TMenuItem.Create(nil);
-      try Choice.Tag:=PackedID; frmMain.miActiveCollectionClick(Choice);
-      finally Choice.Free; end;
-      frmMain.Show; Application.ProcessMessages;
-      Driver:=TLibraryWindowDriver.Create; Timer:=TTimer.Create(nil);
-      try
-        Driver.Profile:=Profile; Driver.Accept:=True; Driver.Timer:=Timer;
-        Driver.PackedUpdate:=True; Driver.ProtectedCollectionID:=PackedID;
-        Timer.Interval:=1; Timer.OnTimer:=Driver.Tick; Timer.Enabled:=True;
-        Action:=TAction(frmMain.FindComponent('acUpdateLibrary'));
-        Action.Update; Require(Action.Enabled,'Packed source update action stayed disabled');
-        Action.Execute;
-        Require(Driver.Started and Driver.Confirmed and (Driver.Failure=''),
-          'Packed source window: '+Driver.Failure);
-        Result:=Driver.PublishedCollectionID;
-        Require((Result>0) and IsWindowEnabled(frmMain.Handle) and (Settings.ActiveCollection=Result),
-          'Closing the source window did not activate the new packed generation');
-      finally Timer.Free; Driver.Free; end;
     end;
     function QueueModuleRestart(out Required:TArray<string>):ILibraryUpdateRestart;
     var Dialog:TfrmLibraryUpdateSources;
@@ -405,7 +413,7 @@ var Folder,OriginalRoot,HeldRoot,PackedRoot,Incoming,BaseIndex,NextIndex,Previou
     Require(THashSHA2.GetHashStringFromFile(PreviousFile)=PreviousHash,'Declining changed the original packed catalog');
     ApplyTo(PackedID,True,True);
     Require(THashSHA2.GetHashStringFromFile(PreviousFile)=PreviousHash,'Cancellation changed the original packed catalog');
-    if ModuleRestart then NewID:=ApplyThroughModuleRestart else NewID:=ApplyFromWindow;
+    if ModuleRestart then NewID:=ApplyThroughModuleRestart else NewID:=ApplyPackedUpdateFromMain(Profile,PackedID);
     Require(NewID<>PackedID,'Reviewed update replaced the original collection');
     Applied:=SystemDB.GetCollection(NewID,True);
     Require(Assigned(Applied) and LoadLibraryUpdateHistory(Applied,Profile,AppliedHistory),
@@ -588,7 +596,7 @@ begin
   if not ManualPrevious then Scenario(True);
 end;
 
-procedure TestPackedBoundSourceApply;
+procedure TestPackedBoundSourceApply(const MetabibFormat: string=''; EmptySnapshot: Boolean=False);
 var
   Folder, Download, PackedRoot, OriginalFile, OriginalSHA: string;
   Sources: TCatalogSources;
@@ -631,6 +639,91 @@ var
       if OtherTitle<>'' then Archive.Add(TEncoding.UTF8.GetBytes(Row(2002,'other',OtherTitle)),'other.inp');
       if Revised then Archive.Add(TEncoding.UTF8.GetBytes(Row(2003,'arrival','Bound arrival')),'arrival.inp');
     finally Archive.Free; end;
+  end;
+
+  procedure WriteZstdFixture(const JSONL, FileName: string);
+  var
+    Module: HMODULE;
+    CompressBound: function(Size: NativeUInt): NativeUInt; cdecl;
+    Compress: function(Dest: Pointer; Capacity: NativeUInt; Source: Pointer;
+      Size: NativeUInt; Level: Integer): NativeUInt; cdecl;
+    IsError: function(Code: NativeUInt): Cardinal; cdecl;
+    Plain, Encoded: TBytes;
+    Size: NativeUInt;
+  begin
+    Module:=LoadLibrary(PChar(Settings.AppPath+'libzstd.dll'));
+    Require(Module<>0,'Test Zstandard DLL is unavailable');
+    try
+      CompressBound:=GetProcAddress(Module,'ZSTD_compressBound');
+      Compress:=GetProcAddress(Module,'ZSTD_compress');
+      IsError:=GetProcAddress(Module,'ZSTD_isError');
+      Require(Assigned(CompressBound) and Assigned(Compress) and Assigned(IsError),'Test Zstandard export is missing');
+      Plain:=TFile.ReadAllBytes(JSONL);
+      SetLength(Encoded,CompressBound(Length(Plain)));
+      Size:=Compress(@Encoded[0],Length(Encoded),@Plain[0],Length(Plain),3);
+      Require((IsError(Size)=0) and (Size<=NativeUInt(Length(Encoded))),'Cannot write test Zstandard catalogue');
+      SetLength(Encoded,Size);
+      TFile.WriteAllBytes(FileName,Encoded);
+    finally FreeLibrary(Module); end;
+  end;
+
+  procedure WriteMetabib(const FileName: string);
+  var
+    Records: TMemoryStream;
+    Dataset: TFileStream;
+    Archive: TZipFile;
+    Archives: TArray<TMetabibExportArchive>;
+    JSONL: string;
+
+    procedure AddRecord(ID, Size: Integer; const Member, Title: string);
+    var
+      Item: TBookRecord;
+      Location: TMetabibExportLocation;
+      Genre: TMetabibGenre;
+      Volume: TMetabibExportArchive;
+    begin
+      Item:=Default(TBookRecord);
+      Item.Title:=Title; Item.LibID:=IntToStr(ID); Item.Lang:='ru';
+      Item.Date:=EncodeDate(2026,11,18);
+      TAuthorsHelper.Add(Item.Authors,'Author','Test','');
+      Genre:=Default(TMetabibGenre); Genre.Code:='prose_contemporary';
+      Location:=Default(TMetabibExportLocation);
+      Location.ArchiveID:=Member; Location.EntryName:=Member+'.txt';
+      Location.ExportBookID:=ID; Location.UncompressedSize:=Size;
+      Volume:=Default(TMetabibExportArchive);
+      Volume.ID:=Member; Volume.Name:=Member+'.zip'; Volume.Ordinal:=Length(Archives);
+      Volume.Entries:=1; Archives:=Archives+[Volume];
+      TMetabibWriter.WriteRecord(Records,Item,TArray<TMetabibGenre>.Create(Genre),Location,'flibusta','fixture');
+    end;
+  begin
+    JSONL:=TPath.Combine(Download,'revised.jsonl');
+    Records:=TMemoryStream.Create;
+    try
+      if not EmptySnapshot then
+      begin
+        AddRecord(2001,124,'shared','Lower revised');
+        AddRecord(2002,123,'other','Corrected other title');
+        AddRecord(2003,123,'arrival','Bound arrival');
+      end;
+      Dataset:=TFileStream.Create(JSONL,fmCreate);
+      try TMetabibWriter.WriteDataset(Dataset,Records,'packed-source-fixture','flibusta','3.0',
+        EncodeDate(2026,11,18),Length(Archives),Archives);
+      finally Dataset.Free; end;
+      if MetabibFormat='jsonl.gz' then
+        RunExternalToolToStream(Settings.AppPath+'tools\7zip\7za.exe',
+          TArray<string>.Create('a','-tgzip','-y',FileName,JSONL),Records);
+    finally Records.Free; end;
+    if MetabibFormat='zip' then
+    begin
+      Archive:=TZipFile.Create;
+      try
+        Archive.Open(FileName,zmWrite);
+        Archive.Add(JSONL,'catalogue.jsonl');
+      finally Archive.Free; end;
+    end;
+    if MetabibFormat='jsonl.zst' then WriteZstdFixture(JSONL,FileName);
+    Require(FileExists(FileName) and TMetabibReader.IsDatasetFile(FileName),
+      'Written index did not classify as Metabib');
   end;
 
   function FindID(const Collection: IBookCollection; const ID: string): Integer;
@@ -683,6 +776,42 @@ var
         Require(Review.MissingBooks=MissingBooks,'Bound packed apply miscounts missing books: '+Review.MissingDetails);
       finally Worker.Free; Probe.Free; end;
     finally Review.Free; Stage.Free; end;
+  end;
+
+  procedure RejectEmptyMetabib;
+  var
+    Stage: TStagedLibraryIndex;
+    Review: TLibraryUpdateReview;
+    Worker: TCollectionWorker;
+    Probe: TLibraryApplyProbe;
+  begin
+    Stage:=TStagedLibraryIndex.Fetch(Profile,Settings.UpdatePath,nil);
+    try
+      Review:=TLibraryUpdateReview.Create(Profile,Stage);
+      try
+        Worker:=CreateLibraryReviewWorker(PackedID,Review);
+        try TOORun(Worker); Require(Worker.Success and Review.Ready and
+          (Review.NewBooks=0) and (Review.ChangedBooks=0),'The empty Metabib header was not read');
+        finally Worker.Free; end;
+        Probe:=TLibraryApplyProbe.Create;
+        try
+          Worker:=CreateLibraryApplyWorker(PackedID,Review,False);
+          try
+            Worker.OnShowMessage:=Probe.Confirm;
+            Worker.Start; Worker.WaitFor;
+            Require(not Probe.Confirmed and not Worker.CommittedChanges and
+              Assigned(Worker.FatalException) and
+              Exception(Worker.FatalException).Message.Contains('Полный индекс пуст'),
+              'Empty Metabib was not rejected as a full snapshot with append selected');
+            Require((Review.PublishedCollectionID=0) and
+              (THashSHA2.GetHashStringFromFile(OriginalFile)=OriginalSHA),
+              'Rejected empty Metabib modified the original catalogue');
+          finally Worker.Free; end;
+        finally Probe.Free; end;
+      finally Review.Free; end;
+    finally Stage.Free; end;
+    Writeln('PASS empty Metabib is rejected as a full snapshot even with append selected: ',MetabibFormat);
+    Flush(Output);
   end;
 
   procedure CheckUpdated(ID: Integer; ReplacementArrived: Boolean);
@@ -799,20 +928,35 @@ begin
     'Packing did not retain the independent lower-priority payload');
   Target.GetBookRecord(CreateBookKey(OtherID,PackedID),Book,True); OriginalOtherPath:=Book.GetBookFileName;
   OriginalFile:=Target.GetProperty(PROP_DATAFILE);
-  OriginalSHA:=THashSHA2.GetHashStringFromFile(OriginalFile);
-
   for var S in Sources do Require(RenameFile(S.Root,S.Root+'-held'),'Could not hide the source archive root');
   Profile:=TLibraryUpdateSource.NewSource;
   Profile.Name:='Packed bound publisher'; Profile.CatalogSourceID:=Sources[1].ID;
-  Profile.Location:=Download; Profile.BooksRoot:=Download; Profile.IndexFile:='revised.inpx';
-  WriteIndex(TPath.Combine(Download,Profile.IndexFile),'Lower revised','Corrected other title',True);
+  Profile.Location:=Download; Profile.BooksRoot:=Download;
+  if MetabibFormat='' then
+  begin
+    Profile.IndexFile:='revised.inpx';
+    WriteIndex(TPath.Combine(Download,Profile.IndexFile),'Lower revised','Corrected other title',True);
+  end
+  else
+  begin
+    Require(MatchText(MetabibFormat,['jsonl','jsonl.gz','jsonl.zst','zip']),'Unsupported test Metabib container');
+    Profile.IndexFile:='revised.'+MetabibFormat;
+    Profile.Full:=False;
+    WriteMetabib(TPath.Combine(Download,Profile.IndexFile));
+    Target.SetProperty(PROP_LIBRARY_UPDATE_SOURCES,WriteLibraryUpdateSources(TArray<TLibraryUpdateSource>.Create(Profile)));
+  end;
+  OriginalSHA:=THashSHA2.GetHashStringFromFile(OriginalFile);
+  if EmptySnapshot then begin RejectEmptyMetabib; Exit; end;
   WriteArchive(TPath.Combine(Download,'arrival.zip'),'arrival','Bound arrival body');
-  ResultID:=Update(PackedID,1,2,1); CheckUpdated(ResultID,False);
+  if MetabibFormat='' then ResultID:=Update(PackedID,1,2,1)
+  else ResultID:=ApplyPackedUpdateFromMain(Profile,PackedID,'shared.zip',1,2);
+  CheckUpdated(ResultID,False);
   Writeln('PASS missing archive retains the earlier packed source copy'); Flush(Output);
-  Profile.Full:=False;
+  if MetabibFormat='' then Profile.Full:=False;
   WriteArchive(TPath.Combine(Download,'shared.zip'),'shared','Replaced lower body');
   ResultID:=Update(ResultID,0,1,0); CheckUpdated(ResultID,True);
   ResultID:=Update(ResultID,0,0,0); CheckUpdated(ResultID,True);
   Writeln('PASS packed bound update replaces only the selected source and retains preferred and metadata-only payloads');
+  if MetabibFormat<>'' then Writeln('PASS Metabib updates a bound packed source through the ordinary window and repeats cleanly: ',MetabibFormat);
   Flush(Output);
 end;

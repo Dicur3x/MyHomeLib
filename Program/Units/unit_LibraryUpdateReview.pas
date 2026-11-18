@@ -19,7 +19,7 @@ type
     FDatabaseFile, FAnalysisFile, FTargetRevision, FTargetFile, FOriginalTargetRoot, FSummary: string;
     FNeeded, FHistorical, FFound, FAmbiguous: TStringList;
     FNewBooks, FChangedBooks, FTotal, FVersion, FDeleted, FSkipped: Integer;
-    FPreviousIndex, FReady, FOriginalRootOffline: Boolean;
+    FPreviousIndex, FReady, FOriginalRootOffline, FIsMetabib: Boolean;
     FDelta: IBookCollection;
     FDeltaFile, FApplySummary, FCacheInput, FPreviousFile, FOperationID: string;
     FPreviousInput, FPreviousInputSHA, FPublisherFile, FSelectedPreviousFile: string;
@@ -133,6 +133,8 @@ begin
   inherited Create; Source.Validate;
   if not Assigned(Prepared) then raise EArgumentNilException.Create('Prepared');
   FSource:=Source; FPrepared:=Prepared;
+  FIsMetabib:=TMetabibReader.IsDatasetFile(FPrepared.FileName);
+  if FIsMetabib then FSource.Full:=True;
   FNeeded:=TStringList.Create; FHistorical:=TStringList.Create;
   FFound:=TStringList.Create; FAmbiguous:=TStringList.Create;
 end;
@@ -930,6 +932,7 @@ begin
       'Версия индекса: %s.%sФайлов найдено: %d. Для новых/изменённых записей отсутствует: %d.%s'+
       'Отсутствующих файлов только с прежними записями: %d. Одноимённых файлов в обеих папках: %d.',
       [FTotal,FDeleted,sLineBreak,FNewBooks,FChangedBooks,sLineBreak,Version,sLineBreak,FFound.Count,FNeeded.Count,sLineBreak,FHistorical.Count,FAmbiguous.Count]);
+    if FIsMetabib then FSummary:=FSummary+sLineBreak+'Metabib используется как полный снимок каталога.';
     if FSkipped>0 then FSummary:=FSummary+sLineBreak+
       Format('Внимание: пропущено ошибочных записей или записей без файла: %d. Список неполный.',[FSkipped]);
     if FOriginalRootOffline then FSummary:=FSummary+sLineBreak+
@@ -2523,7 +2526,7 @@ end;
 
 function CreateLibraryReviewWorker(CollectionID: Integer; Review: TLibraryUpdateReview): TCollectionWorker;
 begin
-  if TMetabibReader.IsDatasetFile(Review.FPrepared.FileName) then Result:=TMetabibReviewWorker.Create(CollectionID,Review)
+  if Review.FIsMetabib then Result:=TMetabibReviewWorker.Create(CollectionID,Review)
   else Result:=TInpxReviewWorker.Create(CollectionID,Review);
 end;
 

@@ -11,7 +11,7 @@ uses
   unit_CollectionTransferCatalogue, unit_CollectionTransferPlan, unit_CollectionTransferJournal,
   unit_CollectionTransferOperation, unit_CollectionTransferRegistry,
   unit_Utils, frm_search, frm_MCPSetup, Xml.XMLDoc, Xml.XMLIntf,
-  unit_CatalogComponents, unit_MetabibReader, unit_FormatComponents, unit_ComponentRemoval, unit_ComponentUsage, frm_ComponentMaintenance,
+  unit_CatalogComponents, unit_MetabibReader, unit_MetabibWriter, unit_FormatComponents, unit_ComponentRemoval, unit_ComponentUsage, frm_ComponentMaintenance,
   unit_StartupCatalog, unit_FLibraryCompat, unit_BookCompressionRestored, unit_BookViewSessions,
   unit_LibraryUpdateSources, unit_LibraryUpdateFetch, unit_LibraryUpdateReview, unit_LibraryUpdateHistory, unit_LibraryUpdateJournal, unit_Lib_Updates, frm_LibraryUpdateSources,
   NativeRegressionGuard, System.SysUtils, System.StrUtils, System.Classes, System.Types, System.IOUtils, System.IniFiles, System.JSON, System.Net.HttpClient, System.Net.URLClient, System.Generics.Collections, System.Variants, Winapi.Windows, Winapi.Messages, Winapi.CommCtrl, Winapi.RichEdit, Winapi.ActiveX, Winapi.ShlObj,
@@ -6822,6 +6822,10 @@ begin
         TestPackedSourceReview(True,True,True)
       else if ParamStr(1) = 'packed-bound-apply' then
         TestPackedBoundSourceApply
+      else if ParamStr(1) = 'packed-bound-metabib' then
+        TestPackedBoundSourceApply(ParamStr(2))
+      else if ParamStr(1) = 'packed-bound-metabib-empty' then
+        TestPackedBoundSourceApply(ParamStr(2),True)
       else if ParamStr(1) = 'favorite-book-menu' then
         TestFavoriteBookMenu(One)
       else if ParamStr(1) = 'favorite-ui' then

@@ -8,6 +8,8 @@
     ProtectedCollectionID:Integer;
     PackedUpdate: Boolean;
     PublishedCollectionID: Integer;
+    ExpectedNewBooks, ExpectedChangedBooks: Integer;
+    ExpectedMissingArchive: string;
     Timer: TTimer;
     procedure CheckWorkspace(Dialog:TfrmLibraryUpdateSources);
     procedure Tick(Sender: TObject);
@@ -96,6 +98,12 @@ begin
         if TestWorkspace then CheckWorkspace(Dialog)
         else TButton(Dialog.FindComponent('btnCheckUpdateSource')).Click;
         Require(Assigned(Dialog.Review) and Dialog.Review.Ready,'Window review failed: '+TLabel(Dialog.FindComponent('lblUpdateSourceReport')).Caption);
+        if ExpectedMissingArchive<>'' then
+          Require((Dialog.Review.NewBooks=ExpectedNewBooks) and
+            (Dialog.Review.ChangedBooks=ExpectedChangedBooks) and
+            (Dialog.Review.NeededArchives.Count=1) and
+            SameText(Dialog.Review.NeededArchives[0],ExpectedMissingArchive),
+            'Source window misidentified changes or the needed archive: '+Dialog.Review.Summary);
         Require(not TButton(Dialog.FindComponent('btnSaveMissingUpdateBooks')).Enabled,
           'Source window offers an obsolete missing-member report before verification');
         Checked:=True; Applying:=True;
