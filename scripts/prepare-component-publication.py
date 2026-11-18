@@ -123,13 +123,24 @@ def main():
             formats = args.format_packages.resolve()
             selected = set(entries(json.loads((formats / 'HomeLibRu.components.json').read_bytes())))
             assert selected and not selected & reader_keys
-            assert {component for component, _ in selected} <= OWNED - {'KfxExport', 'MHLMcpServer'}
-            for component in {component for component, _ in selected}:
+            selected_components = {component for component, _ in selected}
+            assert selected_components <= OWNED - {'MHLMcpServer'}
+            for component in selected_components:
                 assert {(component, 'Win32'), (component, 'Win64')} <= selected, component
             expected = reader_keys | selected
             directories.append(formats)
     else:
         expected = {(component, platform) for component in OWNED | {'DjVuLibre'} for platform in ('Win32', 'Win64')}
+        directories.extend([(args.format_packages or stage / 'formats').resolve(),
+                            stage / 'mcp', args.djvu_packages.resolve()])
+        if args.kindle_packages:
+            directories.append(args.kindle_packages.resolve())
+        if (stage / 'opds-tls').is_dir():
+            directories.append(stage / 'opds-tls')
+    includes_kfx = ('KfxExport', 'Win32') in expected
+    if includes_kfx:
+        if args.kfx_source is None:
+            parser.error('Publishing KfxExport requires --kfx-source')
         source_verifier = runpy.run_path(str(ROOT / 'scripts/package-kfx-export-source.py'))
         kfx_source = args.kfx_source.resolve(strict=True)
         assert kfx_source.name == source_verifier['ARCHIVE'], 'Unexpected KFX source archive name'
@@ -137,12 +148,6 @@ def main():
         source_asset = dict(name=kfx_source.name, size=kfx_source.stat().st_size,
                             digest='sha256:' + digest(kfx_source.read_bytes()),
                             browser_download_url=PREFIX + kfx_source.name)
-        directories.extend([(args.format_packages or stage / 'formats').resolve(),
-                            stage / 'mcp', args.djvu_packages.resolve()])
-        if args.kindle_packages:
-            directories.append(args.kindle_packages.resolve())
-        if (stage / 'opds-tls').is_dir():
-            directories.append(stage / 'opds-tls')
     replacement, uploads, checked = {}, [], []
     fb2_source_asset = None
     fb2_build = None
@@ -246,7 +251,7 @@ def main():
     assert set(replacement) == expected
     component_archives = {entry['archive'] for entry in replacement.values()}
     identical_archive_count = len(checked) - sum(asset['name'] in component_archives for asset in uploads)
-    if not partial:
+    if includes_kfx:
         previous_source = old_assets.get(kfx_source.name)
         if previous_source is None:
             uploads.insert(0, dict(path=str(kfx_source), **source_asset))
@@ -314,7 +319,7 @@ def main():
                   identical_existing_archives_retained=identical_archive_count,
                   public_feed_size_and_sha256_verified=True, bootstrap_identities_verified=True,
                   exact_manifest_and_payloads_verified=True, feed_sha256=digest(feed))
-    if not partial:
+    if includes_kfx:
         report['kfx_corresponding_source'] = source_asset
     if fb2_source_asset is not None:
         report['fb2_corresponding_source'] = fb2_source_asset

@@ -5,5 +5,6 @@ Installer/ReaderFonts/** -text
 /Program/HomeLibre.dproj -text
 /Program/HomeLibre.groupproj -text
 
-# Corresponding-source archives and runtime notices bind exact patch bytes.
+# Corresponding-source archives and runtime notices bind exact build file bytes.
+/scripts/build-kfx-export.py text eol=lf
 /scripts/boko-epub-navigation.patch text eol=lf
