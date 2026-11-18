@@ -450,6 +450,24 @@ confirmed grayscale in the shared output. Reports and before/after screenshots
 are in `r1987-shared-production`, build receipts in `r1988-nested-members`,
 and the earlier installer report in `r1987-distribution-verification`.
 
+The six r1988 release ZIPs built with the corrected catalogue subsequently
+passed native installation and inventory on both architectures. All 25 pinned
+optional components had the expected version and a healthy installation in
+each full distribution. On two private Windows desktops, the published beta 13
+client accepted the prepared r1988 update, installed it and restarted as
+`HomeLibre.exe`. All 241 managed files, seven catalogue entries and the
+test's personal settings and sentinel survived on each architecture. This
+run started with the exact local ZIP. The earlier r1949 test separately
+verified the Windows shortcut. Results are in `r1988-distribution-verification`
+and `r1988-nested-members/upgrade-{Win32,Win64}/report.json`.
+
+The INPX source-window tests and the full sequence of updates passed on x86
+and x64. Reopening an unchanged index after a partial import continues to
+list archives still required. The original seven-minute test deadline expired
+while the fixtures were committing successive catalogue updates. The complete
+private-desktop runs finished in 583 and 582 seconds respectively. Results
+are in `r1987-production-refresh/library-update-*-private-{Win32,Win64}`.
+
 ## Remaining checks
 
 Remaining source checks, Desktop replacement and publication remain open.
