@@ -308,6 +308,30 @@ The receipts are in `G:/HL-b14-external/r1976-offline-vm/report.json` and
 `w32e/verified`, `w64e/verified` under that folder. Both guests shut down.
 The reusable OS image and the Microsoft ISO are on G:.
 
+## Embedded Kindle, legacy Office and DjVu sources
+
+Both r1975 full ZIPs include all 22 KindleUnpack library files and its licence
+byte-for-byte from the pinned upstream commit. Each also contains all 22 files
+listed in the legacy Office manifest, including the three source packages for
+libwpd, librevenge and libwps. The DjVu decoder, source tarball, notices and
+wrapper executable match the 13 pinned digests. The five accompanying wrapper
+source files match the repository immediately before the HomeLibre rebranding
+commit `b0c0244a` after normalizing line endings. The wrapper retains its old
+internal DjVuLibre context name. The comparison used the source corresponding
+to the distributed helper. Evidence: `r1979-embedded-sources/report.json`.
+
+## Selected-book compression in the packaged catalogue
+
+On the host, each packaged catalogue from r1975 also completed selected-book
+compression through its Book menu on a private Windows desktop. Each fixture
+held seven FB2 files. The chosen book still had its original SHA-256 after the
+estimate and while waiting for approval. After approval it shrank from
+5,049,830 to 664,447 bytes and the catalogue recorded the new size. The FB2
+text and XML structure matched, the illustration had equal RGB channels, and
+the other six book files and their catalogue rows matched their initial state.
+Both applications closed normally. Only synthetic copies were used.
+The reports are in `r1980-selected-production/{Win32,Win64}-report.json`.
+
 ## Remaining checks
 
 Remaining source checks, Desktop replacement and publication remain open.
