@@ -3,7 +3,7 @@
 interface
 
 uses System.Classes, System.SysUtils, Vcl.Forms, Vcl.StdCtrls, Vcl.ComCtrls,
-  Vcl.Controls, unit_BookCompressionOperation, frm_CatalogSources;
+  Vcl.Controls, unit_BookCompressionOperation, frm_CatalogSources, unit_ContextToolGuide;
 
 type
   TCompressionReviewEvent = procedure(Decision: TCompressionReview) of object;
@@ -17,11 +17,15 @@ type
     FWorkBrowse, FBackupBrowse, FStart, FCancel, FEstimate: TButton;
     FOptions: TBookCompressionOperationOptions;
     FLayoutScale: Integer;
+    FToolGuide:TContextToolGuide;
     procedure ProfileChanged(Sender: TObject);
     procedure BrowseWork(Sender: TObject);
     procedure BrowseBackup(Sender: TObject);
     procedure BackupChanged(Sender: TObject);
     procedure Accept(Sender: TObject);
+  protected
+    procedure DoShow; override;
+    procedure DoHide; override;
   public
     constructor CreateOptions(AOwner: TComponent; BookCount: Integer;
       const Options: TBookCompressionOperationOptions);
@@ -149,8 +153,23 @@ begin
   FEstimate.Hint:='Расчёт по образцам, до 10 секунд на книгу. Книги не заменяются, общие архивы не перепаковываются.';
   FEstimate.ShowHint:=True;
   FStart.Default:=True;
+  TLabel(FindComponent('CompressionOptionsIntro')).Width:=566;
+  FToolGuide:=TContextToolGuide.CreateForTool(Self,Self,'book-compression','Как сжимать книги',
+    'Сначала попробуйте сжатие на нескольких книгах и сравните изображения.',
+    '«Оценить размер» проверяет образцы и не заменяет книги. Прогноз может отличаться от результата.'+sLineBreak+
+    '«Подготовить сжатие» обрабатывает книги по нынешним путям. За раз готовится один архив или файл; соседние книги сохраняются.'+sLineBreak+
+    'Режимы с уменьшением качества могут ухудшить мелкий текст и схемы. Включите проверку результата и смотрите образцы в масштабе 100%.'+sLineBreak+
+    'Для возврата включите сохранение оригиналов и выберите папку. Это копии обрабатываемых книг, а не всей коллекции; журнал восстановления не заменяет оригиналы.',
+    110,'compression');
+  FToolGuide.Name:='CompressionContextGuide';
   BackupChanged(nil); ProfileChanged(nil); ApplyMHLControlTheme(Self);
 end;
+
+procedure TfrmBookCompressionOptions.DoShow;
+begin inherited; FToolGuide.FirstUse; end;
+
+procedure TfrmBookCompressionOptions.DoHide;
+begin if Assigned(FToolGuide) then FToolGuide.Hide; inherited; end;
 
 procedure TfrmBookCompressionOptions.BackupChanged(Sender: TObject);
 var WorkY, Extra: Integer;

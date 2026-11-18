@@ -27,6 +27,8 @@ type
   public
     constructor CreateGuide(AOwner: TComponent; AParent: TWinControl;
       const Topic, Version, Preferences, Summary, Details: string);
+    procedure Expand;
+    procedure Dismiss;
     property Expanded: Boolean read FExpanded;
     property OnMore: TNotifyEvent read FOnMore write FOnMore;
   end;
@@ -76,7 +78,7 @@ begin
 end;
 
 procedure TFirstUseGuide.Layout;
-var Margin, Gap, WidthAvailable, Y, ButtonHeight: Integer;
+var Margin, Gap, WidthAvailable, Y, ButtonHeight, WidthBefore: Integer;
   function S(Value: Integer): Integer;
   begin
     if FLayoutPPI>0 then Result:=MulDiv(Value,FLayoutPPI,96)
@@ -93,6 +95,7 @@ var Margin, Gap, WidthAvailable, Y, ButtonHeight: Integer;
   end;
 begin
   if FLayout or (csDestroying in ComponentState) or not Assigned(FHelp) then Exit;
+  WidthBefore:=ClientWidth;
   FLayout := True;
   try
     Margin := S(6); Gap := S(6); WidthAvailable := Max(S(100),ClientWidth-2*Margin);
@@ -114,7 +117,12 @@ begin
     FToggle.SetBounds(Margin,Y,Min(S(155),(WidthAvailable-Gap) div 2),ButtonHeight);
     FMore.SetBounds(FToggle.Left+FToggle.Width+Gap,Y,Min(S(100),(WidthAvailable-Gap) div 2),ButtonHeight);
     Height := Y+ButtonHeight+Margin;
-  finally FLayout := False; end;
+  finally
+    FLayout := False;
+    // A scroll parent can gain/lose its vertical bar while this height changes.
+    // Reflow once more at the resulting width instead of retaining clipped actions.
+    if ClientWidth<>WidthBefore then Layout;
+  end;
 end;
 
 procedure TFirstUseGuide.Remember;
@@ -148,6 +156,12 @@ end;
 
 procedure TFirstUseGuide.ShowGuide(Sender: TObject);
 begin FExpanded := True; Layout; end;
+
+procedure TFirstUseGuide.Expand;
+begin ShowGuide(nil); end;
+
+procedure TFirstUseGuide.Dismiss;
+begin if FExpanded then Toggle(nil); end;
 
 procedure TFirstUseGuide.More(Sender: TObject);
 begin if Assigned(FOnMore) then FOnMore(Self); end;

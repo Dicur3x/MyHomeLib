@@ -16,7 +16,7 @@ uses
   unit_LibraryUpdateSources, unit_LibraryUpdateFetch, unit_LibraryUpdateReview, unit_LibraryUpdateHistory, unit_LibraryUpdateJournal, unit_Lib_Updates, frm_LibraryUpdateSources,
   NativeRegressionGuard, System.SysUtils, System.StrUtils, System.Classes, System.Types, System.IOUtils, System.IniFiles, System.JSON, System.Net.HttpClient, System.Net.URLClient, System.Generics.Collections, System.Variants, Winapi.Windows, Winapi.Messages, Winapi.CommCtrl, Winapi.RichEdit, Winapi.ActiveX, Winapi.ShlObj,
   Vcl.Forms, Vcl.Dialogs, Vcl.Themes, Vcl.Styles, Vcl.Clipbrd, Vcl.CheckLst, Vcl.Graphics, Vcl.Menus, Vcl.ComCtrls, Vcl.ExtCtrls, Vcl.Controls, Vcl.StdCtrls, Vcl.ActnList,
-  VirtualTrees, VirtualTrees.Types, VirtualTrees.BaseTree, BookTreeView, BookInfoPanel, unit_MHLTheme, unit_FirstUseGuide, unit_HelpTopics, unit_MHLThemePalette, frm_InterfaceColors, unit_BookGallery, unit_UpdateNotes, unit_UpdateTextCache,
+  VirtualTrees, VirtualTrees.Types, VirtualTrees.BaseTree, BookTreeView, BookInfoPanel, unit_MHLTheme, unit_FirstUseGuide, unit_ContextToolGuide, unit_HelpTopics, unit_MHLThemePalette, frm_InterfaceColors, unit_BookGallery, unit_UpdateNotes, unit_UpdateTextCache,
   System.SyncObjs, System.Zip, System.Hash, System.NetEncoding, System.Diagnostics, System.Math, System.DateUtils, Vcl.Imaging.pngimage,
   unit_BookDeletionReferences, unit_BookDeletionOperation, unit_BookDeletionDialog, unit_BookDeletionSpace,
   unit_MHLArchiveBusy, unit_BookDeletionPreparation, unit_BookDeletionInventory, unit_BookDeletionMembers, unit_BookDeletionBinding, unit_SevenZipDeletionPlan, unit_ArchiveDeletionQueue, unit_ZipMemberDeletion, unit_ImageBounds, unit_BookCache, unit_MHLOperationStatus, unit_Globals, unit_Consts, unit_Interfaces, unit_Localization, unit_TreeUtils, unit_Settings, unit_ReaderCache, unit_BookMetadataCache, unit_FB2Utils, unit_MHLGenerics, FictionBook_21, unit_BookColumnFilters, unit_BookInfoPreview, unit_PackageBookCover, unit_CollectionMerge, unit_BookDuplicates, frm_BookDuplicates, frm_CollectionBackup, unit_CollectionBackup, unit_SeriesAliases, unit_CatalogSources, frm_CatalogSources, unit_CollectionSpace, unit_Database_SQLite, SQLiteWrap, SQLite3, SQLiteProfile,
@@ -6237,6 +6237,7 @@ end;
 {$I UpdatePopulatedDpiTests.inc}
 {$I InpxWizardSourceTests.inc}
 {$I MetadataFillUiTests.inc}
+{$I ContextToolGuideTests.inc}
 {$I BookInfoPanelFooterTests.inc}
 {$I BookInfoPanelAdaptiveTests.inc}
 {$I BookReviewPreviewTests.inc}
@@ -6917,6 +6918,7 @@ begin
       else if ParamStr(1) = 'reader-wheel-routing' then TestReaderWheelRouting
       else if ParamStr(1) = 'reader-scroll' then TestReaderContinuousScrolling
       else if ParamStr(1) = 'reader-scroll-live' then TestReaderLiveFeedback
+      else if ParamStr(1) = 'tool-context-guides' then TestContextToolGuides(OneID)
       else if ParamStr(1) = 'metadata-fill-layout' then TestMetadataFillLayout(OneID)
       else if ParamStr(1) = 'metadata-fill-ui' then TestMetadataFillUI(OneID)
       else if ParamStr(1) = 'collection-metadata-sync' then TestCollectionMetadataSync

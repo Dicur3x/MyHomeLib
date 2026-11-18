@@ -3,7 +3,8 @@
 interface
 
 uses System.Classes, Vcl.Forms, Vcl.StdCtrls, Vcl.ComCtrls, Vcl.ExtCtrls,
-  unit_Globals, unit_MetadataSyncTypes, unit_CollectionWorkerThread, unit_CollectionMetadataSync;
+  unit_Globals, unit_MetadataSyncTypes, unit_CollectionWorkerThread, unit_CollectionMetadataSync,
+  unit_ContextToolGuide;
 
 type
   TfrmBookMetadataFill = class(TForm)
@@ -23,6 +24,7 @@ type
     FTimer: TTimer;
     FRequestedFields: TMetadataSyncFields;
     FApplying, FCloseWhenReady, FDestroying, FCommittedChanges, FLayoutBusy: Boolean;
+    FToolGuide:TContextToolGuide;
     procedure LayoutFooter;
     procedure Resize; override;
     function GetBusy: Boolean;
@@ -50,6 +52,9 @@ type
     property CommittedChanges: Boolean read FCommittedChanges;
     property Busy: Boolean read GetBusy;
     property RequiredComponent: string read FRequiredComponent;
+  protected
+    procedure DoShow; override;
+    procedure DoHide; override;
   end;
 
 function FillMissingBookMetadata(AOwner: TComponent; CollectionID: Integer): Boolean; overload;
@@ -140,6 +145,16 @@ begin
     FTimer:=TTimer.Create(Self); FTimer.Enabled:=False; FTimer.Interval:=50; FTimer.OnTimer:=PollWorker;
     OnCloseQuery:=FormCloseQuery;
   finally EnableAlign; end;
+  Intro.Width:=674;
+  FToolGuide:=TContextToolGuide.CreateForTool(Self,Options,'book-metadata-fill','Как заполнить сведения из книг',
+    'Команда заполняет пустые поля каталога из ваших местных файлов книг.',
+    '1. Выберите поля и нажмите «1. Проверить книги». Проверка читает файлы, но не изменяет каталог.'+sLineBreak+
+    '2. Посмотрите найденные значения и ошибки, затем нажмите «2. Заполнить сведения». Имеющиеся значения сохраняются.'+sLineBreak+
+    'Файлы книг, заметки и прогресс не меняются. Одного INPX недостаточно: он содержит список, а не сами книги.'+sLineBreak+
+    'Аннотации добавляются только в пустые описания каталога и могут увеличить его размер. Можно изменить галочки после проверки без повторного чтения.'+sLineBreak+
+    'После остановки или перезапуска снова проверьте книги: сохранённые сведения используются для неизменившихся файлов.',
+    110,'metadata');
+  FToolGuide.Name:='MetadataContextGuide';
   InvalidatePlan('Сначала проверьте книги с выбранными сведениями.');
   ScaleForPPI(Screen.PixelsPerInch); WorkArea:=Monitor.WorkareaRect;
   Height:=Min(Height,Max(Constraints.MinHeight,WorkArea.Height-48));
@@ -158,6 +173,12 @@ begin
   FPlan.Free;
   inherited;
 end;
+
+procedure TfrmBookMetadataFill.DoShow;
+begin inherited; FToolGuide.FirstUse; end;
+
+procedure TfrmBookMetadataFill.DoHide;
+begin if Assigned(FToolGuide) then FToolGuide.Hide; inherited; end;
 
 procedure TfrmBookMetadataFill.ScaleForPPI(NewPPI: Integer);
 var OldPPI, NewWidth, NewHeight, MinWidth, MinHeight: Integer;

@@ -3,7 +3,8 @@
 interface
 
 uses System.Classes, Vcl.Forms, Vcl.StdCtrls, Vcl.ComCtrls, unit_Interfaces,
-  unit_BookDuplicates, unit_BookDeletionBinding, unit_BookDeletionOperation, unit_Globals, frm_CatalogSources;
+  unit_BookDuplicates, unit_BookDeletionBinding, unit_BookDeletionOperation, unit_Globals, frm_CatalogSources,
+  unit_ContextToolGuide;
 
 type
   TfrmBookDuplicates = class(TSourceDialogForm)
@@ -25,6 +26,7 @@ type
     FOffset: Integer;
     FUpdating, FChanged, FDeleteInBatches, FLinkedResultsValid, FDetailed: Boolean;
     FBeforeApply: TNotifyEvent;
+    FToolGuide:TContextToolGuide;
     procedure Scan(Sender: TObject);
     procedure SwitchResults(Sender: TObject);
     procedure ToggleDetails(Sender: TObject);
@@ -47,6 +49,8 @@ type
     procedure FilterGroups(Sender: TObject);
     function VisibleGroupCount: Integer;
   protected
+    procedure DoShow; override;
+    procedure DoHide; override;
     procedure ConstrainedResize(var MinWidth, MinHeight, MaxWidth, MaxHeight: Integer); override;
   public
     constructor CreateForCollection(AOwner: TComponent; const Collection: IBookCollection);
@@ -273,6 +277,7 @@ begin
   ReadSourcePriority;
   Top:=TPanel.Create(Self); Top.Parent:=Self; Top.Align:=alTop; Top.Height:=135; Top.BevelOuter:=bvNone;
   LabelText:=TLabel.Create(Self); LabelText.Parent:=Top; LabelText.AutoSize:=False;
+  LabelText.Name:='DuplicateIntro';
   LabelText.SetBounds(12,10,1016,24); LabelText.Anchors:=[akLeft,akTop,akRight]; LabelText.WordWrap:=True;
   LabelText.Caption:='Найдите дубли и выберите, из каких источников оставить книги. HomeLibre отметит лишние копии.';
   FSearch:=TButton.Create(Self); FSearch.Parent:=Top; FSearch.Name:='btnFindBookDuplicates';
@@ -340,6 +345,16 @@ begin
   with FCopies.Columns.Add do begin Caption:='Файл / архив'; Width:=260; end;
   with FCopies.Columns.Add do begin Caption:='Автор'; Width:=190; end;
   FDetails.Lines.Text:='Здесь появятся сведения о выбранном файле.';
+  LabelText.Width:=974;
+  FToolGuide:=TContextToolGuide.CreateForTool(Self,Top,'book-duplicates','Как выбрать и убрать дубли',
+    'Проверьте сохраняемую копию перед удалением. Одного совпадения названия недостаточно.',
+    '1. Нажмите «Найти дубли». Одна строка слева — книга, справа — её копии и пути.'+sLineBreak+
+    '2. Выберите, какие источники предпочитать, или оставьте нужную копию вручную. Разные издания и размеры могут отличаться.'+sLineBreak+
+    '3. Проверьте решения «Оставить» и «Удалить» для каждой копии перед запуском.'+sLineBreak+
+    '«Объединить в каталоге» убирает повторные записи и сохраняет файлы. «Удалить копии с диска» удаляет отмеченные файлы; соседние книги в общем архиве сохраняются.'+sLineBreak+
+    'Остановка завершает текущий архив. Для незаменимых книг нужна отдельная резервная копия.',
+    110,'duplicates');
+  FToolGuide.Name:='DuplicatesContextGuide';
   UpdateStatus; ScaleForPPI(Screen.PixelsPerInch);
 end;
 
@@ -350,6 +365,12 @@ begin
   FRegularPlan.Free;
   inherited;
 end;
+
+procedure TfrmBookDuplicates.DoShow;
+begin inherited; FToolGuide.FirstUse; end;
+
+procedure TfrmBookDuplicates.DoHide;
+begin if Assigned(FToolGuide) then FToolGuide.Hide; inherited; end;
 
 procedure TfrmBookDuplicates.ConstrainedResize(var MinWidth, MinHeight, MaxWidth, MaxHeight: Integer);
 begin
