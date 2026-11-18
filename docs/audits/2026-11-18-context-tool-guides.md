@@ -110,3 +110,16 @@ This is a local Main UI change on private generated G: profiles. No E:,
 user-library writes, Desktop replacement or publication are involved.
 Final release Main/Reader builds, beta-14 packages and the remaining
 contextual-help targets are separate work.
+
+## Physical collection transfer
+
+The transfer window has a topic-specific question button and a short first-use
+guide for planning, destination and working folders, stopping and resuming.
+An already registered transfer opens directly on its saved state. Its help is
+available on demand. The expanded manual opens at `collections.html#transfer`.
+
+The ordinary Sources → transfer workflow at 225% opened and closed this guide
+before preview on Win32 and Win64, asserted that it did not enable the move or
+overlap the introduction, then completed the move and checked the reader data.
+Both native test binaries were rebuilt. Reports are under
+`G:/HL-b14-external/r1989-transfer-context/workflow-{Win32,Win64}-apply`.

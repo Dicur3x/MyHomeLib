@@ -14,7 +14,7 @@ implementation
 uses Winapi.Windows, Winapi.Messages, Winapi.ActiveX, System.IOUtils, System.SyncObjs, System.Math,
   Vcl.Dialogs, Vcl.Clipbrd, unit_Settings, dm_user, unit_MHLTheme, unit_BookEstimateReport,
   unit_CollectionTransferCatalogue, unit_CollectionTransferPlan, unit_CollectionTransferJournal,
-  unit_CollectionTransferOperation, unit_CollectionTransferCompletion, unit_CollectionTransferSpace;
+  unit_CollectionTransferOperation, unit_CollectionTransferCompletion, unit_CollectionTransferSpace, unit_ContextToolGuide;
 
 const
   DestinationUnavailable = 'Папка назначения «%s» недоступна. Подключите диск или восстановите доступ к папке и повторите попытку.';
@@ -77,6 +77,7 @@ type
     FRelease,FRefresh:TProc;
     FReady:TFunc<Boolean>;
     FReleased,FCloseAfterStop,FLayoutBusy:Boolean;
+    FToolGuide:TContextToolGuide;
     FDestination,FWork:TEdit;
     FChooseDestination,FChooseWork,FPreview,FRun,FStop,FClose,FPin:TButton;
     FStage,FSource,FHelp,FDestinationLabel,FWorkLabel:TLabel;
@@ -101,6 +102,8 @@ type
     procedure LayoutControls;
   protected
     procedure Resize; override;
+    procedure DoShow; override;
+    procedure DoHide; override;
   public
     procedure ScaleForPPI(NewPPI:Integer); override;
     constructor CreateFor(Owner:TCustomForm; const Info:TCollectionInfo; const Personal:string;
@@ -298,7 +301,8 @@ begin
   FRelease:=ReleaseCollection; FRefresh:=RefreshCollection; FReady:=ApplicationReady;
   FHelp:=LabelAt('Собрать файлы текущей коллекции в одной папке. Архивы переносятся целиком, без повторного сжатия. '+
     'Для источников создаются подпапки: одинаковые имена не заменят чужой архив. '+
-    'Прежний файл освобождается только после проверки копии и сохранения адресов. Общие или занятые исходники могут остаться.',12,12,776,70);
+    'Прежний файл освобождается только после проверки копии и сохранения адресов. Общие или занятые исходники могут остаться.',12,12,732,70);
+  FHelp.Name:='TransferIntro';
   FDestinationLabel:=LabelAt('Папка назначения:',12,90,776,20);
   FDestination:=TEdit.Create(Self); FDestination.Parent:=Self; FDestination.Name:='TransferDestination';
   FDestination.SetBounds(12,112,650,25); FDestination.Anchors:=[akLeft,akTop,akRight];
@@ -327,6 +331,13 @@ begin
   for var B in [FPreview,FRun,FStop,FPin,FClose] do B.Anchors:=[akLeft,akBottom];
   FClose.Anchors:=[akRight,akBottom]; FClose.Cancel:=True;
   FTimer:=TTimer.Create(Self); FTimer.Interval:=100; FTimer.OnTimer:=Tick;
+  FToolGuide:=TContextToolGuide.CreateForTool(Self,Self,'collection-transfer','Как собрать коллекцию в одной папке',
+    'Выберите папку для книг и нажмите «Проверить план». На этом шаге можно посмотреть список файлов и нужное место на каждом диске.',
+    'В папку назначения попадут книги и целые архивы. Одноимённые архивы разных источников получат отдельные пути.'+sLineBreak+
+    'В рабочей папке хранятся журнал и временные данные. Оставьте её доступной до завершения переноса.'+sLineBreak+
+    'Если план подходит, нажмите «Перенести». Чтобы прерваться, нажмите «Остановить». При следующем запуске выберите «Продолжить».',
+    110,'transfer');
+  FToolGuide.Name:='TransferContextGuide';
   OnCloseQuery:=CloseQuery; ApplyMHLControlTheme(Self);
   if Pending.Operation<>'' then
   begin
@@ -353,6 +364,18 @@ end;
 procedure TfrmCollectionTransfer.ScaleForPPI(NewPPI:Integer);
 begin inherited; LayoutControls; end;
 
+procedure TfrmCollectionTransfer.DoShow;
+begin
+  inherited;
+  if FContext.Pending.Operation='' then FToolGuide.FirstUse;
+end;
+
+procedure TfrmCollectionTransfer.DoHide;
+begin
+  if Assigned(FToolGuide) then FToolGuide.Hide;
+  inherited;
+end;
+
 procedure TfrmCollectionTransfer.Resize;
 begin inherited; LayoutControls; end;
 
@@ -365,7 +388,9 @@ begin
   try
     Constraints.MinWidth:=Px(700); Constraints.MinHeight:=Px(560);
     var W:=ClientWidth; var Gap:=Px(12); var ChooseWidth:=Px(114);
-    FHelp.SetBounds(Gap,Px(12),W-2*Gap,Px(70));
+    if Assigned(FToolGuide) then
+      FToolGuide.HelpButton.SetBounds(W-Gap-Px(28),Px(8),Px(28),Px(28));
+    FHelp.SetBounds(Gap,Px(12),W-3*Gap-Px(28),Px(70));
     FDestinationLabel.SetBounds(Gap,Px(90),W-2*Gap,Px(20));
     FWorkLabel.SetBounds(Gap,Px(146),W-2*Gap,Px(20));
     FDestination.SetBounds(Gap,Px(112),W-3*Gap-ChooseWidth,Px(25));

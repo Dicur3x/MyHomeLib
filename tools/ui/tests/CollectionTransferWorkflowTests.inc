@@ -82,6 +82,15 @@ begin
               Dialog.ScaleForPPI(PPI); var Area:=Screen.WorkAreaRect;
               Dialog.SetBounds(Area.Left+8,Area.Top+8,Min(Dialog.Width,Area.Width-16),Min(Dialog.Height,Area.Height-16));
             end;
+            var Guide:=Dialog.FindComponent('TransferContextGuide') as TContextToolGuide;
+            var Intro:=Dialog.FindComponent('TransferIntro') as TLabel;
+            Require(Assigned(Guide) and Assigned(Intro) and Assigned(Guide.HelpButton.OnClick) and
+              (Intro.BoundsRect.Right<=Guide.HelpButton.Left) and
+              (Guide.HelpButton.BoundsRect.Right<=Dialog.ClientWidth),'Transfer help button overlaps introductory text');
+            Guide.HelpButton.Click;
+            var Help:=Guide.FindComponent('ToolGuidePopupcollectiontransfer') as TForm;
+            Require(Assigned(Help) and Help.Visible and (not Run.Enabled),'Opening help changed the pending transfer');
+            Help.Close;
             DestinationEdit.Text:=Destination; WorkEdit.Text:=Work;
             Require(WorkEdit.Width=DestinationEdit.Width,'Working-folder field shrank during DPI layout');
             Require(not Run.Enabled,'Transfer starts before its plan is checked');
