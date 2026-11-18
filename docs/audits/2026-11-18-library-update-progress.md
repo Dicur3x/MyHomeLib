@@ -53,8 +53,23 @@ The first worktree native build lacked the untracked VirtualTreeView source;
 27 files were copied with matching hashes from the existing build mirror.
 Both final native builds pass. A separate ordinary Main worktree build later
 timed out without a terminal log although an EXE exists; it is not a passing
-build receipt. The owned IDE exited. Warm production-mirror builds remain
-required before this batch is called production-build verified.
+build receipt. A warm-mirror retry r1698 also reached its deadline after the
+Community Edition reminder delayed compilation. Both owned IDEs exited;
+neither timeout is counted as successful build evidence.
+
+Fresh ordinary Main builds then passed on the warm production mirror:
+
+| Architecture | Build receipt folder | Main SHA-256 |
+| --- | --- | --- |
+| Win64 | library-progress-main64-r1700 | 7c3e6e76fe9d80f2a1cc0927cdef8abfde730157f2c6a60bcce364c3933b8633 |
+| Win32 | library-progress-main32-r1701 | 97900db405c5848be80bc1c5d5a83554d9f4fbbc31b6f3fdd306077d83faef23 |
+
+Both receipts verify a fresh binary, the actual PE architecture, linked cache
+progress caption, unchanged project and removed owned build temporary folder.
+summary-r1702.json binds these receipts/logs and the four native runs above;
+all 697 manifest inputs match both the primary source and production mirror.
+Main resources still identify beta 13: these are production-project checks,
+not final beta-14 release artifacts.
 
 This is source-update progress only. It does not establish progress coverage
 for every export/conversion worker or a final beta-14 distribution. No E:,
