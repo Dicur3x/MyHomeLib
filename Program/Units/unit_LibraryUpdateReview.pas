@@ -463,8 +463,39 @@ var DB: TSQLiteDatabase; Insert, Query: TSQLiteQuery; Iterator: IPublisherSeries
   State, Container, Comparison, Alternate, AlternateKey, RawLocation: string;
   Availability: TDictionary<string,Boolean>;
   PackedProjected,PackedMapped:Integer;
-  PackedBatch,ProjectPackedPrevious:Boolean;
-  BoundPackedCopy,LegacyInput:TSQLiteQuery;
+  PackedBatch,ProjectPackedPrevious,StandalonePacked:Boolean;
+  BoundPackedCopy,LegacyInput,PriorArtifact,ExcludedAlias,UnresolvedExclusion:TSQLiteQuery;
+  procedure RememberExcludedAlias(const OldKey,ArtifactKey:string);
+  begin
+    if (OldKey=ArtifactKey) or not Assigned(ExcludedAlias) then Exit;
+    ExcludedAlias.Reset;
+    ExcludedAlias.SetParam(0,OldKey); ExcludedAlias.SetParam(1,ArtifactKey);
+    ExcludedAlias.SetParam(2,OldKey); ExcludedAlias.ExecSQL;
+  end;
+  function PackedPublisherKey(const Item:TBookRecord; const SpaceNamespace,Root:string;
+    out Location:string):string;
+  begin
+    Location:=LegacyPublisherLocation(Item);
+    if not LibraryPackedIdentityNeedsLocation(Item.LibID) then
+      Exit(ReviewBookKey(Item,SpaceNamespace,Root));
+    var ExactLocation:=LibraryLegacyPublisherLocation(Item,False);
+    if ExactLocation<>Location then
+    begin
+      // A conventional INPX can advertise ZIP when the initial local import
+      // recorded 7z. A saved publisher locator has priority over this convention.
+      var ExactKey:=LibraryPackedArtifactKey(Item,ExactLocation);
+      if FPreviousIndex then
+      begin
+        PriorArtifact.Reset; PriorArtifact.SetParam(0,ExactKey); PriorArtifact.Open;
+        if not PriorArtifact.Eof then begin Location:=ExactLocation; Exit(ExactKey); end;
+        PriorArtifact.Reset;
+        PriorArtifact.SetParam(0,LibraryPackedArtifactKey(Item,Location)); PriorArtifact.Open;
+        if not PriorArtifact.Eof then Exit(PriorArtifact.FieldAsString(0));
+      end;
+      if FIsMetabib then Location:=ExactLocation;
+    end;
+    Result:=LibraryPackedArtifactKey(Item,Location);
+  end;
   function LegacyArtifact(const Path, Name: string; const Item: TBookRecord): string;
   begin
     Result:=THashSHA2.GetHashString(TPath.GetFullPath(Path)+#1+Name+#1+Item.FileExt+#1+
@@ -559,7 +590,8 @@ var DB: TSQLiteDatabase; Insert, Query: TSQLiteQuery; Iterator: IPublisherSeries
     else Result:=FileExists(FileName);
   end;
   procedure Load(const Collection: IBookCollection; IsPrevious: Boolean);
-  var Publisher:TPackingPublisherState; Projected:Boolean; PublisherRoot:string;
+  var Publisher:TPackingPublisherState; Projected,UseArtifact:Boolean;
+    PublisherRoot,OriginalKey,CachedKey:string; IdentityBook:TBookRecord;
   begin
     Namespace:=VarToStr(Collection.GetProperty(PROP_SOURCE_LIBRARY));
     if IsPrevious and (Namespace='') then Namespace:=FSourceInfo.LibraryNamespace;
@@ -567,7 +599,8 @@ var DB: TSQLiteDatabase; Insert, Query: TSQLiteQuery; Iterator: IPublisherSeries
     while Iterator.Next(Book,Stamp) do
     begin
       Check; CheckSpace;
-      Key:=ReviewBookKey(Book,Namespace,FSourceInfo.Root);
+      IdentityBook:=Book;
+      PublisherRoot:=FSourceInfo.Root;
       Projected:=False;
       if IsPrevious and ProjectPackedPrevious then
         Projected:=ReadPackingPublisher(PackedDB,Book.BookKey.BookID,Publisher);
@@ -576,14 +609,19 @@ var DB: TSQLiteDatabase; Insert, Query: TSQLiteQuery; Iterator: IPublisherSeries
         if Publisher.Book.LibID<>Book.LibID then
           raise EReadError.Create('Исходные сведения упакованной книги больше не соответствуют её идентификатору: '+Book.Title);
         PublisherRoot:=Publisher.Root; if PublisherRoot='' then PublisherRoot:=FSourceInfo.Root;
-        Key:=ReviewBookKey(Publisher.Book,Namespace,PublisherRoot); Inc(PackedProjected);
+        IdentityBook:=Publisher.Book;
+        Inc(PackedProjected);
       end;
+      UseArtifact:=StandalonePacked and LibraryPackedIdentityNeedsLocation(IdentityBook.LibID);
+      OriginalKey:=ReviewBookKey(IdentityBook,Namespace,PublisherRoot);
+      CachedKey:=OriginalKey;
       if IsPrevious and Assigned(ReviewKeyQuery) then
       begin
         ReviewKeyQuery.Reset; ReviewKeyQuery.SetParam(0,Book.BookKey.BookID); ReviewKeyQuery.Open;
-        if not ReviewKeyQuery.Eof then Key:=ReviewKeyQuery.FieldAsString(0);
+        if not ReviewKeyQuery.Eof then CachedKey:=ReviewKeyQuery.FieldAsString(0);
       end;
-      Insert.Reset; Insert.SetParam(0,Key);
+      Key:=CachedKey;
+      Insert.Reset;
       if Projected then Insert.SetParam(1,ReviewStamp(Publisher.Book)) else Insert.SetParam(1,ReviewStamp(Book));
       if IsPrevious then
       begin
@@ -604,8 +642,9 @@ var DB: TSQLiteDatabase; Insert, Query: TSQLiteQuery; Iterator: IPublisherSeries
           SourceKeyQuery.Reset; SourceKeyQuery.SetParam(0,Book.BookKey.BookID); SourceKeyQuery.Open;
           if not SourceKeyQuery.Eof then SourceKey:=SourceKeyQuery.FieldAsString(0);
         end;
-        RawLocation:=LegacyPublisherLocation(Book);
-        if Projected then RawLocation:=LegacyPublisherLocation(Publisher.Book);
+        RawLocation:=LegacyPublisherLocation(IdentityBook);
+        if UseArtifact and FIsMetabib then
+          RawLocation:=LibraryLegacyPublisherLocation(IdentityBook,False);
         if Assigned(PublisherQuery) then
         begin
           PublisherQuery.Reset; PublisherQuery.SetParam(0,Book.BookKey.BookID); PublisherQuery.Open;
@@ -619,6 +658,12 @@ var DB: TSQLiteDatabase; Insert, Query: TSQLiteQuery; Iterator: IPublisherSeries
           RecoveredQuery.SetParam(1,ReviewStamp(Book)); RecoveredQuery.Open;
           if RecoveredQuery.Eof then raise EReadError.Create('В сохранённом исходном индексе нет однозначной записи для прежнего архива: '+Book.Folder+' | '+Book.FileName);
           RawLocation:=RecoveredQuery.FieldAsString(0);
+        end;
+        if UseArtifact then
+        begin
+          Key:=LibraryPackedArtifactKey(IdentityBook,RawLocation);
+          RememberExcludedAlias(OriginalKey,Key);
+          if CachedKey<>OriginalKey then RememberExcludedAlias(CachedKey,Key);
         end;
         Insert.SetParam(2,RawLocation); Insert.SetParam(3,SourceKey);
         Insert.SetParam(4,BookPhysicalIdentityAtLocation(Book,Container));
@@ -660,14 +705,27 @@ var DB: TSQLiteDatabase; Insert, Query: TSQLiteQuery; Iterator: IPublisherSeries
       end
       else
       begin
+        RawLocation:=PublisherLocation(Book);
+        if UseArtifact then
+        begin
+          Key:=LibraryPackedArtifactKey(Book,RawLocation);
+          if Assigned(UnresolvedExclusion) then
+          begin
+            UnresolvedExclusion.Reset; UnresolvedExclusion.SetParam(0,OriginalKey); UnresolvedExclusion.Open;
+            if not UnresolvedExclusion.Eof then
+              raise EReadError.Create('Не удалось определить исходный архив ранее исключённой книги: '+
+                RawLocation+' | '+Book.FileName+Book.FileExt);
+          end;
+        end;
         Insert.SetParam(2,Book.BookKey.BookID);
         Insert.SetParam(3,ReviewLocation(Book));
         Insert.SetParam(4,not (bpIsDeleted in Book.BookProps));
         Container:=ReviewContainer(Book,FSource.BooksRoot,Containers);
         Insert.SetParam(5,BookPhysicalIdentityAtLocation(Book,Container));
-        Insert.SetParam(6,Available(Book,Container)); Insert.SetParam(7,PublisherLocation(Book));
+        Insert.SetParam(6,Available(Book,Container)); Insert.SetParam(7,RawLocation);
         Insert.SetParam(8,IntToStr(Book.Size)+#1+FloatToStr(Book.Date,TFormatSettings.Invariant));
       end;
+      Insert.SetParam(0,Key);
       Insert.ExecSQL; Inc(Count);
       if Assigned(Progress) and ((Count mod 1000=0) or (Count=Total)) then
         if IsPrevious then Progress('Сопоставление с прежними книгами',Count,Total)
@@ -677,7 +735,7 @@ var DB: TSQLiteDatabase; Insert, Query: TSQLiteQuery; Iterator: IPublisherSeries
   end;
   procedure MapPackedLocations;
   var Live:IPublisherSeriesIndexIterator; Item:TBookRecord; Publisher:TPackingPublisherState;
-    Put,Origin,Matched:TSQLiteQuery; Unused,PublisherRoot,SpaceNamespace,PhysicalContainer,Key:string;
+    Put,Origin,Matched:TSQLiteQuery; Unused,PublisherRoot,SpaceNamespace,PhysicalContainer,Key,Location:string;
   begin
     if not Assigned(PackedDB) then Exit;
     SpaceNamespace:=VarToStr(Target.GetProperty(PROP_SOURCE_LIBRARY));
@@ -727,7 +785,7 @@ var DB: TSQLiteDatabase; Insert, Query: TSQLiteQuery; Iterator: IPublisherSeries
           if Publisher.Book.LibID<>Item.LibID then
             raise EReadError.Create('Исходные сведения упакованной книги больше не соответствуют её идентификатору: '+Item.Title);
           PublisherRoot:=Publisher.Root; if PublisherRoot='' then PublisherRoot:=FSourceInfo.Root;
-          Key:=ReviewBookKey(Publisher.Book,SpaceNamespace,PublisherRoot);
+          Key:=PackedPublisherKey(Publisher.Book,SpaceNamespace,PublisherRoot,Location);
         end;
         PhysicalContainer:=ReviewContainer(Item,'',Containers);
         Put.Reset; Put.SetParam(0,Key);
@@ -743,7 +801,7 @@ var DB: TSQLiteDatabase; Insert, Query: TSQLiteQuery; Iterator: IPublisherSeries
     finally Live:=nil; Matched.Free; Origin.Free; Put.Free; end;
   end;
   procedure LoadPackedExclusions;
-  var Removed,Save:TSQLiteQuery; Publisher:TPackingPublisherState; PublisherRoot:string;
+  var Removed,Save:TSQLiteQuery; Publisher:TPackingPublisherState; PublisherRoot,Key,Location:string;
   begin
     if not Assigned(PackedDB) then Exit;
     Removed:=PackedDB.NewQuery('SELECT p.BookID FROM HomeLibrePackingPublishers p '+
@@ -758,12 +816,15 @@ var DB: TSQLiteDatabase; Insert, Query: TSQLiteQuery; Iterator: IPublisherSeries
         if not ReadPackingPublisher(PackedDB,Removed.FieldAsInt(0),Publisher) then
           raise EReadError.Create('Не найдены исходные сведения удалённой упакованной книги.');
         PublisherRoot:=Publisher.Root; if PublisherRoot='' then PublisherRoot:=FSourceInfo.Root;
-        Save.Reset; Save.SetParam(0,ReviewBookKey(Publisher.Book,Namespace,PublisherRoot));
-        Save.SetParam(1,ReviewStamp(Publisher.Book)); Save.SetParam(2,LegacyPublisherLocation(Publisher.Book));
+        Key:=PackedPublisherKey(Publisher.Book,Namespace,PublisherRoot,Location);
+        if LibraryPackedIdentityNeedsLocation(Publisher.Book.LibID) then
+          RememberExcludedAlias(ReviewBookKey(Publisher.Book,Namespace,PublisherRoot),Key);
+        Save.Reset; Save.SetParam(0,Key);
+        Save.SetParam(1,ReviewStamp(Publisher.Book)); Save.SetParam(2,Location);
         Save.SetParam(3,Publisher.Book.BookKey.BookID); Save.SetParam(4,Publisher.Book.LibID); Save.ExecSQL;
         // A retained raw cache can already have this key in ReviewPrevious.
         // Record the proven post-packing deletion independently of that row.
-        DB.ExecSQL('INSERT OR IGNORE INTO ReviewExcluded VALUES(?)',[ReviewBookKey(Publisher.Book,Namespace,PublisherRoot)]);
+        DB.ExecSQL('INSERT OR IGNORE INTO ReviewExcluded VALUES(?)',[Key]);
         Removed.Next;
       end;
       DB.ExecSQL('INSERT OR IGNORE INTO ReviewExcluded SELECT Key FROM ReviewPrevious WHERE State=''excluded''');
@@ -778,6 +839,8 @@ begin
   StateDB:=nil; PackedDB:=nil; PackedProjected:=0; PackedMapped:=0; PackedBatch:=False; ProjectPackedPrevious:=False;
   StateQuery:=nil; SourceKeyQuery:=nil; PublisherQuery:=nil; RecoveredQuery:=nil; ReviewKeyQuery:=nil;
   BoundPackedCopy:=nil; LegacyInput:=nil; FLegacyPackedBaseline:=False;
+  StandalonePacked:=FPacked and (FSource.CatalogSourceID='');
+  PriorArtifact:=nil; ExcludedAlias:=nil; UnresolvedExclusion:=nil;
   try
     if FPreviousIndex then
     begin
@@ -832,6 +895,7 @@ begin
     DB.ExecSQL('CREATE TABLE ReviewPackedLocations(Key TEXT NOT NULL,BookID INTEGER PRIMARY KEY,Root TEXT,Folder TEXT,'+
       'FileName TEXT,Ext TEXT,InsideNo INTEGER,BookSize INTEGER,Physical TEXT,PendingPayload INTEGER,Container TEXT)');
     DB.ExecSQL('CREATE INDEX ReviewPackedLocationKey ON ReviewPackedLocations(Key)');
+    if StandalonePacked then PriorArtifact:=DB.NewQuery('SELECT Key FROM ReviewPrevious WHERE Key=?');
     RecoverPublisherLocations;
     if Assigned(StateDB) and (StateDB.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE name=''LibraryUpdateExclusions'' AND type=''table''')>0) then
     begin
@@ -848,6 +912,14 @@ begin
           DB.Commit;
         except DB.Rollback; raise; end;
       finally SaveExcluded.Free; Excluded.Free; end;
+      if StandalonePacked and (DB.QuerySingleInt('SELECT count(*) FROM ReviewExcluded')>0) then
+      begin
+        DB.ExecSQL('CREATE TABLE ReviewExcludedAliases(OldKey TEXT,ArtifactKey TEXT,'+
+          'PRIMARY KEY(OldKey,ArtifactKey)) WITHOUT ROWID');
+        ExcludedAlias:=DB.NewQuery('INSERT OR IGNORE INTO ReviewExcludedAliases SELECT ?,? '+
+          'WHERE EXISTS(SELECT 1 FROM ReviewExcluded WHERE Key=?)');
+        UnresolvedExclusion:=DB.NewQuery('SELECT Key FROM ReviewExcluded WHERE Key=?');
+      end;
     end;
     // Build the empty index before streaming rows. GROUP BY/ORDER BY can walk
     // it without a large sort spilling to Windows TEMP on the system drive.
@@ -867,6 +939,15 @@ begin
             'WHERE p.State=''excluded'' OR (p.State<>''missing'' AND NOT EXISTS '+
             '(SELECT 1 FROM ReviewPackedLocations l WHERE l.Key=p.Key))')
         else LoadPackedExclusions;
+      end;
+      if Assigned(ExcludedAlias) then
+      begin
+        if DB.QuerySingleInt('SELECT count(*) FROM (SELECT OldKey FROM ReviewExcludedAliases '+
+          'GROUP BY OldKey HAVING count(*)>1)')>0 then
+          raise EReadError.Create('Прежнее исключение соответствует нескольким архивам. '+
+            'Не удалось однозначно определить исключённую книгу. Обновление остановлено.');
+        DB.ExecSQL('INSERT OR IGNORE INTO ReviewExcluded SELECT ArtifactKey FROM ReviewExcludedAliases');
+        DB.ExecSQL('DELETE FROM ReviewExcluded WHERE Key IN (SELECT OldKey FROM ReviewExcludedAliases)');
       end;
       Insert:=DB.NewQuery('INSERT INTO ReviewRows VALUES(?,?,?,?,?,?,?,?,?)'); Load(FSnapshot,False); FreeAndNil(Insert);
       if Assigned(BoundPackedCopy) then
@@ -961,7 +1042,8 @@ begin
         FSummary:=FSummary+sLineBreak+FNeeded[I];
       end;
     end;
-  finally Iterator:=nil; ReviewKeyQuery.Free; RecoveredQuery.Free; PublisherQuery.Free; SourceKeyQuery.Free; StateQuery.Free; StateDB.Free;
+  finally Iterator:=nil; UnresolvedExclusion.Free; ExcludedAlias.Free; PriorArtifact.Free;
+    ReviewKeyQuery.Free; RecoveredQuery.Free; PublisherQuery.Free; SourceKeyQuery.Free; StateQuery.Free; StateDB.Free;
     BoundPackedCopy.Free; LegacyInput.Free;
     if PackedBatch then PackedDB.EndQueryBatch; PackedDB.Free;
     Availability.Free; Containers.Free; Query.Free; Insert.Free; DB.Free; end;
@@ -1787,7 +1869,13 @@ begin
     Output.ExecSQL('CREATE TABLE IF NOT EXISTS LibraryUpdateExclusions(Key TEXT PRIMARY KEY) WITHOUT ROWID');
     Output.ExecSQL('CREATE TABLE IF NOT EXISTS LibraryUpdatePublisherLocations(BookID INTEGER PRIMARY KEY,Location TEXT NOT NULL)');
     Output.ExecSQL('ATTACH DATABASE ? AS review',[FAnalysisFile]);
-    Output.ExecSQL('INSERT OR IGNORE INTO LibraryUpdateExclusions SELECT Key FROM review.ApplyExcluded');
+    Output.Start;
+    try
+      if FPacked and (FSource.CatalogSourceID='') then
+        Output.ExecSQL('DELETE FROM LibraryUpdateExclusions');
+      Output.ExecSQL('INSERT OR IGNORE INTO LibraryUpdateExclusions SELECT Key FROM review.ApplyExcluded');
+      Output.Commit;
+    except Output.Rollback; raise; end;
     if FSource.Full then
       Output.ExecSQL('INSERT OR REPLACE INTO LibraryUpdatePublisherLocations SELECT BookID,PublisherLocation FROM review.ReviewRows')
     else
@@ -2012,6 +2100,7 @@ begin
               [Rows.FieldAsString(4),Book.FileName,Book.FileExt,Rows.FieldAsInt(5),Book.Size,
                Info.ID,ID,Before.LibID,Before.Folder,TPath.Combine(Info.RootFolder,Before.Folder),
                Before.FileName,Before.FileExt,Before.InsideNo]);
+          if LibraryPackedIdentityNeedsLocation(Book.LibID) then Book.LibID:=Before.LibID;
         end;
         Book.BookKey:=CreateBookKey(ID,Info.ID);
         Publisher.StorePackingPublisherMetadata(Book,FSourceInfo.Root,Rows.FieldAsString(3)<>'missing-retained');

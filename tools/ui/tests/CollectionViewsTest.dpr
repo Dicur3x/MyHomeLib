@@ -13,7 +13,7 @@ uses
   unit_Utils, frm_search, frm_MCPSetup, Xml.XMLDoc, Xml.XMLIntf,
   unit_CatalogComponents, unit_MetabibReader, unit_MetabibWriter, unit_FormatComponents, unit_ComponentRemoval, unit_ComponentUsage, frm_ComponentMaintenance,
   unit_StartupCatalog, unit_FLibraryCompat, unit_BookCompressionRestored, unit_BookViewSessions,
-  unit_LibraryUpdateSources, unit_LibraryUpdateFetch, unit_LibraryUpdateReview, unit_LibraryUpdateHistory, unit_LibraryUpdateJournal, unit_Lib_Updates, frm_LibraryUpdateSources,
+  unit_LibraryUpdateIdentity, unit_LibraryUpdateSources, unit_LibraryUpdateFetch, unit_LibraryUpdateReview, unit_LibraryUpdateHistory, unit_LibraryUpdateJournal, unit_Lib_Updates, frm_LibraryUpdateSources,
   NativeRegressionGuard, System.SysUtils, System.StrUtils, System.Classes, System.Types, System.IOUtils, System.IniFiles, System.JSON, System.Net.HttpClient, System.Net.URLClient, System.Generics.Collections, System.Variants, Winapi.Windows, Winapi.Messages, Winapi.CommCtrl, Winapi.RichEdit, Winapi.ActiveX, Winapi.ShlObj,
   Vcl.Forms, Vcl.Dialogs, Vcl.Themes, Vcl.Styles, Vcl.Clipbrd, Vcl.CheckLst, Vcl.Graphics, Vcl.Menus, Vcl.ComCtrls, Vcl.ExtCtrls, Vcl.Controls, Vcl.StdCtrls, Vcl.ActnList,
   VirtualTrees, VirtualTrees.Types, VirtualTrees.BaseTree, BookTreeView, BookInfoPanel, unit_MHLTheme, unit_FirstUseGuide, unit_ContextToolGuide, unit_HelpTopics, unit_MHLThemePalette, frm_InterfaceColors, unit_BookGallery, unit_UpdateNotes, unit_UpdateTextCache,
@@ -6209,6 +6209,7 @@ end;
 {$I UpdateOutcomeTests.inc}
 {$I LegacyUpdateWorkspaceTests.inc}
 {$I PackedSourceReviewTests.inc}
+{$I PackedPlaceholderIdsTests.inc}
 {$I FB2EncodingTests.inc}
 {$I LocalBookImportTests.inc}
 {$I FavoriteAuthorUiTests.inc}
@@ -6821,6 +6822,8 @@ begin
         TestPackedSourceReview(True,True)
       else if ParamStr(1) = 'packed-standalone-updates' then
         TestPackedSourceReview(ParamStr(3)='manual',ParamStr(3)='manual',False,nil,ParamStr(2))
+      else if ParamStr(1) = 'packed-placeholder-ids' then
+        TestPackedPlaceholderIds(ParamStr(2)='metabib',ParamStr(3))
       else if ParamStr(1) = 'packed-module-continuation' then
         TestPackedSourceReview(True,True,True)
       else if ParamStr(1) = 'packed-bound-apply' then

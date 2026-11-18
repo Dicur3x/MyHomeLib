@@ -6,7 +6,9 @@ uses unit_Globals;
 
 function LibraryUpdateBookKey(const Book:TBookRecord; const Namespace,Root:string):string;
 function LibraryPublisherLocation(const Book:TBookRecord):string;
-function LibraryLegacyPublisherLocation(const Book:TBookRecord):string;
+function LibraryLegacyPublisherLocation(const Book:TBookRecord; Alias7z:Boolean=True):string;
+function LibraryPackedIdentityNeedsLocation(const LibID:string):Boolean;
+function LibraryPackedArtifactKey(const Book:TBookRecord; const Location:string):string;
 
 implementation
 
@@ -48,7 +50,7 @@ end;
 function LibraryPublisherLocation(const Book: TBookRecord): string;
 begin Result:=LowerCase(IndexLocation(Book).Replace('/','\')); end;
 
-function LibraryLegacyPublisherLocation(const Book:TBookRecord):string;
+function LibraryLegacyPublisherLocation(const Book:TBookRecord; Alias7z:Boolean):string;
 var Folder:string;
 begin
   Result:=LibraryPublisherLocation(Book);
@@ -61,8 +63,28 @@ begin
     // root. Do not guess its relative directory from the basename alone.
     if TPath.IsPathRooted(Folder) or (Folder='..') or Folder.StartsWith('..\') then Exit;
   end;
-  if SameText(ExtractFileExt(Folder),SEVENZIP_EXTENSION) then Folder:=ChangeFileExt(Folder,ZIP_EXTENSION);
+  if Alias7z and SameText(ExtractFileExt(Folder),SEVENZIP_EXTENSION) then
+    Folder:=ChangeFileExt(Folder,ZIP_EXTENSION);
   Result:=LowerCase(Folder.Replace('/','\'));
+end;
+
+function LibraryPackedIdentityNeedsLocation(const LibID:string):Boolean;
+var ID, Source: string; Positive: Boolean;
+begin
+  if not TryParseLibrarySourceID(LibID,Source,ID) then ID:=LibID;
+  Positive:=False;
+  for var C in ID do
+  begin
+    if not CharInSet(C,['0'..'9']) then Exit(True);
+    Positive:=Positive or (C<>'0');
+  end;
+  Result:=not Positive;
+end;
+
+function LibraryPackedArtifactKey(const Book:TBookRecord; const Location:string):string;
+begin
+  Result:='artifact:'+THashSHA2.GetHashString(Location+#1+
+    LowerCase(Book.FileName.Replace('/','\'))+#1+LowerCase(Book.FileExt));
 end;
 
 end.
