@@ -204,7 +204,7 @@ Archive installations are **portable by default**: settings stay beside the EXE,
 and personal data is in `Data`. No `uselocaldata` marker is required. Collection
 files and books may be kept in separately chosen folders.
 
-When moving the application, retain its entire folder, including `myhomelib2.ini`,
+When moving the application, retain its entire folder, including `HomeLibre.ini`,
 `Data` and `presets.cxml2`, then check book and collection paths.
 
 Release archives contain no personal databases, books, notes or history.

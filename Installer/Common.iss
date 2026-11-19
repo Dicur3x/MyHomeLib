@@ -43,7 +43,7 @@ Name: "{userappdata}\MyHomeLib"; Permissions: everyone-modify
 Name: {group}\{#MyAppName}; Filename: {app}\{#AppExeName}; WorkingDir: {app}; IconFilename: {app}\{#AppExeName}; IconIndex: 0; Comment: {#MyAppName}
 Name: {group}\{cm:HelpShortcut}; Filename: {app}\{cm:HelpIndex}; WorkingDir: {app}; IconFilename: {sys}\ieframe.dll; IconIndex: 36; Comment: {cm:HelpShortcut}
 Name: {commondesktop}\{#MyAppName}; Filename: {app}\{#AppExeName}; WorkingDir: {app}; IconFilename: {app}\{#AppExeName}; IconIndex: 0; Comment: {#MyAppName}; Tasks: desktopicon
-Name: {group}\{cm:WebsiteShortcut}; Filename: {app}\HomeLibRu.url; IconFilename: {sys}\ieframe.dll; IconIndex: 36
+Name: {group}\{cm:WebsiteShortcut}; Filename: {app}\HomeLibre.url; IconFilename: {sys}\ieframe.dll; IconIndex: 36
 Name: {group}\{cm:UninstallProgram,{#MyAppName}}; Filename: {uninstallexe}
 
 [UninstallDelete]
@@ -93,7 +93,7 @@ Source: Common\genres_fb2_bg.glst; DestDir: {app}\tools\genres; Flags: replacesa
 Source: Common\genres_nonfb2_bg.glst; DestDir: {app}\tools\genres; Flags: replacesameversion
 Source: Common\collections.ini; DestDir: {userappdata}\MyHomeLib; Flags: onlyifdoesntexist
 Source: Common\Help\*; DestDir: {app}\Help; Flags: recursesubdirs
-Source: Common\HomeLibRu.url; DestDir: {app}; Flags: replacesameversion
+Source: Common\HomeLibre.url; DestDir: {app}; Flags: replacesameversion
 Source: Common\LICENSE; DestDir: {app}; Flags: replacesameversion
 Source: Common\NOTICE; DestDir: {app}; Flags: replacesameversion
 Source: Common\License.txt; DestDir: {app}; Flags: replacesameversion
@@ -132,6 +132,6 @@ Bulgarian.HelpIndex=Help\bg\index.html
 
 [INI]
 ;
-Filename: {userappdata}\MyHomeLib\myhomelib2.ini; Section: INTERFACE; Key: Locale; String: {cm:LocaleCode}; Flags: createkeyifdoesntexist
+Filename: {app}\HomeLibre.ini; Section: INTERFACE; Key: Locale; String: {cm:LocaleCode}; Flags: createkeyifdoesntexist; Check: ShouldInitializeLocale
 
 #include "LegacyUpgrade.iss"

@@ -17,7 +17,7 @@ const lines = [
   '',
 ];
 
-lines.push('MHL_DARK_STYLE VCLSTYLE \"Resources\\\\Themes\\\\HomeLibRuDark.vsf\"');
+lines.push('MHL_DARK_STYLE VCLSTYLE \"Resources\\\\Themes\\\\HomeLibreDark.vsf\"');
 
 const embedded = [];
 for (const code of EMBEDDED) {

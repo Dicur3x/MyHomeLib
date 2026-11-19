@@ -83,7 +83,7 @@ def main():
         if args.candidate_exe:
             candidate = args.candidate_exe.resolve(strict=True)
             shutil.copyfile(candidate, app / 'HomeLibreReader.exe')
-        (app / 'HomeLibReader.ini').write_text('[SYSTEM]\nCheckUpdates=0\n', encoding='utf-8')
+        (app / 'HomeLibreReader.ini').write_text('[SYSTEM]\nCheckUpdates=0\n', encoding='utf-8')
         before = {str(file.relative_to(app)): sha(file) for file in app.rglob('*') if file.is_file()}
         environment = dict(os.environ, APPDATA=str(root / 'Roaming'), LOCALAPPDATA=str(root / 'Local'),
                            TEMP=str(root), TMP=str(root))
@@ -96,7 +96,7 @@ def main():
             source = Path(state['source'])
             session_file.write_text(json.dumps(dict(format=1, kind='HomeLibReader-session', id=identity,
                 source=str(source), identity='owned-reader-cancel:' + args.platform,
-                settings=str(app / 'HomeLibReader.ini'), personal_progress=False,
+                settings=str(app / 'HomeLibreReader.ini'), personal_progress=False,
                 book=dict(collection_id=1, book_id=1, root=str(root) + os.sep, folder='',
                     file=source.stem, extension=source.suffix, inside=0, size=source.stat().st_size,
                     lib_id='1', title='Проверка отмены открытия', language='ru')), ensure_ascii=False), encoding='utf-8')
@@ -154,14 +154,14 @@ def main():
         for item in run['prepared_manifest']['files']:
             assert sha(app / item['path']) == item['sha256'], item['path']
         for relative, digest in run['before'].items():
-            if relative != 'HomeLibReader.ini':
+            if relative != 'HomeLibreReader.ini':
                 assert sha(app / relative) == digest, 'Unrelated file changed: ' + relative
         native = REPO / f"Program/Tests/Out/{run['platform']}/ProgramUpdateInstallerTest.exe"
         result = subprocess.run([str(native), '--component-needs-repair', str(app), 'PDFium'],
             env=dict(os.environ, TEMP=str(root.parent), TMP=str(root.parent)),
             capture_output=True, encoding='utf-8-sig', creationflags=subprocess.CREATE_NO_WINDOW, timeout=60)
         assert result.returncode == 0 and result.stdout.strip().splitlines() == ['0', 'PASS'], result
-        ini = (app / 'HomeLibReader.ini').read_text(encoding='utf-8-sig')
+        ini = (app / 'HomeLibreReader.ini').read_text(encoding='utf-8-sig')
         assert 'PendingFile=' not in ini and 'PendingSession=' not in ini
         settings = configparser.ConfigParser(interpolation=None)
         settings.read_string(ini)
@@ -182,7 +182,7 @@ def main():
             assert reply['state'] == 'closed', reply
             run['session_terminal_state'] = reply['state']
         for name, digest in run['before'].items():
-            if name != 'HomeLibReader.ini':
+            if name != 'HomeLibreReader.ini':
                 assert sha(app / name) == digest, name
         run.update(checked=True, cancelled=True, process_exited=True,
                    source_preserved=True, preexisting_payload_preserved=True,

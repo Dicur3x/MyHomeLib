@@ -27,7 +27,7 @@ implementation
 
 uses System.Classes, System.IOUtils, System.JSON, System.DateUtils,
   Winapi.Windows, unit_AtomicIniFile, unit_ComponentUpdates, unit_Templater,
-  unit_BookConversion, unit_Helpers, unit_BookSavePolicy, unit_BookOutput;
+  unit_BookConversion, unit_Helpers, unit_BookSavePolicy, unit_BookOutput, unit_ProfileIni;
 
 const MAX_PLAN_BYTES = 64*1024*1024;
   MAX_LINE_CHARS = 16384;
@@ -225,11 +225,18 @@ begin
 end;
 
 function TakeBookSaveContinuation(const SettingsFile: string; out Value: TBookSaveContinuation): Boolean;
-var Name, Ready, Claimed, Token: string; Reader: TStreamReader; Root, Row: TJSONObject;
+var Name, Legacy, Ready, Claimed, Token: string; Reader: TStreamReader; Root, Row: TJSONObject;
   Count: Integer; Created: TDateTime;
 begin
   Result:=False; Value:=Default(TBookSaveContinuation); Name:=BookSaveContinuationFile(SettingsFile);
-  Ready:=Name+'.ready'; if not FileExists(Ready) or not FileExists(Name) then Exit;
+  Ready:=Name+'.ready';
+  if not FileExists(Ready) or not FileExists(Name) then
+  begin
+    Legacy:=LegacyProfileIniFile(SettingsFile);
+    if Legacy='' then Exit;
+    Name:=BookSaveContinuationFile(Legacy); Ready:=Name+'.ready';
+    if not FileExists(Ready) or not FileExists(Name) then Exit;
+  end;
   Reader:=OpenPlan(Name);
   try
     Root:=ReadLine(Reader);
@@ -294,13 +301,18 @@ end;
 procedure ClearBookSaveContinuation(const SettingsFile, Token: string);
 var Name: string; Reader: TStreamReader; Root: TJSONObject; Matches: Boolean;
 begin
-  Name:=BookSaveContinuationFile(SettingsFile); if not FileExists(Name) then Exit;
-  Reader:=OpenPlan(Name);
-  try Root:=ReadLine(Reader); try Matches:=Text(Root,'token',64)=Token; finally Root.Free; end;
-  finally Reader.Free; end;
-  if not Matches then Exit;
-  DisarmBookSaveContinuation(SettingsFile);
-  if not Winapi.Windows.DeleteFile(PChar(Name)) then RaiseLastOSError;
+  for var Profile in [SettingsFile,LegacyProfileIniFile(SettingsFile)] do
+  begin
+    if Profile='' then Continue;
+    Name:=BookSaveContinuationFile(Profile); if not FileExists(Name) then Continue;
+    Reader:=OpenPlan(Name);
+    try Root:=ReadLine(Reader); try Matches:=Text(Root,'token',64)=Token; finally Root.Free; end;
+    finally Reader.Free; end;
+    if not Matches then Continue;
+    DisarmBookSaveContinuation(Profile);
+    if not Winapi.Windows.DeleteFile(PChar(Name)) then RaiseLastOSError;
+    Exit;
+  end;
 end;
 
 end.

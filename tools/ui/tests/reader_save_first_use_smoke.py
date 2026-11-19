@@ -112,7 +112,7 @@ def main():
         assert all(not (app / 'tools' / folder).exists() for folder in ('bookconvert', 'images', 'kindle', 'office', 'xps'))
         output = app / 'saved'
         output.mkdir()
-        (app / 'HomeLibReader.ini').write_text('[SYSTEM]\nCheckUpdates=0\nFileNameTemplate=результат-%t\n'
+        (app / 'HomeLibreReader.ini').write_text('[SYSTEM]\nCheckUpdates=0\nFileNameTemplate=результат-%t\n'
             'SaveAsUseSubfolders=0\n[PATH]\nSyncExport=' + str(output) + '\n', encoding='utf-8')
         before = {str(file.relative_to(app)): sha(file) for file in app.rglob('*') if file.is_file()}
         environment = dict(os.environ, APPDATA=str(root / 'Roaming'), LOCALAPPDATA=str(root / 'Local'), TEMP=str(root), TMP=str(root))
@@ -126,7 +126,7 @@ def main():
         state['stage'] = 'waiting-for-real-Save-As-GUI'
     elif args.action == 'inspect':
         print(json.dumps(dict(active=active, runtime_files=[str(file.relative_to(root)) for file in root.rglob('*')
-            if file.is_file() and (file.suffix.lower() in ('.json', '.jsonl', '.epub') or file.name == 'HomeLibReader.ini')]), ensure_ascii=False))
+            if file.is_file() and (file.suffix.lower() in ('.json', '.jsonl', '.epub') or file.name == 'HomeLibreReader.ini')]), ensure_ascii=False))
     elif args.action == 'record-download':
         run = state['runs'][-1]
         app = Path(run['app'])
@@ -151,7 +151,7 @@ def main():
             assert actual_versions == dict(zip(('BookProcessing', 'ImageProcessing'), expected_versions)), actual_versions
         assert sha(job / 'release.zip') == ready['sha256']
         assert all(not (app / 'tools' / folder).exists() for folder in ('bookconvert', 'images'))
-        plan = json.loads((app / 'HomeLibReader.ini.pending-save.jsonl').read_text(encoding='utf-8-sig').splitlines()[0])
+        plan = json.loads((app / 'HomeLibreReader.ini.pending-save.jsonl').read_text(encoding='utf-8-sig').splitlines()[0])
         assert Path(plan['source']) == Path(state['source']) and plan['images'] == 'balanced'
         assert Path(plan['folder']) == app / 'saved' and plan['mask'] == 'результат-%t' and not plan['keep']
         run.update(downloaded_ready=ready, ready_job=str(job), prepared_manifest=manifest, continuation_before_install=plan,
@@ -173,7 +173,7 @@ def main():
         for item in manifest['files']:
             assert sha(app / item['path']) == item['sha256'], item['path']
         for relative, digest in run['before'].items():
-            if relative != 'HomeLibReader.ini':
+            if relative != 'HomeLibreReader.ini':
                 assert sha(app / relative) == digest, 'Unrelated file changed: ' + relative
         assert all(not (app / 'tools' / name).exists() for name in ('kindle', 'office', 'xps', 'doc', 'djvu', 'pdfium'))
         output = app / 'saved' / ('результат-' + Path(state['source']).stem + '.epub')
@@ -205,10 +205,10 @@ def main():
             run['output_image_dimensions'] = [width, height]
             run['output_image_references_verified'] = len(image_references)
             run['output_image_bytes'] = len(book.read(images[0]))
-        assert not (app / 'HomeLibReader.ini.pending-save.jsonl').exists()
-        assert not (app / 'HomeLibReader.ini.pending-save.jsonl.ready').exists()
+        assert not (app / 'HomeLibreReader.ini.pending-save.jsonl').exists()
+        assert not (app / 'HomeLibreReader.ini.pending-save.jsonl.ready').exists()
         settings = configparser.ConfigParser(interpolation=None)
-        settings.read(app / 'HomeLibReader.ini', encoding='utf-8-sig')
+        settings.read(app / 'HomeLibreReader.ini', encoding='utf-8-sig')
         assert Path(settings['PATH']['SyncExport']).resolve(strict=True) == (app / 'saved').resolve(strict=True)
         assert settings['SYSTEM']['FileNameTemplate'] == 'результат-%t'
         for component in sorted(COMPONENTS):

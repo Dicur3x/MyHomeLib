@@ -58,6 +58,8 @@ if (fs.existsSync(fixtureBuilder) && fs.existsSync(candidateBuilder)) {
   assert.equal(sha(read(fixtureBuilder)), sha(previousBuilder));
 }
 const profiles = {'myhomelib2.ini': '[SYSTEM]\r\nCheckUpdates=0\r\n',
+  'HomeLibre.ini': '[SYSTEM]\r\nCheckUpdates=0\r\n',
+  'HomeLibreReader.ini': '[SYSTEM]\r\nCheckUpdates=0\r\n',
   'book-views.ini': '[Format]\r\nVersion=1\r\n; Сортировки и фильтры пользователя: ё, ї, ў\r\n',
   'presets.cxml2': 'isolated saved presets', 'Readers/AlReader/options.ini': 'saved reader options',
   'Readers/SumatraPDF/SumatraPDF-settings.txt': 'saved reading history',

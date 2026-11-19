@@ -35,7 +35,7 @@ uses
   System.IniFiles,
   System.TypInfo,
   unit_Settings,
-  unit_LangSignature;
+  unit_LangSignature, unit_ProfileIni;
 
 var
   FIndex: TDictionary<string, string> = nil;
@@ -647,8 +647,8 @@ var
 begin
   Result := '';
   try
-    Ini := TMemIniFile.Create(IncludeTrailingPathDelimiter(APaths.WorkDir)
-      + APaths.IniFileName, TEncoding.UTF8);
+    Ini := TMemIniFile.Create(ReadableProfileIniFile(
+      TPath.Combine(APaths.WorkDir, APaths.IniFileName)), TEncoding.UTF8);
     try
       Result := LowerCase(Trim(Ini.ReadString('INTERFACE', 'Locale', '')));
     finally

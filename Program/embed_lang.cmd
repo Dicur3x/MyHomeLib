@@ -34,13 +34,14 @@ if defined NODE (
     "%NODE%" "%~dp0..\tools\lang\embed.js" || exit /b 1
 ) else (
     echo NOTE: node not found - keeping the existing lang.rc.
+    if exist "%RC%" powershell.exe -NoProfile -Command "$rc = [IO.Path]::GetFullPath('%RC%'); [IO.File]::WriteAllText($rc, [IO.File]::ReadAllText($rc).Replace('HomeLibRuDark.vsf','HomeLibreDark.vsf'))" || exit /b 1
 )
 
 if not exist "%RC%" echo // No catalogs present.> "%RC%"
 
 :: The dark theme is required even without Node or translation catalogs.
 :: Keep an existing catalog list, but repair old empty resource stubs too.
-findstr /L /C:"MHL_DARK_STYLE VCLSTYLE" "%RC%" >nul || echo MHL_DARK_STYLE VCLSTYLE "Resources\\Themes\\HomeLibRuDark.vsf">> "%RC%"
+findstr /L /C:"MHL_DARK_STYLE VCLSTYLE" "%RC%" >nul || echo MHL_DARK_STYLE VCLSTYLE "Resources\\Themes\\HomeLibreDark.vsf">> "%RC%"
 
 :: Both resources must use the same compiler. BRCC32 can silently drop the
 :: manifest under dotted worktree paths, just as it can drop the dark theme.

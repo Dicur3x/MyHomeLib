@@ -12,6 +12,7 @@ uses System.SysUtils, System.Classes, System.IOUtils, System.JSON,
   unit_UpdateAuthenticity in '..\Units\unit_UpdateAuthenticity.pas',
   unit_ProgramUpdateInstaller in '..\Units\unit_ProgramUpdateInstaller.pas',
   unit_OfflinePrerequisites in '..\Units\unit_OfflinePrerequisites.pas',
+  unit_ProfileIni in '..\Units\unit_ProfileIni.pas',
   unit_ReaderRestartState in '..\Units\unit_ReaderRestartState.pas',
   unit_UpdateRelatedInstances in '..\Units\unit_UpdateRelatedInstances.pas';
 
@@ -82,6 +83,15 @@ begin
       Guard(ExtractFilePath(ParamStr(0)));
       TFile.WriteAllText(ExtractFilePath(ParamStr(0)) + 'update-restarted.txt',
         ParamStr(2) + sLineBreak + ParamStr(3) + sLineBreak + ParamStr(4), TEncoding.UTF8);
+      Halt(0);
+    end;
+    if Mode = '--profile-ini' then
+    begin
+      Guard(ParamStr(2));
+      if ParamStr(3)='--migrate' then
+        Writeln(ExtractFileName(MigrateProfileIniFile(ParamStr(2))))
+      else
+        Writeln(ExtractFileName(ReadableProfileIniFile(ParamStr(2))));
       Halt(0);
     end;
     if Mode = '--convert' then

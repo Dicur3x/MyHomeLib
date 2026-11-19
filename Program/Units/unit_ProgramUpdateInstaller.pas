@@ -486,7 +486,7 @@ begin
       (Lower = 'mhlmcpserver.exe') or (Lower = 'mhlmcpserver-license.txt') or
       (Lower = 'mhlmcpserver-readme.txt') or (Lower = 'sqlite3.dll') or
       (Lower = 'libzstd.dll') or (Lower = 'license') or (Lower = 'notice') or
-      (Lower = 'homelibru.url') or (Lower = 'changes.txt') or (Lower = 'components.json') or Lower.EndsWith('.glst')
+      (Lower = 'homelibru.url') or (Lower = 'homelibre.url') or (Lower = 'changes.txt') or (Lower = 'components.json') or Lower.EndsWith('.glst')
   else
     Result := (Parts[0] = 'Help') or (Parts[0] = 'Icons') or
       (Parts[0] = 'tools') or (Parts[0] = 'Readers') or (Parts[0] = 'converters');

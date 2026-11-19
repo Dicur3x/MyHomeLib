@@ -212,7 +212,7 @@ def main():
         assert not any((app/'tools'/folder).exists() for folder in ('kindle','office','xps','pdfium','djvu','doc'))
         output = app/'saved'
         output.mkdir()
-        (app/'HomeLibReader.ini').write_text('[SYSTEM]\nCheckUpdates=0\nSaveAsUseSubfolders=0\n'
+        (app/'HomeLibreReader.ini').write_text('[SYSTEM]\nCheckUpdates=0\nSaveAsUseSubfolders=0\n'
             'FileNameTemplate=cancel-%t\n[PATH]\nSyncExport='+str(output)+'\n',encoding='utf-8')
         environment = dict(os.environ,APPDATA=str(root/'Roaming'),LOCALAPPDATA=str(root/'Local'),
                            TEMP=str(root/'temp'),TMP=str(root/'temp'),PYTHONDONTWRITEBYTECODE='1')
@@ -240,8 +240,8 @@ def main():
         output = app/('retry-cancel-'+str(len(run['completed_before_cancel_attempts'])))
         output.mkdir()
         ini = configparser.ConfigParser(interpolation=None,strict=False);ini.optionxform=str
-        ini.read(app/'HomeLibReader.ini',encoding='utf-8-sig');ini['PATH']['SyncExport']=str(output)
-        with (app/'HomeLibReader.ini').open('w',encoding='utf-8') as stream:ini.write(stream,space_around_delimiters=False)
+        ini.read(app/'HomeLibreReader.ini',encoding='utf-8-sig');ini['PATH']['SyncExport']=str(output)
+        with (app/'HomeLibreReader.ini').open('w',encoding='utf-8') as stream:ini.write(stream,space_around_delimiters=False)
         environment = dict(os.environ,APPDATA=str(root/'Roaming'),LOCALAPPDATA=str(root/'Local'),
                            TEMP=str(root/'temp'),TMP=str(root/'temp'),PYTHONDONTWRITEBYTECODE='1')
         source = Path(state['source'])

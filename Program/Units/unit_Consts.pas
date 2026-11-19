@@ -73,7 +73,6 @@ const
 
   DATA_DIR_NAME   = 'Data';
 
-  SETTINGS_FILE_NAME = 'myhomelib2.ini';
   SYSTEM_DATABASE_FILENAME = 'user.dbs2';
   GENRES_FB2_FILENAME = 'genres_fb2' + GENRELIST_EXTENSION;
   GENRES_NONFB2_FILENAME = 'genres_nonfb2'  + GENRELIST_EXTENSION;
@@ -100,7 +99,7 @@ const
   COLLECTIONINFO_FILENAME = 'collection.info';
   INP_EXTENSION = '.inp';
   EXTRA_INP_FILENAME = 'extra.inp'; // только online: список книг, которых нет в основной базе
-  TEMP_FOLDER_NAME = '_myhomelib';
+  TEMP_FOLDER_NAME = '_HomeLibre';
   WEBP_READER_CACHE_FOLDER = 'webp-png';
   UPDATE_LOGFILE = 'update.log';
   PROGRAM_HOMEPAGE = 'https://github.com/Dicur3x/MyHomeLib';

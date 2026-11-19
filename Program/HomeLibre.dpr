@@ -174,6 +174,7 @@ uses
   unit_ComponentUpdates in 'Units\unit_ComponentUpdates.pas',
   unit_UpdateAuthenticity in 'Units\unit_UpdateAuthenticity.pas',
   unit_ProgramUpdatePaths in 'Units\unit_ProgramUpdatePaths.pas',
+  unit_ProfileIni in 'Units\unit_ProfileIni.pas',
   unit_ProgramUpdateInstaller in 'Units\unit_ProgramUpdateInstaller.pas',
   unit_ComponentRemoval in 'Units\unit_ComponentRemoval.pas',
   unit_IBKRuntime in 'Units\unit_IBKRuntime.pas',

@@ -84,7 +84,7 @@ if errorlevel 1 (
 
 call "%ROOT_DIR%\Program\copy_help.cmd" "%COMMON_DIR%"
 if errorlevel 1 exit /b 1
-copy /y "%SCRIPT_DIR%HomeLibRu.url" "%COMMON_DIR%\" >nul
+copy /y "%SCRIPT_DIR%HomeLibre.url" "%COMMON_DIR%\" >nul
 if errorlevel 1 exit /b 1
 copy /y "%ROOT_DIR%\LICENSE" "%COMMON_DIR%\LICENSE" >nul
 if errorlevel 1 exit /b 1

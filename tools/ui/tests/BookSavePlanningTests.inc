@@ -222,6 +222,19 @@ begin
   try TakeBookSaveContinuation(Name,Plan); except on E: Exception do Failed:=E.Message.Contains('число'); end;
   Require(Failed,'Untrusted row count can allocate an unbounded save plan');
   Writeln('PASS save continuation exact Unicode options remaining identities one consumer live owner stale source unrelated update and bounded count');
+
+  for var OldName in ['myhomelib2.ini','HomeLibReader.ini'] do
+  begin
+    Name:=Settings.AppPath+OldName;
+    Child;
+    var NewName:=Settings.AppPath+'HomeLibre.ini';
+    if OldName='HomeLibReader.ini' then NewName:=Settings.AppPath+'HomeLibreReader.ini';
+    Require(TakeBookSaveContinuation(NewName,Plan),'The renamed profile lost its armed export');
+    ClearBookSaveContinuation(NewName,Plan.Token);
+    Require(not FileExists(BookSaveContinuationFile(Name)),'The renamed profile left its completed export plan');
+    Require(not TakeBookSaveContinuation(NewName,Plan),'The renamed profile replayed its completed export plan');
+  end;
+  Writeln('PASS both renamed settings profiles resume and clear their previous export plans');
 end;
 
 procedure TestArchivedKnownBookSaveEstimates;

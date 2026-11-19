@@ -100,7 +100,8 @@
 <p class="note">If you are using beta 13, update to <a href="https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.14">beta 14</a> first. Then check for updates again.</p>
 <h2>Update manually</h2>
 <p>Close the application and back up its profile and any separately stored <code>.hlc2</code> catalogues. The current ZIP uses a profile beside the EXE. An older installation may store it in <code>%APPDATA%\MyHomeLib</code>.</p>
-<p>Download the ZIP for the same architecture. Extract it to a separate folder and copy <code>myhomelib2.ini</code>, <code>Data</code> and <code>presets.cxml2</code>, if present, from your old profile. Run <code>HomeLibre.exe</code> and check that your collections and books open from the expected paths. <a href="portable.html">Portable profile details</a>.</p>
+<p>Download the ZIP for the same architecture. Extract it to a separate folder and copy the settings file (<code>HomeLibre.ini</code> or <code>myhomelib2.ini</code>), <code>Data</code> and <code>presets.cxml2</code>, if present, from your old profile. Run <code>HomeLibre.exe</code> and check that your collections and books open from the expected paths. <a href="portable.html">Portable profile details</a>.</p>
+<p>On its first launch, beta 16 migrates <code>myhomelib2.ini</code> to <code>HomeLibre.ini</code> and saves a rollback copy as <code>HomeLibre.ini.rollback.bak</code>. When restoring an older version, copy that backup to its profile as <code>myhomelib2.ini</code>.</p>
 <h2 id="components">Modules and release notes</h2>
 <p>Choose <strong>Check all</strong> and select a component. The <strong>Changelog</strong> tab shows its history. Use <strong>Modules…</strong> to manage installed extras.</p>
 <p>If a check fails, select the component and retry. If an application file is in use, close HomeLibre Reader and other programs using the folder, then try again.</p>

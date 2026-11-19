@@ -43,7 +43,8 @@ implementation
 
 uses System.IOUtils, System.StrUtils, System.Variants, System.Win.ComObj, System.IniFiles,
   Winapi.ActiveX, Winapi.TlHelp32, Winapi.Messages, Winapi.ShellAPI,
-  unit_ProgramUpdateInstaller, unit_ReaderStartup, unit_ReaderRestartState, unit_ApplicationIdentity;
+  unit_ProgramUpdateInstaller, unit_ReaderStartup, unit_ReaderRestartState, unit_ApplicationIdentity,
+  unit_ProfileIni;
 
 const RELATED_QUERY_LIMITED = $1000;
 function RelatedProcessImage(Process: THandle; Flags: DWORD;
@@ -267,15 +268,19 @@ begin
       (Comparison>=0) then
       raise Exception.Create('Не удалось сохранить текущую книгу для перезапуска. Обновление отменено до закрытия читалки.');
   end;
-  if UsePending and FileExists(TPath.Combine(Startup.Profile,'HomeLibReader.ini')) then
+  if UsePending then
   begin
-    Ini:=TMemIniFile.Create(TPath.Combine(Startup.Profile,'HomeLibReader.ini'),TEncoding.UTF8);
-    try
-      PendingSession:=Ini.ReadString('ReaderSession','PendingSession','');
-      PendingFile:=Ini.ReadString('ReaderSession','PendingFile','');
-    finally Ini.Free; end;
-    if PendingSession<>'' then Instance.SessionFile:=PendingSession
-    else if PendingFile<>'' then begin Instance.SessionFile:=''; Source:=PendingFile; end;
+    var ProfileIni:=ReadableProfileIniFile(TPath.Combine(Startup.Profile,READER_SETTINGS_FILE_NAME));
+    if FileExists(ProfileIni) then
+    begin
+      Ini:=TMemIniFile.Create(ProfileIni,TEncoding.UTF8);
+      try
+        PendingSession:=Ini.ReadString('ReaderSession','PendingSession','');
+        PendingFile:=Ini.ReadString('ReaderSession','PendingFile','');
+      finally Ini.Free; end;
+      if PendingSession<>'' then Instance.SessionFile:=PendingSession
+      else if PendingFile<>'' then begin Instance.SessionFile:=''; Source:=PendingFile; end;
+    end;
   end;
   if Instance.SessionFile<>'' then
   begin

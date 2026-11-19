@@ -65,7 +65,7 @@ def main():
             genre_names = {'genres_' + kind + suffix + '.glst'
                            for kind in ('fb2', 'nonfb2') for suffix in ('', '_bg', '_en', '_uk')}
             core_tools = {'tools/updates/COMPONENTS.json'} | {'tools/genres/' + name for name in genre_names}
-            forbidden = [name for name in names if name in ('HomeLibReader.exe', 'HomeLibreReader.exe', 'MHLMcpServer.exe', 'HomeLibRu.url', 'libzstd.dll') or
+            forbidden = [name for name in names if name in ('HomeLibReader.exe', 'HomeLibreReader.exe', 'MHLMcpServer.exe', 'HomeLibRu.url', 'HomeLibre.url', 'libzstd.dll') or
                 name.startswith(forbidden_prefixes) or (name.startswith('tools/') and name not in core_tools)]
             assert not forbidden, forbidden
             manifest = json.loads(package.read('HomeLibRu.update.json'))
@@ -105,7 +105,7 @@ def main():
             assert identities['HomeLibRu.exe']['file'] == identities['HomeLibRuUpdater.exe']['file'], identities
             report.update({'archive_bytes':archive.stat().st_size, 'manifest_files':len(manifest['files']),
                            'release_executable_identities':identities,
-                           'all_member_hashes_verified':True, 'optional_payloads_absent':list(forbidden_prefixes) + ['HomeLibReader.exe','HomeLibreReader.exe','MHLMcpServer.exe','HomeLibRu.url','libzstd.dll'],
+                           'all_member_hashes_verified':True, 'optional_payloads_absent':list(forbidden_prefixes) + ['HomeLibReader.exe','HomeLibreReader.exe','MHLMcpServer.exe','HomeLibRu.url', 'HomeLibre.url','libzstd.dll'],
                            'catalogue_only_payload_verified':True, 'native_format_adapters_absent':True, 'native_architectures_verified':True,
                            'genre_resources_grouped_and_verified':True, 'root_files_verified':True,
                            'help_and_icons_verified':True,

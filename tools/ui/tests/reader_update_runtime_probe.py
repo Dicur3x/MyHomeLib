@@ -372,12 +372,12 @@ def main():
         assert args.label and not any(x['label'] == args.label for x in state['launches'])
         profile = app / 'Data' / args.label
         profile.mkdir(parents=True, exist_ok=True)
+        ini = profile / ('HomeLibReader.ini' if state.get('baseline_reader_version') else 'HomeLibreReader.ini')
         if args.seed_recent:
-            (profile / 'HomeLibReader.ini').write_text('[ReaderRecent]\nFile0=' + str(root / 'books/Текущая книга.fb2') + '\nFile1=' + str(root / 'books/Сборник.zip') + '\n', encoding='utf-8-sig')
+            ini.write_text('[ReaderRecent]\nFile0=' + str(root / 'books/Текущая книга.fb2') + '\nFile1=' + str(root / 'books/Сборник.zip') + '\n', encoding='utf-8-sig')
         if args.seed_save_folder:
             output = root / 'saved-copies'
             output.mkdir(exist_ok=True)
-            ini = profile / 'HomeLibReader.ini'
             text = ini.read_text(encoding='utf-8-sig') if ini.exists() else ''
             ini.write_text(text + '\n[PATH]\nSyncExport=' + str(output) + '\n[SYSTEM]\nClearBookCacheOnExit=1\nSaveAsUseSubfolders=0\nFileNameTemplate=%t\n', encoding='utf-8-sig')
         source = root / 'books' / ('Первоначальная книга.fb2' if args.label == 'peer' else 'Книга инициатора.fb2')
@@ -519,7 +519,10 @@ def main():
             assert sha(app / 'Data/coordinated-personal-sentinel.txt') == core['personal_sentinel_sha256']
             assert catalogue_books(app) == [tuple(row) for row in core['books']]
             settings = configparser.ConfigParser(interpolation=None, strict=False)
-            settings.read_string(read_live_settings(app / 'myhomelib2.ini'))
+            ini = app / 'HomeLibre.ini'
+            if not ini.is_file():
+                ini = app / 'myhomelib2.ini'
+            settings.read_string(read_live_settings(ini))
             assert settings['UpdateProbe']['ProtectedValue'] == 'Preserve coordinated catalogue settings'
             core.update(restarted_pid=restarted['ProcessId'], coordinated_restart_checked=True)
         if state.get('cache_sentinel'):

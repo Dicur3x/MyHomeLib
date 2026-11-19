@@ -6964,6 +6964,11 @@ begin
       else if ParamStr(1) = 'advanced-save' then TestAdvancedBookSaving
       else if ParamStr(1) = 'known-copy-estimates' then TestArchivedKnownBookSaveEstimates
       else if ParamStr(1) = 'save-planning' then TestBookSavePlanning
+      else if ParamStr(1) = 'save-continuation' then
+      begin
+        RequireIsolatedRegression;
+        TestBookSaveContinuation;
+      end
       else if ParamStr(1) = 'reader-portable' then TestReaderPortableStartup
       else if ParamStr(1) = 'save-module-restart' then TestSaveModuleRestart
       else if ParamStr(1) = 'unified-send' then TestUnifiedBookSending

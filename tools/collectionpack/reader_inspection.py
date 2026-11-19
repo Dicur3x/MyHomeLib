@@ -141,7 +141,9 @@ def inspect(root, runtime, platform, report_path, environment, timeout=600, reco
     recompression_ready = False
     recompression_files = None
     before_history = None
-    settings = root / 'myhomelib2.ini'
+    settings = root / 'HomeLibre.ini'
+    if not settings.exists() and (root / 'myhomelib2.ini').exists():
+        settings = root / 'myhomelib2.ini'
     options = ini(settings)
     for section, values in {
         'SYSTEM': {'ActiveCollection': str(collection_id), 'CheckUpdates': '0',

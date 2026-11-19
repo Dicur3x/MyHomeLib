@@ -484,12 +484,11 @@ uses
   IOUtils,
   WinInet,
   unit_Helpers,
-  unit_AtomicIniFile, unit_MHLThemePalette;
+  unit_AtomicIniFile, unit_MHLThemePalette, unit_ProfileIni;
 
 const
   TOOLS_DIR_NAME = 'Tools';
   TEMP_DIR_NAME = '$tmp';
-  APPDATA_DIR_NAME = 'MyHomeLib';
 
   PATH_SECTION = 'PATH';
   SYSTEM_SECTION = 'SYSTEM';
@@ -593,10 +592,14 @@ begin
   FIniFileName := Paths.IniFileName;
   FDataDir := WorkPath + DATA_DIR_NAME;
 
+  FIniFileName := ExtractFileName(MigrateProfileIniFile(WorkPath + FIniFileName));
+
   if (HostProfileDirectory='') and (Paths.IniFileName <> SETTINGS_FILE_NAME) then
   begin
-    if FileExists(WorkPath + SETTINGS_FILE_NAME) and not FileExists(WorkPath + FIniFileName) then
-      unit_globals.CopyFile(WorkPath + SETTINGS_FILE_NAME, WorkPath + FIniFileName);
+    var BaseIni := ReadableProfileIniFile(WorkPath + SETTINGS_FILE_NAME);
+    if (not SameFileName(BaseIni, WorkPath + FIniFileName)) and
+      FileExists(BaseIni) and not FileExists(WorkPath + FIniFileName) then
+      unit_globals.CopyFile(BaseIni, WorkPath + FIniFileName);
   end;
 
   if HostProfileDirectory<>'' then

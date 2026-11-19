@@ -88,10 +88,10 @@ begin
 end;
 
 function DiagnosticLogDirectory: string;
-begin Result:=TPath.Combine(TPath.GetTempPath,'HomeLibRu-Logs'); end;
+begin Result:=TPath.Combine(TPath.GetTempPath,'HomeLibre-Logs'); end;
 
 function DiagnosticLogFile: string;
-begin Result:=TPath.Combine(DiagnosticLogDirectory,'HomeLibRu-'+FormatDateTime('yyyy-mm-dd',Now)+'.log'); end;
+begin Result:=TPath.Combine(DiagnosticLogDirectory,'HomeLibre-'+FormatDateTime('yyyy-mm-dd',Now)+'.log'); end;
 
 function SafeDirectory: Boolean;
 var Attributes: DWORD;
@@ -107,11 +107,11 @@ function OwnedLog(const Name: string; out Day: TDateTime): Boolean;
 var Y,M,D: Integer; Attributes: DWORD; Base: string;
 begin
   Result:=False; Base:=ExtractFileName(Name);
-  if (Length(Base)<>24) or not Base.StartsWith('HomeLibRu-') or not Base.EndsWith('.log') then Exit;
+  if (Length(Base)<>24) or not Base.StartsWith('HomeLibre-') or not Base.EndsWith('.log') then Exit;
   if not TryStrToInt(Copy(Base,11,4),Y) or not TryStrToInt(Copy(Base,16,2),M) or
     not TryStrToInt(Copy(Base,19,2),D) then Exit;
   if (Y<1) or (Y>9999) or (M<1) or (M>12) or (D<1) or (D>31) then Exit;
-  if not TryEncodeDate(Y,M,D,Day) or (Base<>'HomeLibRu-'+FormatDateTime('yyyy-mm-dd',Day)+'.log') then Exit;
+  if not TryEncodeDate(Y,M,D,Day) or (Base<>'HomeLibre-'+FormatDateTime('yyyy-mm-dd',Day)+'.log') then Exit;
   if not SameFileName(ExtractFileDir(TPath.GetFullPath(Name)),DiagnosticLogDirectory) then Exit;
   Attributes:=GetFileAttributes(PChar(Name));
   Result:=(Attributes<>INVALID_FILE_ATTRIBUTES) and
@@ -126,7 +126,7 @@ begin
     try
       if not SafeDirectory then Exit;
       Count:=0;
-      if FindFirst(TPath.Combine(DiagnosticLogDirectory,'HomeLibRu-*.log'),faAnyFile,Search)=0 then
+      if FindFirst(TPath.Combine(DiagnosticLogDirectory,'HomeLibre-*.log'),faAnyFile,Search)=0 then
       try
         repeat
           Name:=TPath.Combine(DiagnosticLogDirectory,Search.Name);
@@ -242,22 +242,22 @@ var Stage, Name: string; Zip: TZipFile; Search: TSearchRec; Day: TDateTime; Size
 begin
   if FileExists(FileName) and not AllowOverwrite then raise EWriteError.Create('Файл отчёта уже существует.');
   PruneDiagnosticLogs;
-  Stage:=TPath.Combine(ExtractFileDir(TPath.GetFullPath(FileName)),'HomeLibRu-report-'+TGUID.NewGuid.ToString+'.tmp');
+  Stage:=TPath.Combine(ExtractFileDir(TPath.GetFullPath(FileName)),'HomeLibre-report-'+TGUID.NewGuid.ToString+'.tmp');
   Zip:=TZipFile.Create;
   try
     Zip.Open(Stage,zmWrite);
     Info:=TStringStream.Create('HomeLibre '+ProgramVersion+sLineBreak+TOSVersion.ToString+sLineBreak+
       {$IFDEF WIN64}'x64'+{$ELSE}'x86'+{$ENDIF}sLineBreak+'Logs: last 7 days; 2 MiB maximum per day.'+sLineBreak,TEncoding.UTF8);
-    try Zip.Add(Info,'HomeLibRu-info.txt'); finally Info.Free; end;
+    try Zip.Add(Info,'HomeLibre-info.txt'); finally Info.Free; end;
     if Assigned(GetDiagnosticComponentVersions) then
     begin
       var Versions: string;
       try Versions:=GetDiagnosticComponentVersions();
       except on E: Exception do Versions:='Не удалось прочитать версии компонентов: '+SanitizeDiagnosticText(E.Message); end;
       Info:=TStringStream.Create(Versions,TEncoding.UTF8);
-      try Zip.Add(Info,'HomeLibRu-components.txt'); finally Info.Free; end;
+      try Zip.Add(Info,'HomeLibre-components.txt'); finally Info.Free; end;
     end;
-    if SafeDirectory and (FindFirst(TPath.Combine(DiagnosticLogDirectory,'HomeLibRu-*.log'),faAnyFile,Search)=0) then
+    if SafeDirectory and (FindFirst(TPath.Combine(DiagnosticLogDirectory,'HomeLibre-*.log'),faAnyFile,Search)=0) then
     try
       repeat
         Name:=TPath.Combine(DiagnosticLogDirectory,Search.Name);
@@ -398,7 +398,7 @@ begin
   try
     Dialog.Title:='Сохранить журнал для отправки'; Dialog.DefaultExt:='zip';
     Dialog.Filter:='ZIP-отчёт (*.zip)|*.zip'; Dialog.Options:=[ofOverwritePrompt,ofPathMustExist,ofEnableSizing,ofNoChangeDir];
-    Dialog.FileName:='HomeLibRu-diagnostics-'+FormatDateTime('yyyymmdd',Now)+'.zip';
+    Dialog.FileName:='HomeLibre-diagnostics-'+FormatDateTime('yyyymmdd',Now)+'.zip';
     if Dialog.Execute(Handle) then SaveDiagnosticReport(Dialog.FileName,True);
   finally Dialog.Free; end;
 end;

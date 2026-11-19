@@ -123,7 +123,11 @@ def launch(state, arch, mode, packed, package=None, save_copy=False):
         destination.mkdir(exist_ok=False)
         settings = configparser.ConfigParser(interpolation=None, strict=False)
         settings.optionxform = str
-        ini = profile / 'HomeLibReader.ini'
+        ini = profile / 'HomeLibreReader.ini'
+        if not ini.exists() and (profile / 'HomeLibReader.ini').exists():
+            ini = profile / 'HomeLibReader.ini'
+        elif not ini.exists() and package:
+            ini = profile / 'HomeLibReader.ini'
         if ini.exists():
             settings.read_string(ini.read_text('utf-8-sig'))
         for section in ('SYSTEM', 'PATH'):
@@ -165,7 +169,8 @@ def check(state):
     if alive(run['pid']):
         raise ValueError('Reader is still running; close it normally with Computer Use')
     profile = Path(run['profile'])
-    for relative in ('HomeLibReader.ini', 'Data/reader-user.dbs2', 'Data/reader.ini'):
+    ini = 'HomeLibreReader.ini' if (profile / 'HomeLibreReader.ini').is_file() else 'HomeLibReader.ini'
+    for relative in (ini, 'Data/reader-user.dbs2', 'Data/reader.ini'):
         if not (profile / relative).is_file():
             raise ValueError('Missing actual portable profile file: ' + relative)
     text = (profile / 'Data/reader.ini').read_text(encoding='utf-8-sig')

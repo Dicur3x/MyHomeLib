@@ -7,6 +7,12 @@ var
   LegacyUpgrade: Boolean;
   LegacyGroup: String;
 
+function ShouldInitializeLocale: Boolean;
+begin
+  Result := not FileExists(ExpandConstant('{app}\myhomelib2.ini')) and
+    not FileExists(ExpandConstant('{app}\HomeLibre.ini'));
+end;
+
 function NormalizedUpgradePath(const Value: String): String;
 begin
   Result := RemoveBackslashUnlessRoot(ExpandFileName(Value));
