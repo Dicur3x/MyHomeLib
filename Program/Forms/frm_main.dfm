@@ -3926,7 +3926,6 @@
       end
       object pmiSearchAuthorOnline: TMenuItem
         Caption = #1054#1073#32#1072#1074#1090#1086#1088#1077
-        OnClick = BookWebSearchClick
       end
     end
     object miBookEdit: TMenuItem

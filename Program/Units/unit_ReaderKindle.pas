@@ -9,18 +9,21 @@ function PrepareKfxReflow(const SourceFile, OriginalSource: string;
 
 implementation
 uses System.Classes, System.IOUtils, System.Hash, System.Zip, Winapi.Windows,
-  unit_ReaderFormats, unit_ComponentUsage,
+  unit_ReaderFormats, unit_ComponentUsage, unit_ProgramUpdateInstaller,
   unit_BookCache, unit_MHLExternalTools, unit_BookConversion, unit_FormatComponents, unit_BookConversionRequirements, dm_user;
 
 function PrepareKfxReflow(const SourceFile, OriginalSource: string;
   const OnStage: TProc<string>; const IsCanceled: TFunc<Boolean>): string;
+const KFX_READER_MIN_VERSION = '3.0.0.7';
 var Input: TStream; Output: TMemoryStream; Zip: TZipFile; Writer: TBookCacheWrite;
-  Tool, Stamp, Temporary, TemporaryStamp: string; Started: UInt64;
+  Tool, Stamp, Temporary, TemporaryStamp: string; Started: UInt64; Comparison: Integer;
 begin
   Tool:=TPath.Combine(Settings.AppPath,'tools/kfx-export/boko.exe');
-  if not FileExists(Tool) then
-    raise EMHLComponentRequired.Create('KfxExport','Для чтения этой книги нужен модуль KFX/AZW8.');
   if Assigned(IsCanceled) and IsCanceled() then Abort;
+  // Older modules can turn a linked illustration into an empty link.
+  if not CompareComponentVersions(FormatComponentVersion(Settings.AppPath,'KfxExport'),
+    KFX_READER_MIN_VERSION,Comparison) or (Comparison<0) then
+    raise EMHLComponentRequired.Create('KfxExport','Для чтения этой книги установите актуальный модуль KFX/AZW8.');
   Input:=OpenCachedBookFile(SourceFile);
   try
     if Input.Size>256*1024*1024 then

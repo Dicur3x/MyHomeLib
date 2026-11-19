@@ -1166,7 +1166,8 @@ type
     FSearchFavoriteCheck, FFavoriteListCheck: TCheckBox;
     FFavoriteAuthorHeart, FFavoriteNewButton, FFavoriteMenuButton: TButton;
     FFavoriteMenu: TPopupMenu;
-    FBookSearchURL, FAuthorSearchURL: string;
+    FBookSearchURL: string;
+    FAuthorSearchURLs: TArray<string>;
     FFavoriteToggleMenu, FFavoriteNewMenu, FFavoriteViewedMenu, FFavoriteStopMenu, FFavoriteContextMenu: TMenuItem;
     FFavoriteBookMenu: TMenuItem;
     FFavoriteBookAuthors: TBookAuthors;
@@ -12171,11 +12172,17 @@ begin
 end;
 
 procedure TfrmMain.BookWebSearchClick(Sender: TObject);
-var URL: string;
+var URL: string; Item: TMenuItem;
 begin
   if Sender = pmiSearchBookOnline then URL := FBookSearchURL
-  else if Sender = pmiSearchAuthorOnline then URL := FAuthorSearchURL
-  else Exit;
+  else
+  begin
+    if not (Sender is TMenuItem) then Exit;
+    Item:=TMenuItem(Sender);
+    if (Item<>pmiSearchAuthorOnline) and (Item.Parent<>pmiSearchAuthorOnline) then Exit;
+    if (Item.Tag<0) or (Item.Tag>=Length(FAuthorSearchURLs)) then Exit;
+    URL:=FAuthorSearchURLs[Item.Tag];
+  end;
   if (URL <> '') and (SimpleShellExecute(Handle, URL) <= 32) then
     MHLShowError('Не удалось открыть браузер.');
 end;
@@ -12183,7 +12190,8 @@ end;
 procedure TfrmMain.BookMenuPopup(Sender: TObject);
 var Tree: TBookTree; Node: PVirtualNode; Book: PBookRecord; Location: TPoint;
   Seen: TDictionary<string,Boolean>; Item: TMenuItem; Key: string; Count: Integer;
-  AuthorName, Title: string; SearchTarget: TReaderLookupTarget;
+  AuthorName, FirstAuthor, SearchURL, Title: string; SearchTarget: TReaderLookupTarget;
+  AuthorNames: TArray<string>;
 
   function IsFavorite(const Author: TAuthorData): Boolean;
   begin
@@ -12193,7 +12201,9 @@ var Tree: TBookTree; Node: PVirtualNode; Book: PBookRecord; Location: TPoint;
 begin
   UpdateConversionMenu(Sender);
   FBookSearchURL := '';
-  FAuthorSearchURL := '';
+  FAuthorSearchURLs := nil;
+  pmiSearchAuthorOnline.Clear;
+  pmiSearchAuthorOnline.OnClick := nil;
   pmiBookWebSearch.Visible := False;
   if not Assigned(FFavoriteBookMenu) then Exit;
   FFavoriteBookMenu.Clear;
@@ -12217,17 +12227,32 @@ begin
 
   SearchTarget := rltGoogle;
   if Settings.BookWebSearchYandex then SearchTarget := rltYandex;
-  AuthorName := '';
+  FirstAuthor:='';
   for var Author in Book^.Authors do
   begin
     AuthorName := ReaderLookupText(Author.GetFullName);
-    if AuthorName <> '' then Break;
+    if AuthorName='' then Continue;
+    if FirstAuthor='' then FirstAuthor:=AuthorName;
+    if MatchText(AuthorName,AuthorNames) then Continue;
+    SearchURL:=ReaderLookupURL(AuthorName+' писатель',SearchTarget);
+    if SearchURL='' then Continue;
+    AuthorNames:=AuthorNames+[AuthorName];
+    FAuthorSearchURLs:=FAuthorSearchURLs+[SearchURL];
   end;
   Title := ReaderLookupText(Book^.Title);
-  if Title <> '' then FBookSearchURL := ReaderLookupURL(AuthorName + ' ' + Title, SearchTarget);
-  if AuthorName <> '' then FAuthorSearchURL := ReaderLookupURL(AuthorName + ' писатель', SearchTarget);
+  if Title <> '' then FBookSearchURL := ReaderLookupURL(FirstAuthor + ' ' + Title, SearchTarget);
+  if Length(AuthorNames)=1 then pmiSearchAuthorOnline.OnClick:=BookWebSearchClick
+  else
+    for var Index:=0 to High(AuthorNames) do
+    begin
+      Item:=TMenuItem.Create(pmiSearchAuthorOnline);
+      Item.Caption:=AuthorNames[Index].Replace('&','&&');
+      Item.Tag:=Index;
+      Item.OnClick:=BookWebSearchClick;
+      pmiSearchAuthorOnline.Add(Item);
+    end;
   pmiSearchBookOnline.Enabled := FBookSearchURL <> '';
-  pmiSearchAuthorOnline.Enabled := FAuthorSearchURL <> '';
+  pmiSearchAuthorOnline.Enabled := Length(FAuthorSearchURLs)>0;
   pmiBookWebSearch.Visible := pmiSearchBookOnline.Enabled or pmiSearchAuthorOnline.Enabled;
 
   SetLength(FFavoriteBookAuthors,Length(Book^.Authors)); Count:=0;

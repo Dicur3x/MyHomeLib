@@ -402,3 +402,61 @@ diff --git a/src/bin/boko/main.rs b/src/bin/boko/main.rs
  }
 
  fn show_info(path: &str, json: bool) -> Result<(), String> {
+diff --git a/src/kfx/storyline/import.rs b/src/kfx/storyline/import.rs
+--- a/src/kfx/storyline/import.rs
++++ b/src/kfx/storyline/import.rs
+@@ -188,11 +188,12 @@
+         }
+     }
+
+-    // Check for span indicators on elements (e.g., link_to → Link)
+-    // This enables standalone Link elements to be recognized
+-    if let Some(override_role) =
+-        schema().check_span_role_override(|sym| get_field(fields, sym as u64).is_some())
+-    {
++    let span_role =
++        schema().check_span_role_override(|sym| get_field(fields, sym as u64).is_some());
++    // A linked image carries link_to on the picture itself. Treat the link
++    // as a wrapper so the picture retains its resource, style and anchor.
++    let linked_image = role == Role::Image && span_role == Some(Role::Link);
++    if !linked_image && let Some(override_role) = span_role {
+         role = override_role;
+     }
+
+@@ -200,7 +201,12 @@
+     let id = get_field(fields, sym!(Id)).and_then(|v| v.as_int());
+
+     // Extract ALL semantic attributes using schema rules (GENERIC!)
+-    let semantics = extract_all_element_attrs(fields, kfx_type_id, ctx);
++    let mut semantics = extract_all_element_attrs(fields, kfx_type_id, ctx);
++    let image_href = if linked_image {
++        semantics.remove(&SemanticTarget::Href).filter(|href| !href.is_empty())
++    } else {
++        None
++    };
+
+     // Get content reference (for text)
+     let content_ref = get_field(fields, sym!(Content))
+@@ -240,6 +246,12 @@
+         if let Some(n) = get_field(fields, sym as u64).and_then(|v| v.as_int()) {
+             kfx_attrs.push((sym as u64, n.to_string()));
+         }
++    }
++
++    if let Some(href) = &image_href {
++        let mut link = ElementStart::new(Role::Link);
++        link.set_semantic(SemanticTarget::Href, href.clone());
++        stream.push(KfxToken::StartElement(link));
+     }
+
+     // Emit StartElement token
+@@ -266,6 +278,9 @@
+
+     // Emit EndElement token
+     stream.push(KfxToken::EndElement);
++    if image_href.is_some() {
++        stream.push(KfxToken::EndElement);
++    }
+ }
+
+ /// Extract the semantic type annotation (yj.semantics.type) if present.
