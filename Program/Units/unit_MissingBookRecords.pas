@@ -5,9 +5,13 @@ interface
 uses System.SysUtils, unit_CollectionWorkerThread, unit_Globals;
 
 type
+  TMissingBookCheckIssue = record
+    Title, Path, Reason: string;
+  end;
+
   TMissingBookEntry = record
     Book: TBookRecord;
-    Path, DirectoryIdentity, ArchiveIdentity: string;
+    Path, DirectoryIdentity, ArchiveIdentity, CheckIssue: string;
   end;
 
   TMissingBookRecords = class(TCollectionWorker)
@@ -15,6 +19,7 @@ type
     FInfo: TCollectionInfo;
     FCatalogueIdentity: string;
     FEntries: TArray<TMissingBookEntry>;
+    FSkipped: TArray<TMissingBookCheckIssue>;
     FRemove, FRootUnavailable: Boolean;
     FUnavailable, FRemoved: Integer;
     procedure Scan;
@@ -26,6 +31,7 @@ type
     constructor Create(const Info: TCollectionInfo; const CatalogueIdentity: string;
       const Selected: TArray<TMissingBookEntry>); overload;
     property Entries: TArray<TMissingBookEntry> read FEntries;
+    property Skipped: TArray<TMissingBookCheckIssue> read FSkipped;
     property CatalogueIdentity: string read FCatalogueIdentity;
     property RootUnavailable: Boolean read FRootUnavailable;
     property Unavailable: Integer read FUnavailable;
@@ -36,6 +42,9 @@ implementation
 
 uses Winapi.Windows, System.Classes, System.IOUtils, System.Generics.Collections, Vcl.ComCtrls,
   unit_Interfaces, unit_MHLArchiveHelpers, unit_ReaderCache, unit_ZipMemberDeletion;
+
+const
+  MAX_SKIPPED_DETAILS = 500;
 
 type
   TBookPresence = (bpPresentFile, bpProvenMissing, bpUnverified);
@@ -125,11 +134,16 @@ begin
 end;
 
 function TBookPresenceProbe.Check(const Book: TBookRecord; out Entry: TMissingBookEntry): TBookPresence;
-var Container, Alternate, Directory: string; Attr: DWORD; Format: TBookFormat;
+var Container, Alternate, Directory: string; Attr, ErrorCode: DWORD; Format: TBookFormat;
 begin
   Result := bpUnverified;
   Entry := Default(TMissingBookEntry);
-  if (Book.FileName = '') or not TPath.IsPathRooted(Book.CollectionRoot) then Exit;
+  if (Book.FileName = '') or not TPath.IsPathRooted(Book.CollectionRoot) then
+  begin
+    Entry.Path := Book.CollectionRoot;
+    Entry.CheckIssue := 'У записи нет полного пути к файлу.';
+    Exit;
+  end;
   try
     Container := TPath.GetFullPath(TPath.Combine(Book.CollectionRoot, Book.Folder));
     Format := Book.GetBookFormat(TPath.Combine(Book.CollectionRoot, Book.Folder));
@@ -137,7 +151,15 @@ begin
     Entry.Path := TPath.GetFullPath(Book.GetBookFileName(TPath.Combine(Book.CollectionRoot, Book.Folder)));
     if FileExists(Entry.Path) and not (Format in [bfFb2Archive, bfRawArchive]) then Exit(bpPresentFile);
     Attr := GetFileAttributes(PChar(DeletionNativePath(Entry.Path)));
-    if (Attr = INVALID_FILE_ATTRIBUTES) and (GetLastError <> ERROR_FILE_NOT_FOUND) then Exit;
+    if Attr = INVALID_FILE_ATTRIBUTES then
+    begin
+      ErrorCode := GetLastError;
+      if ErrorCode <> ERROR_FILE_NOT_FOUND then
+      begin
+        Entry.CheckIssue := SysErrorMessage(ErrorCode);
+        Exit;
+      end;
+    end;
     if (Attr = INVALID_FILE_ATTRIBUTES) and not Book.IsLinkedSource and
       (Format in [bfFb2Archive, bfRawArchive]) and SameText(ExtractFileExt(Container), ZIP_EXTENSION) then
     begin
@@ -148,24 +170,46 @@ begin
         Entry.Path := Alternate;
         Attr := AltAttr;
       end
-      else if GetLastError <> ERROR_FILE_NOT_FOUND then Exit;
+      else
+      begin
+        ErrorCode := GetLastError;
+        if ErrorCode <> ERROR_FILE_NOT_FOUND then
+        begin
+          Entry.Path := Alternate;
+          Entry.CheckIssue := SysErrorMessage(ErrorCode);
+          Exit;
+        end;
+      end;
     end;
     if Attr <> INVALID_FILE_ATTRIBUTES then
     begin
-      if Attr and FILE_ATTRIBUTE_DIRECTORY <> 0 then Exit;
+      if Attr and FILE_ATTRIBUTE_DIRECTORY <> 0 then
+      begin
+        Entry.CheckIssue := 'По указанному пути находится папка.';
+        Exit;
+      end;
       if not (Format in [bfFb2Archive, bfRawArchive]) then Exit(bpPresentFile);
       Result := CheckArchive(Book, Entry.Path);
+      if Result = bpUnverified then Entry.CheckIssue := 'Архив изменился во время проверки.';
       if Result <> bpProvenMissing then Exit;
       Entry.ArchiveIdentity := FArchiveIdentity;
     end;
     Directory := ExtractFileDir(Entry.Path);
     Entry.DirectoryIdentity := DirectoryIdentity(Directory);
-    if Entry.DirectoryIdentity = '' then Exit(bpUnverified);
+    if Entry.DirectoryIdentity = '' then
+    begin
+      Entry.CheckIssue := 'Не удалось проверить папку, в которой ожидается файл.';
+      Exit(bpUnverified);
+    end;
     Entry.Book := Book;
     Result := bpProvenMissing;
   except
     on E: EAbort do raise;
-    on E: Exception do Result := bpUnverified;
+    on E: Exception do
+    begin
+      Entry.CheckIssue := E.Message;
+      Result := bpUnverified;
+    end;
   end;
 end;
 
@@ -187,10 +231,13 @@ begin
 end;
 
 procedure TMissingBookRecords.Scan;
-var Candidates: TList<TMissingBookEntry>; Probe: TBookPresenceProbe; Book: TBookRecord;
+var Candidates: TList<TMissingBookEntry>; Skipped: TList<TMissingBookCheckIssue>;
+  Probe: TBookPresenceProbe; Book: TBookRecord;
   Entry, OtherEntry: TMissingBookEntry; State: TBookPresence;
+  Issue: TMissingBookCheckIssue;
 begin
   Candidates := TList<TMissingBookEntry>.Create;
+  Skipped := TList<TMissingBookCheckIssue>.Create;
   Probe := TBookPresenceProbe.Create(True, function: Boolean begin Result := Canceled; end);
   try
     FCollection.SetHideDeleted(False);
@@ -207,15 +254,31 @@ begin
           begin
             var CopyState := Probe.Check(CopyBook, OtherEntry);
             if CopyState = bpPresentFile then begin State := CopyState; Break; end;
-            if CopyState = bpUnverified then State := CopyState;
+            if (CopyState = bpUnverified) and (State <> bpUnverified) then
+            begin
+              State := CopyState;
+              Entry.Path := OtherEntry.Path;
+              Entry.CheckIssue := 'Не удалось проверить известную копию. ' + OtherEntry.CheckIssue;
+            end;
           end;
         if State = bpProvenMissing then Candidates.Add(Entry)
-        else if State = bpUnverified then Inc(FUnavailable);
+        else if State = bpUnverified then
+        begin
+          Inc(FUnavailable);
+          if Skipped.Count < MAX_SKIPPED_DETAILS then
+          begin
+            Issue.Title := Book.Title;
+            Issue.Path := Entry.Path;
+            Issue.Reason := Entry.CheckIssue;
+            Skipped.Add(Issue);
+          end;
+        end;
         FProgressEngine.AddProgress;
       end;
       FEntries := Candidates.ToArray;
+      FSkipped := Skipped.ToArray;
     finally FProgressEngine.EndOperation; end;
-  finally Probe.Free; Candidates.Free; end;
+  finally Probe.Free; Skipped.Free; Candidates.Free; end;
 end;
 
 procedure TMissingBookRecords.RemoveRecords;

@@ -79,29 +79,35 @@ type
   TMissingBookPreview = class(TForm)
   private
     FEntries: TArray<TMissingBookEntry>;
+    FSkipped: TArray<TMissingBookCheckIssue>;
+    FUnavailable: Integer;
     FToolGuide:TContextToolGuide;
     FList: TListView;
     FRemove: TButton;
     procedure ListData(Sender: TObject; Item: TListItem);
     procedure ListSelected(Sender: TObject; Item: TListItem; Selected: Boolean);
     procedure RemoveClick(Sender: TObject);
+    procedure ShowSkipped(Sender: TObject);
   protected
     procedure DoShow; override;
     procedure DoHide; override;
   public
-    constructor CreatePreview(AOwner: TForm; const Entries: TArray<TMissingBookEntry>; Unavailable: Integer);
+    constructor CreatePreview(AOwner: TForm; const Entries: TArray<TMissingBookEntry>;
+      const Skipped: TArray<TMissingBookCheckIssue>; Unavailable: Integer);
     function SelectedEntries: TArray<TMissingBookEntry>;
   end;
 
 constructor TMissingBookPreview.CreatePreview(AOwner: TForm;
-  const Entries: TArray<TMissingBookEntry>; Unavailable: Integer);
-var Header: TLabel; Footer: TPanel; CloseButton: TButton;
+  const Entries: TArray<TMissingBookEntry>;
+      const Skipped: TArray<TMissingBookCheckIssue>; Unavailable: Integer);
+var Header: TLabel; Footer: TPanel; CloseButton, SkippedButton: TButton;
 begin
   inherited CreateNew(AOwner);
   Name := 'MissingBookRecordsPreview'; Caption := 'Записи без файлов';
   Position := poOwnerFormCenter; Font.Name := 'Segoe UI'; Font.Size := 9;
   ClientWidth := 825; ClientHeight := 520; Constraints.MinWidth := 545; Constraints.MinHeight := 350;
   FEntries := Entries;
+  FSkipped := Skipped; FUnavailable := Unavailable;
   Header := TLabel.Create(Self); Header.Parent := Self; Header.Align := alTop;
   Header.Name:='MissingRecordsIntro';
   Header.AlignWithMargins := True; Header.Margins.SetBounds(12, 12, 52, 8);
@@ -111,6 +117,10 @@ begin
     [Length(Entries), Unavailable]);
   Footer := TPanel.Create(Self); Footer.Parent := Self; Footer.Align := alBottom;
   Footer.Height := 54; Footer.BevelOuter := bvNone;
+  SkippedButton := TButton.Create(Self); SkippedButton.Parent := Footer;
+  SkippedButton.Name := 'ShowSkippedBookRecords'; SkippedButton.Caption := 'Показать пропущенные…';
+  SkippedButton.SetBounds(12, 10, 200, 31); SkippedButton.Enabled := Unavailable > 0;
+  SkippedButton.OnClick := ShowSkipped;
   FRemove := TButton.Create(Self); FRemove.Parent := Footer; FRemove.Name := 'RemoveMissingBookRecords';
   FRemove.Caption := 'Удалить выбранные записи…'; FRemove.SetBounds(500, 10, 190, 31);
   FRemove.Anchors := [akTop, akRight]; FRemove.Enabled := False; FRemove.OnClick := RemoveClick;
@@ -176,6 +186,28 @@ begin
   end;
 end;
 
+procedure TMissingBookPreview.ShowSkipped(Sender: TObject);
+var Report: TBookDeletionReport; Lines: TStringList;
+begin
+  Report := TBookDeletionReport.CreateReport(Self, 'SkippedBookRecordsReport');
+  Lines := TStringList.Create;
+  try
+    Report.Caption := 'Пропущенные записи';
+    Lines.Add(Format('Сохранено записей: %d. Отсутствие файла подтвердить не удалось.', [FUnavailable]));
+    if Length(FSkipped) < FUnavailable then
+      Lines.Add(Format('Показаны первые %d записей.', [Length(FSkipped)]));
+    for var Issue in FSkipped do
+    begin
+      Lines.Add('');
+      Lines.Add(Issue.Title);
+      if Issue.Path <> '' then Lines.Add(Issue.Path);
+      Lines.Add(Issue.Reason);
+    end;
+    Report.SetReportText(Lines.Text);
+    Report.ShowModal;
+  finally Lines.Free; Report.Free; end;
+end;
+
 procedure TMissingBookPreview.RemoveClick(Sender: TObject);
 begin
   if FList.SelCount = 0 then Exit;
@@ -220,7 +252,7 @@ begin
         sLineBreak + Info.GetRootPath);
       Exit;
     end;
-    Preview := TMissingBookPreview.CreatePreview(Owner, Scan.Entries, Scan.Unavailable);
+    Preview := TMissingBookPreview.CreatePreview(Owner, Scan.Entries, Scan.Skipped, Scan.Unavailable);
     try
       if Preview.ShowModal <> mrYes then Exit;
       Removal := TMissingBookRecords.Create(Info, Scan.CatalogueIdentity, Preview.SelectedEntries);
