@@ -696,8 +696,21 @@ All 46 persistent profile files matched the pre-installation snapshot
 byte for byte. Two empty WAL files and their two SQLite shared-memory
 files disappeared during normal closure. The snapshot stays on G:.
 
-The main release remains a draft while the two full uploads finish.
-The updated component feed and portable application downloads are
-verified through GitHub before the release is checked off.
+## Public release
+
+[HomeLibre 3.0 beta 14](https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.14) was published on GitHub. The
+public SHA-256 manifest matched the local manifest. Both production
+updaters parsed the same tag, selected their respective portable ZIPs,
+and downloaded and prepared them successfully. The two compatibility
+and two full archives were downloaded and matched the recorded byte
+length and SHA-256.
+
+The [component page](https://github.com/Dicur3x/MyHomeLib/releases/tag/optional-alreader-2.5.1009.25) points to the x86 and x64
+standalone Reader packages. Both native parsers accepted the updated
+feed. The release verification downloaded all 19 new component files
+and checked the installer payloads and corresponding source. Prior
+assets referenced by older clients were retained. Reports:
+`G:/HL-b14-external/r2012-release-refresh/public-live-main.json` and
+`public-live-components.json` in the same directory.
 
 All preparation is on G:. No E: input or user-library modification is involved.
