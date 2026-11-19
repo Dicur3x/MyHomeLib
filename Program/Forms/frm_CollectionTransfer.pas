@@ -632,8 +632,7 @@ begin
 end;
 
 procedure TfrmCollectionTransfer.SaveReport(Sender: TObject);
-var Dialog: TSaveDialog; Writer: TStreamWriter; Stream: THandleStream;
-  Temporary: string; HandleToReport: THandle;
+var Dialog: TSaveDialog;
 begin
   Dialog := TSaveDialog.Create(Self);
   try
@@ -644,25 +643,11 @@ begin
     Dialog.Options := Dialog.Options + [ofOverwritePrompt, ofPathMustExist];
     if not Dialog.Execute(Handle) then Exit;
     try
-      Temporary := TPath.Combine(ExtractFileDir(Dialog.FileName),
-        '.homelibre-report-' + GUIDToString(TGUID.NewGuid) + '.tmp');
-      HandleToReport := CreateFile(PChar(Temporary), GENERIC_READ or GENERIC_WRITE,
-        0, nil, CREATE_NEW, FILE_ATTRIBUTE_TEMPORARY, 0);
-      if HandleToReport = INVALID_HANDLE_VALUE then RaiseLastOSError;
-      try
-        Stream := THandleStream.Create(HandleToReport);
-        try
-          Writer := TStreamWriter.Create(Stream, TEncoding.UTF8);
-          try
-            Writer.WriteLine(FCompletionText);
-            WriteRetainedSources(-1, procedure(Line: string) begin Writer.WriteLine(Line); end);
-          finally Writer.Free; end;
-          SaveStreamAtomically(Stream, Dialog.FileName);
-        finally Stream.Free; end;
-      finally
-        CloseHandle(HandleToReport);
-        Winapi.Windows.DeleteFile(PChar(Temporary));
-      end;
+      SaveGeneratedTextAtomically(Dialog.FileName, procedure(Writer: TStreamWriter)
+        begin
+          Writer.WriteLine(FCompletionText);
+          WriteRetainedSources(-1, procedure(Line: string) begin Writer.WriteLine(Line); end);
+        end);
     except
       on E: Exception do MessageDlg('Не удалось сохранить отчёт. ' + E.Message, mtError, [mbOK], 0);
     end;

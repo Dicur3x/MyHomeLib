@@ -10809,15 +10809,33 @@ begin
 end;
 
 function TfrmMain.ConfirmGroupChange(const Group: TGroupData; Remove: Boolean): Boolean;
-var Count: Integer; Prompt: string;
+var Count: Integer; Prompt, Action: string; Dialog: TTaskDialog; Button: TTaskDialogButtonItem;
 begin
   Count := FSystemData.GroupBookCount(Group.GroupID);
   if Count = 0 then Exit(True);
-  if Remove then Prompt := Format('Удалить группу «%s»?', [Group.Text])
-  else Prompt := Format('Убрать все книги из группы «%s»? Группа останется.', [Group.Text]);
-  Prompt := Prompt + sLineBreak + Format('Всего книг в группе — %d, включая скрытые фильтрами.', [Count]) +
-    sLineBreak + 'Книги останутся в каталоге и на диске.';
-  Result := MessageDlg(Prompt, mtConfirmation, [mbYes, mbNo], 0, mbNo) = mrYes;
+  if Remove then
+  begin
+    Action := 'Удалить группу';
+    Prompt := Format('Удалить группу «%s»?', [Group.Text]);
+  end
+  else
+  begin
+    Action := 'Очистить группу';
+    Prompt := Format('Убрать все книги из группы «%s»? Группа останется.', [Group.Text]);
+  end;
+  Dialog := TTaskDialog.Create(Self);
+  try
+    Dialog.Caption := 'Группы книг';
+    Dialog.Title := Prompt;
+    Dialog.Text := Format('Всего книг в группе — %d, включая скрытые фильтрами.', [Count]) +
+      sLineBreak + 'Книги останутся в каталоге и на диске.';
+    Dialog.Flags := [tfAllowDialogCancellation];
+    Button := TTaskDialogButtonItem(Dialog.Buttons.Add);
+    Button.Caption := Action; Button.ModalResult := mrYes;
+    Button := TTaskDialogButtonItem(Dialog.Buttons.Add);
+    Button.Caption := 'Отмена'; Button.ModalResult := mrCancel; Button.Default := True;
+    Result := Dialog.Execute(Handle) and (Dialog.ModalResult = mrYes);
+  finally Dialog.Free; end;
 end;
 
 procedure TfrmMain.DeleteGroupExecute(Sender: TObject);

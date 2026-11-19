@@ -1,8 +1,8 @@
-﻿unit unit_AtomicIniFile;
+unit unit_AtomicIniFile;
 
 interface
 
-uses System.IniFiles, System.Classes;
+uses System.IniFiles, System.Classes, System.SysUtils;
 
 // Explicit saves must not fall back to the truncating destructor AutoSave path.
 // On failure the in-memory changes remain Modified and the old file is retained.
@@ -11,10 +11,11 @@ procedure SaveMemIniFileAtomically(Ini: TMemIniFile);
 // Publish the complete seekable stream without changing its current position.
 // The stream remains owned by the caller; any read failure retains the old file.
 procedure SaveStreamAtomically(Source: TStream; const FileName: string);
+procedure SaveGeneratedTextAtomically(const FileName: string; const Write: TProc<TStreamWriter>);
 
 implementation
 
-uses Winapi.Windows, System.SysUtils, unit_ProgramUpdatePaths;
+uses Winapi.Windows, unit_ProgramUpdatePaths;
 
 procedure RaiseIniSaveError(Code: DWORD; const FileName, RecoveryFile: string);
 var Error: EOSError; Details: string;
@@ -184,6 +185,27 @@ begin
   finally
     if OwnTemporary then Winapi.Windows.DeleteFile(PChar(Temporary));
     if OwnBackup then Winapi.Windows.DeleteFile(PChar(Backup));
+  end;
+end;
+
+procedure SaveGeneratedTextAtomically(const FileName: string; const Write: TProc<TStreamWriter>);
+var Temporary: string; Handle: THandle; Stream: THandleStream; Writer: TStreamWriter;
+begin
+  Temporary := UpdateIOPath(ExtractFilePath(ExpandFileName(FileName)) +
+    '.homelibre-report-' + GUIDToString(TGUID.NewGuid) + '.tmp');
+  Handle := CreateFile(PChar(Temporary), GENERIC_READ or GENERIC_WRITE,
+    0, nil, CREATE_NEW, FILE_ATTRIBUTE_TEMPORARY, 0);
+  if Handle = INVALID_HANDLE_VALUE then RaiseLastOSError;
+  try
+    Stream := THandleStream.Create(Handle);
+    try
+      Writer := TStreamWriter.Create(Stream, TEncoding.UTF8);
+      try Write(Writer); finally Writer.Free; end;
+      SaveStreamAtomically(Stream, FileName);
+    finally Stream.Free; end;
+  finally
+    CloseHandle(Handle);
+    Winapi.Windows.DeleteFile(PChar(Temporary));
   end;
 end;
 
