@@ -12,6 +12,7 @@ type
     FFileName, FSHA256: string;
     FStream: TFileStream;
     procedure Validate(const ReceiptJSON: string; const Cancelled: TFunc<Boolean>);
+    function GetSize: Int64;
   public
     destructor Destroy; override;
     class function Publish(const PreparedJSON, ReceiptJSON, PayloadRoot, Destination: string;
@@ -20,6 +21,7 @@ type
       const Cancelled: TFunc<Boolean>): TCompressionOriginalBackup; static;
     function ReferenceJSON: string;
     property FileName: string read FFileName;
+    property Size: Int64 read GetSize;
   end;
 
 implementation
@@ -141,6 +143,11 @@ begin
     finally Reference.Free; end;
     Result.Validate(ReceiptJSON,Cancelled);
   except Result.Free; raise; end;
+end;
+
+function TCompressionOriginalBackup.GetSize: Int64;
+begin
+  Result := FStream.Size;
 end;
 
 function TCompressionOriginalBackup.ReferenceJSON: string;

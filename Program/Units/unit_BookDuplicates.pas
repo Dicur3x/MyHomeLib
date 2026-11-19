@@ -19,6 +19,7 @@ type
     Identity, Title: string;
     Selected: Boolean;
   end;
+  TDuplicatePairVisitor = reference to procedure(const Kept, Selected: TBookRecord);
   TDuplicateDeletionCursor = record
     Archive: string;
     BookID: Integer;
@@ -91,6 +92,8 @@ type
       const Canceled: TMergeCanceled): TDuplicateFileDeletion;
     function SelectedCount: Integer;
     function SelectedRemovedCount: Integer;
+    procedure VisitSelectedPairs(Offset, Limit: Integer; const Visit: TDuplicatePairVisitor;
+      LinkedPromotions: TBookDuplicatePlan = nil);
     property GroupCount: Integer read FGroupCount;
     property Scanned: Integer read FScanned;
     property Ready: Boolean read FReady;
@@ -1388,6 +1391,61 @@ begin
   Result:=FSelectedCopies;
 end;
 
+procedure TBookDuplicatePlan.VisitSelectedPairs(Offset, Limit: Integer; const Visit: TDuplicatePairVisitor;
+  LinkedPromotions: TBookDuplicatePlan);
+var Query, BookQuery: TSQLiteQuery; Kept, Selected: TBookRecord; Preferred: TDuplicateBook;
+  BookID, PreviousID: Integer; SourceName: string;
+  function ReadBook(ID: Integer): TBookRecord;
+  begin
+    BookQuery.Reset; BookQuery.SetParam(0, ID); BookQuery.Open;
+    if BookQuery.Eof then raise EReadError.Create('Запись исчезла из снимка списка дублей.');
+    Result := ReadDuplicateLocation(BookQuery, 0, FRoot, CreateBookKey(ID, FCID));
+    Result.Title := BookQuery.FieldAsString(5);
+  end;
+begin
+  if not FReady or (Limit = 0) then Exit;
+  if FLinkedMode then Query := FStage.NewQuery('SELECT BookID,CopyKey FROM LinkedCopies WHERE Selected=1 ' +
+    'ORDER BY BookID,CopyKey LIMIT ? OFFSET ?', [Limit, Offset])
+  else Query := FStage.NewQuery('SELECT g.KeepID,c.BookID FROM DuplicateGroups g JOIN Candidates c USING(Identity) ' +
+    'WHERE g.Selected<>0 AND g.KeepID<>c.BookID ORDER BY g.GroupID,c.BookID LIMIT ? OFFSET ?', [Limit, Offset]);
+  try
+    BookQuery := FSource.NewQuery('SELECT LibID,Folder,FileName,Ext,InsideNo,Title FROM Books WHERE BookID=?');
+    try
+      PreviousID := -1;
+      Query.Open;
+      while not Query.Eof do
+      begin
+        BookID := Query.FieldAsInt(0);
+        if BookID <> PreviousID then
+        begin
+          Kept := ReadBook(BookID);
+          if FLinkedMode then
+          begin
+            var PreferredKey := SelectedPromotionKey(BookID);
+            if PreferredKey <> '' then Kept := PreferredLinkedLocation(Kept, PreferredKey, SourceName);
+          end
+          else if Assigned(LinkedPromotions) then
+          begin
+            Preferred := Default(TDuplicateBook);
+            Preferred.Book := Kept;
+            LinkedPromotions.PreviewSelectedPromotion(Preferred);
+            Kept := Preferred.Book;
+          end;
+          PreviousID := BookID;
+        end;
+        if FLinkedMode then
+        begin
+          Selected := LinkedCopy(Query.FieldAsString(1), BookID, SourceName);
+          Selected.Title := Kept.Title;
+        end
+        else Selected := ReadBook(Query.FieldAsInt(1));
+        Visit(Kept, Selected);
+        Query.Next;
+      end;
+    finally BookQuery.Free; end;
+  finally Query.Free; end;
+end;
+
 function TBookDuplicatePlan.SelectedPromotionKey(BookID: Integer): string;
 begin
   Result:='';
@@ -2271,11 +2329,11 @@ begin
   Values:=TList<TDuplicateGroup>.Create;
   try
     Query:=FRegular.FStage.NewQuery('WITH Families AS ('+
-      'SELECT g.GroupID AS ID,g.KeepID AS KeepID,0 AS Kind,g.GroupID AS Ordinal,'+
+      'SELECT g.GroupID AS ID,g.KeepID AS KeepID,0 AS Kind,g.GroupID AS Ordinal,g.Identity AS Identity,'+
       '(g.Selected=1 OR EXISTS(SELECT 1 FROM '+TableName+' o WHERE o.FamilyID=g.GroupID AND o.SelectedCopies>0)) AS Marked '+
       'FROM DuplicateGroups g UNION ALL '+
-      'SELECT FamilyID,BookID,1,BookID,SelectedCopies>0 FROM '+TableName+' WHERE FamilyID<0) '+
-      'SELECT ID,KeepID,Marked FROM Families '+IfThen(UnmarkedOnly,'WHERE Marked=0 ','')+
+      'SELECT FamilyID,BookID,1,BookID,'''',SelectedCopies>0 FROM '+TableName+' WHERE FamilyID<0) '+
+      'SELECT ID,KeepID,Marked,Identity FROM Families '+IfThen(UnmarkedOnly,'WHERE Marked=0 ','')+
       'ORDER BY Kind,Ordinal LIMIT ? OFFSET ?',[Limit,Offset]);
     try
       Query.Open;
@@ -2284,6 +2342,7 @@ begin
         Group:=Default(TDuplicateGroup); Group.ID:=Query.FieldAsInt(0); Group.KeepID:=Query.FieldAsInt(1);
         Group.Title:=FRegular.FSource.QuerySingleString('SELECT Title FROM Books WHERE BookID=?',[Group.KeepID]);
         Group.Selected:=Query.FieldAsInt(2)<>0;
+        Group.Identity:=Query.FieldAsString(3);
         var Copies:=Books(Group.ID); Group.Count:=Length(Copies);
         for var Entry in Copies do if Entry.Selected then Inc(Group.SelectedCopies);
         Values.Add(Group); Query.Next;

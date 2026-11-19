@@ -1949,7 +1949,6 @@ object frmSettings: TfrmSettings
       Anchors = [akTop, akRight]
       Caption = '&'#1057#1086#1093#1088#1072#1085#1080#1090#1100
       Default = True
-      ModalResult = 1
       TabOrder = 0
       OnClick = SaveSettingsClick
     end

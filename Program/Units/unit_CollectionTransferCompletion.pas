@@ -24,6 +24,8 @@ type
   end;
 
 function ReadTransferCompletion(Journal:TCollectionTransferJournal; out Outcome:TTransferCompletionResult):Boolean;
+procedure VisitRetainedTransferSources(Journal: TCollectionTransferJournal; Limit: Integer;
+  const Visit: TProc<string, string>);
 
 implementation
 
@@ -91,6 +93,30 @@ begin
       Result:=True;
     finally Q.Free; end;
   finally DB.Free; Lease:=nil; end;
+end;
+
+procedure VisitRetainedTransferSources(Journal: TCollectionTransferJournal; Limit: Integer;
+  const Visit: TProc<string, string>);
+var DB: TSQLiteDatabase; Query: TSQLiteQuery; Lease: IInterface; PersonalFile: string;
+begin
+  PersonalFile := Meta(Journal, 'personal');
+  Lease := AcquireCompressionDatabaseLease(PersonalFile, Meta(Journal, 'personal_key'));
+  DB := TSQLiteDatabase.CreateReadOnly(DeletionNativePath(PersonalFile), Journal.Directory);
+  try
+    Query := DB.NewQuery('SELECT Source,CASE WHEN Source=Destination THEN ' +
+      '''Файл уже по нужному адресу.'' ELSE Reason END AS Detail FROM ' +
+      '(SELECT Source,Destination,Reason FROM HomeLibreTransferRemovalIntent ' +
+      'WHERE Operation=? AND State=''retained'' ORDER BY FileID LIMIT ?) ORDER BY Detail,Source',
+      [Meta(Journal, 'directory'), Limit]);
+    try
+      Query.Open;
+      while not Query.Eof do
+      begin
+        Visit(Query.FieldAsString(0), Query.FieldAsString(1));
+        Query.Next;
+      end;
+    finally Query.Free; end;
+  finally DB.Free; Lease := nil; end;
 end;
 
 constructor TTransferCompletionWriter.Create(Journal:TCollectionTransferJournal;

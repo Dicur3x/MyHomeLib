@@ -54,7 +54,7 @@ var Server: TRepairServer; Dialog: TImageInstallerForm; Info: TProgramRelease;
     Primary:=nil; Status:=nil;
     for var Control in Dialog do
     begin
-      if (Control is TButton) and TButton(Control).Default then Primary:=TButton(Control);
+      if (Control is TButton) and (Control.Name='UpdatePrimary') then Primary:=TButton(Control);
       if (Control is TLabel) and (Control.Name='UpdateStatus') then Status:=TLabel(Control);
     end;
     Require(Assigned(Primary) and Assigned(Status),'Image update controls missing');

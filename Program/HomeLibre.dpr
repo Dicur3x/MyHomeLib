@@ -95,6 +95,7 @@ uses
   unit_BookDeletionInventory in 'Units\unit_BookDeletionInventory.pas',
   unit_BookDeletionPreparation in 'Units\unit_BookDeletionPreparation.pas',
   unit_BookDeletionSelection in 'Units\unit_BookDeletionSelection.pas',
+  unit_MissingBookRecords in 'Units\unit_MissingBookRecords.pas',
   unit_BookDeletionDialog in 'Units\unit_BookDeletionDialog.pas',
   unit_BookDeletionReferences in 'Units\unit_BookDeletionReferences.pas',
   unit_BookDeletionBinding in 'Units\unit_BookDeletionBinding.pas',

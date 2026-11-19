@@ -1009,7 +1009,17 @@ begin
       Query.Next;
     end;
     if FVersion=0 then Version:='не указана' else Version:=IntToStr(FVersion);
-    FSummary:=Format('В индексе: %d записей, в том числе помеченных удалёнными: %d.%sНовых книг: %d. С изменёнными сведениями: %d.%s'+
+    FSummary := Format('Проверен источник «%s».', [FSource.Name]) + sLineBreak;
+    if FNeeded.Count > 0 then
+    begin
+      FSummary := FSummary + Format('Архивов для докачки — %d', [FNeeded.Count]) + sLineBreak;
+      for var I := 0 to Min(FNeeded.Count - 1, 5) do
+        FSummary := FSummary + FNeeded[I] + sLineBreak;
+      if FNeeded.Count > 6 then
+        FSummary := FSummary + 'Полный список доступен по кнопке «Копировать имена архивов».' + sLineBreak;
+      FSummary := FSummary + sLineBreak;
+    end;
+    FSummary := FSummary + Format('В индексе: %d записей, в том числе помеченных удалёнными: %d.%sНовых книг: %d. С изменёнными сведениями: %d.%s'+
       'Версия индекса: %s.%sФайлов найдено: %d. Для новых, изменённых и ранее пропущенных книг требуется докачать: %d.%s'+
       'Отсутствующих файлов только с прежними записями: %d. Одноимённых файлов в обеих папках: %d.',
       [FTotal,FDeleted,sLineBreak,FNewBooks,FChangedBooks,sLineBreak,Version,sLineBreak,FFound.Count,FNeeded.Count,sLineBreak,FHistorical.Count,FAmbiguous.Count]);
@@ -1033,15 +1043,6 @@ begin
       'В список докачки входят и файлы для книг, пропущенных при прошлом обновлении. '+
       'Изменение содержимого архива с прежним именем без изменения индекса таким сравнением не определяется. '+
       'Наличие файла проверено без чтения всех книг внутри него. Книги и текущий каталог не изменены.';
-    if FNeeded.Count>0 then
-    begin
-      FSummary:=FSummary+sLineBreak+sLineBreak+'Нужные файлы по новому индексу:';
-      for var I:=0 to FNeeded.Count-1 do
-      begin
-        if I>=24 then begin FSummary:=FSummary+sLineBreak+'Остальные имена доступны через «Копировать список».'; Break; end;
-        FSummary:=FSummary+sLineBreak+FNeeded[I];
-      end;
-    end;
   finally Iterator:=nil; UnresolvedExclusion.Free; ExcludedAlias.Free; PriorArtifact.Free;
     ReviewKeyQuery.Free; RecoveredQuery.Free; PublisherQuery.Free; SourceKeyQuery.Free; StateQuery.Free; StateDB.Free;
     BoundPackedCopy.Free; LegacyInput.Free;

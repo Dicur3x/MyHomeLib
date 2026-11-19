@@ -14,7 +14,8 @@ implementation
 uses Winapi.Windows, Winapi.Messages, Winapi.ActiveX, System.IOUtils, System.SyncObjs, System.Math,
   Vcl.Dialogs, Vcl.Clipbrd, unit_Settings, dm_user, unit_MHLTheme, unit_BookEstimateReport,
   unit_CollectionTransferCatalogue, unit_CollectionTransferPlan, unit_CollectionTransferJournal,
-  unit_CollectionTransferOperation, unit_CollectionTransferCompletion, unit_CollectionTransferSpace, unit_ContextToolGuide;
+  unit_CollectionTransferOperation, unit_CollectionTransferCompletion, unit_CollectionTransferSpace,
+  unit_CollectionTransferReferences, unit_AtomicIniFile, unit_ContextToolGuide, SQLiteWrap;
 
 const
   DestinationUnavailable = 'Папка назначения «%s» недоступна. Подключите диск или восстановите доступ к папке и повторите попытку.';
@@ -76,10 +77,11 @@ type
     FState:TTransferUIState;
     FRelease,FRefresh:TProc;
     FReady:TFunc<Boolean>;
-    FReleased,FCloseAfterStop,FLayoutBusy:Boolean;
+    FReleased,FCloseAfterStop,FLayoutBusy,FWorkAutomatic,FUpdatingWork:Boolean;
     FToolGuide:TContextToolGuide;
     FDestination,FWork:TEdit;
-    FChooseDestination,FChooseWork,FPreview,FRun,FStop,FClose,FPin:TButton;
+    FChooseDestination,FChooseWork,FResetWork,FPreview,FRun,FStop,FClose,FPin,FSaveReport:TButton;
+    FCompletionText: string;
     FStage,FSource,FHelp,FDestinationLabel,FWorkLabel:TLabel;
     FReport:TMemo;
     FBar:TProgressBar;
@@ -91,6 +93,11 @@ type
     procedure Start(Phase:TTransferUIPhase);
     procedure ChooseFolder(Sender:TObject);
     procedure LocationChanged(Sender:TObject);
+    function DefaultWorkFolder: string;
+    procedure UpdateAutomaticWorkFolder;
+    procedure ResetWorkFolder(Sender: TObject);
+    procedure SaveReport(Sender: TObject);
+    procedure WriteRetainedSources(Limit: Integer; const WriteLine: TProc<string>);
     procedure Preview(Sender:TObject);
     procedure Run(Sender:TObject);
     procedure Stop(Sender:TObject);
@@ -111,6 +118,84 @@ type
       const ApplicationReady:TFunc<Boolean>);
     destructor Destroy; override;
   end;
+
+function UnverifiedTransferCatalogues(Review: TSQLiteDatabase): string;
+begin
+  Result := Review.QuerySingleString('SELECT coalesce(group_concat(Name,'', ''),'''') FROM ' +
+    '(SELECT DISTINCT ''«'' || coalesce(NULLIF(r.Name,''''),r.Catalogue) || ''»'' AS Name ' +
+    'FROM ReferenceIssues i JOIN ReferenceRegistrations r ON r.RegistrationID=i.RegistrationID ' +
+    'ORDER BY r.RegistrationID LIMIT 12)');
+end;
+
+procedure AppendSharedTransferCatalogues(Review: TSQLiteDatabase; CollectionID: Integer;
+  Finished: Boolean; Lines: TStrings);
+var Query: TSQLiteQuery; Header: string;
+begin
+  if Review.QuerySingleInt('SELECT count(*) FROM ReferenceRegistrations ' +
+    'WHERE RegistrationID<>? AND State=''ready''', [CollectionID]) = 0 then Exit;
+  if Finished then Header := 'В других коллекциях переключены ссылки на общие файлы:'
+  else Header := 'Перенос переключит ссылки на общие файлы в других коллекциях:';
+  Query := Review.NewQuery('SELECT c.Name,count(DISTINCT r.FileID) FROM RegisteredReferences r ' +
+    'JOIN ReferenceRegistrations c ON c.RegistrationID=r.RegistrationID ' +
+    'JOIN Files f ON f.ID=r.FileID WHERE r.RegistrationID<>? AND r.RetainReason='''' ' +
+    'AND r.Resource=0 AND f.KeepInPlace=0 GROUP BY c.RegistrationID,c.Name ORDER BY c.Name',
+    [CollectionID]);
+  try
+    Query.Open;
+    if not Query.Eof then
+    begin
+      Lines.Add(Header);
+      while not Query.Eof do
+      begin
+        Lines.Add(Format('«%s» — файлов %d', [Query.FieldAsString(0), Query.FieldAsInt(1)]));
+        Query.Next;
+      end;
+      Lines.Add('');
+    end;
+  finally Query.Free; end;
+end;
+
+procedure AppendTransferPaths(Review: TSQLiteDatabase; CollectionID: Integer;
+  Lines: TStrings; const Cancelled: TFunc<Boolean>);
+var Files, References: TSQLiteQuery; Catalogues, Note: string; ID: Int64;
+begin
+  Files := Review.NewQuery('SELECT ID,Source,Destination,KeepInPlace FROM Files ORDER BY Source LIMIT 200');
+  try
+    References := Review.NewQuery('SELECT c.Name FROM RegisteredReferences r ' +
+      'JOIN ReferenceRegistrations c ON c.RegistrationID=r.RegistrationID ' +
+      'WHERE r.FileID=? AND r.RegistrationID<>? AND r.RetainReason='''' AND r.Resource=0 ' +
+      'GROUP BY c.RegistrationID,c.Name ORDER BY c.Name');
+    try
+      Files.Open;
+      while not Files.Eof do
+      begin
+        if Assigned(Cancelled) and Cancelled() then Abort;
+        ID := Files.FieldAsInt(0);
+        Lines.Add(Files.FieldAsString(1) + sLineBreak + '  → ' + Files.FieldAsString(2));
+        References.Reset;
+        References.SetParam(0, ID);
+        References.SetParam(1, CollectionID);
+        References.Open;
+        Catalogues := '';
+        while not References.Eof do
+        begin
+          if Catalogues <> '' then Catalogues := Catalogues + ', ';
+          Catalogues := Catalogues + '«' + References.FieldAsString(0) + '»';
+          References.Next;
+        end;
+        if Catalogues <> '' then
+        begin
+          if Files.FieldAsInt(3) <> 0 then Note := 'Файл уже по нужному адресу.'
+          else if TransferReferenceRequiresRetention(Review, ID) then
+            Note := 'Исходник будет сохранён.'
+          else Note := 'Планируется освободить прежний путь после проверки.';
+          Lines.Add('  Общий файл с коллекциями ' + Catalogues + '. ' + Note);
+        end;
+        Files.Next;
+      end;
+    finally References.Free; end;
+  finally Files.Free; end;
+end;
 
 constructor TTransferUIContext.Create;
 begin inherited; FLock:=TObject.Create; end;
@@ -209,7 +294,7 @@ begin
             FContext.Plan:=FContext.Capture.BuildFilePlan(FContext.Destination,FContext.WorkRoot,TGUID.NewGuid);
             FContext.Files:=FContext.Plan.FileCount; FContext.CopyFiles:=FContext.Plan.CopyFileCount;
             FContext.CopyBytes:=FContext.Plan.CopyBytes; FContext.Missing:=FContext.Capture.Count(tbsMissing);
-            var Lines:=TList<string>.Create;
+            var Lines:=TStringList.Create;
             try
               Progress('Оценка места и сохранённых источников','',0,0,0,0);
               var SpaceReview:=TCollectionTransferJournal.Create(FContext.WorkRoot,FContext.Capture,FContext.Plan,
@@ -217,15 +302,18 @@ begin
               try
                 var Budget:=EstimateTransferSpace(SpaceReview,Settings.DataPath,
                   procedure begin Context.CheckSpace; if Context.Cancelled then Abort; end);
-                Lines.AddRange(TransferSpaceText(Budget)); Lines.Add('');
-              finally SpaceReview.Free; end;
-              var PathLines:=0;
-              FContext.Plan.ForEachFile(procedure(const Item:TCollectionTransferFile)
+                AppendSharedTransferCatalogues(SpaceReview.Review, FContext.Info.ID, False, Lines);
+                var Unverified := UnverifiedTransferCatalogues(SpaceReview.Review);
+                if Unverified <> '' then
                 begin
-                  if Cancelled then Abort;
-                  if PathLines<200 then begin Lines.Add(Item.Source+sLineBreak+'  → '+Item.Destination); Inc(PathLines); end;
-                end);
-              FContext.PreviewLines:=Lines.ToArray;
+                  Lines.Add('Исходники будут сохранены, поскольку не удалось проверить ссылки коллекций: ' + Unverified + '.');
+                  Lines.Add('');
+                end;
+                Lines.AddStrings(TransferSpaceText(Budget)); Lines.Add('');
+                AppendTransferPaths(SpaceReview.Review, FContext.Info.ID, Lines,
+                  function: Boolean begin Result := Context.Cancelled; end);
+              finally SpaceReview.Free; end;
+              FContext.PreviewLines:=Lines.ToStringArray;
             finally Lines.Free; end;
           end;
         tpRun:
@@ -312,8 +400,11 @@ begin
   FWorkLabel:=LabelAt('Рабочая папка для журнала и подготовки:',12,146,776,20);
   FWork:=TEdit.Create(Self); FWork.Parent:=Self; FWork.Name:='TransferWorkRoot';
   FWork.SetBounds(12,168,650,25); FWork.Anchors:=[akLeft,akTop,akRight];
-  FWork.Text:=TPath.Combine(ExcludeTrailingPathDelimiter(FDestination.Text),'.homelibre-transfer-work');
-  FChooseWork:=Button('ChooseTransferWorkRoot','Выбрать…',674,166,114,ChooseFolder); FChooseWork.Anchors:=[akTop,akRight];
+  FWorkAutomatic := True;
+  FWork.Text := DefaultWorkFolder;
+  FChooseWork:=Button('ChooseTransferWorkRoot','Выбрать…',478,166,114,ChooseFolder); FChooseWork.Anchors:=[akTop,akRight];
+  FResetWork:=Button('ResetTransferWorkRoot','Вернуть путь по умолчанию',604,166,184,ResetWorkFolder);
+  FResetWork.Anchors:=[akTop,akRight];
   FStage:=LabelAt('',12,207,776,38); FStage.Name:='TransferStage';
   FSource:=LabelAt('',12,248,776,22); FSource.Name:='TransferCurrentFile'; FSource.WordWrap:=False;
   FSource.EllipsisPosition:=epPathEllipsis;
@@ -327,6 +418,8 @@ begin
   FRun:=Button('RunCollectionTransfer','Перенести',184,554,160,Run);
   FStop:=Button('StopCollectionTransfer','Остановить',356,554,140,Stop);
   FPin:=Button('PinCollectionTransfer','Поверх окон',12,598,160,Pin);
+  FSaveReport:=Button('SaveCollectionTransferReport','Сохранить отчёт…',184,598,180,SaveReport);
+  FSaveReport.Anchors := [akLeft,akBottom];
   FClose:=Button('CloseCollectionTransfer','Закрыть',668,598,120,CloseClick);
   for var B in [FPreview,FRun,FStop,FPin,FClose] do B.Anchors:=[akLeft,akBottom];
   FClose.Anchors:=[akRight,akBottom]; FClose.Cancel:=True;
@@ -341,6 +434,7 @@ begin
   OnCloseQuery:=CloseQuery; ApplyMHLControlTheme(Self);
   if Pending.Operation<>'' then
   begin
+    FWorkAutomatic := False;
     FDestination.Text:=Pending.Destination; FWork.Text:=Pending.WorkRoot;
     FContext.Destination:=Pending.Destination; FContext.WorkRoot:=Pending.WorkRoot;
     FRun.Caption:='Продолжить'; FReport.Text:='Незавершённый перенос.'+sLineBreak+Pending.Directory;
@@ -387,16 +481,17 @@ begin
   FLayoutBusy:=True;
   try
     Constraints.MinWidth:=Px(700); Constraints.MinHeight:=Px(560);
-    var W:=ClientWidth; var Gap:=Px(12); var ChooseWidth:=Px(114);
+    var W:=ClientWidth; var Gap:=Px(12); var ChooseWidth:=Px(114); var ResetWidth:=Px(184);
     if Assigned(FToolGuide) then
       FToolGuide.HelpButton.SetBounds(W-Gap-Px(28),Px(8),Px(28),Px(28));
     FHelp.SetBounds(Gap,Px(12),W-3*Gap-Px(28),Px(70));
     FDestinationLabel.SetBounds(Gap,Px(90),W-2*Gap,Px(20));
     FWorkLabel.SetBounds(Gap,Px(146),W-2*Gap,Px(20));
     FDestination.SetBounds(Gap,Px(112),W-3*Gap-ChooseWidth,Px(25));
-    FWork.SetBounds(Gap,Px(168),FDestination.Width,Px(25));
+    FWork.SetBounds(Gap,Px(168),W-4*Gap-ChooseWidth-ResetWidth,Px(25));
     FChooseDestination.SetBounds(W-Gap-ChooseWidth,Px(110),ChooseWidth,Px(30));
-    FChooseWork.SetBounds(W-Gap-ChooseWidth,Px(166),ChooseWidth,Px(30));
+    FChooseWork.SetBounds(W-2*Gap-ChooseWidth-ResetWidth,Px(166),ChooseWidth,Px(30));
+    FResetWork.SetBounds(W-Gap-ResetWidth,Px(166),ResetWidth,Px(30));
     FStage.SetBounds(Gap,Px(207),W-2*Gap,Px(38));
     FSource.SetBounds(Gap,Px(248),W-2*Gap,Px(22));
     FBar.SetBounds(Gap,Px(276),W-2*Gap,Px(15));
@@ -406,6 +501,7 @@ begin
     FRun.SetBounds(Px(184),RunTop,Px(160),Px(30));
     FStop.SetBounds(Px(356),RunTop,Px(140),Px(30));
     FPin.SetBounds(Gap,CloseTop,Px(160),Px(30));
+    FSaveReport.SetBounds(Px(184),CloseTop,Px(180),Px(30));
     FClose.SetBounds(W-Gap-Px(120),CloseTop,Px(120),Px(30));
   finally FLayoutBusy:=False; end;
 end;
@@ -417,10 +513,12 @@ begin
   var Frozen:=(FContext.Pending.Operation<>'') or (FContext.Journal<>nil);
   FDestination.Enabled:=not Busy and not Frozen; FWork.Enabled:=FDestination.Enabled;
   FChooseDestination.Enabled:=FDestination.Enabled; FChooseWork.Enabled:=FDestination.Enabled;
+  FResetWork.Enabled:=FDestination.Enabled and not FWorkAutomatic;
   FPreview.Enabled:=not Busy and not Frozen and (Value<>usCompleted);
   FRun.Enabled:=not Busy and (Value<>usCompleted) and
     ((((FContext.Plan<>nil) and (FContext.Files>0)) and (Value=usReady)) or Frozen);
   FStop.Enabled:=Busy; FClose.Enabled:=True;
+  FSaveReport.Visible := Value = usCompleted;
   FRun.Default:=FRun.Enabled;
   if Value=usCompleted then FBar.Position:=100;
 end;
@@ -460,20 +558,100 @@ begin
     Dialog.Options:=[fdoPickFolders,fdoPathMustExist]; Dialog.Title:='Выберите папку';
     if Sender=FChooseWork then Dialog.DefaultFolder:=FWork.Text else Dialog.DefaultFolder:=FDestination.Text;
     if not Dialog.Execute(Handle) then Exit;
-    if Sender=FChooseWork then FWork.Text:=Dialog.FileName
-    else
+    if Sender=FChooseWork then
     begin
-      FDestination.Text:=Dialog.FileName; FWork.Text:=TPath.Combine(Dialog.FileName,'.homelibre-transfer-work');
-    end;
-    FreeAndNil(FContext.Plan); FreeAndNil(FContext.Capture); SetState(usIdle,'Папка изменена. Проверьте новый план.');
+      if FWork.Text = Dialog.FileName then
+      begin
+        FWorkAutomatic := False;
+        FResetWork.Enabled := True;
+      end
+      else FWork.Text := Dialog.FileName;
+    end
+    else FDestination.Text := Dialog.FileName;
   finally Dialog.Free; end;
+end;
+
+function TfrmCollectionTransfer.DefaultWorkFolder: string;
+begin
+  Result := Trim(FDestination.Text);
+  if Result <> '' then Result := IncludeTrailingPathDelimiter(Result) + '.homelibre-transfer-work';
+end;
+
+procedure TfrmCollectionTransfer.UpdateAutomaticWorkFolder;
+begin
+  if not FWorkAutomatic then Exit;
+  FUpdatingWork := True;
+  try
+    FWork.Text := DefaultWorkFolder;
+  finally
+    FUpdatingWork := False;
+  end;
+end;
+
+procedure TfrmCollectionTransfer.ResetWorkFolder(Sender: TObject);
+begin
+  FWorkAutomatic := True;
+  LocationChanged(FDestination);
 end;
 
 procedure TfrmCollectionTransfer.LocationChanged(Sender:TObject);
 begin
-  if (FWorker<>nil) or (FContext.Journal<>nil) or (FContext.Pending.Operation<>'') then Exit;
+  if FUpdatingWork or (FWorker<>nil) or (FContext.Journal<>nil) or (FContext.Pending.Operation<>'') then Exit;
+  if Sender = FWork then FWorkAutomatic := False else UpdateAutomaticWorkFolder;
   FreeAndNil(FContext.Plan); FreeAndNil(FContext.Capture);
-  SetState(usIdle,'Папки изменены. Проверьте новый план.');
+  FContext.PreviewLines := nil;
+  FSource.Caption := '';
+  FBar.Position := 0;
+  FReport.Text := 'План для выбранных папок ещё не рассчитан.';
+  SetState(usIdle,'Папки изменены. Нажмите «Проверить план».');
+end;
+
+procedure TfrmCollectionTransfer.WriteRetainedSources(Limit: Integer; const WriteLine: TProc<string>);
+var CollectionNames, LastReason: string;
+begin
+  if FContext.Outcome.Retained = 0 then Exit;
+  CollectionNames := UnverifiedTransferCatalogues(FContext.Journal.Review);
+  LastReason := '';
+  WriteLine('');
+  WriteLine('Сохранённые исходники');
+  VisitRetainedTransferSources(FContext.Journal, Limit,
+    procedure(Path, Reason: string)
+    var Text: string;
+    begin
+      Text := Reason;
+      if (CollectionNames <> '') and Text.StartsWith('Исходник нужен другой записи') then
+        Text := 'Не удалось проверить ссылки коллекций: ' + CollectionNames + '.'
+      else if Text = '' then Text := 'Причина в журнале не указана.';
+      if Text <> LastReason then
+      begin
+        WriteLine(Text);
+        LastReason := Text;
+      end;
+      WriteLine('  ' + Path);
+    end);
+end;
+
+procedure TfrmCollectionTransfer.SaveReport(Sender: TObject);
+var Dialog: TSaveDialog;
+begin
+  Dialog := TSaveDialog.Create(Self);
+  try
+    Dialog.Title := 'Сохранить отчёт о переносе';
+    Dialog.FileName := 'Перенос коллекции.txt';
+    Dialog.DefaultExt := 'txt';
+    Dialog.Filter := 'Текстовые файлы (*.txt)|*.txt';
+    Dialog.Options := Dialog.Options + [ofOverwritePrompt, ofPathMustExist];
+    if not Dialog.Execute(Handle) then Exit;
+    try
+      SaveGeneratedTextAtomically(Dialog.FileName, procedure(Writer: TStreamWriter)
+        begin
+          Writer.WriteLine(FCompletionText);
+          WriteRetainedSources(-1, procedure(Line: string) begin Writer.WriteLine(Line); end);
+        end);
+    except
+      on E: Exception do MessageDlg('Не удалось сохранить отчёт. ' + E.Message, mtError, [mbOK], 0);
+    end;
+  finally Dialog.Free; end;
 end;
 
 procedure TfrmCollectionTransfer.Preview(Sender:TObject);
@@ -544,7 +722,7 @@ begin
     begin
       FReport.Lines.Text:=Format('Физических файлов и архивов: %d. Требует копирования: %d (%s).'+sLineBreak+
         'Недоступных записей: %d. Их ожидаемые адреса сохранятся для последующего обновления.'+sLineBreak+
-        'Ниже показано до 200 файлов. Общие исходники сохраняются, если нужны другой коллекции.'+sLineBreak,
+        'Ниже показано до 200 файлов. Сведения о совместно используемых файлах приведены рядом с путями.'+sLineBreak,
         [FContext.Files,FContext.CopyFiles,BookEstimateSizeText(FContext.CopyBytes),FContext.Missing]);
       for var Line in FContext.PreviewLines do FReport.Lines.Add(Line);
       FReport.SelStart:=0; FReport.Perform(EM_SCROLLCARET,0,0);
@@ -578,13 +756,25 @@ begin
       var Result:=FContext.Outcome;
       FReport.Text:=Format('Перенос завершён.'+sLineBreak+'Обработано физических файлов: %d (%s).'+sLineBreak+
         'Прежних файлов освобождено: %d. Уже отсутствовали: %d. Сохранены: %d.'+sLineBreak+sLineBreak+
-        'Книги не перепаковывались. Источники обновлений, личные данные и история чтения сохранены.'+sLineBreak+
-        'Общие, занятые или изменённые исходники могли остаться на прежних местах.',
+        'Источники обновлений, личные данные и история чтения сохранены.'+sLineBreak,
         [Result.Files,BookEstimateSizeText(Result.Bytes),Result.Removed,Result.Missing,Result.Retained]);
       FReport.Lines.Add(sLineBreak+Format('Удалено рабочих файлов: %d (%s данных).',
         [FContext.Cleanup.FilesRemoved,BookEstimateSizeText(FContext.Cleanup.BytesRemoved)]));
       if FContext.Cleanup.Stopped or (FContext.Cleanup.DirectoriesRetained>0) or (FContext.Cleanup.Warning<>'') then
         FReport.Lines.Add('Уборка оставшихся рабочих снимков будет повторена при следующем запуске.'+sLineBreak+FContext.Cleanup.Warning);
+      try
+        AppendSharedTransferCatalogues(FContext.Journal.Review, FContext.Info.ID, True, FReport.Lines);
+        FCompletionText := FReport.Text;
+        WriteRetainedSources(8, procedure(Line: string) begin FReport.Lines.Add(Line); end);
+        if Result.Retained > 8 then FReport.Lines.Add('Остальные пути доступны в полном отчёте.');
+      except
+        on E: Exception do
+        begin
+          FCompletionText := FReport.Text;
+          FReport.Lines.Add('Не удалось прочитать подробности переноса. ' + E.Message);
+        end;
+      end;
+      FReport.SelStart := 0; FReport.Perform(EM_SCROLLCARET, 0, 0);
       SetState(usCompleted,'Перенос завершён. Открытая коллекция обновлена.');
       FSource.Caption:=FContext.Destination;
       FormStyle:=fsStayOnTop; FPin.Caption:='Открепить'; BringToFront;

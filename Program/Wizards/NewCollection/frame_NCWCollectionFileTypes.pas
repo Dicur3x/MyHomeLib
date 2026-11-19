@@ -54,8 +54,8 @@ uses
   unit_NCWParams;
 
 resourcestring
-   rstrCollectionTypeFB2 = 'Книги в формате fb2 (обычно художественная литература). Книги могут быть упакованы в архив по несколько штук (zip) или по одному (fb2.zip). ';
-   rstrCollectionTypeAny = 'Книги в любом формате. Вы сами будете заполнять информацию о книге при добавлении её в коллекцию. Вы также можете указать файл с описанием жанров на следующей странице.';
+   rstrCollectionTypeFB2 = 'Стандартные жанры FictionBook и импорт FB2 из папки или архива. Отдельные файлы, например EPUB и PDF, тоже можно добавлять.';
+   rstrCollectionTypeAny = 'Выберите стандартные или свои жанры на следующем шаге. Отдельные FB2, EPUB, PDF и другие книги можно добавлять вручную.';
 {$R *.dfm}
 
 
@@ -88,7 +88,7 @@ begin
   else
     FPParams^.FileTypes := ftAny;
 
-  FPParams^.AutoImport := cbAutoImport.Checked;
+  FPParams^.AutoImport := rbSoreFB2Files.Checked and cbAutoImport.Checked;
   Result := True;
 end;
 

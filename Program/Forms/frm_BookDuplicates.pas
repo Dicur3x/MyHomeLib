@@ -42,12 +42,14 @@ type
     procedure MarkGroup(Sender: TObject);
     procedure ApplySelected(Sender: TObject);
     procedure DeleteSelectedFiles(Sender: TObject);
+    function ConfirmSelection(const Summary: string; DeleteFiles: Boolean): Boolean;
     procedure UpdateStatus;
     procedure SelectSource(Sender: TObject);
     procedure ClearSelection(Sender: TObject);
     procedure LoadSources;
     procedure FilterGroups(Sender: TObject);
     function VisibleGroupCount: Integer;
+    function GroupExplanation(const Group: TDuplicateGroup): string;
   protected
     procedure DoShow; override;
     procedure DoHide; override;
@@ -67,13 +69,35 @@ implementation
 
 uses Winapi.Windows, System.SysUtils, System.IOUtils, System.Variants, System.StrUtils, System.Math, System.JSON, System.IniFiles, Vcl.Controls,
   Vcl.ExtCtrls, Vcl.Dialogs, unit_Settings, unit_Consts, unit_CollectionWorkerThread,
-  frm_ImportProgressFormEx, frm_BuiltinReader, dm_user, unit_AtomicIniFile;
+  frm_ImportProgressFormEx, frm_BuiltinReader, dm_user, unit_AtomicIniFile, unit_MHLTheme,
+  System.Generics.Collections, System.Generics.Defaults, SQLiteWrap, unit_BookCompressionPlanStore;
 
 const
   DuplicateMinWidth = 900;
   DuplicateMinHeight = 580;
+  DuplicateReviewPageSize = 50;
 
 type
+  TDuplicateReviewSource = reference to procedure(Offset, Limit: Integer; const Visit: TDuplicatePairVisitor);
+
+  TDuplicateSelectionForm = class(TSourceDialogForm)
+  private
+    FSource: TDuplicateReviewSource;
+    FSummary: string;
+    FDetails: TMemo;
+    FPage: TLabel;
+    FBack, FNext: TButton;
+    FOffset, FTotal: Integer;
+    FDeleteFiles: Boolean;
+    procedure ShowPage;
+    procedure ChangePage(Sender: TObject);
+    procedure SaveReport(Sender: TObject);
+    function PairText(const Kept, Selected: TBookRecord): string;
+  public
+    constructor CreateForSelection(Owner: TCustomForm; const Summary, Action: string; Total: Integer;
+      DeleteFiles: Boolean; const Source: TDuplicateReviewSource);
+  end;
+
   TDuplicateSourcePriorityForm = class(TSourceDialogForm)
   private
     FList: TListBox;
@@ -465,6 +489,192 @@ begin
   else FStatus.Caption:='Поиск ещё не выполнен';
 end;
 
+function DuplicateReviewArchive(const Book: TBookRecord): string;
+begin
+  if Book.GetBookFormat in [bfFb2Archive, bfRawArchive] then Result := Book.GetBookContainer
+  else Result := 'Отдельные файлы';
+end;
+
+function DuplicateReviewPath(const Book: TBookRecord): string;
+begin
+  Result := Book.GetBookFileName;
+  if Book.GetBookFormat in [bfFb2Archive, bfRawArchive] then
+    Result := Result + ' → ' + Book.FileName + Book.FileExt;
+end;
+
+constructor TDuplicateSelectionForm.CreateForSelection(Owner: TCustomForm; const Summary, Action: string;
+  Total: Integer; DeleteFiles: Boolean; const Source: TDuplicateReviewSource);
+var TopPanel, Footer: TPanel; Intro: TLabel; CancelButton: TButton;
+  function AddButton(const Name, Caption: string; X, Width: Integer; Click: TNotifyEvent): TButton;
+  begin
+    Result := TButton.Create(Self); Result.Parent := Footer; Result.Name := Name;
+    Result.Caption := Caption; Result.SetBounds(X, 10, Width, 30); Result.OnClick := Click;
+  end;
+begin
+  inherited CreateNew(Owner);
+  Name := 'DuplicateSelectionConfirmation';
+  Caption := Action;
+  Position := poOwnerFormCenter; PopupMode := pmExplicit; PopupParent := Owner;
+  Font.Name := 'Segoe UI'; Font.Size := 9; BorderStyle := bsSizeable;
+  ClientWidth := 820; ClientHeight := 490; Constraints.MinWidth := 690; Constraints.MinHeight := 420;
+  FSource := Source; FTotal := Total; FSummary := Summary; FDeleteFiles := DeleteFiles;
+  TopPanel := TPanel.Create(Self); TopPanel.Parent := Self; TopPanel.Align := alTop;
+  TopPanel.Height := 132; TopPanel.BevelOuter := bvNone;
+  Intro := TLabel.Create(Self); Intro.Parent := TopPanel; Intro.Align := alClient;
+  Intro.AlignWithMargins := True; Intro.Margins.SetBounds(12, 8, 12, 4);
+  Intro.AutoSize := False; Intro.WordWrap := True; Intro.ShowAccelChar := False; Intro.Caption := Summary;
+  FPage := TLabel.Create(Self); FPage.Parent := TopPanel; FPage.Align := alBottom;
+  FPage.AlignWithMargins := True; FPage.Margins.SetBounds(12, 0, 12, 4);
+  Footer := TPanel.Create(Self); Footer.Parent := Self; Footer.Align := alBottom;
+  Footer.Height := 50; Footer.BevelOuter := bvNone;
+  FDetails := TMemo.Create(Self); FDetails.Parent := Self; FDetails.Name := 'DuplicateReviewPairs';
+  FDetails.AlignWithMargins := True; FDetails.Margins.SetBounds(12, 0, 12, 0);
+  FDetails.Align := alClient; FDetails.ReadOnly := True; FDetails.ScrollBars := ssVertical;
+  FBack := AddButton('DuplicateReviewPrevious', 'Назад', 12, 74, ChangePage); FBack.Tag := -1;
+  FNext := AddButton('DuplicateReviewNext', 'Дальше', 94, 80, ChangePage); FNext.Tag := 1;
+  FBack.Visible := Total > DuplicateReviewPageSize; FNext.Visible := FBack.Visible;
+  AddButton('DuplicateSaveReview', 'Сохранить список…', IfThen(FBack.Visible, 182, 12), 152, SaveReport);
+  var ConfirmButton := AddButton('DuplicateConfirmAction', Action, 500, 174, nil);
+  ConfirmButton.Anchors := [akTop, akRight]; ConfirmButton.ModalResult := mrYes;
+  CancelButton := AddButton('DuplicateCancelAction', 'Отмена', 686, 122, nil);
+  CancelButton.Anchors := [akTop, akRight]; CancelButton.ModalResult := mrCancel;
+  CancelButton.Cancel := True; CancelButton.Default := True;
+  ActiveControl := CancelButton;
+  ScaleForPPI(Owner.CurrentPPI);
+  ApplyMHLControlTheme(Self);
+  ShowPage;
+end;
+
+function TDuplicateSelectionForm.PairText(const Kept, Selected: TBookRecord): string;
+begin
+  Result := Trim(Selected.Title.Replace(#13, ' ').Replace(#10, ' ')) + sLineBreak +
+    '  Остаётся — ' + DuplicateReviewPath(Kept) + sLineBreak +
+    IfThen(FDeleteFiles, '  К удалению — ', '  Повторная запись — ') + DuplicateReviewPath(Selected);
+end;
+
+procedure TDuplicateSelectionForm.ShowPage;
+type Row = TPair<string, string>;
+var Values: TList<Row>; LastArchive: string;
+begin
+  Values := TList<Row>.Create;
+  try
+    FSource(FOffset, DuplicateReviewPageSize, procedure(const Kept, Selected: TBookRecord)
+      begin Values.Add(Row.Create(DuplicateReviewArchive(Selected), PairText(Kept, Selected))); end);
+    Values.Sort(TComparer<Row>.Construct(
+      function(const A, B: Row): Integer begin Result := CompareText(A.Key, B.Key); end));
+    FDetails.Lines.BeginUpdate;
+    try
+      FDetails.Clear; LastArchive := '';
+      for var Item in Values do
+      begin
+        if not SameText(LastArchive, Item.Key) then
+        begin
+          if LastArchive <> '' then FDetails.Lines.Add('');
+          LastArchive := Item.Key;
+          FDetails.Lines.Add(LastArchive);
+        end;
+        FDetails.Lines.Add(Item.Value);
+      end;
+      FDetails.SelStart := 0;
+    finally FDetails.Lines.EndUpdate; end;
+  finally Values.Free; end;
+  FPage.Caption := Format('Позиции %d–%d из %d', [FOffset + 1, Min(FTotal, FOffset + DuplicateReviewPageSize), FTotal]);
+  FBack.Enabled := FOffset > 0;
+  FNext.Enabled := FOffset + DuplicateReviewPageSize < FTotal;
+end;
+
+procedure TDuplicateSelectionForm.ChangePage(Sender: TObject);
+begin
+  Inc(FOffset, TButton(Sender).Tag * DuplicateReviewPageSize);
+  ShowPage;
+end;
+
+procedure TDuplicateSelectionForm.SaveReport(Sender: TObject);
+var Dialog: TSaveDialog; Store: TCompressionPlanStore; DB: TSQLiteDatabase; SavedCursor: TCursor;
+begin
+  Dialog := TSaveDialog.Create(Self);
+  try
+    Dialog.Title := 'Сохранить список копий'; Dialog.FileName := 'Выбранные дубли.txt';
+    Dialog.DefaultExt := 'txt'; Dialog.Filter := 'Текстовые файлы (*.txt)|*.txt';
+    Dialog.Options := Dialog.Options + [ofOverwritePrompt, ofPathMustExist];
+    if not Dialog.Execute(Handle) then Exit;
+    SavedCursor := Screen.Cursor; Screen.Cursor := crHourGlass;
+    try
+      Store := TCompressionPlanStore.Create(Settings.WorkPath);
+      try
+        DB := Store.DB;
+        DB.ExecSQL('BEGIN');
+        try
+          DB.ExecSQL('CREATE TABLE Selection(ID INTEGER PRIMARY KEY,Archive TEXT,Description TEXT)');
+          var Insert := DB.NewQuery('INSERT INTO Selection(Archive,Description) VALUES(?,?)');
+          try
+            FSource(0, -1, procedure(const Kept, Selected: TBookRecord)
+              begin
+                Insert.SetParam(0, DuplicateReviewArchive(Selected));
+                Insert.SetParam(1, PairText(Kept, Selected));
+                Insert.ExecSQL; Insert.Reset;
+              end);
+          finally Insert.Free; end;
+          DB.ExecSQL('CREATE INDEX SelectionArchive ON Selection(Archive COLLATE NOCASE,ID)');
+          DB.Commit;
+        except
+          DB.Rollback;
+          raise;
+        end;
+        Store.Seal;
+        SaveGeneratedTextAtomically(Dialog.FileName, procedure(Writer: TStreamWriter)
+          begin
+            Writer.WriteLine(FSummary); Writer.WriteLine('');
+            var Query := Store.DB.NewQuery('SELECT Archive,Description FROM Selection ORDER BY Archive COLLATE NOCASE,ID');
+            try
+              Query.Open;
+              var LastArchive := '';
+              while not Query.Eof do
+              begin
+                if not SameText(LastArchive, Query.FieldAsString(0)) then
+                begin
+                  if LastArchive <> '' then Writer.WriteLine('');
+                  LastArchive := Query.FieldAsString(0); Writer.WriteLine(LastArchive);
+                end;
+                Writer.WriteLine(Query.FieldAsString(1)); Query.Next;
+              end;
+            finally Query.Free; end;
+          end);
+      finally Store.Free; end;
+    finally Screen.Cursor := SavedCursor; end;
+  finally Dialog.Free; end;
+end;
+
+function TfrmBookDuplicates.ConfirmSelection(const Summary: string; DeleteFiles: Boolean): Boolean;
+var Form: TDuplicateSelectionForm; RegularCount, LinkedCount: Integer;
+  Promotions: TBookDuplicatePlan; Action: string;
+begin
+  RegularCount := FRegularPlan.SelectedRemovedCount;
+  LinkedCount := 0; Promotions := nil;
+  if DeleteFiles and FLinkedResultsValid then
+  begin
+    LinkedCount := FLinkedPlan.SelectedRemovedCount;
+    Promotions := FLinkedPlan;
+  end;
+  if DeleteFiles then Action := 'Удалить копии' else Action := 'Объединить записи';
+  Form := TDuplicateSelectionForm.CreateForSelection(Self, Summary, Action, RegularCount + LinkedCount, DeleteFiles,
+    procedure(Offset, Limit: Integer; const Visit: TDuplicatePairVisitor)
+    var RegularLimit: Integer;
+    begin
+      if Offset < RegularCount then
+      begin
+        RegularLimit := RegularCount - Offset;
+        if Limit >= 0 then RegularLimit := Min(RegularLimit, Limit);
+        FRegularPlan.VisitSelectedPairs(Offset, RegularLimit, Visit, Promotions);
+        if Limit >= 0 then Dec(Limit, RegularLimit);
+        Offset := RegularCount;
+      end;
+      if (LinkedCount > 0) and (Limit <> 0) then
+        FLinkedPlan.VisitSelectedPairs(Offset - RegularCount, Limit, Visit);
+    end);
+  try Result := Form.ShowModal = mrYes; finally Form.Free; end;
+end;
+
 procedure TfrmBookDuplicates.ApplySelected(Sender: TObject);
 var Worker: TDuplicateScanWorker; Progress: TImportProgressFormEx; BackupFolder: string;
 begin
@@ -472,10 +682,10 @@ begin
   if Assigned(FBeforeApply) then FBeforeApply(Self);
   BackupFolder:=TPath.Combine(TPath.Combine(Settings.DataPath,'Backups'),
     'books-'+FormatDateTime('yyyymmdd-hhnnss',Now)+'-'+TGUID.NewGuid.ToString);
-  if MessageDlg(Format('Объединить групп: %d; убрать повторных записей: %d?'+#13#10+#13#10+
+  if not ConfirmSelection(Format('Групп для объединения — %d. Повторных записей — %d.'+sLineBreak+
     'Останутся выбранные предпочтительные записи. Пути ко всем копиям, связи с источниками и сериями сохранятся. Файлы книг не удаляются.'+#13#10+#13#10+
     'Записи с личными данными и историей чтения защищены. Перед изменениями будет создана резервная копия:'+#13#10+'%s',
-    [FPlan.SelectedCount,FPlan.SelectedRemovedCount,BackupFolder]),mtConfirmation,[mbYes,mbNo],0,mbNo)<>mrYes then Exit;
+    [FPlan.SelectedCount,FPlan.SelectedRemovedCount,BackupFolder]),False) then Exit;
   if Assigned(FBeforeApply) then FBeforeApply(Self);
   // The other results still hold a read snapshot of the same catalogue.
   FreeAndNil(FUnified);
@@ -518,7 +728,7 @@ begin
     'HomeLibre проверит, что сохраняемая копия доступна. Если безопасно удалить копию не получится, причина будет в отчёте.'+sLineBreak+
     'Удаление пройдёт в фоне. При остановке уже выполненное сохранится.';
   if Assigned(FBeforeApply) then FBeforeApply(Self);
-  if MessageDlg(Prompt,mtWarning,[mbYes,mbNo],0,mbNo)<>mrYes then Exit;
+  if not ConfirmSelection(Prompt,True) then Exit;
   if Assigned(FBeforeApply) then FBeforeApply(Self);
   FDeleteInBatches:=True;
   ModalResult:=mrOk;
@@ -819,14 +1029,36 @@ begin
   end;
 end;
 
-procedure TfrmBookDuplicates.SelectCopy(Sender: TObject; Item: TListItem; Selected: Boolean);
-var Book: TDuplicateBook;
+function TfrmBookDuplicates.GroupExplanation(const Group: TDuplicateGroup): string;
+var Key: TArray<string>; TitleDiffers, HasLinkedFiles: Boolean; ComparisonTitle, Language: string;
 begin
-  if FUpdating or not Selected then Exit;
+  if (Group.ID < 0) or ((Group.Identity = '') and FPlan.LinkedMode) then
+    Exit('Копии связаны с одной карточкой книги в каталоге.');
+  Key := Group.Identity.Split([#1]);
+  if Length(Key) <> 3 then Exit('');
+  if Key[1] <> '' then Language := Key[1] else Language := 'не указан';
+  Result := Format('Совпали ID источника %s, язык (%s) и формат %s.',
+    [Key[0], Language, UpperCase(Key[2].TrimLeft(['.']))]);
+  TitleDiffers := False; HasLinkedFiles := False; ComparisonTitle := Group.Title;
+  for var Book in FBooks do
+  begin
+    TitleDiffers := TitleDiffers or not SameText(Book.Book.Title, ComparisonTitle);
+    HasLinkedFiles := HasLinkedFiles or (Book.CopyKey <> '');
+  end;
+  if TitleDiffers then Result := Result + ' Названия у копий различаются.';
+  if HasLinkedFiles then Result := Result + ' Среди них есть файлы, связанные с одной карточкой.';
+end;
+
+procedure TfrmBookDuplicates.SelectCopy(Sender: TObject; Item: TListItem; Selected: Boolean);
+var Book: TDuplicateBook; Explanation: string;
+begin
+  if FUpdating or not Selected or not Assigned(FGroups.Selected) then Exit;
   Book:=FBooks[Item.Index];
+  Explanation := GroupExplanation(FPage[FGroups.Selected.Index]);
+  if Explanation <> '' then Explanation := Explanation + sLineBreak + sLineBreak;
   if Assigned(FUnified) and FUnified.Ready then
   begin
-    FDetails.Lines.Text:=Format('Копий этой книги: %d. Выбранная копия: %s.',
+    FDetails.Lines.Text:=Explanation+Format('Копий этой книги: %d. Выбранная копия: %s.',
       [Length(FUnifiedBooks),IfThen(FUnifiedBooks[Item.Index].Kept,'сохранится',
         IfThen(FUnifiedBooks[Item.Index].Selected,'к удалению','пока не отмечена'))])+sLineBreak+
       'Источник: '+Book.SourceName+sLineBreak+'Папка: '+Book.Book.CollectionRoot+sLineBreak+
@@ -836,13 +1068,13 @@ begin
   end;
   if FPlan.LinkedMode then
   begin
-    FDetails.Lines.Text:=IfThen(Book.CopyKey='','Основная копия сохранится.','Дополнительная копия этой книги.')+sLineBreak+
+    FDetails.Lines.Text:=Explanation+IfThen(Book.CopyKey='','Основная копия сохранится.','Дополнительная копия этой книги.')+sLineBreak+
       'Название: '+Book.Book.Title+sLineBreak+'Источник: '+Book.SourceName+sLineBreak+
       'Папка коллекции: '+Book.Book.CollectionRoot+sLineBreak+'Папка / архив: '+Book.Book.Folder+sLineBreak+
       'Файл: '+Book.Book.FileName+Book.Book.FileExt;
     Exit;
   end;
-  FDetails.Lines.Text:='Основная запись: '+IntToStr(FPage[FGroups.Selected.Index].KeepID)+#13#10+
+  FDetails.Lines.Text:=Explanation+'Основная запись: '+IntToStr(FPage[FGroups.Selected.Index].KeepID)+#13#10+
     'Выбранная запись: '+IntToStr(Book.Book.BookKey.BookID)+#13#10+
     'Название: '+Book.Book.Title+#13#10+'Автор: '+TAuthorsHelper.GetList(Book.Book.Authors)+#13#10+
     'Формат / язык: '+Book.Book.FileExt+' / '+Book.Book.Lang+#13#10+

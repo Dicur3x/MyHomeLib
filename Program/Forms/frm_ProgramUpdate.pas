@@ -365,7 +365,6 @@ begin
   FZoomIn.Caption := 'A+'; FZoomIn.Tag := 10; FZoomIn.OnClick := ZoomClick;
   FZoomIn.Hint := 'Увеличить текст (Ctrl + колёсико)'; FZoomIn.ShowHint := True;
   FNotes.OnZoomChanged := ZoomChanged;
-  FPrimary.Caption := 'Проверить обновления';
   FNeedsCheck := True;
   FStatus.Caption := 'История последних выпусков';
   FApplicationStatus := FStatus.Caption;
@@ -514,9 +513,15 @@ var Margin, Gap, Width, ButtonTop, NotesTop, NotesBottom, StatusHeight, TableHei
   begin Result := MulDiv(Value, CurrentPPI, 96); end;
 begin
   if not Assigned(FZoomIn) then Exit;
-  FPrimary.Default:=not FReady;
-  if FReady and (ActiveControl=FPrimary) and FLater.CanFocus then ActiveControl:=FLater;
   if Assigned(FCompactForm) then begin SyncCompactPrompt; Exit; end;
+  // The full window already has a check button. Keep the footer for the
+  // selected action, including a retry limited to one failed component.
+  FPrimary.Visible := FReady or Assigned(FThread) or not FNeedsCheck or
+    (FRequestedComponent <> '') or ((FSelectedRow > 0) and
+    (FComponents[FSelectedRow - 1].ComponentError <> ''));
+  FPrimary.Default := FPrimary.Visible and not FReady;
+  FComponentCheck.Default := not FPrimary.Visible;
+  if FReady and (ActiveControl=FPrimary) and FLater.CanFocus then ActiveControl:=FLater;
   {$IFDEF MHL_RELEASE_PERFORMANCE}ProfileStarted:=GetTickCount64;{$ENDIF}
   DisableAlign;
   try
@@ -558,7 +563,8 @@ begin
     PageWidth:=Max(S(125),Canvas.TextWidth(FPage.Caption)+S(24));
     LaterWidth:=Max(S(115),Canvas.TextWidth(FLater.Caption)+S(24));
     FooterHeight:=ButtonHeight;
-    if Width-PageWidth-LaterWidth-2*Gap<Max(S(160),Canvas.TextWidth(FPrimary.Caption)+S(24)) then
+    if FPrimary.Visible and
+      (Width-PageWidth-LaterWidth-2*Gap<Max(S(160),Canvas.TextWidth(FPrimary.Caption)+S(24))) then
       FooterHeight:=2*ButtonHeight+Gap;
     ButtonTop := ClientHeight - Margin - FooterHeight;
     BytesHeight:=Max(S(20),TextHeight+S(4));
@@ -885,7 +891,6 @@ begin
     for I:=Low(UPDATE_COMPONENTS) to High(UPDATE_COMPONENTS) do
     begin
       Version := InstalledVersion(UPDATE_COMPONENTS[I].ID);
-      if Version = '' then Version := 'не установлен';
       State:='Не проверено'; Available:='—';
       if (FComponents[I].ComponentError<>'') or (FComponentError<>'') then State:='Не удалось проверить'
       else if (FComponents[I].ComponentWarning<>'') and (FComponents[I].DownloadURL='') then State:='Версия не подтверждена'
@@ -893,7 +898,7 @@ begin
       begin
         Available:=FComponents[I].ComponentVersion;
         if FComponents[I].ComponentWarning<>'' then State:='Запасная копия'
-        else if ComponentNewer(FComponents[I],InstalledVersion(UPDATE_COMPONENTS[I].ID)) then
+        else if ComponentNewer(FComponents[I],Version) then
           if FComponents[I].CheckOnly then State:='Нет Windows-архива'
           else if (Version='') and IsOptionalComponent(UPDATE_COMPONENTS[I].ID) then State:='Можно установить'
           else State:='Есть обновление'
@@ -909,7 +914,8 @@ begin
         State:='Проверяется…';
       if FReady and (I<Length(FReadyVersions)) and (FReadyVersions[I]<>'') then
       begin Available:=FReadyVersions[I]; State:='Готово к установке'; end;
-      Row(I+1,ComponentTitle(I),ComponentDisplayVersion(UPDATE_COMPONENTS[I].ID,Version),
+      Row(I+1,ComponentTitle(I),IfThen(Version = '', 'не установлен',
+        ComponentDisplayVersion(UPDATE_COMPONENTS[I].ID,Version)),
         ComponentDisplayVersion(UPDATE_COMPONENTS[I].ID,Available),State);
     end;
     SelectRow(FSelectedRow);
@@ -1051,7 +1057,6 @@ begin
     begin
       FRelease := Default(TProgramRelease); FNeedsCheck := True;
       FStatus.Caption := FApplicationStatus; DisplayNotes(FApplicationHistory);
-      FPrimary.Caption := 'Проверить обновления'; FPrimary.Enabled := True;
     end;
     UpdateSummary;
     Exit;
@@ -1082,7 +1087,6 @@ begin
   begin
     FRelease := Default(TProgramRelease); FNeedsCheck := True;
     FProgress.Position := 0; FBytes.Caption := ''; FPrimary.Enabled := not FComponentWaiting[I];
-    FPrimary.Caption := 'Проверить всё';
     DisplayNotes(FComponents[I].History);
     if (UPDATE_COMPONENTS[I].CheckKind=ccPublished) or
       FComponents[I].URL.StartsWith(
@@ -1097,8 +1101,8 @@ begin
     else FStatus.Caption := FStatus.Caption + 'Нажмите «Проверить всё», чтобы узнать о новой версии.';
     if FRequestedComponent=UPDATE_COMPONENTS[I].ID then
       FStatus.Caption:=FRequestReason+sLineBreak+FStatus.Caption;
-    if (FComponents[I].ComponentError<>'') or (FComponentError<>'') or
-      (FComponents[I].ComponentWarning<>'') then FPrimary.Caption:='Повторить проверку';
+    if (FRequestedComponent <> '') or (FComponents[I].ComponentError <> '') then
+      FPrimary.Caption := 'Повторить проверку';
     if FComponents[I].CheckOnly then
       FStatus.Caption:=FStatus.Caption+sLineBreak+'Проверяется официальный Windows-выпуск автора.';
   end;
@@ -1245,7 +1249,7 @@ begin
   if Successful then
   begin
     RememberHistory(ReleaseInfo);
-    FApplicationStatus := 'Обновлений нет. У вас установлена последняя версия HomeLibre.';
+    FApplicationStatus := 'HomeLibre актуальна.';
     if CompareReleaseTags(ReleaseInfo.Tag, PROGRAM_RELEASE_VERSION, Comparison) and
       ((Comparison>0) or ((Comparison=0) and (FRepairComponents<>'') and
       (ReleaseInfo.DownloadURL<>'') and IsUpdateSHA256(ReleaseInfo.SHA256) and (ReleaseInfo.Size>0))) then
@@ -1294,9 +1298,8 @@ begin
     begin
       FStatus.Caption := FApplicationStatus;
       if ComponentCheckSummary<>'' then FStatus.Caption:=FStatus.Caption+sLineBreak+ComponentCheckSummary;
-      FPrimary.Caption := 'Проверить ещё раз';
     end;
-    FPrimary.Enabled := True; LayoutWindow;
+    LayoutWindow;
     if not FCycleAutomatic and ShowResult then Present;
   end;
 end;
@@ -1746,7 +1749,7 @@ begin
   try
   FApplicationRelease := Default(TProgramRelease);
   if ReleaseInfo.History.Trim <> '' then FApplicationHistory := ReleaseInfo.History;
-  FApplicationStatus := 'Обновлений нет. У вас установлена последняя версия HomeLibre.';
+  FApplicationStatus := 'HomeLibre актуальна.';
   FApplicationVerified:=True; FApplicationFailed:=False;
   UpdateComponentList;
   if FSelectedRow > 0 then Exit;
@@ -1754,8 +1757,8 @@ begin
   FRelease := Default(TProgramRelease);
   FNeedsCheck := True;
   DisplayNotes(ReleaseInfo.History);
-  FStatus.Caption := 'Обновлений нет. У вас установлена последняя версия HomeLibre.';
-  FPrimary.Caption := 'Проверить ещё раз'; FPrimary.Enabled := True; FLater.Caption := 'Закрыть';
+  FStatus.Caption := FApplicationStatus;
+  FLater.Caption := 'Закрыть';
   Present;
   finally EndUIUpdate; end;
 end;
@@ -1768,7 +1771,7 @@ begin
   if FSelectedRow > 0 then Exit;
   FStatus.Caption := Error;
   if not Assigned(FThread) and not FReady then
-  begin FNeedsCheck := True; FPrimary.Caption := 'Повторить проверку'; FPrimary.Enabled := True; end;
+    FNeedsCheck := True;
   LayoutWindow; Present;
 end;
 

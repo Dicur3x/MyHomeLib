@@ -48,10 +48,13 @@ function BookDeletionSpaceDetails(const State:TBookDeletionOperationStatus):stri
 function PrepareSelectorBookDeletion(Owner:TForm; const Info:TCollectionInfo; Mode:TBookIteratorMode;
   const Selectors:TArray<TBookDeletionSelector>; RemoveRecords:Boolean; out Binding:TBookDeletionBinding):Boolean;
 
+function ReviewMissingBookRecords(Owner: TForm; const Info: TCollectionInfo): Boolean;
+
 implementation
 
 uses Winapi.Windows, System.SysUtils, System.Math, Vcl.ExtCtrls, unit_MHLTheme,
-  frm_ImportProgressForm, unit_BookEstimateReport, unit_ZipMemberDeletion, unit_Errors, Vcl.Clipbrd, System.Types;
+  frm_ImportProgressForm, unit_BookEstimateReport, unit_ZipMemberDeletion, unit_Errors, Vcl.Clipbrd, System.Types, Vcl.Dialogs, Winapi.CommCtrl,
+  frm_ImportProgressFormEx, unit_MissingBookRecords;
 
 type
   TBookDeletionReport = class(TForm)
@@ -72,6 +75,151 @@ type
     procedure CancelDirect(Sender:TObject);
     procedure StopOnClose(Sender:TObject; var CanClose:Boolean);
   end;
+
+  TMissingBookPreview = class(TForm)
+  private
+    FEntries: TArray<TMissingBookEntry>;
+    FList: TListView;
+    FRemove: TButton;
+    procedure ListData(Sender: TObject; Item: TListItem);
+    procedure ListSelected(Sender: TObject; Item: TListItem; Selected: Boolean);
+    procedure RemoveClick(Sender: TObject);
+  public
+    constructor CreatePreview(AOwner: TForm; const Entries: TArray<TMissingBookEntry>; Unavailable: Integer);
+    function SelectedEntries: TArray<TMissingBookEntry>;
+  end;
+
+constructor TMissingBookPreview.CreatePreview(AOwner: TForm;
+  const Entries: TArray<TMissingBookEntry>; Unavailable: Integer);
+var Header: TLabel; Footer: TPanel; CloseButton: TButton;
+begin
+  inherited CreateNew(AOwner);
+  Name := 'MissingBookRecordsPreview'; Caption := 'Записи без файлов';
+  Position := poOwnerFormCenter; Font.Name := 'Segoe UI'; Font.Size := 9;
+  ClientWidth := 825; ClientHeight := 520; Constraints.MinWidth := 545; Constraints.MinHeight := 350;
+  FEntries := Entries;
+  Header := TLabel.Create(Self); Header.Parent := Self; Header.Align := alTop;
+  Header.AlignWithMargins := True; Header.Margins.SetBounds(12, 12, 12, 8);
+  Header.AutoSize := False; Header.WordWrap := True; Header.Height := 55;
+  Header.Caption := Format('Записей без файлов: %d. Не удалось проверить: %d.' + sLineBreak +
+    'Выберите записи вручную. Ctrl позволяет выбрать отдельные строки, Shift — диапазон.',
+    [Length(Entries), Unavailable]);
+  Footer := TPanel.Create(Self); Footer.Parent := Self; Footer.Align := alBottom;
+  Footer.Height := 54; Footer.BevelOuter := bvNone;
+  FRemove := TButton.Create(Self); FRemove.Parent := Footer; FRemove.Name := 'RemoveMissingBookRecords';
+  FRemove.Caption := 'Удалить выбранные записи…'; FRemove.SetBounds(500, 10, 190, 31);
+  FRemove.Anchors := [akTop, akRight]; FRemove.Enabled := False; FRemove.OnClick := RemoveClick;
+  CloseButton := TButton.Create(Self); CloseButton.Parent := Footer; CloseButton.Caption := 'Закрыть';
+  CloseButton.SetBounds(701, 10, 112, 31); CloseButton.Anchors := [akTop, akRight];
+  CloseButton.ModalResult := mrCancel; CloseButton.Cancel := True; CloseButton.Default := True;
+  FList := TListView.Create(Self); FList.Parent := Self; FList.Name := 'MissingBookRecordList';
+  FList.Align := alClient; FList.AlignWithMargins := True; FList.Margins.SetBounds(12, 0, 12, 0);
+  FList.ViewStyle := vsReport; FList.ReadOnly := True; FList.MultiSelect := True;
+  FList.RowSelect := True; FList.HideSelection := False; FList.OwnerData := True;
+  FList.OnData := ListData; FList.OnSelectItem := ListSelected;
+  with FList.Columns.Add do begin Caption := 'Книга'; Width := 235; end;
+  with FList.Columns.Add do begin Caption := 'Ожидаемый путь'; Width := 550; end;
+  FList.Items.Count := Length(FEntries);
+  if Length(Entries) = 0 then
+    Header.Caption := Header.Caption + sLineBreak +
+      'Удалять нечего. Если папки недоступны, подключите их и повторите проверку.';
+  ApplyMHLControlTheme(Self);
+end;
+
+procedure TMissingBookPreview.ListData(Sender: TObject; Item: TListItem);
+begin
+  if (Item.Index < 0) or (Item.Index >= Length(FEntries)) then Exit;
+  var Entry := FEntries[Item.Index];
+  Item.Caption := Entry.Book.Title;
+  if Entry.ArchiveIdentity <> '' then
+    Item.SubItems.Add(Entry.Path + ' → ' + Entry.Book.FileName)
+  else Item.SubItems.Add(Entry.Path);
+end;
+
+procedure TMissingBookPreview.ListSelected(Sender: TObject; Item: TListItem; Selected: Boolean);
+begin
+  FRemove.Enabled := FList.SelCount > 0;
+end;
+
+function TMissingBookPreview.SelectedEntries: TArray<TMissingBookEntry>;
+var Item: Integer;
+begin
+  SetLength(Result, FList.SelCount);
+  Item := -1;
+  for var I := 0 to High(Result) do
+  begin
+    Item := ListView_GetNextItem(FList.Handle, Item, LVNI_SELECTED);
+    if Item < 0 then begin SetLength(Result, I); Break; end;
+    Result[I] := FEntries[Item];
+  end;
+end;
+
+procedure TMissingBookPreview.RemoveClick(Sender: TObject);
+begin
+  if FList.SelCount = 0 then Exit;
+  var Dialog := TTaskDialog.Create(Self);
+  try
+    Dialog.Caption := 'Записи без файлов';
+    Dialog.Title := Format('Удалить выбранные записи (%d)?', [FList.SelCount]);
+    Dialog.Text := 'HomeLibre снова проверит пути и известные копии. Удалятся только записи, для которых ' +
+      'подтвердится отсутствие файла. Связанные оценки, заметки и принадлежность к группам этих записей будут удалены.';
+    Dialog.Flags := [tfAllowDialogCancellation];
+    var Button := TTaskDialogButtonItem(Dialog.Buttons.Add);
+    Button.Caption := 'Удалить записи'; Button.ModalResult := mrYes;
+    Button := TTaskDialogButtonItem(Dialog.Buttons.Add);
+    Button.Caption := 'Отмена'; Button.ModalResult := mrCancel; Button.Default := True;
+    if Dialog.Execute(Handle) and (Dialog.ModalResult = mrYes) then ModalResult := mrYes;
+  finally Dialog.Free; end;
+end;
+
+function ReviewMissingBookRecords(Owner: TForm; const Info: TCollectionInfo): Boolean;
+  procedure RunWorker(Worker: TMissingBookRecords; const Title: string);
+  var Progress: TImportProgressFormEx;
+  begin
+    Progress := TImportProgressFormEx.Create(Owner);
+    try
+      Progress.Caption := Title; Progress.WorkerThread := Worker;
+      Progress.CloseOnTimer := True; Progress.Timer.Interval := 1;
+      Progress.ShowModal;
+    finally Progress.Free; end;
+    Worker.WaitFor;
+  end;
+var Scan, Removal: TMissingBookRecords; Preview: TMissingBookPreview; Summary: string;
+begin
+  Result := False;
+  Scan := TMissingBookRecords.Create(Info);
+  try
+    RunWorker(Scan, 'Проверка файлов книг');
+    if Scan.Canceled then Exit;
+    if Assigned(Scan.FatalException) then raise EReadError.Create(Exception(Scan.FatalException).Message);
+    if Scan.RootUnavailable then
+    begin
+      MHLShowInfo('Папка коллекции недоступна. Подключите диск или папку и повторите проверку.' +
+        sLineBreak + Info.GetRootPath);
+      Exit;
+    end;
+    Preview := TMissingBookPreview.CreatePreview(Owner, Scan.Entries, Scan.Unavailable);
+    try
+      if Preview.ShowModal <> mrYes then Exit;
+      Removal := TMissingBookRecords.Create(Info, Scan.CatalogueIdentity, Preview.SelectedEntries);
+    finally Preview.Free; end;
+  finally Scan.Free; end;
+  try
+    RunWorker(Removal, 'Удаление записей без файлов');
+    Result := Removal.CommittedChanges or Assigned(Removal.FatalException);
+    if Removal.RootUnavailable then
+      Summary := 'Папка коллекции стала недоступна. Записи сохранены.'
+    else
+    begin
+      Summary := Format('Удалено записей: %d. Оставлено после повторной проверки: %d.',
+        [Removal.Removed, Removal.Unavailable]);
+      if Removal.Canceled then Summary := Summary + sLineBreak + 'Операция остановлена.';
+      if Assigned(Removal.FatalException) then
+        Summary := Summary + sLineBreak + Exception(Removal.FatalException).Message;
+    end;
+    MHLShowInfo(Summary);
+  finally Removal.Free; end;
+end;
 
 constructor TBookDeletionReport.CreateReport(AOwner:TForm; const AName:string);
 var Footer:TPanel; Button:TButton;

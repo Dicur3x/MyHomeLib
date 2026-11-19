@@ -27,7 +27,6 @@ type
     edGenreList: TMHLAutoCompleteEdit;
     btnGenreList: TButton;
     pageHint: TMHLStaticTip;
-    cbAutoImport: TCheckBox;
     procedure OnSetFileType(Sender: TObject);
     procedure btnGenreListClick(Sender: TObject);
 

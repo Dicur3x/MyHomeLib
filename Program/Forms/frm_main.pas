@@ -588,6 +588,8 @@ type
     procedure ExportUserDataExecute(Sender: TObject);
     procedure UpdateGenresExecute(Sender: TObject);
     procedure SyncFilesExecute(Sender: TObject);
+    procedure ReviewMissingBooksExecute(Sender: TObject);
+    procedure UpdateMissingBooksCommand(Sender: TObject);
     procedure RepairDataBaseExecute(Sender: TObject);
     procedure CompactDataBaseExecute(Sender: TObject);
     procedure DeleteCollectionExecute(Sender: TObject);
@@ -784,7 +786,11 @@ type
     procedure StartupTick(Sender: TObject);
     procedure FinishInitialLoading(Failed: Boolean = False);
     procedure UpdateBookToolbarForView;
+    procedure UpdateMarkAllHint(Sender: TObject);
+    function NextVisibleBookMark(Tree: TBookTree; out Mark: Boolean): Boolean;
+    function ConfirmGroupChange(const Group: TGroupData; Remove: Boolean): Boolean;
     function SearchCompletionMessage: string;
+    procedure UpdateSearchEmptyMessage(Cancelled: Boolean);
     function StartupWorkersRunning: Boolean;
     procedure StopInitialLoading;
     procedure StartInitialCatalogRead(View: TView);
@@ -997,7 +1003,7 @@ type
     procedure StartBookCompression(Operation: TBookCompressionOperation);
     procedure BookCompressionTick(Sender: TObject);
     procedure StopBookCompression(Sender: TObject);
-    procedure ReviewBookCompression(Decision: TCompressionReview);
+    procedure ReviewBookCompression(Decision: TCompressionReview; const BackupFolder: string);
     procedure CheckCompressionRecovery;
     function CompressionBlocksCatalogChange(IgnoreTransfer:Boolean=False): Boolean;
     procedure ShowCollectionTransfer(Sender:TObject);
@@ -1029,7 +1035,6 @@ type
     FOpenedBooks: TDictionary<string, string>;
     FCollection: IBookCollection;
 
-    FSelectionState: Boolean;
 
     FAutoCheck: Boolean;
     FProgramUpdateThread: TProgramUpdateThread;
@@ -2042,6 +2047,7 @@ begin
           FFavoritePendingCriteria := Criteria;
           FFavoritePendingCID := FCollection.CollectionID;
           FFavoriteSearchPending := True;
+          UpdateSearchEmptyMessage(False);
           Exit;
         end;
         StatusMessage := rstrApplyingFilter;
@@ -2109,6 +2115,7 @@ begin
 
   tvBooksSR.Clear;
   ClearLabels(PAGE_SEARCH, True);
+  UpdateSearchEmptyMessage(False);
 end;
 
 procedure TfrmMain.ShowUpdatedBooks(CollectionID: Integer);
@@ -2501,6 +2508,7 @@ begin
     FHasAppliedSearch := False;
     FSearchDeletionJustRefreshed := False;
     FFavoriteSearchPending := False;
+    UpdateSearchEmptyMessage(False);
     FOnlyNewFavoriteBooks := False;
     FFavoriteDescriptor := Default(TAuthorFavoriteCollection);
     FSearchCriteria := Default(TBookSearchCriteria);
@@ -4313,6 +4321,8 @@ end;
 procedure TfrmMain.CreateSearchPanelAdapter;
 begin
   FSearchMode := TSearchQueryModeControl.CreateFor(Self, pnSearchView);
+  UpdateSearchEmptyMessage(False);
+  btnClearFilterEdits.Hint := 'Сбросить поля, фильтры столбцов, режим поиска и выбор пресета. Сохранённые пресеты останутся.';
   SearchParams.OnMouseWheel:=SearchFiltersMouseWheel;
   SearchParams.OnResize:=SearchBookExpanded;
   // Keep fresh keyboard input in Author; the mode remains in the Tab sequence.
@@ -4513,6 +4523,7 @@ procedure TfrmMain.InitFormFileds;
 begin
   Application.OnHelp := OnHelpHandler;
   UseLatestCommonDialogs := True;
+  tbSelectAll.OnMouseEnter := UpdateMarkAllHint;
 
   // Follow the visual order when VCL selects the first Search control.
   // The inherited reverse tab order focused Date and scrolled Author offscreen.
@@ -4521,7 +4532,6 @@ begin
   ctpFile.TabOrder := 2;
   ctpBook.TabStop:=True; ctpOther.TabStop:=True; ctpFile.TabStop:=True;
 
-  FSelectionState := False;
   FAutoCheck := False;
   FFormBusy := False;
 
@@ -5048,9 +5058,9 @@ begin
   FBookCompressionProgress.UpdateProgress(FBookCompressionOperation.Status);
 end;
 
-procedure TfrmMain.ReviewBookCompression(Decision: TCompressionReview);
+procedure TfrmMain.ReviewBookCompression(Decision: TCompressionReview; const BackupFolder: string);
 begin
-  if Assigned(FBookCompressionOperation) then FBookCompressionOperation.Approve(Decision);
+  if Assigned(FBookCompressionOperation) then FBookCompressionOperation.Approve(Decision, BackupFolder);
 end;
 
 function TfrmMain.CompressionBlocksCatalogChange(IgnoreTransfer:Boolean): Boolean;
@@ -5142,7 +5152,9 @@ begin
   FBookCompressionProgress.ShowResult(State,RefreshError);
   StatusMessage:=State.Stage;
   if not State.EstimateOnly and State.SavingsKnown then
-    StatusMessage:=StatusMessage+' Освобождено: '+BookCacheSizeText(State.SavedBytes);
+    if State.SavedBytes >= State.BackupBytes then
+      StatusMessage:=StatusMessage+' Освобождено: '+BookCacheSizeText(State.SavedBytes-State.BackupBytes)
+    else StatusMessage:=StatusMessage+' Занято дополнительно: '+BookCacheSizeText(State.BackupBytes-State.SavedBytes);
   if FCloseAfterCompression then
   begin FCloseAfterCompression:=False; PostMessage(Handle,WM_CLOSE,0,0); end
   else if (State.Error='') and (RefreshError='') then CheckCompressionRecovery;
@@ -6050,6 +6062,9 @@ begin
   miPdfdjvu.Caption:='Из папки: книги других форматов…';
   miFBDImport.Caption:='Из папки: архивы с описаниями FBD…';
   N6.Caption:='Обслуживание каталога';
+  FilterMenu:=TMenuItem.Create(Self); FilterMenu.Name:='miMissingBookRecords';
+  FilterMenu.Caption:='Найти записи без файлов…'; FilterMenu.OnClick:=ReviewMissingBooksExecute;
+  N6.Add(FilterMenu); N6.OnClick:=UpdateMissingBooksCommand;
 
   FilterMenu:=TMenuItem.Create(Self); FilterMenu.Name:='miCatalogSources';
   FilterMenu.Caption:='Источники коллекции…';
@@ -8521,6 +8536,7 @@ begin
     SetBookListTotals(tvBooksSR, 0, 0);
     ClearLabels(PAGE_SEARCH, True);
     FBookListCancelled := False;
+    UpdateSearchEmptyMessage(False);
     Exit;
   end;
 
@@ -8536,11 +8552,13 @@ begin
     tvBooksSR.Clear;
     SetBookListTotals(tvBooksSR, 0, 0);
     StatusMessage := 'Подготовка любимых авторов...';
+    UpdateSearchEmptyMessage(False);
     Exit;
   end;
   FillBooksTree(tvBooksSR, nil,
     function: IBookIterator begin Result := FCollection.Search(Criteria, False); end,
     True, True, @SelectedKey);
+  UpdateSearchEmptyMessage(FBookListCancelled);
 end;
 
 procedure TfrmMain.HideDeletedBooksUpdate(Sender: TObject);
@@ -9161,10 +9179,61 @@ begin
   end;
 end;
 
-procedure TfrmMain.tbSelectAllClick(Sender: TObject);
+function TfrmMain.NextVisibleBookMark(Tree: TBookTree; out Mark: Boolean): Boolean;
+var Node: PVirtualNode; Book: PBookRecord;
 begin
-  FSelectionState := not FSelectionState;
-  Selection(FSelectionState);
+  Mark := False; Result := False;
+  Node := Tree.GetFirstVisible;
+  while Assigned(Node) do
+  begin
+    Book := Tree.GetNodeData(Node);
+    if Assigned(Book) and (Book^.NodeType = ntBookInfo) then
+    begin
+      Result := True;
+      if not (Node^.CheckState in [csCheckedNormal, csCheckedPressed]) then
+      begin
+        Mark := True;
+        Exit;
+      end;
+    end;
+    Node := Tree.GetNextVisible(Node);
+  end;
+end;
+
+procedure TfrmMain.UpdateMarkAllHint(Sender: TObject);
+var Mark: Boolean;
+begin
+  if ActiveView = DownloadView then Exit;
+  if NextVisibleBookMark(GetViewTree(ActiveView), Mark) then
+  begin
+    if Mark then tbSelectAll.Hint := 'Отметить все видимые книги'
+    else tbSelectAll.Hint := 'Снять отметки с видимых книг';
+  end
+  else tbSelectAll.Hint := 'В списке нет видимых книг';
+end;
+
+procedure TfrmMain.tbSelectAllClick(Sender: TObject);
+var Tree: TBookTree; Node: PVirtualNode; Book: PBookRecord;
+  Mark: Boolean; State: TCheckState;
+begin
+  if ActiveView = DownloadView then Exit;
+  Tree := GetViewTree(ActiveView);
+  if not NextVisibleBookMark(Tree, Mark) then Exit;
+  if Mark then State := csCheckedNormal else State := csUncheckedNormal;
+  Tree.BeginUpdate;
+  try
+    Node := Tree.GetFirstVisible;
+    while Assigned(Node) do
+    begin
+      Book := Tree.GetNodeData(Node);
+      if Assigned(Book) and (Book^.NodeType = ntBookInfo) then Node^.CheckState := State;
+      Node := Tree.GetNextVisible(Node);
+    end;
+  finally
+    Tree.EndUpdate;
+  end;
+  if Mark then tbSelectAll.Hint := 'Снять отметки с видимых книг'
+  else tbSelectAll.Hint := 'Отметить все видимые книги';
 end;
 
 
@@ -10741,17 +10810,50 @@ begin
   end;
 end;
 
+function TfrmMain.ConfirmGroupChange(const Group: TGroupData; Remove: Boolean): Boolean;
+var Count: Integer; Prompt, Action: string; Dialog: TTaskDialog; Button: TTaskDialogButtonItem;
+begin
+  Count := FSystemData.GroupBookCount(Group.GroupID);
+  if Count = 0 then Exit(True);
+  if Remove then
+  begin
+    Action := 'Удалить группу';
+    Prompt := Format('Удалить группу «%s»?', [Group.Text]);
+  end
+  else
+  begin
+    Action := 'Очистить группу';
+    Prompt := Format('Убрать все книги из группы «%s»? Группа останется.', [Group.Text]);
+  end;
+  Dialog := TTaskDialog.Create(Self);
+  try
+    Dialog.Caption := 'Группы книг';
+    Dialog.Title := Prompt;
+    Dialog.Text := Format('Всего книг в группе — %d, включая скрытые фильтрами.', [Count]) +
+      sLineBreak + 'Книги останутся в каталоге и на диске.';
+    Dialog.Flags := [tfAllowDialogCancellation];
+    Button := TTaskDialogButtonItem(Dialog.Buttons.Add);
+    Button.Caption := Action; Button.ModalResult := mrYes;
+    Button := TTaskDialogButtonItem(Dialog.Buttons.Add);
+    Button.Caption := 'Отмена'; Button.ModalResult := mrCancel; Button.Default := True;
+    Result := Dialog.Execute(Handle) and (Dialog.ModalResult = mrYes);
+  finally Dialog.Free; end;
+end;
+
 procedure TfrmMain.DeleteGroupExecute(Sender: TObject);
 var
   Data: PGroupData;
+  Group: TGroupData;
 begin
   Data := tvGroups.GetNodeData(tvGroups.GetFirstSelected());
   if not Assigned(Data) then
     Exit;
 
-  if Data^.CanDelete then
+  Group := Data^;
+  if Group.CanDelete then
   begin
-    FSystemData.DeleteGroup(Data^.GroupID);
+    if not ConfirmGroupChange(Group, True) then Exit;
+    FSystemData.DeleteGroup(Group.GroupID);
 
     CreateGroupsMenu;
     FillGroupsList(tvGroups, FSystemData.GetGroupIterator, FLastGroupID);
@@ -10763,16 +10865,19 @@ end;
 procedure TfrmMain.ClearGroupExecute(Sender: TObject);
 var
   GroupData: PGroupData;
+  Group: TGroupData;
   SavedCursor: TCursor;
 begin
   GroupData := tvGroups.GetNodeData(tvGroups.GetFirstSelected());
   if not Assigned(GroupData) then
     Exit;
+  Group := GroupData^;
+  if not ConfirmGroupChange(Group, False) then Exit;
 
   SavedCursor := Screen.Cursor;
   Screen.Cursor := crHourGlass;
   try
-    FSystemData.ClearGroup(GroupData^.GroupID);
+    FSystemData.ClearGroup(Group.GroupID);
 
     Exclude(FLoadedBookViews, FavoritesView);
 
@@ -11855,6 +11960,7 @@ begin
     else if Matching then
     begin
       FFavoriteSearchPending := False;
+      UpdateSearchEmptyMessage(False);
       if Worker.ErrorMessage <> '' then
         StatusMessage := 'Не удалось проверить любимых авторов: ' + Worker.ErrorMessage
       else StatusMessage := 'Проверка любимых авторов отменена';
@@ -12614,19 +12720,48 @@ begin
   else Result := 'В этой коллекции любимые авторы не найдены.';
 end;
 
+procedure TfrmMain.UpdateSearchEmptyMessage(Cancelled: Boolean);
+var MessageText: string;
+begin
+  if Cancelled then
+    MessageText := 'Поиск отменён. Нажмите «Применить», чтобы повторить.'
+  else if FFavoriteSearchPending then
+    MessageText := 'Подготовка любимых авторов…'
+  else if not FHasAppliedSearch then
+    MessageText := 'Введите условия и нажмите «Применить», чтобы найти книги.'
+  else
+  begin
+    MessageText := SearchCompletionMessage;
+    if MessageText = rstrReadyMessage then
+      if tvBooksSR.GetFirst <> nil then
+        MessageText := 'Фильтры столбцов скрыли все найденные книги.'
+      else
+        MessageText := 'Книги не найдены. Попробуйте изменить условия поиска.';
+  end;
+  tvBooksSR.EmptyListMessage := MessageText;
+end;
+
 procedure TfrmMain.ApplySearchCriteria(const Criteria: TBookSearchCriteria; SelectedID: PBookKey);
+var Search: TFunc<IBookIterator>;
 begin
   FSearchDeletionJustRefreshed := False;
   Exclude(FLoadedBookViews, SearchView);
+  tvBooksSR.EmptyListMessage := 'Выполняется поиск…';
   tvBooksSR.Clear;
   ClearLabels(PAGE_SEARCH, True);
-  FillBooksTree(tvBooksSR, nil,
-    function: IBookIterator begin Result := FCollection.Search(Criteria, False); end, True, True, SelectedID);
+  Search := function: IBookIterator begin Result := FCollection.Search(Criteria, False); end;
+  try
+    FillBooksTree(tvBooksSR, nil, Search, True, True, SelectedID);
+  except
+    tvBooksSR.EmptyListMessage := 'Не удалось выполнить поиск. Проверьте условия и нажмите «Применить».';
+    raise;
+  end;
   if not FBookListCancelled then
   begin
     FSearchCriteria := Criteria;
     FHasAppliedSearch := True;
   end;
+  UpdateSearchEmptyMessage(FBookListCancelled);
 end;
 
 function TfrmMain.SearchPresetIndex(const Name: string): Integer;
@@ -13136,11 +13271,14 @@ begin
           // или при парсинге книги (загрузили какую-то ерунду).
           on e: Exception do
           begin
-            if not (e is ENotSupportedException) and FileExists(Saved.GetBookFileName) then
-              MHLShowError(e.Message)
-            else if not FileExists(Saved.GetBookFileName) then
+            if not FileExists(Saved.GetBookFileName) then
+            begin
               frmBookDetails.ConfigureDescription(Saved, ReviewEditable, False);
-            frmBookDetails.FillBookInfo(DetailsBook, nil);
+              frmBookDetails.FillBookInfo(DetailsBook, nil);
+            end
+            else if e is ENotSupportedException then frmBookDetails.FillBookInfo(DetailsBook, nil)
+            else
+              frmBookDetails.FillBookInfo(DetailsBook, nil, 'Не удалось прочитать сведения: ' + e.Message);
           end;
         end;
       end
@@ -13212,7 +13350,7 @@ begin
           else Continue;
         if ReviewEditable and (Modal <> mrOk) then Exit;
         if not frmBookDetails.ReviewChanged then Exit;
-        strReview := frmBookDetails.Review; strAnnotation := frmBookDetails.Annotation;
+        strReview := frmBookDetails.Review; strAnnotation := frmBookDetails.AnnotationForSave;
         ChangedFields := [];
         if strReview <> PreviousReview then Include(ChangedFields, bpfReview);
         if frmBookDetails.AnnotationChanged then Include(ChangedFields, bpfAnnotation);
@@ -13463,6 +13601,35 @@ begin
     // Пока это нужно, т к рабочий поток не сообщает основному об изменении свойств книги
     InitCollection;
   end;
+end;
+
+procedure TfrmMain.UpdateMissingBooksCommand(Sender: TObject);
+begin
+  var Item := FindComponent('miMissingBookRecords') as TMenuItem;
+  if Assigned(Item) then
+  begin
+    Item.Visible := Assigned(FCollection) and isLocalCollection(FCollection.CollectionCode);
+    Item.Enabled := Item.Visible and not FFormBusy and not FStartupLoading and not FBookListLoading and
+      not Assigned(FBookDeletionOperation) and not FBookDeletionNeedsRecovery;
+  end;
+end;
+
+procedure TfrmMain.ReviewMissingBooksExecute(Sender: TObject);
+begin
+  if not Assigned(FCollection) or not isLocalCollection(FCollection.CollectionCode) or FFormBusy or
+    FStartupLoading or FBookListLoading or Assigned(FBookDeletionOperation) or FBookDeletionNeedsRecovery or
+    CompressionBlocksCatalogChange then Exit;
+  var CollectionID := FCollection.CollectionID;
+  var Changed := False;
+  FFormBusy := True;
+  try
+    try
+      Changed := ReviewMissingBookRecords(Self, FSystemData.GetCollectionInfo(CollectionID));
+    except
+      on E: Exception do begin LogDiagnosticError('missing-book-records', E); MHLShowWarning(E.Message); end;
+    end;
+  finally FFormBusy := False; end;
+  if Changed then RefreshAfterBookDeletion(CollectionID, True, False);
 end;
 
 procedure TfrmMain.UpdateOnlineCollectionExecute(Sender: TObject);
@@ -14010,7 +14177,6 @@ procedure TfrmMain.ChangeSettingsExecute(Sender: TObject);
 var
   frmSettings: TfrmSettings;
 begin
-  if Assigned(FOPDSForm) then FOPDSForm.StopServer;
   SaveMainFormSettings;
 
   frmSettings := TfrmSettings.Create(Application);
@@ -14018,9 +14184,7 @@ begin
     frmSettings.LoadSetting;
     if (Sender is TComponent) and (TComponent(Sender).Name = 'miExternalToolsSetup') then
       frmSettings.tvSections.Selected := frmSettings.tvSections.Items[5];
-    frmSettings.ShowModal;
-
-    Settings.SaveSettings;
+    if frmSettings.ShowModal <> mrOk then Exit;
 
   finally
     frmSettings.Free;
@@ -14089,6 +14253,7 @@ begin
   ToolBuutonVisible := (ActiveView <> DownloadView);
   BtnFav_add.Enabled := ToolBuutonVisible;
   tbSelectAll.Enabled := ToolBuutonVisible;
+  if ToolBuutonVisible then UpdateMarkAllHint(nil);
   tbCollapse.Enabled := ToolBuutonVisible;
   tbtnRead.Enabled := ToolBuutonVisible and acBookRead.Enabled;
   tbSendToDevice.Enabled := ToolBuutonVisible;

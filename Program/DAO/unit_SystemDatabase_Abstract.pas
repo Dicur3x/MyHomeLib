@@ -47,6 +47,7 @@ type
 
     function GetBookIterator(const GroupID: Integer; const DatabaseID: Integer = INVALID_COLLECTION_ID): IBookIterator; virtual; abstract;
     function GetGroupIterator: IGroupIterator; virtual; abstract;
+    function GroupBookCount(const GroupID: Integer): Integer; virtual; abstract;
     function GetCollectionInfoIterator: ICollectionInfoIterator; virtual; abstract;
 
     procedure ClearCollectionCache; virtual;

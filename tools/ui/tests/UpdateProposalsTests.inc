@@ -452,7 +452,7 @@ var Dialog: TUpdateRestorePageForm; Page, Primary: TButton; List: TListView; Ver
       Primary:=nil; List:=nil; Version:=nil;
       for var Control in Dialog do
       begin
-        if (Control is TButton) and TButton(Control).Default then Primary:=TButton(Control);
+        if (Control is TButton) and (Control.Name='UpdatePrimary') then Primary:=TButton(Control);
         if Control is TListView then List:=TListView(Control);
         if (Control is TLabel) and (TLabel(Control).Caption='Обновления компонентов HomeLibre') then Version:=TLabel(Control);
       end;
@@ -637,7 +637,7 @@ var Dialog: TUpdateProposalForm; Server: TUpdateProposalServer;
       if Component is TButton then
       begin
         if TButton(Component).Caption='Проверить всё' then CheckButton:=TButton(Component);
-        if TButton(Component).Default then Primary:=TButton(Component);
+        if Component.Name='UpdatePrimary' then Primary:=TButton(Component);
       end;
       if Component is TListView then View:=TListView(Component);
       if (Component is TLabel) and (Component.Name='UpdateStatus') then Status:=TLabel(Component);
@@ -692,7 +692,7 @@ begin
     // Optional sources stay hidden until a book explicitly needs them.
     Dialog.FailureID:='all'; Dialog.RequestComponent('SumatraPDF','Owned first-use source failure fixture.'); WaitCheck;
     CheckButton.Click; WaitCheck;
-    Require(Dialog.Visible and Primary.Enabled and string(Status.Caption).Contains('Не удалось проверить'),
+    Require(Dialog.Visible and CheckButton.Enabled and not Primary.Visible and string(Status.Caption).Contains('Не удалось проверить'),
       'Manual unavailable sources were silent or left Retry disabled');
     for var Item in View.Items do
       if (Item.Caption<>'HomeLibre') and not Item.Caption.EndsWith(' · AlReader') then
@@ -706,7 +706,7 @@ begin
       string(Status.Caption).Contains('SumatraPDF'),
       'Partial source failure hid independent updates or misreported the failing component');
     SafeStatus; SelectComponent('SumatraPDF');
-    Require((Primary.Caption='Повторить проверку') and string(Status.Caption).Contains('SumatraPDF'),
+    Require(Primary.Visible and (Primary.Caption='Повторить проверку') and string(Status.Caption).Contains('SumatraPDF'),
       'Selecting a failed source lost its explanation or its Retry action');
     View.PopupMenu.OnPopup(View.PopupMenu);
     Require(View.PopupMenu.Items[2].Enabled,'Failed source has no explicit diagnostic copy action');
@@ -732,7 +732,7 @@ begin
     Require(Dialog.StartCheckCycle(True),'Automatic failure cycle did not start');
     Current:=Default(TProgramRelease); Current.Tag:=PROGRAM_RELEASE_VERSION;
     Dialog.ApplicationChecked(Current,True,''); Dialog.CheckComponents(True); WaitCheck;
-    Require(not Dialog.Visible and Primary.Enabled,'Automatic unavailable sources interrupted the user or disabled Retry');
+    Require(not Dialog.Visible and CheckButton.Enabled,'Automatic unavailable sources interrupted the user or disabled checking');
     Require(THashSHA2.GetHashStringFromFile(Settings.AppPath+'sqlite3.dll')=SourceHash,
       'Metadata-only source checks changed an installed component');
     Writeln('PASS update sources automatic failures stay quiet and preserve installed component bytes');
