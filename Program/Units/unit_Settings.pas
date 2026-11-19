@@ -171,6 +171,7 @@ type
     FProxyPortUpdate: Integer;
 
     FProxyType: Integer;
+    FBookWebSearchYandex: Boolean;
 
     FBookColor: TColor;
     FSeriesColor: TColor;
@@ -396,6 +397,7 @@ type
     property ProxyPasswordUpdate: string read FProxyPasswordUpdate write FProxyPasswordUpdate;
     property ProxyPortUpdate: Integer read FProxyPortUpdate write FProxyPortUpdate;
     property ProxyType: Integer read FProxyType write FProxyType;
+    property BookWebSearchYandex: Boolean read FBookWebSearchYandex write FBookWebSearchYandex;
 
     property UpdateURL: string read FUpdateURL write FUpdateURL;
     property InpxURL: string read FInpxURL write FInpxURL;
@@ -854,6 +856,7 @@ begin
     FProxyPortUpdate := iniFile.ReadInteger(NETWORK_SECTION, 'proxy-portupdate', 0);
     FUseProxyForUpdate := iniFile.ReadBool(NETWORK_SECTION, 'use_proxy_update', False);
     FProxyType := iniFile.ReadInteger(NETWORK_SECTION, 'proxy-type', 0);
+    FBookWebSearchYandex := iniFile.ReadBool(NETWORK_SECTION, 'BookWebSearchYandex', False);
 
     FBookColor := iniFile.ReadInteger(COLORS_SECTION, 'Book', DEF_BOOK_COLOR);
     FSeriesColor := iniFile.ReadInteger(COLORS_SECTION, 'Series', DEF_SERIES_COLOR);
@@ -1029,6 +1032,7 @@ begin
     iniFile.WriteString(NETWORK_SECTION, 'proxy-passupdate', EncodePassString(FProxyPasswordUpdate));
     iniFile.WriteInteger(NETWORK_SECTION, 'proxy-portupdate', FProxyPortUpdate);
     iniFile.WriteInteger(NETWORK_SECTION, 'proxy-type', FProxyType);
+    iniFile.WriteBool(NETWORK_SECTION, 'BookWebSearchYandex', FBookWebSearchYandex);
 
 
     iniFile.WriteInteger(COLORS_SECTION, 'Book', FBookColor);

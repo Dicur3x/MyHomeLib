@@ -436,6 +436,9 @@ type
     tbarSeriesEng: TToolBar;
     tbarSeriesRus: TToolBar;
     acBookRead: TAction;
+    pmiBookWebSearch: TMenuItem;
+    pmiSearchBookOnline: TMenuItem;
+    pmiSearchAuthorOnline: TMenuItem;
     acBookDetails: TAction;
     acBookSend2Device: TAction;
     acBookAdd2DownloadList: TAction;
@@ -682,6 +685,7 @@ type
     procedure ShowBookInfo(Sender: TObject);
     procedure ShowBookInfoPage(Sender: TObject; EditDescription: PBookRecord);
     procedure BookDetailsUpdate(Sender: TObject);
+    procedure BookWebSearchClick(Sender: TObject);
     procedure miCopyAuthorClick(Sender: TObject);
     procedure pgControlChange(Sender: TObject);
 
@@ -1162,6 +1166,7 @@ type
     FSearchFavoriteCheck, FFavoriteListCheck: TCheckBox;
     FFavoriteAuthorHeart, FFavoriteNewButton, FFavoriteMenuButton: TButton;
     FFavoriteMenu: TPopupMenu;
+    FBookSearchURL, FAuthorSearchURL: string;
     FFavoriteToggleMenu, FFavoriteNewMenu, FFavoriteViewedMenu, FFavoriteStopMenu, FFavoriteContextMenu: TMenuItem;
     FFavoriteBookMenu: TMenuItem;
     FFavoriteBookAuthors: TBookAuthors;
@@ -1388,7 +1393,7 @@ uses
   unit_MHL_strings,
   unit_Settings,
   unit_BookDeletionBinding, unit_Readers, unit_ReaderCache, unit_ReaderSessionRunner, unit_ProgramUpdatePaths, unit_ReaderFormats, unit_ReaderOffice, unit_ReaderLaunch, unit_BookMetadataCache,
-  unit_ReaderDocument, unit_ReaderNoteBooks, unit_BookConversion,
+  unit_ReaderDocument, unit_ReaderNoteBooks, unit_BookConversion, unit_ReaderLookup,
   frm_BuiltinReader, frm_StoryReader, frm_AuthorFavorites,
   dm_user,
   unit_Import,
@@ -12165,9 +12170,20 @@ begin
   end;
 end;
 
+procedure TfrmMain.BookWebSearchClick(Sender: TObject);
+var URL: string;
+begin
+  if Sender = pmiSearchBookOnline then URL := FBookSearchURL
+  else if Sender = pmiSearchAuthorOnline then URL := FAuthorSearchURL
+  else Exit;
+  if (URL <> '') and (SimpleShellExecute(Handle, URL) <= 32) then
+    MHLShowError('Не удалось открыть браузер.');
+end;
+
 procedure TfrmMain.BookMenuPopup(Sender: TObject);
 var Tree: TBookTree; Node: PVirtualNode; Book: PBookRecord; Location: TPoint;
   Seen: TDictionary<string,Boolean>; Item: TMenuItem; Key: string; Count: Integer;
+  AuthorName, Title: string; SearchTarget: TReaderLookupTarget;
 
   function IsFavorite(const Author: TAuthorData): Boolean;
   begin
@@ -12176,6 +12192,9 @@ var Tree: TBookTree; Node: PVirtualNode; Book: PBookRecord; Location: TPoint;
 
 begin
   UpdateConversionMenu(Sender);
+  FBookSearchURL := '';
+  FAuthorSearchURL := '';
+  pmiBookWebSearch.Visible := False;
   if not Assigned(FFavoriteBookMenu) then Exit;
   FFavoriteBookMenu.Clear;
   FFavoriteBookMenu.Visible:=False;
@@ -12184,6 +12203,7 @@ begin
   if not Assigned(FCollection) or FFormBusy or FBookListLoading or
     not (ActiveView in [AuthorsView,SeriesView,PublisherSeriesView,GenresView,SearchView,FavoritesView]) then Exit;
   GetActiveTree(Tree);
+  if not Assigned(Tree) then Exit;
   Node:=Tree.FocusedNode;
   if pmMain.PopupComponent=Tree then
   begin
@@ -12194,6 +12214,21 @@ begin
   if not Assigned(Node) or Tree.IsEffectivelyFiltered[Node] then Exit;
   Book:=Tree.GetNodeData(Node);
   if not Assigned(Book) or (Book^.NodeType<>ntBookInfo) then Exit;
+
+  SearchTarget := rltGoogle;
+  if Settings.BookWebSearchYandex then SearchTarget := rltYandex;
+  AuthorName := '';
+  for var Author in Book^.Authors do
+  begin
+    AuthorName := ReaderLookupText(Author.GetFullName);
+    if AuthorName <> '' then Break;
+  end;
+  Title := ReaderLookupText(Book^.Title);
+  if Title <> '' then FBookSearchURL := ReaderLookupURL(AuthorName + ' ' + Title, SearchTarget);
+  if AuthorName <> '' then FAuthorSearchURL := ReaderLookupURL(AuthorName + ' писатель', SearchTarget);
+  pmiSearchBookOnline.Enabled := FBookSearchURL <> '';
+  pmiSearchAuthorOnline.Enabled := FAuthorSearchURL <> '';
+  pmiBookWebSearch.Visible := pmiSearchBookOnline.Enabled or pmiSearchAuthorOnline.Enabled;
 
   SetLength(FFavoriteBookAuthors,Length(Book^.Authors)); Count:=0;
   Seen:=TDictionary<string,Boolean>.Create;

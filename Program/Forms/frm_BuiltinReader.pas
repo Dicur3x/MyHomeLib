@@ -134,6 +134,7 @@ type
     FProgressTarget: Double;
     FSeekTimer, FPaginationTimer: TTimer;
     FGlobalPages: TList<Integer>;
+    FRequestedTextPage: Integer;
     FMeasureBitmap: TBitmap;
     FLastPageInteraction: UInt64;
     FRichEdit: TRichEdit;
@@ -318,6 +319,8 @@ type
     procedure LayoutChoiceChanged(Sender: TObject);
     procedure ChapterClick(Sender: TObject);
     procedure ContentsClick(Sender: TObject);
+    procedure GoToTextPage(PageNumber: Integer);
+    procedure CancelTextPageJump;
     procedure DrawChapterItem(Control: TWinControl; Index: Integer; Rect: TRect; State: TOwnerDrawState);
     procedure AddChapter(const Title: string; Position, Depth: Integer);
     procedure PaintProgress(Sender: TObject);
@@ -1807,7 +1810,8 @@ begin
       FOleCallback:=AttachReaderPictures(FRichEdit);
       ReaderLoadRTF(FRichEdit,Stream);
     finally Stream.Free; end;
-    FLength:=ReaderTextLength(FRichEdit); FReady:=True; FLoadFinished:=True; InvalidateLayout; RestoreSettings; RenderPage;
+    FLength:=ReaderTextLength(FRichEdit); RebuildChapterTitles;
+    FReady:=True; FLoadFinished:=True; InvalidateLayout; RestoreSettings; RenderPage;
   end
   else
   begin
@@ -2241,6 +2245,7 @@ end;
 procedure TfrmBuiltinReader.ScrollPixels(Pixels: Integer; ByScreen: Boolean);
 begin
   if (Pixels=0) or (FScrollTileHeight<=0) or FTextSelecting or FPDFSelecting then Exit;
+  CancelTextPageJump;
   if (Pixels>0) and Assigned(FOnReadPastEnd) and not PageLoading then
     if (Assigned(FPDF) and (FPage=FPDF.PageCount-1) and
       (FScrollOffset>=Min(FScrollTileHeight,RasterScrollLimit))) or
@@ -3141,6 +3146,7 @@ procedure TfrmBuiltinReader.NextPage;
 var KnownFirstBreak, NextPosition: Integer;
 begin
   if not FReady then Exit;
+  CancelTextPageJump;
   KnownFirstBreak:=-1;
   if Assigned(FPDF) and FPDF.AsyncPages then
   begin
@@ -3180,6 +3186,7 @@ procedure TfrmBuiltinReader.PreviousPage;
 var L,H,M,Target,Start,Index: Integer; S: string;
 begin
   if not FReady then Exit;
+  CancelTextPageJump;
   ResetScroll;
   if Assigned(FPDF) and FPDF.AsyncPages then
   begin
@@ -3212,6 +3219,7 @@ end;
 procedure TfrmBuiltinReader.NavigateTo(Position: Integer);
 begin
   if not FReady then Exit;
+  CancelTextPageJump;
   if Assigned(FPDF) and FPDF.AsyncPages then
   begin ResetScroll; RequestPage(Position); Exit; end;
   ResetInspection;
@@ -5720,7 +5728,9 @@ begin
     finally FChapters.Items.EndUpdate; end;
   finally Rebuilt.Free; end;
   FChapters.Visible := FChapters.Items.Count > 0;
-  FContentsButton.Visible := FChapters.Visible or (Assigned(FPDF) and (FPDF.PageCount > 1));
+  if Assigned(FPDF) then
+    FContentsButton.Visible := FChapters.Visible or (FPDF.PageCount > 1)
+  else FContentsButton.Visible := FChapters.Visible or (FLength > 0);
   TReaderPaletteButton(FContentsButton).IconOnly := FChapters.Visible;
   if FChapters.Visible then
   begin
@@ -5749,18 +5759,32 @@ begin
 end;
 
 procedure TfrmBuiltinReader.ContentsClick(Sender: TObject);
-var Dialog: TReaderContentsDialog; PageText: string; PageNumber: Integer;
+var
+  Dialog: TReaderContentsDialog;
+  PageText, Prompt: string;
+  PageNumber, PageCount: Integer;
 begin
   if not FReady then Exit;
   if ChapterCount = 0 then
   begin
-    if not Assigned(FPDF) or (FPDF.PageCount <= 1) then Exit;
-    PageText := IntToStr(FPage + 1);
-    if InputQuery('Перейти к странице', Format('Номер страницы от 1 до %d', [FPDF.PageCount]), PageText) then
+    if not FContentsButton.Visible then Exit;
+    PageCount := 0;
+    if Assigned(FPDF) then PageCount := FPDF.PageCount
+    else if FGlobalPagesDone then PageCount := FGlobalPages.Count;
+    if PageCount > 0 then Prompt := Format('Номер страницы от 1 до %d', [PageCount])
+    else Prompt := 'Номер страницы в текущем оформлении';
+    PageNumber := GlobalPageAt(VisibleReadingPosition);
+    PageText := '';
+    if PageNumber > 0 then PageText := IntToStr(PageNumber);
+    if InputQuery('Перейти к странице', Prompt, PageText) then
     begin
-      if TryStrToInt(PageText.Trim, PageNumber) and (PageNumber >= 1) and (PageNumber <= FPDF.PageCount) then
-        NavigateTo(PageNumber - 1)
-      else MessageDlg(Format('Введите номер страницы от 1 до %d.', [FPDF.PageCount]), mtWarning, [mbOK], 0);
+      CancelTextPageJump;
+      if not TryStrToInt(PageText.Trim, PageNumber) or (PageNumber < 1) then
+        MessageDlg('Введите номер страницы целым числом от 1.', mtWarning, [mbOK], 0)
+      else if (PageCount > 0) and (PageNumber > PageCount) then
+        MessageDlg(Format('Введите номер страницы от 1 до %d.', [PageCount]), mtWarning, [mbOK], 0)
+      else if Assigned(FPDF) then NavigateTo(PageNumber - 1)
+      else GoToTextPage(PageNumber);
     end;
     FSurface.SetFocus;
     Exit;
@@ -5769,6 +5793,31 @@ begin
   try if (Dialog.ShowModal=mrOk) and (Dialog.SelectedChapter>=0) then GoToChapter(Dialog.SelectedChapter);
   finally Dialog.Free; end;
   FSurface.SetFocus;
+end;
+
+procedure TfrmBuiltinReader.GoToTextPage(PageNumber: Integer);
+begin
+  if PageNumber <= FGlobalPages.Count then
+    NavigateTo(FGlobalPages[PageNumber - 1])
+  else if FGlobalPagesDone then
+    FStatus.Caption := Format('В текущем оформлении страниц: %d.', [FGlobalPages.Count])
+  else if FGlobalPagesFailed then
+    FStatus.Caption := 'Не удалось рассчитать номер страницы. Можно перейти по полосе чтения.'
+  else
+  begin
+    StopSearch;
+    FRequestedTextPage := PageNumber;
+    FStatus.Caption := Format('Считаем страницы до %d-й… · Esc — отмена', [PageNumber]);
+    RequestGlobalPages;
+  end;
+end;
+
+procedure TfrmBuiltinReader.CancelTextPageJump;
+begin
+  if FRequestedTextPage = 0 then Exit;
+  FRequestedTextPage := 0;
+  FPaginationTimer.Enabled := False;
+  FStatus.Caption := 'Переход к странице отменён.';
 end;
 
 function TfrmBuiltinReader.ChapterTitle(Index: Integer): string;
@@ -5825,6 +5874,7 @@ begin FSeekTimer.Enabled:=False; if FProgressDragging then SeekProgress(FProgres
 
 procedure TfrmBuiltinReader.ResetPagination;
 begin
+  CancelTextPageJump;
   FGlobalPages.Clear; FGlobalPages.Add(0); FGlobalPagesDone:=False; FGlobalPagesFailed:=False;
   FPaginationTimer.Enabled:=False; FLastPageInteraction:=GetTickCount64;
 end;
@@ -5854,22 +5904,28 @@ begin
 end;
 
 procedure TfrmBuiltinReader.PaginationTick(Sender: TObject);
-var Started: UInt64; Next: Integer;
+var Started: UInt64; Next, Requested: Integer;
 begin
   if FClosing or not FReady or Assigned(FPDF) or FGlobalPagesDone then begin FPaginationTimer.Enabled:=False; Exit; end;
   if FProgressDragging or FResizeTimer.Enabled or SearchRunning or (GetTickCount64-FLastPageInteraction<180) then Exit;
-  FPaginationTimer.Enabled:=False; Started:=GetTickCount64;
+  FPaginationTimer.Enabled:=False; Started:=GetTickCount64; Requested:=FRequestedTextPage;
   try
     repeat
       Next:=MeasureGlobalPage(FGlobalPages.Last);
       if (Next<=FGlobalPages.Last) or (Next>=FLength) then begin FGlobalPagesDone:=True; Break; end;
       FGlobalPages.Add(Next);
-    until GetTickCount64-Started>=8;
+    until (GetTickCount64-Started>=8) or ((Requested>0) and (FGlobalPages.Count>=Requested));
   except
     // Optional page numbering must never interrupt reading or lose a position.
-    FGlobalPagesFailed:=True; Exit;
+    FGlobalPagesFailed:=True;
   end;
-  FPaginationTimer.Enabled:=not FGlobalPagesDone;
+  if (Requested>0) and (FGlobalPagesDone or FGlobalPagesFailed or (FGlobalPages.Count>=Requested)) then
+  begin
+    FRequestedTextPage:=0;
+    GoToTextPage(Requested);
+    Exit;
+  end;
+  FPaginationTimer.Enabled:=not (FGlobalPagesDone or FGlobalPagesFailed);
 end;
 
 function TfrmBuiltinReader.GlobalPageAt(Position: Integer): Integer;
@@ -6132,6 +6188,8 @@ begin
   if (Key=Ord('B')) and (Shift=[ssCtrl]) then begin BookmarkSaveClick(nil); Key:=0; Exit; end;
   if (FChapters.Focused or FThemes.Focused) and ((Key in [VK_UP,VK_DOWN,VK_LEFT,VK_RIGHT,VK_HOME,VK_END,VK_PRIOR,VK_NEXT,VK_SPACE,VK_RETURN]) or
     ((Key=VK_ESCAPE) and (FChapters.DroppedDown or FThemes.DroppedDown))) then Exit;
+  if (Key=VK_ESCAPE) and (FRequestedTextPage>0) then
+  begin CancelTextPageJump; Key:=0; Exit; end;
   if (Key=VK_ESCAPE) and (FSearchPanel.Visible or SearchRunning) then
   begin SearchCloseClick(Sender); Key:=0; Exit; end;
   if (Key=VK_ESCAPE) and FInspect then begin EndInspection; Key:=0; Exit; end;

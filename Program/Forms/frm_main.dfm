@@ -3917,6 +3917,18 @@
     object pmiBookInfo: TMenuItem
       Action = acBookDetails
     end
+    object pmiBookWebSearch: TMenuItem
+      Caption = #1053#1072#1081#1090#1080#32#1074#32#1080#1085#1090#1077#1088#1085#1077#1090#1077
+      Visible = False
+      object pmiSearchBookOnline: TMenuItem
+        Caption = #1054#32#1082#1085#1080#1075#1077
+        OnClick = BookWebSearchClick
+      end
+      object pmiSearchAuthorOnline: TMenuItem
+        Caption = #1054#1073#32#1072#1074#1090#1086#1088#1077
+        OnClick = BookWebSearchClick
+      end
+    end
     object miBookEdit: TMenuItem
       Action = acEditBook
       ImageIndex = 3

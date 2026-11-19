@@ -996,6 +996,24 @@ object frmSettings: TfrmSettings
           Items.Strings = (#1084#1080#1085#1091#1090 #1095#1072#1089#1086#1074 #1076#1085#1077#1081)
         end
 
+        object lblBookWebSearch: TLabel
+          Left = 12
+          Top = 233
+          Caption = #1055#1086#1080#1089#1082#1086#1074#1080#1082#32#1076#1083#1103#32#1082#1085#1080#1075
+          FocusControl = cbBookWebSearch
+        end
+        object cbBookWebSearch: TComboBox
+          Left = 175
+          Top = 229
+          Width = 260
+          Height = 21
+          Anchors = [akLeft, akTop, akRight]
+          Style = csDropDownList
+          TabOrder = 11
+          Items.Strings = (
+            'Google'
+            #1071#1085#1076#1077#1082#1089)
+        end
       end
       object Panel6: TPanel
         Left = 0

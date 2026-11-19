@@ -646,8 +646,27 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
   end;
   procedure LoadEpubOutline;
   var Entries:TList<TReaderChapter>; Seen:TDictionary<string,Boolean>;
+    OwnEpub, RootEntry: Boolean; PageEntries, ChapterIndex: Integer;
     SavedPath, Resource, NcxID:string; Navigation:IXMLDOMDocument3; Bytes:TBytes; J:Integer;
     Entry, TocNode:IXMLDOMNode;
+
+    function IsPreparedEpub: Boolean;
+    const BookCSS = 'body{line-height:1.35}p{margin:.45em 0}h1,h2,h3,h4,h5,h6{text-align:center}'+
+      'img{max-width:100%;height:auto}pre{white-space:pre-wrap}table{border-collapse:collapse}'+
+      'td,th{padding:.2em .4em}';
+    var Style: string;
+    begin
+      // Recognize older EPUBs from BookProcessing without changing publisher TOCs.
+      Result := (PackagePath = 'OEBPS/package.opf') and
+        (Attribute(Root,'unique-identifier') = 'book-id') and
+        CSSCache.TryGetValue('OEBPS/book.css',Style) and (Style = BookCSS);
+    end;
+
+    function PageLabel(const Text: string): Boolean;
+    begin
+      Result := TRegEx.IsMatch(Text,'^(Страница|Слайд) [1-9][0-9]*$');
+    end;
+
     function DirectChild(const N:IXMLDOMNode; const Name:string):IXMLDOMNode;
     var K:Integer;
     begin
@@ -664,6 +683,12 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
       if (Target='') or Seen.ContainsKey(Target) or not FAnchors.TryGetValue(Target,Position) then Exit;
       C.Title:=Trim(TRegEx.Replace(LabelText,'\s+',' ')); if C.Title='' then Exit;
       C.Position:=Position; C.Depth:=EnsureRange(Depth,0,15);
+      if OwnEpub then
+      begin
+        if (Target='OEBPS/book.xhtml#') and SameText(C.Title,Title.Trim) then RootEntry:=True;
+        if (Depth=0) and Target.StartsWith('OEBPS/book.xhtml#heading-') and PageLabel(C.Title) then
+          Inc(PageEntries);
+      end;
       Entries.Add(C); Seen.Add(Target,True);
     end;
     procedure ReadList(const N:IXMLDOMNode; NCX:Boolean; Depth:Integer);
@@ -700,7 +725,7 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
     end;
     procedure ReadNavigation(const Href:string; NCX:Boolean);
     begin
-      Entries.Clear; Seen.Clear;
+      Entries.Clear; Seen.Clear; PageEntries:=0; RootEntry:=False;
       try
         CurrentPath:=ZipPath(PackagePath,Href); ReadZip(CurrentPath,Bytes);
         if NCX then Navigation:=XMLDocument(Bytes)
@@ -721,6 +746,7 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
   begin
     SavedPath:=CurrentPath; Entries:=TList<TReaderChapter>.Create; Seen:=TDictionary<string,Boolean>.Create;
     try
+      OwnEpub:=IsPreparedEpub; PageEntries:=0; RootEntry:=False;
       // Publisher navigation is authoritative, including chapters without h1-h6.
       // Resolve only anchors already encountered in the actual reading spine.
       for J:=0 to Manifest.childNodes.length-1 do
@@ -736,6 +762,15 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
       end;
       if Entries.Count>0 then
       begin
+        // BookProcessing supplies a mandatory link to the document start when
+        // the text has no headings. Its page and slide labels are also navigation aids.
+        if (Entries.Count=1) and RootEntry and (FChapters.Count=0) then Exit;
+        if PageEntries=Entries.Count then
+        begin
+          for ChapterIndex:=FChapters.Count-1 downto 0 do
+            if PageLabel(FChapters[ChapterIndex].Title) then FChapters.Delete(ChapterIndex);
+          Exit;
+        end;
         Entries.Sort(TComparer<TReaderChapter>.Construct(
           function(const Left,Right:TReaderChapter):Integer
           begin Result:=CompareValue(Left.Position,Right.Position); end));

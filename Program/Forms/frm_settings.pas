@@ -46,6 +46,8 @@ type
     tsInterface: TTabSheet;
     dlgColors: TColorDialog;
     tsInternet: TTabSheet;
+    lblBookWebSearch: TLabel;
+    cbBookWebSearch: TComboBox;
     lvReaders: TListView;
     btnDeleteExt: TButton;
     btnChangeExt: TButton;
@@ -836,6 +838,7 @@ begin
   edProxyUsernameUpdate.Text := Settings.ProxyUsernameUpdate;
   edProxyPasswordUpdate.Text := Settings.ProxyPasswordUpdate;
   cbProxyType.ItemIndex := Settings.ProxyType;
+  cbBookWebSearch.ItemIndex := Ord(Settings.BookWebSearchYandex);
 
   edUpdateDir.Text := Settings.UpdateDir;
   edINPXUrl.Text := Settings.InpxURL;
@@ -1018,6 +1021,7 @@ begin
   Settings.ProxyPasswordUpdate := edProxyPasswordUpdate.Text;
 
   Settings.ProxyType := cbProxyType.ItemIndex;
+  Settings.BookWebSearchYandex := cbBookWebSearch.ItemIndex = 1;
 
   Settings.UpdateDir := edUpdateDir.Text;
 
