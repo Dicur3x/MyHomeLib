@@ -77,3 +77,22 @@ This does not add KFX/AZW8 cover decoding, infer a cover from HTML text in older
 MOBI books, decrypt anything, or validate a physical Kindle. Those cases remain
 distinct from the declared-record path. Final production apps/packages, Desktop
 installation and publication remain separate gates.
+
+## Five unmodified legacy MOBI fixtures, 19 November
+
+On x86 and x64 the catalogue displayed the declared 731 × 817 cover for the
+CP1252, multimedia and uncompressed Unicode samples. In all three, the first
+illustration had different bytes from the declared cover. The version 4
+dictionary and NCX sample had no declared cover and the catalogue cleared
+the preceding image. KindleUnpack independently read the metadata and markup.
+The native panel checks compared image dimensions and the centre pixel.
+
+All five files came from the [libmobi fixtures at the tested revision](https://github.com/bfabiszewski/libmobi/tree/906274205c11944b628da1c553b255acb1af7c55/tests/samples).
+None declares a cover solely in its HTML guide. A separate controlled copy
+keeps the first rendition of the Unicode sample, removes the EXTH cover and
+thumbnail, and points a guide reference of type `cover` at the second image.
+In the markup decoded by KindleUnpack, byte 887 starts the image tag that
+references the expected JPEG. The current x64 panel reports an absent cover for that copy. This
+reproduces the outstanding guide-only case separately from the five originals.
+The input and resource hashes, binary hashes and both run logs are in
+`G:/HL-b14-external/r2000-kindle-guide`.
