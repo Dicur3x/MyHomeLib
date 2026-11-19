@@ -11,7 +11,7 @@ The catalogue now reads declared EPUB cover images and package thumbnails, and c
 | EPUB inside ZIP or 7z | Existing selected-member extraction, followed by package reader | Correct embedded cover, unchanged outer archive and responsive selection pass on x86/x64. |
 | Word DOCX/DOCM/DOTX/DOTM; PowerPoint PPTX/PPTM/POTX/POTM/PPSX/PPSM; Excel XLSX/XLSM/XLSB/XLTX/XLTM | Optional OPC thumbnail relationship in `_rels/.rels` | Generated fixtures for each extension pass. An actual PPTX thumbnail also passes in the catalogue panel. Actual DOCX/XLSX samples with no declared thumbnail return an unavailable-preview explanation; no arbitrary document illustration is substituted. Other real document variants remain to be checked. |
 | OpenDocument ODT/OTT/ODM/ODP/OTP/ODS/OTS/ODG/OTG/ODF | Optional `Thumbnails/thumbnail.png` | Generated fixtures for each extension and an actual ODS thumbnail pass. Other real document variants remain to be checked. |
-| FB3 | Optional OPC thumbnail relationship | Declared-thumbnail fixture passes. The official FB3 sample contains a file named `Cover.png` without a thumbnail declaration; this change deliberately does not infer a cover from its filename. Other FB3 cover conventions remain to be investigated. |
+| FB3 | Optional OPC thumbnail relationship | The November 19 check below covers all 17 FB3 archives in the upstream examples and converter test data. The catalogue displays the three available declared covers, including the SVG with a mixed-case filename. |
 | FLibrary companion covers | Existing separate-cover reader with bounded decoding | Actual JPEG and JPEG XL companion covers pass on x86/x64, with independent reference pixels, cancellation and no whole-FB2 extraction. Both Windows and INPX-style path separators are accepted. |
 | Pure vector SVG covers | Static rendering through the KFX/AZW8 module's resvg helper | Static SVG, inline drawings, composition and bounds now pass native x86/x64 cases; see the [SVG follow-up](2026-11-18-svg-cover-preview.md). Separate stylesheets and unsupported/active resources retain an explicit explanation. |
 | DjVu | First page through the existing isolated DjVu decoder when installed | Three documentation samples from the installed DjVuLibre 3.5.29 source archive and an invalid file pass on both app architectures. The decoder is closed after the preview. |
@@ -84,3 +84,34 @@ Model. Both app architectures pass the embedded font, PNG/JPEG XR, first-page
 and full-page-order fixtures. This supersedes the OXPS limitation above for that
 tested cohort. Other real document variants and final release-package checks
 remain open.
+
+## FB3 and document thumbnails, November 19
+
+The upstream FB3 Perl reader takes the package thumbnail as its cover.
+The upstream FB2 converter writes that relationship when converting a book with
+a cover. HomeLibre now compares ASCII letters in OPC part names without
+regard to case. Multiple matching entries produce an ambiguous-cover error.
+EPUB and OpenDocument retain their exact part-name matching.
+[FB3 reader](https://github.com/gribuser/FB3/blob/92bdc0d1fe89d9ac122ad342fd3c4cdc81a11c24/api/perl/FB3/lib/FB3.pm#L80-L83).
+[OPC part-name equivalence](https://learn.microsoft.com/en-us/dotnet/core/compatibility/core-libraries/8.0/system-io-packaging-case-insensitive-uri).
+
+All 17 FB3 archives in that upstream revision were checked against their Git
+blob hashes. Three named an available image. The catalogue displayed the PNG,
+the JPEG also used inside the book, and the SVG in `Hardcore file structure.fb3`.
+That book names `cover/thumb.svg` in its relationship and stores `cover/thumb.SVG`.
+The SVG's yellow background and white margin were sampled in the rendered cover.
+The remaining 14 either omit the thumbnail relationship or point to a missing
+part. Their previews cleared the preceding book's image and showed an explanation.
+[Upstream FB3 examples and converter tests](https://github.com/gribuser/FB3/tree/92bdc0d1fe89d9ac122ad342fd3c4cdc81a11c24).
+
+Six files from the installed LibreOffice 26.8.3.1 templates cover Draw (OTG),
+Writer (OTT and ODT), Impress (OTP) and Calc (OTS). Three carried a thumbnail.
+The images matched the sampled colours of their PNG parts. The other three
+produced an empty preview with an explanation. The Office regression used
+a DOCX with differences in both the relationship filename and thumbnail path.
+
+Both x86 and x64 passed the package-reader and catalogue-panel checks.
+The earlier x64 executable missed the generated FB3 mixed-case cover.
+Inputs retained their original bytes. Manifests and logs for all 17 books and
+six documents are in `G:/HL-b14-external/r1999-fb3-covers` and its
+`libreoffice` directory.

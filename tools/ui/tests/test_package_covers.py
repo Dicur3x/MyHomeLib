@@ -64,6 +64,13 @@ def fixtures(root, official, modes):
         pack('word.'+ext,[('_rels/.rels',rel),('docProps/thumb.png',image)])
     for ext in ('odt','ott','odm','odp','otp','ods','ots','odg','otg','odf'):
         pack('open.'+ext,[('Thumbnails/thumbnail.png',image)])
+    pack('case-fb3.fb3',[('_rels/.rels',rel),('docProps/THUMB.PNG',image)])
+    pack('case-office.docx',[('_RELS/.RELS',rel),('DOCPROPS/Thumb.png',image)])
+    pack('ambiguous-case.fb3',[('_rels/.rels',rel),('docProps/thumb.png',image),
+                              ('docProps/Thumb.png',png(48))],False)
+    pack('unicode-case.fb3',[('_rels/.rels',rel.replace('thumb.png','ёж.png')),('docProps/Ёж.png',image)],False)
+    pack('case-odt.odt',[('Thumbnails/THUMBNAIL.PNG',image)],False)
+    epub('case-epub.epub',meta,item,extra=[('OPS/images/COVER.png',image)],cover=False)
     pack('root-relative.docx',[('_rels/.rels',rel.replace('Target="docProps','Target="/docProps')),('docProps/thumb.png',image)])
     pack('network.docx',[('_rels/.rels',rel.replace('Target="docProps','Target="//invalid.test/docProps'))],False)
     pack('word-missing.docx',[('_rels/.rels','<Relationships/>'),('word/media/image1.png',image)],False)

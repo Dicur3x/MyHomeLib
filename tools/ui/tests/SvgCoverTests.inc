@@ -58,7 +58,7 @@ begin
       Stream:=TFileStream.Create(Folder+Name,fmOpenRead or fmShareDenyNone);
       try
         Stream.Position:=3;
-        Data:=ReadPackageBookCover(Stream,'.epub',Status,nil,function(Bytes:TBytes):TBytes
+        Data:=ReadPackageBookCover(Stream,ExtractFileExt(Name),Status,nil,function(Bytes:TBytes):TBytes
           begin Result:=RenderSvgBookCover(Bytes,Tool,Settings.TempDir); end);
         Require(Stream.Position=3,'SVG cover moved caller stream');
       finally Stream.Free; end;
@@ -70,7 +70,7 @@ begin
         try CheckSamples(Item,Graphic); finally Graphic.Free; end;
       end;
       Book:=Default(TBookRecord); Book.CollectionRoot:=Folder;
-      Book.FileName:=ChangeFileExt(Name,''); Book.FileExt:='.epub';
+      Book.FileName:=ChangeFileExt(Name,''); Book.FileExt:=ExtractFileExt(Name);
       Preview.Load(Book,True,False,False); WaitPreview;
       if Item.GetValue<Boolean>('cover') then CheckSamples(Item,Picture.Picture.Graphic)
       else Require(not Assigned(Picture.Picture.Graphic) and (Panel.PreviewStatusText<>''),

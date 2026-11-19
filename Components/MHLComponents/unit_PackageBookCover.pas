@@ -40,15 +40,28 @@ var Zip:TZipFile; Saved:Int64; HR:HRESULT; Ext,PackagePath,CoverID,Part:string;
   Container,PackageDoc,Relations:IXMLDOMDocument3;
   Nodes,Manifest,Guide:IXMLDOMNodeList; Node:IXMLDOMNode;
   Candidates,Seen:TStringList;
+  UsesOPC:Boolean;
   procedure Check;
   begin if Assigned(IsCanceled) and IsCanceled() then Abort; end;
   function EntryIndex(const Name:string):Integer;
+    function FoldASCII(C:Char):Char;
+    begin
+      if (C>='A') and (C<='Z') then Result:=Chr(Ord(C)+32) else Result:=C;
+    end;
+    function Matches(const Candidate:string):Boolean;
+    begin
+      if Candidate=Name then Exit(True);
+      if not UsesOPC or (Length(Candidate)<>Length(Name)) then Exit(False);
+      for var J:=1 to Length(Name) do
+        if FoldASCII(Candidate[J])<>FoldASCII(Name[J]) then Exit(False);
+      Result:=True;
+    end;
   begin
     Result:=-1;
     for var I:=0 to Zip.FileCount-1 do
     begin
       if I mod 256=0 then Check;
-      if Zip.FileNames[I]<>Name then Continue;
+      if not Matches(Zip.FileNames[I]) then Continue;
       if Result>=0 then raise EReadError.Create('В книге повторяется путь обложки: '+Name);
       Result:=I;
     end;
@@ -302,6 +315,7 @@ begin
       Zip:=TZipFile.Create; Stream.Position:=0; Zip.Open(Stream,zmRead);
       if Zip.FileCount>200000 then raise EReadError.Create('В книге слишком много файлов для предпросмотра.');
       Ext:=LowerCase(Extension).TrimLeft(['.']);
+      UsesOPC:=(Ext<>'epub') and not Ext.StartsWith('od') and not Ext.StartsWith('ot');
       if Ext='epub' then
       begin
         Container:=XML(ReadEntry('META-INF/container.xml',MaxXML));
