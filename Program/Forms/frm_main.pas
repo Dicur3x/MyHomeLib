@@ -787,6 +787,7 @@ type
     procedure FinishInitialLoading(Failed: Boolean = False);
     procedure UpdateBookToolbarForView;
     function SearchCompletionMessage: string;
+    procedure UpdateSearchEmptyMessage(Cancelled: Boolean);
     function StartupWorkersRunning: Boolean;
     procedure StopInitialLoading;
     procedure StartInitialCatalogRead(View: TView);
@@ -2044,6 +2045,7 @@ begin
           FFavoritePendingCriteria := Criteria;
           FFavoritePendingCID := FCollection.CollectionID;
           FFavoriteSearchPending := True;
+          UpdateSearchEmptyMessage(False);
           Exit;
         end;
         StatusMessage := rstrApplyingFilter;
@@ -2111,6 +2113,7 @@ begin
 
   tvBooksSR.Clear;
   ClearLabels(PAGE_SEARCH, True);
+  UpdateSearchEmptyMessage(False);
 end;
 
 procedure TfrmMain.ShowUpdatedBooks(CollectionID: Integer);
@@ -2503,6 +2506,7 @@ begin
     FHasAppliedSearch := False;
     FSearchDeletionJustRefreshed := False;
     FFavoriteSearchPending := False;
+    UpdateSearchEmptyMessage(False);
     FOnlyNewFavoriteBooks := False;
     FFavoriteDescriptor := Default(TAuthorFavoriteCollection);
     FSearchCriteria := Default(TBookSearchCriteria);
@@ -4315,6 +4319,8 @@ end;
 procedure TfrmMain.CreateSearchPanelAdapter;
 begin
   FSearchMode := TSearchQueryModeControl.CreateFor(Self, pnSearchView);
+  UpdateSearchEmptyMessage(False);
+  btnClearFilterEdits.Hint := 'Сбросить поля, фильтры столбцов, режим поиска и выбор пресета. Сохранённые пресеты останутся.';
   SearchParams.OnMouseWheel:=SearchFiltersMouseWheel;
   SearchParams.OnResize:=SearchBookExpanded;
   // Keep fresh keyboard input in Author; the mode remains in the Tab sequence.
@@ -8526,6 +8532,7 @@ begin
     SetBookListTotals(tvBooksSR, 0, 0);
     ClearLabels(PAGE_SEARCH, True);
     FBookListCancelled := False;
+    UpdateSearchEmptyMessage(False);
     Exit;
   end;
 
@@ -8541,11 +8548,13 @@ begin
     tvBooksSR.Clear;
     SetBookListTotals(tvBooksSR, 0, 0);
     StatusMessage := 'Подготовка любимых авторов...';
+    UpdateSearchEmptyMessage(False);
     Exit;
   end;
   FillBooksTree(tvBooksSR, nil,
     function: IBookIterator begin Result := FCollection.Search(Criteria, False); end,
     True, True, @SelectedKey);
+  UpdateSearchEmptyMessage(FBookListCancelled);
 end;
 
 procedure TfrmMain.HideDeletedBooksUpdate(Sender: TObject);
@@ -11860,6 +11869,7 @@ begin
     else if Matching then
     begin
       FFavoriteSearchPending := False;
+      UpdateSearchEmptyMessage(False);
       if Worker.ErrorMessage <> '' then
         StatusMessage := 'Не удалось проверить любимых авторов: ' + Worker.ErrorMessage
       else StatusMessage := 'Проверка любимых авторов отменена';
@@ -12619,19 +12629,48 @@ begin
   else Result := 'В этой коллекции любимые авторы не найдены.';
 end;
 
+procedure TfrmMain.UpdateSearchEmptyMessage(Cancelled: Boolean);
+var MessageText: string;
+begin
+  if Cancelled then
+    MessageText := 'Поиск отменён. Нажмите «Применить», чтобы повторить.'
+  else if FFavoriteSearchPending then
+    MessageText := 'Подготовка любимых авторов…'
+  else if not FHasAppliedSearch then
+    MessageText := 'Введите условия и нажмите «Применить», чтобы найти книги.'
+  else
+  begin
+    MessageText := SearchCompletionMessage;
+    if MessageText = rstrReadyMessage then
+      if tvBooksSR.GetFirst <> nil then
+        MessageText := 'Фильтры столбцов скрыли все найденные книги.'
+      else
+        MessageText := 'Книги не найдены. Попробуйте изменить условия поиска.';
+  end;
+  tvBooksSR.EmptyListMessage := MessageText;
+end;
+
 procedure TfrmMain.ApplySearchCriteria(const Criteria: TBookSearchCriteria; SelectedID: PBookKey);
+var Search: TFunc<IBookIterator>;
 begin
   FSearchDeletionJustRefreshed := False;
   Exclude(FLoadedBookViews, SearchView);
+  tvBooksSR.EmptyListMessage := 'Выполняется поиск…';
   tvBooksSR.Clear;
   ClearLabels(PAGE_SEARCH, True);
-  FillBooksTree(tvBooksSR, nil,
-    function: IBookIterator begin Result := FCollection.Search(Criteria, False); end, True, True, SelectedID);
+  Search := function: IBookIterator begin Result := FCollection.Search(Criteria, False); end;
+  try
+    FillBooksTree(tvBooksSR, nil, Search, True, True, SelectedID);
+  except
+    tvBooksSR.EmptyListMessage := 'Не удалось выполнить поиск. Проверьте условия и нажмите «Применить».';
+    raise;
+  end;
   if not FBookListCancelled then
   begin
     FSearchCriteria := Criteria;
     FHasAppliedSearch := True;
   end;
+  UpdateSearchEmptyMessage(FBookListCancelled);
 end;
 
 function TfrmMain.SearchPresetIndex(const Name: string): Integer;
@@ -13141,11 +13180,14 @@ begin
           // или при парсинге книги (загрузили какую-то ерунду).
           on e: Exception do
           begin
-            if not (e is ENotSupportedException) and FileExists(Saved.GetBookFileName) then
-              MHLShowError(e.Message)
-            else if not FileExists(Saved.GetBookFileName) then
+            if not FileExists(Saved.GetBookFileName) then
+            begin
               frmBookDetails.ConfigureDescription(Saved, ReviewEditable, False);
-            frmBookDetails.FillBookInfo(DetailsBook, nil);
+              frmBookDetails.FillBookInfo(DetailsBook, nil);
+            end
+            else if e is ENotSupportedException then frmBookDetails.FillBookInfo(DetailsBook, nil)
+            else
+              frmBookDetails.FillBookInfo(DetailsBook, nil, 'Не удалось прочитать сведения: ' + e.Message);
           end;
         end;
       end
@@ -13217,7 +13259,7 @@ begin
           else Continue;
         if ReviewEditable and (Modal <> mrOk) then Exit;
         if not frmBookDetails.ReviewChanged then Exit;
-        strReview := frmBookDetails.Review; strAnnotation := frmBookDetails.Annotation;
+        strReview := frmBookDetails.Review; strAnnotation := frmBookDetails.AnnotationForSave;
         ChangedFields := [];
         if strReview <> PreviousReview then Include(ChangedFields, bpfReview);
         if frmBookDetails.AnnotationChanged then Include(ChangedFields, bpfAnnotation);

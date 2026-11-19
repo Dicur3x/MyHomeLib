@@ -21,7 +21,7 @@ object frmBookDetails: TfrmBookDetails
     Top = 53
     Width = 622
     Height = 388
-    ActivePage = tsReview
+    ActivePage = tsFileInfo
     Align = alClient
     DoubleBuffered = True
     ParentDoubleBuffered = False
@@ -206,9 +206,9 @@ object frmBookDetails: TfrmBookDetails
         object btnAnnotationFile: TButton
           Left = 8
           Top = 4
-          Width = 112
+          Width = 188
           Height = 25
-          Caption = #1048#1079#32#1092#1072#1081#1083#1072
+          Caption = #1042#1077#1088#1085#1091#1090#1100#32#1086#1087#1080#1089#1072#1085#1080#1077#32#1080#1079#32#1092#1072#1081#1083#1072
           Enabled = False
           TabOrder = 0
           OnClick = btnAnnotationFileClick
