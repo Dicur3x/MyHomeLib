@@ -562,9 +562,9 @@ begin
     begin
       var DOCReader:=FindDirectDOCReader;
       if DOCReader='' then raise EMHLComponentRequired.Create('DocSharp','Для этого DOC нужен компонент DocSharp.');
-      var DOCXName:=TPath.Combine(Work,'prepared.docx'); DOCStarted:=GetTickCount64;
+      var PreparedDocument:=TPath.Combine(Work,'prepared.docx'); DOCStarted:=GetTickCount64;
       try
-        RunExternalToolToStream(DOCReader,[InputName,DOCXName],Log,
+        RunExternalToolToStream(DOCReader,[InputName,PreparedDocument],Log,
           function: Boolean
           begin
             Check; Result:=False;
@@ -576,12 +576,35 @@ begin
           if Log.DataString.Contains('ERROR PASSWORD') then
             raise Exception.Create('Этот DOC защищён паролем. Если у вас есть пароль, откройте документ в Word и сохраните копию в DOCX без пароля.')
           else if Log.DataString.Contains('ERROR OLD') then
-            raise Exception.Create('Этот DOC создан в Word 95 или более старой версии. Откройте его в редакторе, который читает старые DOC, и сохраните копию в DOCX.')
+          begin
+            var LegacyDocReader:=TPath.Combine(AppPath,LEGACY_DOC_WORKER);
+            if not FileExists(LegacyDocReader) then
+              raise EMHLComponentRequired.Create('BookProcessing','Для автоматического экспорта DOC формата Word 6/95 обновите модуль обработки книг.');
+            PreparedDocument:=TPath.Combine(Work,'prepared.txt');
+            DOCStarted:=GetTickCount64;
+            Log.Clear;
+            try
+              RunExternalToolToStream(LegacyDocReader,[InputName,PreparedDocument],Log,
+                function: Boolean
+                begin
+                  Check;
+                  if GetTickCount64-DOCStarted>30000 then raise Exception.Create('Чтение старого DOC превысило 30 секунд.');
+                  Result:=False;
+                end,0,True,384*1024*1024);
+            except
+              on Failure: EMHLExternalToolError do
+                raise Exception.Create('Не удалось извлечь текст из старого DOC. Можно сохранить копию в исходном формате.');
+            end;
+            if not FileExists(PreparedDocument) or (TFile.GetSize(PreparedDocument)=0) then
+              raise Exception.Create('В старом DOC не найден текст для экспорта. Можно сохранить копию в исходном формате.');
+            if Assigned(Warnings) then
+              Warnings.Add('Из DOC формата Word 6/95 извлечён текст. Оформление и изображения не перенесены.');
+          end
           else raise Exception.Create('DocSharp не смог прочитать DOC. Возможно, файл повреждён или использует неподдерживаемый вариант формата.');
         end;
       end;
-      if not FileExists(DOCXName) then raise Exception.Create('Компонент DocSharp не смог прочитать этот DOC.');
-      InputName:=DOCXName; Extension:='.docx'; Log.Clear;
+      if not FileExists(PreparedDocument) then raise Exception.Create('Компонент DocSharp не смог прочитать этот DOC.');
+      InputName:=PreparedDocument; Extension:=ExtractFileExt(PreparedDocument); Log.Clear;
     end;
     // The Python same-format path validates and copies the exact bytes. Do
     // not publish an unchecked source merely because its suffix matches.

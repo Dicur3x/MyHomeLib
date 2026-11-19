@@ -303,6 +303,36 @@ def book_processing_sources():
     return files, required
 
 
+def legacy_doc_payload(version):
+    if tuple(map(int, version.split('.'))) < (3, 0, 0, 16):
+        return {}
+    project = REPO / 'Utils/HomeLibLegacyDoc'
+    build = project / 'bin/Release/net462'
+    executable = 'HomeLibLegacyDoc.exe'
+    if not (build / executable).is_file():
+        raise ValueError('Build Utils/HomeLibLegacyDoc in Release with its locked NuGet packages first')
+    if any((build / executable).stat().st_mtime_ns < (project / name).stat().st_mtime_ns
+           for name in ('HomeLibLegacyDoc.csproj', 'Program.cs', 'packages.lock.json')):
+        raise ValueError('Rebuild HomeLibLegacyDoc from the current source')
+    dependencies = next(iter(json.loads((project / 'packages.lock.json').read_bytes())['dependencies'].values()))
+    cache = Path(os.environ.get('NUGET_PACKAGES', Path.home() / '.nuget/packages'))
+    notices = [b'GHSoftware.WordDocTextExtractor 1.0.4. Copyright (c) 2026 Gustavo Hennig.\n'
+               b'Source: https://github.com/GustavoHennig/b2xtranslator\n',
+               (REPO / 'Installer/DocReaderLicenses/b2xtranslator-BSD-3-Clause.txt').read_bytes()]
+    for name, dependency in dependencies.items():
+        if not name.startswith(('Microsoft.', 'System.')) or name.startswith('Microsoft.NETFramework.'):
+            continue
+        package = cache / name.lower() / dependency['resolved']
+        for filename in ('LICENSE.TXT', 'THIRD-PARTY-NOTICES.TXT'):
+            notice = (package / filename).read_bytes()
+            if notice not in notices:
+                notices.append(notice)
+    files = [build / executable, build / (executable + '.config'), *sorted(build.glob('*.dll'))]
+    payload = {'tools/bookconvert/legacy-doc/' + file.name: file.read_bytes() for file in files}
+    payload['tools/bookconvert/legacy-doc/NOTICE.txt'] = b'\n\n'.join(notices)
+    return payload
+
+
 def matches_checkout_source(name, data, digest):
     if helper.digest(data) == digest:
         return True
@@ -318,6 +348,9 @@ def matches_checkout_source(name, data, digest):
 def verify_book_processing_sources(manifest, descriptor):
     """Compare a verified component manifest with the files used by the package writer."""
     current, required = book_processing_sources()
+    legacy_doc = legacy_doc_payload(manifest['version'])
+    current.update(legacy_doc)
+    required.extend(legacy_doc)
     recorded = {entry['path']: entry['sha256'] for entry in manifest['files']}
     mismatches = [name for name, data in current.items() if not matches_checkout_source(name, data, recorded.get(name))]
     if mismatches:
@@ -425,6 +458,10 @@ def package(output, platform, component, version, kindle_export_root=None, advan
             kfx_export_root=None, image_processing_root=None):
     payload, required = payload_for(platform, component, kindle_export_root, advanced_export_root, opds_tls_go,
                                     kfx_export_root, image_processing_root)
+    if component == 'BookProcessing':
+        legacy_doc = legacy_doc_payload(version)
+        payload.update(legacy_doc)
+        required.extend(legacy_doc)
     descriptor = dict(format=1, component=component, platform=platform, version=version,
                       required=required, identities={name:helper.digest(payload[name]) for name in required})
     payload[DESCRIPTORS[component]] = helper.json_bytes(descriptor)

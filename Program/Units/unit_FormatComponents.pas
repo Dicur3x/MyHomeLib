@@ -11,6 +11,8 @@ const
   PACKING_USR_COMPONENT_VERSION = '3.0.0.8';
   PACKING_WORKER_FILE = 'tools/bookconvert/pack_collection.py';
   SELECTED_COMPRESSION_VERSION = '3.0.0.14';
+  LEGACY_DOC_COMPONENT_VERSION = '3.0.0.16';
+  LEGACY_DOC_WORKER = 'tools/bookconvert/legacy-doc/HomeLibLegacyDoc.exe';
   SELECTED_COMPRESSION_IMAGE_VERSION = '3.0.0.14';
   SELECTED_COMPRESSION_WORKER = 'tools/bookconvert/prepare_book_compression.py';
   SQL_CATALOGUE_WORKER = 'tools/bookconvert/catalogdump/build_index.py';
@@ -87,6 +89,9 @@ begin
       Result:=Result+[SELECTED_COMPRESSION_WORKER,'tools/bookconvert/archive_replacement.py',
         'tools/bookconvert/compression_preview.py','tools/bookconvert/estimate_book_compression.py',
         'tools/bookconvert/compression_image_history.py'];
+    if CompareComponentVersions(Version,LEGACY_DOC_COMPONENT_VERSION,Comparison) and (Comparison>=0) then
+      Result:=Result+[LEGACY_DOC_WORKER,LEGACY_DOC_WORKER+'.config',
+        'tools/bookconvert/legacy-doc/NOTICE.txt'];
   end;
   if ID='ImageProcessing' then Result:=TArray<string>.Create('tools/images/HomeLibImages.exe',
     'tools/images/RUNTIME.json','tools/images/HomeLibImages-MIT.txt');
