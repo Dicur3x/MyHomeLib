@@ -161,6 +161,29 @@ object frmBookDetails: TfrmBookDetails
     object tsAnnotation: TTabSheet
       Caption = #1054#1087#1080#1089#1072#1085#1080#1077
       ImageIndex = 3
+      object pnAnnotationHeader: TPanel
+        Left = 0
+        Top = 0
+        Width = 614
+        Height = 44
+        Align = alTop
+        BevelOuter = bvNone
+        ShowCaption = False
+        TabOrder = 2
+        object lblAnnotationState: TLabel
+          AlignWithMargins = True
+          Left = 8
+          Top = 3
+          Width = 558
+          Height = 38
+          Margins.Left = 8
+          Margins.Right = 48
+          Align = alClient
+          AutoSize = False
+          Layout = tlCenter
+          WordWrap = True
+        end
+      end
       object mmoAnnotation: TMemo
         AlignWithMargins = True
         Left = 3
@@ -174,22 +197,12 @@ object frmBookDetails: TfrmBookDetails
       end
       object pnAnnotationSources: TPanel
         Left = 0
-        Top = 283
+        Top = 325
         Width = 614
-        Height = 77
+        Height = 35
         Align = alBottom
         BevelOuter = bvNone
         TabOrder = 1
-        object lblAnnotationState: TLabel
-          Left = 8
-          Top = 35
-          Width = 594
-          Height = 38
-          Anchors = [akLeft, akTop, akRight]
-          AutoSize = False
-          WordWrap = True
-          Caption = #1048#1079#1084#1077#1085#1077#1085#1080#1103#32#1089#1086#1093#1088#1072#1085#1103#1102#1090#1089#1103#32#1087#1088#1080#32#1079#1072#1082#1088#1099#1090#1080#1080#32#1086#1082#1085#1072#46
-        end
         object btnAnnotationFile: TButton
           Left = 8
           Top = 4

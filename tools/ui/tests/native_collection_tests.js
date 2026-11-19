@@ -134,7 +134,8 @@ if (viewsMode !== null && !modes.includes(viewsMode) && !proposalVisualModes.inc
 const requiredViews = {
   "backup-restore": ["PASS snapshot restore creates an isolated catalog"],
   "library-update-sources": ["PASS update review reads INPX and Metabib", "PASS source settings window edits"],
-  "tool-context-guides": ["book-compression", "book-duplicates", "book-metadata-fill", "collection-backup", "library-update-sources"]
+  "tool-context-guides": ["book-compression", "book-duplicates", "book-metadata-fill", "collection-backup",
+    "library-update-sources", "book-description"]
     .flatMap(topic => [96, 216].flatMap(dpi => ["FALSE", "TRUE"].map(dark =>
       `PASS contextual tool guide ${topic} ppi=${dpi} dark=${dark}`))),
   'toolbar-icon-theme': ['PASS catalogue toolbar uses contrast-appropriate native artwork'],

@@ -1,12 +1,12 @@
 ﻿procedure TestContextToolGuides(CID:Integer);
-const Topics:array[0..4] of string=('book-compression','book-duplicates','book-metadata-fill',
-    'collection-backup','library-update-sources');
-  Names:array[0..4] of string=('CompressionContextGuide','DuplicatesContextGuide','MetadataContextGuide',
-    'BackupContextGuide','UpdateSourcesContextGuide');
-  Inputs:array[0..4] of string=('CompressionProfile','btnFindBookDuplicates','cbMetadataField0',
-    'lbCollectionBackups','lvLibraryUpdateSources');
-  Intros:array[0..4] of string=('CompressionOptionsIntro','DuplicateIntro','lblMetadataFillScope',
-    'BackupIntro','UpdateSourcesIntro');
+const Topics:array[0..5] of string=('book-compression','book-duplicates','book-metadata-fill',
+    'collection-backup','library-update-sources','book-description');
+  Names:array[0..5] of string=('CompressionContextGuide','DuplicatesContextGuide','MetadataContextGuide',
+    'BackupContextGuide','UpdateSourcesContextGuide','BookDescriptionContextGuide');
+  Inputs:array[0..5] of string=('CompressionProfile','btnFindBookDuplicates','cbMetadataField0',
+    'lbCollectionBackups','lvLibraryUpdateSources','mmoAnnotation');
+  Intros:array[0..5] of string=('CompressionOptionsIntro','DuplicateIntro','lblMetadataFillScope',
+    'BackupIntro','UpdateSourcesIntro','lblAnnotationState');
 var OriginalTheme:Boolean; Host,Popup:TForm; Tool:TContextToolGuide; Guide:TFirstUseGuide;
   Collection:IBookCollection; BeforeData,PreferencesSHA:string; Ini:TMemIniFile;
   FocusBefore:TWinControl; ActiveBefore,ForegroundBefore:HWND; FocusChecks:Integer; FocusFailure:string;
@@ -38,6 +38,11 @@ var OriginalTheme:Boolean; Host,Popup:TForm; Tool:TContextToolGuide; Guide:TFirs
       2: Host:=TfrmBookMetadataFill.CreateForCollection(frmMain,CID);
       3: Host:=TfrmCollectionBackup.Create(frmMain);
       4: Host:=TfrmLibraryUpdateSources.CreateForCollection(frmMain,Collection);
+      5: begin
+        var Details:=TfrmBookDetails.Create(frmMain); Host:=Details;
+        Details.ConfigureDescription(Default(TBookRecord),True,False);
+        Details.LoadDescription('Проверенное описание'); Details.FocusDescription;
+      end;
     end;
     Host.ScaleForPPI(PPI);
     Tool:=Host.FindComponent(Names[Kind]) as TContextToolGuide;
@@ -101,6 +106,8 @@ var OriginalTheme:Boolean; Host,Popup:TForm; Tool:TContextToolGuide; Guide:TFirs
         not TButton(Host.FindComponent('btnRestoreBackup')).Enabled,'Help restored a backup or enabled restoration');
       4: Require(not Assigned(TfrmLibraryUpdateSources(Host).Prepared) and
         not TfrmLibraryUpdateSources(Host).Committed,'Help prepared or applied an update');
+      5: Require(not TfrmBookDetails(Host).AnnotationChanged and not TfrmBookDetails(Host).ReviewChanged and
+        (TfrmBookDetails(Host).Annotation.Trim='Проверенное описание'),'Help changed the book description');
     end;
   end;
 begin

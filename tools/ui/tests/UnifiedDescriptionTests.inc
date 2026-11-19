@@ -4,7 +4,7 @@
     Expected, Origin, Draft, Failure, Capture: string;
     Operation: Integer;
     Deadline: UInt64;
-    Done: Boolean;
+    Done, EditEntry: Boolean;
     procedure Tick(Sender: TObject);
   end;
 
@@ -30,7 +30,11 @@ begin
       Require(string(Details.lblAnnotationState.Caption).Contains(Origin) and
         string(Details.lblAnnotationState.Caption).Contains('Файл книги не меняется'),
         'Description source or storage destination is not explained');
-      Details.FocusDescription;
+      if EditEntry then
+        Require(Details.pcBookInfo.ActivePage=Details.tsAnnotation,
+          'The edit command did not open the description tab')
+      else
+        Details.pcBookInfo.ActivePage:=Details.tsAnnotation;
       if Capture<>'' then
       begin
         Bitmap:=Details.GetFormImage; PNG:=TPngImage.Create;
@@ -71,6 +75,7 @@ var Key: TBookKey; Book, RowBook: TBookRecord; SourceFile, SourceHash: string;
     Probe:=TUnifiedDescriptionProbe.Create;
     try
       Probe.Expected:=Expected; Probe.Origin:=Origin; Probe.Draft:=Draft; Probe.Operation:=Operation;
+      Probe.EditEntry:=EditEntry;
       Probe.Deadline:=GetTickCount64+15000;
       if Operation=0 then Probe.Capture:='description-'+IntToStr(Ord(EditEntry))+'.png';
       Probe.Timer:=TTimer.Create(nil); Probe.Timer.Interval:=25; Probe.Timer.OnTimer:=Probe.Tick;
@@ -210,7 +215,13 @@ begin
         SetMHLTheme(Dark); Form:=TfrmBookDetails.Create(nil);
         try
           Form.ConfigureDescription(Book,True,True); Form.LoadDescription('Saved description');
-          Form.ScaleForPPI(DPI); Form.FocusDescription; ApplyMHLControlTheme(Form); Form.Show;
+          Form.ScaleForPPI(DPI); ApplyMHLControlTheme(Form); Form.Show;
+          var Guide:=Form.FindComponent('BookDescriptionContextGuide') as TContextToolGuide;
+          var BeforeShow:=GetTickCount64+60;
+          repeat Application.ProcessMessages; Sleep(1); until GetTickCount64>=BeforeShow;
+          Require(not IsWindowVisible(Guide.HelpButton.Handle) and (Guide.FindComponent('ToolGuidePopupbookdescription')=nil),
+            'Description guide appeared on a different tab');
+          Form.FocusDescription;
           Application.ProcessMessages;
           Save:=Form.FindComponent('btnSaveDescription') as TButton;
           Restore:=Form.FindComponent('btnRestoreDescription') as TButton;
@@ -220,6 +231,30 @@ begin
             (Restore.BoundsRect.Right<=Restore.Parent.ClientWidth) and
             (Form.mmoAnnotation.Height>MulDiv(120,DPI,96)),
             'Description controls overlap or lose useful editor space at scaled DPI');
+          Require((Form.lblAnnotationState.BoundsRect.Right<=Guide.HelpButton.Left) and
+            (Form.pnAnnotationHeader.BoundsRect.Bottom<=Form.mmoAnnotation.Top),
+            'Description source, question button and editor overlap');
+          Form.mmoAnnotation.Text:='Черновик'; Form.mmReview.Text:='Правка отзыва';
+          Guide.HelpButton.Click;
+          var Popup:=Guide.FindComponent('ToolGuidePopupbookdescription') as TForm;
+          Require(Popup.Visible,'Manual description guide did not open');
+          Form.pcBookInfo.SetFocus;
+          var TabPoint:=Form.pcBookInfo.TabRect(Form.tsReview.TabIndex).CenterPoint;
+          var ClickPos:=MakeLParam(TabPoint.X,TabPoint.Y);
+          Form.pcBookInfo.Perform(WM_LBUTTONDOWN,MK_LBUTTON,ClickPos);
+          Form.pcBookInfo.Perform(WM_LBUTTONUP,0,ClickPos); Application.ProcessMessages;
+          Require(Form.pcBookInfo.ActivePage=Form.tsReview,'Clicking Reviews did not switch the tab');
+          Require(not Popup.Visible and not IsWindowVisible(Guide.HelpButton.Handle),
+            'Description guide followed the user to the reviews tab');
+          Form.FocusDescription;
+          Require((Form.Annotation.Trim='Черновик') and (Form.Review.Trim='Правка отзыва') and
+            Form.AnnotationChanged and Restore.Enabled,'Help or switching tabs discarded a draft');
+          Restore.Click;
+          Require((Form.Annotation.Trim='Saved description') and (Form.Review.Trim='Правка отзыва'),
+            'Undo after contextual help also reverted the review');
+          Guide.HelpButton.Click; Form.Hide; Application.ProcessMessages;
+          Require(not Popup.Visible,'Hiding book details left its description guide open');
+          Form.Show; Application.ProcessMessages;
           Bitmap:=Form.GetFormImage; PNG:=TPngImage.Create;
           try
             PNG.Assign(Bitmap); PNG.SaveToFile(Format('description-layout-%d-%d.png',[Ord(Dark),DPI]));

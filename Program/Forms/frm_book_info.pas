@@ -40,7 +40,7 @@ uses
   ComCtrls,
   unit_Globals,
   Menus,
-  ActnList, System.Actions, frm_AuthorInformation, unit_ReviewParser;
+  ActnList, System.Actions, frm_AuthorInformation, unit_ReviewParser, unit_ContextToolGuide;
 
 type
   TReviewDownloadThread = class;
@@ -71,6 +71,7 @@ type
     miCopyValue: TMenuItem;
     tsAnnotation: TTabSheet;
     mmoAnnotation: TMemo;
+    pnAnnotationHeader: TPanel;
     pnAnnotationSources: TPanel;
     lblAnnotationState: TLabel;
     btnAnnotationFile: TButton;
@@ -101,9 +102,12 @@ type
     FDescriptionOrigin, FInitialDescriptionOrigin: TDescriptionOrigin;
     FDescriptionSelected: Boolean;
     FSaveDescription, FRestoreDescription: TButton;
+    FDescriptionGuide: TContextToolGuide;
     FRelinkButton: TButton;
     FRelinkAction: TProc;
     FInfoNotify, FFileNotify: TWndMethod;
+    procedure DescriptionTabShown(Sender: TObject);
+    procedure DescriptionTabHidden(Sender: TObject);
     procedure RelinkClick(Sender: TObject);
     procedure StartBookTextRequest(Source: TBookTextSource);
     function RequestStatus: TLabel;
@@ -126,6 +130,7 @@ type
 
   protected
     procedure DoCreate; override;
+    procedure DoHide; override;
 
   public
     destructor Destroy; override;
@@ -226,7 +231,29 @@ begin
   pnButtons.OnResize:=LayoutButtons;
   mmoAnnotation.OnChange:=DescriptionChanged;
   lblAnnotationState.Caption:='Описание в HomeLibre. Файл книги не меняется.';
+  FDescriptionGuide:=TContextToolGuide.CreateForTool(Self,pnAnnotationHeader,'book-description',
+    'Где сохраняется описание книги',
+    '«Информация о книге → Описание» и «Изменить описание» открывают одно и то же поле в HomeLibre.',
+    'Над текстом видно, откуда взято описание. «Из файла» и «С сайта» подставляют текст в это поле.'+sLineBreak+
+    'Если правка доступна, введите свой текст и нажмите «Сохранить». Описание сохранится в карточке HomeLibre. Сам файл книги останется прежним.'+sLineBreak+
+    '«Отменить правки» возвращает описание, с которым вы открыли карточку. «Отмена» закрывает карточку и отбрасывает также правки отзывов.',
+    117,'description');
+  FDescriptionGuide.Name:='BookDescriptionContextGuide';
+  FDescriptionGuide.HelpButton.SetBounds(pnAnnotationHeader.ClientWidth-ScaleValue(40),
+    ScaleValue(8),ScaleValue(28),ScaleValue(28));
+  FDescriptionGuide.HelpButton.Hint:='Где сохраняется описание и как отменить правку';
+  tsAnnotation.OnShow:=DescriptionTabShown;
+  tsAnnotation.OnHide:=DescriptionTabHidden;
+end;
 
+procedure TfrmBookDetails.DescriptionTabShown(Sender: TObject);
+begin
+  FDescriptionGuide.FirstUse;
+end;
+
+procedure TfrmBookDetails.DescriptionTabHidden(Sender: TObject);
+begin
+  FDescriptionGuide.Hide;
 end;
 
 procedure TfrmBookDetails.acCopyValueExecute(Sender: TObject);
@@ -264,6 +291,11 @@ end;
 
 destructor TfrmBookDetails.Destroy;
 begin
+  if Assigned(tsAnnotation) then
+  begin
+    tsAnnotation.OnShow:=nil;
+    tsAnnotation.OnHide:=nil;
+  end;
   if Assigned(FReviewTimer) then FReviewTimer.Enabled := False;
   if Assigned(FInfoNotify) then tsInfo.WindowProc := FInfoNotify;
   if Assigned(FFileNotify) then tsFileInfo.WindowProc := FFileNotify;
@@ -561,11 +593,18 @@ end;
 
 procedure TfrmBookDetails.FormShow(Sender: TObject);
 begin
+  if pcBookInfo.ActivePage=tsAnnotation then FDescriptionGuide.FirstUse;
   LayoutButtons(nil);
   lvFileInfo.AutosizeColumn(0);
   lvFileInfo.AutosizeColumn(1);
   lvInfo.AutosizeColumn(0);
   lvInfo.AutosizeColumn(1);
+end;
+
+procedure TfrmBookDetails.DoHide;
+begin
+  if Assigned(FDescriptionGuide) then FDescriptionGuide.Hide;
+  inherited;
 end;
 
 procedure TfrmBookDetails.LayoutButtons(Sender: TObject);
