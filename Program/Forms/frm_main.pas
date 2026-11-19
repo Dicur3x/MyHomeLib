@@ -588,6 +588,8 @@ type
     procedure ExportUserDataExecute(Sender: TObject);
     procedure UpdateGenresExecute(Sender: TObject);
     procedure SyncFilesExecute(Sender: TObject);
+    procedure ReviewMissingBooksExecute(Sender: TObject);
+    procedure UpdateMissingBooksCommand(Sender: TObject);
     procedure RepairDataBaseExecute(Sender: TObject);
     procedure CompactDataBaseExecute(Sender: TObject);
     procedure DeleteCollectionExecute(Sender: TObject);
@@ -6050,6 +6052,9 @@ begin
   miPdfdjvu.Caption:='Из папки: книги других форматов…';
   miFBDImport.Caption:='Из папки: архивы с описаниями FBD…';
   N6.Caption:='Обслуживание каталога';
+  FilterMenu:=TMenuItem.Create(Self); FilterMenu.Name:='miMissingBookRecords';
+  FilterMenu.Caption:='Найти записи без файлов…'; FilterMenu.OnClick:=ReviewMissingBooksExecute;
+  N6.Add(FilterMenu); N6.OnClick:=UpdateMissingBooksCommand;
 
   FilterMenu:=TMenuItem.Create(Self); FilterMenu.Name:='miCatalogSources';
   FilterMenu.Caption:='Источники коллекции…';
@@ -13463,6 +13468,35 @@ begin
     // Пока это нужно, т к рабочий поток не сообщает основному об изменении свойств книги
     InitCollection;
   end;
+end;
+
+procedure TfrmMain.UpdateMissingBooksCommand(Sender: TObject);
+begin
+  var Item := FindComponent('miMissingBookRecords') as TMenuItem;
+  if Assigned(Item) then
+  begin
+    Item.Visible := Assigned(FCollection) and isLocalCollection(FCollection.CollectionCode);
+    Item.Enabled := Item.Visible and not FFormBusy and not FStartupLoading and not FBookListLoading and
+      not Assigned(FBookDeletionOperation) and not FBookDeletionNeedsRecovery;
+  end;
+end;
+
+procedure TfrmMain.ReviewMissingBooksExecute(Sender: TObject);
+begin
+  if not Assigned(FCollection) or not isLocalCollection(FCollection.CollectionCode) or FFormBusy or
+    FStartupLoading or FBookListLoading or Assigned(FBookDeletionOperation) or FBookDeletionNeedsRecovery or
+    CompressionBlocksCatalogChange then Exit;
+  var CollectionID := FCollection.CollectionID;
+  var Changed := False;
+  FFormBusy := True;
+  try
+    try
+      Changed := ReviewMissingBookRecords(Self, FSystemData.GetCollectionInfo(CollectionID));
+    except
+      on E: Exception do begin LogDiagnosticError('missing-book-records', E); MHLShowWarning(E.Message); end;
+    end;
+  finally FFormBusy := False; end;
+  if Changed then RefreshAfterBookDeletion(CollectionID, True, False);
 end;
 
 procedure TfrmMain.UpdateOnlineCollectionExecute(Sender: TObject);

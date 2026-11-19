@@ -27,6 +27,7 @@ uses
 type
 
   EArchiveBookEntryNotFound = class(EZipException);
+  EArchiveBookEntryMissing = class(EArchiveBookEntryNotFound);
 
   TStreamSource = record
     Name: string;
@@ -543,7 +544,7 @@ begin
       Result:=LegacyIndex;
     end;
   end;
-  if Result<0 then raise EArchiveBookEntryNotFound.CreateFmt('Archive entry "%s" was not found',[AFileName]);
+  if Result<0 then raise EArchiveBookEntryMissing.CreateFmt('Archive entry "%s" was not found',[AFileName]);
 end;
 
 function TMHLZip.ResolveBookName(const AFileName: string; const LegacyIndex: Integer;
