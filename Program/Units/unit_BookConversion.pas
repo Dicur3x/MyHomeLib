@@ -246,16 +246,16 @@ begin
   begin
     TargetExtension:=AdvancedBookOutputExtension(OutputProfile);
     if ForReading or PackedOutput or (TargetExtension='') or not TargetFile.EndsWith(TargetExtension,True) then
-      raise Exception.Create('Имя файла не соответствует выбранному формату.');
+      raise Exception.Create('Имя файла не соответствует выбранному формату. Проверьте расширение файла.');
   end;
   var QualityParts:=ImageQuality.Split(['|']);
   QualityProfile:=QualityParts[0]; ScanLayout:='keep'; ScanExclude:='';
   if (Length(QualityParts)>1) and ((QualityParts[1]='split') or (QualityParts[1]='auto')) then ScanLayout:=QualityParts[1];
   if (Length(QualityParts)>2) and QualityParts[2].StartsWith('except=') then ScanExclude:=QualityParts[2].Substring(7);
-  if not IsValidScanPageExclusions(ScanExclude) then raise Exception.Create('Некорректные номера сканов.');
+  if not IsValidScanPageExclusions(ScanExclude) then raise Exception.Create('Укажите номера сканов через запятую, например 1, 98-100.');
   if (OutputProfile='') and not ((TargetExtension='.fb2') or (TargetExtension='.epub') or
     (TargetExtension='.mobi') or (TargetExtension='.azw3')) then
-    raise Exception.Create('Этот формат пока не поддерживается конвертером FB2/EPUB.');
+    raise Exception.Create('Этот формат пока не поддерживается конвертером FB2/EPUB. Сохраните книгу в исходном формате.');
   if BookOutputExists(TargetFile) and not OverwriteExisting then
     raise Exception.Create('Файл результата уже существует. Выберите другое имя.');
   var ProtectedSource:=ProtectedSourceFile; if ProtectedSource='' then ProtectedSource:=SourceFile;
@@ -282,8 +282,12 @@ begin
       (Pos('|'+Actual.TrimLeft(['.'])+'|','|pdf|djvu|djv|dju|djm|djvm|')>0);
     if not TextLayerOnly and
       (Pos('|'+Actual.TrimLeft(['.'])+'|','|pdf|djvu|djv|dju|djm|djvm|tif|tiff|cbz|cbr|cb7|jpg|jpeg|png|gif|bmp|webp|xps|oxps|')>0) then
-      raise Exception.Create('Этот формат преобразуется как сканы: изображения содержат сами страницы. '+
-        'Для режима без изображений сначала нужно распознать текст.');
+    begin
+      if ExtractTextLayer then
+        raise Exception.Create('TXT сохраняет только текст. Выберите FB2 или EPUB, чтобы сохранить страницы как изображения.');
+      raise Exception.Create('Изображения содержат сами страницы. '+
+        'Выберите «Без уменьшения качества» или один из режимов сжатия изображений.');
+    end;
   end;
   var Missing:=MissingBookConversionComponents(AppPath,SourceFile,Extension,
     not ForReading and (QualityProfile<>'none') and ((QualityProfile<>'original') or (ScanLayout<>'keep') or Grayscale),
@@ -464,9 +468,9 @@ begin
             (not Options.ScanPages or ((ChoiceParts[1]<>'split') and (ChoiceParts[1]<>'auto')))) or
             ((Length(ChoiceParts)>2) and (not ChoiceParts[2].StartsWith('except=') or
              not IsValidScanPageExclusions(ChoiceParts[2].Substring(7)))) then
-            raise Exception.Create('Некорректные параметры разделения сканов.');
+            raise Exception.Create('Проверьте параметры разделения сканов. Номера исключений укажите, например, так: 1, 98-100.');
           if (CheckedChoice='none') and ((Options.NoImagesBytes<=0) or (Length(ChoiceParts)<>1)) then
-            raise Exception.Create('В этой книге изображения содержат сами страницы; сначала нужно распознать текст.');
+            raise Exception.Create('В этой книге изображения содержат сами страницы. Выберите режим с изображениями.');
           if (CheckedChoice<>'original') and (CheckedChoice<>'high') and (CheckedChoice<>'balanced') and (CheckedChoice<>'economy') and (CheckedChoice<>'maximum') and (CheckedChoice<>'none') then
             raise Exception.Create('Неизвестное качество изображений.');
           TFile.WriteAllText(ImageChoiceName+'.new',Choice,TEncoding.UTF8);
@@ -570,9 +574,9 @@ begin
         on E: EMHLExternalToolError do
         begin
           if Log.DataString.Contains('ERROR PASSWORD') then
-            raise Exception.Create('Этот DOC защищён паролем. Конвертация не выполнена.')
+            raise Exception.Create('Этот DOC защищён паролем. Если у вас есть пароль, откройте документ в Word и сохраните копию в DOCX без пароля.')
           else if Log.DataString.Contains('ERROR OLD') then
-            raise Exception.Create('Этот DOC создан в Word 95 или более старой версии. Такой вариант пока не поддерживается.')
+            raise Exception.Create('Этот DOC создан в Word 95 или более старой версии. Откройте его в редакторе, который читает старые DOC, и сохраните копию в DOCX.')
           else raise Exception.Create('DocSharp не смог прочитать DOC. Возможно, файл повреждён или использует неподдерживаемый вариант формата.');
         end;
       end;

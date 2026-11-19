@@ -4,6 +4,9 @@ import posixpath
 from urllib.parse import quote
 
 
+KEEP_EPUB = ' Выберите EPUB 3 или сохраните книгу в исходном формате.'
+
+
 XML_LANG = '{http://www.w3.org/XML/1998/namespace}lang'
 XML_BASE = '{http://www.w3.org/XML/1998/namespace}base'
 NCX = 'http://www.daisy.org/z3986/2005/ncx/'
@@ -41,11 +44,11 @@ def epub2_chapter(api, archive, path, document, resources, warnings):
         name = api.tag(node)
         is_html = node.tag.startswith('{' + api.XH + '}')
         if (not is_html and not node.tag.startswith(SVG)) or name in UNSUPPORTED or XML_BASE in node.attrib:
-            raise api.ConversionError('Этот элемент нельзя перенести в EPUB 2: ' + name)
+            raise api.ConversionError(f'Этот элемент нельзя перенести в EPUB 2: {name}.' + KEEP_EPUB)
         if is_html and name not in HTML_COMPATIBLE:
-            raise api.ConversionError('Этот элемент нельзя перенести в EPUB 2: ' + name)
+            raise api.ConversionError(f'Этот элемент нельзя перенести в EPUB 2: {name}.' + KEEP_EPUB)
         if any(attr.startswith('on') for attr in node.attrib) or 'srcset' in node.attrib:
-            raise api.ConversionError('Интерактивное или адаптивное содержимое нельзя перенести в EPUB 2.')
+            raise api.ConversionError('Интерактивное или адаптивное содержимое нельзя перенести в EPUB 2.' + KEEP_EPUB)
         if node.tag.startswith(SVG) and 'href' in node.attrib:
             node.set('{' + api.XL + '}href', node.attrib.pop('href'))
             changed = True
@@ -176,7 +179,7 @@ def legacy_metadata(api, metadata, cover_id, warnings):
             continue
         property_name = node.get('property', '')
         if property_name == 'rendition:layout' and api.plain(node) != 'reflowable':
-            raise api.ConversionError('Фиксированную вёрстку EPUB 3 нельзя перенести в EPUB 2.')
+            raise api.ConversionError('Фиксированную вёрстку EPUB 3 нельзя перенести в EPUB 2.' + KEEP_EPUB)
         target = by_id.get(node.get('refines', '')[1:]) if node.get('refines', '').startswith('#') else None
         field = fields.get(property_name)
         if (field and target is not None and api.plain(node) and
@@ -204,11 +207,11 @@ def downgrade_package(api, archive, package_path, package, warnings, check):
         if not identity or identity in by_id or not href or fragment or path not in archive.names or path in by_path:
             raise api.ConversionError('В EPUB отсутствует или повторяется ресурс: ' + (href or ''))
         if properties & {'scripted', 'mathml', 'remote-resources'} or item.get('media-overlay'):
-            raise api.ConversionError('Сценарии, формулы MathML, аудиосинхронизацию или внешние ресурсы нельзя перенести в EPUB 2.')
+            raise api.ConversionError('Сценарии, формулы MathML, аудиосинхронизацию или внешние ресурсы нельзя перенести в EPUB 2.' + KEEP_EPUB)
         if media in FONT_MEDIA:
             item.set('media-type', 'application/vnd.ms-opentype')
         elif media not in BOOK_MEDIA:
-            raise api.ConversionError('Этот ресурс не поддерживается EPUB 2: ' + path)
+            raise api.ConversionError(f'Этот ресурс не поддерживается EPUB 2: {path}.' + KEEP_EPUB)
         if 'nav' in properties:
             if nav_path is not None or media != XHTML:
                 raise api.ConversionError('Не удалось определить оглавление EPUB 3.')
@@ -224,7 +227,7 @@ def downgrade_package(api, archive, package_path, package, warnings, check):
             raise api.ConversionError('В EPUB 2 для каждой страницы нужен документ XHTML.')
         properties = itemref.attrib.pop('properties', '')
         if 'layout-pre-paginated' in properties:
-            raise api.ConversionError('Фиксированную вёрстку EPUB 3 нельзя перенести в EPUB 2.')
+            raise api.ConversionError('Фиксированную вёрстку EPUB 3 нельзя перенести в EPUB 2.' + KEEP_EPUB)
         if properties:
             warnings.add('Особые параметры разворотов EPUB 3 могут отличаться на старой читалке.')
     if spine.attrib.pop('page-progression-direction', '') == 'rtl':

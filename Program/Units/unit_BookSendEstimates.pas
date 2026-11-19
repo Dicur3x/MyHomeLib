@@ -51,7 +51,7 @@ implementation
 
 uses Winapi.Windows, System.IOUtils, System.StrUtils, System.ZLib, unit_ReaderCache, unit_BookCache,
   unit_ComponentUpdates, unit_MHLExternalTools, unit_ReaderFormats, unit_Diagnostics, unit_Settings, dm_user,
-  unit_BookConversionRequirements, System.Generics.Collections;
+  unit_BookConversionRequirements, unit_BookOutput, System.Generics.Collections;
 
 type
   TSizeCounter = class(TStream)
@@ -133,7 +133,7 @@ begin
         end;
       end;
     except
-      on E: Exception do Result[I].ErrorText:=E.Message;
+      on E: Exception do Result[I].ErrorText:=BookSaveErrorMessage(E);
     end;
   end;
   finally ArchiveAvailability.Free; end;
@@ -231,7 +231,7 @@ begin
         not ((Item.SourceExtension='.fb2') or (Item.SourceExtension='.epub')) then
       begin
         if not Assigned(Pin) then Pin:=Book.GetBookStream(True,True,IsCanceled);
-        if not Assigned(Pin) then raise Exception.Create('Исходный файл книги не найден.');
+        if not Assigned(Pin) then raise Exception.Create('Исходный файл книги не найден. Подключите диск с книгой или проверьте папку источника.');
         var Bytes:=Pin.Size;
         Item.ImagesUnchanged:=True;
         for var L:=0 to 2 do for var Q:=0 to High(BOOK_IMAGE_PROFILES) do
@@ -348,7 +348,7 @@ begin
       on E: EMHLComponentRequired do begin Item.RequiredComponent:=E.ComponentID; Item.RequiredComponents:=Copy(E.ComponentIDs); Item.ErrorText:=E.Message; end;
       on E: EReaderComponentRequired do begin Item.RequiredComponent:=E.ComponentID; Item.ErrorText:=E.Message; end;
       on E: Exception do
-        begin Item.ErrorText:=E.Message; LogDiagnosticError('save-size-estimate',E,Item.SourceExtension); end;
+        begin Item.ErrorText:=BookSaveErrorMessage(E); LogDiagnosticError('save-size-estimate',E,Item.SourceExtension); end;
     end;
   finally
     Warnings.Free; Pin.Free;

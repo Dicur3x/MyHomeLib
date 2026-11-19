@@ -82,7 +82,7 @@ begin
   begin
     if Part='' then Continue;
     if (Part='.') or (Part='..') or (Pos(':',Part)>0) then
-      raise Exception.Create('Маска подпапок должна задавать путь внутри выбранной папки.');
+      raise Exception.Create('Маска подпапок должна задавать путь внутри выбранной папки. Уберите букву диска, «.» и «..» или отключите подпапки.');
     Result:=TPath.Combine(Result,Part);
   end;
 end;

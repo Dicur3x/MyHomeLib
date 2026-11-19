@@ -162,9 +162,10 @@ uses
   unit_ExportImageQuality, unit_BookSavePolicy, unit_ReaderFormats, unit_BookCollisionDialog;
 
 resourcestring
-  rstrCheckTemplateValidity = 'Проверьте правильность шаблона';
-  rstrArchiveNotFound = 'Архив' + CR + 'не найден!';
-  rstrFileNotFound = 'File "%s" not found';
+  rstrSaveFolderHint = 'Выберите папку, в которую можно записывать.';
+  rstrSaveSourceMissing = 'Не найден исходный файл книги «%s». ' +
+    'Подключите диск с книгой или проверьте папку источника.';
+  rstrSaveDeviceHint = 'Подключите устройство и снова выберите папку или сохраните книгу на компьютере.';
   rstrExportFileFailed = 'Невозможно экспортировать файл «%s»' + CR + '%s' + CR + CR +
     'Обрабатывать оставшиеся файлы?';
   rstrFilesProcessed = 'Записаны файлы: %u из %u';
@@ -178,8 +179,8 @@ resourcestring
   rstrPreparedWarnings = 'Файлы подготовлены: %d из %d. Ошибок подготовки нет.' + CR +
     'Книг с примечаниями: %d.' + CR +
     'Подробности: %s';
-  rstrBasicFormatUnsupported = 'Экспорт в %s поддерживает FB2, FB3, EPUB, TXT, HTML, Markdown, RTF, DOC/DOCX, ODT и Kindle без DRM. ' +
-    'Книга «%s» имеет формат %s; её исходный файл сохранён.';
+  rstrBasicFormatUnsupported = 'Книгу «%s» в формате %s не удалось преобразовать в %s. ' +
+    'Выберите сохранение в исходном формате.';
 
 const
   MaxPathLength = 240;
@@ -432,7 +433,7 @@ begin
       var FormatName := 'FB2';
       if FExportMode = emEpub then FormatName := 'EPUB';
       FLastError := Format(rstrBasicFormatUnsupported,
-        [FormatName, R.Title, UpperCase(Copy(R.FileExt, 2, MaxInt))]);
+        [R.Title, UpperCase(SourceExtension.TrimLeft(['.'])), FormatName]);
       Exit;
     end;
 
@@ -444,14 +445,15 @@ begin
         FTargetFolder := BookSaveRelativeFolder(FTemplater.ParseString(R, TpPath))
       else
       begin
-        raise Exception.Create(rstrCheckTemplateValidity);
+        raise Exception.Create('Исправьте маску подпапок или снимите «Создавать подпапки по маске».');
       end;
 
       if FTargetFolder <> '' then
         FTargetFolder := IncludeTrailingPathDelimiter(Trim(FTargetFolder));
 
       if not FUseMTP and not ForceDirectories(BookOutputPath(TPath.Combine(DeviceDir,FTargetFolder))) then
-        raise EInOutError.Create('Не удалось создать папку сохранения: '+TPath.Combine(DeviceDir,FTargetFolder));
+        raise EInOutError.Create('Не удалось создать папку сохранения: '+TPath.Combine(DeviceDir,FTargetFolder)+sLineBreak+
+          rstrSaveFolderHint);
     end;
 
     FFileOprecord.TargetFolder := FTargetFolder;
@@ -460,7 +462,7 @@ begin
       FTargetFileName := FTemplater.ParseString(R, TpFile)
     else
     begin
-      raise Exception.Create(rstrCheckTemplateValidity);
+      raise Exception.Create('Проверьте параметры и скобки в маске имени. Например, %t подставляет название книги.');
     end;
 
     NameExtension:=R.FileExt;
@@ -522,7 +524,7 @@ begin
     begin
       if not FileExists(FFileOprecord.SourceFile) then
       begin
-        FLastError:='Не найден исходный файл книги: '+FFileOprecord.SourceFile;
+        FLastError:=Format(rstrSaveSourceMissing,[FFileOprecord.SourceFile]);
         Exit;
       end;
 
@@ -541,7 +543,7 @@ begin
       else if not Assigned(FFileOprecord.Stream) then
         FFileOprecord.Stream := R.GetBookStream(FCurrentKeepSource and not ProcessSourceImages);
       if not Assigned(FFileOprecord.Stream) then
-        raise Exception.Create('Не удалось извлечь исходную книгу из архива.');
+        raise Exception.Create('Не удалось извлечь исходную книгу. Проверьте, открывается ли архив и есть ли в нём нужный файл.');
 
       if (PreparedSource='') and (FBookFormat in [bfFb2, bfFb2Archive]) and FOverwriteFB2Info and not FCurrentKeepSource then
         WriteFb2InfoToStream(R, FFileOprecord.Stream);
@@ -552,7 +554,7 @@ begin
     begin
       if not FileExists(FFileOprecord.SourceFile) then
       begin
-        FLastError := Format('Не найден исходный файл книги «%s».', [FFileOprecord.SourceFile]);
+        FLastError := Format(rstrSaveSourceMissing, [FFileOprecord.SourceFile]);
         Exit;
       end;
       // Raw files are handed to scripts by path. Existence alone does not
@@ -565,7 +567,7 @@ begin
     on E: EMHLComponentRequired do begin Canceled:=True; FRequiredComponent:=E.ComponentID; FRequiredComponents:=Copy(E.ComponentIDs); FLastError:=E.Message; end;
     on E: EAbort do begin Canceled:=True; FLastError:=E.Message; end;
     on E: Exception do
-      FLastError := Format('PrepareFile exception: %s', [E.Message]);
+      FLastError := BookSaveErrorMessage(E);
   end;
 end;
 
@@ -875,7 +877,7 @@ begin
       begin
         Result:=False;
         LogDiagnosticError('book-export',E,FFileOprecord.SourceExtension);
-        FLastError := E.Message;
+        FLastError := BookSaveErrorMessage(E);
       end;
     end;
   finally
@@ -950,7 +952,7 @@ begin
       finally Reader.Free; Reader:=nil; Input.Position:=SavedPosition; end;
     except
       on E: EAbort do begin Canceled:=True; FLastError:='Сохранение отменено.'; end;
-      on E: Exception do FLastError:='Не удалось сохранить исходную книгу: '+E.Message;
+      on E: Exception do FLastError:='Не удалось сохранить исходную книгу: '+BookSaveErrorMessage(E);
     end;
   finally
     if Owned then Input.Free;
@@ -981,7 +983,7 @@ begin
     Result := True;
   except
     on E: Exception do
-      FLastError := Format('ProcessFileFromStream exception: %s', [E.Message]);
+      FLastError := BookSaveErrorMessage(E);
   end;
 end;
 
@@ -1026,8 +1028,8 @@ begin
 
   if not FileExists(FFileOprecord.SourceFile) then
   begin
-    FLastError := Format('Source not found: %s', [FFileOprecord.SourceFile]);
-    ShowMessage(Format(rstrFileNotFound, [FFileOprecord.SourceFile]), MB_ICONERROR or MB_OK);
+    FLastError := Format(rstrSaveSourceMissing, [FFileOprecord.SourceFile]);
+    ShowMessage(FLastError, MB_ICONERROR or MB_OK);
     Exit;
   end;
 
@@ -1035,7 +1037,7 @@ begin
   begin
     if not Assigned(FDeviceShellItem) then
     begin
-      FLastError := Format('DeviceShellItem is nil, DeviceDir=%s', [FDeviceDir]);
+      FLastError := 'Устройство недоступно. '+rstrSaveDeviceHint;
       Exit;
     end;
     MTPTargetFolder := ResolveOrCreateShellSubfolder(FDeviceShellItem, FFileOprecord.TargetFolder);
@@ -1060,7 +1062,7 @@ begin
 
     if not Assigned(MTPTargetFolder) then
     begin
-      FLastError := Format('Failed to resolve/create MTP subfolder: %s', [FFileOprecord.TargetFolder]);
+      FLastError := 'Не удалось открыть или создать папку на устройстве. '+rstrSaveDeviceHint;
       Exit;
     end;
   end;
@@ -1077,7 +1079,7 @@ begin
         Result := ShellCopyFile(TempFile, MTPTargetFolder, ExtractFileName(TempFile),FOverwriteExisting,FFileOprecord.OriginalSourceFile,ResolveNameCollision);
         if not Result then
           FLastError := Format('Не удалось отправить книгу на устройство: %s',
-            [ExtractFileName(TempFile)]);
+            [ExtractFileName(TempFile)])+sLineBreak+rstrSaveDeviceHint;
       end;
     end;
     Exit;
@@ -1091,7 +1093,7 @@ begin
       TempFile:=ActualOutputFile(FFileOprecord.TargetFile);
       if Canceled or Terminated then Result:=False
       else Result:=ShellCopyFile(TempFile,MTPTargetFolder,ExtractFileName(TempFile),FOverwriteExisting,FFileOprecord.OriginalSourceFile,ResolveNameCollision);
-      if not Result then FLastError:='Не удалось сохранить исходную книгу на устройство.';
+      if not Result then FLastError:='Не удалось сохранить исходную книгу на устройство. '+rstrSaveDeviceHint;
     end;
     Exit;
   end;
@@ -1126,7 +1128,7 @@ begin
 
       Result := ShellCopyFile(TempFile, MTPTargetFolder, ExtractFileName(TempFile),FOverwriteExisting,FFileOprecord.OriginalSourceFile,ResolveNameCollision);
       if not Result then
-        FLastError := Format('ShellCopyFile failed: %s -> %s\%s',
+        FLastError := Format('Не удалось записать книгу на устройство: %s → %s\%s.'+sLineBreak+rstrSaveDeviceHint,
           [TempFile, FFileOprecord.TargetFolder, ExtractFileName(TempFile)]);
       DeleteFile(TempFile);
     end;
@@ -1147,7 +1149,7 @@ begin
 
         Result := ShellCopyFile(FFileOprecord.TempFile, MTPTargetFolder, FFileOprecord.FileName,FOverwriteExisting,FFileOprecord.OriginalSourceFile,ResolveNameCollision);
         if not Result then
-          FLastError := Format('ShellCopyFile failed: %s -> %s\%s',
+          FLastError := Format('Не удалось записать книгу на устройство: %s → %s\%s.'+sLineBreak+rstrSaveDeviceHint,
             [FFileOprecord.TempFile, FFileOprecord.TargetFolder, FFileOprecord.FileName]);
 
         if FileExists(FFileOprecord.TempFile) then
@@ -1157,7 +1159,7 @@ begin
       begin
         Result := ShellCopyFile(FFileOprecord.SourceFile, MTPTargetFolder, FFileOprecord.FileName,FOverwriteExisting,FFileOprecord.OriginalSourceFile,ResolveNameCollision);
         if not Result then
-          FLastError := Format('ShellCopyFile failed: %s -> %s\%s',
+          FLastError := Format('Не удалось записать книгу на устройство: %s → %s\%s.'+sLineBreak+rstrSaveDeviceHint,
             [FFileOprecord.SourceFile, FFileOprecord.TargetFolder, FFileOprecord.FileName]);
       end;
     end
@@ -1333,7 +1335,7 @@ begin
                 FRequiredComponents:=Copy(E.ComponentIDs); FLastError:=E.Message;
               end;
               on E: EAbort do begin Res:=False; Canceled:=True; FLastError:='Сохранение отменено.'; end;
-              on E: Exception do begin Res:=False; FLastError:=E.Message; end;
+              on E: Exception do begin Res:=False; FLastError:=BookSaveErrorMessage(E); end;
             end;
           end;
         end;

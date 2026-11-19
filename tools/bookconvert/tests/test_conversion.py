@@ -740,7 +740,8 @@ class ConversionTests(unittest.TestCase):
                 with self.assertRaises(c.ConversionError): c.convert_book(source,result)
                 self.assertFalse(result.exists())
         source=self.generic('<svg xmlns="http://www.w3.org/2000/svg"><path d="M0,0L1,1"/></svg>','<p>Конец</p>')
-        with self.assertRaises(c.ConversionError): c.convert_book(source,self.root/'vector.fb2')
+        with self.assertRaisesRegex(c.ConversionError, 'Выберите «Оставить EPUB»'):
+            c.convert_book(source,self.root/'vector.fb2')
         self.assertFalse((self.root/'vector.fb2').exists())
     def test_percent_encoded_resource_paths_and_unicode_anchors(self):
         source=self.generic('<h1 id="глава">Заголовок</h1><p><a href="#%D0%B3%D0%BB%D0%B0%D0%B2%D0%B0">К заголовку</a><img src="picture%20space.png"/></p>','<p>Конец</p>')

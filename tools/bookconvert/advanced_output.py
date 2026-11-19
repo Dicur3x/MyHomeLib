@@ -97,12 +97,12 @@ def canonical_fb2(api, path):
 def convert(api, source, destination, source_extension, profile, options):
     suffix = OUTPUT_SUFFIXES.get(profile)
     if suffix is None or not destination.name.lower().endswith(suffix):
-        raise api.ConversionError('Имя файла не соответствует выбранному формату.')
+        raise api.ConversionError('Имя файла не соответствует выбранному формату. Проверьте расширение файла.')
     if source_extension != '.fb2' and (
             profile not in ('epub2', 'epub3', 'kepub', 'pdf', 'md', 'kfx', 'azw8') or source_extension not in api.BOOK_EPUB_INPUTS or
             (profile == 'pdf' and source_extension == '.pdf')):
         raise api.ConversionError('Выбранный формат недоступен для исходного файла ' +
-                                  source_extension.lstrip('.').upper() + '.')
+                                  source_extension.lstrip('.').upper() + '. Выберите другой формат или сохраните книгу в исходном формате.')
     quality = options['image_quality']
     if quality == 'ask':
         raise api.ConversionError('Перед сохранением выберите режим изображений.')

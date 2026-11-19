@@ -141,7 +141,7 @@ def without_images(api, book, destination, target_extension, warnings=None):
         has_text = readable_text(api,root,True)
         count = strip_fb2(api, root)
         if count and not has_text:
-            raise NoTextContent('В книге нет отдельного текста: изображения содержат сами страницы. Для режима без изображений сначала нужно распознать текст.')
+            raise NoTextContent('В книге изображения содержат сами страницы. Сохраните книгу в FB2 или EPUB с изображениями.')
         encoding = fb2_encoding(original)
         # Keep legacy Cyrillic encodings: deleting a small cover should not
         # double the text payload just because UTF-8 uses two bytes per letter.
@@ -218,7 +218,7 @@ def without_images(api, book, destination, target_extension, warnings=None):
                                    lambda parent,_: image_note(api,parent,False))
             count = max(count,deleted)
         if count and not has_text:
-            raise NoTextContent('В книге нет отдельного текста: изображения содержат сами страницы. Для режима без изображений сначала нужно распознать текст.')
+            raise NoTextContent('В книге изображения содержат сами страницы. Сохраните книгу в FB2 или EPUB с изображениями.')
         def missing(base, value):
             return bool(value) and (source_name(base, value) in removed or value.lower().startswith('data:image/'))
         def css(text, base):

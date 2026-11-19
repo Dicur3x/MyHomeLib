@@ -87,9 +87,9 @@ begin
   try ConvertBasicBook(Empty,Settings.TempPath,Djvu,'.djvu',Output,nil,nil,nil,'','','',False,nil,'none');
   except
     on E:EMHLComponentRequired do raise Exception.Create('An unsupported picture-free scan must not download components');
-    on E:Exception do Raised:=Pos('распознать текст',E.Message)>0;
+    on E:Exception do Raised:=E.Message.Contains('Выберите «Без уменьшения качества»');
   end;
-  Require(Raised and not FileExists(Output),'Picture-free scans did not explain the missing text before downloading');
+  Require(Raised and not FileExists(Output),'Picture-free scans did not suggest an image quality profile before downloading');
   Output:=Settings.AppPath+'dependency-copy.fb2';
   ConvertBasicBook(Empty,Settings.TempPath,TextOnly,'.fb2',Output,nil,nil);
   Require(UpdateSHA256(Output)=UpdateSHA256(TextOnly),'Unchanged FB2 needs a processing module or changed bytes');

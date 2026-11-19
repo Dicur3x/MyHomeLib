@@ -94,6 +94,10 @@ uses System.SysUtils, System.StrUtils, System.IOUtils, System.Math, System.Types
   unit_Templater, unit_BookConversion, unit_BookEstimateReport, unit_EpubPdfRuntime,
   unit_BookConversionRequirements, unit_ReaderCache, unit_HelpTopics;
 
+resourcestring
+  rstrSaveNameMaskHint = 'Проверьте параметры и скобки в маске имени. Например, %t подставляет название книги.';
+  rstrSaveFolderMaskHint = 'Укажите имя подпапки без буквы диска или снимите «Создавать подпапки по маске».';
+
 const
   SaveLayoutCaptions: array[0..2] of string = ('Список и настройки','Большой список','Два раздела');
 
@@ -492,7 +496,7 @@ begin
   Templater:=TTemplater.Create;
   try
     if (Trim(FNameMask.Text)='') or (Templater.SetTemplate(FNameMask.Text,TpFile)<>ErFine) then
-    begin FPreview.Caption:='Проверьте маску имени: неизвестный параметр или непарные скобки.'; Exit; end;
+    begin FPreview.Caption:=rstrSaveNameMaskHint; Exit; end;
     Book:=Default(TBookRecord); Book.Title:='Название книги';
     if Length(FBooks)>0 then Book:=FBooks[FPreviewIndex];
     FileName:=Trim(Templater.ParseString(Book,TpFile));
@@ -501,7 +505,7 @@ begin
     begin
       if (Trim(FFolderMask.Text)='') or not IsValidBookSaveFolderTemplate(FFolderMask.Text) or
         (Templater.SetTemplate(FFolderMask.Text,TpPath)<>ErFine) then
-      begin FPreview.Caption:='Проверьте маску подпапок.'; Exit; end;
+      begin FPreview.Caption:=rstrSaveFolderMaskHint; Exit; end;
       RelativeFolder:=BookSaveRelativeFolder(Templater.ParseString(Book,TpPath));
     end;
     // Typing a path/mask reuses the resolved snapshot rather than opening the
@@ -884,10 +888,10 @@ begin
   Templater:=TTemplater.Create;
   try
     if (Trim(FNameMask.Text)='') or (Templater.SetTemplate(FNameMask.Text,TpFile)<>ErFine) then
-    begin MessageDlg('Проверьте маску имени файла.',mtInformation,[mbOK],0); FocusOption(FNameMask,True); Exit; end;
+    begin MessageDlg(rstrSaveNameMaskHint,mtInformation,[mbOK],0); FocusOption(FNameMask,True); Exit; end;
     if FSubfolders.Checked and ((Trim(FFolderMask.Text)='') or
       not IsValidBookSaveFolderTemplate(FFolderMask.Text)) then
-    begin MessageDlg('Проверьте маску подпапок.',mtInformation,[mbOK],0); FocusOption(FFolderMask,True); Exit; end;
+    begin MessageDlg(rstrSaveFolderMaskHint,mtInformation,[mbOK],0); FocusOption(FFolderMask,True); Exit; end;
     for var Book in FBooks do
       if (Book.FileName<>'') and (Trim(Templater.ParseString(Book,TpFile))='') then
       begin MessageDlg('Маска даёт пустое имя для книги «'+Book.Title+'». Добавьте %t или %id.',mtInformation,[mbOK],0); Exit; end;
@@ -960,7 +964,7 @@ begin
         begin Dialog.FFormat.ItemIndex:=I; Matched:=True; Break; end;
       if (InitialMode in BOOK_SAVE_ADVANCED_MODES) and not Matched then
       begin
-        MessageDlg('Выбранный формат сохранения недоступен для текущего набора книг.',mtInformation,[mbOK],0);
+        MessageDlg('Выбранный формат доступен не для всех книг. Выберите другой формат или сохраните книги в исходных форматах.',mtInformation,[mbOK],0);
         Exit;
       end;
       Dialog.FGrayscale.Checked:=InitialOptions.Grayscale;

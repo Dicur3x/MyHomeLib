@@ -72,11 +72,27 @@ begin
     Target:=TPath.Combine(Root,'race\protected.fb2'); Stage:=CreateBookOutputStage(Target);
     try
       TFile.WriteAllText(Stage,'new copy',TEncoding.UTF8); TFile.WriteAllText(Target,'existing copy',TEncoding.UTF8);
-      Raised:=False; try PublishBookOutput(Stage,Target); except on E: EOSError do Raised:=True; end;
+      Raised:=False;
+      try PublishBookOutput(Stage,Target);
+      except on E: EOSError do Raised:=BookSaveErrorMessage(E).Contains('Сохранить оба — добавить номер'); end;
       Require(Raised and (TFile.ReadAllText(Target,TEncoding.UTF8)='existing copy'),
-        'Atomic publication replaced a file created after the collision check');
+        'Atomic publication did not preserve the existing copy and report how to keep both');
     finally DeleteBookOutputStage(Stage); end;
     Require(not FileExists(Stage),'Failed publication retained its owned stage');
+    Raised:=False;
+    try BookSaveRelativeFolder('..\other');
+    except on E: Exception do Raised:=E.Message.Contains('или отключите подпапки'); end;
+    Require(Raised,
+      'An invalid folder mask did not explain how to save without subfolders');
+    for var Code in TArray<Integer>.Create(ERROR_SHARING_VIOLATION,ERROR_DISK_FULL) do
+    begin
+      Raised:=False;
+      try RaiseLastOSError(Code);
+      except on E: EOSError do
+        if Code=ERROR_SHARING_VIOLATION then Raised:=BookSaveErrorMessage(E).Contains('Файл занят')
+        else Raised:=BookSaveErrorMessage(E).Contains('Освободите место'); end;
+      Require(Raised,'File error did not suggest how to retry the export');
+    end;
     var Input:=TMemoryStream.Create;
     try
       Bytes:=TEncoding.UTF8.GetBytes(XML+string.Create(' ',1024*1024)); Input.WriteBuffer(Bytes[0],Length(Bytes));

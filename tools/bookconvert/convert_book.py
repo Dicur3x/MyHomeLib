@@ -1377,7 +1377,7 @@ def epub_to_fb2(source, output, warnings, *, use_navigation=True):
             def flatten(source, target):
                 append_text(target, source.text)
                 for child in source:
-                    if tag(child) == 'table': raise ConversionError('Вложенную таблицу EPUB нельзя сохранить в FB2.')
+                    if tag(child) == 'table': raise ConversionError('Вложенную таблицу EPUB нельзя сохранить в FB2. Выберите «Оставить EPUB», чтобы сохранить таблицу.')
                     if tag(child) in inline_fb:
                         clone = element(FB, tag(child), **child.attrib)
                         flatten(child, clone); target.append(clone)
@@ -1432,22 +1432,22 @@ def epub_to_fb2(source, output, warnings, *, use_navigation=True):
                     if (style and not full_viewport_width or
                         any(picture.get(key) for key in {'transform', 'clip-path', 'mask', 'filter'}) or
                         picture.get('x', '0') not in {'0', '0.0'} or picture.get('y', '0') not in {'0', '0.0'}):
-                        raise ConversionError('Преобразованное изображение SVG нельзя сохранить в FB2 без потери оформления.')
+                        raise ConversionError('Преобразованное изображение SVG нельзя сохранить в FB2 без потери оформления. Выберите «Оставить EPUB».')
                     if node.get('viewBox'):
                         try:
                             left, top, width, height = map(float, node.get('viewBox').split())
                             if left != 0 or top != 0 or width != float(picture.get('width', str(width))) or height != float(picture.get('height', str(height))):
                                 raise ValueError('cropped viewport')
-                        except ValueError as error: raise ConversionError('Обрезанное изображение SVG нельзя сохранить в FB2.') from error
+                        except ValueError as error: raise ConversionError('Обрезанное изображение SVG нельзя сохранить в FB2. Выберите «Оставить EPUB».') from error
                     reference = picture.get('{' + XL + '}href') or picture.get('href', '')
                     attributes = {'{' + XL + '}href': '#' + image(path, reference)}
                     label = ' '.join(plain(n) for n in node if tag(n) in {'title', 'desc'} and plain(n))
                     if label: attributes['alt'] = label
                     warnings.add('SVG-обёртка изображения EPUB заменена исходным изображением без изменения его данных.')
                     return [element(FB, 'image', **attributes)]
-                raise ConversionError('Векторную композицию SVG нельзя сохранить в FB2 без потери содержимого.')
+                raise ConversionError('Векторную композицию SVG нельзя сохранить в FB2 без потери содержимого. Выберите «Оставить EPUB».')
             if name in {'audio', 'video', 'math', 'object', 'iframe'}:
-                raise ConversionError('Элемент EPUB нельзя сохранить в FB2 без потери содержимого: ' + name)
+                raise ConversionError(f'Элемент EPUB нельзя сохранить в FB2 без потери содержимого: {name}. Выберите «Оставить EPUB».')
             is_note = node.get('data-homelib-anchor') in note_anchors or bool(set(node.get('{' + EP + '}type', '').split()) & {'footnote', 'endnote'}) or node.get('role') in {'doc-footnote', 'doc-endnote'}
             mapped_name = 'section' if is_note or name in {'section', 'article'} else block_mapping.get(name) or inline_mapping.get(name)
             if name == 'img':
@@ -2030,7 +2030,7 @@ def _convert_book(source, destination, **metadata):
         scan_layout = 'keep'
         scan_exclude = ''
     source, destination = Path(source).resolve(), Path(destination).absolute()
-    if source == destination.resolve(): raise ConversionError('Исходная книга и результат должны быть разными файлами.')
+    if source == destination.resolve(): raise ConversionError('Исходная книга и результат должны быть разными файлами. Выберите другую папку или имя.')
     if destination.exists(): raise ConversionError('Файл результата уже существует. Выберите другое имя.')
     source_size = source.stat().st_size
     if source_size > MAX_PDF_SOURCE:
@@ -2081,7 +2081,7 @@ def _convert_book(source, destination, **metadata):
         return module.convert(api, source, destination, options)
     if image_quality == 'none' and not text_layer_only and (scanned_document or extension in {
             '.tif','.tiff','.cbz','.cbr','.cb7','.jpg','.jpeg','.png','.gif','.bmp','.webp','.xps'}):
-        raise ConversionError('Этот формат преобразуется как сканы: изображения содержат сами страницы. Для режима без изображений сначала нужно распознать текст.')
+        raise ConversionError('Изображения содержат сами страницы. Выберите режим с изображениями, например «Без уменьшения качества».')
     image_export = None
     # PDF/DjVu use the same scan rendering detail for estimation and final
     # export, including the original-quality choice. Reading has its own path.
@@ -2116,7 +2116,7 @@ def _convert_book(source, destination, **metadata):
             '.sm': 'Это интерактивная книга: текст зависит от выбранных ответов. Откройте её во встроенной читалке и нажмите «Сохранить пройденную ветку…», чтобы получить FB2 или EPUB с показанным текстом и ответами. Другие ветки остаются в исходной книге.',
             '.rgo': 'Для старого формата RepliGo пока требуется его просмотрщик или экспорт в PDF.',
             '.ole': 'В контейнере Office не найден поддерживаемый документ. Возможно, файл повреждён.'
-        }.get(extension, 'Этот формат пока не поддерживается конвертером FB2/EPUB.')
+        }.get(extension, 'Этот формат пока не поддерживается конвертером FB2/EPUB. Сохраните книгу в исходном формате.')
         raise ConversionError(explanation)
     destination.parent.mkdir(parents=True, exist_ok=True)
     handle, temporary_name = tempfile.mkstemp(prefix='.homelib-convert-', suffix='.tmp', dir=destination.parent)

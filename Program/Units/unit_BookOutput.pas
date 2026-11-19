@@ -15,6 +15,7 @@ type
 // names are bounded; temporary names never repeat the full book title.
 function BookOutputPath(const FileName: string): string;
 function BookOutputExists(const FileName: string): Boolean;
+function BookSaveErrorMessage(Error: Exception): string;
 function SameBookOutputFile(const Left, Right: string): Boolean;
 function BookOutputName(const BaseName, Extension: string; BookID: Integer): string;
 function CreateBookOutputStage(const TargetFile: string): string;
@@ -24,7 +25,7 @@ procedure DeleteBookOutputStage(const Stage: string);
 
 implementation
 
-uses Winapi.Windows, System.IOUtils;
+uses Winapi.Windows, System.Classes, System.IOUtils, unit_OperationErrorDialog;
 
 function BookOutputPath(const FileName: string): string;
 begin
@@ -37,6 +38,23 @@ end;
 function BookOutputExists(const FileName: string): Boolean;
 begin
   Result:=GetFileAttributes(PChar(BookOutputPath(FileName)))<>INVALID_FILE_ATTRIBUTES;
+end;
+
+function BookSaveErrorMessage(Error: Exception): string;
+var Guidance: string;
+begin
+  Result:=Error.Message;
+  Guidance:=WindowsFileErrorGuidance(Error);
+  if (Error is EOSError) then
+    case EOSError(Error).ErrorCode of
+      ERROR_FILE_EXISTS, ERROR_ALREADY_EXISTS:
+        Guidance:='Выберите другое имя или «Сохранить оба — добавить номер».';
+      ERROR_FILENAME_EXCED_RANGE, ERROR_INVALID_NAME:
+        Guidance:='Выберите более короткий путь или измените маску имени файла.';
+    end
+  else if (Error is EWriteError) or (Error is EFCreateError) then
+    Guidance:='Проверьте свободное место или выберите другую папку сохранения.';
+  if Guidance<>'' then Result:=Result+sLineBreak+Guidance;
 end;
 
 function SameBookOutputFile(const Left, Right: string): Boolean;
@@ -81,7 +99,8 @@ var Folder: string; Handle: THandle;
 begin
   Folder:=ExtractFilePath(TPath.GetFullPath(TargetFile));
   if not ForceDirectories(BookOutputPath(Folder)) then
-    raise EInOutError.Create('Не удалось создать папку сохранения: '+Folder);
+    raise EInOutError.Create('Не удалось создать папку сохранения: '+Folder+sLineBreak+
+      'Выберите папку, в которую можно записывать.');
   Result:=BookOutputPath(TPath.Combine(Folder,'.homelib-book-'+
     TGUID.NewGuid.ToString.Replace('{','').Replace('}','').Replace('-','')+'.tmp'));
   Handle:=CreateFile(PChar(Result),GENERIC_WRITE,0,nil,CREATE_NEW,FILE_ATTRIBUTE_NORMAL,0);

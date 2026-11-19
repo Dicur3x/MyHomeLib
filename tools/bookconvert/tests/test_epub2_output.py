@@ -77,7 +77,7 @@ class Epub2OutputTest(unittest.TestCase):
                             data = conversion.serialized(document)
                         output.writestr(item, data)
                 original = candidate.read_bytes()
-                with self.assertRaisesRegex(conversion.ConversionError, expected):
+                with self.assertRaisesRegex(conversion.ConversionError, expected + '.*Выберите EPUB 3'):
                     conversion.convert_book(candidate, self.output, output_profile='epub2')
                 self.assertFalse(self.output.exists())
                 self.assertEqual(candidate.read_bytes(), original)
