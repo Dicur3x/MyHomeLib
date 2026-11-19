@@ -74,6 +74,10 @@ HomeLibre Reader можно запустить отдельно, чтобы чи
 | Редкие книги и документы | CHM, LIT, LRF, RB, ABW, SXW, TCR, PDB, RGO, IBK, JUTOH, PAGES, CR3, B1, HA | BookProcessing. Для CHM нужен 7-Zip, для LIT и LRF — кодеки calibre, для IBK — данные ICE Book Reader. Поддержка зависит от варианта файла |
 | Изображения и комиксы | JPG, JPEG, PNG, GIF, BMP, WEBP, TIF, TIFF, CBZ, CBR, CB7 | WebP требует libwebp. Для некоторых TIFF нужен BookProcessing, а для некоторых комиксов — 7-Zip. Для иллюстраций JPEG XL в книгах нужен декодер JPEG XL |
 
+**BookProcessing** («Подготовка и преобразование книг») отвечает за подготовку
+книг для читалки, конвертацию и обработку при сжатии коллекции. В нём есть
+резервные обработчики старых DOC. [Состав BookProcessing и отдельные модули](tools/bookconvert/README.md#состав-bookprocessing).
+
 Книги можно открыть внутри ZIP, FBZ, 7Z, 7ZIP, RAR, TAR, GZ, GZIP, TGZ,
 BZ2, XZ, CAB и APK, если там есть книга поддерживаемого формата. При нескольких
 книгах можно выбрать нужную. Для некоторых способов сжатия нужен 7-Zip.

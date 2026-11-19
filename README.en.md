@@ -69,6 +69,10 @@ HomeLibre offers to install the reader the first time you need it.
 | Less common books and documents | CHM, LIT, LRF, RB, ABW, SXW, TCR, PDB, RGO, IBK, JUTOH, PAGES, CR3, B1, HA | BookProcessing. CHM requires 7-Zip, LIT and LRF require calibre codecs, and IBK requires ICE Book Reader data. Support depends on the file variant |
 | Images and comics | JPG, JPEG, PNG, GIF, BMP, WEBP, TIF, TIFF, CBZ, CBR, CB7 | WebP requires libwebp. Some TIFF files require BookProcessing, and some comics require 7-Zip. JPEG XL illustrations in books require a JPEG XL decoder |
 
+**BookProcessing** prepares books for the reader, converts formats, and handles
+collection compression. It includes fallback converters for older DOC files.
+[BookProcessing contents and separate modules](tools/bookconvert/README.md#состав-bookprocessing) (in Russian).
+
 The reader can open supported books inside ZIP, FBZ, 7Z, 7ZIP, RAR, TAR, GZ,
 GZIP, TGZ, BZ2, XZ, CAB and APK files. If a container has several books, you
 can choose one. Some compression methods require 7-Zip.

@@ -1,5 +1,25 @@
 # Additional converter dependencies
 
+## BookProcessing runtime and legacy Word
+
+BookProcessing 3.0.0.16 uses the **CPython 3.13.16** embeddable distribution
+for the matching Windows architecture. The original runtime license ships in
+`tools/python/LICENSE.txt`. The upstream archives are pinned by SHA-256 in
+[`Installer/KINDLE_RUNTIME.json`](../../Installer/KINDLE_RUNTIME.json).
+
+For Word 6/95, HomeLibre builds `HomeLibLegacyDocRich.exe` with **Docboss
+0.2.1**, pinned to commit
+[`373b563`](https://github.com/4thel00z/docboss/tree/373b563b7a60d97f875a733da5635d0d15c4839e)
+in [`Utils/HomeLibLegacyDocRich/Cargo.lock`](../../Utils/HomeLibLegacyDocRich/Cargo.lock).
+The installed `tools/bookconvert/legacy-doc/DOCBOSS-NOTICE.txt` includes the
+upstream MIT and Apache license texts and the Rust dependency notices.
+
+The text-only fallback `HomeLibLegacyDoc.exe` uses
+**GHSoftware.WordDocTextExtractor 1.0.4** from
+[GustavoHennig/b2xtranslator](https://github.com/GustavoHennig/b2xtranslator).
+See `tools/bookconvert/legacy-doc/NOTICE.txt` in the installed module for its
+BSD-3-Clause license and the accompanying .NET dependency notices.
+
 ## IBK interoperability
 
 `ibk_input.py` and `ibk_crypto.py` are independent bounded readers for ordinary
