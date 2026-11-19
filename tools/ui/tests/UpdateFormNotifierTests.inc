@@ -317,7 +317,7 @@ var Dialog: TUFNForm; Server: TUFNServer; Probe: TUFNProbe;
       if Component is TButton then
       begin
         if TButton(Component).Caption='Проверить всё' then CheckButton:=TButton(Component);
-        if TButton(Component).Default then Primary:=TButton(Component);
+        if Component.Name='UpdatePrimary' then Primary:=TButton(Component);
         if TButton(Component).Caption='Позже' then Later:=TButton(Component);
       end;
       if Component is TListView then View:=TListView(Component);

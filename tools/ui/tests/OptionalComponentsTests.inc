@@ -227,7 +227,9 @@ begin
     Notify:=Dialog.FindComponent('NotifyOptionalComponent') as TCheckBox;
     View:=Dialog.FindComponent('UpdateComponents') as TListView;
     Require(Assigned(View.Selected),'Requested component row is not selected');
-    Require(Dialog.Visible and View.Selected.Caption.Contains('DocSharp') and not Notify.Checked and
+    Require((View.Selected.SubItems[0]='не установлен') and (View.Selected.SubItems[2]='Можно установить'),
+      'A missing optional component was not shown as a first installation');
+    Require(Dialog.Visible and View.Selected.Caption.Contains('DocSharp') and not Notify.Checked and Primary.Visible and
       (string(Status.Caption).Contains(' КБ') or string(Status.Caption).Contains(' МБ') or
        string(Status.Caption).Contains(' Б.')) and string(Status.Caption).Contains('DocSharp') and
       (Primary.Caption='Скачать компонент') and (Dialog.DownloadID=''),

@@ -442,7 +442,7 @@ const NewTag = '99.1.2';
 var Popup: TfrmProgramUpdate; Configuration: TfrmSettings; ReleaseInfo, Parsed: TProgramRelease;
   ComponentID, SQLiteArch, SavedOptional: string; NotesView: TUpdateNotesView;
   I, HeightBefore, BodyBefore, SavedWidth, SavedHeight: Integer; Notes, PreviousEditor: TRichEdit;
-  Primary: TButton; Version, Bytes: TLabel; Selector, ReloadedSelector: TListView;
+  Primary, CheckButton: TButton; Version, Bytes: TLabel; Selector, ReloadedSelector: TListView;
   Previous, Failed: TComponentReleases; Cache: string; Reloaded: TfrmProgramUpdate;
   ReloadedView: TUpdateNotesView; EndPoint: TPoint;
   CycleComponents: TComponentReleases;
@@ -502,7 +502,7 @@ var Popup: TfrmProgramUpdate; Configuration: TfrmSettings; ReleaseInfo, Parsed: 
           begin
             if Form.Controls[Index] is TListView then View:=TListView(Form.Controls[Index]);
             if Form.Controls[Index] is TUpdateNotesView then Body:=TUpdateNotesView(Form.Controls[Index]);
-            if (Form.Controls[Index] is TButton) and TButton(Form.Controls[Index]).Default then Button:=TButton(Form.Controls[Index]);
+            if (Form.Controls[Index] is TButton) and (Form.Controls[Index].Name='UpdateReleasePage') then Button:=TButton(Form.Controls[Index]);
           end;
           Require(Assigned(View) and Assigned(Body) and Assigned(Button),'Component layout controls missing');
           Require((Body.Top>=View.Top+View.Height) and (Body.Top+Body.Height<=Button.Top) and
@@ -676,17 +676,19 @@ begin
   Writeln('PASS update settings preserve never and custom hours');
   Popup := CreateTestProgramUpdate;
   try
-    NotesView := nil; Notes := nil; Primary := nil; Version := nil; Bytes := nil; Selector := nil;
+    NotesView := nil; Notes := nil; Version := nil; Bytes := nil; Selector := nil;
+    Primary := Popup.FindComponent('UpdatePrimary') as TButton;
+    CheckButton := Popup.FindComponent('UpdateCheckComponents') as TButton;
     for I := 0 to Popup.ControlCount - 1 do
     begin
       if Popup.Controls[I] is TUpdateNotesView then
       begin NotesView := TUpdateNotesView(Popup.Controls[I]); Notes := NotesView.PrimaryNotes; end;
       if Popup.Controls[I] is TListView then Selector := TListView(Popup.Controls[I]);
-      if (Popup.Controls[I] is TButton) and TButton(Popup.Controls[I]).Default then Primary := TButton(Popup.Controls[I]);
       if (Popup.Controls[I] is TLabel) and (Pos('Текущая', TLabel(Popup.Controls[I]).Caption) = 1) then Version := TLabel(Popup.Controls[I]);
       if (Popup.Controls[I] is TLabel) and (Popup.Controls[I].Top > 400) then Bytes := TLabel(Popup.Controls[I]);
     end;
-    Require(Assigned(Notes) and Assigned(Primary) and Assigned(Version) and Assigned(Bytes), 'Popup controls incomplete');
+    Require(Assigned(Notes) and Assigned(Primary) and Assigned(CheckButton) and
+      Assigned(Version) and Assigned(Bytes), 'Popup controls incomplete');
     Require(Pos(ReleaseDisplayVersion(PROGRAM_RELEASE_VERSION), Version.Caption) > 0, 'Installed version missing');
     Require(Assigned(Selector) and (Selector.Items.Count>=9),'Missing core or installed classic component rows');
     for var Item in Selector.Items do
@@ -738,7 +740,7 @@ begin
     ChooseRow(Selector,ComponentRow(Selector,'SQLite'));
     Require((Pos('3.54.1', NotesView.SectionHeader(0).Caption) > 0) and
       ContainsText(Notes.Text,'Запасная копия проверенного компонента'), 'Installed component changelog missing');
-    Require(Primary.Caption = 'Проверить всё', 'Component check missing');
+    Require(not Primary.Visible and CheckButton.Visible and CheckButton.Enabled, 'Check button missing or duplicated');
     ChooseRow(Selector, 0);
     ReleaseInfo := Default(TProgramRelease); ReleaseInfo.Tag := NewTag;
     // GitHub and bundled Markdown may use Unix line breaks; the Windows memo
@@ -749,7 +751,7 @@ begin
     ReleaseInfo.DownloadURL := 'https://github.com/Dicur3x/MyHomeLib/releases/download/'+NewTag+'/HomeLibre.zip';
     ReleaseInfo.SHA256:=StringOfChar('a',64); ReleaseInfo.Size:=1024; // Metadata only; never downloaded.
     Popup.SetRelease(ReleaseInfo);
-    Require(Primary.Enabled and (Primary.Caption = 'Скачать обновление'), 'New release download button missing');
+    Require(Primary.Visible and Primary.Enabled and (Primary.Caption = 'Скачать обновление'), 'New release download button missing');
     Require(Pos('Новые изменения', Notes.Text) > 0, 'Changelog missing');
     Require((Notes.Lines.Count >= 3) and (Pos(NewTag, NotesView.SectionHeader(0).Caption) > 0) and
       (Notes.Lines[0] = 'Новые изменения') and (Pos('Первый пункт', Notes.Lines[2]) > 0),
@@ -791,6 +793,21 @@ begin
     Notes.SelLength := Length('New SQL language features:');
     Require(fsBold in Notes.SelAttributes.Style, 'SQLite subsection is not emphasized');
     Writeln('PASS update notes retain nested SQLite lists, headings and safe Unicode text');
+    ReleaseInfo.Changelog := NewTag + #10 + 'One technical' + #10 + 'wrap continued' + #10#10 +
+      'Blank line stays' + #10 + 'First hard break  ' + #10 + 'Second hard break\' + #10 +
+      'After hard break' + #10 + '## A heading' + #10 + '- Separate item' + #10 +
+      '  - Nested item' + #10 + '~~~' + #10 + '  1.2.3' + #10 + '~~~';
+    Popup.SetRelease(ReleaseInfo);
+    Require((Pos('One technical wrap continued' + sLineBreak + sLineBreak, Notes.Text)>0) and
+      (Pos('First hard break' + sLineBreak + 'Second hard break' + sLineBreak + 'After hard break', Notes.Text)>0) and
+      (Pos('A heading' + sLineBreak, Notes.Text)>0) and (Pos('Separate item' + sLineBreak, Notes.Text)>0) and
+      (NotesView.SectionCount=1) and (Pos('  1.2.3' + sLineBreak, Notes.Text)>0),
+      'Notes did not unwrap regular paragraphs or preserve intentional structure');
+    ReleaseInfo.Changelog := SQLiteNotesToMarkdown('<p>First paragraph<br>Next line</p><p>Second paragraph</p>');
+    Popup.SetRelease(ReleaseInfo);
+    Require(Pos('First paragraph' + sLineBreak + 'Next line' + sLineBreak + sLineBreak + 'Second paragraph', Notes.Text)>0,
+      'SQLite notes lost paragraph separation or explicit line breaks');
+    Writeln('PASS release notes wrap plain paragraphs and preserve headings, lists, code and hard breaks');
     Require(ReleaseNotesHeading('3.53.0', '2026-04-09T00:00:00Z') =
       '3.53.0 — 09.04.2026', 'Release date missing');
     Require((ReleaseNotesHeading('3.53.0', '') = '3.53.0') and
@@ -955,9 +972,10 @@ begin
     Writeln('PASS saved histories survive reopening and network failure; empty author notes are explained');
     Require(Bytes.Caption = '', 'No download must happen before the click');
     Popup.BeginCheck; Popup.SetCurrent(ReleaseInfo);
-    Require(Primary.Enabled and (Primary.Caption = 'Проверить ещё раз'), 'No-update check is not retryable');
+    Require(CheckButton.Enabled and CheckButton.Visible and not Primary.Visible and
+      (StatusText(Popup)='HomeLibre актуальна.'), 'No-update status or the sole retry action is incorrect');
     Popup.CheckFailed('Не удалось проверить');
-    Require(Primary.Enabled and (Primary.Caption = 'Повторить проверку'), 'Manual failure is not retryable');
+    Require(CheckButton.Enabled and CheckButton.Visible and not Primary.Visible, 'Manual failure is not retryable');
     // Optional local preview for Computer Use, only inside the guarded fixture runtime.
     if FileExists(Settings.AppPath + 'notes-preview.html') then
     begin

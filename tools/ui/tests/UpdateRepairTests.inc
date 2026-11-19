@@ -105,7 +105,7 @@ begin
   try
     Dialog.StopBeforeDownload:=True; Primary:=nil;
     for var Control in Dialog do
-      if (Control is TButton) and TButton(Control).Default then Primary:=TButton(Control);
+      if (Control is TButton) and (Control.Name='UpdatePrimary') then Primary:=TButton(Control);
     Require(Assigned(Primary),'Missing archive test has no primary action');
     App:=Default(TProgramRelease); App.Tag:='99.0.0';
     App.URL:='https://github.com/Dicur3x/MyHomeLib/releases/tag/'+App.Tag;
@@ -166,7 +166,7 @@ begin
     Require(Probe.RestoreReady,'Actual prepared component cache could not be reopened');
     Primary:=nil;
     for var Component in Probe do
-      if (Component is TButton) and TButton(Component).Default then Primary:=TButton(Component);
+      if (Component is TButton) and (Component.Name='UpdatePrimary') then Primary:=TButton(Component);
     Require(Assigned(Primary),'Cached component has no primary action');
     Primary.Click;
     Require((Probe.Rechecks=1) and (Probe.Restarts=0) and not Probe.PendingInstall,
@@ -200,7 +200,7 @@ var Server: TRepairServer; Dialog: TRepairForm; Current: TProgramRelease;
     Primary:=nil; View:=nil; Status:=nil; Notes:=nil;
     for var Component in Dialog do
     begin
-      if (Component is TButton) and TButton(Component).Default then Primary:=TButton(Component);
+      if (Component is TButton) and (Component.Name='UpdatePrimary') then Primary:=TButton(Component);
       if Component is TListView then View:=TListView(Component);
       if (Component is TLabel) and (Component.Name='UpdateStatus') then Status:=TLabel(Component);
       if Component is TUpdateNotesView then Notes:=TUpdateNotesView(Component);

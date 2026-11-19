@@ -119,8 +119,18 @@ begin
       end
       else if Tag.StartsWith('</li') then
       begin Flush; InItem := False; end
-      else if Tag.StartsWith('<p>') or Tag.StartsWith('<p ') or
-              Tag.StartsWith('</p') or Tag.StartsWith('<br') then Flush
+      else if Tag.StartsWith('</p') then
+      begin
+        Flush;
+        if not InItem and (Lines.Count > 0) and (Lines[Lines.Count - 1] <> '') then Lines.Add('');
+      end
+      else if Tag.StartsWith('<br') then
+      begin
+        Flush;
+        if not InItem and (Lines.Count > 0) and (Lines[Lines.Count - 1] <> '') then
+          Lines[Lines.Count - 1] := Lines[Lines.Count - 1] + '  ';
+      end
+      else if Tag.StartsWith('<p>') or Tag.StartsWith('<p ') then Flush
       else if Tag.StartsWith('<code') or Tag.StartsWith('</code') then Line := Line + '`'
       else if not Tag.StartsWith('<') then
       begin
@@ -201,10 +211,65 @@ begin
   finally Bitmap.Free; end;
 end;
 
+function UpdateMarkdownFence(const Line: string; var Fence: string): Boolean;
+var Text, Mark: string; Marker: Char; Count: Integer;
+begin
+  Text := Line.TrimLeft;
+  if (Length(Line) - Length(Text) > 3) or (Length(Text) < 3) then Exit(False);
+  Marker := Text[1];
+  if not CharInSet(Marker, [#96, '~']) then Exit(False);
+  Count := 1;
+  while (Count < Length(Text)) and (Text[Count + 1] = Marker) do Inc(Count);
+  if Count < 3 then Exit(False);
+  Mark := Copy(Text, 1, Count);
+  if Fence = '' then
+  begin
+    Fence := Mark;
+    Exit(True);
+  end;
+  Result := Mark.StartsWith(Fence) and (Copy(Text, Count + 1, MaxInt).Trim = '');
+  if Result then Fence := '';
+end;
+
+procedure LoadUpdateNoteLines(const Notes: string; Lines: TStrings);
+var Source: TStringList; Raw, Text, Fence: string; I: Integer;
+  BlockStart, Setext, Backslash: TRegEx; Code, Paragraph, PreviousParagraph, HardBreak: Boolean;
+begin
+  Source := TStringList.Create;
+  try
+    Source.Text := AdjustLineBreaks(Notes);
+    BlockStart := TRegEx.Create('^(?:#{1,6}\s|>|<|(?:[-*+•]|[0-9]+[.)])\s|[-=*_]+\s*$|\[[^\]]+\]:)');
+    Setext := TRegEx.Create('^(?:-+|=+)$');
+    Backslash := TRegEx.Create('(?<!\\)(?:\\\\)*\\$');
+    Fence := ''; PreviousParagraph := False;
+    for I := 0 to Source.Count - 1 do
+    begin
+      Raw := Source[I];
+      Text := Raw.Trim;
+      Code := Fence <> '';
+      if UpdateMarkdownFence(Raw, Fence) then Code := True;
+      Paragraph := not Code and (Text <> '') and (Raw.TrimLeft = Raw) and
+        not BlockStart.IsMatch(Text) and not Text.Contains('|') and not IsReleaseHeading(Text) and
+        not ((Length(Text) < 100) and Text.EndsWith(':')) and
+        ((I = Source.Count - 1) or not Setext.IsMatch(Source[I + 1].Trim));
+      HardBreak := False;
+      if Paragraph then
+      begin
+        HardBreak := Raw.EndsWith('  ') or Backslash.IsMatch(Raw);
+        if Backslash.IsMatch(Raw) then Text := Copy(Text, 1, Length(Text) - 1);
+        if PreviousParagraph then Lines[Lines.Count - 1] := Lines[Lines.Count - 1] + ' ' + Text
+        else Lines.Add(Text);
+      end
+      else Lines.Add(Raw);
+      PreviousParagraph := Paragraph and not HardBreak;
+    end;
+  finally Source.Free; end;
+end;
+
 procedure LoadUpdateNotes(Control: TRichEdit; const Notes: string; ZoomPercent: Integer);
 var Lines: TStringList; Stream: TStringStream; Builder: TStringBuilder;
-  Line, Text, Divider: string; Heading, ListItem: TMatch; Level, Indent: Integer;
-  Version, SeenVersion: Boolean; BodyColor, DividerColor: TColor;
+  Line, Text, Divider, Fence: string; Heading, ListItem: TMatch; Level, Indent: Integer;
+  Version, SeenVersion, Code: Boolean; BodyColor, DividerColor: TColor;
   function RTFColor(Value: TColor): string;
   var RGB: Cardinal;
   begin
@@ -217,13 +282,20 @@ begin
   try
     Text := TRegEx.Replace(Notes, '\[([^\]]+)\]\((https://[^)]+)\)', '$1 ($2)');
     if Text.Trim = '' then Text := 'Автор не опубликовал описание изменений этого выпуска.';
-    Lines.Text := AdjustLineBreaks(Text); SeenVersion := False; Divider := DividerRTF(Control);
+    LoadUpdateNoteLines(Text, Lines); SeenVersion := False; Fence := ''; Divider := DividerRTF(Control);
     BodyColor := MHLThemeText;
     if MHLThemeDark then DividerColor := RGB(125,130,140) else DividerColor := RGB(140,140,140);
     Builder.Append('{\rtf1\ansi\deff0\uc1{\fonttbl{\f0 Segoe UI;}{\f1 Consolas;}}{\colortbl;')
       .Append(RTFColor(BodyColor)).Append(RTFColor(DividerColor)).Append('}');
     for Line in Lines do
     begin
+      Code := Fence <> '';
+      if UpdateMarkdownFence(Line, Fence) or Code then
+      begin
+        Builder.Append('\pard\f1\fs').Append(MulDiv(20, ZoomPercent, 100))
+          .Append('\b0\cf1\li0\fi0\sb0\sa80 ').Append(RTFText(Line)).Append('\par ');
+        Continue;
+      end;
       Text := Line.Trim;
       Heading := TRegEx.Match(Text, '^(#{1,6})\s+(.+)$');
       Level := 0;
@@ -561,10 +633,10 @@ begin
 end;
 
 procedure TUpdateNotesView.Load(const Notes: string);
-var Lines, Titles, Bodies: TStringList; Line, Title, Body, Text: string;
+var Lines, Titles, Bodies: TStringList; Line, Title, Body, Text, Fence: string;
   I, J, FocusedSection, RestoreSection, SpareIndex, VisibleCount: Integer; FocusedTitle: string; Separator: TBevel;
   OldTitles: TArray<string>; OldExpanded: TArray<Boolean>;
-  ReloadBody, NewControls, MoreHadFocus, KeepCount: Boolean;
+  ReloadBody, NewControls, MoreHadFocus, KeepCount, Code: Boolean;
   {$IFDEF MHL_RELEASE_PERFORMANCE}ProfileStarted: UInt64;{$ENDIF}
   procedure SaveSection;
   begin
@@ -593,11 +665,13 @@ begin
     else
     begin
     Lines.Text := AdjustLineBreaks(Notes);
-    Title := ''; Body := '';
+    Title := ''; Body := ''; Fence := '';
     for Line in Lines do
     begin
+      Code := Fence <> '';
+      if UpdateMarkdownFence(Line, Fence) then Code := True;
       Text := TRegEx.Replace(Line.Trim, '^#{1,6}\s+', '');
-      if IsReleaseHeading(Text) then
+      if not Code and IsReleaseHeading(Text) then
       begin
         // The feed already supplies a dated heading. A release may repeat
         // its own title as the first Markdown heading of the description.

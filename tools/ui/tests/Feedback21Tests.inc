@@ -302,7 +302,7 @@ begin
         Require(BytesLabel.Visible and Progress.Visible and (BytesLabel.Height>=Abs(BytesLabel.Font.Height)) and
           (Progress.BoundsRect.Bottom<=BytesLabel.Top),'Updater transfer text overlaps its bar or clips enlarged text');
         for var Component in Update do
-          if (Component is TButton) and (TButton(Component).Caption='Проверить обновления') then
+          if (Component is TButton) and (Component.Name='UpdateReleasePage') then
             Require(BytesLabel.BoundsRect.Bottom<TButton(Component).Top,'Updater transfer text overlaps its action button');
       end;
     end;
