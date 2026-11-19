@@ -3998,6 +3998,8 @@ var Sources, Loaded: TCatalogSources; Target, SourceCollection: IBookCollection;
   var CountLabel: TLabel; Bounds: TRect; Text: string;
   begin
     CountLabel:=Dialog.FindComponent('lblSourceCount') as TLabel;
+    Require(TButton(Guide.FindComponent('GuideContextHelp')).Visible <> Guide.Expanded,
+      'The source help button should reopen a collapsed guide only');
     Require((Guide.Top+Guide.Height<=CountLabel.Top) and
       (CountLabel.Top+CountLabel.Height<=CountLabel.Parent.ClientHeight),
       'Source guide overlaps the source list summary');

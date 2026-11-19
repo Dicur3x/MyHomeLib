@@ -46,6 +46,9 @@ begin
   Guide:=Dialog.FindComponent('ScriptsFirstUseGuide') as TFirstUseGuide;
   Require(Assigned(Guide) and Guide.Visible,'Script explanation is missing from the real settings dialog');
   Require(Guide.Expanded=ExpectExpanded,'Script explanation did not remember acknowledgement');
+  var HelpButton:=Guide.FindComponent('GuideContextHelp') as TButton;
+  var Acknowledge:=Guide.FindComponent('GuideToggle') as TButton;
+  Require(HelpButton.Visible <> Guide.Expanded,'Unexpected script help button visibility');
   Require(not Dialog.lvScripts.GridLines,'Empty scripts still appear as a spreadsheet');
   Require(Dialog.lvScripts.Top>=Guide.Top+Guide.Height,'Scripts table overlaps the inline explanation');
   Require(Dialog.lvScripts.Height>=MulDiv(60,DPI,96),'Explanation leaves no room for the scripts table');
@@ -69,14 +72,18 @@ begin
         DT_CALCRECT or DT_WORDBREAK or DT_NOPREFIX);
       Require(Details.Height>=Bounds.Height,Format('Scripts explanation text is clipped: DPI=%d width=%d height=%d needed=%d font=%d fontPPI=%d',
         [DPI,Details.Width,Details.Height,Bounds.Height,Details.Font.Height,Details.Font.PixelsPerInch]));
-      TButton(Guide.FindComponent('GuideToggle')).Click;
+      Acknowledge.SetFocus;
+      Acknowledge.Click;
       Require(not Guide.Expanded,'Acknowledging script explanation did not collapse it');
+      Require(HelpButton.Visible and HelpButton.Focused,'Focus did not return to script help');
     end
     else
     begin
-      TButton(Guide.FindComponent('GuideContextHelp')).Click;
+      HelpButton.SetFocus;
+      HelpButton.Click;
       Require(Guide.Expanded,'Script explanation cannot be reopened in the real dialog');
-      TButton(Guide.FindComponent('GuideToggle')).Click;
+      Require(not HelpButton.Visible and Acknowledge.Focused,'Reopened script help lost focus');
+      Acknowledge.Click;
     end;
     Require(Dialog.lvScripts.Height>=MulDiv(100,DPI,96),'Collapsed explanation did not return room to the scripts');
   finally Bitmap.Free; end;

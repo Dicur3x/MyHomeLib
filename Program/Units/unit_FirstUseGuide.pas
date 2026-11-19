@@ -105,8 +105,12 @@ begin
     Y := Margin;
     if Assigned(FHelp) then
     begin
-      FHelp.SetBounds(ClientWidth-Margin-S(28),Margin,S(28),S(28));
-      Dec(WidthAvailable,S(36));
+      FHelp.Visible := not FExpanded;
+      if FHelp.Visible then
+      begin
+        FHelp.SetBounds(ClientWidth-Margin-S(28),Margin,S(28),S(28));
+        Dec(WidthAvailable,S(36));
+      end;
     end;
     FSummary.SetBounds(Margin,Y,WidthAvailable,Max(S(28),Fit(FSummary)));
     WidthAvailable:=Max(S(100),ClientWidth-2*Margin); Inc(Y,FSummary.Height+Gap);
@@ -143,7 +147,9 @@ begin
 end;
 
 procedure TFirstUseGuide.Toggle(Sender: TObject);
+var ReturnFocus: Boolean;
 begin
+  ReturnFocus := Assigned(FHelp) and FToggle.Focused;
   if FExpanded then
     try
       Remember;
@@ -158,10 +164,17 @@ begin
     end;
   FExpanded := not FExpanded;
   Layout;
+  if ReturnFocus and FHelp.CanFocus then FHelp.SetFocus;
 end;
 
 procedure TFirstUseGuide.ShowGuide(Sender: TObject);
-begin FExpanded := True; Layout; end;
+var MoveFocus: Boolean;
+begin
+  MoveFocus := Assigned(FHelp) and FHelp.Focused;
+  FExpanded := True;
+  Layout;
+  if MoveFocus and FToggle.CanFocus then FToggle.SetFocus;
+end;
 
 procedure TFirstUseGuide.Expand;
 begin ShowGuide(nil); end;
