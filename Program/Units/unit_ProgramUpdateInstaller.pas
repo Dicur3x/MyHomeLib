@@ -1018,6 +1018,23 @@ begin
     raise Exception.Create('Версия EXE не совпадает с версией обновления.');
 end;
 
+function PreparedCatalogueFile(const Stage: string): string;
+begin
+  if FileExists(ChildPath(Stage,'HomeLibre.exe')) then Result:='HomeLibre.exe'
+  else if FileExists(ChildPath(Stage,CATALOGUE_COMPATIBILITY_PAYLOAD)) then Result:=CATALOGUE_COMPATIBILITY_PAYLOAD
+  else Result:='HomeLibRu.exe';
+end;
+
+procedure RejectOlderCatalogueUpdate(const Stage, Target: string);
+var Installed, Downloaded: string; Comparison: Integer;
+begin
+  Installed:=UpdateFileVersion(ChildPath(Target,'HomeLibre.exe'));
+  if Installed='' then Installed:=UpdateFileVersion(ChildPath(Target,'HomeLibRu.exe'));
+  Downloaded:=UpdateFileVersion(ChildPath(Stage,PreparedCatalogueFile(Stage)));
+  if CompareComponentVersions(Downloaded,Installed,Comparison) and (Comparison<0) then
+    raise Exception.Create('В пакете более старая версия HomeLibre. Проверьте обновления ещё раз.');
+end;
+
 procedure VerifyPreparedProgramUpdateIdentity(Manifest: TJSONObject;
   const Stage, Tag, Platform: string);
 var Component, Version, Architecture, ApplicationFile: string; Official: Boolean; Bundle: TJSONArray; Part: TJSONValue;
@@ -1031,10 +1048,7 @@ begin
   begin
     // The old-name launcher lets existing clients verify and install this
     // release; the new executable contains the only catalogue implementation.
-    if FileExists(ChildPath(Stage, 'HomeLibre.exe')) then ApplicationFile:='HomeLibre.exe'
-    else if FileExists(ChildPath(Stage, CATALOGUE_COMPATIBILITY_PAYLOAD)) then
-      ApplicationFile:=CATALOGUE_COMPATIBILITY_PAYLOAD
-    else ApplicationFile:='HomeLibRu.exe';
+    ApplicationFile:=PreparedCatalogueFile(Stage);
     VerifyUpdateExecutable(ChildPath(Stage, ApplicationFile), Tag, Platform);
     if (ApplicationFile<>'HomeLibRu.exe') and FileExists(ChildPath(Stage, 'HomeLibRu.exe')) then
       VerifyUpdateExecutable(ChildPath(Stage, 'HomeLibRu.exe'), Tag, Platform);
@@ -1933,6 +1947,8 @@ begin
     if Assigned(Manifest.GetValue('bundle')) then
       VerifyPreparedProgramUpdate(Job, Manifest.GetValue<string>('release'), ProgramUpdatePlatform);
     Files := ManifestFiles(Manifest);
+    if Manifest.GetValue<string>('component','')='' then
+      RejectOlderCatalogueUpdate(ChildPath(Job,'payload'),Target);
     // Older clients reject unfamiliar EXE names at the ZIP root. Their bridge
     // package transports the canonical binary in an already accepted folder;
     // installation still journals and writes only the canonical destination.

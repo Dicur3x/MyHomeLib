@@ -2097,7 +2097,9 @@ begin
       if InstalledVersion(Component) = '' then Comparison := 1
       else if not CompareComponentVersions(Version, InstalledVersion(Component), Comparison) then Exit;
     end;
-    if (Component = '') and (Comparison <= 0) and PreparedComponentsNewer(Job, Settings.AppPath) then
+    // A bundle for the current release may still supply newer modules.
+    // Modules in an older bundle must not turn a catalogue downgrade into an update.
+    if (Component = '') and (Comparison = 0) and PreparedComponentsNewer(Job, Settings.AppPath) then
       Comparison := 1;
     // Preserve interrupted transactions and offer to restore them explicitly.
     if FileExists(IncludeTrailingPathDelimiter(Job) + 'journal.json') then
