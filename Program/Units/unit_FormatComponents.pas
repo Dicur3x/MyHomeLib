@@ -13,6 +13,7 @@ const
   SELECTED_COMPRESSION_VERSION = '3.0.0.14';
   LEGACY_DOC_COMPONENT_VERSION = '3.0.0.16';
   LEGACY_DOC_WORKER = 'tools/bookconvert/legacy-doc/HomeLibLegacyDoc.exe';
+  LEGACY_DOC_RICH_WORKER = 'tools/bookconvert/legacy-doc/HomeLibLegacyDocRich.exe';
   SELECTED_COMPRESSION_IMAGE_VERSION = '3.0.0.14';
   SELECTED_COMPRESSION_WORKER = 'tools/bookconvert/prepare_book_compression.py';
   SQL_CATALOGUE_WORKER = 'tools/bookconvert/catalogdump/build_index.py';
@@ -90,8 +91,8 @@ begin
         'tools/bookconvert/compression_preview.py','tools/bookconvert/estimate_book_compression.py',
         'tools/bookconvert/compression_image_history.py'];
     if CompareComponentVersions(Version,LEGACY_DOC_COMPONENT_VERSION,Comparison) and (Comparison>=0) then
-      Result:=Result+[LEGACY_DOC_WORKER,LEGACY_DOC_WORKER+'.config',
-        'tools/bookconvert/legacy-doc/NOTICE.txt'];
+      Result:=Result+[LEGACY_DOC_RICH_WORKER,LEGACY_DOC_WORKER,LEGACY_DOC_WORKER+'.config',
+        'tools/bookconvert/legacy-doc/NOTICE.txt','tools/bookconvert/legacy-doc/DOCBOSS-NOTICE.txt'];
   end;
   if ID='ImageProcessing' then Result:=TArray<string>.Create('tools/images/HomeLibImages.exe',
     'tools/images/RUNTIME.json','tools/images/HomeLibImages-MIT.txt');

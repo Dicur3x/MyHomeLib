@@ -15,6 +15,7 @@ import shutil
 import subprocess
 import tarfile
 import tempfile
+import tomllib
 import zipfile
 
 REPO = Path(__file__).resolve().parents[1]
@@ -303,7 +304,42 @@ def book_processing_sources():
     return files, required
 
 
-def legacy_doc_payload(version):
+def legacy_doc_rich_payload(platform):
+    project = REPO / 'Utils/HomeLibLegacyDocRich'
+    target = KFX_BUILD['TARGETS'][platform][0]
+    source_paths = [project / name for name in ('Cargo.toml', 'Cargo.lock', 'src/main.rs')]
+    lock = tomllib.loads(source_paths[1].read_text(encoding='utf-8'))
+    executable = project / 'target' / target / 'release/HomeLibLegacyDocRich.exe'
+    if not executable.is_file() or any(executable.stat().st_mtime_ns < path.stat().st_mtime_ns
+                                       for path in source_paths):
+        raise ValueError('Build Utils/HomeLibLegacyDocRich with Cargo --locked --release for ' + target)
+    binary = executable.read_bytes()
+    helper.binary_platform(binary, platform)
+    cargo_cache = Path(os.environ.get('CARGO_HOME', Path.home() / '.cargo'))
+    docboss = next(package for package in lock['package'] if package['name'] == 'docboss-doc')
+    docboss_source = docboss['source'].split('#')[1]
+    checkout = next(iter(sorted((cargo_cache / 'git/checkouts').glob('docboss-*/' + docboss_source[:7]))), None)
+    if checkout is None:
+        raise ValueError('Pinned Docboss source is missing from the Cargo cache')
+    notices = [f"Docboss {docboss['version']}\nhttps://github.com/4thel00z/docboss/tree/{docboss_source}".encode()]
+    notices.extend((checkout / filename).read_bytes() for filename in ('LICENSE-MIT', 'LICENSE-APACHE'))
+    for package in lock['package']:
+        if not package.get('source', '').startswith('registry+') or package['name'] == 'libc':
+            continue  # libc is used only on non-Windows targets in this lockfile.
+        name = package['name'] + '-' + package['version']
+        source = next(iter(sorted((cargo_cache / 'registry/src').glob('*/' + name))), None)
+        if source is None:
+            raise ValueError('Missing Cargo dependency source: ' + name)
+        licenses = sorted(path for path in source.iterdir() if path.is_file() and
+                          path.name.upper().startswith(('LICENSE', 'LICENCE', 'COPYING', 'NOTICE', 'PATENTS')))
+        if not licenses:
+            raise ValueError('Missing licence notices: ' + name)
+        notices.extend(name.encode() + b' / ' + path.name.encode() + b'\n' + path.read_bytes() for path in licenses)
+    prefix = 'tools/bookconvert/legacy-doc/'
+    return {prefix + executable.name: binary, prefix + 'DOCBOSS-NOTICE.txt': b'\n\n'.join(notices)}
+
+
+def legacy_doc_payload(version, platform):
     if tuple(map(int, version.split('.'))) < (3, 0, 0, 16):
         return {}
     project = REPO / 'Utils/HomeLibLegacyDoc'
@@ -330,6 +366,7 @@ def legacy_doc_payload(version):
     files = [build / executable, build / (executable + '.config'), *sorted(build.glob('*.dll'))]
     payload = {'tools/bookconvert/legacy-doc/' + file.name: file.read_bytes() for file in files}
     payload['tools/bookconvert/legacy-doc/NOTICE.txt'] = b'\n\n'.join(notices)
+    payload.update(legacy_doc_rich_payload(platform))
     return payload
 
 
@@ -348,7 +385,7 @@ def matches_checkout_source(name, data, digest):
 def verify_book_processing_sources(manifest, descriptor):
     """Compare a verified component manifest with the files used by the package writer."""
     current, required = book_processing_sources()
-    legacy_doc = legacy_doc_payload(manifest['version'])
+    legacy_doc = legacy_doc_payload(manifest['version'], manifest['platform'])
     current.update(legacy_doc)
     required.extend(legacy_doc)
     recorded = {entry['path']: entry['sha256'] for entry in manifest['files']}
@@ -459,7 +496,7 @@ def package(output, platform, component, version, kindle_export_root=None, advan
     payload, required = payload_for(platform, component, kindle_export_root, advanced_export_root, opds_tls_go,
                                     kfx_export_root, image_processing_root)
     if component == 'BookProcessing':
-        legacy_doc = legacy_doc_payload(version)
+        legacy_doc = legacy_doc_payload(version, platform)
         payload.update(legacy_doc)
         required.extend(legacy_doc)
     descriptor = dict(format=1, component=component, platform=platform, version=version,

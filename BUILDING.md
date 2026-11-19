@@ -1977,3 +1977,19 @@ Release/Win64 и Release/Win32:
 `tools/bookconvert/tests/test_office_inputs.py` проверяют порядок слайдов,
 табличные значения, иллюстрации, пустые листы и отказ при потере встроенных
 объектов. Подготовка документов описана в `docs/READING_PREPARATION.md`.
+
+
+## DOC формата Word 6/95
+
+Модуль BookProcessing 3.0.0.16 включает HomeLibLegacyDocRich из
+`Utils/HomeLibLegacyDocRich`. Соберите его из этой папки командой
+`cargo build --locked --release --target i686-pc-windows-gnu --target x86_64-pc-windows-gnu`
+с настроенным Windows GNU Rust и обеими целевыми платформами. Оставьте результаты в
+стандартной папке `target`. Скрипт `package-format-components.py` проверяет разрядность
+и берёт лицензии из того же кэша Cargo. Если для сборки задан `CARGO_HOME`,
+используйте то же значение при упаковке.
+
+Для текстового резерва восстановите закреплённые NuGet-пакеты командой
+`dotnet restore Utils/HomeLibLegacyDoc --locked-mode` и выполните
+`dotnet build Utils/HomeLibLegacyDoc -c Release --no-restore`.
+Оба обработчика входят в существующий ZIP BookProcessing своей разрядности.

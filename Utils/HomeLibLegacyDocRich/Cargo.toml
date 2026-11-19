@@ -1,0 +1,17 @@
+[package]
+name = "homelib-legacy-doc-rich"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "HomeLibLegacyDocRich"
+path = "src/main.rs"
+
+[dependencies]
+docboss-cfb = { git = "https://github.com/4thel00z/docboss", rev = "373b563b7a60d97f875a733da5635d0d15c4839e" }
+docboss-doc = { git = "https://github.com/4thel00z/docboss", rev = "373b563b7a60d97f875a733da5635d0d15c4839e" }
+docboss-write = { git = "https://github.com/4thel00z/docboss", rev = "373b563b7a60d97f875a733da5635d0d15c4839e" }
+
+[profile.release]
+strip = true

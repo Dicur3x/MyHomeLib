@@ -66,7 +66,7 @@ var Input: TStream; Writer: TBookCacheWrite; Zip: TZipFile;
   end;
 begin
   Result:=SourceFile; if not IsOfficeReaderFormat(ExtractFileExt(SourceFile)) then Exit;
-  if IsDirectDOCFormat(ExtractFileExt(SourceFile)) then Exit(PrepareDirectDOC(SourceFile,OriginalSource,OnStage,IsCanceled));
+  if IsDirectDOCFormat(ExtractFileExt(SourceFile)) then Exit(PrepareDirectDOC(SourceFile,OriginalSource,Settings.AppPath,OnStage,IsCanceled));
   CheckCanceled;
   var Missing:=MissingBookConversionComponents(Settings.AppPath,SourceFile,ExtractFileExt(SourceFile),False,IsCanceled);
   if Length(Missing)>0 then raise EMHLComponentRequired.Create(Missing,

@@ -17,7 +17,7 @@ type
   TReaderPicture = record
     Bytes: TBytes;
     Width, Height: Integer;
-    Monochrome: Boolean;
+    Monochrome, OfficeImage: Boolean;
   end;
 
   TReaderBlockKind = (rbTitle, rbSubtitle, rbEpigraph, rbPoem, rbCite, rbAuthor, rbCode, rbFootnote, rbInitial, rbParagraphInitial, rbRelativeSize, rbLink);
@@ -51,7 +51,7 @@ type
     procedure AddText(const Value: string; PreserveWhitespace: Boolean = False);
     procedure Paragraph;
     procedure Chapter(const Value: string; Depth: Integer = 0);
-    procedure Picture(const Bytes: TBytes);
+    procedure Picture(const Bytes: TBytes; OfficeImage: Boolean = False);
     procedure MakeRecentCover(const Bytes: TBytes);
     function PictureHeader(Index, MaxWidth, MaxHeight: Integer; LayoutOnly: Boolean): UTF8String;
   public
@@ -493,14 +493,19 @@ begin
   if C.Title<>'' then FChapters.Add(C);
 end;
 
-procedure TReaderDocument.Picture(const Bytes: TBytes);
+procedure TReaderDocument.Picture(const Bytes: TBytes; OfficeImage: Boolean);
 var Stream: TStream; Graphic: TGraphic; Item: TReaderPicture; Scale: Double;
 begin
   if Length(Bytes)=0 then raise Exception.Create('Данные изображения отсутствуют.');
   if Length(Bytes)>16*1024*1024 then raise Exception.Create('Изображение превышает 16 МБ.');
-  Stream:=TBytesStream.Create(Bytes); Graphic:=nil;
+  Stream:=nil; Graphic:=nil;
   try
-    Graphic:=CreateGraphicFromStream(Stream);
+    if OfficeImage then Graphic:=CreatePackageCoverGraphic(Bytes,256*1024*1024)
+    else
+    begin
+      Stream:=TBytesStream.Create(Bytes);
+      Graphic:=CreateGraphicFromStream(Stream);
+    end;
     if not Assigned(Graphic) or (Graphic.Width<=0) or (Graphic.Height<=0) then
       raise Exception.Create('Неподдерживаемое изображение.');
     if Int64(Graphic.Width)*Graphic.Height>64000000 then raise Exception.Create('Слишком большое изображение.');
@@ -511,7 +516,7 @@ begin
       Scale:=Min(1.0,4096.0/Max(Graphic.Width,Graphic.Height))
     else
       Scale:=Min(1.0,1024.0/Max(Graphic.Width,Graphic.Height));
-    Item.Bytes:=Bytes;
+    Item.Bytes:=Bytes; Item.OfficeImage:=OfficeImage;
     Item.Width:=Max(1,Round(Graphic.Width*Scale));
     Item.Height:=Max(1,Round(Graphic.Height*Scale));
     // Keep compressed source bytes, not multi-megabyte Unicode hexadecimal DIB.
@@ -996,7 +1001,7 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
         else if Assigned(Zip) then ReadZip(ZipPath(CurrentPath,Ref),Bytes)
         else if Binaries.TryGetValue(Ref.TrimLeft(['#']),Binary) then
           Bytes:=TNetEncoding.Base64.DecodeStringToBytes(Binary) else Bytes:=nil;
-        Picture(Bytes);
+        Picture(Bytes,E='.docx');
       except
         on E: EAbort do raise;
         on E: EMHLComponentRequired do raise;
@@ -1494,9 +1499,14 @@ begin
   end
   else
   begin
-      Stream:=TBytesStream.Create(Item.Bytes); Graphic:=nil; Bitmap:=TBitmap.Create;
+      Stream:=nil; Graphic:=nil; Bitmap:=TBitmap.Create;
       try
-        Graphic:=CreateGraphicFromStream(Stream);
+        if Item.OfficeImage then Graphic:=CreatePackageCoverGraphic(Item.Bytes,256*1024*1024)
+        else
+        begin
+          Stream:=TBytesStream.Create(Item.Bytes);
+          Graphic:=CreateGraphicFromStream(Stream);
+        end;
         if not Assigned(Graphic) then raise Exception.Create('Не удалось прочитать изображение.');
         if Graphic is TJPEGImage then
         begin

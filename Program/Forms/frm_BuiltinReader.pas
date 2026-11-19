@@ -188,7 +188,7 @@ type
     FFootnotesPanel: TPanel;
     FFootnotesLabel: TLabel;
     FFootnotesMemo: TMemo;
-    FIdentity, FSettingsFile, FFileName, FBookTitle: string;
+    FIdentity, FSettingsFile, FFileName, FBookTitle, FSourceWarning: string;
     FNormalBounds, FRestoredBounds: TRect;
     FFullScreenPlacement: TWindowPlacement;
     FFullScreenBorder: TFormBorderStyle;
@@ -576,7 +576,7 @@ implementation
 
 {$R '..\Resources\reader-icon.res'}
 
-uses Winapi.ActiveX, Winapi.RichEdit, Winapi.CommDlg, Winapi.CommCtrl, Winapi.ShellAPI, System.Math, System.DateUtils, System.IOUtils, System.RegularExpressions,
+uses unit_ReaderDOC, Winapi.ActiveX, Winapi.RichEdit, Winapi.CommDlg, Winapi.CommCtrl, Winapi.ShellAPI, System.Math, System.DateUtils, System.IOUtils, System.RegularExpressions,
   System.IniFiles, System.Hash, System.NetEncoding, Vcl.Dialogs, Vcl.Clipbrd, unit_ReaderRichEdit, unit_ReaderLookup, unit_MHLTheme, unit_AtomicIniFile, Vcl.Themes, unit_MHLExternalTools, unit_ReaderPalette, frm_ReaderFontManager, unit_Diagnostics, unit_ReaderFormats;
 
 const
@@ -1781,6 +1781,7 @@ begin
   FRequiredComponent := '';
   FPastEndNotified:=False;
   FMissingFonts.Clear; FFontOfferDeclined:=False; FFontsDownloading:=False; FFontOffer.Visible:=False;
+  FSourceWarning:=PreparedDOCWarning(FileName);
   FFileName:=FileName; FIdentity:=Copy(THashSHA2.GetHashString(Identity),1,40);
   FSettingsFile:=SettingsFile; FOnProgress:=OnProgress; FBookTitle:=BookTitle;
   FStartPosition:=StartPosition;
@@ -2876,7 +2877,8 @@ begin
     else if (Position>=CurrentPosition) and (Position<FNext) then FPageHasBookmark:=True;
   if FAnnotationLoadError<>'' then FStatus.Caption:=FStatus.Caption+' · Заметки недоступны: '+FAnnotationLoadError;
   FLastPageInteraction:=GetTickCount64;
-  if FSearchStatus<>'' then FStatus.Caption:=FSearchStatus;
+  if FSearchStatus<>'' then FStatus.Caption:=FSearchStatus
+  else if FSourceWarning<>'' then FStatus.Caption:=FSourceWarning+' · '+FStatus.Caption;
   UpdateReadingPercent;
   FProgressLine.Invalidate; FSurface.Invalidate; PrefetchNextPage;
 end;

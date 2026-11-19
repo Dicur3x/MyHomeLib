@@ -231,7 +231,7 @@ procedure ConvertBasicBook(const AppPath, TempRoot, SourceFile, SourceExtension,
   const OutputProfile: string; const ExtractTextLayer, Grayscale, MeasureScans, SkipDamagedFB2Image: Boolean);
 var Work, InputName, OutputName, ReportName, ProgressName, Tool, Script, TargetTemporary, LastDiagnosticStage: string;
   Input, Writer: TStream; SavedPosition: Int64; Log: TStringStream;
-  Started, DOCStarted, LastAdvance, LastPoll: UInt64; Report: TJSONValue; ArrayValue: TJSONValue; I: Integer;
+  Started, LastAdvance, LastPoll: UInt64; Report: TJSONValue; ArrayValue: TJSONValue; I: Integer;
   Extension, TargetExtension, Actual: string; Check, ReadProgress: TProc;
   Paged, Finalizing, ImageProcessing, StreamingScans, KindleWriting, TextLayerOnly: Boolean;
   LastSequence, CompletedPages, PageTotal, LastPercent, RenderedPages, KindleCompleted: Integer;
@@ -560,51 +560,15 @@ begin
     Paged:=Pos('|'+Extension+'|','|.pdf|.djvu|.djv|.dju|.djm|.djvm|.xps|.cbz|.cbr|.cb7|.tif|.tiff|.bmp|')>0;
     if IsDirectDOCFormat(Extension) then
     begin
-      var DOCReader:=FindDirectDOCReader;
-      if DOCReader='' then raise EMHLComponentRequired.Create('DocSharp','Для этого DOC нужен компонент DocSharp.');
-      var PreparedDocument:=TPath.Combine(Work,'prepared.docx'); DOCStarted:=GetTickCount64;
-      try
-        RunExternalToolToStream(DOCReader,[InputName,PreparedDocument],Log,
-          function: Boolean
-          begin
-            Check; Result:=False;
-            if GetTickCount64-DOCStarted>30000 then raise Exception.Create('Чтение DOC превысило 30 секунд.');
-          end,0,True,384*1024*1024);
-      except
-        on E: EMHLExternalToolError do
+      var DocWarning: string;
+      InputName:=PrepareBinaryDOC(InputName,TPath.Combine(Work,'prepared.docx'),
+        TPath.Combine(Work,'prepared.txt'),AppPath,
+        procedure
         begin
-          if Log.DataString.Contains('ERROR PASSWORD') then
-            raise Exception.Create('Этот DOC защищён паролем. Если у вас есть пароль, откройте документ в Word и сохраните копию в DOCX без пароля.')
-          else if Log.DataString.Contains('ERROR OLD') then
-          begin
-            var LegacyDocReader:=TPath.Combine(AppPath,LEGACY_DOC_WORKER);
-            if not FileExists(LegacyDocReader) then
-              raise EMHLComponentRequired.Create('BookProcessing','Для автоматического экспорта DOC формата Word 6/95 обновите модуль обработки книг.');
-            PreparedDocument:=TPath.Combine(Work,'prepared.txt');
-            DOCStarted:=GetTickCount64;
-            Log.Clear;
-            try
-              RunExternalToolToStream(LegacyDocReader,[InputName,PreparedDocument],Log,
-                function: Boolean
-                begin
-                  Check;
-                  if GetTickCount64-DOCStarted>30000 then raise Exception.Create('Чтение старого DOC превысило 30 секунд.');
-                  Result:=False;
-                end,0,True,384*1024*1024);
-            except
-              on Failure: EMHLExternalToolError do
-                raise Exception.Create('Не удалось извлечь текст из старого DOC. Можно сохранить копию в исходном формате.');
-            end;
-            if not FileExists(PreparedDocument) or (TFile.GetSize(PreparedDocument)=0) then
-              raise Exception.Create('В старом DOC не найден текст для экспорта. Можно сохранить копию в исходном формате.');
-            if Assigned(Warnings) then
-              Warnings.Add('Из DOC формата Word 6/95 извлечён текст. Оформление и изображения не перенесены.');
-          end
-          else raise Exception.Create('DocSharp не смог прочитать DOC. Возможно, файл повреждён или использует неподдерживаемый вариант формата.');
-        end;
-      end;
-      if not FileExists(PreparedDocument) then raise Exception.Create('Компонент DocSharp не смог прочитать этот DOC.');
-      InputName:=PreparedDocument; Extension:=ExtractFileExt(PreparedDocument); Log.Clear;
+          Check;
+        end,DocWarning);
+      if (DocWarning<>'') and Assigned(Warnings) then Warnings.Add(DocWarning);
+      Extension:=ExtractFileExt(InputName);
     end;
     // The Python same-format path validates and copies the exact bytes. Do
     // not publish an unchecked source merely because its suffix matches.
