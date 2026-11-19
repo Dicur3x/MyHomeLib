@@ -67,6 +67,7 @@ type
     procedure Layout;
     procedure Resize; override;
     procedure SetReport(const Text: string);
+    procedure ShowUnreviewedSource;
     function GetSources: TLibraryUpdateSources;
     function SelectionIndex: Integer;
     procedure DoShow; override;
@@ -313,7 +314,7 @@ begin
   FToolGuide:=TContextToolGuide.CreateForTool(Self,FHeader,'library-update-sources','Как обновить библиотеку',
     'Укажите новый индекс и папку, куда вы докачали книжные архивы.',
     'Нажмите «Добавить…» и выберите папку или сервер с индексом. Если объединены несколько библиотек, выберите нужный источник.'+sLineBreak+
-    'Нажмите «Проверить обновление». Кнопка «Копировать список» даст точные имена недостающих архивов. После докачки повторите проверку.'+sLineBreak+
+    'Нажмите «Проверить обновление». Кнопка «Копировать имена архивов» скопирует точные имена всех недостающих файлов. После докачки повторите проверку.'+sLineBreak+
     '«Применить обновление…» откроет план. Просмотрите его и подтвердите запись в каталог.'+sLineBreak+
     'Если у вас есть collections.ini, нажмите «Импорт настроек…», проверьте пути и включите нужные записи.',
     113,'sources');
@@ -337,10 +338,9 @@ begin
   Button('btnApplyUpdateSource','Применить обновление…',ApplyClick); B.Enabled:=False;
   Button('btnSaveUpdateSources','Сохранить',SaveClick);
   Button('btnCopyUpdateSourceReport','Копировать отчёт',CopyReport);
-  Button('btnCopyNeededUpdateArchives','Копировать список',CopyNeeded);
+  Button('btnCopyNeededUpdateArchives','Копировать имена архивов',CopyNeeded);
   Button('btnSaveMissingUpdateBooks','Сохранить пропуски…',SaveMissing); B.Enabled:=False;
   Button('btnCloseUpdateSources','Закрыть',nil); B.Cancel:=True; B.ModalResult:=mrCancel;
-  SetReport('Добавьте источник или выберите его в списке и нажмите «Проверить обновление».');
   Rebuild(0); ScaleForPPI(Screen.PixelsPerInch); FitWindow(Self); Layout;
 end;
 
@@ -406,6 +406,7 @@ begin
     for I:=0 to High(FButtons) do FButtons[I].SetBounds(Gap+(I mod PerRow)*(Width+Gap),
       Gap+(I div PerRow)*(Height+Gap),Width,Height);
     FIntro.SetBounds(Gap,Gap,Max(1,FHeader.ClientWidth-6*Gap),MulDiv(64,DPI,96));
+    FList.Height:=MulDiv(32+22*EnsureRange(FList.Items.Count,2,8),DPI,96);
     Canvas.Font.Assign(FReport.Font); R:=Rect(0,0,Max(1,FBody.ClientWidth),0);
     DrawText(Canvas.Handle,PChar(FReport.Caption),Length(FReport.Caption),R,DT_CALCRECT or DT_WORDBREAK or DT_NOPREFIX);
     FReport.Height:=Max(MulDiv(100,DPI,96),R.Height+2*Gap);
@@ -417,6 +418,15 @@ begin inherited; Layout; end;
 
 procedure TfrmLibraryUpdateSources.SetReport(const Text: string);
 begin FReport.Caption:=Text; UpdateApplyAction; Layout; end;
+
+procedure TfrmLibraryUpdateSources.ShowUnreviewedSource;
+begin
+  if (FSelectedIndex >= 0) and (FSelectedIndex < Length(FSources)) then
+    SetReport(Format('Источник «%s» ещё не проверен. Нажмите «Проверить обновление».',
+      [FSources[FSelectedIndex].Name]))
+  else SetReport('Добавьте источник и нажмите «Проверить обновление».');
+  FBody.VertScrollBar.Position := 0;
+end;
 
 procedure TfrmLibraryUpdateSources.Rebuild(Index: Integer);
 begin
@@ -436,12 +446,17 @@ begin
     end
     else FSelectedIndex:=-1;
   finally FList.Items.EndUpdate; FRebuilding:=False; end;
+  ShowUnreviewedSource;
 end;
 
 procedure TfrmLibraryUpdateSources.Selected(Sender: TObject; Item: TListItem; Selected: Boolean);
 begin
   if not FRebuilding and Selected and (Item.Index<>FSelectedIndex) then
-  begin FSelectedIndex:=Item.Index; InvalidatePrepared; end;
+  begin
+    FSelectedIndex := Item.Index;
+    InvalidatePrepared;
+    ShowUnreviewedSource;
+  end;
 end;
 
 procedure TfrmLibraryUpdateSources.AppendSource(const Source: TLibraryUpdateSource);
@@ -594,6 +609,7 @@ begin
         if Assigned(Worker.FatalException) then raise EReadError.Create(Exception(Worker.FatalException).Message);
         if not Worker.Success or not FReview.Ready then raise EReadError.Create('Проверка обновления не завершена.');
         SetReport(FReview.Summary);
+        FBody.VertScrollBar.Position := 0;
       finally Progress.Free; end;
     finally Worker.Free; end;
   except FreeAndNil(FReview); raise; end;
@@ -632,7 +648,7 @@ begin Clipboard.AsText:=FReport.Caption; end;
 procedure TfrmLibraryUpdateSources.SelectProfile(const ID: string);
 begin
   for var I:=0 to High(FSources) do
-    if SameText(FSources[I].ID,ID) then begin Rebuild(I); Exit; end;
+    if SameText(FSources[I].ID,ID) then begin InvalidatePrepared; Rebuild(I); Exit; end;
 end;
 
 procedure TfrmLibraryUpdateSources.ApplyReviewed(PreferNewRoot: Boolean);
