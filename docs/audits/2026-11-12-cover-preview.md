@@ -135,3 +135,15 @@ explanation. A separate two-colour WMF verified drawing, the decoded image size
 limit and rejection of truncated data. Source documents retained their original
 bytes. Test manifests and receipts for both catalogue and reader builds are in
 `G:/HL-b14-external/r2004-office` and `G:/HL-b14-external/r2005-office-build`.
+
+## Readable WMF previews in both themes
+
+The Word fax template carries black ink over a partly transparent page.
+The normal catalogue panel previously showed the dark interface colour
+through the drawing, obscuring some of the text and border. It now paints
+standard WMF thumbnails over white paper. The updated x86 and x64 portable
+packages displayed the template in both themes. In all four screenshots the
+drawing matched the independently rendered original on white paper. All
+19 Office files and the synthetic size and truncation cases passed on both
+architectures. Screenshots and results are in
+`G:/HL-b14-external/r2008-word-paper-build`.

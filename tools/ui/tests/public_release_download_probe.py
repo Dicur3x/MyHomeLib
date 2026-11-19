@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import runpy
 import subprocess
 import tempfile
@@ -18,11 +19,32 @@ import zipfile
 from component_publication_probe import component_ids
 
 
-def check_core(args, repo, cache, get):
+def open_release_asset(url):
+    request = urllib.request.Request(url, headers={'User-Agent': 'HomeLibre-release-verification',
+                                                   'Cache-Control': 'no-cache'})
+    return urllib.request.urlopen(request, timeout=90)
+
+
+def verify_public_archive(asset, expected_size, expected_sha256):
+    assert asset['size'] == expected_size
+    assert asset['digest'] == 'sha256:' + expected_sha256
+    count = 0
+    digest = hashlib.sha256()
+    with open_release_asset(asset['browser_download_url']) as response:
+        assert response.status == 200
+        while chunk := response.read(1024 * 1024):
+            count += len(chunk)
+            assert count <= expected_size, 'Public download exceeds the release manifest'
+            digest.update(chunk)
+    assert count == expected_size and digest.hexdigest() == expected_sha256, asset['name']
+    return dict(name=asset['name'], size=count, sha256=expected_sha256, asset_id=asset['id'])
+
+
+def check_core(args, native_root, cache, get):
     report = dict(status='FAIL', scope='Live GitHub release metadata through both production '
         'parsers, followed by real production download threads and native preparation. '
         'No graphical frontend, installation or restart in this probe.', platforms=[],
-        temporary_downloads_removed=False)
+        additional_archives=[], temporary_downloads_removed=False)
     try:
         with tempfile.TemporaryDirectory(prefix='HomeLibRu-update-test-public-core-', dir=cache) as temporary:
             root = Path(temporary)
@@ -39,13 +61,23 @@ def check_core(args, repo, cache, get):
                             if (p := catalogue / f'{brand}{suffix}.zip').is_file()]
                 packages[platform] = package
             assets = {value['name']: value for value in current['assets']}
-            assert set(assets) == {'SHA256SUMS.txt'} | {p.name for p in packages.values()}
+            documented_checksums = (args.checksums or catalogue / 'SHA256SUMS.txt').read_bytes()
+            manifest = {}
+            for line in documented_checksums.decode('ascii').splitlines():
+                match = re.fullmatch(r'([a-fA-F0-9]{64})  ((?:HomeLibre|HomeLibRu)(?:_x64)?(?:_portable|_full)?\.zip)', line)
+                assert match is not None, 'Unexpected line in the catalogue checksum file'
+                digest, name = match.groups()
+                assert name not in manifest, 'Duplicate archive in the catalogue checksum file'
+                manifest[name] = digest.lower()
+            assert {p.name for p in packages.values()} <= set(manifest)
+            assert set(assets) == {'SHA256SUMS.txt'} | set(manifest)
             api_file = root / 'releases.json'
             api_file.write_text(json.dumps(releases), encoding='utf-8')
             checksums = get(assets['SHA256SUMS.txt']['browser_download_url'])
-            assert checksums == (args.checksums or catalogue / 'SHA256SUMS.txt').read_bytes()
-            for platform, package in packages.items():
-                native = repo / f'Program/Tests/Out/{platform}/ProgramUpdateInstallerTest.exe'
+            assert checksums == documented_checksums
+            native_archives = set()
+            for platform, compatibility in packages.items():
+                native = native_root / platform / 'ProgramUpdateInstallerTest.exe'
 
                 def run(*parameters):
                     completed = subprocess.run([str(native), *map(str, parameters)], cwd=root,
@@ -56,8 +88,13 @@ def check_core(args, repo, cache, get):
 
                 parsed = run('--parse', api_file)
                 values = json.loads(parsed.removesuffix('PASS').strip())
+                portable = compatibility.stem + '_portable.zip'
+                candidates = {name for name in (compatibility.name, portable) if name in manifest}
+                selected, = [name for name in candidates if assets[name]['browser_download_url'] == values[1]]
+                package = catalogue / selected
                 asset = assets[package.name]
                 digest = hashlib.sha256(package.read_bytes()).hexdigest()
+                assert digest == manifest[package.name]
                 assert values[:4] == [tag, asset['browser_download_url'], digest, asset['size']]
                 job = root / platform
                 result = run('--download', values[1], values[3], values[2], values[0], job)
@@ -66,9 +103,16 @@ def check_core(args, repo, cache, get):
                 assert hashlib.sha256(downloaded.read_bytes()).hexdigest() == digest
                 with zipfile.ZipFile(downloaded) as archive:
                     assert archive.testzip() is None
-                report['platforms'].append(dict(platform=platform, tag=values[0], asset_id=asset['id'],
+                native_archives.add(selected)
+                report['platforms'].append(dict(platform=platform, tag=values[0], name=selected, asset_id=asset['id'],
                     sha256=digest, size=asset['size'], native_download_and_preparation=result))
                 print('PASS production download and preparation', platform, flush=True)
+            for name in sorted(set(manifest) - native_archives):
+                with (catalogue / name).open('rb') as source:
+                    size = os.fstat(source.fileno()).st_size
+                    assert hashlib.file_digest(source, 'sha256').hexdigest() == manifest[name]
+                report['additional_archives'].append(verify_public_archive(assets[name], size, manifest[name]))
+                print('PASS public catalogue archive', name, flush=True)
         report.update(status='PASS', temporary_downloads_removed=not root.exists())
     except BaseException as error:
         report['error'] = repr(error)
@@ -86,6 +130,7 @@ def main():
     parser.add_argument('--core-prerelease', action='store_true', help='Expect a GitHub prerelease')
     parser.add_argument('--catalogue-dir', type=Path, help='Local catalogue archives and checksums for --core')
     parser.add_argument('--checksums', type=Path, help='Local checksum file if stored separately from the archives')
+    parser.add_argument('--native-root', type=Path, help='Directory containing the Win32 and Win64 native verifier builds')
     parser.add_argument('--plan', type=Path, help='Local component publication plan')
     parser.add_argument('--staged-feed', type=Path,
                         help='Verify public ZIPs against the local feed before switching the public feed')
@@ -93,6 +138,7 @@ def main():
     assert not args.report.exists(), 'Preserve previous verification reports'
     stage = args.stage.resolve()
     repo = Path(__file__).resolve().parents[3]
+    native_root = args.native_root.resolve() if args.native_root else repo / 'Program/Tests/Out'
     cache = Path('G:/HomeLibRu-build-cache').resolve(strict=True)
     os.environ.update(TEMP=str(cache), TMP=str(cache))
     tempfile.tempdir = None
@@ -103,14 +149,12 @@ def main():
         return hashlib.sha256(data).hexdigest()
 
     def get(url):
-        request = urllib.request.Request(url, headers={'User-Agent': 'HomeLibre-release-verification',
-                                                       'Cache-Control': 'no-cache'})
-        with urllib.request.urlopen(request, timeout=90) as response:
+        with open_release_asset(url) as response:
             assert response.status == 200
             return response.read()
 
     if args.core:
-        check_core(args, repo, cache, get)
+        check_core(args, native_root, cache, get)
         return
 
     plan = json.loads((args.plan or stage / 'publication-r3/publication-plan.json').read_bytes())
@@ -144,7 +188,7 @@ def main():
             version = json.loads((repo / 'Installer/Release.json').read_bytes())['version']
 
             def run(platform, *parameters):
-                native = repo / f'Program/Tests/Out/{platform}/ProgramUpdateInstallerTest.exe'
+                native = native_root / platform / 'ProgramUpdateInstallerTest.exe'
                 completed = subprocess.run([str(native), *map(str, parameters)], cwd=root,
                     capture_output=True, encoding='utf-8-sig', timeout=120,
                     creationflags=subprocess.CREATE_NO_WINDOW)

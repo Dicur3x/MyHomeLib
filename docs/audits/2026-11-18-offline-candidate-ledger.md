@@ -585,6 +585,26 @@ workspace path occupied by a file. A retry succeeded in the restored folder.
 Reports, delivery receipts and protocol logs are under
 `G:/HL-b14-external/r2007-incremental-release`.
 
+## Packages after the Word thumbnail correction
+
+Six rebuilt archives and their SHA-256 list are under
+`G:/HL-b14-external/r2009-release-refresh/release`. The archive inventory
+matches the previous six. Main, Reader and their manifests are the only
+changed payloads across the sets. The native installer checked every ZIP
+and found all 25 optional components in both full distributions. Both
+stock beta 13 frontends installed the refreshed compatibility archives
+and relaunched as `HomeLibre.exe` with catalogue entries, personal settings
+and window placement retained. Both Reader package layouts passed.
+
+With all six candidate archives listed, both beta 14 release parsers select
+the matching portable archive. The stock beta 13 parser accepts the two
+compatibility names, so keep those archives alongside the four named
+portable and full downloads. The public probe accepts the manifest for
+either release layout and verifies the advertised byte count and SHA-256
+of every additional ZIP. The local fixtures use the actual candidate bytes.
+The live network regression used the published beta 13 release. Beta 14
+public availability can be verified after publication.
+
 ## Remaining checks
 
 Remaining source checks, Desktop replacement and publication remain open.
