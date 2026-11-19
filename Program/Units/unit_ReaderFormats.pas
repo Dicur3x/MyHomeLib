@@ -3,6 +3,7 @@
 interface
 
 const MAX_NATIVE_RTF_SOURCE = 64*1024*1024;
+  KFX_READER_CACHE_PREFIX = 'homelib-kfx-view-';
 
 // Content inspection uses a bounded prefix and never changes source files.
 function DetectReaderExtension(const FileName: string): string;
@@ -10,6 +11,7 @@ function PrepareDetectedReaderFile(const FileName, Source: string): string;
 function ReaderAvailability(const Extension: string): string;
 function IsBuiltinReaderFormat(const Extension: string): Boolean;
 function IsLegacyReaderFormat(const Extension: string): Boolean;
+function IsKfxReaderFormat(const Extension: string): Boolean;
 
 implementation
 
@@ -28,12 +30,19 @@ end;
 
 function IsBuiltinReaderFormat(const Extension: string): Boolean;
 begin
-  Result:=IsLegacyReaderFormat(Extension) or InList(Extension,'|sm|fb2|fb3|epub|pdf|txt|rtf|html|htm|xhtml|shtml|mht|mhtml|docx|odt|md|markdown|faq|wri|jpg|jpeg|png|gif|bmp|webp|tif|tiff|cbz|cbr|cb7|djvu|djv|dju|djm|djvm|');
+  Result:=IsLegacyReaderFormat(Extension) or IsKfxReaderFormat(Extension) or
+    InList(Extension,'|sm|fb2|fb3|epub|pdf|txt|rtf|html|htm|xhtml|shtml|mht|mhtml|docx|odt|md|markdown|faq|wri|jpg|jpeg|png|gif|bmp|webp|tif|tiff|cbz|cbr|cb7|djvu|djv|dju|djm|djvm|');
+end;
+
+function IsKfxReaderFormat(const Extension: string): Boolean;
+begin
+  Result:=InList(Extension,'|kfx|azw8|');
 end;
 
 function ReaderAvailability(const Extension: string): string;
 begin
   if InList(Extension,'|sm|') then Exit('Интерактивная книга: выбор ответов и сохранение пройденной ветки во встроенной читалке');
+  if IsKfxReaderFormat(Extension) then Exit('Отдельный файл Kindle без DRM: чтение через модуль KFX/AZW8');
   if IsBuiltinReaderFormat(Extension) then Exit('Можно читать во встроенной читалке');
   if InList(Extension,'|mobi|azw|azw3|prc|') then Exit('Встроенная читалка: после подготовки книги');
   if InList(Extension,'|doc|dot|') then Exit('Можно читать во встроенной читалке');
@@ -186,6 +195,12 @@ end;
 
 function DetectReaderExtensionCore(const FileName: string): string;
 var Stream: TFileStream; Bytes: TBytes; Prefix, Wide: string; Zip: TZipFile; N: Integer;
+  HeaderSize, InfoOffset, InfoSize: Cardinal; SourceSize: Int64;
+  function ReadLE32(Offset: Integer): Cardinal;
+  begin
+    Result:=Cardinal(Bytes[Offset]) or (Cardinal(Bytes[Offset+1]) shl 8) or
+      (Cardinal(Bytes[Offset+2]) shl 16) or (Cardinal(Bytes[Offset+3]) shl 24);
+  end;
   function TextFormat: string;
   var B: Byte; C: Char; Text, Extension: string; Visible: Boolean;
   begin
@@ -215,7 +230,8 @@ var Stream: TFileStream; Bytes: TBytes; Prefix, Wide: string; Zip: TZipFile; N: 
 begin
   Result:=''; Stream:=TFileStream.Create(FileName,fmOpenRead or fmShareDenyNone);
   try
-    SetLength(Bytes,Min(Stream.Size,131072));
+    SourceSize:=Stream.Size;
+    SetLength(Bytes,Min(SourceSize,131072));
     if Length(Bytes)>0 then Stream.ReadBuffer(Bytes[0],Length(Bytes));
   finally Stream.Free; end;
   if Length(Bytes)<4 then
@@ -225,6 +241,16 @@ begin
   end;
   Prefix:=ReaderSignatureBytes(Bytes,0,4096);
   if Copy(Prefix,1,8)='AT&TFORM' then Exit('.djvu');
+  if (Length(Bytes)>=18) and Prefix.StartsWith('CONT') then
+  begin
+    HeaderSize:=ReadLE32(6); InfoOffset:=ReadLE32(10); InfoSize:=ReadLE32(14);
+    if (InfoOffset>=18) and (InfoSize>=4) and (UInt64(InfoOffset)+InfoSize<=HeaderSize) and
+      (Int64(HeaderSize)+4<=SourceSize) then
+    begin
+      if SameText(ExtractFileExt(FileName),'.azw8') then Exit('.azw8');
+      Exit('.kfx');
+    end;
+  end;
   if Copy(Prefix,1,16)='SQLite format 3'+#0 then
     Exit(DetectSQLiteBook(FileName));
   if Copy(Prefix,1,16)='ICEContainer 1.0' then Exit('.ibk');

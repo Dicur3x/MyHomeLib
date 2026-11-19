@@ -65,6 +65,7 @@ HomeLibre offers to install the reader the first time you need it.
 | Works and WordPerfect | WPS, WPD | BookProcessing and libwps/libwpd. Requires 64-bit Windows |
 | Fixed-layout documents | PDF, DJVU, DJV, DJU, DJM, DJVM, XPS, OXPS | PDFium for PDF, DjVuLibre for DjVu, HomeLibXps and BookProcessing for XPS and OXPS |
 | Kindle books | MOBI, AZW, AZW3, PRC | KindleUnpack and BookProcessing. Some older variants also require calibre codecs |
+| Kindle books in KFX containers | KFX, AZW8 | KFX/AZW8 module (Boko). Supports standalone files without DRM |
 | Interactive books | SM | BookProcessing. You can save the route you played |
 | Less common books and documents | CHM, LIT, LRF, RB, ABW, SXW, TCR, PDB, RGO, IBK, JUTOH, PAGES, CR3, B1, HA | BookProcessing. CHM requires 7-Zip, LIT and LRF require calibre codecs, and IBK requires ICE Book Reader data. Support depends on the file variant |
 | Images and comics | JPG, JPEG, PNG, GIF, BMP, WEBP, TIF, TIFF, CBZ, CBR, CB7 | WebP requires libwebp. Some TIFF files require BookProcessing, and some comics require 7-Zip. JPEG XL illustrations in books require a JPEG XL decoder |

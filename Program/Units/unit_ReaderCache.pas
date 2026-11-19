@@ -727,7 +727,8 @@ begin
         (Extension = '.odt') or (Extension = '.chm') or (Extension = '.mht') or
         (Extension = '.mhtml') or (Extension = '.wri') or (Extension = '.ppt') or
         (Extension = '.pptx') or (Extension = '.md') or (Extension = '.fb3') or
-        IsLegacyReaderFormat(Extension) or (Extension='.prc') or IsOfficeReaderFormat(Extension) then Candidates.Add(I);
+        IsLegacyReaderFormat(Extension) or IsKfxReaderFormat(Extension) or
+        (Extension='.prc') or IsOfficeReaderFormat(Extension) then Candidates.Add(I);
     end;
     if Candidates.Count=0 then
       for I in Nested do Candidates.Add(I);
@@ -1003,6 +1004,8 @@ begin
     if ConvertKindle then Result := PrepareKindleReflow(Result,Book.GetBookFileName,OnStage);
     if ConvertOffice then
     begin
+      if IsKfxReaderFormat(ExtractFileExt(Result)) then
+        Exit(PrepareKfxReflow(Result,Book.GetBookFileName,OnStage,IsCanceled));
       var Required:=RequiredReaderComponent(Settings.AppPath,ExtractFileExt(Result));
       if Required<>'' then raise EReaderComponentRequired.Create(Required);
       Result := PrepareLegacyReaderFile(Result,Book.GetBookFileName,OnStage);

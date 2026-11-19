@@ -437,6 +437,7 @@ const Formats =
   'DJVU, DJV, DJU, DJM, DJVM — DjVuLibre.'+sLineBreak+
   'XPS, OXPS — HomeLibXps и подготовка книг (BookProcessing).'+sLineBreak+
   'MOBI, AZW, AZW3, PRC — KindleUnpack и подготовка книг. Для отдельных старых книг также нужны кодеки calibre.'+sLineBreak+
+  'KFX, AZW8 — модуль KFX/AZW8 для отдельных книг без DRM.'+sLineBreak+
   'DOC, DOT — DocSharp. PPT, PPS, POT, XLS, XLT — DocSharp и подготовка книг.'+sLineBreak+
   'DOCM, DOTX, DOTM, OTT, PPTX, PPTM, PPSX, PPSM, POTX, POTM, ODP, OTP, XLSX, XLSM, XLTX, XLTM, ODS, OTS — подготовка книг.'+sLineBreak+
   'WPS, WPD — libwps/libwpd и подготовка книг. Требуется 64-разрядная Windows.'+sLineBreak+

@@ -70,6 +70,7 @@ HomeLibre Reader можно запустить отдельно, чтобы чи
 | Works и WordPerfect | WPS, WPD | BookProcessing и libwps/libwpd. Требуется 64-разрядная Windows |
 | Документы с фиксированными страницами | PDF, DJVU, DJV, DJU, DJM, DJVM, XPS, OXPS | PDFium для PDF, DjVuLibre для DjVu, HomeLibXps и BookProcessing для XPS и OXPS; OXPS требует Windows 8 или новее |
 | Книги Kindle | MOBI, AZW, AZW3, PRC | KindleUnpack и BookProcessing. Для некоторых старых вариантов также нужны кодеки calibre |
+| Книги Kindle с контейнером KFX | KFX, AZW8 | Модуль KFX/AZW8 (Boko). Поддерживаются отдельные файлы книг без DRM |
 | Интерактивные книги | SM | BookProcessing. Можно сохранить пройденную ветку |
 | Редкие книги и документы | CHM, LIT, LRF, RB, ABW, SXW, TCR, PDB, RGO, IBK, JUTOH, PAGES, CR3, B1, HA | BookProcessing. Для CHM нужен 7-Zip, для LIT и LRF — кодеки calibre, для IBK — данные ICE Book Reader. Поддержка зависит от варианта файла |
 | Изображения и комиксы | JPG, JPEG, PNG, GIF, BMP, WEBP, TIF, TIFF, CBZ, CBR, CB7 | WebP требует libwebp. Для некоторых TIFF нужен BookProcessing, а для некоторых комиксов — 7-Zip. Для иллюстраций JPEG XL в книгах нужен декодер JPEG XL |

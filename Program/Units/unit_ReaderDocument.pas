@@ -88,7 +88,7 @@ implementation
 
 uses Winapi.Windows, Winapi.ActiveX, System.IOUtils, System.Math,
   System.RegularExpressions, System.StrUtils, System.NetEncoding, System.Zip, System.Variants,
-  System.Character, System.Generics.Defaults, System.Win.ComObj, Winapi.MSXML, Vcl.Graphics, Vcl.Imaging.jpeg, unit_ImageBounds, unit_FB2Utils, unit_ReaderMIME, unit_ReaderFormats, unit_ReaderCSS, unit_MHLExternalTools, unit_FB2Encoding;
+  System.Character, System.Generics.Defaults, System.Win.ComObj, Winapi.MSXML, Vcl.Graphics, Vcl.Imaging.jpeg, unit_ImageBounds, unit_FB2Utils, unit_ReaderMIME, unit_ReaderFormats, unit_ReaderCSS, unit_MHLExternalTools, unit_FB2Encoding, unit_BookCache;
 
 const
   MAX_DOCUMENT_BYTES = 64 * 1024 * 1024;
@@ -646,7 +646,7 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
   end;
   procedure LoadEpubOutline;
   var Entries:TList<TReaderChapter>; Seen:TDictionary<string,Boolean>;
-    OwnEpub, RootEntry: Boolean; PageEntries, ChapterIndex: Integer;
+    OwnEpub, OwnKfxView, RootEntry, KfxFallback: Boolean; PageEntries, ChapterIndex: Integer;
     SavedPath, Resource, NcxID:string; Navigation:IXMLDOMDocument3; Bytes:TBytes; J:Integer;
     Entry, TocNode:IXMLDOMNode;
 
@@ -689,6 +689,9 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
         if (Depth=0) and Target.StartsWith('OEBPS/book.xhtml#heading-') and PageLabel(C.Title) then
           Inc(PageEntries);
       end;
+      // Boko writes an EPUB-required root entry when the KFX has no TOC.
+      // Actual KFX entries carry fragment targets, including ones on the first page.
+      if OwnKfxView and (Target='OEBPS/chapter_0.xhtml#') then KfxFallback:=True;
       Entries.Add(C); Seen.Add(Target,True);
     end;
     procedure ReadList(const N:IXMLDOMNode; NCX:Boolean; Depth:Integer);
@@ -725,7 +728,7 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
     end;
     procedure ReadNavigation(const Href:string; NCX:Boolean);
     begin
-      Entries.Clear; Seen.Clear; PageEntries:=0; RootEntry:=False;
+      Entries.Clear; Seen.Clear; PageEntries:=0; RootEntry:=False; KfxFallback:=False;
       try
         CurrentPath:=ZipPath(PackagePath,Href); ReadZip(CurrentPath,Bytes);
         if NCX then Navigation:=XMLDocument(Bytes)
@@ -746,7 +749,10 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
   begin
     SavedPath:=CurrentPath; Entries:=TList<TReaderChapter>.Create; Seen:=TDictionary<string,Boolean>.Create;
     try
-      OwnEpub:=IsPreparedEpub; PageEntries:=0; RootEntry:=False;
+      OwnEpub:=IsPreparedEpub; PageEntries:=0; RootEntry:=False; KfxFallback:=False;
+      OwnKfxView:=(PackagePath='OEBPS/content.opf') and
+        ExtractFileName(FileName).StartsWith(KFX_READER_CACHE_PREFIX,True) and
+        not SameText(BookCacheSource(FileName),FileName);
       // Publisher navigation is authoritative, including chapters without h1-h6.
       // Resolve only anchors already encountered in the actual reading spine.
       for J:=0 to Manifest.childNodes.length-1 do
@@ -759,6 +765,11 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
       begin
         NcxID:=Attribute(Spine,'toc');
         if (NcxID<>'') and Paths.TryGetValue(NcxID,Resource) then ReadNavigation(Resource,True);
+      end;
+      if OwnKfxView and ((Entries.Count=0) or ((Entries.Count=1) and KfxFallback)) then
+      begin
+        FChapters.Clear;
+        Exit;
       end;
       if Entries.Count>0 then
       begin

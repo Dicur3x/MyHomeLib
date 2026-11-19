@@ -4,10 +4,78 @@ interface
 uses System.SysUtils;
 function PrepareKindleReflow(const SourceFile, OriginalSource: string;
   const OnStage: TProc<string> = nil): string;
+function PrepareKfxReflow(const SourceFile, OriginalSource: string;
+  const OnStage: TProc<string>; const IsCanceled: TFunc<Boolean>): string;
 
 implementation
-uses System.Classes, System.IOUtils, System.Hash, Winapi.Windows,
+uses System.Classes, System.IOUtils, System.Hash, System.Zip, Winapi.Windows,
+  unit_ReaderFormats, unit_ComponentUsage,
   unit_BookCache, unit_MHLExternalTools, unit_BookConversion, unit_FormatComponents, unit_BookConversionRequirements, dm_user;
+
+function PrepareKfxReflow(const SourceFile, OriginalSource: string;
+  const OnStage: TProc<string>; const IsCanceled: TFunc<Boolean>): string;
+var Input: TStream; Output: TMemoryStream; Zip: TZipFile; Writer: TBookCacheWrite;
+  Tool, Stamp, Temporary, TemporaryStamp: string; Started: UInt64;
+begin
+  Tool:=TPath.Combine(Settings.AppPath,'tools/kfx-export/boko.exe');
+  if not FileExists(Tool) then
+    raise EMHLComponentRequired.Create('KfxExport','Для чтения этой книги нужен модуль KFX/AZW8.');
+  if Assigned(IsCanceled) and IsCanceled() then Abort;
+  Input:=OpenCachedBookFile(SourceFile);
+  try
+    if Input.Size>256*1024*1024 then
+      raise EReadError.Create('Файл KFX/AZW8 превышает предел подготовки к чтению (256 МБ).');
+    Stamp:='kfx-reflow-v1|'+BookCacheInputStamp(SourceFile,OriginalSource)+'|'+BookCacheInputStamp(Tool,Tool);
+    Result:=ExistingBookCacheFile(TPath.Combine(BookCachePath,KFX_READER_CACHE_PREFIX+
+      Copy(THashSHA2.GetHashString(Stamp),1,40)+'.epub'));
+    if FileExists(Result) and FileExists(Result+'.source') and
+      (TFile.ReadAllText(Result+'.source',TEncoding.UTF8)=Stamp) then
+    begin
+      RegisterBookCacheFile(Result,OriginalSource);
+      PinReaderCacheFile(Result);
+      RecordComponentUse('KfxExport');
+      Exit;
+    end;
+    if Assigned(OnStage) then OnStage('Подготовка книги KFX/AZW8 для чтения…');
+    ForceDirectories(ExtractFileDir(Result));
+    Writer:=TBookCacheWrite.Create(OriginalSource);
+    try
+      Temporary:=Writer.TemporaryName(Result,True);
+      TemporaryStamp:=Writer.TemporaryName(Result+'.source');
+      Started:=GetTickCount64;
+      Output:=TMemoryStream.Create;
+      try
+        try
+          // AZW8 and KFX use the same container. The CLI recognizes only the
+          // .kfx suffix automatically, so pass the format explicitly.
+          RunExternalToolToStream(Tool,['convert','-q','-f','kfx','-t','epub',SourceFile,Temporary],Output,
+            function: Boolean
+            begin
+              Result:=Assigned(IsCanceled) and IsCanceled();
+              if not Result and (GetTickCount64-Started>120000) then
+                raise EReadError.Create('Подготовка книги KFX/AZW8 заняла больше двух минут.');
+            end,0,True,NativeUInt(768)*1024*1024);
+        except
+          on E:EMHLExternalToolError do
+            raise EReadError.Create('Не удалось прочитать KFX/AZW8. Проверьте, что это отдельный файл книги без DRM.');
+        end;
+      finally Output.Free; end;
+      if Assigned(IsCanceled) and IsCanceled() then Abort;
+      if not FileExists(Temporary) then raise EReadError.Create('Модуль KFX/AZW8 не создал книгу для чтения.');
+      Zip:=TZipFile.Create;
+      try
+        Zip.Open(Temporary,zmRead);
+        if Zip.IndexOf('META-INF/container.xml')<0 then
+          raise EReadError.Create('Модуль KFX/AZW8 создал неполную книгу.');
+      finally Zip.Free; end;
+      TFile.WriteAllText(TemporaryStamp,Stamp,TEncoding.UTF8);
+      if Assigned(IsCanceled) and IsCanceled() then Abort;
+      Writer.Publish(Temporary,Result,TemporaryStamp);
+      PinReaderCacheFile(Result);
+      RecordComponentUse('KfxExport');
+    finally Writer.Free; end;
+  finally Input.Free; end;
+end;
 
 function PrepareKindleReflow(const SourceFile, OriginalSource: string;
   const OnStage: TProc<string>): string;

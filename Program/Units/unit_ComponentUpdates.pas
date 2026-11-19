@@ -46,7 +46,7 @@ const
     (ID:'KindleExport'; Title:'Сохранение MOBI и AZW3'; URL:'https://github.com/ciscoriordan/kindling'; CheckKind:ccPublished; CheckOnly:False),
     (ID:'FB2Export'; Title:'Дополнительные форматы из FB2'; URL:'https://github.com/rupor-github/fb2cng'; CheckKind:ccPublished; CheckOnly:False),
     (ID:'KoboExport'; Title:'Сохранение EPUB для Kobo'; URL:'https://github.com/pgaskin/kepubify'; CheckKind:ccPublished; CheckOnly:False),
-    (ID:'KfxExport'; Title:'Сохранение EPUB в KFX и AZW8'; URL:'https://github.com/zacharydenton/boko'; CheckKind:ccPublished; CheckOnly:False),
+    (ID:'KfxExport'; Title:'Чтение и сохранение KFX/AZW8'; URL:'https://github.com/zacharydenton/boko'; CheckKind:ccPublished; CheckOnly:False),
     (ID:'EpubPdfExport'; Title:'Вёрстка EPUB в PDF'; URL:'https://github.com/vivliostyle/vivliostyle.js'; CheckKind:ccPublished; CheckOnly:False),
     (ID:'OPDSTls'; Title:'Каталог OPDS по HTTPS'; URL:'https://github.com/Dicur3x/MyHomeLib/releases'; CheckKind:ccPublished; CheckOnly:False),
     (ID:JPEG_XL_ENCODER_COMPONENT; Title:'Сжатие коллекций в JPEG XL'; URL:'https://github.com/libjxl/libjxl/releases'; CheckKind:ccJPEGXL; CheckOnly:False));
@@ -227,7 +227,8 @@ begin
     'для обычного чтения FB2/EPUB запись Kindle не нужна.');
   if ID='FB2Export' then Exit('fb2cng преобразует FB2 в EPUB 2, EPUB 3, KEPUB, KFX, AZW8, PDF и Markdown.');
   if ID='KoboExport' then Exit('kepubify преобразует EPUB напрямую в KEPUB для читалок Kobo.');
-  if ID='KfxExport' then Exit('Boko преобразует EPUB напрямую в KFX и AZW8. resvg готовит совместимые иллюстрации.');
+  if ID='KfxExport' then Exit('Boko открывает отдельные файлы KFX/AZW8 без DRM и сохраняет EPUB в эти форматы. '+
+    'resvg готовит совместимые иллюстрации при сохранении.');
   if ID='EpubPdfExport' then Exit('Vivliostyle преобразует EPUB напрямую в PDF. Для вёрстки нужна среда Microsoft WebView2 Runtime.');
   if ID='OPDSTls' then Exit('Модуль HTTPS позволяет HomeLibre обслуживать каталог OPDS с вашим сертификатом и закрытым ключом.');
   if ID='LegacyBooks' then Exit('Кодеки calibre — чтение LIT/LRF и отдельных старых вариантов Mobipocket.');

@@ -28,7 +28,7 @@ function ReaderAssociationExtensions(Groups:TReaderAssociationGroups):TArray<str
 var Text:string;
 begin
   Text:='';
-  if ragBooks in Groups then Text:=Text+'fb2|fb3|epub|pdf|djvu|djv|dju|djm|djvm|mobi|azw|azw3|prc|cbz|cbr|cb7|sm|'+
+  if ragBooks in Groups then Text:=Text+'fb2|fb3|epub|pdf|djvu|djv|dju|djm|djvm|mobi|azw|azw3|prc|kfx|azw8|cbz|cbr|cb7|sm|'+
     'chm|lit|lrf|pdb|ibk|rgo|jutoh|pages|cr3|b1|tcr|rb|abw|sxw|ha|';
   if ragDocuments in Groups then Text:=Text+'txt|faq|wri|rtf|md|markdown|html|htm|shtml|xhtml|mht|mhtml|'+
     'docx|odt|doc|dot|docm|dotx|dotm|ott|wps|wpd|ppt|pptx|pptm|pps|ppsx|ppsm|pot|potx|potm|odp|otp|'+
