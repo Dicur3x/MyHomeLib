@@ -123,10 +123,14 @@ begin cbStandalone.Checked := Value; end;
 
 procedure TfrmEditScript.btnSaveClick(Sender: TObject);
 begin
-  if (Title = '') or (Path = '') then
-    MessageDlg(rstrProvideNameAndPath, mtError, [mbOk], 0)
-  else
-    ModalResult := mrOk;
+  if (Trim(Title) = '') or (Trim(Path) = '') then
+  begin
+    MessageDlg(rstrProvideNameAndPath, mtError, [mbOk], 0);
+    if Trim(Title) = '' then FocusControl(edTitle)
+    else FocusControl(edPath);
+    Exit;
+  end;
+  ModalResult := mrOk;
 end;
 
 end.

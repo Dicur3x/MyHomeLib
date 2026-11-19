@@ -56,6 +56,17 @@ var Configuration: TfrmSettings; DirectoryEdit, ResolvedEdit: TEdit;
       ' button=',ChooseButton.Width,'x',ChooseButton.Height,' resolved=',ResolvedEdit.Width,
       ' help_bottom=',HelpLabel.Top+HelpLabel.Height); Flush(Output);
   end;
+  procedure CheckSettingsHelp(const PageName, Anchor: string; Context: Integer);
+  begin
+    var SettingsPage := TTabSheet(Configuration.FindComponent(PageName));
+    Require(Assigned(SettingsPage),'Missing settings page '+PageName);
+    Configuration.tvSections.Selected:=Configuration.tvSections.Items[SettingsPage.PageIndex];
+    Require(Configuration.pcSetPages.ActivePage=SettingsPage,'Settings tree selects the wrong page');
+    Require((Configuration.HelpContext=Context) and (SettingsPage.HelpContext=Context),
+      'F1 and the help button have different contexts');
+    Require((HelpTopicFile(Context)='settings.html') and (HelpTopicAnchor(Context)=Anchor),
+      'Settings help does not link to the selected section');
+  end;
   procedure ApplyBase(const Base, ExpectedRoot: string);
   begin
     DirectoryEdit.Text:=Base; Configuration.SaveSettings;
@@ -118,8 +129,12 @@ begin
         Require(Assigned(DirectoryEdit) and Assigned(ResolvedEdit) and Assigned(HelpLabel) and
           Assigned(ChooseButton) and Assigned(Menu),'Cache preset controls were not created');
         Require(SameFileName(DirectoryEdit.Text,InitialDirectory),'Opening settings changed explicit custom path');
+        Require(not string(HelpLabel.Caption).Contains('Сохранить'),'Saved path still looks like a draft');
+        CheckSettingsHelp('tsBookViewSessions','book-lists',HELP_BOOK_LISTS);
+        CheckSettingsHelp('tsBookCache','book-cache',HELP_BOOK_CACHE);
         CheckControls;
         SelectPreset(0,'',TPath.Combine(Settings.DataPath,'BookCache'));
+        Require(string(HelpLabel.Caption).Contains('«Сохранить»'),'Draft path does not explain how to apply it');
         SelectPreset(1,TempRoot,TPath.Combine(TempRoot,'HomeLibRu-BookCache'));
         Require(string(HelpLabel.Caption).Contains('Windows может очистить'),'Temporary-folder lifetime unexplained');
         SelectPreset(2,TPath.Combine(LocalRoot,'HomeLibRu'),TPath.Combine(TPath.Combine(LocalRoot,'HomeLibRu'),'HomeLibRu-BookCache'));

@@ -266,7 +266,8 @@ type
     procedure LoadUpdates;
 
     procedure LoadScripts(iniFile: TMemIniFile);
-    procedure SaveScripts(iniFile: TMemIniFile);
+    procedure SaveScripts(iniFile: TMemIniFile; ScriptsToWrite: TScripts);
+    procedure WriteSettings(ScriptsToWrite: TScripts; DefaultScriptIndex: Integer);
 
     procedure SaveSplitters(iniFile: TMemIniFile);
     procedure LoadSplitters(iniFile: TMemIniFile);
@@ -290,6 +291,7 @@ type
 
     procedure LoadSettings;
     procedure SaveSettings;
+    procedure SaveSettingsWithScripts(var EditedScripts: TScripts; DefaultScriptIndex: Integer);
 
     function ExpandCollectionRoot(const rootFolder: string): string;
     function ExpandCollectionFileName(const FileName: string): string;
@@ -920,6 +922,21 @@ begin
 end;
 
 procedure TMHLSettings.SaveSettings;
+begin
+  WriteSettings(FScripts, FDefaultScript);
+end;
+
+procedure TMHLSettings.SaveSettingsWithScripts(var EditedScripts: TScripts;
+  DefaultScriptIndex: Integer);
+begin
+  WriteSettings(EditedScripts, DefaultScriptIndex);
+  var PreviousScripts := FScripts;
+  FScripts := EditedScripts;
+  EditedScripts := PreviousScripts;
+  FDefaultScript := DefaultScriptIndex;
+end;
+
+procedure TMHLSettings.WriteSettings(ScriptsToWrite: TScripts; DefaultScriptIndex: Integer);
 var
   iniFile: TMemIniFile;
 begin
@@ -1025,8 +1042,8 @@ begin
 
     SaveReaders(iniFile);
 
-    SaveScripts(iniFile);
-    iniFile.WriteInteger(SCRIPTS_SECTION, 'Default', FDefaultScript);
+    SaveScripts(iniFile, ScriptsToWrite);
+    iniFile.WriteInteger(SCRIPTS_SECTION, 'Default', DefaultScriptIndex);
 
 
     iniFile.WriteBool(BEHAVIOR_SECTION, 'ShowToolbar', FShowToolbar);
@@ -1350,7 +1367,7 @@ begin
   end;
 end;
 
-procedure TMHLSettings.SaveScripts(iniFile: TMemIniFile);
+procedure TMHLSettings.SaveScripts(iniFile: TMemIniFile; ScriptsToWrite: TScripts);
 var
   I: Integer;
   sl: TStringList;
@@ -1358,19 +1375,19 @@ begin
   iniFile.EraseSection(SCRIPTS_SECTION);
   iniFile.EraseSection('SCRIPT_OPTIONS');
 
-  if FScripts.Count > 0 then
+  if ScriptsToWrite.Count > 0 then
   begin
     sl := TIniStringList.Create;
     try
-      for I := 0 to FScripts.Count - 1 do
+      for I := 0 to ScriptsToWrite.Count - 1 do
       begin
         sl.Clear;
-        sl.Add(FScripts[I].Title);
-        sl.Add(FScripts[I].Path);
-        sl.Add(FScripts[I].Params);
+        sl.Add(ScriptsToWrite[I].Title);
+        sl.Add(ScriptsToWrite[I].Path);
+        sl.Add(ScriptsToWrite[I].Params);
 
         iniFile.WriteString(SCRIPTS_SECTION, Format('%s%u', [SCRIPT_KEY_PREFIX, I]), sl.DelimitedText);
-        if FScripts[I].Standalone then
+        if ScriptsToWrite[I].Standalone then
           iniFile.WriteBool('SCRIPT_OPTIONS', 'Standalone.' + Format('%s%u', [SCRIPT_KEY_PREFIX, I]), True);
       end;
     finally

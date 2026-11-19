@@ -14177,7 +14177,6 @@ procedure TfrmMain.ChangeSettingsExecute(Sender: TObject);
 var
   frmSettings: TfrmSettings;
 begin
-  if Assigned(FOPDSForm) then FOPDSForm.StopServer;
   SaveMainFormSettings;
 
   frmSettings := TfrmSettings.Create(Application);
@@ -14185,9 +14184,7 @@ begin
     frmSettings.LoadSetting;
     if (Sender is TComponent) and (TComponent(Sender).Name = 'miExternalToolsSetup') then
       frmSettings.tvSections.Selected := frmSettings.tvSections.Items[5];
-    frmSettings.ShowModal;
-
-    Settings.SaveSettings;
+    if frmSettings.ShowModal <> mrOk then Exit;
 
   finally
     frmSettings.Free;

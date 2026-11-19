@@ -36,7 +36,7 @@ uses
   ComCtrls,
   ImgList,
   Vcl.Menus,
-  unit_AutoCompleteEdit, unit_MHLThemePalette;
+  unit_AutoCompleteEdit, unit_MHLThemePalette, unit_Scripts;
 
 type
   TfrmSettings = class(TForm)
@@ -289,7 +289,8 @@ type
     procedure ScriptGuideHelp(Sender: TObject);
 
     procedure SaveReaders;
-    procedure SaveScripts;
+    function CollectScripts: TScripts;
+    procedure ApplySettings;
 
   protected
     procedure DoCreate; override;
@@ -311,7 +312,6 @@ uses
   unit_HelpTopics,
   unit_Globals,
   unit_Readers,
-  unit_Scripts,
   frm_edit_reader,
   frm_edit_script,
   unit_Settings,
@@ -409,6 +409,7 @@ begin
   FCachePage:=TTabSheet.Create(Self); FCachePage.Name:='tsBookCache';
   FCachePage.PageControl:=pcSetPages; FCachePage.TabVisible:=False;
   FCachePage.Caption:='Кэш книг';
+  FCachePage.HelpContext:=HELP_BOOK_CACHE;
   CaptionLabel:=TLabel.Create(Self); CaptionLabel.Parent:=FCachePage;
   CaptionLabel.SetBounds(12,14,410,44); CaptionLabel.AutoSize:=False; CaptionLabel.WordWrap:=True;
   CaptionLabel.Caption:='Кэш ускоряет повторное открытие книг. Можно ограничить его объём, срок хранения или оба параметра.';
@@ -470,7 +471,7 @@ begin
   end;
   CaptionLabel:=TLabel.Create(Self); CaptionLabel.Parent:=FCachePage;
   FCacheResolvedLabel:=CaptionLabel; CaptionLabel.AutoSize:=False; CaptionLabel.WordWrap:=True;
-  CaptionLabel.SetBounds(12,342,410,18); CaptionLabel.Caption:='Фактическая папка кэша:';
+  CaptionLabel.SetBounds(12,342,410,18); CaptionLabel.Caption:='Текущая папка кэша:';
   FCacheResolved:=TEdit.Create(Self); FCacheResolved.Parent:=FCachePage;
   FCacheResolved.Name:='edBookCacheResolved'; FCacheResolved.SetBounds(12,364,410,24);
   FCacheResolved.ReadOnly:=True; FCacheResolved.Anchors:=[akLeft,akTop,akRight];
@@ -522,6 +523,7 @@ begin
   var SessionPage := TTabSheet.Create(Self);
   SessionPage.Name := 'tsBookViewSessions';
   SessionPage.PageControl := pcSetPages; SessionPage.TabVisible := False;
+  SessionPage.HelpContext := HELP_BOOK_LISTS;
   tvSections.Items.Add(nil, 'Списки книг');
   SetLength(FDefaultSectionNames,tvSections.Items.Count);
   for I:=0 to High(FDefaultSectionNames) do FDefaultSectionNames[I]:=tvSections.Items[I].Text;
@@ -699,13 +701,13 @@ begin
   if not Assigned(FCacheResolved) or not Assigned(FCacheLocationInfo) then Exit;
   Directory:=Trim(FCacheDirectory.Text);
   try
+    // Preview is path arithmetic only: never start cache work for a draft.
+    if Settings.BookCacheDirectory='' then CurrentRoot:=TPath.Combine(Settings.DataPath,'BookCache')
+    else CurrentRoot:=TPath.Combine(TPath.GetFullPath(Settings.BookCacheDirectory),'HomeLibRu-BookCache');
     if Directory='' then Resolved:=TPath.Combine(Settings.DataPath,'BookCache')
     else
     begin
       Directory:=TPath.GetFullPath(Directory);
-      // Preview is path arithmetic only: never start cache work for a draft.
-      if Settings.BookCacheDirectory='' then CurrentRoot:=TPath.Combine(Settings.DataPath,'BookCache')
-      else CurrentRoot:=TPath.Combine(TPath.GetFullPath(Settings.BookCacheDirectory),'HomeLibRu-BookCache');
       if SameFileName(Directory,CurrentRoot) then Resolved:=Directory
       else Resolved:=TPath.Combine(Directory,'HomeLibRu-BookCache');
     end;
@@ -716,8 +718,15 @@ begin
         Directory.StartsWith(IncludeTrailingPathDelimiter(TPath.GetFullPath(TempDirectory)),True);
     if IsTemporary then FCacheLocationInfo.Caption:='Временная папка: Windows может очистить кэш. Исходные книги сохраняются.'
     else FCacheLocationInfo.Caption:='Сохраняемая папка. Очистка при выходе задаётся галочкой выше.';
-    FCacheLocationInfo.Caption:=FCacheLocationInfo.Caption+#13#10+'Папка изменится после нажатия «Применить».';
+    if SameFileName(Resolved,CurrentRoot) then FCacheResolvedLabel.Caption:='Текущая папка кэша:'
+    else
+    begin
+      FCacheResolvedLabel.Caption:='Будущая папка кэша:';
+      FCacheLocationInfo.Caption:=FCacheLocationInfo.Caption+sLineBreak+
+        'Перенос начнётся после нажатия «Сохранить».';
+    end;
   except
+    FCacheResolvedLabel.Caption:='Будущая папка кэша:';
     FCacheResolved.Text:='Проверьте путь к папке';
     FCacheLocationInfo.Caption:='Укажите папку или выберите один из готовых вариантов.';
   end;
@@ -915,12 +924,24 @@ begin
 end;
 
 procedure TfrmSettings.SaveSettings;
+begin
+  var Scripts := CollectScripts;
+  try
+    ApplySettings;
+    Settings.SaveSettingsWithScripts(Scripts, cbDefaultAction.ItemIndex);
+    RefreshMHLTheme;
+  finally
+    Scripts.Free;
+  end;
+end;
+
+procedure TfrmSettings.ApplySettings;
 var Limit: Integer;
 begin
+  ChangeBookCacheDirectory(Trim(FCacheDirectory.Text));
   if CacheLimitMB(Limit) then Settings.BookCacheLimitMB:=Limit;
   if FCachePolicy.ItemIndex in [0,1,2] then Settings.BookCachePolicy:=TBookCachePolicy(FCachePolicy.ItemIndex);
   if TryStrToInt(Trim(FCacheDays.Text),Limit) and (Limit>=1) and (Limit<=3650) then Settings.BookCacheKeepDays:=Limit;
-  ChangeBookCacheDirectory(Trim(FCacheDirectory.Text));
   Settings.ClearBookCacheOnExit:=FCacheExit.Checked; TrimBookCache;
   Settings.PromptDevicePath := cbPromptPath.Checked;
   Settings.DeviceDir := edDeviceDir.Text;
@@ -962,7 +983,6 @@ begin
   Settings.BookColor := pnCT.Color;
   Settings.SeriesBookColor := pnBS.Color;
   SetMHLThemePalettes(FInterfaceColors);
-  RefreshMHLTheme;
 
   Settings.UseIESettings := cbUseIESettings.Checked;
   Settings.ProxyServer := edProxyServer.Text;
@@ -1002,10 +1022,6 @@ begin
   Settings.ProxyType := cbProxyType.ItemIndex;
 
   Settings.UpdateDir := edUpdateDir.Text;
-
-  SaveScripts;
-  Settings.DefaultScript := cbDefaultAction.ItemIndex;
-
 
   Settings.ShowSubGenreBooks := cbShowSubGenreBooks.Checked;
   Settings.MinimizeToTray := cbMinimizeToTray.Checked;
@@ -1051,24 +1067,32 @@ begin
   end;
 end;
 
-procedure TfrmSettings.SaveScripts;
-var
-  i: integer;
-  Scripts: TScripts;
+function TfrmSettings.CollectScripts: TScripts;
 begin
-  Scripts := Settings.Scripts;
-  Scripts.Clear;
-  for i := 0 to lvScripts.Items.Count - 1 do
-  begin
-    Scripts.Add(lvScripts.Items[i].Caption, lvScripts.Items[i].SubItems[0], lvScripts.Items[i].SubItems[1],
-      NativeInt(lvScripts.Items[i].Data) <> 0);
+  Result := TScripts.Create;
+  try
+    for var I := 0 to lvScripts.Items.Count - 1 do
+    begin
+      var Item := lvScripts.Items[I];
+      if (Trim(Item.Caption) = '') or (Item.SubItems.Count < 2) or (Trim(Item.SubItems[0]) = '') then
+      begin
+        tvSections.Select(tvSections.Items[tsScripts.PageIndex]);
+        lvScripts.Selected := Item;
+        Item.MakeVisible(False);
+        FocusControl(lvScripts);
+        raise EArgumentException.CreateFmt('Укажите название и путь для команды в строке %d.', [I + 1]);
+      end;
+      Result.Add(Item.Caption, Item.SubItems[0], Item.SubItems[1], NativeInt(Item.Data) <> 0);
+    end;
+  except
+    Result.Free;
+    raise;
   end;
 end;
 
 procedure TfrmSettings.ShowHelpClick(Sender: TObject);
 begin
   ShowHelpTopic(pcSetPages.ActivePage.HelpContext);
-  FocusControl(btnOk);
 end;
 
 procedure TfrmSettings.SaveSettingsClick(Sender: TObject);
@@ -1086,7 +1110,10 @@ begin
     tvSections.Select(tvSections.Items[FCachePage.PageIndex]); FocusControl(FCacheDays); Exit;
   end;
   if (Trim(FCacheDirectory.Text)<>'') and not TPath.IsPathRooted(Trim(FCacheDirectory.Text)) then
-  begin ShowMessage('Укажите полный путь к папке кэша.'); FocusControl(FCacheDirectory); Exit; end;
+  begin
+    ShowMessage('Укажите полный путь к папке кэша.');
+    tvSections.Select(tvSections.Items[FCachePage.PageIndex]); FocusControl(FCacheDirectory); Exit;
+  end;
   if cbProgramInterval.ItemIndex = 8 then
   begin
     Multiplier := 1;
@@ -1110,9 +1137,12 @@ begin
     Exit;
   end;
 
-  SaveSettings;
-
-  Close;
+  try
+    SaveSettings;
+    ModalResult := mrOk;
+  except
+    on E: Exception do ShowMessage(E.Message);
+  end;
 end;
 
 
@@ -1362,7 +1392,10 @@ end;
 
 procedure TfrmSettings.tvSectionsChange(Sender: TObject; Node: TTreeNode);
 begin
-  pcSetPages.ActivePageIndex := tvSections.Selected.Index;
+  if not Assigned(Node) then Exit;
+  pcSetPages.ActivePageIndex := Node.Index;
+  // F1 on the section tree or footer reaches the form's context.
+  if Assigned(pcSetPages.ActivePage) then HelpContext := pcSetPages.ActivePage.HelpContext;
 
   // Сброс реализован только для этих двух разделов
   btnReset.Enabled := (pcSetPages.ActivePage = tsDevices) or
