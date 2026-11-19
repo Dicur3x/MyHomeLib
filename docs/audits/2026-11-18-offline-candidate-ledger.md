@@ -631,6 +631,40 @@ preparation and installation. The current native context-guide tests each
 passed 26 checks with the help files from the same portable ZIPs.
 Reports are under `G:/HL-b14-external/r2010-release-acceptance`.
 
+## Final offline PDF writer and fixed-page export
+
+The r2009 full ZIPs selected an earlier build of the unpublished
+EpubPdfExport 3.0.0.9. Both architectures had a 240-second writer limit
+instead of the 300-second limit in the release source. The candidate now
+uses the exact two components from the successful LRF-to-PDF runs.
+Offline staging and publication planning reject an internally valid package
+if its EPUB-to-PDF worker differs from the current source. Both offline
+architectures accept the corrected component and reject the earlier one.
+The actual publication planner also rejects the earlier package.
+
+The refreshed six ZIPs passed the native installation and inventory checks
+in r2012. The two minimal and two compatibility ZIPs are byte-identical
+to r2009, including the packages installed by beta 13 in the upgrade runs.
+The full ZIPs differ only in the PDF worker, its executable and descriptor,
+and the root update manifest. Every PDF component payload file matches
+its verified component manifest. The publication plan pins the same
+component hashes and retains earlier downloads referenced by older clients.
+
+The Reader from each exact r2012 full ZIP saved a three-page PDF as TXT,
+unchanged PDF and EPUB 3. The native interface retained the order of the
+three text passages, copied the original PDF byte for byte, and retained
+the three expected page colors in EPUB order. A separate real four-page
+DjVu sample produced an EPUB 3 with four page images in order. Each image
+was compared with its independent DjVuLibre rendering and scored over 0.998
+correlation. The success reports were acknowledged through the interface.
+Both applications closed normally. Inputs stayed byte-identical and the
+private profiles were removed.
+
+Reports and release checksums are under
+`G:/HL-b14-external/r2012-release-refresh`. Reader export reports are in
+`G:/HL-b14-external/r2011-fixed-pages/sealed-Win32` and
+`G:/HL-b14-external/r2011-fixed-pages/sealed-Win64`.
+
 ## Remaining checks
 
 Remaining source checks, Desktop replacement and publication remain open.

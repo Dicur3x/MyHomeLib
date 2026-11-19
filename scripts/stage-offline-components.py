@@ -119,6 +119,9 @@ def stage(payload, definition, native, *, required=COMPONENTS):
                     packaging = runpy.run_path(str(scripts / 'package-format-components.py'))
                     descriptor = job / 'payload' / packaging['DESCRIPTORS']['BookProcessing']
                     packaging['verify_book_processing_sources'](verified, json.loads(descriptor.read_bytes()))
+            if row['id'] == 'EpubPdfExport':
+                packaging = runpy.run_path(str(Path(__file__).resolve().with_name('package-format-components.py')))
+                packaging['verify_epub_pdf_source'](verified)
             for item in verified['files']:
                 original = item['path']
                 target_name = 'HomeLibreReader.exe' if row['id'] == 'HomeLibReader' and \

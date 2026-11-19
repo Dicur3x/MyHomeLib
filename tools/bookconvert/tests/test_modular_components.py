@@ -31,11 +31,21 @@ class ModularComponents(unittest.TestCase):
         crlf = lf.replace(b'\n', b'\r\n')
         for source, packaged in ((lf, crlf), (crlf, lf)):
             digest = hashlib.sha256(packaged).hexdigest()
-            self.assertTrue(packages.matches_book_processing_source('tools/bookconvert/convert_book.py', source, digest))
+            self.assertTrue(packages.matches_checkout_source('tools/bookconvert/convert_book.py', source, digest))
             for name in ('tools/bookconvert/ibk_tables.bin', 'tools/bookconvert/MODULAR_API.txt'):
-                self.assertFalse(packages.matches_book_processing_source(name, source, digest))
-            self.assertFalse(packages.matches_book_processing_source('file.txt', source + b'\0',
+                self.assertFalse(packages.matches_checkout_source(name, source, digest))
+            self.assertFalse(packages.matches_checkout_source('file.txt', source + b'\0',
                              hashlib.sha256(packaged + b'\0').hexdigest()))
+
+    def test_release_rejects_epub_pdf_package_with_an_outdated_worker(self):
+        path = 'tools/epub-pdf/epub_pdf_output.py'
+        source = (REPO / 'tools/bookconvert/epub_pdf_output.py').read_bytes()
+        manifest = {'files': [{'path': path, 'sha256': hashlib.sha256(source).hexdigest()}]}
+        packages.verify_epub_pdf_source(manifest)
+
+        manifest['files'][0]['sha256'] = hashlib.sha256(b'previous EPUB-to-PDF worker').hexdigest()
+        with self.assertRaisesRegex(ValueError, 'EpubPdfExport differs from release source'):
+            packages.verify_epub_pdf_source(manifest)
 
     def test_release_rejects_outdated_workers_even_with_matching_internal_hashes(self):
         sources, required = packages.book_processing_sources()

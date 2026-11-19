@@ -189,6 +189,9 @@ def main():
                     packaging = runpy.run_path(str(ROOT / 'scripts/package-format-components.py'))
                     descriptor = json.loads(archive.read(packaging['DESCRIPTORS']['BookProcessing']))
                     packaging['verify_book_processing_sources'](manifest, descriptor)
+                if key[0] == 'EpubPdfExport':
+                    packaging = runpy.run_path(str(ROOT / 'scripts/package-format-components.py'))
+                    packaging['verify_epub_pdf_source'](manifest)
                 if key[0] == 'HomeLibReader':
                     assert 'libzstd.dll' not in payload_names, 'Reader package must not bundle Zstandard'
                     current = ROOT / 'Utils/HomeLibreReader/Out' / key[1] / 'HomeLibreReader.exe'

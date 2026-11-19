@@ -303,7 +303,7 @@ def book_processing_sources():
     return files, required
 
 
-def matches_book_processing_source(name, data, digest):
+def matches_checkout_source(name, data, digest):
     if helper.digest(data) == digest:
         return True
     # Git may check out a text file with LF or CRLF. The installed file must
@@ -319,12 +319,20 @@ def verify_book_processing_sources(manifest, descriptor):
     """Compare a verified component manifest with the files used by the package writer."""
     current, required = book_processing_sources()
     recorded = {entry['path']: entry['sha256'] for entry in manifest['files']}
-    mismatches = [name for name, data in current.items() if not matches_book_processing_source(name, data, recorded.get(name))]
+    mismatches = [name for name, data in current.items() if not matches_checkout_source(name, data, recorded.get(name))]
     if mismatches:
         raise ValueError('BookProcessing differs from release source: ' + ', '.join(sorted(mismatches)))
     for name in required:
         if name not in recorded or descriptor['identities'].get(name) != recorded[name]:
             raise ValueError('BookProcessing runtime checksum differs from the release manifest: ' + name)
+
+
+def verify_epub_pdf_source(manifest):
+    path = 'tools/epub-pdf/epub_pdf_output.py'
+    source = (REPO / 'tools/bookconvert/epub_pdf_output.py').read_bytes()
+    checksum = next((item['sha256'] for item in manifest['files'] if item['path'] == path), None)
+    if not matches_checkout_source(path, source, checksum):
+        raise ValueError('EpubPdfExport differs from release source: ' + path)
 
 
 def payload_for(platform, component, kindle_export_root=None, advanced_export_root=None, opds_tls_go=None,
