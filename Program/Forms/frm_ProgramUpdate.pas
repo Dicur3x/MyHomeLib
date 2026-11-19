@@ -79,7 +79,7 @@ type
     FQueueIndex: Integer;
     FQueueBytes, FQueueTotal: Int64;
     FRelease: TProgramRelease;
-    FJob, FCache: string;
+    FJob, FCache, FLegacyCache, FReadyFile: string;
     FInstallerProcess: THandle;
     FReady, FPendingInstall, FNeedsCheck, FRecovery: Boolean;
     FRestart, FCheck, FComponentCancelled: TNotifyEvent;
@@ -94,6 +94,8 @@ type
     procedure DownloadCompleted(var Message: TMessage); message WM_PROGRAM_UPDATE_DOWNLOADED;
     procedure DownloadProgress(var Message: TMessage); message WM_PROGRAM_UPDATE_PROGRESS;
     procedure SaveReady;
+    function RestoreReadyFrom(const Cache: string): Boolean;
+    function ReadCachedHistory(const Name: string; MaxBytes: Int64 = 1400000): string;
     procedure DiscardJob;
     procedure DisplayNotes(const Notes: string);
     procedure ComponentSelected(Sender: TObject);
@@ -355,6 +357,8 @@ begin
   FLater := TButton.Create(Self); FLater.Parent := Self;
   FLater.SetBounds(605, 473, 115, 30); FLater.Caption := 'Позже'; FLater.OnClick := LaterClick;
   FCache := ProgramUpdateCache(Settings.AppPath);
+  FLegacyCache := ProgramUpdateCache(Settings.AppPath, True);
+  LoadComponentHistory(FLegacyCache, FComponents);
   LoadComponentHistory(FCache, FComponents);
   UpdateComponentList;
   LogDiagnosticTrace('program-update-window','component history loaded');
@@ -379,7 +383,7 @@ begin
   FStatus.Caption := 'История последних выпусков';
   FApplicationStatus := FStatus.Caption;
   try
-    HistoryFile := ReadUpdateHistory(IncludeTrailingPathDelimiter(FCache) + 'notes.txt');
+    HistoryFile := ReadCachedHistory('notes.txt');
     if HistoryFile.Trim <> '' then
       DisplayNotes(Copy(HistoryFile, 1, 324000))
     else if FileExists(Settings.SystemFileName[sfProgramChanges]) then
@@ -672,10 +676,16 @@ begin
   FZoomReset.Caption := IntToStr(FNotes.ZoomPercent) + '%';
 end;
 
+function TfrmProgramUpdate.ReadCachedHistory(const Name: string; MaxBytes: Int64): string;
+begin
+  Result := ReadUpdateHistory(TPath.Combine(FCache, Name), MaxBytes);
+  if Result = '' then Result := ReadUpdateHistory(TPath.Combine(FLegacyCache, Name), MaxBytes);
+end;
+
 procedure TfrmProgramUpdate.LoadViewPreferences;
 var Root: TJSONValue; Width, Height, Zoom, Tab: Integer; Maximized: Boolean;
 begin
-  Root := TJSONObject.ParseJSONValue(ReadUpdateHistory(IncludeTrailingPathDelimiter(FCache) + 'view.json', 4096));
+  Root := TJSONObject.ParseJSONValue(ReadCachedHistory('view.json', 4096));
   try
     if not (Root is TJSONObject) then Exit;
     if TJSONObject(Root).TryGetValue<Integer>('width', Width) then
@@ -1823,7 +1833,9 @@ begin
       // while the main process is still running; no installation has started.
       FReady := False; FNeedsCheck := True; FPendingInstall := False;
       DiscardJob; ClearQueueJobs; FRelease := Default(TProgramRelease);
-      try TFile.Delete(IncludeTrailingPathDelimiter(FCache) + 'ready.json'); except end;
+      if FReadyFile <> '' then
+        try TFile.Delete(FReadyFile); except end;
+      FReadyFile := '';
       FComponentCheck.Enabled := True; FBytes.Caption := '';
       ComponentCheckClick(nil);
       Exit;
@@ -2028,11 +2040,22 @@ begin
     else Root.AddPair('notes', FRelease.Changelog);
     Root.AddPair('component', FRelease.ComponentID); Root.AddPair('version', FRelease.ComponentVersion);
     Root.AddPair('size', TJSONNumber.Create(FRelease.Size));
-    TFile.WriteAllText(IncludeTrailingPathDelimiter(FCache) + 'ready.json', Root.ToJSON, TEncoding.UTF8);
+    var ReadyFile := TPath.Combine(FCache, 'ready.json');
+    TFile.WriteAllText(ReadyFile, Root.ToJSON, TEncoding.UTF8);
+    FReadyFile := ReadyFile;
   finally Root.Free; end;
 end;
 
 function TfrmProgramUpdate.RestoreReady: Boolean;
+begin
+  // Keep old jobs in place: a prepared updater and its recovery journal can
+  // still refer to their original paths.
+  Result := RestoreReadyFrom(FLegacyCache);
+  if not Result then Result := RestoreReadyFrom(FCache);
+  if not Result then FRecovery := False;
+end;
+
+function TfrmProgramUpdate.RestoreReadyFrom(const Cache: string): Boolean;
 var Root, Journal, Prepared: TJSONValue;
   FileName, Job, Tag, Digest, State, Notes, Component, Version, SavedURL, PreparedComponent: string;
   Comparison, I: Integer; Bundle: TJSONArray; ReadyVersions: TArray<string>;
@@ -2047,7 +2070,7 @@ var Root, Journal, Prepared: TJSONValue;
     ReadyVersions[Index]:=ReadyVersion;
   end;
 begin
-  Result := False; FileName := IncludeTrailingPathDelimiter(FCache) + 'ready.json';
+  Result := False; FRecovery := False; FileName := TPath.Combine(Cache, 'ready.json');
   CorrectedIdentity:=False;
   if not FileExists(FileName) then Exit;
   Root := nil; Journal := nil; Prepared:=nil;
@@ -2056,7 +2079,7 @@ begin
     Root := TJSONObject.ParseJSONValue(TFile.ReadAllText(FileName, TEncoding.UTF8));
     if not (Root is TJSONObject) or
        not TJSONObject(Root).TryGetValue<string>('job', Job) or
-       not TPath.GetFullPath(Job).StartsWith(IncludeTrailingPathDelimiter(FCache), True) or
+       not TPath.GetFullPath(Job).StartsWith(IncludeTrailingPathDelimiter(Cache), True) or
        not ExtractFileName(Job).StartsWith('HomeLibRu-update-') or
        not TJSONObject(Root).TryGetValue<string>('tag', Tag) or
        not TJSONObject(Root).TryGetValue<string>('sha256', Digest) or not IsUpdateSHA256(Digest) then Exit;
@@ -2139,7 +2162,7 @@ begin
         TFile.WriteAllText(FileName,Root.ToJSON,TEncoding.UTF8);
       end;
     end;
-    FJob := Job; FRelease.Tag := Tag; FRelease.SHA256 := Digest;
+    FJob := Job; FReadyFile := FileName; FRelease.Tag := Tag; FRelease.SHA256 := Digest;
     FRelease.ComponentID := Component; FRelease.ComponentVersion := Version;
     if Component = 'batch' then FVersion.Caption := 'Обновления компонентов HomeLibre'
     else if Component <> '' then

@@ -85,7 +85,7 @@ function ReleaseDisplayVersion(const Tag: string): string;
 function ReleaseNotesHeading(const Version, PublishedAt: string): string;
 function ParseProgramReleases(const JSON: string; out ReleaseInfo: TProgramRelease): Boolean;
 function ProgramUpdateDue(LastCheck, CurrentUTC: TDateTime; IntervalMinutes: Integer): Boolean;
-function ProgramUpdateCache(const AppPath: string): string;
+function ProgramUpdateCache(const AppPath: string; Legacy: Boolean = False): string;
 
 implementation
 
@@ -289,12 +289,13 @@ begin
   Result := (LastCheck <= 0) or (LastCheck > CurrentUTC) or ((CurrentUTC - LastCheck) * 1440 >= IntervalMinutes);
 end;
 
-function ProgramUpdateCache(const AppPath: string): string;
-var Base: string;
+function ProgramUpdateCache(const AppPath: string; Legacy: Boolean): string;
+var Base, Folder: string;
 begin
   Base := GetEnvironmentVariable('LOCALAPPDATA');
   if Base = '' then Base := TPath.GetTempPath;
-  Result := IncludeTrailingPathDelimiter(Base) + 'HomeLibRu\Updates\' +
+  if Legacy then Folder := 'HomeLibRu' else Folder := 'HomeLibre';
+  Result := IncludeTrailingPathDelimiter(Base) + Folder + '\Updates\' +
     Copy(THashSHA2.GetHashString(LowerCase(TPath.GetFullPath(AppPath))), 1, 20);
 end;
 

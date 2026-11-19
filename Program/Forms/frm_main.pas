@@ -6254,7 +6254,8 @@ begin
   FProgramUpdateTimer.Enabled := True;
   // Keep the ordinary startup free of hidden release-note rendering and
   // component executable scans. Pending updates and recovery retain priority.
-  if FileExists(IncludeTrailingPathDelimiter(ProgramUpdateCache(Settings.AppPath))+'ready.json') then
+  if FileExists(TPath.Combine(ProgramUpdateCache(Settings.AppPath), 'ready.json')) or
+    FileExists(TPath.Combine(ProgramUpdateCache(Settings.AppPath, True), 'ready.json')) then
   begin
     EnsureProgramUpdateForm;
     if FProgramUpdateForm.RestoreReady then FProgramUpdateForm.Show;
