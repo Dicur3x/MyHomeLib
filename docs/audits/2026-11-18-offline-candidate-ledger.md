@@ -674,8 +674,30 @@ Reports and release checksums are under
 `G:/HL-b14-external/r2011-fixed-pages/sealed-Win32` and
 `G:/HL-b14-external/r2011-fixed-pages/sealed-Win64`.
 
-## Remaining checks
+## KFX and AZW8 from the final full packages
 
-Remaining source checks, Desktop replacement and publication remain open.
+The KFX/AZW8 writer changed after the earlier wide matrix. The final
+full ZIP on each architecture was extracted into its own temporary
+profile. Through the native save path, all 26 original families produced
+both KFX and AZW8. Each of the 104 outputs had the expected container
+signature and all original copies were unchanged. An independent KFX
+reader also decoded both outputs from FB2, DOCX and CHM on each
+architecture. The 12 readbacks retained all expected words in order,
+the expected image pixels, and coherent location and position maps.
+
+## Desktop installation
+
+The full x64 package was installed into the existing Desktop
+installation by the production update helper. The catalogue started
+and closed normally. The catalogue and Reader both have the canonical
+HomeLibre names and retain their old launch names for existing shortcuts.
+Every installed application was matched to the released package payload.
+All 46 persistent profile files matched the pre-installation snapshot
+byte for byte. Two empty WAL files and their two SQLite shared-memory
+files disappeared during normal closure. The snapshot stays on G:.
+
+The main release remains a draft while the two full uploads finish.
+The updated component feed and portable application downloads are
+verified through GitHub before the release is checked off.
 
 All preparation is on G:. No E: input or user-library modification is involved.
