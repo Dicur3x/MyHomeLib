@@ -20,7 +20,7 @@ type
   TReaderRaster = class(TReaderPDF)
   private
     FArchive: TMHLZip;
-    FNames: TArray<string>;
+    FOutline: TArray<TPDFChapter>;
     FArchiveEntries: TArray<Integer>;
     FFileName: string;
     FPageCache: TDictionary<Integer,TReaderRasterPage>;
@@ -185,6 +185,13 @@ begin
     if NativeDjvuAvailable then
     begin FNativeDjvu:=TReaderDjvuNative.Create(FFileName); FPageCount:=FNativeDjvu.PageCount; end
     else FPageCount:=DjvuPageCount(FFileName);
+    try
+      FOutline := DjvuOutline(FFileName, FPageCount);
+    except
+      on E: EAbort do raise;
+      // Optional damaged metadata must not prevent opening the pages.
+      on E: Exception do FOutline := nil;
+    end;
   end
   else if ImageExtension(E) then
   begin
@@ -218,10 +225,9 @@ begin
           if (SortChecks mod 1024=0) and (GetCurrentThreadID<>MainThreadID) and TThread.CheckTerminated then Abort;
           Result:=PageCompare(FArchive.FileNames[A],FArchive.FileNames[B]);
         end));
-      FArchiveEntries:=Names.ToArray; SetLength(FNames,Length(FArchiveEntries));
-      for I:=0 to High(FArchiveEntries) do FNames[I]:=FArchive.FileNames[FArchiveEntries[I]];
+      FArchiveEntries:=Names.ToArray;
     finally Names.Free; end;
-    FPageCount:=Length(FNames);
+    FPageCount:=Length(FArchiveEntries);
     if FPageCount=0 then raise Exception.Create('В комиксе не найдены изображения страниц.');
   end;
   PreparePage(0,False,RenderEdge);
@@ -477,14 +483,8 @@ begin
 end;
 
 function TReaderRaster.Chapters: TArray<TPDFChapter>;
-var I: Integer;
 begin
-  SetLength(Result,Min(FPageCount,4096));
-  for I:=0 to High(Result) do
-  begin
-    Result[I].Page:=I; Result[I].Depth:=0;
-    if Assigned(FArchive) then Result[I].Title:=FNames[I] else Result[I].Title:='Страница '+IntToStr(I+1);
-  end;
+  Result := Copy(FOutline);
 end;
 
 function TReaderRaster.DisplayName: string;

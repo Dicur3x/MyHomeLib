@@ -76,7 +76,6 @@ uses
   unit_PublisherSeriesView,
   System.Actions,
   System.ImageList,
-  Vcl.Themes,
   dm_Images, VirtualTrees.BaseAncestorVCL, VirtualTrees.BaseTree,
   VirtualTrees.AncestorVCL,
   unit_Localization, unit_BookInfoPreview, unit_MHLTheme, System.Generics.Collections,
@@ -1421,10 +1420,11 @@ uses
 
 type
   TBookTreeAccess = class(TBookTree);
-  TSearchFavoriteAuthorCheck = class(TCheckBox);
-  TFavoriteAuthorCheckStyleHook = class(TCheckBoxStyleHook)
-  strict protected
-    procedure PaintBackground(Canvas: TCanvas); override;
+  TFavoriteAuthorCheckBox = class(TCheckBox)
+  private
+    procedure PaintHeart(Canvas: TCanvas);
+  protected
+    procedure WndProc(var Message: TMessage); override;
   end;
 
   TFavoriteEditAccess = class(TMHLButtonedEdit)
@@ -1537,10 +1537,91 @@ begin
   end;
 end;
 
-procedure TFavoriteAuthorCheckStyleHook.PaintBackground(Canvas: TCanvas);
+procedure TFavoriteAuthorCheckBox.PaintHeart(Canvas: TCanvas);
+var
+  Bounds, IconRect: TRect;
+  InAuthorField: Boolean;
+  Glyph: string;
 begin
-  Canvas.Brush.Color := MHLThemeField;
-  Canvas.FillRect(Control.ClientRect);
+  Bounds := ClientRect;
+  InAuthorField := Parent is TCustomEdit;
+  Canvas.Brush.Color := MHLThemeBackground;
+  if InAuthorField then Canvas.Brush.Color := MHLThemeField;
+  Canvas.FillRect(Bounds);
+  Canvas.Brush.Style := bsClear;
+
+  IconRect := Bounds;
+  if not InAuthorField then IconRect.Right := Min(Bounds.Right, MulDiv(22, CurrentPPI, 96));
+  Canvas.Font.Name := 'Segoe UI Symbol';
+  Canvas.Font.Height := -MulDiv(16, CurrentPPI, 96);
+  Canvas.Font.Quality := fqAntialiased;
+  Canvas.Font.Color := MHLThemeText;
+  Glyph := '♡';
+  if Checked then
+  begin
+    Glyph := '♥';
+    if MHLThemeDark then Canvas.Font.Color := RGB(255, 109, 123)
+    else Canvas.Font.Color := RGB(185, 28, 52);
+  end;
+  if not Enabled then Canvas.Font.Color := clGrayText;
+  DrawText(Canvas.Handle, PChar(Glyph), Length(Glyph), IconRect,
+    DT_CENTER or DT_VCENTER or DT_SINGLELINE);
+
+  if not InAuthorField then
+  begin
+    Bounds.Left := IconRect.Right + MulDiv(3, CurrentPPI, 96);
+    Canvas.Font.Assign(Font);
+    Canvas.Font.Color := MHLThemeText;
+    if not Enabled then Canvas.Font.Color := clGrayText;
+    DrawText(Canvas.Handle, PChar(Caption), Length(Caption), Bounds,
+      DT_SINGLELINE or DT_VCENTER or DT_END_ELLIPSIS);
+    Bounds.Right := Min(Bounds.Right, Bounds.Left + Canvas.TextWidth(Caption) + 2);
+    Bounds.Left := 0;
+  end;
+  if Focused and (Perform(WM_QUERYUISTATE, 0, 0) and UISF_HIDEFOCUS = 0) then
+  begin
+    InflateRect(Bounds, -1, -1);
+    Canvas.DrawFocusRect(Bounds);
+  end;
+end;
+
+procedure TFavoriteAuthorCheckBox.WndProc(var Message: TMessage);
+var
+  Canvas: TCanvas;
+  DC: HDC;
+  Paint: TPaintStruct;
+  OwnDC: Boolean;
+begin
+  if Message.Msg = WM_ERASEBKGND then
+  begin
+    Message.Result := 1;
+    Exit;
+  end;
+  if (Message.Msg <> WM_PAINT) and (Message.Msg <> WM_PRINTCLIENT) then
+  begin
+    inherited;
+    case Message.Msg of
+      BM_SETCHECK, WM_SETFOCUS, WM_KILLFOCUS, WM_UPDATEUISTATE, WM_ENABLE:
+        Invalidate;
+    end;
+    Exit;
+  end;
+  // Share the same drawing in the Windows and custom VCL styles.
+  // The native checkbox still handles the state, mouse and keyboard.
+  DC := HDC(Message.WParam);
+  OwnDC := (Message.Msg = WM_PAINT) and (DC = 0);
+  if OwnDC then DC := BeginPaint(Handle, Paint);
+  if DC = 0 then Exit;
+  Canvas := TCanvas.Create;
+  try
+    Canvas.Handle := DC;
+    PaintHeart(Canvas);
+    Message.Result := 0;
+  finally
+    Canvas.Handle := 0;
+    Canvas.Free;
+    if OwnDC then EndPaint(Handle, Paint);
+  end;
 end;
 
 procedure TfrmMain.PurgeDownloadsForCollection(const DatabaseID: Integer);
@@ -12054,8 +12135,6 @@ begin
     FFavoriteNewButton.Hint := 'Показаны только новые книги. Нажмите, чтобы показать все книги автора.'
   else FFavoriteNewButton.Hint := 'Показать только новые книги выбранного любимого автора';
   FFavoriteStopMenu.Enabled := Assigned(FFavoriteWorker);
-  FFavoriteListCheck.Font.Color := clGrayText;
-  if FFavoriteListCheck.Checked then FFavoriteListCheck.Font.Color := clWindowText;
 end;
 
 procedure TfrmMain.FavoriteSelectedAuthorClick(Sender: TObject);
@@ -12665,10 +12744,10 @@ begin
   if PPI <= 0 then PPI := CurrentPPI;
   FFavoriteQueue := TQueue<TAuthorFavoriteCollection>.Create;
   FFavoriteDirtyCollections := TDictionary<Integer, Cardinal>.Create;
-  FSearchFavoriteCheck := TSearchFavoriteAuthorCheck.Create(Self);
+  FSearchFavoriteCheck := TFavoriteAuthorCheckBox.Create(Self);
   FSearchFavoriteCheck.Name := 'cbSearchFavoriteAuthorsOnly';
   FSearchFavoriteCheck.Parent := edFFullName;
-  FSearchFavoriteCheck.Caption := '';
+  FSearchFavoriteCheck.Caption := 'Только любимые авторы';
   FSearchFavoriteCheck.ShowHint := True;
   FSearchFavoriteCheck.Hint := 'Все книги авторов, отмеченных сердечком на вкладке «Авторы». Поле автора можно оставить пустым. Поиск запускается кнопкой «Применить». Избранные книги — отдельный список.';
   FSearchFavoriteCheck.OnClick := SearchFavoriteClick;
@@ -12678,10 +12757,13 @@ begin
   Panel := TPanel.Create(Self); Panel.Name := 'pnFavoriteAuthors';
   Panel.Parent := pnAuthorsView; Panel.BevelOuter := bvNone; Panel.Caption := '';
   Panel.Height := MulDiv(32, PPI, 96); Panel.Top := 0; Panel.Align := alTop;
-  FFavoriteListCheck := TCheckBox.Create(Self); FFavoriteListCheck.Name := 'cbFavoriteAuthorsList';
-  FFavoriteListCheck.Parent := Panel; FFavoriteListCheck.Caption := '♥ Любимые';
+  FFavoriteListCheck := TFavoriteAuthorCheckBox.Create(Self);
+  FFavoriteListCheck.Name := 'cbFavoriteAuthorsList';
+  FFavoriteListCheck.Parent := Panel; FFavoriteListCheck.Caption := 'Любимые';
   FFavoriteListCheck.AlignWithMargins := True; FFavoriteListCheck.Align := alClient;
-  FFavoriteListCheck.Font.Style := [fsBold]; FFavoriteListCheck.Font.Color := clGrayText;
+  FFavoriteListCheck.Font.Style := [fsBold];
+  FFavoriteListCheck.ShowHint := True;
+  FFavoriteListCheck.Hint := 'Показать только любимых авторов';
   FFavoriteListCheck.OnClick := FavoriteListClick;
   FFavoriteMenuButton := TButton.Create(Self); FFavoriteMenuButton.Parent := Panel;
   FFavoriteMenuButton.Name := 'btnFavoriteAuthorMenu'; FFavoriteMenuButton.Caption := '⋮';
@@ -15120,11 +15202,5 @@ begin
   FillBooksTree(tvBooksG, cbLangSelectG,
         function: IBookIterator begin Result := FCollection.GetBookIterator(Mode, False, @FilterValue); end, True, True, @FLastGenreBookID);
 end;
-
-initialization
-  TCustomStyleEngine.RegisterStyleHook(TSearchFavoriteAuthorCheck, TFavoriteAuthorCheckStyleHook);
-
-finalization
-  TCustomStyleEngine.UnRegisterStyleHook(TSearchFavoriteAuthorCheck, TFavoriteAuthorCheckStyleHook);
 
 end.

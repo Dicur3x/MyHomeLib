@@ -1466,9 +1466,10 @@ begin
   FContentsButton.Name:='ReaderContents'; FContentsButton.Width:=36; FContentsButton.Caption:='Оглавление';
   TReaderPaletteButton(FContentsButton).Toolbar:=True;
   TReaderPaletteButton(FContentsButton).Icon:=rciContents; TReaderPaletteButton(FContentsButton).IconOnly:=True; FContentsButton.Hint:='Оглавление (Ctrl+T)';
-  FContentsButton.ShowHint:=True; FContentsButton.Enabled:=False; FContentsButton.OnClick:=ContentsClick;
+  FContentsButton.ShowHint:=True; FContentsButton.Visible:=False; FContentsButton.OnClick:=ContentsClick;
   FChapters:=TReaderChapterSelector.Create(Self); FChapters.Name:='ReaderChapterSelector';
   TReaderChapterSelector(FChapters).OpenContents:=ContentsClick; FChapters.Parent:=ContentsRow; FChapters.Align:=alClient; FChapters.DropDownCount:=20;
+  FChapters.Visible:=False;
   FChapters.TextHint:='Содержание книги'; FChapters.Style:=csOwnerDrawFixed; FChapters.ItemHeight:=24; FChapters.OnDrawItem:=DrawChapterItem; FChapters.OnChange:=ChapterClick; FChapters.Hint:='Содержание книги'; FChapters.ShowHint:=True;
   FBottom:=TPanel.Create(Self); FBottom.Parent:=Self; FBottom.Align:=alBottom; FBottom.Height:=40; FBottom.BevelOuter:=bvNone;
   FBottom.Name:='ReaderFooter'; FBottom.Caption:='';
@@ -1870,7 +1871,6 @@ begin
     StopSearch; FSearchStatus:=''; FSearchQuery:=''; FTextMatch:=-1; FTextMatchLength:=0;
     FSeekTimer.Enabled:=False;
     FChapters.Items.Clear; FChapterSourceTitles.Clear; FChapterDepths.Clear;
-    FContentsButton.Enabled:=False;
     if PreviousLength>0 then
     begin
       SavedPage:=EnsureRange(Round(PreviousPosition/PreviousLength*FLength),0,Max(0,FLength-1));
@@ -5678,7 +5678,7 @@ end;
 procedure TfrmBuiltinReader.AddChapter(const Title: string; Position, Depth: Integer);
 begin
   FChapterSourceTitles.Add(Title.Trim); FChapterDepths.Add(EnsureRange(Depth,-1,15));
-  FChapters.Items.AddObject(Title.Trim,TObject(NativeInt(Position))); FContentsButton.Enabled:=True;
+  FChapters.Items.AddObject(Title.Trim,TObject(NativeInt(Position)));
 end;
 
 procedure TfrmBuiltinReader.RebuildChapterTitles;
@@ -5719,6 +5719,23 @@ begin
       FChapters.ItemIndex:=Selected;
     finally FChapters.Items.EndUpdate; end;
   finally Rebuilt.Free; end;
+  FChapters.Visible := FChapters.Items.Count > 0;
+  FContentsButton.Visible := FChapters.Visible or (Assigned(FPDF) and (FPDF.PageCount > 1));
+  TReaderPaletteButton(FContentsButton).IconOnly := FChapters.Visible;
+  if FChapters.Visible then
+  begin
+    FContentsButton.Width := ScaleValue(36);
+    FContentsButton.Caption := 'Оглавление';
+    FContentsButton.Hint := 'Оглавление (Ctrl+T)';
+    TReaderPaletteButton(FContentsButton).Icon := rciContents;
+  end
+  else
+  begin
+    FContentsButton.Width := ScaleValue(164);
+    FContentsButton.Caption := 'Перейти к странице…';
+    FContentsButton.Hint := 'Перейти к странице (Ctrl+T)';
+    TReaderPaletteButton(FContentsButton).Icon := rciNone;
+  end;
 end;
 
 procedure TfrmBuiltinReader.SetNumberChapters(Value: Boolean);
@@ -5732,9 +5749,22 @@ begin
 end;
 
 procedure TfrmBuiltinReader.ContentsClick(Sender: TObject);
-var Dialog: TReaderContentsDialog;
+var Dialog: TReaderContentsDialog; PageText: string; PageNumber: Integer;
 begin
-  if not FReady or (ChapterCount=0) then Exit;
+  if not FReady then Exit;
+  if ChapterCount = 0 then
+  begin
+    if not Assigned(FPDF) or (FPDF.PageCount <= 1) then Exit;
+    PageText := IntToStr(FPage + 1);
+    if InputQuery('Перейти к странице', Format('Номер страницы от 1 до %d', [FPDF.PageCount]), PageText) then
+    begin
+      if TryStrToInt(PageText.Trim, PageNumber) and (PageNumber >= 1) and (PageNumber <= FPDF.PageCount) then
+        NavigateTo(PageNumber - 1)
+      else MessageDlg(Format('Введите номер страницы от 1 до %d.', [FPDF.PageCount]), mtWarning, [mbOK], 0);
+    end;
+    FSurface.SetFocus;
+    Exit;
+  end;
   Dialog:=TReaderContentsDialog.CreateFor(Self);
   try if (Dialog.ShowModal=mrOk) and (Dialog.SelectedChapter>=0) then GoToChapter(Dialog.SelectedChapter);
   finally Dialog.Free; end;

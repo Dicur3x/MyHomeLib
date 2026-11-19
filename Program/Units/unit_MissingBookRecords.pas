@@ -57,6 +57,7 @@ type
     FDirectories: TDictionary<string, string>;
     FCancelled: TFunc<Boolean>;
     function CheckArchive(const Book: TBookRecord; const Path: string): TBookPresence;
+    function MissingDirectoryIdentity(const Directory, CollectionRoot: string): string;
   public
     constructor Create(CacheDirectories: Boolean; const Cancelled: TFunc<Boolean>);
     destructor Destroy; override;
@@ -101,6 +102,31 @@ begin
   if Assigned(FDirectories) and FDirectories.TryGetValue(Path, Result) then Exit;
   Result := PhysicalDirectoryIdentity(Path);
   if Assigned(FDirectories) and (FDirectories.Count < 8192) then FDirectories.AddOrSetValue(Path, Result);
+end;
+
+function TBookPresenceProbe.MissingDirectoryIdentity(const Directory, CollectionRoot: string): string;
+var Root, Ancestor, Identity: string; Attributes, ErrorCode: DWORD;
+begin
+  Result := '';
+  Root := IncludeTrailingPathDelimiter(TPath.GetFullPath(CollectionRoot));
+  // Treat a removed subfolder as evidence only inside a reachable local tree.
+  if GetDriveType(PChar(IncludeTrailingPathDelimiter(ExtractFileDrive(Root)))) <> DRIVE_FIXED then Exit;
+  Ancestor := Directory;
+  while IncludeTrailingPathDelimiter(Ancestor).StartsWith(Root, True) do
+  begin
+    Attributes := GetFileAttributes(PChar(DeletionNativePath(Ancestor)));
+    if Attributes <> INVALID_FILE_ATTRIBUTES then
+    begin
+      if Attributes and FILE_ATTRIBUTE_DIRECTORY = 0 then Exit;
+      Identity := DirectoryIdentity(Ancestor);
+      if Identity <> '' then Result := Ancestor + '|' + Identity;
+      Exit;
+    end;
+    ErrorCode := GetLastError;
+    if not (ErrorCode in [ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND]) or
+      SameFileName(IncludeTrailingPathDelimiter(Ancestor), Root) then Exit;
+    Ancestor := ExtractFileDir(Ancestor);
+  end;
 end;
 
 function TBookPresenceProbe.CheckArchive(const Book: TBookRecord; const Path: string): TBookPresence;
@@ -150,11 +176,12 @@ begin
     // Keep the original locator's directory separator for GetBookFormat.
     Entry.Path := TPath.GetFullPath(Book.GetBookFileName(TPath.Combine(Book.CollectionRoot, Book.Folder)));
     if FileExists(Entry.Path) and not (Format in [bfFb2Archive, bfRawArchive]) then Exit(bpPresentFile);
+    ErrorCode := ERROR_SUCCESS;
     Attr := GetFileAttributes(PChar(DeletionNativePath(Entry.Path)));
     if Attr = INVALID_FILE_ATTRIBUTES then
     begin
       ErrorCode := GetLastError;
-      if ErrorCode <> ERROR_FILE_NOT_FOUND then
+      if not (ErrorCode in [ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND]) then
       begin
         Entry.CheckIssue := SysErrorMessage(ErrorCode);
         Exit;
@@ -173,7 +200,7 @@ begin
       else
       begin
         ErrorCode := GetLastError;
-        if ErrorCode <> ERROR_FILE_NOT_FOUND then
+        if not (ErrorCode in [ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND]) then
         begin
           Entry.Path := Alternate;
           Entry.CheckIssue := SysErrorMessage(ErrorCode);
@@ -195,7 +222,9 @@ begin
       Entry.ArchiveIdentity := FArchiveIdentity;
     end;
     Directory := ExtractFileDir(Entry.Path);
-    Entry.DirectoryIdentity := DirectoryIdentity(Directory);
+    if (Attr = INVALID_FILE_ATTRIBUTES) and (ErrorCode = ERROR_PATH_NOT_FOUND) then
+      Entry.DirectoryIdentity := MissingDirectoryIdentity(Directory, Book.CollectionRoot)
+    else Entry.DirectoryIdentity := DirectoryIdentity(Directory);
     if Entry.DirectoryIdentity = '' then
     begin
       Entry.CheckIssue := 'Не удалось проверить папку, в которой ожидается файл.';
