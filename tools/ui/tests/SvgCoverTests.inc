@@ -65,8 +65,7 @@ begin
       Require((Length(Data)>0)=Item.GetValue<Boolean>('cover'),'SVG result differs from fixture: '+Name+' '+Status);
       if Length(Data)>0 then
       begin
-        Stream:=TBytesStream.Create(Data); var Graphic:TGraphic;
-        try Graphic:=CreateGraphicFromStream(Stream,64*1024*1024); finally Stream.Free; end;
+        var Graphic:=CreatePackageCoverGraphic(Data,64*1024*1024);
         try CheckSamples(Item,Graphic); finally Graphic.Free; end;
       end;
       Book:=Default(TBookRecord); Book.CollectionRoot:=Folder;

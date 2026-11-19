@@ -144,8 +144,8 @@ begin
           if Terminated then Exit;
           if Length(CoverBytes)>0 then
           begin
-            CoverAssigned:=True; Image:=TBytesStream.Create(CoverBytes);
-            try Cover:=CreateGraphicFromStream(Image,64*1024*1024); finally Image.Free; end;
+            CoverAssigned:=True;
+            Cover:=CreatePackageCoverGraphic(CoverBytes,64*1024*1024);
             if not Assigned(Cover) then CoverStatus:='Формат встроенной обложки пока недоступен для предпросмотра.';
           end;
           CoverBytes:=nil;

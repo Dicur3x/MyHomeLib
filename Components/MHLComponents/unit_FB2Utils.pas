@@ -40,6 +40,7 @@ procedure VisitFB2Images(Stream: TStream; const Visitor: TFB2ImageVisitor;
 function GetBookCoverStream(book: IXMLFictionBook): TStream;
 function GetBookCover(book: IXMLFictionBook): TGraphic;
 function CreateGraphicFromStream(const ImageStream: TStream; const MaxDecodedBytes: Int64 = 256*1024*1024): TGraphic;
+function CreatePackageCoverGraphic(const Data: TBytes; MaxDecodedBytes: Int64): TGraphic;
 function GetBookAnnotation(book: IXMLFictionBook): string;
 function GetBookPublisherSeries(book: IXMLFictionBook): string;
 function GetBookPublisherSeriesData(book: IXMLFictionBook): TFB2PublisherSeries;
@@ -345,6 +346,65 @@ begin
   finally
     Converted.Free;
     ImageStream.Position := SavedPosition;
+  end;
+end;
+
+function CreatePackageCoverGraphic(const Data: TBytes; MaxDecodedBytes: Int64): TGraphic;
+var Header: TMetaHeader; Offset, DataSize: Integer; Words: Cardinal; Opcode: Word;
+    Pict: TMetaFilePict; Handle: HENHMETAFILE; Info: TEnhMetaHeader;
+    Meta: Graphics.TMetafile; Stream: TBytesStream;
+begin
+  // Office can embed a standard WMF. VCL's WMF stream loader expects an
+  // additional placeable header. All other images use the usual decoder.
+  if Length(Data)>=SizeOf(Header) then Move(Data[0],Header,SizeOf(Header));
+  if (Length(Data)<SizeOf(Header)) or not (Header.mtType in [1,2]) or
+    (Header.mtHeaderSize<>9) or ((Header.mtVersion<>$100) and (Header.mtVersion<>$300)) then
+  begin
+    Stream:=TBytesStream.Create(Data);
+    try Result:=CreateGraphicFromStream(Stream,MaxDecodedBytes); finally Stream.Free; end;
+    Exit;
+  end;
+  Result:=nil;
+  if (Length(Data)>16*1024*1024) or (Header.mtSize<12) or
+    (Header.mtSize>Cardinal(Length(Data) div 2)) or (Header.mtMaxRecord<3) or
+    (Header.mtMaxRecord>Header.mtSize-9) then Exit;
+  DataSize:=Integer(Header.mtSize)*2;
+  Offset:=SizeOf(Header);
+  repeat
+    if Offset>DataSize-6 then Exit;
+    Move(Data[Offset],Words,4);
+    Move(Data[Offset+4],Opcode,2);
+    if (Words<3) or (Words>Header.mtMaxRecord) or (Words>Cardinal((DataSize-Offset) div 2)) then Exit;
+    // A thumbnail may carry an embedded enhanced metafile in a comment.
+    // Device commands have no place in a catalogue preview.
+    if Opcode=META_ESCAPE then
+      if (Words<5) or (PWord(@Data[Offset+6])^<>MFCOMMENT) then Exit;
+    Inc(Offset,Integer(Words)*2);
+  until Opcode=0; // META_EOF
+  if (Words<>3) or (Offset<>DataSize) then Exit;
+
+  Pict:=Default(TMetaFilePict);
+  Pict.mm:=MM_ANISOTROPIC;
+  Handle:=SetWinMetaFileBits(DataSize,@Data[0],0,Pict);
+  if Handle=0 then Exit;
+  Meta:=nil;
+  try
+    if GetEnhMetaFileHeader(Handle,SizeOf(Info),@Info)=0 then Exit;
+    var WidthMM:=Int64(Info.rclFrame.Right)-Info.rclFrame.Left;
+    var HeightMM:=Int64(Info.rclFrame.Bottom)-Info.rclFrame.Top;
+    if (WidthMM<=0) or (HeightMM<=0) or (WidthMM>MaxInt) or (HeightMM>MaxInt) then Exit;
+    Meta:=Graphics.TMetafile.Create;
+    Meta.Handle:=Handle;
+    Handle:=0; // Meta owns it now.
+    Meta.Inch:=96; // Display physical page dimensions at screen DPI.
+    var W:=Meta.Width;
+    var H:=Meta.Height;
+    if (W<=0) or (H<=0) or (Int64(W)*H>MaxDecodedBytes div 4) then Exit;
+    Result:=Meta;
+    Meta:=nil;
+  finally
+    Meta.Free;
+    if Handle<>0 then DeleteEnhMetaFile(Handle);
   end;
 end;
 

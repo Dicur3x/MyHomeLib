@@ -158,6 +158,41 @@ procedure TestPackagePreview;
 var Host:TForm; Panel:TInfoPanel; Preview:TBookInfoPreview; Book:TBookRecord;
   Image:TImage; OriginalHash,Folder:string; Started,Deadline:UInt64;
   Cases:TJSONArray; Item:TJSONValue; Expected:TStream; Graphic:TGraphic;
+  procedure CheckStandardWMF;
+  var Meta:TMetafile; Canvas:TMetafileCanvas; Stream:TMemoryStream;
+      Bytes:TBytes; Picture:TGraphic; Bitmap:TBitmap;
+  begin
+    Meta:=TMetafile.Create;
+    Stream:=TMemoryStream.Create;
+    try
+      Meta.Width:=120; Meta.Height:=80;
+      Canvas:=TMetafileCanvas.Create(Meta,0);
+      try
+        Canvas.Brush.Color:=clBlue; Canvas.FillRect(Rect(0,0,120,80));
+        Canvas.Brush.Color:=clRed; Canvas.FillRect(Rect(30,20,90,60));
+      finally Canvas.Free; end;
+      Meta.Enhanced:=False; Meta.SaveToStream(Stream);
+      Require((Stream.Size>40) and (PCardinal(Stream.Memory)^=$9AC6CDD7),'Expected placeable WMF');
+      Stream.Position:=22; // Drop only the optional Aldus placeable header.
+      SetLength(Bytes,Stream.Size-22); Stream.ReadBuffer(Bytes[0],Length(Bytes));
+    finally Stream.Free; Meta.Free; end;
+    Picture:=CreatePackageCoverGraphic(Bytes,64*1024*1024);
+    try
+      Require(Assigned(Picture),'Standard WMF thumbnail missing');
+      Bitmap:=TBitmap.Create;
+      try
+        Bitmap.SetSize(120,80); Bitmap.Canvas.StretchDraw(Rect(0,0,120,80),Picture);
+        Require((ColorToRGB(Bitmap.Canvas.Pixels[10,10])=ColorToRGB(clBlue)) and
+          (ColorToRGB(Bitmap.Canvas.Pixels[60,40])=ColorToRGB(clRed)),'Wrong WMF drawing');
+      finally Bitmap.Free; end;
+    finally Picture.Free; end;
+    Picture:=CreatePackageCoverGraphic(Bytes,4);
+    try Require(not Assigned(Picture),'WMF exceeded pixel budget'); finally Picture.Free; end;
+    SetLength(Bytes,Length(Bytes)-5);
+    Picture:=CreatePackageCoverGraphic(Bytes,64*1024*1024);
+    try Require(not Assigned(Picture),'Truncated WMF thumbnail accepted'); finally Picture.Free; end;
+    Writeln('PASS standard WMF panel decoder preserves both colours and respects bounds');
+  end;
   procedure WaitPreview;
   begin
     Deadline:=GetTickCount64+15000;
@@ -219,6 +254,7 @@ begin
   Host.SetBounds(70,80,850,450); Panel.Align:=alClient; Host.Show;
   Preview:=TBookInfoPreview.CreateFor(Host,Panel);
   try
+    CheckStandardWMF;
     Image:=nil;
     for var I:=0 to Panel.ControlCount-1 do if Panel.Controls[I] is TImage then Image:=TImage(Panel.Controls[I]);
     Require(Assigned(Image),'Cover image control absent');
@@ -244,8 +280,8 @@ begin
     try
       for Item in Cases do
       begin
-        Expected:=TFileStream.Create(Folder+TJSONObject(Item).GetValue<string>('expected'),fmOpenRead);
-        try Graphic:=CreateGraphicFromStream(Expected,64*1024*1024); finally Expected.Free; end;
+        Graphic:=CreatePackageCoverGraphic(TFile.ReadAllBytes(Folder+
+          TJSONObject(Item).GetValue<string>('expected')),64*1024*1024);
         try
           Require(Assigned(Graphic),'Real cover cannot be decoded');
           ReadCover(TJSONObject(Item).GetValue<string>('name'),

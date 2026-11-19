@@ -115,3 +115,23 @@ The earlier x64 executable missed the generated FB3 mixed-case cover.
 Inputs retained their original bytes. Manifests and logs for all 17 books and
 six documents are in `G:/HL-b14-external/r1999-fb3-covers` and its
 `libreoffice` directory.
+
+## Embedded Office thumbnails in 19 source documents, November 19
+
+The sample covers all 15 supported Office Open XML extensions. Six presentation
+files declare JPEG thumbnails, three Word templates declare standard WMF drawings
+and ten documents have no thumbnail. Each input matched its upstream Git blob.
+[Open XML SDK test assets](https://github.com/dotnet/Open-XML-SDK/tree/431ab05cf160248cc3885a4a766026d4f8243792/test/DocumentFormat.OpenXml.Tests.Assets/assets).
+[Apache POI test data](https://github.com/apache/poi/tree/f66927954a29cf1f5b86614fdf1816e6321c8aea/test-data).
+
+The previous x64 build extracted the exact WMF from a Word template but left
+the catalogue panel empty. These drawing files have a standard metafile header
+without the optional placeable header. Package previews now read this form too.
+On x86 and x64 all nine declared covers appeared in the catalogue. The three WMF
+previews matched samples of the ink and paper from an independent rendering of
+the embedded enhanced drawings. JPEG samples matched the declared images. All
+ten documents without a thumbnail cleared the earlier preview and displayed an
+explanation. A separate two-colour WMF verified drawing, the decoded image size
+limit and rejection of truncated data. Source documents retained their original
+bytes. Test manifests and receipts for both catalogue and reader builds are in
+`G:/HL-b14-external/r2004-office` and `G:/HL-b14-external/r2005-office-build`.
