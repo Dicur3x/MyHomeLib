@@ -10832,6 +10832,7 @@ begin
     Dialog.Text := Format('Всего книг в группе — %d, включая скрытые фильтрами.', [Count]) +
       sLineBreak + 'Книги останутся в каталоге и на диске.';
     Dialog.Flags := [tfAllowDialogCancellation];
+    Dialog.CommonButtons := [];
     Button := TTaskDialogButtonItem(Dialog.Buttons.Add);
     Button.Caption := Action; Button.ModalResult := mrYes;
     Button := TTaskDialogButtonItem(Dialog.Buttons.Add);
