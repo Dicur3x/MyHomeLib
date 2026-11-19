@@ -91,10 +91,14 @@
 <h1>FAQ</h1>
 <!-- BODY:BEGIN -->
 <h2>Where are the settings and the system database stored?</h2>
-<p>By default HomeLibre keeps its settings and the system database (see <a href="terms.html">Key terms</a>) in the <code>%APPDATA%\MyHomeLib</code> folder, and the database itself in the <code>Data</code> subfolder inside it. If there is a portable-mode marker next to the program's executable (or if there is no Windows user data folder at all), HomeLibre stores those same files in a folder of its own next to <code>HomeLibre.exe</code> instead. For details see <a href="portable.html">Portable version</a>.</p>
+<p>In the ZIP edition, <code>myhomelib2.ini</code> is beside <code>HomeLibre.exe</code>. The system database is <code>Data\user.dbs2</code> in the same folder. Older installations may have their profile in <code>%APPDATA%\MyHomeLib</code>. <a href="portable.html">Portable profile files</a>.</p>
 
 <h2>Why does a book not open?</h2>
-<p>Usually for one of two reasons. First, no reader may be assigned to the file extension while Windows has no default program for that file type either — in that case assign a reader in <a href="set_readers.html">File types and readers</a>. Second, the book file itself may have gone from disk — moved, renamed or deleted outside HomeLibre; this is reported by the error "File … not found! Check the collection settings!".</p>
+<ol>
+<li>Use the book location command to check the folder or archive. For a local collection, you can <a href="delete.html#missing-records">find entries without files</a>.</li>
+<li>If the file is there, try opening it in <a href="reading.html">HomeLibre Reader</a>. Some formats need an optional module.</li>
+<li>If you use an external reader, check its path and the format association in <a href="set_readers.html">file type settings</a>.</li>
+</ol>
 
 <h2>Why is a downloaded book missing?</h2>
 <p>A downloaded book goes into the very online collection it was downloaded from, not into some separate "downloads" folder — check that this is the collection you have open. If the download ended in an error, the details are written to the <code>download_errors.log</code> log next to the program settings. See <a href="download.html">Downloading books</a>.</p>
@@ -103,10 +107,10 @@
 <p>HomeLibre keeps the path to the collection file and its other properties in the system database, not in the collection file itself. So when a <code>.hlc2</code> file has been moved, renamed or deleted outside the program, the collection does not vanish from the list you switch collections with (<span class="ui">Collection</span> → <span class="ui">Select collection</span>) — that list is built without checking whether the file exists. You will not be able to open that particular collection, though, until the file is put back where it was or the collection is connected again with the new path; see <a href="collections.html">Working with collections</a>. The message "Collection file not found. The program cannot start." appears only once — at startup, and only when the files of every single registered collection are unavailable at the same time; if even one of them still has its file, HomeLibre simply opens that one instead of the collection that went missing.</p>
 
 <h2>How do I move a collection to another drive?</h2>
-<p>Copy (or move) the folder holding the book files and the collection database file to the new drive, then open the collection properties and enter the new path in the <span class="ui">Books folder:</span> field. See <a href="coll_params.html">Collection properties</a>.</p>
+<p>Open <span class="ui">Collection → Gather files into one folder…</span>, choose the new drive and select <span class="ui">Check plan</span>. Before moving files, HomeLibre shows the space required, unavailable files and shared archives. <a href="collections.html#transfer">Moving collection files</a>.</p>
 
 <h2>How do I move my whole library to a new computer?</h2>
-<p>Copy the HomeLibre data folder (the system database, the settings, the logs) to the new computer along with the folders that hold the collection files, keeping the same paths; or use portable mode — then all of it already sits next to the program and moves by copying a single folder. See <a href="portable.html">Portable version</a>. To transfer or merge only the user data (ratings, groups and so on) separately, use the tools described in <a href="user_data.html">User data export and import</a>.</p>
+<p>Close HomeLibre. Copy the application folder and its profile, then copy any books and <code>.hlc2</code> files stored elsewhere. If drive letters or paths changed, open the new copy and check the collection paths. <a href="portable.html">Moving the application</a> · <a href="user_data.html">Moving personal data</a>.</p>
 <!-- BODY:END -->
 </main>
 </body>

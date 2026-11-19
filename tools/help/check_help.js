@@ -11,6 +11,31 @@ const DFM_DIRS = ['Program/Forms', 'Program/Forms/Editors', 'Program/Wizards'];
 const problems = [];
 const fail = (m) => problems.push(m);
 
+const anchorCache = new Map();
+
+function checkLinks(html, file) {
+  const label = path.relative(HELP, file);
+  for (const [, href] of html.matchAll(/href="([^"]+)"/g)) {
+    if (/^(?:https?:|mailto:|\/\/)/i.test(href)) continue;
+    const [name, fragment] = href.split('#', 2);
+    const target = name ? path.resolve(path.dirname(file), name) : file;
+    if (name.endsWith('.htm')) fail(label + ': legacy .htm link: ' + href);
+    if (!fs.existsSync(target)) {
+      fail(label + ': dead link: ' + href);
+      continue;
+    }
+    if (!fragment || !target.endsWith('.html')) continue;
+    if (!anchorCache.has(target)) {
+      const markup = fs.readFileSync(target, 'utf8');
+      const ids = [...markup.matchAll(/\bid=(["'])(.*?)\1/g)].map((item) => item[2]);
+      const unique = new Set(ids);
+      if (unique.size !== ids.length) fail(path.relative(HELP, target) + ': duplicate section ID');
+      anchorCache.set(target, unique);
+    }
+    if (!anchorCache.get(target).has(fragment)) fail(label + ': missing section: ' + href);
+  }
+}
+
 function listTopics() {
   const spec = JSON.parse(fs.readFileSync(TOPICS, 'utf8'));
   return spec.sections.flatMap((s) => s.topics);
@@ -72,12 +97,7 @@ for (const t of topics) {
   if (body.trim() === '' || body.includes('Раздел в работе'))
     fail(`${t.file}: body not written yet`);
 
-  for (const m of html.matchAll(/href="([^"#]+)(#[^"]*)?"/g)) {
-    const target = m[1];
-    if (target.startsWith('http') || target.startsWith('mailto:')) continue;
-    if (target.endsWith('.htm')) fail(`${t.file}: legacy .htm link: ${target}`);
-    if (!fs.existsSync(path.join(HELP, target))) fail(`${t.file}: dead link: ${target}`);
-  }
+  checkLinks(html, p);
 }
 
 // the Russian original; wording is not, because topics.json holds Russian
@@ -137,12 +157,7 @@ for (const loc of LOCALE_DIRS) {
     if (body.trim() === '') fail(`${id}: body is empty`);
     if (body.includes('Розділ у роботі')) fail(`${id}: body not written yet`);
 
-    for (const mm of html.matchAll(/href="([^"#]+)(#[^"]*)?"/g)) {
-      const target = mm[1];
-      if (target.startsWith('http') || target.startsWith('mailto:')) continue;
-      if (target.endsWith('.htm')) fail(`${id}: legacy .htm link: ${target}`);
-      if (!fs.existsSync(path.join(dir, target))) fail(`${id}: dead link: ${target}`);
-    }
+    checkLinks(html, p);
   }
 }
 
@@ -152,8 +167,14 @@ if (!fs.existsSync(MAP_UNIT)) {
   fail('missing Program/Units/unit_HelpTopics.pas');
 } else {
   const pas = fs.readFileSync(MAP_UNIT, 'utf8');
-  const entries = [...pas.matchAll(/\(ContextID:\s*(\d+);\s*FileName:\s*'([^']+)'\)/g)]
-    .map((m) => ({ id: Number(m[1]), file: m[2] }));
+  const constants = new Map([...pas.matchAll(/^\s*(HELP_[A-Z_]+)\s*=\s*(\d+);/gm)]
+    .map(([, name, value]) => [name, Number(value)]));
+  const entries = [...pas.matchAll(/\(ContextID:\s*(\d+|HELP_[A-Z_]+);\s*FileName:\s*'([^']+)'\)/g)]
+    .map(([, token, file]) => {
+      const id = /^\d+$/.test(token) ? Number(token) : constants.get(token);
+      if (id === undefined) fail('unit_HelpTopics.pas: unknown ContextID ' + token);
+      return { id, file };
+    });
   if (entries.length === 0) fail('unit_HelpTopics.pas: no map entries parsed');
 
   const bound = pas.match(/HelpTopics:\s*array\s*\[0\s*\.\.\s*(\d+)\]/);

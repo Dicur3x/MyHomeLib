@@ -90,7 +90,7 @@
 <main id="content">
 <h1>Importing non-FB2 and FBD books</h1>
 <!-- BODY:BEGIN -->
-<p>A book that is not in FB2 format (PDF, DjVu, EPUB, TXT and so on) carries no author, title or genre inside it that the program could read on its own — unlike FB2. So that such a book still appears in the catalog like any other (with an author, a title, a series and a genre), a small companion description is created for it — an <span class="ui">FBD</span> file: it is packed into a single archive together with the book file itself, and from that moment the book behaves in the collection like an ordinary record. The <span class="ui">Collection → Import</span> menu offers two different ways to do this — manual and batch; these are two separate commands with different dialogs, not two modes of one window.</p>
+<p>Formats such as EPUB and PDF may include book metadata. Check the catalogue entry when adding a file manually. If needed, HomeLibre creates an FBD description and puts it in an archive with the book. Import ready-made FBD archives with the separate batch import command.</p>
 
 <h2>Non-FB2 files — adding books by hand</h2>
 <p>This command opens a window of its own in which you type the bibliographic data yourself. The window scans the collection folder itself (not a separate import folder) and shows, as a tree, the files whose extension has a reader configured for it (see <a href="set_readers.html">File types and readers</a>) and which are not in the catalog yet; fb2 and fb2.zip files are left out of that list — they have an import of their own.</p>

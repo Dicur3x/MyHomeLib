@@ -90,20 +90,21 @@
 <main id="content">
 <h1>Upgrading a previous version</h1>
 <!-- BODY:BEGIN -->
-<h2>Moving from MyHomeLib or upgrading a ZIP</h2>
-<p>Close the application and back up <code>%APPDATA%\MyHomeLib</code> and separately stored <code>.hlc2</code> collections. Extract the new ZIP into a clean folder and run <code>HomeLibre.exe</code>; the normal profile retains its old name and is reused automatically. For portable mode, copy your backed-up <code>uselocaldata</code>, <code>myhomelib2.ini</code>, <code>Data</code> and <code>presets.cxml2</code>, then check the collection paths. Keep the old folder until verified. Extracting over it leaves an obsolete <code>MyHomeLib.exe</code>.</p>
-<h2>Installer upgrades</h2>
-<p>An installer built separately offers the previous folder. The legacy EXE and its own shortcuts are removed only after the new EXE is installed, and only for the same registered AppID and installation directory. Profiles and collections are preserved. ZIP extraction does not perform this cleanup.</p>
-<p class="note">The x86 and x64 distributions are registered in Windows under one and the same application id, so an installer of the other bitness also recognizes the previous installation folder and offers to update the program there.</p>
-
-<h2>What is kept during an update</h2>
-<p>The installer does not touch the <code>%APPDATA%\MyHomeLib</code> folder, with one exception: it puts <code>collections.ini</code> there only if no such file exists yet, and never overwrites an existing one. So, after an in-place update, the program settings (<code>myhomelib2.ini</code>) and the system database (<code>Data\user.dbs2</code> — the list of connected collections, the groups including Favorites, and the ratings and notes on books, see <a href="terms.html">Key terms</a>) are left as they were. The collection files themselves — the books and the <code>.hlc2</code> files — the installer does not touch at all: they stay wherever you put them.</p>
-
-<h2>Backing up the system database before a major update</h2>
-<p>Before updating to a markedly newer version it is worth copying the system database file somewhere safe, just in case — by default that is <code>%APPDATA%\MyHomeLib\Data\user.dbs2</code>, and in <a href="portable.html">portable mode</a> it is <code>Data\user.dbs2</code> next to the executable. If something goes wrong after the update, you can put that copy back in place of the damaged file.</p>
-
-<h2>If a collection will not open after the update</h2>
-<p>If some collection will not open or reports a database error after the update, try the tools described in <a href="maintenance.html">Database maintenance</a>. If it is the system database file with the list of collections that is damaged, put the backup copy you made before the update back in its place.</p>
+<p class="lead">Application updates and updates to your book catalogue are separate actions. To use a new INPX, see <a href="update.html#sources">updating a library</a>.</p>
+<h2>Update HomeLibre</h2>
+<ol>
+<li>Open <strong>Help → Check for updates</strong>.</li>
+<li>Select HomeLibre and choose <strong>Download update</strong>.</li>
+<li>Choose <strong>Install and restart</strong>. HomeLibre closes, checks and replaces the application files, then restarts with your profile.</li>
+</ol>
+<p class="note">If you are using beta 13, update to <a href="https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.14">beta 14</a> first. Then check for updates again.</p>
+<h2>Update manually</h2>
+<p>Close the application and back up its profile and any separately stored <code>.hlc2</code> catalogues. The current ZIP uses a profile beside the EXE. An older installation may store it in <code>%APPDATA%\MyHomeLib</code>.</p>
+<p>Download the ZIP for the same architecture. Extract it to a separate folder and copy <code>myhomelib2.ini</code>, <code>Data</code> and <code>presets.cxml2</code>, if present, from your old profile. Run <code>HomeLibre.exe</code> and check that your collections and books open from the expected paths. <a href="portable.html">Portable profile details</a>.</p>
+<h2 id="components">Modules and release notes</h2>
+<p>Choose <strong>Check all</strong> and select a component. The <strong>Changelog</strong> tab shows its history. Use <strong>Modules…</strong> to manage installed extras.</p>
+<p>If a check fails, select the component and retry. If an application file is in use, close HomeLibre Reader and other programs using the folder, then try again.</p>
+<p>Use A−, A+ or Ctrl + mouse wheel to change the text size. Enter and Space expand a selected release.</p>
 <!-- BODY:END -->
 </main>
 </body>

@@ -115,6 +115,15 @@
 <h2>What happens to your own data</h2>
 <p>Before a full update the program saves ratings, reading progress, reviews and the group membership of books (Favorites and To read included) separately, and restores them once the catalog has been filled again, matching books by their stable identifier (LibID) rather than by the internal number, which is reassigned from scratch during a full update. Data for books that are no longer in the updated catalog is lost along with the records for those books. A partial update needs none of this: existing catalog records are not deleted, so the user data attached to them stays in place without being saved and restored.</p>
 <p class="note">Do not confuse this internal user data with the list of collections in the system database — updating a collection does not affect that list.</p>
+
+<h2 id="sources">Update with a new index and only the new archives</h2>
+<p>Open <strong>Update library</strong> on the toolbar. Choose the source, the new INPX or Metabib index and the folder with the new archives. Run the check. If files are missing, copy their exact names, download them and check again before applying.</p>
+
+<h2 id="archive-names">Which archives to download</h2>
+<p>Use the names shown by the check instead of inferring them from the numbering of older archives.</p>
+
+<h2 id="compressed">After compression</h2>
+<p>After applying an update to a compressed collection, use <strong>Compress new books…</strong> to process newly added or changed books.</p>
 <!-- BODY:END -->
 </main>
 </body>

@@ -6,6 +6,8 @@
   --nav-bg: #f6f6f8;
   --link: #0a5ca8;
   --code-bg: #f0f0f3;
+  --card-bg: #f8fafc;
+  color-scheme: light;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -17,6 +19,8 @@
     --nav-bg: #232327;
     --link: #6cb0f0;
     --code-bg: #2a2a30;
+    --card-bg: #24272c;
+    color-scheme: dark;
   }
 }
 
@@ -32,7 +36,7 @@ body {
 }
 
 #toc {
-  flex: 0 0 300px;
+  flex: 0 0 clamp(15rem, 24vw, 18rem);
   position: sticky;
   top: 0;
   height: 100vh;
@@ -76,7 +80,8 @@ body {
 
 #content {
   flex: 1 1 auto;
-  max-width: 46em;
+  min-width: 0;
+  max-width: 49rem;
   padding: 32px 40px 80px;
 }
 
@@ -94,7 +99,42 @@ h3 { margin: 24px 0 8px; font-size: 16px; font-weight: 600; }
 p, ul, ol, dl { margin: 0 0 14px; }
 li { margin: 0 0 5px; }
 
-a { color: var(--link); }
+a { color: var(--link); text-underline-offset: .16em; }
+
+a:focus-visible {
+  outline: 2px solid var(--link);
+  outline-offset: 3px;
+}
+
+.lead { max-width: 62ch; font-size: 1.125rem; }
+
+.task-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
+  gap: 12px;
+  padding: 0;
+  list-style: none;
+}
+
+.task-grid li { display: flex; margin: 0; }
+
+.task-grid a {
+  display: block;
+  width: 100%;
+  min-height: 100%;
+  padding: 14px 16px;
+  border: 1px solid var(--rule);
+  border-radius: 9px;
+  background: var(--card-bg);
+  text-decoration: none;
+}
+
+.task-grid a:hover { border-color: var(--link); }
+.task-grid a:hover strong { text-decoration: underline; }
+.task-grid strong { display: block; margin-bottom: 3px; }
+.task-grid span { display: block; color: var(--fg); font-size: .94rem; }
+
+td code, p code { overflow-wrap: anywhere; }
 
 code, kbd {
   padding: 1px 5px;
@@ -156,8 +196,42 @@ th { font-weight: 600; }
     position: static;
     width: auto;
     height: auto;
+    max-height: min(28vh, 13rem);
+    padding: 12px 20px;
     border-right: 0;
     border-bottom: 1px solid var(--rule);
   }
   #content { padding: 24px 20px 60px; }
+}
+
+@media (max-width: 600px) {
+  #toc { max-height: min(19vh, 10rem); }
+
+  .download-table, .download-table tbody, .download-table tr,
+  .download-table th, .download-table td { display: block; }
+
+  .download-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  .download-table tbody tr {
+    padding: 8px 12px 10px;
+    margin-bottom: 10px;
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+  }
+
+  .download-table th, .download-table td { padding: 3px 0; border: 0; }
+
+  .download-table td::before {
+    display: block;
+    content: attr(data-platform);
+    color: var(--muted);
+    font-size: .85rem;
+  }
 }

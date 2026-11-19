@@ -15,42 +15,37 @@ originally created by **Олексій Пеньков (Oleksiy Penkov)**.
 
 ## Download and run
 
-[HomeLibre releases for Windows](https://github.com/Dicur3x/MyHomeLib/releases) · [Release history](docs/releases/README.md)
+[Download beta 15](https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.15) · [Release history](docs/releases/README.md)
 
-Starting with 3.0 beta 14, choose one of these archives for a manual installation.
+HomeLibre requires **Windows 10 or later**. Choose an archive for your Windows architecture.
 
 | Package | Windows x64 | Windows x86 |
 | --- | --- | --- |
 | Compact | `HomeLibre_x64_portable.zip` | `HomeLibre_portable.zip` |
-| Full offline | `HomeLibre_x64_full.zip` | `HomeLibre_full.zip` |
+| Full | `HomeLibre_x64_full.zip` | `HomeLibre_full.zip` |
 
-The compact package downloads modules when needed. The full package includes
-the reader, additional modules, and the WebView2 and .NET Framework installers.
-Both packages can run immediately after extraction.
-If you have beta 13, update to [beta 14](https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.14) first. Then use
-**Help → Check for updates** again to upgrade to the latest version.
-The release page lists archive checksums in `SHA256SUMS.txt`.
+The compact package offers to download modules as you need them. The full package includes Reader, optional modules and the WebView2 and .NET Framework installers for offline use. Both packages are portable. Books are obtained separately.
+On the release page, `SHA256SUMS.txt` lists the archive checksums.
 
-Requires **Windows 10 or later**. The archive contains the catalogue app.
-Books are obtained separately.
+### First steps
 
-1. Extract the archive to a folder you can write to.
-2. Run **HomeLibre.exe**. For beta 13, run **HomeLibRu.exe**.
-3. Use the **Collection** menu to create an empty collection, import INPX or
-   open an existing `.hlc2` catalogue.
-4. Choose your books folder. Use **Collection → Import → Add file…** or drag
-   files in from File Explorer. For a local collection, you can leave the files
-   where they are and let HomeLibre store links to them.
-5. Find a book by author, series, genre or search and open it.
+1. Extract the whole ZIP to a writable folder and run **HomeLibre.exe**.
+2. Open **Collection → Create new collection** and choose a books folder, an INPX index or an existing **.hlc2** catalogue.
+3. To add local files, choose **Collection → Import → Add file…** or drag them in from File Explorer. Find a book on the **Search** tab.
 
-**F1** opens help for the current window.
-[Create a collection](Program/Help/en/new_collection.html) ·
-[Add books](Program/Help/en/add_books.html).
+[Create a collection](Program/Help/en/new_collection.html) · [Find a book](Program/Help/en/search.html) · [Read or save a book](Program/Help/en/reading.html)
+
+Use **?** in a tool to see its short guide. **F1** opens the help article.
+
+### Already using HomeLibre?
+
+Open **Help → Check for updates**. If you are using beta 13, update to [beta 14](https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.14) first, then check again.
+[Manual updates and profile migration](Program/Help/en/upgrade.html).
 
 ## HomeLibre Reader
 
 [Download HomeLibre Reader and components](https://github.com/Dicur3x/MyHomeLib/releases/tag/optional-alreader-2.5.1009.25)
-Starting with beta 14, choose the standalone `HomeLibreReader-…-Win64.zip`
+For standalone use, choose the `HomeLibreReader-…-Win64.zip`
 or `HomeLibreReader-…-Win32.zip` archive.
 
 To read files without the catalogue app, extract the Reader archive, run
