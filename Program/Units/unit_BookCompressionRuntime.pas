@@ -130,8 +130,7 @@ begin
   if not MatchText(Options.Profile,['original','balanced','economy','maximum']) or
     (Options.WorkRoot='') or not TPath.IsPathRooted(Options.WorkRoot) or
     (Length(Options.WorkRoot)>32767) or (Length(Options.BackupFolder)>32767) or
-    ((Options.BackupFolder<>'') and not TPath.IsPathRooted(Options.BackupFolder)) or
-    (Options.BackupOriginals and (Options.BackupFolder='')) then
+    ((Options.BackupFolder<>'') and not TPath.IsPathRooted(Options.BackupFolder)) then
     raise EArgumentException.Create('Проверьте режим сжатия и папки для временных файлов и оригиналов.');
   Data:=TJSONObject.Create;
   try

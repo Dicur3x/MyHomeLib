@@ -18,6 +18,7 @@ type
     UnmeasuredFiles: Integer;
   end;
 
+function FileStorageVolume(const Path: string): string;
 function CaptureDeletionSpace(const Paths: TArray<string>): TArray<TDeletionFileSpace>;
 function MeasureDeletionSpace(const Before: TArray<TDeletionFileSpace>): TArray<TDeletionVolumeSpace>;
 procedure AddDeletionSpace(var Total: TArray<TDeletionVolumeSpace>;
@@ -42,18 +43,25 @@ begin
   else if Result.StartsWith('\\?\') then Result:=Result.Substring(4);
 end;
 
+function FileStorageVolume(const Path: string): string;
+var Native: string; Volume: TArray<Char>;
+begin
+  Native := NativePath(Path);
+  Result := IncludeTrailingPathDelimiter(ExtractFileDrive(DisplayPath(Native)));
+  SetLength(Volume,32768);
+  if GetVolumePathName(PChar(Native),PChar(Volume),Length(Volume)) then
+    Result := DisplayPath(PChar(Volume));
+end;
+
 function FileSpace(const Path: string): TDeletionFileSpace;
-var Native: string; Volume: TArray<Char>; Attributes, LowPart, HighPart, Error: DWORD;
+var Native: string; Attributes, LowPart, HighPart, Error: DWORD;
   Handle: THandle; Info: TByHandleFileInformation; Bytes: UInt64;
 begin
   Result:=Default(TDeletionFileSpace); Result.Path:=Path;
   // Progress accounting must never prevent or change a deletion.
   try
     Native:=NativePath(Path);
-    Result.Volume:=IncludeTrailingPathDelimiter(ExtractFileDrive(DisplayPath(Native)));
-    SetLength(Volume,32768);
-    if GetVolumePathName(PChar(Native),PChar(Volume),Length(Volume)) then
-      Result.Volume:=DisplayPath(PChar(Volume));
+    Result.Volume:=FileStorageVolume(Native);
     Attributes:=GetFileAttributes(PChar(Native));
     if Attributes=INVALID_FILE_ATTRIBUTES then
     begin

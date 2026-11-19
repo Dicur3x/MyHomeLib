@@ -1003,7 +1003,7 @@ type
     procedure StartBookCompression(Operation: TBookCompressionOperation);
     procedure BookCompressionTick(Sender: TObject);
     procedure StopBookCompression(Sender: TObject);
-    procedure ReviewBookCompression(Decision: TCompressionReview);
+    procedure ReviewBookCompression(Decision: TCompressionReview; const BackupFolder: string);
     procedure CheckCompressionRecovery;
     function CompressionBlocksCatalogChange(IgnoreTransfer:Boolean=False): Boolean;
     procedure ShowCollectionTransfer(Sender:TObject);
@@ -5058,9 +5058,9 @@ begin
   FBookCompressionProgress.UpdateProgress(FBookCompressionOperation.Status);
 end;
 
-procedure TfrmMain.ReviewBookCompression(Decision: TCompressionReview);
+procedure TfrmMain.ReviewBookCompression(Decision: TCompressionReview; const BackupFolder: string);
 begin
-  if Assigned(FBookCompressionOperation) then FBookCompressionOperation.Approve(Decision);
+  if Assigned(FBookCompressionOperation) then FBookCompressionOperation.Approve(Decision, BackupFolder);
 end;
 
 function TfrmMain.CompressionBlocksCatalogChange(IgnoreTransfer:Boolean): Boolean;
@@ -5152,7 +5152,9 @@ begin
   FBookCompressionProgress.ShowResult(State,RefreshError);
   StatusMessage:=State.Stage;
   if not State.EstimateOnly and State.SavingsKnown then
-    StatusMessage:=StatusMessage+' Освобождено: '+BookCacheSizeText(State.SavedBytes);
+    if State.SavedBytes >= State.BackupBytes then
+      StatusMessage:=StatusMessage+' Освобождено: '+BookCacheSizeText(State.SavedBytes-State.BackupBytes)
+    else StatusMessage:=StatusMessage+' Занято дополнительно: '+BookCacheSizeText(State.BackupBytes-State.SavedBytes);
   if FCloseAfterCompression then
   begin FCloseAfterCompression:=False; PostMessage(Handle,WM_CLOSE,0,0); end
   else if (State.Error='') and (RefreshError='') then CheckCompressionRecovery;

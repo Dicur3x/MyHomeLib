@@ -13,6 +13,10 @@ type
     WorkRoot, QueueName, Python, Script, SevenZip, ToolsRoot, Profile, BackupFolder: string;
     Grayscale, ReviewResults, BackupOriginals, EstimateFirst, OnlyNew: Boolean;
   end;
+  TBookCompressionDiskUse = record
+    Volume: string;
+    ReductionBytes, BackupBytes: Int64;
+  end;
   TBookCompressionOperationStatus = record
     Stage, Source, Member, Error, Warning, ReportFile, PendingJob, BackupFolder: string;
     PreviewFile, PreviewSHA256, PreviewNote: string;
@@ -20,7 +24,9 @@ type
     ChangedFiles, UnchangedFiles, SkippedFiles, SavedBytes: Int64;
     PreviouslyProcessedBooks: Int64;
     InputBytes, OutputBytes, WorkingBytes: Int64;
-    BackupFiles, DiscardedPreparations: Int64;
+    BackupFiles, BackupBytes, DiscardedPreparations: Int64;
+    Disks: TArray<TBookCompressionDiskUse>;
+    BackupPaths: TArray<string>;
     ImageChanges: Int64;
     EstimateInputBytes, EstimateKnownInputBytes, EstimateOutputBytes, EstimateArchiveBytes: Int64;
     EstimateUnknownBooks: Int64;
@@ -28,7 +34,7 @@ type
     TrialInputBytes, TrialOutputBytes, TrialSharedFiles: Int64;
     TrialRunning, TrialReady, AwaitingRefresh: Boolean;
     Estimating, AwaitingEstimate, EstimateOnly: Boolean;
-    Finished, Stopping, AwaitingReview, Recovery, SavingsKnown: Boolean;
+    Finished, Stopping, AwaitingReview, Recovery, SavingsKnown, BackupRequested: Boolean;
   end;
 
   // The factory runs on this worker and owns its own SQLite connections.
@@ -45,6 +51,7 @@ type
     FTrialFiles: TDictionary<string,TTrialFile>;
     FTrialSkipped: TDictionary<string,Boolean>;
     FCompletedFileKeys: TDictionary<string,Boolean>;
+    FBackupPaths: TList<string>;
     FRefreshError: string;
     FOptions: TBookCompressionOperationOptions;
     FFactory: TCompressionPlanFactory;
@@ -61,6 +68,7 @@ type
     procedure CheckStop;
     procedure SetStage(const Stage: string; Current: Int64 = 0; Total: Int64 = 0);
     procedure Warn(const MessageText: string);
+    procedure AddDiskUse(const Volume: string; Reduction, Backup: Int64);
     procedure ReceiveEvent(const Value: string);
     function CancelProducer: Boolean;
     procedure CreateWork;
@@ -87,7 +95,7 @@ type
     constructor Recover(const Options: TBookCompressionOperationOptions);
     destructor Destroy; override;
     procedure RequestStop;
-    procedure Approve(Decision: TCompressionReview);
+    procedure Approve(Decision:TCompressionReview; const BackupFolder: string = '');
     function Status: TBookCompressionOperationStatus;
     function QueueRoot: string;
     // Call only after WaitFor and after refreshing affected application views.
@@ -95,6 +103,7 @@ type
     procedure ConfirmRefresh(const ErrorMessage:string);
   end;
 
+function CompressionBackupFolderAvailable(const Folder: string): Boolean;
 function CompressionQueueRoot(const Options: TBookCompressionOperationOptions): string;
 function CompressionHasAbandonedPreparation(const Options: TBookCompressionOperationOptions): Boolean;
 
@@ -110,7 +119,7 @@ implementation
 
 uses Winapi.Windows, System.IOUtils, System.StrUtils, System.Hash, unit_AtomicIniFile,
   unit_MHLExternalTools, unit_ZipMemberDeletion, unit_BookCompressionBackup, unit_BookCompressionReceipt,
-  unit_BookCompressionImages, unit_BookCompressionRestored;
+  unit_BookCompressionImages, unit_BookCompressionRestored, unit_BookDeletionSpace;
 
 const WorkMarker='HomeLibre selected compression work v1';
   RegisteredWorkKind='HomeLibre compression preparation';
@@ -313,6 +322,12 @@ end;
 function CompressionHasAbandonedPreparation(const Options:TBookCompressionOperationOptions):Boolean;
 begin Result:=Length(RegisteredPreparations(Options))>0; end;
 
+function CompressionBackupFolderAvailable(const Folder: string): Boolean;
+begin
+  Result := (Folder <> '') and TPath.IsPathRooted(Folder) and
+    DirectoryExists(DeletionNativePath(Folder));
+end;
+
 constructor TBookCompressionOperation.Create(const Options:TBookCompressionOperationOptions;
   const Factory:TCompressionPlanFactory);
 begin
@@ -320,15 +335,17 @@ begin
   FLock:=TObject.Create; FReviewEvent:=TEvent.Create(nil,True,False,'');
   FCompleted:=TObjectList<TBookCompressionJob>.Create(True);
   FCompletedFileKeys:=TDictionary<string,Boolean>.Create;
+  FBackupPaths:=TList<string>.Create;
   FOptions:=Options; FFactory:=Factory;
   if (Options.WorkRoot='') or not TPath.IsPathRooted(Options.WorkRoot) then
     raise EArgumentException.Create('Нужна папка для временных файлов сжатия.');
   FOptions.WorkRoot:=ExcludeTrailingPathDelimiter(ExpandFileName(Options.WorkRoot));
   CompressionQueueRoot(FOptions);
-  if Options.BackupOriginals and
-    ((Options.BackupFolder='') or not TPath.IsPathRooted(Options.BackupFolder) or
-      not DirectoryExists(DeletionNativePath(Options.BackupFolder))) then
+  if Options.BackupOriginals and not Options.EstimateFirst and
+    not CompressionBackupFolderAvailable(Options.BackupFolder) then
     raise EArgumentException.Create('Выберите существующую папку для оригиналов книг.');
+  FState.BackupRequested := Options.BackupOriginals;
+  FState.BackupFolder := Options.BackupFolder;
   FState.SavingsKnown:=True;
 end;
 
@@ -349,7 +366,7 @@ begin
   if Assigned(FLock) and Assigned(FReviewEvent) and not Finished then RequestStop;
   inherited;
   ReleaseWorkHandles;
-  FTrialSkipped.Free; FTrialFiles.Free; FCompletedFileKeys.Free; FCompleted.Free; FReviewEvent.Free; FLock.Free;
+  FBackupPaths.Free; FTrialSkipped.Free; FTrialFiles.Free; FCompletedFileKeys.Free; FCompleted.Free; FReviewEvent.Free; FLock.Free;
 end;
 
 function TBookCompressionOperation.QueueRoot:string;
@@ -372,7 +389,24 @@ end;
 function TBookCompressionOperation.Status:TBookCompressionOperationStatus;
 begin
   TMonitor.Enter(FLock);
-  try Result:=FState; finally TMonitor.Exit(FLock); end;
+  try Result:=FState; Result.Disks:=Copy(FState.Disks); finally TMonitor.Exit(FLock); end;
+end;
+
+procedure TBookCompressionOperation.AddDiskUse(const Volume: string; Reduction, Backup: Int64);
+var Index: Integer;
+begin
+  for Index := 0 to High(FState.Disks) do
+    if SameText(Volume, FState.Disks[Index].Volume) then
+    begin
+      Inc(FState.Disks[Index].ReductionBytes, Reduction);
+      Inc(FState.Disks[Index].BackupBytes, Backup);
+      Exit;
+    end;
+  var Entry := Default(TBookCompressionDiskUse);
+  Entry.Volume := Volume;
+  Entry.ReductionBytes := Reduction;
+  Entry.BackupBytes := Backup;
+  FState.Disks := FState.Disks + [Entry];
 end;
 
 procedure TBookCompressionOperation.SetStage(const Stage:string; Current,Total:Int64);
@@ -662,13 +696,23 @@ begin
   end;
 end;
 
-procedure TBookCompressionOperation.Approve(Decision:TCompressionReview);
+procedure TBookCompressionOperation.Approve(Decision:TCompressionReview; const BackupFolder: string);
 begin
   if Decision=crNone then Exit;
   TMonitor.Enter(FLock);
   try
     if not FState.AwaitingReview or ((Decision=crTrial) and
       (not FState.AwaitingEstimate or FState.TrialReady)) then Exit;
+    if TInterlocked.CompareExchange(FDecision,0,0) <> Ord(crNone) then Exit;
+    if FState.AwaitingEstimate and (Decision = crApply) and FOptions.BackupOriginals then
+    begin
+      var Folder := BackupFolder;
+      if Folder = '' then Folder := FOptions.BackupFolder;
+      if not CompressionBackupFolderAvailable(Folder) then
+        raise EArgumentException.Create('Выберите существующую папку для оригиналов книг.');
+      FOptions.BackupFolder := Folder;
+      FState.BackupFolder := Folder;
+    end;
     TInterlocked.CompareExchange(FDecision,Ord(Decision),Ord(crNone));
   finally TMonitor.Exit(FLock); end;
   FReviewEvent.SetEvent;
@@ -1189,9 +1233,13 @@ begin
         Backup:=TCompressionOriginalBackup.Publish(Report.GetValue('originals').ToJSON,
           Receipt.ToJSON,TPath.Combine(FWork,'payload'),FOptions.BackupFolder,Stopping);
         BackupJSON:=Backup.ReferenceJSON;
+        var BackupVolume := FileStorageVolume(Backup.FileName);
         TMonitor.Enter(FLock);
         try
           Inc(FState.BackupFiles); FState.BackupFolder:=FOptions.BackupFolder;
+          Inc(FState.BackupBytes, Backup.Size);
+          FBackupPaths.Add(Backup.FileName);
+          AddDiskUse(BackupVolume, 0, Backup.Size);
         finally TMonitor.Exit(FLock); end;
       end;
       CheckStop;
@@ -1215,10 +1263,12 @@ begin
         var Key:=Copy(Image.GetValue<string>('source_identity'),1,25);
         if Key<>'' then FCompletedFileKeys.AddOrSetValue(Key,True);
       end;
+      var SourceVolume := FileStorageVolume(FilePlan.Source);
       TMonitor.Enter(FLock);
       try
         FState.PendingJob:=''; Inc(FState.ChangedFiles);
         Inc(FState.SavedBytes,InputBytes-OutputBytes);
+        AddDiskUse(SourceVolume, InputBytes - OutputBytes, 0);
       finally TMonitor.Exit(FLock); end;
     finally Report.Free; end;
   finally
@@ -1341,7 +1391,12 @@ begin
             SetStage('Оценка завершена. Книги не изменены.');
           end;
         end;
-        if ApplyCompression then ProcessFiles(False);
+        if ApplyCompression then
+        begin
+          if FOptions.BackupOriginals and not CompressionBackupFolderAvailable(FOptions.BackupFolder) then
+            raise EArgumentException.Create('Папка для оригиналов недоступна. Выберите существующую папку и повторите сжатие.');
+          ProcessFiles(False);
+        end;
       finally Plan.Free; end;
     end;
     if NoNew then SetStage('Новых книг для сжатия не найдено. Полная проверка — «Сжать текущую коллекцию».')
@@ -1363,6 +1418,7 @@ begin
   end;
   TMonitor.Enter(FLock);
   try FState.Finished:=True; FState.Stopping:=Stopping; FState.AwaitingReview:=False;
+    FState.BackupPaths := FBackupPaths.ToArray;
     FState.AwaitingEstimate:=False; FState.Estimating:=False;
   finally TMonitor.Exit(FLock); end;
 end;

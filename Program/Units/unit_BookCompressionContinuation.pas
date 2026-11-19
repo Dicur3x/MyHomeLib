@@ -57,7 +57,7 @@ begin
     (Length(Options.WorkRoot)>4096) or Options.WorkRoot.Contains(#0) or
     (Length(Options.BackupFolder)>4096) or Options.BackupFolder.Contains(#0) or
     ((Options.BackupFolder<>'') and not TPath.IsPathRooted(Options.BackupFolder)) or
-    (Options.BackupOriginals and (Options.BackupFolder='')) then
+    (Options.BackupOriginals and not Options.EstimateFirst and (Options.BackupFolder='')) then
     raise EReadError.Create('Повреждены настройки продолжения сжатия. Выберите их заново.');
 end;
 

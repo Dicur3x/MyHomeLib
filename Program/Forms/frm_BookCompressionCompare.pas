@@ -2,18 +2,28 @@
 
 interface
 
-uses System.Classes, System.JSON, System.Zip, Vcl.Forms, Vcl.Controls,
+uses System.Classes, System.JSON, System.Zip, Winapi.Messages, Vcl.Forms, Vcl.Controls,
   Vcl.StdCtrls, Vcl.ExtCtrls, frm_CatalogSources;
 
 type
+  TComparisonScrollEvent = procedure(Sender: TObject; Horizontal, Vertical: Boolean) of object;
+
+  TComparisonScrollBox = class(TScrollBox)
+  private
+    FOnScroll: TComparisonScrollEvent;
+  protected
+    procedure WndProc(var Message: TMessage); override;
+  end;
+
   TfrmBookCompressionCompare = class(TSourceDialogForm)
   private
     FData: TMemoryStream;
     FZip: TZipFile;
     FManifest: TJSONObject;
     FList: TComboBox;
-    FFit: TCheckBox;
-    FBefore, FAfter: TScrollBox;
+    FFit, FLink: TCheckBox;
+    FBefore, FAfter: TComparisonScrollBox;
+    FSyncingScroll: Boolean;
     FOriginal, FResult: TImage;
     FLeftTitle, FRightTitle, FIntro, FNote: TLabel;
     FClose: TButton;
@@ -22,6 +32,8 @@ type
     procedure Choose(Sender: TObject);
     procedure FitChanged(Sender: TObject);
     procedure FitImages;
+    procedure ScrollChanged(Sender: TObject; Horizontal, Vertical: Boolean);
+    procedure LinkChanged(Sender: TObject);
   public
     constructor CreateComparison(Owner: TComponent; const FileName, ExpectedSHA256: string);
     destructor Destroy; override;
@@ -57,6 +69,22 @@ begin
   except Image.Free; raise; end;
 end;
 
+procedure TComparisonScrollBox.WndProc(var Message: TMessage);
+var X, Y: Integer;
+begin
+  case Message.Msg of
+    WM_HSCROLL, WM_VSCROLL, WM_MOUSEWHEEL, CM_MOUSEWHEEL:
+      begin
+        X := HorzScrollBar.Position; Y := VertScrollBar.Position;
+        inherited;
+        if Assigned(FOnScroll) and
+          ((X <> HorzScrollBar.Position) or (Y <> VertScrollBar.Position)) then
+          FOnScroll(Self, X <> HorzScrollBar.Position, Y <> VertScrollBar.Position);
+      end;
+  else inherited;
+  end;
+end;
+
 constructor TfrmBookCompressionCompare.CreateComparison(Owner: TComponent;
   const FileName, ExpectedSHA256: string);
 var Input:TFileStream; Bytes:TBytes; Pairs:TJSONArray;
@@ -65,9 +93,10 @@ var Input:TFileStream; Bytes:TBytes; Pairs:TJSONArray;
     Result:=TLabel.Create(Self); Result.Parent:=Self; Result.Name:=Name;
     Result.AutoSize:=False; Result.WordWrap:=True;
   end;
-  function Pane(const Name:string; out Picture:TImage):TScrollBox;
+  function Pane(const Name:string; out Picture:TImage):TComparisonScrollBox;
   begin
-    Result:=TScrollBox.Create(Self); Result.Parent:=Self; Result.Name:=Name;
+    Result:=TComparisonScrollBox.Create(Self); Result.Parent:=Self; Result.Name:=Name;
+    Result.FOnScroll := ScrollChanged;
     Result.HorzScrollBar.Tracking:=True; Result.VertScrollBar.Tracking:=True;
     Picture:=TImage.Create(Self); Picture.Parent:=Result;
     Picture.Name:=Name+'Image';
@@ -110,6 +139,8 @@ begin
     FList.Items.Add(Pair.GetValue<string>('member','')+' · '+Pair.GetValue<string>('image',''));
   FFit:=TCheckBox.Create(Self); FFit.Parent:=Self; FFit.Name:='ComparisonFit';
   FFit.Caption:='Вписать в окно'; FFit.Checked:=False; FFit.OnClick:=FitChanged;
+  FLink := TCheckBox.Create(Self); FLink.Parent := Self; FLink.Name := 'ComparisonLinkScroll';
+  FLink.Caption := 'Связать прокрутку'; FLink.Checked := True; FLink.OnClick := LinkChanged;
   FLeftTitle:=LabelFor('ComparisonBeforeTitle'); FRightTitle:=LabelFor('ComparisonAfterTitle');
   FBefore:=Pane('ComparisonBefore',FOriginal); FAfter:=Pane('ComparisonAfter',FResult);
   FNote:=LabelFor('ComparisonNote');
@@ -134,8 +165,9 @@ begin
   Gap:=Px(16); Half:=(ClientWidth-3*Gap) div 2; Top:=Px(130);
   Height:=Max(Px(180),ClientHeight-Top-Px(90));
   FIntro.SetBounds(Gap,Gap,ClientWidth-2*Gap,Px(40));
-  FList.SetBounds(Gap,Px(66),ClientWidth-Px(210),Px(26));
-  FFit.SetBounds(ClientWidth-Px(180),Px(66),Px(164),Px(26));
+  FList.SetBounds(Gap,Px(66),ClientWidth-Px(386),Px(26));
+  FFit.SetBounds(ClientWidth-Px(352),Px(66),Px(150),Px(26));
+  FLink.SetBounds(ClientWidth-Px(190),Px(66),Px(174),Px(26));
   FLeftTitle.SetBounds(Gap,Px(104),Half,Px(22));
   FRightTitle.SetBounds(2*Gap+Half,Px(104),Half,Px(22));
   FBefore.SetBounds(Gap,Top,Half,Height); FAfter.SetBounds(2*Gap+Half,Top,Half,Height);
@@ -154,7 +186,44 @@ procedure TfrmBookCompressionCompare.FitImages;
 begin Fit(FOriginal,FBefore); Fit(FResult,FAfter); end;
 
 procedure TfrmBookCompressionCompare.FitChanged(Sender:TObject);
-begin FitImages; end;
+begin
+  FLink.Enabled := not FFit.Checked;
+  FitImages;
+end;
+
+procedure TfrmBookCompressionCompare.LinkChanged(Sender: TObject);
+begin
+  ScrollChanged(FBefore, True, True);
+end;
+
+procedure TfrmBookCompressionCompare.ScrollChanged(Sender: TObject; Horizontal, Vertical: Boolean);
+var Source, Target: TComparisonScrollBox; SourceImage, TargetImage: TImage;
+  function PositionFor(Position, SourceExtent, SourceViewport, TargetExtent, TargetViewport: Integer): Integer;
+  var TargetLimit: Integer;
+  begin
+    TargetLimit := Max(0, TargetExtent - TargetViewport);
+    if (Position <= 0) or (SourceExtent <= SourceViewport) then Exit(0);
+    if Position >= SourceExtent - SourceViewport then Exit(TargetLimit);
+    Result := EnsureRange(Round((Position + SourceViewport / 2) * TargetExtent / SourceExtent -
+      TargetViewport / 2), 0, TargetLimit);
+  end;
+begin
+  if FSyncingScroll or not Assigned(FLink) or not FLink.Checked or FFit.Checked or
+    not Assigned(FBefore) or not Assigned(FAfter) then Exit;
+  if Sender = FBefore then
+  begin Source := FBefore; Target := FAfter; SourceImage := FOriginal; TargetImage := FResult; end
+  else
+  begin Source := FAfter; Target := FBefore; SourceImage := FResult; TargetImage := FOriginal; end;
+  FSyncingScroll := True;
+  try
+    if Horizontal and (SourceImage.Width > Source.ClientWidth) then
+      Target.HorzScrollBar.Position := PositionFor(Source.HorzScrollBar.Position, SourceImage.Width,
+        Source.ClientWidth, TargetImage.Width, Target.ClientWidth);
+    if Vertical and (SourceImage.Height > Source.ClientHeight) then
+      Target.VertScrollBar.Position := PositionFor(Source.VertScrollBar.Position, SourceImage.Height,
+        Source.ClientHeight, TargetImage.Height, Target.ClientHeight);
+  finally FSyncingScroll := False; end;
+end;
 
 procedure TfrmBookCompressionCompare.Choose(Sender:TObject);
 var Pair:TJSONValue;
