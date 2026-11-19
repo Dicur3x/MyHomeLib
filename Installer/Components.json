@@ -148,9 +148,13 @@
     {
       "id": "HomeLibReader",
       "platform": "Win32",
-      "version": "3.0.0.14",
-      "archive": "HomeLibRu-HomeLibReader-3.0.0.14-Win32.zip",
+      "version": "3.0.0.15",
+      "archive": "HomeLibRu-HomeLibReader-3.0.0.15-Win32.zip",
       "history": [
+        {
+          "version": "3.0.0.15",
+          "notes": "Поиск по оглавлению, название FB2, отдельные цвета заголовков для каждой темы и прокрутка образцов шрифтов."
+        },
         {
           "version": "3.0.0.14",
           "notes": "Исправлены метки глав и окно шрифтов. Улучшены цвета, масштаб и выбор шрифта."
@@ -237,9 +241,13 @@
     {
       "id": "HomeLibReader",
       "platform": "Win64",
-      "version": "3.0.0.14",
-      "archive": "HomeLibRu-HomeLibReader-3.0.0.14-Win64.zip",
+      "version": "3.0.0.15",
+      "archive": "HomeLibRu-HomeLibReader-3.0.0.15-Win64.zip",
       "history": [
+        {
+          "version": "3.0.0.15",
+          "notes": "Поиск по оглавлению, название FB2, отдельные цвета заголовков для каждой темы и прокрутка образцов шрифтов."
+        },
         {
           "version": "3.0.0.14",
           "notes": "Исправлены метки глав и окно шрифтов. Улучшены цвета, масштаб и выбор шрифта."
