@@ -559,6 +559,32 @@ panel rendered the text, boxes and border, but the surrounding paper took the
 panel background colour. The light-theme screenshot differs from the reference
 on a white page. Check contrast on the dark theme before closing cover work.
 
+## Incremental INPX and transfer with the refreshed runtime
+
+The ordinary HomeLibre x86 and x64 executables from the r2006 full ZIPs
+applied a local append index together with its one newly downloaded ZIP.
+After the user-facing confirmation, the catalogue offered «Сжать новые…»
+and loaded the saved grayscale configuration. On each architecture only the
+new FB2 changed, from 771,275 to 168,793 bytes. Its text and all grayscale
+pixels were verified after extraction. The eight existing catalogue entries,
+nine original files, eight compression checks, rating, reading progress,
+annotation and review all retained their observed values.
+
+On both architectures a separate native scenario used BookProcessing and
+codecs taken from those full ZIPs. Full and append INPX runs preserved the
+measured sizes and history of the earlier FB2 and EPUB. New-only processing
+selected zero books before the download, one after it and zero after the
+repeated INPX. The transfer variant checked two source roots and their copies
+with the old roots offline. It preserved book IDs, physical archive hashes,
+copy priority, sizes and personal fields, then compressed the new download.
+
+The same native code refused transfer during an active download and a
+pending archive deletion, then allowed it after each job finished. Both
+architectures refused an unavailable update workspace and a configured
+workspace path occupied by a file. A retry succeeded in the restored folder.
+Reports, delivery receipts and protocol logs are under
+`G:/HL-b14-external/r2007-incremental-release`.
+
 ## Remaining checks
 
 Remaining source checks, Desktop replacement and publication remain open.
