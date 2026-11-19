@@ -786,6 +786,9 @@ type
     procedure StartupTick(Sender: TObject);
     procedure FinishInitialLoading(Failed: Boolean = False);
     procedure UpdateBookToolbarForView;
+    procedure UpdateMarkAllHint(Sender: TObject);
+    function NextVisibleBookMark(Tree: TBookTree; out Mark: Boolean): Boolean;
+    function ConfirmGroupChange(const Group: TGroupData; Remove: Boolean): Boolean;
     function SearchCompletionMessage: string;
     procedure UpdateSearchEmptyMessage(Cancelled: Boolean);
     function StartupWorkersRunning: Boolean;
@@ -1032,7 +1035,6 @@ type
     FOpenedBooks: TDictionary<string, string>;
     FCollection: IBookCollection;
 
-    FSelectionState: Boolean;
 
     FAutoCheck: Boolean;
     FProgramUpdateThread: TProgramUpdateThread;
@@ -4521,6 +4523,7 @@ procedure TfrmMain.InitFormFileds;
 begin
   Application.OnHelp := OnHelpHandler;
   UseLatestCommonDialogs := True;
+  tbSelectAll.OnMouseEnter := UpdateMarkAllHint;
 
   // Follow the visual order when VCL selects the first Search control.
   // The inherited reverse tab order focused Date and scrolled Author offscreen.
@@ -4529,7 +4532,6 @@ begin
   ctpFile.TabOrder := 2;
   ctpBook.TabStop:=True; ctpOther.TabStop:=True; ctpFile.TabStop:=True;
 
-  FSelectionState := False;
   FAutoCheck := False;
   FFormBusy := False;
 
@@ -9175,10 +9177,61 @@ begin
   end;
 end;
 
-procedure TfrmMain.tbSelectAllClick(Sender: TObject);
+function TfrmMain.NextVisibleBookMark(Tree: TBookTree; out Mark: Boolean): Boolean;
+var Node: PVirtualNode; Book: PBookRecord;
 begin
-  FSelectionState := not FSelectionState;
-  Selection(FSelectionState);
+  Mark := False; Result := False;
+  Node := Tree.GetFirstVisible;
+  while Assigned(Node) do
+  begin
+    Book := Tree.GetNodeData(Node);
+    if Assigned(Book) and (Book^.NodeType = ntBookInfo) then
+    begin
+      Result := True;
+      if not (Node^.CheckState in [csCheckedNormal, csCheckedPressed]) then
+      begin
+        Mark := True;
+        Exit;
+      end;
+    end;
+    Node := Tree.GetNextVisible(Node);
+  end;
+end;
+
+procedure TfrmMain.UpdateMarkAllHint(Sender: TObject);
+var Mark: Boolean;
+begin
+  if ActiveView = DownloadView then Exit;
+  if NextVisibleBookMark(GetViewTree(ActiveView), Mark) then
+  begin
+    if Mark then tbSelectAll.Hint := 'Отметить все видимые книги'
+    else tbSelectAll.Hint := 'Снять отметки с видимых книг';
+  end
+  else tbSelectAll.Hint := 'В списке нет видимых книг';
+end;
+
+procedure TfrmMain.tbSelectAllClick(Sender: TObject);
+var Tree: TBookTree; Node: PVirtualNode; Book: PBookRecord;
+  Mark: Boolean; State: TCheckState;
+begin
+  if ActiveView = DownloadView then Exit;
+  Tree := GetViewTree(ActiveView);
+  if not NextVisibleBookMark(Tree, Mark) then Exit;
+  if Mark then State := csCheckedNormal else State := csUncheckedNormal;
+  Tree.BeginUpdate;
+  try
+    Node := Tree.GetFirstVisible;
+    while Assigned(Node) do
+    begin
+      Book := Tree.GetNodeData(Node);
+      if Assigned(Book) and (Book^.NodeType = ntBookInfo) then Node^.CheckState := State;
+      Node := Tree.GetNextVisible(Node);
+    end;
+  finally
+    Tree.EndUpdate;
+  end;
+  if Mark then tbSelectAll.Hint := 'Снять отметки с видимых книг'
+  else tbSelectAll.Hint := 'Отметить все видимые книги';
 end;
 
 
@@ -10755,17 +10808,32 @@ begin
   end;
 end;
 
+function TfrmMain.ConfirmGroupChange(const Group: TGroupData; Remove: Boolean): Boolean;
+var Count: Integer; Prompt: string;
+begin
+  Count := FSystemData.GroupBookCount(Group.GroupID);
+  if Count = 0 then Exit(True);
+  if Remove then Prompt := Format('Удалить группу «%s»?', [Group.Text])
+  else Prompt := Format('Убрать все книги из группы «%s»? Группа останется.', [Group.Text]);
+  Prompt := Prompt + sLineBreak + Format('Всего книг в группе — %d, включая скрытые фильтрами.', [Count]) +
+    sLineBreak + 'Книги останутся в каталоге и на диске.';
+  Result := MessageDlg(Prompt, mtConfirmation, [mbYes, mbNo], 0, mbNo) = mrYes;
+end;
+
 procedure TfrmMain.DeleteGroupExecute(Sender: TObject);
 var
   Data: PGroupData;
+  Group: TGroupData;
 begin
   Data := tvGroups.GetNodeData(tvGroups.GetFirstSelected());
   if not Assigned(Data) then
     Exit;
 
-  if Data^.CanDelete then
+  Group := Data^;
+  if Group.CanDelete then
   begin
-    FSystemData.DeleteGroup(Data^.GroupID);
+    if not ConfirmGroupChange(Group, True) then Exit;
+    FSystemData.DeleteGroup(Group.GroupID);
 
     CreateGroupsMenu;
     FillGroupsList(tvGroups, FSystemData.GetGroupIterator, FLastGroupID);
@@ -10777,16 +10845,19 @@ end;
 procedure TfrmMain.ClearGroupExecute(Sender: TObject);
 var
   GroupData: PGroupData;
+  Group: TGroupData;
   SavedCursor: TCursor;
 begin
   GroupData := tvGroups.GetNodeData(tvGroups.GetFirstSelected());
   if not Assigned(GroupData) then
     Exit;
+  Group := GroupData^;
+  if not ConfirmGroupChange(Group, False) then Exit;
 
   SavedCursor := Screen.Cursor;
   Screen.Cursor := crHourGlass;
   try
-    FSystemData.ClearGroup(GroupData^.GroupID);
+    FSystemData.ClearGroup(Group.GroupID);
 
     Exclude(FLoadedBookViews, FavoritesView);
 
@@ -14165,6 +14236,7 @@ begin
   ToolBuutonVisible := (ActiveView <> DownloadView);
   BtnFav_add.Enabled := ToolBuutonVisible;
   tbSelectAll.Enabled := ToolBuutonVisible;
+  if ToolBuutonVisible then UpdateMarkAllHint(nil);
   tbCollapse.Enabled := ToolBuutonVisible;
   tbtnRead.Enabled := ToolBuutonVisible and acBookRead.Enabled;
   tbSendToDevice.Enabled := ToolBuutonVisible;

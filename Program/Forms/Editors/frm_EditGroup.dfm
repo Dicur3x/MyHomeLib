@@ -59,7 +59,7 @@ object frmEditGroup: TfrmEditGroup
       Height = 25
       Anchors = [akTop, akRight]
       Cancel = True
-      Caption = '&'#1059#1076#1072#1083#1080#1090#1100
+      Caption = '&'#1054#1090#1084#1077#1085#1072
       ModalResult = 2
       TabOrder = 1
     end

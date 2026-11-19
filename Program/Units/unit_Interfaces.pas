@@ -322,6 +322,7 @@ type
 
     function GetBookIterator(const GroupID: Integer; const DatabaseID: Integer = INVALID_COLLECTION_ID): IBookIterator;
     function GetGroupIterator: IGroupIterator;
+    function GroupBookCount(const GroupID: Integer): Integer;
     function GetCollectionInfoIterator: ICollectionInfoIterator;
 
     function GetDataRevision: string;

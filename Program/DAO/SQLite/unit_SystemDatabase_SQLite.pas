@@ -188,6 +188,7 @@ type
 
     function GetBookIterator(const GroupID: Integer; const DatabaseID: Integer = INVALID_COLLECTION_ID): IBookIterator; override;
     function GetGroupIterator: IGroupIterator; override;
+    function GroupBookCount(const GroupID: Integer): Integer; override;
     function GetCollectionInfoIterator: ICollectionInfoIterator; override;
 
     procedure RemoveUnusedBooks;
@@ -2490,6 +2491,19 @@ end;
 function TSystemData_SQLite.GetGroupIterator: IGroupIterator;
 begin
   Result := TGroupIteratorImpl.Create(Self);
+end;
+
+function TSystemData_SQLite.GroupBookCount(const GroupID: Integer): Integer;
+var Query: TSQLiteQuery;
+begin
+  Query := FDatabase.NewQuery('SELECT COUNT(*) FROM BookGroups WHERE GroupID = ?');
+  try
+    Query.SetParam(0, GroupID);
+    Query.Open;
+    Result := Query.FieldAsInt(0);
+  finally
+    Query.Free;
+  end;
 end;
 
 function TSystemData_SQLite.GetCollectionInfoIterator: ICollectionInfoIterator;
