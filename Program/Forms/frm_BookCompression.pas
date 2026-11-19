@@ -76,6 +76,7 @@ type
   private
     FPaths: TArray<string>;
     FBackups: TListView;
+    FSelectedPath: TEdit;
     FOpen: TButton;
     procedure BackupData(Sender: TObject; Item: TListItem);
     procedure BackupSelected(Sender: TObject; Item: TListItem; Selected: Boolean);
@@ -131,6 +132,7 @@ begin
   Button.Caption := 'Закрыть'; Button.SetBounds(622, 10, 116, 30);
   Button.Anchors := [akTop, akRight]; Button.ModalResult := mrCancel; Button.Cancel := True;
   Summary := TMemo.Create(Self); Summary.Parent := Self; Summary.Name := 'CompressionDiskBalance';
+  Summary.Clear;
   Summary.ReadOnly := True; Summary.ScrollBars := ssVertical; Summary.Height := 185;
   Summary.AlignWithMargins := True; Summary.Margins.SetBounds(12, 12, 12, 6);
   if Length(FPaths) > 0 then Summary.Align := alTop else Summary.Align := alClient;
@@ -148,6 +150,12 @@ begin
       'Добавьте её в коллекцию и проверьте путь и открытие в карточке книги. ' +
       'Для книги из общего архива ZIP оригиналов содержит выбранные книги. ' +
       'В HomeLibre-originals.json указано их исходное расположение.');
+    FSelectedPath := TEdit.Create(Self); FSelectedPath.Parent := Self;
+    FSelectedPath.Name := 'CompressionOriginalZipPath'; FSelectedPath.Clear;
+    FSelectedPath.ReadOnly := True; FSelectedPath.Align := alBottom;
+    FSelectedPath.AlignWithMargins := True; FSelectedPath.Margins.SetBounds(12, 6, 12, 0);
+    FSelectedPath.Hint := 'Полный путь к выбранному ZIP. Его можно скопировать.';
+    FSelectedPath.ShowHint := True;
     FBackups := TListView.Create(Self); FBackups.Parent := Self; FBackups.Name := 'CompressionOriginalZips';
     FBackups.Align := alClient; FBackups.AlignWithMargins := True;
     FBackups.Margins.SetBounds(12, 0, 12, 0);
@@ -163,6 +171,7 @@ begin
   end;
   ScaleForPPI(Owner.CurrentPPI);
   ApplyMHLControlTheme(Self);
+  if Assigned(FBackups) then FBackups.Selected := FBackups.Items[0];
 end;
 
 procedure TCompressionStorageReport.BackupData(Sender: TObject; Item: TListItem);
@@ -173,7 +182,11 @@ end;
 
 procedure TCompressionStorageReport.BackupSelected(Sender: TObject; Item: TListItem; Selected: Boolean);
 begin
-  if Assigned(FOpen) then FOpen.Enabled := Assigned(FBackups.Selected);
+  if not Assigned(FOpen) then Exit;
+  var Current := FBackups.Selected;
+  FOpen.Enabled := Assigned(Current);
+  if Assigned(Current) then FSelectedPath.Text := FPaths[Current.Index]
+  else FSelectedPath.Clear;
 end;
 
 procedure TCompressionStorageReport.OpenBackup(Sender: TObject);
