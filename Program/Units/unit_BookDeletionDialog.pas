@@ -54,7 +54,7 @@ implementation
 
 uses Winapi.Windows, System.SysUtils, System.Math, Vcl.ExtCtrls, unit_MHLTheme,
   frm_ImportProgressForm, unit_BookEstimateReport, unit_ZipMemberDeletion, unit_Errors, Vcl.Clipbrd, System.Types, Vcl.Dialogs, Winapi.CommCtrl,
-  frm_ImportProgressFormEx, unit_MissingBookRecords;
+  frm_ImportProgressFormEx, unit_MissingBookRecords, unit_ContextToolGuide, unit_HelpTopics;
 
 type
   TBookDeletionReport = class(TForm)
@@ -79,11 +79,15 @@ type
   TMissingBookPreview = class(TForm)
   private
     FEntries: TArray<TMissingBookEntry>;
+    FToolGuide:TContextToolGuide;
     FList: TListView;
     FRemove: TButton;
     procedure ListData(Sender: TObject; Item: TListItem);
     procedure ListSelected(Sender: TObject; Item: TListItem; Selected: Boolean);
     procedure RemoveClick(Sender: TObject);
+  protected
+    procedure DoShow; override;
+    procedure DoHide; override;
   public
     constructor CreatePreview(AOwner: TForm; const Entries: TArray<TMissingBookEntry>; Unavailable: Integer);
     function SelectedEntries: TArray<TMissingBookEntry>;
@@ -99,7 +103,8 @@ begin
   ClientWidth := 825; ClientHeight := 520; Constraints.MinWidth := 545; Constraints.MinHeight := 350;
   FEntries := Entries;
   Header := TLabel.Create(Self); Header.Parent := Self; Header.Align := alTop;
-  Header.AlignWithMargins := True; Header.Margins.SetBounds(12, 12, 12, 8);
+  Header.Name:='MissingRecordsIntro';
+  Header.AlignWithMargins := True; Header.Margins.SetBounds(12, 12, 52, 8);
   Header.AutoSize := False; Header.WordWrap := True; Header.Height := 55;
   Header.Caption := Format('Записей без файлов: %d. Не удалось проверить: %d.' + sLineBreak +
     'Выберите записи вручную. Ctrl позволяет выбрать отдельные строки, Shift — диапазон.',
@@ -123,7 +128,24 @@ begin
   if Length(Entries) = 0 then
     Header.Caption := Header.Caption + sLineBreak +
       'Удалять нечего. Если папки недоступны, подключите их и повторите проверку.';
+  FToolGuide:=TContextToolGuide.CreateForTool(Self,Self,'missing-book-records','Как убрать записи о пропавших книгах',
+    'Здесь показаны записи о книгах, отсутствие файлов которых удалось подтвердить. Если диск или папка недоступны, подключите их и повторите проверку.',
+    'Выберите нужные записи. Перед удалением программа повторно проверит эти книги и известные копии. Удаление затрагивает записи каталога и связанные с ними личные данные. Файлы на диске не удаляются.',
+    HELP_MISSING_BOOKS,'');
+  FToolGuide.Name:='MissingRecordsContextGuide';
   ApplyMHLControlTheme(Self);
+end;
+
+procedure TMissingBookPreview.DoShow;
+begin
+  inherited;
+  FToolGuide.FirstUse;
+end;
+
+procedure TMissingBookPreview.DoHide;
+begin
+  if Assigned(FToolGuide) then FToolGuide.Hide;
+  inherited;
 end;
 
 procedure TMissingBookPreview.ListData(Sender: TObject; Item: TListItem);

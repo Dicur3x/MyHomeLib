@@ -11,7 +11,7 @@ implementation
 
 uses Winapi.Windows, Winapi.Messages, Winapi.CommCtrl, System.Types, System.Math, System.SysUtils, System.Classes,
   Vcl.Controls, Vcl.StdCtrls, Vcl.ComCtrls, Vcl.Dialogs, Vcl.Graphics, Vcl.ExtCtrls,
-  unit_ReaderFonts, unit_ReaderFontDownloads, unit_ReaderPalette;
+  unit_ReaderFonts, unit_ReaderFontDownloads, unit_ReaderPalette, unit_ContextToolGuide;
 
 type
   TReaderFontListView = class(TListView)
@@ -66,6 +66,7 @@ type
     FPreview, FStatus: TLabel;
     FPreviewArea: TReaderFontPreview;
     FRestore, FRemove, FPack: TButton;
+    FToolGuide:TContextToolGuide;
     FWaiting: TStringList;
     FCookie: Cardinal;
     procedure Refresh(const Family: string);
@@ -80,6 +81,8 @@ type
     function Family: string;
     procedure ReportError(E: Exception);
   protected
+    procedure DoShow; override;
+    procedure DoHide; override;
     procedure CreateWnd; override;
     procedure DestroyWnd; override;
   public
@@ -380,7 +383,7 @@ begin
   ClientWidth:=580; ClientHeight:=454; Font.Assign(Owner.Font);
   FSettingsFile:=SettingsFile; FSelected:=Selected; FWaiting:=TStringList.Create;
   Info:=TLabel.Create(Self); Info.Parent:=Self; Info.AutoSize:=False; Info.WordWrap:=True;
-  Info.SetBounds(16,14,548,36);
+  Info.Name:='ReaderFontsIntro'; Info.SetBounds(16,14,508,36);
   Info.Caption:='Добавьте нужные шрифты в читалку. Убранные можно вернуть.';
   AddButton(Self,'ReaderAddWindowsFont','Из Windows…',16,54,160,WindowsClick);
   AddButton(Self,'ReaderImportFontFile','Из файла TTF / OTF…',184,54,180,ImportClick);
@@ -404,7 +407,24 @@ begin
   FRemove:=AddButton(Self,'ReaderRemoveFont','Убрать из списка',200,410,176,RemoveClick);
   with AddButton(Self,'ReaderFontManagerClose','Готово',450,410,114,nil) do
   begin ModalResult:=mrOk; Default:=True; Cancel:=True; end;
+  FToolGuide:=TContextToolGuide.CreateForTool(Self,Self,'reader-fonts','Как добавить шрифт для чтения',
+    'Выберите установленный шрифт через «Из Windows…» или добавьте свой файл TTF или OTF. «Скачать набор…» добавляет шрифты для чтения через интернет.',
+    'Выделите шрифт, чтобы увидеть образец. «Убрать из списка» скрывает шрифт из выбора, а «Вернуть в список» снова делает доступным уже загруженный шрифт. После «Готово» выберите нужный шрифт в настройках текста.',
+    0,'',SettingsFile);
+  FToolGuide.Name:='ReaderFontsContextGuide';
   Refresh(Selected); ApplyOwnerPalette(Self,Owner);
+end;
+
+procedure TReaderFontManager.DoShow;
+begin
+  inherited;
+  FToolGuide.FirstUse;
+end;
+
+procedure TReaderFontManager.DoHide;
+begin
+  if Assigned(FToolGuide) then FToolGuide.Hide;
+  inherited;
 end;
 
 destructor TReaderFontManager.Destroy;

@@ -5,7 +5,7 @@ interface
 uses Winapi.Windows, Winapi.Messages, System.SysUtils, System.Classes, System.Types, System.UITypes,
   System.Generics.Collections, Vcl.Forms, Vcl.Controls, Vcl.StdCtrls,
   Vcl.ExtCtrls, Vcl.ComCtrls, Vcl.Graphics, Vcl.Menus, unit_MHLOperationStatus, unit_ReaderProgressMarks, unit_ReaderDocument, unit_ReaderPDF,
-  unit_ReaderBookSkin, unit_ReaderRaster, unit_ReaderPDFAsync, unit_ReaderFonts, unit_ReaderFontDownloads, unit_ReaderFontFallback, unit_ReaderAnnotations, unit_ReaderPageSelection;
+  unit_ReaderBookSkin, unit_ReaderRaster, unit_ReaderPDFAsync, unit_ReaderFonts, unit_ReaderFontDownloads, unit_ReaderFontFallback, unit_ReaderAnnotations, unit_ReaderPageSelection, unit_ContextToolGuide;
 
 const
   ReaderFirstNightThemeIndex = 4;
@@ -522,6 +522,7 @@ type
     FResultStatus: TLabel;
     FBookIDs: TStringList;
     FAdd, FExport, FDeleteVisible: TButton;
+    FToolGuide:TContextToolGuide;
     FExports: TPopupMenu;
     FRequestedNote: TReaderAnnotation;
     FUpdatingBooks: Boolean;
@@ -550,6 +551,7 @@ type
     procedure ExportSelected(Sender: TObject);
   protected
     procedure DoShow; override;
+    procedure DoHide; override;
   public
     constructor CreateFor(Reader: TfrmBuiltinReader);
     constructor CreateProfile(AOwner: TComponent; const SettingsFile: string);
@@ -4210,15 +4212,21 @@ begin
   Item:=TMenuItem.Create(Self); Item.Name:='ExportAllNotes';
   Item.Caption:='Экспорт закладок и заметок всех книг…'; Item.Tag:=1; Item.OnClick:=ExportSelected; FExports.Items.Add(Item);
   Scope:=TPanel.Create(Self); Scope.Parent:=Self; Scope.Align:=alTop; Scope.Top:=Row.Height; Scope.Height:=36; Scope.BevelOuter:=bvNone;
-  FBooks:=TReaderPaletteCombo.Create(Self); FBooks.Name:='NotesBooks'; FBooks.Parent:=Scope; FBooks.SetBounds(8,4,ClientWidth-270,26);
+  FBooks:=TReaderPaletteCombo.Create(Self); FBooks.Name:='NotesBooks'; FBooks.Parent:=Scope; FBooks.SetBounds(8,4,ClientWidth-310,26);
   FBooks.Anchors:=[akLeft,akTop,akRight]; FBooks.Style:=csDropDownList; FBooks.OnChange:=BooksChanged;
   FBooks.ShowHint:=True; FBooks.Hint:='Выберите книгу или «Все книги».';
   FShowNotes:=TReaderPaletteCheckBox.Create(Self); FShowNotes.Name:='NotesShowNotes'; FShowNotes.Parent:=Scope;
-  FShowNotes.SetBounds(ClientWidth-250,4,112,26); FShowNotes.Anchors:=[akTop,akRight];
+  FShowNotes.SetBounds(ClientWidth-290,4,112,26); FShowNotes.Anchors:=[akTop,akRight];
   FShowNotes.Caption:='Заметки'; FShowNotes.Checked:=True; FShowNotes.OnClick:=KindChanged;
   FShowBookmarks:=TReaderPaletteCheckBox.Create(Self); FShowBookmarks.Name:='NotesShowBookmarks'; FShowBookmarks.Parent:=Scope;
-  FShowBookmarks.SetBounds(ClientWidth-130,4,122,26); FShowBookmarks.Anchors:=[akTop,akRight];
+  FShowBookmarks.SetBounds(ClientWidth-170,4,122,26); FShowBookmarks.Anchors:=[akTop,akRight];
   FShowBookmarks.Caption:='Закладки'; FShowBookmarks.Checked:=True; FShowBookmarks.OnClick:=KindChanged;
+  FToolGuide:=TContextToolGuide.CreateForTool(Self,Scope,'reader-saved-items','Как работать с закладками и заметками',
+    'Выберите книгу или «Все книги». Флажки и строка поиска определяют, какие записи показаны. Двойной щелчок открывает место в книге.',
+    'В меню «Экспорт…» выберите, какие записи сохранить в файл. Команда «Удалить показанные…» относится ко всему отфильтрованному списку. Перед подтверждением проверьте выбранную книгу и условия поиска.',
+    0,'',FSettingsFile);
+  FToolGuide.Name:='ReaderSavedContextGuide';
+  FToolGuide.HelpButton.Top:=4;
   SearchRow:=TPanel.Create(Self); SearchRow.Parent:=Self; SearchRow.Align:=alTop; SearchRow.Top:=Row.Height+Scope.Height;
   SearchRow.Height:=38; SearchRow.BevelOuter:=bvNone;
   FSearch:=TEdit.Create(Self); FSearch.Name:='NotesSearch'; FSearch.Parent:=SearchRow;
@@ -4266,6 +4274,13 @@ begin
   Width:=Min(Width,Work.Width); Height:=Min(Height,Work.Height);
   SetBounds(EnsureRange(Left,Work.Left,Max(Work.Left,Work.Right-Width)),
     EnsureRange(Top,Work.Top,Max(Work.Top,Work.Bottom-Height)),Width,Height);
+  FToolGuide.FirstUse;
+end;
+
+procedure TReaderSavedDialog.DoHide;
+begin
+  if Assigned(FToolGuide) then FToolGuide.Hide;
+  inherited;
 end;
 
 destructor TReaderSavedDialog.Destroy;

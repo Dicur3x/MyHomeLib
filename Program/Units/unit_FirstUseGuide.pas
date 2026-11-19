@@ -18,6 +18,7 @@ type
     procedure Toggle(Sender: TObject);
     procedure ShowGuide(Sender: TObject);
     procedure More(Sender: TObject);
+    procedure SetOnMore(const Value: TNotifyEvent);
     procedure Layout;
     procedure Remember;
     procedure CMFontChanged(var Message:TMessage); message CM_FONTCHANGED;
@@ -26,20 +27,22 @@ type
     procedure ChangeScale(M, D: Integer; IsDpiChange: Boolean); override;
   public
     constructor CreateGuide(AOwner: TComponent; AParent: TWinControl;
-      const Topic, Version, Preferences, Summary, Details: string; ShowHelpButton:Boolean=True);
+      const Topic, Version, Preferences, Summary, Details: string;
+      ShowHelpButton:Boolean=True; UseReaderPalette:Boolean=False);
     procedure Expand;
     procedure Dismiss;
     property Expanded: Boolean read FExpanded;
-    property OnMore: TNotifyEvent read FOnMore write FOnMore;
+    property OnMore: TNotifyEvent read FOnMore write SetOnMore;
   end;
 
 implementation
 
 uses Winapi.Windows, System.SysUtils, System.IniFiles, System.Math,
-  System.Types, unit_AtomicIniFile;
+  System.Types, unit_AtomicIniFile, unit_ReaderPalette;
 
 constructor TFirstUseGuide.CreateGuide(AOwner: TComponent; AParent: TWinControl;
-  const Topic, Version, Preferences, Summary, Details: string; ShowHelpButton:Boolean);
+  const Topic, Version, Preferences, Summary, Details: string;
+  ShowHelpButton,UseReaderPalette:Boolean);
 var Ini: TMemIniFile; Suppressed: Boolean;
 begin
   inherited Create(AOwner);
@@ -64,11 +67,23 @@ begin
   FDetails := TLabel.Create(Self); FDetails.Parent := Self;
   FDetails.Name := 'GuideDetails'; FDetails.Caption := Details;
   FDetails.AutoSize := False; FDetails.WordWrap := True;
-  FToggle := TButton.Create(Self); FToggle.Parent := Self;
+  if UseReaderPalette then
+  begin
+    FToggle:=TReaderPaletteButton.Create(Self);
+    FMore:=TReaderPaletteButton.Create(Self);
+    FNever:=TReaderPaletteCheckBox.Create(Self);
+  end
+  else
+  begin
+    FToggle:=TButton.Create(Self);
+    FMore:=TButton.Create(Self);
+    FNever:=TCheckBox.Create(Self);
+  end;
+  FToggle.Parent := Self;
   FToggle.Name := 'GuideToggle'; FToggle.OnClick := Toggle;
-  FMore := TButton.Create(Self); FMore.Parent := Self;
+  FMore.Parent := Self;
   FMore.Name := 'GuideMore'; FMore.Caption := 'Подробнее…'; FMore.OnClick := More;
-  FNever := TCheckBox.Create(Self); FNever.Parent := Self;
+  FNever.Parent := Self;
   FNever.Name := 'GuideNever'; FNever.Caption := 'Не раскрывать автоматически'; FNever.Checked := Suppressed;
   if ShowHelpButton then
   begin
@@ -115,7 +130,7 @@ begin
     FSummary.SetBounds(Margin,Y,WidthAvailable,Max(S(28),Fit(FSummary)));
     WidthAvailable:=Max(S(100),ClientWidth-2*Margin); Inc(Y,FSummary.Height+Gap);
     FDetails.Visible := FExpanded; FNever.Visible := FExpanded;
-    FToggle.Visible := FExpanded; FMore.Visible := FExpanded;
+    FToggle.Visible := FExpanded; FMore.Visible := FExpanded and Assigned(FOnMore);
     if FExpanded then
     begin
       FDetails.SetBounds(Margin,Y,WidthAvailable,Fit(FDetails)); Inc(Y,FDetails.Height+Gap);
@@ -181,6 +196,12 @@ begin ShowGuide(nil); end;
 
 procedure TFirstUseGuide.Dismiss;
 begin if FExpanded then Toggle(nil); end;
+
+procedure TFirstUseGuide.SetOnMore(const Value: TNotifyEvent);
+begin
+  FOnMore:=Value;
+  Layout;
+end;
 
 procedure TFirstUseGuide.More(Sender: TObject);
 begin if Assigned(FOnMore) then FOnMore(Self); end;

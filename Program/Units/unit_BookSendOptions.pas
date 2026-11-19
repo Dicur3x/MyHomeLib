@@ -3,7 +3,8 @@
 interface
 
 uses System.Classes, Vcl.Forms, Vcl.StdCtrls, Vcl.ExtCtrls, Vcl.ComCtrls, Vcl.Menus,
-  ShlObj, unit_Globals, unit_BookSavePolicy, unit_BookSendEstimates, unit_BookOutput;
+  ShlObj, unit_Globals, unit_BookSavePolicy, unit_BookSendEstimates, unit_BookOutput,
+  unit_ContextToolGuide;
 
 type
   TBookSendOptions = record
@@ -35,6 +36,7 @@ type
     FNamesExpanded: Boolean;
     FList: TListView;
     FTimer: TTimer;
+    FToolGuide: TContextToolGuide;
     FBooks: TArray<TBookRecord>;
     FChoices: TArray<TBookSaveChoice>;
     FItems, FInitialItems: TBookSaveEstimateItems;
@@ -70,6 +72,9 @@ type
     procedure EstimateSize(const Item: TBookSaveEstimateItem; Quality: Integer; out Bytes, Margin: Int64);
     function HasScanConversion: Boolean;
     function CheckOutputRuntime: Boolean;
+  protected
+    procedure DoShow; override;
+    procedure DoHide; override;
   public
     procedure ScaleForPPI(NewPPI: Integer); override;
     constructor Create(AOwner: TComponent); override;
@@ -86,7 +91,8 @@ implementation
 
 uses System.SysUtils, System.StrUtils, System.IOUtils, System.Math, System.Types, Winapi.Windows, Winapi.Messages, Winapi.ActiveX,
   Vcl.Controls, Vcl.Dialogs, Vcl.Graphics, unit_Helpers, unit_MHLTheme, dm_user,
-  unit_Templater, unit_BookConversion, unit_BookEstimateReport, unit_EpubPdfRuntime, unit_BookConversionRequirements, unit_ReaderCache;
+  unit_Templater, unit_BookConversion, unit_BookEstimateReport, unit_EpubPdfRuntime,
+  unit_BookConversionRequirements, unit_ReaderCache, unit_HelpTopics;
 
 const
   SaveLayoutCaptions: array[0..2] of string = ('Список и настройки','Большой список','Два раздела');
@@ -262,8 +268,27 @@ begin
   Button:=TButton.Create(Self); Button.Parent:=Footer; Button.Name:='CancelSending'; Button.Caption:='Отмена';
   Button.SetBounds(640,13,120,30); Button.Anchors:=[akTop,akRight]; Button.Cancel:=True; Button.ModalResult:=mrCancel;
   FTimer:=TTimer.Create(Self); FTimer.Enabled:=False; FTimer.Interval:=150; FTimer.OnTimer:=Tick;
+  FToolGuide:=TContextToolGuide.CreateForTool(Self,FContent,'book-export','Как сохранить копии книг',
+    'Выберите папку и формат копий. Исходные книги останутся на месте.',
+    '1. Оставьте исходный формат или выберите формат для вашей читалки.'+sLineBreak+
+    '2. «Оценить размер» проверит параметры без записи. Итоговый размер может отличаться от оценки.'+sLineBreak+
+    '3. В «Имена и папки» проверьте имя будущего файла и выберите, что делать, если оно уже занято.',
+    HELP_BOOK_EXPORT,'');
+  FToolGuide.Name:='BookExportContextGuide';
   OnResize:=Reflow; OnCloseQuery:=QueryClose;
   FInitializing:=False; SetBooks(nil); ApplyMHLControlTheme(Self); Changed(FFormat);
+end;
+
+procedure TBookSendOptionsForm.DoShow;
+begin
+  inherited;
+  FToolGuide.FirstUse;
+end;
+
+procedure TBookSendOptionsForm.DoHide;
+begin
+  if Assigned(FToolGuide) then FToolGuide.Hide;
+  inherited;
 end;
 
 destructor TBookSendOptionsForm.Destroy;
@@ -741,7 +766,10 @@ begin
     for var Pass:=1 to 2 do
     begin
       X:=Margin; Y:=S(16); TotalWidth:=Max(S(300),FContent.ClientWidth-2*Margin); W:=TotalWidth;
-      Text(FSourceInfo); Text(FIntro);
+      FToolGuide.HelpButton.SetBounds(X+W-RowHeight,Y,RowHeight,RowHeight);
+      var IntroTop:=Y;
+      Dec(W,RowHeight+Gap); Text(FSourceInfo); Text(FIntro);
+      W:=TotalWidth; Y:=Max(Y,IntroTop+RowHeight+Gap);
       FDestination.SetBounds(Margin,Y,W-S(130),RowHeight);
       TControl(FindComponent('BrowseDestination')).SetBounds(Margin+W-S(120),Y,S(120),RowHeight); Inc(Y,RowHeight+S(16));
       FTabs.Visible:=FLayout=2;

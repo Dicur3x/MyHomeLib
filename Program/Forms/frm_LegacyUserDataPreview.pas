@@ -3,7 +3,7 @@
 interface
 
 uses System.Classes, Vcl.Forms, Vcl.Controls, Vcl.StdCtrls, Vcl.ExtCtrls,
-  Vcl.ComCtrls, unit_LegacyUserDataPreview, unit_UserData, unit_Interfaces;
+  Vcl.ComCtrls, unit_LegacyUserDataPreview, unit_UserData, unit_Interfaces, unit_ContextToolGuide;
 
 type
   TfrmLegacyUserDataPreview = class(TForm)
@@ -12,6 +12,7 @@ type
     FList: TListView;
     FTarget: TComboBox;
     FImport: TButton;
+    FToolGuide: TContextToolGuide;
     FSummary, FInstruction: TLabel;
     FLoading: Boolean;
     procedure ListData(Sender: TObject; Item: TListItem);
@@ -19,6 +20,9 @@ type
     procedure TargetChanged(Sender: TObject);
     procedure ImportClick(Sender: TObject);
     procedure LayoutColumns(Sender: TObject);
+  protected
+    procedure DoShow; override;
+    procedure DoHide; override;
   public
     constructor CreatePreview(AOwner: TComponent; Preview: TLegacyUserDataPreview;
       const SystemData: ISystemData);
@@ -33,7 +37,7 @@ function ShowLegacyUserDataImportPreview(const FileName: string; var Data: TUser
 
 implementation
 
-uses System.SysUtils, Winapi.Windows, unit_Globals, unit_MHLTheme, unit_Errors;
+uses System.SysUtils, Winapi.Windows, unit_Globals, unit_MHLTheme, unit_Errors, unit_HelpTopics;
 
 constructor TfrmLegacyUserDataPreview.CreatePreview(AOwner: TComponent;
   Preview: TLegacyUserDataPreview; const SystemData: ISystemData);
@@ -119,9 +123,28 @@ begin
   FList.OnResize := LayoutColumns;
   if Preview.MappingCount = 0 then
     FInstruction.Caption := FInstruction.Caption + sLineBreak + 'Неоднозначных групп нет. Можно выполнить перенос.';
+  FToolGuide:=TContextToolGuide.CreateForTool(Self,Buttons,'import-personal-data','Как перенести личные данные',
+    'Сверьте число оценок, отметок чтения, отзывов и групп из файла. Если есть неоднозначные группы, сначала выберите для них место.',
+    'Выделите строку и выберите существующую группу или введите новое имя. Нажмите «Импортировать», когда все строки готовы. Просмотр списка и выбор групп сами по себе ничего не записывают.',
+    HELP_IMPORT_USER_DATA,'');
+  FToolGuide.Name:='PersonalDataContextGuide';
+  FToolGuide.HelpButton.Left:=0;
+  FToolGuide.HelpButton.Anchors:=[akLeft,akTop];
   if Screen.PixelsPerInch <> PixelsPerInch then ScaleForPPI(Screen.PixelsPerInch);
   LayoutColumns(nil);
   ApplyMHLControlTheme(Self);
+end;
+
+procedure TfrmLegacyUserDataPreview.DoShow;
+begin
+  inherited;
+  FToolGuide.FirstUse;
+end;
+
+procedure TfrmLegacyUserDataPreview.DoHide;
+begin
+  if Assigned(FToolGuide) then FToolGuide.Hide;
+  inherited;
 end;
 
 procedure TfrmLegacyUserDataPreview.LayoutColumns(Sender: TObject);

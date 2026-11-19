@@ -12,8 +12,11 @@
     <AppType>Console</AppType>
     <Manifest_File>NativeRegression.manifest</Manifest_File>
     <VerInfo_IncludeVerInfo>false</VerInfo_IncludeVerInfo>
-    <DCC_UnitSearchPath>..\..\..\Program\Units;..\..\..\Program\Forms;..\..\..\Components\MHLComponents\Units;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
-    <DCC_Namespace>System;System.Win;Winapi;Vcl;Vcl.Imaging;$(DCC_Namespace)</DCC_Namespace>
+    <DCC_UnitSearchPath>..\..\..\Program\Units;..\..\..\Program\Forms;..\..\..\Program\Forms\Editors;..\..\..\Program\DataModules;..\..\..\Program\ImportImpl;..\..\..\Program\UtilsImpl;..\..\..\Program\DwnldImpl;..\..\..\Program\DAO;..\..\..\Program\DAO\SQLite;..\..\..\Program\DAO\SQLite\Lib;..\..\..\Program\Wizards\NewCollection;..\..\..\Program\Wizards\Base;..\..\..\Components\MHLComponents;..\..\..\Components\MHLComponents\Units;..\..\..\Components\VirtualTreeView\Source;..\..\..\tools\ui\tests;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+    <DCC_ResourcePath>..\..\..\Components\MHLComponents;$(DCC_ResourcePath)</DCC_ResourcePath>
+    <DCC_IncludePath>..\..\..\Components\MHLComponents;$(DCC_IncludePath)</DCC_IncludePath>
+    <DCC_Namespace>Vcl;Vcl.Imaging;Vcl.Touch;Vcl.Samples;Vcl.Shell;System;System.Win;Xml;Xml.Win;Data;Data.Win;Datasnap;Datasnap.Win;Web;Web.Win;Soap;Soap.Win;Winapi;Bde;$(DCC_Namespace)</DCC_Namespace>
+    <DCC_UnitAlias>WinTypes=Winapi.Windows;WinProcs=Winapi.Windows;$(DCC_UnitAlias)</DCC_UnitAlias>
     <DCC_ExeOutput>Out\$(Platform)</DCC_ExeOutput>
     <DCC_DcuOutput>Out\$(Platform)\ReaderFontManagerTest-dcu</DCC_DcuOutput>
     <DCC_Assertions>true</DCC_Assertions>

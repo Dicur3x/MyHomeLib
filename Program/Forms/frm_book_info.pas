@@ -237,11 +237,9 @@ begin
   lblAnnotationState.Caption:='Описание в HomeLibre. Файл книги не меняется.';
   FDescriptionGuide:=TContextToolGuide.CreateForTool(Self,pnAnnotationHeader,'book-description',
     'Где сохраняется описание книги',
-    '«Информация о книге → Описание» и «Изменить описание» открывают одно и то же поле в HomeLibre.',
-    'Над текстом видно, откуда взято описание. Кнопки появляются, когда доступны файл или сайт.'+sLineBreak+
-    'Если правка доступна, введите свой текст и нажмите «Сохранить». Описание сохранится в карточке HomeLibre. Сам файл книги останется прежним.'+sLineBreak+
-    '«Вернуть описание из файла» показывает аннотацию книги. «Сохранить» удаляет собственный вариант.'+sLineBreak+
-    '«Отменить правки» возвращает текст, с которым вы открыли карточку. «Отмена» также отбрасывает правки отзывов.',
+    'Правка сохраняется в карточке HomeLibre. Над полем видно, откуда взят текст. Сам файл книги сохраняется без изменений.',
+    'Введите своё описание и нажмите «Сохранить». Чтобы снова использовать аннотацию из книги, нажмите «Вернуть описание из файла» и сохраните.'+sLineBreak+sLineBreak+
+    '«Отменить правки» возвращает текст, с которым вы открыли карточку. «Отмена» закрывает окно и отбрасывает несохранённые правки описания и отзывов.',
     117,'description');
   FDescriptionGuide.Name:='BookDescriptionContextGuide';
   FDescriptionGuide.HelpButton.SetBounds(pnAnnotationHeader.ClientWidth-ScaleValue(40),
@@ -403,7 +401,7 @@ begin
     else
       lblAnnotationState.Caption := 'После сохранения собственное описание будет удалено.';
   end
-  else lblAnnotationState.Caption := Source + ' Правки применяются кнопкой «Сохранить».';
+  else lblAnnotationState.Caption := Source + ' Файл книги не меняется.';
 end;
 
 procedure TfrmBookDetails.RestoreDescription(Sender: TObject);

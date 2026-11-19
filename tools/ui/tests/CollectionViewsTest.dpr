@@ -10,7 +10,7 @@ uses
   unit_BookCompressionIndex, unit_BookCompressionPlan, unit_ReaderHistoryAliases, unit_ReaderHistoryEvidence,
   unit_CollectionTransferCatalogue, unit_CollectionTransferPlan, unit_CollectionTransferJournal,
   unit_CollectionTransferOperation, unit_CollectionTransferRegistry,
-  unit_Utils, frm_search, frm_MCPSetup, Xml.XMLDoc, Xml.XMLIntf,
+  unit_Utils, frm_search, frm_MCPSetup, frm_OPDS, frm_add_nonfb2, Xml.XMLDoc, Xml.XMLIntf,
   unit_CatalogComponents, unit_MetabibReader, unit_MetabibWriter, unit_FormatComponents, unit_ComponentRemoval, unit_ComponentUsage, frm_ComponentMaintenance,
   unit_StartupCatalog, unit_FLibraryCompat, unit_BookCompressionRestored, unit_BookViewSessions,
   unit_LibraryUpdateIdentity, unit_LibraryUpdateSources, unit_LibraryUpdateFetch, unit_LibraryUpdateReview, unit_LibraryUpdateHistory, unit_LibraryUpdateJournal, unit_Lib_Updates, frm_LibraryUpdateSources,
@@ -1980,9 +1980,17 @@ begin
           Require((EditCount = 2) and (ChoiceCount = 1 + Ord(PopupTag = COL_SIZE)) and (DateCount = 0), 'Numeric icon lacks comparison or size units')
         else Require((EditCount = 1) and (ChoiceCount = 0) and (DateCount = 0), 'Text icon opens more than its column');
         Require(Popup.BorderStyle=bsSizeable,'Column filter cannot resize');
-        Require(Popup.ClientWidth <= MulDiv(420, Popup.CurrentPPI, 96), 'Individual filter is wider than its initial layout');
+        var MinimumClientWidth:=Popup.Constraints.MinWidth-(Popup.Width-Popup.ClientWidth);
+        Require(Popup.ClientWidth<=Max(MulDiv(420,Popup.CurrentPPI,96),MinimumClientWidth),
+          'Individual filter is wider than its initial layout and its measured minimum');
         if Assigned(Values) then
         begin
+          var Help:=Popup.FindComponent('ColumnValuesContextGuide') as TContextToolGuide;
+          Require(Assigned(Help) and Help.HelpButton.Visible,'Column values have no contextual guide');
+          Help.HelpButton.Click;
+          var HelpWindow:=Help.FindComponent('ToolGuidePopupcolumnvaluefilter') as TForm;
+          Require(HelpWindow.Visible and (Popup.ModalResult=mrNone),'Value filter help closed or applied the filter');
+          HelpWindow.Close;
           var N:=Values.GetFirst;
           while Assigned(N) do
           begin

@@ -4,7 +4,8 @@ unit frm_OPDS;
 interface
 
 uses
-  System.Classes, Vcl.Forms, Vcl.StdCtrls, Vcl.ExtCtrls, unit_Globals, unit_OPDSServer;
+  System.Classes, Vcl.Forms, Vcl.StdCtrls, Vcl.ExtCtrls, unit_Globals, unit_OPDSServer,
+  unit_ContextToolGuide;
 
 type
   TfrmOPDS = class(TForm)
@@ -17,6 +18,7 @@ type
     FLAN: TCheckBox;
     FStart, FStop, FCopy, FHide, FCertButton, FKeyButton: TButton;
     FMonitor: TTimer;
+    FToolGuide: TContextToolGuide;
     FOnNeedTlsComponent: TNotifyEvent;
     procedure StartClick(Sender: TObject);
     procedure StopClick(Sender: TObject);
@@ -26,6 +28,9 @@ type
     procedure ChoosePEM(Sender: TObject);
     procedure CheckTransport(Sender: TObject);
     procedure RefreshControls;
+  protected
+    procedure DoShow; override;
+    procedure DoHide; override;
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
@@ -38,7 +43,7 @@ implementation
 
 uses
   Winapi.Windows, System.SysUtils, System.StrUtils, System.IOUtils, Vcl.Controls, Vcl.Dialogs, Vcl.Clipbrd,
-  IdStack, IdGlobal, dm_user, unit_FormatComponents, unit_ComponentUsage;
+  IdStack, IdGlobal, dm_user, unit_FormatComponents, unit_ComponentUsage, unit_HelpTopics;
 
 const
   MODE_HTTP = 0;
@@ -61,9 +66,10 @@ begin
   Font.Size := 9;
   FServer := THomeLibOPDSServer.Create;
   FCollectionLabel := TLabel.Create(Self);
-  FCollectionLabel.Parent := Self;
-  FCollectionLabel.SetBounds(16, 16, 655, 22);
+  FCollectionLabel.Parent := Self; FCollectionLabel.Name:='OPDSCollection';
   FCollectionLabel.AutoSize := False;
+  FCollectionLabel.SetBounds(16, 16, ClientWidth-66, 22);
+  FCollectionLabel.Anchors := [akLeft, akTop, akRight];
   TextLabel := TLabel.Create(Self);
   TextLabel.Parent := Self;
   TextLabel.SetBounds(16, 43, 655, 45);
@@ -81,7 +87,7 @@ begin
   TextLabel.SetBounds(16, 128, 60, 20);
   TextLabel.Caption := 'Порт:';
   FPort := TEdit.Create(Self);
-  FPort.Parent := Self;
+  FPort.Parent := Self; FPort.Name:='OPDSPort';
   FPort.SetBounds(75, 124, 75, 26);
   FPort.Text := '8090';
   TextLabel := TLabel.Create(Self);
@@ -167,7 +173,7 @@ begin
   FStart.Caption := 'Запустить';
   FStart.OnClick := StartClick;
   FStop := TButton.Create(Self);
-  FStop.Parent := Self;
+  FStop.Parent := Self; FStop.Name:='OPDSStop';
   FStop.SetBounds(140, 323, 115, 30);
   FStop.Caption := 'Остановить';
   FStop.OnClick := StopClick;
@@ -186,7 +192,26 @@ begin
   FMonitor.Enabled := False;
   FMonitor.Interval := 1000;
   FMonitor.OnTimer := CheckTransport;
+  FToolGuide:=TContextToolGuide.CreateForTool(Self,Self,'opds-catalogue','Как добавить каталог в читалку',
+    'OPDS позволяет выбирать и скачивать книги из этой коллекции в совместимой читалке.',
+    '1. Для читалки на другом устройстве разрешите доступ из домашней сети и укажите адрес этого компьютера.'+sLineBreak+
+    '2. Нажмите «Запустить», скопируйте полный адрес и добавьте его как каталог OPDS в читалке.'+sLineBreak+
+    '3. «Скрыть» закрывает окно каталога и оставляет доступ к книгам. Чтобы прекратить доступ к каталогу, нажмите «Остановить».',
+    HELP_OPDS,'');
+  FToolGuide.Name:='OPDSContextGuide';
   RefreshControls;
+end;
+
+procedure TfrmOPDS.DoShow;
+begin
+  inherited;
+  FToolGuide.FirstUse;
+end;
+
+procedure TfrmOPDS.DoHide;
+begin
+  if Assigned(FToolGuide) then FToolGuide.Hide;
+  inherited;
 end;
 
 destructor TfrmOPDS.Destroy;

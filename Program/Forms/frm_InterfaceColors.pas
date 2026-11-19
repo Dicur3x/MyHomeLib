@@ -3,7 +3,7 @@
 interface
 
 uses System.Classes, Vcl.Forms, Vcl.StdCtrls, Vcl.ExtCtrls, Vcl.Dialogs,
-  Vcl.Graphics, unit_MHLThemePalette;
+  Vcl.Graphics, unit_MHLThemePalette, unit_ContextToolGuide;
 
 type
   TInterfaceColorsDialog = class(TForm)
@@ -11,6 +11,7 @@ type
     FValues: TMHLThemePalettes;
     FTheme: TComboBox;
     FPreview: TPaintBox;
+    FToolGuide:TContextToolGuide;
     FSwatches: array[TMHLPaletteRole] of TShape;
     FButtons: array[TMHLPaletteRole] of TButton;
     FPicker: TColorDialog;
@@ -19,6 +20,9 @@ type
     procedure ChooseColor(Sender: TObject);
     procedure ResetColors(Sender: TObject);
     procedure PaintPreview(Sender: TObject);
+  protected
+    procedure DoShow; override;
+    procedure DoHide; override;
   public
     constructor CreateFor(Owner: TCustomForm; const Values: TMHLThemePalettes;
       DarkTheme: Boolean);
@@ -49,7 +53,8 @@ begin
   LabelControl:=TLabel.Create(Self); LabelControl.Parent:=Self;
   LabelControl.SetBounds(16,20,68,20); LabelControl.Caption:='Оформление:';
   FTheme:=TComboBox.Create(Self); FTheme.Parent:=Self; FTheme.Name:='PaletteTheme';
-  FTheme.SetBounds(116,16,388,26); FTheme.Style:=csDropDownList;
+  FTheme.SetBounds(116,16,348,26); FTheme.Style:=csDropDownList;
+  FTheme.Anchors:=[akLeft,akTop,akRight];
   FTheme.Items.Add('Светлая тема'); FTheme.Items.Add('Тёмная тема');
   FTheme.ItemIndex:=Ord(DarkTheme); FTheme.OnChange:=UpdatePreview;
   for var Role:=Low(TMHLPaletteRole) to High(TMHLPaletteRole) do
@@ -81,9 +86,27 @@ begin
   Button:=TButton.Create(Self); Button.Parent:=Self; Button.Name:='PaletteCancel';
   Button.SetBounds(408,420,96,28); Button.Caption:='Отмена'; Button.ModalResult:=mrCancel; Button.Cancel:=True;
   FPicker:=TColorDialog.Create(Self); FPicker.Options:=[cdFullOpen,cdAnyColor];
+  FToolGuide:=TContextToolGuide.CreateForTool(Self,Self,'catalog-colors','Как настроить цвета каталогизатора',
+    'Выберите светлую или тёмную тему. У каждой темы свои цвета. Изменения сразу видны в предпросмотре.',
+    '«Вернуть исходные цвета» сбрасывает выбранную тему. Нажмите «ОК», затем «Сохранить» в общих настройках. Цвета страницы книги выбираются в самой читалке.',
+    132,'');
+  FToolGuide.Name:='CatalogColorsContextGuide';
+  FToolGuide.HelpButton.Top:=15;
   ApplyMHLControlTheme(Self);
   if Assigned(Owner) and (Owner.CurrentPPI<>CurrentPPI) then ScaleForPPI(Owner.CurrentPPI);
   UpdatePreview(nil);
+end;
+
+procedure TInterfaceColorsDialog.DoShow;
+begin
+  inherited;
+  FToolGuide.FirstUse;
+end;
+
+procedure TInterfaceColorsDialog.DoHide;
+begin
+  if Assigned(FToolGuide) then FToolGuide.Hide;
+  inherited;
 end;
 
 function TInterfaceColorsDialog.Dark: Boolean;

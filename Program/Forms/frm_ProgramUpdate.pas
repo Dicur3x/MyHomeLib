@@ -3,7 +3,7 @@
 interface
 
 uses System.Classes, System.SysUtils, Vcl.Forms, Vcl.StdCtrls, Vcl.ComCtrls, Vcl.Controls,
-  Winapi.Windows, Winapi.Messages, unit_ProgramUpdates, unit_ComponentUpdates, unit_UpdateNotes, unit_MHLTheme;
+  Winapi.Windows, Winapi.Messages, unit_ProgramUpdates, unit_ComponentUpdates, unit_UpdateNotes, unit_MHLTheme, unit_ContextToolGuide;
 
 type
 {$IFDEF MHL_RELEASE_PERFORMANCE}
@@ -15,6 +15,7 @@ type
   private
     FStatus, FVersion, FBytes: TLabel;
     FNotes: TUpdateNotesView;
+    FToolGuide:TContextToolGuide;
     FProgress: TProgressBar;
     FPrimary, FLater, FPage: TButton;
     FZoomOut, FZoomReset, FZoomIn: TButton;
@@ -130,6 +131,7 @@ type
     procedure ClearQueueJobs;
   protected
     procedure InitializeLogicalFont; virtual;
+    procedure DoHide; override;
     function InstallationHelperSource: string;
     function StartInstallationHelper(const Helper, Parameters, Directory: string): THandle; virtual;
     procedure Resize; override;
@@ -179,7 +181,7 @@ uses System.StrUtils, System.IOUtils, System.JSON, System.RegularExpressions, Sy
   System.Types, Winapi.ShellAPI,
   Vcl.Graphics, Vcl.Menus, Vcl.Clipbrd, dm_user, unit_Settings, unit_Globals,
   unit_ProgramUpdateInstaller, unit_MHLHttpClient, unit_UpdateTextCache, unit_BookSaveContinuation,
-  unit_MHLExternalTools, unit_Diagnostics, frm_ComponentMaintenance, Vcl.Themes;
+  unit_MHLExternalTools, unit_Diagnostics, frm_ComponentMaintenance, unit_HelpTopics, Vcl.Themes;
 
 type
   TUpdateTabs = class(TTabControl);
@@ -289,7 +291,7 @@ begin
   DoubleBuffered := True;
   OnShow:=LayoutShown;
   InitializeLogicalFont;
-  FVersion := TLabel.Create(Self); FVersion.Parent := Self;
+  FVersion := TLabel.Create(Self); FVersion.Parent := Self; FVersion.Name:='UpdateVersion';
   FVersion.AutoSize:=False; FVersion.EllipsisPosition:=epEndEllipsis; FVersion.ShowHint:=True;
   FVersion.SetBounds(20, 16, 700, 20); FVersion.Font.Style := [fsBold];
   FVersion.Caption := 'Текущая версия: ' + ReleaseDisplayVersion(PROGRAM_RELEASE_VERSION);
@@ -361,6 +363,13 @@ begin
   FZoomReset := TButton.Create(Self); FZoomReset.Parent := Self;
   FZoomReset.Caption := '100%'; FZoomReset.OnClick := ZoomClick;
   FZoomReset.Hint := 'Обычный размер текста'; FZoomReset.ShowHint := True;
+  FToolGuide:=TContextToolGuide.CreateForTool(Self,Self,'program-updates','Как обновить HomeLibre и модули',
+    'Нажмите «Проверить всё», чтобы получить доступные версии. Выберите строку программы или модуля, чтобы увидеть, что можно обновить.',
+    '«Список изменений» показывает историю выбранного компонента. Нажатие «Скачать обновление» загружает файлы. Установка начинается после подтверждения.'+sLineBreak+sLineBreak+
+    'В «Модули…» можно посмотреть дополнительные установленные компоненты и убрать те, которыми вы не пользуетесь.',
+    HELP_MODULE_MAINTENANCE,'');
+  FToolGuide.Name:='UpdatesContextGuide';
+  FToolGuide.HelpButton.Anchors:=[akLeft,akTop];
   FZoomIn := TButton.Create(Self); FZoomIn.Parent := Self;
   FZoomIn.Caption := 'A+'; FZoomIn.Tag := 10; FZoomIn.OnClick := ZoomClick;
   FZoomIn.Hint := 'Увеличить текст (Ctrl + колёсико)'; FZoomIn.ShowHint := True;
@@ -489,7 +498,16 @@ begin
 end;
 
 procedure TfrmProgramUpdate.LayoutShown(Sender: TObject);
-begin LayoutWindow; end;
+begin
+  LayoutWindow;
+  if not Assigned(FCompactForm) then FToolGuide.FirstUse;
+end;
+
+procedure TfrmProgramUpdate.DoHide;
+begin
+  if Assigned(FToolGuide) then FToolGuide.Hide;
+  inherited;
+end;
 
 procedure TfrmProgramUpdate.CMFontChanged(var Message: TMessage);
 begin
@@ -543,7 +561,8 @@ begin
       FNotifyOptional.Enabled:=not Assigned(FThread) and not FReady;
     end;
     FVersion.Hint:=FVersion.Caption;
-    FVersion.SetBounds(Margin,S(10),Max(S(80),Width-S(160)),TopHeight);
+    FVersion.SetBounds(Margin,S(10),Max(S(80),Width-S(194)),TopHeight);
+    FToolGuide.HelpButton.SetBounds(ClientWidth-Margin-S(188),S(8),S(30),TopHeight);
     FZoomOut.SetBounds(ClientWidth-Margin-S(150),S(8),S(40),TopHeight);
     FZoomReset.SetBounds(ClientWidth-Margin-S(105),S(8),S(60),TopHeight);
     FZoomIn.SetBounds(ClientWidth-Margin-S(40),S(8),S(40),TopHeight);

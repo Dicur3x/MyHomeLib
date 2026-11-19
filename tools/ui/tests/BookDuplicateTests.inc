@@ -97,7 +97,7 @@ begin
       Require((CopiesList.Items[1].Caption='Основная') and (CopiesList.Items[0].Caption='—'),
         'Preferred duplicate has no persistent visible marker');
       CopiesList.Items[0].Selected:=True;
-      Require((Dialog.FindComponent('mmDuplicateCopyDetails') as TMemo).Lines[0]='Основная запись: '+IntToStr(B),
+      Require((Dialog.FindComponent('mmDuplicateCopyDetails') as TMemo).Lines.IndexOf('Основная запись: '+IntToStr(B))>=0,
         'Selecting another copy concealed the preferred book identity');
       SelectGroup:=Dialog.FindComponent('cbSelectDuplicateGroup') as TCheckBox;
       SelectGroup.Checked:=True;

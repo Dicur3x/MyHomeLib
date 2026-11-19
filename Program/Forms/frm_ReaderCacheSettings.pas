@@ -2,7 +2,7 @@
 
 interface
 
-uses System.Classes, Vcl.Forms, Vcl.StdCtrls, Vcl.ExtCtrls;
+uses System.Classes, Vcl.Forms, Vcl.StdCtrls, Vcl.ExtCtrls, unit_ContextToolGuide;
 
 type
   TfrmReaderCacheSettings = class(TForm)
@@ -12,10 +12,14 @@ type
     FExit: TCheckBox;
     FUsage, FError: TLabel;
     FTimer: TTimer;
+    FToolGuide:TContextToolGuide;
     procedure PolicyChanged(Sender: TObject);
     procedure UpdateUsage(Sender: TObject);
     procedure ClearClick(Sender: TObject);
     procedure ApplyClick(Sender: TObject);
+  protected
+    procedure DoShow; override;
+    procedure DoHide; override;
   public
     constructor Create(AOwner: TComponent); override;
   end;
@@ -25,7 +29,7 @@ procedure ConfigureReaderCache;
 implementation
 
 uses System.SysUtils, System.Math, Vcl.Controls, dm_user, unit_Settings, unit_BookCache,
-  unit_Diagnostics, unit_MHLTheme;
+  unit_Diagnostics, unit_MHLTheme, unit_HelpTopics;
 
 constructor TfrmReaderCacheSettings.Create(AOwner: TComponent);
 var LabelControl: TLabel; Button: TButton;
@@ -42,6 +46,7 @@ begin
   Position:=poOwnerFormCenter; Font.Name:='Segoe UI'; Font.Size:=10;
   ClientWidth:=560; ClientHeight:=480; Constraints.MinWidth:=530; Constraints.MinHeight:=Height;
   LabelAt('Подготовленные файлы ускоряют повторное открытие книг. Выберите, когда их очищать.',20,44);
+  LabelControl.Name:='ReaderCacheIntro'; LabelControl.Width:=480;
   LabelAt('Очищать:',80,24);
   FPolicy:=TComboBox.Create(Self); FPolicy.Parent:=Self; FPolicy.Name:='ReaderCachePolicy';
   FPolicy.SetBounds(190,76,350,26); FPolicy.Anchors:=[akLeft,akTop,akRight];
@@ -82,8 +87,26 @@ begin
   Button:=TButton.Create(Self); Button.Parent:=Self; Button.Name:='ReaderCacheCancel';
   Button.SetBounds(430,430,110,30); Button.Anchors:=[akRight,akBottom];
   Button.Caption:='Отмена'; Button.Cancel:=True; Button.ModalResult:=mrCancel;
+  FToolGuide:=TContextToolGuide.CreateForTool(Self,Self,'reader-cache','Как освободить место в кэше читалки',
+    'Кэш хранит временно подготовленные книги. Предел по объёму освобождает место, а предел по сроку удаляет давно не открывавшиеся копии.',
+    '«Очистить кэш сейчас» освобождает место сразу. Временные файлы открытых книг освободятся после закрытия. Исходные книги, позиции, закладки и заметки сохраняются.',
+    HELP_BOOK_CACHE,'');
+  FToolGuide.Name:='ReaderCacheContextGuide';
+  FToolGuide.HelpButton.Left:=ClientWidth-48;
   PolicyChanged(nil); UpdateUsage(nil); ApplyMHLControlTheme(Self);
   FTimer:=TTimer.Create(Self); FTimer.Interval:=1000; FTimer.OnTimer:=UpdateUsage;
+end;
+
+procedure TfrmReaderCacheSettings.DoShow;
+begin
+  inherited;
+  FToolGuide.FirstUse;
+end;
+
+procedure TfrmReaderCacheSettings.DoHide;
+begin
+  if Assigned(FToolGuide) then FToolGuide.Hide;
+  inherited;
 end;
 
 procedure TfrmReaderCacheSettings.PolicyChanged(Sender: TObject);

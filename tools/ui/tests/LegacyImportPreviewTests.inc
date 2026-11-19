@@ -38,6 +38,12 @@ begin
           (Dialog.TargetEdit.ItemIndex = -1) and (Dialog.TargetEdit.Text = '') and not Dialog.TargetEdit.Enabled,
           'Unselected unresolved preview exposes an invented target or enabled import');
         Dialog.Show; Application.ProcessMessages;
+        var Help:=Dialog.FindComponent('PersonalDataContextGuide') as TContextToolGuide;
+        Require(Assigned(Help) and Help.HelpButton.Visible,'Personal-data preview has no contextual guide');
+        Help.HelpButton.Click;
+        var HelpWindow:=Help.FindComponent('ToolGuidePopupimportpersonaldata') as TForm;
+        Require(HelpWindow.Visible,'Personal-data help did not open');
+        HelpWindow.Close;
         Require((Dialog.TargetEdit.Text = '') and not Dialog.ImportButton.Enabled,
           'Showing the preview restored a component name as its target');
         Dialog.MappingList.Items[0].Selected := True;

@@ -7,7 +7,7 @@ uses NativeRegressionGuard, System.SysUtils, System.Classes, System.Types,
   System.Math, System.IOUtils, System.IniFiles, Winapi.Windows, Winapi.Messages,
   Winapi.CommCtrl, Vcl.Forms, Vcl.Controls, Vcl.StdCtrls, Vcl.ComCtrls,
   Vcl.Graphics, Vcl.ExtCtrls, Vcl.Imaging.pngimage,
-  frm_ReaderFontManager, unit_ReaderFonts, unit_ReaderPalette;
+  frm_ReaderFontManager, unit_ReaderFonts, unit_ReaderPalette, unit_ContextToolGuide;
 
 procedure Require(Value:Boolean; const Detail:string);
 begin if not Value then raise Exception.Create(Detail); end;
@@ -158,6 +158,19 @@ begin
   Require(Assigned(Dialog),'Expected the actual Reader font manager');
   ScaleNativeDialog(Dialog,DPI);
   Require(Abs(Dialog.Font.Size-9)<=1,'Font manager interface font scaled twice');
+  var Help:=Dialog.FindComponent('ReaderFontsContextGuide') as TContextToolGuide;
+  Require(Assigned(Help) and Help.HelpButton.Visible and
+    (TControl(Dialog.FindComponent('ReaderFontsIntro')).BoundsRect.Right<=Help.HelpButton.Left),
+    'Font manager help overlaps its introduction');
+  Help.HelpButton.Click;
+  var HelpWindow:=Help.FindComponent('ToolGuidePopupreaderfonts') as TForm;
+  Require(HelpWindow.Visible and (HelpWindow.Color=Dialog.Color) and
+    (HelpWindow.Font.Color=Dialog.Font.Color),'Font guide palette differs from the reader dialog');
+  var Guide:=HelpWindow.FindComponent('ToolFirstUseGuide');
+  Require(not TButton(Guide.FindComponent('GuideMore')).Visible,
+    'Standalone fonts guide offered an unavailable help article');
+  TButton(Guide.FindComponent('GuideToggle')).Click;
+  Require(not HelpWindow.Visible,'Font guide did not close');
   List:=Dialog.FindComponent('ReaderFontLibrary') as TListView;
   Require(Assigned(List) and Assigned(List.Selected),'Font library is empty');
   Require(not TButton(Dialog.FindComponent('ReaderRemoveFont')).Enabled,

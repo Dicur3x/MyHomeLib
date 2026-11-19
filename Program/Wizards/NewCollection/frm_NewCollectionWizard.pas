@@ -42,7 +42,7 @@ uses
   frame_NCWSelectGenreFile,
   frame_NCWProgress,
   frame_NCWFinish,
-  frm_MHLWizardBase;
+  frm_MHLWizardBase, unit_ContextToolGuide;
 
 type
   TNewCollectionWizard = class(TMHLWizardBase)
@@ -76,6 +76,7 @@ type
     FCollectionCommittedChanges: Boolean;
     FRequestedMetadataFill: Boolean;
     FPreparedIndex: Boolean;
+    FToolGuide:TContextToolGuide;
 
     function CanRequestMetadataFill: Boolean;
     procedure RequestMetadataFill(Sender: TObject);
@@ -92,6 +93,8 @@ type
     procedure PMWorkerDone(var Message: TMessage); message PM_WORKERDONE;
 
     procedure InitWizard; override;
+    procedure DoShow; override;
+    procedure DoHide; override;
     function IsPageVisible(PageIndex: Integer): Boolean; override;
     procedure AfterShowPage; override;
     function CanCloseWizard: Boolean; override;
@@ -183,6 +186,26 @@ begin
 
   FFinishPage.lblPageHint.Caption := '';
   FFinishPage.btnMetadataFill.OnClick := RequestMetadataFill;
+
+  FToolGuide:=TContextToolGuide.CreateForTool(Self,pnButtons,'new-collection','Как создать коллекцию',
+    'Для собственных файлов выберите локальную коллекцию и укажите папку с книгами. Для скачанной библиотеки с готовым списком выберите создание из INPX.',
+    'Укажите папку, где лежат файлы книг и архивы. Индекс INPX содержит каталог библиотеки. После создания можно проверить несколько книг и запустить импорт, если выбрали собственную папку.',
+    HelpContext,'');
+  FToolGuide.Name:='NewCollectionContextGuide';
+  FToolGuide.HelpButton.Left:=12;
+  FToolGuide.HelpButton.Anchors:=[akLeft,akTop];
+end;
+
+procedure TNewCollectionWizard.DoShow;
+begin
+  inherited;
+  if FToolGuide.HelpButton.Visible then FToolGuide.FirstUse;
+end;
+
+procedure TNewCollectionWizard.DoHide;
+begin
+  if Assigned(FToolGuide) then FToolGuide.Hide;
+  inherited;
 end;
 
 function TNewCollectionWizard.IsPageVisible(PageIndex: Integer): Boolean;
@@ -250,6 +273,9 @@ end;
 procedure TNewCollectionWizard.AfterShowPage;
 begin
   Assert(IsValidPageIndex(FCurrentPage));
+
+  FToolGuide.HelpButton.Visible:=not (FCurrentPage in [DOWNLOAD_PAGE_ID,PROGRESS_PAGE_ID,FINISH_PAGE_ID]);
+  if not FToolGuide.HelpButton.Visible then FToolGuide.Hide;
 
   if DOWNLOAD_PAGE_ID = FCurrentPage then
   begin

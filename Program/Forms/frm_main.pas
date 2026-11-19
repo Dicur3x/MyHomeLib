@@ -68,7 +68,7 @@ uses
   MHLSimplePanel,
   BookTreeView,
   unit_SearchPresets,
-  unit_SearchQueryModeControl, unit_BookSearchPanel,
+  unit_SearchQueryModeControl, unit_BookSearchPanel, unit_ContextToolGuide,
   MHLButtonedEdit,
   unit_UserData,
   unit_treeController,
@@ -738,6 +738,8 @@ type
   protected
     procedure CreateParams(var Params: TCreateParams); override;
     procedure DoCreate; override;
+    procedure DoShow; override;
+    procedure DoHide; override;
     procedure WMDropFiles(var Message: TWMDropFiles); message WM_DROPFILES;
     procedure WMGetSysCommand(var Message: TMessage); message WM_SYSCOMMAND;
     procedure OnChangeLocalStatus(var Message: TLocalStatusChangedMessage); message WM_MHL_CHANGELOCALSTATUS;
@@ -1119,6 +1121,8 @@ type
     FDownloadsReady, FDownloadsLoadFailed: Boolean;
     FPresets: TSearchPresets;
     FSearchMode: TSearchQueryModeControl;
+    FSearchGuide: TContextToolGuide;
+    FSearchGuideActive: Boolean;
     FSearchFields: TBookSearchControls;
     FPresetTransferMenu: TPopupMenu;
     FPresetTransferButton: TButton;
@@ -1226,6 +1230,7 @@ type
     function SearchPresetIndex(const Name: string): Integer;
     procedure CreatePublisherSearchField;
     procedure CreateSearchPanelAdapter;
+    procedure UpdateSearchGuide(Active: Boolean);
     procedure BrowseAllReaderNotes(Sender: TObject);
     procedure OpenReaderNote(const Note: TReaderAnnotation);
     procedure RefreshNotesSearch;
@@ -4318,9 +4323,38 @@ begin
   ShowAdvancedSearchFields(Settings.SearchMoreExpanded);
 end;
 
+procedure TfrmMain.DoShow;
+begin
+  inherited;
+  UpdateSearchGuide(pgControl.ActivePage=tsSearch);
+end;
+
+procedure TfrmMain.DoHide;
+begin
+  UpdateSearchGuide(False);
+  inherited;
+end;
+
+procedure TfrmMain.UpdateSearchGuide(Active: Boolean);
+begin
+  if not Assigned(FSearchGuide) or (FSearchGuideActive=Active) then Exit;
+  FSearchGuideActive:=Active;
+  if Active then FSearchGuide.FirstUse else FSearchGuide.Hide;
+end;
+
 procedure TfrmMain.CreateSearchPanelAdapter;
 begin
   FSearchMode := TSearchQueryModeControl.CreateFor(Self, pnSearchView);
+  FSearchGuide:=TContextToolGuide.CreateForTool(Self,FSearchMode.ModeRow,'catalog-search',
+    'Как искать книги в коллекции',
+    'Введите автора, название или другие условия и нажмите «Применить». Поиск охватывает открытую коллекцию.',
+    'Для поиска по нескольким полям заполните их вместе. Для точных совпадений или нескольких вариантов в одном поле выберите «Условия поиска».'+#13#10+#13#10+
+    'Чтобы повторять поиск, введите имя пресета и нажмите «Сохранить». «Очистить» сбрасывает текущие поля и фильтры столбцов. Сохранённые пресеты остаются в списке.',
+    tsSearch.HelpContext,'');
+  FSearchGuide.Name:='SearchContextGuide';
+  with FSearchMode.ModeRow do
+    FSearchGuide.HelpButton.SetBounds(ClientWidth-MulDiv(28,CurrentPPI,96),MulDiv(2,CurrentPPI,96),
+      MulDiv(26,CurrentPPI,96),Height-MulDiv(4,CurrentPPI,96));
   UpdateSearchEmptyMessage(False);
   btnClearFilterEdits.Hint := 'Сбросить поля, фильтры столбцов, режим поиска и выбор пресета. Сохранённые пресеты останутся.';
   SearchParams.OnMouseWheel:=SearchFiltersMouseWheel;
@@ -14263,6 +14297,7 @@ end;
 
 procedure TfrmMain.pgControlChange(Sender: TObject);
 begin
+  UpdateSearchGuide(Visible and (pgControl.ActivePage=tsSearch));
   UpdateActions;
   BookViewResize(nil);
 

@@ -44,7 +44,8 @@ uses
   FBDDocument,
   FBDAuthorTable,
   Buttons,
-  MHLSimplePanel;
+  MHLSimplePanel,
+  unit_ContextToolGuide;
 
 type
   TfrmAddnonfb2 = class(TForm)
@@ -152,6 +153,7 @@ type
     FCollection: IBookCollection;
     FRootPath: string;
     FBooksAdded: Boolean;
+    FToolGuide: TContextToolGuide;
 
     FBookRecord: TBookRecord;
 
@@ -167,6 +169,7 @@ type
 
   protected
     procedure DoCreate; override;
+    procedure DoHide; override;
 
   public
     property Collection: IBookCollection read FCollection write FCollection;
@@ -202,6 +205,19 @@ procedure TfrmAddnonfb2.DoCreate;
 begin
   inherited;
   Localize(Self);
+  FToolGuide:=TContextToolGuide.CreateForTool(Self,Self,'manual-book-import','Как добавить книгу вручную',
+    'Положите книгу в папку коллекции и откройте её двойным щелчком в списке «Файлы». На вкладке «Книга» проверьте автора, название и другие сведения.',
+    'При добавлении можно создать архив с книгой и описанием FBD. Если вы уже получили такие архивы, используйте «Коллекция → Импорт → Файлы FBD» для пакетного добавления.',
+    HelpContext,'');
+  FToolGuide.Name:='ManualImportContextGuide';
+  FToolGuide.HelpButton.SetBounds(ClientWidth-40,3,28,22);
+  FToolGuide.HelpButton.BringToFront;
+end;
+
+procedure TfrmAddnonfb2.DoHide;
+begin
+  if Assigned(FToolGuide) then FToolGuide.Hide;
+  inherited;
 end;
 
 procedure TfrmAddnonfb2.FillLists;
@@ -295,6 +311,8 @@ begin
 
   alBookAuthors.AddAuthorFromListButton.OnClick := AddAuthorFromList;
   alBookAuthors.AddAuthorFromListButton.Visible := True;
+  FToolGuide.HelpButton.BringToFront;
+  FToolGuide.FirstUse;
 end;
 
 procedure TfrmAddnonfb2.FillFBDData;

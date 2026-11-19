@@ -84,7 +84,8 @@ var Key: TBookKey; Book, RowBook: TBookRecord; SourceFile, SourceHash: string;
     finally Probe.Timer.Free; Probe.Free; end;
     Collection.GetBookRecord(Key,Book,True);
     Require((Book.Annotation.Trim=StoredAfter) and (Book.KeyWords='Unchanged keywords') and
-      (UpdateSHA256(SourceFile)=SourceHash),'Description action changed the wrong data or source book');
+      (UpdateSHA256(SourceFile)=SourceHash),
+      Format('Description action %d stored unexpected metadata or changed the source book',[Operation]));
   end;
 begin
   RequireIsolatedRegression;
@@ -109,8 +110,8 @@ begin
   Require(Book.Review.Trim='Only review changed','Cancel saved an unrelated review change');
   OpenEntry(False,3,SavedDescription,'сохранённое','Temporary draft',SavedDescription);
   Require(Book.Review.Trim='Review retained after description undo','Undo discarded an explicit review edit');
-  OpenEntry(True,5,SavedDescription,'сохранённое','',FileDescription);
-  OpenEntry(False,6,FileDescription,'сохранённое','',FileDescription);
+  OpenEntry(True,5,SavedDescription,'сохранённое','','');
+  OpenEntry(False,6,FileDescription,'из файла','','');
   Writeln('PASS unified description Main entries save cancel source preview explicit file restore and unchanged book');
 end;
 

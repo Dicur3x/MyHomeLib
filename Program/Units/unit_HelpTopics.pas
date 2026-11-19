@@ -19,11 +19,17 @@ interface
 const
   HELP_BOOK_CACHE = 149;
   HELP_BOOK_LISTS = 150;
+  HELP_BOOK_EXPORT = 151;
+  HELP_OPDS = 152;
+  HELP_MODULE_MAINTENANCE = 153;
+  HELP_MISSING_BOOKS = 154;
+  HELP_IMPORT_USER_DATA = 155;
 
 function HelpTopicFile(ContextID: Integer): string;
 function HelpTopicAnchor(ContextID: Integer): string;
 function HelpTopicLink(const FullName, Anchor: string): string;
 function HelpTopicPath(const Preferred, Fallback, Anchor: string): string;
+function HelpTopicAvailable(ContextID: Integer; const Anchor: string): Boolean;
 procedure ShowHelpTopic(ContextID: Integer; const Anchor: string = '');
 
 implementation
@@ -54,7 +60,7 @@ type
 const
   // Каждый ID взят из свойства HelpContext соответствующей формы, вкладки
   // или пункта меню. 5001 и любой неизвестный ID открывают содержание.
-  HelpTopics: array [0 .. 23] of THelpTopic = (
+  HelpTopics: array [0 .. 28] of THelpTopic = (
     (ContextID: 1;   FileName: 'index.html'),              // pgControl
     (ContextID: 2;   FileName: 'main_window.html'),        // frmMain
     (ContextID: 105; FileName: 'menu_book.html'),          // меню "Книга"
@@ -78,7 +84,12 @@ const
     (ContextID: 147; FileName: 'set_other.html'),          // tsBehavour
     (ContextID: 148; FileName: 'set_filesort.html'),       // tsFileSort
     (ContextID: HELP_BOOK_CACHE; FileName: 'settings.html'),
-    (ContextID: HELP_BOOK_LISTS; FileName: 'settings.html')
+    (ContextID: HELP_BOOK_LISTS; FileName: 'settings.html'),
+    (ContextID: HELP_BOOK_EXPORT; FileName: 'export_device.html'),
+    (ContextID: HELP_OPDS; FileName: 'menu_tools.html'),
+    (ContextID: HELP_MODULE_MAINTENANCE; FileName: 'upgrade.html'),
+    (ContextID: HELP_MISSING_BOOKS; FileName: 'delete.html'),
+    (ContextID: HELP_IMPORT_USER_DATA; FileName: 'user_data.html')
   );
 
 function HelpTopicFile(ContextID: Integer): string;
@@ -97,6 +108,7 @@ begin
   case ContextID of
     HELP_BOOK_CACHE: Result:='book-cache';
     HELP_BOOK_LISTS: Result:='book-lists';
+    HELP_OPDS: Result:='opds';
   else
     Result:='';
   end;
@@ -135,22 +147,28 @@ begin
   end;
 end;
 
-procedure ShowHelpTopic(ContextID: Integer; const Anchor: string);
-var
-  HelpDir: string;
-  FullName, Section: string;
+function ResolveHelpTopic(ContextID: Integer; const Section: string): string;
+var FileName: string;
 begin
-  HelpDir := ExtractFilePath(Settings.SystemFileName[sfAppHelp]);
-  FullName := HelpDir + HelpTopicFile(ContextID);
-  Section := Anchor;
-  if Section = '' then Section := HelpTopicAnchor(ContextID);
+  FileName:=HelpTopicFile(ContextID);
+  Result:=HelpTopicPath(ExtractFilePath(Settings.SystemFileName[sfAppHelp])+FileName,
+    Settings.AppPath+APP_HELP_DIR_NAME+PathDelim+FileName,Section);
+end;
 
-  // A translated help tree may be incomplete -- pages are added to the
-  // Ukrainian original over time and a translation lags. Fall back to the
-  // Ukrainian page rather than refusing to show help at all, the same way a
-  // partial catalog degrades to Ukrainian instead of blanking the UI.
-  FullName:=HelpTopicPath(FullName,Settings.AppPath+APP_HELP_DIR_NAME+PathDelim+
-    HelpTopicFile(ContextID),Section);
+function HelpTopicAvailable(ContextID: Integer; const Anchor: string): Boolean;
+var Section: string;
+begin
+  Section:=Anchor;
+  if Section='' then Section:=HelpTopicAnchor(ContextID);
+  Result:=FileExists(ResolveHelpTopic(ContextID,Section));
+end;
+
+procedure ShowHelpTopic(ContextID: Integer; const Anchor: string);
+var FullName, Section: string;
+begin
+  Section:=Anchor;
+  if Section='' then Section:=HelpTopicAnchor(ContextID);
+  FullName:=ResolveHelpTopic(ContextID,Section);
 
   if not FileExists(FullName) then
   begin

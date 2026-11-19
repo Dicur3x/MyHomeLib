@@ -24,7 +24,7 @@ uses
   Controls,
   Forms,
   Dialogs,
-  StdCtrls;
+  StdCtrls, unit_ContextToolGuide;
 
 type
   TdlgUpdateFromFile = class(TForm)
@@ -38,8 +38,12 @@ type
     procedure FormCreate(Sender: TObject);
     procedure btnBrowseClick(Sender: TObject);
     procedure edFileChange(Sender: TObject);
+  private
+    FToolGuide:TContextToolGuide;
   protected
     procedure DoCreate; override;
+    procedure DoShow; override;
+    procedure DoHide; override;
   end;
 
 var
@@ -70,6 +74,25 @@ procedure TdlgUpdateFromFile.DoCreate;
 begin
   inherited;
   Localize(Self);
+  FToolGuide:=TContextToolGuide.CreateForTool(Self,Self,'update-from-file','Как обновить каталог из файла',
+    'Скачайте новый индекс вашей библиотеки. Если появились новые архивы книг, докачайте их отдельно и положите в папку источника.',
+    'Для обычного пополнения оставьте «Полный переимпорт» выключенным. Выбирайте его только с полным индексом, если нужно пересобрать список книг по этому файлу.'+#13#10+#13#10+
+    'Индекс содержит записи каталога. Чтобы открыть книгу после обновления, HomeLibre должен видеть сам файл книги или архив с ней.',
+    HelpContext,'');
+  FToolGuide.Name:='UpdateFileContextGuide';
+  FToolGuide.HelpButton.SetBounds(ClientWidth-40,5,28,24);
+end;
+
+procedure TdlgUpdateFromFile.DoShow;
+begin
+  inherited;
+  FToolGuide.FirstUse;
+end;
+
+procedure TdlgUpdateFromFile.DoHide;
+begin
+  if Assigned(FToolGuide) then FToolGuide.Hide;
+  inherited;
 end;
 
 procedure TdlgUpdateFromFile.FormCreate(Sender: TObject);

@@ -104,7 +104,7 @@ implementation
 
 uses System.StrUtils, System.DateUtils, System.Math, Winapi.Windows, Vcl.Forms,
   Vcl.Controls, Vcl.StdCtrls, Vcl.ExtCtrls, Vcl.ComCtrls, unit_MHLHelpers,
-  System.Types, Vcl.CheckLst, System.JSON, VirtualTrees.Types, unit_MHLTheme;
+  System.Types, Vcl.CheckLst, System.JSON, VirtualTrees.Types, unit_MHLTheme, unit_ContextToolGuide;
 
 var FavoriteAuthorKeys: TArray<string>;
     FavoriteAuthorKeysRevision: UInt64 = 1;
@@ -1101,6 +1101,7 @@ type
     FCase, FFavoriteAuthors, FExclude: TCheckBox;
     FCount, FLegend: TLabel;
     FSearchPanel, FFooter: TPanel;
+    FToolGuide:TContextToolGuide;
     FSelectFound, FClear, FReset, FApply, FCancel: TButton;
     FLayoutLocked: Boolean;
     FLayoutPPI: Integer;
@@ -1118,6 +1119,8 @@ type
   protected
     procedure Resize; override;
     procedure ChangeScale(M, D: Integer; IsDpiChange: Boolean); override;
+    procedure DoShow; override;
+    procedure DoHide; override;
   public
     constructor CreateList(Tree: TBookTree; Filters: TBookColumnFilters; Tag: Integer);
     procedure ScaleForPPI(NewPPI: Integer); override;
@@ -1137,7 +1140,7 @@ begin
 end;
 
 constructor TListFilterEditor.CreateList(Tree: TBookTree; Filters: TBookColumnFilters; Tag: Integer);
-var SearchPanel, Footer: TPanel; Button: TButton; Legend: TLabel; I: Integer; Selected: TStringList;
+var SearchPanel, Footer: TPanel; Button: TButton; Legend: TLabel; I: Integer; Selected: TStringList; HelpText: string;
   P: TPoint; Area: TRect;
 begin
   inherited CreateNew(nil);
@@ -1211,6 +1214,18 @@ begin
   FList.TreeOptions.PaintOptions := [toThemeAware];
   FList.TreeOptions.SelectionOptions := [toFullRowSelect];
   FList.OnInitNode := InitItem; FList.OnGetText := ItemText; FList.OnChecked := ItemChecked;
+  HelpText:='«Выбрать найденные» отмечает варианты по введённому тексту. «Снять всё» убирает отметки. Сохраните выбор кнопкой «Применить».';
+  if Assigned(FExclude) then
+    HelpText:=HelpText+sLineBreak+sLineBreak+
+      'Чтобы убрать из результатов только отмеченные языки или форматы, включите «Исключить отмеченные». Остальные останутся в списке.';
+  if Assigned(FFavoriteAuthors) then
+    HelpText:=HelpText+sLineBreak+sLineBreak+
+      '«Только любимые авторы» можно использовать вместе с выбранными именами или отдельно.';
+  FToolGuide:=TContextToolGuide.CreateForTool(Self,SearchPanel,'column-value-filter','Как отобрать книги по столбцу',
+    'Поставьте галочки рядом с нужными значениями. Поле поиска сужает список значений в этом окне.',
+    HelpText,126,'');
+  FToolGuide.Name:='ColumnValuesContextGuide';
+  FToolGuide.HelpButton.Anchors:=[akLeft,akTop];
   Filters.GetOptions(Tag,FNames);
   Selected := TStringList.Create;
   try
@@ -1295,7 +1310,9 @@ begin
     Available := ClientWidth - 2 * Margin;
 
     SearchHeight := Max(Pixels(25), TextHeight(FSearch) + Pixels(8));
-    FSearch.SetBounds(Margin, Pixels(10), Available, SearchHeight);
+    FSearch.SetBounds(Margin, Pixels(10), Available-SearchHeight-Gap, SearchHeight);
+    if Assigned(FToolGuide) then
+      FToolGuide.HelpButton.SetBounds(ClientWidth-Margin-SearchHeight,FSearch.Top,SearchHeight,SearchHeight);
     Y := FSearch.Top + FSearch.Height + SmallGap;
     CaseHeight := Max(Pixels(22), TextHeight(FCase) + Pixels(4));
     FCase.SetBounds(Margin, Y, Available, CaseHeight);
@@ -1337,6 +1354,19 @@ begin
     Constraints.MinHeight := Max(Pixels(320), MinimumClientHeight + FrameHeight);
     if ClientHeight < MinimumClientHeight then ClientHeight := MinimumClientHeight;
   finally FLayoutLocked := False; end;
+end;
+
+procedure TListFilterEditor.DoShow;
+begin
+  inherited;
+  LayoutControls;
+  FToolGuide.FirstUse;
+end;
+
+procedure TListFilterEditor.DoHide;
+begin
+  if Assigned(FToolGuide) then FToolGuide.Hide;
+  inherited;
 end;
 
 procedure TListFilterEditor.Resize;

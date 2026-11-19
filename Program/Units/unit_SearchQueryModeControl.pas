@@ -9,6 +9,7 @@ type
   TSearchQueryModeControl = class(TPanel)
   private
     FCombo: TComboBox;
+    FModeRow: TPanel;
     FExplanation: TLabel;
     FOnModeChange: TNotifyEvent;
     function GetMode: TSearchQueryMode;
@@ -22,6 +23,7 @@ type
     procedure SavePreset(Preset: TSearchPreset);
     procedure ApplyTo(var Criteria: TBookSearchCriteria);
     property Mode: TSearchQueryMode read GetMode write SetMode;
+    property ModeRow: TPanel read FModeRow;
     property Combo: TComboBox read FCombo;
     property Explanation: TLabel read FExplanation;
     property OnModeChange: TNotifyEvent read FOnModeChange write FOnModeChange;
@@ -40,19 +42,27 @@ begin
   Caption := '';
   Align := alTop;
   Height := MulDiv(88, Font.PixelsPerInch, 96);
+  FModeRow := TPanel.Create(Self);
+  FModeRow.Parent := Self;
+  FModeRow.Align := alTop;
+  FModeRow.BevelOuter := bvNone;
+  FModeRow.ShowCaption := False;
   FCombo := TComboBox.Create(Self);
   FCombo.Name := 'SearchQueryModeCombo';
-  FCombo.Parent := Self;
-  FCombo.Align := alTop;
+  FCombo.Parent := FModeRow;
+  FCombo.Anchors := [akLeft, akTop, akRight];
   FCombo.Style := csDropDownList;
   FCombo.Items.Add('Обычный текст');
   FCombo.Items.Add('Условия поиска');
+  FModeRow.Height := FCombo.Height + MulDiv(6, CurrentPPI, 96);
+  FCombo.SetBounds(0,MulDiv(3,CurrentPPI,96),FModeRow.ClientWidth-MulDiv(32,CurrentPPI,96),FCombo.Height);
   FCombo.OnChange := Changed;
   FCombo.ShowHint := True;
   FCombo.Hint := 'Режим текстовых полей. Дата, год, оценка и язык сохраняют свои правила.';
   FExplanation := TLabel.Create(Self);
   FExplanation.Name := 'SearchQueryModeExplanation';
   FExplanation.Parent := Self;
+  FExplanation.Top := FModeRow.Height;
   FExplanation.Align := alTop;
   FExplanation.WordWrap := True;
   FExplanation.AutoSize := True;

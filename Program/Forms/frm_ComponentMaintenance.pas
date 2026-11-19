@@ -3,7 +3,7 @@
 interface
 
 uses System.Classes, System.SysUtils, Vcl.Forms, Vcl.Controls, Vcl.ComCtrls,
-  Vcl.StdCtrls, Vcl.ExtCtrls, unit_ComponentUpdates, unit_ComponentRemoval, unit_ProgramUpdates;
+  Vcl.StdCtrls, Vcl.ExtCtrls, unit_ComponentUpdates, unit_ComponentRemoval, unit_ProgramUpdates, unit_ContextToolGuide;
 
 type
   TInventoryDownloadFactory = reference to function(const Info: TProgramRelease; const Job: string): TProgramDownloadThread;
@@ -14,6 +14,7 @@ type
     FVersion, FWorkerVersion, FStop: Integer;
     FAction: Integer;
     FHeader, FSummary: TLabel;
+    FToolGuide:TContextToolGuide;
     FList: TListView;
     FDetails: TMemo;
     FRemove, FResolve, FClose, FSelectAll: TButton;
@@ -48,6 +49,8 @@ type
   protected
     function ConfirmInventoryDownload(Size: Int64): Boolean; virtual;
     function ChooseInventoryArchive(out Archive: string): Boolean; virtual;
+    procedure DoShow; override;
+    procedure DoHide; override;
     procedure Resize; override;
     procedure ChangeScale(M,D: Integer; isDpiChange: Boolean); override;
   public
@@ -68,7 +71,7 @@ function OfferUnusedComponents(Owner: TCustomForm; const AppPath: string; Reader
 implementation
 
 uses System.IOUtils, System.Math, System.StrUtils, System.DateUtils, System.JSON, System.Zip, Winapi.Windows,
-  Vcl.Graphics, Vcl.Dialogs, unit_ProgramUpdateInstaller, unit_ComponentUsage,
+  Vcl.Graphics, Vcl.Dialogs, unit_ProgramUpdateInstaller, unit_ComponentUsage, unit_HelpTopics,
   unit_MHLTheme, unit_Diagnostics, unit_Globals, unit_Errors;
 
 function InstalledOptionalComponents(const AppPath: string; ReaderOnly: Boolean): TArray<string>;
@@ -133,7 +136,7 @@ begin
   FAppPath:=AppPath; FReaderOnly:=ReaderOnly; FMonthly:=Monthly; FAvailable:=Available; FFactory:=Factory;
   Position:=poOwnerFormCenter; Font.Assign(Screen.MessageFont); BorderStyle:=bsSizeable;
   ClientWidth:=760; ClientHeight:=560; Constraints.MinWidth:=600; Constraints.MinHeight:=440;
-  FHeader:=TLabel.Create(Self); FHeader.Parent:=Self; FHeader.AutoSize:=False; FHeader.WordWrap:=True;
+  FHeader:=TLabel.Create(Self); FHeader.Parent:=Self; FHeader.Name:='ModuleMaintenanceIntro'; FHeader.AutoSize:=False; FHeader.WordWrap:=True;
   if Monthly then FHeader.Caption:='Эти модули не использовались не меньше месяца. Выберите, какие удалить.'
   else FHeader.Caption:='Выберите ненужные модули. При следующей необходимости программа предложит установить их снова.';
   FList:=TListView.Create(Self); FList.Parent:=Self; FList.Name:='MaintenanceModules';
@@ -159,8 +162,28 @@ begin
   FClose:=TButton.Create(Self); FClose.Parent:=Self; FClose.Name:='MaintenanceClose'; FClose.Caption:='Закрыть';
   if Monthly then FClose.Caption:='Не сейчас'; FClose.Cancel:=True; FClose.OnClick:=CloseClick;
   FTimer:=TTimer.Create(Self); FTimer.Interval:=150; FTimer.OnTimer:=Tick;
+  FToolGuide:=TContextToolGuide.CreateForTool(Self,Self,'module-maintenance','Что можно убрать из HomeLibre',
+    'В списке установленные дополнительные модули. Удаление отмеченных модулей освобождает место. Книги и коллекции остаются на диске.',
+    'Если состав файлов неизвестен, выделите модуль и нажмите «Проверить состав…». Перед удалением сверьте размер и список выбранных модулей.'+#13#10+#13#10+
+    'Когда модуль снова понадобится, программа предложит его установить. Для загрузки может потребоваться интернет.',
+    HELP_MODULE_MAINTENANCE,'');
+  FToolGuide.Name:='ModulesContextGuide';
+  FToolGuide.HelpButton.Anchors:=[akLeft,akTop];
   OnCloseQuery:=CloseQueryHandler; FillRows(Initial); LayoutControls; ApplyMHLControlTheme(Self);
   RefreshPlan;
+end;
+
+procedure TfrmComponentMaintenance.DoShow;
+begin
+  inherited;
+  LayoutControls;
+  if not FMonthly then FToolGuide.FirstUse;
+end;
+
+procedure TfrmComponentMaintenance.DoHide;
+begin
+  if Assigned(FToolGuide) then FToolGuide.Hide;
+  inherited;
 end;
 
 destructor TfrmComponentMaintenance.Destroy;
@@ -509,7 +532,8 @@ begin
   if not Assigned(FClose) then Exit;
   S:=CurrentPPI; Gap:=MulDiv(12,S,96); W:=ClientWidth-2*Gap;
   Canvas.Font.Assign(Font); H:=Canvas.TextHeight('Mg'); ButtonH:=Max(MulDiv(32,S,96),H+MulDiv(12,S,96));
-  FHeader.SetBounds(Gap,Gap,W,2*H+Gap); FList.SetBounds(Gap,FHeader.Top+FHeader.Height+Gap,W,Max(MulDiv(130,S,96),ClientHeight div 3));
+  FToolGuide.HelpButton.SetBounds(ClientWidth-Gap-ButtonH,Gap,ButtonH,ButtonH);
+  FHeader.SetBounds(Gap,Gap,W-ButtonH-Gap,Max(2*H+Gap,ButtonH)); FList.SetBounds(Gap,FHeader.Top+FHeader.Height+Gap,W,Max(MulDiv(130,S,96),ClientHeight div 3));
   FList.Columns[1].Width:=MulDiv(77,S,96);
   FList.Columns[2].Width:=MulDiv(114,S,96);
   FList.Columns[3].Width:=MulDiv(103,S,96);
