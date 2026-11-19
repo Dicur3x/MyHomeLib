@@ -590,7 +590,7 @@ begin
 end;
 
 procedure TDuplicateSelectionForm.SaveReport(Sender: TObject);
-var Dialog: TSaveDialog; Store: TCompressionPlanStore; SavedCursor: TCursor;
+var Dialog: TSaveDialog; Store: TCompressionPlanStore; DB: TSQLiteDatabase; SavedCursor: TCursor;
 begin
   Dialog := TSaveDialog.Create(Self);
   try
@@ -602,20 +602,26 @@ begin
     try
       Store := TCompressionPlanStore.Create(Settings.WorkPath);
       try
-        Store.Edit(procedure(DB: TSQLiteDatabase)
-          begin
-            DB.ExecSQL('CREATE TABLE Selection(ID INTEGER PRIMARY KEY,Archive TEXT,Description TEXT)');
-            var Insert := DB.NewQuery('INSERT INTO Selection(Archive,Description) VALUES(?,?)');
-            try
-              FSource(0, -1, procedure(const Kept, Selected: TBookRecord)
-                begin
-                  Insert.SetParam(0, DuplicateReviewArchive(Selected));
-                  Insert.SetParam(1, PairText(Kept, Selected));
-                  Insert.ExecSQL; Insert.Reset;
-                end);
-            finally Insert.Free; end;
-            DB.ExecSQL('CREATE INDEX SelectionArchive ON Selection(Archive COLLATE NOCASE,ID)');
-          end);
+        DB := Store.DB;
+        DB.ExecSQL('BEGIN');
+        try
+          DB.ExecSQL('CREATE TABLE Selection(ID INTEGER PRIMARY KEY,Archive TEXT,Description TEXT)');
+          var Insert := DB.NewQuery('INSERT INTO Selection(Archive,Description) VALUES(?,?)');
+          try
+            FSource(0, -1, procedure(const Kept, Selected: TBookRecord)
+              begin
+                Insert.SetParam(0, DuplicateReviewArchive(Selected));
+                Insert.SetParam(1, PairText(Kept, Selected));
+                Insert.ExecSQL; Insert.Reset;
+              end);
+          finally Insert.Free; end;
+          DB.ExecSQL('CREATE INDEX SelectionArchive ON Selection(Archive COLLATE NOCASE,ID)');
+          DB.Commit;
+        except
+          DB.Rollback;
+          raise;
+        end;
+        Store.Seal;
         SaveGeneratedTextAtomically(Dialog.FileName, procedure(Writer: TStreamWriter)
           begin
             Writer.WriteLine(FSummary); Writer.WriteLine('');
