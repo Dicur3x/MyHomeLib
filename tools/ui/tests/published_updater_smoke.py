@@ -225,7 +225,7 @@ def main():
                 "$link.TargetPath=$env:HOMELIBRE_TEST_MAIN; $link.WorkingDirectory=[System.IO.Path]::GetDirectoryName($env:HOMELIBRE_TEST_MAIN); $link.Save()"],
                 env=shortcut_env, capture_output=True, timeout=30, creationflags=subprocess.CREATE_NO_WINDOW)
             assert result.returncode == 0, result.stderr
-            assert initial_main == 'HomeLibRu.exe' and shortcut.is_file()
+            assert (target / 'HomeLibRu.exe').is_file() and shortcut.is_file()
             report['legacy_shortcut_sha256'] = sha(shortcut)
         old_helper = (target / 'HomeLibRuUpdater.exe').read_bytes()
         report['old_helper_sha256'] = hashlib.sha256(old_helper).hexdigest()
