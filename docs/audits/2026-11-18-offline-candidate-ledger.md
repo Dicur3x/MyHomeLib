@@ -660,6 +660,15 @@ correlation. The success reports were acknowledged through the interface.
 Both applications closed normally. Inputs stayed byte-identical and the
 private profiles were removed.
 
+The production export path also ran the large LRF through the writer
+installed from each final full ZIP. Both outputs contained 1,246 pages.
+Text matched the independently verified previous output on pages 1, 11,
+621, 1244 and 1246. The run verified writing activity, preserved the
+LRF bytes and removed both private runtimes. The earlier separate full
+readbacks cover all 668,971 words and fourteen images; this replay compared
+the specified sample pages. Final replay reports are in the r2012
+`scratch/Win32` and `scratch/Win64` subdirectories.
+
 Reports and release checksums are under
 `G:/HL-b14-external/r2012-release-refresh`. Reader export reports are in
 `G:/HL-b14-external/r2011-fixed-pages/sealed-Win32` and
