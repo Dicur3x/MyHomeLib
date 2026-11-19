@@ -8,7 +8,8 @@ uses System.SysUtils, System.Classes, System.IOUtils, System.JSON,
   unit_ApplicationIdentity in '..\..\Program\Units\unit_ApplicationIdentity.pas',
   unit_UpdateAuthenticity in '..\..\Program\Units\unit_UpdateAuthenticity.pas',
   unit_ProgramUpdateInstaller in '..\..\Program\Units\unit_ProgramUpdateInstaller.pas',
-  unit_UpdateRelatedInstances in '..\..\Program\Units\unit_UpdateRelatedInstances.pas';
+  unit_UpdateRelatedInstances in '..\..\Program\Units\unit_UpdateRelatedInstances.pas',
+  unit_OperationErrorDialog in '..\..\Program\Units\unit_OperationErrorDialog.pas';
 
 const PROCESS_QUERY_LIMITED_INFORMATION = $1000;
 function QueryFullProcessImageName(Process: THandle; Flags: DWORD;
@@ -43,12 +44,15 @@ begin
 end;
 
 var Job, Target, Tag, Digest, ParentImage, Error, Cache, OriginalCommandLine, ApplicationName, FailureLog: string;
+  Stage, Guidance, Heading, Details, FileGuidance, DiagnosticDirectory: string;
   Root: TJSONValue; Request: TJSONObject; Args: TJSONArray;
   PID, Length: Cardinal; Parent: THandle; CanRestart, Recover, ValidJob: Boolean;
   Related: TUpdateRelatedInstances; CallerRestarted, FilesApplied: Boolean;
 begin
   Root := nil; Args := nil; CanRestart := False; ValidJob:=False;
   Related:=nil; CallerRestarted:=False; FilesApplied:=False;
+  Stage := 'Чтение параметров обновления';
+  Guidance := 'Откройте HomeLibre и проверьте обновления ещё раз.';
   try
     if (ParamCount <> 2) or (ParamStr(1) <> '--job') then Halt(2);
     Job := TPath.GetFullPath(ParamStr(2)); AssertUpdatePath(Job);
@@ -69,6 +73,8 @@ begin
     ApplicationName:=ReadProgramUpdateApplication(Request);
     OriginalCommandLine := ''; Request.TryGetValue<string>('commandLine', OriginalCommandLine);
     Recover := False; Request.TryGetValue<Boolean>('recover', Recover);
+    Stage := 'Ожидание закрытия программы';
+    Guidance := 'Закройте окна HomeLibre и HomeLibre Reader и повторите установку.';
     Parent := OpenProcess(SYNCHRONIZE or PROCESS_QUERY_LIMITED_INFORMATION, False, PID);
     if (Parent = 0) and (GetLastError <> ERROR_INVALID_PARAMETER) then RaiseLastOSError;
     if Parent <> 0 then
@@ -90,20 +96,30 @@ begin
       Related:=TUpdateRelatedInstances.Create(Target,Job,PID);
       Related.KeepCallerInput(ApplicationName,OriginalCommandLine);
       Related.CloseAndWait;
+      Stage := 'Восстановление предыдущей версии';
+      Guidance := 'Повторите восстановление из окна обновлений. При повторной ошибке приложите журнал.';
       RollbackProgramUpdate(Job, Target);
       FilesApplied:=True;
+      Stage := 'Запуск восстановленной версии';
       Restart(Target, ApplicationName, Args, OriginalCommandLine);
       CallerRestarted:=True; Related.RestartClosed;
       Related.Free; Root.Free; Halt(0);
     end;
+    Stage := 'Проверка скачанного пакета';
+    Guidance := 'Скачанный пакет не прошёл проверку. Откройте «Помощь → Проверить обновления» и скачайте его заново.';
     if not SameText(UpdateSHA256(IncludeTrailingPathDelimiter(Job) + 'release.zip'), Digest) then
       raise Exception.Create('Архив обновления изменился после загрузки.');
     VerifyPreparedProgramUpdate(Job, Tag, ProgramUpdatePlatform);
+    Stage := 'Закрытие открытых окон перед установкой';
+    Guidance := 'Закройте HomeLibre Reader и другие окна HomeLibre из этой папки, затем повторите установку.';
     Related:=TUpdateRelatedInstances.Create(Target,Job,PID);
     Related.KeepCallerInput(ApplicationName,OriginalCommandLine);
     Related.CloseAndWait;
+    Stage := 'Замена файлов программы';
+    Guidance := 'Закройте другие окна HomeLibre и HomeLibre Reader. Проверьте, что папка программы доступна для записи, затем повторите установку.';
     InstallProgramUpdate(Job, Target);
     FilesApplied:=True;
+    Stage := 'Завершение установки и запуск программы';
     Cache := ExtractFileDir(Job);
     TFile.WriteAllText(IncludeTrailingPathDelimiter(Cache) + 'result.txt',
       'Установлена версия ' + Tag + '.', TEncoding.UTF8);
@@ -112,13 +128,19 @@ begin
   except
     on E: Exception do
     begin
-      Error := 'Обновление не установлено.' + sLineBreak + E.Message;
+      Heading := 'Обновление не установлено';
+      FileGuidance := WindowsFileErrorGuidance(E);
+      if FileGuidance <> '' then Guidance := FileGuidance;
       if FilesApplied then
       begin
-        if Recover then Error:='Откат выполнен. Не удалось завершить восстановление окон.'
-        else Error:='Версия обновлена. Не удалось завершить действия после установки.';
-        Error:=Error+sLineBreak+E.Message;
+        if Recover then Heading := 'Предыдущая версия восстановлена'
+        else Heading := 'Обновление установлено';
+        Guidance := 'Не удалось завершить перезапуск. Если окно HomeLibre закрыто, запустите программу из её папки.';
       end;
+      Details := OperationErrorDetails(Stage, E) + sLineBreak + 'Разрядность: ' + ProgramUpdatePlatform;
+      if ValidJob and IsUpdateSHA256(Digest) and (System.Length(Tag) <= 60) then
+        Details := Details + sLineBreak + 'Версия пакета: ' + Tag;
+      Error := Heading + sLineBreak + Details + sLineBreak + E.Message;
       // Restore already closed windows even after a preflight/installation
       // failure; do not make recovery depend on acknowledging the error box.
       if CanRestart and Assigned(Args) and not CallerRestarted then
@@ -129,6 +151,7 @@ begin
         except on R:Exception do Error:=Error+sLineBreak+'Восстановление окон: '+R.Message; end;
       if ValidJob then
       begin
+        DiagnosticDirectory := Job;
         Error:=Error+sLineBreak+'Папка диагностики обновления:'+sLineBreak+Job;
         if FileExists(TPath.Combine(Job,'journal.json')) then
           Error:=Error+sLineBreak+'Журнал установки: journal.json';
@@ -140,7 +163,7 @@ begin
           // Keep the original installation error if diagnostics are unwritable.
         end;
       end;
-      MessageBox(0, PChar(Error), 'HomeLibre', MB_OK or MB_ICONERROR);
+      ShowOperationError(0, Heading, Guidance, Details, DiagnosticDirectory);
       Related.Free; Root.Free; Halt(1);
     end;
   end;

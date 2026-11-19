@@ -57,6 +57,7 @@ implementation
 uses
   SysUtils,
   DateUtils,
+  System.IOUtils,
   unit_NCWParams,
   unit_MHLHttpClient;
 
@@ -86,27 +87,33 @@ end;
 function TframeNCWDownload.Download: Boolean;
 var
   Response: TFileStream;
+  Status: Integer;
+  StagedIndex: string;
 begin
   Result := False;
   FTerminated := False;
+  StagedIndex := TPath.Combine(ExtractFilePath(FPParams^.INPXFile), 'INPX-' + TGUID.NewGuid.ToString + '.tmp');
 
   FHTTPClient := CreateHTTPClientUpdate;
   try
     FHTTPClient.OnReceiveData := HTTPReceiveData;
     FStartDate := Now;
 
-    Response := TFileStream.Create(FPParams^.INPXFile, fmCreate);
+    Response := TFileStream.Create(StagedIndex, fmCreate);
     try
-      FHTTPClient.Get(FPParams^.INPXUrl, Response);
-      if not FTerminated then
-      begin
-        FPParams^.Operation := otInpx;
-        Result := True;
-      end;
+      Status := FHTTPClient.Get(FPParams^.INPXUrl, Response).StatusCode;
     finally
       Response.Free;
     end;
+    if FTerminated then Exit;
+    if (Status < 200) or (Status >= 300) then
+      raise Exception.CreateFmt('Сервер вернул HTTP %d.', [Status]);
+    if not MoveFileEx(PChar(StagedIndex), PChar(FPParams^.INPXFile), MOVEFILE_REPLACE_EXISTING or MOVEFILE_WRITE_THROUGH) then
+      RaiseLastOSError;
+    FPParams^.Operation := otInpx;
+    Result := True;
   finally
+    DeleteFile(StagedIndex);
     FreeAndNil(FHTTPClient);
   end;
 end;

@@ -181,7 +181,8 @@ uses System.StrUtils, System.IOUtils, System.JSON, System.RegularExpressions, Sy
   System.Types, Winapi.ShellAPI,
   Vcl.Graphics, Vcl.Menus, Vcl.Clipbrd, dm_user, unit_Settings, unit_Globals,
   unit_ProgramUpdateInstaller, unit_MHLHttpClient, unit_UpdateTextCache, unit_BookSaveContinuation,
-  unit_MHLExternalTools, unit_Diagnostics, frm_ComponentMaintenance, unit_HelpTopics, Vcl.Themes;
+  unit_MHLExternalTools, unit_Diagnostics, frm_ComponentMaintenance, unit_HelpTopics,
+  unit_OperationErrorDialog, Vcl.Themes;
 
 type
   TUpdateTabs = class(TTabControl);
@@ -2199,8 +2200,12 @@ end;
 function TfrmProgramUpdate.LaunchInstallation: Boolean;
 var Root: TJSONObject; Helper, Parameters, SourceHelper, Argument, CommandLine: string; State: DWORD;
   I: Integer; Args: TJSONArray; ResumeOperation: Boolean;
+  Stage, Guidance, Details: string;
+  DialogOwner: HWND;
 begin
   Result := False;
+  Stage := 'Подготовка запуска установки';
+  Guidance := '';
   try
     if FInstallerProcess<>0 then
     begin
@@ -2213,12 +2218,15 @@ begin
       CloseHandle(FInstallerProcess); FInstallerProcess:=0;
     end;
     if not IsProgramUpdateApplicationName(ExtractFileName(ParamStr(0))) then
-      raise Exception.Create('Файл программы переименован: '+ExtractFileName(ParamStr(0))+'. '+
-        'Для встроенного обновления верните имя HomeLibre.exe или HomeLibreReader.exe.');
+    begin
+      Guidance := 'Для встроенного обновления верните файлу программы имя HomeLibre.exe или HomeLibreReader.exe.';
+      raise Exception.Create('Файл программы переименован: ' + ExtractFileName(ParamStr(0)));
+    end;
     AssertUpdatePath(FJob); AssertUpdatePath(Settings.AppPath);
     Helper := IncludeTrailingPathDelimiter(FJob) + 'HomeLibRuUpdater.exe';
     if not FRecovery or not FileExists(Helper) then
     begin
+      Stage := 'Подготовка механизма обновления';
       SourceHelper := InstallationHelperSource;
       // A previous attempt may have just exited while Windows still holds its
       // image mapping. Reuse only byte-identical verified helper contents.
@@ -2236,6 +2244,7 @@ begin
       Argument:=FComponentRestartArgument();
       if Argument<>'' then CommandLine:=CommandLine+' "'+Argument+'"';
     end;
+    Stage := 'Запись параметров обновления';
     Root := TJSONObject.Create;
     try
       Root.AddPair('target', ExcludeTrailingPathDelimiter(Settings.AppPath));
@@ -2252,15 +2261,32 @@ begin
     finally Root.Free; end;
     Parameters := '--job "' + FJob + '"';
     ArmBookSaveContinuation(Settings.SettingsFileName,FRequestedComponent);
+    Stage := 'Запуск механизма обновления';
     FInstallerProcess:=StartInstallationHelper(Helper,Parameters,FJob);
     Result := True;
   except
     on E: Exception do
     begin
       if (Argument<>'') and Assigned(FComponentRestartAborted) then FComponentRestartAborted();
-      FStatus.Caption := 'Не удалось начать установку: ' + E.Message;
+      LogDiagnosticError('update-launch', E);
+      if Guidance = '' then Guidance := WindowsFileErrorGuidance(E);
+      if (E is EOSError) and (EOSError(E).ErrorCode in [ERROR_SHARING_VIOLATION, ERROR_LOCK_VIOLATION]) then
+        Guidance := 'Файл обновления занят. Закройте другие окна HomeLibre и HomeLibre Reader, затем снова нажмите «' +
+          FPrimary.Caption + '».';
+      if Guidance = '' then
+        Guidance := 'Повторите проверку обновлений. Если ошибка повторится, приложите скопированные сведения к сообщению в поддержку.';
+      Details := OperationErrorDetails(Stage, E) + sLineBreak + 'Разрядность: ' + ProgramUpdatePlatform;
+      if FRelease.Tag <> '' then Details := Details + sLineBreak + 'Версия пакета: ' + FRelease.Tag;
+      if FRelease.ComponentID <> '' then Details := Details + sLineBreak + 'Компонент: ' + FRelease.ComponentID;
+      Details := Details + sLineBreak + SanitizeDiagnosticText(E.Message);
+      FStatus.Caption := 'Не удалось начать установку. ' + Guidance;
       DisarmBookSaveContinuation(Settings.SettingsFileName);
-      FPendingInstall := False; Present;
+      FPendingInstall := False;
+      LayoutWindow;
+      Present;
+      DialogOwner := Handle;
+      if Assigned(FCompactForm) and FCompactForm.Visible then DialogOwner := FCompactForm.Handle;
+      ShowOperationError(DialogOwner, 'Не удалось начать установку', Guidance, Details, DiagnosticLogDirectory);
     end;
   end;
 end;

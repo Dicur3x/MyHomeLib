@@ -126,7 +126,9 @@ uses
   unit_Interfaces,
   unit_ImportInpxThread,
   unit_CollectionWorkerThread,
-  unit_ImportMetabibThread;
+  unit_ImportMetabibThread,
+  unit_Diagnostics,
+  unit_OperationErrorDialog;
 
 {$R *.dfm}
 
@@ -135,7 +137,6 @@ rstrCreationCollection = 'Создание коллекции';
    rstrDataImport = 'Импорт данных';
    rstrDataImporting = 'Импортируем данные';
    rstrRegistration = 'Регистрируем коллекцию';
-   rstrDownloadFailed = 'Загрузка не удалась. Сервер сообщает об ошибке.';
    rstrImportDoneWithErrors = 'Импорт окончен с ошибками. Продолжить регистрацию коллекции?';
 
 destructor TNewCollectionWizard.Destroy;
@@ -286,7 +287,13 @@ begin
     except
       on E: Exception do
       begin
-        MessageDlg(rstrDownloadFailed, mtError, [mbOK], 0);
+        LogDiagnosticError('inpx-source-download', E);
+        var Guidance := WindowsFileErrorGuidance(E);
+        if Guidance = '' then
+          Guidance := 'Проверьте адрес источника и подключение. Если индекс уже скачан, выберите локальный файл INPX.';
+        ShowOperationError(Handle, 'Не удалось загрузить индекс коллекции', Guidance,
+          OperationErrorDetails('Загрузка INPX', E) + sLineBreak + SanitizeDiagnosticText(E.Message),
+          DiagnosticLogDirectory);
         DoChangePage(btnBackward);
       end;
     end;
