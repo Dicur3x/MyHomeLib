@@ -605,6 +605,32 @@ of every additional ZIP. The local fixtures use the actual candidate bytes.
 The live network regression used the published beta 13 release. Beta 14
 public availability can be verified after publication.
 
+## Final catalogue and Reader commands
+
+The programs extracted from both r2009 full ZIPs saved the same illustrated
+FB2 through the normal «Сохранить как» menu. Catalogue and standalone Reader
+each produced TXT with all three passages in order and FB2.ZIP whose sole FB2
+member matched the full source byte for byte. In the standalone Reader,
+«Ещё форматы» exposed EPUB 3. Its package version, spine order, text and image
+reference were checked independently. The referenced PNG retained every
+decoded pixel even though the resource was encoded again. Both profiles
+closed normally and the private copies were removed.
+
+The catalogue also exported the selected FB2 from a ZIP containing a second
+book on each architecture. TXT retained the selected book's text in order.
+FB2.ZIP contained only the selected book with its original bytes. The input
+archive, including the neighboring member, was unchanged.
+
+The x86 and x64 native update-form tests used the current build and core
+files from those portable ZIPs. The official JPEG XL 0.13.0 packages passed
+cache repair, a second installation click with a running helper, rejection of
+the wrong version and installation of the decoder and encoder. The test uses
+a sleeping helper to reproduce the sharing conflict and a separate installer
+test for the real package. The paths of 286 characters were tested in
+preparation and installation. The current native context-guide tests each
+passed 26 checks with the help files from the same portable ZIPs.
+Reports are under `G:/HL-b14-external/r2010-release-acceptance`.
+
 ## Remaining checks
 
 Remaining source checks, Desktop replacement and publication remain open.
