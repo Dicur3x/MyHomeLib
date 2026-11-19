@@ -38,7 +38,11 @@ if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
 }
 $OutputDirectory = [System.IO.Path]::GetFullPath($OutputDirectory)
 $archivePath = Join-Path $OutputDirectory $archiveName
-$compatibilityArchivePath = if (-not $Full) { Join-Path $OutputDirectory $baseArchiveName } else { $null }
+# Beta 14 already accepts the regular portable archive. Keep historical
+# packaging reproducible and use beta 14 as the bridge from beta 13.
+$compatibilityArchivePath = if (-not $Full -and [version]$releaseIdentity.version -lt [version]'3.0.0.15') {
+    Join-Path $OutputDirectory $baseArchiveName
+} else { $null }
 if (Test-Path -LiteralPath $archivePath) {
     throw "Archive already exists; choose a new output directory: $archivePath"
 }
@@ -189,7 +193,7 @@ try {
     }
     [System.IO.Directory]::CreateDirectory($OutputDirectory) | Out-Null
     Move-Item -LiteralPath $temporaryArchive -Destination $archivePath
-    if (-not $Full) {
+    if ($compatibilityArchivePath) {
         # Published clients through beta 13 reject unknown root EXE names.
         # They still see the old-name compatibility launcher and transport the
         # real catalogue under an accepted tools path. The matching updater

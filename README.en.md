@@ -21,13 +21,14 @@ Starting with 3.0 beta 14, choose one of these archives for a manual installatio
 
 | Package | Windows x64 | Windows x86 |
 | --- | --- | --- |
-| Minimal | `HomeLibre_x64_portable.zip` | `HomeLibre_portable.zip` |
+| Compact | `HomeLibre_x64_portable.zip` | `HomeLibre_portable.zip` |
 | Full offline | `HomeLibre_x64_full.zip` | `HomeLibre_full.zip` |
 
-The minimal package downloads modules when needed. The full package includes
+The compact package downloads modules when needed. The full package includes
 the reader, additional modules, and the WebView2 and .NET Framework installers.
-The built-in updater in earlier versions uses `HomeLibre_x64.zip` and
-`HomeLibre.zip`. Choose one of those two archives to install beta 13 manually.
+Both packages can run immediately after extraction.
+If you have beta 13, update to [beta 14](https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.14) first. Then use
+**Help → Check for updates** again to upgrade to the latest version.
 The release page lists archive checksums in `SHA256SUMS.txt`.
 
 Requires **Windows 10 or later**. The archive contains the catalogue app.

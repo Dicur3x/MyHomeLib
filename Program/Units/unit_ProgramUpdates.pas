@@ -173,7 +173,7 @@ var
   Obj: TJSONObject;
   Assets: TJSONArray;
   Draft, HasArchive: Boolean;
-  Tag, Name, DownloadURL, Digest, ExpectedName, LegacyName, PortableName: string;
+  Tag, Name, DownloadURL, Digest, ExpectedName, LegacyName, PortableName, CompactName: string;
   Comparison, AssetRank, SelectedRank: Integer;
   AssetSize: Int64;
   Candidate: TProgramRelease;
@@ -210,10 +210,12 @@ begin
       if Candidate.Notes.Trim = '' then
         Candidate.Notes := 'Автор не опубликовал описание изменений этого выпуска.';
 {$IFDEF WIN64}
+      CompactName := 'HomeLibre_x64_compact.zip';
       PortableName := 'HomeLibre_x64_portable.zip';
       ExpectedName := 'HomeLibre_x64.zip';
       LegacyName := 'HomeLibRu_x64.zip';
 {$ELSE}
+      CompactName := 'HomeLibre_compact.zip';
       PortableName := 'HomeLibre_portable.zip';
       ExpectedName := 'HomeLibre.zip';
       LegacyName := 'HomeLibRu.zip';
@@ -221,7 +223,8 @@ begin
       for Asset in Assets do
         if (Asset is TJSONObject) and
            TJSONObject(Asset).TryGetValue<string>('name', Name) and
-           ((Name = 'HomeLibre_portable.zip') or (Name = 'HomeLibre_x64_portable.zip') or
+           ((Name = 'HomeLibre_compact.zip') or (Name = 'HomeLibre_x64_compact.zip') or
+            (Name = 'HomeLibre_portable.zip') or (Name = 'HomeLibre_x64_portable.zip') or
             (Name = 'HomeLibre.zip') or (Name = 'HomeLibre_x64.zip') or
             (Name = 'HomeLibRu.zip') or (Name = 'HomeLibRu_x64.zip')) then
         begin
@@ -230,6 +233,7 @@ begin
           if Name = LegacyName then AssetRank := 1;
           if Name = ExpectedName then AssetRank := 2;
           if Name = PortableName then AssetRank := 3;
+          if Name = CompactName then AssetRank := 4;
           if (AssetRank > SelectedRank) and
              TJSONObject(Asset).TryGetValue<string>('browser_download_url', DownloadURL) and
              (DownloadURL = 'https://github.com/Dicur3x/MyHomeLib/releases/download/' + Tag + '/' + Name) and

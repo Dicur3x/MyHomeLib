@@ -1,6 +1,19 @@
 ﻿procedure TestVersionMigration;
 const NextTag = '99.0.0_pre1.2';
   NextDisplay = '99.0 beta 2';
+{$IFDEF WIN64}
+  LegacyName = 'HomeLibRu_x64.zip';
+  PortableName = 'HomeLibre_x64_portable.zip';
+  CompactName = 'HomeLibre_x64_compact.zip';
+  OtherCompactName = 'HomeLibre_compact.zip';
+  FullName = 'HomeLibre_x64_full.zip';
+{$ELSE}
+  LegacyName = 'HomeLibRu.zip';
+  PortableName = 'HomeLibre_portable.zip';
+  CompactName = 'HomeLibre_compact.zip';
+  OtherCompactName = 'HomeLibre_x64_compact.zip';
+  FullName = 'HomeLibre_full.zip';
+{$ENDIF}
 var Comparison: Integer; Info: TProgramRelease; Popup: TfrmProgramUpdate;
   View: TListView; PreviousTheme, CaptionFound: Boolean; CurrentDisplay: string;
   procedure OrderTag(const Left, Right: string);
@@ -9,13 +22,18 @@ var Comparison: Integer; Info: TProgramRelease; Popup: TfrmProgramUpdate;
   procedure OrderFile(const Left, Right: string);
   begin Require(CompareComponentVersions(Left,Right,Comparison) and (Comparison<0),
     'First-party numeric order changed: '+Left+' / '+Right); end;
-  function ReleaseJSON(const Tag: string): string;
-  var Name: string;
+  function ReleaseJSON(const Tag: string; const Names: array of string): string;
+  var Assets: string;
   begin
-    Name:={$IFDEF WIN64}'HomeLibRu_x64.zip'{$ELSE}'HomeLibRu.zip'{$ENDIF};
-    Result:='{"tag_name":"'+Tag+'","draft":false,"body":"Owned version fixture","assets":['+
-      '{"name":"'+Name+'","browser_download_url":"https://github.com/Dicur3x/MyHomeLib/releases/download/'+
-      Tag+'/'+Name+'","digest":"sha256:'+StringOfChar('a',64)+'","size":123}]}';
+    Assets := '';
+    for var Name in Names do
+    begin
+      if Assets <> '' then Assets := Assets + ',';
+      Assets := Assets + '{"name":"'+Name+'","browser_download_url":'+
+        '"https://github.com/Dicur3x/MyHomeLib/releases/download/'+Tag+'/'+Name+
+        '","digest":"sha256:'+StringOfChar('a',64)+'","size":123}';
+    end;
+    Result := '{"tag_name":"'+Tag+'","draft":false,"body":"Owned version fixture","assets":['+Assets+']}';
   end;
 begin
   RequireIsolatedRegression;
@@ -58,13 +76,24 @@ begin
     'A third-party release heading was formatted as a HomeLibre version');
   Writeln('PASS first-party components share beta labels while numeric ordering and upstream versions remain intact');
 
-  Require(ParseProgramReleases('['+ReleaseJSON('2.7.0_pre5.37')+','+
-    ReleaseJSON(PROGRAM_RELEASE_VERSION)+','+ReleaseJSON(NextTag)+']',Info),'New feed rejected');
+  Require(ParseProgramReleases('['+ReleaseJSON('2.7.0_pre5.37',[LegacyName])+','+
+    ReleaseJSON(PROGRAM_RELEASE_VERSION,[LegacyName])+','+ReleaseJSON(NextTag,[LegacyName])+']',Info),
+    'New feed rejected');
   Require((Info.Tag=NextTag) and Info.DownloadURL.Contains('/'+NextTag+'/'),'Download tag relabelled');
   Require(Info.Changelog.Contains(NextDisplay) and not Info.Changelog.Contains('2.7.0_pre5.37'),'Wrong new changelog');
   Require(ReleaseNotesHeading(ReleaseDisplayVersion(PROGRAM_RELEASE_VERSION),'2026-10-30T00:00:00Z')=
     CurrentDisplay+' — 30.10.2026','Friendly dated heading lost');
   Writeln('PASS new-series feed retains exact download tags digests and legacy history');
+
+  Require(ParseProgramReleases('['+ReleaseJSON(NextTag,[FullName,PortableName])+']',Info) and
+    Info.DownloadURL.EndsWith('/'+PortableName),'Four-archive release has no portable update');
+  Require(ParseProgramReleases('['+ReleaseJSON(NextTag,[CompactName,OtherCompactName,PortableName,FullName])+']',Info) and
+    Info.DownloadURL.EndsWith('/'+CompactName),'Compact update did not win for the current architecture');
+  Require(ParseProgramReleases('['+ReleaseJSON(NextTag,[OtherCompactName])+']',Info) and
+    (Info.Tag=NextTag) and (Info.DownloadURL=''),'Other architecture offered as an update');
+  Require(not ParseProgramReleases('['+ReleaseJSON(NextTag,[FullName])+']',Info),
+    'The offline distribution must not be offered as an automatic update');
+  Writeln('PASS compact and portable release assets select the correct architecture without an offline payload');
 
   PreviousTheme:=MHLThemeDark;
   try
