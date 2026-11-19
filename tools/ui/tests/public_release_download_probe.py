@@ -184,6 +184,10 @@ def main():
                 if entry['id'] == 'HomeLibReader':
                     entry = entry.get('minimal_reader', entry)
                 entries[entry['archive']] = entry
+            portable_readers = {
+                f"HomeLibreReader-{entry['version']}-{entry['platform']}.zip": entry
+                for entry in entries.values() if entry['id'] == 'HomeLibReader'
+            }
             ids = component_ids(repo)
             version = json.loads((repo / 'Installer/Release.json').read_bytes())['version']
 
@@ -216,10 +220,10 @@ def main():
                 archive = root / item['name']
                 archive.write_bytes(data)
                 verification = dict(name=item['name'], asset_id=asset['id'], size=len(data), sha256=digest(data))
-                if archive.name in entries:
+                entry = entries.get(archive.name) or portable_readers.get(archive.name)
+                if entry:
                     with zipfile.ZipFile(archive) as package:
                         assert package.testzip() is None
-                    entry = entries[archive.name]
                     verification['native_prepare'] = run(entry['platform'], '--prepare-component', archive, digest(data),
                         plan['release_tag'], root / ('job-' + archive.stem), entry['id'], entry['version'])
                 else:
