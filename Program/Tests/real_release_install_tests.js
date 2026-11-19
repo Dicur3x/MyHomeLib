@@ -3,7 +3,8 @@
 const fs = require('node:fs'), path = require('node:path'), os = require('node:os');
 const cp = require('node:child_process'), crypto = require('node:crypto');
 const assert = require('node:assert/strict');
-const [testerArg, previousArg, candidateArg, python = 'python', expectedRelease = '2.7.0_pre5.18'] = process.argv.slice(2);
+const [testerArg, previousArg, candidateArg, python = 'python', expectedRelease = '2.7.0_pre5.18', readerArg] =
+  process.argv.slice(2).filter(arg => arg !== '--keep');
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'HomeLibRu-update-test-real-release-'));
 require('../../tools/test_temp_root')(root, 'HomeLibRu-update-test-real-release-');
 const installation = path.join(root, 'installation'), job = path.join(root, 'job');
@@ -45,14 +46,17 @@ fs.writeFileSync(path.join(installation, 'uselocaldata'), '');
 // their exact executable before the real update so this still tests installation
 // over the original, complete previous distribution.
 const fixtureBuilder = path.join(installation, 'MHLMcpServer.exe');
-const previousBuilder = read(fixtureBuilder);
-try {
-  fs.copyFileSync(path.join(unpacked, 'MHLMcpServer.exe'), fixtureBuilder);
-  execute(fixtureBuilder, ['--make-fixture', 'uselocaldata', 'user', 'mcpfixture']);
-} finally {
-  fs.writeFileSync(fixtureBuilder, previousBuilder);
+const candidateBuilder = path.join(unpacked, 'MHLMcpServer.exe');
+if (fs.existsSync(fixtureBuilder) && fs.existsSync(candidateBuilder)) {
+  const previousBuilder = read(fixtureBuilder);
+  try {
+    fs.copyFileSync(candidateBuilder, fixtureBuilder);
+    execute(fixtureBuilder, ['--make-fixture', 'uselocaldata', 'user', 'mcpfixture']);
+  } finally {
+    fs.writeFileSync(fixtureBuilder, previousBuilder);
+  }
+  assert.equal(sha(read(fixtureBuilder)), sha(previousBuilder));
 }
-assert.equal(sha(read(fixtureBuilder)), sha(previousBuilder));
 const profiles = {'myhomelib2.ini': '[SYSTEM]\r\nCheckUpdates=0\r\n',
   'book-views.ini': '[Format]\r\nVersion=1\r\n; Сортировки и фильтры пользователя: ё, ї, ў\r\n',
   'presets.cxml2': 'isolated saved presets', 'Readers/AlReader/options.ini': 'saved reader options',
@@ -68,11 +72,44 @@ for (const [name, contents] of Object.entries(profiles)) {
   fs.mkdirSync(path.dirname(filename), {recursive: true});
   fs.writeFileSync(filename, contents);
 }
-const protectedFiles = files(installation).filter(name => !payload.has(name) && name !== 'HomeLibRu.update.json');
+const installedName = name => name === 'tools/updates/catalogue/HomeLibre.exe' ? 'HomeLibre.exe' : name;
+const installedPayload = new Set([...payload].map(installedName));
+const protectedFiles = files(installation).filter(name => !installedPayload.has(name) && name !== 'HomeLibRu.update.json');
 const before = protectedFiles.map(name => sha(read(path.join(installation, name))));
 execute(tester, ['--prepare', archive, sha(read(archive)), manifest.release, job]);
 execute(tester, ['--install', job, installation]);
 assert.deepEqual(protectedFiles.map(name => sha(read(path.join(installation, name)))), before);
-for (const entry of manifest.files) assert.equal(sha(read(path.join(installation, entry.path))), entry.sha256);
+for (const entry of manifest.files) {
+  assert.equal(sha(read(path.join(installation, installedName(entry.path)))), entry.sha256);
+}
 console.log(`PASS ${manifest.platform}: actual ZIP CRC, ${payload.size} manifest files, installation over previous release, ${protectedFiles.length} profile/library files preserved`);
+if (readerArg) {
+  const readerArchive = path.join(root, 'reader.zip'), readerFiles = path.join(root, 'reader');
+  const readerJob = path.join(root, 'reader-job'), combined = path.join(root, 'combined');
+  fs.copyFileSync(readerArg, readerArchive);
+  unpack(readerArchive, readerFiles);
+  const reader = JSON.parse(read(path.join(readerFiles, 'HomeLibRu.update.json')));
+  assert.equal(reader.component, 'HomeLibReader');
+  const helper = 'HomeLibRuUpdater.exe';
+  const catalogueHelperHash = sha(read(path.join(unpacked, helper)));
+  assert.notEqual(sha(read(path.join(readerFiles, helper))), catalogueHelperHash,
+    'Use a Reader package from a different release to exercise the shared updater collision');
+  execute(tester, ['--prepare-component', readerArchive, sha(read(readerArchive)), reader.release,
+    readerJob, reader.component, reader.version]);
+  execute(tester, ['--combine', combined, manifest.release, job, readerJob]);
+  const combinedHash = sha(read(path.join(combined, 'release.zip')));
+  execute(tester, ['--prepared-helper', combined, manifest.release, combinedHash]);
+  execute(tester, ['--install', combined, installation]);
+  assert.equal(sha(read(path.join(installation, helper))), catalogueHelperHash);
+  const readerExecutable = reader.files.find(file => /^HomeLib(re)?Reader\.exe$/.test(file.path));
+  assert(readerExecutable);
+  const installedReader = reader.reader_application || readerExecutable.path;
+  assert.equal(sha(read(path.join(installation, installedReader))), readerExecutable.sha256);
+  const readerPayload = new Set(reader.files.map(file => file.path));
+  readerPayload.add(installedReader);
+  for (const [index, name] of protectedFiles.entries()) {
+    if (!readerPayload.has(name)) assert.equal(sha(read(path.join(installation, name))), before[index]);
+  }
+  console.log(`PASS ${manifest.platform}: catalogue ${manifest.release} + Reader ${reader.version} install with catalogue updater`);
+}
 console.log(`Artifacts: ${root}`);

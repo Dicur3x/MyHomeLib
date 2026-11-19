@@ -1127,7 +1127,7 @@ function CombinePreparedProgramUpdates(const Jobs: TArray<string>;
   const Tag, Platform, Job: string): string;
 var Manifest, Child, Entry, Part: TJSONObject; Bundle, List: TJSONArray;
   Files: TDictionary<string, TUpdateFile>; Info: TUpdateFile; JobName, Stage, Component, ReleaseTag: string;
-  Zip: TZipFile; HasApplication: Boolean; Values: TUpdateFiles;
+  Zip: TZipFile; HasApplication, ApplicationUpdater: Boolean; Values: TUpdateFiles;
 begin
   if (Length(Jobs) < 2) or (Length(Jobs) > UPDATE_MAX_COMPONENTS+1) or DirectoryExists(Job) then
     raise Exception.Create('Некорректный набор подготовленных обновлений.');
@@ -1137,6 +1137,7 @@ begin
   Manifest.AddPair('format', TJSONNumber.Create(1)); Manifest.AddPair('release', Tag);
   Manifest.AddPair('platform', Platform); Manifest.AddPair('bundle', Bundle); Manifest.AddPair('files', List);
   HasApplication := False;
+  ApplicationUpdater := False;
   try
     for JobName in Jobs do
     begin
@@ -1167,6 +1168,13 @@ begin
         begin
           if not SameText(UpdateSHA256(ChildPath(JobName, 'payload/' + Info.Name)), Info.SHA256) then
             raise Exception.Create('Подготовленное обновление повреждено: ' + Info.Name);
+          // A combined application update must launch with the helper from the
+          // same release. A Reader component may contain a newer shared helper.
+          if Info.Name = 'HomeLibRuUpdater.exe' then
+          begin
+            if ApplicationUpdater then Continue;
+            ApplicationUpdater := Component = '';
+          end;
           ForceDirectories(ExtractFileDir(ChildPath(Stage, Info.Name)));
           TFile.Copy(ChildPath(JobName, 'payload/' + Info.Name), ChildPath(Stage, Info.Name), True);
           Files.AddOrSetValue(Info.Name, Info);
