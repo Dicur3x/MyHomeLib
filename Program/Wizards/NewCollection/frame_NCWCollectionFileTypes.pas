@@ -88,7 +88,7 @@ begin
   else
     FPParams^.FileTypes := ftAny;
 
-  FPParams^.AutoImport := cbAutoImport.Checked;
+  FPParams^.AutoImport := rbSoreFB2Files.Checked and cbAutoImport.Checked;
   Result := True;
 end;
 

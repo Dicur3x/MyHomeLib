@@ -114,15 +114,5 @@ inherited frameNCWSelectGenreFile: TframeNCWSelectGenreFile
       TabOrder = 3
       OnClick = btnGenreListClick
     end
-    object cbAutoImport: TCheckBox
-      Left = 14
-      Top = 89
-      Width = 283
-      Height = 17
-      Caption = #1047#1072#1087#1091#1089#1090#1080#1090#1100' '#1080#1084#1087#1086#1088#1090' '#1087#1086#1089#1083#1077' '#1089#1086#1079#1076#1072#1085#1080#1103' '#1082#1086#1083#1083#1077#1082#1094#1080#1080
-      Checked = True
-      State = cbChecked
-      TabOrder = 4
-    end
   end
 end
