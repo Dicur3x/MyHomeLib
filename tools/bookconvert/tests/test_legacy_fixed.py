@@ -319,7 +319,8 @@ class LegacyFixed(unittest.TestCase):
         self.assertEqual([''.join(page.itertext()) for page in book.body],
                          ['120400', '[Страница 2 без пригодного текстового слоя]', 'Сохранённый абзац'])
         self.assertFalse(book.resources)
-        self.assertTrue(any('Страниц без текста: 1' in warning for warning in book.warnings))
+        self.assertTrue(any('Страниц без текста: 1' in warning and 'Выберите FB2 или EPUB' in warning
+                            for warning in book.warnings))
 
     def test_sparse_invalid_ocr_codes_remain_visible_without_bypassing_quality(self):
         source = self.root/'source.pdf'; source.write_bytes(pdf_fixture())
@@ -408,11 +409,12 @@ class LegacyFixed(unittest.TestCase):
         expected = ['First readable paragraph', 'Last paragraph preserves', 'Страница 2 без пригодного текстового слоя']
         self.assertEqual([content.index(part) for part in expected], sorted(content.index(part) for part in expected))
         self.assertFalse(any(c.tag(node) in {'binary', 'image'} for node in book.iter()))
-        self.assertTrue(any('Страниц без текста: 1' in warning for warning in result['warnings']))
+        self.assertTrue(any('Страниц без текста: 1' in warning and 'Выберите FB2 или EPUB' in warning
+                            for warning in result['warnings']))
         self.assertEqual(source.read_bytes(), original)
         # Do not let the no-text marker become a successful empty book.
         source.write_bytes(pdf_fixture(text=False))
-        with self.assertRaisesRegex(c.ConversionError, 'нет пригодного текстового слоя.*OCR'):
+        with self.assertRaisesRegex(c.ConversionError, 'нет пригодного текстового слоя.*Выберите FB2 или EPUB'):
             c.convert_book(source, self.root/'scan.fb2', **options)
         self.assertFalse((self.root/'scan.fb2').exists())
         source.write_bytes(original)

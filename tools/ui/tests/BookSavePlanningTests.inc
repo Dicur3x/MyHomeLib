@@ -532,9 +532,9 @@ var Root, Required, Status: string; Books: TArray<TBookRecord>; Hashes: TArray<s
           'TXT size/save changed or lost a source');
         if I in [4,5] then
         begin
-          Require((Results[I].State=besFailed) and Results[I].ErrorText.Contains('требуется OCR') and
-            Items[I].ErrorText.Contains('требуется OCR') and (Items[I].Options.OutputBytes[0,0]=0) and
-            not FileExists(Results[I].OutputFile),'An image-only scan was reported as valid TXT');
+          Require((Results[I].State=besFailed) and Results[I].ErrorText.Contains('Выберите FB2 или EPUB') and
+            Items[I].ErrorText.Contains('Выберите FB2 или EPUB') and (Items[I].Options.OutputBytes[0,0]=0) and
+            not FileExists(Results[I].OutputFile),'A scan did not refuse TXT and suggest an image-capable format');
           Continue;
         end;
         Require((Results[I].State=besSucceeded) and (Items[I].ErrorText='') and

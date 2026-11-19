@@ -202,11 +202,12 @@ def emit_page(book, number, lines, rgb, width, height, page_width, page_height):
 
 def check_content(book, text_count, format_name):
     if book.omit_images:
+        save_scans = 'Выберите FB2 или EPUB, чтобы сохранить страницы как изображения.'
         if not text_count:
-            book.fail(f'В {format_name} нет пригодного текстового слоя. Для сохранения в TXT требуется OCR.')
+            book.fail(f'В {format_name} нет пригодного текстового слоя для сохранения в TXT. {save_scans}')
         missing = getattr(book, 'missing_text_pages', 0)
         if missing:
-            book.warnings.add(f'Страницы без пригодного текстового слоя отмечены в TXT. Страниц без текста: {missing}. Для них требуется OCR.')
+            book.warnings.add(f'Страниц без текста: {missing}. Их места отмечены в TXT. {save_scans}')
     elif text_count < 20 and not getattr(book, 'fixed_image_pages', 0):
         book.fail(f'В {format_name} нет текста или изображений для конвертации.')
 
