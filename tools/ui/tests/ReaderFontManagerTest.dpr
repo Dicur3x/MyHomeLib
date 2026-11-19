@@ -63,10 +63,11 @@ begin
 end;
 
 procedure TFontDialogProbe.CheckPreview(Dialog:TForm; const Prefix:string);
-var Area:TScrollBox; Preview:TLabel; Bounds:TRect; DC:HDC; Saved:Integer;
+var Area:TPanel; Preview:TLabel; Bounds:TRect; DC:HDC; Saved,X:Integer; WheelPoint:TPoint;
+  Raster:TBitmap; ThumbPixel:COLORREF;
 begin
-  Area:=Dialog.FindComponent(Prefix+'Area') as TScrollBox;
-  Preview:=Dialog.FindComponent(Prefix) as TLabel;
+  Area:=Dialog.FindComponent(Prefix+'Area') as TPanel;
+  Preview:=Area.FindComponent(Prefix) as TLabel;
   Require(Assigned(Area) and Assigned(Preview),'Missing scrollable font preview');
   Require(ColorToRGB(Area.Color)=ColorToRGB(Dialog.Color),'Preview area lost the reader palette');
   Preview.Font.Size:=48;
@@ -79,11 +80,33 @@ begin
       DT_CALCRECT or DT_WORDBREAK or DT_NOPREFIX);
     Require(Preview.Height>=Bounds.Height,'Font preview clips its measured last line');
   finally RestoreDC(DC,Saved); ReleaseDC(Area.Handle,DC); end;
-  Require(Area.VertScrollBar.Range>Area.ClientHeight,'A large font sample has no vertical scrolling');
-  Area.VertScrollBar.Position:=Area.VertScrollBar.Range;
-  Require((Preview.Top<0) and (Preview.Top+Preview.Height<=Area.ClientHeight),
-    'The final line of a large font sample cannot be reached');
-  Area.VertScrollBar.Position:=0;
+  Require(Area.TabStop and (Preview.Height>Area.ClientHeight),'A large font sample has no vertical scrolling');
+  Area.SetFocus;
+  WheelPoint:=Area.ClientToScreen(Point(4,4));
+  Area.Perform(WM_MOUSEWHEEL,MakeWParam(0,Word(SmallInt(-WHEEL_DELTA))),MakeLParam(WheelPoint.X,WheelPoint.Y));
+  Require(Preview.Top<0,'The mouse wheel did not move the font sample');
+  Area.Perform(WM_KEYDOWN,VK_END,0);
+  Require((Preview.Top<0) and (Preview.Top+Preview.Height=Area.ClientHeight),
+    'The final line of a large font sample cannot be reached with the keyboard');
+  Area.Perform(WM_KEYDOWN,VK_HOME,0);
+  Require(Preview.Top=0,'Home did not return to the first line');
+  X:=Area.ClientWidth-MulDiv(6,Area.CurrentPPI,96);
+  Raster:=TBitmap.Create;
+  try
+    Raster.SetSize(Area.ClientWidth,Area.ClientHeight);
+    Area.PaintTo(Raster.Canvas,0,0);
+    ThumbPixel:=GetPixel(Raster.Canvas.Handle,X,1);
+    Require((ThumbPixel=ColorToRGB(ReaderBlendColor(Area.Color,Area.Font.Color,132))) or
+      (ThumbPixel=ColorToRGB(ReaderBlendColor(Area.Color,Area.Font.Color,176))),
+      'The preview thumb does not use the dialog palette');
+    Require(GetPixel(Raster.Canvas.Handle,X,Area.ClientHeight-2)=ColorToRGB(ReaderBlendColor(Area.Color,Area.Font.Color,36)),
+      'The preview track does not use the dialog palette');
+  finally Raster.Free; end;
+  Area.Perform(WM_LBUTTONDOWN,MK_LBUTTON,MakeLParam(X,1));
+  Area.Perform(WM_MOUSEMOVE,MK_LBUTTON,MakeLParam(X,Area.ClientHeight-1));
+  Area.Perform(WM_LBUTTONUP,0,MakeLParam(X,Area.ClientHeight-1));
+  Require(Preview.Top+Preview.Height=Area.ClientHeight,'Dragging the thumb did not reach the final line');
+  Area.Perform(WM_KEYDOWN,VK_HOME,0);
 end;
 
 procedure TFontDialogProbe.Tick(Sender:TObject);
@@ -117,7 +140,7 @@ begin
     Search.Text:='NoSuchHomeLibreFont-538246';
     Require((Names.Count=0) and not TButton(Picker.FindComponent('ReaderWindowsFontAdd')).Enabled,
       'Empty font search can still add a font');
-    Preview:=Picker.FindComponent('ReaderWindowsFontPreview') as TLabel;
+    Preview:=Picker.FindComponent('ReaderWindowsFontPreviewArea').FindComponent('ReaderWindowsFontPreview') as TLabel;
     Require((Preview.Font.Name=Picker.Font.Name) and (Preview.Font.Size=Picker.Font.Size),
       'Empty search retained the decorative sample font');
     Search.Text:=ChosenFamily;

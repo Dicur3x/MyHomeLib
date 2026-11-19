@@ -12,7 +12,7 @@ const
   BOOK_IMAGE_PROFILES: array[0..BOOK_QUALITY_NONE] of string =
     ('original','balanced','economy','maximum','none');
   BOOK_IMAGE_PROFILE_CAPTIONS: array[0..BOOK_QUALITY_NONE] of string =
-    ('Как есть','Сбалансированный','Экономный','Максимальная экономия','Без изображений');
+    ('Без уменьшения качества','Сбалансированный','Экономный','Максимальная экономия','Без изображений');
 
 type
   TBookConversionProgress = reference to procedure(Percent, Completed, Total: Integer; const Stage: string);

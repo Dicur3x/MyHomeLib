@@ -25,7 +25,7 @@ type
     FFormat, FImages, FScans, FCollision: TComboBox;
     FSubfolders, FMoreFormats, FGrayscale, FSkipDamagedFB2Image: TCheckBox;
     FContent: TScrollBox;
-    FIntro, FFormatLabel, FImagesLabel, FSummary, FNote, FScanLabel,
+    FSourceInfo, FIntro, FFormatLabel, FImagesLabel, FSummary, FNote, FScanLabel,
       FExceptLabel, FMaskLabel, FMaskHelp, FFolderHelp, FCollisionLabel, FPreview, FStatus: TLabel;
     FCalculate, FSend, FReport, FMaskHelpToggle: TButton;
     FView, FNamesToggle: TButton;
@@ -40,7 +40,7 @@ type
     FItems, FInitialItems: TBookSaveEstimateItems;
     FEstimate: TBookSendEstimateThread;
     FRevision, FPreviewIndex, FPrimaryChoiceCount: Integer;
-    FRequiredComponent, FEstimateTime: string;
+    FRequiredComponent, FEstimateTime, FSingleBookTitle: string;
     FClosing, FReflowing, FInitializing, FHasEstimateAttempt, FShowMaskHelp: Boolean;
     procedure Browse(Sender: TObject);
     procedure DestinationChanged(Sender: TObject);
@@ -55,6 +55,7 @@ type
     procedure Tick(Sender: TObject);
     procedure QueryClose(Sender: TObject; var CanClose: Boolean);
     procedure Reflow(Sender: TObject);
+    function DisplayTitle(BookIndex: Integer): string;
     procedure ListData(Sender: TObject; Item: TListItem);
     procedure ListInfoTip(Sender: TObject; Item: TListItem; var InfoTip: string);
     procedure SelectPreviewBook(Sender: TObject; Item: TListItem; Selected: Boolean);
@@ -78,7 +79,8 @@ type
 function ChooseBookSendOptions(BookCount: Integer; const InitialFolder: string;
   DefaultMode: TExportMode; out Options: TBookSendOptions;
   AllowScripts: Boolean = True; const Books: TArray<TBookRecord> = nil;
-  InitialOptions: PBookSendOptions = nil): Boolean;
+  InitialOptions: PBookSendOptions = nil; const SingleBookTitle: string = '';
+  const SourceDisplayName: string = ''): Boolean;
 
 implementation
 
@@ -177,6 +179,7 @@ begin
   FContent.BorderStyle:=bsNone; FContent.HorzScrollBar.Visible:=False;
   FTabs:=TTabControl.Create(Self); FTabs.Parent:=FContent; FTabs.Name:='SaveSections';
   FTabs.Tabs.Add('Книги'); FTabs.Tabs.Add('Параметры'); FTabs.TabIndex:=0; FTabs.OnChange:=ChangeTab;
+  FSourceInfo:=LabelControl('SaveSourceInfo',''); FSourceInfo.Visible:=False;
   FIntro:=LabelControl('SaveIntro','Папка для сохранения:');
   FDestination:=TEdit.Create(Self); FDestination.Parent:=FContent; FDestination.Name:='SendDestination';
   FDestination.ShowHint:=True; FDestination.TextHint:='Введите путь или выберите папку';
@@ -528,6 +531,8 @@ begin
   FExcept.Enabled:=FScans.Enabled and (FScans.ItemIndex>0);
   FExceptLabel.Visible:=FExcept.Enabled; FExcept.Visible:=FExcept.Enabled;
   FNote.Caption:='Сохраняются копии. Исходные книги не меняются.';
+  if (FImages.ItemIndex=0) and not Choice.KeepOriginal and (Choice.Mode<>emTxt) then
+    FNote.Caption:=FNote.Caption+' При преобразовании формат и метаданные изображений могут измениться.';
   if not BookSaveSupportsNoImages(Choice.Mode) then
     FNote.Caption:=FNote.Caption+' Для KFX и AZW8 нужна обложка.';
   if (Choice.Mode=emTxt) and not Choice.KeepOriginal then
@@ -551,11 +556,17 @@ begin
   UpdateSummary; UpdatePreview; Reflow(nil);
 end;
 
+function TBookSendOptionsForm.DisplayTitle(BookIndex: Integer): string;
+begin
+  if FSingleBookTitle<>'' then Result:=FSingleBookTitle
+  else Result:=FBooks[BookIndex].Title;
+end;
+
 procedure TBookSendOptionsForm.ListData(Sender: TObject; Item: TListItem);
 var Bytes, Margin: Int64;
 begin
   if (Item.Index<0) or (Item.Index>=Length(FItems)) then Exit;
-  var Entry:=FItems[Item.Index]; Item.Caption:=FBooks[Item.Index].Title; Item.SubItems.Clear;
+  var Entry:=FItems[Item.Index]; Item.Caption:=DisplayTitle(Item.Index); Item.SubItems.Clear;
   var Ext:=BookSaveTargetLabel(Entry.TargetExtension,Choice.Mode);
   Item.SubItems.Add(Ext);
   EstimateSize(Entry,Max(0,FImages.ItemIndex),Bytes,Margin);
@@ -570,7 +581,7 @@ var Bytes, Margin: Int64;
 begin
   if (Item.Index<0) or (Item.Index>=Length(FItems)) then Exit;
   var Entry:=FItems[Item.Index];
-  InfoTip:=FBooks[Item.Index].Title;
+  InfoTip:=DisplayTitle(Item.Index);
   EstimateSize(Entry,Max(0,FImages.ItemIndex),Bytes,Margin);
   if (Bytes>0) and (Margin>0) then
     InfoTip:=InfoTip+sLineBreak+BookEstimateValueText(Bytes,Margin,True);
@@ -730,7 +741,7 @@ begin
     for var Pass:=1 to 2 do
     begin
       X:=Margin; Y:=S(16); TotalWidth:=Max(S(300),FContent.ClientWidth-2*Margin); W:=TotalWidth;
-      Text(FIntro);
+      Text(FSourceInfo); Text(FIntro);
       FDestination.SetBounds(Margin,Y,W-S(130),RowHeight);
       TControl(FindComponent('BrowseDestination')).SetBounds(Margin+W-S(120),Y,S(120),RowHeight); Inc(Y,RowHeight+S(16));
       FTabs.Visible:=FLayout=2;
@@ -861,7 +872,8 @@ end;
 
 function ChooseBookSendOptions(BookCount: Integer; const InitialFolder: string;
   DefaultMode: TExportMode; out Options: TBookSendOptions; AllowScripts: Boolean;
-  const Books: TArray<TBookRecord>; InitialOptions: PBookSendOptions): Boolean;
+  const Books: TArray<TBookRecord>; InitialOptions: PBookSendOptions;
+  const SingleBookTitle, SourceDisplayName: string): Boolean;
 var Dialog: TBookSendOptionsForm; Selected: TBookSaveChoice;
 begin
   Result:=False; Options:=Default(TBookSendOptions);
@@ -875,6 +887,15 @@ begin
     begin
       Dialog.PopupMode:=pmExplicit; Dialog.PopupParent:=ParentForm;
       Dialog.Position:=poOwnerFormCenter;
+    end;
+    if Length(Books)=1 then
+    begin
+      Dialog.FSingleBookTitle:=SingleBookTitle;
+      if SourceDisplayName<>'' then
+      begin
+        Dialog.FSourceInfo.Caption:='Исходный файл — '+SourceDisplayName;
+        Dialog.FSourceInfo.Visible:=True;
+      end;
     end;
     Dialog.SetBooks(Books); Dialog.Caption:=Format('Сохранить как · книг: %d',[BookCount]);
     if not Assigned(InitialOptions) then

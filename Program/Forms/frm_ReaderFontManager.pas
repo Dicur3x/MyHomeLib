@@ -19,18 +19,40 @@ type
     procedure WMNotify(var Message: TWMNotify); message WM_NOTIFY;
   end;
 
+  TReaderFontPreview = class(TPanel)
+  private
+    FSample: TLabel;
+    FPosition, FDragOffset, FWheelRemainder: Integer;
+    function ScrollLimit: Integer;
+    function Track: TRect;
+    function Thumb(const Bar: TRect): TRect;
+    procedure ScrollTo(Position: Integer);
+    procedure WMGetDlgCode(var Message: TWMGetDlgCode); message WM_GETDLGCODE;
+  protected
+    procedure Resize; override;
+    procedure Paint; override;
+    procedure KeyDown(var Key: Word; Shift: TShiftState); override;
+    function DoMouseWheel(Shift: TShiftState; WheelDelta: Integer; MousePos: TPoint): Boolean; override;
+    procedure MouseDown(Button: TMouseButton; Shift: TShiftState; X,Y: Integer); override;
+    procedure MouseMove(Shift: TShiftState; X,Y: Integer); override;
+    procedure MouseUp(Button: TMouseButton; Shift: TShiftState; X,Y: Integer); override;
+  public
+    constructor Create(AOwner: TComponent); override;
+    procedure Fit(ResetPosition: Boolean = False);
+    property Sample: TLabel read FSample;
+  end;
+
   TReaderWindowsFontDialog = class(TForm)
   private
     FSearch: TEdit;
     FList: TListBox;
     FPreview: TLabel;
-    FPreviewArea: TScrollBox;
+    FPreviewArea: TReaderFontPreview;
     FAdd: TButton;
     FNames: TStringList;
     procedure Filter(Sender: TObject);
     procedure SelectionChanged(Sender: TObject);
     procedure Accept(Sender: TObject);
-    procedure PreviewResize(Sender: TObject);
   public
     constructor CreateFor(Owner: TCustomForm);
     destructor Destroy; override;
@@ -42,12 +64,11 @@ type
     FSettingsFile, FSelected: string;
     FList: TListView;
     FPreview, FStatus: TLabel;
-    FPreviewArea: TScrollBox;
+    FPreviewArea: TReaderFontPreview;
     FRestore, FRemove, FPack: TButton;
     FWaiting: TStringList;
     FCookie: Cardinal;
     procedure Refresh(const Family: string);
-    procedure PreviewResize(Sender: TObject);
     procedure SelectionChanged(Sender: TObject; Item: TListItem; Selected: Boolean);
     procedure WindowsClick(Sender: TObject);
     procedure ImportClick(Sender: TObject);
@@ -112,20 +133,154 @@ begin
   inherited;
 end;
 
-procedure FitFontPreview(Area: TScrollBox; Preview: TLabel);
-var Bounds: TRect;
+constructor TReaderFontPreview.Create(AOwner: TComponent);
 begin
-  if not Assigned(Preview) then Exit;
-  var DC := GetDC(Area.Handle);
-  var DCState := SaveDC(DC);
-  SelectObject(DC,Preview.Font.Handle);
+  inherited;
+  BevelOuter:=bvNone; ParentBackground:=False;
+  FDragOffset:=-1;
+  FSample:=TLabel.Create(Self); FSample.Parent:=Self; FSample.AutoSize:=False;
+  FSample.WordWrap:=True; FSample.ShowAccelChar:=False;
+end;
+
+function TReaderFontPreview.ScrollLimit: Integer;
+begin
+  Result:=Max(0,FSample.Height-ClientHeight);
+end;
+
+function TReaderFontPreview.Track: TRect;
+begin
+  Result:=Rect(ClientWidth-MulDiv(14,CurrentPPI,96),0,ClientWidth,ClientHeight);
+end;
+
+function TReaderFontPreview.Thumb(const Bar: TRect): TRect;
+var Height: Integer;
+begin
+  Height:=EnsureRange(MulDiv(Bar.Height,ClientHeight,FSample.Height),
+    Min(Bar.Height,MulDiv(14,CurrentPPI,96)),Bar.Height);
+  Result:=Bar;
+  Result.Top:=Bar.Top+MulDiv(Bar.Height-Height,FPosition,ScrollLimit);
+  Result.Bottom:=Result.Top+Height;
+end;
+
+procedure TReaderFontPreview.ScrollTo(Position: Integer);
+begin
+  FPosition:=EnsureRange(Position,0,ScrollLimit);
+  FSample.Top:=-FPosition;
+  Invalidate;
+end;
+
+procedure TReaderFontPreview.Fit(ResetPosition: Boolean);
+var Bounds: TRect; DC: HDC; DCState: Integer;
+begin
+  if not Assigned(FSample) or (csDestroying in ComponentState) then Exit;
+  DC:=GetDC(Handle);
+  DCState:=SaveDC(DC);
   try
-    Bounds := Rect(0,0,Max(32,Area.ClientWidth-MulDiv(24,Area.CurrentPPI,96)),0);
-    DrawText(DC,PChar(Preview.Caption),Length(Preview.Caption),Bounds,
+    SelectObject(DC,FSample.Font.Handle);
+    Bounds:=Rect(0,0,Max(1,ClientWidth-MulDiv(24,CurrentPPI,96)),0);
+    DrawText(DC,PChar(FSample.Caption),Length(FSample.Caption),Bounds,
       DT_CALCRECT or DT_WORDBREAK or DT_NOPREFIX);
-    Preview.SetBounds(MulDiv(4,Area.CurrentPPI,96),0,Bounds.Width,
-      Bounds.Height+MulDiv(6,Area.CurrentPPI,96));
-  finally RestoreDC(DC,DCState); ReleaseDC(Area.Handle,DC); end;
+    FSample.SetBounds(MulDiv(4,CurrentPPI,96),-FPosition,Bounds.Width,
+      Bounds.Height+MulDiv(6,CurrentPPI,96));
+  finally
+    RestoreDC(DC,DCState);
+    ReleaseDC(Handle,DC);
+  end;
+  if ResetPosition then
+  begin
+    FPosition:=0;
+    FWheelRemainder:=0;
+  end;
+  TabStop:=ScrollLimit>0;
+  ScrollTo(FPosition);
+end;
+
+procedure TReaderFontPreview.Resize;
+begin
+  inherited;
+  Fit;
+end;
+
+procedure TReaderFontPreview.Paint;
+begin
+  Canvas.Brush.Color:=Color; Canvas.FillRect(ClientRect);
+  if not Assigned(FSample) or (ScrollLimit=0) then Exit;
+  var Bar:=Track;
+  Canvas.Brush.Color:=ReaderBlendColor(Color,Font.Color,36); Canvas.FillRect(Bar);
+  if Focused then Canvas.Brush.Color:=ReaderBlendColor(Color,Font.Color,176)
+  else Canvas.Brush.Color:=ReaderBlendColor(Color,Font.Color,132);
+  Canvas.FillRect(Thumb(Bar));
+end;
+
+procedure TReaderFontPreview.WMGetDlgCode(var Message: TWMGetDlgCode);
+begin
+  inherited;
+  Message.Result:=Message.Result or DLGC_WANTARROWS;
+end;
+
+procedure TReaderFontPreview.KeyDown(var Key: Word; Shift: TShiftState);
+begin
+  inherited;
+  if ScrollLimit=0 then Exit;
+  var Line:=MulDiv(16,CurrentPPI,96);
+  case Key of
+    VK_UP: ScrollTo(FPosition-Line);
+    VK_DOWN: ScrollTo(FPosition+Line);
+    VK_PRIOR: ScrollTo(FPosition-ClientHeight);
+    VK_NEXT: ScrollTo(FPosition+ClientHeight);
+    VK_HOME: ScrollTo(0);
+    VK_END: ScrollTo(ScrollLimit);
+  else Exit;
+  end;
+  Key:=0;
+end;
+
+function TReaderFontPreview.DoMouseWheel(Shift: TShiftState; WheelDelta: Integer;
+  MousePos: TPoint): Boolean;
+begin
+  if ScrollLimit=0 then Exit(inherited DoMouseWheel(Shift,WheelDelta,MousePos));
+  Inc(FWheelRemainder,WheelDelta);
+  var Steps:=FWheelRemainder div WHEEL_DELTA;
+  FWheelRemainder:=FWheelRemainder mod WHEEL_DELTA;
+  if Steps<>0 then ScrollTo(FPosition-Steps*MulDiv(48,CurrentPPI,96));
+  Result:=True;
+end;
+
+procedure TReaderFontPreview.MouseDown(Button: TMouseButton; Shift: TShiftState; X,Y: Integer);
+begin
+  inherited;
+  if (Button<>mbLeft) or (ScrollLimit=0) then Exit;
+  var Bar:=Track;
+  if not Bar.Contains(Point(X,Y)) then Exit;
+  if CanFocus then SetFocus;
+  var HandleRect:=Thumb(Bar);
+  if HandleRect.Contains(Point(X,Y)) then
+  begin
+    FDragOffset:=Y-HandleRect.Top;
+    MouseCapture:=True;
+    Invalidate;
+  end
+  else if Y<HandleRect.Top then ScrollTo(FPosition-ClientHeight)
+  else ScrollTo(FPosition+ClientHeight);
+end;
+
+procedure TReaderFontPreview.MouseMove(Shift: TShiftState; X,Y: Integer);
+begin
+  inherited;
+  if (FDragOffset<0) or not (ssLeft in Shift) or (ScrollLimit=0) then Exit;
+  var Bar:=Track;
+  var Travel:=Bar.Height-Thumb(Bar).Height;
+  if Travel>0 then ScrollTo(MulDiv(Y-FDragOffset-Bar.Top,ScrollLimit,Travel));
+end;
+
+procedure TReaderFontPreview.MouseUp(Button: TMouseButton; Shift: TShiftState; X,Y: Integer);
+begin
+  if (Button=mbLeft) and (FDragOffset>=0) then
+  begin
+    FDragOffset:=-1;
+    MouseCapture:=False;
+  end;
+  inherited;
 end;
 
 procedure ApplyOwnerPalette(Dialog, Owner: TCustomForm);
@@ -161,13 +316,10 @@ begin
   FList:=TListBox.Create(Self); FList.Parent:=Self; FList.Name:='ReaderWindowsFontResults';
   FList.SetBounds(16,50,428,242); FList.Anchors:=[akLeft,akTop,akRight,akBottom];
   FList.OnClick:=SelectionChanged; FList.OnDblClick:=Accept;
-  FPreviewArea:=TScrollBox.Create(Self); FPreviewArea.Parent:=Self;
-  FPreviewArea.Name:='ReaderWindowsFontPreviewArea'; FPreviewArea.BorderStyle:=bsNone;
+  FPreviewArea:=TReaderFontPreview.Create(Self); FPreviewArea.Parent:=Self;
+  FPreviewArea.Name:='ReaderWindowsFontPreviewArea';
   FPreviewArea.SetBounds(16,304,428,64); FPreviewArea.Anchors:=[akLeft,akRight,akBottom];
-  FPreviewArea.HorzScrollBar.Visible:=False; FPreviewArea.VertScrollBar.Tracking:=True;
-  FPreview:=TLabel.Create(Self); FPreview.Parent:=FPreviewArea; FPreview.AutoSize:=False;
-  FPreview.Name:='ReaderWindowsFontPreview'; FPreview.WordWrap:=True;
-  FPreviewArea.OnResize:=PreviewResize;
+  FPreview:=FPreviewArea.Sample; FPreview.Name:='ReaderWindowsFontPreview';
   FAdd:=AddButton(Self,'ReaderWindowsFontAdd','Добавить',248,378,94,Accept); FAdd.Default:=True; FAdd.Anchors:=[akRight,akBottom];
   with AddButton(Self,'ReaderWindowsFontCancel','Отмена',350,378,94,nil) do
   begin ModalResult:=mrCancel; Cancel:=True; Anchors:=[akRight,akBottom]; end;
@@ -176,7 +328,6 @@ end;
 
 destructor TReaderWindowsFontDialog.Destroy;
 begin
-  if Assigned(FPreviewArea) then FPreviewArea.OnResize:=nil;
   FNames.Free; inherited;
 end;
 
@@ -213,12 +364,8 @@ begin
     FPreview.Font.Name:=Chosen; FPreview.Font.Size:=15;
     FPreview.Caption:='Съешь ещё этих мягких булок.'+sLineBreak+'The quick brown fox jumps over the lazy dog.';
   end;
-  FPreviewArea.VertScrollBar.Position:=0;
-  FitFontPreview(FPreviewArea,FPreview);
+  FPreviewArea.Fit(True);
 end;
-
-procedure TReaderWindowsFontDialog.PreviewResize(Sender: TObject);
-begin FitFontPreview(FPreviewArea,FPreview); end;
 
 procedure TReaderWindowsFontDialog.Accept(Sender: TObject);
 begin if Chosen<>'' then ModalResult:=mrOk; end;
@@ -247,13 +394,10 @@ begin
   FList.Columns.Add.Caption:='Доступность'; FList.Columns[1].Width:=140;
   FList.Columns.Add.Caption:='Источник'; FList.Columns[2].Width:=170;
   FList.OnSelectItem:=SelectionChanged;
-  FPreviewArea:=TScrollBox.Create(Self); FPreviewArea.Parent:=Self;
-  FPreviewArea.Name:='ReaderFontPreviewArea'; FPreviewArea.BorderStyle:=bsNone;
-  FPreviewArea.SetBounds(16,300,548,60); FPreviewArea.HorzScrollBar.Visible:=False;
-  FPreviewArea.VertScrollBar.Tracking:=True;
-  FPreview:=TLabel.Create(Self); FPreview.Parent:=FPreviewArea;
-  FPreview.Name:='ReaderFontPreview'; FPreview.AutoSize:=False; FPreview.WordWrap:=True;
-  FPreviewArea.OnResize:=PreviewResize;
+  FPreviewArea:=TReaderFontPreview.Create(Self); FPreviewArea.Parent:=Self;
+  FPreviewArea.Name:='ReaderFontPreviewArea';
+  FPreviewArea.SetBounds(16,300,548,60);
+  FPreview:=FPreviewArea.Sample; FPreview.Name:='ReaderFontPreview';
   FStatus:=TLabel.Create(Self); FStatus.Parent:=Self; FStatus.Name:='ReaderFontManagerStatus';
   FStatus.AutoSize:=False; FStatus.WordWrap:=True; FStatus.SetBounds(16,366,548,42);
   FRestore:=AddButton(Self,'ReaderRestoreFont','Вернуть в список',16,410,176,RestoreClick);
@@ -265,7 +409,6 @@ end;
 
 destructor TReaderFontManager.Destroy;
 begin
-  if Assigned(FPreviewArea) then FPreviewArea.OnResize:=nil;
   if Assigned(FList) then FList.OnSelectItem:=nil;
   FWaiting.Free; inherited;
 end;
@@ -345,14 +488,10 @@ begin
     FPreview.Font.Assign(Font);
     FPreview.Caption:='После загрузки здесь появится образец шрифта.';
   end;
-  FPreviewArea.VertScrollBar.Position:=0;
-  FitFontPreview(FPreviewArea,FPreview);
+  FPreviewArea.Fit(True);
   if SameText(Name,DefaultReaderFont(FSettingsFile)) then FStatus.Caption:='Шрифт по умолчанию всегда остаётся в читалке.'
   else FStatus.Caption:='«Убрать» скрывает гарнитуру в читалке. «Вернуть» добавляет её обратно без повторной загрузки, если она доступна.';
 end;
-
-procedure TReaderFontManager.PreviewResize(Sender: TObject);
-begin FitFontPreview(FPreviewArea,FPreview); end;
 
 procedure TReaderFontManager.ReportError(E: Exception);
 begin FStatus.Caption:=E.Message; end;

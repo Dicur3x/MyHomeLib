@@ -116,7 +116,7 @@ begin
     Require(Report.Contains(Books[I].Title) and Report.Contains('Полная причина '+IntToStr(I+1)+sLineBreak+string.Create('я',600)),
       'Report truncates or omits an affected book/reason');
   Require(Report.Contains('BookID: 8000') and Report.Contains('source-21') and
-    Report.Contains('BookProcessing, ImageProcessing') and Report.Contains('Как есть: ≈ '+BookEstimateSizeText(1024)),
+    Report.Contains('BookProcessing, ImageProcessing') and Report.Contains('Без уменьшения качества: ≈ '+BookEstimateSizeText(1024)),
     'Report omits identity, required components or selected ZIP size');
   var Sample:=Default(TBookSaveEstimateItem);
   Sample.Completed:=True; Sample.Options.ScanPages:=True; Sample.Options.DistributedSamples:=True;

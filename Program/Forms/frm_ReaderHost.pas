@@ -23,7 +23,7 @@ type
     FHomeList: TListView;
     FHomeImages: TImageList;
     FHomeStatus: TLabel;
-    FUseStartPage, FRecentMetadataPending: Boolean;
+    FUseStartPage, FRecentMetadataPending, FStandaloneTitlePending: Boolean;
     FStatus: TLabel;
     FTimer: TTimer;
     FView: TCustomForm;
@@ -51,6 +51,7 @@ type
     procedure BeginSession(const RequestFile: string);
     procedure SendSessionState(const State: string; const ErrorText: string = '');
     procedure ConfirmSessionOpened;
+    function IsStandaloneBook: Boolean;
     procedure FinishSession(const State: string);
     procedure InstallMenu(Form: TForm);
     procedure OpenClick(Sender: TObject);
@@ -720,13 +721,29 @@ begin
   MessageDlg('Не удалось найти исходный файл для «'+Note.BookTitle+'». Проверьте, доступен ли файл.',mtInformation,[mbOK],0);
 end;
 
+function TfrmReaderHost.IsStandaloneBook: Boolean;
+begin
+  Result:=(FSession.ID='') or ((FBook.BookKey.DatabaseID=0) and FBook.LibID.StartsWith('local-file:'));
+end;
+
 procedure TfrmReaderHost.SaveClick(Sender: TObject);
 var Options: TBookSendOptions; Results: TBookExportResults; Required: TArray<string>;
+  DisplayTitle, SourceName, Member: string;
 begin
   if FPreparing or (FCurrentFile='') or (FExportBook.FileName='') then Exit;
   try
+    if IsStandaloneBook then
+    begin
+      ConfirmSessionOpened;
+      DisplayTitle:=FBook.Title;
+      SourceName:=ExtractFileName(FCurrentFile);
+      Member:=FSession.OriginalMember;
+      if (Member='') and (Length(FOpenedMembers)>0) then Member:=FOpenedMembers[High(FOpenedMembers)];
+      if Member<>'' then SourceName:=SourceName+' / '+Member;
+    end;
     var Initial: PBookSendOptions:=nil; if FResumingSave then Initial:=@FSaveContinuation.Options;
-    if not ChooseBookSendOptions(1,Settings.SyncExportDir,Settings.ExportMode,Options,False,[FExportBook],Initial) then
+    if not ChooseBookSendOptions(1,Settings.SyncExportDir,Settings.ExportMode,
+      Options,False,[FExportBook],Initial,DisplayTitle,SourceName) then
     begin
       if Options.RequiredComponent<>'' then
       begin
@@ -978,13 +995,27 @@ begin
   if (FView is TfrmBuiltinReader) and not TfrmBuiltinReader(FView).Ready then Exit;
   // A newer note can already be queued by the closing view.
   if FNextFile='' then FNoteTarget:=Default(TReaderAnnotation);
-  if FRecentMetadataPending then
+  if FRecentMetadataPending or FStandaloneTitlePending then
   begin
     if (FView is TfrmStoryReader) and not TfrmStoryReader(FView).Ready then Exit;
-    FRecentMetadataPending:=False;
     Title:=FBook.Title; Author:=TAuthorsHelper.GetList(FBook.Authors); Cover:='';
-    if FView is TfrmBuiltinReader then TfrmBuiltinReader(FView).RecentBookDetails(Title,Author,Cover);
-    RememberFile(FCurrentFile,FOpenedMembers,Title,Author,Cover);
+    if FView is TfrmBuiltinReader then
+    begin
+      var Reader:=TfrmBuiltinReader(FView);
+      Reader.RecentBookDetails(Title,Author,Cover);
+      if FStandaloneTitlePending and (Title<>FBook.Title) then
+      begin
+        FBook.Title:=Title;
+        Reader.BookTitle:=Title;
+        Reader.Caption:='HomeLibre Reader — '+Title;
+      end;
+    end;
+    FStandaloneTitlePending:=False;
+    if FRecentMetadataPending then
+    begin
+      FRecentMetadataPending:=False;
+      RememberFile(FCurrentFile,FOpenedMembers,Title,Author,Cover);
+    end;
   end;
   if (FSession.ID='') or FSessionReply.Opened or (FSessionReply.State<>'displaying') then Exit;
   FSessionReply.Opened:=True;
@@ -1082,7 +1113,8 @@ begin
     ExportInput:=OpenCachedBookFile(FExportBook.GetBookFileName);
     PinReaderCacheFile(FileName);
     Identity:=ReaderHistoryName(FBook,''); SettingsFile:=ResolveReaderSettingsFile(Settings.DataDir);
-    Standalone:=(FSession.ID='') or ((FBook.BookKey.DatabaseID=0) and FBook.LibID.StartsWith('local-file:'));
+    Standalone:=IsStandaloneBook;
+    FStandaloneTitlePending:=Standalone;
     StartPosition:=-1;
     if FSession.ID<>'' then
     begin Identity:=FSession.HistoryIdentity; SettingsFile:=FSession.SettingsFile; end
@@ -1176,7 +1208,7 @@ begin
    end;
   finally
     FFollowingComic:=nil; FCanFollowComic:=False; FNextVolumePending:=False;
-    FRecentMetadataPending:=False;
+    FRecentMetadataPending:=False; FStandaloneTitlePending:=False;
     FreeAndNil(FView);
     if not FRestarting then ClearRestartState;
     ExportInput.Free; ViewInput.Free; FDisplaying:=False;
