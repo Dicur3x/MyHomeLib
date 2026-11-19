@@ -5,12 +5,14 @@ interface
 uses System.Classes, System.SysUtils;
 
 function IsKindleCoverFormat(const Extension: string): Boolean;
-// Read only an explicitly declared MOBI/KF8 cover (or thumbnail). No text
-// decompression, whole-book conversion, temporary files or optional runtime.
+// An EXTH cover or thumbnail needs no text reads. Older MOBI books can point
+// to a cover via the HTML guide. Both paths operate on the caller's stream.
 function ReadKindleBookCover(Stream: TStream; out Status: string;
   const IsCanceled: TFunc<Boolean> = nil): TBytes;
 
 implementation
+
+uses System.Math, unit_KindleGuideCover;
 
 const MaxMetadata=1024*1024; MaxCover=16*1024*1024; Missing=High(Cardinal);
 
@@ -118,6 +120,32 @@ var Saved,FileSize:Int64; Header,Table:TBytes; Offsets:TArray<Int64>;
     ImageRecord:=Cardinal(UInt64(Index)+FirstResource+Value);
     if ImageRecord<=LastTextRecord then Invalid;
   end;
+  function LegacyGuideRecord(EndRecord:Cardinal):Cardinal;
+  var Info:TBytes; HeaderLength,FirstResource,TextLength:Cardinal;
+      Compression,TextRecords,ExtraFlags,Image:Integer;
+  begin
+    Result:=Missing;
+    Info:=ReadAt(Offsets[0],Integer(Min(RecordSize(0),Int64(244))),244);
+    HeaderLength:=Number(Info,20,4);
+    if (Number(Info,36,4)>=8) or (Number(Info,12,2)<>0) then Exit;
+    Compression:=Number(Info,0,2);
+    if (Compression<>1) and (Compression<>2) then Exit;
+    TextRecords:=Number(Info,8,2);
+    TextLength:=Number(Info,4,4);
+    if (TextRecords=0) or (TextLength=0) then Exit;
+    FirstResource:=Missing;
+    if HeaderLength>=96 then FirstResource:=Number(Info,108,4);
+    if FirstResource=Missing then FirstResource:=Cardinal(TextRecords)+1;
+    if (FirstResource<=Cardinal(TextRecords)) or (FirstResource>=EndRecord) then Exit;
+    ExtraFlags:=0;
+    if (HeaderLength>=228) and (Number(Info,104,4)>=5) then ExtraFlags:=Number(Info,242,2);
+    if (Compression=1) and (ExtraFlags=0) and (TextRecords=1) and
+      (RecordSize(1)>Int64(TextLength)+3) then Exit;
+    Image:=KindleGuideImage(Stream,Offsets,TextRecords,Compression,ExtraFlags,TextLength,IsCanceled);
+    if Image=0 then Exit;
+    if UInt64(FirstResource)+Cardinal(Image)-1>=EndRecord then Invalid;
+    Result:=FirstResource+Cardinal(Image)-1;
+  end;
 begin
   Result:=nil; Status:='';
   if not Assigned(Stream) then raise EArgumentNilException.Create('Stream');
@@ -150,6 +178,12 @@ begin
         if not Magic(Header,0,'BOUNDARY') then Invalid;
         var Unused:Cardinal;
         ReadHeader(NextHeader,CoverRecord,Unused,LastText,Thumbnail);
+      end;
+      if CoverRecord=Missing then
+      begin
+        var EndRecord:=Cardinal(Records);
+        if NextHeader<>Missing then EndRecord:=NextHeader-1;
+        CoverRecord:=LegacyGuideRecord(EndRecord);
       end;
       if CoverRecord=Missing then
       begin Status:='В метаданных Kindle не указана обложка или её миниатюра.'; Exit; end;

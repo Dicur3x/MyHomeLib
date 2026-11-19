@@ -1,9 +1,9 @@
 # Direct MOBI and KF8 catalogue covers
 
 The catalogue information panel reads explicitly declared MOBI/KF8 cover or
-thumbnail records directly from the held raw-book stream. It reads no text
-records, does not decompress book text, creates no conversion work folder and
-does not require KindleUnpack or BookProcessing to show the cover. Books inside
+thumbnail records directly from the held raw-book stream. The metadata path
+reads no text records. The legacy HTML guide fallback is described below.
+Neither path requires KindleUnpack or BookProcessing to show the cover. Books inside
 an outer archive still need the existing selected-member extraction/cache path;
 the bounded metadata-read figures below do not include that extraction cost.
 
@@ -96,3 +96,26 @@ references the expected JPEG. The current x64 panel reports an absent cover for 
 reproduces the outstanding guide-only case separately from the five originals.
 The input and resource hashes, binary hashes and both run logs are in
 `G:/HL-b14-external/r2000-kindle-guide`.
+
+## Legacy HTML guide fallback
+
+A MOBI before KF8 can identify a cover page with a guide reference of type
+`cover`. Its decimal `filepos` counts bytes in the uncompressed text. The
+image at that location has a one-based `recindex` relative to the first image
+record. The catalogue follows that explicit link in plain or PalmDOC-compressed
+text, including per-record trailers and tags split across records. Existing
+EXTH and companion metadata retain their priority. No conversion or disk cache
+is involved. [MOBI serializer in calibre](https://github.com/kovidgoyal/calibre/blob/master/src/calibre/ebooks/mobi/writer2/serializer.py)
+
+The header search covers up to 32 KiB of decoded markup. Only a declared page
+triggers a forward search. The image must occur within 8 KiB of that location,
+before ordinary text or a page break. At most 16 MiB of encoded text is read,
+one record at a time. Cancellation interrupts the search and restores the
+stream position. Encrypted text and HUFF/CDIC text are outside this fallback.
+
+In both builds, the control reproduced above now displays its 731 × 817 cover
+from resource 33. The five unmodified libmobi documents retain their expected
+results. Each architecture passed 63 native stream checks and 22 panel checks,
+including a PalmDOC book inside a ZIP and clearing the preceding cover.
+The two 25 MB originals still use metadata alone. Build receipts, file hashes,
+and native and panel results are in `G:/HL-b14-external/r2003-kindle-guide`.

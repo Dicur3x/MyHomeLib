@@ -174,7 +174,9 @@ def main():
             for source in a.kindle_real:originals[str(source)]=hashlib.sha256(source.read_bytes()).hexdigest()
             kroot=root/'cover-fixtures/kindle';ks,_=kindle_fixtures(kroot,a.kindle_real)
             selected=['declared.mobi','kf8.azw3','compact-index.prc','thumbnail-only.mobi',
-                'combined-kf8.mobi','absent-cover.mobi','bad-index.mobi','palmdoc-no-cover.pdb']
+                'combined-kf8.mobi','absent-cover.mobi','bad-index.mobi','palmdoc-no-cover.pdb',
+                'guide.mobi','guide-palm.mobi','guide-short-header.prc','guide-page-text.mobi',
+                'guide-encrypted.mobi']
             selected += [row['name'] for row in ks if row['name'].startswith('real-')]
             ui=[]
             for name in selected:
@@ -186,7 +188,10 @@ def main():
                 ui.append(item)
             with zipfile.ZipFile(kroot/'kindle-wrapper.zip','w',zipfile.ZIP_DEFLATED) as archive:
                 archive.write(kroot/'declared.mobi','books/declared.mobi')
+                archive.write(kroot/'guide-palm.mobi','books/guide-palm.mobi')
             ui.append(dict(ui[0],name='kindle-wrapper.zip',member='books/declared.mobi'))
+            guide=next(row for row in ui if row['name']=='guide-palm.mobi')
+            ui.append(dict(guide,name='kindle-wrapper.zip',member='books/guide-palm.mobi'))
             for suffix in ['.azw','.azw4','.pdb']:
                 name='declared'+suffix;shutil.copyfile(kroot/'declared.mobi',kroot/name)
                 ui.append(dict(ui[0],name=name))

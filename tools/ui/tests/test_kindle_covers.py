@@ -42,12 +42,87 @@ def palm(parts):
     return bytes(result)+b'\0\0'+b''.join(parts),offsets
 
 
+def guide_fixtures(add, blue, red):
+    ref = b'<reference type="cover" filepos="POSITION" />'
+    page = b'<div align=center><p><img recindex="2"/></p></div>'
+
+    def make(name, *, reference=ref, target=page, prefix=b'', prolog=b'', between=b'', parts=(),
+             compression=1, flags=0, encrypted=False, expected=True, cover_meta=(),
+             short_header=False, bad_palm=False, late=False, **checks):
+        markup = prolog + b'<html><head>' + prefix + b'<guide>' + reference + b'</guide></head><body>'
+        before = markup + b'<img recindex="1">First illustration.' + between
+        before = before.replace(b'POSITION', f'{len(before):08d}'.encode())
+        full = before + target + b'</body></html>'
+        offsets = [0, *parts, len(full)]
+        raw = [full[a:b] for a,b in zip(offsets, offsets[1:])]
+        def record(chunk):
+            if compression == 2:
+                # Literal ASCII plus genuine PalmDOC space-letter and overlapping copy codes.
+                chunk = chunk.replace(b' type', b'\xf4ype').replace(b'xxxxxx', b'x\x80\x0a')
+            if flags & 1:
+                chunk += b'\x01\x01'
+            if flags & 2:
+                chunk += b'tail\x85'
+            return chunk
+        records = [record(chunk) for chunk in raw]
+        if bad_palm:
+            records[0] = b'\x80\x00'
+        info = bytearray(header(cover_meta, first=len(raw)+1, text_records=len(raw),
+                                exth=not short_header))
+        struct.pack_into('>H', info, 0, compression)
+        struct.pack_into('>I', info, 4, len(full))
+        struct.pack_into('>H', info, 12, int(encrypted))
+        struct.pack_into('>I', info, 104, 6)
+        struct.pack_into('>H', info, 242, flags)
+        if short_header:
+            struct.pack_into('>I', info, 20, 96)
+            del info[112:]
+        book, positions = palm([info, *records, red, blue])
+        forbidden = []
+        if late:
+            forbidden = [(positions[2], positions[len(records)+1])]
+        if encrypted or cover_meta or compression not in (1, 2):
+            forbidden = [(positions[1], positions[len(records)+1])]
+        add(name, book, expected, forbidden=forbidden, **checks)
+
+    make('guide.mobi', late=True, between=b'', target=page+b' '*6000,
+         parts=(4100,), max_read=5500)
+    make('guide-short-header.prc', short_header=True)
+    make('guide-palm.mobi', compression=2, flags=3, between=b'xxxxxx')
+    make('guide-split-reference.mobi', parts=(32, 65))
+    make('guide-split-picture.mobi', parts=(154, 160))
+    make('guide-later-record.mobi', compression=2, between=b'Z'*31000,
+         parts=tuple(range(3200,31000,3200)))
+    make('guide-quoted.mobi', reference=b"<REFERENCE title='a > b' FILEPOS=POSITION TYPE=Cover />",
+         target=b"<center><!-- image --><p><IMG alt='recindex=1' RECINDEX=2/></p></center>")
+    make('guide-doctype.mobi', prolog=b'<?xml version="1.0"?><!DOCTYPE HTML PUBLIC "legacy > html">')
+    make('guide-exth-wins.mobi', cover_meta=[(201,1)], target=b'<img recindex=1>')
+    make('guide-no-reference.mobi', reference=b'<reference type=text filepos=POSITION>', expected=False)
+    make('guide-comment.mobi', reference=b'<!--'+ref+b'-->', expected=False)
+    make('guide-literal.mobi', prefix=b'<title><guide>'+ref+b'</guide></title>',
+         reference=b'', expected=False)
+    make('guide-duplicate.mobi', reference=ref+ref, expected=False)
+    make('guide-page-text.mobi', target=b'<p>Chapter one</p><img recindex=2>', expected=False)
+    make('guide-stop-at-text.mobi', target=b'chapter one'+b'Z'*7500+b'<img recindex=2>',
+         parts=(1100,), late=True, expected=False, max_read=2000)
+    make('guide-inside-head.mobi', reference=ref.replace(b'POSITION', b'00000012'), expected=False)
+    make('guide-page-break.mobi', target=b'<div><mbp:pagebreak/><img recindex=2>', expected=False)
+    make('guide-invalid-resource.mobi', target=b'<img recindex=12>', expected=False)
+    make('guide-outside-text.mobi', reference=ref.replace(b'POSITION',b'99999999'), expected=False)
+    make('guide-encrypted.mobi', encrypted=True, expected=False)
+    make('guide-unsupported-compression.mobi', compression=17480, expected=False)
+    make('guide-broken-palm.mobi', compression=2, bad_palm=True, expected=False)
+    make('guide-cancel.mobi', between=b'Z'*9000, parts=(3500,7000), expected=False,
+         cancel=True, cancel_bytes=3000)
+
+
 def fixtures(root,real=()):
     root.mkdir();cases=[];blue=image();red=image((176,48,32))
     (root/'blue.png').write_bytes(blue);(root/'red.png').write_bytes(red)
     def add(name,data,cover=False,expected='blue.png',forbidden=(),**extra):
         (root/name).write_bytes(data)
         cases.append(dict(name=name,cover=cover,expected=expected,forbidden=list(forbidden),**extra))
+    guide_fixtures(add, blue, red)
     def ordinary(name,entries=((201,1),),cover=True,first=2,**options):
         text=b'TEXT-RECORD-DO-NOT-READ\n'*100
         data,offsets=palm([header(entries,first=first,**options),text,red,blue])
