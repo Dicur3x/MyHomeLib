@@ -528,6 +528,37 @@ passed. Reports: `r1989-distribution-verification/distribution-report.json`,
 `r1989-transfer-context/upgrade-Win64/report.json`. These were local package
 installations. The USB-disconnect and SMB results above used the r1988 Main.
 
+## Packages containing the November 19 compression, guide and cover changes
+
+All six release ZIPs were rebuilt locally from the r2005 Main and Reader binaries
+and the r1996 BookProcessing component. The component's shipped workers were
+checked against the current source. The production installer unpacked and
+installed every ZIP and verified the installed file hashes and personal data.
+Both full editions reported all 25 components. The clean Windows 10 runs above
+used the earlier packages. The current runs used isolated directories on the host.
+
+On each architecture the stock beta 13 frontend installed the new compatibility
+ZIP, restarted as `HomeLibre.exe` and preserved the seven catalogue entries,
+personal settings and window placement. The native component installer also
+installed both Reader ZIP layouts for each architecture. Each installed Reader
+matched its intended executable. The private component feed was reconciled
+against the live GitHub feed and its digest. No publication took place.
+
+In the Main executable extracted directly from each new full ZIP, selection of
+one of two books left their shared illustration archive byte-identical. Processing
+the collection changed its size from 1,040,307 to 262,207 bytes. Independently
+extracted book texts and the unrelated illustration kept their original bytes.
+Both book members received their own history entry, and the updated illustration
+had equal red, green and blue channels. The release receipts, GUI reports and
+per-file manifest checks are under `G:/HL-b14-external/r2006-release-refresh`.
+
+The x64 portable catalogue also displayed the legacy MOBI guide-only regression
+in its normal book panel. An independent comparison of the rendered cover
+with the declared JPEG in the book passed. In the Word fax template the main
+panel rendered the text, boxes and border, but the surrounding paper took the
+panel background colour. The light-theme screenshot differs from the reference
+on a white page. Check contrast on the dark theme before closing cover work.
+
 ## Remaining checks
 
 Remaining source checks, Desktop replacement and publication remain open.
