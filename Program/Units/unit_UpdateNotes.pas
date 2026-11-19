@@ -232,8 +232,9 @@ begin
 end;
 
 procedure LoadUpdateNoteLines(const Notes: string; Lines: TStrings);
-var Source: TStringList; Raw, Text, Fence: string; I: Integer;
-  BlockStart, Setext, Backslash: TRegEx; Code, Paragraph, PreviousParagraph, HardBreak: Boolean;
+var Source: TStringList; Raw, Text, Fence: string; I, Indent, ListIndent: Integer;
+  BlockStart, Setext, Backslash, ListStart: TRegEx; Item: TMatch;
+  Code, Paragraph, PreviousParagraph, Continuation, ExplicitBreak, BackslashBreak: Boolean;
 begin
   Source := TStringList.Create;
   try
@@ -241,27 +242,47 @@ begin
     BlockStart := TRegEx.Create('^(?:#{1,6}\s|>|<|(?:[-*+•]|[0-9]+[.)])\s|[-=*_]+\s*$|\[[^\]]+\]:)');
     Setext := TRegEx.Create('^(?:-+|=+)$');
     Backslash := TRegEx.Create('(?<!\\)(?:\\\\)*\\$');
-    Fence := ''; PreviousParagraph := False;
+    ListStart := TRegEx.Create('^( *)([-*+•]|[0-9]+[.)])([ \t]+)(.+)$');
+    Fence := ''; PreviousParagraph := False; ListIndent := 0;
     for I := 0 to Source.Count - 1 do
     begin
       Raw := Source[I];
       Text := Raw.Trim;
+      Indent := Length(Raw) - Length(Raw.TrimLeft);
       Code := Fence <> '';
       if UpdateMarkdownFence(Raw, Fence) then Code := True;
-      Paragraph := not Code and (Text <> '') and (Raw.TrimLeft = Raw) and
+      Continuation := not Code and (ListIndent > 0) and (Indent >= ListIndent) and
+        (Indent < ListIndent + 4) and not Raw.StartsWith(#9);
+      Item := ListStart.Match(Raw);
+      BackslashBreak := not Code and Backslash.IsMatch(Raw);
+      ExplicitBreak := Raw.EndsWith('  ') or BackslashBreak;
+
+      if not Code and Item.Success and ((Indent <= 3) or
+        ((ListIndent > 0) and (Indent < ListIndent + 4))) then
+      begin
+        // The marker and the following gap determine the item's text indent.
+        ListIndent := Indent + Length(Item.Groups[2].Value) + Length(Item.Groups[3].Value);
+        Text := Raw.TrimRight;
+        if BackslashBreak then Text := Copy(Text, 1, Length(Text) - 1);
+        Lines.Add(Text);
+        PreviousParagraph := not ExplicitBreak;
+        Continue;
+      end;
+
+      Paragraph := not Code and (Text <> '') and ((Indent = 0) or Continuation) and
         not BlockStart.IsMatch(Text) and not Text.Contains('|') and not IsReleaseHeading(Text) and
-        not ((Length(Text) < 100) and Text.EndsWith(':')) and
+        (Continuation or not ((Length(Text) < 100) and Text.EndsWith(':'))) and
         ((I = Source.Count - 1) or not Setext.IsMatch(Source[I + 1].Trim));
-      HardBreak := False;
       if Paragraph then
       begin
-        HardBreak := Raw.EndsWith('  ') or Backslash.IsMatch(Raw);
-        if Backslash.IsMatch(Raw) then Text := Copy(Text, 1, Length(Text) - 1);
-        if PreviousParagraph then Lines[Lines.Count - 1] := Lines[Lines.Count - 1] + ' ' + Text
+        if BackslashBreak then Text := Copy(Text, 1, Length(Text) - 1);
+        if PreviousParagraph and ((ListIndent = 0) or Continuation) then
+          Lines[Lines.Count - 1] := Lines[Lines.Count - 1] + ' ' + Text
         else Lines.Add(Text);
       end
       else Lines.Add(Raw);
-      PreviousParagraph := Paragraph and not HardBreak;
+      if not Continuation then ListIndent := 0;
+      PreviousParagraph := Paragraph and not ExplicitBreak;
     end;
   finally Source.Free; end;
 end;

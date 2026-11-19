@@ -796,11 +796,16 @@ begin
     ReleaseInfo.Changelog := NewTag + #10 + 'One technical' + #10 + 'wrap continued' + #10#10 +
       'Blank line stays' + #10 + 'First hard break  ' + #10 + 'Second hard break\' + #10 +
       'After hard break' + #10 + '## A heading' + #10 + '- Separate item' + #10 +
-      '  - Nested item' + #10 + '~~~' + #10 + '  1.2.3' + #10 + '~~~';
+      '  with a continuation' + #10 + '  - Nested item' + #10 + '    continues' + #10 +
+      '  - Preserve a hard break  ' + #10 + '    at this position' + #10 +
+      '~~~' + #10 + '  1.2.3' + #10 + '~~~';
     Popup.SetRelease(ReleaseInfo);
     Require((Pos('One technical wrap continued' + sLineBreak + sLineBreak, Notes.Text)>0) and
       (Pos('First hard break' + sLineBreak + 'Second hard break' + sLineBreak + 'After hard break', Notes.Text)>0) and
-      (Pos('A heading' + sLineBreak, Notes.Text)>0) and (Pos('Separate item' + sLineBreak, Notes.Text)>0) and
+      (Pos('A heading' + sLineBreak, Notes.Text)>0) and
+      (Pos('Separate item with a continuation' + sLineBreak, Notes.Text)>0) and
+      (Pos('Nested item continues' + sLineBreak, Notes.Text)>0) and
+      (Pos('Preserve a hard break' + sLineBreak + 'at this position', Notes.Text)>0) and
       (NotesView.SectionCount=1) and (Pos('  1.2.3' + sLineBreak, Notes.Text)>0),
       'Notes did not unwrap regular paragraphs or preserve intentional structure');
     ReleaseInfo.Changelog := SQLiteNotesToMarkdown('<p>First paragraph<br>Next line</p><p>Second paragraph</p>');
