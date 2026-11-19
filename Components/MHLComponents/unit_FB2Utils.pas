@@ -352,7 +352,7 @@ end;
 function CreatePackageCoverGraphic(const Data: TBytes; MaxDecodedBytes: Int64): TGraphic;
 var Header: TMetaHeader; Offset, DataSize: Integer; Words: Cardinal; Opcode: Word;
     Pict: TMetaFilePict; Handle: HENHMETAFILE; Info: TEnhMetaHeader;
-    Meta: Graphics.TMetafile; Stream: TBytesStream;
+    Meta: Graphics.TMetafile; Stream: TBytesStream; Thumbnail: Graphics.TBitmap;
 begin
   // Office can embed a standard WMF. VCL's WMF stream loader expects an
   // additional placeable header. All other images use the usual decoder.
@@ -400,8 +400,20 @@ begin
     var W:=Meta.Width;
     var H:=Meta.Height;
     if (W<=0) or (H<=0) or (Int64(W)*H>MaxDecodedBytes div 4) then Exit;
-    Result:=Meta;
-    Meta:=nil;
+    // Word can omit the paper from a WMF thumbnail. Paint the drawing on a
+    // white page so that its black text remains readable in the dark theme.
+    Thumbnail:=Graphics.TBitmap.Create;
+    try
+      Thumbnail.PixelFormat:=pf24bit;
+      Thumbnail.SetSize(W,H);
+      Thumbnail.Canvas.Brush.Color:=clWhite;
+      Thumbnail.Canvas.FillRect(Rect(0,0,W,H));
+      Thumbnail.Canvas.StretchDraw(Rect(0,0,W,H),Meta);
+      Result:=Thumbnail;
+      Thumbnail:=nil;
+    finally
+      Thumbnail.Free;
+    end;
   finally
     Meta.Free;
     if Handle<>0 then DeleteEnhMetaFile(Handle);

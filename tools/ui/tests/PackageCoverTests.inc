@@ -178,7 +178,8 @@ var Host:TForm; Panel:TInfoPanel; Preview:TBookInfoPreview; Book:TBookRecord;
     finally Stream.Free; Meta.Free; end;
     Picture:=CreatePackageCoverGraphic(Bytes,64*1024*1024);
     try
-      Require(Assigned(Picture),'Standard WMF thumbnail missing');
+      Require((Picture is TBitmap) and not Picture.Transparent,
+        'Standard WMF thumbnail must keep its page background');
       Bitmap:=TBitmap.Create;
       try
         Bitmap.SetSize(120,80); Bitmap.Canvas.StretchDraw(Rect(0,0,120,80),Picture);
