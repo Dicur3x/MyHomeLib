@@ -55,28 +55,22 @@ def check_core(args, native_root, cache, get):
             assert not current['draft']
             assert current['prerelease'] == (args.core_prerelease or not args.core_tag)
             catalogue = args.catalogue_dir or args.stage / 'catalogue-r3'
-            packages = {}
-            for platform, suffix in (('Win32', ''), ('Win64', '_x64')):
-                package, = [p for brand in ('HomeLibre', 'HomeLibRu')
-                            if (p := catalogue / f'{brand}{suffix}.zip').is_file()]
-                packages[platform] = package
             assets = {value['name']: value for value in current['assets']}
             documented_checksums = (args.checksums or catalogue / 'SHA256SUMS.txt').read_bytes()
             manifest = {}
             for line in documented_checksums.decode('ascii').splitlines():
-                match = re.fullmatch(r'([a-fA-F0-9]{64})  ((?:HomeLibre|HomeLibRu)(?:_x64)?(?:_portable|_full)?\.zip)', line)
+                match = re.fullmatch(r'([a-fA-F0-9]{64})  ((?:HomeLibre|HomeLibRu)(?:_x64)?(?:_compact|_portable|_full)?\.zip)', line)
                 assert match is not None, 'Unexpected line in the catalogue checksum file'
                 digest, name = match.groups()
                 assert name not in manifest, 'Duplicate archive in the catalogue checksum file'
                 manifest[name] = digest.lower()
-            assert {p.name for p in packages.values()} <= set(manifest)
             assert set(assets) == {'SHA256SUMS.txt'} | set(manifest)
             api_file = root / 'releases.json'
             api_file.write_text(json.dumps(releases), encoding='utf-8')
             checksums = get(assets['SHA256SUMS.txt']['browser_download_url'])
             assert checksums == documented_checksums
             native_archives = set()
-            for platform, compatibility in packages.items():
+            for platform, suffix in (('Win32', ''), ('Win64', '_x64')):
                 native = native_root / platform / 'ProgramUpdateInstallerTest.exe'
 
                 def run(*parameters):
@@ -88,9 +82,9 @@ def check_core(args, native_root, cache, get):
 
                 parsed = run('--parse', api_file)
                 values = json.loads(parsed.removesuffix('PASS').strip())
-                portable = compatibility.stem + '_portable.zip'
-                candidates = {name for name in (compatibility.name, portable) if name in manifest}
-                selected, = [name for name in candidates if assets[name]['browser_download_url'] == values[1]]
+                candidates = [f'HomeLibre{suffix}{kind}.zip' for kind in ('_compact', '_portable', '')]
+                candidates.append(f'HomeLibRu{suffix}.zip')
+                selected = next(name for name in candidates if name in manifest)
                 package = catalogue / selected
                 asset = assets[package.name]
                 digest = hashlib.sha256(package.read_bytes()).hexdigest()
