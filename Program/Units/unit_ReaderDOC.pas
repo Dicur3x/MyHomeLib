@@ -51,6 +51,7 @@ end;
 function PrepareBinaryDOC(const SourceFile, DocxName, TextName, AppPath: string;
   const CheckCanceled: TProc; out Warning: string): string;
 var Tool, RichTool, TextTool: string; Log: TStringStream; Legacy: Boolean;
+  WorkerTimeout: UInt64; WorkerMemory: NativeUInt;
   function RunWorker(const Worker, Destination: string): Boolean;
   var Started: UInt64;
   begin
@@ -62,10 +63,10 @@ var Tool, RichTool, TextTool: string; Log: TStringStream; Legacy: Boolean;
         function: Boolean
         begin
           CheckCanceled;
-          if GetTickCount64-Started>30000 then
-            raise EDOCReadTimeout.Create('Чтение DOC превысило 30 секунд.');
+          if GetTickCount64-Started>WorkerTimeout then
+            raise EDOCReadTimeout.CreateFmt('Чтение DOC превысило %d секунд.',[WorkerTimeout div 1000]);
           Result:=False;
-        end,0,True,384*1024*1024);
+        end,0,True,WorkerMemory);
     except
       on E: EMHLExternalToolError do Exit(False);
     end;
@@ -92,6 +93,12 @@ var Tool, RichTool, TextTool: string; Log: TStringStream; Legacy: Boolean;
   end;
 begin
   Warning:='';
+  WorkerTimeout:=30000; WorkerMemory:=384*1024*1024;
+  if TFile.GetSize(SourceFile)>2*1024*1024 then
+  begin
+    WorkerTimeout:=120000;
+    WorkerMemory:=768*1024*1024;
+  end;
   Tool:=FindDirectDOCReader;
   if Tool='' then raise EMHLComponentRequired.Create('DocSharp','Для этого DOC нужен компонент DocSharp.');
   Log:=TStringStream.Create('',TEncoding.UTF8);

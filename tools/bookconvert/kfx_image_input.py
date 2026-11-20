@@ -108,10 +108,12 @@ def remap_srcset(value, resolve):
     return value
 
 
-def prepare(api, source, destination, render, check=None, decode_webp=None, decode_gif=None, only_gif=False):
+def prepare(api, source, destination, render, check=None, decode_webp=None, decode_gif=None, only_gif=False,
+            maximum_total=None):
     """Convert supported SVG/WebP and a static GIF frame to private PNGs."""
     label = 'GIF' if only_gif else 'KFX'
-    with closing(api.EpubArchive(source)) as archive:
+    opened = api.EpubArchive(source) if maximum_total is None else api.EpubArchive(source, maximum_total)
+    with closing(opened) as archive:
         container = api.xml(archive.read('META-INF/container.xml'))
         roots = [node.get('full-path') for node in container.iter() if api.tag(node) == 'rootfile']
         if not roots or any(not root for root in roots) or len(set(roots)) != len(roots) or (not only_gif and len(roots) != 1):

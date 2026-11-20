@@ -41,6 +41,8 @@ CN = 'urn:oasis:names:tc:opendocument:xmlns:container'
 MHL = 'https://github.com/Dicur3x/MyHomeLib/conversion/'
 MAX_FILE = 64 * 1024 * 1024
 MAX_TOTAL = 256 * 1024 * 1024
+MAX_SCAN_EPUB_RESOURCES = 768 * 1024 * 1024
+LARGE_JPEG_EPUB_RESOURCE = 'images/original.jpg'
 MAX_PDF_SOURCE = 512 * 1024 * 1024
 MAX_ENTRIES = 20000
 
@@ -54,6 +56,57 @@ class ConversionError(ValueError):
     pass
 
 
+class UnreadableImage(ConversionError):
+    pass
+
+
+def check_embedded_raster(data):
+    """Check known raster containers before copying the original bytes."""
+    if data.startswith(b'\x89PNG\r\n\x1a\n'):
+        import struct
+        import zlib
+        raw = memoryview(data)
+        offset = 8
+        has_pixels = False
+        while offset + 12 <= len(raw):
+            length, kind = struct.unpack_from('>I4s', raw, offset)
+            end = offset + 8 + length
+            if end + 4 > len(raw):
+                break
+            if zlib.crc32(raw[offset + 4:end]) != struct.unpack_from('>I', raw, end)[0]:
+                raise UnreadableImage('Не совпадает контрольная сумма блока PNG.')
+            if kind == b'IDAT':
+                has_pixels = True
+            if kind == b'IEND' and not length and has_pixels:
+                return
+            offset = end + 4
+        raise UnreadableImage('Изображение PNG не содержит всех необходимых данных.')
+    if data.startswith(b'\xff\xd8\xff') and (data.find(b'\xff\xda') < 0 or data.rfind(b'\xff\xd9') <= data.find(b'\xff\xda')):
+        raise UnreadableImage('Изображение JPEG обрывается.')
+    if data.startswith((b'GIF87a', b'GIF89a')):
+        def palette_size(flags):
+            return 3 * (2 << (flags & 7)) if flags & 0x80 else 0
+
+        try:
+            offset = 13 + palette_size(data[10])
+            while offset < len(data):
+                marker = data[offset]
+                if marker == 0x21:
+                    offset += 2  # Extension label and its data subblocks.
+                elif marker == 0x2c:
+                    offset += 11 + palette_size(data[offset + 9])
+                else:
+                    break
+                while size := data[offset]:
+                    offset += size + 1
+                offset += 1
+                if marker == 0x2c:
+                    return
+        except IndexError:
+            pass
+        raise UnreadableImage('Изображение GIF не содержит полного первого кадра.')
+
+
 class ComponentRequired(ConversionError):
     def __init__(self, component, message):
         super().__init__(message)
@@ -61,10 +114,31 @@ class ComponentRequired(ConversionError):
 
 
 class FB2ImageRecoveryRequired(ConversionError):
-    def __init__(self, book, cover):
+    def __init__(self, book, cover, identity):
         super().__init__('Текст FB2 цел. В конце файла обрывается ' + ('обложка.' if cover else 'иллюстрация.'))
         self.book = book
-        self.warning = ('Повреждённая обложка пропущена.' if cover else 'Повреждённая иллюстрация пропущена.')
+        label = 'Повреждённая обложка' if cover else 'Повреждённая иллюстрация'
+        self.warning = f'{label} «{identity[:100]}» пропущена.'
+
+
+def damaged_content_warnings(warnings):
+    selected = [message for message in warnings if message.startswith((
+        'В исходнике не удалось прочитать страницы', 'Часть изображений ', 'Повреждённая обложка',
+        'Повреждённая иллюстрация', 'Оглавление EPUB повреждено', 'Страницы DjVu с повреждённым текстовым слоем',
+        'В копии закрыты недостающие теги FB2', 'В исходном FB2 отсутствуют', 'В исходной FB2 отсутствуют цели ссылок',
+        'В исходном EPUB отсутствуют данные обложки',
+        'У некоторых ссылок Kindle отсутствует адрес', 'В EPUB отсутствуют некоторые встроенные шрифты',
+        'Некоторые иллюстрации отсутствуют в исходных файлах', 'Нечитаемые символы HTML', 'Нечитаемые символы исходника',
+        'У некоторых ссылок CHM недоступна цель', 'Нечитаемые символы RTF',
+        'После окончания RTF обнаружены данные', 'Не найдена цель ссылки EPUB', 'Не найдена цель внутренней ссылки',
+        'Сноска DOCX отсутствует', 'Не перенесён объект DOCX', 'Не перенесён встроенный объект RTF',
+        'Повреждено оглавление CHM', 'Раздел CHM «',
+        'Не удалось прочитать текстовый слой страниц DjVu')) or
+        message.startswith('Изображения страниц исходника не читаются') or
+        re.match(r'Страница \d+: нечитаемые символы исходного текстового слоя', message)]
+    pictures = [(int(match[1]), message) for message in warnings
+                if (match := re.match(r'Изображение (\d+) недоступно\.', message))]
+    return selected + [message for _, message in sorted(pictures)]
 
 
 def optional_component_id(component, tools_root=None):
@@ -295,7 +369,7 @@ def truncated_fb2_recovery(data, maximum):
         body = first(book, 'body')
         at = next((i for i, node in enumerate(body) if tag(node) == 'section'), len(body))
         body.insert(at, image_quality.image_note(api, body, True, '[Повреждённая обложка пропущена]'))
-    return FB2ImageRecoveryRequired(serialized(book), cover)
+    return FB2ImageRecoveryRequired(serialized(book), cover, identity)
 
 
 def read_fb2(data, maximum, warnings):
@@ -542,7 +616,19 @@ def normalize_fb2(book, preserved_bodies=(), warnings=None):
         updated = []
         for child in list(node):
             fix(child)
-            updated.extend(split_paragraph(child) if tag(child) in paragraphs else [child])
+            if tag(child) in paragraphs:
+                updated.extend(split_paragraph(child))
+            elif tag(child) == 'title' and tag(node) in {'body', 'section'}:
+                first_block = next((i for i, part in enumerate(child)
+                                    if tag(part) not in {'p', 'empty-line'}), len(child))
+                overflow = list(child[first_block:])
+                del child[first_block:]
+                if len(child) or not overflow: updated.append(child)
+                updated.extend(overflow)
+                if overflow and warnings is not None:
+                    warnings.add('Блоки внутри заголовка вынесены в текст раздела FB2 с сохранением порядка.')
+            else:
+                updated.append(child)
         node[:] = updated
         if tag(node) in {'body', 'section'}:
             content = []
@@ -674,10 +760,11 @@ def validate_fb2_output(book, inherited_issues=None):
 
 
 class EpubArchive:
-    def __init__(self, path):
+    def __init__(self, path, maximum_total=None, *, allow_large_jpeg=False):
+        maximum_total = MAX_TOTAL if maximum_total is None else maximum_total
         self.archive = zipfile.ZipFile(path)
         entries = self.archive.infolist()
-        if len(entries) > MAX_ENTRIES or sum(e.file_size for e in entries) > MAX_TOTAL:
+        if len(entries) > MAX_ENTRIES or sum(e.file_size for e in entries) > maximum_total:
             self.archive.close()
             raise ConversionError('EPUB слишком велик для конвертации.')
         self.names = {e.filename for e in entries}
@@ -685,7 +772,9 @@ class EpubArchive:
             self.archive.close()
             raise ConversionError('В EPUB повторяются имена файлов.')
         for entry in entries:
-            if entry.file_size > MAX_FILE or '\\' in entry.filename or entry.filename.startswith('/') or '..' in entry.filename.split('/'):
+            member_limit = (MAX_TOTAL - 1024 * 1024
+                            if allow_large_jpeg and entry.filename == 'OEBPS/' + LARGE_JPEG_EPUB_RESOURCE else MAX_FILE)
+            if entry.file_size > member_limit or '\\' in entry.filename or entry.filename.startswith('/') or '..' in entry.filename.split('/'):
                 self.archive.close()
                 raise ConversionError('Некорректный путь или слишком большой файл EPUB.')
 
@@ -1154,8 +1243,23 @@ def epub_reading_order(archive, warnings, check=None):
             raise ConversionError('Глава EPUB не является XHTML.')
         body = first(document, 'body')
         if body is None: raise ConversionError('В главе EPUB отсутствует текст.')
-        ids = [n.get('id') for n in body.iter() if n.get('id')]
-        if len(ids) != len(set(ids)): raise ConversionError('В главе EPUB повторяются идентификаторы: ' + path)
+        ids = {n.get('id') for n in body.iter() if n.get('id')}
+        seen = set()
+        suffixes = {}
+        for node in body.iter():
+            identity = node.get('id')
+            if not identity:
+                continue
+            if identity in seen:
+                suffix = suffixes.get(identity, 2)
+                while f'{identity}-homelibre-{suffix}' in ids:
+                    suffix += 1
+                replacement = f'{identity}-homelibre-{suffix}'
+                node.set('id', replacement)
+                ids.add(replacement)
+                suffixes[identity] = suffix + 1
+                warnings.add('Повторяющиеся метки EPUB переименованы. Ссылки ведут к первой метке.')
+            seen.add(identity)
         documents.append((path, body)); documents_by_path[path] = body
         # Publisher styles may be embedded in each chapter's head too.
         head = first(document, 'head')
@@ -1209,6 +1313,13 @@ def epub_to_fb2(source, output, warnings, *, use_navigation=True):
                 if not node.get('id'): continue
                 host = node
                 while host is not body and tag(host) not in block_tags: host = parents[host]
+                ancestor = host
+                while ancestor is not body and tag(ancestor) not in {'td', 'th'}:
+                    ancestor = parents[ancestor]
+                if tag(ancestor) in {'td', 'th'}:
+                    # FB2 flattens the paragraphs inside a cell. Keep their
+                    # destinations on the retained cell so return links work.
+                    host = ancestor
                 anchor = host.get('data-homelib-anchor')
                 if not anchor:
                     # NUL cannot occur in an XML ID; keep synthetic block keys
@@ -1256,14 +1367,34 @@ def epub_to_fb2(source, output, warnings, *, use_navigation=True):
             # counterpart (identifier, publisher, rights and EPUB refinements).
             description.append(element(FB, 'custom-info', base64.b64encode(serialized(metadata)).decode('ascii'), **{'info-type': 'HomeLib Ru: EPUB metadata (XML/base64)'}))
         image_ids, binaries = {}, []
+        missing_image_resources = set()
+        omitted_images = 0
         image_types = {}
         for resource_id, item in items.items():
             # Preserve the first declaration when several IDs name one file.
             image_types.setdefault(paths[resource_id], item.get('media-type'))
 
-        def embed_image(resolved, preferred=''):
+        def embed_image(resolved, preferred='', recover=False):
             if resolved not in image_ids:
-                data = archive.read(resolved)
+                if recover and (resolved not in archive.names or resolved in missing_image_resources):
+                    missing_image_resources.add(resolved)
+                    return None
+                try:
+                    data = archive.read(resolved)
+                except zipfile.BadZipFile:
+                    if not recover:
+                        raise
+                    missing_image_resources.add(resolved)
+                    return None
+                if recover and not data:
+                    missing_image_resources.add(resolved)
+                    return None
+                if recover:
+                    try:
+                        check_embedded_raster(data)
+                    except UnreadableImage:
+                        missing_image_resources.add(resolved)
+                        return None
                 mime = image_types.get(resolved)
                 mime = mime or mimetypes.guess_type(resolved)[0] or ''
                 if not mime.startswith('image/'): raise ConversionError('Неизвестный тип изображения EPUB: ' + resolved)
@@ -1273,10 +1404,20 @@ def epub_to_fb2(source, output, warnings, *, use_navigation=True):
                 image_ids[resolved] = name; binaries.append(binary)
             return image_ids[resolved]
 
-        def image(path, reference, preferred=''):
+        def image(path, reference, preferred='', recover=False):
             resolved, _ = archive.resolve(path, reference)
-            if resolved is None: raise ConversionError('Внешнее изображение EPUB не скачивается: ' + reference)
-            return embed_image(resolved, preferred)
+            if resolved is None:
+                if recover: return None
+                raise ConversionError('Внешнее изображение EPUB не скачивается: ' + reference)
+            return embed_image(resolved, preferred, recover)
+
+        def missing_picture(label=''):
+            nonlocal omitted_images
+            omitted_images += 1
+            warnings.add('Часть изображений EPUB недоступна. На их местах стоят отметки.')
+            warnings.add(f'Изображение {omitted_images} недоступно.' + (' ' + label[:160] if label else ''))
+            return element(FB, 'emphasis', f'[Изображение {omitted_images} недоступно.]' +
+                           (' ' + label if label else ''))
 
         # EPUB 2 commonly identifies its cover through OPF metadata instead of
         # the EPUB 3 cover-image manifest property.
@@ -1286,7 +1427,10 @@ def epub_to_fb2(source, output, warnings, *, use_navigation=True):
                 ti = first(description, 'title-info')
                 old_cover = first(ti, 'coverpage')
                 preferred = next((n.get('{' + XL + '}href', '').lstrip('#') for n in old_cover if tag(n) == 'image'), '') if old_cover is not None else ''
-                name = image(package_path, item.get('href', ''), preferred)
+                name = image(package_path, item.get('href', ''), preferred, recover=preserved_description is None)
+                if name is None:
+                    warnings.add('В исходном EPUB отсутствуют данные обложки.')
+                    continue
                 if old_cover is None:
                     old_cover = element(FB, 'coverpage'); old_cover.append(element(FB, 'image', **{'{' + XL + '}href': '#' + name}))
                     # FB2 title-info puts coverpage before lang.
@@ -1345,6 +1489,8 @@ def epub_to_fb2(source, output, warnings, *, use_navigation=True):
                 result.append(wrapped)
             return result
         inline_fb = {'strong', 'emphasis', 'style', 'a', 'strikethrough', 'sub', 'sup', 'code', 'image'}
+        table_content = {'table': {'caption', 'thead', 'tbody', 'tfoot', 'tr'},
+                         'thead': {'tr'}, 'tbody': {'tr'}, 'tfoot': {'tr'}, 'tr': {'td', 'th'}}
         def flow(node, result, path):
             """Build heading sections at every HTML container depth, not only body."""
             current, stack, paragraph = result, [(0, result)], None
@@ -1410,16 +1556,20 @@ def epub_to_fb2(source, output, warnings, *, use_navigation=True):
                     append_text(result, child.tail)
                 return [result]
             if name in {'script', 'style'}: return []
-            if name == 'table' and any(tag(child) == 'table' for child in node.iter() if child is not node):
-                # FB2 cannot nest a table inside a cell. Keep the complete row /
-                # cell reading order as ordinary blocks, including every ID,
-                # link, image and inline emphasis, rather than dropping a book.
-                linear = copy.deepcopy(node)
-                for part in linear.iter():
-                    if tag(part) in {'table', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th'}:
-                        part.tag = '{' + XH + '}div'
-                warnings.add('Вложенные таблицы представлены последовательными блоками FB2. Текст, изображения и ссылки сохранены; расположение строк и столбцов изменилось.')
-                return convert(linear, path)
+            if name == 'table':
+                nested = any(tag(child) == 'table' for child in node.iter() if child is not node)
+                malformed = any(
+                    (part.text or '').strip() or any(tag(child) not in table_content[tag(part)] or (child.tail or '').strip() for child in part)
+                    for part in node.iter() if tag(part) in table_content)
+                if nested or malformed:
+                    # Preserve the reading order and anchors when FB2 cannot represent the table structure.
+                    linear = copy.deepcopy(node)
+                    for part in linear.iter():
+                        if tag(part) in {'table', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th'}:
+                            part.tag = '{' + XH + '}div'
+                    label = 'Вложенные таблицы' if nested else 'Нестандартные таблицы'
+                    warnings.add(label + ' представлены последовательными блоками FB2. Текст, изображения и ссылки сохранены; расположение строк и столбцов изменилось.')
+                    return convert(linear, path)
             if name in {'tbody', 'thead', 'tfoot'}:
                 return [mapped for child in node for mapped in convert(child, path)]
             if name == 'svg':
@@ -1440,8 +1590,10 @@ def epub_to_fb2(source, output, warnings, *, use_navigation=True):
                                 raise ValueError('cropped viewport')
                         except ValueError as error: raise ConversionError('Обрезанное изображение SVG нельзя сохранить в FB2. Выберите «Оставить EPUB».') from error
                     reference = picture.get('{' + XL + '}href') or picture.get('href', '')
-                    attributes = {'{' + XL + '}href': '#' + image(path, reference)}
                     label = ' '.join(plain(n) for n in node if tag(n) in {'title', 'desc'} and plain(n))
+                    identifier = image(path, reference, recover=True)
+                    if identifier is None: return [missing_picture(label)]
+                    attributes = {'{' + XL + '}href': '#' + identifier}
                     if label: attributes['alt'] = label
                     warnings.add('SVG-обёртка изображения EPUB заменена исходным изображением без изменения его данных.')
                     return [element(FB, 'image', **attributes)]
@@ -1451,7 +1603,9 @@ def epub_to_fb2(source, output, warnings, *, use_navigation=True):
             is_note = node.get('data-homelib-anchor') in note_anchors or bool(set(node.get('{' + EP + '}type', '').split()) & {'footnote', 'endnote'}) or node.get('role') in {'doc-footnote', 'doc-endnote'}
             mapped_name = 'section' if is_note or name in {'section', 'article'} else block_mapping.get(name) or inline_mapping.get(name)
             if name == 'img':
-                attributes = {'{' + XL + '}href': '#' + image(path, node.get('src', ''))}
+                identifier = image(path, node.get('src', ''), recover=True)
+                if identifier is None: return [missing_picture(node.get('alt', '').strip())]
+                attributes = {'{' + XL + '}href': '#' + identifier}
                 if node.get('alt'): attributes['alt'] = node.get('alt')
                 return [element(FB, 'image', **attributes)]
             if name == 'br':
@@ -1513,9 +1667,14 @@ def epub_to_fb2(source, output, warnings, *, use_navigation=True):
                 target, fragment = archive.resolve(path, href)
                 if target:
                     if (target, fragment) not in available:
-                        raise ConversionError('Не найдена цель ссылки EPUB: ' + href)
-                    href = '#' + identity(target, fragment)
-                result.set('{' + XL + '}href', href)
+                        result.tag = '{' + FB + '}style'
+                        result.set('name', 'epub-inline')
+                        warnings.add(f'Не найдена цель ссылки EPUB «{href[:160]}». Текст ссылки сохранён.')
+                        href = ''
+                    else:
+                        href = '#' + identity(target, fragment)
+                if href:
+                    result.set('{' + XL + '}href', href)
                 if (target, fragment) in notes: result.set('type', 'note')
             for key in ('colspan', 'rowspan', 'align'):
                 if node.get(key) and tag(result) in {'td', 'th', 'tr'}: result.set(key, node.get(key))
@@ -1553,7 +1712,8 @@ def epub_to_fb2(source, output, warnings, *, use_navigation=True):
             for resource_id, item in items.items():
                 resolved = paths[resource_id]
                 if resolved is not None and item.get('media-type', '').startswith('image/'):
-                    embed_image(resolved)
+                    if embed_image(resolved, recover=True) is None and not omitted_images:
+                        warnings.add('Часть изображений EPUB недоступна. В исходнике отсутствуют объявленные ресурсы.')
         book.extend(binaries)
         normalize_fb2(book, preserved_bodies, warnings)
         # FB2 styleLinkType deliberately has no attributes, unlike the same
@@ -1582,12 +1742,21 @@ def text_to_book(source, output, warnings, target_extension, **metadata):
 
 
 def kindle_xhtml(data):
-    """Restore only standard namespaces omitted from a KF8 HTML skeleton."""
+    """Repair known KindleUnpack markup omissions without changing book text."""
     try:
         return xhtml(data), False
     except ConversionError as error:
         if 'unbound prefix' not in str(error):
             raise
+        repaired = re.sub(rb'<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>|<mbp:pagebreak\s*/>',
+                          lambda match: b'<br/>' if match.group().startswith(b'<mbp:pagebreak') else match.group(), data)
+        if repaired != data:
+            try:
+                return xhtml(repaired), True
+            except ConversionError as remaining:
+                if 'unbound prefix' not in str(remaining):
+                    raise
+            data = repaired
         # KindleUnpack supplies UTF-8 XHTML. Keep unknown prefixes and other
         # malformed XML as errors rather than guessing their meaning.
         root = re.search(rb'''<(?:html:)?html\b(?:[^<>"']|"[^"]*"|'[^']*')*>''', data)
@@ -1604,17 +1773,19 @@ def kindle_xhtml(data):
         return xhtml(repaired), True
 
 
-def kindle_nav_xhtml(data):
-    """Escape bare ampersands in KindleUnpack's generated navigation only."""
+def escape_kindle_ampersands(data):
+    return re.sub(rb'<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>|&(?!#\d+;|#x[0-9a-fA-F]+;|[A-Za-z_:][\w:.-]*;)',
+                  lambda match: b'&amp;' if match.group() == b'&' else match.group(), data)
+
+
+def kindle_generated_xhtml(data):
+    """Escape bare ampersands in KindleUnpack's generated XHTML."""
     try:
         return kindle_xhtml(data)
     except ConversionError as error:
         if 'invalid token' not in str(error): raise
-        # The unpacker inserts INDX labels into nav.xhtml without XML escaping.
-        # Keep existing entities, comments and CDATA unchanged; malformed tags,
-        # undeclared entities and namespaces still have to pass the strict reader.
-        repaired = re.sub(rb'<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>|&(?!#\d+;|#x[0-9a-fA-F]+;|[A-Za-z_:][\w:.-]*;)',
-                          lambda match: b'&amp;' if match.group() == b'&' else match.group(), data)
+        # The unpacker inserts titles and INDX labels without XML escaping.
+        repaired = escape_kindle_ampersands(data)
         if repaired == data: raise
         document, _ = kindle_xhtml(repaired)
         return document, True
@@ -1635,7 +1806,17 @@ def kindle_epub(source, output, warnings=None):
         # only that complete known comment; all actual XML stays strict.
         package_data = re.sub(rb'<!-- BEGIN INFORMATION ONLY .*?END INFORMATION ONLY -->',
                               b'', package_data, flags=re.DOTALL)
-        package = xml(package_data)
+        try:
+            package = xml(package_data)
+        except ConversionError as error:
+            if 'invalid token' not in str(error):
+                raise
+            repaired = escape_kindle_ampersands(package_data)
+            if repaired == package_data:
+                raise
+            package = xml(repaired)
+            if warnings is not None:
+                warnings.add('В описании пакета Kindle восстановлено XML-экранирование.')
         manifest = first(package, 'manifest')
         spine = first(package, 'spine')
         if manifest is None or spine is None:
@@ -1657,16 +1838,39 @@ def kindle_epub(source, output, warnings=None):
             if warnings is not None:
                 warnings.add('Восстановлена ссылка на страницу обложки Kindle.')
         changed = {}
+        omitted_images = 0
         for item in manifest:
             if item.get('media-type') != 'application/xhtml+xml': continue
             part = archive.resolve(package_path, item.get('href', ''))[0]
             navigation = 'nav' in item.get('properties', '').split()
-            document, dirty = (kindle_nav_xhtml if navigation else kindle_xhtml)(archive.read(part))
+            document, dirty = kindle_generated_xhtml(archive.read(part))
             if dirty and warnings is not None:
                 warnings.add('В оглавлении Kindle восстановлено XML-экранирование или стандартные пространства имён.' if navigation else
-                             'В разметке Kindle восстановлены стандартные пространства имён XHTML/EPUB.')
+                             'В разметке Kindle исправлены служебные теги или специальные символы.')
             for node in document.iter():
                 if 'cid' in node.attrib: node.attrib.pop('cid'); dirty = True
+                href = node.get('href', '')
+                name = tag(node)
+                if name == 'img' and any(
+                    node.get(attr, '').lower().startswith('kindle:embed:') for attr in ('src', 'href', '{'+XL+'}href')
+                ):
+                    omitted_images += 1
+                    alt = (node.get('alt') or '').strip()
+                    node.tag = '{' + XH + '}span'
+                    for attr in ('src', 'href', '{'+XL+'}href', 'alt', 'srcset'):
+                        node.attrib.pop(attr, None)
+                    node.text = f'[Изображение {omitted_images} недоступно.]' + (' ' + alt if alt else '')
+                    dirty = True
+                    if warnings is not None:
+                        warnings.add('Часть изображений Kindle недоступна. На их местах стоят отметки.')
+                        warnings.add(f'Изображение {omitted_images} недоступно.' + (' ' + alt[:160] if alt else ''))
+                if name == 'a' and re.fullmatch(r'X{24,}', href) and archive.resolve(part, href)[0] not in archive.names:
+                    # KindleUnpack leaves this marker when its link index has no usable destination.
+                    node.tag = '{' + XH + '}span'
+                    node.attrib.pop('href')
+                    dirty = True
+                    if warnings is not None:
+                        warnings.add('У некоторых ссылок Kindle отсутствует адрес перехода. Текст ссылок сохранён.')
             if any(n.tag == '{http://www.w3.org/2000/svg}svg' for n in document.iter()):
                 properties = set(item.get('properties', '').split()); properties.add('svg')
                 item.set('properties', ' '.join(sorted(properties)))
@@ -1793,6 +1997,11 @@ def detect_compound_office(source, header):
     return '.ole'
 
 
+def comic_sidecar(name, extension):
+    return (posixpath.basename(name).lower() in {'comicinfo.xml', '.ds_store', 'thumbs.db'}
+            or (extension == '.cbz' and Path(name).suffix.lower() == '.sfv'))
+
+
 def detect_input(source):
     """Bounded signature inspection, also for numeric/mistyped extensions."""
     with source.open('rb') as stream: prefix = stream.read(131072)
@@ -1847,7 +2056,8 @@ def detect_input(source):
             page_names = [name for name in names if not name.endswith('/')]
             if page_names and any(Path(name).suffix.lower() in {'.jpg','.jpeg','.png','.gif','.bmp','.tif','.tiff','.webp'} for name in page_names) and all(
                 Path(name).suffix.lower() in {'.jpg','.jpeg','.png','.gif','.bmp','.tif','.tiff','.webp'} or
-                posixpath.basename(name).lower() in {'comicinfo.xml','.ds_store','thumbs.db'} for name in page_names): return '.cbz'
+                comic_sidecar(name, source.suffix.lower())
+                for name in page_names): return '.cbz'
         return '.zip'
     if prefix.startswith(b'MZ'):return '.exe'
     if prefix.startswith(b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1'):return detect_compound_office(source, prefix)
@@ -1883,10 +2093,20 @@ def detect_input(source):
     return extension
 
 
-def validate_epub_output(path):
-    archive = EpubArchive(path)
+def validate_epub_output(path, maximum_total=None, progress=None, *, allow_large_jpeg=False):
+    archive = EpubArchive(path, maximum_total, allow_large_jpeg=allow_large_jpeg)
     try:
-        if archive.archive.testzip() is not None: raise ConversionError('Ошибка записи EPUB.')
+        if progress is None:
+            if archive.archive.testzip() is not None: raise ConversionError('Ошибка записи EPUB.')
+        else:
+            entries = archive.archive.infolist()
+            progress('checking-epub', 0, len(entries))
+            for index, entry in enumerate(entries, 1):
+                with archive.archive.open(entry) as member:
+                    while member.read(1024 * 1024):
+                        pass
+                if index % 8 == 0 or index == len(entries):
+                    progress('checking-epub', index, len(entries))
         # EPUB 2 chapters may be named .xml. Their manifest media type,
         # rather than the suffix alone, identifies legacy XHTML/DTD entities.
         container = xml(archive.read('META-INF/container.xml'))
@@ -2082,7 +2302,14 @@ def _convert_book(source, destination, **metadata):
     if image_quality == 'none' and not text_layer_only and (scanned_document or extension in {
             '.tif','.tiff','.cbz','.cbr','.cb7','.jpg','.jpeg','.png','.gif','.bmp','.webp','.xps'}):
         raise ConversionError('Изображения содержат сами страницы. Выберите режим с изображениями, например «Без уменьшения качества».')
+    large_jpeg = extension in {'.jpg', '.jpeg'} and source_size > 16 * 1024 * 1024
+    if large_jpeg:
+        if target_extension != '.epub' or image_quality not in {'original', 'ask'} or grayscale or scan_layout != 'keep':
+            raise ConversionError('Это большое изображение JPEG. Чтобы сохранить его целиком, выберите EPUB и «Без уменьшения качества».')
+        image_quality = 'original'
     image_export = None
+    stream_scan_epub = (scanned_document and target_extension == '.epub' and image_quality == 'original'
+                        and scan_layout == 'keep' and not grayscale and not metadata.get('reading'))
     # PDF/DjVu use the same scan rendering detail for estimation and final
     # export, including the original-quality choice. Reading has its own path.
     if text_layer_only and cancel_check is not None:
@@ -2097,9 +2324,13 @@ def _convert_book(source, destination, **metadata):
                       'options':image_options,'choice':image_choice,'handled':False,'grayscale':grayscale,'check':cancel_check,
                       'measure_scans':measure_scans}
         metadata['image_export']=image_export
-    large_images = extension in {'.tif','.tiff','.cbz','.cbr','.cb7','.rtf'} or (extension=='.fb2' and metadata.get('reading'))
+        if stream_scan_epub:
+            image_export['resource_limit'] = MAX_SCAN_EPUB_RESOURCES
+    large_images = scanned_document or extension in {'.tif','.tiff','.cbz','.cbr','.cb7','.rtf'} or (extension=='.fb2' and metadata.get('reading'))
     large_images = large_images or (extension in {'.fb2','.epub'} and (image_quality!='original' or grayscale))
     limit = MAX_PDF_SOURCE if extension == '.pdf' else (MAX_TOTAL if large_images else MAX_FILE)
+    if large_jpeg:
+        limit = MAX_TOTAL - 1024 * 1024
     if source_size > limit: raise ConversionError('Книга превышает предел конвертации ('+str(limit//1024//1024)+' МБ).')
     conversion = {('.fb2', '.epub'): fb2_to_epub, ('.epub', '.fb2'): epub_to_fb2}.get((extension, target_extension))
     text_input = extension in BOOK_TEXT_INPUTS and target_extension in {'.epub', '.fb2'}
@@ -2176,14 +2407,16 @@ def _convert_book(source, destination, **metadata):
         elif conversion is fb2_to_epub:
             fb2_to_epub(source,temporary,warnings,maximum=limit)
         else: conversion(source, temporary, warnings)
-        if (not metadata.get('reading') and image_quality != 'none' and not text_layer_only
+        if (not large_jpeg and not metadata.get('reading') and image_quality != 'none' and not text_layer_only
                 and (static_gifs is True or (static_gifs is None and not same_format))):
             script_directory = str(Path(__file__).resolve().parent)
             sys.path.insert(0, script_directory)
             try:
                 from gif_static import normalize_export
                 api = type('ConversionAPI', (), {name: value for name, value in globals().items() if not name.startswith('__')})
-                normalize_export(api, temporary, target_extension, metadata.get('tools_root'), warnings, cancel_check)
+                normalize_export(api, temporary, target_extension, metadata.get('tools_root'), warnings, cancel_check,
+                                 maximum_total=MAX_SCAN_EPUB_RESOURCES + MAX_FILE if stream_scan_epub else MAX_TOTAL,
+                                 progress=metadata.get('progress'))
             finally:
                 sys.path.pop(0)
         if ((image_quality != 'original' or grayscale) and not text_layer_only and text_only_source is None
@@ -2197,7 +2430,10 @@ def _convert_book(source, destination, **metadata):
                          preserve_image=packing_image_history, image_history_report=packing_image_report)
         # Ensure the generated artifact is readable before publishing its name.
         if destination.suffix.lower() == '.epub':
-            validate_epub_output(temporary)
+            if stream_scan_epub:
+                validate_epub_output(temporary, MAX_SCAN_EPUB_RESOURCES + MAX_FILE, metadata.get('progress'))
+            else:
+                validate_epub_output(temporary, allow_large_jpeg=large_jpeg)
         else:
             if temporary.stat().st_size > MAX_TOTAL:
                 raise ConversionError('FB2 превышает предел конвертации (256 МБ). Для книги со сканами выберите меньший размер изображений.')
@@ -2208,7 +2444,9 @@ def _convert_book(source, destination, **metadata):
         with temporary.open('r+b') as stream: stream.flush(); os.fsync(stream.fileno())
         if os.name == 'nt': os.rename(temporary, destination)  # Windows never replaces an existing name.
         else: os.link(temporary, destination); temporary.unlink()
-        return {'output': str(destination), 'warnings': sorted(warnings), 'size': destination.stat().st_size}
+        warnings = sorted(warnings, key=lambda message: (
+            not message.startswith(('В исходнике не удалось прочитать страницы', 'Часть изображений ')), message))
+        return {'output': str(destination), 'warnings': warnings, 'size': destination.stat().st_size}
     finally:
         if temporary.exists(): temporary.unlink()
         if text_only_source is not None: text_only_source.cleanup()
@@ -2303,6 +2541,8 @@ def main():
                               output_profile=options.output_profile, text_layer_only=options.text_layer_only, grayscale=options.grayscale,
                               skip_damaged_fb2_image=options.skip_damaged_fb2_image)
         result['used_tools'] = sorted(used_tools)
+        if not options.reading:
+            result['damaged_content'] = damaged_content_warnings(result.get('warnings', []))
         text = json.dumps(result, ensure_ascii=False)
         publish_report(text)
         print(text)

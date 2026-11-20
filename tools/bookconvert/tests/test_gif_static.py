@@ -193,8 +193,11 @@ class GifStaticExportPolicy(unittest.TestCase):
         before = api.xml(source.read_bytes())
         text = [api.plain(n) for n in before if api.tag(n) != 'binary']
         warnings = set()
+        progress = []
         with mock.patch.object(gif_static, 'first_frame', return_value=PNG):
-            self.assertEqual(gif_static.normalize_export(api, source, '.fb2', self.work, warnings), 1)
+            self.assertEqual(gif_static.normalize_export(api, source, '.fb2', self.work, warnings,
+                                                         progress=lambda *step: progress.append(step)), 1)
+        self.assertEqual(progress, [('gif-preparation', 1, 0)])
         after = api.xml(source.read_bytes())
         self.assertEqual([api.plain(n) for n in after if api.tag(n) != 'binary'], text)
         binary = next(n for n in after if api.tag(n) == 'binary')

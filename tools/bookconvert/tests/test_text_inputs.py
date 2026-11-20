@@ -151,8 +151,14 @@ class TextInputs(unittest.TestCase):
             before=book.read_bytes()
             for suffix in ['.epub','.fb2']:
                 output=self.root/(book.stem+suffix)
-                with self.assertRaises(c.ConversionError):c.convert_book(book,output)
-                self.assertFalse(output.exists())
+                result=c.convert_book(book,output)
+                self.assertTrue(any(item.startswith('Изображение 1 недоступно.')
+                                    for item in c.damaged_content_warnings(result['warnings'])))
+                if suffix=='.epub':
+                    with zipfile.ZipFile(output) as archive: content=c.xml(archive.read('OEBPS/book.xhtml'))
+                else: content=c.first(c.xml(output.read_bytes()),'body')
+                self.assertIn('[Изображение 1 недоступно.]',''.join(content.itertext()))
+                self.assertFalse(any(c.tag(node) in {'img','image'} for node in content.iter()))
             self.assertEqual(book.read_bytes(),before)
 
     def test_html5_layout_repair_keeps_unicode_offsets_anchors_and_quoted_images(self):
@@ -221,8 +227,13 @@ class TextInputs(unittest.TestCase):
             before=damaged.read_bytes()
             for suffix in ['.epub','.fb2']:
                 out=self.root/(damaged.stem+suffix)
-                with self.assertRaises(c.ConversionError):c.convert_book(damaged,out)
-                self.assertFalse(out.exists())
+                report = c.convert_book(damaged, out)
+                self.assertTrue(any(note.startswith('Не перенесён объект DOCX № 1')
+                                    for note in c.damaged_content_warnings(report['warnings'])))
+                if suffix == '.epub':
+                    with zipfile.ZipFile(out) as archive: content = c.xml(archive.read('OEBPS/book.xhtml'))
+                else: content = c.xml(out.read_bytes())
+                if index == 0: self.assertIn('Keep this text', c.plain(content))
             self.assertEqual(damaged.read_bytes(),before)
     def test_odt(self):
         source = self.root/'book.odt'; odt(source); self.outputs(source, [TEXT, 'Точная сноска'], True, True, True)

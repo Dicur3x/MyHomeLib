@@ -2,7 +2,7 @@
 from email import policy
 from email.parser import BytesParser
 from html.parser import HTMLParser
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import json
 import posixpath
 import re
@@ -181,14 +181,21 @@ def read_mhtml(book, data, read_html):
                     resources[candidate] = payload
     def image(href):
         if href.startswith('data:'): return original(href)
+        # Content-Location can use the same percent-encoded URI as the HTML.
+        label = urlsplit(href).path
+        payload = resources.get(href, resources.get(urljoin(base, href)))
+        if payload is not None:
+            return book.optional_image(payload, label)
         key = unquote(href)
         payload = resources.get(key, resources.get(urljoin(base, key)))
-        if payload is None: book.fail('Изображение отсутствует среди вложений MHTML: ' + href[:160])
-        return book.image(payload)
+        if payload is None: return book.unreadable_image(label)
+        return book.optional_image(payload, label)
     original = book.local_image; book.local_image = image
     try:
         encoding = root.get_content_charset()
-        if encoding: html = html.decode(encoding).encode('utf-8'); html = re.sub(br'(?i)(charset\s*=\s*[\'\"]?)[\w-]+', br'\1utf-8', html)
+        if encoding:
+            html = html.decode(encoding, errors='replace').encode('utf-8')
+            html = re.sub(br'(?i)(charset\s*=\s*[\'\"]?)[\w-]+', br'\1utf-8', html)
         read_html(book, html)
     finally: book.local_image = original
     if len(roots) > 1: book.warnings.add('MHTML содержит несколько HTML-документов; переносится основной документ и его иллюстрации.')
@@ -207,21 +214,37 @@ class Contents(HTMLParser):
 
 
 def read_chm(book, read_html, decode):
+    with __import__('tempfile').TemporaryDirectory(prefix='homelibre-chm-', dir=book.work_root) as temporary:
+        read_chm_package(book, read_html, decode, Path(temporary))
+
+
+def read_chm_package(book, read_html, decode, temporary):
     tool = book.tools_root / '7zip' / '7z.exe'
     if not tool.is_file(): book.require('7-Zip', 'Для чтения CHM нужен компонент 7-Zip.')
-    def run(args, limit):
+    class UnreadableMember(Exception):
+        pass
+
+    def run(args, limit, optional=False, member=False):
         # The enclosing native job limits CPU time/memory and kills child tools
-        # on cancellation. No disk extraction, executable content or HTML engine.
+        # on cancellation. Neither executable content nor an HTML engine runs.
         with __import__('tempfile').TemporaryFile() as out:
             try:
                 p = subprocess.run([str(tool), '-sccUTF-8', *args], stdout=out, stderr=subprocess.PIPE,
                                    timeout=40, creationflags=0x08000000)
-            except subprocess.TimeoutExpired: book.fail('Чтение CHM превысило 40 секунд.')
-            if p.returncode: book.fail('7-Zip не смог прочитать CHM: ' + p.stderr.decode('utf-8', errors='replace')[-500:])
+            except subprocess.TimeoutExpired:
+                if optional: return None
+                book.fail('Чтение CHM превысило 40 секунд.')
+            if p.returncode:
+                if optional: return None
+                details = p.stderr.decode('utf-8', errors='replace')[-500:]
+                if member and ('Data Error' in details or 'CRC Failed' in details):
+                    raise UnreadableMember
+                book.fail('7-Zip не смог прочитать CHM: ' + details)
             if out.tell() > limit: book.fail('Содержимое CHM превышает предел конвертации.')
             out.seek(0); return out.read()
     listing = run(['l', '-slt', '-ba', '--', str(book.source)], 8 * 1024**2).decode('utf-8').replace('\r\r\n', '\n').replace('\r\n', '\n')
     entries = {}; total = 0
+    safe_names = {}
     for block in re.split(r'\r?\n\s*\r?\n', listing):
         props = dict(line.split(' = ', 1) for line in block.splitlines() if ' = ' in line)
         if 'Path' not in props: continue
@@ -232,13 +255,35 @@ def read_chm(book, read_html, decode):
         if size:
             if normalized.casefold() in entries: book.fail('В CHM повторяется путь документа.')
             entries[normalized.casefold()] = (normalized, props['Path'])
+            parts = normalized.split('/')
+            if (normalized == name and all(part and not part.endswith(('.', ' ')) and
+                    not PureWindowsPath(part).is_reserved() and not re.search(r'[<>:"|?*~\x00-\x1f]', part)
+                    for part in parts)):
+                safe_names[normalized.casefold()] = (normalized, size)
+    # CHM compresses many resources together. Reopening the same block for each
+    # HTML/image member can turn reading an ordinary book into several minutes.
+    extracted = temporary / 'members'
+    if len(safe_names) >= 16:
+        listing_path = temporary / 'members.txt'
+        listing_path.write_text('\n'.join(path for path, _ in safe_names.values()), encoding='utf-8')
+        result = run(['x', '-y', '-spd', '-scsUTF-8', '-bso0', '-bsp0', f'-o{extracted}',
+                      f'-i@{listing_path}', '--', str(book.source)], 1024, optional=True)
+        if result is None: safe_names.clear()
+    else:
+        safe_names.clear()
     cache = {}; loaded = 0
     def get(path):
         nonlocal loaded
         key = posixpath.normpath(unquote(path).replace('\\', '/')).lstrip('/').casefold()
         if key not in entries: book.fail('В CHM не найдено вложение: ' + path[:160])
         if key not in cache:
-            cache[key] = run(['e', '-so', '-spd', '--', str(book.source), entries[key][1]], book.c.MAX_FILE)
+            staged = safe_names.get(key)
+            local = extracted / staged[0] if staged else None
+            if (local is not None and local.is_file() and local.resolve().is_relative_to(extracted.resolve())
+                    and local.stat().st_size == staged[1]):
+                cache[key] = local.read_bytes()
+            else:
+                cache[key] = run(['e', '-so', '-spd', '--', str(book.source), entries[key][1]], book.c.MAX_FILE, member=True)
             loaded += len(cache[key])
             if loaded > book.c.MAX_TOTAL: book.fail('Содержимое CHM слишком велико.')
         return cache[key]
@@ -247,7 +292,17 @@ def read_chm(book, read_html, decode):
     order = []
     for p, _ in entries.values():
         if p.lower().endswith('.hhc'):
-            toc = Contents(); toc.feed(decode(get(p))); toc.close()
+            try:
+                data = get(p)
+            except UnreadableMember:
+                book.warnings.add('Повреждено оглавление CHM «' + Path(p).name[:100] + '».')
+                continue
+            try:
+                text = decode(data)
+            except UnicodeDecodeError:
+                text = data.decode('cp1251', errors='replace')
+                book.warnings.add('Нечитаемые символы HTML в оглавлении CHM отмечены знаком �.')
+            toc = Contents(); toc.feed(text); toc.close()
             for link, label, depth in toc.links:
                 path = posixpath.normpath(posixpath.join(posixpath.dirname(p), unquote(urlsplit(link).path))).lstrip('/')
                 if path.casefold() in entries and Path(path).suffix.lower() in {'.htm', '.html', '.xhtml', '.shtml'}:
@@ -258,24 +313,60 @@ def read_chm(book, read_html, decode):
     if not included and len(order) > 1: book.warnings.add('В CHM не найдено оглавление; HTML-разделы расположены по именам файлов.')
     prefixes = {p.casefold(): 'chm-' + str(i) for i, (p, _, _) in enumerate(order)}
     original_image, original_body = book.local_image, book.body; title = book.title
+    def contained_image(path, href):
+        if href.startswith('data:'):
+            return original_image(href)
+        parts = urlsplit(href)
+        target = posixpath.normpath(unquote(posixpath.join(posixpath.dirname(path), parts.path))
+                                  .replace('\\', '/')).lstrip('/')
+        if parts.scheme or parts.netloc or target.casefold() not in entries:
+            return book.unreadable_image(parts.path)
+        try:
+            return book.optional_image(get(target), target)
+        except UnreadableMember:
+            return book.unreadable_image(target)
+
+    def contained_link(path, href):
+        parts = urlsplit(href)
+        if parts.scheme or parts.netloc:
+            return href
+        target = posixpath.join(posixpath.dirname(path), parts.path) if parts.path else path
+        return 'chm-local:' + target + ('#' + parts.fragment if parts.fragment else '')
+
     try:
+        usable_sections = 0
         for path, label, depth in order:
             section = book.el('section', id=prefixes[path.casefold()]); book.body = section
-            book.local_image = lambda href: original_image(href) if href.startswith('data:') else book.image(get(posixpath.join(posixpath.dirname(path), urlsplit(href).path)))
+            book.local_image = lambda href: contained_image(path, href)
             # Keep intra-container links; fix targets after all sections exist.
-            book.local_link = lambda href: href if urlsplit(href).scheme else 'chm-local:' + posixpath.join(posixpath.dirname(path), href)
-            read_html(book, get(path))
+            book.local_link = lambda href: contained_link(path, href)
+            try:
+                data = get(path)
+            except UnreadableMember:
+                resource = (label or path)[:160]
+                section.append(book.el('p', f'[Раздел «{resource}» не читается.]'))
+                book.warnings.add(f'Раздел CHM «{resource}» не читается. На его месте стоит отметка.')
+            else:
+                read_html(book, data)
+                usable_sections += 1
             for node in section.iter():
                 if node is not section and node.get('id'): node.set('id', prefixes[path.casefold()] + '-' + node.get('id'))
             if label and not any(re.fullmatch('h[1-6]', book.c.tag(n)) for n in section): section.insert(0, book.el('h' + str(depth), label))
             original_body.append(section)
+        if not usable_sections:
+            book.fail('В повреждённом CHM нет разделов, которые можно прочитать.')
+        anchors = {node.get('id') for node in original_body.iter() if node.get('id')}
         for node in original_body.iter():
             href = node.get('href', '')
             if href.startswith('chm-local:'):
                 parts = urlsplit(href[len('chm-local:'):]); key = posixpath.normpath(unquote(parts.path)).lstrip('/').casefold()
                 prefix = prefixes.get(key)
-                if prefix: node.set('href', '#' + prefix + ('-' + unquote(parts.fragment) if parts.fragment else ''))
-                else: node.attrib.pop('href'); book.warnings.add('Некоторые служебные ссылки CHM не имеют текстового раздела и не перенесены.')
+                target = prefix + ('-' + unquote(parts.fragment) if parts.fragment else '') if prefix else ''
+                if target in anchors:
+                    node.set('href', '#' + target)
+                else:
+                    node.attrib.pop('href')
+                    book.warnings.add('У некоторых ссылок CHM недоступна цель. Текст ссылок сохранён.')
     finally:
         book.local_image = original_image; book.body = original_body; book.title = title
         if hasattr(book, 'local_link'): del book.local_link

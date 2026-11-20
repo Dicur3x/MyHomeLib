@@ -127,6 +127,8 @@ def main():
     parser.add_argument('--trace-frontend', action='store_true',
                         help='Include update-window diagnostics from the isolated client')
     parser.add_argument('--notes-file', type=Path, help='Show the candidate release notes in the ready update window')
+    parser.add_argument('--expect-profile-migration', action='store_true',
+                        help='Verify the renamed catalogue settings and rollback copy')
     parser.add_argument('--catalogue-window-state', choices=('normal', 'maximized'),
                         help='Seed a known private catalogue layout after native fixture setup')
     parser.add_argument('--check-legacy-shortcut', action='store_true',
@@ -195,12 +197,16 @@ def main():
         assert result.returncode == 0, result.stdout + result.stderr
         return result.stdout.strip()
 
+    def active_settings_file():
+        current_ini = target / 'HomeLibre.ini'
+        return current_ini if current_ini.is_file() else ini
+
     def record_geometry(phase):
         if not args.catalogue_window_state:
             return
         options = configparser.ConfigParser(interpolation=None, strict=False)
         try:
-            options.read_string(read_live_settings(ini))
+            options.read_string(read_live_settings(active_settings_file()))
         except (OSError, configparser.Error):
             return  # A normal settings commit can briefly replace the INI.
         value = {key: options['INTERFACE'].get(key) for key in report['seeded_catalogue_geometry']}
@@ -438,8 +444,15 @@ def main():
         assert sha(protected) == protected_hash
         assert books(target / 'Data/one.hlc2') == before_books
         options = configparser.ConfigParser(interpolation=None, strict=False)
-        options.read_string(ini.read_text('utf-8-sig'))
+        settings = active_settings_file()
+        options.read_string(settings.read_text('utf-8-sig'))
         assert options['UpdateProbe']['ProtectedValue'] == 'Preserve personal settings ё'
+        if args.expect_profile_migration:
+            assert settings.name == 'HomeLibre.ini' and not ini.exists()
+            rollback = configparser.ConfigParser(interpolation=None, strict=False)
+            rollback.read_string((target / 'HomeLibre.ini.rollback.bak').read_text('utf-8-sig'))
+            assert rollback['UpdateProbe']['ProtectedValue'] == 'Preserve personal settings ё'
+            report['catalogue_settings_migrated_with_rollback'] = True
         if args.catalogue_window_state:
             report['saved_catalogue_geometry'] = {
                 key: options['INTERFACE'].get(key) for key in report['seeded_catalogue_geometry']}

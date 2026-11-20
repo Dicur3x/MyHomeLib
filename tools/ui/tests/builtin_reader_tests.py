@@ -211,6 +211,17 @@ try:
               b'\r\n--own-boundary\r\nContent-Type: image/png\r\nContent-ID: <cover>\r\nContent-Transfer-Encoding: base64\r\n\r\n'+
               base64.b64encode(png)+b'\r\n--own-boundary--\r\n')
         (root/filename).write_bytes(mime)
+    location='file:///C:/Книги/рисунок.png'
+    encoded_folder=base64.b64encode('file:///C:/Книги/'.encode('cp1251'))
+    encoded_name=base64.b64encode('рисунок.png'.encode('cp1251'))
+    html=(f'<html><body><p>Текст до картинок</p><img src=""><img width=12>'
+          f'<IMG align=left\r\nsrc="{location}"><img src=cid:cover><p>Текст после картинок</p></body></html>').encode('cp1251')
+    (root/'mime-location.mht').write_bytes(
+        b'MIME-Version: 1.0\r\nContent-Type: multipart/related; boundary="fixture"\r\n\r\n--fixture\r\n'
+        b'Content-Type: text/html; charset=windows-1251\r\n\r\n'+html+
+        b'\r\n--fixture\r\nContent-Type: image/png\r\nContent-ID: <cover>\r\n'
+        b'Content-Location: =?windows-1251?B?'+encoded_folder+b'?=\r\n =?windows-1251?B?'+encoded_name+b'?=\r\n'
+        b'Content-Transfer-Encoding: base64\r\n\r\n'+base64.b64encode(png)+b'\r\n--fixture--\r\n')
     write_text='Текст Windows Write\r\nВторая строка.'.encode('cp1251')
     write_header=bytearray(128); write_header[:2]=b'\x31\xbe'; struct.pack_into('<I',write_header,14,128+len(write_text))
     (root/'write.wri').write_bytes(write_header+write_text)

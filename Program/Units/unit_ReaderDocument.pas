@@ -16,8 +16,9 @@ type
   // A read-only presentation. No source book or archive member is rewritten.
   TReaderPicture = record
     Bytes: TBytes;
+    ArchiveMember: string;
     Width, Height: Integer;
-    Monochrome, OfficeImage: Boolean;
+    Monochrome, OfficeImage, Unreadable: Boolean;
   end;
 
   TReaderBlockKind = (rbTitle, rbSubtitle, rbEpigraph, rbPoem, rbCite, rbAuthor, rbCode, rbFootnote, rbInitial, rbParagraphInitial, rbRelativeSize, rbLink);
@@ -48,10 +49,13 @@ type
     FAnchors: TDictionary<string,Integer>;
     FImages, FSkippedImages: Integer;
     FPictures: TList<TReaderPicture>;
+    FImageArchiveName: string;
+    FImageArchiveLock: TFileStream;
     procedure AddText(const Value: string; PreserveWhitespace: Boolean = False);
     procedure Paragraph;
     procedure Chapter(const Value: string; Depth: Integer = 0);
-    procedure Picture(const Bytes: TBytes; OfficeImage: Boolean = False);
+    procedure Picture(const Bytes: TBytes; OfficeImage: Boolean = False; const ArchiveMember: string = '');
+    procedure NoteUnreadableImage(const Detail: string);
     procedure MakeRecentCover(const Bytes: TBytes);
     function PictureHeader(Index, MaxWidth, MaxHeight: Integer; LayoutOnly: Boolean): UTF8String;
   public
@@ -88,10 +92,12 @@ implementation
 
 uses Winapi.Windows, Winapi.ActiveX, System.IOUtils, System.Math,
   System.RegularExpressions, System.StrUtils, System.NetEncoding, System.Zip, System.Variants,
-  System.Character, System.Generics.Defaults, System.Win.ComObj, Winapi.MSXML, Vcl.Graphics, Vcl.Imaging.jpeg, unit_ImageBounds, unit_FB2Utils, unit_ReaderMIME, unit_ReaderFormats, unit_ReaderCSS, unit_MHLExternalTools, unit_FB2Encoding, unit_BookCache;
+  System.Character, System.Generics.Defaults, System.Win.ComObj, Winapi.MSXML, Vcl.Graphics, Vcl.Imaging.jpeg, unit_ImageBounds, unit_FB2Utils, unit_ReaderMIME, unit_ReaderFormats, unit_ReaderCSS, unit_MHLExternalTools, unit_FB2Encoding, unit_BookCache, unit_SvgBookCover, unit_ReaderRaster, unit_Diagnostics;
 
 const
   MAX_DOCUMENT_BYTES = 64 * 1024 * 1024;
+  MAX_EPUB_BYTES = 256 * 1024 * 1024;
+  MAX_SCAN_EPUB_BYTES = (768 + 64) * 1024 * 1024;
   READER_RTF_HEADER: UTF8String = '{\rtf1\ansi\ansicpg1251\deff0{\fonttbl{\f0 Georgia;}{\f1 Consolas;}}\uc1\f0\fs28 ';
 
 // TXT needs no intermediate Unicode RTF builders. Count once, then encode
@@ -341,7 +347,7 @@ end;
 
 function RepairEpubTextMarkup(const Value: string): string;
 const
-  Tokens = '<!\[CDATA\[.*?\]\]>|<!--.*?-->|<\?.*?\?>|&(?:lsquo|rsquo|ldquo|rdquo);|'+
+  Tokens = '<!\[CDATA\[.*?\]\]>|<!--.*?-->|<\?.*?\?>|<mbp:pagebreak\s*/>|&(?:lsquo|rsquo|ldquo|rdquo);|'+
     '&(?!amp;|lt;|gt;|quot;|apos;|#[0-9]+;|#x[0-9a-fA-F]+;)|<(?=\s|$)';
 var Output:TStringBuilder; Start:Integer; Replacement:string;
 begin
@@ -353,6 +359,7 @@ begin
       Replacement:=Match.Value;
       if Replacement='&' then Replacement:='&amp;'
       else if Replacement='<' then Replacement:='&lt;'
+      else if Replacement.StartsWith('<mbp:pagebreak') then Replacement:='<br/>'
       else if Replacement='&lsquo;' then Replacement:='&#8216;'
       else if Replacement='&rsquo;' then Replacement:='&#8217;'
       else if Replacement='&ldquo;' then Replacement:='&#8220;'
@@ -472,6 +479,7 @@ end;
 
 destructor TReaderDocument.Destroy;
 begin
+  FImageArchiveLock.Free;
   FAnchors.Free; FLinks.Free; FNoteBodies.Free; FNoteLinks.Free; FStyles.Free; FPictures.Free; Warnings.Free; FChapters.Free; FText.Free; FBody.Free; inherited;
 end;
 
@@ -493,7 +501,7 @@ begin
   if C.Title<>'' then FChapters.Add(C);
 end;
 
-procedure TReaderDocument.Picture(const Bytes: TBytes; OfficeImage: Boolean);
+procedure TReaderDocument.Picture(const Bytes: TBytes; OfficeImage: Boolean; const ArchiveMember: string);
 var Stream: TStream; Graphic: TGraphic; Item: TReaderPicture; Scale: Double;
 begin
   if Length(Bytes)=0 then raise Exception.Create('Данные изображения отсутствуют.');
@@ -516,7 +524,10 @@ begin
       Scale:=Min(1.0,4096.0/Max(Graphic.Width,Graphic.Height))
     else
       Scale:=Min(1.0,1024.0/Max(Graphic.Width,Graphic.Height));
-    Item.Bytes:=Bytes; Item.OfficeImage:=OfficeImage;
+    Item.ArchiveMember:=ArchiveMember;
+    if ArchiveMember='' then Item.Bytes:=Bytes else Item.Bytes:=nil;
+    Item.OfficeImage:=OfficeImage;
+    Item.Unreadable:=False;
     Item.Width:=Max(1,Round(Graphic.Width*Scale));
     Item.Height:=Max(1,Round(Graphic.Height*Scale));
     // Keep compressed source bytes, not multi-megabyte Unicode hexadecimal DIB.
@@ -524,6 +535,16 @@ begin
     FPictures.Add(Item);
     FText.Append(#$FFFC); Paragraph; FBody.Append('\pard\qj\fi360 '); Inc(FImages);
   finally Graphic.Free; Stream.Free; end;
+end;
+
+procedure TReaderDocument.NoteUnreadableImage(const Detail: string);
+begin
+  Inc(FSkippedImages);
+  if FSkippedImages<=20 then
+  begin
+    if Warnings.Count<20 then Warnings.Add('Изображение: '+Detail);
+    LogDiagnosticMessage('reader-image',Detail);
+  end;
 end;
 
 procedure TReaderDocument.MakeRecentCover(const Bytes: TBytes);
@@ -574,7 +595,7 @@ procedure TReaderDocument.Load(const FileName: string; const Canceled: TFunc<Boo
 var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
   Binaries, Paths: TDictionary<string,string>; Resources: TDictionary<string,TBytes>; NoteFiles: TDictionary<string,IXMLDOMDocument3>; Zip: TZipFile;
   CSS: TReaderCSS; CSSCache: TDictionary<string,string>;
-  Data: TBytes; E, PackagePath, CurrentPath, ID, ExistingBinary, HTML: string; I: Integer; NoteLink: TReaderFootnoteLink; UnpackedBytes: Int64; NoteCharacters: Integer; PendingInitial: Boolean;
+  Data: TBytes; E, PackagePath, CurrentPath, ID, ExistingBinary, HTML: string; I: Integer; NoteLink: TReaderFootnoteLink; UnpackedBytes, UnpackedLimit: Int64; NoteCharacters: Integer; PendingInitial: Boolean;
   procedure Check;
   begin
     if Assigned(Canceled) and Canceled() then raise EAbort.Create('Чтение отменено.');
@@ -641,8 +662,77 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
     if Index<0 then raise Exception.Create('Не найден элемент EPUB: '+Path);
     if Zip.FileInfo[Index].UncompressedSize>MAX_DOCUMENT_BYTES then raise Exception.Create('Элемент EPUB слишком велик.');
     Inc(UnpackedBytes,Zip.FileInfo[Index].UncompressedSize);
-    if UnpackedBytes>256*1024*1024 then raise Exception.Create('EPUB слишком велик для встроенной читалки.');
+    if UnpackedBytes>UnpackedLimit then raise Exception.Create('EPUB слишком велик для встроенной читалки.');
     Zip.Read(Index,Bytes);
+  end;
+  function ReadLargeEpubJpeg(Index: Integer): TBytes;
+  var Size, Remaining: Int64; Folder, TempName, SystemRoot: string;
+    Available, TotalSpace, Reserve: UInt64; Header: TZipHeader; Input: TStream;
+    Output: TFileStream; Buffer: TBytes; Count: Integer; Raster: TReaderRaster;
+    Extent: TPoint; Bitmap: TBitmap; JPEG: TJPEGImage; Preview: TBytesStream;
+  begin
+    Size:=Zip.FileInfo[Index].UncompressedSize;
+    if (Size<=0) or (Size>255*1024*1024) then raise EReadError.Create('Изображение JPEG в EPUB слишком велико.');
+    Inc(UnpackedBytes,Size);
+    if UnpackedBytes>UnpackedLimit then raise EReadError.Create('EPUB слишком велик для встроенной читалки.');
+    Folder:=TPath.GetTempPath;
+    SystemRoot:=GetEnvironmentVariable('SystemDrive')+'\';
+    Reserve:=UInt64(8)*1024*1024*1024;
+    if not GetDiskFreeSpaceEx(PChar(SystemRoot),Available,TotalSpace,nil) then RaiseLastOSError;
+    if Available<Reserve then raise EWriteError.Create('Для чтения большого JPEG нужно оставить 8 ГБ на системном диске.');
+    if not SameText(ExtractFileDrive(Folder),ExtractFileDrive(SystemRoot)) then Reserve:=64*1024*1024;
+    if not GetDiskFreeSpaceEx(PChar(Folder),Available,TotalSpace,nil) then RaiseLastOSError;
+    if Available<UInt64(Size)+Reserve then raise EWriteError.Create('Недостаточно места для подготовки изображения EPUB.');
+    TempName:=TPath.Combine(Folder,'homelibre-epub-jpeg-'+TGUID.NewGuid.ToString+'.jpg');
+    try
+      Input:=nil;
+      try
+        Zip.Read(Index,Input,Header,True);
+        SetLength(Buffer,256*1024);
+        Count:=Input.Read(Buffer[0],3);
+        if (Count<>3) or (Buffer[0]<>$FF) or (Buffer[1]<>$D8) or (Buffer[2]<>$FF) then
+          raise EReadError.Create('В EPUB указан неверный заголовок JPEG.');
+        Output:=TFileStream.Create(TempName,fmCreate);
+        try
+          Output.WriteBuffer(Buffer[0],Count); Remaining:=Size-Count;
+          while Remaining>0 do
+          begin
+            Check; Count:=Integer(Min(Remaining,Length(Buffer)));
+            Input.ReadBuffer(Buffer[0],Count); Output.WriteBuffer(Buffer[0],Count);
+            Dec(Remaining,Count);
+          end;
+          if Input.Read(Buffer[0],1)<>0 then raise EReadError.Create('Размер JPEG в EPUB не совпадает с указанным.');
+        finally Output.Free; end;
+      finally Input.Free; end;
+      Check;
+      // The original stays inside the EPUB. WIC produces only a bounded view,
+      // using the same raster path as a standalone large JPEG.
+      Raster:=TReaderRaster.Create(TempName,1600);
+      try
+        Extent:=Raster.PageSize(0); Bitmap:=Raster.Render(0,Extent.X,Extent.Y);
+        try
+          JPEG:=TJPEGImage.Create;
+          try
+            JPEG.CompressionQuality:=92; JPEG.Assign(Bitmap);
+            Preview:=TBytesStream.Create;
+            try
+              JPEG.SaveToStream(Preview);
+              Result:=Copy(Preview.Bytes,0,Integer(Preview.Size));
+            finally Preview.Free; end;
+          finally JPEG.Free; end;
+        finally Bitmap.Free; end;
+      finally Raster.Free; end;
+    finally Winapi.Windows.DeleteFile(PChar(TempName)); end;
+  end;
+  function DecodeInlineImage(const Ref: string; out Bytes: TBytes): Boolean;
+  var Separator: Integer;
+  begin
+    if not Ref.StartsWith('data:image/',True) then Exit(False);
+    Separator:=Pos(',',Ref);
+    if (Separator<=7) or not SameText(Copy(Ref,Separator-7,7),';base64') then Exit(False);
+    if Length(Ref)-Separator>24*1024*1024 then raise Exception.Create('Изображение превышает 16 МБ.');
+    Bytes:=TNetEncoding.Base64.DecodeStringToBytes(Ref.Substring(Separator));
+    Result:=True;
   end;
   procedure LoadEpubOutline;
   var Entries:TList<TReaderChapter>; Seen:TDictionary<string,Boolean>;
@@ -731,8 +821,7 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
       Entries.Clear; Seen.Clear; PageEntries:=0; RootEntry:=False; KfxFallback:=False;
       try
         CurrentPath:=ZipPath(PackagePath,Href); ReadZip(CurrentPath,Bytes);
-        if NCX then Navigation:=XMLDocument(Bytes)
-        else Navigation:=XMLDocument(Bytes,rteAutomatic,nil,Warnings);
+        Navigation:=XMLDocument(Bytes,rteAutomatic,nil,Warnings);
         if NCX then TocNode:=DirectChild(Navigation.documentElement,'navmap')
         else TocNode:=DirectChild(FindToc(Navigation.documentElement),'ol');
         ReadList(TocNode,NCX,0);
@@ -1035,6 +1124,7 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
     if CSSStyle<>'' then FBody.Append('{'+CSSStyle);
     if (Name='image') or (Name='img') or (Name='blip') or ((E='.docx') and (Name='imagedata')) then
     begin
+      var ArchiveMember:='';
       Ref:=Attribute(N,'href'); if Ref='' then Ref:=Attribute(N,'src');
       if Name='blip' then Ref:=Attribute(N,'embed');
       if (E='.docx') and (Name='imagedata') then Ref:=Attribute(N,'id');
@@ -1044,14 +1134,38 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
           if not Paths.TryGetValue(Ref,Binary) then raise Exception.Create('Не найдено вложенное изображение DOCX.');
           ReadZip(Binary,Bytes);
         end
-        else if Assigned(Zip) then ReadZip(ZipPath(CurrentPath,Ref),Bytes)
+        else if Assigned(Zip) then
+        begin
+          if (E<>'.epub') or not DecodeInlineImage(Ref,Bytes) then
+          begin
+            var Member:=ZipPath(CurrentPath,Ref);
+            var Index:=Zip.IndexOf(Member);
+            if (E='.epub') and (Index>=0) and (Zip.FileInfo[Index].UncompressedSize>16*1024*1024) and
+              MatchText(ExtractFileExt(Member),['.jpeg','.jpg']) then
+              Bytes:=ReadLargeEpubJpeg(Index)
+            else
+            begin
+              ReadZip(Member,Bytes);
+              if FImageArchiveLock<>nil then ArchiveMember:=Member;
+            end;
+          end;
+          if (E='.epub') and (Ref.EndsWith('.svg',True) or Ref.StartsWith('data:image/svg+xml;',True)) then
+          begin
+            Bytes:=RenderStaticSvg(Bytes,FindExternalTool('resvg.exe','kfx-export'),TPath.GetTempPath,1536,1536,Canceled);
+            ArchiveMember:='';
+          end;
+        end
         else if Binaries.TryGetValue(Ref.TrimLeft(['#']),Binary) then
           Bytes:=TNetEncoding.Base64.DecodeStringToBytes(Binary) else Bytes:=nil;
-        Picture(Bytes,E='.docx');
+        Picture(Bytes,E='.docx',ArchiveMember);
       except
         on E: EAbort do raise;
         on E: EMHLComponentRequired do raise;
-        on E: Exception do begin Inc(FSkippedImages); if Warnings.Count<20 then Warnings.Add('Изображение: '+E.Message); end;
+        on E: Exception do
+        begin
+          NoteUnreadableImage(E.Message);
+          AddText('[Изображение не читается.]');
+        end;
       end;
     end;
     if (Name='br') or (Name='empty-line') or (Name='line-break') then Paragraph;
@@ -1142,7 +1256,7 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
     end;
   begin
     HeadingIndex:=-1; ActiveHeading:=''; HasCell:=False;
-    for Match in TRegEx.Matches(Value,'<!\[CDATA\[.*?\]\]>|<!--.*?-->|<script\b[^>]*>.*?</script\s*>|<style\b[^>]*>.*?</style\s*>|<[^>]*>|[^<]+|<',[roSingleLine,roIgnoreCase]) do
+    for Match in TRegEx.Matches(Value,ReaderHTMLTokenPattern,[roSingleLine,roIgnoreCase]) do
     begin
       Check; Token:=Match.Value;
       if Token.StartsWith('<![CDATA[') then begin AddText(Copy(Token,10,Length(Token)-12)); Continue; end;
@@ -1173,14 +1287,14 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
       end;
       if (Name='img') and not Closing then
       begin
-        AttributeMatch:=TRegEx.Match(Token,'\bsrc\s*=\s*(?:"([^"]*)"|''([^'']*)''|([^\s>]+))',[roIgnoreCase]);
-        Ref:=AttributeMatch.Groups[1].Value; if Ref='' then Ref:=AttributeMatch.Groups[2].Value; if Ref='' then Ref:=AttributeMatch.Groups[3].Value;
-        Ref:=TNetEncoding.HTML.Decode(Ref);
+        Ref:=ReaderHTMLImageSource(Token);
+        if Ref='' then Continue;
         try
-          if not Resources.TryGetValue(Ref,Bytes) then
+          if not Resources.TryGetValue(Ref,Bytes) and
+            not Resources.TryGetValue(TNetEncoding.URL.Decode(Ref.Replace('+','%2B')),Bytes) and
+            not DecodeInlineImage(Ref,Bytes) then
           begin
-            if Ref.StartsWith('data:image/',True) and (Pos(';base64,',Ref)>0) then Bytes:=TNetEncoding.Base64.DecodeStringToBytes(Copy(Ref,Pos(',',Ref)+1,MaxInt))
-            else if (Ref<>'') and (Pos(':',Ref)=0) and not Ref.StartsWith('/') and not Ref.StartsWith('\') and not Assigned(Zip) then
+            if (Pos(':',Ref)=0) and not Ref.StartsWith('/') and not Ref.StartsWith('\') and not Assigned(Zip) then
             begin
               Ref:=TPath.GetFullPath(TPath.Combine(ExtractFilePath(TPath.GetFullPath(FileName)),TNetEncoding.URL.Decode(Ref.Replace('+','%2B'))));
               if not Ref.StartsWith(ExtractFilePath(TPath.GetFullPath(FileName)),True) then raise Exception.Create('Внешнее изображение пропущено.');
@@ -1194,7 +1308,11 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
         except
           on Error: EAbort do raise;
           on Error: EMHLComponentRequired do raise;
-          on Error: Exception do begin Inc(FSkippedImages); if Warnings.Count<20 then Warnings.Add('Изображение: '+Error.Message); end;
+          on Error: Exception do
+          begin
+            NoteUnreadableImage(Error.Message);
+            AddText('[Изображение не читается.]');
+          end;
         end;
       end;
     end;
@@ -1203,7 +1321,8 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
 
 begin
   FPlainRTF:=''; FPictures.Clear; FBody.Clear; FText.Clear; FChapters.Clear; FStyles.Clear; FNoteLinks.Clear; FNoteBodies.Clear; FLinks.Clear; FAnchors.Clear; Warnings.Clear; FImages:=0; FSkippedImages:=0;
-  UnpackedBytes:=0; NoteCharacters:=0; PendingInitial:=True; Check; E:=LowerCase(ExtractFileExt(FileName)); FormatName:=E.TrimLeft(['.']);
+  FreeAndNil(FImageArchiveLock); FImageArchiveName:='';
+  UnpackedBytes:=0; UnpackedLimit:=MAX_EPUB_BYTES; NoteCharacters:=0; PendingInitial:=True; Check; E:=LowerCase(ExtractFileExt(FileName)); FormatName:=E.TrimLeft(['.']);
   Title:=ExtractFileName(FileName); Language:=''; Author:=''; RecentCover:=''; Zip:=nil;
   CSS:=TReaderCSS.Create; CSSCache:=TDictionary<string,string>.Create;
   Binaries:=TDictionary<string,string>.Create; Paths:=TDictionary<string,string>.Create; Resources:=TDictionary<string,TBytes>.Create; NoteFiles:=TDictionary<string,IXMLDOMDocument3>.Create;
@@ -1264,10 +1383,27 @@ begin
     if E='.epub' then
     begin
       Zip:=TZipFile.Create; Zip.Open(FileName,zmRead);
+      var Total: Int64:=0;
+      for I:=0 to Zip.FileCount-1 do
+      begin
+        Check;
+        if Zip.FileInfo[I].UncompressedSize>MAX_SCAN_EPUB_BYTES-Total then
+          raise EReadError.Create('EPUB слишком велик для встроенной читалки.');
+        Inc(Total,Zip.FileInfo[I].UncompressedSize);
+      end;
+      if Total>MAX_EPUB_BYTES then
+      begin
+        // Keep offsets and dimensions in memory. Load image bytes when the
+        // picture is visible, and hold the archive stable while it is open.
+        FImageArchiveName:=TPath.GetFullPath(FileName);
+        FImageArchiveLock:=TFileStream.Create(FImageArchiveName,fmOpenRead or fmShareDenyWrite);
+        UnpackedLimit:=MAX_SCAN_EPUB_BYTES;
+      end;
       ReadZip('META-INF/container.xml',Data); Document:=XMLDocument(Data);
       Node:=FindNode(Document.documentElement,'rootfile');
       if Node=nil then raise Exception.Create('В EPUB не найден основной документ.');
-      PackagePath:=Attribute(Node,'full-path'); ReadZip(PackagePath,Data); Document:=XMLDocument(Data);
+      PackagePath:=Attribute(Node,'full-path'); ReadZip(PackagePath,Data);
+      Document:=XMLDocument(Data,rteAutomatic,nil,Warnings);
       Root:=Document.documentElement; Node:=FindNode(Root,'title'); if Node<>nil then Title:=Node.text;
       Node:=FindNode(Root,'language'); if Node<>nil then Language:=Trim(Node.text);
       var Metadata:=FindNode(Root,'metadata');
@@ -1531,7 +1667,9 @@ var Item: TReaderPicture; Header: UTF8String; At, Pitch, Y: Integer;
   procedure AppendBytes(const Buffer; Count: Integer);
   begin if Count>0 then begin Move(Buffer,Result[At],Count); Inc(At,Count); end; end;
 begin
-  Item:=FPictures[Index]; Header:=PictureHeader(Index,MaxWidth,MaxHeight,LayoutOnly);
+  Item:=FPictures[Index];
+  if Item.Unreadable then LayoutOnly:=True;
+  Header:=PictureHeader(Index,MaxWidth,MaxHeight,LayoutOnly);
   SetLength(Result,Length(Header)+ReaderPictureBinarySize(Item,LayoutOnly)+1);
   At:=1; AppendBytes(Header[1],Length(Header));
   if LayoutOnly then
@@ -1545,6 +1683,15 @@ begin
   end
   else
   begin
+    try
+      if Item.ArchiveMember<>'' then
+      begin
+        var Archive:=TZipFile.Create;
+        try
+          Archive.Open(FImageArchiveName,zmRead);
+          Archive.Read(Item.ArchiveMember,Item.Bytes);
+        finally Archive.Free; end;
+      end;
       Stream:=nil; Graphic:=nil; Bitmap:=TBitmap.Create;
       try
         if Item.OfficeImage then Graphic:=CreatePackageCoverGraphic(Item.Bytes,256*1024*1024)
@@ -1586,6 +1733,18 @@ begin
         if Item.Monochrome then AppendBytes(MonoColors,SizeOf(MonoColors));
         for Y:=Item.Height-1 downto 0 do AppendBytes(Bitmap.ScanLine[Y]^,Pitch);
       finally Bitmap.Free; Graphic.Free; Stream.Free; end;
+    except
+      on E: EAbort do raise;
+      on E: EMHLComponentRequired do raise;
+      on E: Exception do
+      begin
+        Item.Bytes:=nil;
+        Item.Unreadable:=True;
+        FPictures[Index]:=Item;
+        NoteUnreadableImage(E.Message);
+        Exit(PictureRTF(Index,MaxWidth,MaxHeight,True));
+      end;
+    end;
   end;
   Result[At]:='}'; Inc(At);
   Assert(At=Length(Result)+1,'Reader picture RTF length differs');

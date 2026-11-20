@@ -9,12 +9,14 @@ const
   BOOK_QUALITY_NONE = 4;
   MAX_PDF_CONVERSION_SOURCE = 512*1024*1024;
   MAX_RTF_CONVERSION_SOURCE = 256*1024*1024;
+  MAX_JPEG_CONVERSION_SOURCE = 255*1024*1024;
   BOOK_IMAGE_PROFILES: array[0..BOOK_QUALITY_NONE] of string =
     ('original','balanced','economy','maximum','none');
   BOOK_IMAGE_PROFILE_CAPTIONS: array[0..BOOK_QUALITY_NONE] of string =
     ('Без уменьшения качества','Сбалансированный','Экономный','Максимальная экономия','Без изображений');
 
 type
+  EBookPartialExportDeclined = class(EAbort);
   TBookConversionProgress = reference to procedure(Percent, Completed, Total: Integer; const Stage: string);
   TBookImageQualityOptions = record
     HighBytes, BalancedBytes, EconomyBytes, NoImagesBytes: Int64;
@@ -45,7 +47,8 @@ procedure ConvertBasicBook(const AppPath, TempRoot, SourceFile, SourceExtension,
   const OverwriteExisting: Boolean = False; const ProtectedSourceFile: string = '';
   const PackedOutput: Boolean = False; const OutputProfile: string = '';
   const ExtractTextLayer: Boolean = False; const Grayscale: Boolean = False;
-  const MeasureScans: Boolean = False; const SkipDamagedFB2Image: Boolean = False);
+  const MeasureScans: Boolean = False; const SkipDamagedFB2Image: Boolean = False;
+  const ConfirmDamagedContent: TFunc<string,Boolean> = nil);
 
 implementation
 
@@ -228,20 +231,24 @@ procedure ConvertBasicBook(const AppPath, TempRoot, SourceFile, SourceExtension,
   const OnProgress: TBookConversionProgress; const ImageQuality: string;
   const ChooseImageQuality: TBookImageQualityChooser;
   const OverwriteExisting: Boolean; const ProtectedSourceFile: string; const PackedOutput: Boolean;
-  const OutputProfile: string; const ExtractTextLayer, Grayscale, MeasureScans, SkipDamagedFB2Image: Boolean);
+  const OutputProfile: string; const ExtractTextLayer, Grayscale, MeasureScans, SkipDamagedFB2Image: Boolean;
+  const ConfirmDamagedContent: TFunc<string,Boolean>);
 var Work, InputName, OutputName, ReportName, ProgressName, Tool, Script, TargetTemporary, LastDiagnosticStage: string;
   Input, Writer: TStream; SavedPosition: Int64; Log: TStringStream;
   Started, LastAdvance, LastPoll: UInt64; Report: TJSONValue; ArrayValue: TJSONValue; I: Integer;
   Extension, TargetExtension, Actual: string; Check, ReadProgress: TProc;
   Paged, Finalizing, ImageProcessing, StreamingScans, KindleWriting, TextLayerOnly: Boolean;
   LastSequence, CompletedPages, PageTotal, LastPercent, RenderedPages, KindleCompleted: Integer;
+  WrittenEpubResources, CheckedEpubResources, PreparedGifs: Integer;
   Header: TBytes; MaximumInput: Int64;
   ImageOptionsName, ImageChoiceName: string; ImageChoiceHandled: Boolean;
   EstimateCompleted, OptimizedCompleted: Integer;
-  QualityProfile, ScanLayout, ScanExclude: string;
+  QualityProfile, ScanLayout, ScanExclude, DamageNotice: string;
+  RecoverDamagedFB2: Boolean;
 
 begin
   Extension:=LowerCase(SourceExtension); TargetExtension:=LowerCase(ExtractFileExt(TargetFile));
+  RecoverDamagedFB2:=SkipDamagedFB2Image or Assigned(ConfirmDamagedContent);
   if OutputProfile<>'' then
   begin
     TargetExtension:=AdvancedBookOutputExtension(OutputProfile);
@@ -264,7 +271,7 @@ begin
   if Assigned(Warnings) then Warnings.Clear;
   if (OutputProfile='') and not ForReading and not Grayscale and (QualityProfile='original') and (ScanLayout='keep') and
     CopyUnchangedBook(SourceFile,Extension,TargetFile,Source,IsCanceled,OverwriteExisting,ProtectedSource,
-      SkipDamagedFB2Image) then
+      RecoverDamagedFB2) then
   begin
     if Assigned(OnProgress) then OnProgress(100,0,0,'complete');
     Exit;
@@ -320,6 +327,9 @@ begin
   if Length(Missing)>0 then
     raise EMHLComponentRequired.Create(Missing,'Для выбранной книги нужны дополнительные компоненты: '+
       String.Join(', ',Missing)+'.');
+  if not ForReading and Assigned(ConfirmDamagedContent) and (SaveOptionsAPI(AppPath)<8) then
+    raise EMHLComponentRequired.Create('BookProcessing',
+      'Обновите модуль подготовки книг, чтобы программа могла предупредить о потерях перед частичным экспортом.');
   Tool:=FindBookProcessingPython(AppPath);
   Script:=TPath.Combine(AppPath,'tools\bookconvert\convert_book.py');
   if not ModularBookProcessingAvailable(AppPath) then
@@ -343,6 +353,7 @@ begin
   TargetTemporary:=''; Log:=TStringStream.Create('',TEncoding.UTF8);
   Started:=GetTickCount64; LastAdvance:=Started; LastPoll:=0;
   KindleWriting:=False; KindleCompleted:=0;
+  WrittenEpubResources:=-1; CheckedEpubResources:=-1; PreparedGifs:=0;
   Paged:=False; Finalizing:=False; LastSequence:=0; CompletedPages:=0; PageTotal:=0; LastPercent:=0; RenderedPages:=0;
   ReadProgress:=procedure
   var Value: TJSONValue; Sequence, Completed, Total, Percent: Integer; Stage: string; Advanced: Boolean;
@@ -422,6 +433,19 @@ begin
           else if Pos('|'+Extension+'|','|.xps|.bmp|.tif|.tiff|')>0 then Percent:=90+Completed*5 div Total
           else Percent:=Completed*95 div Total;
         end
+        else if (TargetExtension='.epub') and (Total>0) and (Total<=20000) and (Completed>=0) and (Completed<=Total) and
+          (((Stage='writing-epub') and (CheckedEpubResources<0) and (Completed>WrittenEpubResources)) or
+           ((Stage='checking-epub') and (Completed>CheckedEpubResources))) then
+        begin
+          if Stage='writing-epub' then WrittenEpubResources:=Completed else CheckedEpubResources:=Completed;
+          Finalizing:=True; Advanced:=True;
+        end
+        else if (Stage='gif-preparation') and (Total=0) and (Completed>PreparedGifs) and (Completed<=20000) then
+        begin
+          PreparedGifs:=Completed;
+          Finalizing:=True;
+          Advanced:=True;
+        end
         else if (Stage='finalizing') and not Finalizing and
           (not Paged or ((Total>0) and (Total<=5000) and (Completed=Total) and
             ((PageTotal=0) or (PageTotal=Total)) and (Completed>=CompletedPages))) then
@@ -484,7 +508,7 @@ begin
         if GetTickCount64-LastAdvance>310000 then
           raise Exception.Create('Модуль сохранения не завершил работу за пять минут. Исходная книга сохранена.');
       end
-      else if Paged or ImageProcessing then
+      else if Paged or ImageProcessing or (PreparedGifs>0) then
       begin
         if GetTickCount64-LastAdvance>180000 then
           raise Exception.Create('Конвертация не продвигается более трёх минут. Исходная книга сохранена; неполный результат не записан.');
@@ -509,6 +533,8 @@ begin
           Input.Position:=0; SetLength(Header,1024); Input.ReadBuffer(Header[0],Length(Header));
           if TEncoding.ASCII.GetString(Header,0,5)='{\rtf' then MaximumInput:=MAX_RTF_CONVERSION_SOURCE
           else if TEncoding.ASCII.GetString(Header).Contains('%PDF-') then MaximumInput:=MAX_PDF_CONVERSION_SOURCE
+          else if TEncoding.ASCII.GetString(Header,0,8)='AT&TFORM' then MaximumInput:=256*1024*1024
+          else if (Header[0]=$FF) and (Header[1]=$D8) and (Header[2]=$FF) then MaximumInput:=MAX_JPEG_CONVERSION_SOURCE
           else if ((Header[0]=$49) and (Header[1]=$49) and (Header[2]=$2A) and (Header[3]=0)) or
              ((Header[0]=$4D) and (Header[1]=$4D) and (Header[2]=0) and (Header[3]=$2A)) or
              ((Header[0]=$50) and (Header[1]=$4B)) or
@@ -540,6 +566,8 @@ begin
     finally if not Assigned(Source) then Input.Free; end;
     Check;
     Actual:=DetectReaderExtension(InputName);
+    if ((Actual='.rar') and (Extension='.cbr')) or ((Actual='.7z') and (Extension='.cb7')) then
+      Actual:=Extension;
     if not ForReading and SkipDamagedFB2Image and (Actual='.fb2') and (SaveOptionsAPI(AppPath)<6) then
       raise EMHLComponentRequired.Create('BookProcessing','Для пропуска повреждённых изображений FB2 обновите модуль подготовки книг.');
     var IsLargeInput:=TFile.GetSize(InputName)>64*1024*1024;
@@ -548,7 +576,7 @@ begin
     if IsLargeInput and (Actual='.rtf') and (SaveOptionsAPI(AppPath)<7) then
       raise EMHLComponentRequired.Create('BookProcessing','Для обработки больших RTF обновите модуль подготовки книг.');
     if IsLargeInput and
-      (Pos('|'+Actual+'|','|.pdf|.rtf|.tif|.tiff|.cbz|.cbr|.cb7|')=0) and
+      (Pos('|'+Actual+'|','|.pdf|.djvu|.djv|.dju|.djm|.djvm|.rtf|.jpg|.jpeg|.tif|.tiff|.cbz|.cbr|.cb7|')=0) and
       not ((ForReading and SameText(Actual,'.fb2')) or
         (ImageProcessing and ((Actual='.fb2') or (Actual='.epub')))) then
       raise Exception.Create('Для этого формата предел конвертации — 64 МБ.');
@@ -568,6 +596,8 @@ begin
           Check;
         end,DocWarning);
       if (DocWarning<>'') and Assigned(Warnings) then Warnings.Add(DocWarning);
+      if not ForReading and (ExtractFileExt(InputName)='.txt') and (DocWarning<>'') then
+        DamageNotice:=DocWarning+sLineBreak;
       Extension:=ExtractFileExt(InputName);
     end;
     // The Python same-format path validates and copies the exact bytes. Do
@@ -581,7 +611,7 @@ begin
         begin
           Arguments:=Arguments+TArray<string>.Create('--image-quality',QualityProfile,'--scan-layout',ScanLayout);
           if Grayscale and (QualityProfile<>'none') then Arguments:=Arguments+TArray<string>.Create('--grayscale');
-          if SkipDamagedFB2Image and (Actual='.fb2') then
+          if RecoverDamagedFB2 and (Actual='.fb2') and (SaveOptionsAPI(AppPath)>=6) then
             Arguments:=Arguments+TArray<string>.Create('--skip-damaged-fb2-image');
           if OutputProfile<>'' then Arguments:=Arguments+TArray<string>.Create('--output-profile',OutputProfile);
           if TextLayerOnly then Arguments:=Arguments+TArray<string>.Create('--text-layer-only');
@@ -626,13 +656,7 @@ begin
                     'Для этой книги нужен компонент '+Required+'.'));
               end;
               if (Report is TJSONObject) and (TJSONObject(Report).GetValue('error')<>nil) then
-              begin
-                var ErrorText:=TJSONObject(Report).GetValue('error').Value;
-                if not ForReading and not SkipDamagedFB2Image and
-                  TJSONObject(Report).GetValue<Boolean>('recoverable_fb2_image',False) then
-                  ErrorText:=ErrorText+' Чтобы сохранить копию, включите «Пропускать повреждённые изображения».';
-                raise Exception.Create(ErrorText);
-              end;
+                raise Exception.Create(TJSONObject(Report).GetValue('error').Value);
             finally Report.Free; end;
           end;
           raise;
@@ -651,8 +675,32 @@ begin
           ArrayValue:=TJSONObject(Report).GetValue('warnings');
           if Assigned(Warnings) and (ArrayValue is TJSONArray) then
             for I:=0 to TJSONArray(ArrayValue).Count-1 do Warnings.Add(TJSONArray(ArrayValue).Items[I].Value);
+          if not ForReading then
+          begin
+            var Damaged:=TJSONObject(Report).GetValue('damaged_content');
+            if Damaged is TJSONArray then
+              for var Notice in TJSONArray(Damaged) do
+                if (Notice is TJSONString) and (Notice.Value<>'') then
+                  DamageNotice:=DamageNotice+Notice.Value+sLineBreak;
+            if (DamageNotice='') and (ArrayValue is TJSONArray) then
+              for var Notice in TJSONArray(ArrayValue) do
+                if (Notice is TJSONString) and
+                  (Notice.Value.StartsWith('Повреждённая обложка') or Notice.Value.StartsWith('Повреждённая иллюстрация')) then
+                  DamageNotice:=DamageNotice+Notice.Value+sLineBreak;
+          end;
         end;
       finally Report.Free; end;
+    end;
+    if DamageNotice<>'' then
+    begin
+      if not Assigned(ConfirmDamagedContent) then
+        raise EReadError.Create('Для частичного экспорта требуется подтверждение.'+sLineBreak+TrimRight(DamageNotice));
+      var ConfirmationStarted:=GetTickCount64;
+      var Confirmed:=ConfirmDamagedContent(TrimRight(DamageNotice));
+      Inc(Started,GetTickCount64-ConfirmationStarted); LastAdvance:=GetTickCount64;
+      Check;
+      if not Confirmed then
+        raise EBookPartialExportDeclined.Create('Частичный экспорт отменён для этой книги.');
     end;
     TargetTemporary:=CreateBookOutputStage(TargetFile);
     TFile.Copy(OutputName,TargetTemporary,True);

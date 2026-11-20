@@ -6,6 +6,7 @@ uses unit_BookConversion;
 
 function ChooseExportImageQuality(const Title: string; const Options: TBookImageQualityOptions;
   MultipleBooks: Boolean; out ApplyToAll: Boolean): string;
+function ConfirmDamagedBookExport(const Title, Details: string): Boolean;
 
 implementation
 
@@ -51,6 +52,40 @@ function QualitySizeCaption(Value: Int64): string;
 begin
   if Value>=1024*1024 then Result:=FormatFloat('0.0',Value/1024/1024)+' МБ'
   else Result:=FormatFloat('0',Value/1024)+' КБ';
+end;
+
+function ConfirmDamagedBookExport(const Title, Details: string): Boolean;
+var Dialog: TForm; Heading: TLabel; Damage: TMemo; Footer: TPanel; SaveButton, CancelButton: TButton;
+begin
+  Dialog:=TExportImageQualityForm.CreateNew(Application);
+  try
+    Dialog.Caption:='Частичный экспорт';
+    Dialog.Position:=poMainFormCenter;
+    Dialog.Font.Name:='Segoe UI'; Dialog.Font.Size:=10;
+    Dialog.ClientWidth:=610; Dialog.ClientHeight:=380;
+    Heading:=TLabel.Create(Dialog); Heading.Parent:=Dialog;
+    Heading.AlignWithMargins:=True; Heading.Margins.SetBounds(14,14,14,8);
+    Heading.Align:=alTop; Heading.AutoSize:=False; Heading.WordWrap:=True; Heading.Height:=63;
+    Heading.Caption:='Часть данных книги «'+Title+'» не читается. Сохранить то, что удалось прочитать?';
+    Heading.ShowAccelChar:=False; Heading.Hint:=Title; Heading.ShowHint:=True;
+    Footer:=TPanel.Create(Dialog); Footer.Parent:=Dialog; Footer.Align:=alBottom;
+    Footer.BevelOuter:=bvNone; Footer.Height:=49;
+    Damage:=TMemo.Create(Dialog); Damage.Parent:=Dialog; Damage.Align:=alClient;
+    Damage.AlignWithMargins:=True; Damage.Margins.SetBounds(14,0,14,0);
+    Damage.ReadOnly:=True; Damage.ScrollBars:=ssVertical; Damage.Text:=Details;
+    SaveButton:=TButton.Create(Dialog); SaveButton.Parent:=Footer;
+    SaveButton.SetBounds(290,10,170,29); SaveButton.Anchors:=[akRight,akBottom];
+    SaveButton.Caption:='Сохранить частично'; SaveButton.ModalResult:=mrOk;
+    CancelButton:=TButton.Create(Dialog); CancelButton.Parent:=Footer;
+    CancelButton.SetBounds(466,10,130,29); CancelButton.Anchors:=[akRight,akBottom];
+    CancelButton.Caption:='Пропустить книгу'; CancelButton.ModalResult:=mrCancel;
+    CancelButton.Cancel:=True; CancelButton.Default:=True;
+    Dialog.ActiveControl:=CancelButton;
+    Dialog.ScaleForPPI(Screen.PixelsPerInch);
+    Dialog.Width:=Min(Dialog.Width,Screen.WorkAreaWidth); Dialog.Height:=Min(Dialog.Height,Screen.WorkAreaHeight);
+    ApplyMHLControlTheme(Dialog);
+    Result:=Dialog.ShowModal=mrOk;
+  finally Dialog.Free; end;
 end;
 
 procedure TScanLayoutController.Change(Sender: TObject);

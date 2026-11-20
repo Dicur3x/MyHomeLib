@@ -580,7 +580,7 @@ implementation
 {$R '..\Resources\reader-icon.res'}
 
 uses unit_ReaderDOC, Winapi.ActiveX, Winapi.RichEdit, Winapi.CommDlg, Winapi.CommCtrl, Winapi.ShellAPI, System.Math, System.DateUtils, System.IOUtils, System.RegularExpressions,
-  System.IniFiles, System.Hash, System.NetEncoding, Vcl.Dialogs, Vcl.Clipbrd, unit_ReaderRichEdit, unit_ReaderLookup, unit_MHLTheme, unit_AtomicIniFile, Vcl.Themes, unit_MHLExternalTools, unit_ReaderPalette, frm_ReaderFontManager, unit_Diagnostics, unit_ReaderFormats;
+  System.IniFiles, System.Hash, System.NetEncoding, System.StrUtils, Vcl.Dialogs, Vcl.Clipbrd, unit_ReaderRichEdit, unit_ReaderLookup, unit_MHLTheme, unit_AtomicIniFile, Vcl.Themes, unit_MHLExternalTools, unit_ReaderPalette, frm_ReaderFontManager, unit_Diagnostics, unit_ReaderFormats;
 
 const
   DefaultReaderNavigationKeys: TReaderNavigationKeys =
@@ -1003,7 +1003,7 @@ begin
       if Assigned(BeforeLoadForProfile) then BeforeLoadForProfile();
       {$ENDIF}
       if Terminated then Exit;
-      if IsRasterReaderFormat(ExtractFileExt(FFileName)) then Pages:=TReaderRaster.Create(FFileName,FRasterEdge)
+      if IsRasterReaderFormat(ExtractFileExt(FFileName)) then Pages:=TReaderRaster.Create(FFileName,FRasterEdge,False,True)
       else
       begin
         Document:=TReaderDocument.Create;
@@ -1851,7 +1851,10 @@ begin
   if FLoader.Error<>'' then
   begin
     LogDiagnosticMessage('reader-open',FLoader.Error);
-    FStatus.Caption:=FLoader.Error; FSurface.Invalidate; Exit;
+    if MatchText(ExtractFileExt(FFileName),['.jpg','.jpeg','.png','.gif','.bmp','.webp']) then
+      FStatus.Caption:='Изображение не читается.'
+    else FStatus.Caption:=FLoader.Error;
+    FSurface.Invalidate; Exit;
   end;
   try
   if Assigned(FLoader.Pages) then
@@ -2031,6 +2034,13 @@ end;
 
 procedure TfrmBuiltinReader.PageLoaded(Sender: TObject);
 var Index: Integer; Error: string; Moved, Preloaded: Boolean; SavedPan: TPoint;
+  procedure ShowReadError;
+  begin
+    FSpreadLoading:=False;
+    LogDiagnosticMessage('reader-page',Format('Страница %d из %d. %s',[Index+1,FPDF.PageCount,Error]));
+    FStatus.Caption:=Format('Страница %d не читается.',[Index+1]);
+    if Index+1<FPDF.PageCount then FStatus.Caption:=FStatus.Caption+' Можно перелистнуть дальше.';
+  end;
 begin
   if not Assigned(FPageWorker) or (WaitForSingleObject(FPageWorker.Handle,0)<>WAIT_OBJECT_0) then Exit;
   Index:=FPageWorker.Index; Error:=FPageWorker.Error; Moved:=FPageWorker.Navigated;
@@ -2056,14 +2066,15 @@ begin
   if Preloaded and (Error<>'') and (Index>=FPage) and (Index<FPage+RasterPageCount) then
   begin
     FScrollTarget:=FScrollOffset;
-    FSpreadLoading:=False; FStatus.Caption:='Не удалось открыть страницу: '+Error;
+    ShowReadError;
+    if FRequestedPage=FPage then Exit;
   end;
   if (FRequestedPage<>FPage) and (Preloaded or (FRequestedPage<>Index)) then
     RequestPage(FRequestedPage,FRequestedMoved)
   else if not Preloaded and (Error<>'') and (Index=FRequestedPage) then
   begin
     FScrollBackOffset:=0;
-    FSpreadLoading:=False; FStatus.Caption:='Не удалось открыть страницу: '+Error;
+    ShowReadError;
   end
   else PrefetchNextPage;
 end;
@@ -2869,7 +2880,8 @@ begin
       FStatus.Caption:=Format('Плавная прокрутка · Шрифт %d · Ctrl+колесо — размер',[FFontSize])
     else FStatus.Caption:=Format('Шрифт %d · Колесо — страницы · Ctrl+колесо — размер',[FFontSize]);
     if TextPageCount=2 then FStatus.Caption:=FStatus.Caption+' · Две страницы';
-    if Assigned(FDocument) and (FDocument.SkippedImages>0) then FStatus.Caption:=FStatus.Caption+' · Изображений пропущено: '+IntToStr(FDocument.SkippedImages);
+    if Assigned(FDocument) and (FDocument.SkippedImages>0) then
+      FStatus.Caption:=FStatus.Caption+' · Не удалось показать изображений: '+IntToStr(FDocument.SkippedImages);
   end;
   if Assigned(FPDF) or ContinuousReading then I:=ChapterIndexAt(VisibleReadingPosition)
   else I:=ChapterIndexAt(Max(CurrentPosition,FNext-1));

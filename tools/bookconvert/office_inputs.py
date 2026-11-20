@@ -55,7 +55,7 @@ def rasterize_image(book, data):
               data[:4] in {b'\x01\0\x09\0', b'\x02\0\x09\0'} or
               (data[:4] == b'\x01\0\0\0' and data[40:44] == b' EMF'))
     if not legacy:
-        book.fail('Неподдерживаемое изображение документа. Поддерживаются PNG, JPEG, GIF, BMP, TIFF, EMF и WMF.')
+        raise book.c.UnreadableImage('Не удалось распознать встроенное изображение документа.')
     tool = book.tools_root / 'doc' / 'HomeLibDoc.exe'
     if not tool.is_file(): book.require('DocSharp', 'Для этого офисного изображения нужен компонент DocSharp.')
     with tempfile.TemporaryDirectory(prefix='homelib-image-',dir=getattr(book,'work_root',None)) as work:
@@ -66,7 +66,8 @@ def rasterize_image(book, data):
                 result = subprocess.run([str(tool), '--image-to-png', str(source), str(target)],
                                         stdout=log, stderr=subprocess.STDOUT, timeout=15,
                                         creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
-            if result.returncode or not target.is_file(): book.fail('Не удалось декодировать встроенное офисное изображение.')
+            if result.returncode or not target.is_file():
+                raise book.c.UnreadableImage('Не удалось декодировать встроенное офисное изображение.')
             if target.stat().st_size > 16 * 1024 * 1024: book.fail('Преобразованное изображение превышает 16 МБ.')
             png = target.read_bytes()
             if not png.startswith(b'\x89PNG\r\n\x1a\n'): book.fail('Компонент создал некорректное изображение.')

@@ -35,7 +35,7 @@ type
     function CachedPage(Index: Integer; out Page: TReaderRasterPage; Visible: Boolean = False): Boolean;
   public
     constructor Create(const FileName: string; RenderEdge: Integer = 4000;
-      RequireImageOnly: Boolean = False);
+      RequireImageOnly: Boolean = False; DeferFirstDjvuPage: Boolean = False);
     destructor Destroy; override;
     function AsyncPages: Boolean; override;
     procedure PreparePage(Index: Integer; Prefetch: Boolean = False; RenderEdge: Integer = 4000; TargetWidth: Integer = 0); override;
@@ -171,7 +171,7 @@ begin
   OleCheck(Factory.CreateDecoderFromFilename(PWideChar(FileName),GUID_NULL,GENERIC_READ,WICDecodeMetadataCacheOnDemand,Decoder));
 end;
 
-constructor TReaderRaster.Create(const FileName: string; RenderEdge: Integer; RequireImageOnly: Boolean);
+constructor TReaderRaster.Create(const FileName: string; RenderEdge: Integer; RequireImageOnly, DeferFirstDjvuPage: Boolean);
 var Names: TList<Integer>; I, SortChecks: Integer; Name, E: string; Factory: IWICImagingFactory;
   Decoder: IWICBitmapDecoder; Frames: Cardinal;
 begin
@@ -230,7 +230,7 @@ begin
     FPageCount:=Length(FArchiveEntries);
     if FPageCount=0 then raise Exception.Create('В комиксе не найдены изображения страниц.');
   end;
-  PreparePage(0,False,RenderEdge);
+  if not (DeferFirstDjvuPage and FDjvu and (FPageCount>1)) then PreparePage(0,False,RenderEdge);
 end;
 
 destructor TReaderRaster.Destroy;

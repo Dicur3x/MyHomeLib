@@ -1,7 +1,6 @@
 """Image books and comic archives; keep every page, original files read-only."""
 from pathlib import Path
 import importlib.util
-import posixpath
 import re
 import struct
 import subprocess
@@ -58,6 +57,21 @@ def tiff_pages(book, source, report_rendering=True):
 
 
 def read(book, extension):
+    if extension in {'.jpg', '.jpeg'} and book.source.stat().st_size > 16 * 1024 * 1024:
+        # A standalone JPEG can be a very large original scan. Put it in the
+        # EPUB directly from the private input stream rather than loading it.
+        with book.source.open('rb') as source:
+            if source.read(3) != b'\xff\xd8\xff':
+                book.fail('Некорректный заголовок изображения JPEG.')
+        path = book.c.LARGE_JPEG_EPUB_RESOURCE
+        book.resources[path] = (book.source, 'image/jpeg')
+        section = book.el('section', id='page-1')
+        paragraph = book.el('p')
+        paragraph.append(book.el('img', src=path, alt='Страница 1'))
+        section.append(paragraph)
+        book.body.append(section)
+        book.warnings.add('Исходное изображение JPEG сохранено в EPUB без изменений.')
+        return
     if extension in {'.tif','.tiff'}:
         for number,total,data,_suffix in tiff_pages(book,book.source):
             page(book,data,number,total);book.progress('pages',number,total)
@@ -83,19 +97,24 @@ def read(book, extension):
                     if name in sizes: book.fail('В комиксе повторяются имена страниц.')
                     sizes[name] = entry.file_size
                 def get(name, maximum=16 * 1024 * 1024):
-                    if not 0 < sizes[name] <= maximum: book.fail('Страница комикса превышает допустимый размер или пуста.')
+                    if sizes[name] > maximum: book.fail('Страница комикса превышает допустимый размер.')
+                    if not sizes[name]: raise book.c.UnreadableImage('Пустая страница комикса.')
                     return archive.read(name)
                 names = list(sizes)
             else:
                 tool = book.tools_root / '7zip/7z.exe'
                 if not tool.is_file(): book.require('7-Zip', 'Для чтения этого комикса нужен 7-Zip.')
-                def run(args, maximum):
+                def run(args, maximum, item=False):
                     with tempfile.TemporaryFile(dir=book.work_root) as output:
                         try:
                             process = subprocess.run([str(tool),'-sccUTF-8',*args],stdout=output,stderr=subprocess.PIPE,
                                 timeout=40,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
                         except subprocess.TimeoutExpired: book.fail('Чтение архива комикса превысило 40 секунд.')
-                        if process.returncode: book.fail('Не удалось прочитать архив комикса: ' + process.stderr.decode('utf-8',errors='replace')[-500:])
+                        if process.returncode:
+                            details = process.stderr.decode('utf-8', errors='replace')[-500:]
+                            if item and ('CRC Failed' in details or 'Data Error' in details):
+                                raise book.c.UnreadableImage(details)
+                            book.fail('Не удалось прочитать архив комикса: ' + details)
                         if output.tell() > maximum: book.fail('Архив комикса превышает предел чтения.')
                         output.seek(0); return output.read()
                 listing = run(['l','-slt','-ba','--',str(book.source)],8*1024*1024).decode('utf-8')
@@ -107,9 +126,10 @@ def read(book, extension):
                     if name in sizes or size < 0 or total > book.c.MAX_TOTAL or len(sizes) >= 20000: book.fail('Некорректный или слишком большой архив комикса.')
                     sizes[name] = size
                 def get(name, maximum=16 * 1024 * 1024):
-                    if not 0 < sizes[name] <= maximum: book.fail('Страница комикса превышает допустимый размер или пуста.')
-                    data = run(['e','-so','-spd','--',str(book.source),name],maximum)
-                    if len(data) != sizes[name]: book.fail('Неполная страница комикса.')
+                    if sizes[name] > maximum: book.fail('Страница комикса превышает допустимый размер.')
+                    if not sizes[name]: raise book.c.UnreadableImage('Пустая страница комикса.')
+                    data = run(['e','-so','-spd','--',str(book.source),name],maximum,item=True)
+                    if len(data) != sizes[name]: raise book.c.UnreadableImage('Неполная страница комикса.')
                     return data
                 names = list(sizes)
             pages = []
@@ -118,7 +138,7 @@ def read(book, extension):
                 if normalized.startswith('/') or ':' in normalized or '..' in normalized.split('/') or '\0' in normalized:
                     book.fail('Некорректное имя страницы комикса.')
                 if Path(normalized).suffix.lower() in IMAGES: pages.append(name)
-                elif posixpath.basename(normalized).lower() not in {'comicinfo.xml','.ds_store','thumbs.db'}:
+                elif not book.c.comic_sidecar(normalized, extension):
                     book.fail('В архиве комикса найден файл, который не является страницей: ' + name[:160])
             if not pages or len(pages) > 5000: book.fail('В комиксе нет страниц или их слишком много.')
             def order(value):
@@ -130,7 +150,12 @@ def read(book, extension):
                         # A multipage TIFF is a container of pages. Its source
                         # limit matches a standalone TIFF; each decoded page
                         # still passes the usual picture/resource bounds.
-                        data=get(name,book.c.MAX_TOTAL)
+                        try:
+                            data=get(name,book.c.MAX_TOTAL)
+                        except (book.c.UnreadableImage, zipfile.BadZipFile):
+                            # The damaged TIFF may have contained several pages.
+                            # A book-wide page index after this file is unknowable.
+                            raise book.c.ConversionError('Не удалось определить число страниц повреждённого TIFF в комиксе: '+name[:160])
                         if len(data)>16*1024*1024 and data[:4] not in (b'II*\0',b'MM\0*'):
                             book.fail('Отдельное изображение комикса превышает 16 МБ; увеличенный предел предусмотрен для многостраничного TIFF.')
                         source=root/('source-'+str(index)+'.tif');source.write_bytes(data)
@@ -145,9 +170,22 @@ def read(book, extension):
                         prepared_bytes+=sizes[name]
                         if prepared_bytes>book.c.MAX_TOTAL or len(expanded)>=5000:book.fail('Подготовленные страницы комикса превышают предел чтения.')
                         expanded.append((None,name))
+                unreadable = []
+                fixed = None
                 for number,(prepared,name) in enumerate(expanded,1):
-                    page(book,prepared.read_bytes() if prepared is not None else get(name),number,len(expanded))
+                    try:
+                        data = prepared.read_bytes() if prepared is not None else get(name)
+                        book.c.check_embedded_raster(data)
+                        page(book,data,number,len(expanded))
+                    except (book.c.UnreadableImage, zipfile.BadZipFile):
+                        if fixed is None: fixed = module('fixed_layout')
+                        fixed.unreadable_page(book, number)
+                        unreadable.append(number)
                     book.progress('pages',number,len(expanded))
+                if len(unreadable) == len(expanded):
+                    book.fail('В комиксе нет читаемых страниц для конвертации.')
+                if fixed is not None:
+                    fixed.warn_about_unreadable_pages(book, unreadable)
         finally:
             if archive is not None: archive.close()
     book.warnings.add('Страницы книги сохранены изображениями в исходном порядке. OCR не выполняется; текстовый поиск и изменение размера букв недоступны.')

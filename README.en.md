@@ -15,13 +15,13 @@ originally created by **Олексій Пеньков (Oleksiy Penkov)**.
 
 ## Download and run
 
-[Download beta 15](https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.15) · [Release history](docs/releases/README.md)
+[Download beta 16](https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.16) · [Release history](docs/releases/README.md)
 
 HomeLibre requires **Windows 10 or later**. Choose an archive for your Windows architecture.
 
 | Package | Windows x64 | Windows x86 |
 | --- | --- | --- |
-| Compact | `HomeLibre_x64_portable.zip` | `HomeLibre_portable.zip` |
+| Compact | `HomeLibre_x64_compact.zip` | `HomeLibre_compact.zip` |
 | Full | `HomeLibre_x64_full.zip` | `HomeLibre_full.zip` |
 
 The compact package offers to download modules as you need them. The full package includes Reader, optional modules and the WebView2 and .NET Framework installers for offline use. Both packages are portable. Books are obtained separately.

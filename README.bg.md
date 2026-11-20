@@ -15,13 +15,13 @@ HomeLibre е програма за Windows за подреждане, намир
 
 ## Изтегляне и стартиране
 
-[Изтегляне на beta 15](https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.15) · [История на изданията](docs/releases/README.md)
+[Изтегляне на beta 16](https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.16) · [История на изданията](docs/releases/README.md)
 
 HomeLibre изисква **Windows 10 или по-нова версия**. Изберете архив за архитектурата на Windows.
 
 | Комплект | Windows x64 | Windows x86 |
 | --- | --- | --- |
-| Компактен | `HomeLibre_x64_portable.zip` | `HomeLibre_portable.zip` |
+| Компактен | `HomeLibre_x64_compact.zip` | `HomeLibre_compact.zip` |
 | Пълен | `HomeLibre_x64_full.zip` | `HomeLibre_full.zip` |
 
 Компактният комплект предлага изтегляне на нужните модули. Пълният включва четеца, допълнителните модули и инсталаторите на WebView2 и .NET Framework за работа без интернет. И двата комплекта са преносими. Книгите се изтеглят отделно.

@@ -55,7 +55,8 @@ var BeforeReaderArchiveExtractForProfile: TProc;
 implementation
 
 uses
-  System.IOUtils, System.Hash, System.Variants, System.Math, unit_FileMutex, unit_LibrarySourceID,
+  System.IOUtils, System.Hash, System.Variants, System.Math, System.NetEncoding, System.RegularExpressions,
+  unit_FileMutex, unit_LibrarySourceID, unit_ReaderMIME,
   System.Generics.Collections, Vcl.Forms, Vcl.StdCtrls,
   Vcl.ExtCtrls, System.SyncObjs, unit_MHLOperationStatus,
   Winapi.Windows, Winapi.Messages, unit_ReaderFormats, unit_ReaderKindle, unit_ReaderOffice, unit_ReaderLegacy, unit_Settings, unit_Consts, unit_FLibraryCompat, unit_MHLExternalTools,
@@ -654,12 +655,119 @@ begin
     '|' + FileStamp(Settings.AppPath + 'tools\webp\libwebp.dll', False);
 end;
 
+function HtmlArchiveImageType(const Name: string): string;
+var Extension: string;
+begin
+  Extension:=LowerCase(ExtractFileExt(Name));
+  if (Extension='.jpg') or (Extension='.jpeg') then Exit('image/jpeg');
+  if (Extension='.png') or (Extension='.gif') or (Extension='.webp') or (Extension='.bmp') then
+    Exit('image/'+Extension.Substring(1));
+  Result:='';
+end;
+
+function HtmlArchiveImageEntries(Archive: TMHLZip; Entry: Integer;
+  const IsCanceled: TFunc<Boolean>; out Html: TBytes): TArray<TPair<string,Integer>>;
+var Prefix, Name, Relative, Location, Path: string; Total, Size: Int64; Index, Delimiter: Integer;
+  Available: TDictionary<string,Integer>; Found: TDictionary<string,Integer>; Source: TMemoryStream;
+begin
+  Result:=nil;
+  Html:=nil;
+  Name:=Archive.FileNames[Entry].Replace('\','/');
+  Prefix:=Copy(Name,1,LastDelimiter('/',Name));
+  Total:=Archive.FileSizes[Entry];
+  if (Total<0) or (Total>32*1024*1024) then Exit;
+  Available:=TDictionary<string,Integer>.Create; Found:=TDictionary<string,Integer>.Create;
+  try
+    for Index:=0 to Archive.FileCount-1 do
+    begin
+      Name:=Archive.FileNames[Index].Replace('\','/');
+      if not Name.StartsWith(Prefix,True) or (HtmlArchiveImageType(Name)='') then Continue;
+      Size:=Archive.FileSizes[Index];
+      if (Size<=0) or (Size>16*1024*1024) then Continue;
+      Relative:=LowerCase(Name.Substring(Length(Prefix)));
+      if not Available.TryAdd(Relative,Index) then Available[Relative]:=-1;
+    end;
+    if Available.Count=0 then Exit;
+    Source:=Archive.ExtractToStream(Entry);
+    try
+      if Source.Size<>Total then raise EReadError.Create('Размер HTML в архиве не совпадает с указанным.');
+      SetLength(Html,Integer(Source.Size));
+      if Length(Html)>0 then Source.ReadBuffer(Html[0],Length(Html));
+    finally Source.Free; end;
+    for var Token in TRegEx.Matches(DecodeReaderHTML(Html),ReaderHTMLTokenPattern,[roIgnoreCase,roSingleLine]) do
+    begin
+      if Assigned(IsCanceled) and IsCanceled() then Abort;
+      if not TRegEx.IsMatch(Token.Value,'^<img(?:[ \t\r\n\f]|/?>)',[roIgnoreCase]) then Continue;
+      Location:=ReaderHTMLImageSource(Token.Value);
+      if (Location='') or Found.ContainsKey(Location) then Continue;
+      Path:=Location;
+      Delimiter:=Path.IndexOfAny(['?','#']);
+      if Delimiter>=0 then Path:=Path.Substring(0,Delimiter);
+      try
+        Path:=TNetEncoding.URL.Decode(Path.Replace('+','%2B')).Replace('\','/');
+      except
+        Continue;
+      end;
+      while Path.StartsWith('./') do Path:=Path.Substring(2);
+      Path:=Path.Replace('/./','/');
+      if Path.StartsWith('/') or Path.Contains(':') or
+        Path.StartsWith('../') or Path.Contains('/../') then Continue;
+      if not Available.TryGetValue(LowerCase(Path),Index) or (Index<0) then Continue;
+      Size:=Archive.FileSizes[Index];
+      if (Total+Size>32*1024*1024) or (Found.Count>=2000) then Continue;
+      Inc(Total,Size);
+      Found.Add(Location,Index);
+    end;
+    Result:=Found.ToArray;
+  finally Found.Free; Available.Free; end;
+end;
+
+procedure WriteArchivedHtml(Archive: TMHLZip; const Html: TBytes; const Location: string;
+  const Images: TArray<TPair<string,Integer>>; Destination: TStream; const IsCanceled: TFunc<Boolean>);
+var Boundary: string; Data: TBytes;
+  procedure WriteText(const Value: string);
+  var Data: TBytes;
+  begin
+    Data:=TEncoding.UTF8.GetBytes(Value);
+    if Length(Data)>0 then Destination.WriteBuffer(Data[0],Length(Data));
+  end;
+  procedure Part(const Data: TBytes; const MediaType, PartLocation: string);
+  var HeaderLocation: string;
+  begin
+    HeaderLocation:=TNetEncoding.Base64.EncodeBytesToString(TEncoding.UTF8.GetBytes(PartLocation)).
+      Replace(#13,'').Replace(#10,'');
+    WriteText('--'+Boundary+#13#10+'Content-Type: '+MediaType+#13#10+
+      'Content-Location: =?UTF-8?B?'+HeaderLocation+'?='+#13#10+
+      'Content-Transfer-Encoding: base64'#13#10#13#10);
+    WriteText(TNetEncoding.Base64.EncodeBytesToString(Data)+#13#10);
+  end;
+begin
+  Boundary:='HomeLibre-'+TGUID.NewGuid.ToString;
+  WriteText('MIME-Version: 1.0'#13#10+'Content-Type: multipart/related; boundary="'+Boundary+'"'#13#10#13#10);
+  Part(Html,'text/html',ExtractFileName(Location));
+  for var Image in Images do
+  begin
+    if Assigned(IsCanceled) and IsCanceled() then Abort;
+    var Source:=Archive.ExtractToStream(Image.Value);
+    try
+      if Source.Size<>Archive.FileSizes[Image.Value] then
+        raise EReadError.Create('Размер изображения HTML в архиве не совпадает с указанным.');
+      SetLength(Data,Integer(Source.Size));
+      if Length(Data)>0 then Source.ReadBuffer(Data[0],Length(Data));
+      Part(Data,HtmlArchiveImageType(Archive.FileNames[Image.Value]),Image.Key);
+    finally Source.Free; end;
+  end;
+  WriteText('--'+Boundary+'--'#13#10);
+end;
+
 function PrepareLooseArchive(const Book: TBookRecord; const Source: string; const ConvertImages: Boolean; const OnStage: TProc<string>; ConversionOnly: Boolean; const TargetExtension: string; AllowArchiveChoice: Boolean; const IsCanceled: TFunc<Boolean>; Selection: PReaderArchiveSelection): string;
 var Archive: TMHLZip; Candidates, Nested, Unknown: TList<Integer>; I, Entry: Integer;
   Member, Extension, Folder, Stamp, StampFile, Temporary: string;
   Preferred, PreferredScore, Score, Depth: Integer;
   Dialog: TForm; Names: TListBox; OpenButton, CancelButton: TButton; LabelControl: TLabel;
   Extracted: TFileStream; Converted: TStream; Writer: TBookCacheWrite; RequestingThread: TThread;
+  HtmlImages: TArray<TPair<string,Integer>>;
+  Html: TBytes;
 begin
   RequestingThread := TThread.CurrentThread;
   if Assigned(OnStage) then OnStage('Просмотр содержимого архива…');
@@ -806,6 +914,11 @@ begin
     if ConversionOnly and ((Archive.FileSizes[Entry]<0) or (Archive.FileSizes[Entry]>MAX_PDF_CONVERSION_SOURCE)) then
       raise EReadError.Create('Книга в архиве превышает предел конвертации (512 МБ).');
     Member := Archive.FileNames[Entry]; Extension := LowerCase(ExtractFileExt(Member));
+    if (Extension='.html') or (Extension='.htm') or (Extension='.xhtml') or (Extension='.shtml') then
+    begin
+      HtmlImages:=HtmlArchiveImageEntries(Archive,Entry,IsCanceled,Html);
+      if Length(HtmlImages)>0 then Extension:='.mht';
+    end;
     if Selection<>nil then Selection.Opened:=Selection.Opened+[Member];
     Folder:=BookCachePath;
     if (Extension = FB2_EXTENSION) and ConvertImages then
@@ -814,6 +927,7 @@ begin
     Result := TPath.Combine(Folder, 'homelib-archive-' + Copy(THashSHA2.GetHashString(
       LowerCase(TPath.GetFullPath(Source)) + #1 + Member), 1, 32) + Extension);
     Stamp := SourceStamp(Book, Source, ConvertImages) + '|member:' + Member;
+    if Length(HtmlImages)>0 then Stamp:=Stamp+'|html-images-v2';
     if Extension='.pdf' then Stamp:=Stamp+'|pdf-archive-v2';
     Result:=ExistingBookCacheFile(Result);
     StampFile := Result + '.source';
@@ -833,7 +947,10 @@ begin
         if Assigned(BeforeReaderArchiveExtractForProfile) then BeforeReaderArchiveExtractForProfile();
         {$ENDIF}
         if Assigned(IsCanceled) and IsCanceled() then Abort;
-        Archive.ExtractToStream(Entry, Extracted); Extracted.Position := 0;
+        if Length(HtmlImages)>0 then WriteArchivedHtml(Archive,Html,Member,HtmlImages,Extracted,IsCanceled)
+        else if Length(Html)>0 then Extracted.WriteBuffer(Html[0],Length(Html))
+        else Archive.ExtractToStream(Entry,Extracted);
+        Extracted.Position := 0;
         if (Extension = FB2_EXTENSION) and ConvertImages then
           Converted := NormalizeEmbeddedWebPFb2(Extracted)
         else if Extension='.pdf' then

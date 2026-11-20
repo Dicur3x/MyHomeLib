@@ -148,13 +148,25 @@ def illustration_regions(rgb, width, height, lines, page_width, page_height):
     return sorted(regions, key=lambda r: (r[1], r[0])), total_ink / max(1, gw * gh)
 
 
-def emit_page(book, number, lines, rgb, width, height, page_width, page_height):
+def unreadable_page(book, number, saved_text=False):
+    section = book.el('section', id='page-' + str(number))
+    message = (f'[Изображение страницы {number} не читается. Текст сохранён.]' if saved_text
+               else f'[Страница {number} не читается.]')
+    section.append(book.el('p', message))
+    book.body.append(section)
+    return section
+
+
+def emit_page(book, number, lines, rgb, width, height, page_width, page_height, *, missing_raster=False):
     lines = [n for n in lines if n['text'].strip()]
     text = '\n'.join(n['text'] for n in lines)
     # A missing or unusable OCR layer is not a reason to discard a readable
     # page. Preserve the complete rendered page, never fabricate searchable
     # text or keep a misleading fragment of the broken character map.
     if not readable(text, book.omit_images):
+        if missing_raster:
+            unreadable_page(book, number)
+            return 0
         if book.omit_images:
             section = book.el('section', id='page-' + str(number))
             section.append(book.el('p', f'[Страница {number} без пригодного текстового слоя]'))
@@ -175,9 +187,12 @@ def emit_page(book, number, lines, rgb, width, height, page_width, page_height):
         book.warnings.add(f'Страница {number}: нечитаемые символы исходного текстового слоя помечены ' +
                           ', '.join(replacements[ch] for ch in sorted(invalid)) + '. Сверьте эти места с оригиналом.')
     regions = []
-    if not book.omit_images:
+    if not book.omit_images and not missing_raster:
         regions, _ = illustration_regions(rgb, width, height, lines, page_width, page_height)
-    section = book.el('section', id='page-' + str(number)); book.body.append(section)
+    if missing_raster:
+        section = unreadable_page(book, number, saved_text=True)
+    else:
+        section = book.el('section', id='page-' + str(number)); book.body.append(section)
     events = [(n['box'][1], 'text', n) for n in order_lines(lines)]
     # Reading order is decided by columns, so place each illustration before the
     # closest following line rather than globally re-sorting the text by Y.
@@ -533,6 +548,7 @@ def read_pdf(book, tools):
             book.page_count=count
             book.progress('pages', 0, count)
             loaded = 0
+            unreadable = []
 
             def load_page(index):
                 nonlocal document, loaded
@@ -550,7 +566,10 @@ def read_pdf(book, tools):
 
             def convert_page(i, target=book):
                 page = load_page(i)
-                if not page: book.fail(f'Не удалось открыть страницу PDF {i + 1}.')
+                if not page:
+                    unreadable.append(i + 1)
+                    unreadable_page(target, i + 1)
+                    return 0
                 try:
                     lines, rgb, w, h, pw, ph, hidden = api.page(
                         page, book.fail, bool(book.image_export), render=not target.omit_images)
@@ -587,6 +606,7 @@ def read_pdf(book, tools):
                 completed += 1
                 book.progress('pages', completed, count)
             check_content(book, letters, 'PDF')
+            warn_about_unreadable_pages(book, unreadable)
     finally: api.FPDF_DestroyLibrary()
 
 
@@ -653,16 +673,49 @@ def ppm(data, fail):
     return rgb, width, height
 
 
+def describe_pages(numbers):
+    numbers = sorted(set(numbers))
+    ranges = []
+    start = end = numbers[0]
+    for number in numbers[1:]:
+        if number == end + 1:
+            end = number
+            continue
+        ranges.append(str(start) if start == end else f'{start}–{end}')
+        start = end = number
+    ranges.append(str(start) if start == end else f'{start}–{end}')
+    return f'{", ".join(ranges)} (всего {len(numbers)})'
+
+
+def warn_about_unreadable_pages(book, numbers):
+    if numbers:
+        book.warnings.add(f'В исходнике не удалось прочитать страницы {describe_pages(numbers)}. '
+                          'В книге на их местах стоят отметки.')
+
+
 def read_djvu(book, tools):
     used, renderer = tools / 'djvu' / 'djvused.exe', tools / 'djvu' / 'ddjvu.exe'
     if not used.is_file() or (not book.omit_images and not renderer.is_file()):
         book.require('DjVuLibre', 'Для этой книги нужен модуль чтения DjVu.')
-    def run(args, limit, timeout=40, step='сведения о книге'):
+    def run(args, limit, timeout=40, step='сведения о книге', retry_individually=False,
+            allow_damaged_text=False, allow_damaged_page=False):
         with tempfile.TemporaryFile() as out:
             try: result = subprocess.run([str(a) for a in args], stdout=out, stderr=subprocess.PIPE, timeout=timeout, creationflags=0x08000000)
             except subprocess.TimeoutExpired: book.fail(f'Чтение DjVu: {step} — превышено допустимое время ({timeout} с).')
             if result.returncode:
+                if retry_individually:
+                    return None
                 details = result.stderr.decode('utf-8', errors='replace').strip()[-500:]
+                if allow_damaged_page and ('Cannot decode page' in details or 'DjVuFile.corrupt_' in details):
+                    return None
+                if allow_damaged_text and ('ByteStream.corrupt' in details or 'IFFByteStream.not_ready' in details):
+                    return None
+                if 'DjVuText.corrupt_text' in details:
+                    if allow_damaged_text:
+                        return None
+                    if book.omit_images:
+                        book.fail(f'Чтение DjVu: {step} — повреждён текстовый слой. '
+                                  'Выберите FB2 или EPUB, чтобы сохранить страницы как изображения.')
                 message = f'Чтение DjVu: {step} — DjVuLibre завершился с кодом {result.returncode}.'
                 book.fail(message + (' ' + details if details else ''))
             if out.tell() > limit: book.fail('Текст или растр DjVu превышает предел конвертации.')
@@ -672,11 +725,33 @@ def read_djvu(book, tools):
     book.page_count=count
     book.progress('pages', 0, count)
     letters = 0
+    damaged_text_pages = []
+    unreadable, unreadable_rasters = [], []
     # Reopening a large document and its shared dictionaries for every page
     # costs much more than decoding four pages in one invocation. Keep batches
     # small: at most four frames. Wide export scans retain enough pixels for
     # splitting into two readable pages; ordinary reading keeps its old size.
     raster_width=3200 if getattr(book,'image_export',None) else 1600
+    maximum_frame = raster_width * 1600 * 3 + 1024
+    def render(selection, pages, step):
+        return run([renderer, '-format=ppm', f'-page={selection}', f'-size={raster_width}x1600', book.source],
+                   pages * maximum_frame, timeout=40 * pages, step=step, retry_individually=pages > 1,
+                   allow_damaged_page=pages==1)
+
+    def extract_text(start, end):
+        script = '; '.join(f'select {number}; print-txt' for number in range(start, end + 1))
+        pages = end - start + 1
+        raw = run([used, '-n', '-u', '-e', script, book.source], book.c.MAX_FILE,
+                  timeout=40 * pages, step=f'текст сканов {start}–{end}', allow_damaged_text=True)
+        if raw is None:
+            if start == end:
+                damaged_text_pages.append(start)
+                return [None]
+            return [extract_text(number, number)[0] for number in range(start, end + 1)]
+        roots = sexpressions(raw.decode('utf-8-sig'), book.fail)
+        if len(roots) != pages or any(len(page) < 5 or page[0] != 'page' for page in roots):
+            book.fail('Число текстовых страниц DjVu не совпало с запрошенным. Конвертация остановлена, чтобы не перепутать страницы.')
+        return roots
     for first in range(0, count, 4):
         last = min(count, first + 4); batch_size = last - first
         if book.omit_images:
@@ -684,27 +759,34 @@ def read_djvu(book, tools):
             # a page or paragraph, and emits a form feed for every page.
             script = '; '.join(f'select {number}; print-pure-txt' for number in range(first + 1, last + 1))
             raw = run([used, '-n', '-u', '-e', script, book.source], book.c.MAX_FILE,
-                      timeout=40*batch_size, step=f'текст страниц {first+1}–{last}').decode('utf-8-sig')
-            pages = raw.split('\f')
-            if len(pages) != batch_size + 1 or pages[-1]:
-                book.fail('Число текстовых страниц DjVu не совпало с запрошенным. Конвертация остановлена, чтобы не перепутать страницы.')
-            for number, page in enumerate(pages[:-1], first + 1):
+                      timeout=40*batch_size, step=f'текст страниц {first+1}–{last}', allow_damaged_text=True)
+            if raw is None:
+                pages = []
+                for number in range(first + 1, last + 1):
+                    raw = run([used, '-n', '-u', '-e', f'select {number}; print-pure-txt', book.source],
+                              book.c.MAX_FILE, step=f'текст страницы {number}', allow_damaged_text=True)
+                    pages.append(None if raw is None else raw.decode('utf-8-sig').removesuffix('\f'))
+            else:
+                pages = raw.decode('utf-8-sig').split('\f')
+                if len(pages) != batch_size + 1 or pages.pop():
+                    book.fail('Число текстовых страниц DjVu не совпало с запрошенным. Конвертация остановлена, чтобы не перепутать страницы.')
+            for number, page in enumerate(pages, first + 1):
+                if page is None:
+                    unreadable_page(book, number)
+                    damaged_text_pages.append(number)
+                    book.progress('pages', number, count)
+                    continue
                 lines = [{'text': line, 'box': (0, i, 1, i + 1)}
                          for i, line in enumerate(page.replace('\x1f', '\n').splitlines())]
                 letters += emit_page(book, number, lines, None, 0, 0, 0, 0)
                 book.progress('pages', number, count)
             continue
-        script = '; '.join(f'select {number}; print-txt' for number in range(first + 1, last + 1))
         # Both text and pixels decode a batch of up to four pages. Give text
         # the same per-page budget as the raster, within the native idle limit.
-        raw = run([used, '-n', '-u', '-e', script, book.source], book.c.MAX_FILE,
-                  timeout=40*batch_size,step=f'текст сканов {first+1}–{last}').decode('utf-8-sig')
-        roots = sexpressions(raw, book.fail)
-        if len(roots) != batch_size or any(len(page) < 5 or page[0] != 'page' for page in roots):
-            book.fail('Число текстовых страниц DjVu не совпало с запрошенным. Конвертация остановлена, чтобы не перепутать страницы.')
+        roots = extract_text(first + 1, last)
         # Empty OCR pages report zero geometry. Query only those pages, once
         # per batch, rather than reopening the full document for every scan.
-        missing = [i for i, page in enumerate(roots, first + 1) if page[3] <= 0 or page[4] <= 0]
+        missing = [i for i, page in enumerate(roots, first + 1) if page is not None and (page[3] <= 0 or page[4] <= 0)]
         geometry = {}
         if missing:
             script = '; '.join(f'select {number}; size' for number in missing)
@@ -714,15 +796,14 @@ def read_djvu(book, tools):
             if len(values) != len(missing) or any(int(value) <= 0 for pair in values for value in pair):
                 book.fail('Не удалось определить размеры страниц DjVu.')
             geometry = dict(zip(missing, (tuple(map(int, pair)) for pair in values)))
-        raster = run([renderer, '-format=ppm', f'-page={first + 1}-{last}', f'-size={raster_width}x1600', book.source],
-                     batch_size * (raster_width * 1600 * 3 + 1024), timeout=40 * batch_size,step=f'изображения сканов {first+1}–{last}')
+        raster = render(f'{first+1}-{last}', batch_size, f'изображения сканов {first+1}–{last}')
         offset = 0
         for i, page in enumerate(roots, first):
-            lines = []; pw, ph = page[3], page[4]
+            lines = []; pw, ph = (page[3], page[4]) if page is not None else (0, 0)
             # DjVuLibre can expose an empty OCR page as (page 0 0 0 0).
             # The image still has valid dimensions; use its geometry so the
             # normal no-text/scan check reports the limitation without a crash.
-            if pw <= 0 or ph <= 0: pw, ph = geometry[i + 1]
+            if page is not None and (pw <= 0 or ph <= 0): pw, ph = geometry[i + 1]
             def collect(node):
                 if not isinstance(node, list) or len(node) < 5: return
                 if node[0] == 'line':
@@ -736,11 +817,40 @@ def read_djvu(book, tools):
                 else:
                     for child in node[5:]: collect(child)
             collect(page)
-            rgb, w, h, offset = ppm_page(raster, book.fail, offset)
-            letters += emit_page(book, i + 1, lines, rgb, w, h, pw, ph)
+            missing_raster = False
+            if raster is None:
+                # A failed batch may contain valid pages. Retry individually so
+                # the error identifies the page and recover if every page decodes.
+                frame = render(i + 1, 1, f'изображение скана, страница {i+1}')
+                missing_raster = frame is None
+                if missing_raster:
+                    rgb, w, h = None, 0, 0
+                else:
+                    rgb, w, h = ppm(frame, book.fail)
+            else:
+                rgb, w, h, offset = ppm_page(raster, book.fail, offset)
+            if missing_raster:
+                saved = emit_page(book, i + 1, lines, rgb, w, h, pw, ph, missing_raster=True)
+                (unreadable_rasters if saved else unreadable).append(i + 1)
+                letters += saved
+            else:
+                letters += emit_page(book, i + 1, lines, rgb, w, h, pw, ph)
             book.progress('pages', i + 1, count)
-        if offset != len(raster): book.fail('Число растровых страниц DjVu не совпало с запрошенным.')
+        if raster is not None and offset != len(raster): book.fail('Число растровых страниц DjVu не совпало с запрошенным.')
     check_content(book, letters, 'DjVu')
+    warn_about_unreadable_pages(book, unreadable)
+    if unreadable_rasters:
+        book.warnings.add(f'Изображения страниц исходника не читаются: {describe_pages(unreadable_rasters)}. '
+                          'Текст страниц сохранён. В книге на этих страницах стоят отметки.')
+    without_raster = set(unreadable + unreadable_rasters)
+    damaged_text_pages = [page for page in damaged_text_pages if page not in without_raster]
+    if damaged_text_pages:
+        listing = describe_pages(damaged_text_pages)
+        if book.omit_images:
+            book.warnings.add(f'Не удалось прочитать текстовый слой страниц DjVu: {listing}. '
+                              'В TXT на их местах стоят отметки. В FB2 или EPUB можно сохранить эти страницы изображениями.')
+        else:
+            book.warnings.add(f'Страницы DjVu с повреждённым текстовым слоем сохранены целиком изображениями: {listing}.')
     book.warnings.add('Текстовый слой DjVu обычно получен OCR. Возможны ошибки распознавания; сверьте важные цитаты с оригиналом.')
 
 

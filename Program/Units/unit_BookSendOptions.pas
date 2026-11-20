@@ -207,8 +207,8 @@ begin
   FGrayscale.ShowHint:=True; FGrayscale.OnClick:=Changed;
   FSkipDamagedFB2Image:=TCheckBox.Create(Self); FSkipDamagedFB2Image.Parent:=FContent;
   FSkipDamagedFB2Image.Name:='SkipDamagedFB2Image';
-  FSkipDamagedFB2Image.Caption:='Пропускать повреждённые изображения';
-  FSkipDamagedFB2Image.Hint:='Для FB2 с целым текстом. На месте изображения появится пометка.';
+  FSkipDamagedFB2Image.Caption:='Проверять изображения в FB2';
+  FSkipDamagedFB2Image.Hint:='Проверяет FB2 и при сохранении в исходном формате. Если изображение повреждено, программа спросит, сохранить ли текст с отметкой.';
   FSkipDamagedFB2Image.ShowHint:=True; FSkipDamagedFB2Image.OnClick:=Changed;
   FImages.ItemIndex:=0;
   FCalculate:=TButton.Create(Self); FCalculate.Parent:=FContent; FCalculate.Name:='EstimateSaveSize';

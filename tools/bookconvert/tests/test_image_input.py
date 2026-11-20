@@ -71,6 +71,35 @@ class ImageInput(unittest.TestCase):
         for extension in ['.epub','.fb2']:
             self.assertEqual(self.images(source,extension),[pages[1],pages[2],pages[0]])
 
+    def test_comic_preserves_pages_around_an_empty_member(self):
+        source = self.root / 'partial.cbz'
+        picture = fixed.png(b'\x30\x60\x90' * 4, 2, 2)
+        with zipfile.ZipFile(source, 'w') as archive:
+            archive.writestr('1.png', picture)
+            archive.writestr('2.png', b'')
+            archive.writestr('3.png', picture[:-12])
+            archive.writestr('4.png', picture)
+        output = self.root / 'partial.epub'
+        report = c.convert_book(source, output)
+        with zipfile.ZipFile(output) as archive:
+            body = c.first(c.xml(archive.read('OEBPS/book.xhtml')), 'body')
+        self.assertEqual([node.get('id') for node in body], ['page-1', 'page-2', 'page-3', 'page-4'])
+        self.assertEqual(c.plain(body[1]), '[Страница 2 не читается.]')
+        self.assertEqual(c.plain(body[2]), '[Страница 3 не читается.]')
+        self.assertTrue(any('страницы 2–3' in warning for warning in c.damaged_content_warnings(report['warnings'])))
+
+    def test_cbz_with_checksums_exports_all_pages(self):
+        source = self.root / 'checked.cbz'
+        page = fixed.png(b'\x30\x60\x90' * 4, 2, 2)
+        with zipfile.ZipFile(source, 'w') as archive:
+            archive.writestr('01.png', page)
+            archive.writestr('checksums.sfv', f'01.png {zlib.crc32(page):08X}\n')
+        self.assertEqual(c.detect_input(source), '.cbz')
+        self.assertEqual(self.images(source, '.epub'), [page])
+        other = source.with_suffix('.zip')
+        other.write_bytes(source.read_bytes())
+        self.assertEqual(c.detect_input(other), '.zip')
+
     def test_comic_expands_all_tiff_frames_in_page_order(self):
         source=self.root/'frames.cbz'
         first=fixed.png(bytes([30,60,90])*4,2,2)

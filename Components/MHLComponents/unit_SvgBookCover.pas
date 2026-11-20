@@ -8,6 +8,8 @@ uses System.SysUtils;
 // declared local raster resources before calling this bounded renderer.
 function RenderSvgBookCover(const SVG: TBytes; const ToolPath, TempRoot: string;
   const IsCanceled: TFunc<Boolean> = nil): TBytes;
+function RenderStaticSvg(const SVG: TBytes; const ToolPath, TempRoot: string;
+  MaxWidth, MaxHeight: Integer; const IsCanceled: TFunc<Boolean> = nil): TBytes;
 
 implementation
 
@@ -16,16 +18,17 @@ uses System.Classes, System.IOUtils, System.RegularExpressions, System.Variants,
   unit_MHLExternalTools, unit_ImageBounds;
 
 const SVGNamespace='http://www.w3.org/2000/svg';
-  MaxDrawing=24*1024*1024; MaxPreview=4*1024*1024;
+  MaxDrawing=24*1024*1024;
 
 type
   TSVGOutput=class(TMemoryStream)
+    Limit: Int64;
     function Write(const Buffer; Count:Longint):Longint; override;
   end;
 
 function TSVGOutput.Write(const Buffer; Count:Longint):Longint;
 begin
-  if (Count<0) or (Size+Count>MaxPreview) then
+  if (Count<0) or (Size+Count>Limit) then
     raise EReadError.Create('Векторная обложка вернула слишком большое изображение.');
   Result:=inherited Write(Buffer,Count);
 end;
@@ -42,6 +45,8 @@ end;
 procedure CheckCSS(const Text:string);
 var CSS,Ref:string; URLs: TMatchCollection;
 begin
+  if not Text.Contains('/*') and not Text.Contains('\') and not Text.Contains('@') and
+    not LowerCase(Text).Contains('url') then Exit;
   CSS:=TRegEx.Replace(Text,'/\*.*?\*/','',[roSingleLine]);
   if CSS.Contains('\') or TRegEx.IsMatch(CSS,'@\s*import',[roIgnoreCase]) then
     raise EReadError.Create('Векторная обложка использует внешнее или недоступное оформление.');
@@ -57,10 +62,11 @@ begin
   end;
 end;
 
-procedure ValidateDrawing(const Data:TBytes; const Check:TProc);
+procedure ValidateDrawing(const Data:TBytes; const Check:TProc; out UsesFonts:Boolean);
 var Doc:IXMLDOMDocument3; Nodes:IXMLDOMNodeList; Node,Attr:IXMLDOMNode;
   Buffer:TBytesStream; Input:OleVariant; Kind,Name,Value:string;
 begin
+  UsesFonts:=False;
   if (Length(Data)=0) or (Length(Data)>MaxDrawing) then
     raise EReadError.Create('Векторная обложка превышает допустимый размер.');
   Doc:=CreateOleObject('Msxml2.DOMDocument.6.0') as IXMLDOMDocument3;
@@ -86,6 +92,7 @@ begin
   for var I:=0 to Nodes.length-1 do
   begin
     Check(); Node:=Nodes.item[I]; Kind:=LowerCase(Node.baseName);
+    if (Kind='text') or (Kind='tspan') or (Kind='textpath') then UsesFonts:=True;
     if Pos('|'+Kind+'|','|script|foreignobject|iframe|object|embed|')>0 then
       raise EReadError.Create('Для предпросмотра нужна статическая векторная обложка.');
     if Kind='style' then CheckCSS(Node.text);
@@ -113,15 +120,23 @@ end;
 
 function RenderSvgBookCover(const SVG:TBytes; const ToolPath,TempRoot:string;
   const IsCanceled:TFunc<Boolean>):TBytes;
+begin
+  Result:=RenderStaticSvg(SVG,ToolPath,TempRoot,600,800,IsCanceled);
+end;
+
+function RenderStaticSvg(const SVG:TBytes; const ToolPath,TempRoot:string;
+  MaxWidth,MaxHeight:Integer; const IsCanceled:TFunc<Boolean>):TBytes;
 var Work,InputFile,Root:string; Data:TSVGOutput; Started,LastSpace:UInt64;
-  CheckCanceled:TFunc<Boolean>; Width,Height:Integer; HR:HRESULT;
+  CheckCanceled:TFunc<Boolean>; Width,Height:Integer; HR:HRESULT; UsesFonts:Boolean; Args:TArray<string>;
   procedure Check;
   begin if CheckCanceled() then Abort; end;
 begin
   Result:=nil; Work:=''; InputFile:=''; Started:=GetTickCount64; LastSpace:=0;
+  if (MaxWidth<=0) or (MaxHeight<=0) or (MaxWidth>2048) or (MaxHeight>2048) then
+    raise EReadError.Create('Недопустимые размеры рисунка SVG.');
   if Assigned(IsCanceled) and IsCanceled() then Abort;
   if not FileExists(ToolPath) then
-    raise EReadError.Create('Для векторных обложек установите модуль KFX/AZW8 с обработчиком SVG.');
+    raise EReadError.Create('Для рисунков SVG установите модуль KFX/AZW8 с обработчиком SVG.');
   Root:=TPath.GetFullPath(TempRoot);
   CheckCanceled:=function:Boolean
     var Available,Capacity,Now:UInt64;
@@ -139,7 +154,7 @@ begin
       end;
     end;
   ForceDirectories(Root); Check; HR:=CoInitializeEx(nil,COINIT_APARTMENTTHREADED);
-  try ValidateDrawing(SVG,procedure begin if CheckCanceled() then Abort; end);
+  try ValidateDrawing(SVG,procedure begin if CheckCanceled() then Abort; end,UsesFonts);
   finally if Succeeded(HR) then CoUninitialize; end;
   Work:=TPath.Combine(Root,'homelibre-svg-cover-'+TGUID.NewGuid.ToString);
   if not CreateDirectory(PChar(Work),nil) then RaiseLastOSError;
@@ -147,12 +162,15 @@ begin
   try
     TFile.WriteAllBytes(InputFile,SVG); Data:=TSVGOutput.Create;
     try
+      Data.Limit:=Int64(MaxWidth)*MaxHeight*4+1024*1024;
+      Args:=TArray<string>.Create('--quiet','--width',IntToStr(MaxWidth),'--height',IntToStr(MaxHeight));
+      if not UsesFonts then Args:=Args+['--skip-system-fonts'];
+      Args:=Args+[InputFile,'-c'];
       try
-        RunExternalToolToStream(ToolPath,['--quiet','--width','600','--height','800',InputFile,'-c'],
-          Data,CheckCanceled,0,True,NativeUInt(512)*1024*1024);
+        RunExternalToolToStream(ToolPath,Args,Data,CheckCanceled,0,True,NativeUInt(512)*1024*1024);
       except on E:EMHLExternalToolError do raise EReadError.Create('Не удалось отрисовать векторную обложку.'); end;
       Check;
-      if not ImageDimensions(Data,Width,Height) or (Width>600) or (Height>800) then
+      if not ImageDimensions(Data,Width,Height) or (Width>MaxWidth) or (Height>MaxHeight) then
         raise EReadError.Create('Обработчик SVG вернул недопустимое изображение.');
       SetLength(Result,Data.Size);
       if Length(Result)>0 then Move(Data.Memory^,Result[0],Length(Result));

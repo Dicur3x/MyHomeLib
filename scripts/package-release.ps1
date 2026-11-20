@@ -32,7 +32,10 @@ $runtimeDirectory = Join-Path $repositoryRoot $outputSubdirectory
 # Its updated parser accepts HomeLibre*.zip, used from beta 3 onwards.
 $archiveBrand = if ([version]$releaseIdentity.version -lt [version]'3.0.0.3') { 'HomeLibRu' } else { 'HomeLibre' }
 $baseArchiveName = if ($Platform -eq 'Win32') { "$archiveBrand.zip" } else { "${archiveBrand}_x64.zip" }
-$archiveName = $baseArchiveName.Replace('.zip', $(if ($Full) { '_full.zip' } else { '_portable.zip' }))
+$archiveSuffix = if ($Full) { '_full.zip' }
+    elseif ([version]$releaseIdentity.version -ge [version]'3.0.0.16') { '_compact.zip' }
+    else { '_portable.zip' }
+$archiveName = $baseArchiveName.Replace('.zip', $archiveSuffix)
 if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
     $OutputDirectory = Join-Path $repositoryRoot "Installer\Out\$release"
 }

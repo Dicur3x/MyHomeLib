@@ -469,6 +469,10 @@ begin
         Require(Doc.ImageCount=1,'MHTML CID image missing: '+Name);
         Require(Pos('script-secret',Doc.PlainText)=0,'MHTML script entered text');
       end;
+      Doc.Load('mime-location.mht');
+      Require(Doc.PlainText.Contains('Текст до картинок') and Doc.PlainText.Contains('Текст после картинок'),
+        'Empty MHTML image references stopped reading');
+      Require((Doc.ImageCount=2) and (Doc.SkippedImages=0),'MHTML attachment locations or image quotes were lost');
       Doc.Load('write.wri'); Require(Pos('Текст Windows Write',Doc.PlainText)>0,'Write decoding lost text');
       Require(Doc.Warnings.Count>0,'Write limitations hidden');
       Doc.Load('sample.fb3'); Require(Pos('Текст FB3',Doc.PlainText)>0,'FB3 body missing');

@@ -148,9 +148,13 @@
     {
       "id": "HomeLibReader",
       "platform": "Win32",
-      "version": "3.0.0.15",
-      "archive": "HomeLibRu-HomeLibReader-3.0.0.15-Win32.zip",
+      "version": "3.0.0.16",
+      "archive": "HomeLibRu-HomeLibReader-3.0.0.16-Win32.zip",
       "history": [
+        {
+          "version": "3.0.0.16",
+          "notes": "Поддержка KFX/AZW8, переход к странице, пояснения и исправления чтения повреждённых книг."
+        },
         {
           "version": "3.0.0.15",
           "notes": "Поиск по оглавлению, название FB2, отдельные цвета заголовков для каждой темы и прокрутка образцов шрифтов."
@@ -241,9 +245,13 @@
     {
       "id": "HomeLibReader",
       "platform": "Win64",
-      "version": "3.0.0.15",
-      "archive": "HomeLibRu-HomeLibReader-3.0.0.15-Win64.zip",
+      "version": "3.0.0.16",
+      "archive": "HomeLibRu-HomeLibReader-3.0.0.16-Win64.zip",
       "history": [
+        {
+          "version": "3.0.0.16",
+          "notes": "Поддержка KFX/AZW8, переход к странице, пояснения и исправления чтения повреждённых книг."
+        },
         {
           "version": "3.0.0.15",
           "notes": "Поиск по оглавлению, название FB2, отдельные цвета заголовков для каждой темы и прокрутка образцов шрифтов."
@@ -334,9 +342,13 @@
     {
       "id": "BookProcessing",
       "platform": "Win32",
-      "version": "3.0.0.14",
-      "archive": "HomeLibRu-BookProcessing-3.0.0.14-Win32.zip",
+      "version": "3.0.0.16",
+      "archive": "HomeLibRu-BookProcessing-3.0.0.16-Win32.zip",
       "history": [
+        {
+          "version": "3.0.0.16",
+          "notes": "Поддержка старых Word 6/95, исправления преобразования книг и список повреждений для подтверждения частичного экспорта."
+        },
         {
           "version": "3.0.0.14",
           "notes": "Обновлены инструменты подготовки, преобразования и сжатия книг."
@@ -495,9 +507,13 @@
     {
       "id": "BookProcessing",
       "platform": "Win64",
-      "version": "3.0.0.14",
-      "archive": "HomeLibRu-BookProcessing-3.0.0.14-Win64.zip",
+      "version": "3.0.0.16",
+      "archive": "HomeLibRu-BookProcessing-3.0.0.16-Win64.zip",
       "history": [
+        {
+          "version": "3.0.0.16",
+          "notes": "Поддержка старых Word 6/95, исправления преобразования книг и список повреждений для подтверждения частичного экспорта."
+        },
         {
           "version": "3.0.0.14",
           "notes": "Обновлены инструменты подготовки, преобразования и сжатия книг."
@@ -898,9 +914,13 @@
     {
       "id": "KfxExport",
       "platform": "Win32",
-      "version": "3.0.0.6",
-      "archive": "HomeLibRu-KfxExport-3.0.0.6-Win32.zip",
+      "version": "3.0.0.16",
+      "archive": "HomeLibRu-KfxExport-3.0.0.16-Win32.zip",
       "history": [
+        {
+          "version": "3.0.0.16",
+          "notes": "Открытие KFX/AZW8 в HomeLibre Reader с сохранением доступного оглавления, иллюстраций и локальных ссылок."
+        },
         {
           "version": "3.0.0.6",
           "notes": "Добавлено извлечение обложек KFX и AZW8 для каталога."
@@ -914,9 +934,13 @@
     {
       "id": "KfxExport",
       "platform": "Win64",
-      "version": "3.0.0.6",
-      "archive": "HomeLibRu-KfxExport-3.0.0.6-Win64.zip",
+      "version": "3.0.0.16",
+      "archive": "HomeLibRu-KfxExport-3.0.0.16-Win64.zip",
       "history": [
+        {
+          "version": "3.0.0.16",
+          "notes": "Открытие KFX/AZW8 в HomeLibre Reader с сохранением доступного оглавления, иллюстраций и локальных ссылок."
+        },
         {
           "version": "3.0.0.6",
           "notes": "Добавлено извлечение обложек KFX и AZW8 для каталога."

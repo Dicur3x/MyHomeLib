@@ -4,6 +4,10 @@ interface
 
 uses System.SysUtils, System.Generics.Collections;
 
+const ReaderHTMLTokenPattern =
+  '<!\[CDATA\[.*?\]\]>|<!--.*?-->|<script\b[^>]*>.*?</script\s*>|<style\b[^>]*>.*?</style\s*>|<[^>]*>|[^<]+|<';
+
+function ReaderHTMLImageSource(const Token: string): string;
 function DecodeReaderHTML(const Bytes: TBytes; const Charset: string = ''): string;
 function ReadReaderMHTML(const Bytes: TBytes; Resources: TDictionary<string,TBytes>;
   const Canceled: TFunc<Boolean>): string;
@@ -11,6 +15,16 @@ function ReadReaderMHTML(const Bytes: TBytes; Resources: TDictionary<string,TByt
 implementation
 
 uses System.Classes, System.Math, System.RegularExpressions, System.NetEncoding, Winapi.Windows;
+
+function ReaderHTMLImageSource(const Token: string): string;
+var Source: TMatch;
+begin
+  Source:=TRegEx.Match(Token,'[ \t\r\n\f]src[ \t\r\n\f]*=[ \t\r\n\f]*(?:"([^"]*)"|''([^'']*)''|([^\s>]+))',
+    [roIgnoreCase,roSingleLine]);
+  for var Index:=1 to Source.Groups.Count-1 do
+    if Source.Groups[Index].Value<>'' then Exit(TNetEncoding.HTML.Decode(Source.Groups[Index].Value));
+  Result:='';
+end;
 
 function DecodeReaderHTML(const Bytes: TBytes; const Charset: string): string;
 var Name, Prefix: string; Match: TMatch; Encoding: TEncoding;
@@ -75,6 +89,29 @@ var Raw, HTML, Plain: string; Encoding: TEncoding; PartCount: Integer; Total: In
     end;
     SetLength(Result,N);
   end;
+  function DecodeLocation(const Value: string): string;
+  var Position: Integer; Gap, Decoded: string; Payload: TBytes;
+  begin
+    Result:=''; Position:=1;
+    for var Word in TRegEx.Matches(Value,'=\?([^?\s]+)\?([bq])\?([^?]*)\?=',[roIgnoreCase]) do
+    begin
+      Gap:=Copy(Value,Position,Word.Index-Position);
+      if (Position=1) or (Gap.Trim<>'') then Result:=Result+Gap;
+      try
+        if SameText(Word.Groups[2].Value,'b') then
+          Payload:=TNetEncoding.Base64.DecodeStringToBytes(Word.Groups[3].Value)
+        else
+          Payload:=QuotedPrintable(Word.Groups[3].Value.Replace('_',' '));
+        Decoded:=DecodeReaderHTML(Payload,Word.Groups[1].Value);
+      except
+        // An invalid encoded word may still occur literally in an image URL.
+        Exit(Value);
+      end;
+      Result:=Result+Decoded;
+      Position:=Word.Index+Word.Length;
+    end;
+    Result:=Result+Copy(Value,Position,MaxInt);
+  end;
   procedure Parse(const Part: string; Depth: Integer);
   var Header,Body,ContentType,Transfer,Location,CID,Boundary,Line,Name,Value,Item: string;
     Divider,At,Finish,Start: Integer; Payload: TBytes; Lines: TStringList;
@@ -95,7 +132,7 @@ var Raw, HTML, Plain: string; Encoding: TEncoding; PartCount: Integer; Total: In
         Name:=LowerCase(Trim(Copy(Line,1,At-1))); Value:=Trim(Copy(Line,At+1,MaxInt));
         if Name='content-type' then ContentType:=Value
         else if Name='content-transfer-encoding' then Transfer:=LowerCase(Value)
-        else if Name='content-location' then Location:=Value
+        else if Name='content-location' then Location:=DecodeLocation(Value)
         else if Name='content-id' then CID:=Value.Trim(['<','>']);
       end;
     finally Lines.Free; end;

@@ -15,13 +15,13 @@ HomeLibre — програма для Windows, яка допомагає збе�
 
 ## Завантаження й запуск
 
-[Завантажити beta 15](https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.15) · [Історія випусків](docs/releases/README.md)
+[Завантажити beta 16](https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.16) · [Історія випусків](docs/releases/README.md)
 
 Для HomeLibre потрібна **Windows 10 або новіша**. Виберіть архів за розрядністю Windows.
 
 | Комплект | Windows x64 | Windows x86 |
 | --- | --- | --- |
-| Компактний | `HomeLibre_x64_portable.zip` | `HomeLibre_portable.zip` |
+| Компактний | `HomeLibre_x64_compact.zip` | `HomeLibre_compact.zip` |
 | Повний | `HomeLibre_x64_full.zip` | `HomeLibre_full.zip` |
 
 Компактний комплект пропонує завантажити модулі за потреби. Повний містить читалку, додаткові модулі та інсталятори WebView2 і .NET Framework для роботи без інтернету. Обидва комплекти портативні. Книжки завантажуються окремо.

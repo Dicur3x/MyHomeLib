@@ -184,11 +184,31 @@ class LegacyFixed(unittest.TestCase):
         html.set_content('<html><body><h1>Глава</h1><p>Начало.</p><img src="cid:picture"/><p>Конец.</p></body></html>', subtype='html', charset='utf-8'); msg.attach(html)
         image = EmailMessage(); image.set_content(png, maintype='image', subtype='png'); image['Content-ID'] = '<picture>'; msg.attach(image)
         _, body, images = self.convert('.mhtml', msg.as_bytes()); self.assertIn('Конец.', body); self.assertEqual(len(images), 1)
-    def test_mhtml_missing_image_fails_without_output(self):
-        msg = EmailMessage(); msg.set_content('<html><body><p>Book</p><img src="https://invalid.example/image.jpg"/></body></html>', subtype='html', charset='utf-8')
+    def test_mhtml_preserves_percent_encoded_attachment_location(self):
+        location = 'file:///C:/Pictures/My%20cover.png'
+        message = EmailMessage()
+        message.set_type('multipart/related')
+        html = EmailMessage()
+        html.set_content(f'<html><body><p>Text before and after the image.</p><img src="{location}"/>'
+                         '<img src="" width="12" height="54" alt="Image description"/></body></html>', subtype='html')
+        message.attach(html)
+        picture = EmailMessage()
+        picture.set_content(fixed.png(b'\x30\x60\x90' * 4, 2, 2), maintype='image', subtype='png')
+        picture['Content-Location'] = location
+        message.attach(picture)
+        _, body, images = self.convert('.mhtml', message.as_bytes())
+        self.assertIn('Text before and after the image.', body)
+        self.assertIn('Image description', body)
+        self.assertEqual(len(images), 1)
+    def test_mhtml_missing_image_marks_its_place_and_keeps_text(self):
+        msg = EmailMessage(); msg.set_content('<html><body><p>Before</p><img src="https://invalid.example/image.jpg"/><p>After</p></body></html>', subtype='html', charset='utf-8')
         source = self.root / 'missing.mht'; source.write_bytes(msg.as_bytes())
-        with self.assertRaisesRegex(c.ConversionError, 'отсутствует'): c.convert_book(source, self.root / 'missing.fb2')
-        self.assertFalse((self.root / 'missing.fb2').exists())
+        output = self.root / 'missing.fb2'
+        result = c.convert_book(source, output)
+        body = ''.join(c.first(c.xml(output.read_bytes()), 'body').itertext())
+        self.assertLess(body.index('Before'), body.index('[Изображение 1 недоступно.]'))
+        self.assertLess(body.index('[Изображение 1 недоступно.]'), body.index('After'))
+        self.assertIn('Изображение 1 недоступно. Файл «image.jpg».', c.damaged_content_warnings(result['warnings']))
     def test_djvu_quoted_utf8_octal_and_ppm_bounds(self):
         quoted = '(line 0 0 10 10 "\\320\\237\\321\\200\\320\\270\\320\\262\\320\\265\\321\\202")'
         self.assertEqual(fixed.sexpressions(quoted, self.fail)[0][-1], 'Привет')
@@ -251,7 +271,9 @@ class LegacyFixed(unittest.TestCase):
         with self.assertRaises(AssertionError): fixed.ppm(data, self.fail)
         with self.assertRaises(AssertionError): fixed.ppm_page(data[:-1], self.fail, offset)
         with self.assertRaises(AssertionError): fixed.ppm_page(data, self.fail, end)
-        for header in [b'P6\n-1 2\n255\n', b'P6\n1601 1\n255\n', b'P6\n#'+b'x'*1024+b'\n1 1\n255\n']:
+        wide_pixels = b'\0' * (3200 * 3)
+        self.assertEqual(fixed.ppm(b'P6\n3200 1\n255\n' + wide_pixels, self.fail), (wide_pixels, 3200, 1))
+        for header in [b'P6\n-1 2\n255\n', b'P6\n3201 1\n255\n', b'P6\n#'+b'x'*1024+b'\n1 1\n255\n']:
             with self.assertRaises(AssertionError): fixed.ppm_page(header+b'\0'*6, self.fail)
 
     def test_djvu_empty_ocr_geometry_preserves_page_order_and_rejects_missing_sizes(self):
@@ -260,29 +282,61 @@ class LegacyFixed(unittest.TestCase):
         # Real DjVuLibre returns zero-sized OCR pages even when the scan exists.
         # Mix those with valid geometry; every external response must map back
         # to the original page, including a final incomplete batch.
-        calls=[]; malformed=False
+        calls=[]; raster_calls=[]; malformed=False; retry_raster=False; broken_page=b''; broken_text=False
         def run(args,stdout,stderr,timeout,creationflags):
             script=args[args.index('-e')+1] if '-e' in args else ''
             if script=='n': data=b'5'
             elif 'print-txt' in script:
                 numbers=[int(v) for v in re.findall(r'select (\d+)',script)]
+                if broken_text and 2 in numbers:
+                    return subprocess.CompletedProcess(args,10,b'',b'DjVuText.corrupt_text')
                 data='\n'.join('(page 0 0 0 0 "")' if n!=2 else '(page 0 0 22 32 "")' for n in numbers).encode()
             elif 'size' in script:
                 numbers=[int(v) for v in re.findall(r'select (\d+)',script)]
                 calls.append(numbers)
                 data='\n'.join(f'width={20+n} height={30+n}' for n in (numbers[:-1] if malformed else numbers)).encode()
             else:
-                count=1 if '-page=5-5' in args else 4
+                selection = next(arg.removeprefix('-page=') for arg in args if arg.startswith('-page='))
+                raster_calls.append(selection)
+                if retry_raster and (selection == '1-4' or (broken_page is not None and selection == '3')):
+                    return subprocess.CompletedProcess(args,10,b'',broken_page or b'')
+                count=4 if selection=='1-4' else 1
                 data=(b'P6\n1 1\n255\n'+b'\xff'*3)*count
             stdout.write(data)
             return subprocess.CompletedProcess(args,0,b'',b'')
         emitted=[]
-        def emit(book,number,lines,rgb,w,h,pw,ph):
+        def emit(book,number,lines,rgb,w,h,pw,ph,*,missing_raster=False):
+            if missing_raster: fixed.unreadable_page(book,number)
             emitted.append((number,pw,ph));book.fixed_image_pages=number;return 0
         with patch.object(fixed.subprocess,'run',side_effect=run),patch.object(fixed,'emit_page',side_effect=emit):
             fixed.read_djvu(book,TOOLS)
             self.assertEqual(emitted,[(1,21,31),(2,22,32),(3,23,33),(4,24,34),(5,25,35)])
             self.assertEqual(calls,[[1,3,4],[5]])
+            emitted.clear()
+            raster_calls.clear()
+            retry_raster=True
+            broken_page=None
+            fixed.read_djvu(book,TOOLS)
+            self.assertEqual(raster_calls,['1-4','1','2','3','4','5-5'])
+            self.assertEqual([number for number, _, _ in emitted], list(range(1,6)))
+            broken_page=b''
+            with self.assertRaisesRegex(c.ConversionError,'страница 3.*кодом 10'):
+                fixed.read_djvu(book,TOOLS)
+            broken_page=b'ddjvu: Cannot decode page 3.'
+            emitted.clear()
+            fixed.read_djvu(book,TOOLS)
+            self.assertEqual([number for number, _, _ in emitted],list(range(1,6)))
+            marker=next(node for node in book.body if node.get('id')=='page-3')
+            self.assertEqual(''.join(marker.itertext()),'[Страница 3 не читается.]')
+            self.assertTrue(any('прочитать страницы 3' in w for w in book.warnings))
+            broken_page=None
+            broken_text=True
+            emitted.clear()
+            fixed.read_djvu(book,TOOLS)
+            self.assertEqual(emitted,[(1,21,31),(2,0,0),(3,23,33),(4,24,34),(5,25,35)])
+            self.assertTrue(any('повреждённым текстовым слоем' in warning and '2 (всего 1)' in warning
+                                for warning in book.warnings))
+            broken_text=False
             malformed=True
             with self.assertRaisesRegex(c.ConversionError,'размеры страниц'):
                 fixed.read_djvu(book,TOOLS)
@@ -337,11 +391,14 @@ class LegacyFixed(unittest.TestCase):
         self.assertEqual(len(bad.resources),1)
         self.assertTrue(any('OCR' in warning for warning in bad.warnings))
 
-    def test_generated_epub_xml_is_validated_before_publication(self):
+    def test_unreadable_control_character_yields_valid_epub_with_warning(self):
         source = self.root/'control.txt'; source.write_text('Readable text with invalid XML \x11.',encoding='utf-8')
         output = self.root/'invalid.epub'
-        with self.assertRaises(c.ConversionError): c.convert_book(source, output)
-        self.assertFalse(output.exists())
+        result = c.convert_book(source, output)
+        with zipfile.ZipFile(output) as archive:
+            output_text = c.plain(c.xml(archive.read('OEBPS/book.xhtml')))
+        self.assertIn('Readable text with invalid XML �.', output_text)
+        self.assertIn('Нечитаемые символы исходника отмечены знаком �.', c.damaged_content_warnings(result['warnings']))
     @unittest.skipUnless(os.name == 'nt' and (TOOLS/'pdfium/pdfium.dll').is_file(), 'bundled Windows PDFium')
     def test_actual_pdfium_text_and_illustration(self):
         report, text, images = self.convert('.123456', pdf_fixture(), '.fb2')
@@ -356,11 +413,32 @@ class LegacyFixed(unittest.TestCase):
         for suffix in ('.fb2', '.epub'):
             with self.subTest(suffix=suffix):
                 output = self.root / ('scan' + suffix)
-                with patch.object(c, 'MAX_TOTAL', 64):
+                with patch.object(c, 'MAX_TOTAL', 64), patch.object(c, 'MAX_SCAN_EPUB_RESOURCES', 64):
                     with self.assertRaisesRegex(c.ConversionError, 'Выберите более сильное сжатие'):
                         c.convert_book(source, output, tools_root=TOOLS)
                 self.assertFalse(output.exists())
         self.assertEqual(source.read_bytes(), original)
+
+    @unittest.skipUnless(os.name == 'nt' and (TOOLS/'pdfium/pdfium.dll').is_file(), 'bundled Windows PDFium')
+    def test_scan_epub_spools_images_beyond_regular_resource_limit(self):
+        source = self.root / 'scan.pdf'
+        output = self.root / 'scan.epub'
+        original = pdf_fixture(text=False)
+        source.write_bytes(original)
+        progress = []
+        with patch.object(c, 'MAX_TOTAL', 64):
+            c.convert_book(source, output, tools_root=TOOLS, progress=lambda *event: progress.append(event))
+        with zipfile.ZipFile(output) as archive:
+            self.assertIsNone(archive.testzip())
+            self.assertIn(b'id="page-1"', archive.read('OEBPS/book.xhtml'))
+            self.assertTrue(any(archive.getinfo(name).file_size > 64 for name in archive.namelist() if '/images/' in name))
+        self.assertFalse(list(self.root.glob('homelibre-scan-images-*')))
+        self.assertEqual(source.read_bytes(), original)
+        for stage in ('writing-epub', 'checking-epub'):
+            steps = [(current, total) for name, current, total in progress if name == stage]
+            self.assertEqual(steps[0][0], 0)
+            self.assertGreater(steps[-1][0], 0)
+            self.assertEqual(steps[-1][0], steps[-1][1])
 
     @unittest.skipUnless(os.name == 'nt' and (TOOLS/'pdfium/pdfium.dll').is_file(), 'bundled Windows PDFium')
     def test_large_pdf_with_wrong_suffix_preserves_text_and_images(self):
@@ -385,7 +463,9 @@ class LegacyFixed(unittest.TestCase):
         events = []
         c.convert_book(source, self.root/'direct.epub', tools_root=TOOLS,
                        progress=lambda *values: events.append(values))
-        self.assertEqual(events, [('pages', 0, 1), ('pages', 1, 1), ('finalizing', 0, 0)])
+        self.assertEqual(events[:3], [('pages', 0, 1), ('pages', 1, 1), ('finalizing', 0, 0)])
+        self.assertEqual([event[0] for event in events[3:]],
+                         ['writing-epub', 'writing-epub', 'checking-epub', 'checking-epub'])
         progress = self.root/'progress.json'; result = self.root/'cli.fb2'
         process = subprocess.run([sys.executable, '-I', '-B', str(ROOT/'convert_book.py'),
                                   str(source), str(result), '--tools-root', str(TOOLS),

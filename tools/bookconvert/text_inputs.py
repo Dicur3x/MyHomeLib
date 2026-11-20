@@ -12,6 +12,8 @@ from html.parser import HTMLParser
 from pathlib import Path
 import posixpath
 import re
+import shutil
+import tempfile
 from urllib.parse import unquote, urlsplit, quote
 import uuid
 import xml.etree.ElementTree as ET
@@ -48,6 +50,8 @@ class Book:
         self.resource_root = Path(resource_root).resolve() if resource_root else source.parent.resolve()
         self.tools_root = Path(tools_root).resolve() if tools_root else Path(__file__).resolve().parent.parent
         self.total = 0
+        self.unreadable_images = 0
+        self.image_store = None
         self.reading = reading
         self.omit_images = bool(omit_images) and not reading
         self.progress = progress or (lambda stage, completed, total: None)
@@ -82,10 +86,11 @@ class Book:
             else:
                 self.scan_processor().add(data,number,total)
                 return
+        picture=self.image(data)
         section=self.el('section',id='page-'+str(number));self.body.append(section)
         section.append(self.el('h2','Страница '+str(number)))
         paragraph=self.el('p');section.append(paragraph)
-        picture=self.image(data);picture.set('alt','Страница '+str(number));paragraph.append(picture)
+        picture.set('alt','Страница '+str(number));paragraph.append(picture)
 
     def el(self, name, text=None, **attrs):
         return self.c.element(self.c.XH, name, text, **attrs)
@@ -118,11 +123,19 @@ class Book:
         key = hashlib.sha256(data).hexdigest()
         if key not in self.images:
             self.total += len(data)
-            if self.total > self.c.MAX_TOTAL:
+            limit = self.image_export.get('resource_limit', self.c.MAX_TOTAL) if self.image_export else self.c.MAX_TOTAL
+            if self.total > limit:
                 if self.image_export and self.image_export['profile'] in {'original', 'high', 'balanced', 'economy'}:
                     self.fail('Изображения книги превышают предел конвертации. Выберите более сильное сжатие изображений или сохраните книгу в исходном формате.')
                 self.fail('Иллюстрации книги превышают предел конвертации.')
             path = 'images/' + key[:32] + match[2]
+            if self.image_store is not None:
+                # Reserve room for the ZIP written alongside this staging folder.
+                if shutil.disk_usage(self.image_store).free < self.total + len(data) + 64 * 1024 * 1024:
+                    self.fail('Недостаточно места для сохранения сканов в EPUB. Выберите папку с большим запасом места.')
+                resource = self.image_store / Path(path).name
+                resource.write_bytes(data)
+                data = resource
             self.resources[path] = (data, match[1]); self.images[key] = path
         self.images[original_key] = self.images[key]
         return self.el('img', src=self.images[key], alt='')
@@ -133,21 +146,40 @@ class Book:
             if not sep or ';base64' not in header:
                 self.fail('Изображение data: должно использовать base64.')
             try:
-                return self.image(base64.b64decode(payload, validate=True))
-            except ValueError as error:
-                self.fail('Неверные данные изображения: ' + str(error))
+                data = base64.b64decode(payload, validate=True)
+            except ValueError:
+                return self.unreadable_image()
+            return self.optional_image(data)
         parts = urlsplit(href)
         if parts.scheme or parts.netloc:
-            self.fail('Внешнее изображение не скачивается: ' + href[:200])
+            return self.unreadable_image(parts.path)
         relative = unquote(parts.path)
         if '\\' in relative or '\x00' in relative:
             self.fail('Некорректный путь изображения.')
         path = (self.resource_root / relative).resolve()
-        if not path.is_relative_to(self.resource_root) or not path.is_file():
+        if not path.is_relative_to(self.resource_root):
             self.fail('Не найдено локальное изображение: ' + href[:200])
+        if not path.is_file():
+            return self.unreadable_image(relative)
         if path.stat().st_size > 16 * 1024 * 1024:
             self.fail('Изображение превышает 16 МБ.')
-        return self.image(path.read_bytes())
+        return self.optional_image(path.read_bytes(), relative)
+
+    def unreadable_image(self, resource=''):
+        self.unreadable_images += 1
+        filename = posixpath.basename(unquote(resource).replace('\\', '/'))
+        filename = ''.join(ch for ch in filename if ch.isprintable()).strip()[:100]
+        detail = f' Файл «{filename}».' if filename else ''
+        self.warnings.add('Часть изображений исходника недоступна. На их местах стоят отметки.')
+        self.warnings.add(f'Изображение {self.unreadable_images} недоступно.' + detail)
+        return self.el('span', f'[Изображение {self.unreadable_images} недоступно.]')
+
+    def optional_image(self, data, resource=''):
+        try:
+            self.c.check_embedded_raster(data)
+            return self.image(data)
+        except self.c.UnreadableImage:
+            return self.unreadable_image(resource)
 
     def finish(self, output):
         if self.scan_export is not None: self.scan_export.finish()
@@ -171,13 +203,20 @@ class Book:
                 c.append_text(run, tail)
         self.body.text = None; self.body[:] = list(flow)
         # Resolve text properties from XML, where surrogate escapes are invalid.
+        controls = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f\ufffe\uffff]')
         for n in self.body.iter():
             for prop in ('text', 'tail'):
                 value = getattr(n, prop)
                 if value is not None:
-                    value = value.encode('utf-16-le', errors='surrogatepass').decode('utf-16-le')
-                    if any(ord(ch) < 32 and ch not in '\t\r\n' for ch in value):
-                        self.fail('Документ содержит недопустимые управляющие символы.')
+                    raw = value.encode('utf-16-le', errors='surrogatepass')
+                    try:
+                        value = raw.decode('utf-16-le')
+                    except UnicodeDecodeError:
+                        value = raw.decode('utf-16-le', errors='replace')
+                        self.warnings.add('Нечитаемые символы исходника отмечены знаком �.')
+                    value, replacements = controls.subn('\ufffd', value)
+                    if replacements:
+                        self.warnings.add('Нечитаемые символы исходника отмечены знаком �.')
                     setattr(n, prop, value)
         ids = set(); headings = []
         for node in self.body.iter():
@@ -196,12 +235,32 @@ class Book:
         for node in self.body.iter():
             if c.tag(node) == 'a' and node.get('href', '').startswith('#'):
                 if unquote(node.get('href')[1:]) not in ids:
-                    self.fail('Не найдена цель внутренней ссылки: ' + node.get('href'))
-        html = self.el('html', lang=self.language)
-        head = self.el('head'); head.append(self.el('title', self.title))
-        head.append(self.el('link', rel='stylesheet', href='book.css', type='text/css'))
-        html.extend([head, self.body])
-        self.resources['book.xhtml'] = (c.serialized(html), 'application/xhtml+xml')
+                    target = node.attrib.pop('href')
+                    self.warnings.add(f'Не найдена цель внутренней ссылки «{target[:160]}». Текст ссылки сохранён.')
+        # Large scanned books can contain hundreds of thousands of paragraph
+        # nodes. Keep each generated XHTML within the reader's parsing bounds.
+        parts = [self.el('body')]
+        part_nodes = 0
+        for node in self.body:
+            count = sum(1 for _ in node.iter())
+            if part_nodes and part_nodes + count > 100000:
+                parts.append(self.el('body'))
+                part_nodes = 0
+            parts[-1].append(node)
+            part_nodes += count
+        names = ['book.xhtml'] + [f'book-{n}.xhtml' for n in range(2, len(parts) + 1)]
+        targets = {node.get('id'): name for name, part in zip(names, parts)
+                   for node in part.iter() if node.get('id')}
+        for name, part in zip(names, parts):
+            for node in part.iter('{' + c.XH + '}a'):
+                href = node.get('href', '')
+                if href.startswith('#') and (target := targets.get(unquote(href[1:]))) and target != name:
+                    node.set('href', target + href)
+            html = self.el('html', lang=self.language)
+            head = self.el('head'); head.append(self.el('title', self.title))
+            head.append(self.el('link', rel='stylesheet', href='book.css', type='text/css'))
+            html.extend([head, part])
+            self.resources[name] = (c.serialized(html), 'application/xhtml+xml')
         css = 'body{line-height:1.35}p{margin:.45em 0}h1,h2,h3,h4,h5,h6{text-align:center}img{max-width:100%;height:auto}pre{white-space:pre-wrap}table{border-collapse:collapse}td,th{padding:.2em .4em}'
         self.resources['book.css'] = (css.encode(), 'text/css')
         nav = self.el('html', lang=self.language); nh = self.el('head'); nh.append(self.el('title', 'Содержание')); nav.append(nh)
@@ -212,7 +271,8 @@ class Book:
             if depth > stack[-1][0] and len(stack[-1][1]):
                 child = self.el('ol'); stack[-1][1][-1].append(child); stack.append((depth, child))
             elif depth < stack[-1][0] or not len(stack[-1][1]): stack[-1] = (depth, stack[-1][1])
-            li = self.el('li'); li.append(self.el('a', label, href='book.xhtml' + ('#' + identity if identity else ''))); stack[-1][1].append(li)
+            href = targets[identity] + '#' + identity if identity else names[0]
+            li = self.el('li'); li.append(self.el('a', label, href=href)); stack[-1][1].append(li)
         self.resources['nav.xhtml'] = (c.serialized(nav), 'application/xhtml+xml')
         package = c.element(c.OP, 'package', version='3.0', **{'unique-identifier': 'book-id'})
         meta = c.element(c.OP, 'metadata'); package.append(meta)
@@ -226,13 +286,24 @@ class Book:
             if name == 'nav.xhtml': attrs['properties'] = 'nav'
             manifest.append(c.element(c.OP, 'item', **attrs))
         spine = c.element(c.OP, 'spine'); package.append(spine)
-        spine.append(c.element(c.OP, 'itemref', idref=next(n.get('id') for n in manifest if n.get('href') == 'book.xhtml')))
+        manifest_ids = {node.get('href'): node.get('id') for node in manifest}
+        for name in names:
+            spine.append(c.element(c.OP, 'itemref', idref=manifest_ids[name]))
         container = c.element(c.CN, 'container', version='1.0'); roots = c.element(c.CN, 'rootfiles'); container.append(roots)
         roots.append(c.element(c.CN, 'rootfile', **{'full-path': 'OEBPS/package.opf', 'media-type': 'application/oebps-package+xml'}))
         with zipfile.ZipFile(output, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
             archive.writestr('mimetype', b'application/epub+zip', compress_type=zipfile.ZIP_STORED)
             archive.writestr('META-INF/container.xml', c.serialized(container)); archive.writestr('OEBPS/package.opf', c.serialized(package))
-            for name, (data, _) in self.resources.items(): archive.writestr('OEBPS/' + name, data)
+            resource_count = len(self.resources)
+            if self.image_store is not None:
+                self.progress('writing-epub', 0, resource_count)
+            for index, (name, (data, _)) in enumerate(self.resources.items(), 1):
+                if isinstance(data, Path):
+                    archive.write(data, 'OEBPS/' + name, compress_type=zipfile.ZIP_STORED)
+                else:
+                    archive.writestr('OEBPS/' + name, data)
+                if self.image_store is not None and (index % 8 == 0 or index == resource_count):
+                    self.progress('writing-epub', index, resource_count)
 
 
 def empty_layout_image(attrs, raw):
@@ -302,6 +373,8 @@ class HTMLInput(HTMLParser):
         if mapped=='img' and self.empty_layout_image(attrs):
             self.b.warnings.add('Пустое служебное изображение HTML заменено пробелом.')
             node=self.b.el('span',' ')
+        elif mapped=='img' and not image_url.strip():
+            node=self.b.el('span', (attrs.get('alt') or '').strip())
         else:
             node = self.b.local_image(attrs.get('src', '')) if mapped == 'img' else self.b.el(mapped)
         keys = ['id', 'class']
@@ -372,9 +445,37 @@ def repair_empty_layout_images(text, book):
     parser.parts.append(text[parser.last:]);return ''.join(parser.parts)
 
 
+def deduplicate_anchors(book, named_anchors=()):
+    # Preserve the first target and keep later marks distinct. HTML treats
+    # explicit IDs as targets before its legacy named anchors.
+    reserved={node.get('id') for node in book.body.iter() if node.get('id')}
+    first={};numbers={};renamed=0
+    for node in book.body.iter():
+        identity=node.get('id')
+        if not identity:continue
+        if identity not in first or (first[identity] in named_anchors and node not in named_anchors):
+            first[identity]=node
+    for node in book.body.iter():
+        identity=node.get('id')
+        if not identity or first[identity] is node:continue
+        number=numbers.get(identity,2);candidate=identity+'-homelibre-'+str(number)
+        while candidate in reserved:
+            number+=1;candidate=identity+'-homelibre-'+str(number)
+        node.set('id',candidate);reserved.add(candidate);numbers[identity]=number+1;renamed+=1
+    return renamed
+
+
 def read_html(book, data, html5=False):
     declaration = re.search(br'<meta\b[^>]*charset\s*=\s*[\'\"]?\s*([\w-]+)', data[:8192], re.I)
-    text = decode(data, declaration[1].decode('ascii') if declaration else None)
+    encoding = declaration[1].decode('ascii') if declaration else None
+    if encoding and (alias := re.fullmatch(r'win(?:dows)?[-_]?(125[0-8])', encoding, re.I)):
+        encoding = 'cp' + alias[1]
+    try:
+        text = decode(data, encoding)
+    except UnicodeDecodeError:
+        text = data.decode(encoding or 'cp1251', errors='replace')
+    if '\ufffd' in text:
+        book.warnings.add('Нечитаемые символы HTML отмечены знаком �.')
     if html5:
         text=repair_empty_layout_images(text,book)
         import sys
@@ -385,22 +486,7 @@ def read_html(book, data, html5=False):
             text = html5lib.serialize(tree, quote_attr_values='always', omit_optional_tags=False)
         finally: sys.path.remove(vendor)
     parser = HTMLInput(book); parser.feed(text); parser.close()
-    # HTML fragments select the first explicit id, then the first named anchor.
-    # Keep that target; rename later duplicates without taking an existing id.
-    reserved={node.get('id') for node in book.body.iter() if node.get('id')}
-    first={};numbers={};renamed=0
-    for node in book.body.iter():
-        identity=node.get('id')
-        if not identity:continue
-        if identity not in first or (first[identity] in parser.named_anchors and node not in parser.named_anchors):
-            first[identity]=node
-    for node in book.body.iter():
-        identity=node.get('id')
-        if not identity or first[identity] is node:continue
-        number=numbers.get(identity,2);candidate=identity+'-homelibre-'+str(number)
-        while candidate in reserved:
-            number+=1;candidate=identity+'-homelibre-'+str(number)
-        node.set('id',candidate);reserved.add(candidate);numbers[identity]=number+1;renamed+=1
+    renamed = deduplicate_anchors(book, parser.named_anchors)
     if renamed:book.warnings.add('Повторяющиеся метки переходов HTML переименованы: '+str(renamed)+'. Ссылки ведут к первой метке.')
     if html5:
         blocks = HTMLInput.BLOCK | {'figure', 'figcaption', 'aside', 'header', 'footer', 'dl', 'dt', 'dd'}
@@ -650,7 +736,12 @@ def read_docx(book):
             for n in nums:
                 if c.tag(n) == 'abstractNum': abstract[val(n, 'abstractNumId')] = n
                 elif c.tag(n) == 'num': numbering[val(n, 'numId')] = val(n.find('{' + W + '}abstractNumId'))
-        counters = {}; relationships = {}
+        counters = {}; relationships = {}; omitted_objects = 0; has_content = False
+        def omit_object(dst, label):
+            nonlocal omitted_objects
+            omitted_objects += 1
+            c.append_text(dst, f'[{label} DOCX № {omitted_objects} не перенесён.]')
+            book.warnings.add(f'Не перенесён объект DOCX № {omitted_objects} ({label.lower()}).')
         def inherited(style_id, prop):
             result = []; seen = set()
             while style_id and style_id not in seen:
@@ -664,12 +755,15 @@ def read_docx(book):
                 for child in n: result[c.tag(child)] = val(child, default='1')
             return result
         def add_inline(src, dst, part, rels, paragraph_style=''):
+            nonlocal has_content
             for n in src:
                 name = c.tag(n)
                 if name in {'pPr', 'rPr', 'sdtPr', 'proofErr', 'bookmarkEnd', 'commentRangeStart', 'commentRangeEnd'}: continue
                 if name in {'del', 'moveFrom'}:
                     book.warnings.add('Удалённые исправления DOCX не перенесены; сохранён итоговый текст.'); continue
-                if name in {'oMath', 'oMathPara', 'object', 'altChunk'}: book.fail('Формулы и встроенные объекты DOCX пока не поддерживаются.')
+                if name in {'oMath', 'oMathPara', 'object', 'altChunk'}:
+                    omit_object(dst, 'Блок формулы' if name in {'oMath', 'oMathPara'} else 'Встроенный объект')
+                    continue
                 if name == 'r':
                     rp = n.find('{' + W + '}rPr'); sid = val(rp.find('{' + W + '}rStyle')) if rp is not None else ''
                     values = properties(inherited(paragraph_style, 'rPr') + inherited(sid, 'rPr') + ([rp] if rp is not None else []))
@@ -681,7 +775,9 @@ def read_docx(book):
                     if values.get('vertAlign') in {'superscript', 'subscript'}:
                         child = book.el('sup' if values['vertAlign'] == 'superscript' else 'sub'); target.append(child); target = child
                     add_inline(n, target, part, rels)
-                elif name == 't': c.append_text(dst, n.text or '')
+                elif name == 't':
+                    if (n.text or '').strip(): has_content = True
+                    c.append_text(dst, n.text or '')
                 elif name == 'tab': c.append_text(dst, '\t')
                 elif name in {'br', 'cr'}: dst.append(book.el('br'))
                 elif name == 'noBreakHyphen': c.append_text(dst, '\u2011')
@@ -717,9 +813,20 @@ def read_docx(book):
                         identity = image.get('{' + R + '}embed') or image.get('{' + R + '}id')
                         if c.tag(image) not in {'blip', 'imagedata'} or not identity: continue
                         relation = rels.get(identity)
-                        if not relation or relation[1]: book.fail('Внешнее или отсутствующее изображение DOCX не переносится.')
-                        dst.append(book.image(p.data(relation[0]))); found = True
-                    if not found: book.fail('Неподдерживаемый рисунок или диаграмма DOCX.')
+                        if not relation or relation[1] or relation[0] not in p.names:
+                            dst.append(book.unreadable_image(relation[0] if relation and not relation[1] else identity))
+                        else:
+                            try:
+                                prepared = book.optional_image(p.data(relation[0]), relation[0])
+                            except zipfile.BadZipFile:
+                                prepared = book.unreadable_image(relation[0])
+                            if c.tag(prepared) == 'img': has_content = True
+                            dst.append(prepared)
+                        found = True
+                    if not found:
+                        omit_object(dst, 'Рисунок или диаграмма')
+                    for textbox in n.iter('{' + W + '}txbxContent'):
+                        add_inline(textbox, dst, part, rels)
                 elif name in {'footnoteReference', 'endnoteReference'}:
                     identity = name[:name.index('Reference')] + '-' + val(n, 'id')
                     child = book.el('a', str(len(notes) + 1), href='#' + identity, **{'{' + c.EP + '}type': 'noteref'}); dst.append(child)
@@ -765,10 +872,21 @@ def read_docx(book):
                 elif name not in {'sectPr', 'tcPr', 'sdtPr', 'tblPr', 'tblGrid'}: add_inline([n], dst, part, rels)
         read_docx_body(book, p, lambda node: block([node], book.body, 'word/document.xml'))
         for kind, identity, anchor in notes:
-            part = 'word/footnotes.xml' if kind == 'footnoteReference' else 'word/endnotes.xml'; nr = p.xml(part)
-            note = next((n for n in nr if val(n, 'id') == identity), None)
-            if note is None: book.fail('Не найдена сноска DOCX: ' + identity)
-            out = book.el('aside', id=anchor, **{'{' + c.EP + '}type': 'footnote'}); block(note, out, part); book.body.append(out)
+            part = 'word/footnotes.xml' if kind == 'footnoteReference' else 'word/endnotes.xml'
+            nr = p.xml(part, True)
+            note = next((n for n in nr if val(n, 'id') == identity), None) if nr is not None else None
+            out = book.el('aside', id=anchor, **{'{' + c.EP + '}type': 'footnote'})
+            if note is None:
+                out.append(book.el('p', '[Сноска отсутствует в исходном документе.]'))
+                book.warnings.add(f'Сноска DOCX отсутствует (идентификатор «{identity[:80]}»).')
+            else:
+                block(note, out, part)
+            book.body.append(out)
+        if not has_content:
+            book.fail('В DOCX нет читаемого текста или изображений для конвертации.')
+        renamed = deduplicate_anchors(book)
+        if renamed:
+            book.warnings.add(f'Повторяющиеся закладки DOCX переименованы: {renamed}. Ссылки ведут к первой закладке.')
         book.warnings.add('Страничная вёрстка, колонтитулы и шрифты DOCX заменены оформлением электронной книги.')
     finally: p.z.close()
 
@@ -830,9 +948,17 @@ def read_odt(book, legacy=False):
                 elif n.tag == '{' + T + '}tab': c.append_text(out, '\t'); c.append_text(out, n.tail); continue
                 elif name == 'line-break': out.append(book.el('br')); c.append_text(out, n.tail); continue
                 elif n.tag == '{' + DRAW + '}image':
-                    href = unquote(n.get('{' + XL + '}href', '')); href = posixpath.normpath(href)
-                    if href.startswith(('/', '../')) or ':' in href: book.fail('Внешнее изображение ODT не скачивается.')
-                    out.append(book.image(p.data(href))); c.append_text(out, n.tail); continue
+                    resource = n.get('{' + XL + '}href', '')
+                    href = posixpath.normpath(unquote(resource))
+                    label = urlsplit(resource).path
+                    if href.startswith(('/', '../')) or ':' in href or href not in p.names:
+                        image = book.unreadable_image(label)
+                    else:
+                        try:
+                            image = book.optional_image(p.data(href), label)
+                        except zipfile.BadZipFile:
+                            image = book.unreadable_image(label)
+                    out.append(image); c.append_text(out, n.tail); continue
                 elif name == 'note':
                     identity = n.get('{' + T + '}id') or 'odt-note-' + str(len(notes) + 1)
                     citation = n.find('{' + T + '}note-citation'); body = n.find('{' + T + '}note-body')
@@ -864,6 +990,33 @@ def read_odt(book, legacy=False):
         if text is None and legacy:text=root.find('{'+O+'}body')
         if text is None: book.fail('В ODT нет основного текста.')
         fill(text, book.body); book.body.extend(notes)
+        headings = {}
+        identifiers = {node.get('id') for node in book.body.iter() if node.get('id')}
+        for heading in book.body.iter():
+            if re.fullmatch('h[1-6]', c.tag(heading)):
+                label = ' '.join(c.plain(heading).split())
+                headings.setdefault(label, []).append(heading)
+        next_id = 1
+        for link in book.body.iter('{' + c.XH + '}a'):
+            href = unquote(link.get('href', ''))
+            match = re.fullmatch(r'#(?:\d+\.)*(.+)\|outline', href)
+            if not match or href[1:] in identifiers:
+                continue
+            candidates = headings.get(' '.join(match[1].split()), [])
+            if len(candidates) != 1:
+                link.attrib.pop('href')
+                book.warnings.add('Некоторые ссылки ODT на заголовки не имеют однозначной цели. Текст ссылок сохранён.')
+                continue
+            heading = candidates[0]
+            identity = heading.get('id')
+            if not identity:
+                identity = f'odt-outline-{next_id}'
+                while identity in identifiers:
+                    next_id += 1
+                    identity = f'odt-outline-{next_id}'
+                identifiers.add(identity)
+                heading.set('id', identity)
+            link.set('href', '#' + identity)
         book.warnings.add('Страничная вёрстка, колонтитулы и шрифты ODT заменены оформлением электронной книги.')
     finally: p.z.close()
 
@@ -941,6 +1094,7 @@ def read_rtf(book, data):
     fonts = {}; default_font = None
     charsets = {204: 'cp1251', 238: 'cp1250', 161: 'cp1253', 162: 'cp1254', 177: 'cp1255', 178: 'cp1256', 186: 'cp1257', 163: 'cp1258', 128: 'cp932', 129: 'cp949', 134: 'cp936', 136: 'cp950', 222: 'cp874'}
     paragraph = book.el('p'); book.body.append(paragraph); fallback = 0; buffer = bytearray(); node_count = 0
+    object_count = 0
     run_parent = run_style = run_target = None
     run_parts = []
     formatting = [('b', 'strong'), ('i', 'em'), ('s', 's'), ('u', 'u'), ('sup', 'sup'), ('sub', 'sub')]
@@ -969,8 +1123,14 @@ def read_rtf(book, data):
         run_parts.append(value)
     def flush():
         if buffer:
-            try: emit(buffer.decode(state['cp']))
-            except (UnicodeError, LookupError): book.fail('Неподдерживаемая кодировка RTF: ' + state['cp'])
+            try:
+                decoded = buffer.decode(state['cp'])
+            except UnicodeDecodeError:
+                decoded = buffer.decode(state['cp'], errors='replace')
+                book.warnings.add('Нечитаемые символы RTF отмечены знаком �.')
+            except LookupError:
+                book.fail('Неподдерживаемая кодировка RTF: ' + state['cp'])
+            emit(decoded)
             buffer.clear()
     def char(value):
         nonlocal fallback
@@ -998,15 +1158,20 @@ def read_rtf(book, data):
             if state['pict'] is not None and state['pict'] is not parent['pict']:
                 pic = state['pict']
                 if not state['skip']:
-                    try: raw = bytes.fromhex(''.join(pic['hex'])) if pic['bin'] is None else pic['bin']
-                    except ValueError: book.fail('Некорректное изображение RTF.')
+                    try:
+                        raw = bytes.fromhex(''.join(pic['hex'])) if pic['bin'] is None else pic['bin']
+                    except ValueError:
+                        raw = None
                     finish_run()
-                    paragraph.append(book.image(raw))
+                    paragraph.append(book.optional_image(raw) if raw else book.unreadable_image())
                     run_parent = None
             was_fonts = state['fonttable']; state = parent
             if was_fonts and not state['fonttable'] and default_font in fonts: state['cp'] = fonts[default_font]
             if not stack:
-                if text[at:].strip(): book.fail('Посторонние данные после документа RTF.')
+                if text[at:].strip(' \t\r\n\0'):
+                    finish_run()
+                    book.body.append(book.el('p', '[После окончания RTF обнаружены нечитаемые данные.]'))
+                    book.warnings.add('После окончания RTF обнаружены данные, которые не удалось прочитать.')
                 break
         elif ch == '\\':
             if at >= len(text): book.fail('Оборванный управляющий код RTF.')
@@ -1047,7 +1212,10 @@ def read_rtf(book, data):
                 cp = charsets.get(arg) if word == 'fcharset' else ('cp' + str(arg) if arg else None)
                 if cp: fonts[state['fontid']] = cp
             elif word in destinations: state['skip'] = True
-            elif word == 'object': book.fail('Встроенные объекты RTF пока не поддерживаются.')
+            elif word == 'object' and not state['skip']:
+                object_count += 1
+                emit(f'[Встроенный объект RTF № {object_count} не перенесён.]')
+                book.warnings.add(f'Не перенесён встроенный объект RTF № {object_count}.')
             elif word == 'footnote': book.warnings.add('Сноски RTF перенесены в основной текст возле ссылки.')
             elif word == 'pict': state['pict'] = {'hex': [], 'bin': None}
             elif word == 'ansicpg' and arg:
@@ -1122,6 +1290,13 @@ def to_epub(source, output, warnings, api, input_extension=None, **metadata):
         import importlib.util
         spec = importlib.util.spec_from_file_location('homelib_fixed_layout', Path(__file__).with_name('fixed_layout.py'))
         module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+        if book.image_export and 'resource_limit' in book.image_export:
+            with tempfile.TemporaryDirectory(prefix='homelibre-scan-images-', dir=book.work_root) as folder:
+                book.image_store = Path(folder)
+                module.read(book, extension)
+                book.progress('finalizing', 0, 0)
+                book.finish(output)
+            return
         module.read(book, extension)
     elif extension == '.xps':
         import importlib.util
@@ -1138,7 +1313,13 @@ def to_epub(source, output, warnings, api, input_extension=None, **metadata):
         if extension in {'.txt', '.text', '.faq'}:
             # Preserve explicit line and blank paragraph boundaries; do not guess
             # chapters from arbitrary short lines or merge poetry into prose.
-            for line in decode(data).splitlines():
+            try:
+                text = decode(data)
+            except UnicodeDecodeError:
+                encoding = 'utf-16' if data.startswith((b'\xff\xfe', b'\xfe\xff')) else 'cp1251'
+                text = data.decode(encoding, errors='replace')
+                book.warnings.add('Нечитаемые символы исходника отмечены знаком �.')
+            for line in text.splitlines():
                 paragraph = book.el('p', line)
                 if not line: paragraph.append(book.el('br'))
                 book.body.append(paragraph)

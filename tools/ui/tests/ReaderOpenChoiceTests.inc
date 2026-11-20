@@ -171,6 +171,12 @@ begin
   WriteBook(Original,Format(SectionBody,['<br>'])+'<p>Ёж & ёлка: 1 < 2, &ldquo;да&rdquo;.</p>');
   WriteBook(Reference,Format(SectionBody,['<br/>'])+'<p>Ёж &amp; ёлка: 1 &lt; 2, &#8220;да&#8221;.</p>');
   CheckPair(Original,Reference,False,'Исправлены специальные символы в главах EPUB для чтения.');
+  Original:=TPath.Combine(Settings.AppPath,'epub-kindle-pagebreak.epub');
+  Reference:=TPath.Combine(Settings.AppPath,'epub-kindle-normalized.epub');
+  WriteBook(Original,Format(SectionBody,['<mbp:pagebreak/>']).Replace('src="pixel.png"',
+    'src="data:image/png;base64,'+Pixel+'"'));
+  WriteBook(Reference,Format(SectionBody,['<br/>']));
+  CheckPair(Original,Reference,False,'Исправлены специальные символы в главах EPUB для чтения.');
   Writeln('PASS EPUB line break repair preserves contents and leaves valid markup unchanged');
   Folder:=GetEnvironmentVariable('HOMELIB_TEST_EPUB_LINE_BREAK_PAIR');
   if Folder<>'' then CheckPair(TPath.Combine(Folder,'source.epub'),TPath.Combine(Folder,'control.epub'),True);

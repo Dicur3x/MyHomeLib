@@ -29,16 +29,35 @@ class ConversionTests(unittest.TestCase):
         raw=(f'<html xmlns="{c.XH}"><body><nav><a href="part.xhtml?one=1&two=2">'
              'Hard & soft &amp; exact &#38; entities</a><!--keep & comment-->'
              '<![CDATA[keep & data]]></nav></body></html>').encode()
-        document,changed=c.kindle_nav_xhtml(raw)
+        document,changed=c.kindle_generated_xhtml(raw)
         self.assertTrue(changed)
         link=next(n for n in document.iter() if c.tag(n)=='a')
         self.assertEqual(link.get('href'),'part.xhtml?one=1&two=2')
         self.assertEqual(link.text,'Hard & soft & exact & entities')
         self.assertIn('keep & data',''.join(document.itertext()))
-        self.assertFalse(c.kindle_nav_xhtml(c.serialized(document))[1])
+        self.assertFalse(c.kindle_generated_xhtml(c.serialized(document))[1])
         with self.assertRaises(c.ConversionError):c.kindle_xhtml(raw)
         for bad in (b'<html><body><p>A & B</body></html>',b'<html><body>A & B &unknown;</body></html>'):
-            with self.assertRaises(c.ConversionError):c.kindle_nav_xhtml(bad)
+            with self.assertRaises(c.ConversionError):c.kindle_generated_xhtml(bad)
+
+    def test_generated_kindle_chapter_recovers_pagebreak_and_title(self):
+        raw = b'<html><head><title>Hard & soft</title></head><body><p>A<mbp:pagebreak/>B</p></body></html>'
+        document, changed = c.kindle_generated_xhtml(raw)
+        self.assertTrue(changed)
+        self.assertEqual(document.findtext('./head/title'), 'Hard & soft')
+        self.assertEqual(document.find('./body/p/br').tail, 'B')
+        self.assertEqual(document.find('./body/p').text, 'A')
+
+    def test_fb2_keeps_a_quote_embedded_in_an_epub_heading(self):
+        source = self.generic(first='<h1 id="chapter">Начало<blockquote><p>Цитата</p></blockquote>'
+                                    'Продолжение</h1><p>Конец</p>', second='<p>Примечание</p>')
+        output = self.root / 'heading-quote.fb2'
+        c.convert_book(source, output)
+        book = c.xml(output.read_bytes())
+        section = next(node for node in book.iter('{' + c.FB + '}section')
+                       if c.plain(c.first(node, 'title')) == 'Начало')
+        self.assertEqual([(c.tag(child), c.plain(child)) for child in section],
+                         [('title', 'Начало'), ('cite', 'Цитата'), ('p', 'Продолжение'), ('p', 'Конец')])
 
     def test_kindle_skeleton_namespaces_preserve_text_and_note_semantics(self):
         raw = ('<html:html><html:body><html:p>Ёжик <html:a epub:type="noteref" href="#note">1</html:a>'
@@ -298,7 +317,7 @@ class ConversionTests(unittest.TestCase):
                     c.convert_book(source, result)
                 self.assertFalse(result.exists())
                 report = c.convert_book(source, result, skip_damaged_fb2_image=True)
-                self.assertIn('Повреждённая обложка пропущена.', report['warnings'])
+                self.assertIn('Повреждённая обложка «broken» пропущена.', report['warnings'])
                 if extension == '.fb2':
                     output = c.xml(result.read_bytes())
                     c.validate_fb2_output(output)
@@ -412,6 +431,31 @@ class ConversionTests(unittest.TestCase):
         self.assertTrue(any('Вложенные таблицы' in warning for warning in report['warnings']))
         self.assertEqual(digest(epub), before)
 
+    def test_nonstandard_table_keeps_quotation_order_and_link(self):
+        epub = self.generic(first='''<table id="table"><tr><td>First cell</td></tr>
+          <blockquote id="quote"><p>Quoted paragraph</p></blockquote>
+          <tr><td>Last cell</td></tr></table><p><a href="#quote">Quotation</a></p>''', second='<p>End</p>')
+        output = self.root/'table-quotation.fb2'
+        report = c.convert_book(epub, output)
+        self.validate_fb2(output)
+        root = ET.parse(output).getroot()
+        text = ''.join(c.first(root, 'body').itertext())
+        self.assertLess(text.index('First cell'), text.index('Quoted paragraph'))
+        self.assertLess(text.index('Quoted paragraph'), text.index('Last cell'))
+        self.assertTrue(any('Нестандартные таблицы' in warning for warning in report['warnings']))
+
+    def test_table_paragraph_anchor_is_kept_on_the_cell(self):
+        epub = self.generic(first='''<table><tr><td><p>Some text <sup id="return-here">21</sup></p></td></tr></table>
+            <p><a href="#return-here">Return to the table</a></p>''', second='<p>End</p>')
+        output = self.root / 'table-link.fb2'
+        c.convert_book(epub, output)
+        self.validate_fb2(output)
+        root = ET.parse(output).getroot()
+        cell = next(root.iter('{' + c.FB + '}td'))
+        link = next(node for node in root.iter('{' + c.FB + '}a') if c.plain(node) == 'Return to the table')
+        self.assertIsNotNone(cell.get('id'))
+        self.assertEqual(link.get('{' + c.XL + '}href'), '#' + cell.get('id'))
+
     def test_complex_quotation_keeps_headings_links_images_and_text_with_warning(self):
         epub = self.generic(first='''<h1 id="back">Before quote</h1><blockquote id="quote"><div>
           <h2 id="quote-heading">QuotationHeading</h2><p>QuotationWords <strong>BoldWords</strong>
@@ -435,6 +479,16 @@ class ConversionTests(unittest.TestCase):
         ids={n.get('id') for n in book.iter() if n.get('id')}
         for link in book.iter('{'+c.FB+'}a'): self.assertIn(link.get('{'+c.XL+'}href','')[1:],ids)
         notes=[n for n in c.children(book,'body') if n.get('name')=='notes']; self.assertEqual(len(notes),1); self.assertIn('Текст сноски',c.plain(notes[0]))
+
+    def test_missing_epub_image_keeps_text_and_reports_its_number(self):
+        source = self.generic('<p>Before <img src="absent.png" alt="Portrait"/> after.</p>',
+                              '<p>Last paragraph.</p>')
+        output = self.root / 'partial.fb2'
+        report = c.convert_book(source, output)
+        self.validate_fb2(output)
+        body = c.plain(c.first(c.xml(output.read_bytes()), 'body'))
+        self.assertIn('Before [Изображение 1 недоступно.] Portrait after.', body)
+        self.assertIn('Изображение 1 недоступно. Portrait', c.damaged_content_warnings(report['warnings']))
     def with_navigation(self, source, navigation, *, epub3=False):
         with zipfile.ZipFile(source) as archive:
             files = {name: archive.read(name) for name in archive.namelist()}
@@ -541,10 +595,37 @@ class ConversionTests(unittest.TestCase):
     def test_external_doctype_does_not_fetch(self):
         self.assertEqual(c.tag(c.xml(b'<!DOCTYPE html SYSTEM "https://invalid.example/never-fetch"><html/>')),'html')
     def test_unrepresentable_content_reports_failure(self):
-        for content in ['<p>Текст</p><video src="video.mp4"/>','<p><a href="missing.xhtml#gone">Ссылка</a></p>','<p><img src="https://invalid.example/image.png"/></p>']:
+        for content in ['<p>Текст</p><video src="video.mp4"/>','<p><object data="example.bin"/></p>']:
             epub=self.generic(content,'<p>Конец</p>'); before=digest(epub)
             with self.assertRaises(c.ConversionError): c.convert_book(epub,self.root/'unsupported.fb2')
             self.assertEqual(digest(epub),before); self.assertFalse((self.root/'unsupported.fb2').exists())
+    def test_broken_epub_link_keeps_its_text_with_a_warning(self):
+        epub = self.generic('<p><a href="missing.xhtml#gone">Ссылка</a></p>', '<p>Конец</p>')
+        out = self.root / 'broken-link.fb2'
+        result = c.convert_book(epub, out)
+        self.validate_fb2(out)
+        self.assertIn('Ссылка', c.plain(c.first(c.xml(out.read_bytes()), 'body')))
+        self.assertTrue(any('missing.xhtml#gone' in warning for warning in c.damaged_content_warnings(result['warnings'])))
+
+    def test_epub_duplicate_anchors_keep_both_paragraphs(self):
+        epub = self.generic('<p id="part">Первый.</p><p id="part">Второй.</p><p><a href="#part">Переход</a></p>', '<p>Конец.</p>')
+        output = self.root / 'duplicate-anchors.fb2'
+        report = c.convert_book(epub, output)
+        self.validate_fb2(output)
+        body = c.first(c.xml(output.read_bytes()), 'body')
+        paragraphs = {c.plain(node): node for node in body.iter() if c.tag(node) == 'p'}
+        self.assertNotEqual(paragraphs['Первый.'].get('id'), paragraphs['Второй.'].get('id'))
+        link = next(node for node in body.iter() if c.tag(node) == 'a')
+        self.assertEqual(link.get('{' + c.XL + '}href'), '#' + paragraphs['Первый.'].get('id'))
+        self.assertTrue(any('Повторяющиеся метки EPUB' in warning for warning in report['warnings']))
+
+    def test_external_epub_image_is_never_loaded_and_gets_a_marker(self):
+        epub = self.generic('<p>До <img alt="Карта" src="https://invalid.example/image.png"/> после.</p>')
+        output = self.root / 'external.fb2'
+        report = c.convert_book(epub, output)
+        self.validate_fb2(output)
+        self.assertIn('До [Изображение 1 недоступно.] Карта после.', c.plain(c.xml(output.read_bytes())))
+        self.assertIn('Изображение 1 недоступно. Карта', c.damaged_content_warnings(report['warnings']))
     def test_archive_traversal_and_duplicate_names_rejected(self):
         bad=self.root/'bad.epub'
         with zipfile.ZipFile(bad,'w') as z: z.writestr('../escape.xml','data')

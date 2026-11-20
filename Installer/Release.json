@@ -1,16 +1,16 @@
 {
   "format": 1,
-  "release": "3.0.0_pre1.15",
-  "version": "3.0.0.15",
+  "release": "3.0.0_pre1.16",
+  "version": "3.0.0.16",
   "components_version": "3.0.0.5",
-  "display_version": "3.0 beta 15",
+  "display_version": "3.0 beta 16",
   "component_versions": {
-    "BookProcessing": "3.0.0.14",
+    "BookProcessing": "3.0.0.16",
     "ImageProcessing": "3.0.0.14",
     "KindleExport": "3.0.0.9",
     "EpubPdfExport": "3.0.0.9",
     "FB2Export": "3.0.0.13",
-    "KfxExport": "3.0.0.6",
+    "KfxExport": "3.0.0.16",
     "LegacyBooks": "3.0.0.6",
     "XPS": "3.0.0.6"
   }

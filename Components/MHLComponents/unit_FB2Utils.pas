@@ -343,6 +343,17 @@ begin
     except
       FreeAndNil(Result);
     end;
+    if (Result=nil) and (StreamFormat=sfGif) then
+    begin
+      // Some older GIF encoders write data that Windows can still decode.
+      Result:=TWICImage.Create;
+      try
+        GraphicStream.Position:=0;
+        Result.LoadFromStream(GraphicStream);
+      except
+        FreeAndNil(Result);
+      end;
+    end;
   finally
     Converted.Free;
     ImageStream.Position := SavedPosition;

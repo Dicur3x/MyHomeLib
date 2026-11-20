@@ -48,13 +48,15 @@ def first_frame(api, data, tools, work, check=None):
         return result
 
 
-def normalize_export(api, private_book, extension, tools, warnings, check=None):
+def normalize_export(api, private_book, extension, tools, warnings, check=None, maximum_total=None, progress=None):
     """Normalize GIFs in an already generated private FB2/EPUB, never a source."""
     cache = {}
     def decode(data):
         key = sha256(data).digest()
         if key not in cache:
             cache[key] = first_frame(api, data, tools, private_book.parent, check)
+            if progress is not None:
+                progress('gif-preparation', len(cache), 0)
         return cache[key]
 
     with tempfile.TemporaryDirectory(prefix='homelibre-gif-export-', dir=private_book.parent) as folder:
@@ -62,7 +64,8 @@ def normalize_export(api, private_book, extension, tools, warnings, check=None):
         count = 0
         if extension == '.epub':
             from kfx_image_input import prepare
-            count = prepare(api, private_book, output, None, check, decode_gif=decode, only_gif=True)
+            count = prepare(api, private_book, output, None, check, decode_gif=decode, only_gif=True,
+                            maximum_total=maximum_total)
         elif extension == '.fb2':
             root = api.xml(private_book.read_bytes(), api.MAX_TOTAL)
             for node in root:

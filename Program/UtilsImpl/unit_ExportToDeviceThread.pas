@@ -71,6 +71,7 @@ type
     FRequestedExplicitFormat: Boolean;
     FConvertBasic: Boolean;
     FLastWarnings: string;
+    FPartialExportDeclined: Boolean;
     FProcessedFiles: string;
     FDeviceDir: string;
     FUseMTP: Boolean;
@@ -312,6 +313,7 @@ begin
   FFileOprecord := Default(TFileOprecord);
   FLastError := '';
   FLastWarnings := '';
+  FPartialExportDeclined := False;
   FConvertBasic := False;
   FNativeZipCopy:=False; FCurrentKeepSource:=FKeepSourceFormat;
   FExportMode:=FRequestedExportMode; FExplicitFormat:=FRequestedExplicitFormat;
@@ -798,6 +800,9 @@ begin
           else if (Stage='image-estimates') or (Stage='scan-estimates') then StageComment:='Оценка размера книги для выбора изображений…'
           else if (Stage='optimizing-images') or (Stage='scan-images') then StageComment:='Сжатие изображений для экспорта…'
           else if Stage='finalizing' then StageComment:='Сборка книги…'
+          else if Stage='writing-epub' then StageComment:='Запись EPUB…'
+          else if Stage='checking-epub' then StageComment:='Проверка EPUB…'
+          else if Stage='gif-preparation' then StageComment:='Подготовка статичных изображений GIF…'
           else if Stage='kindle-writing' then StageComment:='Запись книги для Kindle…'
           else if Stage='advanced-writing' then StageComment:='Запись книги в выбранном формате…'
           else if Stage='complete' then StageComment:='Сохранение готовой книги…'
@@ -818,7 +823,18 @@ begin
         end,FOverwriteExisting,FFileOprecord.OriginalSourceFile,
         (FExportMode=emFB2Zip) or (FZipEachBook and SameText(ExtractFileExt(ConversionTarget),'.fb2')),
         BookSaveAdvancedProfile(FExportMode),FExportMode=emTxt,FGrayscale and (FExportMode<>emTxt),
-        False,FSkipDamagedFB2Image);
+        False,FSkipDamagedFB2Image,
+        function(Damage: string): Boolean
+        var Confirmed: Boolean;
+        begin
+          Confirmed:=False;
+          Synchronize(procedure
+            begin
+              if not (Canceled or Terminated) then
+                Confirmed:=ConfirmDamagedBookExport(FFileOprecord.BookTitle,Damage);
+            end);
+          Result:=Confirmed;
+        end);
       FLastWarnings := Warnings.Text;
       Result := True;
       if not (FExportMode in ([emFB2,emEpub,emMobi,emAZW3]+BOOK_SAVE_ADVANCED_MODES)) then
@@ -866,6 +882,12 @@ begin
       begin
         Result:=False; Canceled:=True; FRequiredComponent:=E.ComponentID; FRequiredComponents:=Copy(E.ComponentIDs);
         FLastError:=E.Message;
+      end;
+      on E: EBookPartialExportDeclined do
+      begin
+        Result:=False;
+        FPartialExportDeclined:=True;
+        FLastWarnings:=E.Message;
       end;
       on E: EAbort do
       begin
@@ -1356,7 +1378,7 @@ begin
           end;
           if FProcessedFiles = '' then FProcessedFiles := FFileOprecord.SourceFile;
         end
-        else if Canceled or Terminated then FResults[i].State := besCanceled
+        else if Canceled or Terminated or FPartialExportDeclined then FResults[i].State := besCanceled
         else FResults[i].State := besFailed;
         FResults[i].ErrorText := FLastError;
         if DetailedDiagnosticLogging then
@@ -1381,13 +1403,14 @@ begin
         if FLastWarnings <> '' then
         begin
           Inc(WarningCount);
-          if Res and (FirstWarning='') then
+          if (Res or FPartialExportDeclined) and (FirstWarning='') then
             FirstWarning:=BookLabel+CR+Copy(FLastWarnings.Split([CR])[0],1,350);
           if Res then
           begin
             if FExtractOnly then ResultLabel:='Подготовлено с примечаниями'
             else ResultLabel:='Сохранено с примечаниями';
           end
+          else if FPartialExportDeclined then ResultLabel:='Книга пропущена'
           else ResultLabel:='Примечания к незавершённой операции';
           ErrorLog.Add(Format('%s  |  [%s]  |  %s',
             [DateTimeToStr(Now), ResultLabel, BookLabel]));
@@ -1401,7 +1424,7 @@ begin
           Break;
         end;
 
-        if not Res then
+        if not Res and not FPartialExportDeclined then
         begin
           LogDiagnosticMessage('book-export-failed',BookLabel+sLineBreak+FLastError);
           Inc(FailedCount);
@@ -1409,8 +1432,8 @@ begin
             FirstError := BookLabel + CR + FLastError;
           ErrorLog.Add(Format('%s  |  [Ошибка сохранения]  |  %s  |  %s', [DateTimeToStr(Now), BookLabel, FLastError]));
           Teletype(BookLabel+CR+FLastError,tsError);
-          RemoveEmptyTargetFolders;
         end;
+        if not Res then RemoveEmptyTargetFolders;
 
         FProgressEngine.AddProgress;
       end;
