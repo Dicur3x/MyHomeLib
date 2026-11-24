@@ -548,7 +548,23 @@ begin
         raise Exception.Create('Не удалось извлечь исходную книгу. Проверьте, открывается ли архив и есть ли в нём нужный файл.');
 
       if (PreparedSource='') and (FBookFormat in [bfFb2, bfFb2Archive]) and FOverwriteFB2Info and not FCurrentKeepSource then
+      begin
+        // A loose FB2 is opened read-only. Rewrite an export copy, never the source.
+        if not (FFileOprecord.Stream is TMemoryStream) then
+        begin
+          var Writable := TMemoryStream.Create;
+          try
+            Writable.CopyFrom(FFileOprecord.Stream, 0);
+            Writable.Position := 0;
+          except
+            Writable.Free;
+            raise;
+          end;
+          FFileOprecord.Stream.Free;
+          FFileOprecord.Stream := Writable;
+        end;
         WriteFb2InfoToStream(R, FFileOprecord.Stream);
+      end;
 
     end;
 
