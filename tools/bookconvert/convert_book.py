@@ -2513,6 +2513,7 @@ class EpubArchive:
             raise ConversionError('EPUB слишком велик для конвертации.')
         self.names = {e.filename for e in entries}
         self.fragment_aliases = {}
+        self.image_filename_aliases = {}
         if len(self.names) != len(entries):
             self.archive.close()
             raise ConversionError('В EPUB повторяются имена файлов.')
@@ -2523,11 +2524,33 @@ class EpubArchive:
                 self.archive.close()
                 raise ConversionError('Некорректный путь или слишком большой файл EPUB.')
 
+    def recover_image_filenames(self, declared, warnings):
+        missing = {name for name in declared if name and not name.isascii() and name not in self.names}
+        if not missing:
+            return
+        candidates = {}
+        for entry in self.archive.infolist():
+            if entry.flag_bits & 0x800 or entry.filename.isascii():
+                continue
+            try:
+                decoded = entry.filename.encode('cp437').decode('utf-8')
+            except UnicodeError:
+                continue
+            if decoded in missing:
+                candidates[decoded] = None if decoded in candidates else entry.filename
+        self.image_filename_aliases.update({name: actual for name, actual in candidates.items() if actual})
+        self.names.update(self.image_filename_aliases)
+        if self.image_filename_aliases:
+            warnings.add('Восстановлены имена изображений EPUB, записанные в UTF-8 без отметки в ZIP.')
+
+    def open_member(self, name):
+        return self.archive.open(self.image_filename_aliases.get(name, name))
+
     def read(self, name):
         if name not in self.names:
             raise ConversionError('В EPUB отсутствует файл: ' + name)
         try:
-            return self.archive.read(name)
+            return self.archive.read(self.image_filename_aliases.get(name, name))
         except RuntimeError as error:
             raise ConversionError('Зашифрованный файл EPUB не поддерживается: ' + name) from error
 
@@ -2547,7 +2570,8 @@ class EpubArchive:
         self.archive.close()
 
 
-def epub_outline_headings(archive, items, paths, spine, documents, duplicate_anchors, warnings):
+def epub_outline_headings(archive, items, paths, spine, documents, duplicate_anchors, warnings,
+                          *, cover_resources=()):
     """Recognize existing title paragraphs from declared EPUB navigation only.
 
     Do not guess headings from prose or change the source tag: paragraph CSS
@@ -2608,6 +2632,7 @@ def epub_outline_headings(archive, items, paths, spine, documents, duplicate_anc
     containers = {'body', 'div', 'section', 'article', 'header'}
     inlines = {'a', 'span', 'b', 'strong', 'i', 'em', 'small', 'sup', 'sub'}
     headings, section_titles, indexes = {}, {}, {}
+    restored_targets, opening_titles = {}, {}
     def title_paragraph(node):
         if tag(node) == 'p' or re.fullmatch('h[1-6]', tag(node)): return node
         if tag(node) not in containers or (node.text or '').strip(): return None
@@ -2639,6 +2664,18 @@ def epub_outline_headings(archive, items, paths, spine, documents, duplicate_anc
                 fragment = alternative
                 entries[index] = (path, fragment, label, depth)
         normalized_label = ' '.join(label.split())
+        recovered_cover = False
+        if fragment and fragment not in anchors and not duplicates:
+            # A missing fragment can still name the start of this exact file.
+            # Confirm it against the publisher's cover declaration or the first
+            # title in the content, without inferring a position for later text.
+            recovered_cover = path in cover_resources and fragment.casefold() == 'cover'
+            if path not in opening_titles:
+                opening_titles[path] = ' '.join(plain(title_paragraph(body)).split())
+            if recovered_cover or (normalized_label and opening_titles[path] == normalized_label):
+                restored_targets[path, fragment] = (path, '')
+                fragment = ''
+                entries[index] = (path, fragment, label, depth)
         if duplicates:
             # Broken IDs often mark a heading and an empty page break. The
             # publisher's label can confirm which anchor to keep in the TOC.
@@ -2661,13 +2698,17 @@ def epub_outline_headings(archive, items, paths, spine, documents, duplicate_anc
             # An opening illustration can precede the chapter's actual heading.
             # Keep the author's heading in place instead of adding a second copy.
             first_heading = next((n for n in body.iter() if html_heading_level(n) and plain(n)), None)
-            if first_heading is None or ' '.join(plain(first_heading).split()) != normalized_label:
+            if not recovered_cover and (first_heading is None or
+                    ' '.join(plain(first_heading).split()) != normalized_label):
                 section_titles.setdefault(path, label)
             continue
         if candidate is None or tag(candidate) != 'p': continue
         if ' '.join(plain(candidate).split()) != normalized_label: continue
         if any(tag(n) in {'img', 'svg', 'table'} for n in candidate.iter()): continue
         headings.setdefault(candidate, min(depth, 6))
+    if restored_targets:
+        archive.fragment_aliases.update(restored_targets)
+        warnings.add('Восстановлены переходы оглавления EPUB к началу исходных разделов.')
     return headings, section_titles, entries
 
 
@@ -3428,6 +3469,9 @@ def epub_reading_order(archive, warnings, check=None, *, allow_partial_epub=Fals
             warnings.add('Повторяющиеся одинаковые записи каталога EPUB учтены один раз.')
         else: items[key] = item
     paths = {identity: archive.resolve(package_path, item.get('href', ''))[0] for identity, item in items.items()}
+    archive.recover_image_filenames((paths[key] for key, item in items.items()
+                                     if (mime := item.get('media-type', '')).startswith('image/')
+                                     and mime not in EPUB_MISLABELED_XHTML_TYPES), warnings)
     navigation_paths = {paths[identity] for identity, item in items.items()
                         if 'nav' in item.get('properties', '').split()}
     cover_ids = {n.get('content') for n in metadata if tag(n) == 'meta' and n.get('name') == 'cover'}
@@ -3894,7 +3938,7 @@ def epub_to_fb2(source, output, warnings, *, use_navigation=True, stream_images=
         if use_navigation and not recovered_scan:
             outline_headings, outline_titles, outline = epub_outline_headings(archive, items, paths, spine,
                                                                             documents_by_path, duplicate_anchors,
-                                                                            warnings)
+                                                                            warnings, cover_resources=cover_resources)
         table_content = {'table': {'caption', 'colgroup', 'col', 'thead', 'tbody', 'tfoot', 'tr'},
                          'colgroup': {'col'}, 'col': set(),
                          'thead': {'tr'}, 'tbody': {'tr'}, 'tfoot': {'tr'}, 'tr': {'td', 'th'}}
@@ -4523,7 +4567,7 @@ def epub_to_fb2(source, output, warnings, *, use_navigation=True, stream_images=
                 target, fragment = archive.resolve(path, reference)
                 if target not in archive.names or fragment:
                     return None
-                with archive.archive.open(target) as raster:
+                with archive.open_member(target) as raster:
                     header = raster.read(1024 * 1024)
                 if not header.startswith((b'\x89PNG\r\n\x1a\n', b'\xff\xd8\xff')):
                     return None

@@ -2454,6 +2454,69 @@ class ConversionTests(unittest.TestCase):
         self.assertTrue(any(warning.startswith('Метка обложки EPUB отсутствует') for warning in notices), notices)
         self.assertTrue(any('notes.xhtml#NoSuchPlace' in warning for warning in notices), notices)
 
+    def test_epub_recovers_declared_image_with_unmarked_utf8_zip_name(self):
+        name = 'схема.png'
+        source = self.generic(f'<p>Before <img src="{name}"/> after.</p>')
+        class UnmarkedUtf8(zipfile.ZipInfo):
+            def _encodeFilenameFlags(self):
+                return self.filename.encode('utf-8'), self.flag_bits & ~0x800
+
+        editable = self.root/'zip-name-repair.epub'
+        with zipfile.ZipFile(source) as original, zipfile.ZipFile(editable, 'w') as archive:
+            for item in original.infolist():
+                data = original.read(item)
+                if item.filename.endswith('.opf'):
+                    data = data.replace(b'href="image.png"', f'href="{name}"'.encode())
+                if item.filename.endswith('/image.png'):
+                    item = UnmarkedUtf8(item.filename.replace('image.png', name))
+                archive.writestr(item, data)
+        before = digest(editable)
+        with zipfile.ZipFile(editable) as archive:
+            self.assertFalse(any(item.filename.endswith(name) for item in archive.infolist()))
+        output = self.root/'zip-name-repair.fb2'
+        report = c.convert_book(editable,output)
+        self.validate_fb2(output)
+        book = c.xml(output.read_bytes())
+        self.assertEqual(base64.b64decode(c.children(book,'binary')[0].text), PNG)
+        self.assertNotIn('Изображение 1 недоступно', c.plain(book))
+        self.assertTrue(any(w.startswith('Восстановлены имена изображений EPUB') for w in report['warnings']))
+        self.assertEqual(digest(editable), before)
+
+    def test_epub_outline_restores_confirmed_opening_title_and_cover_fragments(self):
+        for epub3 in (False, True):
+            with self.subTest(epub3=epub3):
+                source = self.generic('<p><em>Opening title</em></p><p>Chapter text.</p>'
+                                      '<p><a href="chapter.xhtml#old">Open title</a></p>'
+                                      '<h2>Later heading</h2><p id="real">Valid target.</p>',
+                                      '<p><img src="image.png" alt="Cover"/>Cover document.</p>')
+                items = [('Opening title', 'chapter.xhtml#old'), ('Cover', 'notes.xhtml#Cover'),
+                         ('Later heading', 'chapter.xhtml#unknown'), ('Existing', 'chapter.xhtml#real')]
+                if epub3:
+                    nodes = ''.join(f'<li><a href="{link}">{label}</a></li>' for label, link in items)
+                    nav = f'<html xmlns:epub="{c.EP}"><body><nav epub:type="toc"><ol>{nodes}</ol></nav></body></html>'
+                else:
+                    nodes = ''.join(f'<navPoint><navLabel><text>{label}</text></navLabel>'
+                                    f'<content src="{link}"/></navPoint>' for label, link in items)
+                    nav = f'<ncx><navMap>{nodes}</navMap></ncx>'
+                self.with_navigation(source, nav, epub3=epub3, cover='notes.xhtml')
+                output = self.root / f'confirmed-outline-{epub3}.fb2'
+                original = digest(source)
+                report = c.convert_book(source, output)
+                self.validate_fb2(output)
+                book = c.xml(output.read_bytes())
+                outline = next(n.text for n in c.children(c.first(book, 'description'), 'custom-info')
+                               if n.get('info-type') == c.FB2_EPUB_OUTLINE)
+                targets = {node.get('id'): c.plain(node) for node in c.first(book, 'body').iter() if node.get('id')}
+                entries = [line.split('\t') for line in outline.splitlines()]
+                self.assertEqual([label for _, _, label in entries], ['Opening title', 'Cover', 'Existing'])
+                self.assertTrue(targets[entries[0][0]].startswith('Opening title'))
+                self.assertEqual(targets[entries[1][0]], 'Cover document.')
+                self.assertEqual(targets[entries[2][0]], 'Valid target.')
+                self.assertIn('Не перенесены переходы оглавления EPUB (1): «Later heading».',
+                              c.damaged_content_warnings(report['warnings']))
+                self.assertFalse(any('Не найдена цель ссылки EPUB' in line for line in report['warnings']))
+                self.assertEqual(digest(source), original)
+
     def test_broken_optional_ncx_does_not_prevent_readable_text_conversion(self):
         for navigation in ['<ncx><broken>', '<!DOCTYPE ncx [<!ENTITY title "unsafe">]><ncx/>']:
             source = self.with_navigation(self.generic('<h1>RealHeading</h1><p>ReadableText</p>', '<p>End</p>'), navigation)

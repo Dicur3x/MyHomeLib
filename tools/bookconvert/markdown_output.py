@@ -401,11 +401,12 @@ def convert(api, source, output, warnings, check):
                                                   'http://ns.adobe.com/pdf/enc#RC'}
                    for node in encryption.iter() if api.tag(node) == 'EncryptionMethod'):
                 raise api.ConversionError('Зашифрованная книга EPUB не поддерживается.')
-        _, metadata, _, spine, items, paths, docs, _, duplicate_anchors, _ = api.epub_reading_order(archive, warnings, check)
+        _, metadata, _, spine, items, paths, docs, _, duplicate_anchors, covers = api.epub_reading_order(archive, warnings, check)
         media = {paths[identity]: item.get('media-type') for identity, item in items.items()}
         emit, html, state = renderers()
         book = Book(api, archive, docs, media, warnings, check, html, state)
-        _, titles, _ = api.epub_outline_headings(archive, items, paths, spine, dict(docs), duplicate_anchors, warnings)
+        _, titles, _ = api.epub_outline_headings(archive, items, paths, spine, dict(docs), duplicate_anchors,
+                                                 warnings, cover_resources=covers)
         title = next((api.plain(node) for node in metadata if api.tag(node) == 'title' and api.plain(node)), '')
         authors = ', '.join(api.plain(node) for node in metadata if api.tag(node) == 'creator' and api.plain(node))
         written = 0

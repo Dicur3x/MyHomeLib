@@ -1616,6 +1616,8 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
   DuplicateEpubAnchors: TDictionary<string,Byte>;
   EpubOutlineNodes: TDictionary<string,IXMLDOMNode>;
   EpubOutlineTargets: TDictionary<string,Integer>;
+  EpubOpeningTitles: TDictionary<string,string>;
+  EpubImageNameAliases: TDictionary<string,Integer>;
   EpubAnchorEnds: TDictionary<string,Integer>;
   SavedQuoteSections: TDictionary<string,Byte>;
   NavigationIDs: TDictionary<string,Byte>;
@@ -1993,10 +1995,35 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
       if Kept<FLinks.Count then FLinks.DeleteRange(Kept,FLinks.Count-Kept);
     finally Legacy.Free; end;
   end;
-  procedure ReadZip(const Path: string; out Bytes: TBytes);
+  function EpubImageIndex(const Path: string): Integer;
+  var Header: TZipHeader; Name: string; Existing: Integer;
+  begin
+    Result:=Zip.IndexOf(Path);
+    if (Result>=0) or not TRegEx.IsMatch(Path,'[^\x00-\x7f]') then Exit;
+    if not Assigned(EpubImageNameAliases) then
+    begin
+      EpubImageNameAliases:=TDictionary<string,Integer>.Create;
+      for var I:=0 to Zip.FileCount-1 do
+      begin
+        Check;
+        Header:=Zip.FileInfo[I];
+        if Header.UTF8Support or not TEncoding.UTF8.IsBufferValid(Header.FileName) then Continue;
+        Name:=TEncoding.UTF8.GetString(Header.FileName);
+        if Name=Zip.FileName[I] then Continue;
+        if EpubImageNameAliases.TryGetValue(Name,Existing) then EpubImageNameAliases[Name]:=-1
+        else EpubImageNameAliases.Add(Name,I);
+      end;
+    end;
+    if EpubImageNameAliases.TryGetValue(Path,Existing) then Result:=Existing;
+    if (Result>=0) and (Warnings.Count<20) and
+      (Warnings.IndexOf('Восстановлены имена изображений EPUB, записанные в UTF-8 без отметки в ZIP.')<0) then
+      Warnings.Add('Восстановлены имена изображений EPUB, записанные в UTF-8 без отметки в ZIP.');
+  end;
+  procedure ReadZip(const Path: string; out Bytes: TBytes; RecoveredImageName: Boolean = False);
   var Index: Integer;
   begin
-    Check; Index:=Zip.IndexOf(Path);
+    Check;
+    if RecoveredImageName then Index:=EpubImageIndex(Path) else Index:=Zip.IndexOf(Path);
     if Index<0 then raise EReadError.CreateFmt('В %s не найден элемент «%s».',[UpperCase(E.Substring(1)),Path]);
     if Zip.FileInfo[Index].UncompressedSize>MAX_DOCUMENT_BYTES then
       raise EReadError.CreateFmt('В %s элемент «%s» превышает предел чтения (%d МиБ).',
@@ -2928,10 +2955,10 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
       (Drawing.selectNodes('.//*[local-name()="image" or local-name()="feImage"]').length<>1) then Exit;
 
     try
-      Member:=ZipPath(CurrentPath,Reference); Index:=Zip.IndexOf(Member);
+      Member:=ZipPath(CurrentPath,Reference); Index:=EpubImageIndex(Member);
       if (Index>=0) and (Zip.FileInfo[Index].UncompressedSize>16*1024*1024) then
         raise EReadError.Create('Изображение внутри SVG превышает 16 МБ.');
-      ReadZip(Member,Raster);
+      ReadZip(Member,Raster,True);
       if not MatchText(StaticSvgRasterMime(Raster),['image/jpeg','image/png']) or NeedsJpegRecovery(Raster) then
         raise EReadError.Create('SVG содержит повреждённое или неподдерживаемое изображение.');
       if Reflowable then
@@ -2943,7 +2970,7 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
         if Int64(RasterWidth)*Height=Int64(RasterHeight)*Width then
         begin
           Bitmap:=Raster;
-          if Assigned(FImageArchiveLock) then ArchiveMember:=Member;
+          if Assigned(FImageArchiveLock) then ArchiveMember:=Zip.FileName[Index];
         end
         else
         begin
@@ -3111,8 +3138,9 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
     finally Entries.Free; end;
   end;
 
-  procedure LoadEpubOutline;
+  procedure LoadEpubOutline(const CoverID: string);
   var Entries:TList<TReaderChapter>;
+    RecoveredTargets: TDictionary<string,Integer>;
     OwnEpub, OwnFb2Epub, OwnKfxView, RootEntry, KfxFallback: Boolean; PageEntries, ChapterIndex: Integer;
     SavedPath, Resource, NcxID:string; Navigation:IXMLDOMDocument3; Bytes:TBytes; J:Integer;
     Entry, TocNode:IXMLDOMNode;
@@ -3135,13 +3163,50 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
       Result := TRegEx.IsMatch(Text,'^(Страница|Слайд) [1-9][0-9]*$');
     end;
 
+    function DeclaredCoverPage(const Path: string): Boolean;
+    var Resource: string; Guide, Reference: IXMLDOMNode;
+
+      function MatchesCover(const Href: string): Boolean;
+      begin
+        Result:=False;
+        if (Href='') or Href.Contains('#') then Exit;
+        try
+          Result:=ZipPath(PackagePath,Href)=Path;
+        except on E: Exception do Result:=False; end;
+      end;
+
+    begin
+      if (CoverID<>'') and Paths.TryGetValue(CoverID,Resource) and MatchesCover(Resource) then
+        Exit(True);
+      Guide:=FindNode(Root,'guide');
+      if Assigned(Guide) then
+        for var I:=0 to Guide.childNodes.length-1 do
+        begin
+          Reference:=Guide.childNodes.item[I];
+          if (LocalName(Reference)<>'reference') or (Attribute(Reference,'type')<>'cover') then Continue;
+          Resource:=Attribute(Reference,'href');
+          if MatchesCover(Resource) then Exit(True);
+        end;
+      Result:=False;
+    end;
     procedure AddEntry(const LabelText, Href:string; Depth:Integer; StartOnly:Boolean=False);
-    var Target:string; Position, MatchedPosition:Integer; C:TReaderChapter;
+    var Target, Path, Fragment, OpeningTitle: string; Position, MatchedPosition, At: Integer; C:TReaderChapter;
     begin
       Check; if (Href='') or (LabelText='') or (Length(LabelText)>4096) then Exit;
-      Target:=EpubSpaceAnchor(LocalLinkTarget(Href));
-      if (Target='') or not FAnchors.TryGetValue(Target,Position) then Exit;
       C.Title:=Trim(TRegEx.Replace(LabelText,'\s+',' ')); if C.Title='' then Exit;
+      Target:=EpubSpaceAnchor(LocalLinkTarget(Href));
+      if Target='' then Exit;
+      if not FAnchors.TryGetValue(Target,Position) then
+      begin
+        At:=Pos('#',Target);
+        if (At=0) or (At=Length(Target)) then Exit;
+        Path:=Copy(Target,1,At-1); Fragment:=Target.Substring(At);
+        if not FAnchors.TryGetValue(Path+'#',Position) then Exit;
+        // Confirm the opening text of the same spine document or its declared cover.
+        if not ((EpubOpeningTitles.TryGetValue(Path,OpeningTitle) and (OpeningTitle=C.Title)) or
+          (SameText(Fragment,'cover') and DeclaredCoverPage(Path))) then Exit;
+        RecoveredTargets.TryAdd(Target,Position);
+      end;
       if Assigned(EpubOutlineTargets) and EpubOutlineTargets.TryGetValue(Target+#0+C.Title,MatchedPosition) and
         (MatchedPosition>=0) then Position:=MatchedPosition;
       if Entries.Count>=20000 then raise Exception.Create('Слишком много пунктов оглавления EPUB.');
@@ -3194,7 +3259,7 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
     end;
     procedure ReadNavigation(const Href:string; NCX:Boolean);
     begin
-      Entries.Clear; PageEntries:=0; RootEntry:=False; KfxFallback:=False;
+      Entries.Clear; RecoveredTargets.Clear; PageEntries:=0; RootEntry:=False; KfxFallback:=False;
       try
         CurrentPath:=ZipPath(PackagePath,Href); ReadZip(CurrentPath,Bytes);
         Navigation:=XMLDocument(Bytes,rteAutomatic,nil,Warnings);
@@ -3206,7 +3271,7 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
         on Error:EMHLComponentRequired do raise;
         on Error:Exception do
         begin
-          Entries.Clear;
+          Entries.Clear; RecoveredTargets.Clear;
           if Warnings.Count<20 then Warnings.Add('Оглавление EPUB: '+Error.Message+' Заголовки из текста сохранены.');
         end;
       end;
@@ -3215,6 +3280,7 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
     // A recovered scan contains an EPUB-required start link, not a publisher's outline.
     if Attribute(Root,'unique-identifier')='recovered-id' then Exit;
     SavedPath:=CurrentPath; Entries:=TList<TReaderChapter>.Create;
+    RecoveredTargets:=TDictionary<string,Integer>.Create;
     try
       OwnEpub:=IsPreparedEpub; PageEntries:=0; RootEntry:=False; KfxFallback:=False;
       OwnFb2Epub:=(PackagePath='OEBPS/package.opf') and
@@ -3243,6 +3309,9 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
       end;
       if Entries.Count>0 then
       begin
+        for var Recovered in RecoveredTargets do FAnchors.TryAdd(Recovered.Key,Recovered.Value);
+        if (RecoveredTargets.Count>0) and (Warnings.Count<20) then
+          Warnings.Add('Восстановлены переходы оглавления EPUB к началу исходных разделов.');
         // BookProcessing supplies a mandatory link to the document start when
         // the text has no headings. Its page and slide labels are also navigation aids.
         if (Entries.Count=1) and RootEntry then Exit;
@@ -3256,7 +3325,7 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
         // destination or point to chapters out of reading order.
         FChapters.Clear; FChapters.AddRange(Entries);
       end;
-    finally CurrentPath:=SavedPath; Entries.Free; end;
+    finally CurrentPath:=SavedPath; RecoveredTargets.Free; Entries.Free; end;
   end;
   procedure LoadCSS(const N: IXMLDOMNode; Depth: Integer = 0);
   var Index: Integer; Name, Path, Text: string; Bytes: TBytes; Child: IXMLDOMNode;
@@ -5476,15 +5545,17 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
           if (E<>'.epub') or not DecodeInlineImage(Ref,Bytes) then
           begin
             var Member:=ZipPath(CurrentPath,Ref);
-            var Index:=Zip.IndexOf(Member);
-            if E='.epub' then EpubImagePath:=Member;
+            var Index: Integer;
+            if E='.epub' then
+            begin EpubImagePath:=Member; Index:=EpubImageIndex(Member); end
+            else Index:=Zip.IndexOf(Member);
             if (E='.epub') and (Index>=0) and (Zip.FileInfo[Index].UncompressedSize>16*1024*1024) and
               MatchText(ExtractFileExt(Member),['.jpeg','.jpg']) then
               Bytes:=ReadLargeEpubJpeg(Index)
             else
             begin
-              ReadZip(Member,Bytes);
-              if FImageArchiveLock<>nil then ArchiveMember:=Member;
+              ReadZip(Member,Bytes,E='.epub');
+              if FImageArchiveLock<>nil then ArchiveMember:=Zip.FileName[Index];
             end;
           end;
           if (E='.epub') and (Ref.EndsWith('.svg',True) or Ref.StartsWith('data:image/svg+xml;',True) or
@@ -6068,7 +6139,7 @@ begin
   WordNoteLabels:=nil; ReadingWordNotes:=False; SkipWordCustomMark:=False;
   WordListDefinitions:=nil; WordLists:=nil; WordListImagePaths:=nil;
   NumericEpubLinks:=nil; DuplicateEpubAnchors:=nil;
-  EpubOutlineNodes:=nil; EpubOutlineTargets:=nil; EpubAnchorEnds:=nil;
+  EpubOutlineNodes:=nil; EpubOutlineTargets:=nil; EpubOpeningTitles:=nil; EpubImageNameAliases:=nil; EpubAnchorEnds:=nil;
   SavedQuoteSections:=nil;
   NavigationIDs:=nil; EpubNavigationDocument:=False; EpubFixedLayout:=False;
   try
@@ -6203,7 +6274,7 @@ begin
           (Pos(' cover-image ',' '+Attribute(Item,'properties')+' ')>0)) then
           try
             var Candidate:=ZipPath(PackagePath,Attribute(Item,'href'));
-            var CoverIndex:=Zip.IndexOf(Candidate);
+            var CoverIndex:=EpubImageIndex(Candidate);
             if CoverIndex>=0 then
             begin
               if EpubCoverPath='' then EpubCoverPath:=Candidate;
@@ -6216,7 +6287,10 @@ begin
           except on E: Exception do RecentCover:=''; end;
       end;
       if Assigned(NavigationIDs) or (Attribute(Spine,'toc')<>'') then
+      begin
         EpubOutlineNodes:=TDictionary<string,IXMLDOMNode>.Create;
+        EpubOpeningTitles:=TDictionary<string,string>.Create;
+      end;
       EpubAnchorEnds:=TDictionary<string,Integer>.Create;
       var MissingSpineEntries:=0;
       var MissingSpineBodies:=0;
@@ -6278,7 +6352,17 @@ begin
           ReadEpubMath(Node,Data);
           CollectNotes(Node,CurrentPath+'#',False);
           Walk(Node,0);
-          if Assigned(EpubOutlineNodes) then EpubOutlineNodes.Clear;
+          if Assigned(EpubOutlineNodes) then
+          begin
+            EpubOutlineNodes.Clear;
+            var OpeningSpan:=Min(4097,FText.Length-Before);
+            var Opening:=FText.ToString(Before,OpeningSpan).TrimLeft;
+            var LineEnd:=Pos(#13,Opening);
+            if LineEnd>0 then Opening:=Copy(Opening,1,LineEnd-1)
+            else if OpeningSpan<FText.Length-Before then Opening:='';
+            if (Opening<>'') and (Length(Opening)<=4096) then
+              EpubOpeningTitles.TryAdd(CurrentPath,Trim(TRegEx.Replace(Opening,'\s+',' ')));
+          end;
           if not SpineHasContent and not EpubNavigationDocument then
             SpineHasContent:=FText.ToString(Before,FText.Length-Before).Trim<>'';
         end;
@@ -6354,7 +6438,7 @@ begin
         Link.Target:=Target;
         FLinks[LinkIndex]:=Link;
       end;
-      LoadEpubOutline;
+      LoadEpubOutline(CoverID);
     end
     else
     begin
@@ -6484,7 +6568,7 @@ begin
     end;
     if FText.Length=0 then raise Exception.Create('В документе нет текста для чтения.');
   finally
-    NumericEpubLinks.Free; DuplicateEpubAnchors.Free; EpubOutlineNodes.Free; EpubOutlineTargets.Free;
+    NumericEpubLinks.Free; DuplicateEpubAnchors.Free; EpubOutlineNodes.Free; EpubOutlineTargets.Free; EpubOpeningTitles.Free; EpubImageNameAliases.Free;
     EpubAnchorEnds.Free; SavedQuoteSections.Free;
     NavigationIDs.Free; MathPictures.Free;
     WordListImagePaths.Free; WordLists.Free; WordListDefinitions.Free;
