@@ -1569,7 +1569,7 @@ Path(sys.argv[2]).write_bytes(bytes.fromhex(sys.argv[3]))
         self.assertIn('В CHM восстановлены ссылки предметного указателя. Переходов — 1.', warnings)
         self.assertIn('В CHM восстановлены переходы к перемещённым разделам. Переходов — 1.', warnings)
 
-    def test_chm_recovers_letter_index_links_with_exact_docbook_anchors(self):
+    def test_chm_recovers_letter_index_links_with_exact_generated_anchors(self):
         source = self.root / 'letter-index.chm'
         source.touch()
         archive_tool = self.root / 'tools/7zip/7z.exe'
@@ -1585,9 +1585,11 @@ Path(sys.argv[2]).write_bytes(bytes.fromhex(sys.argv[3]))
                 b'<a href="chapter.html#idd1e14">Ordinary href</a></p>'
                 b'<p id="idd1e11">Actual index entry</p>'),
             'manual/index_B.html': b'<p>Alphabetical index B</p>',
+            'manual/C.html': b'<a href="C.html#ch01index21">Older index reference</a>',
             'manual/chapter.html': (b'<p id="idd1e10">Reference in chapter</p>'
                                     b'<p id="idd1e11">Same mark in chapter</p>'
-                                    b'<p id="idd1e12">First match</p><p id="idd1e20">Different manual</p>'),
+                                    b'<p id="idd1e12">First match</p><p id="idd1e20">Different manual</p>'
+                                    b'<p id="ch01index21">Reference in older chapter</p>'),
             'manual/supplement.html': b'<p id="idd1e12">Second match</p><p id="idd1e14">Different topic</p>',
             'other/index_B.html': b'<p>Another alphabetical index</p>',
         }
@@ -1605,9 +1607,9 @@ Path(sys.argv[2]).write_bytes(bytes.fromhex(sys.argv[3]))
         targets = {node.get('id'): c.plain(node) for node in book.body.iter() if node.get('id')}
         links = {c.plain(node): targets[node.get('href')[1:]] for node in book.body.iter()
                  if c.tag(node) == 'a' and node.get('href')}
-        self.assertEqual(links, {'Cross-reference': 'Reference in chapter',
-                                 'Valid index entry': 'Actual index entry'})
-        self.assertIn('В CHM восстановлены ссылки предметного указателя. Переходов — 1.', warnings)
+        self.assertEqual(links, {'Cross-reference': 'Reference in chapter', 'Valid index entry': 'Actual index entry',
+                                 'Older index reference': 'Reference in older chapter'})
+        self.assertIn('В CHM восстановлены ссылки предметного указателя. Переходов — 2.', warnings)
 
     def test_chm_preserves_named_sections_and_printed_page_boundaries(self):
         source = self.root / 'chapters.chm'

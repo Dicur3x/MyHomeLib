@@ -2433,6 +2433,22 @@ class ConversionTests(unittest.TestCase):
         self.assertEqual(len(c.damaged_content_warnings(report['warnings'])), 1)
         self.assertEqual(digest(source), original)
 
+    def test_html_link_with_empty_fragment_leads_to_document_start(self):
+        source = self.root / 'top.html'
+        source.write_text('<h1>Opening heading</h1><p><a href="#">Return to top</a> '
+                          '<a href="#missing">Unknown target</a></p>', encoding='utf8')
+        output = self.root / 'top.fb2'
+        report = c.convert_book(source, output)
+        self.validate_fb2(output)
+        body = c.first(c.xml(output.read_bytes()), 'body')
+        href = '{' + c.XL + '}href'
+        links = {c.plain(link): link.get(href) for link in body.iter('{' + c.FB + '}a')}
+        self.assertEqual(links, {'Return to top': '#' + body[0].get('id')})
+        self.assertTrue(c.plain(body[0]).startswith('Opening heading'))
+        self.assertIn('Unknown target', c.plain(body))
+        self.assertEqual([line for line in report['warnings'] if line.startswith('Не найдена цель внутренней ссылки')],
+                         ['Не найдена цель внутренней ссылки «#missing». Текст ссылки сохранён.'])
+
     def test_epub_navigation_cover_link_uses_declared_cover_when_only_fragment_is_missing(self):
         source = self.generic('<p>Opening text. <a href="nav.xhtml">Publisher contents</a></p>',
                               '<p><img src="image.png" alt="Cover"/>Cover document.</p>')

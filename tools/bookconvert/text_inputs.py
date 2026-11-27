@@ -508,6 +508,9 @@ class Book:
                     self.cancel_check()
             for node in part.iter('{' + c.XH + '}a'):
                 href = node.get('href', '')
+                if href == '#':
+                    node.set('href', names[0])
+                    continue
                 if href.startswith('#'):
                     target = targets.get(unquote(href[1:]))
                     if target is None:

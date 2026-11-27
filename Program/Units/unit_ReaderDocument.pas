@@ -6065,6 +6065,7 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
   end;
 
   procedure WalkHTML(const Value: string; const DocumentLocation: string = '');
+  const DocumentStartAnchor = #0'html-start';
   var Match, AttributeMatch: TMatch; Token, Name, ActiveHeading, LinkTarget: string;
     Closing, HasCell, CollectLinks: Boolean; HeadingIndex, HeadingLevel, ActiveHeadingLevel, LinkStart: Integer;
     HeadingRange: TReaderStyledRange; Attributes: TRegEx; Link: TReaderTextLink;
@@ -6102,8 +6103,11 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
         FAnchors.TryAdd(Anchor,FText.Length);
       if (DocumentLocation<>'') and Href.StartsWith(DocumentLocation+'#') then
         Href:=Href.Substring(Length(DocumentLocation));
-      if Href.StartsWith('#') and (Length(Href)>1) and (Length(Href)<=4097) then
-      begin LinkTarget:=Href.Substring(1); LinkStart:=FText.Length; end;
+      if Href.StartsWith('#') and (Length(Href)<=4097) then
+      begin
+        if Href='#' then LinkTarget:=DocumentStartAnchor else LinkTarget:=Href.Substring(1);
+        LinkStart:=FText.Length;
+      end;
     end;
     procedure FinishHeading;
     begin
@@ -6117,6 +6121,7 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
   begin
     HeadingIndex:=-1; ActiveHeading:=''; ActiveHeadingLevel:=0; HasCell:=False;
     LinkTarget:=''; LinkStart:=0; CollectLinks:=IsReaderHTML(E) or MatchText(E,['.mht','.mhtml']);
+    if CollectLinks then FAnchors.TryAdd(DocumentStartAnchor,FText.Length);
     Attributes:=TRegEx.Create('([^\s=<>/]+)\s*=\s*(?:"([^"]*)"|''([^'']*)''|([^\s>]+))',[roIgnoreCase]);
     for Match in TRegEx.Matches(Value,ReaderHTMLTokenPattern,[roSingleLine,roIgnoreCase]) do
     begin
