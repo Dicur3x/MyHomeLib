@@ -22,6 +22,8 @@ CHM_HTML_TOPICS = {'.htm', '.html', '.xhtml', '.shtml'}
 CHM_LINKED_IMAGES = {'.jpg', '.jpeg', '.jpe', '.jfif', '.png', '.gif', '.bmp',
                      '.tif', '.tiff', '.webp', '.wmf', '.emf'}
 CHM_INDEX_ANCHOR = re.compile(r'I_indexterm[0-9]+_d[0-9]+e[0-9]+').fullmatch
+CHM_LETTER_INDEX = re.compile(r'index_[a-z]\.html?').fullmatch
+CHM_DOCBOOK_INDEX_ANCHOR = re.compile(r'idd[0-9]+e[0-9]+').fullmatch
 
 
 def read_lit_lrf(book, read_html):
@@ -480,6 +482,7 @@ def read_chm_package(book, read_html, decode, temporary):
     order += [(p, '', 1) for p in sorted(htmls, key=str.casefold) if p.casefold() not in included]
     if not included and len(order) > 1: book.warnings.add('В CHM не найдено оглавление; HTML-разделы расположены по именам файлов.')
     prefixes = {p.casefold(): 'chm-' + str(i) for i, (p, _, _) in enumerate(order)}
+    letter_indexes = {path for path in prefixes if CHM_LETTER_INDEX(posixpath.basename(path))}
     original_image, original_body = book.local_image, book.body; title = book.title
     image_sources = {}
     sidebar_pixels = {}
@@ -577,8 +580,13 @@ def read_chm_package(book, read_html, decode, temporary):
         target = chm_member_path(path, parts.path)
         key = target.casefold()
         fragment = unquote(parts.fragment)
-        if (key not in entries and not parts.query and posixpath.splitext(key)[1] in CHM_HTML_TOPICS
-                and CHM_INDEX_ANCHOR(fragment)):
+        origin = path.casefold()
+        missing_topic = (key not in entries and posixpath.splitext(key)[1] in CHM_HTML_TOPICS
+                         and CHM_INDEX_ANCHOR(fragment))
+        index_reference = (key in letter_indexes and origin in letter_indexes
+                           and posixpath.dirname(key) == posixpath.dirname(origin)
+                           and CHM_DOCBOOK_INDEX_ANCHOR(fragment))
+        if not parts.query and (missing_topic or index_reference):
             index_requests.add((key, fragment))
         return ('chm-local:' + quote(target, safe='/') + ('?' + parts.query if parts.query else '') +
                 ('#' + parts.fragment if parts.fragment else ''))
@@ -624,7 +632,7 @@ def read_chm_package(book, read_html, decode, temporary):
                 if node is not section and (identifier := node.get('id')):
                     destination = chapter_prefix + '-' + identifier
                     node.set('id', destination)
-                    if CHM_INDEX_ANCHOR(identifier):
+                    if CHM_INDEX_ANCHOR(identifier) or (letter_indexes and CHM_DOCBOOK_INDEX_ANCHOR(identifier)):
                         key = (folder, identifier)
                         index_anchors[key] = None if key in index_anchors else (chapter_prefix, destination)
             if path_key in usable_sections:
@@ -660,7 +668,8 @@ def read_chm_package(book, read_html, decode, temporary):
             if location := index_anchors.get((posixpath.dirname(path), fragment)):
                 prefix, destination = location
                 relocated_index[path, fragment] = destination
-                moved_topics.setdefault(path, set()).add(prefix)
+                if path not in entries:
+                    moved_topics.setdefault(path, set()).add(prefix)
 
         def chapter_anchor(prefix, encoded_fragment):
             if not prefix:

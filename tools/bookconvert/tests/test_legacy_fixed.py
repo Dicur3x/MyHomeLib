@@ -1569,6 +1569,46 @@ Path(sys.argv[2]).write_bytes(bytes.fromhex(sys.argv[3]))
         self.assertIn('В CHM восстановлены ссылки предметного указателя. Переходов — 1.', warnings)
         self.assertIn('В CHM восстановлены переходы к перемещённым разделам. Переходов — 1.', warnings)
 
+    def test_chm_recovers_letter_index_links_with_exact_docbook_anchors(self):
+        source = self.root / 'letter-index.chm'
+        source.touch()
+        archive_tool = self.root / 'tools/7zip/7z.exe'
+        archive_tool.parent.mkdir(parents=True)
+        archive_tool.touch()
+        members = {
+            'manual/index_A.html': (
+                b'<p><a href="index_B.html#idd1e10">Cross-reference</a>'
+                b'<a href="index_A.html#idd1e11">Valid index entry</a>'
+                b'<a href="index_B.html#idd1e12">Ambiguous</a>'
+                b'<a href="index_B.html?edition=2#idd1e10">Query</a>'
+                b'<a href="../other/index_B.html#idd1e20">Other manual</a>'
+                b'<a href="chapter.html#idd1e14">Ordinary href</a></p>'
+                b'<p id="idd1e11">Actual index entry</p>'),
+            'manual/index_B.html': b'<p>Alphabetical index B</p>',
+            'manual/chapter.html': (b'<p id="idd1e10">Reference in chapter</p>'
+                                    b'<p id="idd1e11">Same mark in chapter</p>'
+                                    b'<p id="idd1e12">First match</p><p id="idd1e20">Different manual</p>'),
+            'manual/supplement.html': b'<p id="idd1e12">Second match</p><p id="idd1e14">Different topic</p>',
+            'other/index_B.html': b'<p>Another alphabetical index</p>',
+        }
+        listing = ''.join(f'Path = {name}\nSize = {len(data)}\n\n' for name, data in members.items()).encode()
+
+        def run_7zip(arguments, stdout, **_):
+            stdout.write(listing if arguments[2] == 'l' else members[arguments[-1]])
+            return subprocess.CompletedProcess(arguments, 0, stderr=b'')
+
+        warnings = set()
+        book = text_inputs.Book(c, source, warnings, tools_root=archive_tool.parents[1])
+        book.work_root = self.root
+        with patch.object(legacy.subprocess, 'run', side_effect=run_7zip):
+            legacy.read_chm(book, text_inputs.read_html, text_inputs.decode)
+        targets = {node.get('id'): c.plain(node) for node in book.body.iter() if node.get('id')}
+        links = {c.plain(node): targets[node.get('href')[1:]] for node in book.body.iter()
+                 if c.tag(node) == 'a' and node.get('href')}
+        self.assertEqual(links, {'Cross-reference': 'Reference in chapter',
+                                 'Valid index entry': 'Actual index entry'})
+        self.assertIn('В CHM восстановлены ссылки предметного указателя. Переходов — 1.', warnings)
+
     def test_chm_preserves_named_sections_and_printed_page_boundaries(self):
         source = self.root / 'chapters.chm'
         source.touch()
