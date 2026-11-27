@@ -57,9 +57,13 @@
       "docsharp_bundle": {
         "id": "DocSharp",
         "platform": "Win32",
-        "version": "0.21.0.8",
-        "archive": "HomeLibRu-DocSharp-0.21.0.8-Win32.zip",
+        "version": "0.21.0.9",
+        "archive": "HomeLibRu-DocSharp-0.21.0.9-Win32.zip",
         "history": [
+          {
+            "version": "0.21.0.9",
+            "notes": "При перевёрстке сохраняются удалённые от абзаца горизонтальные линии старых DOC. Версия библиотек DocSharp 0.21.0."
+          },
           {
             "version": "0.21.0.8",
             "notes": "Сохраняются дополнительные схемы, разделители и линии на полях старых DOC. Библиотеки DocSharp остаются версии 0.21.0."
@@ -141,9 +145,13 @@
       "docsharp_bundle": {
         "id": "DocSharp",
         "platform": "Win64",
-        "version": "0.21.0.8",
-        "archive": "HomeLibRu-DocSharp-0.21.0.8-Win64.zip",
+        "version": "0.21.0.9",
+        "archive": "HomeLibRu-DocSharp-0.21.0.9-Win64.zip",
         "history": [
+          {
+            "version": "0.21.0.9",
+            "notes": "При перевёрстке сохраняются удалённые от абзаца горизонтальные линии старых DOC. Версия библиотек DocSharp 0.21.0."
+          },
           {
             "version": "0.21.0.8",
             "notes": "Сохраняются дополнительные схемы, разделители и линии на полях старых DOC. Библиотеки DocSharp остаются версии 0.21.0."
@@ -172,9 +180,13 @@
     {
       "id": "HomeLibReader",
       "platform": "Win32",
-      "version": "3.0.0.17",
-      "archive": "HomeLibRu-HomeLibReader-3.0.0.17-Win32.zip",
+      "version": "3.0.0.18",
+      "archive": "HomeLibRu-HomeLibReader-3.0.0.18-Win32.zip",
       "history": [
+        {
+          "version": "3.0.0.18",
+          "notes": "Исправлена компоновка панели навигации. Обложка занимает отдельную страницу. Сохраняется больше исходного оформления таблиц и иллюстраций."
+        },
         {
           "version": "3.0.0.17",
           "notes": "Исправлены чтение отдельных PDF, DOC, RTF, DjVu и EPUB, прокрутка при увеличении и вид окон читалки."
@@ -273,9 +285,13 @@
     {
       "id": "HomeLibReader",
       "platform": "Win64",
-      "version": "3.0.0.17",
-      "archive": "HomeLibRu-HomeLibReader-3.0.0.17-Win64.zip",
+      "version": "3.0.0.18",
+      "archive": "HomeLibRu-HomeLibReader-3.0.0.18-Win64.zip",
       "history": [
+        {
+          "version": "3.0.0.18",
+          "notes": "Исправлена компоновка панели навигации. Обложка занимает отдельную страницу. Сохраняется больше исходного оформления таблиц и иллюстраций."
+        },
         {
           "version": "3.0.0.17",
           "notes": "Исправлены чтение отдельных PDF, DOC, RTF, DjVu и EPUB, прокрутка при увеличении и вид окон читалки."
@@ -374,9 +390,13 @@
     {
       "id": "BookProcessing",
       "platform": "Win32",
-      "version": "3.0.0.17",
-      "archive": "HomeLibRu-BookProcessing-3.0.0.17-Win32.zip",
+      "version": "3.0.0.18",
+      "archive": "HomeLibRu-BookProcessing-3.0.0.18-Win32.zip",
       "history": [
+        {
+          "version": "3.0.0.18",
+          "notes": "Улучшено сохранение оформления таблиц, восстановление доступных разделов повреждённых EPUB и разбор иллюстраций при экспорте."
+        },
         {
           "version": "3.0.0.17",
           "notes": "Улучшено сохранение таблиц, ссылок, оглавления, сносок и иллюстраций. Экспорт указывает недоступное содержимое до записи."
@@ -459,9 +479,13 @@
     {
       "id": "Kindle",
       "platform": "Win32",
-      "version": "3.0.0.17",
-      "archive": "HomeLibRu-Kindle-3.0.0.17-Win32.zip",
+      "version": "3.0.0.18",
+      "archive": "HomeLibRu-Kindle-3.0.0.18-Win32.zip",
       "history": [
+        {
+          "version": "3.0.0.18",
+          "notes": "Исправлен порядок иллюстраций в MOBI и AZW3 с пустыми записями шрифтов."
+        },
         {
           "version": "3.0.0.17",
           "notes": "Чтение MOBI и AZW3 сохраняет доступные сведения об издании, оглавление и ссылки на иллюстрации."
@@ -555,9 +579,13 @@
     {
       "id": "BookProcessing",
       "platform": "Win64",
-      "version": "3.0.0.17",
-      "archive": "HomeLibRu-BookProcessing-3.0.0.17-Win64.zip",
+      "version": "3.0.0.18",
+      "archive": "HomeLibRu-BookProcessing-3.0.0.18-Win64.zip",
       "history": [
+        {
+          "version": "3.0.0.18",
+          "notes": "Улучшено сохранение оформления таблиц, восстановление доступных разделов повреждённых EPUB и разбор иллюстраций при экспорте."
+        },
         {
           "version": "3.0.0.17",
           "notes": "Улучшено сохранение таблиц, ссылок, оглавления, сносок и иллюстраций. Экспорт указывает недоступное содержимое до записи."
@@ -640,9 +668,13 @@
     {
       "id": "Kindle",
       "platform": "Win64",
-      "version": "3.0.0.17",
-      "archive": "HomeLibRu-Kindle-3.0.0.17-Win64.zip",
+      "version": "3.0.0.18",
+      "archive": "HomeLibRu-Kindle-3.0.0.18-Win64.zip",
       "history": [
+        {
+          "version": "3.0.0.18",
+          "notes": "Исправлен порядок иллюстраций в MOBI и AZW3 с пустыми записями шрифтов."
+        },
         {
           "version": "3.0.0.17",
           "notes": "Чтение MOBI и AZW3 сохраняет доступные сведения об издании, оглавление и ссылки на иллюстрации."
@@ -800,9 +832,13 @@
     {
       "id": "KindleExport",
       "platform": "Win32",
-      "version": "3.0.0.17",
-      "archive": "HomeLibRu-KindleExport-3.0.0.17-Win32.zip",
+      "version": "3.0.0.18",
+      "archive": "HomeLibRu-KindleExport-3.0.0.18-Win32.zip",
       "history": [
+        {
+          "version": "3.0.0.18",
+          "notes": "Исправлен отказ MOBI и AZW3 для JPEG с данными после изображения. При уменьшении иллюстраций для MOBI запрашивается подтверждение."
+        },
         {
           "version": "3.0.0.17",
           "notes": "MOBI для старых Kindle записывается без второй секции. AZW3 сохраняется небольшими фрагментами для совместимости с Kindle 4."
@@ -832,9 +868,13 @@
     {
       "id": "KindleExport",
       "platform": "Win64",
-      "version": "3.0.0.17",
-      "archive": "HomeLibRu-KindleExport-3.0.0.17-Win64.zip",
+      "version": "3.0.0.18",
+      "archive": "HomeLibRu-KindleExport-3.0.0.18-Win64.zip",
       "history": [
+        {
+          "version": "3.0.0.18",
+          "notes": "Исправлен отказ MOBI и AZW3 для JPEG с данными после изображения. При уменьшении иллюстраций для MOBI запрашивается подтверждение."
+        },
         {
           "version": "3.0.0.17",
           "notes": "MOBI для старых Kindle записывается без второй секции. AZW3 сохраняется небольшими фрагментами для совместимости с Kindle 4."
@@ -994,9 +1034,13 @@
     {
       "id": "KfxExport",
       "platform": "Win32",
-      "version": "3.0.0.17",
-      "archive": "HomeLibRu-KfxExport-3.0.0.17-Win32.zip",
+      "version": "3.0.0.18",
+      "archive": "HomeLibRu-KfxExport-3.0.0.18-Win32.zip",
       "history": [
+        {
+          "version": "3.0.0.18",
+          "notes": "В KFX сохраняются переходы оглавления к началу разделов EPUB, даже если ссылка указывает на атрибут id элемента body."
+        },
         {
           "version": "3.0.0.17",
           "notes": "Исправлена обработка оглавлений, ссылок и иллюстраций KFX и AZW8."
@@ -1018,9 +1062,13 @@
     {
       "id": "KfxExport",
       "platform": "Win64",
-      "version": "3.0.0.17",
-      "archive": "HomeLibRu-KfxExport-3.0.0.17-Win64.zip",
+      "version": "3.0.0.18",
+      "archive": "HomeLibRu-KfxExport-3.0.0.18-Win64.zip",
       "history": [
+        {
+          "version": "3.0.0.18",
+          "notes": "В KFX сохраняются переходы оглавления к началу разделов EPUB, даже если ссылка указывает на атрибут id элемента body."
+        },
         {
           "version": "3.0.0.17",
           "notes": "Исправлена обработка оглавлений, ссылок и иллюстраций KFX и AZW8."

@@ -901,7 +901,8 @@ begin
     mtConfirmation, [mbYes, mbNo, mbCancel], 0) of
     mrYes:
       begin
-        Folder := Settings.DataPath;
+        Folder := TPath.Combine(Settings.DataPath,'Backups');
+        if not ForceDirectories(Folder) then Folder:=Settings.DataPath;
         if not SelectDirectory('Куда сохранить резервную копию', '', Folder, [sdNewUI, sdShowEdit]) then Exit;
         Backup := TPath.Combine(Folder, 'series-' + FormatDateTime('yyyymmdd-hhnnss', Now) + '-' + TCatalogSource.NewID);
       end;

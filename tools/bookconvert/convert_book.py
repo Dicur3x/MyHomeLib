@@ -85,6 +85,8 @@ MOBI_METADATA_LOSS = 'Не удалось прочитать сведения о
 DOC_NOTE_LAYOUT_LOSS = 'Не удалось восстановить все связи сносок DOC'
 DOCX_PAGE_OVERLAYS = 'Белые накладки печатных страниц не перенесены'
 KFX_METADATA_LOSS = 'Не перенесены сведения о книге при сохранении в'
+KINDLE_JPEG_TRAILER_LOSS = 'В Kindle не перенесены дополнительные данные изображения JPEG'
+MOBI_IMAGE_REDUCTION = 'Изображение перекодировано для MOBI'
 XML_QUOTED_BYTES = br""""[^"]*"|'[^']*'"""
 XML_NAMESPACE_TAG = re.compile(
     br'<!--.*?-->|<!\[CDATA\[.*?\]\]>|<\?.*?\?>|<!DOCTYPE(?:' + XML_QUOTED_BYTES +
@@ -240,6 +242,68 @@ def rewrite_css_urls(css, transform):
     return CSS_URL_TOKEN.sub(replace, css)
 
 
+def rewrite_fb2_css_types(css):
+    """Translate FB2 type selectors whose XHTML aliases are unambiguous."""
+    aliases = {'image': 'img', 'title': 'header', 'emphasis': 'em', 'strikethrough': 's'}
+    grouping = {'media', 'supports', 'layer', 'container'}
+    opaque = rf'/\*.*?\*/|{CSS_QUOTED}|\\(?:[0-9a-fA-F]{{1,6}}\s?|.)'
+
+    def rewrite_selector(selector):
+        depth = 0
+        at_type = True
+        result = []
+        for match in re.finditer(opaque + r'|[-\w]+|\s+|.', selector, re.S):
+            token = match[0]
+            if token.startswith('/*'):
+                result.append(token)
+                continue
+            if token in ('[', '('):
+                depth += 1
+            elif token in (']', ')'):
+                depth -= 1
+            if depth == 0 and at_type and token in aliases and selector[match.end():match.end()+1] != '|':
+                token = aliases[token]
+            result.append(token)
+            at_type = depth == 0 and (token in (',', '+', '>', '~') or token.isspace())
+        return ''.join(result)
+
+    replacements = []
+    rule_lists = [True]
+    depth = start = 0
+    for match in re.finditer(opaque + r'|[{};()\[\]]', css, re.S):
+        token = match[0]
+        if token in ('[', '('):
+            depth += 1
+        elif token in (']', ')'):
+            depth -= 1
+        elif depth == 0 and token == '{':
+            prelude = css[start:match.start()]
+            rule = re.sub(r'/\*.*?\*/', '', prelude, flags=re.S).lstrip()
+            at_rule = re.match(r'@([-\w]+)', rule)
+            if rule_lists[-1] and rule and not rule.startswith('@'):
+                updated = rewrite_selector(prelude)
+                if updated != prelude:
+                    replacements.append((start, match.start(), updated))
+            rule_lists.append(bool(rule_lists[-1] and at_rule and at_rule[1].lower() in grouping))
+            start = match.end()
+        elif depth == 0 and token == '}':
+            if len(rule_lists) == 1:
+                return css
+            rule_lists.pop()
+            start = match.end()
+        elif depth == 0 and token == ';':
+            start = match.end()
+    if depth != 0 or len(rule_lists) != 1 or not replacements:
+        return css
+    output = []
+    start = 0
+    for left, right, updated in replacements:
+        output.extend((css[start:left], updated))
+        start = right
+    output.append(css[start:])
+    return ''.join(output)
+
+
 def css_list_declarations(css):
     """Yield the two marker properties, including resets from list-style."""
     urls = {}
@@ -275,6 +339,87 @@ def css_list_declarations(css):
             yield 'list-style-image', marker_image, bool(important)
 
 
+CSS_TABLE_EDGES = ('top', 'right', 'bottom', 'left')
+CSS_TABLE_PADDING = {'padding', *(f'padding-{edge}' for edge in CSS_TABLE_EDGES)}
+CSS_TABLE_BORDER_STYLES = {'none', 'hidden', 'solid', 'dotted', 'dashed', 'double',
+                           'groove', 'ridge', 'inset', 'outset'}
+CSS_TABLE_LENGTH = re.compile(r'(?:0|(?:\d+(?:\.\d+)?|\.\d+)(?:px|pt|in|cm|mm|pc|em|rem|ex|ch|%))')
+CSS_TABLE_COLOR = re.compile(r'#[0-9a-f]{3}(?:[0-9a-f]{3})?|[a-z]+')
+
+def css_border_part(token):
+    if token in CSS_TABLE_BORDER_STYLES:
+        return 'style'
+    if token in {'thin', 'medium', 'thick'} or (not token.endswith('%') and CSS_TABLE_LENGTH.fullmatch(token)):
+        return 'width'
+    return 'color' if CSS_TABLE_COLOR.fullmatch(token) else ''
+
+
+def css_table_declarations(css):
+    """Yield safe table layout declarations in source order."""
+    start = depth = 0
+    for token in re.finditer(CSS_QUOTED + r'|/\*.*?\*/|[();]', css + ';', re.S):
+        if token[0] == '(':
+            depth += 1
+        elif token[0] == ')':
+            depth = max(0, depth - 1)
+        if token[0] != ';' or depth:
+            continue
+        declaration = css[start:token.start()]
+        start = token.end()
+        if '/*' in declaration:
+            declaration = re.sub(r'/\*.*?\*/', ' ', declaration, flags=re.S)
+        name, _, value = declaration.partition(':')
+        name = name.strip().lower()
+        value, important = re.subn(r'\s*!\s*important\s*$', '', value.strip().lower())
+        value = value.strip()
+        if name in {'background', 'background-color'} and value:
+            name = 'background-color'
+            if re.fullmatch(r'#[0-9a-f]{3}(?:[0-9a-f]{3})?', value):
+                if len(value) == 4:
+                    value = '#' + ''.join(digit * 2 for digit in value[1:])
+            else:
+                # Clear an older solid fill when the active rule replaces it.
+                value = 'transparent'
+        elif name == 'border-collapse':
+            if value not in {'collapse', 'separate'}:
+                continue
+        elif name in CSS_TABLE_PADDING:
+            tokens = value.split()
+            if not 1 <= len(tokens) <= (4 if name == 'padding' else 1) or not all(
+                CSS_TABLE_LENGTH.fullmatch(token) for token in tokens
+            ):
+                continue
+        elif name == 'border' or name.startswith('border-'):
+            tokens = name.split('-')[1:]
+            if tokens and tokens[0] in CSS_TABLE_EDGES:
+                tokens.pop(0)
+            kind = tokens[0] if len(tokens) == 1 else ''
+            if tokens and (len(tokens) != 1 or kind not in {'style', 'width', 'color'}):
+                continue
+            parts = value.split()
+            if not 1 <= len(parts) <= (3 if not kind else 1 if len(name.split('-')) == 3 else 4):
+                continue
+            kinds = [css_border_part(token) for token in parts]
+            if (kind and any(part != kind for part in kinds) or
+                not kind and ('' in kinds or len(set(kinds)) != len(kinds))):
+                continue
+        else:
+            continue
+        yield name, value, bool(important)
+
+
+def resolved_table_style(layers, *, table=False):
+    """Serialize supported declarations in cascade order, including shorthands."""
+    selected = {}
+    for order, (specificity, name, value, important) in enumerate(layers):
+        if (name == 'border-collapse') != table:
+            continue
+        rank = (important, specificity, order)
+        if name not in selected or rank >= selected[name][0]:
+            selected[name] = rank, value
+    return [name + ':' + value for name, (_, value) in sorted(selected.items(), key=lambda item: item[1][0])]
+
+
 def epub_list_label(style, index):
     bullets = {'none':'', 'disc':'• ', 'circle':'◦ ', 'square':'▪ '}
     if style in bullets:
@@ -304,6 +449,7 @@ def damaged_content_warnings(warnings):
     selected = [message for message in warnings if message.startswith((
         'В исходнике не удалось прочитать страницы', 'Часть изображений ', 'Повреждённая обложка',
         'Повреждённая иллюстрация', 'Частично восстановлено изображение JPEG',
+        KINDLE_JPEG_TRAILER_LOSS, MOBI_IMAGE_REDUCTION,
         'Описание FB3 недоступно',
         'Оглавление EPUB повреждено', 'Не перенесены переходы оглавления EPUB', MOBI_NAVIGATION_LOSS, MOBI_METADATA_LOSS,
         EPUB_TRUNCATED_CHAPTER, EPUB_DANGLING_START, EPUB_MISSING_BODY,
@@ -314,6 +460,7 @@ def damaged_content_warnings(warnings):
         'В исходном EPUB отсутствуют данные обложки',
         'Страница обложки EPUB перенесена в книгу без отдельной обложки FB2',
         'У некоторых ссылок Kindle отсутствует адрес', KFX_METADATA_LOSS, 'В EPUB отсутствуют некоторые встроенные шрифты',
+        'Не перенесены встроенные шрифты Kindle',
         'Некоторые иллюстрации отсутствуют в исходных файлах', 'Нечитаемые символы HTML', 'Нечитаемые символы исходника',
         'У некоторых ссылок CHM недоступна цель', 'Нечитаемые символы RTF',
         'Не найдена цель ссылки CHM', 'Не найдены остальные цели ссылок CHM',
@@ -334,6 +481,7 @@ def damaged_content_warnings(warnings):
         'Разделители страниц DOC сохранены перед текстом',
         'Разделитель DOC сохранён перед соответствующим абзацем',
         'Подчёркивание заголовка DOC сохранено отдельной линией',
+        'Линия DOC сохранена после связанного абзаца',
         'Линии старого DOC сохранены возле связанных абзацев',
         'Страница схемы старого DOC сохранена как изображение',
         'Плавающие текстовые рамки DOCX сохранены как изображения',
@@ -1369,9 +1517,13 @@ def svg_cover_styles_preserve_ratio(stylesheets, containers, svg):
             return padding.fullmatch(value) is not None
         return node is not None and (key, value) in {('display', 'block'), ('text-align', 'center'), ('font-size', '1em')}
 
+    # Quoted values in unrelated rules, such as a named typeface, cannot
+    # resize the cover. Keep an opaque token so matching rules still need to
+    # pass the property and value checks below.
+    opaque = r"""/\*.*?\*/|"(?:\\(?:\r\n|.)|[^"\\\r\n\f])*"|'(?:\\(?:\r\n|.)|[^'\\\r\n\f])*'"""
     for sheet in stylesheets:
-        css = re.sub(r'/\*.*?\*/', ' ', sheet, flags=re.S)
-        if any(character in css for character in '\\"\'\ufffd'):
+        css = re.sub(opaque, lambda match: ' ' if match[0].startswith('/*') else '\x01', sheet, flags=re.S)
+        if any(character in css for character in "\\\"'\ufffd"):
             return False
         end = 0
         for rule in re.finditer(r'([^{}]+)\{([^{}]*)\}', css):
@@ -2994,8 +3146,16 @@ def write_fb2_epub(book, source, output, warnings, binary_files=None, progress=N
             if node.get(key):
                 result.set(key, node.get(key))
         if node.get('align'): result.set('style', 'text-align:' + node.get('align'))
-        if name in {'td', 'th'} and node.get('style') == FB2_TABLE_LINE_STYLE:
-            result.set('style', ';'.join(filter(None, (result.get('style'), FB2_TABLE_LINE_STYLE))))
+        if name in {'table', 'td', 'th'}:
+            cell_style = node.get('style', '')
+            style = [result.get('style', '')]
+            if name != 'table' and FB2_TABLE_LINE_STYLE in cell_style.split(';'):
+                style.append(FB2_TABLE_LINE_STYLE)
+            style.extend(resolved_table_style(
+                (((1, 0, 0, 0), key, value, important)
+                 for key, value, important in css_table_declarations(cell_style)), table=name == 'table'))
+            if any(style):
+                result.set('style', ';'.join(filter(None, style)))
         if has_section_title:
             # Untitled grouping sections do not create a navigation level.
             add_heading(result, filename, plain(section_title), navigation_depth + 1)
@@ -3098,7 +3258,7 @@ def write_fb2_epub(book, source, output, warnings, binary_files=None, progress=N
                     return original
                 raise ConversionError('Не найден ресурс оформления FB2: ' + reference)
             extra_css = rewrite_css_urls(extra_css, css_resource)
-            css += '\n' + extra_css
+            css += '\n' + rewrite_fb2_css_types(extra_css)
     resources['book.css'] = (css.encode('utf-8'), 'text/css')
     nav = element(XH, 'html', lang=language)
     head = element(XH, 'head'); head.append(element(XH, 'title', 'Содержание')); nav.append(head)
@@ -4370,10 +4530,7 @@ def epub_to_fb2(source, output, warnings, *, use_navigation=True, stream_images=
                 width, height = raster_header_size(header)
                 if width and height:
                     same_ratio = width * size[1] == height * size[0]
-                    # The reader already shows the original raster from linked covers.
-                    # Use this path when that raster fills the verified viewport exactly.
-                    if styles is None or same_ratio:
-                        return size, same_ratio
+                    return size, same_ratio
             except (ConversionError, ValueError, zipfile.BadZipFile):
                 return None
 
@@ -4425,15 +4582,15 @@ def epub_to_fb2(source, output, warnings, *, use_navigation=True, stream_images=
         inline_fb = {'strong', 'emphasis', 'style', 'a', 'strikethrough', 'sub', 'sup', 'code', 'image'}
         heading_levels = {}
         list_prefixes = {}
-        list_rules_by_source, list_rules_by_document, list_parents, list_styles = {}, {}, {}, {}
+        rules_by_source, rules_by_document, list_parents, list_styles = {}, {}, {}, {}
         list_initial = {'list-style-type': ('disc', ''), 'list-style-image': ('none', '')}
         list_type_attribute = {'1':'decimal', 'a':'lower-latin', 'A':'upper-latin',
                                'i':'lower-roman', 'I':'upper-roman', 'disc':'disc',
                                'circle':'circle', 'square':'square'}
 
-        def list_rules(path):
-            if path in list_rules_by_document:
-                return list_rules_by_document[path]
+        def local_rules(path):
+            if path in rules_by_document:
+                return rules_by_document[path]
             result = []
             for part in attached_styles.get(path, ()):
                 if part.get('media', '').strip().lower() not in {'', 'all', 'screen'}:
@@ -4448,9 +4605,9 @@ def epub_to_fb2(source, output, warnings, *, use_navigation=True, stream_images=
                 else:
                     css = ''.join(part.itertext())
                 key = (origin, css)
-                if key not in list_rules_by_source:
+                if key not in rules_by_source:
                     rules = []
-                    if 'list-style' in css.lower():
+                    if re.search(r'list-style|background|border|padding', css, re.I):
                         text = re.sub(r'/\*.*?\*/', '', css, flags=re.S)
                         depth = 0
                         start = opening = 0
@@ -4468,7 +4625,7 @@ def epub_to_fb2(source, output, warnings, *, use_navigation=True, stream_images=
                                 start = token.end()
                                 if selectors.startswith('@') or '{' in declarations:
                                     continue
-                                picked = tuple(css_list_declarations(declarations))
+                                picked = tuple(css_list_declarations(declarations)) + tuple(css_table_declarations(declarations))
                                 if not picked:
                                     continue
                                 for selector in selectors.split(','):
@@ -4480,10 +4637,28 @@ def epub_to_fb2(source, output, warnings, *, use_navigation=True, stream_images=
                                     tests = tuple(re.findall(r'([.#])([\w-]+)', suffix))
                                     specificity = (0,suffix.count('#'),suffix.count('.'),int(tag_name not in (None,'*')))
                                     rules.append((tag_name,tests,specificity,origin,picked))
-                    list_rules_by_source[key] = rules
-                result.extend(list_rules_by_source[key])
-            list_rules_by_document[path] = result
+                    rules_by_source[key] = rules
+                result.extend(rules_by_source[key])
+            rules_by_document[path] = result
             return result
+
+        def matched_local_rules(node, path):
+            name = tag(node)
+            classes = set(node.get('class', '').split())
+            ident = node.get('id', '')
+            for tag_name, tests, specificity, origin, declarations in local_rules(path):
+                if tag_name in (None, '*', name) and all(
+                    value == ident if marker == '#' else value in classes for marker, value in tests
+                ):
+                    yield specificity, origin, declarations
+
+        def table_style_layers(node, path):
+            for specificity, _, declarations in matched_local_rules(node, path):
+                for name, value, important in declarations:
+                    if name not in list_initial:
+                        yield specificity, name, value, important
+            for name, value, important in css_table_declarations(node.get('style', '')):
+                yield (1, 0, 0, 0), name, value, important
 
         def list_style(node, path):
             if node in list_styles:
@@ -4499,11 +4674,10 @@ def epub_to_fb2(source, output, warnings, *, use_navigation=True, stream_images=
                 default = list_type_attribute.get(node.get('type',''), default)
             if default is not None:
                 values['list-style-type'] = (default, path)
-            classes = set(node.get('class','').split())
-            ident = node.get('id','')
-
             def apply(declarations, specificity, origin):
                 for property_name,value,important in declarations:
+                    if property_name not in list_initial:
+                        continue
                     rank = (important, *specificity)
                     if property_name not in priorities or rank >= priorities[property_name]:
                         priorities[property_name] = rank
@@ -4514,11 +4688,8 @@ def epub_to_fb2(source, output, warnings, *, use_navigation=True, stream_images=
                         else:
                             values[property_name] = (value, origin)
 
-            for tag_name, tests, specificity, origin, declarations in list_rules(path):
-                if tag_name not in (None, '*', name):
-                    continue
-                if all(value==ident if marker=='#' else value in classes for marker,value in tests):
-                    apply(declarations,specificity,origin)
+            for specificity, origin, declarations in matched_local_rules(node, path):
+                apply(declarations,specificity,origin)
             apply(css_list_declarations(node.get('style','')),(1,0,0,0),path)
             list_styles[node] = values
             return values
@@ -4759,7 +4930,7 @@ def epub_to_fb2(source, output, warnings, *, use_navigation=True, stream_images=
                             # Match its authored rendering on the first reading page.
                             if path in cover_resources or (relative_width and reading_spine[:1] == [path]):
                                 cropped_covers.setdefault(path, {})[identifier] = source_image
-                            if resized or relative_width:
+                            if resized or relative_width or intrinsic is not None:
                                 embed_image(source_image)
                             warnings.add('Область просмотра SVG сохранена в PNG с исходными размерами размещения.' if resized else
                                          'Область просмотра SVG сохранена в PNG с исходными пропорциями.' if intrinsic else
@@ -5031,6 +5202,14 @@ def epub_to_fb2(source, output, warnings, *, use_navigation=True, stream_images=
                     if node.get(key):
                         result.set(key, node.get(key))
                 result = table_cell(result)
+            if tag(result) in {'table', 'td', 'th'}:
+                style = resolved_table_style(table_style_layers(node, path), table=tag(result) == 'table')
+                # An empty or transparent fill needs no override when the source's
+                # remaining background rule was flattened into this cell.
+                if style == ['background-color:transparent']:
+                    style.clear()
+                if style:
+                    result.set('style', ';'.join(filter(None, (result.get('style'), *style))))
             result = styled(node, result)
             if tag(result) in {'p', 'title'}:
                 names = [value for value in node.get('class', '').split()

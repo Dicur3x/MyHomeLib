@@ -1,16 +1,16 @@
 ﻿program merge_series_delta_test;
 
 {$APPTYPE CONSOLE}
-{$R '..\MyhomeLib.res'}
-{$R '..\MyhomeLib.dres'}
+{$R '..\HomeLibre.res'}
+{$R '..\HomeLibre.dres'}
 {$R '..\lang.res'}
 
 uses
   NativeRegressionGuard, System.SysUtils, System.Classes, System.IOUtils,
-  System.Variants, System.Generics.Collections, Vcl.Forms,
+  System.Variants, System.Generics.Collections, Vcl.Forms, Vcl.StdCtrls,
   unit_Globals, unit_Consts, unit_Interfaces, unit_Settings, unit_Localization,
   unit_CollectionMerge, unit_Database_SQLite, SQLiteWrap, SQLiteProfile,
-  dm_user;
+  unit_SeriesAliases, unit_AuthorFavorites, unit_CollectionBackup, frm_CatalogNameMerge, dm_user;
 
 const PersonalReview = '  Личная мысль ё 😀' + #13#10 + ' пробелы сохранить  ';
   PersonalAnnotation = 'Моя аннотация — українська, беларуская і English.';
@@ -99,14 +99,14 @@ begin
 end;
 
 function MakeBook(const Collection: IBookCollection; const FileName, LibID, Cycle: string;
-  Size, Number: Integer; const Review: string): Integer;
+  Size, Number: Integer; const Review: string; const AuthorName: string = 'Автор'): Integer;
 var Book: TBookRecord;
 begin
   Book.Clear; Book.Title:='Одинаковое издание '+LibID; Book.FileName:=FileName;
   Book.FileExt:='.fb2'; Book.Folder:=''; Book.LibID:=LibID; Book.Lang:='ru';
   Book.Series:=Cycle; Book.SeqNumber:=Number; Book.Size:=Size;
   Book.Date:=EncodeDate(2020,1,1); Book.Review:=Review; Include(Book.BookProps,bpIsLocal);
-  TAuthorsHelper.Add(Book.Authors,'Автор','Алексей','');
+  TAuthorsHelper.Add(Book.Authors,AuthorName,'Алексей','');
   TGenresHelper.Add(Book.Genres,'','','prose_contemporary');
   Result:=Collection.InsertBook(Book,False,False); Require(Result>0,'Fixture insertion failed');
   TFile.WriteAllText(Settings.AppPath+FileName+'.fb2','<FictionBook><body><section><p>Fixture.</p></section></body></FictionBook>',TEncoding.UTF8);
@@ -356,6 +356,131 @@ begin
   finally Plan.Free; BeforeRows.Free; end;
 end;
 
+procedure TestManualCatalogNames;
+var Collection: IBookCollection; Plan: TSeriesAliasPlan; Favorites: TAuthorFavorites;
+  CID, A, B, C, OldSeries, NewSeries, OldAuthor, NewAuthor, Reimported: Integer;
+  First, Second, Book: TBookRecord; FinalAuthor: TAuthorData;
+  Before, Profile, ExpectedReview, BackupFolder: string; Rejected: Boolean; Rows: TSeriesRows;
+  Snapshot: TCollectionBackupPlan; Cleanup: TCollectionBackupRemovalPlan;
+
+  procedure CheckBookPreview;
+  var Dialog: TfrmCatalogNameMerge; Preview: TMemo; Source: TComboBox;
+  begin
+    Dialog:=TfrmCatalogNameMerge.CreateFor(nil,Collection,cnSeries,[OldSeries,NewSeries]);
+    try
+      Preview:=nil; Source:=nil;
+      for var I:=0 to Dialog.ComponentCount-1 do
+      begin
+        if Dialog.Components[I] is TMemo then Preview:=TMemo(Dialog.Components[I]);
+        if (Source=nil) and (Dialog.Components[I] is TComboBox) then Source:=TComboBox(Dialog.Components[I]);
+      end;
+      Require(Assigned(Preview) and Assigned(Source),'The merge dialog lacks a book preview');
+      Require((Dialog.TargetID=OldSeries) and (Pos('№ 7  Одинаковое издание manual-a',Preview.Text)>0),
+        'Merge preview did not display the old series number');
+      Source.ItemIndex:=1;
+      Source.OnChange(Source);
+      Require(Pos('№ 9  Одинаковое издание manual-a',Preview.Text)>0,
+        'Switching the preview source did not display the other series number');
+    finally Dialog.Free; end;
+  end;
+
+begin
+  CID:=SystemDB.CreateCollection('Manual names',Settings.AppPath,'manual-names.hlc2',
+    CT_EXTERNAL_LOCAL_FB,Settings.AppPath+'genres_fb2.glst');
+  Collection:=SystemDB.GetCollection(CID);
+  A:=MakeBook(Collection,'manual-a','manual-a','Основной цикл!',300,7,PersonalReview,'Иванов [историк]');
+  B:=MakeBook(Collection,'manual-b','manual-b','Основной цикл',400,0,'', 'Иванов');
+  C:=MakeBook(Collection,'manual-c','manual-c','Сторонний цикл',500,2,'', 'Петров');
+  Collection.AddBookSeries(A,'Основной цикл',9);
+  Collection.AddBookSeries(B,'Основной цикл!',3);
+  Collection.GetBookRecord(CreateBookKey(A,CID),First,True);
+  Collection.GetBookRecord(CreateBookKey(B,CID),Second,True);
+  OldSeries:=First.SeriesID; NewSeries:=Second.SeriesID;
+  OldAuthor:=First.Authors[0].AuthorID; NewAuthor:=Second.Authors[0].AuthorID;
+  CheckBookPreview;
+  TAuthorsHelper.Add(First.Authors,Second.Authors[0].LastName,Second.Authors[0].FirstName,'',NewAuthor);
+  TAuthorsHelper.Add(First.Authors,'Соавтор','Ирина','');
+  Collection.UpdateBook(First);
+  Collection.SetRate(CreateBookKey(A,CID),4);
+  Collection.GetBookRecord(CreateBookKey(A,CID),Book,True);
+  ExpectedReview:=Book.Review;
+  Profile:=TPath.Combine(Settings.DataPath,AUTHOR_FAVORITES_FILE_NAME);
+  Favorites:=TAuthorFavorites.Create(Profile);
+  try Favorites.SetFavorite('Иванов [историк]','Алексей','',True);
+    Favorites.SetPersonalRating('Иванов','Алексей','',3);
+  finally Favorites.Free; end;
+  FinalAuthor:=Second.Authors[0]; FinalAuthor.LastName:='Иванов (историк)';
+  Plan:=TSeriesAliasPlan.Create(Collection,SystemDB);
+  try
+    Before:=SnapshotDatabase(CollectionFile(Collection));
+    Plan.PreviewSelection(cnAuthors,[OldAuthor,NewAuthor],NewAuthor,FinalAuthor,'');
+    Require(SnapshotDatabase(CollectionFile(Collection))=Before,'Author preview wrote to the catalog');
+    BackupFolder:=TPath.Combine(TPath.Combine(Settings.DataPath,'Backups'),'manual-authors');
+    Plan.Apply(BackupFolder,nil,nil);
+    Require(SnapshotDatabase(TPath.Combine(BackupFolder,'destination.hlc2'))=Before,
+      'Author backup omitted the pre-merge catalog');
+    Require(ReadCollectionBackupInfo(BackupFolder).Operation=cboAuthors,'Wrong author backup operation');
+    Snapshot:=TCollectionBackupPlan.Create(BackupFolder);
+    try
+      Snapshot.Preview;
+      Require(Snapshot.Ready and (Snapshot.Title='Manual names'),'Author merge backup is not recognized');
+    finally Snapshot.Free; end;
+    Require(TFile.Exists(TPath.Combine(BackupFolder,'authors.txt')),'Author merge report is missing');
+    Cleanup:=TCollectionBackupRemovalPlan.Create([BackupFolder]);
+    try
+      Require(Cleanup.Bytes>0,'Author backup size is empty');
+      Cleanup.Execute;
+    finally Cleanup.Free; end;
+    Require(not TDirectory.Exists(BackupFolder),'A genuine author backup cannot be removed');
+    Collection.GetBookRecord(CreateBookKey(A,CID),Book,True);
+    Require((Length(Book.Authors)=2) and (Book.Review=ExpectedReview) and (Book.Rate=4),
+      'Author merge lost coauthor, review, or book rating');
+    for var Entry in Book.Authors do Require(Entry.AuthorID<>OldAuthor,'Retired author link survived');
+    Collection.GetBookRecord(CreateBookKey(C,CID),Book,True);
+    Require((Length(Book.Authors)=1) and (Book.Authors[0].LastName='Петров'),'Unselected author changed');
+    Favorites:=TAuthorFavorites.Create(Profile);
+    try
+      Require(Favorites.IsFavorite(FinalAuthor) and Favorites.IsFavorite('Иванов [историк]','Алексей',''),
+        'Author favorites were lost');
+      Require(Favorites.PersonalEntry(FinalAuthor.LastName,FinalAuthor.FirstName,'').Rating=3,
+        'Target author rating was lost');
+    finally Favorites.Free; end;
+
+    Before:=SnapshotDatabase(CollectionFile(Collection));
+    Plan.Preview(nil);
+    Require((Plan.Count=0) and Plan.Report.Text.Contains('Групп: 1'),
+      'Automatic merge accepted conflicting series numbers');
+    Plan.PreviewSelection(cnSeries,[OldSeries,NewSeries],NewSeries,Default(TAuthorData),'Общий цикл');
+    Require(Plan.NumberConflicts=1,'Preview missed a book with competing series numbers');
+    Require(SnapshotDatabase(CollectionFile(Collection))=Before,'Series preview wrote to the catalog');
+    Rejected:=False;
+    try Plan.Apply('',nil,
+      function: Boolean
+      var Pending: TBookRecord;
+      begin
+        Collection.GetBookRecord(CreateBookKey(A,CID),Pending,False);
+        Result:=(Pending.SeriesID=NewSeries) and (Pending.SeqNumber=9);
+      end);
+    except on E: EAbort do Rejected:=True; end;
+    Require(Rejected and (SnapshotDatabase(CollectionFile(Collection))=Before),'Cancellation changed the collection');
+    Plan.PreviewSelection(cnSeries,[OldSeries,NewSeries],NewSeries,Default(TAuthorData),'Общий цикл');
+    Plan.Apply('',nil,nil);
+    Collection.GetBookRecord(CreateBookKey(A,CID),Book,True);
+    Require((Book.SeriesID=NewSeries) and (Book.Series='Общий цикл') and (Book.SeqNumber=9),
+      'Series merge lost the selected series number');
+    Collection.GetBookRecord(CreateBookKey(B,CID),Book,True);
+    Require((Book.SeriesID=NewSeries) and (Book.SeqNumber=3),'Series merge failed to fill or mirror a missing number');
+    Rows:=SeriesRows(Collection,A);
+    try Require((Rows.Count=1) and (Rows['Общий цикл'].Number=9),'Duplicate series membership survived');
+    finally Rows.Free; end;
+    Reimported:=MakeBook(Collection,'manual-import','manual-import','Основной цикл!',600,11,'','Иванов [историк]');
+    Collection.GetBookRecord(CreateBookKey(Reimported,CID),Book,True);
+    Require((Book.SeriesID=NewSeries) and (Book.Authors[0].AuthorID=NewAuthor) and (Book.SeqNumber=11),
+      'Import recreated a retired series or author');
+    Writeln('PASS manual catalog names: preview, cancel, authors, favorites, series conflicts and reimport');
+  finally Plan.Free; end;
+end;
+
 var Policy: TCollectionMergePolicy; Scenario: Integer;
 begin
   try
@@ -365,6 +490,7 @@ begin
     Application.Initialize; InitLocalization; Application.CreateForm(TDMUser,DMUser); DMUser.Init;
     try
       TestOriginalCopyCapture;
+      TestManualCatalogNames;
       for Policy:=Low(TCollectionMergePolicy) to High(TCollectionMergePolicy) do
         for Scenario:=0 to 3 do RunCase(Policy,Scenario);
       Writeln('PASS all twelve native merge series delta fixtures'); Flush(Output);

@@ -83,7 +83,8 @@ end;
 function PrepareKindleReflow(const SourceFile, OriginalSource: string;
   const OnStage: TProc<string>): string;
 var Input: TStream; Header: TBytes; Offset, Version: Cardinal;
-  ResultStamp, StampFile, Temporary, TemporaryStamp, Work, Tool, Script: string;
+  ResultStamp, StampFile, Temporary, TemporaryStamp, Work, Tool, Script, LegacyScript: string;
+  UseBasicConversion: Boolean;
   Writer: TBookCacheWrite; Log: TStringStream; Started: UInt64; Attributes: TWin32FileAttributeData;
   function BigEndian(Index: Integer): Cardinal;
   begin Result := Cardinal(Header[Index]) shl 24 or Cardinal(Header[Index+1]) shl 16 or
@@ -101,6 +102,7 @@ begin
     Input.Position := Offset; SetLength(Header,40); Input.ReadBuffer(Header[0],40);
     if TEncoding.ASCII.GetString(Header,16,4) <> 'MOBI' then Exit;
     Version := BigEndian(36);
+    UseBasicConversion := (Version<>8) or (Header[12]<>0) or (Header[13]<>0);
     var Missing:=MissingBookConversionComponents(Settings.AppPath,SourceFile,ExtractFileExt(SourceFile),False,
       function:Boolean begin Result:=(GetCurrentThreadID<>MainThreadID) and TThread.CheckTerminated; end);
     if Length(Missing)>0 then raise EMHLComponentRequired.Create(Missing,
@@ -112,7 +114,11 @@ begin
     if not FileExists(Script) then
       raise EMHLComponentRequired.Create('Kindle','Для этой книги нужен модуль KindleUnpack (MOBI/AZW/KF8).');
     if not GetFileAttributesEx(PChar(SourceFile),GetFileExInfoStandard,@Attributes) then RaiseLastOSError;
-    ResultStamp := 'kindleunpack-bf0ca6e-v9|'+BookCacheInputStamp(SourceFile,OriginalSource);
+    ResultStamp := 'kindleunpack-bf0ca6e-v10|'+BookCacheInputStamp(SourceFile,OriginalSource)+'|'+
+      THashSHA2.GetHashStringFromFile(Script);
+    LegacyScript := Settings.AppPath+'tools\bookconvert\kindle_input.py';
+    if UseBasicConversion and FileExists(LegacyScript) then
+      ResultStamp := ResultStamp+'|'+THashSHA2.GetHashStringFromFile(LegacyScript);
     Result := ExistingBookCacheFile(TPath.Combine(BookCachePath,'homelib-kindle-'+
       Copy(THashSHA2.GetHashString(SourceFile),1,32)+'.epub'));
     StampFile := Result+'.source';
@@ -127,7 +133,7 @@ begin
     try
       Temporary := Writer.TemporaryName(Result,True); TemporaryStamp := Writer.TemporaryName(StampFile);
       Started := GetTickCount64;
-      if (Version <> 8) or (Header[12]<>0) or (Header[13]<>0) then
+      if UseBasicConversion then
         ConvertBasicBook(Settings.AppPath,Settings.TempDir,SourceFile,ExtractFileExt(SourceFile),Temporary,nil,nil,
           function: Boolean begin Result:=(GetCurrentThreadID<>MainThreadID) and TThread.CheckTerminated; end,'','','',True)
       else RunExternalToolToStream(Tool,['-I','-B',Script,SourceFile,Temporary,Work],Log,

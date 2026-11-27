@@ -54,7 +54,7 @@ procedure ConvertBasicBook(const AppPath, TempRoot, SourceFile, SourceExtension,
 
 implementation
 
-uses Winapi.Windows, System.IOUtils, System.JSON, unit_MHLExternalTools, unit_ReaderDOC, unit_ReaderFormats, unit_ReaderDocument, unit_FormatComponents, unit_BookConversionRequirements, unit_BookOutput, unit_Diagnostics, unit_ComponentUsage;
+uses Winapi.Windows, System.IOUtils, System.JSON, System.StrUtils, unit_MHLExternalTools, unit_ReaderDOC, unit_ReaderFormats, unit_ReaderDocument, unit_FormatComponents, unit_BookConversionRequirements, unit_BookOutput, unit_Diagnostics, unit_ComponentUsage;
 
 const
   MAX_BASIC_CONVERSION_SOURCE = 64*1024*1024;
@@ -272,11 +272,12 @@ var Work, InputName, OutputName, ReportName, ProgressName, Tool, Script, TargetT
   ImageOptionsName, ImageChoiceName: string; ImageChoiceHandled: Boolean;
   EstimateCompleted, OptimizedCompleted: Integer;
   QualityProfile, ScanLayout, ScanExclude, DamageNotice: string;
-  RecoverDamagedFB2: Boolean;
+  RecoverDamagedFB2, KindleEpubStaging: Boolean;
 
 begin
   Extension:=LowerCase(SourceExtension); TargetExtension:=LowerCase(ExtractFileExt(TargetFile));
   RecoverDamagedFB2:=SkipDamagedFB2Image or Assigned(ConfirmDamagedContent);
+  KindleEpubStaging:=MatchStr(OutputProfile,['kfx','azw8']);
   if OutputProfile<>'' then
   begin
     TargetExtension:=AdvancedBookOutputExtension(OutputProfile);
@@ -610,6 +611,9 @@ begin
     try
       MaximumInput:=MAX_BASIC_CONVERSION_SOURCE;
       if ImageProcessing or (ForReading and SameText(Extension,'.fb2')) then MaximumInput:=MAX_PACKAGED_CONVERSION_SOURCE;
+      // These writers consume a prepared EPUB. Its conversion already handles
+      // large FB2 and EPUB sources without buffering the whole book.
+      if KindleEpubStaging and MatchStr(Extension,['.fb2','.epub']) then MaximumInput:=MAX_PACKAGED_CONVERSION_SOURCE;
       if (Extension='.fb2') and (TargetExtension='.epub') and (QualityProfile='original') and
         not Grayscale and (OutputProfile='') then MaximumInput:=MAX_LARGE_FB2_CONVERSION_SOURCE;
       if Input.Size>MAX_BASIC_CONVERSION_SOURCE then
@@ -669,7 +673,9 @@ begin
       not Grayscale and (OutputProfile='') and ((TargetExtension='.fb2') or (TargetExtension='.epub'));
     var StreamingFB2:=(Actual='.fb2') and (TargetExtension='.epub') and (QualityProfile='original') and
       not Grayscale and (OutputProfile='');
-    StreamingConversion:=IsLargeInput and (StreamingEpub or StreamingFB2 or (Actual='.chm'));
+    var StreamingKindle:=KindleEpubStaging and MatchStr(Actual,['.fb2','.epub']) and
+      (QualityProfile='original') and not Grayscale;
+    StreamingConversion:=IsLargeInput and (StreamingEpub or StreamingFB2 or StreamingKindle or (Actual='.chm'));
     if StreamingConversion and (BookProcessingSaveOptionsAPI(AppPath)<BOOK_PROCESSING_EXTENDED_EXPORT_API) then
       raise EMHLComponentRequired.Create('BookProcessing','Для обработки этой большой книги обновите модуль подготовки книг.');
     // The compressed file size does not measure the amount of book markup.

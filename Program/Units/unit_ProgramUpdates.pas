@@ -9,8 +9,8 @@ const
   WM_PROGRAM_UPDATE_CHECKED = WM_APP + $0501;
   WM_PROGRAM_UPDATE_DOWNLOADED = WM_APP + $0502;
   WM_PROGRAM_UPDATE_PROGRESS = WM_APP + $0503;
-  PROGRAM_RELEASE_VERSION = '3.0.0_pre1.17';
-  PROGRAM_FILE_VERSION = '3.0.0.17';
+  PROGRAM_RELEASE_VERSION = '3.0.0_pre1.18';
+  PROGRAM_FILE_VERSION = '3.0.0.18';
   PROGRAM_RELEASES_API = 'https://api.github.com/repos/Dicur3x/MyHomeLib/releases?per_page=100';
 
 type
@@ -41,6 +41,8 @@ type
     FMetadataDownload: Boolean;
     FProgress: Integer;
     FPartSize, FPartOffset: Int64;
+    FBundleJobs: TArray<string>;
+    procedure ExecuteDownload;
     procedure ReceiveData(const Sender: TObject; AContentLength, AReadCount: Int64;
       var AAbort: Boolean);
   protected
@@ -51,6 +53,8 @@ type
   public
     constructor Create(AWindow: HWND; AHTTP: THTTPClient;
       const ReleaseInfo: TProgramRelease; const Job: string);
+    constructor CreateBundle(AWindow: HWND; const ReleaseInfo: TProgramRelease;
+      const Jobs: TArray<string>; const Destination: string);
     destructor Destroy; override;
     property Successful: Boolean read FSuccessful;
     property ErrorText: string read FError;
@@ -311,6 +315,16 @@ begin
   FHTTP.OnReceiveData := ReceiveData;
 end;
 
+constructor TProgramDownloadThread.CreateBundle(AWindow: HWND; const ReleaseInfo: TProgramRelease;
+  const Jobs: TArray<string>; const Destination: string);
+begin
+  inherited Create(True);
+  FWindow:=AWindow;
+  FRelease:=ReleaseInfo;
+  FJob:=Destination;
+  FBundleJobs:=Copy(Jobs);
+end;
+
 destructor TProgramDownloadThread.Destroy;
 begin
   inherited;
@@ -375,6 +389,33 @@ begin
 end;
 
 procedure TProgramDownloadThread.Execute;
+begin
+  try
+    if Terminated then Abort;
+    if Length(FBundleJobs)=0 then ExecuteDownload
+    else
+    begin
+      FRelease.SHA256:=CombinePreparedProgramUpdates(FBundleJobs,FRelease.Tag,ProgramUpdatePlatform,FJob,
+        procedure
+        begin
+          if Terminated then Abort;
+        end);
+      if FRelease.ComponentID<>'' then
+      begin
+        FRelease.ComponentID:='batch';
+        FRelease.ComponentVersion:='';
+      end;
+    end;
+    if Terminated then Abort;
+    FSuccessful:=True;
+  except
+    on E: EAbort do FError:='Подготовка обновления отменена.';
+    on E: Exception do FError:=E.Message;
+  end;
+  PostMessage(FWindow,WM_PROGRAM_UPDATE_DOWNLOADED,0,0);
+end;
+
+procedure TProgramDownloadThread.ExecuteDownload;
 var Response: IHTTPResponse; Stream: TFileStream; Archive, SecondaryArchive, AdapterArchive, AdapterPath: string;
   Adapter: TReaderAdapterPackage; AdditionalArchives: TArray<string>; AdditionalTotal, Offset: Int64;
   procedure DownloadPart(const URL, Destination: string; Size, Offset: Int64);
@@ -415,92 +456,83 @@ var Response: IHTTPResponse; Stream: TFileStream; Archive, SecondaryArchive, Ada
     end;
   end;
 begin
-  try
-    if Terminated then Abort;
-    ConfigureReaderAdapterDownload(FRelease,FRuntimePath);
-    if FRelease.OfficialComponent and not IsOfficialComponentURL(FRelease.ComponentID,
-      FRelease.ComponentVersion,FRelease.DownloadURL,ProgramUpdatePlatform,False) then
-      raise Exception.Create('Адрес обновления не принадлежит официальному источнику компонента.');
-    if (FRelease.SecondaryURL<>'') and not IsOfficialComponentURL(FRelease.ComponentID,
-      FRelease.ComponentVersion,FRelease.SecondaryURL,ProgramUpdatePlatform,True) then
-      raise Exception.Create('Адрес второго пакета не принадлежит официальному источнику компонента.');
-    AdditionalTotal:=0;
-    if (Length(FRelease.AdditionalURLs)<>Length(FRelease.AdditionalSizes)) or (Length(FRelease.AdditionalURLs)>2) then
-      raise Exception.Create('Некорректный список пакетов компонента.');
-    for var I:=0 to High(FRelease.AdditionalURLs) do
-    begin
-      if (FRelease.ComponentID<>'DocSharp') or
-        (FRelease.AdditionalURLs[I]<>'https://api.nuget.org/v3-flatcontainer/docsharp.binary.'+
-          TArray<string>.Create('ppt','xls')[I]+'/'+FRelease.ComponentVersion+'/docsharp.binary.'+
-          TArray<string>.Create('ppt','xls')[I]+'.'+FRelease.ComponentVersion+'.nupkg') or
-        (FRelease.AdditionalSizes[I]<1) or (FRelease.AdditionalSizes[I]>UPDATE_MAX_ARCHIVE) then
-        raise Exception.Create('Адрес дополнительного пакета не принадлежит официальному источнику компонента.');
-      Inc(AdditionalTotal,FRelease.AdditionalSizes[I]);
-    end;
-    if (FRelease.DownloadURL = '') or
-       (not FRelease.OfficialComponent and not IsUpdateSHA256(FRelease.SHA256)) or
-       (FRelease.Size <= 0) or (FRelease.Size > UPDATE_MAX_ARCHIVE) then
-      raise Exception.Create('Для этого выпуска недоступно обновление внутри программы. Откройте страницу выпуска.');
-    AssertUpdatePath(FJob); ForceDirectories(FJob);
-    Archive := IncludeTrailingPathDelimiter(FJob) + 'release.zip';
-    if (FRelease.SecondarySize<0) or (FRelease.ReaderAdapterSize<0) or
-      (FRelease.SecondarySize+AdditionalTotal+FRelease.ReaderAdapterSize>=FRelease.Size) then
-      raise Exception.Create('Некорректный размер составного обновления.');
-    try
-      DownloadArchives;
-    except
-      on E: EAbort do raise;
-      on E: Exception do
-      begin
-        if Terminated then Abort;
-        if not FRelease.OfficialComponent or (FRelease.ComponentID='') then raise;
-        var Mirror: TProgramRelease; var Available:=False;
-        try Available:=FetchMirrorRelease(Mirror);
-        except on E: EAbort do raise; on E: Exception do Available:=False; end;
-        if not Available then raise;
-        // Only transfer failures use the mirror. Digest or package validation
-        // failures below remain errors and never gain an automatic second try.
-        FRelease:=Mirror; SecondaryArchive:=''; AdditionalArchives:=nil; AdditionalTotal:=0;
-        ConfigureReaderAdapterDownload(FRelease,FRuntimePath);
-        FProgress:=0;
-        DownloadArchives;
-      end;
-    end;
-    PostMessage(FWindow, WM_PROGRAM_UPDATE_PROGRESS, 95, LPARAM(FRelease.Size));
-    AdapterPath:='';
-    if AdapterArchive<>'' then AdapterPath:=ExtractReaderAdapter(AdapterArchive,FJob,FRelease.ComponentID);
-    if FRelease.OfficialComponent then
-    begin
-      if (FRelease.ComponentID = 'SQLite') and
-         (not IsUpdateSHA256(FRelease.SourceSHA3) or not SameText(UpdateSHA3(Archive), FRelease.SourceSHA3)) then
-        raise Exception.Create('Официальная контрольная сумма SQLite не совпадает.');
-      if ((FRelease.ComponentID='7-Zip') or (FRelease.ComponentID='JPEG XL') or
-        (FRelease.ComponentID=JPEG_XL_ENCODER_COMPONENT)) and
-        (not IsUpdateSHA256(FRelease.SHA256) or not SameText(UpdateSHA256(Archive),FRelease.SHA256)) then
-        raise Exception.Create('Официальная контрольная сумма компонента не совпадает.');
-      if (FRelease.ComponentID='7-Zip') and (SecondaryArchive<>'') and
-        (not IsUpdateSHA256(FRelease.SecondarySHA256) or
-         not SameText(UpdateSHA256(SecondaryArchive),FRelease.SecondarySHA256)) then
-        raise Exception.Create('Официальная контрольная сумма распаковщика 7-Zip не совпадает.');
-      FRelease.SHA256 := UpdateSHA256(Archive);
-      PrepareOfficialComponent(Archive, FJob, FRelease.ComponentID, FRelease.ComponentVersion, ProgramUpdatePlatform,SecondaryArchive,FRuntimePath,AdditionalArchives,AdapterPath);
-      // The generated installation manifest identifies an official component
-      // by its component version, not its author's release label (e.g. v0.12.0).
-      // Persist and launch exactly that prepared identity; keep the author URL.
-      FRelease.Tag := FRelease.ComponentVersion;
-    end
-    else PrepareProgramUpdate(Archive, FRelease.SHA256, FRelease.Tag, ProgramUpdatePlatform, FJob,
-      True, FRelease.ComponentID, FRelease.ComponentVersion);
-    if AdapterPath<>'' then MergePreparedReaderAdapter(FJob,FRelease.ComponentID,AdapterPath);
-    // Fail before offering installation, while the application is still open.
-    VerifyPreparedProgramUpdate(FJob,FRelease.Tag,ProgramUpdatePlatform);
-    if Terminated then Abort;
-    FSuccessful := True;
-  except
-    on E: EAbort do FError := 'Загрузка отменена.';
-    on E: Exception do FError := E.Message;
+  ConfigureReaderAdapterDownload(FRelease,FRuntimePath);
+  if FRelease.OfficialComponent and not IsOfficialComponentURL(FRelease.ComponentID,
+    FRelease.ComponentVersion,FRelease.DownloadURL,ProgramUpdatePlatform,False) then
+    raise Exception.Create('Адрес обновления не принадлежит официальному источнику компонента.');
+  if (FRelease.SecondaryURL<>'') and not IsOfficialComponentURL(FRelease.ComponentID,
+    FRelease.ComponentVersion,FRelease.SecondaryURL,ProgramUpdatePlatform,True) then
+    raise Exception.Create('Адрес второго пакета не принадлежит официальному источнику компонента.');
+  AdditionalTotal:=0;
+  if (Length(FRelease.AdditionalURLs)<>Length(FRelease.AdditionalSizes)) or (Length(FRelease.AdditionalURLs)>2) then
+    raise Exception.Create('Некорректный список пакетов компонента.');
+  for var I:=0 to High(FRelease.AdditionalURLs) do
+  begin
+    if (FRelease.ComponentID<>'DocSharp') or
+      (FRelease.AdditionalURLs[I]<>'https://api.nuget.org/v3-flatcontainer/docsharp.binary.'+
+        TArray<string>.Create('ppt','xls')[I]+'/'+FRelease.ComponentVersion+'/docsharp.binary.'+
+        TArray<string>.Create('ppt','xls')[I]+'.'+FRelease.ComponentVersion+'.nupkg') or
+      (FRelease.AdditionalSizes[I]<1) or (FRelease.AdditionalSizes[I]>UPDATE_MAX_ARCHIVE) then
+      raise Exception.Create('Адрес дополнительного пакета не принадлежит официальному источнику компонента.');
+    Inc(AdditionalTotal,FRelease.AdditionalSizes[I]);
   end;
-  PostMessage(FWindow, WM_PROGRAM_UPDATE_DOWNLOADED, 0, 0);
+  if (FRelease.DownloadURL = '') or
+     (not FRelease.OfficialComponent and not IsUpdateSHA256(FRelease.SHA256)) or
+     (FRelease.Size <= 0) or (FRelease.Size > UPDATE_MAX_ARCHIVE) then
+    raise Exception.Create('Для этого выпуска недоступно обновление внутри программы. Откройте страницу выпуска.');
+  AssertUpdatePath(FJob); ForceDirectories(FJob);
+  Archive := IncludeTrailingPathDelimiter(FJob) + 'release.zip';
+  if (FRelease.SecondarySize<0) or (FRelease.ReaderAdapterSize<0) or
+    (FRelease.SecondarySize+AdditionalTotal+FRelease.ReaderAdapterSize>=FRelease.Size) then
+    raise Exception.Create('Некорректный размер составного обновления.');
+  try
+    DownloadArchives;
+  except
+    on E: EAbort do raise;
+    on E: Exception do
+    begin
+      if Terminated then Abort;
+      if not FRelease.OfficialComponent or (FRelease.ComponentID='') then raise;
+      var Mirror: TProgramRelease; var Available:=False;
+      try Available:=FetchMirrorRelease(Mirror);
+      except on E: EAbort do raise; on E: Exception do Available:=False; end;
+      if not Available then raise;
+      // Only transfer failures use the mirror. Digest or package validation
+      // failures below remain errors and never gain an automatic second try.
+      FRelease:=Mirror; SecondaryArchive:=''; AdditionalArchives:=nil; AdditionalTotal:=0;
+      ConfigureReaderAdapterDownload(FRelease,FRuntimePath);
+      FProgress:=0;
+      DownloadArchives;
+    end;
+  end;
+  PostMessage(FWindow, WM_PROGRAM_UPDATE_PROGRESS, 95, LPARAM(FRelease.Size));
+  AdapterPath:='';
+  if AdapterArchive<>'' then AdapterPath:=ExtractReaderAdapter(AdapterArchive,FJob,FRelease.ComponentID);
+  if FRelease.OfficialComponent then
+  begin
+    if (FRelease.ComponentID = 'SQLite') and
+       (not IsUpdateSHA256(FRelease.SourceSHA3) or not SameText(UpdateSHA3(Archive), FRelease.SourceSHA3)) then
+      raise Exception.Create('Официальная контрольная сумма SQLite не совпадает.');
+    if ((FRelease.ComponentID='7-Zip') or (FRelease.ComponentID='JPEG XL') or
+      (FRelease.ComponentID=JPEG_XL_ENCODER_COMPONENT)) and
+      (not IsUpdateSHA256(FRelease.SHA256) or not SameText(UpdateSHA256(Archive),FRelease.SHA256)) then
+      raise Exception.Create('Официальная контрольная сумма компонента не совпадает.');
+    if (FRelease.ComponentID='7-Zip') and (SecondaryArchive<>'') and
+      (not IsUpdateSHA256(FRelease.SecondarySHA256) or
+       not SameText(UpdateSHA256(SecondaryArchive),FRelease.SecondarySHA256)) then
+      raise Exception.Create('Официальная контрольная сумма распаковщика 7-Zip не совпадает.');
+    FRelease.SHA256 := UpdateSHA256(Archive);
+    PrepareOfficialComponent(Archive, FJob, FRelease.ComponentID, FRelease.ComponentVersion, ProgramUpdatePlatform,SecondaryArchive,FRuntimePath,AdditionalArchives,AdapterPath);
+    // The generated installation manifest identifies an official component
+    // by its component version, not its author's release label (e.g. v0.12.0).
+    // Persist and launch exactly that prepared identity; keep the author URL.
+    FRelease.Tag := FRelease.ComponentVersion;
+  end
+  else PrepareProgramUpdate(Archive, FRelease.SHA256, FRelease.Tag, ProgramUpdatePlatform, FJob,
+    True, FRelease.ComponentID, FRelease.ComponentVersion);
+  if AdapterPath<>'' then MergePreparedReaderAdapter(FJob,FRelease.ComponentID,AdapterPath);
+  // Fail before offering installation, while the application is still open.
+  VerifyPreparedProgramUpdate(FJob,FRelease.Tag,ProgramUpdatePlatform);
 end;
 
 constructor TProgramUpdateThread.Create(AWindow: HWND; AHTTP: THTTPClient;

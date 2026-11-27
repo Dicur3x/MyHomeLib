@@ -9,6 +9,7 @@ const
   ReaderEpubDanglingTagWarning = 'В главе EPUB оборван открывающий тег';
   ReaderEpubMissingBodyWarning = 'В разделе EPUB отсутствует содержимое';
   ReaderEpubUnreadableStyleWarning = 'Таблица стилей EPUB недоступна';
+  ReaderWordPageOverlayWarning = 'Белые накладки печатных страниц не показаны';
 
 type
   TReaderTextEncoding = (rteAutomatic, rteUTF8, rteWindows1251, rteCP866, rteKOI8R,
@@ -64,6 +65,10 @@ type
       Offset, Value, CellWidth, CellInset: Integer;
       IsPicture: Boolean;
     end;
+    TTableColor = record
+      Color: TColor;
+      ForBackground: Boolean;
+    end;
   private
     FBody, FText: TStringBuilder;
     FLayoutInsertions: TList<TLayoutInsertion>;
@@ -79,8 +84,10 @@ type
     FLinks: TList<TReaderTextLink>;
     FMarginRules: TList<TReaderMarginRule>;
     FParagraphShades: TList<TReaderParagraphShade>;
+    FCellColors: TList<TTableColor>;
+    FHasCellBackgrounds: Boolean;
     FAnchors: TDictionary<string,Integer>;
-    FImages, FSkippedImages, FPartialDrawingGroups: Integer;
+    FImages, FSkippedImages, FPartialDrawingGroups, FOpeningCoverEnd: Integer;
     FHasTables, FNotesInBody: Boolean;
     FCellWidth, FCellInset: Integer;
     FPictures: TList<TReaderPicture>;
@@ -107,7 +114,8 @@ type
     procedure Load(const FileName: string; const Canceled: TFunc<Boolean> = nil;
       TextEncoding: TReaderTextEncoding = rteAutomatic);
     function RTF(MaxPictureWidth: Integer = 500; MaxPictureHeight: Integer = 500;
-      LayoutOnly: Boolean = False; Background: TColor = $00FFFFFF): UTF8String;
+      LayoutOnly: Boolean = False; Background: TColor = $00FFFFFF;
+      const CellColor: TFunc<TColor,TColor> = nil): UTF8String;
     function PictureRTF(Index, MaxWidth, MaxHeight: Integer; LayoutOnly: Boolean = False;
       Background: TColor = $00FFFFFF): UTF8String;
     function PictureUsesBackground(Index: Integer): Boolean;
@@ -127,10 +135,12 @@ type
     function LinkTargetAt(Position: Integer; out Target: Integer): Boolean;
     function MarginRules(Start, Finish: Integer): TArray<TReaderMarginRule>;
     function HasMarginRules: Boolean;
+    function HasCellBackgrounds: Boolean;
     function ParagraphShades(Start, Finish: Integer): TArray<TReaderParagraphShade>;
     function FootnotesForRange(Start, Finish: Integer; MaxCharacters: Integer = 32768;
       SkipNotesInText: Boolean = False): string;
     property ImageCount: Integer read FImages;
+    property OpeningCoverEnd: Integer read FOpeningCoverEnd;
     property SkippedImages: Integer read FSkippedImages;
     property PartialDrawingGroups: Integer read FPartialDrawingGroups;
     property HasTables: Boolean read FHasTables;
@@ -1259,11 +1269,13 @@ begin
   FLinks:=TList<TReaderTextLink>.Create; FAnchors:=TDictionary<string,Integer>.Create;
   FMarginRules:=TList<TReaderMarginRule>.Create;
   FParagraphShades:=TList<TReaderParagraphShade>.Create;
+  FCellColors:=TList<TTableColor>.Create;
 end;
 
 destructor TReaderDocument.Destroy;
 begin
   FImageArchiveLock.Free;
+  FCellColors.Free;
   FNoteBodiesInText.Free; FParagraphShades.Free; FMarginRules.Free; FAnchors.Free; FLinks.Free; FNoteBodies.Free; FNoteLinks.Free; FStyles.Free; FPictures.Free; Warnings.Free; FChapters.Free; FLayoutInsertions.Free; FText.Free; FBody.Free; inherited;
 end;
 
@@ -1539,6 +1551,10 @@ type
     Encoded, MediaType: string;
     Preview: TBytes;
   end;
+  TEpubStyleSheet = record
+    Text, Base: string;
+    ListImages: Boolean;
+  end;
   TWordVisibility = (wvInherited, wvVisible, wvHidden);
   TWordListIndent = record
     Left, First: string;
@@ -1576,7 +1592,9 @@ const
 var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
   Binaries: TDictionary<string,TFB2PictureData>; Paths: TDictionary<string,string>;
   Resources: TDictionary<string,TBytes>; NoteFiles: TDictionary<string,IXMLDOMDocument3>; Zip: TZipFile;
-  CSS: TReaderCSS; CSSCache: TDictionary<string,string>;
+  CSS: TReaderCSS; CSSCache: TDictionary<string,string>; HasFB2Styles: Boolean;
+  CellColorIndexes: TDictionary<Cardinal,Integer>;
+  RequestedEpubStyles, LoadedEpubStyles: TList<TEpubStyleSheet>;
   ListMarkerBytes: TDictionary<string,TBytes>;
   WordPictureFallbacks: TDictionary<string,TBytes>;
   WordStyleRules: TDictionary<string,TWordStyle>;
@@ -1610,9 +1628,9 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
   WordLists: TDictionary<string,TWordList>;
   ReadingWordNotes, SkipWordCustomMark: Boolean;
   ExistingBinary: TFB2PictureData;
-  Data: TBytes; E, PackagePath, CurrentPath, ID, HTML: string; I: Integer; NoteLink: TReaderFootnoteLink; UnpackedBytes, UnpackedLimit: Int64; NoteCharacters: Integer; PendingInitial: Boolean;
+  Data: TBytes; E, PackagePath, CurrentPath, ID, HTML, EpubCoverPath, Fb2CoverRef: string; I: Integer; NoteLink: TReaderFootnoteLink; UnpackedBytes, UnpackedLimit: Int64; NoteCharacters: Integer; PendingInitial: Boolean;
   MIME: TReaderMHTMLRoot;
-  DocxFieldDepth, DocxInstructionDepth, TableLevel, CellTextStart: Integer;
+  DocxFieldDepth, DocxInstructionDepth, WordPageOverlays, TableLevel, CellTextStart: Integer;
   HTMLTableSpans: TArray<TTableSpan>;
   TableWidthPattern, TableLineStylePattern: TRegEx;
   procedure Check;
@@ -2672,7 +2690,7 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
     PositionValue = '\A[+-]?[0-9]{1,5}(?:\.[0-9]{1,5})?\z';
     ZeroShift = '\Atranslate\(\s*[+-]?(?:0+(?:\.0*)?|\.0+)(?:(?:\s*,\s*|\s+)[+-]?(?:0+(?:\.0*)?|\.0+))?\s*\)\z';
   var Box: TArray<string>; Child, Layer: IXMLDOMNode;
-    Width, Height, Index, References, RasterWidth, RasterHeight, Scale: Integer;
+    Width, Height, Index, References, RasterWidth, RasterHeight, Scale, WidthPercentX100: Integer;
     Reflowable, SizedLayer: Boolean;
     X, Y, Left, Top, LayerWidth, LayerHeight: Double;
     Anchor, Reference, Member, ArchiveMember, CssWidth, CssHeight: string; Raster, Bitmap: TBytes;
@@ -2726,7 +2744,11 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
     function ReflowablePage: Boolean;
     const CoverCSS = '\A(?:\s*(?:@page|html|body|div)\s*\{(?:\s*(?:;|(?:text-align\s*:\s*center|'+
       '(?:margin|padding)\s*:\s*0(?:pt|px)?)\s*(?:;|(?=\}))))*\s*\})*\s*\z';
-    var Container, Item, Head, PathChild: IXMLDOMNode;
+    var Container, Item, Head, PathChild: IXMLDOMNode; HasLinks: Boolean;
+      function LayoutSafe(const Node: IXMLDOMNode): Boolean;
+      begin
+        Result:=CSS.PreservesSvgCoverRatio(LocalName(Node),Attribute(Node,'class'),Attribute(Node,'id'));
+      end;
     begin
       // With no explicit height on its ancestors, a full-width SVG uses its viewBox ratio.
       if EpubFixedLayout or Assigned(Drawing.ownerDocument.selectSingleNode('//processing-instruction("xml-stylesheet")')) or
@@ -2763,6 +2785,7 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
       if not Assigned(Container) or (LocalName(Container)<>'html') or
         not AttributesAllowed(Container,'|xml:lang|lang|') then Exit(False);
       Head:=Container.selectSingleNode('./*[local-name()="head"]');
+      HasLinks:=Assigned(Head) and Assigned(Head.selectSingleNode('./*[local-name()="link"]'));
       if Assigned(Head) then
       begin
         Item:=Head.firstChild;
@@ -2770,10 +2793,33 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
         begin
           if (Item.nodeType=NODE_ELEMENT) and not MatchText(LocalName(Item),['title','meta']) then
           begin
-            if (LocalName(Item)<>'style') or (Length(Item.text)>65536) or not TRegEx.IsMatch(
+            if HasLinks then
+            begin
+              if not MatchText(Attribute(Item,'media').Trim,['','all','screen']) or
+                not MatchText(Attribute(Item,'type').Trim,['','text/css']) then Exit(False);
+              if LocalName(Item)='link' then
+              begin
+                if not AttributesAllowed(Item,'|href|rel|type|media|') or
+                  not SameText(Attribute(Item,'rel').Trim,'stylesheet') or
+                  (Attribute(Item,'href')='') or (Attribute(Item,'href').IndexOfAny(['?','#'])>=0) then Exit(False);
+              end
+              else if (LocalName(Item)<>'style') or not AttributesAllowed(Item,'|type|media|') then Exit(False);
+            end
+            else if (LocalName(Item)<>'style') or (Length(Item.text)>65536) or not TRegEx.IsMatch(
               TRegEx.Replace(Item.text,'/\*.*?\*/','',[roSingleLine]),CoverCSS,[roIgnoreCase]) then Exit(False);
           end;
           Item:=Item.nextSibling;
+        end;
+      end;
+      if HasLinks then
+      begin
+        if not EpubStylesAvailable or ((WidthPercentX100<>10000) and (Attribute(Drawing,'width')<>'')) or
+          not LayoutSafe(Drawing) or not LayoutSafe(Layer) then Exit(False);
+        Container:=Drawing.parentNode;
+        while Assigned(Container) and MatchText(LocalName(Container),['div','body','html']) do
+        begin
+          if not LayoutSafe(Container) then Exit(False);
+          Container:=Container.parentNode;
         end;
       end;
       Result:=True;
@@ -2826,7 +2872,7 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
       not TryStrToInt(Box[2],Width) or not TryStrToInt(Box[3],Height) or
       (Width<1) or (Height<1) or (Width>4096) or (Height>4096) then Exit;
     var SvgWidth:=Attribute(Drawing,'width');
-    var WidthPercentX100:=0;
+    WidthPercentX100:=0;
     var Percent: Double;
     if TRegEx.IsMatch(SvgWidth,'\A[0-9]{1,3}(?:\.[0-9]{1,2})?%\z') and
       TryStrToFloat(SvgWidth.Substring(0,SvgWidth.Length-1),Percent,TFormatSettings.Invariant) and
@@ -3213,13 +3259,20 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
   end;
   procedure LoadCSS(const N: IXMLDOMNode; Depth: Integer = 0);
   var Index: Integer; Name, Path, Text: string; Bytes: TBytes; Child: IXMLDOMNode;
+    procedure CollectSheet(const Text, Base: string);
+    var Sheet: TEpubStyleSheet;
+    begin
+      Sheet.Text:=Text; Sheet.Base:=Base;
+      Sheet.ListImages:=MatchText(Attribute(N,'media').Trim,['','all','screen']);
+      RequestedEpubStyles.Add(Sheet);
+    end;
   begin
     Check; if (N=nil) or (Depth>32) then Exit;
     Name:=LocalName(N);
     if MatchText(Name,['style','link']) and
       (not MatchText(Attribute(N,'media').Trim,['','all','screen']) or
       not MatchText(Attribute(N,'type').Trim,['','text/css'])) then EpubStylesAvailable:=False;
-    if Name='style' then CSS.Add(N.text,CurrentPath,MatchText(Attribute(N,'media').Trim,['','all','screen']))
+    if Name='style' then CollectSheet(N.text,CurrentPath)
     else if (Name='link') and LowerCase(Attribute(N,'rel')).Contains('stylesheet') then
     begin
       try
@@ -3247,7 +3300,7 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
           EpubStylesAvailable:=False;
           Exit;
         end;
-        CSS.Add(Text,Path,MatchText(Attribute(N,'media').Trim,['','all','screen']));
+        CollectSheet(Text,Path);
       except
         on E: EAbort do raise;
         on Error: EMHLComponentRequired do raise;
@@ -3304,6 +3357,32 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
       end;
     end;
   end;
+  procedure ApplyEpubStyles(const Head: IXMLDOMNode);
+  var Previous, Current: TEpubStyleSheet; SameRules: Boolean; Buffer: TList<TEpubStyleSheet>;
+  begin
+    EpubStylesAvailable:=True;
+    RequestedEpubStyles.Clear;
+    LoadCSS(Head);
+    SameRules:=RequestedEpubStyles.Count=LoadedEpubStyles.Count;
+    if SameRules then
+      for var Index:=0 to RequestedEpubStyles.Count-1 do
+      begin
+        Current:=RequestedEpubStyles[Index]; Previous:=LoadedEpubStyles[Index];
+        if (Current.Base<>Previous.Base) or (Current.Text<>Previous.Text) or
+          (Current.ListImages<>Previous.ListImages) then
+        begin
+          SameRules:=False;
+          Break;
+        end;
+      end;
+    if SameRules then Exit;
+    CSS.Clear;
+    for Current in RequestedEpubStyles do CSS.Add(Current.Text,Current.Base,Current.ListImages);
+    Buffer:=LoadedEpubStyles;
+    LoadedEpubStyles:=RequestedEpubStyles;
+    RequestedEpubStyles:=Buffer;
+  end;
+
   function IsEbookWordCanvas(const N: IXMLDOMNode): Boolean;
   const Style = 'homelibre-word-canvas';
   begin
@@ -3475,8 +3554,84 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
     var Effects:=DirectChild(Frame,'effectextent');
     if Effects<>nil then Result:=Result+Effects.xml;
   end;
+  function WordDrawingSpacer(const Drawing: IXMLDOMNode; out Width, Height: Integer): Boolean;
+  const HiddenNamespace = 'http://schemas.microsoft.com/office/drawing/2010/main';
+  var Placement, Extent, Effects, Description, Graphic, Data, Shape, Properties, Stroke, Stored, Child: IXMLDOMNode;
+    Nodes: IXMLDOMNodeList; WidthEMU, HeightEMU: Integer; Distance: string;
+    function ChildOf(const Parent: IXMLDOMNode; const Name, Namespace: string): IXMLDOMNode;
+    begin
+      Result:=nil;
+      if Parent<>nil then Result:=Parent.selectSingleNode('*[local-name()="'+Name+'" and namespace-uri()="'+Namespace+'"]');
+    end;
+    function OnlyChildren(const Parent: IXMLDOMNode; const Names: array of string; const Namespace: string): Boolean;
+    var Children: IXMLDOMNodeList;
+    begin
+      Result:=False;
+      if Parent=nil then Exit;
+      Children:=Parent.selectNodes('./*');
+      for var I:=0 to Children.length-1 do
+      begin
+        var Element:=Children.item[I];
+        if (VarToStr(Element.namespaceURI)<>Namespace) or not MatchText(LocalName(Element),Names) then Exit;
+      end;
+      Result:=True;
+    end;
+  begin
+    Result:=False;
+    if (Drawing=nil) or (Drawing.selectNodes('./*').length<>1) then Exit;
+    Placement:=ChildOf(Drawing,'inline',WordPlacementNamespace);
+    if Placement=nil then Exit;
+    for var Side in ['T','B','L','R'] do
+    begin
+      Distance:=Attribute(Placement,'dist'+Side);
+      if (Distance<>'') and (Distance<>'0') then Exit;
+    end;
+    Extent:=ChildOf(Placement,'extent',WordPlacementNamespace);
+    if Extent=nil then Exit;
+    Effects:=ChildOf(Placement,'effectExtent',WordPlacementNamespace);
+    if Effects<>nil then
+      for var I:=0 to Effects.attributes.length-1 do
+        if VarToStr(Effects.attributes.item[I].nodeValue)<>'0' then Exit;
+    Description:=ChildOf(Placement,'docPr',WordPlacementNamespace);
+    if (Description<>nil) and (Description.selectNodes('./*').length<>0) then Exit;
+    Graphic:=ChildOf(Placement,'graphic',WordDrawingNamespace);
+    if (Graphic=nil) or (Graphic.selectNodes('./*').length<>1) then Exit;
+    Nodes:=Placement.selectNodes('./*');
+    for var I:=0 to Nodes.length-1 do
+    begin
+      Child:=Nodes.item[I];
+      if (LocalName(Child)='graphic') and (VarToStr(Child.namespaceURI)=WordDrawingNamespace) then Continue;
+      if (VarToStr(Child.namespaceURI)<>WordPlacementNamespace) or
+        not MatchText(LocalName(Child),['extent','effectextent','docpr','cnvgraphicframepr']) then Exit;
+    end;
+    Data:=ChildOf(Graphic,'graphicData',WordDrawingNamespace);
+    if (Data=nil) or (Attribute(Data,'uri')<>WordShapeNamespace) or (Data.selectNodes('./*').length<>1) then Exit;
+    Shape:=ChildOf(Data,'wsp',WordShapeNamespace);
+    if not OnlyChildren(Shape,['cnvsppr','sppr','bodypr'],WordShapeNamespace) then Exit;
+    Properties:=ChildOf(Shape,'spPr',WordShapeNamespace);
+    if not OnlyChildren(Properties,['xfrm','prstgeom','nofill','ln','extlst'],WordDrawingNamespace) then Exit;
+    Child:=ChildOf(Properties,'prstGeom',WordDrawingNamespace);
+    if (Child=nil) or (Attribute(Child,'prst')<>'rect') or (ChildOf(Properties,'noFill',WordDrawingNamespace)=nil) then Exit;
+    Stroke:=ChildOf(Properties,'ln',WordDrawingNamespace);
+    if (Stroke=nil) or (Stroke.selectNodes('./*').length<>1) or (ChildOf(Stroke,'noFill',WordDrawingNamespace)=nil) then Exit;
+    Stored:=ChildOf(Properties,'extLst',WordDrawingNamespace);
+    if Stored<>nil then
+    begin
+      if not OnlyChildren(Stored,['ext'],WordDrawingNamespace) then Exit;
+      Nodes:=Stored.selectNodes('./*');
+      for var I:=0 to Nodes.length-1 do
+      begin
+        Child:=Nodes.item[I];
+        if (Child.selectNodes('./*').length<>1) or not OnlyChildren(Child,['hiddenfill','hiddenline'],HiddenNamespace) then Exit;
+      end;
+    end;
+    if not TryStrToInt(Attribute(Extent,'cx'),WidthEMU) or not TryStrToInt(Attribute(Extent,'cy'),HeightEMU) or
+      (WidthEMU<6350) or (WidthEMU>9144000) or (HeightEMU<6350) or (HeightEMU>9144000) then Exit;
+    Width:=MulDiv(WidthEMU,1,635); Height:=MulDiv(HeightEMU,1,635);
+    Result:=True;
+  end;
   function WordCompatibilityBranch(const Container: IXMLDOMNode): IXMLDOMNode;
-  var Branch, Fallback: IXMLDOMNode; BestScore, Score: Integer;
+  var Branch, Fallback, Spacer, Rectangle: IXMLDOMNode; BestScore, Score, Width, Height: Integer;
     function Rank(const Node: IXMLDOMNode; Depth: Integer): Integer;
     var Name, Ref, Member: string; Child: IXMLDOMNode;
     begin
@@ -3504,7 +3659,7 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
       end;
     end;
   begin
-    Result:=nil; Fallback:=nil; BestScore:=-1;
+    Result:=nil; Fallback:=nil; Spacer:=nil; BestScore:=-1;
     Branch:=Container.firstChild;
     while Assigned(Branch) do
     begin
@@ -3520,6 +3675,9 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
             if (Canvas<>nil) and WordRenderedDrawings.ContainsKey(THashSHA2.GetHashString(WordFigureSource(Canvas))) then
               Exit(Branch);
           end;
+          if (Spacer=nil) and (LocalName(Branch)='choice') and (Branch.selectNodes('./*').length=1) and
+            WordDrawingSpacer(Branch.selectSingleNode('*[local-name()="drawing" and namespace-uri()="'+WordNamespace+'"]'),
+              Width,Height) then Spacer:=Branch;
           Score:=Rank(Branch,0);
           if Score>BestScore then begin BestScore:=Score; Result:=Branch; end;
           if Score=2 then Exit;
@@ -3527,7 +3685,19 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
       end;
       Branch:=Branch.nextSibling;
     end;
-    if (BestScore=0) and Assigned(Fallback) then Result:=Fallback;
+    if BestScore<>0 then Exit;
+    if Assigned(Fallback) then
+    begin
+      Result:=Fallback;
+      if Spacer=nil then Exit;
+      Rectangle:=Fallback.selectSingleNode('*[local-name()="pict" and namespace-uri()="'+WordNamespace+
+        '" and count(../*)=1]/*[local-name()="rect" and namespace-uri()="'+VMLNamespace+'" and count(../*)=1]');
+      if (Rectangle=nil) or not MatchText(Attribute(Rectangle,'filled'),['f','false','0']) or
+        not MatchText(Attribute(Rectangle,'stroked'),['f','false','0']) or Assigned(Rectangle.selectSingleNode(
+          '*[not((local-name()="lock" and namespace-uri()="urn:schemas-microsoft-com:office:office") or '+
+          '(local-name()="anchorlock" and namespace-uri()="urn:schemas-microsoft-com:office:word"))]')) then Exit;
+    end;
+    if Spacer<>nil then Result:=Spacer;
   end;
   function WordStandaloneShape(const Node: IXMLDOMNode): Boolean;
   var Parent: IXMLDOMNode;
@@ -3964,6 +4134,56 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
       not TryStrToInt(Parts[4],Left) or (Left< -57600*635) or (Left>57600*635) or
       not TryStrToInt(Parts[5],Top) or not TryStrToInt(Parts[6],Height) or not TryStrToInt(Parts[7],Width) then Exit;
     Result:=AddMarginRule(Parts[1],Offset,Band,Top,Height,Width);
+  end;
+
+  function ReadWordPageOverlay(const Node: IXMLDOMNode): Boolean;
+  const PointDistance = '[+-]?[0-9]{1,4}(?:\.[0-9]{1,4})?pt';
+  var Children: IXMLDOMNodeList; Rectangle, Prop: IXMLDOMNode;
+    Position: TDictionary<string,string>; Value: string; Sep: Integer; Points: Double;
+  begin
+    Result:=False;
+    if VarToStr(Node.namespaceURI)<>WordNamespace then Exit;
+    Children:=Node.selectNodes('./*');
+    if Children.length<>1 then Exit;
+    Rectangle:=Children.item[0];
+    if (LocalName(Rectangle)<>'rect') or (VarToStr(Rectangle.namespaceURI)<>VMLNamespace) or
+      (Rectangle.selectNodes('./*').length<>0) or (Trim(Rectangle.text)<>'') then Exit;
+    for var Index:=0 to Rectangle.attributes.length-1 do
+    begin
+      Prop:=Rectangle.attributes.item[Index];
+      var Namespace:=VarToStr(Prop.namespaceURI);
+      if Namespace='http://www.w3.org/2000/xmlns/' then Continue;
+      if (Namespace<>'') or not MatchStr(LocalName(Prop),
+        ['id','type','style','fillcolor','filled','stroked','strokeweight']) then Exit;
+    end;
+    if not MatchStr(Attribute(Rectangle,'type'),['','#_x0000_t1']) or
+      not MatchText(Attribute(Rectangle,'fillcolor'),['','white','#fff','#ffffff']) or
+      not MatchText(Attribute(Rectangle,'filled'),['','t','true','1']) or
+      not MatchText(Attribute(Rectangle,'stroked'),['f','false','0']) then Exit;
+
+    Position:=TDictionary<string,string>.Create;
+    try
+      for var Declaration in Attribute(Rectangle,'style').ToLower.Split([';']) do
+      begin
+        if Trim(Declaration)='' then Continue;
+        Sep:=Pos(':',Declaration);
+        if (Sep=0) or not Position.TryAdd(Trim(Copy(Declaration,1,Sep-1)),
+          Trim(Copy(Declaration,Sep+1,MaxInt))) then Exit;
+      end;
+      if (Position.Count<>8) or not Position.TryGetValue('position',Value) or (Value<>'absolute') or
+        not Position.TryGetValue('mso-position-horizontal-relative',Value) or (Value<>'page') or
+        not Position.TryGetValue('mso-position-vertical-relative',Value) or (Value<>'page') or
+        not Position.TryGetValue('z-index',Value) or not TRegEx.IsMatch(Value,'\A[1-9][0-9]{0,9}\z') then Exit;
+      for var Key in TArray<string>.Create('margin-left','margin-top','width','height') do
+      begin
+        if not Position.TryGetValue(Key,Value) or not TRegEx.IsMatch(Value,'\A'+PointDistance+'\z') then Exit;
+        if MatchStr(Key,['width','height']) and
+          (not TryStrToFloat(Copy(Value,1,Length(Value)-2),Points,TFormatSettings.Invariant) or (Points<=0)) then Exit;
+      end;
+      // Page coordinates cannot be applied to the text after it is reflowed.
+      Inc(WordPageOverlays);
+      Result:=True;
+    finally Position.Free; end;
   end;
 
   function ReadWordHorizontalRule(const Node: IXMLDOMNode): Boolean;
@@ -4435,11 +4655,26 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
     end;
   end;
 
+  function TrailingWordOffsetRule(const Paragraph: IXMLDOMNode): IXMLDOMNode;
+  var Run, Drawing, Anchor, Properties: IXMLDOMNode;
+  begin
+    Result:=nil;
+    Run:=Paragraph.lastChild;
+    if not Assigned(Run) or (LocalName(Run)<>'r') then Exit;
+    Drawing:=Run.firstChild;
+    if not Assigned(Drawing) or (LocalName(Drawing)<>'drawing') or Assigned(Drawing.nextSibling) then Exit;
+    Anchor:=Drawing.firstChild;
+    if not Assigned(Anchor) or (LocalName(Anchor)<>'anchor') then Exit;
+    Properties:=Anchor.selectSingleNode('*[local-name()="docPr"]');
+    if Assigned(Properties) and Attribute(Properties,'name').StartsWith('rIdHomeLibreParagraphRuleOffset') then
+      Result:=Run;
+  end;
+
   procedure Walk(const N: IXMLDOMNode; Depth: Integer; InsideTitle: Boolean = False;
     StyledContainer: Boolean = False; InheritedFontPercent: Integer = 100; Preformatted: Boolean = False;
     const LegendMarker: TBytes = nil; LegendWidth: Integer = 0; LegendHeight: Integer = 0);
   var J, Spaces, StyleIndex, NoteStart, InitialStart, HeadingLevel, FontPercent, FontStyleIndex, LinkStart: Integer; Name, Ref, Binary, Style, NoteTarget, CSSStyle, AppliedAlignment, LinkTarget, Anchor: string; Link: TReaderFootnoteLink; TextLink: TReaderTextLink;
-    StyleNode, StyleValue, Ancestor, Previous, Child: IXMLDOMNode; Bytes: TBytes;
+    StyleNode, StyleValue, Ancestor, Previous, Child, TrailingRule: IXMLDOMNode; Bytes: TBytes;
     IsParagraph, IsTitle, IsBlock, IsCode, IsTextFrame, ChapterInitial, InferredHeading, NumericLink: Boolean;
     Range: TReaderStyledRange;
     OuterFieldDepth, OuterInstructionDepth: Integer;
@@ -4450,8 +4685,11 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
     const CellHalfGap = 55;
     var Cells: TArray<IXMLDOMNode>; Widths: TArray<Integer>; Cell, Properties, WidthNode, Merge, Part, ContentNode: IXMLDOMNode;
       MergeKinds: TArray<TTableMerge>;
+      CellInsets: TArray<Integer>;
+      CellStyles: TArray<TReaderCellStyle>;
+      RowColors: array[0..1] of Integer;
       Weight, Total, Edge, I, OuterCellWidth, OuterCellInset, OuterCellTextStart: Integer;
-      CellAnchor, RowProperties: string; SeenContent, NestedInRow, PreserveCellLines: Boolean;
+      CellAnchor, RowProperties: string; SeenContent, NestedInRow, PreserveCellLines, RowHasPadding: Boolean;
       Layout: TStringBuilder;
       CellPositions: TArray<TLayoutInsertion>;
       procedure AppendRowProperties;
@@ -4464,8 +4702,26 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
         end;
         FBody.Append(RowProperties);
       end;
-      procedure BeginCell;
-      begin FBody.Append('\pard\intbl\itap').Append(TableLevel).Append('\ql\fi0 '); end;
+      function PaddingOrDefault(const Style: TReaderCellStyle; Side: TReaderCellSide): Integer;
+      begin
+        Result:=Style.Padding[Side];
+        if Result<0 then
+          if Side in [rcLeft,rcRight] then Result:=CellHalfGap else Result:=0;
+      end;
+      procedure BeginCell(Index: Integer = -1);
+      begin
+        FBody.Append('\pard\intbl\itap').Append(TableLevel).Append('\ql\fi0');
+        // RichEdit has a single horizontal margin per row. Use paragraph
+        // margins for per-cell CSS padding in the native presentation.
+        if RowHasPadding and (Index>=0) then
+        begin
+          FBody.Append('\li').Append(PaddingOrDefault(CellStyles[Index],rcLeft))
+            .Append('\ri').Append(PaddingOrDefault(CellStyles[Index],rcRight))
+            .Append('\sb').Append(PaddingOrDefault(CellStyles[Index],rcTop))
+            .Append('\sa').Append(PaddingOrDefault(CellStyles[Index],rcBottom));
+        end;
+        FBody.Append(' ');
+      end;
       procedure EndCell;
       begin
         if TableLevel>1 then FBody.Append('\nestcell{\nonesttables\par}')
@@ -4479,6 +4735,78 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
         if Parsed.Success and TryStrToFloat(Parsed.Groups[1].Value,Number,TFormatSettings.Invariant) and
           (Number>0) and (Number<=100) then
           Result:=Max(1,Round(Number*100));
+      end;
+      function CellColorIndex(const Text: string; ForBackground: Boolean): Integer;
+      var Value: Integer; Hex: string; Entry: TTableColor; Key: Cardinal;
+      begin
+        Result:=0;
+        Hex:=Text;
+        if not Hex.StartsWith('#') then Exit;
+        if Length(Hex)=4 then
+          Hex:='#'+StringOfChar(Hex[2],2)+StringOfChar(Hex[3],2)+StringOfChar(Hex[4],2);
+        if (Length(Hex)<>7) or not TryStrToInt('$'+Copy(Hex,2,6),Value) then Exit;
+        Entry.Color:=RGB(Byte(Value shr 16),Byte(Value shr 8),Byte(Value));
+        Entry.ForBackground:=ForBackground;
+        // COLORREF uses only the low 24 bits. A fill and an equal-colored
+        // border need distinct palette entries because only the fill is tinted.
+        Key:=Cardinal(Entry.Color) or (Cardinal(Ord(ForBackground)) shl 24);
+        if CellColorIndexes.TryGetValue(Key,Result) then Exit;
+        FCellColors.Add(Entry);
+        FHasCellBackgrounds:=FHasCellBackgrounds or ForBackground;
+        Result:=FCellColors.Count; CellColorIndexes.Add(Key,Result);
+      end;
+      function ReadCellStyle(const Source: IXMLDOMNode): TReaderCellStyle;
+      var Previous: IXMLDOMNode; PreviousName: string;
+      begin
+        Result:=Default(TReaderCellStyle);
+        if not Assigned(Source) or not MatchStr(E,['.epub','.fb2']) then
+        begin
+          for var Side:=Low(TReaderCellSide) to High(TReaderCellSide) do Result.Padding[Side]:=-1;
+          Exit;
+        end;
+        Previous:=nil;
+        if CSS.HasAdjacentRules then
+        begin
+          Previous:=Source.previousSibling;
+          while Assigned(Previous) and (Previous.nodeType<>NODE_ELEMENT) do Previous:=Previous.previousSibling;
+        end;
+        if Assigned(Previous) then PreviousName:=LocalName(Previous);
+        Result:=CSS.CellStyle(LocalName(Source),Attribute(Source,'class'),Attribute(Source,'id'),
+          Attribute(Source,'style'),PreviousName,Attribute(Previous,'class'),Attribute(Previous,'id'));
+      end;
+      function ReserveRowColor(Index: Integer): Boolean;
+      begin
+        if (Index=0) or (Index=RowColors[0]) or (Index=RowColors[1]) then Exit(True);
+        for var Slot:=Low(RowColors) to High(RowColors) do
+          if RowColors[Slot]=0 then begin RowColors[Slot]:=Index; Exit(True); end;
+        Result:=False;
+      end;
+      procedure WriteCellStyle(const CellStyle: TReaderCellStyle);
+      const Edge: array[TReaderCellSide] of string = ('\clbrdrt','\clbrdrr','\clbrdrb','\clbrdrl');
+        Patterns: array[0..6] of string = ('\brdrdot','\brdrdash','\brdrdb','\brdrengrave',
+          '\brdremboss','\brdrinset','\brdroutset');
+      var Index: Integer;
+      begin
+        Index:=CellColorIndex(CellStyle.Background,True);
+        if Index>0 then Layout.Append('\clcbpat').Append(Index);
+        for var Side:=Low(TReaderCellSide) to High(TReaderCellSide) do
+        begin
+          Layout.Append(Edge[Side]);
+          if not CellStyle.HasBorders then
+          begin Layout.Append('\brdrs\brdrw10'); Continue; end;
+          var Border:=CellStyle.Borders[Side];
+          if (Border.Width=0) or (Border.Style='') or MatchText(Border.Style,['none','hidden']) or
+            (Border.Color='transparent') then
+          begin Layout.Append('\brdrnone'); Continue; end;
+          Index:=IndexText(Border.Style,['dotted','dashed','double','groove','ridge','inset','outset']);
+          if Index>=0 then Layout.Append(Patterns[Index]) else Layout.Append('\brdrs');
+          Layout.Append('\brdrw').Append(Border.Width);
+          if not MatchText(Border.Color,['#000','#000000']) then
+          begin
+            Index:=CellColorIndex(Border.Color,False);
+            if (Index>0) and ReserveRowColor(Index) then Layout.Append('\brdrcf').Append(Index);
+          end;
+        end;
       end;
       function ExpandHTMLSpans: Boolean;
       var ExpandedCells: TArray<IXMLDOMNode>; ExpandedWidths, Percents: TArray<Integer>;
@@ -4568,7 +4896,20 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
       Layout:=TStringBuilder.Create;
       try
         SetLength(CellPositions,Length(Cells));
-        Layout.Append('\trowd\trgaph').Append(CellHalfGap).Append('\trleft0 ');
+        SetLength(CellInsets,Length(Cells));
+        SetLength(CellStyles,Length(Cells));
+        RowHasPadding:=False;
+        RowColors[0]:=0; RowColors[1]:=0;
+        for I:=0 to High(Cells) do
+        begin
+          CellStyles[I]:=ReadCellStyle(Cells[I]);
+          for var Padding in CellStyles[I].Padding do RowHasPadding:=RowHasPadding or (Padding>=0);
+          CellInsets[I]:=PaddingOrDefault(CellStyles[I],rcLeft)+PaddingOrDefault(CellStyles[I],rcRight);
+          // RichEdit imports at most two explicit colors per row. Keep the
+          // cell fills ahead of any border colors so a rule cannot erase a fill.
+          ReserveRowColor(CellColorIndex(CellStyles[I].Background,True));
+        end;
+        Layout.Append('\trowd\trgaph').Append(IfThen(RowHasPadding,0,CellHalfGap)).Append('\trleft0 ');
         for I:=0 to High(Cells) do
         begin
           if E='.docx' then
@@ -4582,7 +4923,7 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
               tmStart: Layout.Append('\clvmgf');
               tmContinuation: Layout.Append('\clvmrg');
             end;
-          Layout.Append('\clbrdrl\brdrs\brdrw10\clbrdrr\brdrs\brdrw10\clbrdrt\brdrs\brdrw10\clbrdrb\brdrs\brdrw10');
+          WriteCellStyle(CellStyles[I]);
           Inc(Edge,Widths[I]);
           CellPositions[I].Offset:=Layout.Length;
           CellPositions[I].CellWidth:=IfThen(OuterCellWidth=0,10000,OuterCellWidth);
@@ -4597,8 +4938,8 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
         for I:=0 to High(Cells) do
         begin
           FCellWidth:=Max(1,MulDiv(IfThen(OuterCellWidth=0,10000,OuterCellWidth),Widths[I],Total));
-          FCellInset:=MulDiv(OuterCellInset,Widths[I],Total)+2*CellHalfGap;
-          BeginCell;
+          FCellInset:=MulDiv(OuterCellInset,Widths[I],Total)+CellInsets[I];
+          BeginCell(I);
           CellTextStart:=FText.Length;
           if Cells[I]<>nil then
           begin
@@ -4696,8 +5037,20 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
       if Name='footnotereference' then begin WriteWordNoteReference(N,wnFootnote); Exit; end;
       if Name='endnotereference' then begin WriteWordNoteReference(N,wnEndnote); Exit; end;
       if (Name='anchor') and ReadWordMarginRule(N) then Exit;
+      if Name='drawing' then
+      begin
+        var Width, Height: Integer;
+        if WordDrawingSpacer(N,Width,Height) then
+        begin
+          AppendWordSpacer(Width,Height);
+          Exit;
+        end;
+      end;
+      // Placement offsets and alignment names describe the drawing, not the text.
+      if MatchStr(Name,['positionh','positionv']) and
+        (VarToStr(N.namespaceURI)='http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing') then Exit;
       if (Name='pict') and (ReadWordHorizontalRule(N) or ReadWordAnchoredLine(N) or
-        ReadWordPictureSpacer(N) or ReadWordMissingPicture(N)) then Exit;
+        ReadWordPictureSpacer(N) or ReadWordMissingPicture(N) or ReadWordPageOverlay(N)) then Exit;
     end;
     if ((E='.fb2') and (Name='style') or (E='.epub') and (Name='span')) and ReadEbookWordSpacer(N) then Exit;
     if (E='.fb2') and (Name='style') and (N.firstChild=nil) and ReadEbookMarginRule(Attribute(N,'name')) then Exit;
@@ -5034,12 +5387,34 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
       end;
     end;
     CSSStyle:=''; FontStyleIndex:=-1; FontPercent:=InheritedFontPercent;
-    if E='.epub' then
+    if (E='.epub') or HasFB2Styles then
     begin
-      CSSStyle:=CSS.RTF(Name,Attribute(N,'class'),Attribute(N,'id'),Attribute(N,'style'));
+      var Classes:=Attribute(N,'class');
+      var InlineStyle:=Attribute(N,'style');
+      if HasFB2Styles then
+      begin
+        if Name='style' then Classes:=Attribute(N,'name') else Classes:=InlineStyle;
+        InlineStyle:='';
+      end;
+      var PreviousTag:=''; var PreviousClasses:=''; var PreviousID:='';
+      if CSS.HasAdjacentRules then
+      begin
+        var Sibling:=N.previousSibling;
+        while Assigned(Sibling) and (Sibling.nodeType<>NODE_ELEMENT) do Sibling:=Sibling.previousSibling;
+        if Assigned(Sibling) then
+        begin
+          PreviousTag:=LocalName(Sibling);
+          PreviousID:=Attribute(Sibling,'id');
+          if not HasFB2Styles then PreviousClasses:=Attribute(Sibling,'class')
+          else if PreviousTag='style' then PreviousClasses:=Attribute(Sibling,'name')
+          else PreviousClasses:=Attribute(Sibling,'style');
+        end;
+      end;
+      CSSStyle:=CSS.RTF(Name,Classes,Attribute(N,'id'),InlineStyle,PreviousTag,PreviousClasses,PreviousID);
       // This alignment is already active through the paragraph mark.
       if (AppliedAlignment<>'') and (CSSStyle=AppliedAlignment+' ') then CSSStyle:='';
-      FontPercent:=CSS.FontPercent(Name,Attribute(N,'class'),Attribute(N,'id'),Attribute(N,'style'),InheritedFontPercent);
+      FontPercent:=CSS.FontPercent(Name,Classes,Attribute(N,'id'),InlineStyle,InheritedFontPercent,
+        PreviousTag,PreviousClasses,PreviousID);
       if FontPercent<>InheritedFontPercent then
       begin
         Range:=Default(TReaderStyledRange); Range.Start:=FText.Length; Range.Kind:=rbRelativeSize; Range.ScalePercent:=FontPercent;
@@ -5075,7 +5450,7 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
           end;
           var RuleWidth:=0; var RuleHeight:=0; var RuleLeft:=0;
           if Ref.StartsWith('rIdHomeLibreParagraphRule') and WordAnchoredRuleGeometry(
-            Attribute(N.selectSingleNode('ancestor::*[local-name()="inline"][1]/*[local-name()="docPr"]'),'descr'),
+            Attribute(N.selectSingleNode('ancestor::*[local-name()="inline" or local-name()="anchor"][1]/*[local-name()="docPr"]'),'descr'),
             RuleWidth,RuleHeight,RuleLeft) then
           begin
             ReadZip(Binary,Bytes);
@@ -5182,6 +5557,9 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
           var InlineImage:=(WidthPercentX100=0) and not SizeInTwips and not LeftAligned and not UseCaption and (RuleHeight=0) and
             (WordCanvas or InlineEbookPicture(N,Bytes,DisplayWidth,DisplayHeight));
           var PicturePosition:=FText.Length;
+          var OpeningCover:=(FPictures.Count=0) and (FCellWidth=0) and (FText.Length<=2048) and
+            (((E='.epub') and not EpubFixedLayout and (EpubCoverPath<>'') and (EpubImagePath=EpubCoverPath)) or
+             ((E='.fb2') and (Fb2CoverRef<>'') and (Ref=Fb2CoverRef))) and (FText.ToString.Trim='');
           Picture(Bytes,E='.docx',ArchiveMember,Caption,LeftAligned,DisplayWidth,DisplayHeight,RuleHeight,
             InlineImage,SizeInTwips,LeftTwips,WordCanvas,WidthPercentX100);
           if EpubImagePath<>'' then FAnchors.TryAdd(EpubImagePath+'#',PicturePosition);
@@ -5190,6 +5568,7 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
             AddText(' ['+JpegNotice+']');
             if FCellWidth=0 then Paragraph;
           end;
+          if OpeningCover then FOpeningCoverEnd:=FText.Length;
         end;
       except
         on E: EAbort do raise;
@@ -5233,6 +5612,7 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
       DocxInstructionDepth:=0;
     end;
     Child:=N.firstChild;
+    if (E='.docx') and IsParagraph and (FCellWidth=0) then TrailingRule:=TrailingWordOffsetRule(N);
     if (E='.fb3') and (Name='note') and (NoteStart>=0) and (Trim(N.text)='') then AddText('*',True);
     if MatchText(Name,['table','tbl']) then
     begin
@@ -5246,6 +5626,7 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
     end;
     while Assigned(Child) do
     begin
+      if Assigned(TrailingRule) and not Assigned(Child.nextSibling) then Break;
       Walk(Child,Depth+1,InsideTitle or IsTitle,
         StyledContainer or IsTitle or IsCode or IsTextFrame or MatchText(Name,['epigraph','cite','blockquote','poem','stanza','text-author']),
         FontPercent,Preformatted or IsTextFrame or (Name='pre') or ((Name='code') and (E='.fb2')));
@@ -5330,8 +5711,15 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
     if (Name='epigraph') or (Name='cite') or (Name='blockquote') then
       begin FBody.Append('}'); Paragraph; end;
     if (Name='poem') or (Name='stanza') then Paragraph;
-    if IsTitle then begin Paragraph; FBody.Append('}'); end;
-    if IsParagraph then Paragraph;
+    // The FB2 paragraph mark was already emitted inside its CSS group.
+    var FinishedFB2Paragraph:=HasFB2Styles and (CSSStyle<>'');
+    if IsTitle then
+    begin
+      if not FinishedFB2Paragraph then Paragraph;
+      FBody.Append('}');
+    end;
+    if IsParagraph and not FinishedFB2Paragraph then Paragraph;
+    if Assigned(TrailingRule) then Walk(TrailingRule,Depth+1);
     if (Name='pre') and (FText.Length>0) and (FText.Chars[FText.Length-1]<>#13) then Paragraph;
   end;
   procedure WalkWordBody(const Body: IXMLDOMNode);
@@ -5649,16 +6037,23 @@ begin
   FPictures.Clear; FBody.Clear; FText.Clear; FChapters.Clear; FStyles.Clear; FNoteLinks.Clear; FNoteBodies.Clear; FLinks.Clear; FAnchors.Clear; Warnings.Clear; FImages:=0; FSkippedImages:=0; FPartialDrawingGroups:=0; FHasTables:=False; FNotesInBody:=False;
   FMarginRules.Clear;
   FParagraphShades.Clear;
+  FCellColors.Clear;
+  FHasCellBackgrounds:=False;
   FreeAndNil(FImageArchiveLock); FImageArchiveName:='';
   UnpackedBytes:=0; UnpackedLimit:=MAX_EPUB_BYTES; NoteCharacters:=0; PendingInitial:=True; Check; E:=LowerCase(ExtractFileExt(FileName)); FormatName:=E.TrimLeft(['.']);
   DocxFieldDepth:=0;
   DocxInstructionDepth:=0;
+  WordPageOverlays:=0;
   TableLevel:=0; CellTextStart:=0;
   FCellWidth:=0; FCellInset:=0;
   TableWidthPattern:=TRegEx.Create('(?:^|;)\s*width\s*:\s*(\d+(?:\.\d+)?)%\s*(?:;|$)',[roIgnoreCase]);
   TableLineStylePattern:=TRegEx.Create('(?:^|;)\s*white-space\s*:\s*pre-wrap\s*(?:;|$)',[roIgnoreCase]);
   Title:=ExtractFileName(FileName); Language:=''; Author:=''; RecentCover:=''; Zip:=nil;
-  CSS:=TReaderCSS.Create; CSSCache:=TDictionary<string,string>.Create;
+  FOpeningCoverEnd:=0; EpubCoverPath:=''; Fb2CoverRef:='';
+  CSS:=TReaderCSS.Create; CSSCache:=TDictionary<string,string>.Create; HasFB2Styles:=False;
+  CellColorIndexes:=TDictionary<Cardinal,Integer>.Create;
+  RequestedEpubStyles:=TList<TEpubStyleSheet>.Create;
+  LoadedEpubStyles:=TList<TEpubStyleSheet>.Create;
   ListMarkerBytes:=TDictionary<string,TBytes>.Create;
   Binaries:=TDictionary<string,TFB2PictureData>.Create; Paths:=TDictionary<string,string>.Create;
   Resources:=TDictionary<string,TBytes>.Create; NoteFiles:=TDictionary<string,IXMLDOMDocument3>.Create;
@@ -5743,6 +6138,8 @@ begin
         AppendWordNotes(wnFootnote,'Сноски');
         AppendWordNotes(wnEndnote,'Концевые сноски');
       end;
+      if WordPageOverlays>0 then
+        Warnings.Insert(0,Format('%s (%d).',[ReaderWordPageOverlayWarning,WordPageOverlays]));
       if FText.Length=0 then raise Exception.Create('В документе нет текста для чтения.');
       Exit;
     end;
@@ -5804,9 +6201,17 @@ begin
         if (RecentCover='') and (((CoverID<>'') and (Attribute(Item,'id')=CoverID)) or
           (Pos(' cover-image ',' '+Attribute(Item,'properties')+' ')>0)) then
           try
-            var CoverIndex:=Zip.IndexOf(ZipPath(PackagePath,Attribute(Item,'href')));
-            if (CoverIndex>=0) and (Zip.FileInfo[CoverIndex].UncompressedSize<=4*1024*1024) then
-            begin Zip.Read(CoverIndex,Data); MakeRecentCover(Data); end;
+            var Candidate:=ZipPath(PackagePath,Attribute(Item,'href'));
+            var CoverIndex:=Zip.IndexOf(Candidate);
+            if CoverIndex>=0 then
+            begin
+              if EpubCoverPath='' then EpubCoverPath:=Candidate;
+              if Zip.FileInfo[CoverIndex].UncompressedSize<=4*1024*1024 then
+              begin
+                Zip.Read(CoverIndex,Data); MakeRecentCover(Data);
+                if RecentCover<>'' then EpubCoverPath:=Candidate;
+              end;
+            end;
           except on E: Exception do RecentCover:=''; end;
       end;
       if Assigned(NavigationIDs) or (Attribute(Spine,'toc')<>'') then
@@ -5864,7 +6269,7 @@ begin
           Paragraph;
           Continue;
         end;
-        EpubStylesAvailable:=True; CSS.Clear; LoadCSS(FindNode(Document.documentElement,'head'));
+        ApplyEpubStyles(FindNode(Document.documentElement,'head'));
         Node:=FindNode(Document.documentElement,'body');
         if Node<>nil then
         begin
@@ -5995,6 +6400,11 @@ begin
         for I:=0 to Root.childNodes.length-1 do
         begin
           Node:=Root.childNodes.item[I];
+          if (LocalName(Node)='stylesheet') and MatchText(Attribute(Node,'type'),['','text/css']) then
+          begin
+            CSS.Add(Node.text,'',False);
+            HasFB2Styles:=True;
+          end;
           if LocalName(Node)='binary' then
           begin
             ID:=Attribute(Node,'id');
@@ -6044,14 +6454,21 @@ begin
           if CoverAlreadyInBody(Node,Preview) then
           begin
             if Preview<>'' then
+            begin
+              Fb2CoverRef:='#'+Preview;
               try MakeRecentCover(ReadFB2Picture(Preview));
               except on E: Exception do RecentCover:=''; end;
+            end;
           end
           else
           begin
             var CoverIndex:=FPictures.Count;
             Walk(Node,0);
-            if FPictures.Count>CoverIndex then MakeRecentCover(FPictures[CoverIndex].Bytes);
+            if FPictures.Count>CoverIndex then
+            begin
+              FOpeningCoverEnd:=FText.Length;
+              MakeRecentCover(FPictures[CoverIndex].Bytes);
+            end;
           end;
         end;
         for I:=0 to Root.childNodes.length-1 do
@@ -6071,7 +6488,8 @@ begin
     NavigationIDs.Free; MathPictures.Free;
     WordListImagePaths.Free; WordLists.Free; WordListDefinitions.Free;
     WordNoteLabels.Free; WordFloatingDrawings.Free; WordRenderedDrawings.Free; WordPictureTemplates.Free; WordStyleRules.Free; WordPictureFallbacks.Free;
-    ListMarkerBytes.Free; CSSCache.Free; CSS.Free; NoteFiles.Free; Resources.Free; Zip.Free; Paths.Free; Binaries.Free;
+    ListMarkerBytes.Free; CSSCache.Free; CSS.Free; RequestedEpubStyles.Free; LoadedEpubStyles.Free; CellColorIndexes.Free;
+    NoteFiles.Free; Resources.Free; Zip.Free; Paths.Free; Binaries.Free;
   end;
 end;
 
@@ -6368,8 +6786,8 @@ begin
 end;
 
 function TReaderDocument.RTF(MaxPictureWidth, MaxPictureHeight: Integer; LayoutOnly: Boolean;
-  Background: TColor): UTF8String;
-var Header, Fragment: UTF8String;
+  Background: TColor; const CellColor: TFunc<TColor,TColor>): UTF8String;
+var Header, Fragment, ColorTable: UTF8String;
   At, Start, I, Index: Integer; Total: Int64;
   function CellBoundary(const Insertion: TLayoutInsertion): UTF8String;
   begin
@@ -6383,6 +6801,24 @@ var Header, Fragment: UTF8String;
   end;
   procedure AppendBytes(const Buffer; Count: Integer);
   begin if Count>0 then begin Move(Buffer,Result[At],Count); Inc(At,Count); end; end;
+  function TablePalette: UTF8String;
+  var Colors: TStringBuilder; Value: TColor;
+  begin
+    Result:='';
+    if FCellColors.Count=0 then Exit;
+    Colors:=TStringBuilder.Create;
+    try
+      Colors.Append('{\colortbl ;');
+      for var Entry in FCellColors do
+      begin
+        Value:=Entry.Color;
+        if Entry.ForBackground and Assigned(CellColor) then Value:=ColorToRGB(CellColor(Value));
+        Colors.Append('\red').Append(Integer(GetRValue(Value))).Append('\green').Append(Integer(GetGValue(Value)))
+          .Append('\blue').Append(Integer(GetBValue(Value))).Append(';');
+      end;
+      Result:=UTF8String(Colors.Append('}').ToString);
+    finally Colors.Free; end;
+  end;
 begin
   if FPlainRTF<>'' then Exit(FPlainRTF);
   if FNativeRTF<>'' then
@@ -6410,7 +6846,8 @@ begin
   end;
   // Cell widths and pictures are recorded while writing the body. Emit them
   // without duplicating the full UTF-16 body or scanning it with a regex.
-  Total:=Int64(Length(READER_RTF_HEADER))+FBody.Length+1;
+  ColorTable:=TablePalette;
+  Total:=Int64(Length(READER_RTF_HEADER))+Length(ColorTable)+FBody.Length+1;
   for var Insertion in FLayoutInsertions do
   begin
     if Insertion.IsPicture then
@@ -6424,7 +6861,9 @@ begin
   if ((FImages<>0) or FHasTables) and (Total>256*1024*1024) then
     raise EReadError.Create('Изображения книги требуют слишком много памяти для читалки.');
   SetLength(Result,Integer(Total)); At:=1;
-  AppendBytes(READER_RTF_HEADER[1],Length(READER_RTF_HEADER)); Start:=0;
+  AppendBytes(READER_RTF_HEADER[1],Length(READER_RTF_HEADER));
+  if ColorTable<>'' then AppendBytes(ColorTable[1],Length(ColorTable));
+  Start:=0;
   for var Insertion in FLayoutInsertions do
   begin
     Assert(Insertion.Offset>=Start);
@@ -6467,6 +6906,9 @@ begin Result:=FStyles.ToArray; end;
 
 function TReaderDocument.HasMarginRules: Boolean;
 begin Result:=FMarginRules.Count>0; end;
+
+function TReaderDocument.HasCellBackgrounds: Boolean;
+begin Result:=FHasCellBackgrounds; end;
 
 function TReaderDocument.MarginRules(Start, Finish: Integer): TArray<TReaderMarginRule>;
 var Count: Integer;

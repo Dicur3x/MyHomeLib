@@ -244,34 +244,52 @@ def recoverable_entries(api, source, check):
             yield name, data, True
 
 
-def rebuild_scanned_package(api, archive, package_name, warnings, metadata):
-    """The ABBYY scan writer numbers pages independently of the missing OPF."""
+def rebuild_scanned_package(api, archive, package_name, warnings, metadata, check):
+    """Rebuild a spine only for the recognisable ABBYY scan layout."""
     directory = posixpath.dirname(package_name)
     prefix = directory + '/' if directory else ''
     candidates = [(name, name[len(prefix):]) for name in archive.namelist()
                   if name.startswith(prefix) and name.lower().endswith(('.html', '.htm', '.xhtml'))]
-    pages, referenced_images = {}, set()
+    no_order = 'В повреждённом EPUB отсутствует порядок чтения. Его нельзя надёжно восстановить.'
+    pages, parts, reading_order = {}, [], []
+    referenced_images, cover = set(), None
     for name, relative in candidates:
-        match = re.fullmatch(r'leaf(\d{4})\.html', relative)
-        if not match or archive.getinfo(name).file_size > 65536:
-            pages.clear()
-            break
+        match = re.fullmatch(r'(leaf|part)([0-9]{4})\.html', relative)
+        if not match and relative != 'intro.html':
+            raise api.ConversionError(no_order)
+        kind = match[1] if match else 'intro'
+        if archive.getinfo(name).file_size > (api.MAX_FILE if kind == 'part' else 65536):
+            raise api.ConversionError(no_order)
         chapter = api.xhtml(archive.read(name))
-        number = int(match[1])
         has_generator = any(api.tag(n) == 'meta' and n.get('name') == 'generator'
                             and n.get('content', '').casefold().startswith('abbyy to epub tool')
                             for n in chapter.iter())
         if not has_generator:
-            pages.clear()
-            break
-        pages[number] = name
+            raise api.ConversionError(no_order)
+        if kind == 'part':
+            number = int(match[2])
+            if parts and number <= parts[-1]:
+                raise api.ConversionError(no_order)
+            parts.append(number)
+        elif kind == 'leaf':
+            pages[int(match[2])] = name
         for node in chapter.iter():
             if api.tag(node) == 'img':
                 url = urlsplit(node.get('src', ''))
                 if not url.scheme and not url.netloc:
-                    referenced_images.add(posixpath.normpath(posixpath.join(directory, unquote(url.path))))
-    if not pages or max(pages) - min(pages) >= 5000:
-        raise api.ConversionError('В повреждённом EPUB отсутствует порядок чтения. Его нельзя надёжно восстановить.')
+                    image = posixpath.normpath(posixpath.join(directory, unquote(url.path)))
+                    referenced_images.add(image)
+                    if (not reading_order and kind == 'leaf' and
+                            image == prefix + 'images/cover-image.jpg'):
+                        cover = image
+        reading_order.append(name)
+    if not (pages or parts) or (pages and max(pages) - min(pages) >= 5000):
+        raise api.ConversionError(no_order)
+    mixed = bool(parts) or prefix + 'intro.html' in reading_order
+    if mixed and list(pages) != sorted(pages):
+        # The writer numbers the scan leaves globally, even when the printed
+        # page numbers inside the text start again at the next volume.
+        raise api.ConversionError(no_order)
 
     title = metadata.get('title') or metadata['source_name']
     package = api.element(api.OP, 'package', version='3.0', **{'unique-identifier': 'recovered-id'})
@@ -297,24 +315,29 @@ def rebuild_scanned_package(api, archive, package_name, warnings, metadata):
     extra_images = []
     for name in sorted(archive.namelist()):
         if name.startswith(prefix) and (mime := MEDIA.get(posixpath.splitext(name)[1].lower())):
-            add(name, mime)
+            attributes = {'properties': 'cover-image'} if name == cover else {}
+            add(name, mime, **attributes)
             if mime.startswith('image/') and name not in referenced_images:
                 extra_images.append(name)
 
     missing = []
-    for number in range(min(pages), max(pages) + 1):
-        if number in pages:
-            name = pages[number]
-        else:
-            missing.append(number)
-            basename = f'leaf{number:04}.html'
-            name = prefix + basename
-            page = api.element(api.XH, 'html')
-            head, body = api.element(api.XH, 'head'), api.element(api.XH, 'body')
-            head.append(api.element(api.XH, 'title', 'Утраченная страница'))
-            body.append(api.element(api.XH, 'p', f'[Исходная страница {basename} отсутствует.]'))
-            page.extend((head, body))
-            archive.writestr(name, api.serialized(page))
+    if not mixed:
+        reading_order = []
+        for number in range(min(pages), max(pages) + 1):
+            if number in pages:
+                name = pages[number]
+            else:
+                missing.append(number)
+                basename = f'leaf{number:04}.html'
+                name = prefix + basename
+                page = api.element(api.XH, 'html')
+                head, body = api.element(api.XH, 'head'), api.element(api.XH, 'body')
+                head.append(api.element(api.XH, 'title', 'Утраченная страница'))
+                body.append(api.element(api.XH, 'p', f'[Исходная страница {basename} отсутствует.]'))
+                page.extend((head, body))
+                archive.writestr(name, api.serialized(page))
+            reading_order.append(name)
+    for name in reading_order:
         identity = add(name, 'application/xhtml+xml')
         spine.append(api.element(api.OP, 'itemref', idref=identity))
 
@@ -339,7 +362,9 @@ def rebuild_scanned_package(api, archive, package_name, warnings, metadata):
     section = api.element(api.XH, 'nav', **{'{' + api.EP + '}type': 'toc'})
     listing = api.element(api.XH, 'ol')
     entry = api.element(api.XH, 'li')
-    entry.append(api.element(api.XH, 'a', title, href=quote(posixpath.basename(pages[min(pages)]))))
+    entry.append(api.element(api.XH, 'a', title,
+                             href=quote(posixpath.relpath(reading_order[0], directory or '.')),
+                             **{api.EPUB_START_ONLY: '1'}))
     listing.append(entry)
     section.append(listing)
     body.append(section)
@@ -348,7 +373,11 @@ def rebuild_scanned_package(api, archive, package_name, warnings, metadata):
     add(name, 'application/xhtml+xml', properties='nav')
     archive.writestr(name, api.serialized(nav))
     archive.writestr(package_name, api.serialized(package))
-    warnings.add('Архив EPUB повреждён. Исходные метаданные и оглавление утрачены. Страницы расположены по номерам файлов.')
+    if mixed:
+        warnings.add('Архив EPUB повреждён. Исходные метаданные, оглавление и порядок чтения утрачены. '
+                     'Доступные файлы текста и сканов расположены в порядке записей архива.')
+    else:
+        warnings.add('Архив EPUB повреждён. Исходные метаданные и оглавление утрачены. Страницы расположены по номерам файлов.')
     if missing:
         examples = ', '.join(f'leaf{n:04}.html' for n in missing[:20])
         rest = f' и ещё {len(missing) - 20}' if len(missing) > 20 else ''
@@ -487,7 +516,7 @@ def recover(api, source, output, warnings, metadata, check=None):
         archive.close()
     if package not in names:
         with ZipFile(verified, 'a', compression=ZIP_DEFLATED) as archive:
-            rebuild_scanned_package(api, archive, package, warnings, metadata)
+            rebuild_scanned_package(api, archive, package, warnings, metadata, check)
     if additions or replacements:
         api.copy_epub_with_repaired_markup(verified, output, {}, check, additions=additions, replacements=replacements)
     else:

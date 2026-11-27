@@ -62,7 +62,7 @@ function ExtractReaderAdapter(const Archive, Job, ID: string): string;
 procedure MergePreparedReaderAdapter(const Job, ID, AdapterPath: string);
 function IsOfficialComponentURL(const ID, Version, URL, Platform: string; Secondary: Boolean): Boolean;
 function CombinePreparedProgramUpdates(const Jobs: TArray<string>;
-  const Tag, Platform, Job: string): string;
+  const Tag, Platform, Job: string; const CheckCanceled: TProc = nil): string;
 function PreparedComponentsNewer(const Job, AppPath: string): Boolean;
 function PreparedIncludesComponent(const Job, Component: string): Boolean;
 
@@ -1182,7 +1182,7 @@ begin
 end;
 
 function CombinePreparedProgramUpdates(const Jobs: TArray<string>;
-  const Tag, Platform, Job: string): string;
+  const Tag, Platform, Job: string; const CheckCanceled: TProc): string;
 var Manifest, Child, Entry, Part: TJSONObject; Bundle, List: TJSONArray;
   Files: TDictionary<string, TUpdateFile>; Info: TUpdateFile; JobName, Stage, Component, ReleaseTag: string;
   Zip: TZipFile; HasApplication, ApplicationUpdater: Boolean; Values: TUpdateFiles;
@@ -1199,6 +1199,7 @@ begin
   try
     for JobName in Jobs do
     begin
+      if Assigned(CheckCanceled) then CheckCanceled();
       AssertUpdatePath(JobName); Child := ReadJSON(ChildPath(JobName, 'manifest.json'));
       try
         ReleaseTag := Child.GetValue<string>('release');
@@ -1224,6 +1225,7 @@ begin
         Values := ManifestFiles(Child);
         for Info in Values do
         begin
+          if Assigned(CheckCanceled) then CheckCanceled();
           if not SameText(UpdateSHA256(ChildPath(JobName, 'payload/' + Info.Name)), Info.SHA256) then
             raise Exception.Create('Подготовленное обновление повреждено: ' + Info.Name);
           // A combined application update must launch with the helper from the
@@ -1251,7 +1253,11 @@ begin
     WriteJSON(ChildPath(Job, 'manifest.json'), Manifest);
     Zip.Open(ChildPath(Job, 'release.zip'), zmWrite);
     Zip.Add(ChildPath(Job, 'manifest.json'), UPDATE_MANIFEST);
-    for Info in Files.Values do Zip.Add(ChildPath(Stage, Info.Name), Info.Name);
+    for Info in Files.Values do
+    begin
+      if Assigned(CheckCanceled) then CheckCanceled();
+      Zip.Add(ChildPath(Stage, Info.Name), Info.Name);
+    end;
     Zip.Close;
     Result := UpdateSHA256(ChildPath(Job, 'release.zip'));
   finally Zip.Free; Files.Free; Manifest.Free; end;

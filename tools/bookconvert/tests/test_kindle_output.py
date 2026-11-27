@@ -29,6 +29,29 @@ reader = load('kindle_reflow_test_adapter', ROOT.parent / 'kindle' / 'convert_kf
 
 
 class KindleOutputTests(unittest.TestCase):
+    def test_unreadable_font_slots_do_not_shift_later_kindle_resources(self):
+        def process_font(index, files, names, sections, data, obfuscation, start, pointer):
+            if data == b'FONT-valid':
+                names.append('embedded.ttf')
+            return names, obfuscation, pointer
+
+        def unpack(source, work, *, epubver, use_hd):
+            self.assertTrue(use_hd)
+            names = ['before.jpg']
+            for index, data in enumerate((b'FONT', b'FONT-short', b'FONT-valid'), start=20):
+                module.processFONT(index, None, names, None, data, [], 19, 0)
+            names.append('after.jpg')
+            self.assertEqual(names, ['before.jpg', None, None, 'embedded.ttf', 'after.jpg'])
+            references = legacy_input.Mobi7ImageRecords(names)
+            self.assertEqual(references[4], 'after.jpg')
+            self.assertEqual(references[1], 'homelibre-missing-mobi-image-2.img')
+
+        module = SimpleNamespace(processFONT=process_font, unpackBook=unpack)
+        self.assertEqual(reader.unpack_preserving_resource_slots(module, 'book.mobi', 'work', epubver='3'), [21])
+        self.assertIs(module.processFONT, process_font)
+        note = 'Не перенесены встроенные шрифты Kindle. Повреждённые записи: 21.'
+        self.assertEqual(c.damaged_content_warnings([note]), [note])
+
     def test_legacy_mobi_reads_only_identifiers_present_in_the_source_header(self):
         record = bytearray(248)
         record[16:20] = b'MOBI'
@@ -314,16 +337,76 @@ class KindleOutputTests(unittest.TestCase):
                     self.assertIn(cover, archive.namelist())
                 self.assertEqual(hashlib.sha256(source.read_bytes()).digest(), source_hash)
 
-    def test_jpeg_record_padding_preserves_codestream_and_unknown_tails(self):
-        for length in (1, 2, 3):
-            image = b'\xff\xd8\xff' + b'x' * (7 - length) + b'\xff\xd9'
-            padded = image + b'\0' * length
-            self.assertEqual(len(padded) % 4, 0)
-            self.assertEqual(k.jpeg_without_record_padding(padded), image)
-            self.assertEqual(k.jpeg_without_record_padding(image), image)
-        for data in (b'\xff\xd8\xffbroken!!!', b'not-jpeg\xff\xd9\0\0',
-                     b'\xff\xd8\xffphoto!\xff\xd9X', b'\xff\xd8\xffabc\xff\xd9\0\0\0\0'):
-            self.assertEqual(k.jpeg_without_record_padding(data), data)
+    def test_jpeg_padding_preserves_encoded_image_and_app_thumbnail(self):
+        jpeg = (ROOT.parent/'ui/tests/fixtures/reconstruct-original.jpg').read_bytes()
+        thumbnail = b'JFXX\0\x10'+jpeg
+        app_segment = b'\xff\xe0'+struct.pack('>H', len(thumbnail)+2)+thumbnail
+        image = jpeg[:2]+app_segment+jpeg[2:]
+        for length in (0, 1, 2, 3, 17, 512):
+            with self.subTest(length=length):
+                warnings = set()
+                padded = image+b'\0'*length
+                self.assertEqual(k.prepare_jpeg_for_kindling(c, padded, 'picture.jpg', warnings), image)
+                self.assertFalse(warnings)
+        warnings = set()
+        multi_image = image+b'\0'*2+jpeg
+        self.assertEqual(k.prepare_jpeg_for_kindling(c, multi_image+b'\0'*17, 'picture.jpg', warnings), multi_image)
+        self.assertFalse(warnings)
+        for data in (image[:-2]+b'\0'*17, b'not-jpeg\xff\xd9\0\0'):
+            self.assertEqual(k.prepare_jpeg_for_kindling(c, data, 'picture.jpg', set()), data)
+
+    def test_kindle_private_copy_reports_loss_of_data_after_jpeg(self):
+        jpeg = (ROOT.parent/'ui/tests/fixtures/reconstruct-original.jpg').read_bytes()
+        trailing = b'extra resource\xff\xd9 trailer'
+        source = self.root/'jpeg-extra.epub'
+        output = self.root/'kindle-jpeg.epub'
+        with zipfile.ZipFile(self.source) as archive:
+            entries = {name:archive.read(name) for name in archive.namelist()}
+        entries['OPS/image.png'] = jpeg+trailing
+        with zipfile.ZipFile(source, 'x') as archive:
+            for name, data in entries.items():
+                archive.writestr(name, data)
+        before = source.read_bytes()
+        warnings = set()
+        k.canonical_input(c, source, output, warnings)
+        with zipfile.ZipFile(output) as archive:
+            self.assertEqual(archive.read('OPS/image.png'), jpeg)
+            item = next(node for node in c.xml(archive.read('OPS/package.opf')).iter()
+                        if node.get('href')=='image.png')
+            self.assertEqual(item.get('media-type'), 'image/jpeg')
+        changes = c.damaged_content_warnings(warnings)
+        self.assertEqual(len(changes), 1)
+        self.assertIn('OPS/image.png', changes[0])
+        self.assertIn(f'{len(trailing)} байт', changes[0])
+        self.assertEqual(source.read_bytes(), before)
+        self.assertEqual(k.prepare_jpeg_for_kindling(c, jpeg+trailing, 'picture.jpg', None), jpeg+trailing)
+
+    def test_updated_kindle_module_keeps_consent_with_older_book_processing(self):
+        jpeg = (ROOT.parent/'ui/tests/fixtures/reconstruct-original.jpg').read_bytes()
+        older = SimpleNamespace(ComponentRequired=c.ComponentRequired)
+        warnings = set()
+        self.assertEqual(k.prepare_jpeg_for_kindling(older, jpeg+b'\0'*17, 'picture.jpg', warnings), jpeg)
+        self.assertFalse(warnings)
+        with self.assertRaises(c.ComponentRequired) as requested:
+            k.prepare_jpeg_for_kindling(older, jpeg+b'optional payload', 'picture.jpg', warnings)
+        self.assertEqual(requested.exception.component, 'BookProcessing')
+
+    def test_mobi_reencoding_reports_the_affected_images_and_dimensions(self):
+        diagnostics = ('images/first.jpg: over 128 KB, re-encoded at quality 35 instead of 85\r\n'
+                       'images/first.jpg: over 128 KB, re-encoded at quality 35 instead of 85\n'
+                       'images/second.jpg: over 128 KB, re-encoded at quality 25 instead of 85 and scaled down to 500x700\n'
+                       'Re-encoded 2 image(s) over 128 KB so the reader can decode them; originals kept in the HD container')
+        warnings = set()
+        k.record_mobi_image_losses(c, diagnostics, warnings)
+        partial = sorted(c.damaged_content_warnings(warnings))
+        self.assertEqual(len(partial), 2)
+        self.assertIn('images/first.jpg', partial[0])
+        self.assertIn('images/second.jpg', partial[1])
+        self.assertIn('500 × 700', partial[1])
+        older = SimpleNamespace(ComponentRequired=c.ComponentRequired)
+        with self.assertRaises(c.ComponentRequired) as requested:
+            k.record_mobi_image_losses(older, diagnostics, set())
+        self.assertEqual(requested.exception.component, 'BookProcessing')
 
     def test_rtf_empty_paragraphs_keep_valid_xhtml_and_single_line_breaks(self):
         source = self.root / 'empty-paragraphs.rtf'

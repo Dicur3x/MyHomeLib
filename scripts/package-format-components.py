@@ -177,7 +177,7 @@ def kfx_writer_payload(platform, source):
     payload[prefix + 'build-kfx-export.py'] = (REPO / 'scripts/build-kfx-export.py').read_bytes()
     payload[prefix + 'SOURCE.txt'] = (
         'Boko 0.6.0, GPL-3.0-or-later, with the accompanying navigation, linked-image and co-author fixes.\n'
-        'Navigation preserves destinations in image-only chapters.\n'
+        'Navigation preserves destinations in image-only chapters and at the beginning of EPUB chapters.\n'
         'HomeLibre modification date: 2026-11-27.\n'
         'https://github.com/zacharydenton/boko/tree/' + commit + '\n'
         'resvg 0.49.0, MIT or Apache-2.0.\n'

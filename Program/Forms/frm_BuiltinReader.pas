@@ -18,6 +18,7 @@ type
   TReaderPageLayout = (rplSingle, rplDouble, rplAutomatic, rplContinuous);
   TReaderPageTurn = (rptSpread, rptSliding);
   TReaderPageAppearance = (rpaFlat, rpaBook);
+  TReaderThemeColorField = (rtcBackground, rtcText, rtcProgress);
   TReaderInitialRasterScale = (rirFitWidth, rirOriginal, rirPrevious);
   TReaderNavigation = (rnPrevious, rnNext, rnNextAlternate, rnScrollUp, rnScrollDown,
     rnScreenUp, rnScreenDown, rnFirst, rnLast);
@@ -123,7 +124,8 @@ type
     FTextMatch, FTextMatchLength: Integer;
     FSearchBackward, FUpdatingSearch: Boolean;
     FChapters: TComboBox;
-    FContentsButton: TButton;
+    FContentsButton,FHideInterface: TButton;
+    FContentsRow: TPanel;
     FChapterOutline, FChapterSourceTitles: TStringList;
     FChapterDepths: TList<Integer>;
     FNumberChapters: Boolean;
@@ -189,7 +191,7 @@ type
     FHeadingColors: array[0..ReaderCustomThemeIndex,0..1] of TColor;
     FChangedHeadingColors: array[0..ReaderCustomThemeIndex] of set of 0..1;
     FThemeBackgrounds, FThemeTexts, FThemeProgress: array[0..ReaderCustomThemeIndex] of TColor;
-    FChangedThemeColors: set of 0..ReaderCustomThemeIndex;
+    FChangedThemeColors: array[0..ReaderCustomThemeIndex] of set of TReaderThemeColorField;
     FFootnotesPanel: TPanel;
     FFootnotesLabel: TLabel;
     FFootnotesMemo: TMemo;
@@ -217,6 +219,8 @@ type
     FPDFMatchPage, FPDFMatchIndex: Integer;
     FPDFRects: TArray<TRectF>;
     FImageWidth, FImageHeight, FIllustrationHeightPercent: Integer;
+    FTableBackground, FTableForeground: TColor;
+    FStyledTableCells: Boolean;
     FOnProgress: TProc<Integer>;
     FOnOpenNote: TProc<TReaderAnnotation>;
     FOnReadPastEnd: TProc;
@@ -761,15 +765,6 @@ begin
   inherited;
 end;
 
-type
-  // Own the immutable RTF string rather than copying it into another full buffer.
-  TReaderRTFStream = class(TCustomMemoryStream)
-  private FBytes: UTF8String;
-  public
-    constructor Create(const Bytes: UTF8String);
-    function Write(const Buffer; Count: Longint): Longint; override;
-  end;
-
 function ReaderColorContrast(Foreground, Background: TColor): Double;
   function Luminance(Value: TColor): Double;
     function Linear(Channel: Byte): Double;
@@ -837,15 +832,6 @@ begin
     end;
   end;
 end;
-
-constructor TReaderRTFStream.Create(const Bytes: UTF8String);
-begin
-  inherited Create; FBytes:=Bytes;
-  if FBytes<>'' then SetPointer(@FBytes[1],Length(FBytes)) else SetPointer(nil,0);
-end;
-
-function TReaderRTFStream.Write(const Buffer; Count: Longint): Longint;
-begin raise EStreamError.Create('Поток книги доступен только для чтения.'); end;
 
 procedure TReaderSurface.Paint;
 begin if Assigned(FReader) then FReader.PaintPage(Canvas); end;
@@ -1394,7 +1380,7 @@ procedure TfrmBuiltinReader.SearchResultsClick(Sender: TObject);
 begin ShowSearchResults(FSearch.Text); end;
 
 constructor TfrmBuiltinReader.Create(AOwner: TComponent);
-var SearchRow, NavigationRow, OptionsRow, ContentsRow: TPanel; Button: TButton; MenuItem: TMenuItem; I,J: Integer;
+var SearchRow, NavigationRow, OptionsRow: TPanel; Button: TButton; MenuItem: TMenuItem; I,J: Integer;
   procedure SearchButton(const Text: string; Width: Integer; Handler: TNotifyEvent);
   begin
     Button:=TReaderPaletteButton.Create(Self); Button.Parent:=SearchRow; Button.Align:=alRight;
@@ -1467,31 +1453,31 @@ begin
   FChapterPath:=TLabel.Create(Self); FChapterPath.Name:='ReaderChapterPath';
   FChapterPath.Caption:='';
   FChapterPath.Visible:=False;
-  FChapterPath.Parent:=FTop; FChapterPath.Align:=alBottom; FChapterPath.AutoSize:=False;
-  FChapterPath.Height:=22; FChapterPath.Margins.SetBounds(12,0,12,0); FChapterPath.AlignWithMargins:=True;
+  FChapterPath.Parent:=FTop; FChapterPath.AutoSize:=False;
   FChapterPath.Layout:=tlCenter; FChapterPath.EllipsisPosition:=epEndEllipsis;
   FChapterPath.Font.Name:='Segoe UI'; FChapterPath.Font.Size:=9; FChapterPath.ShowHint:=True;
   FChapterPath.Hint:='Текущая глава и её разделы';
-  ContentsRow:=TPanel.Create(Self); ContentsRow.Parent:=FTop; ContentsRow.Align:=alClient; ContentsRow.BevelOuter:=bvNone;
-  Button:=TReaderPaletteButton.Create(Self); Button.Parent:=ContentsRow; Button.Align:=alRight;
-  Button.Name:='ReaderHideInterface'; Button.Width:=132; Button.Caption:='Скрыть интерфейс';
-  TReaderPaletteButton(Button).Toolbar:=True;
-  Button.OnClick:=InterfaceClick; Button.TabStop:=False;
-  Button.Hint:='Скрыть меню и панели, сохранив размер окна'; Button.ShowHint:=True;
-  FFullScreenButton:=TReaderPaletteButton.Create(Self); FFullScreenButton.Parent:=ContentsRow;
-  FFullScreenButton.Align:=alRight; FFullScreenButton.Name:='ReaderFullScreen';
-  FFullScreenButton.Width:=36; FFullScreenButton.Caption:='На весь экран';
+  FContentsRow:=TPanel.Create(Self); FContentsRow.Name:='ReaderContentsRow';
+  FContentsRow.Parent:=FTop; FContentsRow.BevelOuter:=bvNone;
+  FHideInterface:=TReaderPaletteButton.Create(Self); FHideInterface.Parent:=FContentsRow;
+  FHideInterface.Name:='ReaderHideInterface'; FHideInterface.Caption:='Скрыть интерфейс';
+  TReaderPaletteButton(FHideInterface).Toolbar:=True;
+  FHideInterface.OnClick:=InterfaceClick; FHideInterface.TabStop:=False;
+  FHideInterface.Hint:='Скрыть меню и панели, сохранив размер окна'; FHideInterface.ShowHint:=True;
+  FFullScreenButton:=TReaderPaletteButton.Create(Self); FFullScreenButton.Parent:=FContentsRow;
+  FFullScreenButton.Name:='ReaderFullScreen';
+  FFullScreenButton.Caption:='На весь экран';
   TReaderPaletteButton(FFullScreenButton).Toolbar:=True;
   TReaderPaletteButton(FFullScreenButton).Icon:=rciFullScreen; TReaderPaletteButton(FFullScreenButton).IconOnly:=True;
   FFullScreenButton.OnClick:=FullScreenClick; FFullScreenButton.TabStop:=False;
   FFullScreenButton.Hint:='На весь экран / В окне (F11)'; FFullScreenButton.ShowHint:=True;
-  FContentsButton:=TReaderPaletteButton.Create(Self); FContentsButton.Parent:=ContentsRow; FContentsButton.Align:=alLeft;
-  FContentsButton.Name:='ReaderContents'; FContentsButton.Width:=36; FContentsButton.Caption:='Оглавление';
+  FContentsButton:=TReaderPaletteButton.Create(Self); FContentsButton.Parent:=FContentsRow;
+  FContentsButton.Name:='ReaderContents'; FContentsButton.Caption:='Оглавление';
   TReaderPaletteButton(FContentsButton).Toolbar:=True;
   TReaderPaletteButton(FContentsButton).Icon:=rciContents; TReaderPaletteButton(FContentsButton).IconOnly:=True; FContentsButton.Hint:='Оглавление (Ctrl+T)';
   FContentsButton.ShowHint:=True; FContentsButton.Visible:=False; FContentsButton.OnClick:=ContentsClick;
   FChapters:=TReaderChapterSelector.Create(Self); FChapters.Name:='ReaderChapterSelector';
-  TReaderChapterSelector(FChapters).OpenContents:=ContentsClick; FChapters.Parent:=ContentsRow; FChapters.Align:=alClient; FChapters.DropDownCount:=20;
+  TReaderChapterSelector(FChapters).OpenContents:=ContentsClick; FChapters.Parent:=FContentsRow; FChapters.DropDownCount:=20;
   FChapters.Visible:=False;
   FChapters.TextHint:='Содержание книги'; FChapters.Style:=csOwnerDrawFixed; FChapters.ItemHeight:=24; FChapters.OnDrawItem:=DrawChapterItem; FChapters.OnChange:=ChapterClick; FChapters.Hint:='Содержание книги'; FChapters.ShowHint:=True;
   FBottom:=TPanel.Create(Self); FBottom.Parent:=Self; FBottom.Align:=alBottom; FBottom.Height:=40; FBottom.BevelOuter:=bvNone;
@@ -1667,9 +1653,10 @@ begin
 end;
 
 procedure TfrmBuiltinReader.ArrangeToolbar(Sender: TObject);
-var X,Y,W,H,Gap,Padding,RowHeight,Extra,PreviousHeight,DPI: Integer;
+var X,Y,W,H,Gap,Padding,RowHeight,Extra,PreviousHeight,DPI,ContentsHeight,PathHeight,
+  NavigationWidth,ContentsWidth,HideWidth,ScreenWidth,ContentsY,ContentsRight: Integer;
 begin
-  if FArrangingToolbar or not Assigned(FToolbarItems) or not Assigned(FButtons) or not Assigned(FChapterPath) then Exit;
+  if FArrangingToolbar or not Assigned(FChapters) or not Assigned(FToolbarItems) then Exit;
   FArrangingToolbar:=True; PreviousHeight:=FTop.Height;
   // CurrentPPI reports the physical monitor even during explicit VCL scaling.
   // Match the controls/font scale, as the note editor does for its layout.
@@ -1692,7 +1679,32 @@ begin
         Item.SetBounds(X,Y+(RowHeight-H) div 2,W,H); Inc(X,W+Gap);
       end;
       FButtons.Height:=Y+RowHeight+Gap;
-      FTop.Height:=FButtons.Height+MulDiv(34,DPI,96)+FChapterPath.Height*Ord(FChapterPath.Visible);
+      // Give navigation its own bounds. When the chapter label appears, VCL
+      // can place the client-aligned row inside the old (shorter) toolbar.
+      NavigationWidth:=FTop.ClientWidth;
+      HideWidth:=MulDiv(132,DPI,96);
+      ScreenWidth:=MulDiv(36,DPI,96);
+      ContentsWidth:=MulDiv(36,DPI,96);
+      if not FChapters.Visible then ContentsWidth:=MulDiv(164,DPI,96);
+      ContentsRight:=Max(0,NavigationWidth-HideWidth-ScreenWidth);
+      ContentsY:=0;
+      ContentsHeight:=Max(RowHeight,FChapters.Height);
+      if FContentsButton.Visible and (ContentsRight<ContentsWidth+MulDiv(84,DPI,96)*Ord(FChapters.Visible)) then
+      begin
+        ContentsY:=RowHeight;
+        ContentsRight:=NavigationWidth;
+      end;
+      FHideInterface.SetBounds(Max(0,NavigationWidth-HideWidth),0,HideWidth,RowHeight);
+      FFullScreenButton.SetBounds(Max(0,NavigationWidth-HideWidth-ScreenWidth),0,ScreenWidth,RowHeight);
+      FContentsButton.SetBounds(0,ContentsY,ContentsWidth,RowHeight);
+      FChapters.SetBounds(ContentsWidth,ContentsY+(ContentsHeight-FChapters.Height) div 2,
+        Max(0,ContentsRight-ContentsWidth),FChapters.Height);
+      Inc(ContentsHeight,ContentsY);
+      PathHeight:=MulDiv(22,DPI,96)*Ord(FChapterPath.Visible);
+      FTop.Height:=FButtons.Height+ContentsHeight+PathHeight;
+      FContentsRow.SetBounds(0,FButtons.Height,NavigationWidth,ContentsHeight);
+      FChapterPath.SetBounds(Padding,FContentsRow.Top+ContentsHeight,
+        Max(0,NavigationWidth-2*Padding),PathHeight);
     finally FButtons.EnableAlign; end;
   finally FArrangingToolbar:=False; end;
   if (FTop.Height<>PreviousHeight) and Assigned(FResizeTimer) and FReady then
@@ -1898,11 +1910,13 @@ begin
   FLoader.Document.ReleasePlainText;
   LoadPresentation(FLoader.Document);
   FDocument.Free; FDocument:=FLoader.Document; FLoader.Document:=nil;
-  if SameText(ExtractFileExt(FFileName),'.epub') then
-    for var Warning in FDocument.Warnings do
-      if Warning.StartsWith(ReaderEpubTruncatedChapterWarning) or Warning.StartsWith(ReaderEpubDanglingTagWarning) or
-        Warning.StartsWith(ReaderEpubMissingBodyWarning) or Warning.StartsWith(ReaderEpubUnreadableStyleWarning) then
-      begin FSourceWarning:=Warning; Break; end;
+  var IsEpub:=SameText(ExtractFileExt(FFileName),'.epub');
+  for var Warning in FDocument.Warnings do
+    if Warning.StartsWith(ReaderWordPageOverlayWarning) or
+      (IsEpub and (Warning.StartsWith(ReaderEpubTruncatedChapterWarning) or
+        Warning.StartsWith(ReaderEpubDanglingTagWarning) or Warning.StartsWith(ReaderEpubMissingBodyWarning) or
+        Warning.StartsWith(ReaderEpubUnreadableStyleWarning))) then
+    begin FSourceWarning:=Warning; Break; end;
   UpdateFootnotesPanel;
   FLength:=ReaderTextLength(FRichEdit);
   if ChangingEncoding then
@@ -2138,12 +2152,19 @@ end;
 procedure TfrmBuiltinReader.LoadPresentation(Document: TReaderDocument);
 var Stream: TReaderRTFStream; Edit: TRichEdit; Callback: IInterface;
   Width, Height, ExpectedPictures: Integer; Positions: TArray<Integer>;
+  Background, Foreground: TColor; UseBookFormatting: Boolean;
 begin
   Width:=Max(16,TextAreaWidth-16); Height:=IllustrationHeight;
   // Keep the current page if decoding succeeds but native layout rejects the new text.
   ExpectedPictures:=Document.ImageCount;
   Edit:=nil;
-  Stream:=TReaderRTFStream.Create(Document.RTF(Width,Height,True,ThemeBackground));
+  Background:=ThemeBackground; Foreground:=ThemeText; UseBookFormatting:=FBookFormatting;
+  Stream:=TReaderRTFStream.Create(Document.RTF(Width,Height,True,Background,
+    function(Color: TColor): TColor
+    begin
+      if UseBookFormatting then Result:=ReadableReaderColor(Color,Foreground)
+      else Result:=Background;
+    end));
   try
     if FReady then Edit:=CreateFormattingBuffer else Edit:=FRichEdit;
     for var Attempt:=1 to 2 do
@@ -2175,6 +2196,7 @@ begin
     begin FRichEdit.Free; FRichEdit:=Edit; end;
     FOleCallback:=Callback;
     FImageWidth:=Width; FImageHeight:=Height;
+    FTableBackground:=Background; FTableForeground:=Foreground; FStyledTableCells:=UseBookFormatting;
     FTypographyDirty:=True; FLoadedPictures:=nil; FPicturePositions:=Positions;
     Inc(FPresentationLoads);
   finally
@@ -2568,6 +2590,8 @@ begin
   if not Assigned(Target) then Target:=FBitmap;
   if LayoutWidth<=0 then LayoutWidth:=Target.Width;
   if LayoutHeight<=0 then LayoutHeight:=Target.Height;
+  if not ContinuousReading and Assigned(FDocument) and (Start<FDocument.OpeningCoverEnd) and
+    ((Finish<0) or (Finish>FDocument.OpeningCoverEnd)) then Finish:=FDocument.OpeningCoverEnd;
   Limit:=Finish;
   if Limit<0 then Limit:=Min(FLength,Start+4096);
   repeat
@@ -3323,7 +3347,11 @@ begin
   FPrefetchedForPage:=-1;
   if not Assigned(FPDF) then
   begin
-    if Assigned(FDocument) and ((FDocument.ImageCount>0) or FDocument.HasTables) and
+    if Assigned(FDocument) and FDocument.HasCellBackgrounds and
+      ((FStyledTableCells<>FBookFormatting) or (FTableForeground<>ThemeText) or
+       ((not FBookFormatting) and (FTableBackground<>ThemeBackground))) then
+      LoadPresentation(FDocument)
+    else if Assigned(FDocument) and ((FDocument.ImageCount>0) or FDocument.HasTables) and
       ((FImageWidth<>Max(16,TextAreaWidth-16)) or
        (FImageHeight<>IllustrationHeight)) then ResizePicturePresentation;
     if FTypographyDirty then
@@ -3335,6 +3363,7 @@ begin
     FPages.Clear; FPages.Add(Position); FPage:=0;
   end;
   RenderPage;
+  if FRequestedTextPage>0 then GoToTextPage(FRequestedTextPage);
 end;
 
 procedure TfrmBuiltinReader.NotifyReadPastEnd;
@@ -3993,9 +4022,16 @@ begin
   Background:=NormalizeReaderThemeColor(Background);
   Foreground:=NormalizeReaderThemeColor(Foreground);
   if (FThemeBackgrounds[FTheme]=Background) and (FThemeTexts[FTheme]=Foreground) then Exit;
-  FThemeBackgrounds[FTheme]:=Background;
-  FThemeTexts[FTheme]:=Foreground;
-  Include(FChangedThemeColors,FTheme);
+  if FThemeBackgrounds[FTheme]<>Background then
+  begin
+    FThemeBackgrounds[FTheme]:=Background;
+    Include(FChangedThemeColors[FTheme],rtcBackground);
+  end;
+  if FThemeTexts[FTheme]<>Foreground then
+  begin
+    FThemeTexts[FTheme]:=Foreground;
+    Include(FChangedThemeColors[FTheme],rtcText);
+  end;
   FNight:=ThemeUsesNightColors;
   RefreshWindowTheme;
   FTypographyDirty:=True;
@@ -5689,7 +5725,7 @@ begin
       if FThemeProgress[FTheme]<>ProgressColor then
       begin
         FThemeProgress[FTheme]:=ProgressColor;
-        Include(FChangedThemeColors,FTheme);
+        Include(FChangedThemeColors[FTheme],rtcProgress);
         FProgressLine.Invalidate;
       end;
       HeadingsChanged:=UpdateHeadingColor(TitleBox.Selected,False);
@@ -6046,18 +6082,17 @@ begin
   TReaderPaletteButton(FContentsButton).IconOnly := FChapters.Visible;
   if FChapters.Visible then
   begin
-    FContentsButton.Width := ScaleValue(36);
     FContentsButton.Caption := 'Оглавление';
     FContentsButton.Hint := 'Оглавление (Ctrl+T)';
     TReaderPaletteButton(FContentsButton).Icon := rciContents;
   end
   else
   begin
-    FContentsButton.Width := ScaleValue(164);
     FContentsButton.Caption := 'Перейти к странице…';
     FContentsButton.Hint := 'Перейти к странице (Ctrl+T)';
     TReaderPaletteButton(FContentsButton).Icon := rciNone;
   end;
+  ArrangeToolbar(nil);
 end;
 
 procedure TfrmBuiltinReader.SetNumberChapters(Value: Boolean);
@@ -6200,9 +6235,8 @@ begin FSeekTimer.Enabled:=False; if FProgressDragging then SeekProgress(FProgres
 
 procedure TfrmBuiltinReader.ResetPagination;
 begin
-  CancelTextPageJump;
   FGlobalPages.Clear; FGlobalPages.Add(0); FGlobalPagesDone:=False; FGlobalPagesFailed:=False;
-  FPaginationTimer.Enabled:=False; FLastPageInteraction:=GetTickCount64;
+  FLastPageInteraction:=GetTickCount64;
 end;
 
 procedure TfrmBuiltinReader.RequestGlobalPages;
@@ -6692,12 +6726,15 @@ begin
     for I:=Low(FChangedHeadingColors) to High(FChangedHeadingColors) do
       for J in FChangedHeadingColors[I] do
         Ini.WriteInteger('Reader',Format('ThemeHeadingColor%d_%d',[I,J]),FHeadingColors[I,J]);
-    // Another open book may have edited a different theme in this profile.
-    for I in FChangedThemeColors do
+    // Another open book may have changed a different color of the same theme.
+    for I:=Low(FChangedThemeColors) to High(FChangedThemeColors) do
     begin
-      Ini.WriteInteger('Reader','ThemeBackground'+IntToStr(I),FThemeBackgrounds[I]);
-      Ini.WriteInteger('Reader','ThemeText'+IntToStr(I),FThemeTexts[I]);
-      Ini.WriteInteger('Reader','ThemeProgress'+IntToStr(I),FThemeProgress[I]);
+      if rtcBackground in FChangedThemeColors[I] then
+        Ini.WriteInteger('Reader','ThemeBackground'+IntToStr(I),FThemeBackgrounds[I]);
+      if rtcText in FChangedThemeColors[I] then
+        Ini.WriteInteger('Reader','ThemeText'+IntToStr(I),FThemeTexts[I]);
+      if rtcProgress in FChangedThemeColors[I] then
+        Ini.WriteInteger('Reader','ThemeProgress'+IntToStr(I),FThemeProgress[I]);
     end;
     Ini.WriteInteger('Reader','PageLayout',Ord(FPageLayout));
     Ini.WriteInteger('Reader','PageTurn',Ord(FPageTurn));
@@ -6739,7 +6776,7 @@ begin
       end;
     end;
     SaveMemIniFileAtomically(Ini);
-    FChangedThemeColors:=[];
+    for I:=Low(FChangedThemeColors) to High(FChangedThemeColors) do FChangedThemeColors[I]:=[];
     for I:=Low(FChangedHeadingColors) to High(FChangedHeadingColors) do FChangedHeadingColors[I]:=[];
     FInitialRasterScaleChanged:=False;
   finally Ini.Free; end;

@@ -2131,6 +2131,25 @@ begin
   end;
 end;
 
+type TGalleryTestImage=class(TImage);
+
+procedure CheckDarkGalleryImage(Image: TImage);
+var Snapshot: TBitmap; Bounds: TRect; Backing, Ink: TColor;
+begin
+  Require(Assigned(Image) and Image.Picture.Graphic.Transparent,'The gallery dropped the alpha channel');
+  Bounds:=TGalleryTestImage(Image).DestRect;
+  Bounds.Offset(Image.Left,Image.Top);
+  Snapshot:=TBitmap.Create;
+  try
+    Snapshot.SetSize(Image.Parent.ClientWidth,Image.Parent.ClientHeight);
+    Image.Parent.PaintTo(Snapshot.Canvas,0,0);
+    Backing:=ColorToRGB(Snapshot.Canvas.Pixels[Bounds.Left+Bounds.Width div 8,Bounds.Top+Bounds.Height div 8]);
+    Ink:=ColorToRGB(Snapshot.Canvas.Pixels[Bounds.CenterPoint.X,Bounds.CenterPoint.Y]);
+    Require((GetRValue(Backing)>128) and (GetRValue(Ink)<48),
+      Format('Dark-theme illustration is unreadable: background=%x ink=%x',[Backing,Ink]));
+  finally Snapshot.Free; end;
+end;
+
 procedure TestBookGallery;
 const
   WEBP = 'UklGRi4AAABXRUJQVlA4TCIAAAAvAUAAEBcwFEKChO7/vY6HgKDouuUC7A1KAgRAUUIi+h8D';
@@ -2151,6 +2170,49 @@ var Host: TForm; Panel: TInfoPanel; Gallery: TBookGallery; Calls: Integer;
       Bitmap.Canvas.FillRect(Rect(0, 0, W, H)); Png.Assign(Bitmap); Png.SaveToStream(Bytes);
       Result := TNetEncoding.Base64.EncodeBytesToString(Copy(Bytes.Bytes, 0, Integer(Bytes.Size)));
     finally Bytes.Free; Png.Free; Bitmap.Free; end;
+  end;
+
+  procedure WaitLoaded; forward;
+
+  procedure CheckTransparentArt;
+  var PNG: TPngImage; Bytes: TBytesStream; SavedDark: Boolean;
+  begin
+    PNG:=TPngImage.CreateBlank(COLOR_RGBALPHA,8,48,48);
+    Bytes:=TBytesStream.Create;
+    try
+      PNG.Canvas.Brush.Color:=clBlack;
+      PNG.Canvas.FillRect(Rect(0,0,48,48));
+      for var Y:=0 to 47 do FillChar(PNG.AlphaScanline[Y]^,48,0);
+      for var Y:=16 to 31 do FillChar(PByte(NativeUInt(PNG.AlphaScanline[Y])+16)^,16,255);
+      PNG.SaveToStream(Bytes);
+      BeforeSource:='<FictionBook><binary id="transparent.png">'+
+        TNetEncoding.Base64.EncodeBytesToString(Copy(Bytes.Bytes,0,Integer(Bytes.Size)))+'</binary></FictionBook>';
+    finally Bytes.Free; PNG.Free; end;
+    SavedDark:=MHLThemeDark;
+    SetMHLTheme(True);
+    try
+      Gallery.SetBook('transparent-art','.fb2',
+        function: TStream begin Result:=TBytesStream.Create(TEncoding.UTF8.GetBytes(BeforeSource)); end);
+      Gallery.Expanded:=True; WaitLoaded;
+      Require(Gallery.ImageCount=1,'Transparent art fixture did not load');
+      var Found:=False;
+      for var Component in Gallery do if Component is TImage then
+      begin CheckDarkGalleryImage(TImage(Component)); Found:=True; end;
+      Require(Found,'The thumbnail was not found');
+      TThread.ForceQueue(nil,
+        procedure
+        begin
+          var Preview:=Screen.ActiveForm;
+          try
+            var FoundImage:=False;
+            for var Component in Preview do if Component is TImage then
+            begin CheckDarkGalleryImage(TImage(Component)); FoundImage:=True; end;
+            Require(FoundImage,'The full illustration was not found');
+          finally Preview.ModalResult:=mrCancel; end;
+        end);
+      Gallery.OpenImage(0);
+      Writeln('PASS dark gallery thumbnails and full illustration preserve alpha and show dark ink');
+    finally SetMHLTheme(SavedDark); end;
   end;
 
   function VisualBook: string;
@@ -2273,6 +2335,7 @@ begin
       end);
     Gallery.OpenImage(1);
     Writeln('PASS illustration preview wheel and arrows work and resized window position persists');
+    CheckTransparentArt;
 
     SmallImage := PNGBytes(200, 300); LargeImage := PNGBytes(333, 500);
     for DuplicateCase := 0 to 2 do
@@ -4824,9 +4887,19 @@ begin
       '<body><section><p>Text</p></section></body></FictionBook>',TEncoding.UTF8);
     Book.FileName:='preview-missing'; Preview.Load(Book,True,True,True); WaitPreview;
     Require((Pos('В файле нет аннотации.',Panel.PreviewStatusText)>0) and
-      (Pos('Обложка в метаданных не задана.',Panel.PreviewStatusText)>0) and
+      (Pos('Предпросмотр первой страницы.',Panel.PreviewStatusText)>0) and
       (Pos('Название в метаданных повреждено',Panel.PreviewStatusText)>0),
-      'Missing metadata did not explain all three conditions');
+      'Missing metadata did not show a first-page preview: '+Panel.PreviewStatusText);
+    var FirstPageImage: TImage:=nil;
+    for I:=0 to Panel.ControlCount-1 do
+      if Panel.Controls[I] is TImage then FirstPageImage:=TImage(Panel.Controls[I]);
+    Require(Assigned(FirstPageImage) and (FirstPageImage.Picture.Graphic is TBitmap),
+      'First-page preview did not produce a bitmap');
+    var Ink:=0;
+    for var Y:=0 to 120 do
+      for var X:=0 to 120 do
+        if FirstPageImage.Picture.Bitmap.Canvas.Pixels[X,Y]=clBlack then Inc(Ink);
+    Require(Ink>0,'The first-page preview is blank');
     if TFile.Exists(Settings.AppPath+'preview-real.fb2') then
     begin
       OriginalHash:=THashSHA2.GetHashStringFromFile(Settings.AppPath+'preview-real.fb2');
@@ -4843,12 +4916,25 @@ begin
       else
       begin
         Require((Pos('В файле нет аннотации.',Panel.PreviewStatusText)>0) and
-          (Pos('Обложка в метаданных не задана.',Panel.PreviewStatusText)>0) and
+          ((Pos('Предпросмотр первой страницы.',Panel.PreviewStatusText)>0) or
+           (Pos('Обложка в метаданных не задана.',Panel.PreviewStatusText)>0)) and
           (Pos('Название в файле отличается от каталога: «ГЛАВА ЧЕТВЁРТАЯ»',Panel.PreviewStatusText)>0) and
           (Pos('Название в метаданных повреждено',Panel.PreviewStatusText)=0),'Real metadata warnings differ: '+Panel.PreviewStatusText);
         Writeln('PASS real Cosmos metadata explains missing annotation, cover and different title');
       end;
       Require(THashSHA2.GetHashStringFromFile(Settings.AppPath+'preview-real.fb2')=OriginalHash,'Real preview modified copy');
+    end;
+    if TFile.Exists(Settings.AppPath+'opening-page-real.fb2') then
+    begin
+      OriginalHash:=THashSHA2.GetHashStringFromFile(Settings.AppPath+'opening-page-real.fb2');
+      Book.FileName:='opening-page-real'; Book.Title:='Czarna Szabla';
+      Preview.Load(Book,True,False,False); WaitPreview;
+      Require(Assigned(FirstPageImage.Picture.Graphic) and
+        (Pos('Предпросмотр первой страницы.',Panel.PreviewStatusText)>0),
+        'The real FB2 opening page did not render: '+Panel.PreviewStatusText);
+      Require(THashSHA2.GetHashStringFromFile(Settings.AppPath+'opening-page-real.fb2')=OriginalHash,
+        'The real book opening page changed its source');
+      Writeln('PASS real Czarna Szabla opening page without a declared cover');
     end;
     Writeln('PASS missing metadata shows explicit explanations without replacing catalogue fields');
     Book.FileName:='preview-first'; Preview.Load(Book,True,True,True);
@@ -7003,7 +7089,7 @@ begin
         TestFirstBookList(True)
       else if ParamStr(1) = 'minimum-save' then TestMinimumBookSaving
       else if ParamStr(1) = 'kindle-save' then TestKindleBookSaving
-      else if ParamStr(1) = 'advanced-save' then TestAdvancedBookSaving
+      else if ParamStr(1) = 'advanced-save' then TestAdvancedBookSaving(ParamStr(2)='kindle')
       else if ParamStr(1) = 'known-copy-estimates' then TestArchivedKnownBookSaveEstimates
       else if ParamStr(1) = 'save-planning' then TestBookSavePlanning
       else if ParamStr(1) = 'save-continuation' then

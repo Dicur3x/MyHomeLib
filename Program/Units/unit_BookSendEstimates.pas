@@ -7,7 +7,7 @@ uses System.Classes, System.SysUtils, System.SyncObjs, unit_Globals,
 
 type
   TBookSaveEstimateItem = record
-    SourceExtension, TargetExtension, ErrorText, RequiredComponent: string;
+    SourceExtension, TargetExtension, ErrorText, PartialExportDetails, RequiredComponent: string;
     RequiredComponents: TArray<string>;
     Options: TBookImageQualityOptions;
     Completed, ImagesUnchanged, CatalogueSize: Boolean;
@@ -189,7 +189,7 @@ end;
 
 function TBookSendEstimateThread.Estimate(const Book: TBookRecord): TBookSaveEstimateItem;
 const Layouts: array[0..2] of string = ('keep','split','auto');
-var Prepared, Work, Candidate, Token, OutputProfile: string; Pin: TStream; Warnings: TStringList;
+var Prepared, Work, Candidate, Token, OutputProfile: string; Pin: TStream; Warnings, PartialNotices: TStringList;
   Captured: Boolean; Item: TBookSaveEstimateItem;
   IsCanceled: TFunc<Boolean>;
   function PackedBytes(Input: TStream): Int64;
@@ -210,7 +210,8 @@ var Prepared, Work, Candidate, Token, OutputProfile: string; Pin: TStream; Warni
     finally Input.Position:=Saved; Counter.Free; end;
   end;
 begin
-  Item:=Default(TBookSaveEstimateItem); Prepared:=''; Work:=''; Pin:=nil; Warnings:=nil; Captured:=False;
+  Item:=Default(TBookSaveEstimateItem); Prepared:=''; Work:=''; Pin:=nil;
+  Warnings:=nil; PartialNotices:=nil; Captured:=False;
   IsCanceled:=function: Boolean begin Result:=ShouldStop; end;
   OutputProfile:=BookSaveAdvancedProfile(FPlan.Mode);
   if DetailedDiagnosticLogging then
@@ -268,6 +269,7 @@ begin
             IsCanceled,Item.TargetExtension,OutputProfile);
           if Length(Missing)>0 then
             raise EMHLComponentRequired.Create(Missing,'Для оценки выбранной книги нужны дополнительные компоненты.');
+          PartialNotices:=TStringList.Create;
           var LayoutCount:=1;
           Item.Options.ScanPages:=BookSaveIsScanSource(Item.SourceExtension);
           if Item.Options.ScanPages then LayoutCount:=3;
@@ -283,10 +285,18 @@ begin
               IsCanceled,Book.Title,'',Book.Lang,False,
               procedure(Percent, Completed, Total: Integer; const Text: string)
               begin Stage(Format('Оценка %s · %s · %d%%',[UpperCase(Item.TargetExtension.TrimLeft(['.'])),ProfileName,Percent])); end,
-              Quality,nil,False,'',False,OutputProfile,False,FGrayscale,False,RecoverImage);
+              Quality,nil,False,'',False,OutputProfile,False,FGrayscale,False,RecoverImage,
+              function(Details: string): Boolean
+              begin
+                // This callback applies to the disposable measurement in Work.
+                for var Notice in Details.Split([sLineBreak],TStringSplitOptions.ExcludeEmpty) do
+                  if PartialNotices.IndexOf(Notice)<0 then PartialNotices.Add(Notice);
+                Result:=True;
+              end);
             Item.Options.OutputBytes[L,Q]:=TFile.GetSize(Candidate);
             TFile.Delete(Candidate);
           end;
+          Item.PartialExportDetails:=TrimRight(PartialNotices.Text);
           Captured:=True;
         end
         else if Item.TargetExtension='.txt' then
@@ -351,7 +361,7 @@ begin
         begin Item.ErrorText:=BookSaveErrorMessage(E); LogDiagnosticError('save-size-estimate',E,Item.SourceExtension); end;
     end;
   finally
-    Warnings.Free; Pin.Free;
+    PartialNotices.Free; Warnings.Free; Pin.Free;
     try
       if (Work<>'') and TPath.GetFullPath(Work).StartsWith(IncludeTrailingPathDelimiter(FTempRoot),True) and
         FileExists(TPath.Combine(Work,'owned-save-estimate.marker')) and

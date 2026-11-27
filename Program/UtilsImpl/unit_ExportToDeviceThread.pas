@@ -169,7 +169,7 @@ resourcestring
   rstrSaveDeviceHint = 'Подключите устройство и снова выберите папку или сохраните книгу на компьютере.';
   rstrExportFileFailed = 'Невозможно экспортировать файл «%s»' + CR + '%s' + CR + CR +
     'Обрабатывать оставшиеся файлы?';
-  rstrFilesProcessed = 'Записаны файлы: %u из %u';
+  rstrFilesProcessed = 'Обработано книг: %u из %u';
   rstrCompleted = 'Завершение операции...';
   rstrRememberChoise = 'Запомнить выбор?';
   rstrExportErrors = 'Во время экспорта возникли ошибки: не удалось экспортировать файлов — %d из %d.' + CR +

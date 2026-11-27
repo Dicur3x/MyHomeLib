@@ -1296,12 +1296,17 @@ class TextInputs(unittest.TestCase):
 
     def test_docx_floating_line_previews_keep_images_and_request_consent(self):
         source = self.root / 'floating-line-previews.docx'
-        identities = ('rIdHomeLibreFloatingLineGroup1', 'rIdHomeLibreLinePage2', 'rIdHomeLibreParagraphRuleStart3')
+        identities = ('rIdHomeLibreFloatingLineGroup1', 'rIdHomeLibreLinePage2',
+                      'rIdHomeLibreParagraphRuleStart3', 'rIdHomeLibreParagraphRuleOffset4')
         marker = 'homelibre-word-line-9470:30:86'
         pictures = ''.join(f'<w:p><w:r><w:drawing><a:blip r:embed="{identity}"/></w:drawing></w:r></w:p>'
                            for identity in identities[:2])
         pictures += (f'<w:p><w:r><w:drawing><wp:inline><wp:docPr descr="{marker}"/>'
                      f'<a:blip r:embed="{identities[2]}"/></wp:inline></w:drawing></w:r></w:p>')
+        offset_marker = 'homelibre-word-line-6489:30:0'
+        pictures += (f'<w:p><w:r><w:t>Абзац с привязкой</w:t><w:drawing><wp:anchor behindDoc="0">'
+                     f'<wp:docPr name="{identities[3]}" descr="{offset_marker}"/>'
+                     f'<a:blip r:embed="{identities[3]}"/></wp:anchor></w:drawing></w:r></w:p>')
         relationships = ''.join(f'<Relationship Id="{identity}" Target="media/lines.png"/>'
                                 for identity in identities)
         with zipfile.ZipFile(source, 'w') as package:
@@ -1322,13 +1327,16 @@ class TextInputs(unittest.TestCase):
                 self.assertTrue(any(message.startswith('Линии старого DOC') for message in warnings))
                 self.assertTrue(any(message.startswith('Страница схемы старого DOC') for message in warnings))
                 self.assertTrue(any(message.startswith('Разделители страниц DOC') for message in warnings))
+                self.assertTrue(any(message.startswith('Линия DOC сохранена после связанного абзаца')
+                                    for message in warnings))
                 if extension == '.epub':
                     with zipfile.ZipFile(output) as package:
                         document = c.xml(package.read('OEBPS/book.xhtml'))
                         images = document.findall('.//{*}img')
                         self.assertTrue(all(package.read('OEBPS/' + node.get('src')) == PNG for node in images))
                     self.assertEqual(images[0].get('class'), 'paragraph-rule')
-                    self.assertIn(marker, images[-1].get('class', '').split())
+                    self.assertIn(marker, images[-2].get('class', '').split())
+                    self.assertIn(offset_marker, images[-1].get('class', '').split())
                 else:
                     document = c.xml(output.read_bytes())
                     c.validate_fb2_output(document)
@@ -1336,9 +1344,10 @@ class TextInputs(unittest.TestCase):
                     [asset] = document.findall('./{*}binary')
                     self.assertEqual(base64.b64decode(asset.text), PNG)
                     self.assertTrue(any(node.get('name') == marker for node in document.iter(f'{{{c.FB}}}style')))
-                self.assertEqual(len(images), 3)
+                    self.assertTrue(any(node.get('name') == offset_marker for node in document.iter(f'{{{c.FB}}}style')))
+                self.assertEqual(len(images), 4)
                 self.assertEqual(''.join(c.first(document, 'body').itertext()),
-                                 'Текст перед линиямиТекст после линий')
+                                 'Текст перед линиямиАбзац с привязкойТекст после линий')
 
     def test_docx_preserves_deep_outline_levels_and_body_text_override(self):
         source = self.root / 'deep-outline.docx'
@@ -2203,6 +2212,48 @@ class TextInputs(unittest.TestCase):
                 self.assertTrue(all('width:24.2pt;height:24.2pt' in n.get('style', '') for n in spans))
                 self.assertTrue(any('text-align:center;background-color:#abc5e2' in n.get('style', '') for n in elements))
                 self.assertIn('BeforeAfter', ''.join(''.join(content.itertext()) for content in documents))
+
+    def test_docx_transparent_inline_rectangle_keeps_space_without_replacing_other_content(self):
+        source = self.root / 'transparent-rectangle.docx'
+        namespaces = ('xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" '
+                      'xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" '
+                      'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" '
+                      'xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape" '
+                      'xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" '
+                      'xmlns:v="urn:schemas-microsoft-com:vml"')
+        drawing = """<w:drawing><wp:inline><wp:extent cx="304800" cy="254000"/>
+          <wp:docPr id="1" name="Rectangle" descr="Original rectangle description"/>
+          <a:graphic><a:graphicData uri="http://schemas.microsoft.com/office/word/2010/wordprocessingShape">
+            <wps:wsp><wps:spPr><a:prstGeom prst="rect"/><a:noFill/><a:ln><a:noFill/></a:ln></wps:spPr></wps:wsp>
+          </a:graphicData></a:graphic></wp:inline></w:drawing>"""
+        fallback = '<w:pict><v:rect filled="f" stroked="f" style="width:24pt;height:20pt"/></w:pict>'
+        text_fallback = '<w:r><w:t>Fallback content</w:t></w:r>'
+        with zipfile.ZipFile(source, 'w') as archive:
+            archive.writestr('word/document.xml', f"""<w:document {namespaces}><w:body>
+              <w:p><w:r><w:t>Before</w:t><mc:AlternateContent><mc:Choice Requires="wps">{drawing}</mc:Choice>
+                <mc:Fallback>{fallback}</mc:Fallback></mc:AlternateContent><w:t>After</w:t></w:r></w:p>
+              <w:p><w:r>{drawing}</w:r></w:p>
+              <w:p><w:r><mc:AlternateContent><mc:Choice Requires="wps">{drawing}</mc:Choice>
+                <mc:Fallback>{text_fallback}</mc:Fallback></mc:AlternateContent></w:r></w:p>
+              <w:p><w:r>{drawing.replace('<a:ln><a:noFill/></a:ln>', '<a:ln><a:solidFill/></a:ln>')}</w:r></w:p>
+            </w:body></w:document>""")
+        epub = source.with_suffix('.epub')
+        result = c.convert_book(source, epub)
+        self.assertEqual(sum('Не перенесён объект DOCX' in message for message in result['warnings']), 1)
+        with zipfile.ZipFile(epub) as archive:
+            document = c.xml(archive.read('OEBPS/book.xhtml'))
+            self.assertFalse(any('/images/' in name for name in archive.namelist()))
+        spans = [n for n in document.iter() if n.get('class') == 'homelibre-word-space-480-400']
+        self.assertEqual(len(spans), 2)
+        self.assertTrue(all('width:24pt;height:20pt' in n.get('style', '') for n in spans))
+        self.assertTrue(all(n.get('title') == 'Original rectangle description' for n in spans))
+        self.assertEqual(spans[0].tail, 'After')
+        self.assertIn('Fallback content', ''.join(document.itertext()))
+        fb2 = source.with_suffix('.fb2')
+        c.convert_book(source, fb2)
+        document = c.xml(fb2.read_bytes())
+        c.validate_fb2_output(document)
+        self.assertEqual(sum(n.get('name') == 'homelibre-word-space-480-400' for n in document.iter()), 2)
 
     def test_docx_empty_wordart_is_not_missing_content(self):
         source = self.root/'wordart.docx'

@@ -60,6 +60,7 @@ type
     destructor Destroy; override;
     procedure Reload;
     procedure SetFavorite(const LastName, FirstName, MiddleName: string; Enabled: Boolean);
+    procedure CarryMergedAuthor(CollectionID: Integer; const Sources: TBookAuthors; const Target: TAuthorData);
     function RemoveFavorites(const AuthorKeys: TArray<string>): Boolean;
     procedure ImportFavorites(const Authors: TArray<TAuthorFavoriteEntry>;
       const Personal: TArray<TAuthorPersonalEntry> = nil; ReplacePersonal: Boolean = False);
@@ -745,6 +746,64 @@ begin
     except Database.Rollback; raise; end;
   finally Database.Free; Lock.Free; end;
   Reload;
+end;
+
+procedure TAuthorFavorites.CarryMergedAuthor(CollectionID: Integer; const Sources: TBookAuthors;
+  const Target: TAuthorData);
+var Database: TAFDatabase; Lock: TFileMutex; NewKey, Key, PreviousKey: string;
+  KeepFavorite, SeedBaseline: Boolean;
+begin
+  if not FileExists(FFileName) then Exit;
+  NewKey:=AuthorFavoriteKey(Target.LastName,Target.FirstName,Target.MiddleName);
+  KeepFavorite:=False;
+  PreviousKey:=NewKey;
+  for var Source in Sources do
+  begin
+    Key:=AuthorFavoriteKey(Source.LastName,Source.FirstName,Source.MiddleName);
+    if FKeys.ContainsKey(Key) then KeepFavorite:=True;
+    if Source.AuthorID=Target.AuthorID then PreviousKey:=Key;
+  end;
+  if not KeepFavorite and ((PreviousKey=NewKey) or not FPersonal.ContainsKey(PreviousKey)) then Exit;
+  Database:=OpenWriteProfile(FFileName,Lock);
+  try
+    Database.Execute('BEGIN IMMEDIATE');
+    try
+      if KeepFavorite then
+      begin
+        if (Database.Number('SELECT EXISTS(SELECT 1 FROM FavoriteAuthors WHERE AuthorKey=?)',[NewKey])=0) and
+          (Database.Number('SELECT COUNT(*) FROM FavoriteAuthors')>=AF_MAX_FAVORITES) then
+          raise EAuthorFavorites.Create('Достигнут предел списка любимых авторов.');
+        Database.Execute('INSERT OR IGNORE INTO FavoriteAuthors VALUES(?,?,?,?,?)',
+          [NewKey,Target.LastName,Target.FirstName,Target.MiddleName,UTCStamp]);
+        SeedBaseline:=Database.Number('SELECT EXISTS(SELECT 1 FROM CollectionAuthorState WHERE CID=? AND AuthorKey=? AND Baseline=1)',
+          [CollectionID,NewKey])<>0;
+        for var Source in Sources do
+        begin
+          Key:=AuthorFavoriteKey(Source.LastName,Source.FirstName,Source.MiddleName);
+          if Key=NewKey then Continue;
+          SeedBaseline:=SeedBaseline or (Database.Number(
+            'SELECT EXISTS(SELECT 1 FROM CollectionAuthorState WHERE CID=? AND AuthorKey=? AND Baseline=1)',
+            [CollectionID,Key])<>0);
+        end;
+        if SeedBaseline then
+        begin
+          Database.Execute('INSERT INTO CollectionAuthorState(CID,AuthorKey,Baseline) VALUES(?,?,1) ' +
+            'ON CONFLICT(CID,AuthorKey) DO UPDATE SET Baseline=1', [CollectionID,NewKey]);
+          for var Source in Sources do
+          begin
+            Key:=AuthorFavoriteKey(Source.LastName,Source.FirstName,Source.MiddleName);
+            if Key=NewKey then Continue;
+            Database.Execute('INSERT OR IGNORE INTO SeenBooks(CID,AuthorKey,BookKey) ' +
+              'SELECT CID,?,BookKey FROM SeenBooks WHERE CID=? AND AuthorKey=?', [NewKey,CollectionID,Key]);
+          end;
+        end;
+      end;
+      if PreviousKey<>NewKey then Database.Execute('INSERT OR IGNORE INTO PersonalAuthors ' +
+        'SELECT ?,?,?,?,Rating,Hidden,UpdatedUTC FROM PersonalAuthors WHERE AuthorKey=?',
+        [NewKey,Target.LastName,Target.FirstName,Target.MiddleName,PreviousKey]);
+      Database.Execute('COMMIT');
+    except Database.Rollback; raise; end;
+  finally Database.Free; Lock.Free; end;
 end;
 
 procedure TAuthorFavorites.ImportFavorites(const Authors: TArray<TAuthorFavoriteEntry>;

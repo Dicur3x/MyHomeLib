@@ -99,8 +99,10 @@ def main():
     sys.addaudithook(audit)
     kindle_root=Path(sys.argv[5]).resolve() if len(sys.argv)>5 else Path(__file__).resolve().parents[1]/'kindle'
     sys.path.insert(0,str(kindle_root))
-    from lib.kindleunpack import HTMLProcessor, unpackBook
+    from lib import kindleunpack
+    from convert_kf8 import unpack_preserving_resource_slots
 
+    HTMLProcessor = kindleunpack.HTMLProcessor
     insert_hrefs = HTMLProcessor.insertHREFS
     def insert_mobi7_hrefs(processor):
         names = processor.rscnames
@@ -113,9 +115,12 @@ def main():
     HTMLProcessor.insertHREFS = insert_mobi7_hrefs
     try:
         with contextlib.redirect_stdout(io.StringIO()):
-            unpackBook(str(source), str(work), epubver='3', use_hd=True)
+            incomplete_fonts = unpack_preserving_resource_slots(kindleunpack, source, work, epubver='3')
     finally:
         HTMLProcessor.insertHREFS = insert_hrefs
+    if incomplete_fonts:
+        records = ', '.join(map(str, incomplete_fonts))
+        compatibility_warnings.append(f'Не перенесены встроенные шрифты Kindle. Повреждённые записи: {records}.')
     files = [p for p in work.rglob('*') if p.is_file()]
     if len(files) > 20000 or sum(p.stat().st_size for p in files) > 256 * 1024 * 1024: raise ValueError('Kindle resources exceed conversion limits')
     epubs = [p for p in files if p.suffix.lower() == '.epub']

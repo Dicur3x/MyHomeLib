@@ -347,6 +347,7 @@ type
 
 
     procedure UpdateAuthor(Author : PAuthorData);
+    procedure MergeSelectedAuthors(const AuthorIDs: TArray<Integer>; const Target: TAuthorData);
     function InsertBook(BookRecord: TBookRecord; const CheckFileName: Boolean;
       const FullCheck: Boolean): Integer; overload;
     function InsertBook(BookRecord: TBookRecord; const CheckFileName: Boolean;
@@ -398,7 +399,7 @@ type
     procedure SetBookGenres(const BookID: Integer; const Genres: TBookGenres; Replace: Boolean);
 
     function FindOrCreateSeries(const Title: string): Integer;
-    procedure SetSeriesTitle(const SeriesID: Integer; const NewSeriesTitle: string);
+    procedure SetSeriesTitle(const SeriesID: Integer; const NewSeriesTitle: string; KeepPreviousTitle: Boolean = False);
     procedure ChangeBookSeriesID(const OldSeriesID: Integer; const NewSeriesID: Integer; const DatabaseID: Integer);
 
     function CollectionID: Integer;

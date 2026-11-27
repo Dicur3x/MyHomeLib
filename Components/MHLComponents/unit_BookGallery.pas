@@ -79,7 +79,7 @@ implementation
 
 uses
   Winapi.ActiveX, System.Zip, System.NetEncoding,
-  System.Math, System.Types, System.IniFiles, Xml.XMLDoc, Xml.XMLIntf, unit_FB2Utils;
+  System.Math, System.Types, System.IniFiles, Xml.XMLDoc, Xml.XMLIntf, unit_FB2Utils, unit_MHLTheme;
 
 const
   MaxImages = 256;
@@ -88,6 +88,13 @@ const
   MaxBookBytes = 128 * 1024 * 1024;
 
 type
+  TGalleryGraphicControl = class(TGraphicControl);
+
+  TGalleryImage = class(TImage)
+  protected
+    procedure Paint; override;
+  end;
+
   TGalleryPreview = class(TForm)
   private
     FGallery: TBookGallery;
@@ -387,6 +394,24 @@ begin
   UpdateLayout;
 end;
 
+procedure TGalleryImage.Paint;
+var Graphic: TGraphic; Surface: TCanvas; Paper: HBRUSH; Bounds: TRect;
+begin
+  Graphic:=Picture.Graphic;
+  if MHLThemeDark and Assigned(Graphic) and (Graphic.Transparent or
+    ((Graphic is TBitmap) and (TBitmap(Graphic).AlphaFormat<>afIgnored))) then
+  begin
+    // Use a neutral backing under transparent ink, only within the image.
+    // Keep Picture.Graphic intact for the full-sized view and source bytes.
+    Surface:=TGalleryGraphicControl(Self).Canvas;
+    Bounds:=DestRect;
+    Paper:=CreateSolidBrush(RGB(163,163,163));
+    try Winapi.Windows.FillRect(Surface.Handle,Bounds,Paper);
+    finally DeleteObject(Paper); end;
+  end;
+  inherited;
+end;
+
 procedure TBookGallery.WorkerFinished(Sender: TObject);
 var Loader: TGalleryLoader; Picture: TGalleryPicture; Image: TImage;
 begin
@@ -397,7 +422,7 @@ begin
   FLoaded := Loader.ErrorText = '';
   for Picture in Loader.Pictures do
   begin
-    Image := TImage.Create(Self);
+    Image := TGalleryImage.Create(Self);
     Image.Parent := FStrip;
     Image.Picture.Assign(Picture.Graphic);
     Image.Hint := Picture.Name;
@@ -543,7 +568,7 @@ begin
   FPosition.Align := alClient;
   FPosition.Alignment := taCenter;
   FPosition.Layout := tlCenter;
-  FImage := TImage.Create(Self);
+  FImage := TGalleryImage.Create(Self);
   FImage.Parent := Self;
   FImage.Align := alClient;
   FImage.Center := True;

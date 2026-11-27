@@ -31,7 +31,8 @@ type
 
 implementation
 
-uses Winapi.Windows, Winapi.ActiveX, Vcl.Graphics, FictionBook_21, unit_FB2Utils,
+uses Winapi.Windows, Winapi.ActiveX, Winapi.RichEdit, Vcl.Graphics, FictionBook_21, unit_FB2Utils,
+  System.StrUtils, System.Zip, unit_ReaderDocument, unit_ReaderRichEdit,
   unit_Interfaces, unit_ReaderCache, unit_Consts, System.Variants, dm_user,
   unit_BookMetadataCache, unit_PackageBookCover, unit_ReaderRaster, unit_ReaderPDFWorker,
   unit_XpsBookCover, unit_MHLExternalTools, unit_KindleBookCover, unit_KfxBookCover,
@@ -56,6 +57,126 @@ type
 
 destructor TPreviewThread.Destroy;
 begin Cover.Free; inherited; end;
+
+function RenderReflowOpeningPage(Source: TStream; const Extension: string; const Canceled: TFunc<Boolean>;
+  out Pixels: TBytes; out Width, Height: Integer): Boolean;
+const
+  PageWidth=380;
+  PageHeight=540;
+  Margin=22;
+  MaxSourceBytes=8*1024*1024;
+  MaxUnpackedBytes=32*1024*1024;
+var
+  Archive: TZipFile;
+  Unpacked: UInt64;
+  Deadline: UInt64;
+  Document: TReaderDocument;
+  LibraryHandle: HMODULE;
+  SystemDirectory: array[0..MAX_PATH] of Char;
+  EditWindow: HWND;
+  Callback: IInterface;
+  RTF: TReaderRTFStream;
+  DC: HDC;
+  Bitmap: HBITMAP;
+  Previous: HGDIOBJ;
+  View: Pointer;
+  Info: TBitmapInfo;
+  Range: TFormatRange;
+  EndPosition, DPI: Integer;
+  PicturePositions: TArray<Integer>;
+  PastDeadline: TFunc<Boolean>;
+
+begin
+  Result:=False;
+  if not (Source is TFileStream) or (Source.Size>MaxSourceBytes) then Exit;
+  if MatchText(Extension,['.epub','.fb3','.docx','.odt']) then
+  begin
+    Archive:=TZipFile.Create;
+    try
+      Archive.Open(TFileStream(Source).FileName,zmRead);
+      Unpacked:=0;
+      for var Index:=0 to Archive.FileCount-1 do
+      begin
+        if Canceled() then Abort;
+        var PartSize:=Archive.FileInfo[Index].UncompressedSize64;
+        if PartSize>MaxUnpackedBytes-Unpacked then Exit;
+        Inc(Unpacked,PartSize);
+      end;
+    finally Archive.Free; end;
+  end;
+
+  Deadline:=GetTickCount64+1800;
+  PastDeadline:=function: Boolean
+    begin Result:=Canceled() or (GetTickCount64>=Deadline); end;
+  Document:=TReaderDocument.Create;
+  LibraryHandle:=0; EditWindow:=0; DC:=0; Bitmap:=0; Previous:=0;
+  try
+    Document.Load(TFileStream(Source).FileName,PastDeadline);
+    if PastDeadline() then Abort;
+    if GetSystemDirectory(SystemDirectory,Length(SystemDirectory))=0 then RaiseLastOSError;
+    LibraryHandle:=LoadLibrary(PChar(IncludeTrailingPathDelimiter(SystemDirectory)+'Msftedit.dll'));
+    if LibraryHandle=0 then RaiseLastOSError;
+    EditWindow:=CreateWindowEx(0,'RICHEDIT50W',nil,WS_POPUP or ES_MULTILINE,0,0,PageWidth,PageHeight,0,0,0,nil);
+    if EditWindow=0 then RaiseLastOSError;
+    Callback:=AttachReaderPictures(EditWindow,False);
+    SendMessage(EditWindow,EM_SETUNDOLIMIT,0,0);
+    RTF:=TReaderRTFStream.Create(Document.RTF(PageWidth-2*Margin,PageHeight-3*Margin,True,clWhite));
+    try ReaderLoadRTF(EditWindow,RTF); finally RTF.Free; end;
+    if ReaderTextLength(EditWindow)=0 then Exit;
+
+    FillChar(Info,SizeOf(Info),0);
+    Info.bmiHeader.biSize:=SizeOf(Info.bmiHeader);
+    Info.bmiHeader.biWidth:=PageWidth;
+    Info.bmiHeader.biHeight:=-PageHeight;
+    Info.bmiHeader.biPlanes:=1;
+    Info.bmiHeader.biBitCount:=32;
+    DC:=CreateCompatibleDC(0);
+    if DC=0 then RaiseLastOSError;
+    Bitmap:=CreateDIBSection(DC,Info,DIB_RGB_COLORS,View,0,0);
+    if Bitmap=0 then RaiseLastOSError;
+    Previous:=SelectObject(DC,Bitmap);
+    if Previous=0 then RaiseLastOSError;
+    PatBlt(DC,0,0,PageWidth,PageHeight,WHITENESS);
+    DPI:=GetDeviceCaps(DC,LOGPIXELSY);
+    FillChar(Range,SizeOf(Range),0);
+    Range.hdc:=DC; Range.hdcTarget:=DC;
+    Range.rcPage:=Rect(0,0,MulDiv(PageWidth,1440,DPI),MulDiv(PageHeight,1440,DPI));
+    Range.rc:=Range.rcPage;
+    InflateRect(Range.rc,-MulDiv(Margin,1440,DPI),-MulDiv(Margin,1440,DPI));
+    Range.chrg.cpMax:=-1;
+    EndPosition:=SendMessage(EditWindow,EM_FORMATRANGE,0,LPARAM(@Range));
+    SendMessage(EditWindow,EM_FORMATRANGE,0,0);
+    if EndPosition<=0 then Exit;
+    PicturePositions:=ReaderPicturePositions(EditWindow);
+    for var Index:=0 to High(PicturePositions) do
+    begin
+      if PicturePositions[Index]>=EndPosition then Break;
+      if PastDeadline() then Abort;
+      RTF:=TReaderRTFStream.Create(UTF8String('{\rtf1\ansi ')+
+        Document.PictureRTF(Index,PageWidth-2*Margin,PageHeight-3*Margin,False,clWhite)+UTF8String('}'));
+      try ReaderReplaceRTFRange(EditWindow,RTF,PicturePositions[Index],1); finally RTF.Free; end;
+    end;
+    Range.chrg.cpMax:=EndPosition;
+    if PastDeadline() then Abort;
+    if SendMessage(EditWindow,EM_FORMATRANGE,1,LPARAM(@Range))<=0 then Exit;
+    GdiFlush;
+    SetLength(Pixels,PageWidth*PageHeight*4);
+    Move(View^,Pixels[0],Length(Pixels));
+    Width:=PageWidth; Height:=PageHeight; Result:=True;
+  finally
+    if Previous<>0 then SelectObject(DC,Previous);
+    if Bitmap<>0 then DeleteObject(Bitmap);
+    if DC<>0 then DeleteDC(DC);
+    if EditWindow<>0 then
+    begin
+      SendMessage(EditWindow,EM_FORMATRANGE,0,0);
+      DestroyWindow(EditWindow);
+    end;
+    Callback:=nil;
+    if LibraryHandle<>0 then FreeLibrary(LibraryHandle);
+    Document.Free;
+  end;
+end;
 
 procedure TPreviewThread.Execute;
 var Stream, ArchiveStream, PreviewLease: TStream; Corrected: TFileStream; Document: IXMLFictionBook; HR: HRESULT; NeedFileAnnotation: Boolean;
@@ -309,6 +430,23 @@ begin
         except
           on E:EAbort do Exit;
           on E:Exception do CoverStatus:='Предпросмотр первой страницы недоступен: '+E.Message;
+        end;
+      end;
+      if Terminated then Exit;
+      if LocalSource and NeedCover and not Assigned(Cover) and (Length(RasterPixels)=0) and
+        (RequiredCoverComponent='') and MatchText(PreviewExtension,
+          ['.fb2','.fb3','.epub','.txt','.html','.htm','.xhtml','.rtf','.docx','.odt']) then
+      begin
+        try
+          Stream:=OpenCoverSource;
+          try
+            if RenderReflowOpeningPage(Stream,PreviewExtension,function:Boolean begin Result:=Terminated; end,
+              RasterPixels,RasterWidth,RasterHeight) then PreviewKind:='Предпросмотр первой страницы.';
+          finally Stream.Free; end;
+        except
+          on E:EAbort do if Terminated then Exit;
+          on E:EMHLComponentRequired do if E.ComponentID='JPEG XL' then RequiredCoverComponent:=E.ComponentID;
+          on E:Exception do if CoverStatus='' then CoverStatus:='Предпросмотр первой страницы недоступен: '+E.Message;
         end;
       end;
       if Terminated then Exit;

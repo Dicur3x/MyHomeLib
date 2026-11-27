@@ -144,6 +144,7 @@ def main():
     p.add_argument('--kindle-real',type=Path,action='append',default=[])
     p.add_argument('--flibrary-archive',type=Path)
     p.add_argument('--comic-real',type=Path)
+    p.add_argument('--opening-page-book',type=Path,help='Read-only FB2 without a declared cover')
     p.add_argument('--modes',nargs='+',default=['package-covers','package-preview','book-preview','update-theme'])
     p.add_argument('--real',type=Path,action='append',default=[])
     p.add_argument('--real-document',type=Path,action='append',default=[])
@@ -158,6 +159,10 @@ def main():
         for n in ('uselocaldata','uselocaltemp'): (root/n).touch()
         (root/'native-regression.marker').write_text('HomeLib Ru isolated native regression v1',encoding='utf-8')
         count=fixtures(root/'cover-fixtures',a.official,a.modes);originals={}
+        if a.opening_page_book:
+            digest=hashlib.sha256(a.opening_page_book.read_bytes()).hexdigest()
+            originals[str(a.opening_page_book)]=digest
+            shutil.copy2(a.opening_page_book,root/'opening-page-real.fb2')
         if 'xps-preview' in a.modes:
             assert a.xps_dir, 'XPS preview needs its matching optional helper'
             namespace=runpy.run_path(str(Path(__file__).resolve().parents[2]/'bookconvert/tests/test_xps_input.py'))
@@ -199,7 +204,7 @@ def main():
             binary=base64.b64encode(kindle_image((176,48,32))).decode('ascii')
             (kroot/'sidecar.fbd').write_text('<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:l="http://www.w3.org/1999/xlink"><description><title-info><book-title>Sidecar</book-title><coverpage><image l:href="#cover"/></coverpage><lang>ru</lang></title-info></description><binary id="cover" content-type="image/png">'+binary+'</binary></FictionBook>',encoding='utf-8')
             ui.append(dict(ui[0],name='sidecar.mobi',color=[176,48,32]))
-            png=kindle_image();(kroot/'bad-image.mobi').write_bytes((kroot/'declared.mobi').read_bytes().replace(png,b'?'*len(png)))
+            cover_png=kindle_image();(kroot/'bad-image.mobi').write_bytes((kroot/'declared.mobi').read_bytes().replace(cover_png,b'?'*len(cover_png)))
             ui.append(dict(name='bad-image.mobi',cover=False))
             (kroot/'kindle-ui.json').write_text(json.dumps(ui),encoding='utf-8')
         cases=json.loads((root/'cover-fixtures/cases.json').read_text(encoding='utf-8'))

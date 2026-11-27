@@ -9,6 +9,8 @@ type
     ExpectedKnownSizes: TArray<Int64>;
     Destination, Failure, FolderMask: string;
     Deadline: UInt64;
+    PartialDecision: TModalResult;
+    PartialNotices: TArray<string>;
     SavedModal, SavedShow: TNotifyEvent;
     SavedClose: unit_Events.TProgressCloseEvent;
     Worker: TExportToDeviceThread;
@@ -252,6 +254,16 @@ begin
       end;
       if CancelOptions then Dialog.ModalResult:=mrCancel
       else TButton(Dialog.FindComponent('SendBooks')).Perform(BM_CLICK,0,0);
+      Exit;
+    end;
+    if (Dialog.Caption='Частичный экспорт') and (PartialDecision in [mrOk,mrCancel]) then
+    begin
+      for var Component in Dialog do if Component is TMemo then
+      begin
+        PartialNotices:=PartialNotices+[TMemo(Component).Text];
+        Break;
+      end;
+      Dialog.ModalResult:=PartialDecision;
       Exit;
     end;
     if string(Dialog.Caption).StartsWith('Качество изображений') then

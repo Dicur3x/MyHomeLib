@@ -2014,23 +2014,75 @@ internal static class DocVmlFigures
     {
         var height = (anchor.yaBottom - anchor.yaTop) * 635;
         var drawing = ImageDrawing(id, number, thickness, height, "");
+        var position = AnchorPictureToParagraph(drawing, anchor.xaLeft * 635 - thickness / 2,
+            anchor.yaTop * 635, anchor.fBelowText);
+        position.Element(WP + "docPr").SetAttributeValue("name", name);
+        return drawing;
+    }
+
+    private static XElement AnchorPictureToParagraph(XElement drawing, int left, int top, bool behindText)
+    {
         var position = drawing.Element(WP + "inline");
         position.Name = WP + "anchor";
         position.SetAttributeValue("simplePos", "0");
         position.SetAttributeValue("relativeHeight", "0");
-        position.SetAttributeValue("behindDoc", anchor.fBelowText ? "1" : "0");
+        position.SetAttributeValue("behindDoc", behindText ? "1" : "0");
         position.SetAttributeValue("locked", "0");
         position.SetAttributeValue("layoutInCell", "1");
         position.SetAttributeValue("allowOverlap", "1");
         position.AddFirst(
             new XElement(WP + "simplePos", new XAttribute("x", 0), new XAttribute("y", 0)),
             new XElement(WP + "positionH", new XAttribute("relativeFrom", "margin"),
-                new XElement(WP + "posOffset", anchor.xaLeft * 635 - thickness / 2)),
+                new XElement(WP + "posOffset", left)),
             new XElement(WP + "positionV", new XAttribute("relativeFrom", "paragraph"),
-                new XElement(WP + "posOffset", anchor.yaTop * 635)));
+                new XElement(WP + "posOffset", top)));
         position.Element(WP + "extent").AddAfterSelf(new XElement(WP + "wrapNone"));
-        position.Element(WP + "docPr").SetAttributeValue("name", name);
-        return drawing;
+        return position;
+    }
+
+    private static void AddOffsetHorizontalRules(ZipArchive archive, XElement body,
+        Dictionary<int, FileShapeAddress> anchors, XDocument relationships, HashSet<string> ids,
+        HashSet<string> drawingIds, Dictionary<string, byte[]> images)
+    {
+        var section = body.Element(W + "sectPr");
+        var ordinal = 0;
+        foreach (var paragraph in body.Elements(W + "p").Reverse())
+        {
+            if (ordinal >= MaxFigures) break;
+            var change = paragraph.Elements(W + "pPr").Elements(W + "sectPr").FirstOrDefault();
+            if (change != null) section = change;
+            var width = SectionWidth(section);
+            if (width <= 0 || !paragraph.Elements(W + "r").Elements(W + "t").Any(t => !String.IsNullOrWhiteSpace(t.Value)))
+                continue;
+            var margins = section.Element(W + "pgMar");
+            var pageHeight = WordTwips(section.Element(W + "pgSz"), "h", 0);
+            var bodyHeight = (long)pageHeight - Math.Max(0, WordTwips(margins, "top", 1440)) -
+                Math.Max(0, WordTwips(margins, "bottom", 1440));
+            if (pageHeight > 57600 || bodyHeight < 300) continue;
+            var pictures = paragraph.Elements(W + "r").Elements(W + "pict").Take(2).ToArray();
+            if (pictures.Length != 1 || paragraph.Elements(W + "r").Any(run => run.Element(W + "drawing") != null))
+                continue;
+            var line = ReadLine(pictures[0], MarginLineOrder);
+            if (line == null || line.Y != line.Bottom || line.Right - line.Left < 16 ||
+                line.Thickness < .1f || line.Thickness > 2.5f) continue;
+            var source = ReadLineAnchor(line, anchors, FileShapeAddress.AnchorType.margin, FileShapeAddress.AnchorType.text, false);
+            if (source == null || source.xaLeft < 0 || source.xaRight > Math.Min(width, 28800) ||
+                source.yaTop <= bodyHeight / 2 || source.yaTop >= pageHeight) continue;
+
+            // Keep the physical position in the DOCX. Reflowing readers place
+            // the strip after the same paragraph instead of inserting a large gap.
+            var height = Math.Max(30, (int)Math.Ceiling(line.Thickness * 20) + 15);
+            using (var bitmap = new Bitmap((source.xaRight + 14) / 15, (height + 14) / 15, PixelFormat.Format32bppArgb))
+            {
+                PaintAxisRule(bitmap, line.Left, line.Right, height / 40f, line.Thickness);
+                var marker = String.Format(CultureInfo.InvariantCulture, "homelibre-word-line-{0}:{1}:0", source.xaRight, height);
+                var drawing = RegisterRuleImage(archive, relationships, ids, drawingIds, images,
+                    "rIdHomeLibreParagraphRuleOffset", ref ordinal, bitmap, new Size(source.xaRight, height), marker);
+                AnchorPictureToParagraph(drawing, 0, source.yaTop * 635 - height * 635 / 2, false);
+                paragraph.Add(new XElement(W + "r", drawing));
+            }
+            line.Picture.Remove();
+        }
     }
 
     private static void AddVerticalMarginRules(ZipArchive archive, XElement body, Dictionary<int, FileShapeAddress> anchors,
@@ -2329,6 +2381,7 @@ internal static class DocVmlFigures
                 {
                     AddMarginRules(archive, body, anchors, relationships, ids, drawingIds, images);
                     AddVerticalMarginRules(archive, body, anchors, relationships, ids, drawingIds, images);
+                    AddOffsetHorizontalRules(archive, body, anchors, relationships, ids, drawingIds, images);
                     AddFloatingLineGroups(archive, body, anchors, relationships, ids, drawingIds, images);
                 }
                 if (compoundFigures) AddCompoundFigures(archive,body,normal,defaultRun,anchors,relationships,ids,drawingIds,images);

@@ -110,6 +110,8 @@ def main() -> int:
         raise AssertionError(f"Native merge series gate failed ({result.returncode}); log: {folder / 'native-output.log'}")
     if "PASS original-copy atomic guard" not in text:
         raise AssertionError("Atomic original provenance fixture did not complete")
+    if "PASS manual catalog names:" not in text:
+        raise AssertionError("Manual author and series merge fixture did not complete")
     passes = re.findall(r"PASS series delta policy=(\d+) scenario=(\d+) adds=(\d+)", text)
     expected = {(str(p), str(s), str(2 if s == 3 else 4)) for p in range(3) for s in range(4)}
     if set(passes) != expected or len(passes) != 12 or "PASS all twelve native merge series delta fixtures" not in text:

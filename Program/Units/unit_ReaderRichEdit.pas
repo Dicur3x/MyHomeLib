@@ -4,15 +4,29 @@ interface
 
 uses Winapi.Windows, System.Classes, Vcl.ComCtrls;
 
-procedure ReaderLoadRTF(Edit: TRichEdit; Stream: TStream);
-procedure ReaderReplaceRTFRange(Edit: TRichEdit; Stream: TStream; Start, Count: Integer);
+type
+  // Own the immutable RTF string rather than copying it into another full buffer.
+  TReaderRTFStream = class(TCustomMemoryStream)
+  private FBytes: UTF8String;
+  public
+    constructor Create(const Bytes: UTF8String);
+    function Write(const Buffer; Count: Longint): Longint; override;
+  end;
+
+procedure ReaderLoadRTF(Edit: TRichEdit; Stream: TStream); overload;
+procedure ReaderLoadRTF(Window: HWND; Stream: TStream); overload;
+procedure ReaderReplaceRTFRange(Edit: TRichEdit; Stream: TStream; Start, Count: Integer); overload;
+procedure ReaderReplaceRTFRange(Window: HWND; Stream: TStream; Start, Count: Integer); overload;
 procedure ReaderSaveRTFRange(Edit: TRichEdit; Stream: TStream; Start, Count: Integer);
 
-function AttachReaderPictures(Edit: TRichEdit; AllowMetafileSnapshots: Boolean = False): IInterface;
+function AttachReaderPictures(Edit: TRichEdit; AllowMetafileSnapshots: Boolean = False): IInterface; overload;
+function AttachReaderPictures(Window: HWND; AllowMetafileSnapshots: Boolean): IInterface; overload;
 function ReaderPictureCount(Edit: TRichEdit): Integer;
-function ReaderPicturePositions(Edit: TRichEdit): TArray<Integer>;
+function ReaderPicturePositions(Edit: TRichEdit): TArray<Integer>; overload;
+function ReaderPicturePositions(Window: HWND): TArray<Integer>; overload;
 function ReaderResizePicture(Edit: TRichEdit; Index, WidthTwips, HeightTwips: Integer): Boolean;
-function ReaderTextLength(Edit: TRichEdit): Integer;
+function ReaderTextLength(Edit: TRichEdit): Integer; overload;
+function ReaderTextLength(Window: HWND): Integer; overload;
 function ReaderTextRange(Edit: TRichEdit; Start, Count: Integer): string;
 function ReaderCharacterStart(Edit: TRichEdit; Position: Integer): Integer;
 function ReaderWordRange(Edit: TRichEdit; Position: Integer; out Start, Count: Integer): Boolean;
@@ -132,6 +146,15 @@ type
     Callback: TReaderStreamCallback;
   end;
 
+constructor TReaderRTFStream.Create(const Bytes: UTF8String);
+begin
+  inherited Create; FBytes:=Bytes;
+  if FBytes<>'' then SetPointer(@FBytes[1],Length(FBytes)) else SetPointer(nil,0);
+end;
+
+function TReaderRTFStream.Write(const Buffer; Count: Longint): Longint;
+begin raise EStreamError.Create('Поток книги доступен только для чтения.'); end;
+
 function ReaderStreamRead(Cookie: NativeUInt; Buffer: Pointer; Count: Longint;
   var Copied: Longint): DWORD; stdcall;
 begin
@@ -140,6 +163,11 @@ begin
 end;
 
 procedure ReaderLoadRTF(Edit: TRichEdit; Stream: TStream);
+begin
+  ReaderLoadRTF(Edit.Handle,Stream);
+end;
+
+procedure ReaderLoadRTF(Window: HWND; Stream: TStream);
 var Info: TReaderStreamInfo; LanguageOptions, CurrentOptions: LRESULT;
 begin
   FillChar(Info,SizeOf(Info),0); Info.Cookie:=NativeUInt(Stream); Info.Callback:=ReaderStreamRead;
@@ -147,48 +175,53 @@ begin
   // when Unicode RTF changes scripts (e.g. narrow NBSP and smileys), depending
   // on the initial font charset. Import the supplied text without that rewrite.
   // Restore only this flag, retaining other language options set by RichEdit.
-  LanguageOptions:=SendMessage(Edit.Handle,EM_GETLANGOPTIONS,0,0);
-  SendMessage(Edit.Handle,EM_SETLANGOPTIONS,0,LanguageOptions and not IMF_AUTOFONT);
+  LanguageOptions:=SendMessage(Window,EM_GETLANGOPTIONS,0,0);
+  SendMessage(Window,EM_SETLANGOPTIONS,0,LanguageOptions and not IMF_AUTOFONT);
   try
     // VCL string loading may guess a text encoding from raster bytes. Stream
     // binary RTF straight to RichEdit without any Unicode/ANSI conversion.
-    SendMessage(Edit.Handle,EM_STREAMIN,SF_RTF,LPARAM(@Info));
+    SendMessage(Window,EM_STREAMIN,SF_RTF,LPARAM(@Info));
   finally
-    CurrentOptions:=SendMessage(Edit.Handle,EM_GETLANGOPTIONS,0,0);
-    SendMessage(Edit.Handle,EM_SETLANGOPTIONS,0,
+    CurrentOptions:=SendMessage(Window,EM_GETLANGOPTIONS,0,0);
+    SendMessage(Window,EM_SETLANGOPTIONS,0,
       (CurrentOptions and not IMF_AUTOFONT) or (LanguageOptions and IMF_AUTOFONT));
   end;
   if Info.Error<>0 then raise EStreamError.Create('Не удалось загрузить текст и изображения книги.');
 end;
 
 procedure ReaderReplaceRTFRange(Edit: TRichEdit; Stream: TStream; Start, Count: Integer);
+begin
+  ReaderReplaceRTFRange(Edit.Handle,Stream,Start,Count);
+end;
+
+procedure ReaderReplaceRTFRange(Window: HWND; Stream: TStream; Start, Count: Integer);
 var Info: TReaderStreamInfo; Saved, Selected: TCharRange; Paragraph: TParaFormat2;
   Characters: TCharFormat2; PreviousLength, AfterLength: Integer;
 begin
-  PreviousLength:=ReaderTextLength(Edit);
-  SendMessage(Edit.Handle,EM_EXGETSEL,0,LPARAM(@Saved));
+  PreviousLength:=ReaderTextLength(Window);
+  SendMessage(Window,EM_EXGETSEL,0,LPARAM(@Saved));
   try
     Selected.cpMin:=Start; Selected.cpMax:=Start+Count;
-    SendMessage(Edit.Handle,EM_EXSETSEL,0,LPARAM(@Selected));
+    SendMessage(Window,EM_EXSETSEL,0,LPARAM(@Selected));
     FillChar(Paragraph,SizeOf(Paragraph),0); Paragraph.cbSize:=SizeOf(Paragraph);
-    SendMessage(Edit.Handle,EM_GETPARAFORMAT,0,LPARAM(@Paragraph));
+    SendMessage(Window,EM_GETPARAFORMAT,0,LPARAM(@Paragraph));
     FillChar(Characters,SizeOf(Characters),0); Characters.cbSize:=SizeOf(Characters);
-    SendMessage(Edit.Handle,EM_GETCHARFORMAT,SCF_SELECTION,LPARAM(@Characters));
+    SendMessage(Window,EM_GETCHARFORMAT,SCF_SELECTION,LPARAM(@Characters));
     FillChar(Info,SizeOf(Info),0); Info.Cookie:=NativeUInt(Stream); Info.Callback:=ReaderStreamRead;
-    SendMessage(Edit.Handle,EM_STREAMIN,SF_RTF or SFF_SELECTION,LPARAM(@Info));
+    SendMessage(Window,EM_STREAMIN,SF_RTF or SFF_SELECTION,LPARAM(@Info));
     if Info.Error<>0 then raise EStreamError.Create('Не удалось показать изображение страницы.');
-    AfterLength:=ReaderTextLength(Edit);
+    AfterLength:=ReaderTextLength(Window);
     if AfterLength<>PreviousLength then
       raise EStreamError.CreateFmt('Вставка изображения изменила длину текста: позиция %d, до %d, после %d.',
         [Start,PreviousLength,AfterLength]);
-    SendMessage(Edit.Handle,EM_EXSETSEL,0,LPARAM(@Selected));
-    SendMessage(Edit.Handle,EM_SETPARAFORMAT,0,LPARAM(@Paragraph));
-    SendMessage(Edit.Handle,EM_SETCHARFORMAT,SCF_SELECTION,LPARAM(@Characters));
+    SendMessage(Window,EM_EXSETSEL,0,LPARAM(@Selected));
+    SendMessage(Window,EM_SETPARAFORMAT,0,LPARAM(@Paragraph));
+    SendMessage(Window,EM_SETCHARFORMAT,SCF_SELECTION,LPARAM(@Characters));
   finally
     // This edit is a private read-only layout buffer. Undo must not retain
     // decoded pictures after they are replaced on leaving the page.
-    SendMessage(Edit.Handle,EM_EMPTYUNDOBUFFER,0,0);
-    SendMessage(Edit.Handle,EM_EXSETSEL,0,LPARAM(@Saved));
+    SendMessage(Window,EM_EMPTYUNDOBUFFER,0,0);
+    SendMessage(Window,EM_EXSETSEL,0,LPARAM(@Saved));
   end;
 end;
 
@@ -216,10 +249,15 @@ begin
 end;
 
 function AttachReaderPictures(Edit: TRichEdit; AllowMetafileSnapshots: Boolean): IInterface;
+begin
+  Result:=AttachReaderPictures(Edit.Handle,AllowMetafileSnapshots);
+end;
+
+function AttachReaderPictures(Window: HWND; AllowMetafileSnapshots: Boolean): IInterface;
 var Callback: IReaderOleCallback;
 begin
   Callback:=TReaderOleCallback.Create(AllowMetafileSnapshots);
-  if SendMessage(Edit.Handle,EM_SETOLECALLBACK,0,LPARAM(Pointer(Callback)))=0 then
+  if SendMessage(Window,EM_SETOLECALLBACK,0,LPARAM(Pointer(Callback)))=0 then
     raise Exception.Create('Не удалось включить изображения в читалке.');
   Result:=Callback;
 end;
@@ -235,20 +273,30 @@ end;
 
 
 function ReaderTextLength(Edit: TRichEdit): Integer;
+begin
+  Result:=ReaderTextLength(Edit.Handle);
+end;
+
+function ReaderTextLength(Window: HWND): Integer;
 type TNativeLength = record Flags, CodePage: Cardinal; end;
 var Info: TNativeLength;
 begin
   // Native positions use one CR per paragraph and UTF-16 code units.
   Info.Flags:=GTL_NUMCHARS or GTL_PRECISE; Info.CodePage:=1200;
-  Result:=SendMessage(Edit.Handle,EM_GETTEXTLENGTHEX,WPARAM(@Info),0);
+  Result:=SendMessage(Window,EM_GETTEXTLENGTHEX,WPARAM(@Info),0);
   if Result<0 then raise Exception.Create('Не удалось получить длину текста книги.');
 end;
 
 function ReaderPicturePositions(Edit: TRichEdit): TArray<Integer>;
+begin
+  Result:=ReaderPicturePositions(Edit.Handle);
+end;
+
+function ReaderPicturePositions(Window: HWND): TArray<Integer>;
 var Objects: IReaderOleObjects; Info: TReaderOleObjectInfo; Count, I: Integer;
 begin
   Objects:=nil;
-  if (SendMessage(Edit.Handle,EM_GETOLEINTERFACE,0,LPARAM(@Objects))=0) or
+  if (SendMessage(Window,EM_GETOLEINTERFACE,0,LPARAM(@Objects))=0) or
     (Objects=nil) then Exit(nil);
   Count:=Objects.GetObjectCount;
   if (Count<0) or (Count>262144) then raise EStreamError.Create('Слишком много изображений книги.');

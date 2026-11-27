@@ -79,6 +79,7 @@ uses
   unit_ReaderKindle in 'Units\unit_ReaderKindle.pas',
   unit_ReaderLegacy in 'Units\unit_ReaderLegacy.pas',
   unit_SeriesAliases in 'Units\unit_SeriesAliases.pas',
+  frm_CatalogNameMerge in 'Forms\frm_CatalogNameMerge.pas',
   unit_SeriesAliasMatching in 'Units\unit_SeriesAliasMatching.pas',
   unit_BookMetadataCache in 'Units\unit_BookMetadataCache.pas',
   unit_BookCache in 'Units\unit_BookCache.pas',

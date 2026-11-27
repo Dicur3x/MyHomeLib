@@ -73,6 +73,38 @@ begin
   Require(Form.Ready,'Reader not ready: '+Form.ReaderStatus.Caption);
 end;
 
+procedure AuditSharedReaderTheme;
+const Profile='shared-reader-theme.ini'; Background=$00F4FAFC; Foreground=$00332211;
+var First, Second: TfrmBuiltinReader; Ini: TMemIniFile;
+begin
+  First:=TfrmBuiltinReader.Create(nil);
+  Second:=TfrmBuiltinReader.Create(nil);
+  try
+    First.Show; First.OpenBook('sample.txt','Theme background','theme-background',Profile,'pdfium.dll'); WaitReady(First);
+    Second.Show; Second.OpenBook('sample.txt','Theme text','theme-text',Profile,'pdfium.dll'); WaitReady(Second);
+    First.SetTheme(1); Second.SetTheme(1);
+    First.SetThemeColors(Background,clDefault);
+    Second.SetThemeColors(clDefault,Foreground);
+    Ini:=TMemIniFile.Create(Profile,TEncoding.UTF8);
+    try
+      Ini.WriteInteger('Reader','ThemeProgress1',clBlue);
+      Ini.UpdateFile;
+    finally Ini.Free; end;
+    First.Close;
+    Second.Close;
+    Ini:=TMemIniFile.Create(Profile,TEncoding.UTF8);
+    try
+      Require(Ini.ReadInteger('Reader','ThemeBackground1',clDefault)=Background,
+        'A second reader overwrote the background of the same theme while changing its text');
+      Require(Ini.ReadInteger('Reader','ThemeText1',clDefault)=Foreground,
+        'The second reader did not save the text color it changed');
+      Require(Ini.ReadInteger('Reader','ThemeProgress1',clDefault)=clBlue,
+        'Saving a background or text color overwrote the existing progress color');
+    finally Ini.Free; end;
+  finally Second.Free; First.Free; end;
+  Writeln('PASS reader windows preserve independently edited colors of the same theme');
+end;
+
 procedure WaitPage(Form: TfrmBuiltinReader);
 var Watch: TStopwatch;
 begin
@@ -1272,9 +1304,13 @@ var Reader: TfrmBuiltinReader; Document: TReaderDocument; Range: TReaderStyledRa
   Key: Word; Pan,Size: TPoint; Ini: TMemIniFile; A,B: TBitmap; HasTitle,HasQuote,HasPoem: Boolean;
   CappedEnd, WideEnd: Integer;
   procedure CheckBlockStyles;
-  var Buffer: TRichEdit; BodySize, TitleSize: Integer; BodyColor: TColor; Paragraph: TParaFormat2;
+  var Buffer: TRichEdit; BodySize, TitleSize, HeadingPosition: Integer; BodyColor: TColor; Paragraph: TParaFormat2;
   begin
-    Reader.GoToPosition(0);
+    HeadingPosition:=Pos('Оглавление',Reader.BookText);
+    Require(HeadingPosition>0,'Styled FB2 heading is missing');
+    // The opening page contains just the cover. Reader styles are applied
+    // on demand when the page containing the heading is laid out.
+    Reader.GoToPosition(HeadingPosition-1);
     Buffer:=ReaderFormattingBuffer(Reader);
     SelectReaderWord(Reader,'длинный абзац'); BodySize:=Buffer.SelAttributes.Size; BodyColor:=Buffer.SelAttributes.Color;
     SelectReaderWord(Reader,'Оглавление'); TitleSize:=Buffer.SelAttributes.Size;
@@ -1365,6 +1401,8 @@ begin
     end;
     Reader.SetTypography('Georgia',110,32);
     Require(not Reader.DecorativeInitials,'Fresh profile unexpectedly decorates initial letters');
+    Reader.SetTheme(0); Reader.SetHeadingColor(clMaroon);
+    Reader.SetTheme(1);
     Reader.SetHeadingColor(clGreen); Reader.SetHeadingColor(clPurple,True);
     SelectReaderWord(Reader,'Оглавление');
     Require(ColorToRGB(ReaderFormattingBuffer(Reader).SelAttributes.Color)=ColorToRGB(clGreen),'Custom heading color ignored');
@@ -1412,6 +1450,7 @@ begin
       for Range in ParagraphDocument.Styles do
         if Range.Kind=rbParagraphInitial then
         begin
+          Reader.GoToPosition(Range.Start);
           InitialBuffer.SelStart:=Range.Start; InitialBuffer.SelLength:=1;
           Require(InitialBuffer.SelAttributes.Size=Reader.ReaderFontSize,'Chapter mode decorates ordinary paragraph');
         end;
@@ -1472,8 +1511,10 @@ begin
     Require(Reader.InitialsMode=rimParagraph,'Reopening lost paragraph initial mode');
     SelectReaderWord(Reader,'Оглавление');
     Require(ColorToRGB(ReaderFormattingBuffer(Reader).SelAttributes.Color)=ColorToRGB(clYellow),'Reopening lost dark heading color');
+    Reader.SetTheme(0); SelectReaderWord(Reader,'Оглавление');
+    Require(ColorToRGB(ReaderFormattingBuffer(Reader).SelAttributes.Color)=ColorToRGB(clMaroon),'Reopening lost the separate light theme color');
     Reader.SetTheme(1); SelectReaderWord(Reader,'Оглавление');
-    Require(ColorToRGB(ReaderFormattingBuffer(Reader).SelAttributes.Color)=ColorToRGB(clGreen),'Reopening lost light heading color'); Reader.Close;
+    Require(ColorToRGB(ReaderFormattingBuffer(Reader).SelAttributes.Color)=ColorToRGB(clGreen),'Reopening lost paper heading color'); Reader.Close;
     Writeln('PASS configurable light/dark heading colors, optional initial letters and page/book Unicode copying persist through formatting, search and reopen');
   finally Reader.Free; end;
   Reader:=TfrmBuiltinReader.Create(nil);
@@ -1512,12 +1553,18 @@ begin
     Reader.SelectPDFText(0,6); Require(Reader.PDFSelectedText='Needle','PDF selection text incorrect');
     Key:=Ord('C'); Reader.OnKeyDown(Reader,Key,[ssCtrl]); Require((Key=0) and (ReadClipboardText='Needle'),'Ctrl+C did not copy selected PDF text');
     Reader.NextPage; Require(Reader.PDFSelectedText='','Pending PDF navigation retained selection'); WaitPage(Reader); Require(not Reader.PDFPageHasText and (Reader.PDFSelectedText=''),'PDF selection leaked to another page');
-    Reader.ChangeSize(5); Require(Reader.PDFZoom=150,'Manual PDF zoom incorrect'); Reader.Close;
+    Reader.ChangeSize(5); Require(Reader.PDFZoom=150,'Manual PDF zoom incorrect');
+    Reader.Close;
+    var CloseWatch:=TStopwatch.StartNew;
+    while Reader.Visible and (CloseWatch.ElapsedMilliseconds<15000) do
+    begin Application.ProcessMessages; CheckSynchronize(5); end;
+    Require(not Reader.Visible,'Reader did not finish closing after a PDF zoom request');
   finally Reader.Free; end;
   Reader:=TfrmBuiltinReader.Create(nil);
   try
     Reader.Show; Reader.OpenBook('search.pdf','Different PDF','oct11-other-pdf','oct11-reader.ini','pdfium.dll'); WaitReady(Reader);
-    Require((Reader.PDFZoom=100) and (Reader.InspectionPercent=300),'New PDF inherits cropped zoom or loses inspection preference'); Reader.Close;
+    Require(Reader.PDFZoom=100,'New PDF inherited the previous book zoom');
+    Require(Reader.InspectionPercent=300,'Reopening lost the inspection zoom preference'); Reader.Close;
   finally Reader.Free; end;
   Reader:=TfrmBuiltinReader.Create(nil);
   try
@@ -2426,15 +2473,17 @@ begin
   Reader:=TfrmBuiltinReader.Create(nil); Starts:=TList<Integer>.Create;
   try
     Reader.Show; Reader.OpenBook('contents-progress.fb2','Contents','notes-navigation','notes-nav.ini','pdfium.dll'); WaitReady(Reader);
+    Reader.RequestGlobalPages;
+    Reader.SetBounds(Reader.Left,Reader.Top,Reader.Width-40,Reader.Height);
+    Watch:=TStopwatch.StartNew;
+    while not Reader.GlobalPaginationReady and (Watch.ElapsedMilliseconds<20000) do begin Application.ProcessMessages; CheckSynchronize(1); end;
+    Require(Reader.GlobalPaginationReady,'Global pagination did not complete after resizing the reader');
     Reader.GoToPosition(0); Starts.Add(0);
     while Reader.ReadingProgress<1 do
     begin
       var Before:=Reader.TextPosition; Reader.NextPage;
       if Reader.TextPosition=Before then Break; Starts.Add(Reader.TextPosition);
     end;
-    Reader.RequestGlobalPages; Watch:=TStopwatch.StartNew;
-    while not Reader.GlobalPaginationReady and (Watch.ElapsedMilliseconds<20000) do begin Application.ProcessMessages; CheckSynchronize(1); end;
-    Require(Reader.GlobalPaginationReady,'Global pagination did not complete through idle chunks');
     for var I:=0 to Starts.Count-1 do Require(Reader.GlobalPageAt(Starts[I])=I+1,'Global page count reset at chapter boundary');
     Reader.GoToPosition(0); Bar:=nil; for C in Reader do if C is TPaintBox then Bar:=TPaintBox(C);
     Require(Assigned(Bar) and (Bar.Height>=14) and Assigned(Bar.OnMouseDown) and Assigned(Bar.OnMouseMove) and Assigned(Bar.OnMouseUp),'Progress bar has no click/drag navigation');
@@ -2589,6 +2638,14 @@ begin
     CSS.Add(Text+'.late{font-weight:bold}');
     Require(CSS.RTF('p','late','','')='','Comma selector list bypassed bounded stylesheet rule count');
     CSS.Clear;
+    CSS.Add('td.ruled {border:0 solid black; border-bottom:3px solid #aaf !important;'+
+      'border-right-width:2px; border-right-style:dashed; border-right-color:rgb(19, 92, 224);}');
+    var TableCell:=CSS.CellStyle('td','ruled','','border-bottom:6px solid red','','','');
+    Require(TableCell.HasBorders and (TableCell.Borders[rcTop].Width=0) and
+      (TableCell.Borders[rcBottom].Width=45) and (TableCell.Borders[rcBottom].Color='#aaf') and
+      (TableCell.Borders[rcRight].Width=30) and (TableCell.Borders[rcRight].Style='dashed') and
+      SameText(TableCell.Borders[rcRight].Color,'#135ce0'),
+      'EPUB table CSS did not preserve the independent border edges or the important rule');
   finally CSS.Free; end;
   BeforeHash:=THashSHA2.GetHashStringFromFile('css-style.epub'); Doc:=TReaderDocument.Create;
   try
@@ -2993,7 +3050,7 @@ begin
     begin
       if ParamStr(1)='export-picker-preview' then AuditExportPickerPreview
       else if ParamStr(1)='feedback19-reader' then begin AuditReaderAnnotationRangesAndExports; AuditReaderFeedback19; end
-      else if ParamStr(1)='reader-colors' then begin AuditReaderColorBox; AuditWordParagraphShades; end
+      else if ParamStr(1)='reader-colors' then begin AuditReaderColorBox; AuditSharedReaderTheme; AuditWordParagraphShades; end
       else if ParamStr(1)='optional-fonts' then AuditOptionalFonts
       else if ParamStr(1)='preformatted-book' then AuditPreformattedBook
       else if ParamStr(1)='html-image-sizes' then AuditHTMLImageExtents
@@ -3021,7 +3078,16 @@ begin
       else if ParamStr(1)='reader-note-ui' then begin AuditNoteDialogs; AuditDirectTextSelection; end
       else if ParamStr(1)='feedback16-reader' then begin AuditDirectTextSelection; AuditFeedbackPDF; AuditAsyncPDF; end
       else if ParamStr(1)='reader-additions' then begin AuditContentsAndProgress; AuditReaderNavigationAndNotes; end
-      else if ParamStr(1)='oct11-reader' then begin AuditOctoberElevenReader; AuditContentsAndProgress; AuditSearchResults; AuditEPUBStyles; AuditReaderNavigationAndNotes; end
+      else if ParamStr(1)='epub-styles' then AuditEPUBStyles
+      else if ParamStr(1)='oct11-reader' then
+      begin
+        AuditOctoberElevenReader;
+        Application.CreateForm(TDMUser,DMUser);
+        try
+          DMUser.Init;
+          AuditContentsAndProgress; AuditSearchResults; AuditEPUBStyles; AuditReaderNavigationAndNotes;
+        finally FreeAndNil(DMUser); end;
+      end
       else if ParamStr(1)='oct10-reader' then AuditOctoberReader
       else if ParamStr(1)='raster-reader' then AuditRasterReader
       else if ParamStr(1)='release-pagination' then AuditReleasePagination

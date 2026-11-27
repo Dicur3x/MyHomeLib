@@ -520,3 +520,42 @@ diff --git a/src/export/kfx/content.rs b/src/export/kfx/content.rs
  
                  // Build the image struct directly (no container wrapper)
                  let image_struct = IonValue::Struct(vec![
+diff --git a/src/dom/transform.rs b/src/dom/transform.rs
+--- a/src/dom/transform.rs
++++ b/src/dom/transform.rs
+@@ -282,6 +282,11 @@
+             body_style.language = Some(lang);
+         }
+
++        // References to the body ID target the beginning of the chapter.
++        if let Some(id) = self.dom.element_id(body).filter(|id| !id.is_empty()) {
++            self.chapter.semantics.set_id(NodeId::ROOT, id);
++        }
++
+         // Process body's children as children of IR root, inheriting body's
+         // style. Body becomes an ancestor of everything the DFS styles, so
+         // push it onto the filter first (a no-op when body is the document
+diff --git a/src/import/epub.rs b/src/import/epub.rs
+--- a/src/import/epub.rs
++++ b/src/import/epub.rs
+@@ -10,7 +10,7 @@
+ use crate::epub::{parse_container_xml, parse_nav_landmarks, parse_nav_toc, parse_ncx, parse_opf};
+ use crate::import::{ChapterId, Importer, SpineEntry, resolve_path_based_href};
+ use crate::io::{ByteSource, ByteSourceCursor, FileSource};
+-use crate::model::{AnchorTarget, Chapter, GlobalNodeId, Landmark, Metadata, TocEntry};
++use crate::model::{AnchorTarget, Chapter, GlobalNodeId, Landmark, Metadata, NodeId, TocEntry};
+
+ impl From<zip::result::ZipError> for crate::Error {
+     fn from(e: zip::result::ZipError) -> Self {
+@@ -176,5 +176,11 @@
+             |p| self.path_to_chapter.get(p).copied(),
+             |k| self.anchor_map.read().ok().and_then(|m| m.get(k).copied()),
+         )
++        .map(|target| match target {
++            AnchorTarget::Internal(id) if id.node == NodeId::ROOT => {
++                AnchorTarget::Chapter(id.chapter)
++            }
++            target => target,
++        })
+     }
+ }

@@ -842,6 +842,7 @@ type
     procedure RemoveSelectedBooks(const OnlyFiles: Boolean);
     procedure RemoveGroupedBooks(const OnlyFiles: Boolean);
     procedure DeleteSelectorBooksClick(Sender:TObject);
+    procedure MergeSelectorNamesClick(Sender: TObject);
     function SelectedDeletionSelectors(out Mode:TBookIteratorMode):TArray<TBookDeletionSelector>;
     function BookDeletionJournalRoot: string;
     procedure StartBookDeletion(Operation: TBookDeletionOperation; ShowProgress: Boolean; ReviewArchives: Boolean = True);
@@ -1089,6 +1090,7 @@ type
     FCloseAfterBookDeletion, FBookDeletionNeedsRecovery: Boolean;
     FBookDeleteCaption, FBookDeleteHint: string;
     FSelectorDeleteMenu, FSelectorDeleteSeparator: TMenuItem;
+    FSelectorMergeMenu: TMenuItem;
 
     FFileOpMode: (fmFb2Zip, fmFb2);
 
@@ -1423,7 +1425,7 @@ uses
   frm_EditGroup,
   unit_SystemDatabase_Abstract,
   unit_MHLArchiveHelpers, unit_MHLExternalTools, unit_FormatComponents,
-  unit_BookCache, unit_MHLOperationStatus, frm_DeleteCollection, unit_ImportOldUserData, unit_BookColumnFilters, frm_CatalogSources, frm_CollectionTransfer, unit_CollectionTransferRegistry, frm_ReaderHost, frm_CollectionBackup, frm_BookDuplicates, unit_ComponentUpdates, unit_ProgramUpdateInstaller, unit_Diagnostics, unit_ComponentUsage, unit_ComponentRemoval, frm_ComponentMaintenance,
+  unit_BookCache, unit_MHLOperationStatus, frm_DeleteCollection, unit_ImportOldUserData, unit_BookColumnFilters, frm_CatalogSources, frm_CatalogNameMerge, unit_SeriesAliases, frm_CollectionTransfer, unit_CollectionTransferRegistry, frm_ReaderHost, frm_CollectionBackup, frm_BookDuplicates, unit_ComponentUpdates, unit_ProgramUpdateInstaller, unit_Diagnostics, unit_ComponentUsage, unit_ComponentRemoval, frm_ComponentMaintenance,
   frm_CollectionPackingProgress, frm_LibraryUpdateSources, unit_LibraryUpdateJournal;
 
 type
@@ -2817,6 +2819,16 @@ begin
     IsPrivate := isPrivateCollection(CollectionType);
     IsOnline := isOnlineCollection(CollectionType);
     IsLocal := isLocalCollection(CollectionType);
+    if IsOnline then
+    begin
+      tvAuthors.TreeOptions.SelectionOptions:=tvAuthors.TreeOptions.SelectionOptions-[toMultiSelect];
+      tvSeries.TreeOptions.SelectionOptions:=tvSeries.TreeOptions.SelectionOptions-[toMultiSelect];
+    end
+    else
+    begin
+      tvAuthors.TreeOptions.SelectionOptions:=tvAuthors.TreeOptions.SelectionOptions+[toMultiSelect];
+      tvSeries.TreeOptions.SelectionOptions:=tvSeries.TreeOptions.SelectionOptions+[toMultiSelect];
+    end;
     IsFB2 := isFB2Collection(CollectionType);
     IsNonFB2 := isNonFB2Collection(CollectionType);
 
@@ -6268,6 +6280,9 @@ begin
   {$IFDEF MHL_SQL_PROFILE}ProfileMark('alphabet + initial controls');{$ENDIF}
   CreatePublisherSearchField;
   CreateFavoriteAuthorControls;
+  FSelectorMergeMenu:=TMenuItem.Create(Self); FSelectorMergeMenu.Name:='miMergeCatalogNames';
+  FSelectorMergeMenu.Visible:=False; FSelectorMergeMenu.OnClick:=MergeSelectorNamesClick;
+  pmAuthor.Items.Add(FSelectorMergeMenu);
   FSelectorDeleteSeparator:=TMenuItem.Create(Self); FSelectorDeleteSeparator.Caption:='-';
   pmAuthor.Items.Add(FSelectorDeleteSeparator);
   FSelectorDeleteMenu:=TMenuItem.Create(Self); FSelectorDeleteMenu.Name:='miDeleteSelectorBooks';
@@ -10270,6 +10285,55 @@ begin
   finally Selection.Free; end;
 end;
 
+procedure TfrmMain.MergeSelectorNamesClick(Sender: TObject);
+var Mode: TBookIteratorMode; Kind: TCatalogNameKind; Dialog: TfrmCatalogNameMerge;
+  IDs: TArray<Integer>; CID, Target: Integer;
+begin
+  if not Assigned(FCollection) or IsOnline or FFormBusy or FBookListLoading or
+    Assigned(FBookDeletionOperation) or FBookDeletionNeedsRecovery then Exit;
+  if not (ActiveView in [AuthorsView,SeriesView]) then Exit;
+  if CollectionTransferPending then begin ShowCollectionTransfer(Sender); Exit; end;
+  if CompressionBlocksCatalogChange then Exit;
+  var Selection:=SelectedDeletionSelectors(Mode);
+  if Length(Selection)<2 then Exit;
+  if Mode=bmByAuthor then Kind:=cnAuthors else Kind:=cnSeries;
+  SetLength(IDs,Length(Selection));
+  for var I:=0 to High(IDs) do IDs[I]:=Selection[I].ID;
+  CID:=FCollection.CollectionID;
+  Target:=0;
+  FFormBusy:=True;
+  try
+    try
+      StopFavoriteRefresh(True);
+      Dialog:=TfrmCatalogNameMerge.CreateFor(Self,FCollection,Kind,IDs);
+      try
+        if Dialog.ShowModal=mrOk then Target:=Dialog.TargetID;
+      finally Dialog.Free; end;
+    except
+      on E: Exception do MHLShowWarning(E.Message);
+    end;
+  finally FFormBusy:=False; end;
+  if (Target=0) or not Assigned(FCollection) or (FCollection.CollectionID<>CID) then Exit;
+  if Kind=cnAuthors then
+  begin
+    FLastAuthorID:=Target;
+    Include(FStaleSelectors,AuthorsView);
+    if Assigned(FFavoriteStore) then
+    begin
+      FFavoriteStore.Reload;
+      PublishFavoriteFilterKeys;
+    end;
+    NotifyFavoriteCatalogChanged([CID]);
+  end
+  else
+  begin
+    FLastSeriesID:=Target;
+    Include(FStaleSelectors,SeriesView);
+  end;
+  RefreshBookMetadataViews(CID);
+  UpdateFavoriteControls;
+end;
+
 procedure TfrmMain.DeleteSelectorBooksClick(Sender:TObject);
 var Mode:TBookIteratorMode; Binding:TBookDeletionBinding; Scope,Names:string;
   Observer:TSQLiteDatabase; Revision:Int64;
@@ -13694,6 +13758,15 @@ begin
     else FPersonalHideMenu.Caption:='Скрыть автора';
   end;
   miAddToSearch.Visible := not (ActiveView in [GenresView, PublisherSeriesView]);
+  FSelectorMergeMenu.Visible:=Assigned(FCollection) and not IsOnline and (ActiveView in [AuthorsView,SeriesView]);
+  if FSelectorMergeMenu.Visible then
+  begin
+    var Mode: TBookIteratorMode;
+    FSelectorMergeMenu.Enabled:=(Length(SelectedDeletionSelectors(Mode))>=2) and
+      not FFormBusy and not FBookListLoading and not Assigned(FBookDeletionOperation) and not FBookDeletionNeedsRecovery;
+    if ActiveView=AuthorsView then FSelectorMergeMenu.Caption:='Объединить выбранных авторов…'
+    else FSelectorMergeMenu.Caption:='Объединить выбранные серии…';
+  end;
   FSelectorDeleteMenu.Visible:=Assigned(FCollection) and (IsLocal or IsOnline) and
     (ActiveView in [AuthorsView,SeriesView,PublisherSeriesView]);
   FSelectorDeleteSeparator.Visible:=FSelectorDeleteMenu.Visible;

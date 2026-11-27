@@ -24,7 +24,8 @@ README = b'''Corresponding source for HomeLibre KfxExport (Boko 0.6.0 and resvg 
 The two pinned upstream source archives retain their original licences.
 The accompanying patch fixes EPUB navigation and linked inline images during
 import and export. It preserves separate author names and destinations in
-image-only chapters when writing KFX. Cover extraction reads only the declared
+image-only chapters and on the body of an EPUB chapter.
+Cover extraction reads only the declared
 KFX/AZW8 cover resource and leaves books with no declared cover unchanged.
 HomeLibre modification date: 2026-11-27. The modified Boko work remains
 GPL-3.0-or-later; see the upstream LICENSE and the accompanying patch.

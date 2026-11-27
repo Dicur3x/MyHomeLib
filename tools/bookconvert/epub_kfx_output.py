@@ -35,7 +35,7 @@ def convert(api, source, output, writer, tools, warnings, check, run_writer):
 
     def render(svg):
         if not renderer.is_file():
-            raise api.ComponentRequired('KfxExport', 'Переустановите модуль KFX и AZW8 для обработки SVG.')
+            raise api.ComponentRequired('KfxExport', 'Для обработки SVG переустановите модуль KFX.')
         drawing = work / 'drawing.svg'
         bitmap = work / 'drawing.png'
         root = api.xml(svg)

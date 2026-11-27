@@ -2029,7 +2029,7 @@ begin
   if Assigned(FThread) then
   begin
     FThread.Terminate; FLater.Enabled := False;
-    FStatus.Caption := 'Отмена загрузки…';
+    FStatus.Caption := 'Отмена подготовки обновления…';
   end
   else Hide;
   if FReaderOnly and (FRequestedComponent<>'') and Assigned(FComponentCancelled) then
@@ -2064,7 +2064,7 @@ procedure TfrmProgramUpdate.DownloadProgress(var Message: TMessage);
 var Name: string; Downloaded: Int64;
 begin
   Message.Result := 0;
-  if not Assigned(FThread) then Exit;
+  if not Assigned(FThread) or (FQueueIndex>=Length(FQueue)) then Exit;
   Downloaded := FQueueBytes + Message.LParam;
   if FQueueTotal > 0 then FProgress.Position := Min(99, Integer(Downloaded * 100 div FQueueTotal));
   if Message.WParam >= 95 then FStatus.Caption := 'Проверка и подготовка обновления…'
@@ -2078,38 +2078,72 @@ begin
 end;
 
 procedure TfrmProgramUpdate.DownloadCompleted(var Message: TMessage);
-var Error, CombinedJob: string; ID: TGUID; Count: Integer;
+var Error: string; WorkerRelease: TProgramRelease; PreparingBundle: Boolean;
 begin
   Message.Result := 0;
   if not Assigned(FThread) then Exit;
-  FThread.WaitFor; FReady := FThread.Successful; Error := FThread.ErrorText;
-  if FReady then FQueue[FQueueIndex] := FThread.ReleaseInfo;
-  FreeAndNil(FThread); FLater.Enabled := True; FLater.Caption := 'Позже';
-  FComponentCheck.Enabled:=not FReady;
-  FPrimary.Enabled := True;
-  if FReady then
+  PreparingBundle:=FQueueIndex>=Length(FQueue);
+  FThread.WaitFor;
+  FReady:=FThread.Successful and FLater.Enabled;
+  Error:=FThread.ErrorText;
+  if not FLater.Enabled then Error:='Подготовка обновления отменена.';
+  WorkerRelease:=FThread.ReleaseInfo;
+  FreeAndNil(FThread);
+  if FReady and PreparingBundle then
   begin
-    Inc(FQueueBytes, FQueue[FQueueIndex].Size);
-    Count := Length(FQueueJobs); SetLength(FQueueJobs, Count + 1); FQueueJobs[Count] := FJob;
-    FJob := ''; Inc(FQueueIndex);
-    if FQueueIndex < Length(FQueue) then
-    begin FReady := False; StartQueuedDownload; Exit; end;
-    FRelease := FQueue[0]; FRelease.Size := FQueueBytes;
-    try
-      if Length(FQueueJobs) = 1 then
-      begin FJob := FQueueJobs[0]; FQueueJobs := nil; end
-      else
-      begin
-        CreateGUID(ID); CombinedJob := IncludeTrailingPathDelimiter(FCache) + 'HomeLibRu-update-' +
-          StringReplace(StringReplace(GUIDToString(ID), '{', '', []), '}', '', []);
-        FJob := CombinedJob;
-        FRelease.SHA256 := CombinePreparedProgramUpdates(FQueueJobs, FRelease.Tag, ProgramUpdatePlatform, CombinedJob);
-        if FRelease.ComponentID <> '' then
-        begin FRelease.ComponentID := 'batch'; FRelease.ComponentVersion := ''; end;
-        ClearQueueJobs;
+    FRelease:=WorkerRelease;
+    ClearQueueJobs;
+  end
+  else if FReady then
+  begin
+    FQueue[FQueueIndex]:=WorkerRelease;
+    Inc(FQueueBytes,WorkerRelease.Size);
+    FQueueJobs:=FQueueJobs+[FJob];
+    FJob:='';
+    Inc(FQueueIndex);
+    if FQueueIndex<Length(FQueue) then
+    begin
+      FReady:=False;
+      StartQueuedDownload;
+      Exit;
+    end;
+    FRelease:=FQueue[0];
+    FRelease.Size:=FQueueBytes;
+    if Length(FQueueJobs)=1 then
+    begin
+      FJob:=FQueueJobs[0];
+      FQueueJobs:=nil;
+    end
+    else
+    begin
+      FReady:=False;
+      try
+        FJob:=TPath.Combine(FCache,'HomeLibRu-update-'+TGUID.NewGuid.ToString.Replace('{','').Replace('}',''));
+        FThread:=TProgramDownloadThread.CreateBundle(FMessageWindow,FRelease,FQueueJobs,FJob);
+        FBytes.Caption:=Format('Скачано: %s / %s',[ComponentDownloadSize(FQueueBytes),ComponentDownloadSize(FQueueBytes)]);
+        FProgress.Position:=99;
+        FStatus.Caption:='Подготовка общего пакета обновлений…';
+        FPrimary.Caption:='Подготовка…';
+        LayoutWindow;
+        FThread.Start;
+        Exit;
+      except
+        on E: Exception do
+        begin
+          if Assigned(FThread) then
+          begin
+            FThread.Terminate;
+            FreeAndNil(FThread);
+          end;
+          Error:=E.Message;
+        end;
       end;
-    except on E: Exception do begin FReady := False; Error := E.Message; end; end;
+    end;
   end;
+  FLater.Enabled:=True;
+  FLater.Caption:='Позже';
+  FComponentCheck.Enabled:=not FReady;
+  FPrimary.Enabled:=True;
   if FReady and (FOperationComponent='') then
   begin
     try SaveReady;

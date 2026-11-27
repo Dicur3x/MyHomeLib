@@ -20,7 +20,7 @@ p.add_argument('--books-root', type=pathlib.Path, help='Read-only archive direct
 p.add_argument('--headers-json', type=pathlib.Path, help='Selected format header inventory for real-formats')
 p.add_argument('--raster-catalog', type=pathlib.Path, help='Selected DjVu/comic/TIFF archive inventory')
 p.add_argument('--jpeg-book',type=pathlib.Path,help='Read-only FB2 or single-FB2 ZIP for compressed-picture regression')
-p.add_argument('--case', choices=('jpeg-rtf','multilingual-fonts','preformatted-book','html-image-sizes','export-picker-preview','feedback19-reader','optional-fonts','selection-contrast','word-selection','reader-lookup','reader-text-encoding','book-appearance','reader-toolbar','text-selection','illustrated-selection','selection-geometry','doc-reader','feedback16-reader','reader-note-ui','reader-additions','real-epub','epub-outline','large-book','reader-colors','loading-navigation','loading-preferences','same-position-navigation','precision-wheel','document-spacing','pdf-current-page-search','pdf-copy-hyphens','oct10-reader','oct11-reader','unspaced-history','footnotes','word-footnotes','real-formats','raster-reader','release-pagination'))
+p.add_argument('--case', choices=('jpeg-rtf','multilingual-fonts','preformatted-book','html-image-sizes','export-picker-preview','feedback19-reader','optional-fonts','selection-contrast','word-selection','reader-lookup','reader-text-encoding','book-appearance','reader-toolbar','text-selection','illustrated-selection','selection-geometry','doc-reader','feedback16-reader','reader-note-ui','reader-additions','real-epub','epub-outline','epub-styles','large-book','reader-colors','loading-navigation','loading-preferences','same-position-navigation','precision-wheel','document-spacing','pdf-current-page-search','pdf-copy-hyphens','oct10-reader','oct11-reader','unspaced-history','footnotes','word-footnotes','real-formats','raster-reader','release-pagination'))
 a = p.parse_args()
 if a.pdf_repair_fixture and a.case != 'pdf-current-page-search':
     p.error('--pdf-repair-fixture requires --case pdf-current-page-search')
@@ -417,6 +417,15 @@ try:
             z.writestr('META-INF/container.xml','<container><rootfiles><rootfile full-path="OPS/book.opf"/></rootfiles></container>')
             z.writestr('OPS/book.opf','<package><manifest><item id="main" href="main.xhtml"/></manifest><spine><itemref idref="main"/></spine></package>')
             z.writestr('OPS/main.xhtml','<html><body>'+word_body+'</body></html>')
+    if a.case=='reader-toolbar':
+        with zipfile.ZipFile(root/'opening-cover.epub','w',zipfile.ZIP_DEFLATED) as z:
+            z.writestr('META-INF/container.xml','<container><rootfiles><rootfile full-path="book.opf"/></rootfiles></container>')
+            z.writestr('book.opf','<package><manifest><item id="open" href="open.xhtml"/>'
+                       '<item id="cover" href="cover.png" media-type="image/png" properties="cover-image"/>'
+                       '</manifest><spine><itemref idref="open"/></spine></package>')
+            z.writestr('cover.png',png)
+            z.writestr('open.xhtml','<html><body><div><img src="cover.png"/></div><h1>Opening chapter</h1>'
+                       +paragraphs+'</body></html>')
     if a.case=='text-selection':
         assert a.selection_fixtures and a.selection_fixtures.is_dir()
         for source,target in [('reader-dome.fb2','selection-real.fb2'),('reader-quixote.epub','selection-real.epub'),('reader-story.txt','selection-real.txt')]:
@@ -493,6 +502,8 @@ try:
     if a.case=='reader-note-ui':
         assert 'PASS note dialog input' in r.stdout, 'Stale binary omitted notes GUI tests'
         assert 'PASS direct FB2 mouse selection' in r.stdout, 'Stale binary omitted direct text selection regression'
+    if a.case=='epub-styles':
+        assert 'PASS EPUB linked/embedded/inline CSS cascade' in r.stdout, 'Stale binary omitted EPUB style checks'
     if a.case in ('reader-additions','oct11-reader'):
         assert 'PASS Unicode notes durable atomic backup' in r.stdout, 'Stale binary did not run new notes/navigation regression'
         assert 'PASS chapter header mouse arrow and F4' in r.stdout, 'Stale binary omitted unified contents control'

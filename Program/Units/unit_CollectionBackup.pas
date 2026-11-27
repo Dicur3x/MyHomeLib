@@ -5,7 +5,7 @@ interface
 uses System.SysUtils, System.Classes, System.Generics.Collections, Winapi.Windows, SQLiteWrap, unit_Interfaces;
 
 type
-  TCollectionBackupOperation = (cboUnknown, cboCollections, cboSeries, cboBooks);
+  TCollectionBackupOperation = (cboUnknown, cboCollections, cboSeries, cboBooks, cboAuthors);
   TCollectionBackupInfo = record
     CreatedAt: TDateTime;
     HasCreatedAt, DateFromFolderName: Boolean;
@@ -74,7 +74,7 @@ uses System.IOUtils, System.JSON, System.DateUtils, System.RegularExpressions,
 
 const
   BackupOperationCodes: array[TCollectionBackupOperation] of string =
-    ('unknown', 'collection-merge', 'series-aliases', 'book-duplicates');
+    ('unknown', 'collection-merge', 'series-aliases', 'book-duplicates', 'author-aliases');
 
 function BackupSetFileInformation(Handle: THandle; InformationClass: Integer;
   Information: Pointer; Size: DWORD): BOOL; stdcall;
@@ -90,7 +90,7 @@ end;
 function KnownBackupFile(const Name: string): Boolean;
 begin
   Result:=TRegEx.IsMatch(Name,'\A(?:(?:destination|system|source-[0-9]+)\.hlc2(?:-wal|-shm)?|'+
-    'backup-info\.json|restore-paths\.txt|preview\.txt|status\.txt|series\.txt|'+
+    'backup-info\.json|restore-paths\.txt|preview\.txt|status\.txt|series\.txt|authors\.txt|'+
     'merged-groups\.cxml2|reader\.ini|reader-notes\.json(?:\.bak)?)\z',[roIgnoreCase]);
 end;
 
@@ -226,6 +226,7 @@ begin
   case Operation of
     cboCollections: Result:='Объединение коллекций';
     cboSeries: Result:='Объединение названий серий';
+    cboAuthors: Result:='Объединение авторов';
     cboBooks: Result:='Объединение повторных книг';
   else Result:='Операция не указана'; end;
 end;

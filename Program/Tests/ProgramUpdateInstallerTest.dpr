@@ -350,6 +350,54 @@ begin
       Writeln(CombinePreparedProgramUpdates(Jobs, Tag, ProgramUpdatePlatform, Job));
       VerifyPreparedProgramUpdate(Job, Tag, ProgramUpdatePlatform);
     end
+    else if (Mode='--combine-background') or (Mode='--cancel-background-bundle') then
+    begin
+      Job:=ParamStr(2); Guard(Job);
+      Info:=Default(TProgramRelease); Info.Tag:=ParamStr(3);
+      SetLength(Jobs,ParamCount-3);
+      for I:=4 to ParamCount do
+      begin
+        Guard(ParamStr(I));
+        Jobs[I-4]:=ParamStr(I);
+      end;
+      Window:=CreateWindowEx(0,'STATIC','background bundle test',0,0,0,0,0,HWND_MESSAGE,0,HInstance,nil);
+      if Window=0 then RaiseLastOSError;
+      Thread:=TProgramDownloadThread.CreateBundle(Window,Info,Jobs,Job);
+      try
+        Thread.Start;
+        if Mode='--cancel-background-bundle' then begin Sleep(40); Thread.Terminate; end;
+        var Heartbeats:=0;
+        var Deadline:=GetTickCount64+60000;
+        repeat
+          if GetTickCount64>=Deadline then raise Exception.Create('Background bundle timed out');
+          PostMessage(Window,WM_APP+1,0,0);
+          if PeekMessage(Msg,Window,WM_APP+1,WM_APP+1,PM_REMOVE) then Inc(Heartbeats);
+        until WaitForSingleObject(Thread.Handle,15)=WAIT_OBJECT_0;
+        if not PeekMessage(Msg,Window,WM_PROGRAM_UPDATE_DOWNLOADED,WM_PROGRAM_UPDATE_DOWNLOADED,
+          PM_REMOVE) then raise Exception.Create('The background bundle did not signal completion');
+        if Mode='--cancel-background-bundle' then
+        begin
+          if Thread.Successful or (Thread.ErrorText<>'Подготовка обновления отменена.') then
+            raise Exception.Create('Background cancellation did not stop the bundle');
+          CleanProgramUpdate(Job);
+          for var PreparedJob in Jobs do
+            if not FileExists(TPath.Combine(PreparedJob,'manifest.json')) then
+              raise Exception.Create('Cancellation removed an input package');
+        end
+        else
+        begin
+          if not Thread.Successful then raise Exception.Create(Thread.ErrorText);
+          if (Heartbeats<3) or (Thread.ReleaseInfo.SHA256<>UpdateSHA256(TPath.Combine(Job,'release.zip'))) then
+            raise Exception.Create('The background bundle did not leave a valid, responsive preparation');
+          VerifyPreparedProgramUpdate(Job,Info.Tag,ProgramUpdatePlatform);
+        end;
+        Writeln('Background bundle UI heartbeats: ',Heartbeats);
+      finally
+        Thread.Terminate;
+        Thread.Free;
+        DestroyWindow(Window);
+      end;
+    end
     else if Mode = '--component-newer' then
     begin
       Guard(ParamStr(2));

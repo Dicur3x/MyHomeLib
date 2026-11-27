@@ -15,7 +15,7 @@ originally created by **Олексій Пеньков (Oleksiy Penkov)**.
 
 ## Download and run
 
-[Download beta 17](https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.17) · [Release history](docs/releases/README.md)
+[Download beta 18](https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.18) · [Release history](docs/releases/README.md)
 
 HomeLibre requires **Windows 10 or later**. Choose an archive for your Windows architecture.
 
@@ -42,11 +42,17 @@ Use **?** in a tool to see its short guide. **F1** opens the help article.
 Open **Help → Check for updates**. If you are using beta 13, update to [beta 14](https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.14) first, then check again.
 [Manual updates and profile migration](Program/Help/en/upgrade.html).
 
-## What's new in beta 17
+## What's new in beta 18
+
+You can merge authors and series after reviewing their books. Downloaded updates are prepared in the background. The reader improves navigation, cover pages and transparent illustrations. Export preserves the order of illustrations in affected MOBI and AZW3 files. A KFX export was opened and read on a Kindle 10.
+
+[Beta 18 release notes (Russian)](docs/releases/RELEASE_NOTES_3.0.0_pre1.18.md)
+
+### What was tested in beta 17
 
 Beta 17 improves reading and export for unusual, large and damaged books. It preserves more of the original layout, asks for confirmation before saving a partial export, and fixes MOBI and AZW3 compatibility with Kindle 4.
 
-[Release notes](docs/releases/RELEASE_NOTES_3.0.0_pre1.17.md) · [Detailed audit with 575 entries (Russian)](docs/audits/2026-11-20-usr-compatibility-followup.md)
+[Beta 17 release notes](docs/releases/RELEASE_NOTES_3.0.0_pre1.17.md) · [Detailed audit (Russian)](docs/audits/2026-11-20-usr-compatibility-followup.md)
 
 ## HomeLibre Reader
 
@@ -143,7 +149,7 @@ file type in settings. [Reader settings](Program/Help/en/set_readers.html).
 
 - **Save as…** keeps the original format or converts to FB2, FB2.ZIP, EPUB,
   TXT, MOBI or AZW3. For several books, keep each format or choose a common one.
-  **More formats** shows EPUB 2, EPUB 3, KEPUB for Kobo, KFX and AZW8 for Kindle,
+  **More formats** shows EPUB 2, EPUB 3, KEPUB for Kobo, KFX for compatible Kindles,
   PDF and Markdown when available for the selected books. Modules are offered
   when needed. Exporting EPUB to PDF uses Microsoft WebView2 Runtime.
 - **Grayscale** removes colour from illustrations and scans in the saved copy.

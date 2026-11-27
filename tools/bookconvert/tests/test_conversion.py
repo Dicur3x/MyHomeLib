@@ -55,6 +55,28 @@ class ConversionTests(unittest.TestCase):
         self.assertIsNone(c.first(info, 'coverpage'))
         self.assertEqual(c.first(info, 'sequence').get('number'), '2')
 
+    def test_fb2_css_type_selectors_follow_converted_elements(self):
+        original = ('/* image must stay here */ image + p, #title .image { text-align:center; '
+                    'font-weight:bold; content:"image + p {}" } '
+                    '@media screen { section > title, p > emphasis { font-style:italic } } '
+                    'a[title="image"] { color:blue } #caption { background-image: none }')
+        source = self.root / 'authored.fb2'
+        source.write_text(FB2.replace('{image}', base64.b64encode(PNG).decode())
+                          .replace('.special {color:purple}', original.replace('>', '&gt;')), encoding='utf8')
+        exported = self.root / 'authored.epub'
+        c.convert_book(source, exported)
+        with zipfile.ZipFile(exported) as book:
+            css = book.read('OEBPS/book.css').decode('utf8')
+            self.assertIn('/* image must stay here */ img + p, #title .image', css)
+            self.assertIn('content:"image + p {}"', css)
+            self.assertIn('@media screen { section > header, p > em {', css)
+            self.assertIn('a[title="image"]', css)
+            self.assertIn('background-image: none', css)
+        returned = self.root / 'authored-roundtrip.fb2'
+        c.convert_book(exported, returned)
+        style = c.first(c.xml(returned.read_bytes()), 'stylesheet')
+        self.assertEqual(c.plain(style), original)
+
     def test_publication_fields_survive_standard_epub_and_fb2(self):
         source = self.generic(extra_metadata=(
             '<dc:description>Первый абзац.\nВторой абзац.</dc:description>'
@@ -348,6 +370,69 @@ class ConversionTests(unittest.TestCase):
             self.assertLess(text.index('Исходная страница leaf0001.html отсутствует'), text.index('Конец'))
             self.assertEqual(digest(source), original_hash)
 
+    def test_truncated_abbyy_epub_keeps_interleaved_text_and_scans(self):
+        contents = {
+            'leaf0001.html': '<img src="images/leaf0001.png" alt="Обложка"/>',
+            'intro.html': '<p>Вступление</p>',
+            'part0000.html': '<div id="page-1"><p>Конец первого тома.</p></div>',
+            'leaf0259.html': '<img src="images/leaf0259.png" alt="Титульный лист второго тома"/>',
+            'part0001.html': '<div id="page-1"><p>Начало второго тома.</p></div>',
+        }
+        assets = {'OEBPS/images/leaf0001.png': PNG, 'OEBPS/images/leaf0259.png': PNG,
+                  'OEBPS/stylesheet.css': b'.body { text-align: left; }'}
+
+        def truncate(path, order, generator=None):
+            with zipfile.ZipFile(path, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr('mimetype', b'application/epub+zip', compress_type=zipfile.ZIP_STORED)
+                archive.writestr('META-INF/container.xml',
+                                 f'<container xmlns="{c.CN}"><rootfiles><rootfile full-path="OEBPS/content.opf"/></rootfiles></container>')
+                for name, data in assets.items():
+                    archive.writestr(name, data)
+                for name in order:
+                    archive.writestr('OEBPS/' + name,
+                                     f'<html xmlns="{c.XH}"><head><meta name="generator" '
+                                     f'content="{generator or "abbyy to epub tool, v0.2"}"/></head>'
+                                     f'<body>{contents[name]}</body></html>')
+            raw = path.read_bytes()
+            path.write_bytes(raw[:raw.index(b'PK\x01\x02')])
+
+        source = self.root / 'mixed-truncated.epub'
+        epub = self.root / 'mixed-recovered.epub'
+        fb2 = self.root / 'mixed-recovered.fb2'
+        truncate(source, list(contents))
+        checksum = digest(source)
+        with self.assertRaisesRegex(c.ConversionError, 'нужно подтверждение'):
+            c.convert_book(source, epub)
+        self.assertFalse(epub.exists())
+        report = c.convert_book(source, epub, allow_partial_epub=True)
+        self.assertTrue(any('в порядке записей архива' in warning
+                            for warning in c.damaged_content_warnings(report['warnings'])))
+        with zipfile.ZipFile(epub) as archive:
+            opf = c.xml(archive.read('OEBPS/content.opf'))
+            manifest = {item.get('id'): item.get('href') for item in c.first(opf, 'manifest')}
+            self.assertEqual([manifest[item.get('idref')] for item in c.first(opf, 'spine')], list(contents))
+            for path, data in assets.items():
+                self.assertEqual(archive.read(path), data)
+            nav = c.xml(archive.read('OEBPS/homelibre-recovered-nav.xhtml'))
+            self.assertEqual([link.get(c.EPUB_START_ONLY) for link in nav.iter() if c.tag(link) == 'a'], ['1'])
+        c.convert_book(source, fb2, allow_partial_epub=True)
+        self.validate_fb2(fb2)
+        book = c.xml(fb2.read_bytes())
+        bodies = c.children(book, 'body')
+        self.assertEqual([c.plain(node) for body in bodies for node in body.iter()
+                          if c.tag(node) == 'p' and c.plain(node)],
+                         ['Вступление', 'Конец первого тома.', 'Начало второго тома.'])
+        self.assertEqual(sum(c.tag(node) == 'image' for body in bodies for node in body.iter()), 2)
+        self.assertEqual(digest(source), checksum)
+
+        refusal = self.root / 'ambiguous.epub'
+        for order, generator in ((list(reversed(contents)), None), (list(contents), 'Other tool')):
+            truncate(source, order, generator)
+            with self.subTest(order=order, generator=generator):
+                with self.assertRaisesRegex(c.ConversionError, 'исходный порядок|порядок чтения'):
+                    c.convert_book(source, refusal, allow_partial_epub=True)
+                self.assertFalse(refusal.exists())
+
     def test_truncated_epub_keeps_the_first_chapter_prefix_and_original_spine(self):
         paragraphs = [f'Абзац {index:03d} с читаемым текстом.' for index in range(300)]
         source = self.generic(first=''.join(f'<p>{line}</p>' for line in paragraphs),
@@ -573,6 +658,73 @@ class ConversionTests(unittest.TestCase):
         warnings = c.damaged_content_warnings(report['warnings'])
         self.assertEqual(len(warnings), 1)
         self.assertTrue(warnings[0].startswith('Размеры или оформление столбцов EPUB'))
+
+    def test_epub_table_cell_fills_survive_fb2_and_epub_round_trip(self):
+        source = self.generic(
+            first='<table><tr><td class="warm"><p>First</p><p>Second</p></td>'
+                  '<td class="warm" style="/* author */ background-color:#abcdef">Inline</td>'
+                  '<td id="fixed" class="warm" style="background-color:#abcdef">Priority</td>'
+                  '<td class="warm" style="background:transparent">Reset</td>'
+                  '<td class="quoted">No fill</td></tr></table>',
+            second='<table><tr><td class="warm">Other chapter</td></tr></table>',
+            css='td.warm {background-color:#8c4} td.warm {background-color:#123} '
+                '#fixed {background-color:#ff5500 !important} '
+                'td.quoted {content:";background-color:#ff0000;"}',
+            head='<link rel="stylesheet" href="book.css" type="text/css"/>')
+        with zipfile.ZipFile(source) as archive:
+            members = {name: archive.read(name) for name in archive.namelist()}
+        members['OPS/notes.xhtml'] = members['OPS/notes.xhtml'].replace(
+            b'<link rel="stylesheet" href="book.css" type="text/css"/>',
+            b'<style>td.warm {background:#456}</style>')
+        with zipfile.ZipFile(source, 'w') as archive:
+            for name, data in members.items():
+                archive.writestr(name, data)
+        fb2 = self.root / 'table-fills.fb2'
+        c.convert_book(source, fb2)
+        self.validate_fb2(fb2)
+        before = c.xml(fb2.read_bytes())
+        cells = list(before.iter(f'{{{c.FB}}}td'))
+        expected = [c.FB2_TABLE_LINE_STYLE + ';background-color:#112233', 'background-color:#abcdef',
+                    'background-color:#ff5500', None, None, 'background-color:#445566']
+        self.assertEqual([cell.get('style') for cell in cells], expected)
+        self.assertEqual(c.plain(cells[0]).split(), ['First', 'Second'])
+
+        epub = self.root / 'table-fills.epub'
+        c.convert_book(fb2, epub)
+        with zipfile.ZipFile(epub) as archive:
+            cells = [cell for name in archive.namelist() if name.endswith('.xhtml')
+                     for cell in c.xml(archive.read(name)).iter(f'{{{c.XH}}}td')]
+        self.assertEqual([cell.get('style') for cell in cells], expected)
+        restored = self.root / 'table-fills-restored.fb2'
+        c.convert_book(epub, restored)
+        self.validate_fb2(restored)
+        self.assertEqual([cell.get('style') for cell in c.xml(restored.read_bytes()).iter(f'{{{c.FB}}}td')], expected)
+
+    def test_epub_table_borders_and_padding_keep_cascade_order_in_fb2_and_epub(self):
+        source = self.generic(
+            first='<table class="matrix"><tr><td class="edge" style="padding:8px 2px">First</td>'
+                  '<td style="border:0; padding:expression(3px); border-image:url(http://example.invalid)">Second</td>'
+                  '</tr></table>',
+            second='<p>End</p>',
+            css='table.matrix {border-collapse:collapse} .edge {border:1px solid #123456} '
+                'td.edge {border-left:none; padding-top:0 !important; border-bottom-width:2px}',
+            head='<link rel="stylesheet" href="book.css" type="text/css"/>')
+        destination = self.root / 'cell-geometry.fb2'
+        c.convert_book(source, destination)
+        self.validate_fb2(destination)
+        table, = c.xml(destination.read_bytes()).iter(f'{{{c.FB}}}table')
+        self.assertEqual(table.get('style'), 'border-collapse:collapse')
+        expected = 'border:1px solid #123456;border-left:none;border-bottom-width:2px;padding:8px 2px;padding-top:0'
+        self.assertEqual([cell.get('style') for cell in table[0]], [expected, 'border:0'])
+        self.assertEqual([c.plain(cell) for cell in table[0]], ['First', 'Second'])
+
+        result = self.root / 'cell-geometry.epub'
+        c.convert_book(destination, result)
+        with zipfile.ZipFile(result) as archive:
+            table, = [node for name in archive.namelist() if name.endswith('.xhtml')
+                      for node in c.xml(archive.read(name)).iter(f'{{{c.XH}}}table')]
+        self.assertEqual(table.get('style'), 'border-collapse:collapse')
+        self.assertEqual([cell.get('style') for cell in table[0]], [expected, 'border:0'])
 
     def test_epub_export_does_not_parse_the_complete_fb2_tree(self):
         source = self.generic()
@@ -3101,7 +3253,8 @@ class ConversionTests(unittest.TestCase):
                     self.assertEqual(base64.b64decode(binary.text), PNG)
                     self.assertEqual(c.damaged_content_warnings(report['warnings']), [])
 
-    def test_linked_svg_cover_styles_keep_only_the_verified_original_raster(self):
+    def test_linked_svg_cover_styles_preserve_verified_viewports(self):
+        tools = Path(os.environ.get('HOMELIB_TEST_TOOLS', MODULE.parents[1]))
         source = self.generic(second='<p>Text</p>', extra_metadata='<meta name="cover" content="c"/>')
         with zipfile.ZipFile(source) as archive:
             entries = {path: archive.read(path) for path in archive.namelist()}
@@ -3116,13 +3269,15 @@ class ConversionTests(unittest.TestCase):
                    '</svg></div></body></html>')
         safe = ('@page {margin-top: 5pt} .page {display:block; font-size:1em; margin:0 5pt; padding:0} '
                 'div.wrapper {display:block} .cover {width:auto; height:auto} '
-                '.unrelated {width:10px; transform:rotate(90deg)} ')
+                '.unrelated {width:10px; transform:rotate(90deg); font-family:"Serif; {notes}"} ')
         for label, extra, width, safe_to_export in (
             ('matching', '', 1, True),
-            ('different-ratio', '', 2, False),
+            ('different-ratio', '', 2, True),
             ('fixed-viewport', '.cover {height:50px}', 1, False),
             ('clipping-container', '.wrapper {height:30px; overflow:hidden}', 1, False),
             ('altered-raster', 'image#art {opacity:.5}', 1, False),
+            ('quoted-target', 'image#art {filter:url("blocked.svg#art")}', 1, False),
+            ('unclosed-string', '.unrelated {font-family:"Incomplete\n} .cover {height:40px}', 1, False),
             ('conditional-rule', '@media screen { .cover {height:40px} }', 1, False),
             ('unresolved-import', '@import url(other.css);', 1, False),
         ):
@@ -3134,11 +3289,19 @@ class ConversionTests(unittest.TestCase):
                         archive.writestr(name, data)
                 output = candidate.with_suffix('.fb2')
                 if safe_to_export:
-                    report = c.convert_book(candidate, output)
+                    if width != 1 and not (tools / 'kfx-export' / 'resvg.exe').is_file():
+                        self.skipTest('SVG renderer from KfxExport is required')
+                    report = c.convert_book(candidate, output, tools_root=tools)
                     self.assertEqual(c.damaged_content_warnings(report['warnings']), [])
                     self.validate_fb2(output)
-                    [binary] = c.children(c.xml(output.read_bytes()), 'binary')
-                    self.assertEqual(base64.b64decode(binary.text), PNG)
+                    book = c.xml(output.read_bytes())
+                    saved = {'#' + node.get('id'): base64.b64decode(node.text) for node in c.children(book, 'binary')}
+                    self.assertIn(PNG, saved.values())
+                    [cover] = c.first(book, 'body').iter(f'{{{c.FB}}}image')
+                    image = saved[cover.get(f'{{{c.XL}}}href')]
+                    self.assertEqual(c.raster_header_size(image), (width, 1))
+                    if width == 1:
+                        self.assertEqual(image, PNG)
                 else:
                     with self.assertRaisesRegex(c.ConversionError, 'Преобразованное изображение SVG'):
                         c.convert_book(candidate, output)

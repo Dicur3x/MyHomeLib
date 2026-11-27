@@ -38,7 +38,7 @@ type
     FTimer: TTimer;
     FToolGuide: TContextToolGuide;
     FBooks: TArray<TBookRecord>;
-    FChoices: TArray<TBookSaveChoice>;
+    FChoices, FFormatChoices: TArray<TBookSaveChoice>;
     FItems, FInitialItems: TBookSaveEstimateItems;
     FEstimate: TBookSendEstimateThread;
     FRevision, FPreviewIndex, FPrimaryChoiceCount: Integer;
@@ -335,9 +335,9 @@ begin
   end;
   FFormat.ItemIndex:=-1;
   FChoices:=BookSaveChoices(Extensions,True,PendingSources);
-  FPrimaryChoiceCount:=Length(FChoices);
-  for var I:=0 to High(FChoices) do if FChoices[I].Mode in BOOK_SAVE_ADVANCED_MODES then
-  begin FPrimaryChoiceCount:=I; Break; end;
+  FPrimaryChoiceCount:=0;
+  for var Item in FChoices do
+    if not (Item.Mode in BOOK_SAVE_ADVANCED_MODES) then Inc(FPrimaryChoiceCount);
   FList.Items.Count:=Length(FBooks); RefreshFormats(nil);
 end;
 
@@ -349,30 +349,32 @@ begin
 end;
 
 procedure TBookSendOptionsForm.RefreshFormats(Sender: TObject);
-var Previous: TBookSaveChoice; Count, Selected: Integer; WasInitializing: Boolean;
+var Previous: TBookSaveChoice; Selected: Integer; WasInitializing, SameChoice: Boolean;
 begin
   if FInitializing and Assigned(Sender) then Exit;
-  Previous:=Choice; Selected:=0;
-  Count:=FPrimaryChoiceCount;
-  if FMoreFormats.Checked then Count:=Length(FChoices);
+  Previous:=Choice; Selected:=-1;
   WasInitializing:=FInitializing; FInitializing:=True;
   FFormat.Items.BeginUpdate;
   try
     FFormat.Items.Clear;
-    for var I:=0 to Count-1 do
+    FFormatChoices:=nil;
+    for var Item in FChoices do
     begin
-      FFormat.Items.Add(FChoices[I].Caption);
-      if (FChoices[I].Mode=Previous.Mode) and (FChoices[I].KeepOriginal=Previous.KeepOriginal) and
-        (FChoices[I].KeepFB2EPUB=Previous.KeepFB2EPUB) and (Previous.Caption<>'') then Selected:=I;
+      SameChoice:=(Item.Mode=Previous.Mode) and (Item.KeepOriginal=Previous.KeepOriginal) and
+        (Item.KeepFB2EPUB=Previous.KeepFB2EPUB) and (Previous.Caption<>'');
+      if (Item.Mode in BOOK_SAVE_ADVANCED_MODES) and not (FMoreFormats.Checked or SameChoice) then Continue;
+      if SameChoice then Selected:=Length(FFormatChoices);
+      FFormatChoices:=FFormatChoices+[Item];
+      FFormat.Items.Add(Item.Caption);
     end;
-    FFormat.ItemIndex:=Selected;
+    FFormat.ItemIndex:=Max(0,Selected);
   finally FFormat.Items.EndUpdate; FInitializing:=WasInitializing; end;
-  Changed(FFormat);
+  if Selected<0 then Changed(FFormat) else if not FInitializing then Reflow(nil);
 end;
 
 function TBookSendOptionsForm.Choice: TBookSaveChoice;
 begin
-  if (FFormat.ItemIndex>=0) and (FFormat.ItemIndex<Length(FChoices)) then Result:=FChoices[FFormat.ItemIndex]
+  if (FFormat.ItemIndex>=0) and (FFormat.ItemIndex<Length(FFormatChoices)) then Result:=FFormatChoices[FFormat.ItemIndex]
   else Result:=Default(TBookSaveChoice);
 end;
 
@@ -534,6 +536,10 @@ procedure TBookSendOptionsForm.Changed(Sender: TObject);
 var CanProcess, Opaque: Boolean; Bytes, Margin: Int64;
 begin
   if FInitializing then Exit;
+  // When an extra format is selected, collapsing the list keeps it visible
+  // until the user explicitly selects another format.
+  if (Sender=FFormat) and not FMoreFormats.Checked and (Length(FFormatChoices)>FPrimaryChoiceCount) and
+    not (Choice.Mode in BOOK_SAVE_ADVANCED_MODES) then RefreshFormats(nil);
   if (Sender=FFormat) or (Sender=FGrayscale) or (Sender=FSkipDamagedFB2Image) then
   begin
     ResetEstimates; FRequiredComponent:='';
@@ -563,8 +569,16 @@ begin
   FNote.Caption:='Сохраняются копии. Исходные книги не меняются.';
   if (FImages.ItemIndex=0) and not Choice.KeepOriginal and (Choice.Mode<>emTxt) then
     FNote.Caption:=FNote.Caption+' При преобразовании формат и метаданные изображений могут измениться.';
-  if not BookSaveSupportsNoImages(Choice.Mode) then
-    FNote.Caption:=FNote.Caption+' Для KFX и AZW8 нужна обложка.';
+  case Choice.Mode of
+    emEpub, emEpub2, emEpub3:
+      FNote.Caption:=FNote.Caption+' Для отправки EPUB используйте Send to Kindle, если сервис доступен на вашем Kindle.';
+    emAZW3:
+      FNote.Caption:=FNote.Caption+' Для переноса AZW3 по USB Kindle должен поддерживать формат KF8.';
+    emMobi:
+      FNote.Caption:=FNote.Caption+' Выбирайте MOBI для Kindle, которые не поддерживают AZW3.';
+    emKfx:
+      FNote.Caption:=FNote.Caption+' Для KFX нужна обложка. Совместимость зависит от модели и прошивки Kindle.';
+  end;
   if (Choice.Mode=emTxt) and not Choice.KeepOriginal then
     FNote.Caption:=FNote.Caption+' TXT сохраняет текст без иллюстраций и оформления.';
   if Opaque and ((FImages.ItemIndex>0) or FGrayscale.Checked) then
@@ -624,6 +638,7 @@ begin
   if (Bytes>0) and (Margin>0) then
     InfoTip:=InfoTip+sLineBreak+BookEstimateValueText(Bytes,Margin,True);
   if Entry.ErrorText<>'' then InfoTip:=InfoTip+sLineBreak+Entry.ErrorText;
+  if Entry.PartialExportDetails<>'' then InfoTip:=InfoTip+sLineBreak+Entry.PartialExportDetails;
 end;
 
 procedure TBookSendOptionsForm.SelectPreviewBook(Sender: TObject; Item: TListItem; Selected: Boolean);
@@ -941,7 +956,7 @@ begin
     Dialog.SetBooks(Books); Dialog.Caption:=Format('Сохранить как · книг: %d',[BookCount]);
     if not Assigned(InitialOptions) then
     begin
-      Dialog.FFormat.ItemIndex:=BookSaveDefaultChoiceIndex(Dialog.FChoices,
+      Dialog.FFormat.ItemIndex:=BookSaveDefaultChoiceIndex(Dialog.FFormatChoices,
         DefaultMode,Settings.SaveAsKeepSourceFormat);
       Dialog.ResetEstimates;
     end;
@@ -961,15 +976,17 @@ begin
       Dialog.FSubfolders.Checked:=InitialOptions.FolderTemplate<>'';
       if Dialog.FSubfolders.Checked then Dialog.FFolderMask.Text:=InitialOptions.FolderTemplate;
       var InitialMode:=InitialOptions.Mode;
-      if InitialMode=emEpubZip then InitialMode:=emEpub
+      // A save resumed after module installation can still reference the old KFX alias.
+      if InitialMode=emAzw8 then InitialMode:=emKfx
+      else if InitialMode=emEpubZip then InitialMode:=emEpub
       else if InitialOptions.ZipEachBook and (InitialMode=emFB2) then InitialMode:=emFB2Zip;
       if InitialMode in BOOK_SAVE_ADVANCED_MODES then
       begin Dialog.FMoreFormats.Checked:=True; Dialog.RefreshFormats(nil); end;
       var Matched:=False;
-      for var I:=0 to High(Dialog.FChoices) do
-        if (Dialog.FChoices[I].KeepOriginal=InitialOptions.KeepSourceFormat) and
-          (Dialog.FChoices[I].KeepFB2EPUB=InitialOptions.KeepFB2EPUB) and
-          (Dialog.FChoices[I].Mode=InitialMode) then
+      for var I:=0 to High(Dialog.FFormatChoices) do
+        if (Dialog.FFormatChoices[I].KeepOriginal=InitialOptions.KeepSourceFormat) and
+          (Dialog.FFormatChoices[I].KeepFB2EPUB=InitialOptions.KeepFB2EPUB) and
+          (Dialog.FFormatChoices[I].Mode=InitialMode) then
         begin Dialog.FFormat.ItemIndex:=I; Matched:=True; Break; end;
       if (InitialMode in BOOK_SAVE_ADVANCED_MODES) and not Matched then
       begin

@@ -64,6 +64,7 @@ begin
     else if Item.Options.DistributedSamples then Result:=Format('По %d из %d страниц',
       [Item.Options.SampleCount,Item.Options.ImageCount])
     else if Item.Options.AllScanPages then Result:='По всем страницам сканов'
+    else if Item.PartialExportDetails<>'' then Result:='При сохранении нужно подтвердить потери'
     else if Item.Completed then Result:='Рассчитано'
     else if Item.CatalogueSize then Result:='Размер из каталога, без распаковки'
     else Result:='Известен размер исходной копии';
@@ -110,6 +111,11 @@ begin
       end;
       if Entry.ErrorText<>'' then Text.AppendLine('Причина: '+Entry.ErrorText)
       else if not Entry.Completed then Text.AppendLine('Расчёт этой книги не завершён.');
+      if Entry.PartialExportDetails<>'' then
+      begin
+        Text.AppendLine('При сохранении программа попросит подтвердить потери.');
+        Text.AppendLine(Entry.PartialExportDetails);
+      end;
       var Needed:=Entry.RequiredComponents;
       if (Length(Needed)=0) and (Entry.RequiredComponent<>'') then Needed:=TArray<string>.Create(Entry.RequiredComponent);
       if Length(Needed)>0 then Text.AppendLine('Нужны компоненты: '+string.Join(', ',Needed));

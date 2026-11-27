@@ -1,8 +1,8 @@
 ﻿procedure AuditReaderToolbar;
 const WindowWidths: array[0..2] of Integer = (640,820,1280);
-var Reader: TfrmBuiltinReader; Toolbar, Row: TPanel; Button: TReaderPaletteButton;
+var Reader: TfrmBuiltinReader; Toolbar, Row, Navigation: TPanel; Button: TReaderPaletteButton;
   Bitmap: TBitmap; FileName, Name: string; R, Overlap, InitialBounds, MonitorBounds: TRect;
-  Position: Integer; Key: Word; Controls: TList<TControl>;
+  Position: Integer; Key: Word; Controls: TList<TControl>; ChapterPath: TLabel;
 begin
   Application.CreateForm(TDMUser,DMUser); DMUser.Init;
   if FileExists('reader-toolbar-preview.flag') then
@@ -71,6 +71,25 @@ begin
                 end;
               end;
               Require(Controls.Count>=10,'Toolbar unexpectedly hides primary commands');
+              Navigation:=Reader.FindComponent('ReaderContentsRow') as TPanel;
+              ChapterPath:=Reader.FindComponent('ReaderChapterPath') as TLabel;
+              Require((Navigation.Height>=MulDiv(34,PPI,96)) and (Navigation.Top>=Row.Top+Row.Height) and
+                (Navigation.Top+Navigation.Height<=Toolbar.ClientHeight),'Navigation row is clipped by its parent');
+              if ChapterPath.Visible then
+                Require((ChapterPath.Top>=Navigation.Top+Navigation.Height) and
+                  (ChapterPath.Top+ChapterPath.Height<=Toolbar.ClientHeight),'Chapter label overlaps the navigation row');
+              Controls.Clear;
+              for Name in ['ReaderContents','ReaderChapterSelector','ReaderFullScreen','ReaderHideInterface'] do
+              begin
+                var Control:=Reader.FindComponent(Name) as TControl;
+                if not Control.Visible then Continue;
+                R:=Control.BoundsRect;
+                Require((R.Left>=0) and (R.Right<=Navigation.ClientWidth) and
+                  (R.Top>=0) and (R.Bottom<=Navigation.ClientHeight),'Navigation action clipped: '+Name);
+                for var Other in Controls do Require(not IntersectRect(Overlap,R,Other.BoundsRect),
+                  'Navigation actions overlap: '+Name+' / '+Other.Name);
+                Controls.Add(Control);
+              end;
               Require(Reader.ReadingSurface.Top>=Toolbar.Top+Toolbar.Height,Format('Book overlaps wrapped controls: surface %d toolbar %d+%d row %d DPI %d/%d width %d',[Reader.ReadingSurface.Top,Toolbar.Top,Toolbar.Height,Row.Height,PPI,Reader.CurrentPPI,Width]));
             end;
           end;
@@ -104,6 +123,25 @@ begin
         Require(Reader.BoundsRect=InitialBounds,'Leaving full screen lost the normal window position');
         Writeln('PASS '+FileName+' hide/show remains independent from full screen and F11');
         Writeln('PASS '+FileName+' full screen fills the monitor and restores normal and maximized windows');
+      finally Reader.Free; end;
+    end;
+    for FileName in ['styled.fb2','opening-cover.epub'] do
+    begin
+      Reader:=TfrmBuiltinReader.Create(nil);
+      try
+        Reader.Show; Reader.SetBounds(40,40,1000,730);
+        Reader.OpenBook(FileName,'Opening cover',FileName,'opening-'+FileName+'.ini','pdfium.dll');
+        WaitReady(Reader);
+        Reader.SetPageLayout(rplSingle); WaitPage(Reader);
+        if FileName='styled.fb2' then Name:='Первое название' else Name:='Opening chapter';
+        Require(not Reader.PageText.Contains(Name),'The first page displays the chapter below the cover');
+        Reader.NextPage; WaitPage(Reader);
+        Require(Reader.PageText.Contains(Name),'The chapter is missing from the second page');
+        Reader.PreviousPage; WaitPage(Reader);
+        Require(not Reader.PageText.Contains(Name),'Returning to the cover moved its page break');
+        Reader.SetPageLayout(rplDouble); WaitPage(Reader);
+        Require(Reader.PageText.Contains(Name),'The facing text page is missing in the spread');
+        Writeln('PASS '+FileName+' cover occupies one page and the first chapter starts on the next');
       finally Reader.Free; end;
     end;
   finally Bitmap.Free; Controls.Free; end;

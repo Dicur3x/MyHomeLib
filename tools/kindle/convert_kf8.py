@@ -11,7 +11,31 @@ import sys
 import xml.etree.ElementTree as ET
 from zipfile import ZipFile
 
-VERSION = "kindleunpack-bf0ca6e-v2"
+VERSION = "kindleunpack-bf0ca6e-v3"
+
+
+def unpack_preserving_resource_slots(kindleunpack, source, work, *, epubver):
+    """Leave empty slots for font records that KindleUnpack cannot extract."""
+    extract_font = kindleunpack.processFONT
+    incomplete_fonts = []
+
+    def keep_font_slot(index, files, names, sections, data, obfuscation, start, pointer):
+        count = len(names)
+        result = extract_font(index, files, names, sections, data, obfuscation, start, pointer)
+        resources = result[0]
+        if len(resources) == count:
+            # A reference counts physical records, including bare FONT markers.
+            resources.append(None)
+            if data != b'FONT':
+                incomplete_fonts.append(index)
+        return result
+
+    kindleunpack.processFONT = keep_font_slot
+    try:
+        kindleunpack.unpackBook(str(source), str(work), epubver=epubver, use_hd=True)
+    finally:
+        kindleunpack.processFONT = extract_font
+    return incomplete_fonts
 
 
 def write_reader_epub(source, destination):
@@ -79,9 +103,9 @@ def main():
     sys.addaudithook(audit)
     sys.path.insert(0,str(Path(__file__).resolve().parent))
     try:
-        from lib.kindleunpack import unpackBook
+        from lib import kindleunpack
         with contextlib.redirect_stdout(io.StringIO()):
-            unpackBook(str(source),str(work),epubver="2",use_hd=True)
+            unpack_preserving_resource_slots(kindleunpack, source, work, epubver="2")
         epubs = list(work.rglob("*.epub"))
         if len(epubs) != 1:
             raise ValueError("KindleUnpack did not create one EPUB")

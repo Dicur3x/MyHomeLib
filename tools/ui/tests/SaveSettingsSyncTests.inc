@@ -63,6 +63,20 @@ var SavedINI: TBytes; Root, FirstFolder, ChosenFolder, FB2, TXT: string;
           'Save As opened a stale destination');
         Require(TComboBox(Popup.FindComponent('SendFormat')).Text=ExpectedCaption,
           'Save As ignored the configured/restored format: '+TComboBox(Popup.FindComponent('SendFormat')).Text);
+        var Note:=TLabel(Popup.FindComponent('SaveImagesNote'));
+        if ExpectedCaption='Преобразовать в EPUB' then
+          Require(string(Note.Caption).Contains('Send to Kindle'),'EPUB does not explain how to send it to Kindle');
+        if ExpectedCaption='Преобразовать в AZW3 (KF8) — Kindle по USB' then
+          Require(string(Note.Caption).Contains('KF8'),'AZW3 does not explain which Kindle devices can read it');
+        if Assigned(Restored) and (Restored.Mode=emAzw8) then
+        begin
+          var Formats:=TComboBox(Popup.FindComponent('SendFormat'));
+          var Preview:=TLabel(Popup.FindComponent('SaveNamePreview'));
+          Require(TCheckBox(Popup.FindComponent('SaveMoreFormats')).Checked,
+            'The restored KFX choice did not enable additional formats');
+          Require(not string(Formats.Items.Text).Contains('AZW8') and string(Preview.Caption).EndsWith('.kfx',True),
+            'The old AZW8 choice was not replaced by a KFX export');
+        end;
         if EditValues then
         begin
           TEdit(Popup.FindComponent('SendDestination')).Text:=ChosenFolder;
@@ -150,8 +164,8 @@ begin
         2: Caption:='Преобразовать в FB2 в ZIP';
         3: Caption:='Преобразовать в EPUB';
         4: Caption:='Преобразовать в TXT — только текст';
-        5: Caption:='Преобразовать в MOBI — для старых Kindle';
-      else Caption:='Преобразовать в AZW3 — для Kindle с KF8'; end;
+        5: Caption:='Преобразовать в AZW3 (KF8) — Kindle по USB';
+      else Caption:='Преобразовать в MOBI — для старых Kindle'; end;
       Choose(Books,True,False,FirstFolder,Caption);
       Require((Options.KeepSourceFormat=(Index=0)) and not Options.KeepFB2EPUB,
         'A requested default silently changed its mixed-selection policy');
@@ -177,6 +191,9 @@ begin
     Require(Options.KeepFB2EPUB and (Options.Mode=emEpub) and (Options.FolderTemplate='%f'),
       'Configured defaults overrode a restored operation');
     Writeln('PASS save settings restored operation retains explicit format, destination and folder policy');
+    Initial.KeepFB2EPUB:=False; Initial.Mode:=emAzw8;
+    Choose([Books[0]],False,False,Initial.Folder,'Преобразовать в KFX — для совместимых Kindle',@Initial);
+    Writeln('PASS a resumed AZW8 save selects KFX with the new extension');
 
     ApplyForm(0,False,FirstFolder,'%s\%f');
     Choose(Books,True,True,FirstFolder,'Оставить исходный формат каждой книги');

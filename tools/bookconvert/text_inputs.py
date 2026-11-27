@@ -30,7 +30,8 @@ MC = '{http://schemas.openxmlformats.org/markup-compatibility/2006}'
 A = '{http://schemas.openxmlformats.org/drawingml/2006/main}'
 WP = '{http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing}'
 WORD_DRAWING_GROUP = '{http://schemas.microsoft.com/office/word/2010/wordprocessingGroup}wgp'
-WORD_DRAWING_SHAPE = '{http://schemas.microsoft.com/office/word/2010/wordprocessingShape}wsp'
+WORD_SHAPE_NS = '{http://schemas.microsoft.com/office/word/2010/wordprocessingShape}'
+WORD_DRAWING_SHAPE = WORD_SHAPE_NS + 'wsp'
 WORD_DRAWING_CANVAS = '{http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas}wpc'
 WORD_DRAWING_GROUPS = {WORD_DRAWING_GROUP,
                        WORD_DRAWING_CANVAS, '{urn:schemas-microsoft-com:vml}group'}
@@ -1214,6 +1215,46 @@ def word_picture_spacer(node, templates):
         return width, height
 
 
+def word_drawing_spacer(node):
+    """Keep the space reserved by an inline Word rectangle with no visible content."""
+    inline = node.find(WP + 'inline')
+    if len(node) != 1 or inline is None or any(inline.get('dist' + side, '0') != '0' for side in 'TBLR'):
+        return None
+    if any(child.tag not in {WP + name for name in ('extent', 'effectExtent', 'docPr', 'cNvGraphicFramePr')}
+           | {A + 'graphic'} for child in inline):
+        return None
+    extent = inline.find(WP + 'extent')
+    effects = inline.find(WP + 'effectExtent')
+    description = inline.find(WP + 'docPr')
+    graphic = inline.find(A + 'graphic')
+    data = None if graphic is None or len(graphic) != 1 else graphic.find(A + 'graphicData')
+    if (extent is None or (effects is not None and any(value != '0' for value in effects.attrib.values()))
+            or (description is not None and len(description)) or data is None or len(data) != 1
+            or data.get('uri') != WORD_SHAPE_NS[1:-1] or data[0].tag != WORD_DRAWING_SHAPE):
+        return None
+    shape = data[0]
+    if any(child.tag not in {WORD_SHAPE_NS + name for name in ('cNvSpPr', 'spPr', 'bodyPr')} for child in shape):
+        return None
+    properties = shape.find(WORD_SHAPE_NS + 'spPr')
+    if properties is None or any(child.tag not in {A + name for name in ('xfrm', 'prstGeom', 'noFill', 'ln', 'extLst')}
+                                 for child in properties):
+        return None
+    if (properties.find(A + 'prstGeom[@prst="rect"]') is None or properties.find(A + 'noFill') is None
+            or (line := properties.find(A + 'ln')) is None or len(line) != 1 or line[0].tag != A + 'noFill'):
+        return None
+    # Office can retain the inactive fill and line to restore them when editing.
+    stored = properties.find(A + 'extLst')
+    hidden = '{http://schemas.microsoft.com/office/drawing/2010/main}'
+    if stored is not None and any(ext.tag != A + 'ext' or len(ext) != 1 or
+                                  ext[0].tag not in {hidden + 'hiddenFill', hidden + 'hiddenLine'} for ext in stored):
+        return None
+    dimensions = tuple(extent.get(axis, '') for axis in ('cx', 'cy'))
+    if all(re.fullmatch(r'[0-9]{1,7}', value) and 6350 <= int(value) <= 9144000 for value in dimensions):
+        width, height = (round(int(value) / 635) for value in dimensions)
+        label = (description.get('descr') or description.get('title', '')) if description is not None else ''
+        return width, height, label
+
+
 def empty_docx_textbox(node):
     """Recognize an unpainted VML textbox containing only empty paragraphs.
 
@@ -1864,13 +1905,16 @@ def read_docx(book):
         def choice(node, rels):
             # Choice and Fallback describe the same object. Use a readable
             # embedded preview when present and keep textual structure otherwise.
-            best = fallback = None
+            best = fallback = spacer = None
             best_score = -1
             for branch in node:
                 if branch.tag == MC + 'Fallback':
                     fallback = branch
                 elif branch.tag != MC + 'Choice':
                     continue
+                if (spacer is None and len(branch) == 1 and branch[0].tag == WORD_NS + 'drawing'
+                        and word_drawing_spacer(branch[0])):
+                    spacer = branch
                 if not book.omit_images and len(branch) == 1 and branch[0].tag == WORD_NS + 'drawing':
                     drawing = branch[0]
                     if drawing.find(f'{WP}inline/{A}graphic/{A}graphicData/{WORD_DRAWING_CANVAS}') is not None:
@@ -1896,7 +1940,17 @@ def read_docx(book):
                     best, best_score = branch, score
                 if score == 2:
                     break
-            return fallback if best_score == 0 and fallback is not None else best
+            if best_score == 0:
+                if fallback is None:
+                    return spacer if spacer is not None else best
+                rectangle = fallback.find(WORD_NS + 'pict/' + _VML + 'rect')
+                if (spacer is not None and len(fallback) == len(fallback[0]) == 1 and rectangle is not None
+                        and all(rectangle.get(key, '').lower() in _VML_FALSE for key in ('filled', 'stroked'))
+                        and all(child.tag in {_OFFICE + 'lock', '{urn:schemas-microsoft-com:office:word}anchorlock'}
+                                for child in rectangle)):
+                    return spacer
+                return fallback
+            return best
 
         def drawing_items(node, rels):
             for child in node:
@@ -2239,10 +2293,19 @@ def read_docx(book):
                         # Page coordinates do not identify an area in a reflowed paragraph.
                         omitted_page_overlays += 1
                         continue
-                    if name == 'pict' and (space := word_picture_spacer(n, picture_templates.setdefault(part, {}))):
-                        marker = f'{c.WORD_SPACER_CLASS}{space[0]}-{space[1]}'
-                        dst.append(book.el('span', **{'class': marker, 'style': c.word_spacer_css(marker),
-                                                      'aria-hidden': 'true'}))
+                    if name == 'pict':
+                        size = word_picture_spacer(n, picture_templates.setdefault(part, {}))
+                        space = (*size, '') if size else None
+                    else:
+                        space = word_drawing_spacer(n)
+                    if space is not None:
+                        width, height, label = space
+                        marker = f'{c.WORD_SPACER_CLASS}{width}-{height}'
+                        span = book.el('span', **{'class': marker, 'style': c.word_spacer_css(marker),
+                                                 'aria-hidden': 'true'})
+                        if label:
+                            span.set('title', label)
+                        dst.append(span)
                         continue
                     if name == 'pict' and (rule := docx_horizontal_rule(n)):
                         if not book.omit_images:
@@ -2380,6 +2443,9 @@ def read_docx(book):
                                 elif identity.startswith('rIdHomeLibreParagraphRuleHeading'):
                                     book.warnings.add('Подчёркивание заголовка DOC сохранено отдельной линией. '
                                                       'Отступы могут измениться при перевёрстке.')
+                                elif identity.startswith('rIdHomeLibreParagraphRuleOffset'):
+                                    book.warnings.add('Линия DOC сохранена после связанного абзаца. '
+                                                      'Расстояние до края печатной страницы может измениться.')
                                 else:
                                     book.warnings.add('Линии старого DOC сохранены возле связанных абзацев. '
                                                       'Отступ под текстом может измениться при перевёрстке.')

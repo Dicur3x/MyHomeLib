@@ -15,16 +15,95 @@ import xml.etree.ElementTree as ET
 import zipfile
 
 
-def jpeg_without_record_padding(data):
-    """Drop only 1..3 zero bytes from four-byte-aligned Kindle JPEG records."""
-    if not data.startswith(b'\xff\xd8\xff') or len(data) % 4:
+JPEG_ENTROPY_MARKER = re.compile(rb'(?<!\xff)\xff++([^\x00\xff])')
+JPEG_ZERO_PADDING = re.compile(rb'\0*')
+KINDLING_REENCODED_IMAGE = re.compile(
+    r'(?P<name>[^\r\n]{1,500}): over (?P<limit>\d+) KB, re-encoded at quality \d+'
+    r'(?: instead of \d+)?(?: and scaled down to (?P<dimensions>\d+x\d+))?')
+
+
+def jpeg_codestream_end(data, start=0):
+    """Locate an image's EOI without interpreting APP/COM payloads."""
+    if not data.startswith(b'\xff\xd8\xff', start):
+        return None
+    offset = start + 2
+    has_frame = has_scan = False
+    while offset + 1 < len(data) and data[offset] == 0xff:
+        while offset < len(data) and data[offset] == 0xff:
+            offset += 1
+        if offset == len(data):
+            break
+        marker = data[offset]
+        offset += 1
+        if marker == 0xd9:
+            return offset if has_scan else None
+        if marker < 0xc0 or 0xd0 <= marker <= 0xd8 or offset + 2 > len(data):
+            return None
+        size = int.from_bytes(data[offset:offset + 2], 'big')
+        if size < 2 or offset + size > len(data):
+            return None
+        offset += size
+        if 0xc0 <= marker <= 0xcf and marker not in (0xc4, 0xc8, 0xcc):
+            has_frame = True
+        if marker != 0xda:
+            continue
+        if not has_frame:
+            return None
+        has_scan = True
+        for match in JPEG_ENTROPY_MARKER.finditer(data, offset):
+            following = match[1][0]
+            if following != 0x01 and not 0xd0 <= following <= 0xd7:
+                offset = match.start()
+                break
+        else:
+            return None
+    return None
+
+
+def prepare_jpeg_for_kindling(api, data, name, warnings):
+    """Keep the JPEG bytes through EOI, as required by Kindling's validator."""
+    if not data.startswith(b'\xff\xd8\xff') or data.endswith(b'\xff\xd9'):
         return data
-    end = data.rfind(b'\xff\xd9')
-    if end >= 3:
-        padding = data[end + 2:]
-        if 1 <= len(padding) <= 3 and not padding.strip(b'\0'):
-            return data[:end + 2]
-    return data
+    end = jpeg_codestream_end(data)
+    if end is None:
+        return data
+    while True:
+        start = JPEG_ZERO_PADDING.match(data, end).end()
+        if start == len(data):
+            return data[:end]
+        next_end = jpeg_codestream_end(data, start)
+        if next_end is None:
+            break
+        end = next_end
+    if warnings is None:
+        return data
+    loss_warning = getattr(api, 'KINDLE_JPEG_TRAILER_LOSS', None)
+    if loss_warning is None:
+        raise api.ComponentRequired('BookProcessing',
+            'Обновите модуль подготовки книг, чтобы подтвердить сохранение JPEG без дополнительных данных.')
+    trailer_size = len(data)-end
+    warnings.add(f'{loss_warning} «{name[:160]}» '
+                 f'({trailer_size} байт после конца JPEG). '
+                 'Дополнительные данные доступны в исходном файле.')
+    return data[:end]
+
+
+def record_mobi_image_losses(api, diagnostics, warnings):
+    # In a dual file Kindling retains the originals in the KF8 HD container.
+    # The legacy-only file keeps only the device-compatible image records.
+    for line in diagnostics.splitlines():
+        image = KINDLING_REENCODED_IMAGE.fullmatch(line)
+        if image is None:
+            continue
+        loss_warning = getattr(api, 'MOBI_IMAGE_REDUCTION', None)
+        if loss_warning is None:
+            raise api.ComponentRequired('BookProcessing',
+                'Обновите модуль подготовки книг, чтобы подтвердить перекодирование изображений при сохранении в MOBI.')
+        notice = (f'{loss_warning} «{image["name"][:160]}». '
+                  f'Исходное изображение превышало предел записи для старых Kindle ({image["limit"]} КБ).')
+        if dimensions := image['dimensions']:
+            notice += f' Размер уменьшен до {dimensions.replace("x", " × ")} пикселей.'
+        warnings.add(notice+' Чтобы сохранить исходное качество, выберите AZW3 или EPUB.')
 
 
 def gif_without_record_padding(data):
@@ -442,8 +521,7 @@ def canonical_input(api, source, destination, warnings=None, tools_root=None, me
                         except api.ConversionError:
                             continue  # Unknown types remain subject to Kindling's checks.
                         item.set('media-type', mime)
-                    # Keep the encoded image, trimming only Kindle record alignment.
-                    data = gif_without_record_padding(jpeg_without_record_padding(data))
+                    data = gif_without_record_padding(prepare_jpeg_for_kindling(api, data, name, warnings))
                 elif name in styles:
                     cleaned = remove_missing_fonts(api, archive, name, data)
                     if cleaned != data and warnings is not None:
@@ -752,6 +830,7 @@ def convert(api, source, destination, options):
                 detail = '\n'.join(errors)[:4500] if errors else detail[-4500:]
             raise api.ConversionError('Не удалось сохранить книгу Kindle.' + (' ' + detail if detail else ''))
         if extension == '.mobi':
+            record_mobi_image_losses(api, completed.stderr, warnings)
             legacy = work / 'legacy.mobi'
             extract_legacy_mobi(api, output, legacy, options.get('cancel_check'))
             output = legacy

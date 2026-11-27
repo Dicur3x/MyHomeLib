@@ -64,17 +64,37 @@ begin
           Require(not Extras.Checked and not string(Formats.Items.Text).Contains('KEPUB'),
             'Additional formats appeared in the ordinary list');
           Require(not string(Formats.Items.Text).Contains('KFX'),'KFX appeared in the ordinary list');
+          var Azw3Caption:='Преобразовать в AZW3 (KF8) — Kindle по USB';
+          Formats.ItemIndex:=Formats.Items.IndexOf(Azw3Caption); Formats.OnChange(Formats);
           Extras.Perform(BM_CLICK,0,0);
+          Require((Formats.Text=Azw3Caption) and string(Preview.Caption).EndsWith('.azw3'),
+            'Adding formats changed a selected AZW3 export');
           Require(string(Formats.Items.Text).Contains(' PDF'),'Mixed FB2 and EPUB have no PDF choice');
           Require(string(Formats.Items.Text).Contains('Markdown'),'Mixed FB2, EPUB and DOCX have no Markdown choice');
           var Index:=-1;
           for var J:=0 to Formats.Items.Count-1 do
             if string(Formats.Items[J]).Contains('KEPUB') then begin Index:=J; Break; end;
           Require(Index>=0,'Mixed FB2, EPUB and DOCX have no common KEPUB choice');
-          Require(string(Formats.Items.Text).Contains('EPUB 2'),'Mixed FB2, EPUB and DOCX have no EPUB 2 choice');
-          Require(string(Formats.Items.Text).Contains('KFX') and string(Formats.Items.Text).Contains('AZW8'),
-            'Mixed FB2, EPUB and DOCX have no direct Kindle choices');
+          var Epub:=Formats.Items.IndexOf('Преобразовать в EPUB');
+          Require((Epub>=0) and (Epub+2<Formats.Items.Count) and
+            (Formats.Items[Epub+1]='Преобразовать в EPUB 2') and (Formats.Items[Epub+2]='Преобразовать в EPUB 3'),
+            'The EPUB conversions should be adjacent');
+          var Kindle:=Formats.Items.IndexOf(Azw3Caption);
+          Require((Kindle>=0) and (Kindle+2<Formats.Items.Count) and
+            (Formats.Items[Kindle+1]='Преобразовать в MOBI — для старых Kindle') and
+            (Formats.Items[Kindle+2]='Преобразовать в KFX — для совместимых Kindle') and
+            not string(Formats.Items.Text).Contains('AZW8'),
+            'The advanced list should keep the three distinct Kindle exports together');
           Formats.ItemIndex:=Index; Formats.OnChange(Formats);
+          Extras.Perform(BM_CLICK,0,0);
+          Require(not Extras.Checked and string(Formats.Text).Contains('KEPUB') and
+            string(Preview.Caption).EndsWith('.kepub.epub') and not string(Formats.Items.Text).Contains('KFX'),
+            'Hiding additional formats discarded the active writer or kept unrelated choices');
+          Formats.ItemIndex:=Formats.Items.IndexOf(Azw3Caption); Formats.OnChange(Formats);
+          Require(not string(Formats.Items.Text).Contains('KEPUB') and string(Preview.Caption).EndsWith('.azw3'),
+            'Switching to AZW3 retained a hidden extra format or the wrong extension');
+          Extras.Perform(BM_CLICK,0,0);
+          Formats.ItemIndex:=Formats.Items.IndexOf('Преобразовать в KEPUB — для Kobo'); Formats.OnChange(Formats);
         end;
         Require(string(Preview.Caption).EndsWith('.kepub.epub'),'Preview did not retain the full Kobo extension');
         Checked:=True;
@@ -85,7 +105,7 @@ begin
   Require(GetTickCount64<Deadline,'Advanced Save As dialog did not open');
 end;
 
-procedure TestAdvancedBookSaving;
+procedure TestAdvancedBookSaving(KindleOnly: Boolean);
 var Root, Status: string; Books: TArray<TBookRecord>; Options, Unused: TBookSendOptions;
   Results: TBookExportResults; Required: TArray<string>; SourceHashes: TArray<string>;
   Choice: TBookSaveChoice; Estimates: TBookSaveEstimateItems; EstimateThread: TBookSendEstimateThread;
@@ -270,10 +290,13 @@ begin
     Required:=MissingBookConversionComponents(Settings.AppPath,Books[2].GetBookFileName,'.docx',False,nil,'.kepub.epub','kepub');
     Require(String.Join(',',Required)='BookProcessing','An old engine was accepted for DOCX to KEPUB');
   finally TFile.WriteAllBytes(Capability,CurrentAPI); end;
-  CheckContinuation;
-  InstallWriter('EpubPdfExport','.pdf','pdf');
+  if not KindleOnly then
+  begin
+    CheckContinuation;
+    InstallWriter('EpubPdfExport','.pdf','pdf');
+    CheckWebViewPrompt;
+  end;
   InstallWriter('KfxExport','.kfx','kfx');
-  CheckWebViewPrompt;
 
   Options:=Default(TBookSendOptions); Options.Mode:=emKepub; Options.ExplicitFormat:=True;
   Options.FileNameTemplate:='%t'; Options.ImageQuality:='original'; Options.NameCollision:=bncKeepBoth;
@@ -295,7 +318,10 @@ begin
   var OriginalHashes:=SourceHashes;
   var MarkdownPath:=Root+'source.markdown';
   TFile.WriteAllText(MarkdownPath,'# Markdown input'+sLineBreak+'Keep all bytes.',TEncoding.UTF8);
-  for var Mode in [emKepub,emMarkdown,emAdvancedPDF,emEpub3,emEpub2,emKfx,emAzw8] do
+  var Modes: TArray<TExportMode>;
+  if KindleOnly then Modes:=[emKfx,emAzw8]
+  else Modes:=[emKepub,emMarkdown,emAdvancedPDF,emEpub3,emEpub2,emKfx,emAzw8];
+  for var Mode in Modes do
   begin
     Books:=Originals;
     SourceHashes:=OriginalHashes;
@@ -327,6 +353,19 @@ begin
       Require(Length(Estimates)=Length(Books),'Advanced estimate lost a book');
       if Mode in [emAdvancedPDF,emMarkdown] then
         Require(Estimates[High(Estimates)].ImagesUnchanged,'Existing output format was not estimated as an original copy');
+      if Mode in [emKfx,emAzw8] then
+      begin
+        Require(Estimates[0].PartialExportDetails.Contains('жанры и темы') and
+          Estimates[1].PartialExportDetails.Contains('жанры и темы'),
+          'The size estimate lost the KFX metadata warning for FB2 or EPUB');
+        var Report:=BookEstimateReport(Books,Estimates,Choice,0,0,Status);
+        Require(Report.Contains('При сохранении программа попросит подтвердить потери.') and
+          Report.Contains(Estimates[0].PartialExportDetails),
+          'The size report did not explain which KFX metadata would be lost');
+        Require(not TDirectory.Exists(Options.Folder),'The estimate created files in the save destination');
+        Require(Length(TDirectory.GetDirectories(Settings.TempPath,'homelib-save-estimate-*'))=0,
+          'The estimate left a temporary conversion directory');
+      end;
       for var Item in Estimates do
       begin
         Require(Item.Completed and (Item.ErrorText=''),Status+' '+Item.ErrorText);
@@ -341,12 +380,28 @@ begin
     Probe.Timer.OnTimer:=Probe.Tick; Probe.Messages:=TStringList.Create;
     Probe.SavedModal:=Application.OnModalBegin; Application.OnModalBegin:=Probe.ModalBegin;
     try
+      if Mode in [emKfx,emAzw8] then
+      begin
+        Probe.PartialDecision:=mrCancel;
+        Probe.Deadline:=GetTickCount64+30000; Probe.Timer.Enabled:=True;
+        try Results:=SaveFileBooks([Books[0]],Options,Required);
+        finally Probe.Timer.Enabled:=False; Probe.Worker:=nil; end;
+        Require((Probe.Failure='') and (Length(Probe.PartialNotices)=1) and
+          Probe.PartialNotices[0].Contains('жанры и темы'),
+          'Saving after an estimate must still ask before leaving out metadata');
+        Require((Length(Results)=1) and (Results[0].State<>besSucceeded) and
+          (Length(TDirectory.GetFiles(Options.Folder))=0),'Declining the metadata loss published a file');
+        Probe.PartialNotices:=nil;
+        Probe.PartialDecision:=mrOk;
+      end;
       Probe.Deadline:=GetTickCount64+120000; Probe.Timer.Enabled:=True;
       try Results:=SaveFileBooks(Books,Options,Required);
       finally Probe.Timer.Enabled:=False; Probe.Worker:=nil; end;
       Require((Length(Required)=0) and (Probe.Failure='') and (Length(Results)=Length(Books)),
         'Advanced save did not finish: '+Probe.Failure+String.Join(', ',Required));
       for var Item in Results do Require(Item.State=besSucceeded,Item.ErrorText);
+      if Mode in [emKfx,emAzw8] then
+        Require(Length(Probe.PartialNotices)>=2,'Saving FB2 and EPUB after estimating omitted the confirmation');
       if Mode in [emAdvancedPDF,emMarkdown] then
         Require(UpdateSHA256(Results[High(Results)].OutputFile)=SourceHashes[High(SourceHashes)],
           'Mixed export changed a book in the selected format');
@@ -382,9 +437,12 @@ begin
       Probe.Timer.Free; Probe.Messages.Free; Probe.Free;
     end;
   end;
-  Writeln('PASS advanced save compact choices restored review mixed Kobo and PDF estimates output collisions and source hashes'); Flush(Output);
-  Writeln('PASS mixed Markdown save estimates modules images and byte-identical source copy'); Flush(Output);
-  Writeln('PASS mixed EPUB 3 save estimates modules and original source hashes'); Flush(Output);
-  Writeln('PASS mixed EPUB 2 save estimates modules and original source hashes'); Flush(Output);
-  Writeln('PASS mixed KFX and AZW8 save estimates modules and original source hashes'); Flush(Output);
+  if not KindleOnly then
+  begin
+    Writeln('PASS advanced save compact choices restored review mixed Kobo and PDF estimates output collisions and source hashes');
+    Writeln('PASS mixed Markdown save estimates modules images and byte-identical source copy');
+    Writeln('PASS mixed EPUB 3 save estimates modules and original source hashes');
+    Writeln('PASS mixed EPUB 2 save estimates modules and original source hashes');
+  end;
+  Writeln('PASS mixed KFX and AZW8 estimates report metadata losses and saving still asks for confirmation'); Flush(Output);
 end;

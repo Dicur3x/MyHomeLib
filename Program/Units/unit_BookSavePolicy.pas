@@ -12,7 +12,7 @@ type
   end;
 
 const BOOK_SAVE_DEVICE_MODES: array[0..5] of TExportMode =
-  (emFB2,emFB2Zip,emEpub,emTxt,emMobi,emAZW3);
+  (emFB2,emFB2Zip,emEpub,emTxt,emAZW3,emMobi);
   BOOK_SAVE_ADVANCED_MODES = [emEpub2,emEpub3,emKepub,emKfx,emAzw8,emAdvancedPDF,emMarkdown];
 
 function BookSaveChoices(const Extensions: TArray<string>; ShowAdvanced: Boolean = False;
@@ -249,6 +249,11 @@ begin
     Add('Преобразовать в FB2 в ZIP',emFB2Zip,False,False);
   end;
   if not AllEPUB then Add('Преобразовать в EPUB',emEpub,False,False);
+  if ShowAdvanced then
+  begin
+    if CanEpub2 then Add('Преобразовать в EPUB 2',emEpub2,False,False);
+    if CanEpub3 then Add('Преобразовать в EPUB 3',emEpub3,False,False);
+  end;
   if HasFB2EPUB and HasOther then
   begin
     Add('Оставить FB2 и EPUB; остальные — в FB2',emFB2,False,True);
@@ -256,20 +261,14 @@ begin
     Add('Оставить FB2 и EPUB; остальные — в EPUB',emEpub,False,True);
   end;
   if not AllTXT then Add('Преобразовать в TXT — только текст',emTxt,False,False);
+  if not AllAZW3 then Add('Преобразовать в AZW3 (KF8) — Kindle по USB',emAZW3,False,False);
   if not AllMOBI then Add('Преобразовать в MOBI — для старых Kindle',emMobi,False,False);
-  if not AllAZW3 then Add('Преобразовать в AZW3 — для Kindle с KF8',emAZW3,False,False);
   if ShowAdvanced then
   begin
-    if CanKfx then
-    begin
-      Add('Преобразовать в KFX — для Kindle',emKfx,False,False);
-      Add('Преобразовать в AZW8 — для Kindle',emAzw8,False,False);
-    end;
-    if CanEpub2 then Add('Преобразовать в EPUB 2',emEpub2,False,False);
-    if CanEpub3 then Add('Преобразовать в EPUB 3',emEpub3,False,False);
-    if CanMarkdown and not AllMarkdown then Add('Преобразовать в Markdown',emMarkdown,False,False);
+    if CanKfx then Add('Преобразовать в KFX — для совместимых Kindle',emKfx,False,False);
     if CanKepub then Add('Преобразовать в KEPUB — для Kobo',emKepub,False,False);
     if CanPDF and not AllPDF then Add('Преобразовать в PDF',emAdvancedPDF,False,False);
+    if CanMarkdown and not AllMarkdown then Add('Преобразовать в Markdown',emMarkdown,False,False);
   end;
 end;
 

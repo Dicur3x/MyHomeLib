@@ -266,6 +266,7 @@ type
       CheckOnly: Boolean = False): TBookDeletionWriteResult;
 
     procedure UpdateAuthor(Author : PAuthorData);
+    procedure MergeSelectedAuthors(const AuthorIDs: TArray<Integer>; const Target: TAuthorData);
 
     function GetReview(const BookKey: TBookKey): string;
     function SetReview(const BookKey: TBookKey; const Review: string): Integer;
@@ -288,7 +289,7 @@ type
     procedure SetBookGenres(const BookID: Integer; const Genres: TBookGenres; Replace: Boolean);
 
     function FindOrCreateSeries(const Title: string): Integer; overload;
-    procedure SetSeriesTitle(const SeriesID: Integer; const NewSeriesTitle: string);
+    procedure SetSeriesTitle(const SeriesID: Integer; const NewSeriesTitle: string; KeepPreviousTitle: Boolean = False);
     procedure ChangeBookSeriesID(const OldSeriesID: Integer; const NewSeriesID: Integer; const DatabaseID: Integer);
 
     procedure SetProperty(const PropID: TPropertyID; const Value: Variant); virtual;
@@ -358,6 +359,7 @@ type
   private
     procedure EnsureSchemaCurrent;
     procedure EnsurePublisherSeriesSchema;
+    procedure RememberSeriesTitle(SeriesID, TargetID: Integer);
     procedure EnsureTrigger(const Name, Definition: string);
   end;
 
@@ -609,6 +611,14 @@ begin
     );
 
     EnsurePublisherSeriesSchema;
+    FDatabase.ExecSQL('CREATE TABLE IF NOT EXISTS AuthorCatalogAliases (' +
+      'LastName TEXT NOT NULL COLLATE MHL_SYSTEM_NOCASE, FirstName TEXT NOT NULL COLLATE MHL_SYSTEM_NOCASE, ' +
+      'MiddleName TEXT NOT NULL COLLATE MHL_SYSTEM_NOCASE, AuthorID INTEGER NOT NULL, ' +
+      'PRIMARY KEY(LastName,FirstName,MiddleName))');
+    FDatabase.ExecSQL('CREATE INDEX IF NOT EXISTS IXAuthorCatalogAliases_AuthorID ON AuthorCatalogAliases(AuthorID)');
+    FDatabase.ExecSQL('CREATE TABLE IF NOT EXISTS SeriesCatalogAliases (' +
+      'Title TEXT NOT NULL PRIMARY KEY COLLATE MHL_SYSTEM_NOCASE, SeriesID INTEGER NOT NULL)');
+    FDatabase.ExecSQL('CREATE INDEX IF NOT EXISTS IXSeriesCatalogAliases_SeriesID ON SeriesCatalogAliases(SeriesID)');
     FDatabase.ExecSQL('CREATE TABLE IF NOT EXISTS CatalogSourceBooks('
       + 'SourceKey TEXT NOT NULL PRIMARY KEY, BookID INTEGER NOT NULL)');
     FDatabase.ExecSQL('CREATE TABLE IF NOT EXISTS CatalogBookCopies('
@@ -2735,7 +2745,9 @@ end;
 
 function TBookCollection_SQLite.InsertAuthorIfMissing(const Author: TAuthorData): Integer;
 const
-  SQL_SELECT = 'SELECT AuthorID FROM Authors WHERE LastName = ? AND FirstName = ? AND MiddleName = ?';
+  SQL_SELECT = 'SELECT AuthorID FROM Authors WHERE LastName = ?1 AND FirstName = ?2 AND MiddleName = ?3 ' +
+    'UNION ALL SELECT aliases.AuthorID FROM AuthorCatalogAliases aliases JOIN Authors a USING(AuthorID) ' +
+    'WHERE aliases.LastName = ?1 AND aliases.FirstName = ?2 AND aliases.MiddleName = ?3 LIMIT 1';
   SQL_INSERT = 'INSERT INTO Authors (LastName, FirstName, MiddleName) VALUES(?, ?, ?)';
 var
   searchQuery: TSQLiteQuery;
@@ -2787,7 +2799,9 @@ end;
 
 function TBookCollection_SQLite.FindOrCreateSeries(const Title: string): Integer;
 const
-  SQL_SELECT = 'SELECT SeriesID FROM Series WHERE SeriesTitle = ?';
+  SQL_SELECT = 'SELECT SeriesID FROM Series WHERE SeriesTitle = ?1 UNION ALL ' +
+    'SELECT aliases.SeriesID FROM SeriesCatalogAliases aliases JOIN Series s USING(SeriesID) ' +
+    'WHERE aliases.Title = ?1 LIMIT 1';
   SQL_INSERT = 'INSERT INTO Series (SeriesTitle) VALUES (?)';
 var
   searchQuery: TSQLiteQuery;
@@ -2840,13 +2854,26 @@ begin
   end;
 end;
 
-procedure TBookCollection_SQLite.SetSeriesTitle(const SeriesID: Integer; const NewSeriesTitle: string);
+procedure TBookCollection_SQLite.RememberSeriesTitle(SeriesID, TargetID: Integer);
+begin
+  FDatabase.ExecSQL('INSERT INTO SeriesCatalogAliases(Title,SeriesID) ' +
+    'SELECT SeriesTitle, ? FROM Series WHERE SeriesID = ? ' +
+    'ON CONFLICT(Title) DO UPDATE SET SeriesID=excluded.SeriesID', [TargetID, SeriesID]);
+end;
+
+procedure TBookCollection_SQLite.SetSeriesTitle(const SeriesID: Integer; const NewSeriesTitle: string;
+  KeepPreviousTitle: Boolean);
 const
   SQL_UPDATE = 'UPDATE Series Set SeriesTitle = ? WHERE SeriesID = ? ';
 begin
   Assert(SeriesID <> NO_SERIES_ID);
   Assert(NewSeriesTitle <> NO_SERIES_TITLE);
 
+  if KeepPreviousTitle then
+  begin
+    if not InBulkOperation then raise EInvalidOperation.Create('Название серии меняется внутри объединения.');
+    RememberSeriesTitle(SeriesID, SeriesID);
+  end;
   FDatabase.ExecSQL(SQL_UPDATE, [NewSeriesTitle, SeriesID]);
 end;
 
@@ -2889,6 +2916,8 @@ begin
       try
         if NewSeriesID <> NO_SERIES_ID then
         begin
+          RememberSeriesTitle(OldSeriesID, NewSeriesID);
+          FDatabase.ExecSQL('UPDATE SeriesCatalogAliases SET SeriesID=? WHERE SeriesID=?', [NewSeriesID, OldSeriesID]);
           // Merge the old relationship into the target one. INSERT OR IGNORE
           // handles books that already belonged to both series.
           FDatabase.ExecSQL(
@@ -2898,6 +2927,11 @@ begin
             'FROM Series_List WHERE SeriesID = ?',
             [NewSeriesID, OldSeriesID]
           );
+          // When both memberships exist, keep the target's number if set.
+          // A missing target number can be filled from the old membership.
+          FDatabase.ExecSQL('UPDATE Series_List AS target SET SeqNumber=source.SeqNumber FROM Series_List source ' +
+            'WHERE target.SeriesID=? AND source.SeriesID=? AND target.BookID=source.BookID ' +
+            'AND IFNULL(target.SeqNumber,0)=0 AND IFNULL(source.SeqNumber,0)<>0', [NewSeriesID, OldSeriesID]);
           FDatabase.ExecSQL(
             'UPDATE Series_List SET IsPrimary = 0 WHERE BookID IN (' +
             'SELECT BookID FROM Books WHERE SeriesID = ?)',
@@ -2912,8 +2946,9 @@ begin
             'UPDATE Books SET SeriesID = ?, SeqNumber = (' +
             'SELECT sl.SeqNumber FROM Series_List sl ' +
             'WHERE sl.BookID = Books.BookID AND sl.SeriesID = ?) ' +
-            'WHERE SeriesID = ?',
-            [NewSeriesID, NewSeriesID, OldSeriesID]
+            'WHERE SeriesID = ? OR (SeriesID = ? AND BookID IN (SELECT BookID FROM Series_List WHERE SeriesID = ?) ' +
+            'AND SeqNumber IS NOT (SELECT SeqNumber FROM Series_List WHERE SeriesID = ? AND BookID = Books.BookID))',
+            [NewSeriesID, NewSeriesID, OldSeriesID, NewSeriesID, OldSeriesID, NewSeriesID]
           );
           FDatabase.ExecSQL(
             'DELETE FROM Series_List WHERE SeriesID = ?', [OldSeriesID]
@@ -3611,6 +3646,29 @@ begin
   finally
     query.Free;
   end;
+end;
+
+procedure TBookCollection_SQLite.MergeSelectedAuthors(const AuthorIDs: TArray<Integer>; const Target: TAuthorData);
+var AuthorID: Integer; Updated: TAuthorData;
+begin
+  if not InBulkOperation then raise EInvalidOperation.Create('Авторы объединяются внутри операции с каталогом.');
+  if (Target.AuthorID <= 0) or (Target.GetFullName = '') then
+    raise EArgumentException.Create('Укажите имя объединённого автора.');
+  for AuthorID in AuthorIDs do
+  begin
+    FDatabase.ExecSQL('INSERT INTO AuthorCatalogAliases(LastName,FirstName,MiddleName,AuthorID) ' +
+      'SELECT LastName,IFNULL(FirstName,''''),IFNULL(MiddleName,''''),? FROM Authors WHERE AuthorID=? ' +
+      'ON CONFLICT(LastName,FirstName,MiddleName) DO UPDATE SET AuthorID=excluded.AuthorID',
+      [Target.AuthorID, AuthorID]);
+    if AuthorID = Target.AuthorID then Continue;
+    FDatabase.ExecSQL('UPDATE AuthorCatalogAliases SET AuthorID=? WHERE AuthorID=?', [Target.AuthorID, AuthorID]);
+    FDatabase.ExecSQL('INSERT OR IGNORE INTO Author_List(AuthorID,BookID) ' +
+      'SELECT ?,BookID FROM Author_List WHERE AuthorID=?', [Target.AuthorID, AuthorID]);
+    FDatabase.ExecSQL('DELETE FROM Author_List WHERE AuthorID=?', [AuthorID]);
+    FDatabase.ExecSQL('DELETE FROM Authors WHERE AuthorID=?', [AuthorID]);
+  end;
+  Updated := Target;
+  UpdateAuthor(@Updated);
 end;
 
 procedure TBookCollection_SQLite.BeginMetadataFillBatch;
