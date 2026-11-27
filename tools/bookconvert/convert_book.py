@@ -81,6 +81,8 @@ EPUB_TRUNCATED_CHAPTER = 'В главе EPUB не сохранились зак�
 EPUB_DANGLING_START = 'В главе EPUB оборван открывающий тег'
 EPUB_MISSING_BODY = 'В разделе EPUB отсутствует содержимое'
 MOBI_NAVIGATION_LOSS = 'Не перенесены переходы оглавления MOBI'
+MOBI_NAVIGATION_LABEL_DAMAGE = 'Нечитаемые символы в оглавлении MOBI'
+MOBI_METADATA_TEXT_DAMAGE = 'Нечитаемые символы в сведениях об издании MOBI'
 MOBI_METADATA_LOSS = 'Не удалось прочитать сведения об издании MOBI.'
 DOC_NOTE_LAYOUT_LOSS = 'Не удалось восстановить все связи сносок DOC'
 DOCX_PAGE_OVERLAYS = 'Белые накладки печатных страниц не перенесены'
@@ -451,7 +453,8 @@ def damaged_content_warnings(warnings):
         'Повреждённая иллюстрация', 'Частично восстановлено изображение JPEG',
         KINDLE_JPEG_TRAILER_LOSS, MOBI_IMAGE_REDUCTION,
         'Описание FB3 недоступно',
-        'Оглавление EPUB повреждено', 'Не перенесены переходы оглавления EPUB', MOBI_NAVIGATION_LOSS, MOBI_METADATA_LOSS,
+        'Оглавление EPUB повреждено', 'Не перенесены переходы оглавления EPUB', MOBI_NAVIGATION_LOSS,
+        MOBI_NAVIGATION_LABEL_DAMAGE, MOBI_METADATA_LOSS, MOBI_METADATA_TEXT_DAMAGE,
         EPUB_TRUNCATED_CHAPTER, EPUB_DANGLING_START, EPUB_MISSING_BODY,
         'Не перенесены повторные разделы EPUB', 'Страницы DjVu с повреждённым текстовым слоем',
         'Восстановлена часть страниц DjVu:',
@@ -5847,6 +5850,29 @@ def kindle_epub(source, output, warnings=None):
         archive.archive.close()
 
 
+def read_kindle_xml(data, text_tags):
+    try:
+        return xml(data), 0
+    except ConversionError:
+        # KindleUnpack writes UTF-8 XML. Legacy labels and metadata may
+        # contain SUB replacement bytes. Do not alter markup or attributes.
+        content = data.decode('utf-8')
+        replacements = 0
+
+        def repair_text(match):
+            nonlocal replacements
+            text, count = re.subn(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '\ufffd', match['text'])
+            replacements += count
+            return match['opening'] + text + match['closing']
+
+        allowed = '|'.join(re.escape(name) for name in text_tags)
+        repaired = re.sub(r'(?P<opening><(?P<tag>'+allowed+r')(?:\s+[^<>]*)?>)'
+                          r'(?P<text>[^<]*)(?P<closing></(?P=tag)>)', repair_text, content)
+        if not replacements:
+            raise
+        return xml(repaired.encode('utf-8')), replacements
+
+
 def mobi_navigation(html, warnings):
     ncx = html.with_name('toc.ncx')
     if not ncx.is_file():
@@ -5854,8 +5880,16 @@ def mobi_navigation(html, warnings):
     try:
         if ncx.stat().st_size > MAX_FILE:
             raise ConversionError('Оглавление MOBI превышает допустимый размер.')
-        navigation = first(xml(ncx.read_bytes()), 'navMap')
-    except (ConversionError, OSError):
+        root, replacements = read_kindle_xml(ncx.read_bytes(), ('text',))
+        navigation = first(root, 'navMap')
+        if replacements and navigation is not None:
+            damaged_labels = sum(plain(node).count('\ufffd') for node in navigation.iter()
+                                 if tag(node) == 'navLabel')
+            if damaged_labels:
+                warnings.add(f'{MOBI_NAVIGATION_LABEL_DAMAGE} отмечены знаком � (всего {damaged_labels}).')
+            else:
+                warnings.add('Оглавление MOBI восстановлено после исправления заголовка NCX.')
+    except (ConversionError, OSError, UnicodeError):
         warnings.add(MOBI_NAVIGATION_LOSS + '. Не удалось прочитать исходное оглавление.')
         return []
     pending = [(point, 1) for point in reversed(children(navigation, 'navPoint'))] if navigation is not None else []
@@ -5887,10 +5921,15 @@ def mobi_package(html, warnings):
         return None
     try:
         if opf.stat().st_size <= MAX_FILE:
-            package = xml(escape_kindle_ampersands(opf.read_bytes()))
+            fields = ('title', 'creator', 'contributor', 'description', 'publisher', 'subject', 'rights',
+                      'date', 'identifier', 'source', 'language')
+            tags = tuple('dc:'+name for name in fields)
+            package, replacements = read_kindle_xml(escape_kindle_ampersands(opf.read_bytes()), tags)
             if tag(package) == 'package' and first(package, 'metadata') is not None:
+                if replacements:
+                    warnings.add(f'{MOBI_METADATA_TEXT_DAMAGE} отмечены знаком � (всего {replacements}).')
                 return package
-    except (ConversionError, OSError):
+    except (ConversionError, OSError, UnicodeError):
         pass
     warnings.add(MOBI_METADATA_LOSS)
     return None

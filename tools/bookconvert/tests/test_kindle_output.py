@@ -148,6 +148,49 @@ class KindleOutputTests(unittest.TestCase):
             self.assertIn('Заголовок вне оглавления', c.plain(c.xml(archive.read('OEBPS/book.xhtml'))))
         self.assertTrue(any(text.startswith(c.MOBI_NAVIGATION_LOSS) for text in c.damaged_content_warnings(warnings)))
 
+    def test_mobi_outline_keeps_valid_destinations_around_invalid_label_characters(self):
+        html = self.root/'book.html'
+        ncx = self.root/'toc.ncx'
+        data = b'''<ncx><navMap><navPoint><navLabel><text>Vol\x1aume</text></navLabel>
+          <content src="book.html#first"/>
+          <navPoint><navLabel><text>Chapter 2</text></navLabel>
+            <content src="book.html#second"/></navPoint>
+          </navPoint><navPoint><navLabel><text>Chapter 3</text></navLabel>
+            <content src="book.html#third"/></navPoint></navMap></ncx>'''
+        ncx.write_bytes(data)
+        warnings = set()
+        self.assertEqual(c.mobi_navigation(html, warnings),
+                         [('first', 'Vol\ufffdume', 1), ('second', 'Chapter 2', 2), ('third', 'Chapter 3', 1)])
+        self.assertEqual(c.damaged_content_warnings(warnings),
+                         ['Нечитаемые символы в оглавлении MOBI отмечены знаком � (всего 1).'])
+        self.assertEqual(ncx.read_bytes(),data)
+
+        damaged_title = data.replace(b'Vol\x1aume', b'Volume').replace(
+            b'<ncx>', b'<ncx><docTitle><text>Bo\x1aok</text></docTitle>')
+        ncx.write_bytes(damaged_title)
+        warnings.clear()
+        self.assertEqual(c.mobi_navigation(html, warnings),
+                         [('first', 'Volume', 1), ('second', 'Chapter 2', 2), ('third', 'Chapter 3', 1)])
+        self.assertFalse(c.damaged_content_warnings(warnings))
+        self.assertEqual(ncx.read_bytes(),damaged_title)
+
+    def test_mobi_package_keeps_other_metadata_when_the_title_contains_invalid_characters(self):
+        html = self.root/'book.html'
+        opf = self.root/'content.opf'
+        data = b'''<package xmlns:dc="http://purl.org/dc/elements/1.1/"><metadata>
+        <dc:title>An incomplete \x1atitle</dc:title><dc:creator>Alice & Bob</dc:creator>
+        <dc:publisher>Publisher</dc:publisher><dc:language>en</dc:language>
+        </metadata></package>'''
+        opf.write_bytes(data)
+        warnings = set()
+        package = c.mobi_package(html, warnings)
+        self.assertEqual({c.tag(node): c.plain(node) for node in c.first(package,'metadata')},
+                         {'title': 'An incomplete \ufffdtitle', 'creator': 'Alice & Bob',
+                          'publisher': 'Publisher', 'language': 'en'})
+        self.assertEqual(c.damaged_content_warnings(warnings),
+                         ['Нечитаемые символы в сведениях об издании MOBI отмечены знаком � (всего 1).'])
+        self.assertEqual(opf.read_bytes(),data)
+
     def test_private_adaptation_uses_manifest_and_preserves_content_and_metadata(self):
         output = self.root / 'private.epub'
         k.canonical_input(c, self.source, output)
