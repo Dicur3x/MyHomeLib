@@ -1612,7 +1612,8 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
   JpegRecoveryDeadline: UInt64;
   WordSpacerCount: Integer;
   WordStyles: IXMLDOMNode;
-  NumericEpubLinks: TList<Integer>;
+  NumericEpubLinks, EpubGuideCoverLinks: TList<Integer>;
+  EpubGuideTocPath, EpubGuideCoverPath, EpubGuideCoverTitle: string;
   DuplicateEpubAnchors: TDictionary<string,Byte>;
   EpubOutlineNodes: TDictionary<string,IXMLDOMNode>;
   EpubOutlineTargets: TDictionary<string,Integer>;
@@ -1738,6 +1739,51 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
     At:=Pos('?',Part); if At>0 then Part:=Copy(Part,1,At-1);
     if Part='' then Part:=CurrentPath else Part:=ZipPath(CurrentPath,Part);
     Result:=Part+'#'+Fragment;
+  end;
+  procedure ReadEpubGuideCover;
+  var Guide, Reference, Cover, Toc: IXMLDOMNode; Href, CoverHref: string; At: Integer;
+  begin
+    Guide:=FindNode(Root,'guide');
+    if Guide=nil then Exit;
+    for var Index:=0 to Guide.childNodes.length-1 do
+    begin
+      Reference:=Guide.childNodes.item[Index];
+      if LocalName(Reference)<>'reference' then Continue;
+      if Attribute(Reference,'type')='toc' then
+      begin
+        if Toc<>nil then Exit;
+        Toc:=Reference;
+      end
+      else if Attribute(Reference,'type')='cover' then
+      begin
+        if Cover<>nil then Exit;
+        Cover:=Reference;
+      end;
+    end;
+    if (Cover=nil) or (Toc=nil) then Exit;
+    Href:=Attribute(Toc,'href'); CoverHref:=Attribute(Cover,'href');
+    if (Href='') or (CoverHref='') or Href.Contains('?') or CoverHref.Contains('?') or CoverHref.Contains('#') or
+      Href.Contains('\') or CoverHref.Contains('\') then Exit;
+    At:=Pos('#',Href); if At>0 then Href:=Copy(Href,1,At-1);
+    if Href='' then Exit;
+    try
+      EpubGuideTocPath:=ZipPath(PackagePath,Href);
+      EpubGuideCoverPath:=ZipPath(PackagePath,CoverHref);
+    except on Error: Exception do Exit; end;
+    if EpubGuideTocPath<>EpubGuideCoverPath then
+      EpubGuideCoverTitle:=Trim(TRegEx.Replace(Attribute(Cover,'title'),'\s+',' '));
+  end;
+  procedure RestoreEpubGuideCoverLinks;
+  begin
+    if not Assigned(EpubGuideCoverLinks) then Exit;
+    for var Index in EpubGuideCoverLinks do
+    begin
+      Check;
+      var Link:=FLinks[Index];
+      Link.Target:=EpubGuideCoverPath+'#';
+      FLinks[Index]:=Link;
+    end;
+    if Warnings.Count<20 then Warnings.Add('Восстановлен переход из оглавления EPUB к объявленной обложке.');
   end;
   function EpubSpaceAnchor(const Target: string): string;
   var At: Integer; Alternative: string;
@@ -4745,7 +4791,8 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
     const LegendMarker: TBytes = nil; LegendWidth: Integer = 0; LegendHeight: Integer = 0);
   var J, Spaces, StyleIndex, NoteStart, InitialStart, HeadingLevel, FontPercent, FontStyleIndex, LinkStart: Integer; Name, Ref, Binary, Style, NoteTarget, CSSStyle, AppliedAlignment, LinkTarget, Anchor: string; Link: TReaderFootnoteLink; TextLink: TReaderTextLink;
     StyleNode, StyleValue, Ancestor, Previous, Child, TrailingRule: IXMLDOMNode; Bytes: TBytes;
-    IsParagraph, IsTitle, IsBlock, IsCode, IsTextFrame, ChapterInitial, InferredHeading, NumericLink: Boolean;
+    IsParagraph, IsTitle, IsBlock, IsCode, IsTextFrame, ChapterInitial, InferredHeading, NumericLink,
+      GuideCoverLink: Boolean;
     Range: TReaderStyledRange;
     OuterFieldDepth, OuterInstructionDepth: Integer;
     OuterTableSpans: TArray<TTableSpan>;
@@ -5315,6 +5362,10 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
       begin
         NumericLink:=(E='.epub') and (NumericEpubAnchor(Ref) or (Ref.StartsWith('./') and
           NumericEpubAnchor(Ref.Substring(2))));
+        GuideCoverLink:=(EpubGuideCoverTitle<>'') and (CurrentPath=EpubGuideTocPath) and
+          not Ref.Contains('#') and not Ref.Contains('?') and not Ref.Contains('\') and
+          (Zip.IndexOf(LinkTarget.Substring(0,Length(LinkTarget)-1))<0) and
+          SameText(EpubGuideCoverTitle,Trim(TRegEx.Replace(N.text,'\s+',' ')));
         LinkStart:=FText.Length; FBody.Append('{\ul ');
       end;
     end;
@@ -5775,6 +5826,11 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
           if not Assigned(NumericEpubLinks) then NumericEpubLinks:=TList<Integer>.Create;
           NumericEpubLinks.Add(FLinks.Count);
         end;
+        if GuideCoverLink then
+        begin
+          if not Assigned(EpubGuideCoverLinks) then EpubGuideCoverLinks:=TList<Integer>.Create;
+          EpubGuideCoverLinks.Add(FLinks.Count);
+        end;
         FLinks.Add(TextLink); Range.Start:=TextLink.Start; Range.Count:=TextLink.Count; Range.Kind:=rbLink; FStyles.Add(Range);
       end;
     end;
@@ -6138,7 +6194,7 @@ begin
   WordSpacerCount:=0;
   WordNoteLabels:=nil; ReadingWordNotes:=False; SkipWordCustomMark:=False;
   WordListDefinitions:=nil; WordLists:=nil; WordListImagePaths:=nil;
-  NumericEpubLinks:=nil; DuplicateEpubAnchors:=nil;
+  NumericEpubLinks:=nil; EpubGuideCoverLinks:=nil; DuplicateEpubAnchors:=nil;
   EpubOutlineNodes:=nil; EpubOutlineTargets:=nil; EpubOpeningTitles:=nil; EpubImageNameAliases:=nil; EpubAnchorEnds:=nil;
   SavedQuoteSections:=nil;
   NavigationIDs:=nil; EpubNavigationDocument:=False; EpubFixedLayout:=False;
@@ -6261,6 +6317,7 @@ begin
         end;
       Manifest:=FindNode(Root,'manifest'); Spine:=FindNode(Root,'spine');
       if (Manifest=nil) or (Spine=nil) then raise Exception.Create('В EPUB нет порядка чтения.');
+      ReadEpubGuideCover;
       for I:=0 to Manifest.childNodes.length-1 do
       begin
         Item:=Manifest.childNodes.item[I]; if LocalName(Item)<>'item' then Continue;
@@ -6295,6 +6352,7 @@ begin
       var MissingSpineEntries:=0;
       var MissingSpineBodies:=0;
       var SpineHasContent:=False;
+      var GuideCoverRead:=False;
       for I:=0 to Spine.childNodes.length-1 do
       begin
         Check;
@@ -6352,6 +6410,7 @@ begin
           ReadEpubMath(Node,Data);
           CollectNotes(Node,CurrentPath+'#',False);
           Walk(Node,0);
+          if (CurrentPath=EpubGuideCoverPath) and (FText.Length>Before) then GuideCoverRead:=True;
           if Assigned(EpubOutlineNodes) then
           begin
             EpubOutlineNodes.Clear;
@@ -6428,6 +6487,7 @@ begin
           end;
         end;
       ResolveNumericEpubLinks;
+      if GuideCoverRead then RestoreEpubGuideCoverLinks;
       RecoverEpubFragmentLinks(CoverID);
       for var LinkIndex:=0 to FLinks.Count-1 do
       begin
@@ -6568,7 +6628,7 @@ begin
     end;
     if FText.Length=0 then raise Exception.Create('В документе нет текста для чтения.');
   finally
-    NumericEpubLinks.Free; DuplicateEpubAnchors.Free; EpubOutlineNodes.Free; EpubOutlineTargets.Free; EpubOpeningTitles.Free; EpubImageNameAliases.Free;
+    NumericEpubLinks.Free; EpubGuideCoverLinks.Free; DuplicateEpubAnchors.Free; EpubOutlineNodes.Free; EpubOutlineTargets.Free; EpubOpeningTitles.Free; EpubImageNameAliases.Free;
     EpubAnchorEnds.Free; SavedQuoteSections.Free;
     NavigationIDs.Free; MathPictures.Free;
     WordListImagePaths.Free; WordLists.Free; WordListDefinitions.Free;

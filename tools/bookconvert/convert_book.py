@@ -3494,16 +3494,32 @@ def epub_reading_order(archive, warnings, check=None, *, allow_partial_epub=Fals
         if not fragment and path in archive.names and media.startswith('image/') and media not in EPUB_MISLABELED_XHTML_TYPES:
             cover_resources.setdefault(path, media)
     guide = first(package, 'guide')
+    guide_toc_path = guide_cover_path = guide_cover_title = None
     if guide is not None:
+        toc_references = []
+        cover_references = []
         for entry in children(guide, 'reference'):
+            if entry.get('type') == 'toc':
+                toc_references.append(entry.get('href', ''))
             if entry.get('type') != 'cover':
                 continue
+            cover_references.append(entry)
             try:
                 path, fragment = archive.resolve(package_path, entry.get('href', ''))
             except (ConversionError, ValueError):
                 continue
             if path is not None and not fragment:
                 cover_resources.setdefault(path, media_by_path.get(path) or mimetypes.guess_type(path)[0] or '')
+        if len(toc_references) == len(cover_references) == 1:
+            toc_href = toc_references[0]
+            cover_href = cover_references[0].get('href', '')
+            if toc_href and cover_href and '?' not in toc_href and not any(c in cover_href for c in '?#'):
+                try:
+                    guide_toc_path, _ = archive.resolve(package_path, toc_href)
+                    guide_cover_path, _ = archive.resolve(package_path, cover_href)
+                except (ConversionError, ValueError):
+                    guide_toc_path = guide_cover_path = None
+                guide_cover_title = ' '.join(cover_references[0].get('title', '').split()).casefold()
     cover_anchors = {}
     vendor_html = {paths[identity] for identity, item in items.items()
                    if item.get('media-type') == 'application/x-ibooks-html'}
@@ -3647,6 +3663,16 @@ def epub_reading_order(archive, warnings, check=None, *, allow_partial_epub=Fals
                     del link.attrib['href']
                     changed = True
                     continue
+                if (path == guide_toc_path and guide_cover_title and guide_cover_path in cover_anchors
+                        and guide_cover_path not in empty_chapters and guide_cover_path != path
+                        and target is not None and target not in archive.names
+                        and not any(c in reference for c in '?#')
+                        and ' '.join(''.join(link.itertext()).split()).casefold() == guide_cover_title):
+                    # The EPUB guide identifies the visible contents and gives the intended cover a title.
+                    relative_path = posixpath.relpath(guide_cover_path, posixpath.dirname(path))
+                    link.set('href', quote(relative_path))
+                    changed = True
+                    warnings.add('Восстановлен переход из оглавления EPUB к объявленной обложке.')
                 if target in text_resources: load_reading_document(target)
                 if (path in navigation_paths and target in cover_anchors and fragment.casefold() == 'cover'
                         and fragment not in cover_anchors[target]):

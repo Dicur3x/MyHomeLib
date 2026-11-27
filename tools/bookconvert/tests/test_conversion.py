@@ -2454,6 +2454,37 @@ class ConversionTests(unittest.TestCase):
         self.assertTrue(any(warning.startswith('Метка обложки EPUB отсутствует') for warning in notices), notices)
         self.assertTrue(any('notes.xhtml#NoSuchPlace' in warning for warning in notices), notices)
 
+    def test_epub_repairs_missing_cover_link_only_in_declared_inline_contents(self):
+        source = self.generic('''<ol><li><a href="obsolete/cover.xhtml"><span>Cover</span></a></li>
+          <li><a href="obsolete/appendix.xhtml">Appendix</a></li>
+          <li><a href="notes.xhtml">Existing cover link</a></li></ol>''',
+          '''<p><img src="image.png" alt="Cover"/>Actual cover.</p>
+          <p><a href="obsolete/cover.xhtml">Cover</a></p>''')
+        with zipfile.ZipFile(source) as archive:
+            files = {name: archive.read(name) for name in archive.namelist()}
+        package = c.xml(files['OPS/package.opf'])
+        guide = c.element(c.OP, 'guide')
+        guide.append(c.element(c.OP, 'reference', type='toc', href='chapter.xhtml#contents'))
+        guide.append(c.element(c.OP, 'reference', type='cover', href='notes.xhtml', title='Cover'))
+        package.append(guide)
+        files['OPS/package.opf'] = c.serialized(package)
+        with zipfile.ZipFile(source, 'w') as archive:
+            for name, data in files.items():
+                archive.writestr(name, data)
+        original = digest(source)
+        output = self.root / 'guide-cover.fb2'
+        report = c.convert_book(source, output)
+        self.validate_fb2(output)
+        body = c.first(c.xml(output.read_bytes()), 'body')
+        by_id = {node.get('id'): c.plain(node) for node in body.iter() if node.get('id')}
+        links = [(c.plain(node), by_id[node.get('{' + c.XL + '}href')[1:]])
+                 for node in body.iter('{' + c.FB + '}a')]
+        self.assertEqual([target for label, target in links if label == 'Cover'], ['Actual cover.Cover'])
+        self.assertIn(('Existing cover link', 'Actual cover.Cover'), links)
+        self.assertTrue(any('obsolete/appendix.xhtml' in warning for warning in report['warnings']))
+        self.assertTrue(any('obsolete/cover.xhtml' in warning for warning in report['warnings']))
+        self.assertEqual(digest(source), original)
+
     def test_epub_recovers_declared_image_with_unmarked_utf8_zip_name(self):
         name = 'схема.png'
         source = self.generic(f'<p>Before <img src="{name}"/> after.</p>')
