@@ -11,13 +11,52 @@ import sys
 import xml.etree.ElementTree as ET
 from zipfile import ZipFile
 
-VERSION = "kindleunpack-bf0ca6e-v3"
+VERSION = "kindleunpack-bf0ca6e-v4"
+
+
+def read_mobi_text(read_raw, header):
+    raw = read_raw(header)
+    saved_header = header.header
+    if (header.sect.ident != b'BOOKMOBI' or header.version != 4 or header.codec != 'utf-8'
+            or len(saved_header) < 0xF4 or struct.unpack_from('>I', saved_header, 0x14)[0] < 0xE4
+            or struct.unpack_from('>H', saved_header, 0xF2)[0] != 1):
+        return raw
+    declared_length, = struct.unpack_from('>I', saved_header, 4)
+    if not 0 < declared_length < len(raw):
+        return raw
+    try:
+        raw.decode('utf-8')
+    except UnicodeDecodeError:
+        pass
+    else:
+        return raw
+
+    # Some version 4 Kindle files already carry UTF-8 overlap bytes at the
+    # record boundaries. KindleUnpack only trims them from version 5 onward.
+    probe = bytearray(saved_header)
+    struct.pack_into('>I', probe, 0x68, 5)
+    try:
+        header.header = bytes(probe)
+        trimmed = read_raw(header)
+        if len(trimmed) == declared_length:
+            trimmed.decode('utf-8')
+            raw = trimmed
+    except (ValueError, IndexError, struct.error):
+        pass
+    finally:
+        header.header = saved_header
+        header.rawSize = len(raw)
+    return raw
 
 
 def unpack_preserving_resource_slots(kindleunpack, source, work, *, epubver):
     """Leave empty slots for font records that KindleUnpack cannot extract."""
     extract_font = kindleunpack.processFONT
+    read_raw = kindleunpack.MobiHeader.getRawML
     incomplete_fonts = []
+
+    def read_text(header):
+        return read_mobi_text(read_raw, header)
 
     def keep_font_slot(index, files, names, sections, data, obfuscation, start, pointer):
         count = len(names)
@@ -31,10 +70,12 @@ def unpack_preserving_resource_slots(kindleunpack, source, work, *, epubver):
         return result
 
     kindleunpack.processFONT = keep_font_slot
+    kindleunpack.MobiHeader.getRawML = read_text
     try:
         kindleunpack.unpackBook(str(source), str(work), epubver=epubver, use_hd=True)
     finally:
         kindleunpack.processFONT = extract_font
+        kindleunpack.MobiHeader.getRawML = read_raw
     return incomplete_fonts
 
 

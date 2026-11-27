@@ -46,11 +46,43 @@ class KindleOutputTests(unittest.TestCase):
             self.assertEqual(references[4], 'after.jpg')
             self.assertEqual(references[1], 'homelibre-missing-mobi-image-2.img')
 
-        module = SimpleNamespace(processFONT=process_font, unpackBook=unpack)
+        class MobiHeader:
+            def getRawML(self):
+                raise AssertionError('Font test does not decode text')
+
+        module = SimpleNamespace(processFONT=process_font, unpackBook=unpack, MobiHeader=MobiHeader)
+        original_reader = MobiHeader.getRawML
         self.assertEqual(reader.unpack_preserving_resource_slots(module, 'book.mobi', 'work', epubver='3'), [21])
         self.assertIs(module.processFONT, process_font)
+        self.assertIs(MobiHeader.getRawML, original_reader)
         note = 'Не перенесены встроенные шрифты Kindle. Повреждённые записи: 21.'
         self.assertEqual(c.damaged_content_warnings([note]), [note])
+
+    def test_mobi4_trims_utf8_overlap_only_when_header_and_decoded_length_confirm_it(self):
+        valid = 'Первая строка'.encode()
+        broken = valid[:5]+b'\xd1'+valid[5:]
+        header = bytearray(0xF4)
+        struct.pack_into('>I', header, 4, len(valid))
+        struct.pack_into('>I', header, 0x14, 0xE4)
+        struct.pack_into('>I', header, 0x68, 4)
+        struct.pack_into('>H', header, 0xF2, 1)
+        initial = bytes(header)
+        book = SimpleNamespace(header=initial, version=4, codec='utf-8', sect=SimpleNamespace(ident=b'BOOKMOBI'))
+
+        def reader_with(candidate):
+            def read_raw(book):
+                data = candidate if struct.unpack_from('>I',book.header,0x68)[0]>=5 else broken
+                book.rawSize = len(data)
+                return data
+            return read_raw
+
+        self.assertEqual(reader.read_mobi_text(reader_with(valid),book),valid)
+        self.assertIs(book.header,initial)
+        self.assertEqual(book.rawSize,len(valid))
+        self.assertEqual(reader.read_mobi_text(reader_with(valid[:-1]),book),broken)
+        self.assertEqual(reader.read_mobi_text(reader_with(b'\xff'*len(valid)),book),broken)
+        self.assertIs(book.header,initial)
+        self.assertEqual(book.rawSize,len(broken))
 
     def test_legacy_mobi_reads_only_identifiers_present_in_the_source_header(self):
         record = bytearray(248)
