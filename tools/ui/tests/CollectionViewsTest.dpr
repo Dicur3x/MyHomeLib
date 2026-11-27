@@ -4900,6 +4900,28 @@ begin
       for var X:=0 to 120 do
         if FirstPageImage.Picture.Bitmap.Canvas.Pixels[X,Y]=clBlack then Inc(Ink);
     Require(Ink>0,'The first-page preview is blank');
+    TFile.WriteAllText(Settings.AppPath+'preview-illustration.fb2',
+      '<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:l="http://www.w3.org/1999/xlink">'+
+      '<description><title-info><book-title>Illustrated opening</book-title></title-info></description>'+
+      '<body><section><p>Opening text</p><image l:href="#art"/></section></body>'+
+      '<binary id="art" content-type="image/png">'+
+      'iVBORw0KGgoAAAANSUhEUgAAABgAAAAkCAIAAAAcrW15AAAANUlEQVR4nO3QoQEAMAjEwKf77wwjpAKByA0Qkep0NryVSgz9cDbzEfMR8xHzEfMR8xG792gA7IsCRrhG5qUAAAAASUVORK5CYII='+
+      '</binary></FictionBook>',TEncoding.UTF8);
+    Book.FileName:='preview-illustration';
+    Preview.Load(Book,True,False,False); WaitPreview;
+    Require((Pos('Иллюстрация с первой страницы.',Panel.PreviewStatusText)>0) and
+      Assigned(FirstPageImage.Picture.Graphic) and (FirstPageImage.Picture.Width=24) and
+      (FirstPageImage.Picture.Height=36) and FirstPageImage.Stretch and FirstPageImage.Proportional,
+      'The illustration itself was not used as a proportional cover preview: '+Panel.PreviewStatusText);
+    Writeln('PASS fallback uses the original first-page illustration and stretches it proportionally in the card');
+    TFile.WriteAllText(Settings.AppPath+'preview-later-illustration.fb2',
+      TFile.ReadAllText(Settings.AppPath+'preview-illustration.fb2',TEncoding.UTF8).Replace(
+        '<p>Opening text</p>',DupeString('<p>Long text before the illustration.</p>',100)),TEncoding.UTF8);
+    Book.FileName:='preview-later-illustration';
+    Preview.Load(Book,True,False,False); WaitPreview;
+    Require((Pos('Предпросмотр первой страницы.',Panel.PreviewStatusText)>0) and
+      (FirstPageImage.Picture.Graphic is TBitmap),'The card unexpectedly used a later illustration');
+    Writeln('PASS fallback leaves artwork from later pages out of the cover preview');
     if TFile.Exists(Settings.AppPath+'preview-real.fb2') then
     begin
       OriginalHash:=THashSHA2.GetHashStringFromFile(Settings.AppPath+'preview-real.fb2');
@@ -4930,7 +4952,8 @@ begin
       Book.FileName:='opening-page-real'; Book.Title:='Czarna Szabla';
       Preview.Load(Book,True,False,False); WaitPreview;
       Require(Assigned(FirstPageImage.Picture.Graphic) and
-        (Pos('Предпросмотр первой страницы.',Panel.PreviewStatusText)>0),
+        ((Pos('Предпросмотр первой страницы.',Panel.PreviewStatusText)>0) or
+         (Pos('Иллюстрация с первой страницы.',Panel.PreviewStatusText)>0)),
         'The real FB2 opening page did not render: '+Panel.PreviewStatusText);
       Require(THashSHA2.GetHashStringFromFile(Settings.AppPath+'opening-page-real.fb2')=OriginalHash,
         'The real book opening page changed its source');

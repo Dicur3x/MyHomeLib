@@ -2057,6 +2057,7 @@ end;
 {$I ReaderTextEncodingTests.inc}
 {$I ReaderBookSkinTests.inc}
 {$I ReaderToolbarTests.inc}
+{$I ReaderChapterPageTests.inc}
 
 procedure AuditRealTextSelection;
 var Reader: TfrmBuiltinReader; Painted: TBitmap; Surface: TWinControl;
@@ -3091,6 +3092,7 @@ begin
       else if ParamStr(1)='oct10-reader' then AuditOctoberReader
       else if ParamStr(1)='raster-reader' then AuditRasterReader
       else if ParamStr(1)='release-pagination' then AuditReleasePagination
+      else if ParamStr(1)='chapter-pages' then AuditChapterPages
       else if ParamStr(1)='djvu-quality' then AuditDjvuQuality
       else if ParamStr(1)='loading-preferences' then AuditLoadingPreferences
       else if ParamStr(1)='real-formats' then AuditRealFormats

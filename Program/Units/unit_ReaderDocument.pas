@@ -2,7 +2,7 @@
 
 interface
 
-uses System.SysUtils, System.Classes, System.Types, System.Generics.Collections, System.UITypes;
+uses System.SysUtils, System.Classes, System.Types, System.Generics.Collections, System.UITypes, Vcl.Graphics;
 
 const
   ReaderEpubTruncatedChapterWarning = 'В главе EPUB не сохранились закрывающие теги';
@@ -121,6 +121,7 @@ type
     function PictureUsesBackground(Index: Integer): Boolean;
     function PictureExtent(Index, MaxWidth, MaxHeight: Integer): TPoint;
     function PictureCaptionLength(Index: Integer): Integer;
+    function OpenPictureGraphic(Index: Integer): TGraphic;
     procedure ReleasePlainText;
     // Native text owns the layout; compressed picture bytes support reflow.
     procedure ReleaseUnusedBuffers;
@@ -157,7 +158,7 @@ implementation
 
 uses Winapi.Windows, Winapi.ActiveX, System.IOUtils, System.Math, System.Hash,
   System.RegularExpressions, System.StrUtils, System.NetEncoding, System.Zip, System.Variants,
-  System.Character, System.Win.ComObj, Winapi.MSXML, Vcl.Graphics, Vcl.Imaging.jpeg, Vcl.Imaging.pngimage, unit_ImageBounds, unit_FB2Utils, unit_ReaderMIME, unit_ReaderFormats, unit_ReaderCSS, unit_MHLExternalTools, unit_FB2Encoding, unit_BookCache, unit_SvgBookCover, unit_ReaderRaster, unit_ReaderRTF, unit_Diagnostics, unit_ReaderDOC, unit_ReaderLegacy, unit_Fb3Package;
+  System.Character, System.Win.ComObj, Winapi.MSXML, Vcl.Imaging.jpeg, Vcl.Imaging.pngimage, unit_ImageBounds, unit_FB2Utils, unit_ReaderMIME, unit_ReaderFormats, unit_ReaderCSS, unit_MHLExternalTools, unit_FB2Encoding, unit_BookCache, unit_SvgBookCover, unit_ReaderRaster, unit_ReaderRTF, unit_Diagnostics, unit_ReaderDOC, unit_ReaderLegacy, unit_Fb3Package;
 
 const
   MAX_DOCUMENT_BYTES = 64 * 1024 * 1024;
@@ -1470,7 +1471,7 @@ begin
 end;
 
 procedure TReaderDocument.MakeRecentCover(const Bytes: TBytes);
-var Source, Output: TBytesStream; Graphic: TGraphic; Bitmap: TBitmap; JPEG: TJPEGImage;
+var Source, Output: TBytesStream; Graphic: TGraphic; Bitmap: Vcl.Graphics.TBitmap; JPEG: TJPEGImage;
   W,H: Integer; Ratio: Double;
 begin
   if (Length(Bytes)=0) or (Length(Bytes)>4*1024*1024) then Exit;
@@ -1482,7 +1483,7 @@ begin
       Graphic:=CreateGraphicFromStream(Source);
       if not Assigned(Graphic) or (Graphic.Width<=0) or (Graphic.Height<=0) then Exit;
       if Graphic is TJPEGImage then TJPEGImage(Graphic).Scale:=jsEighth;
-      Bitmap:=TBitmap.Create; Bitmap.PixelFormat:=pf24bit;
+      Bitmap:=Vcl.Graphics.TBitmap.Create; Bitmap.PixelFormat:=pf24bit;
       Ratio:=Min(78/Graphic.Width,108/Graphic.Height);
       Bitmap.SetSize(Max(1,Round(Graphic.Width*Ratio)),Max(1,Round(Graphic.Height*Ratio)));
       Bitmap.Canvas.Brush.Color:=clWhite; Bitmap.Canvas.FillRect(Bitmap.Canvas.ClipRect);
@@ -2546,7 +2547,7 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
   var Size, Remaining: Int64; Folder, TempName, SystemRoot: string;
     Available, TotalSpace, Reserve: UInt64; Header: TZipHeader; Input: TStream;
     Output: TFileStream; Buffer: TBytes; Count: Integer; Raster: TReaderRaster;
-    Extent: TPoint; Bitmap: TBitmap; JPEG: TJPEGImage; Preview: TBytesStream;
+    Extent: TPoint; Bitmap: Vcl.Graphics.TBitmap; JPEG: TJPEGImage; Preview: TBytesStream;
   begin
     Size:=Zip.FileInfo[Index].UncompressedSize;
     if (Size<=0) or (Size>255*1024*1024) then raise EReadError.Create('Изображение JPEG в EPUB слишком велико.');
@@ -4193,7 +4194,7 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
     HeightPattern = '\A\s*height\s*:\s*([0-9]{1,2}(?:\.[0-9]{1,4})?|\.[0-9]{1,4})pt\s*\z';
   var Shapes: IXMLDOMNodeList; Shape, PropertyNode: IXMLDOMNode; Parts: TArray<string>;
     Stroke, Color, Style, WidthStyle, HeightStyle: string; Match: TMatch; Points: Double;
-    ColorCode, Height: Integer; Bitmap: TBitmap; Stream: TBytesStream;
+    ColorCode, Height: Integer; Bitmap: Vcl.Graphics.TBitmap; Stream: TBytesStream;
   begin
     Result:=False;
     Shapes:=Node.selectNodes('./*');
@@ -4231,7 +4232,7 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
     Height:=Round(Points*20);
     if (Height<=0) or (Height>720) then Exit;
     ColorCode:=StrToInt('$'+Color.Substring(1));
-    Bitmap:=TBitmap.Create; Stream:=nil;
+    Bitmap:=Vcl.Graphics.TBitmap.Create; Stream:=nil;
     try
       Stream:=TBytesStream.Create;
       Bitmap.PixelFormat:=pf24bit; Bitmap.SetSize(1,1);
@@ -6586,6 +6587,27 @@ begin
   Result:=FPictures[Index].CaptionLength;
 end;
 
+function TReaderDocument.OpenPictureGraphic(Index: Integer): TGraphic;
+var Item: TReaderPicture; Bytes: TBytes; Archive: TZipFile; Stream: TBytesStream;
+begin
+  Result:=nil;
+  Item:=FPictures[Index];
+  if Item.Unreadable then Exit;
+  Bytes:=Item.Bytes;
+  if Item.ArchiveMember<>'' then
+  begin
+    Archive:=TZipFile.Create;
+    try
+      Archive.Open(FImageArchiveName,zmRead);
+      Archive.Read(Item.ArchiveMember,Bytes);
+    finally Archive.Free; end;
+  end;
+  if Item.OfficeImage then Exit(CreatePackageCoverGraphic(Bytes,256*1024*1024));
+  Stream:=TBytesStream.Create(Bytes);
+  try Result:=CreateGraphicFromStream(Stream);
+  finally Stream.Free; end;
+end;
+
 function TReaderDocument.PictureExtent(Index, MaxWidth, MaxHeight: Integer): TPoint;
 var Item: TReaderPicture; Scale: Double; W,H,Available: Integer;
 begin
@@ -6614,7 +6636,7 @@ begin
     '\bin'+IntToStr(ReaderPictureBinarySize(Item,LayoutOnly))+' ');
 end;
 
-function DrawScaledWordCanvas(const Graphic: TGraphic; Target: TBitmap; const Bounds: TRect): Boolean;
+function DrawScaledWordCanvas(const Graphic: TGraphic; Target: Vcl.Graphics.TBitmap; const Bounds: TRect): Boolean;
 type
   TSample = record
     First, Second, Weight: Integer;
@@ -6676,7 +6698,7 @@ function TReaderDocument.PictureRTF(Index, MaxWidth, MaxHeight: Integer; LayoutO
   Background: TColor): UTF8String;
 var Item: TReaderPicture; Header: UTF8String; At, Pitch, Y, CanvasState: Integer;
   Bounds: TRect;
-  Stream: TStream; Graphic: TGraphic; Bitmap: TBitmap; Info: TBitmapInfoHeader;
+  Graphic: TGraphic; Bitmap: Vcl.Graphics.TBitmap; Info: TBitmapInfoHeader;
   MonoColors: array[0..1] of TRGBQuad; WhitePixel: Cardinal;
   procedure AppendBytes(const Buffer; Count: Integer);
   begin if Count>0 then begin Move(Buffer,Result[At],Count); Inc(At,Count); end; end;
@@ -6702,22 +6724,9 @@ begin
   else
   begin
     try
-      if Item.ArchiveMember<>'' then
-      begin
-        var Archive:=TZipFile.Create;
-        try
-          Archive.Open(FImageArchiveName,zmRead);
-          Archive.Read(Item.ArchiveMember,Item.Bytes);
-        finally Archive.Free; end;
-      end;
-      Stream:=nil; Graphic:=nil; Bitmap:=TBitmap.Create;
+      Graphic:=nil; Bitmap:=Vcl.Graphics.TBitmap.Create;
       try
-        if Item.OfficeImage then Graphic:=CreatePackageCoverGraphic(Item.Bytes,256*1024*1024)
-        else
-        begin
-          Stream:=TBytesStream.Create(Item.Bytes);
-          Graphic:=CreateGraphicFromStream(Stream);
-        end;
+        Graphic:=OpenPictureGraphic(Index);
         if not Assigned(Graphic) then raise Exception.Create('Не удалось прочитать изображение.');
         Bounds:=Item.PaintBounds;
         if Bounds.IsEmpty then Bounds:=Rect(0,0,Item.Width,Item.Height);
@@ -6767,7 +6776,7 @@ begin
         AppendBytes(Info,SizeOf(Info));
         if Item.Monochrome then AppendBytes(MonoColors,SizeOf(MonoColors));
         for Y:=Item.Height-1 downto 0 do AppendBytes(Bitmap.ScanLine[Y]^,Pitch);
-      finally Bitmap.Free; Graphic.Free; Stream.Free; end;
+      finally Bitmap.Free; Graphic.Free; end;
     except
       on E: EAbort do raise;
       on E: EMHLComponentRequired do raise;

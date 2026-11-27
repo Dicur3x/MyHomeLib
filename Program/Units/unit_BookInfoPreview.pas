@@ -59,7 +59,7 @@ destructor TPreviewThread.Destroy;
 begin Cover.Free; inherited; end;
 
 function RenderReflowOpeningPage(Source: TStream; const Extension: string; const Canceled: TFunc<Boolean>;
-  out Pixels: TBytes; out Width, Height: Integer): Boolean;
+  out Pixels: TBytes; out Width, Height: Integer; out Illustration: TGraphic): Boolean;
 const
   PageWidth=380;
   PageHeight=540;
@@ -87,7 +87,7 @@ var
   PastDeadline: TFunc<Boolean>;
 
 begin
-  Result:=False;
+  Result:=False; Illustration:=nil;
   if not (Source is TFileStream) or (Source.Size>MaxSourceBytes) then Exit;
   if MatchText(Extension,['.epub','.fb3','.docx','.odt']) then
   begin
@@ -148,6 +148,23 @@ begin
     SendMessage(EditWindow,EM_FORMATRANGE,0,0);
     if EndPosition<=0 then Exit;
     PicturePositions:=ReaderPicturePositions(EditWindow);
+    for var Index:=0 to High(PicturePositions) do
+    begin
+      if PicturePositions[Index]>=EndPosition then Break;
+      if PastDeadline() then Abort;
+      try
+        Illustration:=Document.OpenPictureGraphic(Index);
+      except
+        on E: EAbort do raise;
+        on E: EMHLComponentRequired do raise;
+        on E: Exception do Illustration:=nil;
+      end;
+      if Assigned(Illustration) then
+      begin
+        if (Illustration.Width>=8) and (Illustration.Height>=8) then Exit(True);
+        FreeAndNil(Illustration);
+      end;
+    end;
     for var Index:=0 to High(PicturePositions) do
     begin
       if PicturePositions[Index]>=EndPosition then Break;
@@ -441,7 +458,11 @@ begin
           Stream:=OpenCoverSource;
           try
             if RenderReflowOpeningPage(Stream,PreviewExtension,function:Boolean begin Result:=Terminated; end,
-              RasterPixels,RasterWidth,RasterHeight) then PreviewKind:='Предпросмотр первой страницы.';
+              RasterPixels,RasterWidth,RasterHeight,Cover) then
+            begin
+              if Assigned(Cover) then PreviewKind:='Иллюстрация с первой страницы.'
+              else PreviewKind:='Предпросмотр первой страницы.';
+            end;
           finally Stream.Free; end;
         except
           on E:EAbort do if Terminated then Exit;

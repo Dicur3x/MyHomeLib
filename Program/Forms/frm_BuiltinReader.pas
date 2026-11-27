@@ -128,6 +128,12 @@ type
     FContentsRow: TPanel;
     FChapterOutline, FChapterSourceTitles: TStringList;
     FChapterDepths: TList<Integer>;
+    FChapterPageBreaks: TArray<TPoint>; // destination and end of preceding visible text
+    FChapterNewPage, FSubchapterNewPage: Boolean;
+    FChapterNewPageChanged, FSubchapterNewPageChanged: Boolean;
+    FEnlargeOpeningCover, FEnlargeOpeningCoverChanged: Boolean;
+    FOpeningCoverImageLoaded: Boolean;
+    FOpeningCoverImage: TGraphic;
     FNumberChapters: Boolean;
     FChapterNumbers: array[0..15] of Integer;
     FChapterParents: array[0..15] of string;
@@ -342,6 +348,11 @@ type
     procedure CancelTextPageJump;
     procedure DrawChapterItem(Control: TWinControl; Index: Integer; Rect: TRect; State: TOwnerDrawState);
     procedure AddChapter(const Title: string; Position, Depth: Integer);
+    procedure RebuildChapterPageBreaks;
+    function NextChapterPageBreak(Position: Integer): Integer;
+    procedure ApplyChapterPageBreaks(Chapters, Subchapters: Boolean);
+    function StandaloneCoverForPage(Start, Finish: Integer): Boolean;
+    procedure PaintOpeningCover(Target: TBitmap; const PageBounds: TRect);
     procedure PaintProgress(Sender: TObject);
     procedure UpdateReadingPercent;
     procedure UpdateProgressVisibility;
@@ -600,7 +611,7 @@ implementation
 
 {$R '..\Resources\reader-icon.res'}
 
-uses unit_ReaderDOC, Winapi.ActiveX, Winapi.CommDlg, Winapi.CommCtrl, Winapi.ShellAPI, System.Math, System.DateUtils, System.IOUtils, System.RegularExpressions,
+uses unit_ReaderDOC, Winapi.ActiveX, Winapi.CommDlg, Winapi.CommCtrl, Winapi.ShellAPI, System.Math, System.DateUtils, System.IOUtils, System.RegularExpressions, System.Character,
   System.IniFiles, System.Hash, System.NetEncoding, System.StrUtils, Vcl.Dialogs, Vcl.Clipbrd, unit_ReaderRichEdit, unit_ReaderLookup, unit_MHLTheme, unit_AtomicIniFile, Vcl.Themes, unit_MHLExternalTools, unit_ReaderPalette, frm_ReaderFontManager, unit_Diagnostics, unit_ReaderFormats;
 
 const
@@ -1813,6 +1824,7 @@ begin
   FSearchTimer.Enabled:=False;
   if Assigned(FLoader) then begin FLoader.OnTerminate:=nil; FLoader.Terminate; FLoader.WaitFor; FreeAndNil(FLoader); end;
   FreeAndNil(FMissingFonts);
+  FOpeningCoverImage.Free;
   FSurface.FReader:=nil; FreeAndNil(FAnnotationIndex); FreeAndNil(FPageSelection); FreeAndNil(FSecondPageSelection); FreeAndNil(FSelectionTint); FreeAndNil(FBookSkin); FreeAndNil(FToolbarItems);
   FPDF.Free; FDocument.Free; FBitmap.Free; FPages.Free; FHighlighted.Free; FStyledIntervals.Free; FChapterOutline.Free; FChapterSourceTitles.Free; FChapterDepths.Free; FGlobalPages.Free; FMeasureBitmap.Free; inherited;
 end;
@@ -1822,6 +1834,7 @@ procedure TfrmBuiltinReader.OpenBook(const FileName, BookTitle, Identity, Settin
 var Chapter: TPDFChapter;
 begin
   FRequiredComponent := '';
+  FreeAndNil(FOpeningCoverImage); FOpeningCoverImageLoaded:=False;
   FPastEndNotified:=False;
   FUnreadablePages.Clear; FLastReadableRasterPage:=-1;
   FMissingFonts.Clear; FFontOfferDeclined:=False; FFontsDownloading:=False; FFontOffer.Visible:=False;
@@ -1932,6 +1945,7 @@ begin
   end;
   for C in FDocument.Chapters do AddChapter(C.Title,C.Position,C.Depth);
   RebuildChapterTitles;
+  RebuildChapterPageBreaks;
   FStyleRanges:=FDocument.Styles; FDocument.ReleaseUnusedBuffers;
   FReady:=True; ReloadAnnotations;
   if ChangingEncoding then
@@ -2585,15 +2599,27 @@ end;
 
 function TfrmBuiltinReader.FormatTextColumn(Start, Finish: Integer; Draw: Boolean; Target: TBitmap;
   LayoutWidth, LayoutHeight, Left, Top: Integer): Integer;
-var Range: TFormatRange; DPI, Width, Limit: Integer;
+var Range: TFormatRange; DPI, Width, Limit, EndOfRange: Integer;
 begin
   if not Assigned(Target) then Target:=FBitmap;
   if LayoutWidth<=0 then LayoutWidth:=Target.Width;
   if LayoutHeight<=0 then LayoutHeight:=Target.Height;
+  if StandaloneCoverForPage(Start,Finish) then
+  begin
+    if Draw then
+      PaintOpeningCover(Target,Rect(Left,Top,Left+LayoutWidth,Top+LayoutHeight));
+    Exit(FDocument.OpeningCoverEnd);
+  end;
   if not ContinuousReading and Assigned(FDocument) and (Start<FDocument.OpeningCoverEnd) and
     ((Finish<0) or (Finish>FDocument.OpeningCoverEnd)) then Finish:=FDocument.OpeningCoverEnd;
-  Limit:=Finish;
-  if Limit<0 then Limit:=Min(FLength,Start+4096);
+  if not ContinuousReading and (Length(FChapterPageBreaks)>0) then
+  begin
+    var ChapterBreak:=NextChapterPageBreak(Start);
+    if (ChapterBreak>=0) and ((Finish<0) or (ChapterBreak<Finish)) then Finish:=ChapterBreak;
+  end;
+  EndOfRange:=FLength;
+  if Finish>=0 then EndOfRange:=Min(EndOfRange,Finish);
+  Limit:=Min(EndOfRange,Start+4096);
   repeat
     EnsureBookStyles(Start,Limit);
     // Preparing styles can allocate other VCL drawing contexts. Acquire and
@@ -2616,12 +2642,12 @@ begin
     // Clamp that valid sentinel; a negative native result is a layout error.
     if (Result<Start) or (Result>FLength+1) then
       raise Exception.Create('Не удалось разметить страницу книги.');
-    Result:=Min(Result,FLength);
-    if (Finish>=0) or (Result<Limit) or (Limit>=FLength) then Break;
+    Result:=Min(Result,EndOfRange);
+    if (Result<Limit) or (Limit>=EndOfRange) then Break;
     // Start with a typical visible page, not several off-screen pages.
     // Very wide pages and small fonts extend this interval until all visible
     // text is styled, retaining exact layout without costly distant work.
-    Limit:=Min(FLength,Limit+4096);
+    Limit:=Min(EndOfRange,Limit+4096);
   until False;
   if Draw and FBookFormatting and Assigned(FDocument) then
     PaintParagraphShades(Target,Range,Start,Result,DPI,LayoutWidth,LayoutHeight,Left,Top);
@@ -5745,7 +5771,8 @@ begin
   Choice:=TComboBox(Sender);
   Pages:=Choice.ItemIndex<>Ord(rplContinuous);
   for var Name in TArray<string>.Create('cbReaderPageTurn','cbReaderPageAppearance','ReaderShowFootnotes',
-    'ReaderInspectionPercent','ReaderInspectionHold') do
+    'ReaderInspectionPercent','ReaderInspectionHold','ReaderChapterNewPage','ReaderSubchapterNewPage',
+    'ReaderEnlargeOpeningCover') do
   begin
     Item:=Choice.Owner.FindComponent(Name);
     if Item is TControl then TControl(Item).Enabled:=Pages;
@@ -5791,6 +5818,7 @@ var Dialog: TForm; TextDialog: TReaderTextAppearanceDialog;
   FontNames: TStringList; LabelText: TLabel; Button: TButton; WidthText: string;
   FormattingBox, NotesBox, InitialCheck, HoldCheck, SelectionCheck: TCheckBox;
   ChapterTicksBox, FullScreenProgressBox: TCheckBox;
+  ChapterPageBox, SubchapterPageBox, CoverBox: TCheckBox;
   ExtraRow, ReadingZoom: Integer;
   function NumericChoices(First, Last, Step: Integer): string;
   var Value: Integer;
@@ -5944,7 +5972,7 @@ begin
     Dialog.PopupMode:=pmExplicit; Dialog.PopupParent:=Self;
     Dialog.Caption:='Текст и оформление'; Dialog.BorderStyle:=bsDialog; Dialog.Position:=poOwnerFormCenter;
     ExtraRow:=34;
-    Dialog.ClientWidth:=350; Dialog.ClientHeight:=491+ExtraRow; Dialog.Font.Assign(Font);
+    Dialog.ClientWidth:=350; Dialog.ClientHeight:=521+ExtraRow; Dialog.Font.Assign(Font);
     AddLabel('Шрифт / размер',20); FontBox:=Choice(16); FontBox.Width:=160;
     FontBox.Name:='ReaderFontFamily'; FontBox.DropDownCount:=12;
     TextDialog.SettingsFile:=FSettingsFile; TextDialog.FontNames:=FontNames; TextDialog.FontBox:=FontBox;
@@ -5969,6 +5997,14 @@ begin
     LayoutBox.ShowHint:=True; LayoutBox.Hint:='Одна или две страницы. В узком окне остаётся одна страница; ширина выше задаёт предел для каждой страницы.';
     AddLabel('Перелистывать',210+ExtraRow); TurnBox:=Choice(206+ExtraRow); TurnBox.Name:='cbReaderPageTurn';
     TurnBox.Items.Text:='Парами страниц'+#13+'Со сдвигом на одну'; TurnBox.ItemIndex:=Ord(FPageTurn);
+    AddLabel('С новой страницы',242+ExtraRow);
+    ChapterPageBox:=TReaderPaletteCheckBox.Create(Dialog); ChapterPageBox.Parent:=Dialog;
+    ChapterPageBox.Name:='ReaderChapterNewPage'; ChapterPageBox.SetBounds(146,238+ExtraRow,75,26);
+    ChapterPageBox.Caption:='Главы'; ChapterPageBox.Checked:=FChapterNewPage;
+    SubchapterPageBox:=TReaderPaletteCheckBox.Create(Dialog); SubchapterPageBox.Parent:=Dialog;
+    SubchapterPageBox.Name:='ReaderSubchapterNewPage'; SubchapterPageBox.SetBounds(226,238+ExtraRow,108,26);
+    SubchapterPageBox.Caption:='Подглавы'; SubchapterPageBox.Checked:=FSubchapterNewPage;
+    Inc(ExtraRow,30);
     FormattingBox:=TReaderPaletteCheckBox.Create(Dialog); FormattingBox.Parent:=Dialog; FormattingBox.SetBounds(16,242+ExtraRow,320,26);
     FormattingBox.Caption:='Оформление книги: заголовки, стихи, цитаты'; FormattingBox.Checked:=FBookFormatting;
     NotesBox:=TReaderPaletteCheckBox.Create(Dialog); NotesBox.Parent:=Dialog; NotesBox.SetBounds(16,272+ExtraRow,320,26);
@@ -5983,8 +6019,13 @@ begin
     InitialBox.ItemIndex:=Max(0,Ord(FInitialsMode)-1);
     AddLabel('Стиль страниц',408+ExtraRow); AppearanceBox:=Choice(404+ExtraRow); AppearanceBox.Name:='cbReaderPageAppearance';
     AppearanceBox.Items.Text:='Плоские страницы'+#13+'Объёмная книга'; AppearanceBox.ItemIndex:=Ord(FPageAppearance);
-    SelectionCheck:=TReaderPaletteCheckBox.Create(Dialog); SelectionCheck.Parent:=Dialog; SelectionCheck.SetBounds(16,368+ExtraRow,320,28);
+    SelectionCheck:=TReaderPaletteCheckBox.Create(Dialog); SelectionCheck.Parent:=Dialog; SelectionCheck.SetBounds(16,368+ExtraRow,154,28);
     SelectionCheck.Caption:='Выделять текст мышью'; SelectionCheck.Checked:=FSelectionEnabled;
+    CoverBox:=TReaderPaletteCheckBox.Create(Dialog); CoverBox.Parent:=Dialog;
+    CoverBox.Name:='ReaderEnlargeOpeningCover'; CoverBox.SetBounds(174,368+ExtraRow,160,28);
+    CoverBox.Caption:='Крупная обложка'; CoverBox.Checked:=FEnlargeOpeningCover;
+    CoverBox.Hint:='Вписывать обложку в первую страницу при перелистывании с сохранением пропорций.';
+    CoverBox.ShowHint:=True;
     AddProgressChecks(432+ExtraRow); AddThemeColorsButton(459+ExtraRow);
     Button:=TReaderPaletteButton.Create(Dialog); Button.Parent:=Dialog; Button.SetBounds(156,459+ExtraRow,86,26); Button.Caption:='Применить'; Button.Default:=True; Button.ModalResult:=mrOk;
     Button:=TReaderPaletteButton.Create(Dialog); Button.Parent:=Dialog; Button.SetBounds(248,459+ExtraRow,86,26); Button.Caption:='Отмена'; Button.Cancel:=True; Button.ModalResult:=mrCancel;
@@ -6009,11 +6050,16 @@ begin
       var Margin:=StrToIntDef(MarginBox.Text,32);
       if (FPageLayout=Layout) and (FPageTurn=Turn) and (FInitialsMode=Initials) and
          (FBookFormatting=FormattingBox.Checked) and (FShowFootnotes=NotesBox.Checked) and
+         (FChapterNewPage=ChapterPageBox.Checked) and (FSubchapterNewPage=SubchapterPageBox.Checked) and
+         (FEnlargeOpeningCover=CoverBox.Checked) and
          (FMaxTextWidth=TextWidth) and
          (FFontSize=FontSize) and (FFontName=FontName) and (FLinePercent=LinePercent) and (FMargin=Margin) then Exit;
 
       ApplyPageLayout(Layout);
       FPageTurn:=Turn;
+      ApplyChapterPageBreaks(ChapterPageBox.Checked,SubchapterPageBox.Checked);
+      FEnlargeOpeningCoverChanged:=FEnlargeOpeningCoverChanged or (FEnlargeOpeningCover<>CoverBox.Checked);
+      FEnlargeOpeningCover:=CoverBox.Checked;
       FInitialsMode:=Initials;
       FDecorativeInitials:=Initials<>rimNone;
       FBookFormatting:=FormattingBox.Checked;
@@ -6035,6 +6081,125 @@ procedure TfrmBuiltinReader.AddChapter(const Title: string; Position, Depth: Int
 begin
   FChapterSourceTitles.AddObject(Title.Trim,TObject(NativeInt(Position))); FChapterDepths.Add(EnsureRange(Depth,-1,15));
   FChapters.Items.AddObject(Title.Trim,TObject(NativeInt(Position)));
+end;
+
+procedure TfrmBuiltinReader.RebuildChapterPageBreaks;
+var Positions: TList<Integer>; Depth, Position: Integer;
+  function PrecedingTextEnd(BreakPosition: Integer): Integer;
+  var Start, Finish: Integer; Text: string;
+  begin
+    Finish:=BreakPosition;
+    while Finish>0 do
+    begin
+      Start:=Max(0,Finish-256);
+      Text:=ReaderTextRange(FRichEdit,Start,Finish-Start);
+      for var I:=Length(Text) downto 1 do
+        if not TCharacter.IsWhiteSpace(Text[I]) then Exit(Start+I);
+      Finish:=Start;
+    end;
+    Result:=0;
+  end;
+begin
+  FChapterPageBreaks:=nil;
+  if not (FChapterNewPage or FSubchapterNewPage) then Exit;
+  Positions:=TList<Integer>.Create;
+  try
+    for var I:=0 to FChapterDepths.Count-1 do
+    begin
+      Depth:=FChapterDepths[I];
+      if not ((FChapterNewPage and (Depth=0)) or (FSubchapterNewPage and (Depth>0))) then Continue;
+      Position:=NativeInt(FChapterSourceTitles.Objects[I]);
+      if (Position>0) and (Position<FLength) then
+        Positions.Add(ReaderCharacterStart(FRichEdit,Position));
+    end;
+    // An EPUB may list landmarks out of reading order or reuse a destination.
+    Positions.Sort;
+    SetLength(FChapterPageBreaks,Positions.Count);
+    for var I:=0 to Positions.Count-1 do
+    begin
+      Position:=Positions[I];
+      if (I>0) and (Position=Positions[I-1]) then FChapterPageBreaks[I]:=FChapterPageBreaks[I-1]
+      else FChapterPageBreaks[I]:=Point(Position,PrecedingTextEnd(Position));
+    end;
+  finally Positions.Free; end;
+end;
+
+function TfrmBuiltinReader.NextChapterPageBreak(Position: Integer): Integer;
+var L, H, M: Integer;
+begin
+  // A chapter at the current page start must never produce an empty page.
+  L:=0; H:=Length(FChapterPageBreaks);
+  while L<H do
+  begin
+    M:=L+(H-L) div 2;
+    if FChapterPageBreaks[M].X<=Position then L:=M+1 else H:=M;
+  end;
+  // Leading blank paragraphs stay with their chapter, including after a cover.
+  while (L<Length(FChapterPageBreaks)) and (FChapterPageBreaks[L].Y<=Position) do Inc(L);
+  if L<Length(FChapterPageBreaks) then Result:=FChapterPageBreaks[L].X else Result:=-1;
+end;
+
+procedure TfrmBuiltinReader.ApplyChapterPageBreaks(Chapters, Subchapters: Boolean);
+begin
+  if (Chapters=FChapterNewPage) and (Subchapters=FSubchapterNewPage) then Exit;
+  FChapterNewPageChanged:=FChapterNewPageChanged or (Chapters<>FChapterNewPage);
+  FSubchapterNewPageChanged:=FSubchapterNewPageChanged or (Subchapters<>FSubchapterNewPage);
+  FChapterNewPage:=Chapters;
+  FSubchapterNewPage:=Subchapters;
+  RebuildChapterPageBreaks;
+end;
+
+function TfrmBuiltinReader.StandaloneCoverForPage(Start, Finish: Integer): Boolean;
+var CoverEnd: Integer;
+begin
+  Result:=False;
+  if ContinuousReading or not Assigned(FDocument) then Exit;
+  CoverEnd:=FDocument.OpeningCoverEnd;
+  if (CoverEnd<=0) or (CoverEnd>FLength) or ((Finish>=0) and (Finish<CoverEnd)) or
+    (Length(FPicturePositions)=0) or (Start>FPicturePositions[0]) or (FPicturePositions[0]>=CoverEnd) then Exit;
+  if not FOpeningCoverImageLoaded then
+  begin
+    FOpeningCoverImageLoaded:=True;
+    // Keep captions, repair notices and multiple authored illustrations in the ordinary layout.
+    if ((Length(FPicturePositions)>1) and (FPicturePositions[1]<CoverEnd)) or
+      (ReaderTextRange(FRichEdit,0,CoverEnd).Replace(#$FFFC,'').Trim<>'') then Exit;
+    try
+      FOpeningCoverImage:=FDocument.OpenPictureGraphic(0);
+      if Assigned(FOpeningCoverImage) and ((FOpeningCoverImage.Width<=0) or (FOpeningCoverImage.Height<=0)) then
+        FreeAndNil(FOpeningCoverImage);
+    except
+      on E: Exception do LogDiagnosticError('reader-opening-cover',E,ExtractFileExt(FFileName));
+    end;
+  end;
+  Result:=Assigned(FOpeningCoverImage);
+end;
+
+procedure TfrmBuiltinReader.PaintOpeningCover(Target: TBitmap; const PageBounds: TRect);
+var Bounds: TRect; Margin, Width, Height, Saved: Integer; Scale: Double; Natural: TPoint;
+begin
+  Bounds:=PageBounds;
+  Margin:=Min(MulDiv(12,CurrentPPI,96),Min(Bounds.Width,Bounds.Height) div 4);
+  InflateRect(Bounds,-Margin,-Margin);
+  Scale:=Min(Bounds.Width/FOpeningCoverImage.Width,Bounds.Height/FOpeningCoverImage.Height);
+  if not FEnlargeOpeningCover then
+  begin
+    Natural:=FDocument.PictureExtent(0,FImageWidth,FImageHeight);
+    Scale:=Min(Scale,Min(Natural.X*CurrentPPI/1440/FOpeningCoverImage.Width,
+                         Natural.Y*CurrentPPI/1440/FOpeningCoverImage.Height));
+  end;
+  Width:=Max(1,Round(FOpeningCoverImage.Width*Scale));
+  Height:=Max(1,Round(FOpeningCoverImage.Height*Scale));
+  Inc(Bounds.Left,(Bounds.Width-Width) div 2);
+  Inc(Bounds.Top,(Bounds.Height-Height) div 2);
+  Bounds.Right:=Bounds.Left+Width; Bounds.Bottom:=Bounds.Top+Height;
+  Target.Canvas.Lock;
+  try
+    Saved:=SaveDC(Target.Canvas.Handle);
+    try
+      if Saved<>0 then SetStretchBltMode(Target.Canvas.Handle,HALFTONE);
+      Target.Canvas.StretchDraw(Bounds,FOpeningCoverImage);
+    finally if Saved<>0 then RestoreDC(Target.Canvas.Handle,Saved); end;
+  finally Target.Canvas.Unlock; end;
 end;
 
 procedure TfrmBuiltinReader.RebuildChapterTitles;
@@ -6628,6 +6793,9 @@ begin
       FMaxTextWidth:=Ini.ReadInteger('Reader','MaxTextWidth',960);
       if FMaxTextWidth<>0 then FMaxTextWidth:=EnsureRange(FMaxTextWidth,320,1600);
       FBookFormatting:=Ini.ReadBool('Reader','BookFormatting',True);
+      FChapterNewPage:=Ini.ReadBool('Reader','ChapterNewPage',False);
+      FSubchapterNewPage:=Ini.ReadBool('Reader','SubchapterNewPage',False);
+      FEnlargeOpeningCover:=Ini.ReadBool('Reader','EnlargeOpeningCover',False);
       FShowFootnotes:=Ini.ReadBool('Reader','ShowFootnotes',True); FNumberChapters:=Ini.ReadBool('Reader','NumberChapters',True);
       FShowChapterTicks:=Ini.ReadBool('Reader','ShowChapterTicks',True);
       FShowFullScreenProgress:=Ini.ReadBool('Reader','ShowFullScreenProgress',True);
@@ -6717,6 +6885,9 @@ begin
     Ini.WriteInteger('Reader','FontSize',FFontSize);
     Ini.WriteString('Reader','DictionaryExecutable',FDictionaryExecutable);
     Ini.WriteBool('Reader','BookFormatting',FBookFormatting);
+    if FChapterNewPageChanged then Ini.WriteBool('Reader','ChapterNewPage',FChapterNewPage);
+    if FSubchapterNewPageChanged then Ini.WriteBool('Reader','SubchapterNewPage',FSubchapterNewPage);
+    if FEnlargeOpeningCoverChanged then Ini.WriteBool('Reader','EnlargeOpeningCover',FEnlargeOpeningCover);
     Ini.WriteBool('Reader','ShowFootnotes',FShowFootnotes); Ini.WriteBool('Reader','NumberChapters',FNumberChapters);
     Ini.WriteBool('Reader','ShowChapterTicks',FShowChapterTicks);
     Ini.WriteBool('Reader','ShowFullScreenProgress',FShowFullScreenProgress);
@@ -6779,6 +6950,9 @@ begin
     for I:=Low(FChangedThemeColors) to High(FChangedThemeColors) do FChangedThemeColors[I]:=[];
     for I:=Low(FChangedHeadingColors) to High(FChangedHeadingColors) do FChangedHeadingColors[I]:=[];
     FInitialRasterScaleChanged:=False;
+    FChapterNewPageChanged:=False;
+    FSubchapterNewPageChanged:=False;
+    FEnlargeOpeningCoverChanged:=False;
   finally Ini.Free; end;
   if FReady and FReadingMoved and Assigned(FOnProgress) then
     FOnProgress(EnsureRange(Round(ReadingProgress*100),0,100));

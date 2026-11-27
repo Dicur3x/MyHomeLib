@@ -20,7 +20,7 @@ p.add_argument('--books-root', type=pathlib.Path, help='Read-only archive direct
 p.add_argument('--headers-json', type=pathlib.Path, help='Selected format header inventory for real-formats')
 p.add_argument('--raster-catalog', type=pathlib.Path, help='Selected DjVu/comic/TIFF archive inventory')
 p.add_argument('--jpeg-book',type=pathlib.Path,help='Read-only FB2 or single-FB2 ZIP for compressed-picture regression')
-p.add_argument('--case', choices=('jpeg-rtf','multilingual-fonts','preformatted-book','html-image-sizes','export-picker-preview','feedback19-reader','optional-fonts','selection-contrast','word-selection','reader-lookup','reader-text-encoding','book-appearance','reader-toolbar','text-selection','illustrated-selection','selection-geometry','doc-reader','feedback16-reader','reader-note-ui','reader-additions','real-epub','epub-outline','epub-styles','large-book','reader-colors','loading-navigation','loading-preferences','same-position-navigation','precision-wheel','document-spacing','pdf-current-page-search','pdf-copy-hyphens','oct10-reader','oct11-reader','unspaced-history','footnotes','word-footnotes','real-formats','raster-reader','release-pagination'))
+p.add_argument('--case', choices=('jpeg-rtf','multilingual-fonts','preformatted-book','html-image-sizes','export-picker-preview','feedback19-reader','optional-fonts','selection-contrast','word-selection','reader-lookup','reader-text-encoding','book-appearance','reader-toolbar','text-selection','illustrated-selection','selection-geometry','doc-reader','feedback16-reader','reader-note-ui','reader-additions','real-epub','epub-outline','epub-styles','large-book','reader-colors','loading-navigation','loading-preferences','same-position-navigation','precision-wheel','document-spacing','pdf-current-page-search','pdf-copy-hyphens','oct10-reader','oct11-reader','unspaced-history','footnotes','word-footnotes','real-formats','raster-reader','release-pagination','chapter-pages'))
 a = p.parse_args()
 if a.pdf_repair_fixture and a.case != 'pdf-current-page-search':
     p.error('--pdf-repair-fixture requires --case pdf-current-page-search')
@@ -37,13 +37,13 @@ assert root.parent == pathlib.Path(tempfile.gettempdir()).resolve()
 assert root.name.startswith('HomeLibRu-native-reader-')
 try:
     shutil.copy2(exe, root/exe.name)
-    if a.case not in ('jpeg-rtf','multilingual-fonts','optional-fonts'): shutil.copy2(pdfium, root/'pdfium.dll')
+    if a.case not in ('jpeg-rtf','multilingual-fonts','optional-fonts','chapter-pages'): shutil.copy2(pdfium, root/'pdfium.dll')
     for name in ('sqlite3.dll','libzstd.dll'):
         if (runtime/name).exists(): shutil.copy2(runtime/name, root/name)
     for file in runtime.glob('genres*.glst'):shutil.copy2(file,root/file.name)
     shutil.copy2(pathlib.Path(__file__).resolve().parents[3]/'Installer/Components.json',root/'COMPONENTS.json')
     for arch_dir in ('tools/webp','tools/7zip','tools/djvu','tools/fonts','tools/pdfium','tools/doc'):
-        if a.case=='jpeg-rtf': continue
+        if a.case in ('jpeg-rtf','chapter-pages'): continue
         if a.case in ('multilingual-fonts','optional-fonts') and arch_dir!='tools/fonts': continue
         if a.case in ('word-selection','reader-lookup','book-appearance','reader-toolbar') and arch_dir not in ('tools/fonts','tools/pdfium'): continue
         if arch_dir=='tools/fonts' and a.case=='optional-fonts':
@@ -491,6 +491,10 @@ try:
                         a.review_output.mkdir(parents=True,exist_ok=True)
                         picture.save(a.review_output/(kind+'-render-'+str(theme)+'.png'))
         print('PASS JPEG and alpha-PNG colours rendered from FB2 and EPUB in light and dark themes',flush=True)
+    if a.case=='chapter-pages':
+        assert 'PASS independently configurable chapter and subchapter page breaks' in r.stdout
+        assert 'PASS normal and expanded covers are centered' in r.stdout
+        assert 'PASS normal and expanded EPUB covers are centered' in r.stdout
     if a.case=='optional-fonts':
         assert 'PASS embedded font metadata survives missing/changed sidecar' in r.stdout
         assert 'PASS optional fonts require explicit download' in r.stdout,'Stale binary omitted optional-font gates'
