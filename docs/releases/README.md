@@ -4,7 +4,7 @@
 
 [О программе](../../README.md) · [Сборка и проверки](../../BUILDING.md)
 
-- [HomeLibre 3.0 beta 17](RELEASE_NOTES_3.0.0_pre1.17.md) · [Скачать](https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.17)
+- [HomeLibre 3.0 beta 17](RELEASE_NOTES_3.0.0_pre1.17.md) · [Скачать](https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.17) · [Аудит — 575 записей](../audits/2026-11-20-usr-compatibility-followup.md)
 - [HomeLibre 3.0 beta 16](RELEASE_NOTES_3.0.0_pre1.16.md) · [Скачать](https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.16)
 - [HomeLibre 3.0 beta 15](RELEASE_NOTES_3.0.0_pre1.15.md) · [Скачать](https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.15)
 - [HomeLibre 3.0 beta 14](RELEASE_NOTES_3.0.0_pre1.14.md) · [Скачать](https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.14)

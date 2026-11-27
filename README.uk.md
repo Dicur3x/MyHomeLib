@@ -15,7 +15,7 @@ HomeLibre — програма для Windows, яка допомагає збе�
 
 ## Завантаження й запуск
 
-[Завантажити beta 16](https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.16) · [Історія випусків](docs/releases/README.md)
+[Завантажити beta 17](https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.17) · [Історія випусків](docs/releases/README.md)
 
 Для HomeLibre потрібна **Windows 10 або новіша**. Виберіть архів за розрядністю Windows.
 
@@ -41,6 +41,12 @@ HomeLibre — програма для Windows, яка допомагає збе�
 
 Відкрийте **Довідка → Перевірити оновлення**. Для переходу з beta 13 спочатку встановіть [beta 14](https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.14), потім повторіть перевірку.
 [Ручне оновлення та перенесення профілю](Program/Help/uk/upgrade.html).
+
+## Що нового в beta 17
+
+У beta 17 поліпшено читання й експорт рідкісних, великих і пошкоджених книжок. Програма зберігає більше елементів оформлення, просить підтвердження перед частковим збереженням і виправляє сумісність MOBI та AZW3 з Kindle 4.
+
+[Список змін](docs/releases/RELEASE_NOTES_3.0.0_pre1.17.md) · [Докладний аудит із 575 записами (російською)](docs/audits/2026-11-20-usr-compatibility-followup.md)
 
 ## HomeLibre Reader
 

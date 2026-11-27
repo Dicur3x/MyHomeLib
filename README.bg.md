@@ -15,7 +15,7 @@ HomeLibre е програма за Windows за подреждане, намир
 
 ## Изтегляне и стартиране
 
-[Изтегляне на beta 16](https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.16) · [История на изданията](docs/releases/README.md)
+[Изтегляне на beta 17](https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.17) · [История на изданията](docs/releases/README.md)
 
 HomeLibre изисква **Windows 10 или по-нова версия**. Изберете архив за архитектурата на Windows.
 
@@ -41,6 +41,12 @@ HomeLibre изисква **Windows 10 или по-нова версия**. Из�
 
 Отворете **Помощ → Проверка за обновления**. За преход от beta 13 първо инсталирайте [beta 14](https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.14), после проверете пак.
 [Ръчно обновяване и преместване на профила](Program/Help/bg/upgrade.html).
+
+## Какво е новото в beta 17
+
+Beta 17 подобрява четенето и експортирането на редки, големи и повредени книги. Програмата запазва повече от оригиналното оформление, иска потвърждение при частичен експорт и подобрява съвместимостта на MOBI и AZW3 с Kindle 4.
+
+[Промени в изданието](docs/releases/RELEASE_NOTES_3.0.0_pre1.17.md) · [Подробен одит с 575 записа (на руски)](docs/audits/2026-11-20-usr-compatibility-followup.md)
 
 ## HomeLibre Reader
 
