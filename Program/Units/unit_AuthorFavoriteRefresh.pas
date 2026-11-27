@@ -8,7 +8,6 @@ uses
 const
   WM_AUTHOR_FAVORITES_READY = WM_APP + 481;
   WM_AUTHOR_FAVORITES_PROGRESS = WM_APP + 482;
-  WM_AUTHOR_FAVORITES_LAYOUT = WM_APP + 483;
 
 type
   // Owns no UI or live collection object. Completion messages identify both

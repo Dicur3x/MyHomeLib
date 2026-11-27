@@ -68,6 +68,10 @@ type
     FLimit: Int64;
     FOnlyIDs: TArray<string>;
     FPreferReadyDjvu: Boolean;
+    FMirrorLock: TObject;
+    FMirrorMetadata, FMirrorFeed, FMirrorMetadataError, FMirrorFeedError: string;
+    function MirrorText(const URL: string; var Body, Failure: string): string;
+    function MirrorMetadata: string;
     procedure ReceiveData(const Sender: TObject; AContentLength, AReadCount: Int64;
       var AAbort: Boolean);
   protected
@@ -104,7 +108,8 @@ type
 function FixedAlReaderRelease: TProgramRelease;
 
 function ParseComponentFeed(const JSON, ReleaseTag, AssetsJSON: string;
-  out Releases: TComponentReleases; RequireAssets: Boolean = True; AllowPartial: Boolean = False): Boolean;
+  out Releases: TComponentReleases; RequireAssets: Boolean = True; AllowPartial: Boolean = False;
+  PreferDocSharpBundle: Boolean = False): Boolean;
 function ComponentDisplayVersion(const ID, Version: string): string;
 function ParseDjVuHistory(const News, WindowsFiles: string; var Info: TProgramRelease): Boolean;
 function ComponentInstalledVersion(const AppPath, ID: string): string;
@@ -225,7 +230,7 @@ begin
     'AZW3 — книга KF8.'+sLineBreak+
     'Исходная книга сначала подготавливается в EPUB. Нужный модуль чтения устанавливается отдельно; '+
     'для обычного чтения FB2/EPUB запись Kindle не нужна.');
-  if ID='FB2Export' then Exit('fb2cng преобразует FB2 в EPUB 2, EPUB 3, KEPUB, KFX, AZW8, PDF и Markdown.');
+  if ID='FB2Export' then Exit('fb2cng преобразует FB2 в Markdown.');
   if ID='KoboExport' then Exit('kepubify преобразует EPUB напрямую в KEPUB для читалок Kobo.');
   if ID='KfxExport' then Exit('Boko открывает отдельные файлы KFX/AZW8 без DRM и сохраняет EPUB в эти форматы. '+
     'resvg готовит совместимые иллюстрации при сохранении.');
@@ -796,9 +801,9 @@ begin
 end;
 
 function ParseComponentFeed(const JSON, ReleaseTag, AssetsJSON: string;
-  out Releases: TComponentReleases; RequireAssets, AllowPartial: Boolean): Boolean;
+  out Releases: TComponentReleases; RequireAssets, AllowPartial, PreferDocSharpBundle: Boolean): Boolean;
 var Root, AssetsRoot: TJSONValue; Items, History, Assets: TJSONArray;
-  Value, Entry, Asset, MinimalReader: TJSONValue; Obj: TJSONObject;
+  Value, Entry, Asset, MinimalReader, DocBundle: TJSONValue; Obj: TJSONObject;
   ID, Version, MinimalVersion, Platform, Notes, Name, URL, Digest, Date: string;
   Format, I, Comparison: Integer; Info: TProgramRelease;
   Found: array[Low(UPDATE_COMPONENTS)..High(UPDATE_COMPONENTS)] of Boolean;
@@ -831,6 +836,19 @@ begin
             not Obj.TryGetValue<string>('version', MinimalVersion) or
             not CompareComponentVersions(MinimalVersion, Version, Comparison) or (Comparison < 0) then Exit;
           Version := MinimalVersion;
+        end;
+      end;
+      if (ID='DocSharp') and PreferDocSharpBundle then
+      begin
+        DocBundle:=Obj.GetValue('docsharp_bundle');
+        if Assigned(DocBundle) then
+        begin
+          if not (DocBundle is TJSONObject) or (DocBundle.GetValue<string>('id','')<>ID) or
+            (DocBundle.GetValue<string>('platform','')<>Platform) or
+            not DocBundle.TryGetValue<string>('version',MinimalVersion) or
+            not IsDocSharpBundleRevision(Version,MinimalVersion) then Exit;
+          Obj:=TJSONObject(DocBundle);
+          Version:=MinimalVersion;
         end;
       end;
       if not CompareComponentVersions(Version, Version, Comparison) or
@@ -885,6 +903,7 @@ constructor TComponentUpdateThread.Create(AWindow: HWND; AHTTP: THTTPClient; con
 begin
   inherited Create(True); FreeOnTerminate := False; FHTTP := AHTTP; FWindow := AWindow; FURL := URL;
   FCacheFolder := CacheFolder;
+  FMirrorLock:=TObject.Create;
   FHTTP.UserAgent := 'HomeLibre'; FHTTP.ConnectionTimeout := 4000; FHTTP.ResponseTimeout := 6000;
   FHTTP.OnReceiveData := ReceiveData; FLimit := 8 * 1024 * 1024;
   for var I:=Low(FClients) to High(FClients) do
@@ -903,6 +922,7 @@ destructor TComponentUpdateThread.Destroy;
 begin
   inherited;
   for var Client in FClients do Client.Free;
+  FMirrorLock.Free;
   FHTTP.Free;
 end;
 
@@ -926,15 +946,45 @@ begin
   else Result:=FHTTP.Head(URL);
 end;
 
+function TComponentUpdateThread.MirrorText(const URL: string; var Body, Failure: string): string;
+begin
+  TMonitor.Enter(FMirrorLock);
+  try
+    if Terminated then Abort;
+    // Reuse one response for every component in the same check. A temporary
+    // failure gets one retry without starting another request for each row.
+    if (Body='') and (Failure='') then
+      for var Attempt:=1 to 2 do
+      begin
+        try
+          Body:=FetchText(URL);
+          if Body='' then raise EReadError.Create('Сервер вернул пустой список компонентов.');
+          Break;
+        except
+          on E:EAbort do raise;
+          on E:Exception do
+            if Attempt=2 then Failure:=Copy(E.ClassName+': '+E.Message,1,2000);
+        end;
+      end;
+    if Body='' then raise EReadError.Create(Failure);
+    Result:=Body;
+  finally TMonitor.Exit(FMirrorLock); end;
+end;
+
+function TComponentUpdateThread.MirrorMetadata: string;
+begin
+  Result:=MirrorText(COMPONENT_MIRROR_API,FMirrorMetadata,FMirrorMetadataError);
+end;
+
 function TComponentUpdateThread.FetchMirrorRelease(const ID, Version: string; out Info: TProgramRelease): Boolean;
 var Metadata, URL: string;
 begin
   Result:=False; Info:=Default(TProgramRelease);
   if Terminated then Abort;
-  Metadata:=FetchText(COMPONENT_MIRROR_API);
+  Metadata:=MirrorMetadata;
   if ID='IBK' then Exit(ParseIBKMirror(Metadata,Version,Info));
   URL:=ComponentMirrorFeedURL(Metadata);
-  if URL<>'' then Result:=ParseComponentMirror(Metadata,FetchText(URL),ID,Version,Info);
+  if URL<>'' then Result:=ParseComponentMirror(Metadata,MirrorText(URL,FMirrorFeed,FMirrorFeedError),ID,Version,Info);
 end;
 
 procedure TComponentUpdateThread.CheckComponent(I: Integer);
@@ -998,7 +1048,7 @@ begin
           begin
             if UPDATE_COMPONENTS[I].CheckKind=ccJPEGXL then
               Changes:=FetchText('https://api.github.com/repos/libjxl/libjxl/releases/latest')
-            else Changes:=FetchText('https://api.github.com/repos/Dicur3x/MyHomeLib/releases/tags/'+ALREADER_FIXED_TAG);
+            else Changes:=MirrorMetadata;
             if not ParseImageComponent(Changes,ComponentIDs[I],FReleases[I]) then
               raise Exception.Create('Не удалось подтвердить пакет изображений, разрядность или контрольную сумму.');
           end;
@@ -1130,6 +1180,18 @@ begin
               raise Exception.Create('Не удалось проверить согласованную версию всех четырёх библиотек DocSharp.');
             GetSize(FReleases[I]);
             AuthorNotes('https://api.github.com/repos/manfromarce/DocSharp/releases?per_page=30',FReleases[I]);
+            var Bundle: TProgramRelease;
+            try
+              if FetchMirrorRelease(ComponentIDs[I],FReleases[I].ComponentVersion,Bundle) and
+                IsDocSharpBundleRevision(FReleases[I].ComponentVersion,Bundle.ComponentVersion) then
+              begin
+                Bundle.ComponentWarning:='';
+                FReleases[I]:=Bundle;
+              end;
+            except
+              // An unavailable HomeLibre package leaves the verified author download usable.
+              on E: Exception do if Terminated then raise;
+            end;
           end;
       end;
     except
@@ -1270,17 +1332,21 @@ end;
 
 function ParseComponentMirror(const Metadata, Feed, ID, Version: string; out Info: TProgramRelease): Boolean;
 var Root: TJSONValue; Assets: TJSONArray; Published: TComponentReleases; Comparison, Index: Integer;
+  function MatchingPackage(PreferDocSharpBundle: Boolean): Boolean;
+  begin
+    Result:=ParseComponentFeed(Feed,ALREADER_FIXED_TAG,Assets.ToJSON,Published,True,True,PreferDocSharpBundle) and
+      (Published[Index].DownloadURL<>'') and
+      ((Version='') or (CompareComponentVersions(Version,Published[Index].ComponentVersion,Comparison) and
+        ((Comparison=0) or ((ID='DocSharp') and IsDocSharpBundleRevision(Version,Published[Index].ComponentVersion)))));
+  end;
 begin
   Result:=False; Info:=Default(TProgramRelease); Root:=nil;
   if (Length(Feed)>1024*1024) or (ComponentMirrorFeedURL(Metadata)='') then Exit;
   try
     Root:=TJSONObject.ParseJSONValue(Metadata);
-    if not Root.TryGetValue<TJSONArray>('assets',Assets) or
-      not ParseComponentFeed(Feed,ALREADER_FIXED_TAG,Assets.ToJSON,Published,True,True) then Exit;
     Index:=IndexText(ID,ComponentIDs);
-    if (Index<0) or (Published[Index].DownloadURL='') or
-      ((Version<>'') and (not CompareComponentVersions(Version,Published[Index].ComponentVersion,Comparison) or
-        (Comparison<>0))) then Exit;
+    if (Index<0) or not Root.TryGetValue<TJSONArray>('assets',Assets) then Exit;
+    if not ((ID='DocSharp') and MatchingPackage(True)) and not MatchingPackage(False) then Exit;
     Info:=Published[Index];
     Info.ComponentWarning:='Используется запасной пакет HomeLibre на GitHub. Версия: '+Info.ComponentVersion+'.';
     Result:=True;

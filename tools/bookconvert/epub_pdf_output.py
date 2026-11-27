@@ -59,12 +59,15 @@ viewer.loadPublication(source.href);
 
 
 @contextmanager
-def local_book(archive, viewer, replacements=None):
+def local_book(archive, viewer, replacements=None, *, formula_page=None):
     prefix = '/' + secrets.token_urlsafe(24) + '/'
-    engine = viewer / 'vivliostyle.js'
-    if not engine.is_file():
-        raise FileNotFoundError('Отсутствуют файлы модуля вёрстки EPUB.')
-    assets = {'index.html': HOST, 'host.js': HOST_SCRIPT, 'vivliostyle.js': engine.read_bytes()}
+    if formula_page is None:
+        engine = viewer / 'vivliostyle.js'
+        if not engine.is_file():
+            raise FileNotFoundError('Отсутствуют файлы модуля вёрстки EPUB.')
+        assets = {'index.html': HOST, 'host.js': HOST_SCRIPT, 'vivliostyle.js': engine.read_bytes()}
+    else:
+        assets = {'math.html': formula_page}
     replacements = replacements or {}
 
     class Handler(http.server.BaseHTTPRequestHandler):
@@ -93,7 +96,7 @@ def local_book(archive, viewer, replacements=None):
             elif folder == 'book' and name in replacements:
                 data = replacements[name]
                 stream, size = io.BytesIO(data), len(data)
-            elif folder == 'book' and name in archive.names and not name.endswith('/'):
+            elif folder == 'book' and archive is not None and name in archive.names and not name.endswith('/'):
                 entry = archive.archive.getinfo(name)
                 stream, size = archive.archive.open(entry), entry.file_size
             else:
@@ -102,7 +105,7 @@ def local_book(archive, viewer, replacements=None):
             with stream:
                 extension = Path(name).suffix.lower()
                 content_type = EPUB_TYPES.get(extension) or mimetypes.guess_type(name)[0]
-                scripts = origin + prefix + 'viewer/' if folder == 'viewer' else "'none'"
+                scripts = origin + prefix + 'viewer/' if folder == 'viewer' and formula_page is None else "'none'"
                 self.send_response(200)
                 self.send_header('Content-Type', content_type or 'application/octet-stream')
                 self.send_header('Content-Length', str(size))
@@ -147,13 +150,38 @@ def remove_profile(profile, work):
             if not profile.exists():
                 return
             raise
-        except PermissionError:
+        except OSError as error:
+            if not isinstance(error, PermissionError) and getattr(error, 'winerror', None) != 145:
+                raise
             if time.monotonic() >= deadline:
                 raise
             time.sleep(.05)
 
 
 def render_pdf(api, renderer, work, url, allowed, checkpoint):
+    run_renderer(renderer, work, [url, allowed, str(api.MAX_TOTAL)], checkpoint,
+                 api.ConversionError, 'Для сохранения EPUB в PDF нужна среда Microsoft WebView2 Runtime.')
+
+
+def render_math(renderer, work, count, maximum, checkpoint):
+    with (work / 'formulas.html').open('rb') as stream:
+        page = stream.read(512 * 1024 + 1)
+    if len(page) > 512 * 1024:
+        raise ValueError('Разметка формул превышает допустимый размер.')
+    # The converter's output can already be several directories deep. Start
+    # WebView2 in a private directory at the configured temporary root.
+    with tempfile.TemporaryDirectory(prefix='hl-math-') as temporary, local_book(None, None, formula_page=page) as (origin, prefix):
+        active = Path(temporary)
+        url = origin + prefix + 'viewer/math.html'
+        run_renderer(renderer, active, [url, origin + prefix, str(maximum), str(count)], checkpoint,
+                     ValueError, 'Для отрисовки формул нужна среда Microsoft WebView2 Runtime.')
+        for index in range(count):
+            image = active / f'formula-{index:04d}.png'
+            if image.is_file():
+                shutil.move(image, work / image.name)
+
+
+def run_renderer(renderer, work, arguments, checkpoint, missing_runtime, runtime_message):
     cancel = work / 'cancel-epub-pdf'
     env = {key: value for key, value in os.environ.items() if not key.upper().startswith('WEBVIEW2_')}
     checkpoint()
@@ -162,7 +190,7 @@ def render_pdf(api, renderer, work, url, allowed, checkpoint):
     profile = Path(tempfile.mkdtemp(prefix='w2-', dir=work.parent))
     try:
         env.update(TEMP=str(profile), TMP=str(profile), WEBVIEW2_USER_DATA_FOLDER=str(profile / 'b'))
-        process = subprocess.Popen([str(renderer), url, allowed, str(api.MAX_TOTAL)], cwd=work,
+        process = subprocess.Popen([str(renderer), *arguments], cwd=work,
                                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
                                    env=env, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
         try:
@@ -184,10 +212,10 @@ def render_pdf(api, renderer, work, url, allowed, checkpoint):
     finally:
         remove_profile(profile, work.parent)
     if process.returncode == 3:
-        raise api.ConversionError('Для сохранения EPUB в PDF нужна среда Microsoft WebView2 Runtime.')
+        raise missing_runtime(runtime_message)
     if process.returncode:
         detail = stderr.decode('utf-8', errors='replace').strip()[:500]
-        raise ValueError(detail or 'Модуль вёрстки PDF завершился с ошибкой.')
+        raise ValueError(detail or 'Модуль вёрстки EPUB завершился с ошибкой.')
 
 
 def epub_outline(items, reader, destinations, checkpoint, depth=0):
@@ -303,6 +331,47 @@ def printable_documents(api, archive, package_path, package, check=None):
     return replacements
 
 
+def publication_fields(api, package):
+    fields = {}
+    metadata = api.first(package, 'metadata')
+    for node in (() if metadata is None else metadata):
+        if node.tag.startswith('{' + api.DC + '}') and (value := api.plain(node)):
+            name = api.tag(node)
+            if name == 'date' and node.get('{' + api.OP + '}event', node.get('event', '')).casefold() not in {'', 'publication'}:
+                continue
+            fields.setdefault(name, []).append(value)
+    return fields
+
+
+def write_pdf_metadata(writer, fields, make_xmp):
+    def first(name):
+        return next(iter(fields.get(name, ())), '')
+
+    authors = '; '.join(fields.get('creator', ()))
+    keywords = '; '.join(fields.get('subject', ()))
+    description = '\n\n'.join(fields.get('description', ()))
+    info = {'/Title': first('title'), '/Author': authors, '/Subject': description or keywords, '/Keywords': keywords}
+    writer.add_metadata({key: value for key, value in info.items() if value})
+    xmp = writer.xmp_metadata or make_xmp()
+    for name in ('creator', 'contributor', 'language', 'publisher', 'relation', 'subject', 'type', 'date'):
+        if values := fields.get(name):
+            setattr(xmp, 'dc_' + name, values)
+    for name, value in (('title', first('title')), ('description', description), ('rights', first('rights'))):
+        if value:
+            setattr(xmp, 'dc_' + name, {'x-default': value})
+    if keywords:
+        xmp.pdf_keywords = keywords
+    identifiers = fields.get('identifier', ())
+    # Use the edition identifier when EPUB also carries an internal package UUID.
+    identifier = next((value for value in identifiers if value.casefold().startswith('urn:isbn:')), first('identifier'))
+    if identifier:
+        xmp.dc_identifier = identifier
+    for name in ('coverage', 'source'):
+        if value := first(name):
+            setattr(xmp, 'dc_' + name, value)
+    writer.xmp_metadata = xmp
+
+
 def convert(api, prepared, output, module_root, check):
     renderer = module_root / 'runtime' / 'HomeLibEpubPdf.exe'
     if not renderer.is_file():
@@ -324,6 +393,7 @@ def convert(api, prepared, output, module_root, check):
     try:
         from pypdf import PdfReader, PdfWriter
         from pypdf.errors import PyPdfError
+        from pypdf.xmp import XmpInformation
     except ImportError as error:
         raise api.ComponentRequired('EpubPdfExport', 'Установите модуль вёрстки EPUB в PDF.') from error
     finally:
@@ -335,9 +405,7 @@ def convert(api, prepared, output, module_root, check):
             rootfile = next((entry.get('full-path') for entry in container.iter()
                              if api.tag(entry) == 'rootfile' and entry.get('full-path')), '')
             package = api.xml(archive.read(rootfile))
-            creators = [node.text.strip() for node in package.findall('.//{http://purl.org/dc/elements/1.1/}creator')
-                        if node.text and node.text.strip()]
-            title = package.findtext('.//{http://purl.org/dc/elements/1.1/}title', '').strip()
+            fields = publication_fields(api, package)
             replacements = legacy_navigation(api, archive, rootfile, package)
             # Manual soft-hyphen glyphs become spaces in Chromium's PDF text
             # layer even when no visible line break occurs. Remove only these
@@ -359,10 +427,10 @@ def convert(api, prepared, output, module_root, check):
             if toc.is_file():
                 items = json.loads(toc.read_text(encoding='utf-8'))
                 outline = epub_outline(items, reader, reader.named_destinations, checkpoint)
-            if creators or title or outline:
+            if fields or outline:
                 writer = PdfWriter(fileobj=reader, incremental=True)
-                fields = {'/Author': '; '.join(creators), '/Title': title}
-                writer.add_metadata({key: value for key, value in fields.items() if value})
+                if fields:
+                    write_pdf_metadata(writer, fields, XmpInformation.create)
                 if outline:
                     from pypdf.generic import NameObject
                     writer.root_object.pop(NameObject('/Outlines'), None)

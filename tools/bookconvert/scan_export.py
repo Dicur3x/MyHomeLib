@@ -48,14 +48,14 @@ class ScanExport:
         if not self.tool.is_file(): book.require('ImageProcessing', 'Для обработки сканов нужен модуль HomeLibre Images.')
         context['handled'] = True
 
-    def add(self, data, number, total):
-        section = self.book.el('section', id='page-'+str(number)); self.book.body.append(section)
-        section.append(self.book.el('h2', 'Страница '+str(number)))
+    def add(self, data, number, total, *, preview=False):
+        section = None if preview else self.book.scan_section(number)
         self.pending.append((data, section, number)); self.total = max(self.total, total or number)
         # The first sample and each later batch fit within a small memory budget.
         maximum = 9 if not self.chosen or (self.storage != 'raw' and self.profile in ('balanced','economy','maximum')) else 12
         if len(self.pending) >= maximum or sum(len(item[0]) for item in self.pending) >= 32*1024*1024:
             self.flush()
+        return section
 
     def add_illustration(self, data, node=None):
         if node is None:
@@ -94,10 +94,23 @@ class ScanExport:
         if not originals:
             return
         self.book.resources, self.book.images, self.book.total = {}, {}, 0
+        placements = {}
         for node in self.book.body.iter():
             source = node.get('src')
             if source in originals:
-                self.add_illustration(originals[source][0], node)
+                placements.setdefault(source, []).append(node)
+        for source, nodes in placements.items():
+            if self.check is not None:
+                self.check()
+            data, _ = originals[source]
+            if isinstance(data, Path):
+                data = data.read_bytes()
+            for node in nodes:
+                self.add_illustration(data, node)
+        self.flush_illustrations()
+        for source, (data, _) in originals.items():
+            if isinstance(data, Path) and source not in self.book.resources:
+                data.unlink()
 
     def encode_estimates(self, directory, pictures, progress):
         kept = self.codec.run(self.book.c,self.tool,pictures,directory,'estimate-maximum',progress,'keep',self.storage,check=self.check,grayscale=self.grayscale)
@@ -135,6 +148,13 @@ class ScanExport:
                    'sizes':sizes['keep'],'split_sizes':sizes['split'],'auto_sizes':sizes['auto'],
                    'zip_sizes':zip_sizes['keep'],'zip_split_sizes':zip_sizes['split'],'zip_auto_sizes':zip_sizes['auto'],
                    'scan_pages':True,'first_samples':True}
+        self.select_profile(payload)
+        if self.layout=='auto':
+            self.unsplit.update(self.pending[i][2] for i in estimates['auto']['_unsplit'] if self.pending[i][2] not in self.excluded)
+        return [estimates['keep' if number in self.excluded else self.layout][self.profile][i]
+                for i,(_data,_section,number) in enumerate(self.pending)]
+
+    def select_profile(self, payload):
         value = self.publish_and_wait(payload)
         parts=value.split('|')
         if len(parts)>3 or parts[0] not in self.codec.SCAN_PROFILES or (len(parts)>=2 and parts[1] not in ('split','auto')) or (len(parts)==3 and not parts[2].startswith('except=')):
@@ -143,10 +163,19 @@ class ScanExport:
         try: self.excluded=excluded_pages(parts[2][7:] if len(parts)==3 else '')
         except ValueError as error: self.book.fail(str(error))
         self.prepare_early_illustrations()
-        if self.layout=='auto':
-            self.unsplit.update(self.pending[i][2] for i in estimates['auto']['_unsplit'] if self.pending[i][2] not in self.excluded)
-        return [estimates['keep' if number in self.excluded else self.layout][self.profile][i]
-                for i,(_data,_section,number) in enumerate(self.pending)]
+
+    def offer_sampled_scan_choice(self, samples, groups, page_count):
+        estimator = ScanExport(self.book, dict(self.context, measure_scans=True, sample_groups=groups,
+                                               preview_choice=True))
+        for number, image in samples:
+            estimator.add(image, number, page_count, preview=True)
+        if not estimator.can_use_samples():
+            return
+        options = estimator.measurement_options()
+        if self.measure_only:
+            self.publish_and_wait(options)
+            self.book.fail('Оценка размера завершена без записи копии.')
+        self.select_profile(options)
 
     def publish_and_wait(self, payload):
         if not self.context.get('options') or not self.context.get('choice'):
@@ -349,13 +378,13 @@ class ScanExport:
             'zip_auto_sizes': zip_sizes['auto']})
         self.book.fail('Оценка размера завершена без записи копии.')
 
-    def finish_measurement(self):
+    def measurement_options(self):
         illustrations, approximate = self.measure_illustrations()
         body = self.book.c.serialized(self.book.body)
         sampled = self.sample_costs is not None
         pages = self.total if sampled else self.done
         if sampled:
-            body = b''  # All pages in this PDF are image-only.
+            body = b''  # All sampled pages belong to an image-only document.
         fb2 = self.context['target'] == '.fb2'
         overhead = 800+len(body)+115*pages if fb2 else 1200+self.codec.deflated_size(body)+32*pages
         packed_overhead = 400+self.codec.deflated_size(body)+25*pages if fb2 else overhead+512
@@ -374,11 +403,14 @@ class ScanExport:
                 packed_size = packed_overhead+packed_illustrations+sum(packed for _raw, packed in assets)
             sizes.setdefault(layout, {'none': 0})[profile] = size
             zip_sizes.setdefault(layout, {'none': 0})[profile] = packed_size
-        self.publish_and_wait({'format': self.context['target'][1:].upper(),
+        return {'format': self.context['target'][1:].upper(),
             'images': pages, 'sampled': self.done, 'scan_pages': True, 'all_scan_pages': not sampled,
             'distributed_samples': sampled, 'margins': margins, 'zip_margins': zip_margins,
             'sizes': sizes['keep'], 'split_sizes': sizes['split'], 'auto_sizes': sizes['auto'],
-            'zip_sizes': zip_sizes['keep'], 'zip_split_sizes': zip_sizes['split'], 'zip_auto_sizes': zip_sizes['auto']})
+            'zip_sizes': zip_sizes['keep'], 'zip_split_sizes': zip_sizes['split'], 'zip_auto_sizes': zip_sizes['auto']}
+
+    def finish_measurement(self):
+        self.publish_and_wait(self.measurement_options())
         self.book.fail('Оценка размера завершена без записи копии.')
 
     def flush(self, complete=False):
@@ -388,7 +420,10 @@ class ScanExport:
             if self.measure_only:
                 self.measure_batch(directory)
                 self.done += len(self.pending); self.pending.clear()
-                self.book.progress('scan-images',self.done,max(self.done,self.total))
+                if self.context.get('preview_choice'):
+                    self.book.progress('scan-estimates', self.done, len(self.context['sample_groups']))
+                else:
+                    self.book.progress('scan-images',self.done,max(self.done,self.total))
                 return
             if not self.chosen: encoded=self.choose(directory,complete)
             if encoded is None:
@@ -402,7 +437,7 @@ class ScanExport:
                     for i,pages in zip(indices,result[self.profile]): encoded[i]=pages
             for (_data,section,number),pages in zip(self.pending,encoded):
                 for half,data in enumerate(pages):
-                    paragraph=self.book.el('p'); section.append(paragraph)
+                    paragraph=self.book.el('p'); section.insert(1+half,paragraph)
                     image=self.book.image(data)
                     image.set('alt','Страница '+str(number)+(' · '+('левая' if half==0 else 'правая') if len(pages)==2 else ''))
                     paragraph.append(image)

@@ -1,4 +1,4 @@
-"""Prepare SVG illustrations in a private EPUB for the KFX writer."""
+"""Prepare illustrations and static media fallbacks in a private EPUB."""
 
 from base64 import b64decode, b64encode
 from contextlib import closing
@@ -16,6 +16,57 @@ from markdown_output import SVG, static_svg
 VECTOR = '{' + SVG + '}'
 PNG = b'\x89PNG\r\n\x1a\n'
 CSS_URL = re.compile(r'''url\(\s*(['"]?)([^'")]+)\1\s*\)''', re.I)
+POSTER_TYPES = {'image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml'}
+MEDIA_BLOCKS = {'article', 'aside', 'blockquote', 'div', 'dl', 'figure', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+                'ol', 'p', 'pre', 'section', 'table', 'ul'}
+
+
+def replace_media(api, archive, path, node, resources, warnings):
+    kind, label = api.epub_media_label(node)
+    children = list(node)
+    media_children = [child for child in children if api.tag(child) in {'source', 'track'}]
+    has_blocks = any(api.tag(child) in MEDIA_BLOCKS for child in children if child not in media_children)
+    poster = None
+    if href := node.get('poster'):
+        resource, _ = archive.resolve(path, href)
+        if resources.get(resource) in POSTER_TYPES:
+            size = {axis: value for axis in ('width', 'height')
+                    if re.fullmatch(r'[0-9]{1,6}%?', value := node.get(axis, ''))}
+            poster = api.element(api.XH, 'img', src=href, alt=node.get('aria-label') or label, **size)
+        else:
+            warnings.add(f'{kind} EPUB не перенесено: «{label}». Исходная обложка недоступна.')
+    if poster is not None:
+        warnings.add(f'{kind} EPUB показано статично: «{label}». Сохранён кадр, заданный в книге. '
+                     'Для воспроизведения откройте исходный EPUB.')
+    elif not node.get('poster'):
+        warnings.add(f'{kind} EPUB не перенесено: «{label}». Для воспроизведения откройте исходный EPUB.')
+    text = node.text
+    node.tag = '{' + api.XH + '}' + ('div' if has_blocks else 'span')
+    node.attrib = {key: value for key, value in node.attrib.items()
+                   if key in {'id', 'class', 'style', 'title', 'lang', 'dir', 'hidden',
+                              '{http://www.w3.org/XML/1998/namespace}lang'}}
+    node[:] = []
+    node.text = None
+    if poster is not None:
+        node.append(poster)
+    elif not (text or '').strip() and len(media_children) == len(children):
+        node.text = f'[{kind} «{label}» доступно в исходном EPUB.]'
+    api.append_text(node, text)
+    subtitles = []
+    for child in children:
+        if child in media_children:
+            if identifier := child.get('id'):
+                node.append(api.element(api.XH, 'span', id=identifier))
+            api.append_text(node, child.tail)
+            if api.tag(child) == 'track':
+                subtitles.extend(api.epub_subtitle_paragraphs(archive, path, child, resources, warnings))
+        else:
+            node.append(child)
+    for paragraph in subtitles:
+        if not has_blocks:
+            node.append(api.element(api.XH, 'br'))
+            paragraph.tag = '{' + api.XH + '}span'
+        node.append(paragraph)
 
 
 def vector_input(api, archive, path, vector, decode_webp, decode_gif=None):
@@ -109,7 +160,7 @@ def remap_srcset(value, resolve):
 
 
 def prepare(api, source, destination, render, check=None, decode_webp=None, decode_gif=None, only_gif=False,
-            maximum_total=None):
+            maximum_total=None, warnings=None):
     """Convert supported SVG/WebP and a static GIF frame to private PNGs."""
     label = 'GIF' if only_gif else 'KFX'
     opened = api.EpubArchive(source) if maximum_total is None else api.EpubArchive(source, maximum_total)
@@ -134,6 +185,7 @@ def prepare(api, source, destination, render, check=None, decode_webp=None, deco
         members = [(item, archive.resolve(path, item.get('href', ''))[0])
                    for path, manifest in manifests.items() for item in manifest]
         names = set(archive.names)
+        resources = {name: item.get('media-type') for item, name in members if name in names}
         ids = {item.get('id') for manifest in manifests.values() for item in manifest}
         updates, added, replacements = {}, {}, {}
         png_targets, inline_gifs = {}, {}
@@ -270,11 +322,23 @@ def prepare(api, source, destination, render, check=None, decode_webp=None, deco
             if item.get('media-type') != 'application/xhtml+xml' and not xml_resource:
                 continue
             chapter = api.xml(archive.read(path)) if xml_resource else api.xhtml(archive.read(path))
-            if not only_gif and any(api.tag(node) in {'audio', 'video', 'script', 'iframe', 'object', 'embed'}
-                   for node in chapter.iter()):
-                raise api.ConversionError(f'{label}: в EPUB есть интерактивные или мультимедийные элементы.')
-            pending = [chapter]
             changed = False
+            if not only_gif:
+                media = []
+                for node in chapter.iter():
+                    kind = api.tag(node)
+                    if kind in {'script', 'iframe', 'object', 'embed'}:
+                        raise api.ConversionError(f'{label}: в EPUB есть интерактивные или мультимедийные элементы.')
+                    if kind in {'audio', 'video'}:
+                        if warnings is None:
+                            raise api.ConversionError(f'{label}: в EPUB есть интерактивные или мультимедийные элементы.')
+                        media.append(node)
+                if media:
+                    require_rewrite()
+                    for node in media:
+                        replace_media(api, archive, path, node, resources, warnings)
+                    changed = True
+            pending = [chapter]
             while pending:
                 parent = pending.pop()
                 for name in ('src', 'href', 'data', 'poster', '{' + api.XL + '}href'):
@@ -328,14 +392,15 @@ def prepare(api, source, destination, render, check=None, decode_webp=None, deco
                     href = node.get('href')
                     if href:
                         node.set('href', remap(path, href))
-        if not added:
+        if not added and (only_gif or not updates):
             return 0
         for path, package in packages.items():
             updates[path] = api.serialized(package)
         entries = [entry for entry in archive.archive.infolist() if entry.filename not in replacements]
         sizes = [len(updates[entry.filename]) if entry.filename in updates else entry.file_size for entry in entries]
+        output_limit = api.MAX_TOTAL if maximum_total is None else maximum_total
         if (len(entries) + len(added) > api.MAX_ENTRIES or max(sizes, default=0) > api.MAX_FILE
-                or sum(sizes) + added_bytes > api.MAX_TOTAL):
+                or sum(sizes) + added_bytes > output_limit):
             raise api.ConversionError(f'{label}: подготовленная книга превышает допустимый объём.')
         with zipfile.ZipFile(destination, 'x', compression=zipfile.ZIP_DEFLATED) as result:
             for entry in entries:

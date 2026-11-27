@@ -1,4 +1,53 @@
-﻿procedure TestReaderSessionContext;
+﻿procedure TestHTMLReaderPictures;
+begin
+  var FixtureRoot:=ExtractFilePath(ParamStr(0));
+  var PictureFolder:=TPath.Combine(FixtureRoot,'html-pictures');
+  TDirectory.CreateDirectory(PictureFolder);
+  var ImageText:='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGMQMgn7DwAClAGcHVtGXwAAAABJRU5ErkJggg==';
+  var PictureBytes:=TNetEncoding.Base64.DecodeStringToBytes(ImageText);
+  TFile.WriteAllBytes(TPath.Combine(PictureFolder,'leaf+1.png'),PictureBytes);
+  TFile.WriteAllBytes(TPath.Combine(FixtureRoot,'outside.png'),PictureBytes);
+
+  var PictureHTML:='<html><body><p>Начало <img alt="Лист &gt; 3 &amp; примечание" src="missing.gif" /> конец.</p>'+
+    '<p><img alt="Только подпись" /></p>'+
+    '<p><img title="Другой атрибут alt=wrong src=wrong" src="leaf%2B1.png?cache=9" alt="Уцелевшая картинка" /></p>'+
+    '<p><img alt="Внешняя подпись" src="..%2Foutside.png" /></p></body></html>';
+  var PictureXHTML:=TPath.Combine(PictureFolder,'pictures.xhtml');
+  TFile.WriteAllText(PictureXHTML,PictureHTML,TEncoding.UTF8);
+  var PictureLooseHTML:=TPath.Combine(PictureFolder,'pictures.html');
+  TFile.WriteAllText(PictureLooseHTML,PictureHTML.Replace(' />','>').Replace('&gt;','>'),TEncoding.UTF8);
+  var PictureMHTML:=TPath.Combine(PictureFolder,'pictures.mht');
+  var MimeBody:=PictureHTML.Replace('leaf%2B1.png?cache=9','cid:reader-test-img').Replace(' />','>');
+  TFile.WriteAllText(PictureMHTML,'MIME-Version: 1.0'+sLineBreak+
+    'Content-Type: multipart/related; boundary="home-reader-test"'+sLineBreak+sLineBreak+
+    '--home-reader-test'+sLineBreak+
+    'Content-Type: text/html; charset=utf-8'+sLineBreak+
+    'Content-Transfer-Encoding: base64'+sLineBreak+sLineBreak+
+    TNetEncoding.Base64.EncodeBytesToString(TEncoding.UTF8.GetBytes(MimeBody))+sLineBreak+
+    '--home-reader-test'+sLineBreak+'Content-Type: image/png'+sLineBreak+
+    'Content-ID: <reader-test-img>'+sLineBreak+'Content-Transfer-Encoding: base64'+sLineBreak+sLineBreak+
+    ImageText+sLineBreak+'--home-reader-test--'+sLineBreak,TEncoding.ASCII);
+
+  var Document:=TReaderDocument.Create;
+  try
+    for var Source in TArray<string>.Create(PictureXHTML,PictureLooseHTML,PictureMHTML) do
+    begin
+      Document.Load(Source);
+      var Simplified:=Document.Warnings.IndexOf('HTML: показано упрощённое оформление.')>=0;
+      Require(Simplified=(Source=PictureLooseHTML),'The HTML fixture ran through the wrong parser');
+      var Text:=Document.PlainText;
+      Require(Text.Contains('Начало [Изображение не читается.] Лист > 3 & примечание конец.'),
+        'The reader lost the original description or its position in '+ExtractFileName(Source));
+      Require(Text.Contains('Только подпись') and Text.Contains('[Изображение не читается.] Внешняя подпись'),
+        'The reader lost a description for an omitted or inaccessible image in '+ExtractFileName(Source));
+      Require((Document.ImageCount=1) and (Document.SkippedImages=2) and not Text.Contains('Уцелевшая картинка'),
+        'The reader loaded the wrong image or duplicated the visible description in '+ExtractFileName(Source));
+    end;
+  finally Document.Free; end;
+  Writeln('PASS reader keeps image descriptions in HTML XHTML and MHTML without duplicating available images');
+end;
+
+procedure TestReaderSessionContext;
 var Book: TBookRecord; Request, Reloaded: TReaderSessionRequest;
   Reply, ReadReply: TReaderSessionReply; Lease: TReaderSessionLease;
   Archive: TZipFile; ArchiveReader: TMHLZip; Input: TStream; Data: TBytes;
@@ -71,6 +120,31 @@ begin
     finally Input.Free; ArchiveReader.Free; end;
   end;
   Writeln('PASS exact archive paths distinguish case variants with native ZIP and 7-Zip');
+  var TrimmedZip:=Settings.AppPath+'trimmed-books.zip';
+  Archive:=TZipFile.Create;
+  try
+    Archive.Open(TrimmedZip,zmWrite);
+    Archive.Add(TEncoding.UTF8.GetBytes('different book'),'previous.epub',zcStored);
+    Archive.Add(TEncoding.UTF8.GetBytes('chosen book'),'nested/selected ..epub',zcDeflate);
+    Archive.Add(TEncoding.UTF8.GetBytes('first ambiguous book'),'collision .epub',zcStored);
+    Archive.Add(TEncoding.UTF8.GetBytes('second ambiguous book'),'collision..epub',zcStored);
+    Archive.Add(TEncoding.UTF8.GetBytes('other folder'),'other/selected ..epub',zcStored);
+  finally Archive.Free; end;
+  ArchiveReader:=TMHLZip.Create(TrimmedZip,True);
+  Input:=TStringStream.Create('',TEncoding.UTF8);
+  try
+    Require(ArchiveReader.ResolveBookName('nested/selected.epub',-1,True)='nested/selected ..epub',
+      'A unique trimmed ZIP path required a catalogue index');
+    ArchiveReader.ExtractBookToStream('nested/selected.epub',0,Input);
+    Require(TStringStream(Input).DataString='chosen book','A stale index outranked a unique trimmed ZIP path');
+    Require(ArchiveReader.ResolveBookName('renamed-by-importer.epub',0)='previous.epub',
+      'A ZIP with a position-only locator lost the legacy fallback');
+    Blocked:=False;
+    try ArchiveReader.ResolveBookName('collision.epub',2);
+    except on E:EArchiveBookEntryNotFound do Blocked:=True; end;
+    Require(Blocked,'An ambiguous trimmed ZIP path fell back to an index');
+  finally Input.Free; ArchiveReader.Free; end;
+  Writeln('PASS unique trimmed ZIP paths outrank stale indexes and ambiguous names are rejected');
   var AliasArchive:=Settings.AppPath+'trimmed-books.7z';
   var AliasFiles:=TArray<string>.Create(Settings.AppPath+'selected ..epub',
     Settings.AppPath+'collision .epub',Settings.AppPath+'collision..epub');
@@ -171,4 +245,32 @@ begin
   Require(THashSHA2.GetHashStringFromFile(Book.GetBookFileName)=SourceHash,
     'Reader session modified the source book archive');
   Writeln('PASS reader session preserves selected archive member history settings progress notes and source leases while rejecting invalid replies');
+
+  var LegacyHTML:=Settings.AppPath+'legacy-links.html';
+  var UnicodeHTML:=Settings.AppPath+'unicode-links.xhtml';
+  var CodePage:=TEncoding.GetEncoding(1251);
+  try
+    TFile.WriteAllBytes(LegacyHTML,CodePage.GetBytes('<html><head><meta charset="windows-1251"></head><body>'+
+      '<a href="#%DF+B">Literal jump</a><a href="#%DF+C">Legacy jump</a><a href="#absent">Missing jump</a>'+
+      '<p id="Я+B">Literal target</p><p id="Я B">Other target</p><a name="Я C"></a><p>Legacy target</p></body></html>'));
+  finally CodePage.Free; end;
+  TFile.WriteAllText(UnicodeHTML,'<html><body><a href="#%D1%8F">Unicode jump</a>'+
+    '<p id="я">Unicode target</p><a href="https://example.invalid/">External jump</a></body></html>',TEncoding.UTF8);
+  var Document:=TReaderDocument.Create;
+  try
+    Document.Load(LegacyHTML);
+    var Text:=Document.PlainText;
+    var Target: Integer;
+    Require(Length(Document.Links)=2,'The HTML fallback lost a local link or retained a missing target');
+    Require(Document.LinkTargetAt(Text.IndexOf('Literal jump'),Target) and
+      Text.Substring(Target).TrimLeft.StartsWith('Literal target'),'An HTML plus sign jumped to another anchor');
+    Require(Document.LinkTargetAt(Text.IndexOf('Legacy jump'),Target) and
+      Text.Substring(Target).TrimLeft.StartsWith('Legacy target'),'A legacy HTML link did not jump to its named anchor');
+    Document.Load(UnicodeHTML);
+    Text:=Document.PlainText;
+    Require((Length(Document.Links)=1) and Document.LinkTargetAt(Text.IndexOf('Unicode jump'),Target) and
+      Text.Substring(Target).TrimLeft.StartsWith('Unicode target'),'Well-formed XHTML lost a local Unicode link');
+  finally Document.Free; end;
+  Writeln('PASS HTML local links preserve UTF-8 legacy code page named anchors and literal plus targets');
+  TestHTMLReaderPictures;
 end;

@@ -80,6 +80,7 @@ type
   // Using stdcall here corrupts the stack; Win64 has one calling convention.
   TInit = procedure; cdecl;
   TLoadCustom = function(Access: Pointer; Password: PAnsiChar): Pointer; cdecl;
+  TGetPDFError = function: Cardinal; cdecl;
   TCloseDocument = procedure(Document: Pointer); cdecl;
   TGetPageCount = function(Document: Pointer): Integer; cdecl;
   TLoadPage = function(Document: Pointer; Index: Integer): Pointer; cdecl;
@@ -100,11 +101,13 @@ type
   TGetRect = function(TextPage: Pointer; Index: Integer; var Left, Top, Right, Bottom: Double): Integer; cdecl;
   TCharAt = function(TextPage: Pointer; X, Y, ToleranceX, ToleranceY: Double): Integer; cdecl;
   TGetText = function(TextPage: Pointer; Start, Count: Integer; Buffer: PWideChar): Integer; cdecl;
+  TTextCharFlag = function(TextPage: Pointer; Index: Integer): Integer; cdecl;
 
 var
   Module: HMODULE;
   InitLibrary, DestroyLibrary: TInit;
   LoadCustom: TLoadCustom;
+  GetPDFError: TGetPDFError;
   CloseDocument: TCloseDocument;
   GetPageCount: TGetPageCount;
   LoadPage: TLoadPage;
@@ -124,12 +127,13 @@ var
   CountRects: TCountRects;
   GetRect: TGetRect;
   CountChars: THandleInt; CharAt: TCharAt; GetText: TGetText;
+  TextIsHyphen, TextHasUnicodeMapError, TextIndexFromCharIndex: TTextCharFlag;
 
 procedure LoadPDFLibrary(const FileName: string);
-  procedure Entry(var Proc; const Name: AnsiString);
+  procedure Entry(var Proc; const Name: AnsiString; Required: Boolean = True);
   begin
     Pointer(Proc):=GetProcAddress(Module,PAnsiChar(Name));
-    if Pointer(Proc)=nil then raise Exception.Create('В PDFium отсутствует функция '+string(Name));
+    if Required and (Pointer(Proc)=nil) then raise Exception.Create('В PDFium отсутствует функция '+string(Name));
   end;
 begin
   if Module<>0 then Exit;
@@ -138,6 +142,7 @@ begin
   try
     Entry(InitLibrary,'FPDF_InitLibrary'); Entry(DestroyLibrary,'FPDF_DestroyLibrary');
     Entry(LoadCustom,'FPDF_LoadCustomDocument'); Entry(CloseDocument,'FPDF_CloseDocument');
+    Entry(GetPDFError,'FPDF_GetLastError');
     Entry(GetPageCount,'FPDF_GetPageCount'); Entry(LoadPage,'FPDF_LoadPage'); Entry(ClosePage,'FPDF_ClosePage');
     Entry(PageWidth,'FPDF_GetPageWidthF'); Entry(PageHeight,'FPDF_GetPageHeightF');
     Entry(CreateBitmap,'FPDFBitmap_CreateEx'); Entry(DestroyBitmap,'FPDFBitmap_Destroy');
@@ -152,6 +157,9 @@ begin
     Entry(FindClose,'FPDFText_FindClose'); Entry(CountRects,'FPDFText_CountRects'); Entry(GetRect,'FPDFText_GetRect');
     Entry(CountChars,'FPDFText_CountChars'); Entry(CharAt,'FPDFText_GetCharIndexAtPos');
     Entry(GetText,'FPDFText_GetText');
+    Entry(TextIsHyphen,'FPDFText_IsHyphen',False);
+    Entry(TextHasUnicodeMapError,'FPDFText_HasUnicodeMapError',False);
+    Entry(TextIndexFromCharIndex,'FPDFText_GetTextIndexFromCharIndex',False);
     InitLibrary;
   except FreeLibrary(Module); Module:=0; raise; end;
 end;
@@ -216,7 +224,14 @@ begin
   if FStream.Size>High(Cardinal) then raise Exception.Create('PDF больше 4 ГБ пока открывается внешней читалкой.');
   FAccess.Length:=FStream.Size; FAccess.GetBlock:=ReadBlock; FAccess.Param:=FStream;
   FDocument:=LoadCustom(@FAccess,nil);
-  if FDocument=nil then raise Exception.Create('Не удалось открыть PDF. Файл повреждён или защищён паролем.');
+  if FDocument=nil then
+    case GetPDFError() of
+      3: raise Exception.Create('Не удалось прочитать структуру PDF. Проверьте, полностью ли скачан файл.');
+      4: raise Exception.Create('PDF требует пароль для открытия. Нужна доступная вам копия без пароля.');
+      5: raise Exception.Create('PDF использует неподдерживаемую защиту. Нужна доступная вам копия без этой защиты.');
+    else
+      raise Exception.Create('Не удалось открыть PDF.');
+    end;
   FPageCount:=GetPageCount(FDocument);
   if FPageCount<=0 then raise Exception.Create('В PDF нет страниц.');
   RecordComponentUse('PDFium');
@@ -261,15 +276,62 @@ begin
   if Text<>nil then Result:=CharAt(Text,X,Y,ToleranceX,ToleranceY);
 end;
 
+function ReplacePDFHyphens(Text: Pointer; Start, Count: Integer; const Value: string): string;
+var Segment, Converted: string; Index, First, Offset, Units: Integer;
+begin
+  Result:=Value;
+  if not Assigned(TextIsHyphen) or (Pos(#$FFFE,Value)=0) then Exit;
+  // GetText can omit source controls and return UTF-16 surrogate pairs.
+  // Match each confirmed hyphen against the exact text PDFium returned.
+  SetLength(Segment,Count*2+1);
+  Converted:=Value; First:=Start; Offset:=0;
+  for Index:=Start to Start+Count-1 do
+  begin
+    if TextIsHyphen(Text,Index)<>1 then Continue;
+    Units:=GetText(Text,First,Index-First+1,PWideChar(Segment))-1;
+    if (Units<=0) or (Units>Length(Value)-Offset) then Exit;
+    if (Segment[Units]<>#$FFFE) or
+      not CompareMem(PWideChar(Segment),@Value[Offset+1],Units*SizeOf(Char)) then Exit;
+    Inc(Offset,Units);
+    Converted[Offset]:='-';
+    First:=Index+1;
+  end;
+  Result:=Converted;
+end;
+
 function TReaderPDF.TextRange(Page, Start, Count: Integer): string;
-var Text: Pointer; Copied, Available: Integer;
+var Text: Pointer; Copied, Available, Last, FirstTextIndex, TextIndex, I: Integer;
+  HasHyphens: Boolean; Replacement: Char;
 begin
   Result:=''; Text:=SelectionPage(Page); if Text=nil then Exit;
   Available:=CountChars(Text); Start:=EnsureRange(Start,0,Max(0,Available));
   Count:=Min(1000000,Min(Max(0,Count),Available-Start)); if Count<=0 then Exit;
+  if Assigned(TextIndexFromCharIndex) then
+  begin
+    // GetText moves forward when the start is omitted from the text buffer.
+    // Trim the range ourselves so the copy cannot extend past the selection.
+    Last:=Start+Count-1;
+    while (Start<=Last) and (TextIndexFromCharIndex(Text,Start)<0) do Inc(Start);
+    while (Last>=Start) and (TextIndexFromCharIndex(Text,Last)<0) do Dec(Last);
+    if Start>Last then Exit;
+    Count:=Last-Start+1;
+  end;
   SetLength(Result,Count*2+1);
   Copied:=GetText(Text,Start,Count,PWideChar(Result));
-  if Copied<=0 then Result:='' else SetLength(Result,Copied-1);
+  if Copied<=0 then Exit('');
+  SetLength(Result,Copied-1);
+  if not Assigned(TextIndexFromCharIndex) then Exit(ReplacePDFHyphens(Text,Start,Count,Result));
+  HasHyphens:=Assigned(TextIsHyphen) and (Pos(#$FFFE,Result)>0);
+  if not HasHyphens and not Assigned(TextHasUnicodeMapError) then Exit;
+  FirstTextIndex:=TextIndexFromCharIndex(Text,Start);
+  for I:=Start to Start+Count-1 do
+  begin
+    if HasHyphens and (TextIsHyphen(Text,I)=1) then Replacement:='-'
+    else if Assigned(TextHasUnicodeMapError) and (TextHasUnicodeMapError(Text,I)=1) then Replacement:=#$FFFD
+    else Continue;
+    TextIndex:=TextIndexFromCharIndex(Text,I)-FirstTextIndex+1;
+    if (TextIndex>=1) and (TextIndex<=Length(Result)) then Result[TextIndex]:=Replacement;
+  end;
 end;
 
 function TReaderPDF.TextWordRange(Page, Index: Integer; out Start, Count: Integer): Boolean;
@@ -435,9 +497,17 @@ begin
   finally Seen.Free; List.Free; end;
 end;
 
+function PDFSearchUsesUnmappedGlyph(TextPage: Pointer; Start, Count: Integer): Boolean;
+begin
+  Result:=False;
+  if not Assigned(TextHasUnicodeMapError) then Exit;
+  for var I:=Start to Start+Count-1 do
+    if TextHasUnicodeMapError(TextPage,I)=1 then Exit(True);
+end;
+
 function TReaderPDF.FindOnPage(Page: Integer; const Query: string; Start: Integer;
   out Match: TPDFMatch; MatchCase, WholeWord, Backward: Boolean): Boolean;
-var PageHandle, TextPage, Search: Pointer; I, Count: Integer;
+var PageHandle, TextPage, Search: Pointer; I, Count, CandidateIndex, CandidateCount: Integer;
   Left, Top, Right, Bottom: Double; Flags: Cardinal;
 begin
   Result:=False; Match.Index:=-1; Match.Count:=0; Match.Rects:=nil;
@@ -450,9 +520,12 @@ begin
       if not Backward then Start:=Max(0,Start);
       Search:=FindStart(TextPage,PChar(Query),Flags,Start); if Search=nil then Exit;
       try
-        if Backward then begin if FindPrevious(Search)=0 then Exit; end
-        else if FindNext(Search)=0 then Exit;
-        Match.Index:=FindIndex(Search); Match.Count:=FindCount(Search);
+        repeat
+          if Backward then begin if FindPrevious(Search)=0 then Exit; end
+          else if FindNext(Search)=0 then Exit;
+          CandidateIndex:=FindIndex(Search); CandidateCount:=FindCount(Search);
+        until not PDFSearchUsesUnmappedGlyph(TextPage,CandidateIndex,CandidateCount);
+        Match.Index:=CandidateIndex; Match.Count:=CandidateCount;
         Count:=EnsureRange(CountRects(TextPage,Match.Index,Match.Count),0,256);
         SetLength(Match.Rects,Count);
         for I:=0 to Count-1 do
@@ -482,6 +555,7 @@ begin
         while (Matches.Count<1000) and (FindNext(Search)<>0) do
         begin
           Match.Index:=FindIndex(Search); Match.Count:=FindCount(Search);
+          if PDFSearchUsesUnmappedGlyph(TextPage,Match.Index,Match.Count) then Continue;
           Count:=EnsureRange(CountRects(TextPage,Match.Index,Match.Count),0,256);
           Match.Rects:=nil; SetLength(Match.Rects,Count);
           for I:=0 to Count-1 do

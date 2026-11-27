@@ -19,6 +19,8 @@ begin
   Flat:=TBitmap.Create; Book:=TBitmap.Create; Early:=TBitmap.Create; Late:=TBitmap.Create;
   Skin:=TReaderBookSkin.Create;
   try
+    Application.CreateForm(TDMUser,DMUser);
+    DMUser.Init;
     // Fixed geometry independent of fonts: the full top edge stays horizontal
     // at normal/high DPI, with no opaque cover drawn across the page interior.
     for var PPI in [96,144,192] do
@@ -90,5 +92,8 @@ begin
         end;
       finally Reader.Free; end;
     end;
-  finally Skin.Free; Late.Free; Early.Free; Book.Free; Flat.Free; end;
+  finally
+    DMUser.Free; DMUser:=nil;
+    Skin.Free; Late.Free; Early.Free; Book.Free; Flat.Free;
+  end;
 end;

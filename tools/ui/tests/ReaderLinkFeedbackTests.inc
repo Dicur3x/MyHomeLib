@@ -27,6 +27,7 @@ var Files:TArray<string>; Labels:TArray<string>; Text, Prefix, Source, EPUB, Lab
           '<li><a href="one.xhtml#sub">SubDeclared</a></li></ol></li>'+
           '<li><a href="part+two.xhtml#%D1%91%D0%B6">SecondDeclared</a></li>'+
           '<li><a href="part+two.xhtml#%D1%91%D0%B6">DuplicateTarget</a></li>'+
+          '<li><a href="part+two.xhtml#duplicate">RecoveredOutline</a></li>'+
           '<li><a href="https://example.invalid/book">External</a></li></ol></nav></body></html>';
       end
       else
@@ -34,7 +35,8 @@ var Files:TArray<string>; Labels:TArray<string>; Text, Prefix, Source, EPUB, Lab
         ManifestText:='<item id="toc" href="toc.ncx" media-type="application/x-dtbncx+xml"/>'; SpineText:=' toc="toc"';
         Navigation:='<ncx><navMap><navPoint><navLabel><text>FirstDeclared</text></navLabel><content src="one.xhtml"/>'+
           '<navPoint><navLabel><text>SubDeclared</text></navLabel><content src="one.xhtml#sub"/></navPoint></navPoint>'+
-          '<navPoint><navLabel><text>SecondDeclared</text></navLabel><content src="part+two.xhtml#%D1%91%D0%B6"/></navPoint></navMap></ncx>';
+          '<navPoint><navLabel><text>SecondDeclared</text></navLabel><content src="part+two.xhtml#%D1%91%D0%B6"/></navPoint>'+
+          '<navPoint><navLabel><text>RecoveredOutline</text></navLabel><content src="part+two.xhtml#duplicate"/></navPoint></navMap></ncx>';
         if Variant=2 then Navigation:='<ncx><broken>';
       end;
       Zip:=TZipFile.Create;
@@ -44,7 +46,8 @@ var Files:TArray<string>; Labels:TArray<string>; Text, Prefix, Source, EPUB, Lab
         AddZip('OPS/book.opf','<package><manifest><item id="one" href="one.xhtml"/><item id="two" href="part+two.xhtml"/>'+
           ManifestText+'</manifest><spine'+SpineText+'><itemref idref="one"/><itemref idref="two"/></spine></package>');
         AddZip('OPS/one.xhtml','<html><body><h1>VisibleHeading</h1><p>FirstProse</p><p id="sub">SubProse</p></body></html>');
-        AddZip('OPS/part+two.xhtml','<html><body><p id="ёж">LastProse</p></body></html>');
+        AddZip('OPS/part+two.xhtml','<html><body><p id="ёж">LastProse</p><p id="duplicate">OtherProse</p>'+
+          '<p id="duplicate"><span>RecoveredOutline</span></p></body></html>');
         if Variant=1 then AddZip('OPS/nav.xhtml',Navigation) else AddZip('OPS/toc.ncx',Navigation);
       finally Zip.Free; end;
       Hash:=UpdateSHA256(Path); D:=TReaderDocument.Create;
@@ -54,11 +57,14 @@ var Files:TArray<string>; Labels:TArray<string>; Text, Prefix, Source, EPUB, Lab
           Require((Length(Chapters)=1) and (Chapters[0].Title='VisibleHeading') and (D.Warnings.Count>0),'Broken optional outline prevented fallback to visible headings')
         else
         begin
-          Require(Length(Chapters)=3,'Declared EPUB navigation contains missing, duplicate or unrelated chapters');
+          Require(Length(Chapters)=4,'Declared EPUB navigation contains missing, duplicate or unrelated chapters');
           Require((Chapters[0].Title='FirstDeclared') and (Chapters[1].Title='SubDeclared') and (Chapters[2].Title='SecondDeclared'),'Publisher chapter labels were not retained');
           Require((Chapters[1].Depth=1) and (Chapters[2].Depth=0),'Declared EPUB chapter nesting changed');
           Require((Chapters[0].Position<Chapters[1].Position) and (Chapters[1].Position<Chapters[2].Position),'Declared EPUB chapters are not in reading order');
           Require(Copy(D.PlainText,Chapters[2].Position+1,Length('LastProse'))='LastProse','Unicode and plus-path outline target points at the wrong paragraph');
+          Require((Chapters[3].Title='RecoveredOutline') and
+            Copy(D.PlainText,Chapters[3].Position+1,32).TrimLeft.StartsWith('RecoveredOutline'),
+            'Duplicate EPUB anchor did not resolve to the unique matching heading');
         end;
         Require(UpdateSHA256(Path)=Hash,'Outline reading changed the EPUB source');
       finally D.Free; end;
@@ -81,13 +87,18 @@ begin
     Zip.Open(EPUB,zmWrite); AddZip('mimetype','application/epub+zip');
     AddZip('META-INF/container.xml','<container><rootfiles><rootfile full-path="OPS/book.opf"/></rootfiles></container>');
     AddZip('OPS/book.opf','<package><metadata><title>Links</title></metadata><manifest>'+
-      '<item id="one" href="one.xhtml"/><item id="two" href="part+two.xhtml"/></manifest>'+
+      '<item id="one" href="one.xhtml"/><item id="two" href="part+two.xhtml"/>'+
+      '<item id="figure" href="image%20one.png" media-type="image/png"/></manifest>'+
       '<spine><itemref idref="one"/><itemref idref="two"/></spine></package>');
     AddZip('OPS/one.xhtml','<html xmlns="http://www.w3.org/1999/xhtml"><body>'+Prefix+'<h1>Contents</h1>'+
       '<p><a href="part+two.xhtml#%D1%91%D0%B6">OPEN_CHAPTER</a></p>'+
+      '<p><a href="image%20one.png">OPEN_PICTURE</a></p>'+
       '<p><a href="missing.xhtml#x">MISSING_TARGET</a> <a href="https://example.invalid/">EXTERNAL_LINK</a></p>'+Text+'</body></html>');
     AddZip('OPS/part+two.xhtml','<html xmlns="http://www.w3.org/1999/xhtml"><body><h1 id="ёж">CHAPTER_DESTINATION</h1>'+
-      '<p>Destination text survives.</p><p><a href="one.xhtml">BACK_TO_START</a></p></body></html>');
+      '<p>Destination text survives.</p><p><img src="image%20one.png" alt="Figure"/></p>'+
+      '<p><a href="one.xhtml">BACK_TO_START</a></p></body></html>');
+    Zip.Add(TNetEncoding.Base64.DecodeStringToBytes(
+      'iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAIAAAB7QOjdAAAADUlEQVR4nGP4zwAE/wEHAAH/4iOeWQAAAABJRU5ErkJggg=='),'OPS/image one.png');
   finally Zip.Free; end;
   CheckDeclaredOutline;
   Files:=[Source,EPUB]; Labels:=['OPEN_CHAPTER','OPEN_CHAPTER'];
@@ -109,6 +120,12 @@ begin
         Require(Doc.LinkTargetAt(At,Target) and (Target>At),'Ordinary chapter link did not resolve forward');
         Require(not Doc.LinkTargetAt(Pos('MISSING_TARGET',Doc.PlainText)-1,Target),'Broken link resolved to an arbitrary page');
         Require(not Doc.LinkTargetAt(Pos('EXTERNAL_LINK',Doc.PlainText)-1,Target),'External URL became an internal navigation action');
+        if I=1 then
+        begin
+          var PictureLabel:=Pos('OPEN_PICTURE',Doc.PlainText)-1;
+          Require((PictureLabel>=0) and Doc.LinkTargetAt(PictureLabel,Target) and (Target>PictureLabel) and
+            (Doc.PlainText[Target+1]=#$FFFC),'Link to a packaged resource did not land on the illustration');
+        end;
         if I=0 then
         begin
           Require((Doc.FootnoteCount=1) and Doc.FootnotesForRange(0,Doc.PlainText.Length).Contains('REAL_FOOTNOTE'),'Chapter links displaced real footnotes');

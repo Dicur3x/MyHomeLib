@@ -46,7 +46,7 @@ const XML='<?xml version="1.0" encoding="utf-8"?><FictionBook xmlns="http://www.
   Companion='sardines:chocolate ice cream:pop corn:leeks:cottage cheese:olive oil:butter:tofu:';
 var Root, FileName, Prepared, Hash: string; Zip: TZipFile; Stream: TBytesStream;
   Book: TBookRecord; Chooser: TArchiveFeedbackChooser; Timer: TTimer;
-  Raster: TReaderRaster; Image: TBitmap; Chapters: TArray<TPDFChapter>; Colors: TArray<TColor>;
+  Raster: TReaderRaster; Image: TBitmap; Colors: TArray<TColor>;
   procedure AddText(const Name, Text: string);
   begin
     Stream:=TBytesStream.Create(TEncoding.UTF8.GetBytes(Text));
@@ -91,6 +91,20 @@ begin
   Require(UpdateSHA256(FileName)=Hash,'Archive picker changed its source');
   Writeln('PASS archive picker prefers main document keeps companion text and double click confirms reading and conversion');
 
+  FileName:=Root+'\with-readme.zip'; Zip:=TZipFile.Create;
+  try
+    Zip.Open(FileName,zmWrite);
+    AddText('Документы/readmi.txt','Примечания к архиву.');
+    AddText('Документы/Книга.fb2',XML);
+  finally Zip.Free; end;
+  Book.FileName:='with-readme'; Hash:=UpdateSHA256(FileName);
+  Prepared:=PrepareArchivePreviewFile(Book,FileName,nil);
+  Require(TFile.ReadAllText(Prepared,TEncoding.UTF8)=XML,'Archive preview treated the readme as a second book');
+  Prepared:=PrepareConversionSource(Book,nil,'.epub',True,False);
+  Require(TFile.ReadAllText(Prepared,TEncoding.UTF8)=XML,'Archive conversion treated the readme as a second book');
+  Require(UpdateSHA256(FileName)=Hash,'Archive handling changed the book or its readme');
+  Writeln('PASS archive preview and conversion select the book beside a small readme');
+
   FileName:=Root+'\comic.cbz'; Colors:=TArray<TColor>.Create(clRed,clLime,clBlue);
   Zip:=TZipFile.Create;
   try
@@ -110,9 +124,8 @@ begin
   finally Zip.Free; end;
   Hash:=UpdateSHA256(FileName); Raster:=TReaderRaster.Create(FileName);
   try
-    Require(Raster.PageCount=3,'Comic lost pages'); Chapters:=Raster.Chapters;
-    Require(Chapters[0].Title.Contains('страница1/') and Chapters[1].Title.Contains('страница2/') and
-      Chapters[2].Title.Contains('страница10/'),'Comic natural page order changed');
+    Require(Raster.PageCount=3,'Comic lost pages');
+    Require(Length(Raster.Chapters)=0,'Comic without author navigation acquired a fabricated outline');
     for var I:=0 to 2 do
     begin
       Raster.PreparePage(I);

@@ -69,14 +69,16 @@ def prepare_operation_components(runtime, profile, operation):
     feed = json.loads((packages / 'format-components.json').read_text(encoding='utf-8'))
     assets = json.loads((packages / 'format-component-assets.json').read_text(encoding='utf-8'))
     required = {'BookProcessing'}
-    if operation != 'sql':
-        required.add('ImageProcessing' if operation == 'packing' else 'KindleExport')
+    if operation in ('packing', 'pdf-zip'):
+        required.add('ImageProcessing')
+    elif operation == 'kindle':
+        required.add('KindleExport')
     selected = [entry for entry in feed['components']
                 if entry['platform'] == platform and entry['id'] in required]
     if len(selected) != len(required) or {entry['id'] for entry in selected} != required:
         raise ValueError('The exact distinct component packages are required')
     versions = {entry['id']: entry['version'] for entry in selected}
-    if operation != 'packing' and len(set(versions.values())) != 1:
+    if operation == 'kindle' and len(set(versions.values())) != 1:
         raise ValueError('First-use fixture needs matching candidate versions')
     target = profile / 'save-module-fixture'
     target.mkdir()
@@ -94,6 +96,8 @@ def prepare_operation_components(runtime, profile, operation):
         entries.append(dict(id=entry['id'], version=entry['version'], name=name, sha256=digest,
                             size=asset['size'], url=asset['browser_download_url']))
     (target / 'fixture.json').write_text(json.dumps(dict(version=versions['BookProcessing'], components=entries)), encoding='utf-8')
+    if operation == 'pdf-zip':
+        return
     (profile / 'module-source.fb2').write_text('''<?xml version="1.0" encoding="utf-8"?>
 <FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0"><description><title-info>
 <genre>prose</genre><author><first-name>Тест</first-name><last-name>Автор</last-name></author>
@@ -102,8 +106,48 @@ def prepare_operation_components(runtime, profile, operation):
     print('PASS real independent packages staged without installing:', operation, platform)
 
 
+def prepare_pdf_zip(runtime, profile):
+    prepare_operation_components(runtime, profile, 'pdf-zip')
+    packages = Path(os.environ['HOMELIB_FORMAT_COMPONENT_PACKAGES'])
+    for name in ('local-mirror-release.json', 'HomeLibRu.components.json'):
+        shutil.copyfile(packages / name, profile / 'save-module-fixture' / name)
+    full = Path(os.environ['HOMELIB_BETA16_FULL']).resolve(strict=True)
+    expected = {
+        'Bin': 'f12fdcb944d27b6f20421f9b2c2d50a3cd9fa2e14bd6024ad016113d480b6cd0',
+        'Bin64': '7bd70d204ee2f62d03725181e3a36a40d5b953d74508f9e857c5b09415b82171',
+    }[runtime.name]
+    with full.open('rb') as stream:
+        if hashlib.file_digest(stream, 'sha256').hexdigest() != expected:
+            raise ValueError('The published beta 16 full archive differs from its pin')
+    with zipfile.ZipFile(full) as archive:
+        if archive.read('tools/bookconvert/SAVE_OPTIONS_API.txt').strip() != b'8':
+            raise ValueError('Expected the published beta 16 save API')
+        for item in archive.infolist():
+            name = item.filename
+            if item.is_dir() or not name.startswith(('tools/bookconvert/', 'tools/python/', 'tools/pdfium/')):
+                continue
+            # Model the reported partial install. Reading the PDF still uses
+            # the bundled decoder, while image conversion needs this marker.
+            if name == 'tools/bookconvert/IMAGE_CONTAINER_API.txt':
+                continue
+            target = (profile / name).resolve()
+            if not target.is_relative_to(profile):
+                raise ValueError('Unexpected runtime file path')
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with archive.open(item) as source, target.open('xb') as output:
+                shutil.copyfileobj(source, output)
+    helper = load('save_zip_pdf', Path(__file__).resolve().parents[3] / 'tools/bookconvert/tests/test_legacy_fixed.py')
+    source = profile / 'module-source.zip'
+    with zipfile.ZipFile(source, 'x', zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr('Папка внутри архива/страницы.pdf', helper.pdf_fixture())
+    (profile / 'module-source.sha256').write_text(hashlib.sha256(source.read_bytes()).hexdigest(), encoding='ascii')
+    print('PASS incomplete beta 16 processing API 8 with PDFium and an archived PDF staged')
+
+
 if __name__ == '__main__':
-    if len(sys.argv) == 4 and sys.argv[3] in ('kindle', 'packing', 'sql'):
+    if len(sys.argv) == 4 and sys.argv[3] == 'pdf-zip':
+        prepare_pdf_zip(*(Path(p).resolve() for p in sys.argv[1:3]))
+    elif len(sys.argv) == 4 and sys.argv[3] in ('kindle', 'packing', 'sql'):
         prepare_operation_components(*(Path(p).resolve() for p in sys.argv[1:3]), sys.argv[3])
     else:
         prepare(*(Path(p).resolve() for p in sys.argv[1:]))

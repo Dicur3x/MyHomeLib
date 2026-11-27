@@ -1,0 +1,215 @@
+diff --git a/crates/docboss-doc/src/picture.rs b/crates/docboss-doc/src/picture.rs
+index 57dc2c9..ac73bab 100644
+--- a/crates/docboss-doc/src/picture.rs
++++ b/crates/docboss-doc/src/picture.rs
+@@ -211,6 +211,75 @@ pub fn inline_picture(data: &[u8], at: usize) -> Option<Picture> {
+     })
+ }
+ 
++/// Word stores empty raster fallbacks for a SHAPE field as a self-contained
++/// inline picture frame. A frame with a link, BLIP, border or other drawing
++/// data is not this placeholder, even if its image decoder returned None.
++pub fn empty_shape_preview(data: &[u8], at: usize) -> bool {
++    fn frame(data: &[u8], at: usize) -> Option<bool> {
++        let end = at.checked_add(u32_at(data, at)? as usize)?;
++        let data = data.get(at..end)?;
++        if u16_at(data, 4)? != 68 || u16_at(data, 6)? != 0x0064
++            || data.get(46..62)?.iter().any(|&byte| byte != 0)
++        {
++            return None;
++        }
++        let payload = data.get(68..)?;
++        // Read lengths from the headers rather than accepting clamped records.
++        let mut remaining = payload;
++        let body = take_shape_record(&mut remaining, 0x000F, 0xF004)?;
++        if !remaining.is_empty() {
++            return None;
++        }
++        let mut contents = body;
++        let shape = take_shape_record(&mut contents, (75 << 4) | 2, 0xF00A)?;
++        if shape.len() != 8 || u32_at(shape, 4)? != 0x0000_0A00 {
++            return None;
++        }
++        let options_header = u16_at(contents, 0)?;
++        let options = take_shape_record(&mut contents, options_header, 0xF00B)?;
++        let expected_size = match options_header {
++            0x0033 => 18,
++            0x0053 => 30,
++            _ => return None,
++        };
++        if options.len() != expected_size
++            || u16_at(options, 0)? != 0x007F
++            || !matches!(u32_at(options, 2)?, 0x0140_0000 | 0x0140_0140)
++            || u16_at(options, 6)? != 0x0100 || u32_at(options, 8)? != 0xFFFF_0010
++            || u16_at(options, 12)? != 0x0101 || u32_at(options, 14)? != 0x0000_FFF0
++        {
++            return None;
++        }
++        if expected_size == 30 && (u16_at(options, 18)? != 0x0181
++            || u16_at(options, 24)? != 0x01BF || u32_at(options, 26)? != 0x0010_0000)
++        {
++            return None;
++        }
++        if u16_at(contents, 2)? == 0xF122 {
++            let options = take_shape_record(&mut contents, 0x0013, 0xF122)?;
++            if options.len() != 6 || u16_at(options, 0)? != 0x053F
++                || u32_at(options, 2)? != 0x0001_0001
++            {
++                return None;
++            }
++        }
++        let anchor = take_shape_record(&mut contents, 0, 0xF010)?;
++        Some(anchor.len() == 4 && u32_at(anchor, 0)? & 0x8000_0000 != 0 && contents.is_empty())
++    }
++
++    fn take_shape_record<'a>(data: &mut &'a [u8], header: u16, kind: u16) -> Option<&'a [u8]> {
++        if u16_at(data, 0)? != header || u16_at(data, 2)? != kind {
++            return None;
++        }
++        let end = HEADER.checked_add(u32_at(data, 4)? as usize)?;
++        let body = data.get(HEADER..end)?;
++        *data = data.get(end..)?;
++        Some(body)
++    }
++
++    frame(data, at) == Some(true)
++}
++
+ /// A picture stored bare after its header: a metafile starting with its
+ /// METAHEADER ([MS-WMF] §2.3.2.2, type 1 or 2 and a 9-word header) or a
+ /// DIB starting with a 40-byte BITMAPINFOHEADER.
+@@ -757,6 +826,42 @@ mod tests {
+         out
+     }
+ 
++    #[test]
++    fn shape_preview_must_be_an_empty_complete_frame() {
++        let preview = |link: bool, border: bool, blip: bool| {
++            let mut properties = vec![
++                (0x007F, 0x0140_0000), (0x0100, 0xFFFF_0010), (0x0101, 0x0000_FFF0),
++            ];
++            if link {
++                properties.push((0x4104, 7));
++            }
++            let mut shape = shape(75, 0xA00, &properties);
++            shape.extend(header(0, 0, 0xF010, 4));
++            shape.extend(0x8000_04D6u32.to_le_bytes());
++            let shape_len = (shape.len() - HEADER) as u32;
++            shape[4..8].copy_from_slice(&shape_len.to_le_bytes());
++            if blip {
++                // A BLIP with no data is a damaged image, not this placeholder.
++                shape.extend(header(0, 0, 0xF01E, 0));
++            }
++            let mut data = vec![0u8; 68];
++            data[0..4].copy_from_slice(&((68 + shape.len()) as u32).to_le_bytes());
++            data[4..6].copy_from_slice(&68u16.to_le_bytes());
++            data[6..8].copy_from_slice(&0x0064u16.to_le_bytes());
++            if border {
++                data[46] = 1;
++            }
++            data.extend(shape);
++            data
++        };
++        let empty = preview(false, false, false);
++        assert!(empty_shape_preview(&empty, 0));
++        assert!(!empty_shape_preview(&empty[..empty.len() - 1], 0));
++        assert!(!empty_shape_preview(&preview(true, false, false), 0));
++        assert!(!empty_shape_preview(&preview(false, true, false), 0));
++        assert!(!empty_shape_preview(&preview(false, false, true), 0));
++    }
++
+     /// [MS-ODRAW] §2.3.4.44: fHidden counts only where fUsefHidden is set.
+     #[test]
+     fn hidden_shapes_need_their_use_bit() {
+diff --git a/crates/docboss-doc/src/story.rs b/crates/docboss-doc/src/story.rs
+index 2aa414c..b8112a7 100644
+--- a/crates/docboss-doc/src/story.rs
++++ b/crates/docboss-doc/src/story.rs
+@@ -15,7 +15,7 @@ use docboss_model::{
+ };
+ 
+ use crate::fkp::{find, FormatRun};
+-use crate::picture::{inline_picture, Bounds, GroupChild, Image, ShapeGroup};
++use crate::picture::{empty_shape_preview, inline_picture, Bounds, GroupChild, Image, ShapeGroup};
+ use crate::props::{apply_chp, apply_pap, dttm, numbering_ref, CharContext, CharExtra, ParaExtra};
+ use crate::sprm::prls;
+ use crate::styles::Stylesheet;
+@@ -746,7 +746,7 @@ impl<'a> Context<'a> {
+         id
+     }
+ 
+-    fn picture(&self, location: u32) -> Option<RunContent> {
++    fn picture(&self, location: u32, shape_result: bool) -> Option<RunContent> {
+         let Some(picture) = inline_picture(self.data, location as usize) else {
+             self.report(Diagnostic::dropped(
+                 "Data",
+@@ -754,6 +754,11 @@ impl<'a> Context<'a> {
+             ));
+             return None;
+         };
++        let width = i64::from(picture.width) * 635;
++        let height = i64::from(picture.height) * 635;
++        if picture.image.is_none() && shape_result && empty_shape_preview(self.data, location as usize) {
++            return None;
++        }
+         let media = picture.image.map(|image| self.add_media(image));
+         if media.is_none() {
+             self.report(Diagnostic::dropped(
+@@ -763,8 +768,8 @@ impl<'a> Context<'a> {
+         }
+         Some(RunContent::Drawing(Box::new(Drawing {
+             media,
+-            width: i64::from(picture.width) * 635,
+-            height: i64::from(picture.height) * 635,
++            width,
++            height,
+             placement: DrawingPlacement::Inline,
+             wrap: Default::default(),
+             name: None,
+@@ -1036,7 +1041,19 @@ impl<'a> Context<'a> {
+                     }
+                     0x01 if extra.special && !extra.ole2 && !extra.data => extra
+                         .pic_location
+-                        .and_then(|location| self.picture(location))
++                        .and_then(|location| {
++                            let shape_field = out.fields.last().is_some_and(|field| {
++                                field.in_result && field.instruction.split_whitespace().next()
++                                    .is_some_and(|name| name.eq_ignore_ascii_case("SHAPE"))
++                            });
++                            // A complete SHAPE result may contain a floating drawing
++                            // followed by a raster fallback, or just the fallback.
++                            let before = at as usize;
++                            let preview_at_end = self.text.get(before + 1) == Some(&0x15)
++                                && (self.text.get(before.saturating_sub(1)) == Some(&0x14)
++                                    || self.text.get(before.saturating_sub(2)..before) == Some(&[0x14, 0x08]));
++                            self.picture(location, shape_field && preview_at_end)
++                        })
+                         .map(|picture| match (picture, out.equation.take()) {
+                             (RunContent::Drawing(mut drawing), Some(math)) => {
+                                 drawing.math = Some(Box::new(math));
+diff --git a/crates/docboss-model/src/inline.rs b/crates/docboss-model/src/inline.rs
+index 3f36108..e791d95 100644
+--- a/crates/docboss-model/src/inline.rs
++++ b/crates/docboss-model/src/inline.rs
+@@ -366,7 +366,7 @@ impl Geometry {
+     /// §2.3.6.17 adjust8Value, and VML `adj`), unstated ones `None`. They
+     /// are carried over for the presets whose guides take them as the same
+     /// fraction of the shape: the triangle's apex, the rounded
+-    /// rectangle's corner, the bent connectors' elbows and the wedge
++    /// rectangle's corner, the bent and curved connectors and the wedge
+     /// callouts' tip. Other types keep their default proportions.
+     pub fn from_shape_type_adjusted(shape_type: u32, values: &[Option<i64>]) -> Option<Geometry> {
+         let mut geometry = Geometry::from_shape_type(shape_type)?;
+@@ -378,9 +378,9 @@ impl Geometry {
+             |v| v.saturating_sub(10_800).saturating_mul(100_000) / 21_600;
+         let rules: &[AdjustRule] = match shape_type {
+             2 | 5 => &[("adj", scaled)],
+-            34 => &[("adj1", scaled)],
+-            35 => &[("adj1", scaled), ("adj2", scaled)],
+-            36 => &[("adj1", scaled), ("adj2", scaled), ("adj3", scaled)],
++            34 | 38 => &[("adj1", scaled)],
++            35 | 39 => &[("adj1", scaled), ("adj2", scaled)],
++            36 | 40 => &[("adj1", scaled), ("adj2", scaled), ("adj3", scaled)],
+             61..=63 => &[("adj1", centered), ("adj2", centered)],
+             _ => &[],
+         };

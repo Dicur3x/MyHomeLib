@@ -243,14 +243,14 @@ def write_document(reader, source, output, transcript=False, resources=None):
         book.body.append(book.el('p', NOTICE))
 
     def render(parts, region=False):
-        parser = _StoryHTML(book)
+        block = None
         if region and parts:
             # AXMA title/menu are separate display areas. Keep a block
             # boundary even when the author's body is bare print() text;
             # otherwise the next menu image joins that text's paragraph.
             block = book.el('div')
             book.body.append(block)
-            parser.stack = [('root', block)]
+        parser = _StoryHTML(book, block)
         for part in parts:
             if part['kind'] == 'text': parser.feed(part['text'])
             elif part['kind'] == 'newline': parser.feed('<br/>')
@@ -263,8 +263,7 @@ def write_document(reader, source, output, transcript=False, resources=None):
                 # Isolate fragment parser state: an unclosed tag in a label
                 # cannot hide or reformat the following story text.
                 if not parser.hidden:
-                    label = _StoryHTML(book)
-                    label.stack = [('root', parser.stack[-1][1])]
+                    label = _StoryHTML(book, parser.stack[-1][1])
                     label.feed(part['label']); label.close()
                     if not plain_label(part['label'], image_alt=False):
                         parser.feed(escape(' [' + choice_label(part) + ']'))

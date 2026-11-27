@@ -249,6 +249,39 @@ var Host:TForm; Panel:TInfoPanel; Preview:TBookInfoPreview; Book:TBookRecord;
     Require(OriginalHash=THashSHA2.GetHashStringFromFile(Folder+Source),'FBD wrapper modified');
     Writeln('PASS FBD package ',Source); Flush(Output);
   end;
+  procedure CheckMissingJpegXL;
+  var Decoder, Held, OldPath, Requested: string; Selected: TBookRecord; Action: TButton; Requests: Integer;
+  begin
+    Decoder:=FindExternalTool('djxl.exe','jpeg-xl');
+    Require((Decoder<>'') and StartsText(Settings.AppPath,TPath.GetFullPath(Decoder)),
+      'The cover fixture may only hold its private JPEG XL decoder');
+    Held:=Decoder+'.held'; OldPath:=GetEnvironmentVariable('PATH'); Selected:=Book;
+    Requests:=0;
+    Preview.OnRequestComponent:=
+      procedure(ID: string) begin Inc(Requests); Requested:=ID; end;
+    TFile.Move(Decoder,Held);
+    try
+      SetEnvironmentVariable('PATH',PChar(''));
+      Require(FindExternalTool('djxl.exe','jpeg-xl')='','A global JPEG XL decoder invalidates the fixture');
+      Panel.Clear; Preview.Load(Selected,True,False,False); WaitPreview;
+      Action:=Panel.FindComponent('BookPreviewAction') as TButton;
+      Require(not Assigned(Image.Picture.Graphic) and Panel.PreviewStatusText.Contains('JPEG XL') and
+        Assigned(Action) and Action.Visible,'Missing JPEG XL leaves no usable action in the card');
+      Require(Requests=0,'Selecting a book opened a component prompt without a click');
+      Action.Click;
+      Require((Requests=1) and (Requested='JPEG XL'),'The card requested the wrong component');
+      ReadCover('original.fb2','',24);
+      Require(not Action.Visible,'A previous book left its installation action in the next card');
+      Book:=Selected;
+    finally
+      TFile.Move(Held,Decoder);
+      SetEnvironmentVariable('PATH',PChar(OldPath));
+      Preview.OnRequestComponent:=nil;
+    end;
+    Panel.Clear; Preview.Load(Selected,True,False,False); WaitPreview;
+    Require(Assigned(Image.Picture.Graphic) and not Action.Visible,'Installed JPEG XL did not restore the cover');
+    Writeln('PASS JPEG XL installation action is tied to the selected cover and opens only on click');
+  end;
 begin
   Folder:=Settings.AppPath+'cover-fixtures'+PathDelim;
   Host:=TForm.CreateNew(nil); Panel:=TInfoPanel.Create(Host); Panel.Parent:=Host;
@@ -320,6 +353,7 @@ begin
             Require(Length(TDirectory.GetFiles(Settings.TempDir))=Length(BeforeTemps),
               'Canceled JPEG XL cover left temporary files');
             Writeln('PASS JPEG XL cover cancels its active decoder and cleans working files');
+            CheckMissingJpegXL;
           end;
         finally Graphic.Free; end;
       end;
@@ -413,6 +447,9 @@ begin
       end
       else Require(not Assigned(Image.Picture.Graphic) and (Panel.PreviewStatusText<>''),
         'Non-comic archive or damaged image got a stale preview: '+Name);
+      var StatusPart:=C.GetValue<string>('status','');
+      if StatusPart<>'' then Require(Panel.PreviewStatusText.Contains(StatusPart),
+        'Unexpected preview explanation: '+Name+' '+Panel.PreviewStatusText);
       if Name='sidecar-damaged.png' then Require(Panel.PreviewStatusText.Contains('описание файла'),'Broken sidecar explanation lost');
       Require(Hash=THashSHA2.GetHashStringFromFile(Folder+Name),'Raster preview changed source');
       Writeln('PASS raster catalogue ',Name); Flush(Output);

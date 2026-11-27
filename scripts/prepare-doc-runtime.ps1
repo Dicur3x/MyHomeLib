@@ -17,6 +17,8 @@ function Assert-Hash([string]$Path,[string]$Expected) {
     }
 }
 Assert-Hash (Join-Path $repository 'Utils\HomeLibDoc\HomeLibDoc.cs') $pin.source_sha256
+Assert-Hash (Join-Path $repository 'Utils\HomeLibDoc\DocVmlFigures.cs') $pin.vml_source_sha256
+Assert-Hash (Join-Path $repository 'Utils\HomeLibDoc\DrawingMlFigures.cs') $pin.drawingml_source_sha256
 if ($Copy) {
     $cachePath = [System.IO.Path]::GetFullPath($CacheRoot)
     if ($cachePath.StartsWith('E:',[System.StringComparison]::OrdinalIgnoreCase)) {throw 'Drive E is prohibited.'}

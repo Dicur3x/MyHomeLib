@@ -4,7 +4,8 @@
 
 uses
   Winapi.Windows, System.SysUtils, System.Math,
-  unit_DjvuProtocol in '..\..\Program\Units\unit_DjvuProtocol.pas';
+  unit_DjvuProtocol in '..\..\Program\Units\unit_DjvuProtocol.pas',
+  unit_DjvuRecovery in 'unit_DjvuRecovery.pas';
 
 type
   TDjvuRect = record X,Y: Integer; W,H: Cardinal; end;
@@ -20,6 +21,13 @@ type
   TDjvuRender = function(Page: Pointer; Mode: Integer; const PageRect, RenderRect: TDjvuRect;
     Format: Pointer; RowBytes: Cardinal; Pixels: Pointer): Integer; cdecl;
   TPageSlot = record Page: Pointer; Index: Integer; Used: UInt64; end;
+  TDjvuFileInfo = record
+    Kind: AnsiChar;
+    Page, Size: Integer;
+    Identifier, Name, Title: PAnsiChar;
+  end;
+  TDjvuGetFileInfo = function(Document: Pointer; Index: Integer; var Info: TDjvuFileInfo;
+    InfoSize: Cardinal): Integer; cdecl;
 
 var
   DLL: HMODULE;
@@ -170,6 +178,38 @@ begin
   SetRows(Format,1); SetY(Format,1);
 end;
 
+function RecoverSource(const Source, Directory: string): Boolean;
+begin
+  Result:=RecoverBundledDjvu(Source,Directory,
+    function: TArray<TDjvuComponent>
+    var Path: UTF8String; Count: Integer; Info: TDjvuFileInfo;
+      FileCount: TDjvuInteger; FileInfo: TDjvuGetFileInfo;
+    begin
+      Result:=nil;
+      LoadAPI;
+      FileCount:=TDjvuInteger(GetProcAddress(DLL,'ddjvu_document_get_filenum'));
+      FileInfo:=TDjvuGetFileInfo(GetProcAddress(DLL,'ddjvu_document_get_fileinfo_imp'));
+      if not Assigned(FileCount) or not Assigned(FileInfo) then Exit;
+      Path:=UTF8String(Source);
+      Document:=DocumentCreate(Context,PAnsiChar(Path),0);
+      if Document=nil then Exit;
+      WaitJob(DocumentJob(Document));
+      Count:=FileCount(Document);
+      if (Count<=0) or (Count>65535) then Exit;
+      SetLength(Result,Count);
+      for var I:=0 to Count-1 do
+      begin
+        Info:=Default(TDjvuFileInfo);
+        if (FileInfo(Document,I,Info,SizeOf(Info))<>2) or (Info.Identifier=nil) or (Info.Name=nil) then
+        begin Result:=nil; Exit; end;
+        Result[I].Kind:=Info.Kind;
+        Result[I].Size:=Info.Size;
+        Result[I].Identifier:=UTF8String(Info.Identifier);
+        Result[I].FileName:=UTF8String(Info.Name);
+      end;
+    end);
+end;
+
 procedure Serve;
 var Request: TDjvuRequest; FileName: UTF8String;
 begin
@@ -210,10 +250,16 @@ begin
   ProbeFailed:=False;
   try
     try
-      if ParamStr(1)='--self-test' then LoadAPI else Serve;
+      if ParamStr(1)='--recover-bundled' then
+      begin
+        if ParamCount<>3 then Halt(2);
+        ProbeFailed:=True;
+        ProbeFailed:=not RecoverSource(ParamStr(2),ParamStr(3));
+      end
+      else if ParamStr(1)='--self-test' then LoadAPI else Serve;
     except on E: EAbort do ; on E: Exception do
       begin
-        ProbeFailed:=ParamStr(1)='--self-test';
+        ProbeFailed:=(ParamStr(1)='--self-test') or (ParamStr(1)='--recover-bundled');
         if OutputPipe<>0 then try Reply(1,0,0,E.Message); except end;
       end;
     end;

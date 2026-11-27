@@ -7,7 +7,7 @@
 uses NativeRegressionGuard, Winapi.PsAPI, System.SysUtils, System.Classes, System.IOUtils,
   System.JSON, System.RegularExpressions, System.Win.ComObj, System.Variants, System.Diagnostics, System.Character, System.Math, System.StrUtils, System.Hash, System.IniFiles, System.SyncObjs, System.NetEncoding, System.Zip, System.Generics.Collections, Winapi.Windows, Winapi.Messages, Winapi.ActiveX, Winapi.RichEdit,
   Vcl.Themes, Vcl.ExtCtrls, Vcl.Menus, Vcl.ComCtrls, Vcl.Clipbrd, Vcl.Forms, Vcl.Controls, Vcl.StdCtrls, Vcl.Graphics, System.Types, unit_ReaderDocument, unit_ReaderPDF, unit_ReaderCSS, unit_ReaderAnnotations, frm_BuiltinReader,
-  unit_ReaderFonts, unit_ReaderFontDownloads, unit_ReaderFormats, unit_ReaderRaster, unit_ReaderDOC, unit_ReaderPageSelection, unit_ReaderRichEdit, unit_ReaderLookup, unit_ReaderBookSkin, unit_ReaderPalette, unit_ReaderOffice, unit_Globals, unit_ReaderCache, unit_BookCache, dm_user, unit_MHLTheme, unit_MHLExternalTools;
+  unit_ReaderFonts, unit_ReaderFontDownloads, unit_ReaderFormats, unit_ReaderRaster, unit_ReaderDOC, unit_ReaderRTF, unit_ReaderPageSelection, unit_ReaderRichEdit, unit_ReaderLookup, unit_ReaderBookSkin, unit_ReaderPalette, unit_ReaderOffice, unit_Globals, unit_ReaderCache, unit_BookCache, dm_user, unit_MHLTheme, unit_MHLExternalTools, unit_ReaderPDFAsync;
 
 type
   TReaderRegressionExceptionHandler = class
@@ -24,6 +24,11 @@ end;
 procedure Require(Value: Boolean; const MessageText: string);
 begin if not Value then raise Exception.Create(MessageText); end;
 
+procedure QueueReaderDialog(const Callback: TThreadProcedure);
+begin
+  TThread.ForceQueue(nil,Callback,0);
+end;
+
 function ReadClipboardText: string;
 var Attempt: Integer;
 begin
@@ -36,15 +41,15 @@ end;
 
 procedure AuditReaderColorBox;
 const Values: array[0..5] of TColor = (clDefault,clBlack,clRed,clGreen,clBlue,$123456);
-var Dialog: TForm; Box: TColorBox; Value: TColor; I, DefaultIndex: Integer;
+var Dialog: TForm; Box: TReaderPaletteColorBox; Value: TColor; I, DefaultIndex: Integer;
 begin
   Dialog:=TForm.Create(nil);
   try
-    Box:=TColorBox.Create(Dialog); Box.Parent:=Dialog;
+    Box:=TReaderPaletteColorBox.Create(Dialog); Box.Parent:=Dialog;
     Dialog.Show; Application.ProcessMessages;
     for Value in Values do
     begin
-      ConfigureReaderColorBox(Box,Value);
+      Box.Configure(Value);
       Require(Box.Items.Count=18,'Reader palette contains unrelated system colors');
       Require(Box.Selected=Value,'Localized reader color selector changed its value');
       DefaultIndex:=-1;
@@ -78,6 +83,53 @@ begin
   Require(Pos('Не удалось',Form.ReaderStatus.Caption)=0,'Page decoder failed: '+Form.ReaderStatus.Caption);
 end;
 
+procedure AuditWordParagraphShades;
+const White = $00FFFFFF;
+  Blue = $00E2C5AB;
+  Green = $00ADD9AC;
+  Fixture = 'word-paragraph-shades.fb2';
+var Reader: TfrmBuiltinReader; Bitmap: TBitmap;
+  function CountColor(Color: TColor): Integer;
+  begin
+    Result:=0;
+    for var Y:=1 to (Bitmap.Height-1) div 3 do
+      for var X:=1 to (Bitmap.Width-1) div 3 do
+        if Bitmap.Canvas.Pixels[X*3,Y*3]=Color then Inc(Result);
+  end;
+  procedure Capture;
+  begin
+    WaitPage(Reader);
+    Bitmap.SetSize(Reader.ReadingSurface.Width,Reader.ReadingSurface.Height);
+    Reader.ReadingSurface.PaintTo(Bitmap.Canvas.Handle,0,0);
+  end;
+begin
+  TFile.WriteAllText(Fixture,
+    '<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0">'+
+    '<description><title-info><book-title>Shade test</book-title><lang>en</lang></title-info></description>'+
+    '<body><section><p>Before the shaded paragraphs.</p>'+
+    '<p style="homelibre-word-space-paragraph-center-abc5e2">Blue text<style name="homelibre-word-space-484-484"/></p>'+
+    '<p>Between the shaded paragraphs.</p>'+
+    '<p style="homelibre-word-space-paragraph-left-acd9ad"><style name="homelibre-word-space-484-484"/>Green text</p>'+
+    '<p>After the shaded paragraphs.</p></section></body></FictionBook>',TEncoding.UTF8);
+  Reader:=TfrmBuiltinReader.Create(nil); Bitmap:=TBitmap.Create;
+  try
+    Reader.HandleNeeded; Reader.SetPageLayout(rplSingle);
+    Reader.OpenBook(Fixture,'Shade test','word-shades','word-shades.ini','pdfium.dll'); WaitReady(Reader);
+    Reader.SetTheme(0); Reader.SetThemeColors(White,clBlack); Reader.SetBookFormatting(True);
+    Capture;
+    Require((CountColor(Blue)>200) and (CountColor(Green)>200),'The two authored paragraph colors were not drawn');
+    Require(CountColor(White)>200,'Paragraph shading spread beyond the authored lines');
+    Reader.SetBookFormatting(False); Capture;
+    Require((CountColor(Blue)=0) and (CountColor(Green)=0),'Plain reading retained authored shading');
+    Reader.SetBookFormatting(True);
+    Reader.SetThemeColors(RGB(24,26,28),RGB(235,235,235)); Capture;
+    Require((CountColor(Blue)=0) and (CountColor(Green)=0) and
+      (CountColor(ReadableReaderColor(Blue,RGB(235,235,235)))>200),'Dark background did not adapt authored shading');
+    Require(Reader.BookText.Contains('Blue text') and Reader.BookText.Contains('Green text'),'Shading changed the book text');
+  finally Bitmap.Free; Reader.Free; end;
+  Writeln('PASS Word paragraph shades retain authored colors and respect reading theme');
+end;
+
 procedure DrainReaderCleanup;
 var Before: Cardinal;
 begin
@@ -90,7 +142,7 @@ begin
 end;
 
 procedure AuditRasterReader;
-var Reader: TfrmBuiltinReader; Name: string; Size,Pan: TPoint; Key: Word; Progress: Integer; Watch: TStopwatch;
+var Reader: TfrmBuiltinReader; Name: string; Size,Pan: TPoint; Key: Word; Progress: Integer;
   procedure Inspect;
   begin
     Size:=Reader.PageRasterSize; Pan:=Reader.PDFPan;
@@ -99,7 +151,10 @@ var Reader: TfrmBuiltinReader; Name: string; Size,Pan: TPoint; Key: Word; Progre
     Reader.MoveInspection(20,20); Require(Reader.PDFPan<>Pan,'Inspection did not follow mouse');
     Key:=VK_ESCAPE; Reader.OnKeyDown(Reader,Key,[]);
     Require((Key=0) and not Reader.Inspecting,'Esc did not leave inspection');
-    Require((Reader.PDFZoom=100) and (Reader.PageRasterSize=Size) and (Reader.PDFPan=Pan),'Inspection did not restore exact view');
+    Require((Reader.PDFZoom=100) and (Reader.PageRasterSize=Size) and (Reader.PDFPan=Pan),
+      Format('Inspection changed %s view: zoom=%d, raster %dx%d -> %dx%d, pan (%d,%d) -> (%d,%d)',
+        [Name,Reader.PDFZoom,Size.X,Size.Y,Reader.PageRasterSize.X,Reader.PageRasterSize.Y,
+        Pan.X,Pan.Y,Reader.PDFPan.X,Reader.PDFPan.Y]));
   end;
 begin
   Application.CreateForm(TDMUser,DMUser); DMUser.Init;
@@ -140,11 +195,11 @@ begin
     Require(Reader.TextPosition=0,'Cancelled page decode replaced the visible page');
     Reader.NextPage; Reader.PreviousPage; WaitPage(Reader);
     Require(Pos('Не удалось',Reader.ReaderStatus.Caption)=0,'Cancelled foreground decode replaces good-page status with an error');
-    Reader.NextPage; Watch:=TStopwatch.StartNew;
-    while Reader.PageLoading and (Watch.ElapsedMilliseconds<35000) do
-    begin Application.ProcessMessages; CheckSynchronize(5); end;
-    Require(not Reader.PageLoading and (Pos('Не удалось',Reader.ReaderStatus.Caption)>0),'Damaged comic page has no clear error');
-    Require(Reader.TextPosition=0,'Damaged comic page replaced the last valid page');
+    Reader.NextPage; WaitPage(Reader);
+    Require((Reader.TextPosition=1) and
+      (Reader.ReaderStatus.Caption='Страница 2 не читается. Можно перелистнуть дальше.'),
+      'The current comic page does not identify the unreadable page');
+    Require(SameValue(Reader.ReadingProgress,1/3),'Unreadable page changed reading progress');
     Reader.NextPage; WaitPage(Reader);
     Require((Reader.TextPosition=2) and (ColorToRGB(Reader.PageBackground)=ColorToRGB(clBlue)),'Cannot navigate past a damaged page');
     Reader.PreviousPage; Reader.PreviousPage; WaitPage(Reader);
@@ -152,6 +207,24 @@ begin
     Reader.NextPage; Reader.Close;
   finally Reader.Free; end;
   Writeln('PASS damaged comic page reports failure, permits navigation and closes during decode');
+  Reader:=TfrmBuiltinReader.Create(nil);
+  try
+    Reader.Show; Reader.OpenBook('broken-first.cbz','Damaged first comic page','broken-first.cbz','raster-test.ini','pdfium.dll');
+    WaitReady(Reader); WaitPage(Reader);
+    Require((Reader.TextLength=3) and (Reader.TextPosition=0) and
+      (Reader.ReaderStatus.Caption='Страница 1 не читается. Можно перелистнуть дальше.'),
+      'A damaged first page prevented opening the rest of the comic');
+    Reader.NextPage; WaitPage(Reader);
+    Require((Reader.TextPosition=1) and
+      (Reader.ReaderStatus.Caption='Страница 2 не читается. Можно перелистнуть дальше.'),
+      'An empty page was removed from the page sequence');
+    Require(Reader.ReadingProgress=0,'Unreadable opening pages changed reading progress');
+    Reader.NextPage; WaitPage(Reader);
+    Require((Reader.TextPosition=2) and (ColorToRGB(Reader.PageBackground)=ColorToRGB(clBlue)),
+      'The intact third page did not render with its original number');
+    Reader.Close;
+  finally Reader.Free; end;
+  Writeln('PASS broken first page and empty second page preserve numbering and allow reading the third page');
   Progress:=-1; Reader:=TfrmBuiltinReader.Create(nil);
   try
     Reader.Show; Reader.OpenBook('pages.cbz','Saved comic page','pages.cbz','raster-test.ini','pdfium.dll',
@@ -400,10 +473,63 @@ begin
   Writeln('PASS document-spacing');
 end;
 
+procedure AuditPDFCopyHyphens;
+var PDF: TReaderPDF; Match: TPDFMatch; Matches: TArray<TPDFMatch>;
+begin
+  PDF:=TReaderPDF.Create('pdfium.dll','hyphen-copy.pdf');
+  try
+    Require(PDF.TextRange(0,0,MaxInt)='Please keep this inter-national example and ordinary pre-existing hyphen.',
+      'Copying the whole page changed PDF text at a line-end hyphen');
+    Require(PDF.TextRange(0,21,3)='r-n','Copying across a line-end hyphen changed the selected characters');
+    Require(PDF.TextRange(0,22,1)='-','A selected line-end hyphen was copied as a noncharacter');
+    Require(PDF.TextRange(0,23,8)='national','Copying after a line-end hyphen shifted the selection');
+  finally PDF.Free; end;
+  PDF:=TReaderPDF.Create('pdfium.dll','unmapped-copy.pdf');
+  try
+    Require(PDF.TextRange(0,0,MaxInt)='First '+#$FFFD+#$D83C+#$DF0D+'C A final'+#13+#10+'Valid inter-national',
+      'A stray glyph index, supplementary character or hyphen corrupted the copied PDF page');
+    Require(PDF.TextRange(0,6,1)=#$FFFD,'A selected unmapped glyph was copied as a letter');
+    Require(PDF.TextRange(0,7,3)=#$D83C+#$DF0D+'C','Copying after an unmapped glyph shifted the selection');
+    Require(PDF.FindOnPage(0,'A',0,Match,True) and (Match.Index=11),
+      'Forward PDF search highlighted an unmapped glyph');
+    Require(PDF.FindOnPage(0,'A',-1,Match,True,False,True) and (Match.Index=11),
+      'Backward PDF search missed the mapped letter');
+    Require(not PDF.FindOnPage(0,'A',10,Match,True,False,True),
+      'Backward PDF search reported a false match');
+    Matches:=PDF.FindAllOnPage(0,'A',True,False);
+    Require((Length(Matches)=1) and (Matches[0].Index=11),'PDF search highlighted an unmapped glyph');
+  finally PDF.Free; end;
+  Writeln('PASS PDF selection copies confirmed line-end hyphens');
+end;
+
+procedure AuditPDFEncodingRepair;
+const SourceName = 'mixed-encoding.pdf';
+var PDF: TReaderPDF; SourceHash, Text: string; Match: TPDFMatch;
+begin
+  SourceHash:=THashSHA2.GetHashStringFromFile(SourceName);
+  PDF:=TReaderPDF.Create('pdfium.dll',SourceName);
+  try
+    Text:=PDF.TextRange(0,0,MaxInt);
+    Require(not Text.Contains('Это была книга для всех') and not Text.Contains('An inter-national plan.'),
+      'Mixed PDF fixture no longer requires both encoding repairs');
+  finally PDF.Free; end;
+  PDF:=TReaderPDFAsync.Create('pdfium.dll',SourceName);
+  try
+    Text:=PDF.TextRange(0,0,MaxInt);
+    Require(Text.Contains('Это была книга для всех') and Text.Contains('An inter-national plan.'),
+      'Asynchronous PDF opening did not apply both encoding repairs: '+Text);
+    Require(PDF.FindOnPage(0,'книга',0,Match,False,True) and
+      PDF.FindOnPage(0,'inter-national',0,Match,False,True),'Repaired PDF text was not searchable');
+  finally PDF.Free; end;
+  Require(THashSHA2.GetHashStringFromFile(SourceName)=SourceHash,'PDF repair modified the source');
+  Writeln('PASS native PDF applies both encoding repairs and preserves the source');
+end;
+
 procedure AuditPDFSearch;
 var Reader: TfrmBuiltinReader; Ini: TMemIniFile; Before, After: TBitmap;
   Progress: Integer; Watch: TStopwatch;
 begin
+  Application.CreateForm(TDMUser,DMUser); DMUser.Init;
   Ini:=TMemIniFile.Create('reader-pdf-search.ini',TEncoding.UTF8);
   try
     Ini.WriteInteger('Book.'+Copy(THashSHA2.GetHashString('pdf-search-current'),1,40),'Position',1);
@@ -427,7 +553,8 @@ begin
     Require(THashSHA2.GetHashStringFromFile('pdf-search-before.bmp')<>
       THashSHA2.GetHashStringFromFile('pdf-search-after.bmp'),'PDF current-page search did not redraw its highlight');
     Reader.Close; Require(Progress=-1,'PDF current-page search changed progress without page movement');
-  finally After.Free; Before.Free; Reader.Free; end;
+    if FileExists('mixed-encoding.pdf') then AuditPDFEncodingRepair;
+  finally After.Free; Before.Free; Reader.Free; FreeAndNil(DMUser); end;
   Writeln('PASS pdf-current-page-search');
 end;
 
@@ -473,6 +600,10 @@ begin
       Require(Doc.PlainText.Contains('Текст до картинок') and Doc.PlainText.Contains('Текст после картинок'),
         'Empty MHTML image references stopped reading');
       Require((Doc.ImageCount=2) and (Doc.SkippedImages=0),'MHTML attachment locations or image quotes were lost');
+      var MHTMLTarget: Integer;
+      var MHTMLText:=Doc.PlainText;
+      Require((Length(Doc.Links)=1) and Doc.LinkTargetAt(MHTMLText.IndexOf('Ссылка внутри архива'),MHTMLTarget) and
+        (MHTMLTarget=MHTMLText.IndexOf('Пункт из архива')),'MHTML link to an unquoted named anchor was lost');
       Doc.Load('write.wri'); Require(Pos('Текст Windows Write',Doc.PlainText)>0,'Write decoding lost text');
       Require(Doc.Warnings.Count>0,'Write limitations hidden');
       Doc.Load('sample.fb3'); Require(Pos('Текст FB3',Doc.PlainText)>0,'FB3 body missing');
@@ -573,7 +704,10 @@ begin
 end;
 
 procedure AuditFullNoteCopy;
-var Document: TReaderDocument; Reader: TfrmBuiltinReader; Key: Word;
+const InlineEPUB = 'copy-note-placement.epub';
+var Document: TReaderDocument; Reader: TfrmBuiltinReader; Package: TZipFile; Copied: string;
+  procedure AddPart(const Path, Text: string);
+  begin Package.Add(TEncoding.UTF8.GetBytes(Text),Path); end;
 begin
   TFile.WriteAllText('long-note.fb2','<FictionBook xmlns:l="http://www.w3.org/1999/xlink">'+
     '<body><section><p>Reference <a type="note" l:href="#n">[1]</a>.</p></section></body>'+
@@ -588,7 +722,35 @@ begin
   Reader:=TfrmBuiltinReader.Create(nil);
   try
     Reader.Show; Reader.OpenBook('long-note.fb2','Long note','long-note','long-note.ini','pdfium.dll'); WaitReady(Reader);
-    Require(Reader.AllBookText.EndsWith('FULL_NOTE_END'),'Full book copy truncated a long footnote');
+    Copied:=Reader.AllBookText;
+    Require(Copied.EndsWith('FULL_NOTE_END'),'Full book copy truncated a long footnote');
+    Require(TRegEx.Matches(Copied,'FULL_NOTE_END').Count=1,'Full book copy duplicated an inline FB2 footnote');
+    Reader.Close;
+  finally Reader.Free; end;
+  Package:=TZipFile.Create;
+  try
+    Package.Open(InlineEPUB,zmWrite);
+    AddPart('META-INF/container.xml','<container><rootfiles><rootfile full-path="OPS/book.opf"/></rootfiles></container>');
+    AddPart('OPS/book.opf','<package><manifest><item id="body" href="main.xhtml"/><item id="notes" href="notes.xhtml"/>'+
+      '</manifest><spine><itemref idref="body"/><itemref idref="notes" linear="no"/></spine></package>');
+    AddPart('OPS/main.xhtml','<html xmlns:epub="http://www.idpf.org/2007/ops"><body><p>References '+
+      '<a epub:type="noteref" href="#printed">[1]</a>, <a epub:type="noteref" href="notes.xhtml#aux">[2]</a> '+
+      'and <a role="doc-noteref" href="#generic">[3]</a>.</p>'+
+      '<aside id="printed" epub:type="footnote"><p>PRINTED_NOTE_ONCE</p></aside>'+
+      '<div id="generic"><p>UNTYPED_NOTE_ONCE</p></div></body></html>');
+    AddPart('OPS/notes.xhtml','<html xmlns:epub="http://www.idpf.org/2007/ops"><body>'+
+      '<aside id="aux" epub:type="footnote"><p>AUXILIARY_NOTE_ONCE</p></aside></body></html>');
+  finally Package.Free; end;
+  Reader:=TfrmBuiltinReader.Create(nil);
+  try
+    Reader.Show; Reader.OpenBook(InlineEPUB,'Note placement','note-placement','note-placement.ini','pdfium.dll'); WaitReady(Reader);
+    Require(Reader.BookText.Contains('PRINTED_NOTE_ONCE') and Reader.BookText.Contains('UNTYPED_NOTE_ONCE') and
+      not Reader.BookText.Contains('AUXILIARY_NOTE_ONCE'),
+      'The EPUB fixture must render the inline notes and load the separate note on demand');
+    Copied:=Reader.AllBookText;
+    Require((TRegEx.Matches(Copied,'PRINTED_NOTE_ONCE').Count=1) and
+      (TRegEx.Matches(Copied,'UNTYPED_NOTE_ONCE').Count=1) and
+      (TRegEx.Matches(Copied,'AUXILIARY_NOTE_ONCE').Count=1),'Full EPUB copy lost or duplicated a note');
     Reader.Close;
   finally Reader.Free; end;
   Writeln('PASS full book copying retains long footnotes while the page display stays bounded');
@@ -637,27 +799,203 @@ begin
   finally DMUser.Free; DMUser:=nil; end;
 end;
 
+procedure AuditWordFootnotes;
+const
+  FileName = 'word-footnotes.docx';
+  WordXML = ' xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"';
+  Relation = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/';
+var Package: TZipFile; Document: TReaderDocument; Reader: TfrmBuiltinReader;
+  Before, Body: string; Position, Destination, Back, NoteStart, NoteLength: Integer;
+  procedure AddPart(const Path, Text: string);
+  begin
+    Package.Add(TEncoding.UTF8.GetBytes(Text),Path);
+  end;
+  function ListItem(Level: Integer; const Text: string): string;
+  begin
+    Result:='<w:p><w:pPr><w:numPr><w:ilvl w:val="'+IntToStr(Level)+'"/><w:numId w:val="4"/>'+
+      '</w:numPr></w:pPr><w:r><w:t>'+Text+'</w:t></w:r></w:p>';
+  end;
+begin
+  Package:=TZipFile.Create;
+  try
+    Package.Open(FileName,zmWrite);
+    AddPart('word/document.xml','<w:document'+WordXML+'><w:body><w:p>'+
+      '<w:r><w:t>Reference A</w:t><w:footnoteReference w:id="45"/></w:r>'+
+      '<w:r><w:t>Custom</w:t><w:footnoteReference w:id="82" w:customMarkFollows="1"/><w:t>†</w:t></w:r>'+
+      '<w:r><w:t>Reference B</w:t><w:footnoteReference w:id="18"/></w:r>'+
+      '<w:r><w:t>Endnote</w:t><w:endnoteReference w:id="45"/></w:r>'+
+      '</w:p>'+ListItem(0,'First outer')+
+      '<w:p><w:pPr><w:pStyle w:val="NestedChild"/></w:pPr><w:r><w:t>First nested</w:t></w:r></w:p>'+
+      ListItem(1,'Second nested')+ListItem(0,'Second outer')+ListItem(1,'Restarted nested')+
+      '<w:p><w:pPr><w:numPr><w:numId w:val="5"/></w:numPr></w:pPr><w:r><w:t>Picture bullet</w:t></w:r></w:p>'+
+      '</w:body></w:document>');
+    AddPart('word/_rels/document.xml.rels','<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'+
+      '<Relationship Id="rId1" Type="'+Relation+'footnotes" Target="notes/custom.xml"/>'+
+      '<Relationship Id="rId2" Type="'+Relation+'endnotes" Target="endnotes.xml"/>'+
+      '<Relationship Id="rId3" Type="'+Relation+'settings" Target="notes/config.xml"/>'+
+      '<Relationship Id="rId4" Type="'+Relation+'numbering" Target="lists.xml"/></Relationships>');
+    AddPart('word/lists.xml','<w:numbering'+WordXML+' xmlns:r="'+Relation.TrimRight(['/'])+'" xmlns:v="urn:schemas-microsoft-com:vml">'+
+      '<w:numPicBullet w:numPicBulletId="8"><w:pict><v:shape><v:imagedata r:id="bullet"/></v:shape></w:pict></w:numPicBullet>'+
+      '<w:abstractNum w:abstractNumId="2">'+
+      '<w:lvl w:ilvl="0"><w:start w:val="2"/><w:numFmt w:val="upperRoman"/><w:lvlText w:val="(%1)"/></w:lvl>'+
+      '<w:lvl w:ilvl="1"><w:start w:val="1"/><w:numFmt w:val="lowerLetter"/><w:lvlText w:val="%1.%2)"/>'+
+      '<w:pStyle w:val="NestedBase"/><w:pPr><w:ind w:left="900" w:hanging="240"/></w:pPr></w:lvl>'+
+      '</w:abstractNum><w:num w:numId="4"><w:abstractNumId w:val="2"/>'+
+      '<w:lvlOverride w:ilvl="0"><w:startOverride w:val="4"/></w:lvlOverride></w:num>'+
+      '<w:abstractNum w:abstractNumId="3"><w:lvl w:ilvl="0"><w:numFmt w:val="bullet"/>'+
+      '<w:lvlText w:val="§"/><w:lvlPicBulletId w:val="8"/></w:lvl></w:abstractNum>'+
+      '<w:num w:numId="5"><w:abstractNumId w:val="3"/></w:num></w:numbering>');
+    AddPart('word/styles.xml','<w:styles'+WordXML+'>'+
+      '<w:style w:type="paragraph" w:styleId="NestedBase"><w:pPr><w:numPr><w:numId w:val="4"/></w:numPr></w:pPr></w:style>'+
+      '<w:style w:type="paragraph" w:styleId="NestedChild"><w:basedOn w:val="NestedBase"/></w:style></w:styles>');
+    AddPart('word/_rels/lists.xml.rels','<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'+
+      '<Relationship Id="bullet" Type="'+Relation+'image" Target="media/bullet.png"/></Relationships>');
+    Package.Add(TNetEncoding.Base64.DecodeStringToBytes(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGMQMgn7DwAClAGcHVtGXwAAAABJRU5ErkJggg=='),
+      'word/media/bullet.png');
+    AddPart('word/notes/config.xml','<w:settings'+WordXML+'><w:footnotePr><w:numStart w:val="3"/></w:footnotePr>'+
+      '<w:endnotePr><w:numFmt w:val="lowerRoman"/></w:endnotePr></w:settings>');
+    AddPart('word/notes/custom.xml','<w:footnotes'+WordXML+'>'+
+      '<w:footnote w:id="82"><w:p><w:r><w:t>Custom note body</w:t></w:r></w:p></w:footnote>'+
+      '<w:footnote w:id="18"><w:p><w:r><w:t>Second note body</w:t></w:r></w:p></w:footnote>'+
+      '<w:footnote w:id="45"><w:tbl><w:tr>'+
+      '<w:tc><w:p><w:r><w:t>Left note cell</w:t></w:r></w:p></w:tc>'+
+      '<w:tc><w:p><w:r><w:t>Right note cell</w:t></w:r></w:p></w:tc>'+
+      '</w:tr></w:tbl></w:footnote></w:footnotes>');
+    AddPart('word/endnotes.xml','<w:endnotes'+WordXML+'><w:endnote w:id="45">'+
+      '<w:p><w:r><w:t>Independent endnote</w:t></w:r></w:p></w:endnote></w:endnotes>');
+  finally Package.Free; end;
+  Before:=THashSHA2.GetHashStringFromFile(FileName);
+  Document:=TReaderDocument.Create;
+  try
+    Document.Load(FileName);
+    Body:=Document.PlainText;
+    Require(Body.Contains('Reference A3Custom†Reference B4Endnotei'),
+      'Word note marks or numbering differ: '+Copy(Body,1,65));
+    Require(Body.Contains('(IV) First outer'+#13+'IV.a) First nested'+#13+'IV.b) Second nested'+#13+
+      '(V) Second outer'+#13+'V.a) Restarted nested'),'Word list labels or restart differ');
+    Require(string(Document.RTF).Contains('\li900 \fi-240 '),'Word list indent differs');
+    Require((Document.ImageCount=1) and Body.Contains(#$FFFC+' Picture bullet'),'Word picture bullet was not rendered inline');
+    Require(Document.NotesInBody and Document.HasTables and (Document.FootnoteCount=4),'Word notes or note table missing');
+    Require(Body.IndexOf('Left note cell')<Body.IndexOf('Custom note body'),'Word notes out of reference order');
+    Require(Length(Document.Chapters)=0,'Word notes invented a contents entry');
+    Position:=Body.IndexOf('Reference A3')+Length('Reference A');
+    Require(Document.FootnoteAt(Position,NoteStart,NoteLength).Contains('Right note cell') and
+      (NoteStart=Position) and (NoteLength=1),'Word note preview or reference span differs');
+    Require(Document.LinkTargetAt(Position,Destination) and Document.LinkTargetAt(Destination,Back) and
+      (Back=Position),'Word note hyperlinks do not go to the note and back');
+  finally Document.Free; end;
+  Reader:=TfrmBuiltinReader.Create(nil);
+  try
+    Reader.HandleNeeded;
+    Reader.OpenBook(FileName,'Word notes',FileName,'word-footnotes.ini','pdfium.dll'); WaitReady(Reader);
+    Body:=Reader.AllBookText;
+    Require((Body.IndexOf('Left note cell')>=0) and
+      (Body.IndexOf('Left note cell')=Body.LastIndexOf('Left note cell')),'Word note is missing or duplicated in full copy');
+    Require(Reader.VisibleFootnotes.Contains('Right note cell'),'Word page footer does not show its notes');
+    Reader.SetShowFootnotes(False);
+    Require((Reader.VisibleFootnotes='') and Reader.AllBookText.Contains('Right note cell'),'Word notes disappeared from full text');
+    Reader.Close;
+  finally Reader.Free; end;
+  Require(Before=THashSHA2.GetHashStringFromFile(FileName),'Reader rewrote Word source');
+  Writeln('PASS DOCX part relationships, numbering, custom marks, formatted notes, return links and copy');
+end;
+
+procedure AuditPreformattedBook;
+const
+  FileName = 'preformatted.fb2';
+  Expected = 'Normal words.'+#13+'  command first'+#13#13+#9+'second  step'+#13+'After.';
+  ExpectedCell = 'First value'+#13#13+'Second value'+#13+'Third value';
+  FrameTop = '     ┌───────┐';
+  FrameMiddle = '     │ а   б │';
+  FrameBottom = '     └───────┘';
+  FrameRow = '<p style="homelibre-text-frame"><code>%s</code></p>';
+var Reader: TfrmBuiltinReader; Text: string;
+  procedure CheckFrame;
+  var Buffer: TRichEdit; Start, Width, X: Integer; LeftEdge, RightEdge: TPoint;
+    Range: TCharRange; Characters: TCharFormat2;
+  begin
+    Text:=Reader.BookText;
+    Start:=Pos(FrameTop+#13+FrameMiddle+#13+FrameBottom,Text);
+    Require(Start>0,'Frame rows or spaces changed');
+    Reader.GoToPosition(Start-1);
+    Application.ProcessMessages; WaitPage(Reader);
+    Buffer:=nil;
+    for var Component in Reader do
+      if (Component is TRichEdit) and (ReaderTextLength(TRichEdit(Component))=Reader.TextLength) then
+      begin Buffer:=TRichEdit(Component); Break; end;
+    Require(Assigned(Buffer),'Text formatting buffer missing');
+    Width:=0; X:=0;
+    for var Line:=0 to 2 do
+    begin
+      Range.cpMin:=Start-1+5; Range.cpMax:=Range.cpMin+1;
+      SendMessage(Buffer.Handle,EM_EXSETSEL,0,LPARAM(@Range));
+      Characters:=Default(TCharFormat2); Characters.cbSize:=SizeOf(Characters);
+      SendMessage(Buffer.Handle,EM_GETCHARFORMAT,SCF_SELECTION,LPARAM(@Characters));
+      var Face:=string(PChar(@Characters.szFaceName[0]));
+      Require(SameText(Face,'Consolas'),'The frame lost its fixed-pitch font: '+Face);
+      LeftEdge:=Point(-1,-1); RightEdge:=LeftEdge;
+      SendMessage(Buffer.Handle,EM_POSFROMCHAR,WPARAM(@LeftEdge),Start-1+5);
+      SendMessage(Buffer.Handle,EM_POSFROMCHAR,WPARAM(@RightEdge),Start-1+Length(FrameTop)-1);
+      Require((LeftEdge.X>=0) and (RightEdge.X>LeftEdge.X) and (LeftEdge.Y=RightEdge.Y),
+        'A frame row wrapped');
+      if Line=0 then begin Width:=RightEdge.X-LeftEdge.X; X:=LeftEdge.X; end
+      else Require((Abs(LeftEdge.X-X)<=1) and (Abs(RightEdge.X-LeftEdge.X-Width)<=1),
+        'Frame edges are not aligned');
+      Inc(Start,Length(FrameTop)+1);
+    end;
+  end;
+begin
+  TFile.WriteAllText(FileName,'<FictionBook><body><section><p>Normal   words.</p>'+
+    '<p><code>  command <strong>first</strong>'+#13#10#13#10+#9+
+    '<code>second  step</code></code></p><p>After.</p>'+
+    '<table><tr><td style="white-space:pre-wrap">First <strong>value</strong>'+#10#10+
+    'Second value'+#10+'Third value</td><td>Ordinary'+#10+' value</td></tr></table>'+
+    Format(FrameRow,[FrameTop])+Format(FrameRow,[FrameMiddle])+Format(FrameRow,[FrameBottom])+
+    '</section></body></FictionBook>',TEncoding.UTF8);
+  Reader:=TfrmBuiltinReader.Create(nil);
+  try
+    Reader.HandleNeeded;
+    Reader.OpenBook(FileName,'Preformatted','preformatted','preformatted.ini','pdfium.dll');
+    WaitReady(Reader);
+    Text:=Reader.BookText.Replace(#13#10,#13).Replace(#10,#13).Replace(#11,#13);
+    Require(Text.Contains(Expected),'FB2 flattened the original code lines or indentation');
+    Require(Text.Contains(ExpectedCell),'The reader collapsed explicit FB2 cell lines');
+    Require(Text.Contains('Ordinary value'),'An unstyled FB2 cell changed its spacing');
+    CheckFrame;
+    Reader.SetTypography('Arial',160,18); Reader.SetBookFormatting(False);
+    CheckFrame;
+  finally Reader.Free; end;
+end;
+
 procedure AuditMultilingualFonts;
 const Samples: array[0..20] of string = ('Русский ё','Ελληνικά','Tiếng Việt','Հայերեն','עברית',
   'العربية','हिन्दी','বাংলা','ગુજરાતી','ಕನ್ನಡ','தமிழ்','తెలుగు','മലയാളം',
   'ไทย','ქართული','བོད','မြန်မာ','日本語','中文','한국어','አማርኛ');
+  MixedText = 'Ёж, 日本語, café '+#$D83D#$DE0A+'; конец.';
 var Reader: TfrmBuiltinReader; Buffer: TRichEdit; XML, Text, FontName, Effective: string;
-  I: Integer; DC: HDC; Font, Previous: HGDIOBJ; Glyph: Word; Para: TParaFormat2; Watch: TStopwatch;
+  I, Position: Integer; DC: HDC; Font, Previous: HGDIOBJ; Glyph: Word; Para: TParaFormat2; Watch: TStopwatch;
 begin
   XML:='<FictionBook><description><title-info><book-title>Multilingual</book-title></title-info></description><body><section>';
   for Text in Samples do XML:=XML+'<p><strong>'+Text+'</strong> <emphasis>'+Text+'</emphasis></p>';
-  XML:=XML+'</section></body></FictionBook>'; TFile.WriteAllText('multilingual.fb2',XML,TEncoding.UTF8);
+  XML:=XML+'<p>'+MixedText+'</p></section></body></FictionBook>'; TFile.WriteAllText('multilingual.fb2',XML,TEncoding.UTF8);
   Reader:=TfrmBuiltinReader.Create(nil);
   try
     Watch:=TStopwatch.StartNew; Reader.Show;
     Reader.OpenBook('multilingual.fb2','Multilingual','multilingual','multilingual.ini','pdfium.dll'); WaitReady(Reader);
+    Require(Reader.AllBookText.Contains(MixedText),'Cyrillic text after a different script used the wrong code page');
     Buffer:=ReaderFormattingBuffer(Reader);
     for FontName in ['PT Serif','PT Sans','Noto Serif','Noto Sans'] do
     begin
       Reader.SetTypography(FontName,110,32);
       for I:=0 to High(Samples) do
       begin
-        Text:=Samples[I]; SelectReaderWord(Reader,Text); Effective:=Buffer.SelAttributes.Name;
+        Text:=Samples[I];
+        Position:=Pos(Text,Reader.BookText)-1;
+        Require(Position>=0,'Multilingual formatting sample is absent: '+IntToStr(I));
+        // Typography is applied lazily to the visible page.
+        Reader.GoToPosition(Position); WaitReady(Reader);
+        SelectReaderWord(Reader,Text); Effective:=Buffer.SelAttributes.Name;
         Require(fsBold in Buffer.SelAttributes.Style,'Multilingual fallback lost source bold: '+Text);
         Require(Screen.Fonts.IndexOf(Effective)>=0,'Multilingual font not registered: '+Effective);
         DC:=CreateCompatibleDC(0); Font:=CreateFontW(-20,0,0,0,FW_NORMAL,0,0,0,DEFAULT_CHARSET,
@@ -666,7 +1004,7 @@ begin
           Previous:=SelectObject(DC,Font);
           try
             Require(GetGlyphIndicesW(DC,PChar(Text),1,@Glyph,GGI_MARK_NONEXISTING_GLYPHS)<>GDI_ERROR,'Glyph lookup failed');
-            Require((Glyph<>0) and (Glyph<>$FFFF),'Missing bundled glyph: '+Text+' / '+Effective);
+            Require((Glyph<>0) and (Glyph<>$FFFF),Format('Missing bundled glyph U+%.4x / %s',[Ord(Text[1]),Effective]));
           finally SelectObject(DC,Previous); end;
         finally DeleteObject(Font); DeleteDC(DC); end;
         if I in [4,5] then
@@ -1372,7 +1710,7 @@ var Reader: TfrmBuiltinReader; Key: Word; XML: string; Before: Cardinal;
   Ini: TMemIniFile;
   procedure SetProgressOptions(Marks, FullScreen: Boolean);
   begin
-    TThread.ForceQueue(nil,
+    QueueReaderDialog(
       procedure
       var Dialog: TForm; MarksBox, FullScreenBox: TCheckBox;
       begin
@@ -1444,7 +1782,7 @@ begin
     Reader.ToggleInterface;
     Require(Bar.Visible and Footer.Visible,'Returning to the normal window lost the progress strip');
     Before:=GetGuiResources(GetCurrentProcess,GR_GDIOBJECTS);
-    TThread.ForceQueue(nil,
+    QueueReaderDialog(
       procedure
       var Popup: TForm; C: TComponent; Outline: TTreeView; Search: TEdit;
       begin
@@ -1478,7 +1816,7 @@ begin
     Require(Selector.Hint=Reader.ChapterTitle(Selector.ItemIndex),'Compact chapter header lost full parent context');
     for var OpenMessage in TArray<Integer>.Create(CB_SHOWDROPDOWN,WM_LBUTTONDOWN,WM_KEYDOWN) do
     begin
-      TThread.ForceQueue(nil,
+      QueueReaderDialog(
         procedure
         var Popup: TForm; Tree: TTreeView;
         begin
@@ -1655,12 +1993,12 @@ begin
     Reader.Close;
   finally Reader.Free; end;
   try
-    PrepareDirectDOC(Source,Source,nil,function: Boolean begin Result:=True; end);
+    PrepareDirectDOC(Source,Source,Settings.AppPath,nil,function: Boolean begin Result:=True; end);
     raise Exception.Create('Canceled DOC preparation succeeded');
   except on E: EAbort do ; end;
   TFile.WriteAllText('bad-doc.doc',StringOfChar('X',1024),TEncoding.UTF8);
   try
-    PrepareDirectDOC('bad-doc.doc','bad-doc.doc');
+    PrepareDirectDOC('bad-doc.doc','bad-doc.doc',Settings.AppPath);
     raise Exception.Create('Broken DOC preparation succeeded');
   except on E: Exception do Require(E.Message.Contains('Не удалось прочитать DOC'),'Broken DOC did not produce a useful message: '+E.Message); end;
   Require(Hash=THashSHA2.GetHashStringFromFile(Source),'DOC original was changed');
@@ -1969,18 +2307,18 @@ begin
     Require(ReaderAnnotationTimeAtOffset('2026-10-15T01:00:00Z','UTC-3:30',-210)=
       '14.10.2026 21:30 · UTC-3:30 (UTC-03:30)','Negative fractional timezone/day rollover failed');
     Writeln('PASS note timestamps Moscow UTC+2 UTC+8 fractional and negative zones preserve date rollover');
-    TThread.ForceQueue(nil,
+    QueueReaderDialog(
       procedure
       begin
         var Manager:=Screen.ActiveForm;
         Require(string(Manager.Caption).StartsWith('Закладки и заметки'),'Notes manager missing');
         CheckNoteDialogButtons(Manager,760,510);
         var Go:=NoteDialogButton(Manager,'Открыть книгу'); Require(Go.Parent.Top+Go.Parent.Height=Manager.ClientHeight,'Manager actions are above note preview');
-        TThread.ForceQueue(nil,procedure begin FillNoteDialogEditor(Manager,False,False); end);
+        QueueReaderDialog(procedure begin FillNoteDialogEditor(Manager,False,False); end);
         NoteDialogButton(Manager,'Добавить заметку…').OnClick(nil);
-        TThread.ForceQueue(nil,procedure begin FillNoteDialogEditor(Manager,True,False); end);
+        QueueReaderDialog(procedure begin FillNoteDialogEditor(Manager,True,False); end);
         NoteDialogButton(Manager,'Изменить…').OnClick(nil);
-        TThread.ForceQueue(nil,
+        QueueReaderDialog(
           procedure
           var Formats,Styles: TComboBox; Tip: TLabel; R: TRect;
           begin
@@ -2014,7 +2352,7 @@ begin
   try
     Reader.Show; Reader.OpenBook('sample.pdf','PDF цитата','note-pdf','note-dialog.ini','pdfium.dll'); WaitReady(Reader);
     Reader.NextPage; WaitPage(Reader); Reader.SelectPDFText(0,6);
-    TThread.ForceQueue(nil,procedure begin FillNoteDialogEditor(Reader,False,True); end);
+    QueueReaderDialog(procedure begin FillNoteDialogEditor(Reader,False,True); end);
     var Add: TMenuItem:=nil;
     for var I:=0 to TPaintBox(Reader.ReadingSurface).PopupMenu.Items.Count-1 do
       if TPaintBox(Reader.ReadingSurface).PopupMenu.Items[I].Caption='Добавить заметку…' then Add:=TPaintBox(Reader.ReadingSurface).PopupMenu.Items[I];
@@ -2112,6 +2450,129 @@ begin
   Writeln('PASS Unicode notes durable atomic backup, all books, edit/delete isolation, concurrent/corrupt file protection, HTML/DOCX four styles, bookmark export, global page index and throttled progress drag');
 end;
 
+procedure AuditEPUBOutline;
+const
+  Later = 'Later chapter';
+  Nested = 'Later subentry';
+  Earlier = 'Earlier chapter';
+var
+  Doc: TReaderDocument;
+  Reader: TfrmBuiltinReader;
+  Chapters: TArray<TReaderChapter>;
+  Name, SourceHash: string;
+  EarlierPosition, LaterPosition: Integer;
+
+  procedure SelectChapter(Index: Integer);
+  var Selector: TComboBox;
+  begin
+    Selector:=TComboBox(Reader.FindComponent('ReaderChapterSelector'));
+    Selector.ItemIndex:=Index;
+    Selector.OnChange(Selector);
+  end;
+
+  procedure MakeBook(const FileName: string; NCX: Boolean; DamagedMarkup: Boolean = False);
+  var
+    Package: TZipFile;
+    Metadata, Navigation, Chapter: string;
+
+    procedure Add(const Path, Value: string);
+    begin
+      Package.Add(TEncoding.UTF8.GetBytes(Value),Path);
+    end;
+
+  begin
+    Package:=TZipFile.Create;
+    try
+      Package.Open(FileName,zmWrite);
+      Add('META-INF/container.xml','<container><rootfiles><rootfile full-path="OPS/book.opf"/></rootfiles></container>');
+      Metadata:='<package><metadata><title>Outline</title></metadata><manifest><item id="content" href="book.xhtml"/>';
+      if NCX then
+      begin
+        Metadata:=Metadata+'<item id="nav" href="book.ncx"/></manifest><spine toc="nav">';
+        Navigation:='<ncx><navMap><navPoint><navLabel><text>'+Later+'</text></navLabel><content src="book.xhtml#later"/>'+
+          '<navPoint><navLabel><text>'+Nested+'</text></navLabel><content src="book.xhtml#later"/></navPoint></navPoint>'+
+          '<navPoint><navLabel><text>'+Earlier+'</text></navLabel><content src="book.xhtml#earlier"/></navPoint>'+
+          '<navPoint><navLabel><text>Unavailable</text></navLabel><content src="book.xhtml#missing"/></navPoint></navMap></ncx>';
+        Add('OPS/book.ncx',Navigation);
+      end
+      else
+      begin
+        Metadata:=Metadata+'<item id="nav" href="nav.xhtml" properties="nav"/></manifest><spine>';
+        Navigation:='<html xmlns:epub="http://www.idpf.org/2007/ops"><body><nav epub:type="toc"><ol>'+
+          '<li><a href="book.xhtml#later">'+Later+'</a><ol><li><a href="book.xhtml#later">'+Nested+'</a></li></ol></li>'+
+          '<li><a href="book.xhtml#earlier">'+Earlier+'</a></li><li><a href="book.xhtml#missing">Unavailable</a></li>'+
+          '</ol></nav></body></html>';
+        Add('OPS/nav.xhtml',Navigation);
+      end;
+      Add('OPS/book.opf',Metadata+'<itemref idref="content"/></spine></package>');
+      Chapter:='<html><body><section id="earlier">'+
+        '<p>'+DupeString('Earlier passage. ',1500)+'</p></section><section id="later">'+
+        '<p>'+DupeString('Later passage. ',1500)+'</p></section>';
+      if DamagedMarkup then
+        Chapter:=Chapter+'</span><div><p>Available tail with a <a href="#earlier">return link</a>.</p>'
+      else Chapter:=Chapter+'</body></html>';
+      Add('OPS/book.xhtml',Chapter);
+    finally Package.Free; end;
+  end;
+
+begin
+  for var LegacyNavigation in [False,True] do
+  begin
+    Name:='outline-'+BoolToStr(LegacyNavigation,True)+'.epub';
+    MakeBook(Name,LegacyNavigation);
+    SourceHash:=THashSHA2.GetHashStringFromFile(Name);
+    Doc:=TReaderDocument.Create;
+    try
+      Doc.Load(Name); Chapters:=Doc.Chapters;
+      Require(Length(Chapters)=3,'EPUB lost a distinct entry with a shared destination or kept an unresolved link');
+      Require((Chapters[0].Title=Later) and (Chapters[1].Title=Nested) and (Chapters[2].Title=Earlier),
+        'EPUB outline no longer follows publisher order');
+      Require((Chapters[1].Depth=1) and (Chapters[0].Position=Chapters[1].Position) and
+        (Chapters[2].Position<Chapters[0].Position),'EPUB lost a parent, a shared target or an out-of-order target');
+    finally Doc.Free; end;
+    Reader:=TfrmBuiltinReader.Create(nil);
+    try
+      Reader.HandleNeeded; Reader.OpenBook(Name,'Outline',Name,Name+'.ini','pdfium.dll'); WaitReady(Reader);
+      Reader.SetNumberChapters(False);
+      Require((Reader.ChapterCount=3) and Reader.ChapterTitle(1).Contains(Later+' › '+Nested),
+        'Reader lost the EPUB outline hierarchy');
+      SelectChapter(2); EarlierPosition:=Reader.TextPosition;
+      SelectChapter(1); LaterPosition:=Reader.TextPosition;
+      Require((LaterPosition>EarlierPosition) and Reader.CurrentChapterPath.Contains(Nested),
+        'Reader selected the wrong current chapter when the EPUB outline order differs from text order');
+      SelectChapter(0);
+      Require(Reader.TextPosition=LaterPosition,'Links with a shared target no longer open the same passage');
+    finally Reader.Free; end;
+    Require(THashSHA2.GetHashStringFromFile(Name)=SourceHash,'Reading EPUB changed the original');
+  end;
+  Writeln('PASS EPUB 2 and 3 outlines preserve shared destinations, order, nesting and current chapter');
+
+  Name:='outline-damaged.epub';
+  MakeBook(Name,False,True);
+  SourceHash:=THashSHA2.GetHashStringFromFile(Name);
+  Doc:=TReaderDocument.Create;
+  try
+    Doc.Load(Name);
+    Chapters:=Doc.Chapters;
+    Require((Length(Chapters)=3) and Doc.PlainText.TrimRight.EndsWith('Available tail with a return link.'),
+      'Broken XHTML lost the chapter sequence or available text before EOF');
+    var Links:=Doc.Links;
+    Require(Length(Links)=1,'Broken XHTML lost the link inside the available text');
+    Require(Doc.LinkTargetAt(Links[0].Start,EarlierPosition) and (EarlierPosition=Chapters[2].Position),
+      'The repaired link does not reach the original outline destination');
+    Require(Pos(ReaderEpubTruncatedChapterWarning+' «OPS/book.xhtml»',Doc.Warnings.Text)>0,
+      'Repair did not report the incomplete chapter: '+Doc.Warnings.Text);
+  finally Doc.Free; end;
+  Reader:=TfrmBuiltinReader.Create(nil);
+  try
+    Reader.Show; Reader.OpenBook(Name,'Outline',Name,Name+'.ini','pdfium.dll'); WaitReady(Reader); WaitPage(Reader);
+    Require(Pos(ReaderEpubTruncatedChapterWarning+' «OPS/book.xhtml»',Reader.ReaderStatus.Caption)>0,
+      'The reader did not identify the truncated EPUB chapter: '+Reader.ReaderStatus.Caption);
+  finally Reader.Free; end;
+  Require(THashSHA2.GetHashStringFromFile(Name)=SourceHash,'Reading repaired EPUB changed its source');
+  Writeln('PASS damaged EPUB preserves available text, outline destinations and links, and identifies the truncated chapter');
+end;
+
 procedure AuditEPUBStyles;
 var CSS: TReaderCSS; Reader: TfrmBuiltinReader; Buffer: TRichEdit; BeforeHash, Text: string; Doc: TReaderDocument;
 begin
@@ -2160,7 +2621,7 @@ procedure AuditSearchResults;
 var Reader: TfrmBuiltinReader; Owner: TForm; BeforePosition, First: Integer;
   procedure ChooseResult(const Query: string; Minimum, Index: Integer; CancelImmediately: Boolean = False);
   begin
-    TThread.ForceQueue(nil,
+    QueueReaderDialog(
       procedure
       var Popup: TForm; List: TListView; Stop: TButton; C: TComponent; Watch: TStopwatch;
       begin
@@ -2392,6 +2853,123 @@ end;
 {$I ReaderExportPickerPreview.inc}
 {$I ReaderCompressedPicturesTests.inc}
 
+procedure AuditNativeRTFPictures;
+const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAEgAAAAkCAIAAACluesxAAAAV0lEQVR4nN3OAQ0AIAzAsDEfiMG/Bryg4iFZFXTdsymSKImSKImSKImSKImSKImSKImSKImSKImSKImSKImSKImSKImSKImSKImSKImSKImSKInyd2DKA/YxAYPynVXDAAAAAElFTkSuQmCC';
+  FileName = 'reader-native-rtf-pictures.rtf';
+  LineRun = '{\rtlch\af2\ltrch{\shp{\*\shpinst\shpleft450\shpright450\shptop180\shpbottom720'+
+    '\shpbxcolumn\shpbypara\shpwr3{\sp{\sn shapeType}{\sv 20}}}'+
+    '{\shprslt{\*\do\dobxcolumn\dobypara\dpline\dpptx0\dppty0\dpptx0\dppty540'+
+    '\dpx450\dpy180\dpxsize0\dpysize540\dplinew30\dplinecor255\dplinecog0\dplinecob0}}}}';
+var Document: TReaderDocument; Reader: TfrmBuiltinReader;
+  Hex, Picture, PictureRun, Source, Hash: string; Layout, Decoded: UTF8String; Extent: TPoint;
+  Dib: TBytes; Bitmap: TBitmap; Stream: TBytesStream; BinaryStart: Integer;
+begin
+  Hex:='';
+  for var PixelByte in TNetEncoding.Base64.DecodeStringToBytes(PNG) do Hex:=Hex+IntToHex(PixelByte,2);
+  Picture:='{\pict\pngblip\picw72\pich36\picwgoal1080\pichgoal540\piccropl180 '+Hex+'}';
+  PictureRun:='{\rtlch\af2\ltrch'+Picture+'}';
+  Source:='{\rtf1\ansi Before\par\trowd\cellx2400\cellx4800\intbl Left\cell Right\cell\row\pard '+
+    '{\object\objemb{\*\objdata\bin4 {A}B HiddenObjectData}{\result '+Picture+'}}'+
+    '{\*\shppict'+Picture+'}{\nonshppict'+Picture+'}'+
+    '{\shp{\*\shpinst{\sp{\sn shapeType}{\sv 75}}{\sp{\sn pib}{\sv '+Picture+'}}}}'+
+    '{\field{\*\fldinst HYPERLINK "https://example.com"}{\fldrslt Linked '+Picture+'}} End.\par '+
+    LineRun+PictureRun+'\par '+LineRun+'\par '+PictureRun+'\par '+
+    StringReplace(LineRun,'\dpy180','\dpy181',[])+PictureRun+'\par '+
+    '{\shpgrp{\*\shpinst{\shp{\*\shpinst{\sp{\sn pib}{\sv '+Picture+'}}}}'+
+    '{\shp{\*\shpinst{\shptxt First drawing label\par Second drawing label}}}}'+
+    '{\shprslt '+Picture+'}}}';
+  TFile.WriteAllText(FileName,Source,TEncoding.ASCII);
+  Hash:=THashSHA2.GetHashStringFromFile(FileName);
+  Document:=TReaderDocument.Create;
+  try
+    Document.Load(FileName);
+    Require(Document.HasTables and (Document.ImageCount=8),'Native RTF lost a table or an image, or duplicated a fallback');
+    Extent:=Document.PictureExtent(0,500,500);
+    Require((Extent.X=900) and (Extent.Y=540),'Native RTF lost the authored picture extent and crop');
+    Layout:=Document.RTF(500,500,True);
+    Decoded:=Document.PictureRTF(0,500,500);
+    Require(Pos('\trowd',string(Layout))>0,'Native RTF flattened the source table');
+    Require(Pos('HiddenObjectData',string(Layout))=0,'Native RTF forwarded embedded object data');
+    Require((Length(Decoded)>Length(Document.PictureRTF(0,500,500,True))) and (Document.SkippedImages=0),
+      'A visible RTF PNG could not be decoded');
+    Require(Document.PictureExtent(4,500,500)=Point(900,720),'The vertical RTF line was cropped at the edge');
+    Require((Document.PictureExtent(5,500,500)=Extent) and (Document.PictureExtent(6,500,500)=Extent),
+      'A vertical line was applied across paragraphs or despite contradictory geometry');
+    Decoded:=Document.PictureRTF(4,500,500);
+    BinaryStart:=Pos(UTF8String('\bin'),Decoded)+4;
+    while (BinaryStart<=Length(Decoded)) and (Decoded[BinaryStart]<>' ') do Inc(BinaryStart);
+    Require((BinaryStart>4) and (BinaryStart<Length(Decoded)-1),'The reader did not create a line bitmap');
+    SetLength(Dib,Length(Decoded)-BinaryStart-1);
+    Move(Decoded[BinaryStart+1],Dib[0],Length(Dib));
+    Stream:=TBytesStream.Create(ReaderDibAsBMP(Dib));
+    Bitmap:=TBitmap.Create;
+    try
+      Bitmap.LoadFromStream(Stream);
+      Require((Bitmap.Height=48) and (ColorToRGB(Bitmap.Canvas.Pixels[36,47])=clRed) and
+        (ColorToRGB(Bitmap.Canvas.Pixels[39,47])=clWhite),'The RTF line color, position or padding is wrong');
+    finally Bitmap.Free; Stream.Free; end;
+  finally Document.Free; end;
+  Reader:=TfrmBuiltinReader.Create(nil);
+  try
+    Reader.OpenBook(FileName,FileName,'native-rtf-pictures','reader-native-rtf-pictures.ini','');
+    WaitReady(Reader);
+    Require((Reader.PictureCount=8) and Reader.BookText.Contains('Left') and Reader.BookText.Contains('Right') and
+      Reader.BookText.Contains('Linked'),'Opening an RTF lost its images, field result or table text');
+    Require((Pos('First drawing label',Reader.BookText)>0) and
+      (Pos('Second drawing label',Reader.BookText)>Pos('First drawing label',Reader.BookText)),
+      'Opening an RTF lost or reordered editable labels in a drawing group');
+    Reader.SetBounds(70,80,640,440); Application.ProcessMessages;
+    Reader.SetTypography('Georgia',110,48);
+    Require(Reader.Ready and (Reader.PictureCount=8),'Resizing an RTF lost its pictures');
+    Require(THashSHA2.GetHashStringFromFile(FileName)=Hash,'The source RTF was rewritten');
+  finally Reader.Free; end;
+  Writeln('PASS native RTF pictures, object preview, table, vertical rules, geometry and resize');
+end;
+
+procedure AuditHTMLImageExtents;
+const
+  PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAIAAAB7QOjdAAAADUlEQVR4nGP4zwAE/wEHAAH/4iOeWQAAAABJRU5ErkJggg==';
+var Document: TReaderDocument; Name, Source, CloseImage, Ref: string; Extent: TPoint;
+  procedure CheckExtent(Index, MaxWidth, ExpectedWidth, ExpectedHeight: Integer);
+  begin
+    Extent:=Document.PictureExtent(Index,MaxWidth,500);
+    Require((Extent.X=ExpectedWidth) and (Extent.Y=ExpectedHeight),
+      Format('%s picture %d has extent %d × %d', [Name,Index,Extent.X,Extent.Y]));
+  end;
+begin
+  Ref:='src="data:image/png;base64,'+PNG+'"';
+  Document:=TReaderDocument.Create;
+  try
+    for Name in ['authored-size.xhtml','authored-size.html'] do
+    begin
+      if SameText(ExtractFileExt(Name),'.xhtml') then CloseImage:='/>' else CloseImage:='>';
+      Source:='<html><body><p>Before</p><img '+Ref+' width="44" height="9"'+CloseImage+
+        '<img '+Ref+' width="40"'+CloseImage+'<img '+Ref+' height="7"'+CloseImage+
+        '<img '+Ref+' width="8%" height="32769"'+CloseImage+'<p>After</p></body></html>';
+      TFile.WriteAllText(Name,Source,TEncoding.UTF8);
+      Document.Load(Name);
+      Require((Document.ImageCount=4) and (Document.SkippedImages=0) and Document.PlainText.Contains('After'),
+        'Sized HTML images displaced readable content');
+      CheckExtent(0,500,660,135);
+      CheckExtent(1,500,600,300);
+      CheckExtent(2,500,210,105);
+      CheckExtent(3,500,30,15);
+      CheckExtent(0,16,240,49);
+      Require(Pos('\picw2\pich1',string(Document.PictureRTF(0,500,500)))>0,'Laying out the picture enlarged its decoded bitmap');
+    end;
+    Name:='authored-size.fb2';
+    TFile.WriteAllText(Name,'<FictionBook xmlns:l="http://www.w3.org/1999/xlink"><body><section>'+
+      '<p id="target">Target sentence.</p><p><style name="homelibre-image-size-44-9"><image l:href="#picture"/>'+
+      '</style></p><p><style name="homelibre-image-size-40-0"><a l:href="#target"><image l:href="#picture"/>'+
+      '</a></style></p></section></body><binary id="picture" content-type="image/png">'+PNG+'</binary></FictionBook>',TEncoding.UTF8);
+    Document.Load(Name);
+    Require((Document.ImageCount=2) and Document.HasLinks,'FB2 lost the sized linked image');
+    CheckExtent(0,500,660,135);
+    CheckExtent(1,500,600,300);
+  finally Document.Free; end;
+  Writeln('PASS authored HTML and FB2 image sizes, aspect ratio, fallback parser and responsive bounds');
+end;
+
 var Doc: TReaderDocument; Form: TfrmBuiltinReader; Name, BeforeHash, Identity: string;
   Ini: TMemIniFile; Position, Progress: Integer; Watch: TStopwatch;
   PDF: TReaderPDF; Bitmap: Vcl.Graphics.TBitmap; PDFMatch: TPDFMatch; Raster: TPoint; CancelChecks: Integer; GDIInitial: Cardinal;
@@ -2415,12 +2993,16 @@ begin
     begin
       if ParamStr(1)='export-picker-preview' then AuditExportPickerPreview
       else if ParamStr(1)='feedback19-reader' then begin AuditReaderAnnotationRangesAndExports; AuditReaderFeedback19; end
-      else if ParamStr(1)='reader-colors' then AuditReaderColorBox
+      else if ParamStr(1)='reader-colors' then begin AuditReaderColorBox; AuditWordParagraphShades; end
       else if ParamStr(1)='optional-fonts' then AuditOptionalFonts
+      else if ParamStr(1)='preformatted-book' then AuditPreformattedBook
+      else if ParamStr(1)='html-image-sizes' then AuditHTMLImageExtents
       else if ParamStr(1)='multilingual-fonts' then AuditMultilingualFonts
       else if ParamStr(1)='footnotes' then AuditFootnotes
+      else if ParamStr(1)='word-footnotes' then AuditWordFootnotes
       else if ParamStr(1)='large-book' then AuditLargeBook
       else if ParamStr(1)='real-epub' then AuditRealEPUB
+      else if ParamStr(1)='epub-outline' then AuditEPUBOutline
       else if ParamStr(1)='doc-reader' then AuditDirectDOC
       else if ParamStr(1)='word-selection' then AuditWordSelection
       else if ParamStr(1)='reader-lookup' then AuditReaderLookup
@@ -2428,6 +3010,8 @@ begin
       else if ParamStr(1)='book-appearance' then AuditReaderBookSkin
       else if ParamStr(1)='reader-toolbar' then AuditReaderToolbar
       else if ParamStr(1)='jpeg-rtf' then AuditCompressedJPEGPictures
+      else if ParamStr(1)='native-rtf-pictures' then AuditNativeRTFPictures
+      else if ParamStr(1)='nested-table-pictures' then AuditComplexReaderTable
       else if ParamStr(1)='unicode-rtf-probe' then AuditNativeUnicodeImport
       else if ParamStr(1)='text-selection' then AuditRealTextSelection
       else if ParamStr(1)='illustrated-selection' then AuditIllustratedTextSelection
@@ -2446,6 +3030,7 @@ begin
       else if ParamStr(1)='real-formats' then AuditRealFormats
       else if ParamStr(1)='document-spacing' then AuditDocumentSpacing
       else if ParamStr(1)='pdf-current-page-search' then AuditPDFSearch
+      else if ParamStr(1)='pdf-copy-hyphens' then AuditPDFCopyHyphens
       else if (ParamStr(1)='loading-navigation') or (ParamStr(1)='same-position-navigation') or (ParamStr(1)='precision-wheel') then AuditNavigation(ParamStr(1))
       else raise Exception.Create('Unknown regression case: '+ParamStr(1));
       Writeln('PASS experimental built-in reader native regressions');
@@ -2468,6 +3053,9 @@ begin
       CoUninitialize; Halt(0);
     end;
     AuditLoadingPreferences;
+    AuditNativeRTFPictures;
+    AuditComplexReaderTable;
+    AuditPreformattedBook;
     Doc:=TReaderDocument.Create;
     try
       Doc.Load('sample.fb2');
@@ -2475,7 +3063,7 @@ begin
       Require(Length(Doc.Chapters)>=2,'FB2 table of contents missing');
       Require(Pos('Первая глава',Doc.PlainText)>0,'FB2 Cyrillic text lost');
       Require(Pos('Текст второй главы',Doc.PlainText)>0,'FB2 body missing');
-      Require(Pos('\u',string(Doc.RTF))>0,'RTF Unicode escape missing');
+      Require(Pos('\ansicpg1251',string(Doc.RTF))>0,'RTF code page declaration missing');
       Doc.Load('sample.fb2');
       Encoded:=Doc.RTF; SetLength(RTFBytes,Length(Encoded));
       if Length(Encoded)>0 then Move(Encoded[1],RTFBytes[0],Length(Encoded));
@@ -2502,8 +3090,9 @@ begin
     Doc:=TReaderDocument.Create;
     try
       Doc.Load('literal.xhtml');
-      Require(Pos('Литерал &nbsp; &mdash;',Doc.PlainText)>0,'HTML entities changed literal CDATA text');
+      Require(Pos('Литерал &nbsp; &mdash; &eacute;',Doc.PlainText)>0,'HTML entities changed literal CDATA text');
       Require(Pos('Разрыв'+#160+'строки',Doc.PlainText)>0,'XHTML entity outside CDATA was not decoded');
+      Require(Pos('Été déjà Αα',Doc.PlainText)>0,'XHTML named entities were not decoded case-sensitively');
       Doc.Load('literal-dtd.xhtml');
       Require(Pos('<!DOCTYPE html> обычный текст',Doc.PlainText)>0,'DOCTYPE literal in CDATA changed');
       Doc.Load('encoding-attribute.xhtml');
@@ -2515,6 +3104,7 @@ begin
     AuditNavigation('precision-wheel');
     AuditDocumentSpacing;
     AuditPDFSearch;
+    AuditPDFCopyHyphens;
     Doc:=TReaderDocument.Create;
     try
       Doc.Load('rtf-escapes.txt'); Encoded:=Doc.RTF;

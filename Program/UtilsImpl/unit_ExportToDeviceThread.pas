@@ -818,7 +818,18 @@ begin
           else if Stage='finalizing' then StageComment:='Сборка книги…'
           else if Stage='writing-epub' then StageComment:='Запись EPUB…'
           else if Stage='checking-epub' then StageComment:='Проверка EPUB…'
+          else if (Stage='writing-fb2') or (Stage='writing-fb2-sections') then StageComment:='Запись FB2…'
+          else if Stage='checking-fb2-sections' then StageComment:='Проверка FB2…'
           else if Stage='gif-preparation' then StageComment:='Подготовка статичных изображений GIF…'
+          else if Stage='preparing-docx' then
+          begin
+            if Total>0 then StageComment:=Format('Чтение текста и иллюстраций Word · %d%% разметки',[Completed*100 div Total])
+            else StageComment:='Чтение текста и иллюстраций Word…';
+          end
+          else if Stage='preparing-docx-notes' then StageComment:='Чтение примечаний Word…'
+          else if Stage='preparing-fb2' then StageComment:='Чтение разделов и иллюстраций FB2…'
+          else if Stage='preparing-epub' then StageComment:='Чтение разделов и иллюстраций EPUB…'
+          else if Stage='preparing-chm' then StageComment:='Чтение разделов и иллюстраций CHM…'
           else if Stage='kindle-writing' then StageComment:='Запись книги для Kindle…'
           else if Stage='advanced-writing' then StageComment:='Запись книги в выбранном формате…'
           else if Stage='complete' then StageComment:='Сохранение готовой книги…'

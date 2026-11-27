@@ -23,6 +23,7 @@ inherited frameNCWWelcom: TframeNCWWelcom
     end
     inherited lblPageHint: TLabel
       Width = 286
+      Caption = ''
       StyleElements = [seFont, seClient, seBorder]
     end
   end

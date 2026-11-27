@@ -18,7 +18,7 @@ type TReaderAssociationsForm = class(TForm)
 
 implementation
 
-uses Winapi.Windows, Winapi.ShellAPI, System.SysUtils, Vcl.Controls, Vcl.Dialogs, Vcl.ExtCtrls;
+uses Winapi.Windows, Winapi.ShellAPI, System.SysUtils, Vcl.Controls, Vcl.Dialogs, Vcl.ExtCtrls, unit_ReaderPalette;
 
 constructor TReaderAssociationsForm.Create(AOwner:TComponent);
 const Captions:array[TReaderAssociationGroup] of string =
@@ -38,24 +38,24 @@ begin
   Intro.Caption:='Выберите форматы. Читалка появится в списке приложений Windows. В открывшихся настройках назначьте её для нужных файлов.';
   for var Group:=Low(TReaderAssociationGroup) to High(TReaderAssociationGroup) do
   begin
-    FGroups[Group]:=TCheckBox.Create(Self); FGroups[Group].Parent:=Body;
+    FGroups[Group]:=TReaderPaletteCheckBox.Create(Self); FGroups[Group].Parent:=Body;
     FGroups[Group].SetBounds(20,82+Ord(Group)*29,410,25);
     FGroups[Group].Caption:=Captions[Group];
     FGroups[Group].Checked:=Group in [ragBooks,ragDocuments];
   end;
-  Button:=TButton.Create(Self); Button.Parent:=Body; Button.Caption:='Все форматы';
+  Button:=TReaderPaletteButton.Create(Self); Button.Parent:=Body; Button.Caption:='Все форматы';
   Button.SetBounds(404,82,130,28); Button.OnClick:=SelectAll;
   FStatus:=TLabel.Create(Self); FStatus.Parent:=Body; FStatus.AutoSize:=False; FStatus.WordWrap:=True;
   FStatus.SetBounds(16,210,518,62);
   FStatus.Caption:='Модули заранее не скачиваются. Если перенесёте папку читалки, выполните настройку ещё раз — путь обновится.';
-  Button:=TButton.Create(Self); Button.Parent:=Body; Button.Name:='ReaderChooseDefaultApps';
+  Button:=TReaderPaletteButton.Create(Self); Button.Parent:=Body; Button.Name:='ReaderChooseDefaultApps';
   Button.Caption:='Настроить в Windows…'; Button.Default:=True;
   Button.SetBounds(16,284,255,32); Button.OnClick:=RegisterAndChoose;
-  FRemove:=TButton.Create(Self); FRemove.Parent:=Body; FRemove.Caption:='Убрать из списка Windows';
+  FRemove:=TReaderPaletteButton.Create(Self); FRemove.Parent:=Body; FRemove.Caption:='Убрать из списка Windows';
   FRemove.SetBounds(283,284,251,32); FRemove.OnClick:=RemoveRegistration;
   FRemove.Enabled:=ReaderAssociationsRegistered(ParamStr(0));
-  Button:=TButton.Create(Self); Button.Parent:=Body; Button.Caption:='Закрыть';
-  Button.Parent:=Footer; Button.SetBounds(414,10,120,32); Button.Anchors:=[akTop,akRight]; Button.Cancel:=True; Button.ModalResult:=mrClose;
+  Button:=TReaderPaletteButton.Create(Self); Button.Parent:=Footer; Button.Caption:='Закрыть';
+  Button.SetBounds(414,10,120,32); Button.Anchors:=[akTop,akRight]; Button.Cancel:=True; Button.ModalResult:=mrClose;
   if Assigned(PopupParent) then ScaleForPPI(PopupParent.CurrentPPI);
 end;
 

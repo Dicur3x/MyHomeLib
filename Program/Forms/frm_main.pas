@@ -316,6 +316,7 @@ type
     miCompactDataBase: TMenuItem;
     ctpBook: TCategoryPanel;
     Label5: TLabel;
+    pnSearchAuthor: TPanel;
     edFFullName: TMHLButtonedEdit;
     Label24: TLabel;
     edFTitle: TMHLButtonedEdit;
@@ -923,6 +924,10 @@ type
     procedure BookLocationUpdate(Sender: TObject);
     procedure BookLocationExecute(Sender: TObject);
     procedure ChooseReaderExecute(Sender: TObject);
+    function CanRelinkMissingBook(const Book: TBookRecord; const Collection: IBookCollection): Boolean;
+    function PickRelinkedBook(Owner: TWinControl; const Collection: IBookCollection; var Book: TBookRecord): Boolean;
+    function ConfirmMissingBookRelink(const FileName: string): Boolean;
+    procedure RefreshRelinkedBook(const Before, After: TBookRecord);
     procedure ReadPreparedBook(const BookRecord: TBookRecord; UseBuiltin: Boolean; ChooseReader: Boolean = False; ForceChoice: Boolean = False;
       const ReaderPathOverride: string = ''; KeepKindlePreparation: Boolean = False; FromNotes: Boolean = False);
     procedure OnSelectBookHandler(MoveForward: Boolean);
@@ -1197,7 +1202,6 @@ type
     function PrepareFavoriteSearch(var Criteria: TBookSearchCriteria): Boolean;
     procedure WMFavoriteReady(var Message: TMessage); message WM_AUTHOR_FAVORITES_READY;
     procedure WMFavoriteProgress(var Message: TMessage); message WM_AUTHOR_FAVORITES_PROGRESS;
-    procedure WMFavoriteLayout(var Message: TMessage); message WM_AUTHOR_FAVORITES_LAYOUT;
     function SelectedFavoriteAuthor(out Author: TAuthorData; out Key: string): Boolean;
     procedure UpdateFavoriteControls;
     procedure FavoriteSelectedAuthorClick(Sender: TObject);
@@ -1225,8 +1229,6 @@ type
       Node: PVirtualNode; Column: TColumnIndex; CellRect: TRect);
     procedure SearchFavoriteClick(Sender: TObject);
     procedure UpdateBookFilterIndicators(Tree: TBookTree);
-    procedure SearchFavoriteEditResize(Sender: TObject);
-    procedure UpdateFavoriteSearchLayout;
     procedure CreateFavoriteAuthorControls;
     procedure ApplySearchCriteria(const Criteria: TBookSearchCriteria; SelectedID: PBookKey = nil);
     procedure PublishFavoriteFilterKeys;
@@ -1428,14 +1430,10 @@ type
   TBookTreeAccess = class(TBookTree);
   TFavoriteAuthorCheckBox = class(TCheckBox)
   private
+    FIconOnly: Boolean;
     procedure PaintHeart(Canvas: TCanvas);
   protected
     procedure WndProc(var Message: TMessage); override;
-  end;
-
-  TFavoriteEditAccess = class(TMHLButtonedEdit)
-  public
-    property OnResize;
   end;
 
 resourcestring
@@ -1546,18 +1544,15 @@ end;
 procedure TFavoriteAuthorCheckBox.PaintHeart(Canvas: TCanvas);
 var
   Bounds, IconRect: TRect;
-  InAuthorField: Boolean;
   Glyph: string;
 begin
   Bounds := ClientRect;
-  InAuthorField := Parent is TCustomEdit;
   Canvas.Brush.Color := MHLThemeBackground;
-  if InAuthorField then Canvas.Brush.Color := MHLThemeField;
   Canvas.FillRect(Bounds);
   Canvas.Brush.Style := bsClear;
 
   IconRect := Bounds;
-  if not InAuthorField then IconRect.Right := Min(Bounds.Right, MulDiv(22, CurrentPPI, 96));
+  if not FIconOnly then IconRect.Right := Min(Bounds.Right, MulDiv(22, CurrentPPI, 96));
   Canvas.Font.Name := 'Segoe UI Symbol';
   Canvas.Font.Height := -MulDiv(16, CurrentPPI, 96);
   Canvas.Font.Quality := fqAntialiased;
@@ -1573,7 +1568,7 @@ begin
   DrawText(Canvas.Handle, PChar(Glyph), Length(Glyph), IconRect,
     DT_CENTER or DT_VCENTER or DT_SINGLELINE);
 
-  if not InAuthorField then
+  if not FIconOnly then
   begin
     Bounds.Left := IconRect.Right + MulDiv(3, CurrentPPI, 96);
     Canvas.Font.Assign(Font);
@@ -3649,7 +3644,6 @@ begin
   begin
     UpdateThemeToolbar;
     UpdateSearchBookLayout;
-    UpdateFavoriteSearchLayout;
     UpdateWindowsThemeOfferLayout;
     LayoutCollectionCompressionOffer(nil);
     BookViewResize(nil);
@@ -4399,7 +4393,7 @@ begin
     ISBNLabel,FISBNSearchEdit,Label3,edFKeyWords,Label7,edFAnnotation);
   for Control in FSearchAdvancedControls do
     if Control is TMHLButtonedEdit then TMHLButtonedEdit(Control).OnChange:=SearchAdvancedChange;
-  edFFullName.TabOrder:=0; edFTitle.TabOrder:=1;
+  pnSearchAuthor.TabOrder:=0; edFTitle.TabOrder:=1;
   cbCollapseMultiSeriesResults.TabOrder:=2; FNotesOnlySearchCheck.TabOrder:=3;
   edFSeries.TabOrder:=4; edFGenre.TabOrder:=5; FSearchMoreButton.TabOrder:=6;
   FPublisherSearchEdit.TabOrder:=7; FTranslatorSearchEdit.TabOrder:=8; FCitySearchEdit.TabOrder:=9;
@@ -4596,7 +4590,9 @@ begin
         LabelW:=0;
         for var L in TArray<TLabel>.Create(Label5,Label24,Label6,Label26) do
           LabelW:=Max(LabelW,TextSize(L).cx);
-        Field(Label5,edFFullName,True); Field(Label24,edFTitle,True);
+        Field(Label5,pnSearchAuthor,True);
+        Label5.FocusControl:=edFFullName;
+        Field(Label24,edFTitle,True);
         Check(cbCollapseMultiSeriesResults); Check(FNotesOnlySearchCheck);
         Field(Label6,edFSeries,True); Field(Label26,edFGenre,True);
         Place(FSearchMoreButton,Pad,Y,W,Max(MulDiv(28,PPI,96),edFTitle.Height+Gap));
@@ -5748,7 +5744,6 @@ begin
   inherited;
   UpdateThemeToolbar;
   UpdateSearchBookLayout;
-  UpdateFavoriteSearchLayout;
   BookViewResize(nil);
 end;
 
@@ -5818,7 +5813,6 @@ begin
   begin
     UpdateThemeToolbar;
     UpdateSearchBookLayout;
-    UpdateFavoriteSearchLayout;
     UpdateWindowsThemeOfferLayout;
     LayoutCollectionCompressionOffer(nil);
     BookViewResize(nil);
@@ -5857,7 +5851,6 @@ begin
   begin
     UpdateThemeToolbar;
     UpdateSearchBookLayout;
-    UpdateFavoriteSearchLayout;
     UpdateWindowsThemeOfferLayout;
     LayoutCollectionCompressionOffer(nil);
     BookViewResize(nil);
@@ -6643,7 +6636,6 @@ begin
   UpdateDownloadToolbarSize;
   UpdateThemeToolbar;
   UpdateSearchBookLayout;
-  UpdateFavoriteSearchLayout;
   LayoutCollectionCompressionOffer(nil);
   EnsureBookHeadersFit;
 end;
@@ -7414,7 +7406,14 @@ begin
 
 
   if not Assigned(FBookPreviews[Tree.Tag]) then
+  begin
     FBookPreviews[Tree.Tag]:=TBookInfoPreview.CreateFor(Self,InfoPanel);
+    FBookPreviews[Tree.Tag].OnRequestComponent:=
+      procedure(ID: string)
+      begin
+        RequestOptionalComponent(ID,'Для предпросмотра этой обложки нужен декодер JPEG XL.');
+      end;
+  end;
   FBookPreviews[Tree.Tag].Cancel;
   InfoPanel.BeginUpdate;
   try
@@ -8467,6 +8466,87 @@ begin
     end);
 end;
 
+function TfrmMain.CanRelinkMissingBook(const Book: TBookRecord; const Collection: IBookCollection): Boolean;
+begin
+  Result := Assigned(Collection) and (Book.BookKey.BookID > 0) and Book.IsLinkedSource and
+    IsLocalBookID(Book.LibID) and isLocalCollection(Collection.CollectionCode) and
+    not FileExists(Book.GetBookFileName) and not IsPackedCollectionCatalog(Collection.GetProperty(PROP_DATAFILE));
+end;
+
+function TfrmMain.PickRelinkedBook(Owner: TWinControl; const Collection: IBookCollection;
+  var Book: TBookRecord): Boolean;
+var Dialog: TFileOpenDialog; LastFolder, OldFileName: string; Updated: TBookRecord;
+begin
+  Result := False;
+  if CompressionBlocksCatalogChange then Exit;
+  OldFileName := Book.GetBookFileName;
+  LastFolder := ExtractFilePath(OldFileName);
+  Dialog := TFileOpenDialog.Create(Owner);
+  try
+    Dialog.Title := 'Укажите новое расположение исходного файла';
+    if DirectoryExists(LastFolder) then Dialog.DefaultFolder := LastFolder;
+    Dialog.FileName := ExtractFileName(OldFileName);
+    Dialog.Options := [fdoFileMustExist, fdoPathMustExist, fdoNoChangeDir, fdoForceFileSystem];
+    if not Dialog.Execute(Owner.Handle) then Exit;
+    try
+      FSystemData.RelinkLocalBookSource(Book, Dialog.FileName);
+      Collection.GetBookRecord(Book.BookKey, Updated, False);
+      Book := Updated;
+      Result := True;
+      StatusMessage := 'Путь к исходному файлу обновлён.';
+    except
+      on E: Exception do MHLShowWarning(E.Message);
+    end;
+  finally
+    Dialog.Free;
+  end;
+end;
+
+function TfrmMain.ConfirmMissingBookRelink(const FileName: string): Boolean;
+var Dialog: TTaskDialog; Button: TTaskDialogButtonItem;
+begin
+  Dialog := TTaskDialog.Create(Self);
+  try
+    Dialog.Caption := Application.Title;
+    Dialog.Title := 'Файл книги не найден';
+    Dialog.Text := FileName + sLineBreak + sLineBreak +
+      'Если файл переименовали или переместили, выберите его по новому пути.';
+    Dialog.MainIcon := tdiWarning;
+    Dialog.Flags := [tfAllowDialogCancellation];
+    Dialog.CommonButtons := [];
+    Button := TTaskDialogButtonItem(Dialog.Buttons.Add);
+    Button.Caption := 'Указать новый путь…'; Button.ModalResult := mrOk;
+    Button := TTaskDialogButtonItem(Dialog.Buttons.Add);
+    Button.Caption := 'Отмена'; Button.ModalResult := mrCancel; Button.Default := True;
+    Result := Dialog.Execute(Handle) and (Dialog.ModalResult = mrOk);
+  finally
+    Dialog.Free;
+  end;
+end;
+
+procedure TfrmMain.RefreshRelinkedBook(const Before, After: TBookRecord);
+var Tree: TBookTree;
+begin
+  NotifyFavoriteCatalogChanged([After.BookKey.DatabaseID]);
+  if Before.GetBookFormat in [bfFb2Archive, bfRawArchive] then
+  begin
+    InitCollection;
+    Exit;
+  end;
+  UpdateNodes(After.BookKey,
+    procedure(Data: PBookRecord)
+    begin
+      if (Data^.LibID <> Before.LibID) or not SameText(Data^.GetBookFileName, Before.GetBookFileName) then Exit;
+      Data^.Folder := After.Folder;
+      Data^.FileName := After.FileName;
+      Data^.FileExt := After.FileExt;
+      Data^.Size := After.Size;
+      Include(Data^.BookProps, bpIsLocal);
+    end);
+  GetActiveTree(Tree);
+  if Assigned(Tree) then RefreshBookInfo(Tree);
+end;
+
 procedure TfrmMain.ReadPreparedBook(const BookRecord: TBookRecord; UseBuiltin, ChooseReader, ForceChoice: Boolean;
   const ReaderPathOverride: string; KeepKindlePreparation, FromNotes: Boolean);
 var
@@ -8476,7 +8556,7 @@ var
   ReaderBook: TBookRecord;
   ReaderCollection: IBookCollection;
   ReaderKey: TBookKey;
-  Snapshot: TBookRecord;
+  Snapshot, Before: TBookRecord;
   KindleReader: TReaderDesc;
   PrepareKindle, RequirePersonalProgress: Boolean;
   ReaderNamespace: string;
@@ -8493,13 +8573,22 @@ begin
   begin UseBuiltin:=Settings.UseBuiltinReaderByDefault; ChooseReader:=False; end;
 
   Snapshot := BookRecord; RequirePersonalProgress := (ActiveView = FavoritesView) and not FromNotes;
-  KindleReader := Settings.Readers.Find(BookRecord.FileExt);
+  ReaderCollection := FSystemData.GetCollection(Snapshot.BookKey.DatabaseID);
+  ReaderBook := ResolveReaderBook(ReaderCollection, Snapshot);
+  if CanRelinkMissingBook(Snapshot, ReaderCollection) and not FileExists(ReaderBook.GetBookFileName) then
+  begin
+    Before := Snapshot;
+    if not ConfirmMissingBookRelink(Before.GetBookFileName) or
+      not PickRelinkedBook(Self, ReaderCollection, Snapshot) then Exit;
+    RefreshRelinkedBook(Before, Snapshot);
+    ReaderCollection := FSystemData.GetCollection(Snapshot.BookKey.DatabaseID);
+    ReaderBook := ResolveReaderBook(ReaderCollection, Snapshot);
+  end;
+  KindleReader := Settings.Readers.Find(Snapshot.FileExt);
   PrepareKindle := KeepKindlePreparation or UseBuiltin or ChooseReader or (Assigned(KindleReader) and
     SameText(ExtractFileName(KindleReader.Path),'SumatraPDF.exe'));
-  ReaderCollection := FSystemData.GetCollection(BookRecord.BookKey.DatabaseID);
   ReaderNamespace := ''; try ReaderNamespace := VarToStr(ReaderCollection.GetProperty(PROP_SOURCE_LIBRARY)); except end;
-  ReaderKey := BookRecord.BookKey;
-  ReaderBook := ResolveReaderBook(ReaderCollection, BookRecord);
+  ReaderKey := Snapshot.BookKey;
   BookFileName := ReaderBook.GetBookFileName;
   BookFormat := ReaderBook.GetBookFormat;
 
@@ -8507,7 +8596,7 @@ begin
   if (BookFormat in [bfFb2, bfFb2Archive]) and
     not (bpIsLocal in ReaderBook.BookProps) then
   begin
-    CollectionInfo := FSystemData.GetCollectionInfo(BookRecord.BookKey.DatabaseID);
+    CollectionInfo := FSystemData.GetCollectionInfo(Snapshot.BookKey.DatabaseID);
     if isOnlineCollection(CollectionInfo.CollectionType) then
     begin
       SetLength(ReaderDownloads,1); ReaderDownloads[0]:=Default(TBookIdStruct);
@@ -12763,40 +12852,6 @@ begin
   Tree.Header.Invalidate(nil);
 end;
 
-procedure TfrmMain.SearchFavoriteEditResize(Sender: TObject);
-begin
-  if HandleAllocated then PostMessage(Handle, WM_AUTHOR_FAVORITES_LAYOUT, 0, 0);
-end;
-
-procedure TfrmMain.WMFavoriteLayout(var Message: TMessage);
-begin UpdateFavoriteSearchLayout; end;
-
-procedure TfrmMain.UpdateFavoriteSearchLayout;
-var Size, Gap, RightWidth, PPI: Integer; Child: TControl;
-begin
-  if not Assigned(FSearchFavoriteCheck) then Exit;
-  PPI := edFFullName.Font.PixelsPerInch;
-  if PPI <= 0 then PPI := CurrentPPI;
-  Size := MulDiv(20, PPI, 96);
-  Gap := MulDiv(2, PPI, 96);
-  FSearchFavoriteCheck.SetBounds(edFFullName.ClientWidth - Size - Gap, 0,
-    Size, Max(1, edFFullName.ClientHeight));
-  RightWidth := 0;
-  for var I := 0 to edFFullName.ControlCount - 1 do
-  begin
-    Child := edFFullName.Controls[I];
-    // Buttoned edit contains its expression button plus our checkbox. Moving
-    // by control identity also works at narrow widths and after DPI scaling.
-    if (Child <> FSearchFavoriteCheck) and Child.Visible then
-    begin
-      Child.Left := FSearchFavoriteCheck.Left - Child.Width - Gap;
-      RightWidth := Max(RightWidth, Child.Width);
-    end;
-  end;
-  if edFFullName.HandleAllocated then
-    SendMessage(edFFullName.Handle, EM_SETMARGINS, EC_RIGHTMARGIN, LPARAM(MakeLong(0, Size + RightWidth + 4 * Gap)));
-end;
-
 procedure TfrmMain.CreateFavoriteAuthorControls;
 var Panel: TPanel; Item: TMenuItem; PPI: Integer;
 begin
@@ -12806,13 +12861,15 @@ begin
   FFavoriteDirtyCollections := TDictionary<Integer, Cardinal>.Create;
   FSearchFavoriteCheck := TFavoriteAuthorCheckBox.Create(Self);
   FSearchFavoriteCheck.Name := 'cbSearchFavoriteAuthorsOnly';
-  FSearchFavoriteCheck.Parent := edFFullName;
+  TFavoriteAuthorCheckBox(FSearchFavoriteCheck).FIconOnly := True;
+  FSearchFavoriteCheck.Parent := pnSearchAuthor;
+  FSearchFavoriteCheck.Width := MulDiv(24, PPI, 96);
+  FSearchFavoriteCheck.Align := alRight;
+  FSearchFavoriteCheck.TabOrder := 1;
   FSearchFavoriteCheck.Caption := 'Только любимые авторы';
   FSearchFavoriteCheck.ShowHint := True;
   FSearchFavoriteCheck.Hint := 'Все книги авторов, отмеченных сердечком на вкладке «Авторы». Поле автора можно оставить пустым. Поиск запускается кнопкой «Применить». Избранные книги — отдельный список.';
   FSearchFavoriteCheck.OnClick := SearchFavoriteClick;
-  TFavoriteEditAccess(edFFullName).OnResize := SearchFavoriteEditResize;
-  UpdateFavoriteSearchLayout;
 
   Panel := TPanel.Create(Self); Panel.Name := 'pnFavoriteAuthors';
   Panel.Parent := pnAuthorsView; Panel.BevelOuter := bvNone; Panel.Caption := '';
@@ -13398,7 +13455,7 @@ var
 
   strReview, strAnnotation, PreviousReview: string;
   ChangedFields: TBookPersonalFields;
-  Saved, Stored, DetailsBook, Changed: TBookRecord;
+  Saved, Stored, DetailsBook, Changed, BeforeRelink: TBookRecord;
   PersonalOnly, RetrySave, Relinked: Boolean;
   Outcome: TReaderPersonalWriteResult;
   DraftPath, DraftText, Namespace: string;
@@ -13463,31 +13520,18 @@ begin
       else
         frmBookDetails.FillBookInfo(DetailsBook, nil);
 
-      if Assigned(BookCollection) and Saved.IsLinkedSource and IsLocalBookID(Saved.LibID) and
-        isLocalCollection(BookCollection.CollectionCode) and not FileExists(Saved.GetBookFileName) then
+      if CanRelinkMissingBook(Saved, BookCollection) then
         frmBookDetails.ConfigureRelink(
           procedure
-          var Dialog: TOpenDialog; Current: TBookRecord;
           begin
-            Dialog:=TOpenDialog.Create(frmBookDetails);
-            try
-              Dialog.Title:='Укажите новое расположение исходного файла';
-              Dialog.FileName:=ExtractFileName(Saved.GetBookFileName);
-              Dialog.Options:=[ofFileMustExist,ofPathMustExist,ofNoChangeDir,ofEnableSizing];
-              if not Dialog.Execute(frmBookDetails.Handle) then Exit;
-              try
-                FSystemData.RelinkLocalBookSource(Saved,Dialog.FileName);
-                Relinked:=True;
-                BookCollection.GetBookRecord(Saved.BookKey,Current,False);
-                Saved:=Current;
-                frmBookDetails.ConfigureRelink(nil);
-                frmBookDetails.ConfigureDescription(Saved,ReviewEditable,True);
-                DetailsBook.Folder:=Saved.Folder; DetailsBook.FileName:=Saved.FileName;
-                DetailsBook.FileExt:=Saved.FileExt; DetailsBook.Size:=Saved.Size;
-                frmBookDetails.FillBookInfo(DetailsBook,nil);
-                StatusMessage:='Путь к исходному файлу обновлён.';
-              except on E: Exception do MHLShowWarning(E.Message); end;
-            finally Dialog.Free; end;
+            BeforeRelink := Saved;
+            if not PickRelinkedBook(frmBookDetails, BookCollection, Saved) then Exit;
+            Relinked := True;
+            frmBookDetails.ConfigureRelink(nil);
+            frmBookDetails.ConfigureDescription(Saved, ReviewEditable, True);
+            DetailsBook.Folder := Saved.Folder; DetailsBook.FileName := Saved.FileName;
+            DetailsBook.FileExt := Saved.FileExt; DetailsBook.Size := Saved.Size;
+            frmBookDetails.FillBookInfo(DetailsBook, nil);
           end);
 
       frmBookDetails.mmReview.ReadOnly := not ReviewEditable;
@@ -13616,11 +13660,7 @@ begin
     finally FreeAndNil(frmBookDetails); end;
   finally
     FFormBusy := False;
-    if Relinked then
-    begin
-      NotifyFavoriteCatalogChanged([Saved.BookKey.DatabaseID]);
-      InitCollection;
-    end;
+    if Relinked then RefreshRelinkedBook(BeforeRelink, Saved);
   end;
 end;
 

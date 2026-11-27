@@ -1,5 +1,6 @@
 """Image books and comic archives; keep every page, original files read-only."""
 from pathlib import Path
+from binascii import crc32
 import importlib.util
 import re
 import struct
@@ -104,40 +105,55 @@ def read(book, extension):
             else:
                 tool = book.tools_root / '7zip/7z.exe'
                 if not tool.is_file(): book.require('7-Zip', 'Для чтения этого комикса нужен 7-Zip.')
-                def run(args, maximum, item=False):
+                def run(args, maximum, item=False, recover_directory=False, recover_member=False):
                     with tempfile.TemporaryFile(dir=book.work_root) as output:
                         try:
                             process = subprocess.run([str(tool),'-sccUTF-8',*args],stdout=output,stderr=subprocess.PIPE,
                                 timeout=40,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
                         except subprocess.TimeoutExpired: book.fail('Чтение архива комикса превысило 40 секунд.')
+                        if output.tell() > maximum: book.fail('Архив комикса превышает предел чтения.')
                         if process.returncode:
                             details = process.stderr.decode('utf-8', errors='replace')[-500:]
                             if item and ('CRC Failed' in details or 'Data Error' in details):
                                 raise book.c.UnreadableImage(details)
-                            book.fail('Не удалось прочитать архив комикса: ' + details)
-                        if output.tell() > maximum: book.fail('Архив комикса превышает предел чтения.')
-                        output.seek(0); return output.read()
-                listing = run(['l','-slt','-ba','--',str(book.source)],8*1024*1024).decode('utf-8')
-                sizes = {}; total = 0
-                for block in re.split(r'\r?\n\s*\r?\n',listing):
+                            output.seek(0)
+                            if recover_directory and process.returncode == 2 and output.read(7) == b'Path = ':
+                                output.seek(0)
+                                return output.read(), True
+                            if not (recover_member and 'Unexpected end of archive' in details):
+                                book.fail('Не удалось прочитать архив комикса: ' + details)
+                        output.seek(0); return output.read(), False
+                listing, damaged_archive = run(['l','-slt','-ba','--',str(book.source)],8*1024*1024, recover_directory=True)
+                if damaged_archive:
+                    book.warnings.add('Архив комикса повреждён. Сохранены страницы, целостность которых удалось проверить. Часть страниц может отсутствовать в списке архива.')
+                sizes = {}; checksums = {}; total = 0
+                for block in re.split(r'\r?\n\s*\r?\n', listing.decode('utf-8')):
                     properties = dict(line.split(' = ',1) for line in block.splitlines() if ' = ' in line)
                     if 'Path' not in properties or properties.get('Folder') == '+': continue
                     name = properties['Path']; size = int(properties.get('Size','0')); total += size
                     if name in sizes or size < 0 or total > book.c.MAX_TOTAL or len(sizes) >= 20000: book.fail('Некорректный или слишком большой архив комикса.')
                     sizes[name] = size
+                    checksum = properties.get('CRC', '')
+                    if damaged_archive and re.fullmatch('[0-9A-Fa-f]{8}', checksum) and properties.get('Encrypted') != '+':
+                        checksums[name] = int(checksum, 16)
                 def get(name, maximum=16 * 1024 * 1024):
                     if sizes[name] > maximum: book.fail('Страница комикса превышает допустимый размер.')
                     if not sizes[name]: raise book.c.UnreadableImage('Пустая страница комикса.')
-                    data = run(['e','-so','-spd','--',str(book.source),name],maximum,item=True)
+                    if damaged_archive and name not in checksums:
+                        raise book.c.UnreadableImage('В архиве отсутствует контрольная сумма страницы.')
+                    data, _ = run(['e','-so','-spd','--',str(book.source),name],maximum,item=True,recover_member=damaged_archive)
                     if len(data) != sizes[name]: raise book.c.UnreadableImage('Неполная страница комикса.')
+                    if damaged_archive and crc32(data) != checksums[name]:
+                        raise book.c.UnreadableImage('Контрольная сумма страницы комикса не совпадает.')
                     return data
                 names = list(sizes)
-            pages = []
+            pages, attachments = [], []
             for name in names:
                 normalized = name.replace('\\','/')
                 if normalized.startswith('/') or ':' in normalized or '..' in normalized.split('/') or '\0' in normalized:
                     book.fail('Некорректное имя страницы комикса.')
                 if Path(normalized).suffix.lower() in IMAGES: pages.append(name)
+                elif book.c.comic_text_attachment(normalized, extension): attachments.append(name)
                 elif not book.c.comic_sidecar(normalized, extension):
                     book.fail('В архиве комикса найден файл, который не является страницей: ' + name[:160])
             if not pages or len(pages) > 5000: book.fail('В комиксе нет страниц или их слишком много.')
@@ -186,6 +202,22 @@ def read(book, extension):
                     book.fail('В комиксе нет читаемых страниц для конвертации.')
                 if fixed is not None:
                     fixed.warn_about_unreadable_pages(book, unreadable)
+                if attachments:
+                    decode_attachment = module('text_inputs').decode
+                for name in sorted(attachments, key=order):
+                    label = Path(name.replace('\\', '/')).name
+                    section = book.el('section')
+                    section.append(book.el('p', label))
+                    try:
+                        text = decode_attachment(get(name, 4 * 1024 * 1024))
+                        if any(ord(char) < 32 and char not in '\r\n\t\f' for char in text):
+                            raise book.c.UnreadableImage('Текстовое приложение содержит двоичные данные.')
+                        for line in text.splitlines():
+                            section.append(book.el('p', line))
+                    except (book.c.UnreadableImage, UnicodeError, zipfile.BadZipFile):
+                        book.warnings.add(f'Не удалось прочитать приложение к комиксу «{label[:160]}».')
+                        section.append(book.el('p', '[Текстовое приложение недоступно.]'))
+                    book.body.append(section)
         finally:
             if archive is not None: archive.close()
     book.warnings.add('Страницы книги сохранены изображениями в исходном порядке. OCR не выполняется; текстовый поиск и изменение размера букв недоступны.')

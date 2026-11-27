@@ -23,20 +23,18 @@ class NoTextContent(ValueError):
     pass
 
 
+def deflated_blocks_size(blocks):
+    encoder = zlib.compressobj(6, zlib.DEFLATED, -15)
+    written = sum(len(encoder.compress(block)) for block in blocks)
+    return written + len(encoder.flush())
+
+
 def deflated_size(source):
     """Count raw ZIP deflate bytes without a second full-size temporary file."""
-    encoder = zlib.compressobj(6, zlib.DEFLATED, -15)
-    count = 0
     if isinstance(source, (bytes, bytearray)):
-        blocks = (source[at:at+256*1024] for at in range(0,len(source),256*1024))
-        for block in blocks: count += len(encoder.compress(block))
-    else:
-        with Path(source).open('rb') as stream:
-            while True:
-                block = stream.read(256*1024)
-                if not block: break
-                count += len(encoder.compress(block))
-    return count + len(encoder.flush())
+        return deflated_blocks_size(source[at:at+256*1024] for at in range(0,len(source),256*1024))
+    with Path(source).open('rb') as stream:
+        return deflated_blocks_size(iter(lambda: stream.read(256*1024), b''))
 
 
 def remove_nodes(root, predicate, replacement=None):
@@ -76,19 +74,31 @@ def image_note(api, parent, fb2, text=OMITTED_IMAGE):
 def readable_text(api, root, fb2):
     # A cover, page heading, image alt label or hidden SVG text is not a book's
     # textual body. Never turn an image-only book into an apparently valid stub.
-    bodies = [n for n in root.iter() if api.tag(n) == 'body']
-    for body in bodies:
-        probe = copy.deepcopy(body)
-        excluded = {'title','image','binary'} if fb2 else {
-            'h1','h2','h3','h4','h5','h6','img','svg','picture','script','style','nav','head'}
-        remove_nodes(probe, lambda n: api.tag(n) in excluded)
-        if ''.join(probe.itertext()).strip(): return True
-    return False
+    excluded = {'title','image','binary'} if fb2 else {
+        'h1','h2','h3','h4','h5','h6','img','svg','picture','script','style','nav','head'}
+
+    def has_text(node):
+        return bool((node.text or '').strip()) or any(
+            (child.tail or '').strip() or (api.tag(child) not in excluded and has_text(child))
+            for child in node)
+
+    return any(has_text(node) for node in root.iter() if api.tag(node) == 'body')
 
 
 def fb2_encoding(data):
     declaration = re.match(br'\s*<\?xml[^>]*encoding=[\'\"]([^\'\"]+)',data.lstrip(b'\xef\xbb\xbf'))
     return declaration[1].decode('ascii') if declaration else 'utf-8'
+
+
+def strip_fb2_css_images(api, stylesheet, references, remove_inline):
+    if not stylesheet.text:
+        return
+    def replace(reference, original):
+        identity = reference.lstrip('#').partition('#')[0]
+        if identity in references or (remove_inline and reference.lower().startswith('data:image/')):
+            return 'none'
+        return original
+    stylesheet.text = api.rewrite_css_urls(stylesheet.text, replace)
 
 
 def strip_fb2(api, root, only=None, note=OMITTED_IMAGE):
@@ -107,10 +117,8 @@ def strip_fb2(api, root, only=None, note=OMITTED_IMAGE):
     count = max(count,binaries)
     remove_nodes(root, lambda n: api.tag(n) == 'coverpage' and not len(n))
     for node in root.iter():
-        if api.tag(node) == 'stylesheet' and node.text:
-            node.text = re.sub(r'url\(\s*([^)]*?)\s*\)',
-                lambda m: 'none' if m[1].strip().strip('\"\'').lstrip('#') in references or
-                          (only is None and m[1].strip().strip('\"\'').lower().startswith('data:image/')) else m[0],node.text,flags=re.I)
+        if api.tag(node) == 'stylesheet':
+            strip_fb2_css_images(api, node, references, only is None)
     # Links to illustrations may still have useful captions. Keep that text,
     # while removing only their now missing image target. Footnotes stay links.
     for parent in list(root.iter()):
@@ -130,22 +138,29 @@ def strip_fb2(api, root, only=None, note=OMITTED_IMAGE):
     return count
 
 
-def without_images(api, book, destination, target_extension, warnings=None):
+def without_images(api, book, destination, target_extension, warnings=None, *, generated_fb2=False):
     """Write a complete text-only candidate; caller publishes it atomically."""
     if target_extension == '.fb2':
-        original = book.read_bytes()
-        if warnings is None:
-            root = api.xml(original, api.MAX_TOTAL)
+        if generated_fb2:
+            # EPUB conversion emits only image binaries. Their references and
+            # MIME types are needed to remove them, but their base64 is not.
+            root = api.parse_fb2_file(book, api.MAX_LARGE_FB2_OUTPUT, keep_binary_data=False,
+                                      maximum_nodes=10_000_000)
+            encoding = 'utf-8'
         else:
-            root, _ = api.read_fb2(original, api.MAX_TOTAL, warnings)
+            original = book.read_bytes()
+            if warnings is None:
+                root = api.xml(original, api.MAX_TOTAL)
+            else:
+                root, _ = api.read_fb2(original, api.MAX_TOTAL, warnings)
+            encoding = fb2_encoding(original)
         has_text = readable_text(api,root,True)
         count = strip_fb2(api, root)
         if count and not has_text:
             raise NoTextContent('В книге изображения содержат сами страницы. Сохраните книгу в FB2 или EPUB с изображениями.')
-        encoding = fb2_encoding(original)
         # Keep legacy Cyrillic encodings: deleting a small cover should not
         # double the text payload just because UTF-8 uses two bytes per letter.
-        destination.write_bytes(api.ET.tostring(root,encoding=encoding,xml_declaration=True))
+        api.ET.ElementTree(root).write(destination, encoding=encoding, xml_declaration=True)
         return count
     with zipfile.ZipFile(book) as source:
         packages, resources, image_ids, changed, removed = {}, {}, {}, {}, set()
@@ -222,10 +237,7 @@ def without_images(api, book, destination, target_extension, warnings=None):
         def missing(base, value):
             return bool(value) and (source_name(base, value) in removed or value.lower().startswith('data:image/'))
         def css(text, base):
-            def replace(match):
-                path = match[1].strip().strip('\"\'')
-                return 'none' if missing(base,path) else match[0]
-            return re.sub(r'url\(\s*([^)]*?)\s*\)', replace, text, flags=re.I)
+            return api.rewrite_css_urls(text, lambda ref, token: 'none' if missing(base,ref) else token)
         for name, root in documents.items():
             if name in removed: continue
             remove_nodes(root, lambda n: api.tag(n) == 'link' and missing(name,n.get('href','')))
@@ -246,17 +258,31 @@ def without_images(api, book, destination, target_extension, warnings=None):
                 (api.tag(n) == 'itemref' and n.get('idref','') in ids) or
                 (api.tag(n) == 'reference' and missing(name,n.get('href',''))) or
                 (api.tag(n) == 'meta' and n.get('name') == 'cover' and n.get('content') in ids))
+            removed_fb2_images = set()
             for node in package.iter():
-                if node.get('property') == 'mhl:fb2-images' and node.text:
-                    saved = json.loads(node.text)
+                if image_metadata := api.epub_custom_metadata_value(node, api.FB2_IMAGES_METADATA):
+                    saved = json.loads(image_metadata)
                     if not isinstance(saved,dict) or any(not isinstance(k,str) or not isinstance(v,str) for k,v in saved.items()):
                         raise api.ConversionError('Повреждены исходные ресурсы FB2 в EPUB.')
-                    node.text = json.dumps({path:identity for path,identity in saved.items()
-                                            if not missing(name,path)},ensure_ascii=False)
-                if node.get('property') == 'mhl:fb2-description' and node.text:
-                    description = api.xml(base64.b64decode(node.text,validate=True))
+                    retained = {path:identity for path,identity in saved.items() if not missing(name,path)}
+                    removed_fb2_images.update(set(saved.values()) - set(retained.values()))
+                    api.set_epub_custom_metadata_value(node, api.FB2_IMAGES_METADATA, json.dumps(retained, ensure_ascii=False))
+                if description_metadata := api.epub_custom_metadata_value(node, api.FB2_DESCRIPTION_METADATA):
+                    description = api.xml(base64.b64decode(description_metadata,validate=True))
                     strip_fb2(api,description)
-                    node.text = base64.b64encode(api.serialized(description)).decode('ascii')
+                    api.set_epub_custom_metadata_value(node, api.FB2_DESCRIPTION_METADATA,
+                                                      base64.b64encode(api.serialized(description)).decode('ascii'))
+            for node in package.iter():
+                if stylesheet_metadata := api.epub_custom_metadata_value(node, api.FB2_STYLESHEETS_METADATA):
+                    saved = json.loads(stylesheet_metadata)
+                    if not isinstance(saved, list) or any(not isinstance(value, str) for value in saved):
+                        raise api.ConversionError('Повреждены исходные таблицы стилей FB2 в EPUB.')
+                    stylesheets = [api.xml(base64.b64decode(value, validate=True)) for value in saved]
+                    for stylesheet in stylesheets:
+                        strip_fb2_css_images(api, stylesheet, removed_fb2_images, True)
+                    value = json.dumps([base64.b64encode(api.serialized(style)).decode('ascii')
+                                        for style in stylesheets])
+                    api.set_epub_custom_metadata_value(node, api.FB2_STYLESHEETS_METADATA, value)
             changed[name] = api.serialized(package)
         for name, media in resources.items():
             if name in removed: continue
@@ -373,7 +399,12 @@ def select_container_profiles(result, profile, storage, layout=False):
 
 
 def run(api, tool, pictures, directory, profile, progress, layout=None, storage='raw', check=None, grayscale=False, tools_root=None, preserve_format=False):
-    native_profile = 'estimate' if storage != 'raw' and profile in ('balanced','economy') else profile
+    # An unsplit color PNG is already the original and high scan candidate.
+    # Compare it with the balanced result without also encoding Economy.
+    reuse_scan_original = (layout == 'keep' and profile == 'balanced' and storage != 'raw' and
+                           not grayscale and all(mime(data) == 'image/png' for data in pictures))
+    native_profile = ('estimate' if storage != 'raw' and profile in ('balanced', 'economy') and
+                      not reuse_scan_original else profile)
     if storage != 'raw' and profile == 'maximum':
         native_profile = 'estimate-maximum'
     # Existing helpers already encode predecessors before economy, so asking
@@ -444,7 +475,9 @@ def run(api, tool, pictures, directory, profile, progress, layout=None, storage=
                         if not mime(data): raise api.ConversionError('Некорректная страница скана.')
                         pages.append(data)
                     result[p].append(pages)
-            if len({tuple(map(len, result[p])) for p in profiles}) != 1:
+            if reuse_scan_original:
+                result['original'] = [[data] for data in pictures]
+            if len({tuple(map(len, frames)) for frames in result.values()}) != 1:
                 raise api.ConversionError('Число разделённых страниц зависит от качества.')
             result['_unsplit'] = [int(line.split()[1]) for line in log.read_text(encoding='utf-8').splitlines()
                                   if line.startswith('SCAN_UNSPLIT ')]
@@ -511,8 +544,60 @@ def compressed_image_hashes(api, book, extension, check):
     return sorted(outputs)
 
 
+def fb2_blocks(stream, end, check):
+    while (remaining := end - stream.tell()) > 0:
+        if check is not None:
+            check()
+        block = stream.read(min(256 * 1024, remaining))
+        if not block:
+            raise OSError('Не удалось прочитать подготовленный FB2.')
+        yield block
+
+
+def fb2_markup(book, entries, check):
+    with book.open('rb') as stream:
+        for entry in entries:
+            yield from fb2_blocks(stream, entry.payload_start, check)
+            stream.seek(entry.payload_end)
+        yield from fb2_blocks(stream, book.stat().st_size, check)
+
+
+def generated_fb2_images(api, book, entries, check):
+    pictures, used = [], []
+    total = 0
+    with book.open('rb') as stream:
+        for entry in entries:
+            if check is not None:
+                check()
+            stream.seek(entry.payload_start)
+            length = entry.payload_end - entry.payload_start
+            if not mime(base64.b64decode(stream.read(min(16, length)), validate=True)):
+                continue
+            if len(used) >= 5000 or total + length * 3 // 4 > api.MAX_TOTAL + 2:
+                raise api.ConversionError('Изображения превышают предел экспорта.')
+            stream.seek(entry.payload_start)
+            data = base64.b64decode(stream.read(length), validate=True)
+            pictures.append(data)
+            used.append(entry)
+            total += len(data)
+    return pictures, used
+
+
+def replace_generated_fb2_images(api, book, destination, entries, originals, encoded, check):
+    with book.open('rb') as stream, destination.open('xb') as output:
+        for entry, original, changed in zip(entries, originals, encoded):
+            if original == changed:
+                continue
+            for block in fb2_blocks(stream, entry.start, check):
+                output.write(block)
+            api.write_fb2_binary(output, entry.name, mime(changed), changed)
+            stream.seek(entry.end)
+        for block in fb2_blocks(stream, book.stat().st_size, check):
+            output.write(block)
+
+
 def apply(api, book, target_extension, profile, tools_root, progress, options_file=None, choice_file=None, warnings=None, container=None, check=None, grayscale=False, measurement=None,
-          preserve_image=None, image_history_report=None):
+          preserve_image=None, image_history_report=None, fb2_binary_ranges=None):
     storage = image_storage(target_extension,container)
     if profile == 'original':
         if not grayscale: return
@@ -521,7 +606,9 @@ def apply(api, book, target_extension, profile, tools_root, progress, options_fi
     if profile == 'none':
         with tempfile.TemporaryDirectory(prefix='homelib-image-quality-', dir=book.parent) as temporary:
             candidate = Path(temporary)/('text-only'+target_extension)
-            try: removed = without_images(api,book,candidate,target_extension)
+            try:
+                removed = without_images(api, book, candidate, target_extension,
+                                         generated_fb2=fb2_binary_ranges is not None)
             except NoTextContent as error: raise api.ConversionError(str(error)) from error
             candidate.replace(book)
             if removed and warnings is not None:
@@ -531,7 +618,12 @@ def apply(api, book, target_extension, profile, tools_root, progress, options_fi
     preserve_format = target_extension in {'.docx', '.odt', '.cbz'}
     members = api.packing_image_members(book, target_extension, check) if preserve_format else None
     root = None
-    if target_extension == '.fb2':
+    if fb2_binary_ranges is not None:
+        pictures, identities = generated_fb2_images(api, book, fb2_binary_ranges, check)
+        if profile == 'ask':
+            overhead = book.stat().st_size - sum(entry.payload_end - entry.payload_start for entry in identities)
+            zip_overhead = deflated_blocks_size(fb2_markup(book, identities, check))
+    elif target_extension == '.fb2':
         original_bytes = book.read_bytes()
         encoding = fb2_encoding(original_bytes)
         root = api.xml(original_bytes, api.MAX_TOTAL)
@@ -595,7 +687,8 @@ def apply(api, book, target_extension, profile, tools_root, progress, options_fi
         if profile == 'ask':
             candidate = directory/('text-only'+target_extension)
             try:
-                removed = 0 if preserve_format else without_images(api,book,candidate,target_extension)
+                removed = 0 if preserve_format else without_images(api, book, candidate, target_extension,
+                    generated_fb2=fb2_binary_ranges is not None)
                 text_only_size = candidate.stat().st_size if removed else 0
                 if not removed and small: return
             except NoTextContent:
@@ -687,7 +780,11 @@ def apply(api, book, target_extension, profile, tools_root, progress, options_fi
         if all(original == changed for original,changed in zip(pictures,encoded)):
             report_history(encoded, processed)
             return
-        if target_extension == '.fb2':
+        if fb2_binary_ranges is not None:
+            rewritten = directory/'book.fb2'
+            replace_generated_fb2_images(api, book, rewritten, identities, pictures, encoded, check)
+            rewritten.replace(book)
+        elif target_extension == '.fb2':
             for node,data in zip(identities,encoded):
                 node.text = base64.b64encode(data).decode('ascii'); node.set('content-type', mime(data))
             book.write_bytes(api.ET.tostring(root,encoding=encoding,xml_declaration=True))

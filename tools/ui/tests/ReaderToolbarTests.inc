@@ -4,6 +4,7 @@ var Reader: TfrmBuiltinReader; Toolbar, Row: TPanel; Button: TReaderPaletteButto
   Bitmap: TBitmap; FileName, Name: string; R, Overlap, InitialBounds, MonitorBounds: TRect;
   Position: Integer; Key: Word; Controls: TList<TControl>;
 begin
+  Application.CreateForm(TDMUser,DMUser); DMUser.Init;
   if FileExists('reader-toolbar-preview.flag') then
   begin
     Reader:=TfrmBuiltinReader.Create(nil);

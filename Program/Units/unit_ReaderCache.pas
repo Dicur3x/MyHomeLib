@@ -30,6 +30,8 @@ function IsReaderContainer(const FileName: string): Boolean;
 // False is an intermediate source for explicit text-only export; never a reading copy.
 function PrepareConversionSource(const Book: TBookRecord; const OnStage: TProc<string> = nil;
   const TargetExtension: string = ''; RestoreOriginalImages: Boolean = True; AllowArchiveChoice: Boolean = True; const IsCanceled: TFunc<Boolean> = nil): string;
+function PrepareArchivePreviewFile(const Book: TBookRecord; const ArchiveFile: string;
+  const IsCanceled: TFunc<Boolean>): string;
 function IsReaderArchive(const FileName: string): Boolean;
 procedure CancelReaderPreparations(Owner: TComponent);
 function DeferCloseForReaderPreparation(Owner: TWinControl): Boolean;
@@ -55,7 +57,7 @@ var BeforeReaderArchiveExtractForProfile: TProc;
 implementation
 
 uses
-  System.IOUtils, System.Hash, System.Variants, System.Math, System.NetEncoding, System.RegularExpressions,
+  System.IOUtils, System.Hash, System.Variants, System.Math, System.NetEncoding, System.RegularExpressions, System.StrUtils, System.Zip,
   unit_FileMutex, unit_LibrarySourceID, unit_ReaderMIME,
   System.Generics.Collections, Vcl.Forms, Vcl.StdCtrls,
   Vcl.ExtCtrls, System.SyncObjs, unit_MHLOperationStatus,
@@ -760,18 +762,290 @@ begin
   WriteText('--'+Boundary+'--'#13#10);
 end;
 
-function PrepareLooseArchive(const Book: TBookRecord; const Source: string; const ConvertImages: Boolean; const OnStage: TProc<string>; ConversionOnly: Boolean; const TargetExtension: string; AllowArchiveChoice: Boolean; const IsCanceled: TFunc<Boolean>; Selection: PReaderArchiveSelection): string;
+function PrepareLooseArchive(const Book: TBookRecord; const Source: string; const ConvertImages: Boolean;
+  const OnStage: TProc<string>; ConversionOnly: Boolean; const TargetExtension: string; AllowArchiveChoice: Boolean;
+  const IsCanceled: TFunc<Boolean>; Selection: PReaderArchiveSelection;
+  const VolumeSetStamp: string = ''; Depth: Integer = 0): string; forward;
+
+type
+  TRarVolumeHeader = record
+    Version, Index: Integer;
+    NumberedName, First: Boolean;
+  end;
+
+function IsRarVolumeName(const FileName: string): Boolean;
+var Extension: string;
+begin
+  Extension:=LowerCase(ExtractFileExt(FileName));
+  Result:=(Extension='.rar') or ((Length(Extension)=4) and (Extension[2]='r') and
+    CharInSet(Extension[3],['0'..'9']) and CharInSet(Extension[4],['0'..'9']));
+end;
+
+function ReadRarVolumeHeader(Archive: TMHLZip; const Member: string; out Volume: TRarVolumeHeader): Boolean;
+const Signature: array[0..5] of Byte=($52,$61,$72,$21,$1A,$07);
+var Prefix: TMemoryStream; Input: TFileStream; Bytes: TBytes; Offset: Integer;
+  HeaderSize, BlockType, Flags, Ignored: Integer;
+  function ReadNumber(out Value: Integer): Boolean;
+  begin
+    Value:=0;
+    for var Shift:=0 to 3 do
+    begin
+      if Offset>=Length(Bytes) then Exit(False);
+      var B:=Bytes[Offset]; Inc(Offset);
+      Value:=Value or ((B and $7F) shl (Shift*7));
+      if (B and $80)=0 then Exit(True);
+    end;
+    Result:=False;
+  end;
+begin
+  Volume:=Default(TRarVolumeHeader);
+  Volume.Index:=-1;
+  if Assigned(Archive) then
+  begin
+    Prefix:=TMemoryStream.Create;
+    try
+      Archive.ExtractBookPrefix(Member,-1,96,Prefix);
+      SetLength(Bytes,Integer(Prefix.Size));
+      if Length(Bytes)>0 then Move(Prefix.Memory^,Bytes[0],Length(Bytes));
+    finally Prefix.Free; end;
+  end
+  else
+  begin
+    Input:=TFileStream.Create(Member,fmOpenRead or fmShareDenyWrite);
+    try
+      SetLength(Bytes,96);
+      SetLength(Bytes,Input.Read(Bytes[0],Length(Bytes)));
+    finally Input.Free; end;
+  end;
+  if Length(Bytes)<14 then Exit(False);
+  if not CompareMem(@Bytes[0],@Signature,SizeOf(Signature)) then Exit(False);
+  if (Bytes[6]=0) and (Bytes[9]=$73) then
+  begin
+    Flags:=Bytes[10] or (Bytes[11] shl 8);
+    Volume.Version:=4;
+    Volume.NumberedName:=(Flags and $10)<>0;
+    Volume.First:=(Flags and $100)<>0;
+  end
+  else if (Bytes[6]=1) and (Bytes[7]=0) then
+  begin
+    Offset:=12;
+    if not ReadNumber(HeaderSize) or (HeaderSize=0) then Exit(False);
+    if not ReadNumber(BlockType) or (BlockType<>1) or not ReadNumber(Flags) then Exit(False);
+    if ((Flags and 1)<>0) and not ReadNumber(Ignored) then Exit(False);
+    if ((Flags and 2)<>0) and not ReadNumber(Ignored) then Exit(False);
+    if not ReadNumber(Flags) then Exit(False);
+    Volume.Version:=5;
+    Volume.NumberedName:=True;
+    Volume.First:=(Flags and 2)=0;
+    if Volume.First then Volume.Index:=0
+    else if not ReadNumber(Volume.Index) or (Volume.Index=0) then Exit(False);
+  end
+  else Exit(False);
+  Result:=(Flags and 1)<>0;
+end;
+
+function TryPrepareRarVolumes(const Book: TBookRecord; Archive: TMHLZip; const ArchiveFile, Member: string;
+  const ConvertImages: Boolean; const OnStage: TProc<string>; ConversionOnly: Boolean;
+  const TargetExtension: string; AllowArchiveChoice: Boolean; const IsCanceled: TFunc<Boolean>;
+  Selection: PReaderArchiveSelection; Depth: Integer; out Prepared: string): Boolean;
+var Selected, Header: TRarVolumeHeader; Match: TMatch; First, SelectedNumber, NumberWidth, Number: Integer;
+  Name, Extension, Prefix, Suffix, Folder, Candidate, ScratchPath, OuterStamp, Stamp, FirstPath: string;
+  Staged, Volumes: TArray<string>; Output: TFileStream;
+  function VolumeName(Value: Integer): string;
+  begin
+    if NumberWidth=0 then
+    begin
+      if Value=0 then Exit(Prefix+'.rar');
+      Exit(Prefix+Format('.r%.2d',[Value-1]));
+    end;
+    Result:=Prefix+IntToStr(Value).PadLeft(NumberWidth,'0')+Suffix;
+  end;
+  function FindVolume(const Expected: string; out Actual: string): Boolean;
+  begin
+    if not Assigned(Archive) then
+    begin
+      Actual:=Expected;
+      Exit(FileExists(Actual));
+    end;
+    try Actual:=Archive.ResolveBookName(Expected,-1);
+    except on E: EArchiveBookEntryMissing do Exit(False); end;
+    Result:=SameText(Actual.Replace('\','/'),Expected.Replace('\','/'));
+  end;
+  procedure CheckCanceled;
+  begin
+    if Assigned(IsCanceled) and IsCanceled() then Abort;
+  end;
+  function OpenSet(const FirstFile, Identity: string): string;
+  begin
+    try
+      Result:=PrepareLooseArchive(Book,FirstFile,ConvertImages,OnStage,ConversionOnly,TargetExtension,
+        AllowArchiveChoice,IsCanceled,Selection,Identity,Depth+1);
+    except
+      on E: EMHLComponentRequired do raise;
+      on E: EMHLExternalToolError do
+        raise EReadError.CreateFmt('Не удалось прочитать многотомный RAR «%s». Проверьте целостность '+
+          'томов и наличие продолжения «%s».',[ExtractFileName(Member),ExtractFileName(VolumeName(Number))]);
+    end;
+  end;
+begin
+  Result:=ReadRarVolumeHeader(Archive,Member,Selected);
+  if not Result then Exit;
+  if Depth>=8 then raise EReadError.Create('Слишком много вложенных архивов книги.');
+
+  // Use the actual RAR numbering. For a modern continuation, the archive
+  // header gives its index. Older archives can mark only the first volume.
+  Name:=Member.Replace('\','/');
+  Extension:=LowerCase(ExtractFileExt(Name));
+  NumberWidth:=0;
+  Prefix:=ChangeFileExt(Name,'');
+  Suffix:='';
+  SelectedNumber:=0;
+  if Selected.NumberedName and (Extension='.rar') then
+  begin
+    Match:=TRegEx.Match(ExtractFileName(Name),'([0-9]+)([^0-9]*\.rar)$',[roIgnoreCase]);
+    if Match.Success then
+    begin
+      if not TryStrToInt(Match.Groups[1].Value,SelectedNumber) then
+        raise EReadError.Create('Номер тома RAR слишком велик.');
+      NumberWidth:=Match.Groups[1].Length;
+      Suffix:=Match.Groups[2].Value;
+      Prefix:=Copy(Name,1,Length(Name)-NumberWidth-Length(Suffix));
+    end;
+  end
+  else if Extension<>'.rar' then
+    SelectedNumber:=StrToInt(Copy(Extension,3,2))+1;
+  First:=SelectedNumber;
+  if not Selected.First then
+  begin
+    if Selected.Index>=0 then Dec(First,Selected.Index)
+    else if NumberWidth=0 then First:=0
+    else
+      while First>0 do
+      begin
+        CheckCanceled;
+        if not FindVolume(VolumeName(First-1),Candidate) then Break;
+        if not ReadRarVolumeHeader(Archive,Candidate,Header) or (Header.Version<>Selected.Version) then Break;
+        Dec(First);
+        if Header.First then Break;
+      end;
+  end;
+  if (First<0) or ((First>0) and (First=SelectedNumber) and not Selected.First and (SelectedNumber<>1)) then
+    raise EReadError.CreateFmt('Не найден первый том архива «%s».',[ExtractFileName(Member)]);
+
+  Number:=First;
+  while FindVolume(VolumeName(Number),Candidate) do
+  begin
+    CheckCanceled;
+    if not ReadRarVolumeHeader(Archive,Candidate,Header) or (Header.Version<>Selected.Version) or
+      ((Number>First) and Header.First) or ((Header.Index>=0) and (Header.Index<>Number-First)) then Break;
+    Volumes:=Volumes+[Candidate];
+    if Number=MaxInt then Break;
+    Inc(Number);
+  end;
+  if (Number<=SelectedNumber) or (Length(Volumes)=0) then
+    raise EReadError.CreateFmt('Не найдены все тома RAR для «%s».',[ExtractFileName(Member)]);
+
+  if not Assigned(Archive) then
+  begin
+    Stamp:='rar-files-v1';
+    for Candidate in Volumes do Stamp:=Stamp+#1+FileStamp(Candidate,True);
+    Prepared:=OpenSet(Volumes[0],Stamp);
+    Exit;
+  end;
+
+  // Only the selected archive entries are copied, with simple local names.
+  // The decoder follows that sequence and verifies the contents as usual.
+  if Assigned(OnStage) then OnStage('Подготовка томов RAR…');
+  Folder:=TPath.Combine(BookCachePath,'homelib-rar-'+TGUID.NewGuid.ToString);
+  if not CreateDir(Folder) then RaiseLastOSError;
+  try
+    OuterStamp:=FileStamp(ArchiveFile,True);
+    Stamp:='rar-volumes-v1|'+OuterStamp;
+    for var I:=0 to High(Volumes) do
+    begin
+      CheckCanceled;
+      if NumberWidth<>0 then Name:=Format('archive.part%.4d.rar',[I+1])
+      else if I=0 then Name:='archive.rar'
+      else Name:=Format('archive.r%.2d',[I-1]);
+      ScratchPath:=TPath.Combine(Folder,Name);
+      Staged:=Staged+[ScratchPath];
+      if I=0 then FirstPath:=ScratchPath;
+      Output:=TFileStream.Create(ScratchPath,fmCreate);
+      try Archive.ExtractBookToStream(Volumes[I],-1,Output); finally Output.Free; end;
+      Stamp:=Stamp+#1+Volumes[I];
+    end;
+    if FileStamp(ArchiveFile,True)<>OuterStamp then
+      raise EReadError.Create('Архив коллекции изменился во время чтения томов RAR. Повторите открытие.');
+    Prepared:=OpenSet(FirstPath,Stamp);
+  finally
+    for ScratchPath in Staged do System.SysUtils.DeleteFile(ScratchPath);
+    RemoveDir(Folder);
+  end;
+end;
+
+function PrepareLooseArchive(const Book: TBookRecord; const Source: string; const ConvertImages: Boolean;
+  const OnStage: TProc<string>; ConversionOnly: Boolean; const TargetExtension: string; AllowArchiveChoice: Boolean;
+  const IsCanceled: TFunc<Boolean>; Selection: PReaderArchiveSelection;
+  const VolumeSetStamp: string; Depth: Integer): string;
 var Archive: TMHLZip; Candidates, Nested, Unknown: TList<Integer>; I, Entry: Integer;
-  Member, Extension, Folder, Stamp, StampFile, Temporary: string;
-  Preferred, PreferredScore, Score, Depth: Integer;
+  Member, Extension, Folder, Stamp, StampFile, Temporary, ArchiveStamp, ArchiveKey: string;
+  Preferred, PreferredScore, Score, SelectionIndex, EntryCount: Integer;
   Dialog: TForm; Names: TListBox; OpenButton, CancelButton: TButton; LabelControl: TLabel;
   Extracted: TFileStream; Converted: TStream; Writer: TBookCacheWrite; RequestingThread: TThread;
   HtmlImages: TArray<TPair<string,Integer>>;
   Html: TBytes;
+  procedure SaveComicVolumes(const Destination: string);
+  var Zip: TZipFile; Page: TFileStream; ScratchPage: string;
+  begin
+    ScratchPage:=Writer.TemporaryName(Destination);
+    Zip:=TZipFile.Create;
+    try
+      Zip.Open(Destination,zmWrite);
+      Page:=TFileStream.Create(ScratchPage,fmCreate);
+      try
+        for var Index:=0 to EntryCount-1 do
+        begin
+          if Assigned(IsCanceled) and IsCanceled() then Abort;
+          var Name:=Archive.FileNames[Index].Replace('\','/');
+          // ZIP names stay relative and never become extraction paths.
+          if Name.StartsWith('/') or Name.Contains(':') or MatchText('..',Name.Split(['/'])) then
+            raise EReadError.Create('В архиве комикса найден недопустимый путь.');
+          Archive.ExtractToStream(Index,Page);
+          if Page.Size<>Archive.FileSizes[Index] then raise EReadError.Create('Не удалось полностью прочитать страницу комикса.');
+          Page.Position:=0; Zip.Add(Page,Name,zcStored);
+        end;
+      finally Page.Free; end;
+    finally Zip.Free; end;
+  end;
+  function IsInfoCompanion(Index: Integer): Boolean;
+  var Name, Stem, Parent: string; Readme: Boolean;
+    function Matches(Candidate: Integer): Boolean;
+    var Other: string;
+    begin
+      Other:=Archive.FileNames[Candidate].Replace('\','/');
+      Result:=not SameText(ExtractFileExt(Other),'.txt') and
+        (((Stem<>'') and SameText(ChangeFileExt(Other,''),Stem)) or
+         (Readme and SameText(Copy(Other,1,LastDelimiter('/',Other)),Parent)));
+    end;
+  begin
+    Result:=False;
+    Name:=Archive.FileNames[Index].Replace('\','/');
+    Parent:=Copy(Name,1,LastDelimiter('/',Name));
+    Readme:=(Archive.FileSizes[Index]<=64*1024) and
+      MatchText(Copy(Name,Length(Parent)+1,MaxInt),['readme.txt','readmi.txt']);
+    if Name.EndsWith('_inf.txt',True) then Stem:=Copy(Name,1,Length(Name)-Length('_inf.txt'))
+    else if not Readme then Exit;
+    for var Candidate in Candidates do
+      if Matches(Candidate) then Exit(True);
+    for var Candidate in Nested do
+      if Matches(Candidate) then Exit(True);
+  end;
 begin
   RequestingThread := TThread.CurrentThread;
   if Assigned(OnStage) then OnStage('Просмотр содержимого архива…');
   Result := '';
+  if (VolumeSetStamp='') and IsRarVolumeName(Source) and TryPrepareRarVolumes(Book,nil,'',Source,
+    ConvertImages,OnStage,ConversionOnly,TargetExtension,AllowArchiveChoice,IsCanceled,Selection,Depth,Result) then Exit;
   Archive := TMHLZip.Create(Source, True, False,
     function: Boolean
     begin
@@ -781,6 +1055,10 @@ begin
     not SameText(ExtractFileExt(Source),'.zip'));
   Candidates := TList<Integer>.Create; Nested:=TList<Integer>.Create; Unknown:=TList<Integer>.Create;
   try
+    EntryCount:=Archive.FileCount;
+    ArchiveKey:=VolumeSetStamp;
+    ArchiveStamp:=VolumeSetStamp;
+    if ArchiveKey='' then ArchiveKey:=LowerCase(TPath.GetFullPath(Source));
     // An image-only archive is one book. Keep every page instead of asking
     // the reader to choose a single image and silently omitting the others.
     if Archive.IsImageOnlyComic and
@@ -788,19 +1066,21 @@ begin
         (Length(Selection.Opened)=Length(Selection.Expected))) then
     begin
       Extension:=DetectReaderExtension(Source);
-      if Extension='.zip' then Extension:='.cbz'
+      if (Extension='.zip') or (VolumeSetStamp<>'') then Extension:='.cbz'
       else if Extension='.rar' then Extension:='.cbr'
       else if Extension='.7z' then Extension:='.cb7' else Extension:='';
       if Extension<>'' then
       begin
-        Stamp:='comic-v1|'+SourceStamp(Book,Source,False);
+        if ArchiveStamp='' then ArchiveStamp:=SourceStamp(Book,Source,False);
+        Stamp:='comic-v1|'+ArchiveStamp;
         Result:=ExistingBookCacheFile(TPath.Combine(BookCachePath,'homelib-comic-'+Copy(THashSHA2.GetHashString(Stamp),1,32)+Extension));
         if FileExists(Result) and FileExists(Result+'.source') and (TFile.ReadAllText(Result+'.source',TEncoding.UTF8)=Stamp) then
         begin RegisterBookCacheFile(Result,Book.GetBookFileName);Exit;end;
         ForceDirectories(ExtractFileDir(Result)); Writer:=TBookCacheWrite.Create(Book.GetBookFileName);
         try
           Temporary:=Writer.TemporaryName(Result);StampFile:=Writer.TemporaryName(Result+'.source');
-          TFile.Copy(Source,Temporary,True);
+          if VolumeSetStamp<>'' then SaveComicVolumes(Temporary)
+          else TFile.Copy(Source,Temporary,True);
           if Assigned(IsCanceled) and IsCanceled() then Abort;
           TFile.WriteAllText(StampFile,Stamp,TEncoding.UTF8);
           Writer.Publish(Temporary,Result,StampFile);
@@ -808,7 +1088,7 @@ begin
         Exit;
       end;
     end;
-    for I := 0 to Archive.FileCount - 1 do
+    for I := 0 to EntryCount - 1 do
     begin
       if Assigned(IsCanceled) and IsCanceled() then Abort;
       Extension := LowerCase(ExtractFileExt(Archive.FileNames[I]));
@@ -838,6 +1118,10 @@ begin
         IsLegacyReaderFormat(Extension) or IsKfxReaderFormat(Extension) or
         (Extension='.prc') or IsOfficeReaderFormat(Extension) then Candidates.Add(I);
     end;
+    // The archive may include a description of the named book beside it.
+    // Keep unrelated text books eligible and preserve exact saved selections.
+    for I:=Candidates.Count-1 downto 0 do
+      if IsInfoCompanion(Candidates[I]) then Candidates.Delete(I);
     if Candidates.Count=0 then
       for I in Nested do Candidates.Add(I);
     if Candidates.Count=0 then
@@ -845,8 +1129,7 @@ begin
     if (Candidates.Count=0) and ConversionOnly then
       raise ENotSupportedException.Create('В архиве нет книг поддерживаемых форматов для этого преобразования.');
     if Candidates.Count = 0 then raise Exception.Create('В архиве не найдены книги подходящего для чтения формата.');
-    // Keep companion text files selectable, but initially highlight a book
-    // document rather than an alphabetically earlier example in a subfolder.
+    // Highlight a main document before less likely choices in subfolders.
     Preferred:=0; PreferredScore:=MaxInt;
     for I:=0 to Candidates.Count-1 do
     begin
@@ -862,10 +1145,10 @@ begin
     if (Selection<>nil) and (Candidates.Count>1) then Selection.Ambiguous:=True;
     if (Selection<>nil) and (Length(Selection.Expected)>0) then
     begin
-      Depth:=Length(Selection.Opened); Entry:=-1;
-      if Depth<Length(Selection.Expected) then
-        for I:=0 to Archive.FileCount-1 do
-          if Archive.FileNames[I]=Selection.Expected[Depth] then
+      SelectionIndex:=Length(Selection.Opened); Entry:=-1;
+      if SelectionIndex<Length(Selection.Expected) then
+        for I:=0 to EntryCount-1 do
+          if Archive.FileNames[I]=Selection.Expected[SelectionIndex] then
           begin
             if Entry>=0 then raise EReadError.Create('В архиве несколько вложений с именем сохранённой книги.');
             Entry:=I;
@@ -875,7 +1158,10 @@ begin
     else if Candidates.Count > 1 then
     begin
       if not AllowArchiveChoice then
-        raise EReadError.Create('В архиве несколько книг. Размер зависит от файла, выбранного при сохранении.');
+        if ConversionOnly then
+          raise EReadError.Create('В архиве несколько книг. Размер зависит от файла, выбранного при сохранении.')
+        else
+          raise EReadError.Create('В архиве несколько книг. Откройте архив и выберите нужную книгу.');
       Entry := -1;
       TThread.Synchronize(nil,
       procedure
@@ -911,8 +1197,13 @@ begin
       end);
       if Entry < 0 then Exit;
     end;
-    if ConversionOnly and ((Archive.FileSizes[Entry]<0) or (Archive.FileSizes[Entry]>MAX_PDF_CONVERSION_SOURCE)) then
-      raise EReadError.Create('Книга в архиве превышает предел конвертации (512 МБ).');
+    if ((Archive.FileSizes[Entry]<0) or (Archive.FileSizes[Entry]>MAX_PDF_CONVERSION_SOURCE)) then
+    begin
+      if ConversionOnly then
+        raise EReadError.Create('Книга в архиве превышает предел конвертации (512 МБ).');
+      if not AllowArchiveChoice then
+        raise EReadError.Create('Книга в архиве слишком большая для автоматического предпросмотра. Откройте её для чтения.');
+    end;
     Member := Archive.FileNames[Entry]; Extension := LowerCase(ExtractFileExt(Member));
     if (Extension='.html') or (Extension='.htm') or (Extension='.xhtml') or (Extension='.shtml') then
     begin
@@ -920,13 +1211,17 @@ begin
       if Length(HtmlImages)>0 then Extension:='.mht';
     end;
     if Selection<>nil then Selection.Opened:=Selection.Opened+[Member];
+    if IsRarVolumeName(Member) and TryPrepareRarVolumes(Book,Archive,Source,Member,ConvertImages,OnStage,
+      ConversionOnly,TargetExtension,AllowArchiveChoice,IsCanceled,Selection,Depth,Result) then Exit;
     Folder:=BookCachePath;
     if (Extension = FB2_EXTENSION) and ConvertImages then
       Folder := TPath.Combine(Folder, WEBP_READER_CACHE_FOLDER);
     ForceDirectories(Folder);
     Result := TPath.Combine(Folder, 'homelib-archive-' + Copy(THashSHA2.GetHashString(
-      LowerCase(TPath.GetFullPath(Source)) + #1 + Member), 1, 32) + Extension);
-    Stamp := SourceStamp(Book, Source, ConvertImages) + '|member:' + Member;
+      ArchiveKey + #1 + Member), 1, 32) + Extension);
+    if ArchiveStamp='' then ArchiveStamp:=SourceStamp(Book,Source,ConvertImages)
+    else ArchiveStamp:=ArchiveStamp+'|'+BoolToStr(ConvertImages,True)+'|'+PROGRAM_RELEASE_VERSION;
+    Stamp := ArchiveStamp + '|member:' + Member;
     if Length(HtmlImages)>0 then Stamp:=Stamp+'|html-images-v2';
     if Extension='.pdf' then Stamp:=Stamp+'|pdf-archive-v2';
     Result:=ExistingBookCacheFile(Result);
@@ -970,7 +1265,7 @@ end;
 function PrepareReaderFileCore(const Book: TBookRecord; const PreserveImages: Boolean; const OnStage: TProc<string>; OpenArchive: Boolean; ConversionOnly: Boolean = False; const TargetExtension: string = ''; RestoreOriginalImages: Boolean = True; AllowArchiveChoice: Boolean = True; const IsCanceled: TFunc<Boolean> = nil; Selection: PReaderArchiveSelection = nil): string;
 var Source, Folder, Stamp, StampFile, Temporary, TemporaryStamp: string;
   Format: TBookFormat; Stream, Converted: TStream; Target: TFileStream; ConvertImages: Boolean;
-  Corrected: TBookRecord; Writer: TBookCacheWrite; Actual: string;
+  Corrected: TBookRecord; Writer: TBookCacheWrite; Actual, Member: string; Archive: TMHLZip;
 begin
   Source := Book.GetBookFileName;
   Format := Book.GetBookFormat;
@@ -988,6 +1283,23 @@ begin
   Corrected:=ResolveArchivedBook(Book);
   if (Corrected.FileName<>Book.FileName) or (Corrected.FileExt<>Book.FileExt) then
     Exit(PrepareReaderFileCore(Corrected,PreserveImages,OnStage,OpenArchive,ConversionOnly,TargetExtension,RestoreOriginalImages,AllowArchiveChoice,IsCanceled,Selection));
+  if not OpenArchive and (Format=bfRawArchive) and IsRarVolumeName(Book.FileName+Book.FileExt) then
+  begin
+    Member:=Book.FileName;
+    if not SameText(ExtractFileExt(Member),Book.FileExt) then Member:=Member+Book.FileExt;
+    Archive:=TMHLZip.Create(Source,True,False,IsCanceled);
+    try
+      Member:=Archive.ResolveBookName(Member,Book.InsideNo);
+      if TryPrepareRarVolumes(Book,Archive,Source,Member,ConvertImages,OnStage,ConversionOnly,
+        TargetExtension,AllowArchiveChoice,IsCanceled,Selection,0,Result) then Exit;
+    finally Archive.Free; end;
+  end;
+  // A continuation such as .r00 must find its first volume before format
+  // detection makes a renamed .rar copy with no sibling volumes beside it.
+  if not OpenArchive and (Format=bfRaw) and IsRarVolumeName(Source) and
+    not SameText(ExtractFileExt(Source),'.rar') and
+    TryPrepareRarVolumes(Book,nil,'',Source,ConvertImages,OnStage,ConversionOnly,TargetExtension,
+      AllowArchiveChoice,IsCanceled,Selection,0,Result) then Exit;
   // An already validated FB2 compatibility copy is checked below before
   // reopening source bytes. Raw/unconverted sources still need detection here.
   if not OpenArchive and (Format in [bfRaw,bfFb2]) and
@@ -1100,6 +1412,12 @@ begin
   raise Exception.Create('Слишком много вложенных архивов книги (более восьми).');
 end;
 
+function PrepareArchivePreviewFile(const Book: TBookRecord; const ArchiveFile: string;
+  const IsCanceled: TFunc<Boolean>): string;
+begin
+  Result:=ResolvePreparedPayload(Book,ArchiveFile,False,False,nil,'',False,IsCanceled);
+end;
+
 function PrepareReaderFile(const Book: TBookRecord; const PreserveImages: Boolean;
   const OnStage: TProc<string>; OpenArchive, ConvertKindle, ConvertOffice: Boolean; const IsCanceled: TFunc<Boolean>; Selection: PReaderArchiveSelection): string;
 begin
@@ -1125,7 +1443,7 @@ begin
         Exit(PrepareKfxReflow(Result,Book.GetBookFileName,OnStage,IsCanceled));
       var Required:=RequiredReaderComponent(Settings.AppPath,ExtractFileExt(Result));
       if Required<>'' then raise EReaderComponentRequired.Create(Required);
-      Result := PrepareLegacyReaderFile(Result,Book.GetBookFileName,OnStage);
+      Result := PrepareLegacyReaderFile(Result,Book.GetBookFileName,OnStage,IsCanceled);
       Result := PrepareOfficeReaderFile(Result,Book.GetBookFileName,OnStage);
     end;
   end;

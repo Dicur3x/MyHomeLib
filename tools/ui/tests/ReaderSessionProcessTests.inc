@@ -8,7 +8,8 @@ type
     VolumeEndReached: Boolean;
     Request: TReaderSessionRequest;
     OpenMS, MaxPageMS, TotalPageMS: Int64;
-    TextHash, Error: string;
+    TextHash, Error, GroupMarker: string;
+    GroupProgress: Integer;
     Done: Boolean;
     procedure Tick(Sender: TObject);
   end;
@@ -27,7 +28,26 @@ begin
     if VisibleAt=0 then VisibleAt:=GetTickCount64;
     Require(not string(View.ReaderStatus.Caption).StartsWith('Не удалось'),View.ReaderStatus.Caption);
     if not View.Ready or View.PageLoading then Exit;
-    if VolumeTarget>0 then
+    if GroupMarker<>'' then
+    begin
+      var ReportFile := GetEnvironmentVariable('HLRU_READER_TEST_REPORT');
+      var ReadyFile := TPath.ChangeExtension(ReportFile, '.ready');
+      if not FileExists(ReadyFile) then
+      begin
+        Require(View.BookText.Contains(GroupMarker), 'Main group reader opened a foreign book');
+        View.SetBounds(80, 80, 640, 440);
+        TFile.WriteAllText(ReadyFile, 'Group book ready');
+        Exit;
+      end;
+      if not FileExists(TPath.ChangeExtension(ReportFile, '.continue')) then Exit;
+      var PreviousPosition := View.TextPosition;
+      View.SeekProgress(0.63);
+      Require((View.TextPosition > 0) and (View.TextPosition <> PreviousPosition),
+        'Main group reader did not move before saving');
+      View.AddBookmark;
+      GroupProgress := EnsureRange(Round(View.ReadingProgress * 100), 0, 100);
+    end
+    else if VolumeTarget>0 then
     begin
       if Request.Book.BookKey.BookID<>VolumeTarget then
       begin
@@ -82,7 +102,7 @@ begin
       TextHash:=THashSHA2.GetHashString(View.BookText);
       Pages:=1; PageStarted:=GetTickCount64; View.NextPage; Exit;
     end;
-    if (RecentTarget=0) and (VolumeTarget=0) then
+    if (RecentTarget=0) and (VolumeTarget=0) and (GroupMarker='') then
     begin
       Elapsed:=GetTickCount64-PageStarted; MaxPageMS:=Max(MaxPageMS,Elapsed); Inc(TotalPageMS,Elapsed);
       Require(Elapsed<1500,'Independent reader page turn blocks for seconds');
@@ -102,6 +122,7 @@ begin
       Report.WriteInteger('Reader','pictures',View.PictureCount);
     end;
     Report.WriteInteger('Reader','pid',GetCurrentProcessId);
+    if GroupMarker<>'' then Report.WriteInteger('Reader','group_progress',GroupProgress);
     Report.WriteInteger('Reader','pages',Pages); Report.WriteInteger('Reader','position',InitialPosition);
     Report.WriteInteger('Reader','open_ms',OpenMS);
     Report.WriteInteger('Reader','visible_ms',Int64(VisibleAt)-Int64(Started));
@@ -119,7 +140,7 @@ begin
   RequireIsolatedRegression;
   Request:=LoadReaderSession(ParamStr(1).Substring(10));
   Mode:=GetEnvironmentVariable('HLRU_SESSION_TEST_MODE');
-  if (Mode<>'render') and (Mode<>'render-recent') and (Mode<>'render-volume') then
+  if (Mode<>'render') and (Mode<>'render-recent') and (Mode<>'render-volume') and (Mode<>'render-group') then
   begin
     if Mode='crash' then Exit;
     Lease:=TReaderSessionLease.Create(Request);
@@ -156,6 +177,11 @@ begin
   Driver:=TSessionRenderDriver.Create; Host:=TfrmReaderHost.Create(nil);
   try
     Driver.Request:=Request;
+    if Mode='render-group' then
+    begin
+      Driver.GroupMarker := GetEnvironmentVariable('HLRU_GROUP_READER_MARKER');
+      Require(Driver.GroupMarker<>'', 'The group reader expected a text marker');
+    end;
     if Mode='render-recent' then Driver.RecentTarget:=StrToInt(GetEnvironmentVariable('HLRU_READER_TEST_RECENT'));
     if Mode='render-volume' then Driver.VolumeTarget:=StrToInt(GetEnvironmentVariable('HLRU_READER_TEST_VOLUME'));
     Driver.Started:=GetTickCount64;

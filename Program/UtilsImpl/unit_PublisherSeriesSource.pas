@@ -52,8 +52,8 @@ type
 implementation
 
 uses
-  Winapi.Windows, System.IOUtils, System.JSON, System.Hash,
-  unit_Settings, unit_PackageBookMetadata, dm_user, unit_MHLExternalTools;
+  Winapi.Windows, System.IOUtils, System.JSON, System.Hash, System.Zip,
+  unit_Settings, unit_PackageBookMetadata, unit_Fb3Package, dm_user, unit_MHLExternalTools;
 
 function FileStamp(const Path: string): string;
 var
@@ -147,7 +147,10 @@ begin
     Exit;
   Parts := TJSONArray.Create;
   try
-    Parts.Add('publisher-metadata-v3');
+    if SameText(Book.FileExt,'.fb3') or SameText(Book.FileExt,'.zip') then
+      Parts.Add('publisher-metadata-v4')
+    else
+      Parts.Add('publisher-metadata-v3');
     Parts.Add(LowerCase(Path));
     Parts.Add(Stamp);
     Parts.Add(Ord(Book.GetBookFormat));
@@ -311,6 +314,7 @@ end;
 
 function TPublisherSeriesSource.OpenCatalogMetadata(const Book: TBookRecord; out Extension: string): TStream;
 var Path,Entry,CandidateExtension: string; Candidate,MimeIndex: Integer; MimeStream: TStream; MimeBytes: TBytes;
+  PackageStream: TFileStream; Zip: TZipFile; IsFb3: Boolean;
 begin
   Extension:=LowerCase(Book.FileExt);
   if not IsMetadataContainer(Extension) then Exit(OpenDescriptor(Book,False));
@@ -323,6 +327,32 @@ begin
   begin Extension:='.fb3'; Exit(TFileStream.Create(Path,fmOpenRead or fmShareDenyWrite)); end;
   if FEntryIndex.ContainsKey('word/document.xml') and FEntryIndex.ContainsKey('[content_types].xml') then
   begin Extension:='.docx'; Exit(TFileStream.Create(Path,fmOpenRead or fmShareDenyWrite)); end;
+  if not FNativeOnly and FEntryIndex.ContainsKey('[content_types].xml') then
+  begin
+    PackageStream:=TFileStream.Create(Path,fmOpenRead or fmShareDenyWrite);
+    try
+      IsFb3:=False;
+      Zip:=TZipFile.Create;
+      try
+        try
+          Zip.Open(PackageStream,zmRead);
+          var Package:=TFb3Package.Create(Zip);
+          try IsFb3:=Package.IsBook;
+          finally Package.Free; end;
+        except
+          on E:EZipException do IsFb3:=False;
+        end;
+      finally Zip.Free; end;
+      if IsFb3 then
+      begin
+        PackageStream.Position:=0;
+        Extension:='.fb3';
+        Result:=PackageStream;
+        PackageStream:=nil;
+        Exit;
+      end;
+    finally PackageStream.Free; end;
+  end;
   if FEntryIndex.ContainsKey('content.xml') and FEntryIndex.ContainsKey('meta.xml') and
     FEntryIndex.TryGetValue('mimetype',MimeIndex) and (MimeIndex>=0) then
   begin

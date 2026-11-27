@@ -7,6 +7,7 @@ const MAX_NATIVE_RTF_SOURCE = 64*1024*1024;
 
 // Content inspection uses a bounded prefix and never changes source files.
 function DetectReaderExtension(const FileName: string): string;
+function HasReadableEpubContainer(const FileName: string): Boolean;
 function PrepareDetectedReaderFile(const FileName, Source: string): string;
 function ReaderAvailability(const Extension: string): string;
 function IsBuiltinReaderFormat(const Extension: string): Boolean;
@@ -16,12 +17,74 @@ function IsKfxReaderFormat(const Extension: string): Boolean;
 implementation
 
 uses System.SysUtils, System.Classes, System.IOUtils, System.Zip, System.Hash, System.Math,
-  System.StrUtils, System.RegularExpressions, System.Generics.Collections, System.SyncObjs, Winapi.Windows, SQLiteWrap, unit_BookCache, unit_ReaderOffice;
+  System.StrUtils, System.RegularExpressions, System.Generics.Collections, System.SyncObjs, System.Variants, System.Win.ComObj,
+  Winapi.Windows, Winapi.ActiveX, Winapi.MSXML, SQLiteWrap, unit_BookCache, unit_ReaderOffice, unit_Fb3Package;
 
 var FormatCache: TDictionary<string,string>; FormatCacheLock: TCriticalSection;
 
 function InList(const Extension, Values: string): Boolean;
 begin Result:=Pos('|'+LowerCase(Extension).TrimLeft(['.'])+'|',Values)>0; end;
+
+function HasReadableEpubContainer(const FileName: string): Boolean;
+const MetadataLimit = 4*1024*1024;
+  UnclosedTag = Cardinal($C00CE553);
+  IncompleteEndTag = Cardinal($C00CE55F);
+  UnclosedDeclaration = Cardinal($C00CE562);
+var Zip: TZipFile; Doc: IXMLDOMDocument3; Rootfile, RootPath: IXMLDOMNode; COMResult: HResult;
+
+  function IncompleteXML: Boolean;
+  var Code: Cardinal;
+  begin
+    Code:=Cardinal(Doc.parseError.errorCode);
+    Result:=(Code=UnclosedTag) or (Code=IncompleteEndTag) or (Code=UnclosedDeclaration);
+  end;
+
+  function ReadMetadata(Index: Integer): Boolean;
+  var Data: TBytes; Buffer: TBytesStream; Adapter: IStream; Input: OleVariant;
+  begin
+    Zip.Read(Index,Data);
+    Buffer:=TBytesStream.Create(Data);
+    try
+      Adapter:=TStreamAdapter.Create(Buffer,soReference) as IStream;
+      Input:=IUnknown(Adapter);
+      Result:=Doc.load(Input);
+    finally
+      VarClear(Input);
+      Adapter:=nil;
+      Buffer.Free;
+    end;
+  end;
+
+begin
+  COMResult:=CoInitialize(nil);
+  Zip:=TZipFile.Create;
+  try
+    try
+      Zip.Open(FileName,zmRead);
+      var ContainerIndex:=Zip.IndexOf('META-INF/container.xml');
+      if ContainerIndex<0 then Exit(False);
+      if Zip.FileInfo[ContainerIndex].UncompressedSize>MetadataLimit then Exit(True);
+      Doc:=CreateOleObject('Msxml2.DOMDocument.6.0') as IXMLDOMDocument3;
+      Doc.async:=False; Doc.resolveExternals:=False; Doc.validateOnParse:=False;
+      Doc.setProperty('ProhibitDTD',True);
+      if not ReadMetadata(ContainerIndex) then Exit(not IncompleteXML);
+      Rootfile:=Doc.selectSingleNode('//*[local-name()="rootfile"]');
+      if not Assigned(Rootfile) then Exit(False);
+      RootPath:=Rootfile.attributes.getNamedItem('full-path');
+      if not Assigned(RootPath) then Exit(False);
+      var PackageIndex:=Zip.IndexOf(RootPath.text);
+      if PackageIndex<0 then Exit(False);
+      if Zip.FileInfo[PackageIndex].UncompressedSize>MetadataLimit then Exit(True);
+      // The native XML reader already handles supported declaration and namespace repairs.
+      // Delegate a prematurely closed package to the shared recovery routine.
+      Result:=ReadMetadata(PackageIndex);
+      if not Result then Result:=not IncompleteXML;
+    except on E:EZipException do Result:=False; end;
+  finally
+    RootPath:=nil; Rootfile:=nil; Doc:=nil; Zip.Free;
+    if Succeeded(COMResult) then CoUninitialize;
+  end;
+end;
 
 function IsLegacyReaderFormat(const Extension: string): Boolean;
 begin
@@ -273,6 +336,11 @@ begin
   begin
     Exit(DetectCompoundOffice(FileName,Bytes));
   end;
+  // Some EPUB writers leave DEFLATE option bits on the stored mimetype entry.
+  if (Length(Bytes)>=58) and (Copy(Prefix,1,4)='PK'+#3#4) and
+    ((Bytes[6] and $F9)=0) and ((Bytes[7] and $F7)=0) and (Copy(Prefix,9,2)=#0#0) and
+    (ReadLE32(14)=$2CAB616F) and (ReadLE32(18)=20) and (ReadLE32(22)=20) and (Copy(Prefix,27,4)=#8#0#0#0) and
+    (Copy(Prefix,31,28)='mimetypeapplication/epub+zip') then Exit('.epub');
   if (Copy(Prefix,1,2)='PK') then
   begin
     Zip:=TZipFile.Create;
@@ -283,7 +351,12 @@ begin
         if Zip.IndexOf('word/document.xml')>=0 then Exit('.docx');
         if Zip.IndexOf('ppt/presentation.xml')>=0 then Exit('.pptx');
         if Zip.IndexOf('xl/workbook.xml')>=0 then Exit('.xlsx');
-        if Zip.IndexOf('fb3/body.xml')>=0 then Exit('.fb3');
+        if (Zip.IndexOf('fb3/body.xml')>=0) or (Zip.IndexOf('[Content_Types].xml')>=0) then
+        begin
+          var Fb3:=TFb3Package.Create(Zip);
+          try if Fb3.IsBook then Exit('.fb3');
+          finally Fb3.Free; end;
+        end;
         // The converter validates the Pages document graph, never a preview.
         if (Zip.IndexOf('Index/Document.iwa')>=0) or (Zip.IndexOf('Index.zip')>=0) then Exit('.pages');
         if Zip.IndexOf('content.xml')>=0 then
@@ -333,6 +406,13 @@ begin
   if Copy(Prefix,1,2)='MZ' then Exit('.exe');
   if (Bytes[0]=$FF) and (Bytes[1]=$FE) then Prefix:=TEncoding.Unicode.GetString(Bytes,2,Min(Length(Bytes)-2,4096) and not 1)
   else if (Bytes[0]=$FE) and (Bytes[1]=$FF) then Prefix:=TEncoding.BigEndianUnicode.GetString(Bytes,2,Min(Length(Bytes)-2,4096) and not 1);
+  if InList(ExtractFileExt(FileName),'|mht|mhtml|') then
+  begin
+    Wide:=TRegEx.Match(Prefix,'\A[\s\S]*?(?=\r?\n\r?\n|\z)').Value;
+    if TRegEx.IsMatch(Wide,'^MIME-Version:',[roIgnoreCase,roMultiLine]) and
+      TRegEx.IsMatch(Wide,'^Content-Type:\s*(?:text/plain|text/html|application/xhtml\+xml|multipart/[^;\s]+)(?=[;\s]|$)',
+        [roIgnoreCase,roMultiLine]) then Exit('.mht');
+  end;
   if TRegEx.IsMatch(Prefix,'\A(?:\xEF\xBB\xBF)?\s*<\?(?:php(?=\s|$)|=)',[roIgnoreCase]) then Exit('.php');
   // A PDF header can appear inside a stronger container or quoted in a script.
   if Pos('%PDF-',ReaderSignatureBytes(Bytes,0,1024))>0 then Exit('.pdf');
@@ -341,9 +421,9 @@ begin
   if ContainsText(Prefix,'MIME-Version:') and (ContainsText(Prefix,'multipart/') or ContainsText(Prefix,'text/html')) then Exit('.mht');
   if ContainsText(Prefix,'<html') or ContainsText(Prefix,'<!DOCTYPE html') or
     TRegEx.IsMatch(Prefix,'<(body|p|div|section|h[1-6])(\s|>)',[roIgnoreCase]) then Exit('.html');
-  // A leading angle bracket also occurs in plain text, for example <|title|>.
+  // Plain text can start with <|title|> or a URL in angle brackets.
   // Require the start of an XML tag or declaration before relabelling a file.
-  if TRegEx.IsMatch(Prefix,'\A(?:\xEF\xBB\xBF)?\s*<(?:[\p{L}_:][\w.:-]*(?=[\s/>])|\?xml(?=[\s?])|!--|!DOCTYPE(?=[\s>]))',[roIgnoreCase]) then
+  if TRegEx.IsMatch(Prefix,'\A(?:\xEF\xBB\xBF)?\s*<(?:[\p{L}_:][\w.:-]*(?=[\s>]|/>)|\?xml(?=[\s?])|!--|!DOCTYPE(?=[\s>]))',[roIgnoreCase]) then
   begin
     if InList(ExtractFileExt(FileName),'|html|htm|xhtml|shtml|') then Exit('.html');
     Exit('.xml');

@@ -3,6 +3,8 @@
 import importlib.util
 import os
 from pathlib import Path
+from queue import Empty, SimpleQueue
+from threading import Thread
 import struct
 import subprocess
 import sys
@@ -21,10 +23,11 @@ OUTPUT_SUFFIXES = {
 }
 
 
-def run_writer(api, command, work, check, timeout=300):
+def run_writer(api, command, work, check, timeout=300, *, use_working_directory=True):
     log_path = work / 'writer.log'
     with log_path.open('wb') as log:
-        process = subprocess.Popen(command, cwd=work, stdin=subprocess.DEVNULL, stdout=log,
+        process = subprocess.Popen(command, cwd=work if use_working_directory else None,
+                                   stdin=subprocess.DEVNULL, stdout=log,
                                    stderr=subprocess.STDOUT,
                                    creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
         deadline = time.monotonic() + timeout
@@ -47,6 +50,72 @@ def run_writer(api, command, work, check, timeout=300):
             log.seek(max(0, log_path.stat().st_size - 2500))
             detail = log.read(2500).decode('utf-8', 'replace').strip()
         raise api.ConversionError('Модуль не смог сохранить книгу.' + (' ' + detail if detail else ''))
+
+
+class ImageFileWorker:
+    """Request one image at a time from a process with a private workspace."""
+
+    def __init__(self, tool, folder, command):
+        self.source = folder / 'picture.bin'
+        self.target = folder / 'picture.png'
+        self.responses = SimpleQueue()
+        self.process = subprocess.Popen([str(tool), command, str(folder)],
+                                        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                        creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        self.reader = Thread(target=self.read_responses, args=(self.process.stdout,), daemon=True)
+        self.reader.start()
+
+    def read_responses(self, stream):
+        try:
+            while line := stream.readline(32):
+                self.responses.put(line.strip())
+        except OSError:
+            pass
+        finally:
+            self.responses.put(None)
+
+    def response(self, timeout, check=None):
+        if check is None:
+            return self.responses.get(timeout=timeout)
+        deadline = time.monotonic() + timeout
+        while True:
+            check()
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise Empty
+            try:
+                return self.responses.get(timeout=min(remaining, 0.05))
+            except Empty:
+                continue
+
+    def request(self, data, timeout, check=None):
+        self.source.write_bytes(data)
+        self.target.unlink(missing_ok=True)
+        try:
+            self.process.stdin.write(b'R')
+            self.process.stdin.flush()
+        except OSError as error:
+            raise BrokenPipeError('Image worker stopped accepting requests.') from error
+        return self.response(timeout, check)
+
+    def close(self):
+        process = self.process
+        if process is None:
+            return
+        self.process = None
+        try:
+            try:
+                process.stdin.close()
+            except OSError:
+                pass
+            try:
+                process.wait(timeout=0.5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+        finally:
+            self.reader.join()
+            process.stdout.close()
 
 
 def validate_output(api, output, profile):
@@ -109,11 +178,11 @@ def convert(api, source, destination, source_extension, profile, options):
     if quality == 'none' and profile in ('kfx', 'azw8'):
         raise api.ConversionError('Для KFX и AZW8 нужна обложка. Выберите режим с изображениями.')
     tools = Path(options.get('tools_root') or Path(__file__).resolve().parent.parent).resolve()
-    epub_pdf = source_extension != '.fb2' and profile == 'pdf'
-    epub_kobo = source_extension != '.fb2' and profile == 'kepub'
+    epub_pdf = profile == 'pdf'
+    epub_kobo = profile == 'kepub'
     epub_markdown = source_extension != '.fb2' and profile == 'md'
-    epub_version = source_extension != '.fb2' and profile in ('epub2', 'epub3')
-    epub_kfx = source_extension != '.fb2' and profile in ('kfx', 'azw8')
+    epub_version = profile in ('epub2', 'epub3')
+    epub_kfx = profile in ('kfx', 'azw8')
     if epub_version:
         writer = Path(__file__).with_name(profile + '_output.py')
         component, name = 'BookProcessing', 'сохранения в EPUB ' + profile[-1]
@@ -138,7 +207,7 @@ def convert(api, source, destination, source_extension, profile, options):
     destination.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='homelibre-advanced-', dir=destination.parent) as folder:
         work = Path(folder)
-        prepared = work / ('source.epub' if source_extension != '.fb2' else 'source.fb2')
+        prepared = work / ('source.fb2' if source_extension == '.fb2' and profile == 'md' else 'source.epub')
         output = work / ('book' + suffix)
         preparation = api.convert_book(source, prepared, **dict(options, _static_gifs=not epub_markdown))
         warnings = set(preparation.get('warnings', ()))
@@ -167,14 +236,11 @@ def convert(api, source, destination, source_extension, profile, options):
         else:
             canonical_fb2(api, prepared)
             command = [str(writer)]
-            if profile == 'md' and quality != 'none':
+            if quality != 'none':
                 config = work / 'markdown.yaml'
                 config.write_text('document:\n  images:\n    markdown: embedded\n', encoding='utf-8')
                 command += ['--config', str(config)]
-            target = 'kepub3' if profile == 'kepub' else profile
-            command += ['convert', '--to', target, '--output-file', str(output)]
-            if quality == 'none' and profile in ('epub2', 'epub3', 'kepub', 'pdf'):
-                command.append('--no-cover')
+            command += ['convert', '--to', profile, '--output-file', str(output)]
             command.append(str(prepared))
             run_writer(api, command, work, check)
         validate_output(api, output, profile)

@@ -87,12 +87,14 @@ end;
 
 procedure TestEpubLineBreakRepair;
 const RepairWarning = 'Исправлены теги переноса строки в EPUB для чтения.';
+  VoidWarning = 'Исправлены незакрытые теги HTML в EPUB для чтения.';
+  NestingWarning = 'Исправлена вложенность элементов EPUB для чтения.';
   SectionBody = '<h1>Chapter</h1><p>Before%sAfter</p><p><![CDATA[Literal <br>]]></p>'+
     '<!-- comment <br> --><p title="A > B">Last paragraph</p><img src="pixel.png"/>';
   Pixel = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGMQMgn7DwAClAGcHVtGXwAAAABJRU5ErkJggg==';
 var Folder, Original, Reference: string;
 
-  procedure WriteBook(const FileName, Body: string);
+  procedure WriteBook(const FileName, Body: string; const PackageVersion: string = '1.0');
   var Zip: TZipFile;
   begin
     Zip:=TZipFile.Create;
@@ -101,7 +103,8 @@ var Folder, Original, Reference: string;
       Zip.Add(TEncoding.ASCII.GetBytes('application/epub+zip'),'mimetype',zcStored);
       Zip.Add(TEncoding.UTF8.GetBytes('<container><rootfiles><rootfile full-path="book.opf"/>'+
         '</rootfiles></container>'),'META-INF/container.xml');
-      Zip.Add(TEncoding.UTF8.GetBytes('<package><metadata><title>EPUB line breaks</title></metadata>'+
+      Zip.Add(TEncoding.UTF8.GetBytes('<?xml version="'+PackageVersion+'" encoding="utf-8"?>'+
+        '<package><metadata><title>EPUB line breaks</title></metadata>'+
         '<manifest><item id="section" href="chapter.html" media-type="application/xhtml+xml"/>'+
         '<item id="picture" href="pixel.png" media-type="image/png"/></manifest>'+
         '<spine><itemref idref="section"/></spine></package>'),'book.opf');
@@ -132,8 +135,12 @@ var Folder, Original, Reference: string;
       WarningCount:=0;
       for var Warning in Actual.Warnings do
         if Warning=ExpectedWarning then Inc(WarningCount);
-      Require((WarningCount=1) and (Expected.Warnings.IndexOf(ExpectedWarning)<0),
-        'EPUB repair did not distinguish corrected and valid input');
+      if ExpectedWarning<>'' then
+        Require((WarningCount=1) and (Expected.Warnings.IndexOf(ExpectedWarning)<0),
+          'EPUB repair did not distinguish corrected and valid input')
+      else
+        Require((Actual.Warnings.Count=0) and (Expected.Warnings.Count=0),
+          'Reading valid EPUB images produced a warning');
       if not RealBook then
         Require(Actual.PlainText.Contains('Literal <br>') and (Actual.ImageCount=1),
           'EPUB repair changed literal CDATA or lost an inline image')
@@ -166,11 +173,42 @@ begin
   WriteBook(Original,Format(SectionBody,['<br>']));
   WriteBook(Reference,Format(SectionBody,['<br/>']));
   CheckPair(Original,Reference,False);
+  Original:=TPath.Combine(Settings.AppPath,'epub-html-void.epub');
+  Reference:=TPath.Combine(Settings.AppPath,'epub-html-closed.epub');
+  var PairedBreak:='<br></br>';
+  var LinkAndMeta:='<meta name="sample" content="A > B"%s><link rel="alternate" href="#heading"%s>';
+  var OpenVoid:=Format(SectionBody,[PairedBreak]).Replace('src="pixel.png"/>','src="pixel.png">');
+  WriteBook(Original,Format(LinkAndMeta,['',''])+OpenVoid);
+  WriteBook(Reference,Format(LinkAndMeta,['/','/'])+Format(SectionBody,[PairedBreak]));
+  CheckPair(Original,Reference,False,VoidWarning);
   Original:=TPath.Combine(Settings.AppPath,'epub-open-text.epub');
   Reference:=TPath.Combine(Settings.AppPath,'epub-escaped-text.epub');
   WriteBook(Original,Format(SectionBody,['<br>'])+'<p>Ёж & ёлка: 1 < 2, &ldquo;да&rdquo;.</p>');
   WriteBook(Reference,Format(SectionBody,['<br/>'])+'<p>Ёж &amp; ёлка: 1 &lt; 2, &#8220;да&#8221;.</p>');
   CheckPair(Original,Reference,False,'Исправлены специальные символы в главах EPUB для чтения.');
+  Original:=TPath.Combine(Settings.AppPath,'epub-crossed-blocks.epub');
+  Reference:=TPath.Combine(Settings.AppPath,'epub-balanced-blocks.epub');
+  WriteBook(Original,'<h2 id="heading">Ёж и ёлка</p>'+Format(SectionBody,['<br/>'])+'<p>Последний абзац</h2>');
+  WriteBook(Reference,'<h2 id="heading">Ёж и ёлка</h2>'+Format(SectionBody,['<br/>'])+'<p>Последний абзац</p>');
+  CheckPair(Original,Reference,False,NestingWarning);
+  Writeln('PASS repaired EPUB paragraph and heading tags retain text, chapter positions and pictures');
+  Original:=TPath.Combine(Settings.AppPath,'epub-repeated-div.epub');
+  Reference:=TPath.Combine(Settings.AppPath,'epub-balanced-div.epub');
+  var CoverBody:='<div class="wedge"/><div><div><p><![CDATA[Literal </div></div>]]></p></div></div>';
+  WriteBook(Original,CoverBody+#13#10+'</div>'+Format(SectionBody,['<br/>']));
+  WriteBook(Reference,CoverBody+#13#10+Format(SectionBody,['<br/>']));
+  CheckPair(Original,Reference,False,NestingWarning);
+  Writeln('PASS redundant closing EPUB div repair leaves real containers and literal markup intact');
+  Original:=TPath.Combine(Settings.AppPath,'epub-unmatched-top-level-div.epub');
+  Reference:=TPath.Combine(Settings.AppPath,'epub-matching-top-level-div.epub');
+  WriteBook(Original,'<h2>Раздел</h2></div>'+Format(SectionBody,['<br/>']));
+  WriteBook(Reference,'<h2>Раздел</h2>'+Format(SectionBody,['<br/>']));
+  CheckPair(Original,Reference,False,NestingWarning);
+  Original:=TPath.Combine(Settings.AppPath,'epub-package-xml11.epub');
+  Reference:=TPath.Combine(Settings.AppPath,'epub-package-xml10.epub');
+  WriteBook(Original,Format(SectionBody,['<br/>']),'1.1');
+  WriteBook(Reference,Format(SectionBody,['<br/>']));
+  CheckPair(Original,Reference,False,'Объявление XML 1.1 в EPUB прочитано как совместимое с XML 1.0.');
   Original:=TPath.Combine(Settings.AppPath,'epub-kindle-pagebreak.epub');
   Reference:=TPath.Combine(Settings.AppPath,'epub-kindle-normalized.epub');
   WriteBook(Original,Format(SectionBody,['<mbp:pagebreak/>']).Replace('src="pixel.png"',
@@ -178,6 +216,17 @@ begin
   WriteBook(Reference,Format(SectionBody,['<br/>']));
   CheckPair(Original,Reference,False,'Исправлены специальные символы в главах EPUB для чтения.');
   Writeln('PASS EPUB line break repair preserves contents and leaves valid markup unchanged');
+  var EscapedPixel:='';
+  for var Value in TNetEncoding.Base64.DecodeStringToBytes(Pixel) do
+    EscapedPixel:=EscapedPixel+'%'+IntToHex(Value,2);
+  Original:=TPath.Combine(Settings.AppPath,'epub-percent-encoded-picture.epub');
+  WriteBook(Original,Format(SectionBody,['<br/>']).Replace('src="pixel.png"','src="data:image/png,'+EscapedPixel+'"'));
+  CheckPair(Original,Reference,False,'');
+  Original:=TPath.Combine(Settings.AppPath,'epub-escaped-base64-picture.epub');
+  WriteBook(Original,Format(SectionBody,['<br/>']).Replace('src="pixel.png"',
+    'src="data:IMAGE/PNG;BASE64,'+Pixel.Replace('=','%3D')+'"'));
+  CheckPair(Original,Reference,False,'');
+  Writeln('PASS EPUB reads percent-encoded image bytes and escaped base64 at the original position');
   Folder:=GetEnvironmentVariable('HOMELIB_TEST_EPUB_LINE_BREAK_PAIR');
   if Folder<>'' then CheckPair(TPath.Combine(Folder,'source.epub'),TPath.Combine(Folder,'control.epub'),True);
 end;

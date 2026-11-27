@@ -66,7 +66,7 @@ begin
     Heading:=TLabel.Create(Dialog); Heading.Parent:=Dialog;
     Heading.AlignWithMargins:=True; Heading.Margins.SetBounds(14,14,14,8);
     Heading.Align:=alTop; Heading.AutoSize:=False; Heading.WordWrap:=True; Heading.Height:=63;
-    Heading.Caption:='Часть данных книги «'+Title+'» не читается. Сохранить то, что удалось прочитать?';
+    Heading.Caption:='Некоторые элементы книги «'+Title+'» не удастся перенести. Сохранить книгу частично?';
     Heading.ShowAccelChar:=False; Heading.Hint:=Title; Heading.ShowHint:=True;
     Footer:=TPanel.Create(Dialog); Footer.Parent:=Dialog; Footer.Align:=alBottom;
     Footer.BevelOuter:=bvNone; Footer.Height:=49;
@@ -237,6 +237,9 @@ begin
     if Options.SampleCount=0 then NoteText.Caption:='Картинки сохранятся без повторного сжатия. Можно удалить обложку и иллюстрации, выбрав «Без изображений». Исходная книга сохранится.';
     if Options.FirstSamples then NoteText.Caption:=Format('Примерный размер %s: оценка по первым %d сканам для %d страниц. Состав следующих страниц может отличаться. Исходная книга сохранится.',
       [Options.TargetFormat,Options.SampleCount,Options.ImageCount]);
+    if Options.DistributedSamples then NoteText.Caption:=Format(
+      'Размер %s оценён по %d сканам из разных частей книги. Итоговый размер может отличаться. Исходная книга сохранится.',
+      [Options.TargetFormat,Options.SampleCount]);
     AllBooks:=TCheckBox.Create(Dialog); AllBooks.Parent:=Content;
     AllBooks.SetBounds(20,337+BottomOffset,580,22); AllBooks.Caption:='Использовать эти настройки для остальных выбранных книг';
     AllBooks.Visible:=MultipleBooks; AllBooks.Checked:=True;

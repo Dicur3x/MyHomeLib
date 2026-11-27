@@ -1,16 +1,31 @@
 """Direct KFX/AZW8 export from a prepared EPUB using optional native tools."""
 
+from contextlib import closing
 from math import ceil
 from hashlib import sha256
 import re
 
 from image_input import decode_webp
-from gif_static import first_frame, WARNING as STATIC_GIF_WARNING
+from gif_static import GifFrameDecoder, WARNING as STATIC_GIF_WARNING
 from kfx_image_input import prepare
 from text_inputs import Book
 
 
 PIXELS = re.compile(r'(\d{1,7}(?:\.\d{1,6})?)(?:px)?')
+
+
+def omitted_publication_fields(api, source):
+    with closing(api.EpubArchive(source)) as archive:
+        container = api.xml(archive.read('META-INF/container.xml'))
+        package_path = next(node.get('full-path') for node in container.iter() if api.tag(node) == 'rootfile')
+        package = api.xml(archive.read(package_path))
+    metadata = api.first(package, 'metadata')
+    if metadata is None:
+        return []
+    fields = ['ISBN'] if any(api.epub_isbn_identifiers(metadata)) else []
+    fields.extend(label for name, label in (('subject', 'жанры и темы'), ('rights', 'сведения о правах'))
+                  if any(api.plain(node) for node in api.children(metadata, name)))
+    return fields
 
 
 def convert(api, source, output, writer, tools, warnings, check, run_writer):
@@ -41,15 +56,22 @@ def convert(api, source, output, writer, tools, warnings, check, run_writer):
 
     compatible = work / 'kindle-source.epub'
     gif_images = {}
-    def gif(data):
-        key = sha256(data).digest()
-        if key not in gif_images:
-            gif_images[key] = first_frame(api, data, tools, work, check)
-        warnings.add(STATIC_GIF_WARNING)
-        return gif_images[key]
+    with GifFrameDecoder(api, tools, work, check) as decoder:
+        def gif(data):
+            key = sha256(data).digest()
+            if key not in gif_images:
+                gif_images[key] = decoder.decode(data)
+            warnings.add(STATIC_GIF_WARNING)
+            return gif_images[key]
 
-    if prepare(api, source, compatible, render, check, lambda data: decode_webp(book, data), gif):
-        source = compatible
-        warnings.add('Для совместимости с Kindle часть изображений в копии сохранена в PNG.')
+        if prepare(api, source, compatible, render, check, lambda data: decode_webp(book, data), gif,
+                   warnings=warnings):
+            warnings.add('Для совместимости с Kindle часть изображений в копии сохранена в PNG.')
+        if compatible.exists():
+            source = compatible
     warnings.add('При сохранении в формате Kindle оформление и разбиение текста на страницы могут измениться.')
     run_writer(api, [str(writer), 'convert', '-t', 'kfx', str(source), str(output)], work, check)
+    if fields := omitted_publication_fields(api, source):
+        format_name = output.suffix[1:].upper()
+        warnings.add(f'{api.KFX_METADATA_LOSS} {format_name} — {", ".join(fields)}. '
+                     'Чтобы сохранить эти сведения, выберите EPUB или AZW3.')

@@ -15,6 +15,7 @@ end;
 
 procedure TestLibraryUpdateApplication;
 var Root, OldRoot, DownloadRoot, IndexName, OldHash, DownloadHash, ExpectedTitle, FirstCache, CacheHash: string;
+  SevenZipExecutable: string;
   Target: IBookCollection; Profile: TLibraryUpdateSource; Stage: TStagedLibraryIndex; Review: TLibraryUpdateReview;
   Worker: TCollectionWorker; Probe: TLibraryApplyProbe; ID, BookID: Integer; Book, Seed: TBookRecord;
   Sources: TCatalogSources; CacheInfo: TCatalogSource; Refresh: TCatalogRefreshWorker;
@@ -46,7 +47,7 @@ var Root, OldRoot, DownloadRoot, IndexName, OldHash, DownloadHash, ExpectedTitle
       Args:=Args+[FileName];
     end;
     Sink:=TMemoryStream.Create;
-    try RunExternalToolToStream(Settings.AppPath+'tools\7zip\7za.exe',Args,Sink); finally Sink.Free; end;
+    try RunExternalToolToStream(SevenZipExecutable,Args,Sink); finally Sink.Free; end;
   end;
   procedure Index(const Path: string; const Archives, Numbers, Titles: array of string);
   var Zip: TZipFile; Rows: TDictionary<string,string>; Line, Existing: string;
@@ -220,6 +221,10 @@ begin
   if (ParamStr(1)='transfer-empty-updates') or (ParamStr(1)='transfer-cross-volume-updates') then
     begin TestTransferredEmptyIDs; Exit; end;
   if ParamStr(1)='reviewed-id-reservation' then begin TestReviewedIDReservation; Exit; end;
+  SevenZipExecutable:=TPath.Combine(Settings.AppPath,'tools\7zip\7z.exe');
+  if not FileExists(SevenZipExecutable) or not FileExists(ExtractFilePath(SevenZipExecutable)+'7z.dll') then
+    SevenZipExecutable:=TPath.Combine(Settings.AppPath,'tools\7zip\7za.exe');
+  Require(FileExists(SevenZipExecutable),'Library update fixture needs the local 7-Zip command line tool');
   Root:=TPath.Combine(Settings.AppPath,'library-apply-fixture'); ForceDirectories(Root);
   OldRoot:=TPath.Combine(Root,'old'); DownloadRoot:=TPath.Combine(Root,'downloads');
   Archive(OldRoot,'books.zip',['101','104']); Archive(DownloadRoot,'new.zip',['102']);

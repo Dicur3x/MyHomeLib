@@ -2,7 +2,7 @@
 
 interface
 
-uses System.SysUtils, System.Types, System.Generics.Collections, Vcl.Graphics,
+uses System.Classes, System.SysUtils, System.Types, System.Generics.Collections, Vcl.Graphics,
   unit_ReaderPDF, unit_ReaderPDFWorker;
 
 type
@@ -16,6 +16,7 @@ type
   TReaderPDFAsync = class(TReaderPDF)
   private
     FFileName: string;
+    FCorrectedFile: TFileStream;
     FWorker: TReaderPDFWorker;
     FPages: TDictionary<Integer,TPDFPreparedPage>;
     FLock: TObject;
@@ -40,15 +41,27 @@ uses Winapi.Windows, System.Math, unit_MHLExternalTools;
 type TBitmap = Vcl.Graphics.TBitmap;
 
 constructor TReaderPDFAsync.Create(const LibraryFile, FileName: string);
+var SourceName: string; FontCorrected: TFileStream;
 begin
-  inherited Create(LibraryFile,FileName);
   if not PDFWorkerAvailable then raise EMHLComponentRequired.Create('PDFium','Для чтения PDF нужен модуль PDFium.');
-  FFileName:=FileName; FVisiblePage:=-1; FLock:=TObject.Create;
+  FCorrectedFile:=OpenCorrectedPDF(FileName);
+  SourceName:=FileName;
+  if Assigned(FCorrectedFile) then SourceName:=FCorrectedFile.FileName;
+  FontCorrected:=OpenCorrectedPDF(SourceName,True);
+  if Assigned(FontCorrected) then
+  begin
+    FCorrectedFile.Free;
+    FCorrectedFile:=FontCorrected;
+  end;
+  FFileName:=FileName;
+  if Assigned(FCorrectedFile) then FFileName:=FCorrectedFile.FileName;
+  inherited Create(LibraryFile,FFileName);
+  FVisiblePage:=-1; FLock:=TObject.Create;
   FPages:=TDictionary<Integer,TPDFPreparedPage>.Create;
 end;
 
 destructor TReaderPDFAsync.Destroy;
-begin FWorker.Free; FPages.Free; FLock.Free; inherited; end;
+begin FWorker.Free; FPages.Free; FLock.Free; inherited; FCorrectedFile.Free; end;
 
 function TReaderPDFAsync.AsyncPages: Boolean;
 begin Result:=True; end;

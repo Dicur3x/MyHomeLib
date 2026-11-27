@@ -28,8 +28,12 @@ function portraitPNG() {
 module.exports = function stageAuthorFixture(runtime, folder) {
   const toolFolder = path.join(folder, 'tools', '7zip');
   fs.mkdirSync(toolFolder, {recursive: true});
-  const tool = path.join(toolFolder, '7za.exe');
-  fs.copyFileSync(path.join(runtime, 'tools', '7zip', '7za.exe'), tool);
+  const archiveRuntime = path.join(runtime, 'tools', '7zip');
+  const executable = fs.existsSync(path.join(archiveRuntime, '7z.exe')) ? '7z.exe' : '7za.exe';
+  const tool = path.join(toolFolder, executable);
+  fs.copyFileSync(path.join(archiveRuntime, executable), tool);
+  if (executable === '7z.exe')
+    fs.copyFileSync(path.join(archiveRuntime, '7z.dll'), path.join(toolFolder, '7z.dll'));
   const authors = path.join(folder, 'authors'), input = path.join(folder, 'author-fixture-input');
   fs.mkdirSync(authors, {recursive: true}); fs.mkdirSync(input);
   const hash = crypto.createHash('md5').update('толстой лев николаевич', 'utf8').digest('hex');

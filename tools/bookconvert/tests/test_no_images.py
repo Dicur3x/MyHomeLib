@@ -278,7 +278,7 @@ class NoImages(unittest.TestCase):
             before = path.read_bytes()
             for suffix in ('.fb2','.epub'):
                 output = self.root/('empty'+suffix)
-                with self.assertRaisesRegex(c.ConversionError,'распознать'):
+                with self.assertRaisesRegex(c.ConversionError,'[Ии]зображения содержат сами страницы'):
                     c.convert_book(path,output,image_quality='none')
                 self.assertFalse(output.exists());self.assertEqual(path.read_bytes(),before)
         existing = self.root/'existing.fb2';existing.write_bytes(b'user output')
@@ -288,7 +288,7 @@ class NoImages(unittest.TestCase):
 
     def test_cli_none_and_reading_keep_their_separate_behaviour(self):
         output = self.root/'cli.fb2'
-        process = subprocess.run([str(TOOLS/'kindle/python/python.exe'),'-I','-B','-X','utf8',str(Path(c.__file__)),
+        process = subprocess.run([str(TOOLS/'python/python.exe'),'-I','-B','-X','utf8',str(Path(c.__file__)),
                                   str(self.source),str(output),'--image-quality','none'],capture_output=True,timeout=20,
                                  creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
         self.assertEqual(process.returncode,0,process.stdout.decode('utf-8',errors='replace'))

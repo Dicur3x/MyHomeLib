@@ -70,6 +70,20 @@ begin
       'Removing reader erased another handler or left its own candidate'); finally Registry.CloseKey; end;
     Dialog:=TReaderAssociationsForm.Create(frmMain);
     try
+      var Buttons:=0;
+      var Checks:=0;
+      for var Component in Dialog do
+        if Component is TButton then
+        begin
+          Require(Component is TReaderPaletteButton,'Windows association button ignores the reader palette');
+          Inc(Buttons);
+        end
+        else if Component is TCheckBox then
+        begin
+          Require(Component is TReaderPaletteCheckBox,'Windows association checkbox ignores the reader palette');
+          Inc(Checks);
+        end;
+      Require((Buttons=4) and (Checks=4),'Missing Windows association controls');
       for var PPI in TArray<Integer>.Create(96,144,192,288) do
       begin
         Dialog.ScaleForPPI(PPI);

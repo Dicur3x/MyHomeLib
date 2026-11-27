@@ -2,10 +2,13 @@
 
 interface
 
-uses Vcl.ComCtrls, System.SysUtils;
+uses Vcl.ComCtrls, System.SysUtils, System.Types;
+
+const ReaderFixedPitchFont = 'Consolas';
 
 procedure ApplyReaderFallbackFonts(Edit: TRichEdit; const Text, BaseFont: string;
-  const Language: string = ''; StartOffset: Integer = 0; const MissingFont: TProc<string> = nil);
+  const Language: string = ''; StartOffset: Integer = 0; const MissingFont: TProc<string> = nil;
+  const FixedPitchRanges: TArray<TPoint> = nil);
 
 implementation
 
@@ -75,8 +78,10 @@ begin
   if Script<>'' then Result:=Prefix+' '+Script else Result:=Prefix;
 end;
 
-procedure ApplyReaderFallbackFonts(Edit: TRichEdit; const Text, BaseFont, Language: string; StartOffset: Integer; const MissingFont: TProc<string>);
-var Supported: TBytes; Sans: Boolean; CJK, RunFont, NextFont: string;
+procedure ApplyReaderFallbackFonts(Edit: TRichEdit; const Text, BaseFont, Language: string;
+  StartOffset: Integer; const MissingFont: TProc<string>; const FixedPitchRanges: TArray<TPoint>);
+var Supported, FixedPitchSupported: TBytes; Sans, FixedPitch: Boolean;
+  CJK, RunFont, NextFont: string; RangeIndex, Position: Integer;
   I, Start, Units, SavedStart, SavedLength, ParagraphStart, J: Integer; Code: Cardinal;
   Character: TCharFormat2; Paragraph: TParaFormat2;
   procedure ApplyRun(Finish: Integer);
@@ -85,16 +90,28 @@ var Supported: TBytes; Sans: Boolean; CJK, RunFont, NextFont: string;
     if not EnsureReaderFont(RunFont) then
     begin if Assigned(MissingFont) then MissingFont(RunFont); Exit; end;
     var Selection: TCharRange;
+    var Applied: TCharFormat2;
     Selection.cpMin:=StartOffset+Start; Selection.cpMax:=StartOffset+Finish;
     SendMessage(Edit.Handle,EM_EXSETSEL,0,LPARAM(@Selection));
     FillChar(Character,SizeOf(Character),0); Character.cbSize:=SizeOf(Character);
     Character.dwMask:=CFM_FACE;
     StrPLCopy(PChar(@Character.szFaceName[0]),RunFont,LF_FACESIZE-1);
     SendMessage(Edit.Handle,EM_SETCHARFORMAT,SCF_SELECTION,LPARAM(@Character));
+    // RichEdit can keep the old face when the original RTF charset is
+    // incompatible with a Unicode fallback such as Armenian or Georgian.
+    FillChar(Applied,SizeOf(Applied),0); Applied.cbSize:=SizeOf(Applied);
+    SendMessage(Edit.Handle,EM_GETCHARFORMAT,SCF_SELECTION,LPARAM(@Applied));
+    if not SameText(string(PChar(@Applied.szFaceName[0])),RunFont) then
+    begin
+      Character.dwMask:=CFM_FACE or CFM_CHARSET;
+      Character.bCharSet:=SYMBOL_CHARSET;
+      SendMessage(Edit.Handle,EM_SETCHARFORMAT,SCF_SELECTION,LPARAM(@Character));
+    end;
   end;
 begin
   if Text='' then Exit;
   PrepareReaderFonts; Supported:=FontCoverage(BaseFont);
+  if Length(FixedPitchRanges)>0 then FixedPitchSupported:=FontCoverage(ReaderFixedPitchFont);
   Sans:=BaseFont.ToLower.Contains('sans') or SameText(BaseFont,'Segoe UI') or SameText(BaseFont,'Arial');
   CJK:='SC';
   if Language.StartsWith('ja',True) then CJK:='JP'
@@ -106,16 +123,21 @@ begin
       else if (Ord(Text[I])>=$AC00) and (Ord(Text[I])<=$D7AF) then begin CJK:='KR'; Break; end;
   SavedStart:=Edit.SelStart; SavedLength:=Edit.SelLength;
   try
-    RunFont:=''; Start:=0; I:=1;
+    RunFont:=''; Start:=0; I:=1; RangeIndex:=0;
     while I<=Length(Text) do
     begin
       Code:=Ord(Text[I]); Units:=1;
       if (Code>=$D800) and (Code<=$DBFF) and (I<Length(Text)) and
         (Ord(Text[I+1])>=$DC00) and (Ord(Text[I+1])<=$DFFF) then
       begin Code:=$10000+(Code-$D800)*$400+Ord(Text[I+1])-$DC00; Units:=2; end;
+      Position:=StartOffset+I-1;
+      while (RangeIndex<Length(FixedPitchRanges)) and (FixedPitchRanges[RangeIndex].Y<=Position) do
+        Inc(RangeIndex);
+      FixedPitch:=(RangeIndex<Length(FixedPitchRanges)) and (FixedPitchRanges[RangeIndex].X<=Position);
       NextFont:='';
-      if (Code>=32) and (Code<>$FFFC) and ((Code>$FFFF) or (Supported[Code]=0)) then
-        NextFont:=ScriptFont(Code,Sans,CJK);
+      if (Code>=32) and (Code<>$FFFC) and ((Code>$FFFF) or
+        (FixedPitch and (FixedPitchSupported[Code]=0)) or (not FixedPitch and (Supported[Code]=0))) then
+        NextFont:=ScriptFont(Code,Sans or FixedPitch,CJK);
       if NextFont<>RunFont then begin ApplyRun(I-1); RunFont:=NextFont; Start:=I-1; end;
       Inc(I,Units);
     end;

@@ -277,16 +277,19 @@ def main():
             rp.write_text(json.dumps(rc),encoding='utf-8')
         if a.tools:
             (root/'tools').mkdir(exist_ok=True); shutil.copytree(a.tools/'7zip',root/'tools/7zip')
+            seven = root/'tools/7zip/7z.exe'
+            if not seven.is_file():
+                seven = root/'tools/7zip/7za.exe'
             work=root/'cover-fixtures'/'seven'; (work/'books').mkdir(parents=True)
             shutil.copy2(root/'cover-fixtures/epub3.epub',work/'books/epub3.epub')
-            result=subprocess.run([str(root/'tools/7zip/7za.exe'),'a','-t7z',str(root/'cover-fixtures/outer.7z'),'books/epub3.epub'],cwd=work,capture_output=True,timeout=15,creationflags=subprocess.CREATE_NO_WINDOW)
+            result=subprocess.run([str(seven),'a','-t7z',str(root/'cover-fixtures/outer.7z'),'books/epub3.epub'],cwd=work,capture_output=True,timeout=15,creationflags=subprocess.CREATE_NO_WINDOW)
             assert result.returncode==0,result.stdout
             if 'raster-preview' in a.modes:
                 comicwork=root/'cover-fixtures'/'comic-seven'; comicwork.mkdir()
                 with zipfile.ZipFile(root/'cover-fixtures/comic.cbz') as z: z.extractall(comicwork)
                 for ext in ('cb7','7z'):
                     archive=root/'cover-fixtures'/('comic.'+ext)
-                    r=subprocess.run([str(root/'tools/7zip/7za.exe'),'a','-t7z',str(archive),'.'],cwd=comicwork,capture_output=True,timeout=15,creationflags=subprocess.CREATE_NO_WINDOW)
+                    r=subprocess.run([str(seven),'a','-t7z',str(archive),'.'],cwd=comicwork,capture_output=True,timeout=15,creationflags=subprocess.CREATE_NO_WINDOW)
                     assert r.returncode==0,r.stdout
                 rp=root/'cover-fixtures/raster-cases.json'; raster=json.loads(rp.read_bytes())
                 raster.extend(dict(name='comic.'+ext,cover=True,width=24,height=32,color=[34,136,204]) for ext in ('cb7','7z'))
@@ -322,7 +325,22 @@ def main():
                 if a.pdf_dir: case.update(top_color=[255,0,0],bottom_color=[0,255,0])
                 rc.append(case)
             with zipfile.ZipFile(root/'cover-fixtures/pdf-outer.zip','w',compression=zipfile.ZIP_DEFLATED) as z: z.writestr('books/first.pdf',pdf())
-            rc.append(dict(name='pdf-outer.zip',member='books/first.pdf',cover=bool(a.pdf_dir),width=400,height=600,color=[34,136,204]))
+            archived_pdf = dict(cover=bool(a.pdf_dir), width=400, height=600, color=[34,136,204])
+            rc.append(dict(archived_pdf, name='pdf-outer.zip', member='books/first.pdf'))
+            cover_root = root/'cover-fixtures'
+            rc.append(dict(archived_pdf, name='pdf-outer.zip'))
+            with zipfile.ZipFile(cover_root/'pdf-sidecar.zip', 'w', zipfile.ZIP_DEFLATED) as z:
+                z.writestr('books/first.pdf', pdf())
+                z.writestr('books/first_inf.txt', 'Description of first.pdf')
+            rc.append(dict(archived_pdf, name='pdf-sidecar.zip'))
+            with zipfile.ZipFile(cover_root/'pdf-nested.zip', 'w', zipfile.ZIP_DEFLATED) as z:
+                z.write(cover_root/'pdf-sidecar.zip', 'books/scan.zip')
+                z.writestr('books/scan_inf.txt', 'Description of scan.zip')
+            rc.append(dict(archived_pdf, name='pdf-nested.zip'))
+            with zipfile.ZipFile(cover_root/'pdf-two-books.zip', 'w', zipfile.ZIP_DEFLATED) as z:
+                z.writestr('books/first.pdf', pdf())
+                z.writestr('other/first_inf.txt', 'An independent text book')
+            rc.append(dict(name='pdf-two-books.zip', cover=False, status='В архиве несколько книг'))
             (root/'cover-fixtures/damaged.pdf').write_bytes(b'%PDF-1.7 incomplete source')
             rc.append(dict(name='damaged.pdf',cover=False))
             rp.write_text(json.dumps(rc),encoding='utf-8')

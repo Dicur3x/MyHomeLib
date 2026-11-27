@@ -28,16 +28,16 @@ var
 
   function FormerAuthors(const Values: TBookAuthors): string;
   begin
-    Result := TArrayUtils.Join<TAuthorData>(Values, ', ',
-      function(const Value: TAuthorData): string
-      begin Result := Value.GetFullName; end);
+    var FormatAuthor: TConversion<TAuthorData> := function(const Value: TAuthorData): string
+      begin Result := Value.GetFullName; end;
+    Result := TArrayUtils.Join<TAuthorData>(Values, ', ', FormatAuthor);
   end;
 
   function FormerGenres(const Values: TBookGenres): string;
   begin
-    Result := TArrayUtils.Join<TGenreData>(Values, ' / ',
-      function(const Value: TGenreData): string
-      begin Result := Value.GenreAlias; end);
+    var FormatGenre: TConversion<TGenreData> := function(const Value: TGenreData): string
+      begin Result := Value.GenreAlias; end;
+    Result := TArrayUtils.Join<TGenreData>(Values, ' / ', FormatGenre);
   end;
 
   function Measure(Kind: Integer; Current: Boolean; out Checksum, Cycles: UInt64): UInt64;

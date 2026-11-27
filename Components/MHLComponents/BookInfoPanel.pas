@@ -100,6 +100,8 @@ type
     FRequestReview, FCancelReview: TProc;
     FLoadSavedReview: TLoadSavedBookReview;
     FPreviewStatus, FReadingSupport: TLabel;
+    FPreviewActionButton: TButton;
+    FPreviewAction: TProc;
 
     FOnAuthorLinkClicked: TSysLinkEvent;
     FOnGenreLinkClicked: TSysLinkEvent;
@@ -122,6 +124,7 @@ type
     procedure PaintReadingProgress(Sender: TObject);
     procedure ReviewsToggleClick(Sender: TObject);
     procedure ReviewDownloadClick(Sender: TObject);
+    procedure PreviewActionClick(Sender: TObject);
     function GetReviewsVisible: Boolean;
     function GetShowCover: boolean;
     procedure SetShowCover(const Value: boolean);
@@ -190,6 +193,7 @@ type
     procedure SetReviewDownloadState(const Status: string; Downloading: Boolean);
     procedure SetSavedReview(const Value: string);
     procedure SetPreviewStatus(const Value: string);
+    procedure SetPreviewAction(const Caption: string; const Action: TProc = nil);
     procedure SetReadingSupport(const Value: string);
     procedure SetReadingProgress(Value: Integer);
     function PreviewStatusText: string;
@@ -925,6 +929,30 @@ begin
   LayoutControls;
 end;
 
+procedure TInfoPanel.SetPreviewAction(const Caption: string; const Action: TProc);
+begin
+  FPreviewAction:=Action;
+  if not Assigned(FPreviewActionButton) then
+  begin
+    if not Assigned(Action) then Exit;
+    FPreviewActionButton:=TButton.Create(Self);
+    FPreviewActionButton.Name:='BookPreviewAction';
+    FPreviewActionButton.Visible:=False;
+    FPreviewActionButton.Parent:=FInfoPanel;
+    FPreviewActionButton.OnClick:=PreviewActionClick;
+  end;
+  FPreviewActionButton.Caption:=Caption;
+  FPreviewActionButton.Visible:=Assigned(Action);
+  LayoutControls;
+end;
+
+procedure TInfoPanel.PreviewActionClick(Sender: TObject);
+var Action: TProc;
+begin
+  Action:=FPreviewAction;
+  if Assigned(Action) then Action();
+end;
+
 function TInfoPanel.PreviewStatusText: string;
 begin Result:=InfoText(FPreviewStatus); end;
 
@@ -1250,6 +1278,12 @@ begin
       FGenreLabel.SetBounds(0, Y, LblW, RowH);
       FGenres.SetBounds(LblW, Y, LinkW, LinkH);
       Inc(Y, LinkH + Gap);
+      if Assigned(FPreviewActionButton) and FPreviewActionButton.Visible then
+      begin
+        ButtonH:=Max(MulDiv(28,LayoutPPI,96),RowH+MulDiv(12,LayoutPPI,96));
+        FPreviewActionButton.SetBounds(0,Y,Min(MetaW,MulDiv(164,LayoutPPI,96)),ButtonH);
+        Inc(Y,ButtonH+Gap);
+      end;
       DetailY:=Y;
       BaseY:=Y;
       if FReadingSupport.Visible then
@@ -1661,6 +1695,7 @@ end;
 
 procedure TInfoPanel.Clear;
 begin
+  SetPreviewAction('');
   SetPreviewStatus(''); SetReadingSupport('');
   FGallery.Clear;
   FDetailsButton.Visible := False;

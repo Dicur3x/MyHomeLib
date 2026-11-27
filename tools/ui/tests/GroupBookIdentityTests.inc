@@ -9,14 +9,11 @@ type
   TGBIMainDriver = class
   private
     procedure HandleDialogs;
-    procedure HandleReader;
     procedure HandleReview;
   public
     Timer: TTimer;
     Messages, Unexpected: TStringList;
-    Collection: IBookCollection;
-    Replacement: TBookRecord;
-    ExpectedText, Failure: string;
+    Failure: string;
     ExpectedReview, ExpectedAnnotation, ReviewText, AnnotationText: string;
     ReviewEditing, ReviewFinished, CorruptBeforeReviewSave: Boolean;
     ExpectReadOnly: Boolean;
@@ -24,13 +21,10 @@ type
     ReviewAttempt: Integer;
     DraftFaultPath, DraftPreservedFolder: string;
     ForeignSystemCard: TBookRecord;
-    Started: UInt64;
     LastReaderProgress: Integer;
-    Reading, Finished, ReplaceDuringRead: Boolean;
     constructor Create;
     destructor Destroy; override;
     procedure Tick(Sender: TObject);
-    procedure BeginRead(ReplaceRow: Boolean);
     function HasMessage(const Fragment: string): Boolean;
   end;
 
@@ -234,66 +228,10 @@ begin
     end;
 end;
 
-procedure TGBIMainDriver.BeginRead(ReplaceRow: Boolean);
-begin
-  Reading := True; Finished := False; ReplaceDuringRead := ReplaceRow;
-  LastReaderProgress := -1;
-  Failure := ''; Started := GetTickCount64;
-end;
-
-procedure TGBIMainDriver.HandleReader;
-var Reader: TfrmBuiltinReader; NewID, PreviousPosition: Integer;
-begin
-  if not Reading then Exit;
-  for var I := 0 to Screen.FormCount - 1 do
-    if Screen.Forms[I] is TfrmBuiltinReader then
-    begin
-      Reader := TfrmBuiltinReader(Screen.Forms[I]);
-      try
-        if GetTickCount64 - Started > 15000 then
-          raise Exception.Create('Main group reader exceeded its private-fixture deadline');
-        if not Reader.Ready then Exit;
-        Require(Reader.BookText.Contains(ExpectedText), 'Main group reader opened a foreign book');
-        Reader.SetBounds(80, 80, 640, 440);
-        if ReplaceDuringRead then
-        begin
-          Collection.BeginBulkOperation;
-          try
-            // This is the real full-reimport table replacement path. The user
-            // system-card/group remains outside the replaced catalog tables.
-            Collection.TruncateTablesBeforeImport;
-            NewID := Collection.InsertBook(Replacement, False, False);
-            Require(NewID = Replacement.BookKey.BookID, 'Full reimport did not reuse the positive catalog ID');
-            Collection.EndBulkOperation(True);
-          except Collection.EndBulkOperation(False); raise; end;
-        end;
-        PreviousPosition := Reader.TextPosition;
-        Reader.SeekProgress(0.63);
-        Require((Reader.TextPosition > 0) and (Reader.TextPosition <> PreviousPosition),
-          'Main group reader did not move before its save callback');
-        Reader.AddBookmark;
-        // This public value uses the same end-of-book rule as SaveSettings:
-        // the final displayed text page saves 100%, even when its start is earlier.
-        LastReaderProgress := EnsureRange(Round(Reader.ReadingProgress * 100), 0, 100);
-        Reading := False; Finished := True;
-        Reader.Close;
-      except
-        on E: Exception do
-        begin
-          Failure := E.ClassName + ': ' + E.Message;
-          Reading := False; Finished := True;
-          Reader.Close;
-        end;
-      end;
-      Exit;
-    end;
-end;
-
 procedure TGBIMainDriver.Tick(Sender: TObject);
 begin
   HandleReview;
   HandleDialogs;
-  HandleReader;
 end;
 
 function TGBIWorkerCapture.Message(const Value: string; Flags: Longint): Integer;
@@ -425,7 +363,11 @@ begin
       Messages.Add(Text);
       Require(PostMessage(Button,BM_CLICK,0,0),'Cannot post the expected native download rejection OK click');
     end
-    else Unexpected.Add('Unexpected saved download native dialog: '+Text);
+    else
+    begin
+      Unexpected.Add('Unexpected saved download native dialog: '+Text);
+      if (Button<>0) and (GetDlgItem(Window,IDCANCEL)=0) then PostMessage(Button,BM_CLICK,0,0);
+    end;
   finally Parts.Free; Capturing:=False; end;
 end;
 
@@ -1366,21 +1308,64 @@ var
     end;
 
     procedure ReadViaMain(ReplaceRow: Boolean);
-    var Action: TAction;
+    var Action: TAction; Deadline: UInt64; NewID: Integer;
+      ReportFile, ReadyFile, ReleaseFile, OldMode, OldReport, OldMarker: string;
+      Report: TMemIniFile;
     begin
       Trace('Main-read replace=' + IntToStr(Ord(ReplaceRow)), Saved.GetBookFileName);
       Ini := TMemIniFile.Create(ReaderFile, TEncoding.UTF8);
       try Ini.WriteInteger('Book.' + IdentityA, 'Position', 10); Ini.UpdateFile;
       finally Ini.Free; end;
-      Driver.Collection := Collection; Driver.Replacement := Current; Driver.ExpectedText := MarkerA;
-      Driver.BeginRead(ReplaceRow);
-      Action := frmMain.FindComponent('acReadBuiltin') as TAction;
-      Require(Assigned(Action), 'Native Main built-in read action is absent');
-      Action.Update; Require(Action.Enabled, 'Saved exact physical book cannot be read in Main');
-      Action.Execute;
-      while not Driver.Finished and (GetTickCount64 - Driver.Started < 20000) do
+      ReportFile := TPath.Combine(Folder, 'group-reader-' + TGUID.NewGuid.ToString + '.ini');
+      ReadyFile := TPath.ChangeExtension(ReportFile, '.ready');
+      ReleaseFile := TPath.ChangeExtension(ReportFile, '.continue');
+      OldMode := GetEnvironmentVariable('HLRU_SESSION_TEST_MODE');
+      OldReport := GetEnvironmentVariable('HLRU_READER_TEST_REPORT');
+      OldMarker := GetEnvironmentVariable('HLRU_GROUP_READER_MARKER');
+      SetEnvironmentVariable('HLRU_SESSION_TEST_MODE', 'render-group');
+      SetEnvironmentVariable('HLRU_READER_TEST_REPORT', PChar(ReportFile));
+      SetEnvironmentVariable('HLRU_GROUP_READER_MARKER', PChar(MarkerA));
+      try
+        Action := frmMain.FindComponent('acReadBuiltin') as TAction;
+        Require(Assigned(Action), 'Native Main built-in read action is absent');
+        Action.Update;
+        Require(Action.Enabled, 'Saved exact physical book cannot be read in Main');
+        Action.Execute;
+        Deadline := GetTickCount64 + 20000;
+        while not FileExists(ReadyFile) and not FileExists(ReportFile) and (GetTickCount64 < Deadline) do
+        begin Application.ProcessMessages; CheckSynchronize(0); Sleep(5); end;
+        if FileExists(ReadyFile) and ReplaceRow then
+        begin
+          // Exercise the real full reimport while the independent reader has A open.
+          Collection.BeginBulkOperation;
+          try
+            Collection.TruncateTablesBeforeImport;
+            NewID := Collection.InsertBook(Current, False, False);
+            Require(NewID = Current.BookKey.BookID, 'Full reimport did not reuse the positive catalog ID');
+            Collection.EndBulkOperation(True);
+          except Collection.EndBulkOperation(False); raise; end;
+        end;
+      finally
+        TFile.WriteAllText(ReleaseFile, 'Continue');
+        SetEnvironmentVariable('HLRU_SESSION_TEST_MODE', PChar(OldMode));
+        SetEnvironmentVariable('HLRU_READER_TEST_REPORT', PChar(OldReport));
+        SetEnvironmentVariable('HLRU_GROUP_READER_MARKER', PChar(OldMarker));
+      end;
+      Deadline := GetTickCount64 + 25000;
+      while (not FileExists(ReportFile) or ReaderSessionRunnersPending(frmMain)) and (GetTickCount64 < Deadline) do
       begin Application.ProcessMessages; CheckSynchronize(0); Sleep(5); end;
-      Require(Driver.Finished and (Driver.Failure = ''), 'Main group read failed: ' + Driver.Failure);
+      Require(FileExists(ReportFile) and not ReaderSessionRunnersPending(frmMain),
+        'The independent group reader did not return its result');
+      Report := TMemIniFile.Create(ReportFile, TEncoding.UTF8);
+      try
+        var ReaderError := Report.ReadString('Reader', 'error', 'No result');
+        Require(FileExists(ReadyFile) and (ReaderError = ''), 'Main group read failed: ' + ReaderError);
+        var ReaderPID := Cardinal(Report.ReadInteger('Reader', 'pid', 0));
+        Require((ReaderPID <> 0) and (ReaderPID <> GetCurrentProcessID),
+          'The catalogue did not open the group book in the independent reader');
+        Driver.LastReaderProgress := Report.ReadInteger('Reader', 'group_progress', -1);
+        Require(Driver.LastReaderProgress > 0, 'The independent reader did not report its progress');
+      finally Report.Free; end;
       Ini := TMemIniFile.Create(ReaderFile, TEncoding.UTF8);
       try
         Require((Ini.ReadString('Book.' + IdentityA, 'Title', '') = Saved.Title) and

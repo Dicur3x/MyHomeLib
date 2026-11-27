@@ -174,8 +174,9 @@ procedure TestRefactorConverterCancel;
 var PIDFile: string; Started: TStopwatch; ExitCode: Cardinal; Process: THandle; PID: DWORD; Success: Boolean;
 begin
   PIDFile:=Settings.AppPath+'own-converter-'+TGUID.NewGuid.ToString+'.pid'; Started:=TStopwatch.StartNew;
-  Success:=unit_Globals.ExecAndWait(ParamStr(0),'refactor-slow-converter "'+PIDFile+'"',SW_HIDE,ExitCode,
-    function: Boolean begin Result:=FileExists(PIDFile+'.leaf') or (Started.ElapsedMilliseconds>3000); end);
+  var Canceled:TFunc<Boolean>:=function: Boolean
+    begin Result:=FileExists(PIDFile+'.leaf') or (Started.ElapsedMilliseconds>3000); end;
+  Success:=unit_Globals.ExecAndWait(ParamStr(0),'refactor-slow-converter "'+PIDFile+'"',SW_HIDE,ExitCode,Canceled);
   Started.Stop;
   Require(not Success and (ExitCode=ERROR_CANCELLED) and (Started.ElapsedMilliseconds<4000),
     'Legacy converter did not acknowledge cancellation promptly');

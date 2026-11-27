@@ -130,9 +130,24 @@ modes.push('estimate-failure-visibility');
 modes.push('export-cache-lifecycle');
 modes.push('save-settings-sync');
 modes.push('script-export-paths');
-if (viewsMode !== null && !modes.includes(viewsMode) && !proposalVisualModes.includes(viewsMode) && !['known-copy-estimates','reader-story','save-host-resume','save-module-restart','save-planning','kindle-save','advanced-save','minimum-save','unified-send','diagnostics-cache-age','paged-export-progress','image-components','catalogue-formats','catalogue-performance','personal-authors','book-output-reset','display-labels','flibrary-quality','first-book-list','first-book-list-large','image-quality-dialog','refactor-audit','native-folder-picker','cancel-interactive','export-cancel-interactive','legacy-import-interactive','reader-filter','reader-main-filter','reader-chapters','packing-fbd','sql-catalogue-download'].includes(viewsMode)) throw new Error(`Unknown view scenario: ${viewsMode}`);
+const explicitViewModes = ['backup-restore', 'library-update-apply'];
+if (viewsMode !== null && !modes.includes(viewsMode) && !proposalVisualModes.includes(viewsMode) && !explicitViewModes.includes(viewsMode) && !['known-copy-estimates','reader-story','save-host-resume','save-module-restart','save-planning','kindle-save','advanced-save','minimum-save','unified-send','diagnostics-cache-age','paged-export-progress','image-components','catalogue-formats','catalogue-performance','personal-authors','book-output-reset','display-labels','flibrary-quality','first-book-list','first-book-list-large','image-quality-dialog','refactor-audit','native-folder-picker','cancel-interactive','export-cancel-interactive','legacy-import-interactive','reader-filter','reader-main-filter','reader-chapters','packing-fbd','sql-catalogue-download'].includes(viewsMode)) throw new Error(`Unknown view scenario: ${viewsMode}`);
 const requiredViews = {
   "backup-restore": ["PASS snapshot restore creates an isolated catalog"],
+  'library-update-apply': [
+    'PASS reviewed whole update keeps literal metadata personal data favourites and roots',
+    'PASS reviewed update accepts only new archives with its original book root offline',
+    'PASS deleted retained cards stay excluded after offline replacement',
+    'PASS reviewed merged-source update preserves priorities personal data and removed copies',
+    'PASS reviewed updates retain exclusions across omitted indexes',
+    'PASS shared-source profiles use the latest applied baseline',
+    'PASS reviewed bound-source update adds downloaded books with its original root offline',
+    'PASS missing new copies wait for download without phantom links',
+    'PASS retained download deletions survive missing 7z restoration',
+    'PASS reviewed ZIP names retain actual 7z source links',
+    'PASS legacy publisher locations recover from a verified saved index',
+    'PASS publisher recovery reads saved INPX and Metabib independently',
+  ],
   "library-update-sources": ["PASS update review reads INPX and Metabib", "PASS source settings window edits"],
   "tool-context-guides": ["book-compression", "book-duplicates", "book-metadata-fill", "collection-backup",
     "library-update-sources", "book-description"]
@@ -150,7 +165,7 @@ const requiredViews = {
   'book-deletion-preparation': ['PASS background deletion preparation groups hard-link aliases exact members and FBD pairs without source writes or partial tasks', 'PASS prepared archive tasks complete filesystem and exact catalogue phases while preserving neighbours notes and unrelated FBD members'],
   'fb2-encoding': ['PASS FB2 encoding across metadata import and reader'],
   'local-book-import': ['PASS local batch, mixed folder import, member readback and local identity across INPX updates'],
-  'explorer-file-drop': ['PASS linked book relocation preserves progress and group data and validates all archive members', 'PASS Explorer links loose and archived books without copying and reports the unavailable original', 'PASS Windows file-drop message and book list confirm the destination, support cancellation and import multiple books'],
+  'explorer-file-drop': ['PASS linked book relocation preserves progress and group data and validates all archive members', 'PASS Explorer links loose and archived books without copying and reports the unavailable original', 'PASS a missing linked file offers relinking in the last source folder and cancellation keeps its path', 'PASS choosing a replacement in the missing-file dialog opens that book in the independent reader', 'PASS Windows file-drop message and book list confirm the destination, support cancellation and import multiple books'],
   'book-deletion-filtered': ['PASS filtered Main deletion excludes both columns and reviews all archives once',
     'PASS partial deletion report reopens with fresh counts without blocking the catalogue'],
   'flibrary-real-deletion': ['PASS real FLibrary duplicate deletes only the selected book cover and images and preserves the second copy'],
@@ -179,7 +194,7 @@ const requiredViews = {
   'djvu-first-use-feedback': ['PASS DjVu first use downloads its ready verified package without another 7-Zip install'],
   'catalogue-description': ['PASS catalogue description and keywords in actual details and refreshed lower card', 'PASS explicit local EPUB description preserves source and review', 'PASS lower FB2 card keeps file catalog and manually edited descriptions with metadata enabled'],
   'component-prompt-feedback': ['PASS component prompts show purpose once preserve context and agree on small download sizes', 'PASS standalone Reader module prompt has its own visible taskbar window', 'PASS reader formats help names native handlers and external updates with scrollable light dark 96 144 192 DPI dialog'],
-  'archive-open-feedback': ['PASS archive picker prefers main document keeps companion text and double click confirms reading and conversion', 'PASS CBZ literal bracket Unicode duplicate base names natural order and all page pixels'],
+  'archive-open-feedback': ['PASS archive picker prefers main document keeps companion text and double click confirms reading and conversion', 'PASS archive preview and conversion select the book beside a small readme', 'PASS CBZ literal bracket Unicode duplicate base names natural order and all page pixels'],
   'format-components': ['PASS independent format base converts FB2 to EPUB without Kindle Office XPS', 'PASS independent format component prepare verify install BookProcessing', 'PASS independent format component prepare verify install ImageProcessing', 'PASS independent format component prepare verify install Kindle', 'PASS independent format component prepare verify install LegacyBooks', 'PASS independent format component prepare verify install LegacyOffice', 'PASS independent format component prepare verify install XPS'],
   'optional-mcp': ['PASS optional MCP setup preserves default custom Unicode profiles', 'PASS optional MCP is hidden until requested', 'PASS optional MCP actual package verifies architecture version restricted files'],
   'optional-zstd': ['PASS optional Zstandard real compact download cancel tamper install without restart', 'PASS optional Zstandard newly installed official decoder reads actual Metabib'],
@@ -209,7 +224,7 @@ const requiredViews = {
   "reader-small-fb2": ["PASS actual Main small unchanged FB2 opens and pages through explicit builtin and default reader actions without repeated preparation", "PASS reader return updates the selected catalogue book progress badge"],
   "paged-export-progress": ["PASS paged export actual progress caption, bar, cancel enabled and source preservation cancel=0", "PASS paged export actual progress caption, bar, cancel enabled and source preservation cancel=1", "PASS paged export actual cancellation without a second prompt action=1", "PASS paged export actual cancellation without a second prompt action=2"],
   "minimal-first-install": ["PASS minimal first install verifies actual archive, excludes optional binaries and installs 7-Zip DocSharp DjVuLibre with preserved private files"],
-  "reader-session-context": ["PASS exact archive paths distinguish case variants with native ZIP and 7-Zip", "PASS legacy 7z locators recover exact trimmed-stem bytes", "PASS reader session preserves selected archive member history settings progress notes and source leases while rejecting invalid replies"],
+  "reader-session-context": ["PASS exact archive paths distinguish case variants with native ZIP and 7-Zip", "PASS unique trimmed ZIP paths outrank stale indexes and ambiguous names are rejected", "PASS legacy 7z locators recover exact trimmed-stem bytes", "PASS reader session preserves selected archive member history settings progress notes and source leases while rejecting invalid replies", "PASS HTML local links preserve UTF-8 legacy code page named anchors and literal plus targets", "PASS reader keeps image descriptions in HTML XHTML and MHTML without duplicating available images"],
   "sqlite-mapping": ["PASS SQLite mapped reads beyond 256 MB preserve concurrent snapshots Unicode rollback backup restore and compaction"],
   "reader-open-choice": ["PASS EPUB line break repair preserves contents and leaves valid markup unchanged", "PASS catalogue open-book choice keeps catalogue colours while reading theme stays independent; accept cancel and remembered choice work", "PASS clean catalogue external EPUB command explains the SumatraPDF assignment and alternatives"],
   "diagnostics-view": ["PASS catalogue and Reader show readable Unicode logs and export the unchanged technical ZIP"],
@@ -355,6 +370,8 @@ function requiredPasses(executable, mode) {
     return ['PASS compact SQL module download actual installer restart returns to source choice once'];
   if (mode==='save-module-restart' && process.argv.includes('--packing-module-restart'))
     return ['PASS compact packing download actual installer restart restores selected profile and canceled review'];
+  if (mode==='save-module-restart' && process.argv.includes('--save-pdf-zip-restart'))
+    return ['PASS beta 16 PDF in ZIP installs both required modules in one restart and exports with restored settings'];
   if (mode==='save-module-restart') return [process.argv.includes('--save-kindle-restart')
     ? 'PASS compact two-component Kindle download actual installer restart restored MOBI review cancel and unchanged source'
     : 'PASS compact legacy converter to independent processing download actual installer restart restored review cancel and unchanged source'];
@@ -699,7 +716,7 @@ function run(executable, mode, subcase = "") {
         path.join(folder,'tools/collectionpack/pack_collection.py'));
       fs.copyFileSync(path.resolve(__dirname,'../../../Installer/GenreLists/genres_fb2.glst'),path.join(folder,'genres_fb2.glst'));
     }
-    if (['builtin-reader','reader-small-fb2','reader-main-filter','reader-catalogue-recent','reader-catalogue-volume'].includes(mode)) {
+    if (['builtin-reader','reader-small-fb2','reader-main-filter','reader-catalogue-recent','reader-catalogue-volume','explorer-file-drop','group-book-identity'].includes(mode)) {
       fs.copyFileSync(executable,path.join(folder,'HomeLibreReader.exe'));
       for (const [source,name] of [
         [path.resolve(__dirname,'../../../LICENSE'),'HomeLibReader-LICENSE.txt'],
@@ -788,9 +805,10 @@ function run(executable, mode, subcase = "") {
       const kindle=process.argv.includes('--save-kindle-restart');
       const packing=process.argv.includes('--packing-module-restart');
       const sql=process.argv.includes('--sql-module-restart');
-      if(!old&&!kindle&&!packing&&!sql) throw Error('save-module-restart requires --save-old-converter=verified-old-archive');
+      const pdfZip=process.argv.includes('--save-pdf-zip-restart');
+      if(!old&&!kindle&&!packing&&!sql&&!pdfZip) throw Error('save-module-restart requires --save-old-converter=verified-old-archive');
       const python=process.env.HLRU_PYTHON; if(!python) throw Error('HLRU_PYTHON is required to prepare the private candidate');
-      const prep=cp.spawnSync(python,['-B','-X','utf8',path.join(__dirname,'prepare_save_module_fixture.py'),runtime,folder,sql?'sql':packing?'packing':kindle?'kindle':path.resolve(old.slice('--save-old-converter='.length))],{encoding:'utf8',windowsHide:true,env:{...process.env,PYTHONDONTWRITEBYTECODE:'1'},timeout:120000});
+      const prep=cp.spawnSync(python,['-B','-X','utf8',path.join(__dirname,'prepare_save_module_fixture.py'),runtime,folder,pdfZip?'pdf-zip':sql?'sql':packing?'packing':kindle?'kindle':path.resolve(old.slice('--save-old-converter='.length))],{encoding:'utf8',windowsHide:true,env:{...process.env,PYTHONDONTWRITEBYTECODE:'1'},timeout:120000});
       if(prep.status!==0) throw Error('Save module fixture preparation failed: '+prep.stdout+prep.stderr);
       fs.copyFileSync(path.join(runtime,'HomeLibRuUpdater.exe'),path.join(folder,'HomeLibRuUpdater.exe'));
       if (packing) {
@@ -993,7 +1011,8 @@ with zipfile.ZipFile(sys.argv[2]+'/reader-spread.epub','w') as z:
       });
     }
     if (mode === 'group-book-identity' || mode === 'ordinary-book-export-identity') {
-      fs.cpSync(path.join(runtime,'tools/kindle/python'),path.join(folder,'tools/kindle/python'),{recursive:true});
+      const python = fs.existsSync(path.join(runtime,'tools/python/python.exe')) ? 'tools/python' : 'tools/kindle/python';
+      fs.cpSync(path.join(runtime,python),path.join(folder,python),{recursive:true});
       fs.cpSync(path.join(runtime,'tools/bookconvert'),path.join(folder,'tools/bookconvert'),{recursive:true});
       for (const name of ['pdfium','djvu','7zip']) fs.cpSync(path.join(runtime,'tools',name),path.join(folder,'tools',name),{recursive:true});
     }
@@ -1083,7 +1102,7 @@ with zipfile.ZipFile(sys.argv[2]+'/reader-spread.epub','w') as z:
     }
     const exe = path.join(folder, path.basename(executable));
     if (mode==='packing-fbd' && packingMenuReaderArg) { runPackingMenu(folder,exe); return; }
-    const result = cp.spawnSync(exe, mode ? [mode,...(subcase ? [subcase] : []),...(mode === "audit-new" ? [auditCaseArg ? auditCaseArg.slice(13) : "filters", ...(amberArchiveArg ? [fs.realpathSync(amberArchiveArg.slice(16))] : [])] : []),...(toolProbe ? ["probe"] : []),...((visualCache || visualUI || visualUpdate || visualRecords) ? ["visual"] : []),...(mode === "feedback14" && amberArchiveArg ? [fs.realpathSync(amberArchiveArg.slice("--amber-archive=".length))] : [])] : [], { cwd: folder, env: {...process.env, LOCALAPPDATA: path.join(folder, "LocalAppData")}, encoding: "utf8", timeout: ['duplicate-linked-audit','duplicate-linked-mass'].includes(mode) ? 420000 : mode==='book-preview-adaptive' && process.env.HOMELIB_TEST_PREVIEW_VISUAL!=='1' ? 300000 : mode==='builtin-reader' ? 360000 : mode==='packing-fbd' && (packingJpegXL || packingFlibraryArg) ? 420000 : ['book-deletion','zip-member-deletion','archive-member-engines','flibrary-real-deletion'].includes(mode) ? 180000 : mode==='script-export-paths' ? 900000 : visualEstimates || ((mode==='book-preview-adaptive' && process.env.HOMELIB_TEST_PREVIEW_VISUAL==='1') || (mode==='compact-search-filters' && process.env.HOMELIB_TEST_SEARCH_VISUAL==='1')) ? 900000 : mode==='save-module-restart' || mode==='unified-send' || mode==='save-planning' || mode==='kindle-save' || mode==='advanced-save' ? 900000 : mode==='catalogue-performance' || mode==='first-book-list-large' || mode==='image-quality-dialog' ? 900000 : mode==='catalogue-formats' ? 3600000 : mode==='conversion-menu' ? 300000 : mode==='update-source-failures' ? 240000 : !!process.env.HLRU_FEEDBACK529_VISUAL && mode === "feedback529" ? 300000 : mode === "post525-update" ? (visualUI ? 900000 : 180000) : mode === "filter-captions" && ["annotation-light", "annotation-dark"].includes(subcase) ? 240000 : mode === "large-inpx" ? 900000 : ["component-monthly-lifecycle", "reader-spread", "view-sessions", "builtin-reader", "reader-resource-idle", "update-repair", "compact-book-views", "book-preview-layout", "book-preview-adaptive", "metadata-book-columns", "reader-notes-proposals", "update-keyboard-accessibility", "main-toolbar-states", "favorite-ui"].includes(mode) ? 180000 : mode === 'native-folder-picker' || mode === 'cancel-interactive' || mode === 'export-cancel-interactive' || mode === 'legacy-import-interactive' || proposalVisualModes.includes(mode) || visualUI || visualUpdate || visualRecords ? 900000 : visualCache ? 180000 : 90000, windowsHide: mode !== 'script-export-paths' && !process.env.HLRU_FEEDBACK529_VISUAL && mode !== 'update-keyboard-accessibility' && !mode.startsWith("first-run") && mode !== 'cancel-interactive' && mode !== 'export-cancel-interactive' && mode !== 'legacy-import-interactive' && !proposalVisualModes.includes(mode) && !visualCache && !visualUI && !visualRecords && !visualEstimates, maxBuffer: 2 * 1024 * 1024 });
+    const result = cp.spawnSync(exe, mode ? [mode,...(subcase ? [subcase] : []),...(mode === "audit-new" ? [auditCaseArg ? auditCaseArg.slice(13) : "filters", ...(amberArchiveArg ? [fs.realpathSync(amberArchiveArg.slice(16))] : [])] : []),...(toolProbe ? ["probe"] : []),...((visualCache || visualUI || visualUpdate || visualRecords) ? ["visual"] : []),...(mode === "feedback14" && amberArchiveArg ? [fs.realpathSync(amberArchiveArg.slice("--amber-archive=".length))] : [])] : [], { cwd: folder, env: {...process.env, LOCALAPPDATA: path.join(folder, "LocalAppData")}, encoding: "utf8", timeout: ['duplicate-linked-audit','duplicate-linked-mass'].includes(mode) ? 420000 : mode==='book-preview-adaptive' && process.env.HOMELIB_TEST_PREVIEW_VISUAL!=='1' ? 300000 : mode==='builtin-reader' ? 360000 : mode==='packing-fbd' && (packingJpegXL || packingFlibraryArg) ? 420000 : ['book-deletion','zip-member-deletion','archive-member-engines','flibrary-real-deletion'].includes(mode) ? 180000 : mode==='script-export-paths' ? 900000 : visualEstimates || ((mode==='book-preview-adaptive' && process.env.HOMELIB_TEST_PREVIEW_VISUAL==='1') || (mode==='compact-search-filters' && process.env.HOMELIB_TEST_SEARCH_VISUAL==='1')) ? 900000 : mode==='save-module-restart' || mode==='unified-send' || mode==='save-planning' || mode==='kindle-save' || mode==='advanced-save' ? 900000 : mode==='catalogue-performance' || mode==='first-book-list-large' || mode==='image-quality-dialog' ? 900000 : mode==='catalogue-formats' ? 3600000 : mode==='conversion-menu' ? 300000 : mode==='library-update-apply' ? 600000 : mode==='update-source-failures' ? 240000 : !!process.env.HLRU_FEEDBACK529_VISUAL && mode === "feedback529" ? 300000 : mode === "post525-update" ? (visualUI ? 900000 : 180000) : mode === "filter-captions" && ["annotation-light", "annotation-dark"].includes(subcase) ? 240000 : mode === "large-inpx" ? 900000 : ["component-monthly-lifecycle", "reader-spread", "view-sessions", "builtin-reader", "reader-resource-idle", "update-repair", "compact-book-views", "book-preview-layout", "book-preview-adaptive", "metadata-book-columns", "reader-notes-proposals", "update-keyboard-accessibility", "main-toolbar-states", "favorite-ui"].includes(mode) ? 180000 : mode === 'native-folder-picker' || mode === 'cancel-interactive' || mode === 'export-cancel-interactive' || mode === 'legacy-import-interactive' || proposalVisualModes.includes(mode) || visualUI || visualUpdate || visualRecords ? 900000 : visualCache ? 180000 : 90000, windowsHide: mode !== 'script-export-paths' && !process.env.HLRU_FEEDBACK529_VISUAL && mode !== 'update-keyboard-accessibility' && !mode.startsWith("first-run") && mode !== 'cancel-interactive' && mode !== 'export-cancel-interactive' && mode !== 'legacy-import-interactive' && !proposalVisualModes.includes(mode) && !visualCache && !visualUI && !visualRecords && !visualEstimates, maxBuffer: 2 * 1024 * 1024 });
     const output = (result.stdout || "") + (result.stderr || "");
     if (mode === "favorite-ui") {
       const screenshot = path.join(folder, "all-favorite-authors.png");
@@ -1255,6 +1274,7 @@ function runView(mode) {
     return;
   }
   if (mode==='save-module-restart') {
+    if(process.argv.includes('--save-pdf-zip-restart')) return run(tests[2],mode,'pdf-zip');
     if(process.argv.includes('--sql-module-restart')) return run(tests[2],mode,'sql');
     if(process.argv.includes('--save-kindle-restart')) return run(tests[2],mode,'kindle');
     if(process.argv.includes('--packing-module-restart')) return run(tests[2],mode,'packing');

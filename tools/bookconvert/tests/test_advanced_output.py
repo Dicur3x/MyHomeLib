@@ -16,6 +16,7 @@ import zipfile
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import advanced_output
 import convert_book as conversion
+import epub_kfx_output
 import epub_pdf_output
 from test_text_inputs import docx
 
@@ -56,6 +57,7 @@ def rich_epub(path):
           <p><img src="pixel.png" alt="First image"/></p>
           <p><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8"><title>Chart</title><rect width="8" height="8" fill="#369"/></svg>After chart.</p>
           <p><img src="unsafe.svg" alt="Blocked diagram"/><img src="https://example.invalid/a.png" alt="Outside image"/></p>
+          <video poster="pixel.png"><source src="clip.mp4"/><p>Description of the clip.</p></video>
           <script>Unsafe source script</script>''',
         'two.xhtml': '''<h2 id="next">Second chapter</h2>
           <p><img src="pixel.png" alt="Same image"/> <a href="https://example.invalid/a(b)">Public link</a></p>''',
@@ -80,7 +82,7 @@ class AdvancedOutputTest(unittest.TestCase):
         chapter=('<html:html xmlns:html="'+conversion.XH+'" xmlns:s="http://www.w3.org/2000/svg" '
                  'xmlns:l="'+conversion.XL+'" xmlns:m="http://www.w3.org/1998/Math/MathML">'
                  '<html:head><html:title>Title</html:title></html:head><html:body>'+
-                 '<html:p/>'*450+'<html:p>Start <html:strong/>End.</html:p>'
+                 '<html:p/>'*450+'<html:p>Start <html:strong/><html:br/>End.</html:p>'
                  '<s:svg><s:image l:href="pixel.png"/></s:svg><m:math><m:mi>x</m:mi></m:math>'
                  '</html:body></html:html>').encode()
         entries['OPS/one.xhtml']=chapter
@@ -94,6 +96,8 @@ class AdvancedOutputTest(unittest.TestCase):
             self.assertNotIn(b'html:html',data)
             self.assertNotIn(b'<p />',data)
             self.assertIn(b'<p></p>',data)
+            self.assertEqual(data.count(b'<br />'),1)
+            self.assertNotIn(b'</br>',data)
             # HTML writers replace the root. Foreign QName bindings must remain
             # valid on the retained SVG/MathML subtrees after that replacement.
             replaced=re.sub(rb'<html\b[^>]*>',b'<html xmlns="'+conversion.XH.encode()+b'">',data,count=1)
@@ -119,15 +123,93 @@ class AdvancedOutputTest(unittest.TestCase):
         conversion.convert_book(self.source, epub)
         office = self.work / 'document.docx'
         docx(office)
-        for source, profile, component in [(self.source, 'epub2', 'FB2Export'), (epub, 'kepub', 'KoboExport'),
+        for source, profile, component in [(self.source, 'kepub', 'KoboExport'), (epub, 'kepub', 'KoboExport'),
                                            (epub, 'pdf', 'EpubPdfExport'), (office, 'kepub', 'KoboExport'),
-                                           (office, 'pdf', 'EpubPdfExport'), (self.source, 'kfx', 'FB2Export'),
+                                           (office, 'pdf', 'EpubPdfExport'), (self.source, 'kfx', 'KfxExport'),
+                                           (self.source, 'pdf', 'EpubPdfExport'), (self.source, 'md', 'FB2Export'),
                                            (epub, 'kfx', 'KfxExport'), (office, 'azw8', 'KfxExport')]:
             output = self.work / ('book' + advanced_output.OUTPUT_SUFFIXES[profile])
             with self.assertRaises(conversion.ComponentRequired) as failure:
                 conversion.convert_book(source, output, output_profile=profile, tools_root=self.tools)
             self.assertEqual(failure.exception.component, component)
             self.assertFalse(output.exists())
+
+    def test_fb2_epub_profiles_keep_publication_fields_and_content(self):
+        source = self.work / 'edition.fb2'
+        data = self.original.replace(b'</f:description>',
+            b'<f:publish-info><f:publisher>Original Publisher</f:publisher><f:year>2002</f:year>'
+            b'<f:isbn>5-699-01480-2</f:isbn></f:publish-info></f:description>')
+        source.write_bytes(data)
+        for version in (2, 3):
+            with self.subTest(version=version):
+                output = self.work / f'edition-{version}.epub'
+                conversion.convert_book(source, output, output_profile=f'epub{version}', tools_root=self.tools)
+                with zipfile.ZipFile(output) as archive:
+                    package = conversion.xml(archive.read('OEBPS/package.opf'))
+                    self.assertTrue(package.get('version').startswith(str(version)))
+                    metadata = conversion.first(package, 'metadata')
+                    self.assertEqual(conversion.plain(conversion.first(metadata, 'publisher')), 'Original Publisher')
+                    self.assertEqual(conversion.plain(conversion.first(metadata, 'date')), '2002')
+                    self.assertIn('urn:isbn:5-699-01480-2', [conversion.plain(n) for n in conversion.children(metadata, 'identifier')])
+                    chapter = conversion.xhtml(archive.read('OEBPS/body-1.xhtml'))
+                    self.assertEqual([conversion.plain(n) for n in chapter.iter('{' + conversion.XH + '}td')], ['Test table'])
+                    self.assertTrue(any('#note' in n.get('href', '') for n in chapter.iter('{' + conversion.XH + '}a')))
+                    self.assertTrue(any(archive.read(name) == b64decode(PNG) for name in archive.namelist() if name.endswith('.png')))
+        self.assertEqual(source.read_bytes(), data)
+
+    def test_epub_markdown_keeps_merged_tables_and_their_content(self):
+        fixture = self.work / 'fixture.epub'
+        rich_epub(fixture)
+        source = self.work / 'complex-table.epub'
+        table = '''<p><a href="#value">To the cell</a></p>
+          <p>Before<em>. An italic sentence.</em> After <strong>Code: </strong>end.</p>
+          <table onclick="danger()"><caption>Source caption</caption>
+          <thead><tr><th colspan="2" scope="colgroup">Combined heading</th></tr></thead>
+          <tbody><tr><th rowspan="2" scope="rowgroup">Combined row</th>
+          <td id="value"><strong>Line one</strong><br/>H<sub>2</sub>O and x<sup>2</sup>
+          <img src="pixel.png" alt="&quot;Diagram&quot;"/>
+          <a epub:type="noteref" href="appendix/notes.xhtml#n1">1</a>
+          <a href="two.xhtml#next">Next chapter</a><a href="javascript:void(0)">Unsafe URL</a>
+          <script>danger()</script>&lt;script&gt; literal &amp; text
+          <table><tr><td>Nested cell</td></tr></table></td></tr><tr><td>Second row</td></tr></tbody>
+          <tfoot><tr><td colspan="2">Table footer</td></tr></tfoot></table>'''
+        with zipfile.ZipFile(fixture) as original, zipfile.ZipFile(source, 'x') as book:
+            for name in original.namelist():
+                data = original.read(name)
+                if name == 'OPS/one.xhtml':
+                    data = f'<html xmlns="{conversion.XH}" xmlns:epub="{conversion.EP}"><body>{table}</body></html>'.encode()
+                book.writestr(name, data)
+        original_data = source.read_bytes()
+        output = self.work / 'book.md'
+        result = conversion.convert_book(source, output, output_profile='md', tools_root=self.tools)
+        text = output.read_text(encoding='utf-8')
+        import mistune
+        rendered = mistune.create_markdown(escape=False, plugins=['table', 'footnotes'])(text)
+        document = conversion.xml(('<document>' + rendered + '</document>').encode())
+        outer = document.find('table')
+        self.assertEqual(document.findtext('p/em'), '. An italic sentence.')
+        self.assertEqual(document.findtext('p/strong'), 'Code: ')
+        self.assertEqual(outer.findtext('caption'), 'Source caption')
+        self.assertEqual(outer.find('thead/tr/th').attrib, {'colspan': '2', 'scope': 'colgroup'})
+        self.assertEqual(outer.find('tbody/tr/th').attrib, {'rowspan': '2', 'scope': 'rowgroup'})
+        self.assertEqual(outer.findtext('tfoot/tr/td'), 'Table footer')
+        cell = outer.find('tbody/tr/td')
+        self.assertEqual(cell.findtext('strong'), 'Line one')
+        self.assertIsNotNone(cell.find('br'))
+        self.assertEqual((cell.findtext('sub'), cell.findtext('sup')), ('2', '2'))
+        self.assertEqual(cell.findtext('table/tr/td'), 'Nested cell')
+        self.assertIn('[To the cell](#' + cell.get('id') + ')', text)
+        self.assertEqual(cell.find('img').get('alt'), '"Diagram"')
+        self.assertEqual(b64decode(cell.find('img').get('src').split(',', 1)[1]), b64decode(PNG))
+        self.assertIsNotNone(document.find('.//a[@id="hl-note-1"]'))
+        self.assertIn('Note body with its own image.', conversion.plain(document))
+        self.assertEqual([link.text for link in cell.findall('a')], ['1', 'Next chapter'])
+        self.assertEqual(cell.find('a').get('href'), '#hl-note-1')
+        self.assertIn('<script> literal & text', conversion.plain(cell))
+        self.assertNotIn('danger()', text)
+        self.assertNotIn('javascript:', text)
+        self.assertFalse(any('Объединённые ячейки' in warning for warning in result['warnings']))
+        self.assertEqual(source.read_bytes(), original_data)
 
     def test_epub_to_markdown_keeps_structure_links_and_local_images(self):
         epub = self.work / 'independent.epub'
@@ -158,6 +240,10 @@ class AdvancedOutputTest(unittest.TestCase):
         self.assertIn('After chart.', text)
         self.assertIn('Blocked diagram', text)
         self.assertIn('Outside image', text)
+        self.assertIn('![clip.mp4][hl-image-1]', text)
+        self.assertIn('Description of the clip.', text)
+        self.assertIn('Видео «clip.mp4» доступно в исходной книге.', text)
+        self.assertIn('Видео EPUB не перенесено: «clip.mp4».', conversion.damaged_content_warnings(result['warnings']))
         self.assertNotIn('https://example.invalid/a.png', text)
         self.assertIn('[Public link](https://example.invalid/a%28b%29)', text)
         self.assertNotIn('Unsafe source script', text)
@@ -177,7 +263,7 @@ class AdvancedOutputTest(unittest.TestCase):
                 output = self.work / (quality + '.md')
                 conversion.convert_book(source, output, output_profile='md', image_quality=quality, tools_root=self.tools)
                 text = output.read_text(encoding='utf-8')
-                for fragment in ('Глава один', '| Ячейка |', '[^note-1]: Точная сноска'):
+                for fragment in ('Глава один', '<td><p>Ячейка</p>', '[^note-1]: Точная сноска'):
                     self.assertIn(fragment, text)
                 self.assertEqual(image in text, quality == 'original')
                 self.assertEqual('data:image/' in text, quality == 'original')
@@ -231,6 +317,61 @@ class AdvancedOutputTest(unittest.TestCase):
                     output.write_bytes(broken)
                     with self.assertRaisesRegex(conversion.ConversionError, 'повреждённую книгу Kindle'):
                         advanced_output.validate_output(conversion, output, profile)
+
+    def test_kfx_and_azw8_report_unmapped_publication_fields(self):
+        source = self.work / 'edition.epub'
+        conversion.convert_book(self.source, source)
+        with zipfile.ZipFile(source) as archive:
+            entries = {name: archive.read(name) for name in archive.namelist()}
+        opf_path = 'OEBPS/package.opf'
+        package = conversion.xml(entries[opf_path])
+        metadata = conversion.first(package, 'metadata')
+        for node in conversion.children(metadata, 'subject'):
+            metadata.remove(node)
+        writer = self.tools / 'kfx-export' / 'boko.exe'
+        writer.parent.mkdir(parents=True)
+        writer.touch()
+
+        def write_container(_api, command, _work, _check):
+            head = b'CONT\x02\x00' + struct.pack('<III', 22, 18, 4)
+            Path(command[-1]).write_bytes(head + b'\xe0\x01\x00\xeaENTY')
+
+        convert_kfx = epub_kfx_output.convert
+
+        def convert_with_fixture_writer(api, source, output, writer, tools, warnings, check, _run_writer):
+            return convert_kfx(api, source, output, writer, tools, warnings, check, write_container)
+
+        isbn = '5-699-01480-2'
+        for form in ('unlabelled', 'urn', 'scheme', 'onix'):
+            with self.subTest(form=form):
+                identifier = conversion.element(conversion.DC, 'identifier',
+                                                'urn:isbn:' + isbn if form == 'urn' else isbn, id='edition-isbn')
+                refinement = conversion.element(conversion.OP, 'meta', '02', refines='#edition-isbn',
+                                                scheme='onix:codelist5', property='identifier-type')
+                subject = conversion.element(conversion.DC, 'subject', 'Source topic')
+                rights = conversion.element(conversion.DC, 'rights', 'Source rights')
+                if form == 'scheme':
+                    identifier.set(f'{{{conversion.OP}}}scheme', 'ISBN')
+                nodes = [identifier]
+                if form == 'onix':
+                    nodes.extend((refinement, subject, rights))
+                metadata.extend(nodes)
+                with zipfile.ZipFile(source, 'w') as archive:
+                    for name, data in entries.items():
+                        archive.writestr(name, conversion.ET.tostring(package) if name == opf_path else data)
+                original = source.read_bytes()
+                for profile in ('kfx', 'azw8'):
+                    with self.subTest(profile=profile), patch.object(epub_kfx_output, 'convert', convert_with_fixture_writer):
+                        output = self.work / (form + '.' + profile)
+                        result = conversion.convert_book(source, output, output_profile=profile, tools_root=self.tools)
+                        notices = conversion.damaged_content_warnings(result['warnings'])
+                        fields = 'ISBN, жанры и темы, сведения о правах' if form == 'onix' else 'ISBN'
+                        expected = (f'{conversion.KFX_METADATA_LOSS} {profile.upper()} — {fields}. '
+                                    'Чтобы сохранить эти сведения, выберите EPUB или AZW3.')
+                        self.assertEqual(notices, [] if form == 'unlabelled' else [expected])
+                self.assertEqual(source.read_bytes(), original)
+                for node in nodes:
+                    metadata.remove(node)
 
     def test_epub_pdf_server_only_serves_known_resources_with_private_prefix(self):
         epub = self.work / 'source.epub'
@@ -308,7 +449,8 @@ class AdvancedOutputTest(unittest.TestCase):
         (module/'viewer/vivliostyle.js').write_text('// fixture',encoding='utf-8')
         class ReachedPrint(Exception):pass
         modules={'pypdf':types.SimpleNamespace(PdfReader=None,PdfWriter=None),
-                 'pypdf.errors':types.SimpleNamespace(PyPdfError=ValueError)}
+                 'pypdf.errors':types.SimpleNamespace(PyPdfError=ValueError),
+                 'pypdf.xmp':types.SimpleNamespace(XmpInformation=None)}
         for seconds,expected in [(250,ReachedPrint),(301,conversion.ConversionError)]:
             with self.subTest(seconds=seconds):
                 now=[0]
@@ -326,8 +468,13 @@ class AdvancedOutputTest(unittest.TestCase):
     @unittest.skipUnless(os.environ.get('HOMELIBRE_EPUB_PDF_TOOLS'), 'needs the packaged WebView2 writer and Runtime')
     def test_epub_pdf_preserves_text_and_leaves_no_runtime_profile(self):
         tools = Path(os.environ['HOMELIBRE_EPUB_PDF_TOOLS'])
+        source_fb2 = self.work / 'annotated.fb2'
+        source_fb2.write_bytes(self.original.replace(b'<f:lang>en</f:lang>',
+            b'<f:annotation><f:p>Source annotation.</f:p></f:annotation><f:lang>en</f:lang>').replace(
+            b'</f:description>', b'<f:publish-info><f:publisher>Original Publisher</f:publisher>'
+            b'<f:year>2002</f:year><f:isbn>5-699-01480-2</f:isbn></f:publish-info></f:description>'))
         generated = self.work / 'generated.epub'
-        conversion.convert_book(self.source, generated)
+        conversion.convert_book(source_fb2, generated)
         epub = self.work / 'source.epub'
         # The source TOC must survive even when visible titles use plain paragraphs.
         with zipfile.ZipFile(generated) as source, zipfile.ZipFile(epub, 'x') as changed:
@@ -355,6 +502,10 @@ class AdvancedOutputTest(unittest.TestCase):
         self.assertIn('Test table', text)
         self.assertIn('Note body.', text)
         self.assertEqual(pdf.metadata.title, 'Export fixture')
+        self.assertEqual(pdf.metadata.subject, 'Source annotation.')
+        self.assertEqual(pdf.xmp_metadata.dc_publisher, ['Original Publisher'])
+        self.assertEqual(pdf.xmp_metadata.dc_identifier, 'urn:isbn:5-699-01480-2')
+        self.assertEqual([d.year for d in pdf.xmp_metadata.dc_date], [2002])
         bookmark = next(entry for entry in pdf.outline if entry.title == 'First chapter')
         self.assertIn('Text before the illustration.', pdf.pages[pdf.get_destination_page_number(bookmark)].extract_text())
         self.assertEqual(output.stat().st_size, result['size'])

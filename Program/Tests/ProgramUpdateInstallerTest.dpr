@@ -274,6 +274,14 @@ begin
         FixtureWorker:=TComponentCheckFixtureWorker.Create(0,ParamStr(2),ParamStr(3));
         ComponentThread:=FixtureWorker;
         FixtureWorker.OnlyIDs:=TArray<string>.Create('SQLite','AlReader','SumatraPDF','DjVuLibre','7-Zip','DocSharp');
+        if ParamStr(4)<>'' then
+        begin
+          Guard(ParamStr(4));
+          FixtureWorker.OnlyIDs:=TArray<string>.Create('DocSharp');
+          FixtureWorker.SetDocSharpMirror(ParamStr(5),
+            TFile.ReadAllText(TPath.Combine(ParamStr(4),'local-mirror-release.json'),TEncoding.UTF8),
+            TFile.ReadAllText(TPath.Combine(ParamStr(4),COMPONENT_FEED_NAME),TEncoding.UTF8));
+        end;
       end
       else
       begin
@@ -341,6 +349,14 @@ begin
       for I := 4 to ParamCount do begin Guard(ParamStr(I)); Jobs[I - 4] := ParamStr(I); end;
       Writeln(CombinePreparedProgramUpdates(Jobs, Tag, ProgramUpdatePlatform, Job));
       VerifyPreparedProgramUpdate(Job, Tag, ProgramUpdatePlatform);
+    end
+    else if Mode = '--component-newer' then
+    begin
+      Guard(ParamStr(2));
+      Info:=Default(TProgramRelease);
+      Info.ComponentID:=ParamStr(3);
+      Info.ComponentVersion:=ParamStr(4); Info.DownloadURL:='https://example.invalid/package';
+      Writeln(BoolToStr(ComponentNewer(Info,InstalledComponentVersion(ParamStr(2),ParamStr(3))),True));
     end
     else if Mode = '--prepare-component' then
     begin

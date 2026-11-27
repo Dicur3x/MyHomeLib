@@ -281,14 +281,47 @@ var
     IsFolder := False;
   end;
 
+  procedure ReportIncompleteArchive;
+  const DiagnosticLimit = 32*1024;
+  var Diagnostic: string; Prefix: TBytes; EntriesAt: Integer;
+  begin
+    ListOutput.Clear;
+    try
+      // The ordinary -ba listing omits error details. Read only the header
+      // of the diagnostic listing, never trust its entries after a failure.
+      RunExternalToolToStream(FSevenZipTool,
+        ['l', '-slt', '-sccUTF-8', '-bse1', '--', FArchiveFileName],
+        ListOutput, FIsCanceled, DiagnosticLimit);
+    except
+      on EMHLExternalToolError do ; // A nonzero exit can still supply the diagnostic header.
+    end;
+    if ListOutput.Size=0 then Exit;
+    SetLength(Prefix, Integer(ListOutput.Size));
+    Move(ListOutput.Memory^, Prefix[0], Length(Prefix));
+    Diagnostic:=TEncoding.UTF8.GetString(Prefix).Replace(#13,'');
+    EntriesAt:=Pos(#10'----------'#10,Diagnostic);
+    if EntriesAt>0 then SetLength(Diagnostic,EntriesAt-1);
+    if ContainsText(#10+Diagnostic+#10,#10'Unexpected end of archive'#10) then
+      raise EMHLExternalToolError.CreateFmt('Архив «%s» оборван. Скачайте его заново или укажите исправную копию.',
+        [ExtractFileName(FArchiveFileName)]);
+  end;
+
 begin
   Names := TList<string>.Create;
   Sizes := TList<Int64>.Create;
   ListOutput := TMemoryStream.Create;
   Block := TStringList.Create;
   try
-    RunExternalToolToStream(FSevenZipTool,
-      ['l', '-slt', '-ba', '-sccUTF-8', '--', FArchiveFileName], ListOutput, FIsCanceled);
+    try
+      RunExternalToolToStream(FSevenZipTool,
+        ['l', '-slt', '-ba', '-sccUTF-8', '--', FArchiveFileName], ListOutput, FIsCanceled);
+    except
+      on E: EMHLExternalToolError do
+      begin
+        ReportIncompleteArchive;
+        raise;
+      end;
+    end;
     if ListOutput.Size > 0 then
     begin
       if ListOutput.Size > MaxInt then
@@ -524,25 +557,27 @@ begin
   Result := FindEntryIndex(AFileName);
   if Result=AMBIGUOUS_ARCHIVE_ENTRY then
     raise EArchiveBookEntryNotFound.CreateFmt('Неоднозначное имя книги «%s» в архиве.',[AFileName]);
+  if Result>=0 then Exit;
+
+  // Older INPX imports trimmed spaces and dots from the book stem. For ZIP,
+  // a unique full path outranks an old index, since the entries may have moved.
+  // A legacy 7z alias still requires the indexed path to match as well.
+  Key:=AFileName.Replace('\','/');
+  if not FIsSevenZip or ((LegacyIndex>=0) and (LegacyIndex<GetFileCount) and
+    MatchesTrimmedName(FFileNames[LegacyIndex])) then
+    for var I:=0 to GetFileCount-1 do
+      if MatchesTrimmedName(FFileNames[I]) then
+      begin
+        if Result>=0 then
+          raise EArchiveBookEntryNotFound.CreateFmt('Неоднозначное имя книги «%s» в архиве.',[AFileName]);
+        Result:=I;
+      end;
+
   if (Result=-1) and not FIsSevenZip and (LegacyIndex>=0) and (LegacyIndex<FZip.FileCount) then
   begin
-    // Preserve the ordinary ZIP locator contract. Reordered compact archives
-    // must resolve by name and never by an obsolete source entry index.
+    // Preserve the position-only locator for old ZIP entries with other names.
     Method := FZip.FileInfos[LegacyIndex].CompressionMethod;
     if (Method=0) or (Method=8) then Result := LegacyIndex;
-  end;
-  if (Result=-1) and FIsSevenZip and (LegacyIndex>=0) and (LegacyIndex<GetFileCount) then
-  begin
-    // Older INPX imports trimmed spaces and dots from the book stem.
-    // Require both the original position and a unique matching name.
-    Key:=AFileName.Replace('\','/');
-    if MatchesTrimmedName(FFileNames[LegacyIndex]) then
-    begin
-      for var I:=0 to GetFileCount-1 do
-        if (I<>LegacyIndex) and MatchesTrimmedName(FFileNames[I]) then
-          raise EArchiveBookEntryNotFound.CreateFmt('Неоднозначное имя книги «%s» в архиве.',[AFileName]);
-      Result:=LegacyIndex;
-    end;
   end;
   if Result<0 then raise EArchiveBookEntryMissing.CreateFmt('Archive entry "%s" was not found',[AFileName]);
 end;

@@ -8,6 +8,7 @@ type
   public Requests: TStringList; DownloadID, RequestedID: string;
     constructor Create(AOwner: TComponent); override;
     constructor CreateForCatalogue(AOwner: TComponent);
+    constructor CreateWithReaderInventory(AOwner: TComponent);
     destructor Destroy; override;
   protected
     function CreateComponentWorker(Window: HWND): TComponentUpdateThread; override;
@@ -32,6 +33,8 @@ constructor TReaderModuleForm.Create(AOwner: TComponent);
 begin inherited; Requests:=TStringList.Create; UseReaderComponents; end;
 constructor TReaderModuleForm.CreateForCatalogue(AOwner: TComponent);
 begin inherited Create(AOwner); Requests:=TStringList.Create; end;
+constructor TReaderModuleForm.CreateWithReaderInventory(AOwner: TComponent);
+begin inherited CreateForReader(AOwner); Requests:=TStringList.Create; end;
 destructor TReaderModuleForm.Destroy;
 begin inherited; Requests.Free; end;
 function TReaderModuleForm.CreateComponentWorker(Window: HWND): TComponentUpdateThread;

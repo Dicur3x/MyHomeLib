@@ -35,6 +35,10 @@ FB2_BUILD = runpy.run_path(str(REPO / 'scripts/build-fb2-export.py'))
 KFX_BUILD = runpy.run_path(str(REPO / 'scripts/build-kfx-export.py'))
 ADVANCED_WRITERS = ('FB2Export', *WRITERS, 'EpubPdfExport')
 OPDS_TLS_TOOLCHAIN = 'go1.27.3'
+PDF_FONT_WHEEL = 'pypdf-7.1.1-py3-none-any.whl'
+PDF_FONT_WHEEL_SHA256 = '04c5680d4b4cfa04ab505b09393fc949860c34a4dad6565284d11a2f5c3ce8b1'
+PDF_FONT_WHEEL_PATH = 'tools/bookconvert/pdf-runtime/pypdf.whl'
+PDF_FONT_REPAIR_VERSION = (3, 0, 0, 17)
 DESCRIPTORS = {
     'BookProcessing': 'tools/bookconvert/MODULAR_RUNTIME.json',
     'ImageProcessing': 'tools/images/COMPONENT.json',
@@ -53,14 +57,15 @@ NOTES = {
     'BookProcessing': 'Обработка FB2/EPUB и текстов, упаковка коллекций. Декодеры Kindle, Office, XPS, PDF и DjVu устанавливаются отдельно.',
     'ImageProcessing': 'Сжатие иллюстраций и сканированных страниц. Без чтения документов XPS.',
     'Kindle': 'Чтение MOBI/AZW/KF8 через KindleUnpack. Общая среда обработки устанавливается отдельно при необходимости.',
-    'KindleExport': 'Сохранение MOBI7/KF8 и AZW3 через Kindling. Устанавливается только для записи Kindle; без декодеров других форматов.',
+    'KindleExport': 'Сохранение MOBI для старых Kindle и AZW3 с оформлением KF8 через Kindling. '
+                    'Разметка AZW3 разбивается на небольшие фрагменты для совместимости с Kindle 4.',
     'LegacyBooks': 'Дополнительные кодеки старых LIT/LRF и отдельных вариантов Mobipocket.',
     'LegacyOffice': 'Чтение WPS/WPD через libwps/libwpd. Для этих инструментов требуется 64-разрядная Windows.',
     'XPS': 'Чтение документов XPS. Для обычных FB2/EPUB этот компонент не нужен.',
-    'FB2Export': 'fb2cng — сохранение FB2 в EPUB 2, EPUB 3, KEPUB, KFX, AZW8, PDF и Markdown.',
+    'FB2Export': 'fb2cng — сохранение FB2 в Markdown.',
     'KoboExport': 'kepubify — прямое сохранение EPUB в KEPUB для Kobo.',
     'EpubPdfExport': 'Vivliostyle — прямая вёрстка EPUB в PDF через Microsoft WebView2 Runtime.',
-    'KfxExport': 'Обложки KFX/AZW8 и прямое сохранение EPUB в эти форматы, включая подготовку иллюстраций SVG.',
+    'KfxExport': 'Чтение и сохранение KFX/AZW8. При экспорте сохраняются переходы к страницам с одной иллюстрацией.',
     'OPDSTls': 'Каталог OPDS по HTTPS с сертификатом и закрытым ключом пользователя.',
 }
 
@@ -171,8 +176,9 @@ def kfx_writer_payload(platform, source):
         raise ValueError('The verified Boko patch differs from the repository')
     payload[prefix + 'build-kfx-export.py'] = (REPO / 'scripts/build-kfx-export.py').read_bytes()
     payload[prefix + 'SOURCE.txt'] = (
-        'Boko 0.6.0, GPL-3.0-or-later, with the accompanying navigation and linked-image fixes for import and export.\n'
-        'HomeLibre modification date: 2026-11-19.\n'
+        'Boko 0.6.0, GPL-3.0-or-later, with the accompanying navigation, linked-image and co-author fixes.\n'
+        'Navigation preserves destinations in image-only chapters.\n'
+        'HomeLibre modification date: 2026-11-27.\n'
         'https://github.com/zacharydenton/boko/tree/' + commit + '\n'
         'resvg 0.49.0, MIT or Apache-2.0.\n'
         'Corresponding source, dependencies and offline build instructions:\n'
@@ -296,6 +302,9 @@ def book_processing_sources():
     files['tools/bookconvert/MODULAR_API.txt'] = b'1\n'
     required = ['tools/python/python.exe', 'tools/bookconvert/convert_book.py',
                 'tools/bookconvert/MODULAR_API.txt', 'tools/bookconvert/IMAGE_CONTAINER_API.txt', 'tools/python/python313.dll',
+                'tools/bookconvert/SAVE_OPTIONS_API.txt', 'tools/bookconvert/pdf_legacy_encoding.py',
+                'tools/bookconvert/pdf_truetype_mapping.py',
+                'tools/bookconvert/epub_recovery.py',
                 'tools/python/python313.zip', 'tools/python/python313._pth',
                 'tools/bookconvert/ADVANCED_EXPORT_API.txt', 'tools/bookconvert/advanced_output.py',
                 'tools/bookconvert/markdown_output.py', 'tools/bookconvert/epub2_output.py', 'tools/bookconvert/epub3_output.py',
@@ -307,12 +316,13 @@ def book_processing_sources():
 def legacy_doc_rich_payload(platform):
     project = REPO / 'Utils/HomeLibLegacyDocRich'
     target = KFX_BUILD['TARGETS'][platform][0]
-    source_paths = [project / name for name in ('Cargo.toml', 'Cargo.lock', 'src/main.rs')]
-    lock = tomllib.loads(source_paths[1].read_text(encoding='utf-8'))
+    source_paths = [project / 'Cargo.toml', project / 'Cargo.lock', project / 'docboss-drawings.patch',
+                    REPO / 'scripts/build-legacy-doc-rich.py', *(project / 'src').rglob('*.rs')]
+    lock = tomllib.loads((project / 'Cargo.lock').read_text(encoding='utf-8'))
     executable = project / 'target' / target / 'release/HomeLibLegacyDocRich.exe'
     if not executable.is_file() or any(executable.stat().st_mtime_ns < path.stat().st_mtime_ns
                                        for path in source_paths):
-        raise ValueError('Build Utils/HomeLibLegacyDocRich with Cargo --locked --release for ' + target)
+        raise ValueError('Run scripts/build-legacy-doc-rich.py --target ' + target)
     binary = executable.read_bytes()
     helper.binary_platform(binary, platform)
     cargo_cache = Path(os.environ.get('CARGO_HOME', Path.home() / '.cargo'))
@@ -321,7 +331,9 @@ def legacy_doc_rich_payload(platform):
     checkout = next(iter(sorted((cargo_cache / 'git/checkouts').glob('docboss-*/' + docboss_source[:7]))), None)
     if checkout is None:
         raise ValueError('Pinned Docboss source is missing from the Cargo cache')
-    notices = [f"Docboss {docboss['version']}\nhttps://github.com/4thel00z/docboss/tree/{docboss_source}".encode()]
+    notices = [f"Docboss {docboss['version']}\nhttps://github.com/4thel00z/docboss/tree/{docboss_source}\n"
+               "HomeLibre applies Utils/HomeLibLegacyDocRich/docboss-drawings.patch to preserve legacy Word drawings."
+               .encode()]
     notices.extend((checkout / filename).read_bytes() for filename in ('LICENSE-MIT', 'LICENSE-APACHE'))
     for package in lock['package']:
         if not package.get('source', '').startswith('registry+') or package['name'] == 'libc':
@@ -389,6 +401,10 @@ def verify_book_processing_sources(manifest, descriptor):
     current.update(legacy_doc)
     required.extend(legacy_doc)
     recorded = {entry['path']: entry['sha256'] for entry in manifest['files']}
+    if tuple(map(int, manifest['version'].split('.'))) >= PDF_FONT_REPAIR_VERSION:
+        if recorded.get(PDF_FONT_WHEEL_PATH) != PDF_FONT_WHEEL_SHA256:
+            raise ValueError('BookProcessing PDF font runtime differs from the pinned wheel')
+        required.extend(('tools/bookconvert/pdf_font_encoding.py', PDF_FONT_WHEEL_PATH))
     mismatches = [name for name, data in current.items() if not matches_checkout_source(name, data, recorded.get(name))]
     if mismatches:
         raise ValueError('BookProcessing differs from release source: ' + ', '.join(sorted(mismatches)))
@@ -435,6 +451,7 @@ def payload_for(platform, component, kindle_export_root=None, advanced_export_ro
             raise ValueError('Image processor is stale; rebuild it from current source')
     elif component == 'Kindle':
         payload = tree(runtime/'kindle', 'tools/kindle', ('python', 'COMPONENT.json'))
+        payload['tools/kindle/convert_kf8.py'] = (REPO/'tools/kindle/convert_kf8.py').read_bytes()
         payload['tools/bookconvert/kindle_input.py'] = (REPO/'tools/bookconvert/kindle_input.py').read_bytes()
         required = ['tools/kindle/convert_kf8.py', 'tools/kindle/lib/kindleunpack.py', 'tools/kindle/COPYING.txt',
                     'tools/bookconvert/kindle_input.py']
@@ -451,7 +468,8 @@ def payload_for(platform, component, kindle_export_root=None, advanced_export_ro
                 or descriptor['sha256'] != helper.digest(payload[required[0]])
                 or '+crt-static' not in descriptor['rustflags']):
             raise ValueError('Kindle writer must be built from the verified pinned source for this architecture')
-        patches = ('kindling-windows-epub-paths.patch', 'kindling-svg-compat.patch')
+        patches = ('kindling-windows-epub-paths.patch', 'kindling-svg-compat.patch',
+                   'kindling-mobi7-navigation.patch', 'kindling-kf8-fragments.patch')
         if set(descriptor.get('source_patches', {})) != set(patches):
             raise ValueError('Kindle writer is missing the verified source compatibility fixes')
         for name in patches:
@@ -483,6 +501,7 @@ def payload_for(platform, component, kindle_export_root=None, advanced_export_ro
         prefix = 'tools/images/' if component == 'ImageProcessing' else 'tools/xps/'
         runtime_info = json.loads(payload[prefix + 'RUNTIME.json'])
         if (runtime_info.get('platform') != platform or runtime_info.get('gif_static_api') != 1 or
+                runtime_info.get('gif_stream_api') != 1 or
                 runtime_info.get('source_sha256') != helper.digest((REPO / 'Utils/HomeLibXps/HomeLibXps.cs').read_bytes()) or
                 runtime_info.get('sha256') != helper.digest(payload[required[0]])):
             raise ValueError('Rebuild the image/XPS helper from the current source before packaging it')
@@ -492,13 +511,21 @@ def payload_for(platform, component, kindle_export_root=None, advanced_export_ro
 
 
 def package(output, platform, component, version, kindle_export_root=None, advanced_export_root=None, opds_tls_go=None,
-            kfx_export_root=None, image_processing_root=None):
+            kfx_export_root=None, image_processing_root=None, pdf_font_wheel=None):
     payload, required = payload_for(platform, component, kindle_export_root, advanced_export_root, opds_tls_go,
                                     kfx_export_root, image_processing_root)
     if component == 'BookProcessing':
         legacy_doc = legacy_doc_payload(version, platform)
         payload.update(legacy_doc)
         required.extend(legacy_doc)
+        if tuple(map(int, version.split('.'))) >= PDF_FONT_REPAIR_VERSION:
+            if pdf_font_wheel is None:
+                raise ValueError('Pass the pinned ' + PDF_FONT_WHEEL + ' with --pdf-font-wheel')
+            data = pdf_font_wheel.read_bytes()
+            if helper.digest(data) != PDF_FONT_WHEEL_SHA256:
+                raise ValueError('The PDF font runtime differs from the pinned ' + PDF_FONT_WHEEL)
+            payload[PDF_FONT_WHEEL_PATH] = data
+            required.extend(('tools/bookconvert/pdf_font_encoding.py', PDF_FONT_WHEEL_PATH))
     descriptor = dict(format=1, component=component, platform=platform, version=version,
                       required=required, identities={name:helper.digest(payload[name]) for name in required})
     payload[DESCRIPTORS[component]] = helper.json_bytes(descriptor)
@@ -534,6 +561,7 @@ if __name__ == '__main__':
     parser.add_argument('--opds-tls-go', type=Path, help='Verified Go executable for the optional OPDS HTTPS transport')
     parser.add_argument('--kfx-export-root', type=Path, help='Verified Boko and resvg runtime artifacts')
     parser.add_argument('--image-processing-root', type=Path, help='Verified Win32/Win64 image helpers from the current source')
+    parser.add_argument('--pdf-font-wheel', type=Path, help='Pinned ' + PDF_FONT_WHEEL + ' for BookProcessing 3.0.0.17 and later')
     options=parser.parse_args()
     import re
     if not re.fullmatch(r'\d+\.\d+(?:\.\d+){0,2}', options.version): parser.error('Invalid component version')
@@ -544,7 +572,7 @@ if __name__ == '__main__':
         for component in components:
             entry, asset=package(options.output.resolve(), platform, component, options.version,
                                  options.kindle_export_root, options.advanced_export_root, options.opds_tls_go,
-                                 options.kfx_export_root, options.image_processing_root)
+                                 options.kfx_export_root, options.image_processing_root, options.pdf_font_wheel)
             entries.append(entry); assets.append(asset)
     if 'FB2Export' in components:
         source = options.advanced_export_root / FB2_BUILD['SOURCE_ARCHIVE']

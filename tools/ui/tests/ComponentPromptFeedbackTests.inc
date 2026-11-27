@@ -12,8 +12,8 @@ begin
       TTimer(Sender).Enabled:=False; Seen:=True;
       var Dialog:=TForm(Screen.Forms[I]);
       var Text:=TMemo(Dialog.FindComponent('ReaderFormatsText'));
-      Require(Assigned(Text) and Text.ReadOnly and (Text.ScrollBars=ssVertical),
-        'Reader format help is not readable and scrollable');
+      Require(Assigned(Text) and Text.ReadOnly and (Text.ScrollBars=ssVertical) and
+        (Text.BorderStyle=bsNone),'Reader format help is not readable and scrollable without the stock edit border');
       var Contents:string:=Text.Text;
       Require(Contents.Contains('DOCX, ODT') and Contents.Contains('вместе с читалкой') and
         Contents.Contains('PDF — PDFium') and Contents.Contains('DJVM — DjVuLibre') and
@@ -84,7 +84,7 @@ end;
 
 procedure CheckColoredNestedChapterProgress(Reader: TfrmBuiltinReader);
 var Bar: TPaintBox; Chapters: TComboBox; Picture: TBitmap; DC: HDC; Saved: HGDIOBJ;
-  Fill: COLORREF; Marks, Spacing, X, LastMark, MarkCount: Integer;
+  Fill: COLORREF; Marks, DenseMarks, X, LastMark: Integer;
 begin
   Reader.GoToPosition(Reader.TextLength-1);
   Require(Reader.ReadingProgress=1,'Progress test did not reach the end');
@@ -101,7 +101,7 @@ begin
         Fill:=GetPixel(DC,Bar.Width div 2,Bar.Height-2);
         Require(Fill=ColorToRGB(clAqua),'The chosen progress color was not painted');
         Chapters:=Reader.FindComponent('ReaderChapterSelector') as TComboBox;
-        Marks:=0;
+        Marks:=0; DenseMarks:=0; LastMark:=-1;
         for var I:=0 to Chapters.Items.Count-1 do
         begin
           X:=MulDiv(Bar.Width-1,NativeInt(Chapters.Items.Objects[I]),Reader.TextLength);
@@ -112,19 +112,15 @@ begin
             Require((GetPixel(DC,X,0)<>Fill) and (GetPixel(DC,X,Bar.Height*3 div 4)=Fill),
               'A nested chapter marker is missing or hidden on the filled progress bar: '+Chapters.Items[I]);
             Inc(Marks);
+          end
+          else if Chapters.Items[I].Contains('Глава ') and (X<>LastMark) then
+          begin
+            Require(GetPixel(DC,X,0)<>Fill,'A real chapter position is missing from the progress bar');
+            LastMark:=X; Inc(DenseMarks);
           end;
         end;
         Require(Marks=2,'Progress fixture did not supply its two nested chapters');
-        Spacing:=MulDiv(24,Reader.CurrentPPI,96);
-        LastMark:=-Spacing; MarkCount:=0;
-        for X:=0 to Bar.Width-1 do
-          if (GetPixel(DC,X,0)<>Fill) and ((X=0) or (GetPixel(DC,X-1,0)=Fill)) then
-          begin
-            Require(X-LastMark>=Spacing,'Adjacent progress marks are too close');
-            LastMark:=X; Inc(MarkCount);
-          end;
-        Require((Chapters.Items.Count>100) and (MarkCount>5) and (MarkCount<=32),
-          'Dense chapter marks were not reduced to a readable number');
+        Require(DenseMarks>32,'The fixture did not exercise closely spaced chapter marks');
       finally SelectObject(DC,Saved); end;
     finally DeleteDC(DC); end;
   finally Picture.Free; end;
@@ -242,6 +238,23 @@ begin
     TButton(Prompt.FindComponent('ComponentPromptCancel')).Click;
   finally Dialog.Free; end;
   Writeln('PASS standalone Reader module prompt has its own visible taskbar window');
+  Dialog:=TReaderModuleForm.CreateWithReaderInventory(nil);
+  try
+    Dialog.RequestedID:='BookProcessing';
+    Dialog.RequestComponent('BookProcessing','Проверка модуля для книги.',True);
+    Prompt:=TForm(Dialog.FindComponent('OptionalComponentPrompt'));
+    Require(Assigned(Prompt) and Prompt.Visible and (Dialog.Requests.Count=0),
+      'Reader waited for its inventory or its network request before showing the prompt');
+    Started:=GetTickCount64;
+    repeat
+      Application.ProcessMessages; CheckSynchronize(2); Sleep(5);
+    until TButton(Prompt.FindComponent('ComponentPromptDownload')).Enabled or
+      (GetTickCount64-Started>8000);
+    Require((Dialog.Requests.Count=2) and TButton(Prompt.FindComponent('ComponentPromptDownload')).Enabled,
+      'Reader inventory did not resume the requested component check');
+    TButton(Prompt.FindComponent('ComponentPromptCancel')).Click;
+  finally Dialog.Free; end;
+  Writeln('PASS Reader inventory runs after showing the prompt and resumes its component check');
   Host:=TfrmReaderHost.Create(nil); Probe:=TReaderFormatsHelpProbe.Create; Timer:=TTimer.Create(nil);
   SavedDark:=MHLThemeDark;
   try
@@ -292,7 +305,7 @@ begin
     try
       Require(SavedProfile.ReadInteger('Reader','ThemeProgress'+IntToStr(AppearanceProbe.Reader.ThemeIndex),clDefault)=ColorToRGB(clAqua),
         'The progress color was not saved for the active theme');
-      var Prefix:='HeadingColor'+IntToStr(Ord(AppearanceProbe.Reader.ThemeIndex>=4))+'_';
+      var Prefix:='ThemeHeadingColor'+IntToStr(AppearanceProbe.Reader.ThemeIndex)+'_';
       Require((SavedProfile.ReadInteger('Reader',Prefix+'0',clDefault)=ColorToRGB(clBlue)) and
         (SavedProfile.ReadInteger('Reader',Prefix+'1',clDefault)=ColorToRGB(clTeal)),
         'Heading colors were not saved after accepting the theme palette');
@@ -301,7 +314,7 @@ begin
     Timer.Free; AppearanceProbe.Reader.Free; AppearanceProbe.Free;
   end;
   Writeln('PASS appearance and theme colors stay owned by their visible reader windows');
-  Writeln('PASS sparse chapter marks stay visible without crowding on the selected and saved progress color');
+  Writeln('PASS real chapter positions stay visible on the selected and saved progress color');
 end;
 
 procedure TestDjvuFirstUseFeedback;

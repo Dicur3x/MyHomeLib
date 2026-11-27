@@ -1,6 +1,6 @@
 """Round-trip an owned illustrated book through both native Kindle writers.
 
-This checks the actual MOBI7/KF8 containers using the independent KindleUnpack
+This checks standalone MOBI7 and KF8 containers using the independent KindleUnpack
 reader. It does not claim a test on a physical Kindle or on the app's GUI.
 """
 import argparse
@@ -16,6 +16,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import xml.etree.ElementTree as ET
 import zipfile
 import zlib
 
@@ -97,7 +98,7 @@ def probe(artifacts, report_path, temp_root):
                     version = int.from_bytes(data[offsets[0]+36:offsets[0]+40], 'big')
                     assert version == expected, (extension, version)
                     if extension == 'mobi':
-                        assert any(data[offset:offset+8] == b'BOUNDARY' for offset in offsets), 'No KF8 half in legacy dual MOBI'
+                        assert not any(data[offset:offset+8] == b'BOUNDARY' for offset in offsets), 'Legacy MOBI contains a second book'
                     restored = root / (platform + '-' + extension + '.epub')
                     tools = REPO / 'Program/Out' / ('Bin' if platform == 'Win32' else 'Bin64') / 'tools'
                     decoded = root / (platform + '-' + extension + '-decoded.json')
@@ -112,10 +113,16 @@ def probe(artifacts, report_path, temp_root):
                     assert decode.returncode == 0, case
                     if extension == 'mobi':
                         legacy = unpacked / 'mobi7/book.html'
+                        assert not (unpacked / 'mobi8').exists(), 'KindleUnpack found a KF8 section in MOBI'
                         legacy_text = html.unescape(legacy.read_text(encoding='utf-8'))
                         for expected_text in ('Ёжик читает книгу.', 'English text.', 'Проверочная сноска.', 'Последний абзац'):
                             assert expected_text in legacy_text, ('MOBI7', expected_text)
                         assert any(path.read_bytes() == png() for path in (unpacked / 'mobi7').rglob('*.png')), 'MOBI7 illustration changed'
+                        navigation, = (unpacked / 'mobi7').glob('*.ncx')
+                        labels = [point.findtext('{*}navLabel/{*}text')
+                                  for point in ET.parse(navigation).iterfind('.//{*}navPoint')]
+                        assert labels[:2] == ['Первая глава', 'Вторая глава'], labels
+                        case['independent_legacy_mobi7_navigation'] = labels
                         case['independent_legacy_mobi7_text_notes_original_image'] = True
                     raw = json.loads(decoded.read_text(encoding='utf-8'))
                     if raw['format'] == 'epub':

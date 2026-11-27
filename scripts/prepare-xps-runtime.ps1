@@ -15,7 +15,7 @@ $target=Join-Path $runtime 'HomeLibXps.exe'
 $references=@('WindowsBase.dll','PresentationCore.dll','PresentationFramework.dll','ReachFramework.dll') | ForEach-Object { '/reference:'+(Join-Path $wpf $_) }
 & (Join-Path $framework 'csc.exe') /nologo /target:exe /optimize+ "/platform:$architecture" "/out:$target" /reference:System.Xaml.dll /reference:System.Drawing.dll /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll @references $source $openXpsSource
 if($LASTEXITCODE -ne 0){throw 'XPS helper compilation failed.'}
-$manifest=[ordered]@{version=1;platform=$Platform;gif_static_api=1;source_sha256=(Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant();openxps_source_sha256=(Get-FileHash -LiteralPath $openXpsSource -Algorithm SHA256).Hash.ToLowerInvariant();sha256=(Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash.ToLowerInvariant();renderer='Windows XPS/OpenXPS/.NET Framework 4.5+'}
+$manifest=[ordered]@{version=1;platform=$Platform;gif_static_api=1;gif_stream_api=1;source_sha256=(Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant();openxps_source_sha256=(Get-FileHash -LiteralPath $openXpsSource -Algorithm SHA256).Hash.ToLowerInvariant();sha256=(Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash.ToLowerInvariant();renderer='Windows XPS/OpenXPS/.NET Framework 4.5+'}
 $manifest | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $runtime 'RUNTIME.json') -Encoding UTF8
 Copy-Item -LiteralPath (Join-Path $repository 'LICENSE') -Destination (Join-Path $runtime 'HomeLibXps-MIT.txt') -Force
 & $target --version

@@ -10,6 +10,7 @@ import struct
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 import zipfile
 import zlib
 from test_legacy_fixed import pdf_fixture
@@ -47,12 +48,16 @@ class ModularComponents(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'EpubPdfExport differs from release source'):
             packages.verify_epub_pdf_source(manifest)
 
-    def test_release_rejects_outdated_workers_even_with_matching_internal_hashes(self):
+    @patch.object(packages, 'legacy_doc_payload', return_value={})
+    def test_release_rejects_outdated_workers_even_with_matching_internal_hashes(self, _legacy_payload):
         sources, required = packages.book_processing_sources()
         hashes = {path: hashlib.sha256(data).hexdigest() for path, data in sources.items()}
         for path in required:
             hashes.setdefault(path, 'f' * 64)  # Platform binaries are verified by the native installer.
-        manifest = {'files': [{'path': path, 'sha256': digest} for path, digest in hashes.items()]}
+        hashes[packages.PDF_FONT_WHEEL_PATH] = packages.PDF_FONT_WHEEL_SHA256
+        required.extend(('tools/bookconvert/pdf_font_encoding.py', packages.PDF_FONT_WHEEL_PATH))
+        manifest = {'version': '3.0.0.17', 'platform': 'Win64',
+                    'files': [{'path': path, 'sha256': digest} for path, digest in hashes.items()]}
         descriptor = {'identities': {path: hashes[path] for path in required}}
         packages.verify_book_processing_sources(manifest, descriptor)
 

@@ -10,11 +10,135 @@ function PrepareB1ReaderFile(const SourceFile, OriginalSource: string;
 function PrepareLegacyReaderFile(const SourceFile, OriginalSource: string;
   const OnStage: TProc<string> = nil; const IsCanceled: TFunc<Boolean> = nil): string;
 
+function PrepareEpubMathImages(const Chapter: TBytes; Count: Integer; Deadline: UInt64;
+  var Remaining: Int64; const IsCanceled: TFunc<Boolean>): TArray<TBytes>;
+
+function RecoverReaderJpeg(const Input: TBytes; Deadline: UInt64; const IsCanceled: TFunc<Boolean>;
+  out Output: TBytes; out Rows, OriginalRows, PreviewScans: Integer): Boolean;
+
 implementation
 
 uses System.Classes, System.IOUtils, System.Hash, System.Zip, Winapi.Windows,
+  System.StrUtils, unit_Diagnostics,
   unit_BookCache, unit_BookConversion, unit_ReaderFormats, unit_ReaderRaster,
   unit_MHLArchiveHelpers, unit_MHLExternalTools, unit_FormatComponents, unit_BookConversionRequirements, dm_user;
+
+function RecoverReaderJpeg(const Input: TBytes; Deadline: UInt64; const IsCanceled: TFunc<Boolean>;
+  out Output: TBytes; out Rows, OriginalRows, PreviewScans: Integer): Boolean;
+const MaxImage = 16*1024*1024;
+var AppPath, Python, Script, Folder, SystemRoot, SourceName, TargetName, Work: string;
+  FreeSpace, TotalSpace, Limit: UInt64; Log: TStringStream; Fields: TArray<string>;
+begin
+  Result:=False; Output:=nil; Rows:=0; OriginalRows:=0; PreviewScans:=0;
+  if Assigned(IsCanceled) and IsCanceled() then Abort;
+  if (Length(Input)=0) or (Length(Input)>MaxImage) or (GetTickCount64>=Deadline) then Exit;
+  AppPath:=ExtractFilePath(ParamStr(0));
+  Python:=FindBookProcessingPython(AppPath);
+  Script:=TPath.Combine(AppPath,'tools/bookconvert/tiff_jpeg.py');
+  if (Python='') or not FileExists(Script) then Exit;
+  Folder:=TPath.GetTempPath;
+  SystemRoot:=GetEnvironmentVariable('SystemDrive')+'\';
+  if not GetDiskFreeSpaceEx(PChar(SystemRoot),FreeSpace,TotalSpace,nil) or (FreeSpace<UInt64(8)*1024*1024*1024) then Exit;
+  if not GetDiskFreeSpaceEx(PChar(Folder),FreeSpace,TotalSpace,nil) or (FreeSpace<2*MaxImage) then Exit;
+  Work:=TPath.Combine(Folder,'hl-jpeg-'+TGUID.NewGuid.ToString);
+  SourceName:=TPath.Combine(Work,'source.jpg'); TargetName:=TPath.Combine(Work,'recovered.jpg');
+  Limit:=GetTickCount64+12000;
+  if Deadline<Limit then Limit:=Deadline;
+  Log:=TStringStream.Create('',TEncoding.UTF8);
+  try
+    try
+      TDirectory.CreateDirectory(Work);
+      TFile.WriteAllBytes(SourceName,Input);
+      RunExternalToolToStream(Python,['-I','-B','-X','utf8',Script,'recover',SourceName,TargetName],Log,
+        function: Boolean
+        begin
+          if Assigned(IsCanceled) and IsCanceled() then Abort;
+          if GetTickCount64>=Limit then raise Exception.Create('Превышено время восстановления JPEG.');
+          Result:=False;
+        end,0,True,256*1024*1024);
+      Fields:=Log.DataString.Trim.Split([' ']);
+      if (Length(Fields)<>3) or not TryStrToInt(Fields[0],Rows) or not TryStrToInt(Fields[1],OriginalRows) or
+        not TryStrToInt(Fields[2],PreviewScans) or (Rows<1) or (OriginalRows<Rows) or (OriginalRows>65535) or
+        (PreviewScans<0) or not FileExists(TargetName) or (TFile.GetSize(TargetName)>MaxImage) then Exit;
+      Output:=TFile.ReadAllBytes(TargetName);
+      Result:=Length(Output)>0;
+    except
+      on E: EAbort do raise;
+      on E: Exception do LogDiagnosticTrace('jpeg-recovery',E.Message,'EPUB/FB2');
+    end;
+  finally
+    Log.Free;
+    System.SysUtils.DeleteFile(TargetName);
+    System.SysUtils.DeleteFile(SourceName);
+    if DirectoryExists(Work) then Winapi.Windows.RemoveDirectory(PChar(Work));
+  end;
+end;
+
+function PrepareEpubMathImages(const Chapter: TBytes; Count: Integer; Deadline: UInt64;
+  var Remaining: Int64; const IsCanceled: TFunc<Boolean>): TArray<TBytes>;
+const MaxChapter = 8*1024*1024; MaxImage = 16*1024*1024;
+var AppPath, Python, Script, TempRoot, Work, Source, Output: string; Log: TMemoryStream; Images: TZipFile;
+  CheckCanceled: TFunc<Boolean>;
+begin
+  Result:=nil;
+  if (Remaining<=0) or (Length(Chapter)>MaxChapter) or (Count<1) or (Count>256) or
+    (GetTickCount64>=Deadline) then Exit;
+  AppPath:=ExtractFilePath(ParamStr(0));
+  Script:=TPath.Combine(AppPath,'tools/bookconvert/epub_math_reader.py');
+  if not FileExists(Script) or not FileExists(TPath.Combine(AppPath,FormatComponentFile('EpubPdfExport'))) then Exit;
+  Python:=FindBookProcessingPython(AppPath);
+  if Python='' then Exit;
+  TempRoot:=IncludeTrailingPathDelimiter(TPath.GetFullPath(TPath.GetTempPath));
+  Work:=TPath.Combine(TempRoot,'hl-math-'+TGUID.NewGuid.ToString);
+  Source:=TPath.Combine(Work,'chapter.xhtml'); Output:=TPath.Combine(Work,'formulas.zip');
+  Log:=nil; Images:=nil;
+  CheckCanceled:=function: Boolean
+    begin
+      if Assigned(IsCanceled) and IsCanceled() then raise EAbort.Create('Чтение отменено.');
+      if GetTickCount64>=Deadline then raise Exception.Create('Отрисовка формул EPUB превысила 90 секунд.');
+      Result:=False;
+    end;
+  try
+    try
+      CheckCanceled();
+      TDirectory.CreateDirectory(Work);
+      Log:=TMemoryStream.Create;
+      TFile.WriteAllBytes(Source,Chapter);
+      RunExternalToolToStream(Python,['-I','-B','-X','utf8',Script,Source,Output,
+        TPath.Combine(AppPath,'tools'),IntToStr(Count)],Log,CheckCanceled,0,True,NativeUInt($80000000));
+      CheckCanceled();
+      if not FileExists(Output) or (TFile.GetSize(Output)>64*1024*1024+64*1024) then Exit;
+      Images:=TZipFile.Create;
+      Images.Open(Output,zmRead);
+      if Images.FileCount>Count then Exit;
+      SetLength(Result,Count);
+      for var Index:=0 to Count-1 do
+      begin
+        CheckCanceled();
+        var Entry:=Images.IndexOf(IntToStr(Index)+'.png');
+        if Entry<0 then Continue;
+        var Size:=Images.FileInfo[Entry].UncompressedSize;
+        if (Size<1) or (Size>MaxImage) or (Size>Remaining) then Continue;
+        Images.Read(Entry,Result[Index]);
+        Dec(Remaining,Size);
+      end;
+    except
+      on E: EAbort do raise;
+      on E: Exception do
+      begin
+        LogDiagnosticTrace('epub-math',E.Message,'EPUB');
+        Result:=nil;
+      end;
+    end;
+  finally
+    Images.Free; Log.Free;
+    if Work.StartsWith(TempRoot,True) and DirectoryExists(Work) and
+      (GetFileAttributes(PChar(Work)) and FILE_ATTRIBUTE_REPARSE_POINT=0) then
+      try
+        TDirectory.Delete(Work,True);
+      except on E: Exception do LogDiagnosticTrace('epub-math-cleanup',E.Message,'EPUB'); end;
+  end;
+end;
 
 function PrepareB1ReaderFile(const SourceFile, OriginalSource: string;
   const OnStage: TProc<string>; const IsCanceled: TFunc<Boolean>): string;
@@ -80,16 +204,15 @@ begin
   end;
 end;
 
-function PrepareLegacyReaderFile(const SourceFile, OriginalSource: string;
+function PrepareLegacyReflow(const SourceFile, OriginalSource, Extension: string;
   const OnStage: TProc<string>; const IsCanceled: TFunc<Boolean>): string;
 var Input: TStream; Writer: TBookCacheWrite; Zip: TZipFile;
   Stamp, StampFile, Temporary, TemporaryStamp, Dependency: string;
   Attributes: TWin32FileAttributeData; Dependencies: TStringList;
-  Canceled: TFunc<Boolean>; Archive: TMHLZip; HasTIFF: Boolean; Extension: string; MaxInput: Int64;
+  Canceled: TFunc<Boolean>; Archive: TMHLZip; NeedsPreparation: Boolean; CachePrefix: string; MaxInput: Int64;
 begin
   Result:=SourceFile;
-  Extension:=LowerCase(ExtractFileExt(SourceFile));
-  if (Extension<>'.rtf') and not IsLegacyReaderFormat(Extension) then Exit;
+  if (Extension='.epub') and HasReadableEpubContainer(SourceFile) then Exit;
   Canceled:=function: Boolean
     begin
       Result:=(Assigned(IsCanceled) and IsCanceled()) or
@@ -112,14 +235,25 @@ begin
   if (Extension='.rtf') and (TFile.GetSize(SourceFile)<=MAX_NATIVE_RTF_SOURCE) then Exit;
   if (Extension='.cbz') or (Extension='.cbr') or (Extension='.cb7') then
   begin
-    // Ordinary comics retain the native path. Only TIFF needs frame expansion.
-    HasTIFF:=False; Archive:=TMHLZip.Create(SourceFile,True,False,Canceled,Extension<>'.cbz');
+    // Ordinary comics retain the native path. The preparer expands TIFF frames
+    // and can recover verified pages from a damaged RAR or 7-Zip comic.
+    NeedsPreparation:=False;
     try
-      for var I:=0 to Archive.FileCount-1 do
-        if SameText(ExtractFileExt(Archive.FileNames[I]),'.tif') or
-          SameText(ExtractFileExt(Archive.FileNames[I]),'.tiff') then begin HasTIFF:=True; Break; end;
-    finally Archive.Free; end;
-    if not HasTIFF then Exit;
+      Archive:=TMHLZip.Create(SourceFile,True,False,Canceled,Extension<>'.cbz');
+      try
+        for var I:=0 to Archive.FileCount-1 do
+          if SameText(ExtractFileExt(Archive.FileNames[I]),'.tif') or
+            SameText(ExtractFileExt(Archive.FileNames[I]),'.tiff') then begin NeedsPreparation:=True; Break; end;
+      finally Archive.Free; end;
+    except
+      on E: EMHLComponentRequired do raise;
+      on E: EMHLExternalToolError do
+      begin
+        if Extension='.cbz' then raise;
+        NeedsPreparation:=True;
+      end;
+    end;
+    if not NeedsPreparation then Exit;
   end;
   var Missing:=MissingBookConversionComponents(Settings.AppPath,SourceFile,Extension,False,Canceled);
   if Length(Missing)>0 then raise EMHLComponentRequired.Create(Missing,
@@ -129,13 +263,15 @@ begin
   Input:=OpenCachedBookFile(SourceFile);
   try
     MaxInput:=64*1024*1024;
-    if (Extension='.fb2') or (Extension='.tif') or (Extension='.tiff') or (Extension='.cbz') or (Extension='.cbr') or (Extension='.cb7') then MaxInput:=256*1024*1024;
+    if (Extension='.tif') or (Extension='.tiff') or (Extension='.cbz') or (Extension='.cbr') or (Extension='.cb7') then MaxInput:=256*1024*1024;
+    if Extension='.fb2' then MaxInput:=MAX_LARGE_FB2_CONVERSION_SOURCE;
+    if Extension='.chm' then MaxInput:=MAX_CHM_CONVERSION_SOURCE;
     if Extension='.rtf' then MaxInput:=MAX_RTF_CONVERSION_SOURCE;
     if Input.Size>MaxInput then raise Exception.Create('Книга превышает предел читалки ('+IntToStr(MaxInput div 1024 div 1024)+' МБ).');
     Stamp:='legacy-reflow-v3|'+BookCacheInputStamp(SourceFile,OriginalSource);
     Dependencies:=TStringList.Create;
     try
-      for Dependency in ['convert_book.py','text_inputs.py','legacy_inputs.py','legacy_helper.py','rgo_input.py','rgo_outline.py','isilo_input.py','isilo_image.py','ibk_input.py','ibk_crypto.py','ibk_parameters.json','ibk_tables.bin','jutoh_input.py','pages_input.py', 'cr3_input.py', 'b1_input.py','xps_input.py','image_input.py','tiff_jpeg.py','office_inputs.py','kindle_input.py','fixed_layout.py','ha_input.py'] do
+      for Dependency in ['convert_book.py','text_inputs.py','epub_recovery.py','legacy_inputs.py','legacy_helper.py','rgo_input.py','rgo_outline.py','isilo_input.py','isilo_image.py','ibk_input.py','ibk_crypto.py','ibk_parameters.json','ibk_tables.bin','jutoh_input.py','pages_input.py', 'cr3_input.py', 'b1_input.py','xps_input.py','image_input.py','tiff_jpeg.py','office_inputs.py','kindle_input.py','fixed_layout.py','ha_input.py'] do
         if FileExists(Settings.AppPath+'tools\bookconvert\'+Dependency) then
           Dependencies.Add(Settings.AppPath+'tools\bookconvert\'+Dependency);
       if Extension='.ibk' then
@@ -156,8 +292,9 @@ begin
           IntToStr(Attributes.ftLastWriteTime.dwHighDateTime)+':'+IntToStr(Attributes.ftLastWriteTime.dwLowDateTime);
       end;
     finally Dependencies.Free; end;
+    if Extension='.epub' then CachePrefix:='homelib-epub-recovered-' else CachePrefix:='homelib-legacy-';
     Result:=ExistingBookCacheFile(TPath.Combine(BookCachePath,
-      'homelib-legacy-'+Copy(THashSHA2.GetHashString(SourceFile),1,32)+'.epub'));
+      CachePrefix+Copy(THashSHA2.GetHashString(SourceFile),1,32)+'.epub'));
     StampFile:=Result+'.source';
     if FileExists(Result) and FileExists(StampFile) then
       try
@@ -187,6 +324,35 @@ begin
     // before that release on both the warm and newly prepared paths.
     if FileExists(Result) then PinReaderCacheFile(Result);
     Input.Free;
+  end;
+end;
+
+function PrepareLegacyReaderFile(const SourceFile, OriginalSource: string;
+  const OnStage: TProc<string>; const IsCanceled: TFunc<Boolean>): string;
+var Extension: string;
+begin
+  Extension:=LowerCase(ExtractFileExt(SourceFile));
+  if not MatchText(Extension,['.mht','.mhtml']) then
+  begin
+    if (Extension='.rtf') or (Extension='.epub') or IsLegacyReaderFormat(Extension) then
+      Exit(PrepareLegacyReflow(SourceFile,OriginalSource,Extension,OnStage,IsCanceled));
+    Exit(SourceFile);
+  end;
+
+  // The compatible converter keeps same-document links while preparing tables.
+  // The built-in reader is still available without that version.
+  Result:=SourceFile;
+  if not ModularBookProcessingAvailable(Settings.AppPath) or
+    (BookProcessingSaveOptionsAPI(Settings.AppPath)<BOOK_PROCESSING_MHTML_LAYOUT_API) then Exit;
+  try
+    Result:=PrepareLegacyReflow(SourceFile,OriginalSource,Extension,OnStage,IsCanceled);
+  except
+    on E: EAbort do raise;
+    on E: Exception do
+    begin
+      LogDiagnosticError('reader-mhtml-prepare',E);
+      Result:=SourceFile;
+    end;
   end;
 end;
 

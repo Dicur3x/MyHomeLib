@@ -325,32 +325,62 @@ var
   end;
 
   procedure CheckInlineLayout;
-  var Child: TControl; PPI, Margins: Integer;
+  var PPI: Integer;
   begin
     PPI := frmMain.edFFullName.Font.PixelsPerInch;
-    Require((SearchCheck.Parent = frmMain.edFFullName) and
-      (SearchCheck.Left >= 0) and (SearchCheck.Top >= 0) and
-      (SearchCheck.Left + SearchCheck.Width <= frmMain.edFFullName.ClientWidth) and
-      (SearchCheck.Top + SearchCheck.Height <= frmMain.edFFullName.ClientHeight),
-      'Inline favorite checkbox escapes the author input at its actual DPI');
+    Require((SearchCheck.Parent = frmMain.edFFullName.Parent) and
+      (SearchCheck.Left >= frmMain.edFFullName.BoundsRect.Right) and
+      (SearchCheck.Top >= 0) and (SearchCheck.Height > 0) and
+      (SearchCheck.BoundsRect.Right <= SearchCheck.Parent.ClientWidth) and
+      (SearchCheck.BoundsRect.Bottom <= SearchCheck.Parent.ClientHeight),
+      Format('Favorite checkbox overlaps or escapes its row: edit %d,%d %dx%d, heart %d,%d %dx%d, row %dx%d',
+        [frmMain.edFFullName.Left,frmMain.edFFullName.Top,frmMain.edFFullName.Width,
+        frmMain.edFFullName.Height,SearchCheck.Left,SearchCheck.Top,SearchCheck.Width,SearchCheck.Height,
+        SearchCheck.Parent.ClientWidth,SearchCheck.Parent.ClientHeight]));
     Require(SearchCheck.Width >= MulDiv(16, PPI, 96), 'Favorite checkbox is not scaled with the actual input font DPI');
-    for var I := 0 to frmMain.edFFullName.ControlCount - 1 do
-    begin
-      Child := frmMain.edFFullName.Controls[I];
-      if (Child <> SearchCheck) and Child.Visible then
-        Require(Child.Left + Child.Width <= SearchCheck.Left,
-          'Favorite checkbox overlaps the existing expression button');
-    end;
-    Margins := SendMessage(frmMain.edFFullName.Handle, EM_GETMARGINS, 0, 0);
-    Require(HiWord(Margins) >= SearchCheck.Width, 'Text can extend underneath the favorite checkbox');
     if MHLThemeDark then
     begin
       SearchCheck.Invalidate; SearchCheck.Update;
       var DC:=GetDC(SearchCheck.Handle);
       try
-        Require(GetPixel(DC,SearchCheck.ClientWidth-2,1)=ColorToRGB(MHLThemeField),
-          'Favorite-author checkbox has a white backing inside the dark author field');
+        Require(GetPixel(DC,SearchCheck.ClientWidth-2,1)=ColorToRGB(MHLThemeBackground),
+          'Favorite-author checkbox has a white backing next to the dark author field');
       finally ReleaseDC(SearchCheck.Handle,DC); end;
+    end;
+  end;
+
+  procedure CheckHeartWhileEditing;
+  var
+    Saved: Boolean;
+    DC: HDC;
+    Color: COLORREF;
+    RedInk: Boolean;
+  begin
+    Saved := SearchCheck.Checked;
+    SearchCheck.Checked := True;
+    try
+      SearchCheck.SetFocus;
+      Application.ProcessMessages;
+      frmMain.edFFullName.SetFocus;
+      Application.ProcessMessages;
+      Require(frmMain.edFFullName.Focused, 'The author field did not receive focus');
+      DC := GetDC(SearchCheck.Handle);
+      try
+        RedInk := False;
+        for var Y := 2 to SearchCheck.ClientHeight - 3 do
+          for var X := 2 to SearchCheck.ClientWidth - 3 do
+          begin
+            Color := GetPixel(DC,X,Y);
+            if (Color <> CLR_INVALID) and
+              (GetRValue(Color) > Integer(GetGValue(Color)) + 60) then
+              RedInk := True;
+          end;
+        Require(RedInk, 'Focusing the author field erased the filled heart');
+      finally
+        ReleaseDC(SearchCheck.Handle,DC);
+      end;
+    finally
+      SearchCheck.Checked := Saved;
     end;
   end;
 
@@ -538,9 +568,9 @@ begin
       Writeln('TRACE favorite DPI after messages ppi=',DPI); Flush(Output);
       var DarkBefore:=MHLThemeDark;
       try
-        SetMHLTheme(True); Application.ProcessMessages; CheckInlineLayout;
+        SetMHLTheme(True); Application.ProcessMessages; CheckInlineLayout; CheckHeartWhileEditing;
         SearchCheck.Checked:=not SearchCheck.Checked; Application.ProcessMessages; CheckInlineLayout;
-        SetMHLTheme(False); Application.ProcessMessages; CheckInlineLayout;
+        SetMHLTheme(False); Application.ProcessMessages; CheckInlineLayout; CheckHeartWhileEditing;
       finally SetMHLTheme(DarkBefore); end;
       SearchHeight := frmMain.ctpBook.Height; SearchWidth := frmMain.ctpBook.Width;
       Writeln('TRACE favorite DPI before toggle ppi=',DPI); Flush(Output);

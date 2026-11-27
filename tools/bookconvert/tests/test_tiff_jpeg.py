@@ -72,7 +72,7 @@ class TiffJpeg(unittest.TestCase):
         for extension in ['.fb2','.epub']:
             self.assertEqual(self.images(source,extension),pictures)
 
-    def test_large_fb2_reading_preparation_keeps_the_ordinary_input_limit(self):
+    def test_large_fb2_keeps_the_image_in_both_export_and_reading(self):
         source=self.root/'large.fb2';output=self.root/'large.epub'
         picture=fixture.fixed.png(bytes([30,60,90])*4,2,2)
         with source.open('wb') as stream:
@@ -83,10 +83,11 @@ class TiffJpeg(unittest.TestCase):
             stream.write(base64.b64encode(picture))
             for _ in range(65):stream.write(b' '*1024*1024)
             stream.write(b'</binary></FictionBook>')
-        with self.assertRaises(fixture.c.ConversionError):fixture.c.convert_book(source,output,tools_root=TOOLS)
-        self.assertFalse(output.exists())
-        fixture.c.convert_book(source,output,tools_root=TOOLS,reading=True)
-        with zipfile.ZipFile(output) as archive:
-            image=next(n for n in archive.namelist() if n.endswith('.png'))
-            self.assertEqual(archive.read(image),picture)
-            self.assertIn(b'Visible text',archive.read('OEBPS/body-1.xhtml'))
+        for reading in (False, True):
+            with self.subTest(reading=reading):
+                fixture.c.convert_book(source,output,tools_root=TOOLS,reading=reading)
+                with zipfile.ZipFile(output) as archive:
+                    image=next(n for n in archive.namelist() if n.endswith('.png'))
+                    self.assertEqual(archive.read(image),picture)
+                    self.assertIn(b'Visible text',archive.read('OEBPS/body-1.xhtml'))
+                output.unlink()

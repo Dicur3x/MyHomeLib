@@ -11,7 +11,13 @@ side and 16 million pixels. A private named buffer carries top-down BGRA
 pixels. The parent owns a Windows job so cancellation and closing the reader
 terminate the helper. There is no OCR or intermediate TIFF page cache.
 
-Source paths in the repository are `Utils/HomeLibDjvu/HomeLibDjvu.dpr` and
+The recovery command prepares a temporary index for a truncated bundled DjVu
+when intact component boundaries still match the original directory. The
+index keeps the original page numbers. Missing or unreadable components cause
+normal page errors. The reader and exporter remove their temporary files.
+
+Source paths in the repository include `Utils/HomeLibDjvu/HomeLibDjvu.dpr`,
+`Utils/HomeLibDjvu/unit_DjvuRecovery.pas` and
 `Program/Units/unit_DjvuProtocol.pas`. The distributed source copy retains
 the original project: restore these relative paths before building, or change
 its `uses` path to the adjacent `unit_DjvuProtocol.pas`. The matching official

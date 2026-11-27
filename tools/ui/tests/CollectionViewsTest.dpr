@@ -5022,6 +5022,42 @@ begin
     Require(not FileExists(Name) and (BookCacheUsage=0),'Stale pending file survived clear');
     Writeln('REGRESSION originally: stale pending file is invisible to usage, size limit and clear');
   end
+  else if Kind='long-cache-path' then
+  begin
+    Other:=TPath.Combine(Settings.AppPath,'cache-depth');
+    while Length(Other)<210 do
+      Other:=TPath.Combine(Other,StringOfChar('д',Min(32,210-Length(Other))));
+    ChangeBookCacheDirectory(Other); AwaitMigration;
+    Require(BookCacheMigrationError='','Long cache path could not be selected');
+    Root:=BookCachePath;
+    ArchivePath:=TPath.Combine(Settings.AppPath,'cache-fixture.txt');
+    Name:=TPath.Combine(Root,'homelib-'+StringOfChar('a',48)+'.txt');
+    Require(Length(Name)>MAX_PATH,'Fixture must exceed the legacy Windows path limit');
+    Scope:=TBookCacheWrite.Create(ArchivePath);
+    try
+      Dest:=Scope.TemporaryName(Name);
+      Probe:=Scope.TemporaryName(Name+'.source');
+      TFile.WriteAllText(Dest,'cached contents',TEncoding.UTF8);
+      TFile.WriteAllText(Probe,'dependency stamp',TEncoding.UTF8);
+      Scope.Publish(Dest,Name,Probe);
+    finally Scope.Free; end;
+    Require(not FileExists(Dest) and not FileExists(Probe),'Publication left staging files');
+    Dest:=TPath.Combine(Other,'HomeLibRu-BookCache\'+ExtractFileName(Name));
+    Require(SameFileName(BookCacheSource(Dest),ArchivePath),'The ordinary spelling missed the cached source');
+    Require(BookCacheSource(Name)=BookCacheSource(Dest),'Extended spelling lost cache identity');
+    Stream:=OpenCachedBookFile(Dest);
+    try Require(Stream.Size>0,'Cached body cannot be reopened'); finally Stream.Free; end;
+    Require(TFile.ReadAllText(BookOutputPath(Dest+'.source'),TEncoding.UTF8)='dependency stamp','Missing cache stamp');
+    RefreshBookCache(True);
+    Require(BookCacheUsage>0,'Long cache entry disappeared from usage');
+    TFile.WriteAllText(BookOutputPath(TPath.Combine(Root,'personal.txt')),'keep',TEncoding.UTF8);
+    ClearBookCache;
+    Require(not BookOutputExists(Dest) and not BookOutputExists(Dest+'.source') and
+      not BookOutputExists(Dest+'.origin'),'Clear did not remove the long cache entry and its sidecars');
+    Require(TFile.ReadAllText(BookOutputPath(TPath.Combine(Root,'personal.txt')),TEncoding.UTF8)='keep',
+      'Clear removed a personal file');
+    Writeln('PASS long cache path publication, reopening, accounting and cleanup');
+  end
   else if Kind='nested' then
   begin
     ChangeBookCacheDirectory(Root); AwaitMigration;
@@ -6420,6 +6456,12 @@ begin
     if (ParamStr(1)='catalogue-performance') or (ParamStr(1)='query-batch') then
       Writeln('TRACE cache-clear symbol RVA ',IntToHex(NativeUInt(@unit_BookCache.ClearBookCache)-NativeUInt(HInstance),8));
     Application.Initialize;
+    if ParamStr(1)='reader-html-pictures' then
+    begin
+      Require(CoInitializeEx(nil,COINIT_APARTMENTTHREADED)>=0,'COM initialization failed');
+      try TestHTMLReaderPictures; finally CoUninitialize; end;
+      Halt(0);
+    end;
     if ParamStr(1)='compression-raster-comparison' then
     begin TestCompressionRasterComparison; Halt(0); end;
     if ParamStr(1)='compression-djvu-comparison' then
@@ -7009,7 +7051,11 @@ begin
       else if ParamStr(1) = 'main-publisher-index-cache' then TestMainPublisherIndexCache(OneID)
       else if ParamStr(1) = 'conversion-menu' then TestMainBuiltinConversionMenus(OneID)
       else if ParamStr(1) = 'metabib-size' then TestMetabibSizeComparison(ExpandFileName('metabib-size-inputs/same-records-full.jsonl'),ExpandFileName('metabib-size-inputs/same-records.inpx'))
-      else if ParamStr(1) = 'reader-pipeline-cache' then TestReaderPipelineCache
+      else if ParamStr(1) = 'reader-pipeline-cache' then
+      begin
+        TestReaderPipelineCache;
+        TestNativeFb3Package;
+      end
       else if ParamStr(1) = 'publisher-metadata-index' then TestPublisherMetadataIndex
       else if ParamStr(1) = 'feedback19-main' then
       begin

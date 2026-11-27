@@ -465,7 +465,7 @@ begin
   Decoder := FindExternalTool('djxl.exe', 'jpeg-xl');
   if Decoder = '' then
     raise EMHLComponentRequired.Create('JPEG XL',
-        'Для иллюстраций этой книги нужен декодер JPEG XL. Его можно скачать в окне обновлений HomeLibre.');
+        'Для иллюстраций этой книги нужен декодер JPEG XL.');
 
   // Reconstruct the original JPEG bitstream only when the container carries
   // its recovery data. The general PNG path preserves alpha and also works

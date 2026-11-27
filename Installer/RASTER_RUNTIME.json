@@ -48,8 +48,9 @@
   "viewer_helper": {
     "path": "HomeLibDjvu.exe",
     "architecture": "Win32",
-    "sha256": "8494eaec69a23f2d0204b37e99e1fad473e2dff09ca722badbb271d142cad450",
+    "sha256": "68b8c5f03944f5457e2447bdf8397704902fb5d5dc4e92c15f7a2ad199c2c6a0",
     "source": "Utils/HomeLibDjvu/HomeLibDjvu.dpr",
+    "recovery_source": "Utils/HomeLibDjvu/unit_DjvuRecovery.pas",
     "protocol": "Program/Units/unit_DjvuProtocol.pas",
     "license": "GPL-2.0-or-later"
   }

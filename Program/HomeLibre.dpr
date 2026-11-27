@@ -119,6 +119,7 @@ uses
   unit_ReaderCSS in 'Units\unit_ReaderCSS.pas',
   unit_ReaderAnnotations in 'Units\unit_ReaderAnnotations.pas',
   unit_ReaderDocument in 'Units\unit_ReaderDocument.pas',
+  unit_ReaderRTF in 'Units\unit_ReaderRTF.pas',
   unit_ReaderPageSelection in 'Units\unit_ReaderPageSelection.pas',
   unit_ReaderFontDownloads in 'Units\unit_ReaderFontDownloads.pas',
   unit_BookConversion in 'Units\unit_BookConversion.pas',

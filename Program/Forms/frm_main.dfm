@@ -2749,16 +2749,26 @@
               Align = alTop
               Caption = #1050#1083#1102#1095#1077#1074#1099#1077' '#1089#1083#1086#1074#1072
             end
-            object edFFullName: TMHLButtonedEdit
+            object pnSearchAuthor: TPanel
               AlignWithMargins = True
               Left = 3
               Top = 22
               Width = 195
               Height = 21
               Align = alTop
+              BevelOuter = bvNone
               TabOrder = 0
-              OnKeyDown = PresetFieldKeyDown
-              OnRightButtonClick = ShowExpressionEditor
+              object edFFullName: TMHLButtonedEdit
+                Left = 0
+                Top = 0
+                Width = 195
+                Height = 21
+                Align = alClient
+                AutoSize = False
+                TabOrder = 0
+                OnKeyDown = PresetFieldKeyDown
+                OnRightButtonClick = ShowExpressionEditor
+              end
             end
             object edFTitle: TMHLButtonedEdit
               AlignWithMargins = True

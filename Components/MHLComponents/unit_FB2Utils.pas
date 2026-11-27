@@ -38,7 +38,8 @@ procedure VisitFB2Images(Stream: TStream; const Visitor: TFB2ImageVisitor;
   const Canceled: TFunc<Boolean> = nil);
 
 function GetBookCoverStream(book: IXMLFictionBook): TStream;
-function GetBookCover(book: IXMLFictionBook): TGraphic;
+function GetBookCover(book: IXMLFictionBook; const TempRoot: string = '';
+  const Canceled: TFunc<Boolean> = nil): TGraphic;
 function CreateGraphicFromStream(const ImageStream: TStream; const MaxDecodedBytes: Int64 = 256*1024*1024): TGraphic;
 function CreatePackageCoverGraphic(const Data: TBytes; MaxDecodedBytes: Int64): TGraphic;
 function GetBookAnnotation(book: IXMLFictionBook): string;
@@ -92,8 +93,14 @@ uses
   jpeg,
   pngimage,
   unit_WebPCompat, unit_ImageBounds, unit_FB2MetadataRecovery, unit_MHLExternalTools, System.RegularExpressions,
-  System.NetEncoding, System.Math, Xml.XMLDoc, Xml.XMLIntf, unit_FB2Encoding;
+  System.NetEncoding, System.Math, System.IOUtils, Xml.XMLDoc, Xml.XMLIntf,
+  unit_FB2Encoding, unit_SvgBookCover;
 
+type
+  TFB2ImageWithTypeVisitor = reference to procedure(const Name, MediaType: string; Stream: TStream);
+
+procedure VisitFB2ImagesWithType(Stream: TStream; const Visitor: TFB2ImageWithTypeVisitor;
+  const Canceled: TFunc<Boolean>); forward;
 
 function LoadFB2Description(Stream: TStream; IncludeCover: Boolean): IXMLFictionBook;
 var Recorded: TRecordedMetadataStream; Buffer: array[0..8191] of Byte;
@@ -117,8 +124,8 @@ begin
     if CoverID.StartsWith('#') then
     begin
       Delete(CoverID,1,1);
-      VisitFB2Images(Stream,
-        procedure(const Name: string; Image: TStream)
+      VisitFB2ImagesWithType(Stream,
+        procedure(const Name, MediaType: string; Image: TStream)
         var Bytes: TBytes; Binary: IXMLBinary;
         begin
           if Name <> CoverID then Exit;
@@ -126,8 +133,9 @@ begin
           SetLength(Bytes,Image.Size); Image.Position := 0;
           if Length(Bytes)>0 then Image.ReadBuffer(Bytes[0],Length(Bytes));
           Binary := Book.Binary.Add; Binary.Id := Name;
+          if MediaType <> '' then Binary.Contenttype := MediaType;
           Binary.Text := TNetEncoding.Base64.EncodeBytesToString(Bytes);
-        end);
+        end, nil);
     end;
   end;
   Result := Book;
@@ -135,7 +143,16 @@ end;
 
 procedure VisitFB2Images(Stream: TStream; const Visitor: TFB2ImageVisitor;
   const Canceled: TFunc<Boolean>);
-var Bytes, ImageBytes: TBytes; Text, Prefix, Fragment, Name: string;
+begin
+  if not Assigned(Visitor) then Exit;
+  VisitFB2ImagesWithType(Stream,
+    procedure(const Name, MediaType: string; Image: TStream)
+    begin Visitor(Name, Image); end, Canceled);
+end;
+
+procedure VisitFB2ImagesWithType(Stream: TStream; const Visitor: TFB2ImageWithTypeVisitor;
+  const Canceled: TFunc<Boolean>);
+var Bytes, ImageBytes: TBytes; Text, Prefix, Fragment, Name, MediaType: string;
   Doc: IXMLDocument; Binary: IXMLNode;
   At, TagEnd, NameEnd, CloseAt, CloseEnd, ColonAt, Pictures: Integer; TagName, LocalTag: string;
   Image: TBytesStream; I, Count: Integer; Encoding: TEncoding; OwnEncoding: Boolean; Header: TMatch;
@@ -207,9 +224,11 @@ begin
       try
         Doc := LoadXMLData(Fragment); Binary := Doc.DocumentElement.ChildNodes[0];
         if Binary.HasAttribute('id') then Name := Binary.AttributeNodes['id'].Text else Name := IntToStr(Pictures);
+        MediaType := '';
+        if Binary.HasAttribute('content-type') then MediaType := Binary.AttributeNodes['content-type'].Text;
         ImageBytes := TNetEncoding.Base64.DecodeStringToBytes(Binary.Text);
         Image := TBytesStream.Create(ImageBytes);
-        try Visitor(Name,Image); finally Image.Free; end;
+        try Visitor(Name,MediaType,Image); finally Image.Free; end;
       except
         // Isolate malformed blocks; all other original images remain available.
       end;
@@ -219,13 +238,14 @@ begin
   until At>Length(Text);
 end;
 
-function InternalGetBookCoverStream(book: IXMLFictionBook): TStream;
+function InternalGetBookCoverStream(book: IXMLFictionBook; out MediaType: string): TStream;
 var
   coverID: string;
   i: Integer;
   outStr: AnsiString;
 begin
   Result := nil;
+  MediaType := '';
 
   if book.Description.Titleinfo.Coverpage.Count > 0 then
   begin
@@ -238,6 +258,7 @@ begin
       begin
         if book.Binary[i].Id = coverID then
         begin
+          MediaType := book.Binary[i].Contenttype;
           outStr := DecodeBase64(AnsiString(book.Binary[i].Text));
 
           Result := TMemoryStream.Create;
@@ -279,8 +300,9 @@ function GetBookCoverStream(book: IXMLFictionBook): TStream;
 var
   StreamFormat: TStreamFormat;
   Converted: TStream;
+  MediaType: string;
 begin
-  Result := InternalGetBookCoverStream(book);
+  Result := InternalGetBookCoverStream(book, MediaType);
   if Assigned(Result) then
   begin
     try
@@ -431,15 +453,30 @@ begin
   end;
 end;
 
-function GetBookCover(book: IXMLFictionBook): TGraphic;
+function GetBookCover(book: IXMLFictionBook; const TempRoot: string;
+  const Canceled: TFunc<Boolean>): TGraphic;
 var
   coverStream: TStream;
+  MediaType, WorkRoot: string;
+  Drawing, Preview: TBytes;
 begin
   Result := nil;
-  coverStream := InternalGetBookCoverStream(book);
+  coverStream := InternalGetBookCoverStream(book, MediaType);
   if Assigned(coverStream) then
   try
-    Result := CreateGraphicFromStream(coverStream);
+    if SameText(MediaType, 'image/svg+xml') then
+    begin
+      if (coverStream.Size <= 0) or (coverStream.Size > 24*1024*1024) then
+        raise EReadError.Create('Векторная обложка превышает допустимый размер.');
+      WorkRoot := TempRoot;
+      if WorkRoot = '' then WorkRoot := TPath.GetTempPath;
+      SetLength(Drawing, Integer(coverStream.Size));
+      coverStream.Position := 0;
+      coverStream.ReadBuffer(Drawing[0], Length(Drawing));
+      Preview := RenderSvgBookCover(Drawing, FindExternalTool('resvg.exe','kfx-export'), WorkRoot, Canceled);
+      Result := CreatePackageCoverGraphic(Preview, 64*1024*1024);
+    end
+    else Result := CreateGraphicFromStream(coverStream);
   finally
     coverStream.Free;
   end;

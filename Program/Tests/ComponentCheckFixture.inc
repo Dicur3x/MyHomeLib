@@ -6,6 +6,7 @@ type
     FHeadHTTP: THTTPClient;
     FHeadURL, FFailureID: string;
     FRequests: TStringList;
+    FDocSharpVersion, FMirrorMetadata, FMirrorFeed: string;
     procedure CheckSource(const URL: string);
   protected
     function FetchText(const URL: string): string; override;
@@ -13,6 +14,7 @@ type
   public
     constructor Create(Window: HWND; const HeadURL, FailureID: string);
     destructor Destroy; override;
+    procedure SetDocSharpMirror(const Version, Metadata, Feed: string);
     property Requests: TStringList read FRequests;
   end;
 
@@ -49,6 +51,13 @@ begin
   FHeadHTTP.Free; FRequests.Free;
 end;
 
+procedure TComponentCheckFixtureWorker.SetDocSharpMirror(const Version, Metadata, Feed: string);
+begin
+  FDocSharpVersion:=Version;
+  FMirrorMetadata:=Metadata;
+  FMirrorFeed:=Feed;
+end;
+
 procedure TComponentCheckFixtureWorker.CheckSource(const URL: string);
 var ID: string;
 begin
@@ -70,6 +79,13 @@ end;
 function TComponentCheckFixtureWorker.FetchText(const URL: string): string;
 var Arch, Name: string;
 begin
+  if (FMirrorMetadata<>'') and
+    ((URL=COMPONENT_MIRROR_API) or (URL=ComponentMirrorFeedURL(FMirrorMetadata))) then
+  begin
+    FRequests.Add(URL);
+    if URL=COMPONENT_MIRROR_API then Exit(FMirrorMetadata);
+    Exit(FMirrorFeed);
+  end;
   CheckSource(URL);
 {$IFDEF WIN64}
   Arch:='x64';
@@ -103,7 +119,10 @@ begin
     (URL='https://api.github.com/repos/manfromarce/DocSharp/releases?per_page=30') then
     Exit('[{"tag_name":"99.0.0","body":"Owned component changes.","draft":false,"prerelease":false}]');
   if URL.StartsWith('https://api.nuget.org/v3-flatcontainer/docsharp.binary.') and URL.EndsWith('/index.json') then
+  begin
+    if FDocSharpVersion<>'' then Exit('{"versions":["'+FDocSharpVersion+'"]}');
     Exit('{"versions":["99.0.0","100.0.0-preview"]}');
+  end;
   raise Exception.Create('Component fixture refused unexpected GET: '+URL);
 end;
 

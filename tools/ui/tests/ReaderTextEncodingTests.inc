@@ -3,6 +3,12 @@ const
   Identity = 'native reader text encoding';
   TextMarker = 'Текст в кодировке DOS, ёлка и чай.';
   FB2Marker = 'Глава с неверной кодировкой';
+  LegacyMarker = 'Это была первая встреча. Когда он приехал, она уже была там.';
+  LegacySecondLine = 'После беседы они решили, что завтра вместе пойдут за ёлкой.';
+  PlainTable = 'Имя        Код      Данные'+#13#13+'Вход        01      Разрешён'+#13+
+    'Выход       02      Закрыт'+#13+'Нейтраль    10      Открыт'+#13+'            20      Остальные';
+  Drawing = '    │      ║'+#13#13+'    179';
+  PlainLayoutText = LegacyMarker+#13#13+PlainTable+#13#13+Drawing+#13#13+LegacySecondLine;
 var
   Folder, TextFileName, FB2FileName, HTMLFileName, UnicodeFileName, Profile, Section, Body, OriginalTextHash,
     OriginalFB2Hash, OldText: string;
@@ -129,6 +135,34 @@ begin
       TFile.WriteAllText(UnicodeFileName,TextMarker,TEncoding.BigEndianUnicode);
       Document.Load(UnicodeFileName,nil,rteUTF16BE);
       Require(Document.PlainText=TextMarker,'Manual UTF-16 BE exposed the BOM or changed the text');
+      for var CodePage in TArray<Integer>.Create(866,20866,1251,65001) do
+      begin
+        WriteEncoded(UnicodeFileName,LegacyMarker+#13#10+LegacySecondLine+#13#10#26,CodePage);
+        var Original:=THashSHA2.GetHashStringFromFile(UnicodeFileName);
+        Document.Load(UnicodeFileName);
+        Require(Document.PlainText=LegacyMarker+#13+LegacySecondLine+#13,
+          'Automatic decoding lost text or exposed the DOS EOF marker for code page '+CodePage.ToString);
+        Require(THashSHA2.GetHashStringFromFile(UnicodeFileName)=Original,'Automatic decoding rewrote the source');
+      end;
+      WriteEncoded(UnicodeFileName,LegacyMarker+#13#10+LegacySecondLine+
+        #13#10#7' Первый'#13#10#7' Второй'#13#10#7' Третий',866);
+      for var Encoding in TArray<TReaderTextEncoding>.Create(rteAutomatic,rteCP866) do
+      begin
+        Document.Load(UnicodeFileName,nil,Encoding);
+        Require(Document.PlainText=LegacyMarker+#13+LegacySecondLine+
+          #13#$2022' Первый'#13#$2022' Второй'#13#$2022' Третий','DOS list markers did not survive decoding');
+      end;
+      WriteEncoded(UnicodeFileName,PlainLayoutText.Replace(#13,#13#10),866);
+      Document.Load(UnicodeFileName,nil,rteCP866);
+      Require(Document.PlainText=PlainLayoutText,'Fixed-pitch detection changed source text');
+      var Ranges:=Document.Styles;
+      Require(Length(Ranges)=2,'Expected exactly the table and drawing to use fixed pitch');
+      Require((Ranges[0].Kind=rbTextFrame) and
+        (Copy(Document.PlainText,Ranges[0].Start+1,Ranges[0].Count)=PlainTable),
+        'Fixed-pitch detection lost a table heading, blank line or data row');
+      Require((Ranges[1].Kind=rbTextFrame) and
+        (Copy(Document.PlainText,Ranges[1].Start+1,Ranges[1].Count)=Drawing),
+        'Fixed-pitch detection lost a drawing label');
     finally Document.Free; end;
   finally Reader.Free; end;
   Writeln('PASS reader text encoding selection, recovery, position and persistence');

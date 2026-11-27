@@ -5,31 +5,55 @@ interface
 uses System.SysUtils, System.Generics.Collections;
 
 const ReaderHTMLTokenPattern =
-  '<!\[CDATA\[.*?\]\]>|<!--.*?-->|<script\b[^>]*>.*?</script\s*>|<style\b[^>]*>.*?</style\s*>|<[^>]*>|[^<]+|<';
+  '<!\[CDATA\[.*?\]\]>|<!--.*?-->|<script\b[^>]*>.*?</script\s*>|<style\b[^>]*>.*?</style\s*>|'+
+  '<(?:"[^"<]*"|''[^''<]*''|[^''"<>])*>|<[^>]*>|[^<]+|<';
 
+type
+  TReaderMHTMLRoot = record
+    Location: string;
+    CodePage: Integer;
+  end;
+  PReaderMHTMLRoot = ^TReaderMHTMLRoot;
+
+function ReaderHTMLAttribute(const Token, Name: string): string;
 function ReaderHTMLImageSource(const Token: string): string;
+function ReaderHTMLImageDescription(const Token: string): string;
+function ReaderHTMLCodePage(const Bytes: TBytes; const Charset: string = ''): Integer;
 function DecodeReaderHTML(const Bytes: TBytes; const Charset: string = ''): string;
 function ReadReaderMHTML(const Bytes: TBytes; Resources: TDictionary<string,TBytes>;
-  const Canceled: TFunc<Boolean>): string;
+  const Canceled: TFunc<Boolean>; Root: PReaderMHTMLRoot = nil): string;
 
 implementation
 
 uses System.Classes, System.Math, System.RegularExpressions, System.NetEncoding, Winapi.Windows;
 
-function ReaderHTMLImageSource(const Token: string): string;
-var Source: TMatch;
+function ReaderHTMLAttribute(const Token, Name: string): string;
 begin
-  Source:=TRegEx.Match(Token,'[ \t\r\n\f]src[ \t\r\n\f]*=[ \t\r\n\f]*(?:"([^"]*)"|''([^'']*)''|([^\s>]+))',
-    [roIgnoreCase,roSingleLine]);
-  for var Index:=1 to Source.Groups.Count-1 do
-    if Source.Groups[Index].Value<>'' then Exit(TNetEncoding.HTML.Decode(Source.Groups[Index].Value));
+  for var Part in TRegEx.Matches(Token,'([^\s=<>/]+)\s*=\s*(?:"([^"]*)"|''([^'']*)''|([^\s>]+))') do
+    if SameText(Part.Groups[1].Value,Name) then
+    begin
+      for var ValueIndex:=2 to Min(4,Part.Groups.Count-1) do
+        if Part.Groups[ValueIndex].Value<>'' then Exit(TNetEncoding.HTML.Decode(Part.Groups[ValueIndex].Value));
+      Exit('');
+    end;
   Result:='';
 end;
 
-function DecodeReaderHTML(const Bytes: TBytes; const Charset: string): string;
+function ReaderHTMLImageSource(const Token: string): string;
+begin
+  Result:=ReaderHTMLAttribute(Token,'src');
+end;
+
+function ReaderHTMLImageDescription(const Token: string): string;
+begin
+  Result:=ReaderHTMLAttribute(Token,'alt');
+end;
+
+function DetectHTMLCodePage(const Bytes: TBytes; const Charset: string; out Offset: Integer): Integer;
 var Name, Prefix: string; Match: TMatch; Encoding: TEncoding;
 begin
-  if Length(Bytes)=0 then Exit('');
+  Offset:=0;
+  if Length(Bytes)=0 then Exit(CP_UTF8);
   Name:=Trim(Charset);
   if Name='' then
   begin
@@ -40,23 +64,42 @@ begin
   if Name<>'' then
   begin
     Encoding:=TEncoding.GetEncoding(Name);
-    try Exit(Encoding.GetString(Bytes)); finally Encoding.Free; end;
+    try Exit(Encoding.CodePage); finally Encoding.Free; end;
   end;
-  if (Length(Bytes)>=2) and (Bytes[0]=$FF) and (Bytes[1]=$FE) then Exit(TEncoding.Unicode.GetString(Bytes,2,Length(Bytes)-2));
-  if (Length(Bytes)>=2) and (Bytes[0]=$FE) and (Bytes[1]=$FF) then Exit(TEncoding.BigEndianUnicode.GetString(Bytes,2,Length(Bytes)-2));
+  if (Length(Bytes)>=2) and (Bytes[0]=$FF) and (Bytes[1]=$FE) then begin Offset:=2; Exit(1200); end;
+  if (Length(Bytes)>=2) and (Bytes[0]=$FE) and (Bytes[1]=$FF) then begin Offset:=2; Exit(1201); end;
   if MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,PAnsiChar(@Bytes[0]),Length(Bytes),nil,0)>0 then
-    Exit(TEncoding.UTF8.GetString(Bytes).TrimLeft([#$FEFF]));
-  Encoding:=TEncoding.GetEncoding(1251);
-  try Result:=Encoding.GetString(Bytes); finally Encoding.Free; end;
+  begin
+    while (Offset+3<=Length(Bytes)) and (Bytes[Offset]=$EF) and
+      (Bytes[Offset+1]=$BB) and (Bytes[Offset+2]=$BF) do Inc(Offset,3);
+    Exit(CP_UTF8);
+  end;
+  Result:=1251;
+end;
+
+function ReaderHTMLCodePage(const Bytes: TBytes; const Charset: string): Integer;
+var Offset: Integer;
+begin
+  Result:=DetectHTMLCodePage(Bytes,Charset,Offset);
+end;
+
+function DecodeReaderHTML(const Bytes: TBytes; const Charset: string): string;
+var Offset: Integer; Encoding: TEncoding;
+begin
+  if Length(Bytes)=0 then Exit('');
+  Encoding:=TEncoding.GetEncoding(DetectHTMLCodePage(Bytes,Charset,Offset));
+  try Result:=Encoding.GetString(Bytes,Offset,Length(Bytes)-Offset); finally Encoding.Free; end;
 end;
 
 function ReadReaderMHTML(const Bytes: TBytes; Resources: TDictionary<string,TBytes>;
-  const Canceled: TFunc<Boolean>): string;
-var Raw, HTML, Plain: string; Encoding: TEncoding; PartCount: Integer; Total: Int64;
+  const Canceled: TFunc<Boolean>; Root: PReaderMHTMLRoot): string;
+var Raw, HTML, Plain, WantedRoot: string; Encoding: TEncoding; PartCount: Integer; Total: Int64;
+  HTMLRoot, PlainRoot: TReaderMHTMLRoot;
+  FoundHTML, FoundPlain: Boolean;
   function Param(const Value, Name: string): string;
   var Match: TMatch;
   begin
-    Match:=TRegEx.Match(Value,Name+'\s*=\s*(?:"([^"]*)"|([^;\s]+))',[roIgnoreCase]);
+    Match:=TRegEx.Match(Value,'(?:^|;)\s*'+Name+'\s*=\s*(?:"([^"]*)"|([^;\s]+))',[roIgnoreCase]);
     if not Match.Success then Exit('');
     Result:='';
     if Match.Groups.Count>1 then Result:=Match.Groups[1].Value;
@@ -113,7 +156,7 @@ var Raw, HTML, Plain: string; Encoding: TEncoding; PartCount: Integer; Total: In
     Result:=Result+Copy(Value,Position,MaxInt);
   end;
   procedure Parse(const Part: string; Depth: Integer);
-  var Header,Body,ContentType,Transfer,Location,CID,Boundary,Line,Name,Value,Item: string;
+  var Header,Body,ContentType,Transfer,Location,CID,Boundary,Line,Name,Value,Item,Charset: string;
     Divider,At,Finish,Start: Integer; Payload: TBytes; Lines: TStringList;
   begin
     if Assigned(Canceled) and Canceled() then raise EAbort.Create('Чтение отменено.');
@@ -138,6 +181,7 @@ var Raw, HTML, Plain: string; Encoding: TEncoding; PartCount: Integer; Total: In
     finally Lines.Free; end;
     if LowerCase(ContentType).StartsWith('multipart/') then
     begin
+      if Depth=0 then WantedRoot:=Param(ContentType,'start').Trim(['<','>']);
       Boundary:='--'+Param(ContentType,'boundary'); if Boundary='--' then raise Exception.Create('В MHTML не задана граница частей.');
       // Match MIME boundary lines, not the same text inside an attachment.
       Start:=0;
@@ -153,8 +197,26 @@ var Raw, HTML, Plain: string; Encoding: TEncoding; PartCount: Integer; Total: In
     else if Transfer='quoted-printable' then Payload:=QuotedPrintable(Body)
     else Payload:=Encoding.GetBytes(Body);
     Inc(Total,Length(Payload)); if Total>128*1024*1024 then raise Exception.Create('MHTML содержит слишком много данных.');
-    if LowerCase(ContentType).StartsWith('text/html') and (HTML='') then HTML:=DecodeReaderHTML(Payload,Param(ContentType,'charset'))
-    else if LowerCase(ContentType).StartsWith('text/plain') and (Plain='') then Plain:=DecodeReaderHTML(Payload,Param(ContentType,'charset'));
+    if (WantedRoot='') or (CID=WantedRoot) then
+    begin
+      Charset:=Param(ContentType,'charset');
+      if not FoundHTML and (LowerCase(ContentType).StartsWith('text/html') or
+        LowerCase(ContentType).StartsWith('application/xhtml+xml')) then
+      begin
+        HTML:=DecodeReaderHTML(Payload,Charset);
+        HTMLRoot.Location:=Location;
+        At:=Pos('#',Location);
+        if At>0 then HTMLRoot.Location:=Copy(Location,1,At-1);
+        HTMLRoot.CodePage:=ReaderHTMLCodePage(Payload,Charset);
+        FoundHTML:=(HTML<>'') or (WantedRoot<>'');
+      end
+      else if not FoundPlain and LowerCase(ContentType).StartsWith('text/plain') then
+      begin
+        Plain:=DecodeReaderHTML(Payload,Charset);
+        PlainRoot.CodePage:=ReaderHTMLCodePage(Payload,Charset);
+        FoundPlain:=(Plain<>'') or (WantedRoot<>'');
+      end;
+    end;
     if LowerCase(ContentType).StartsWith('image/') then
     begin
       if Location<>'' then Resources.AddOrSetValue(Location,Payload);
@@ -162,11 +224,21 @@ var Raw, HTML, Plain: string; Encoding: TEncoding; PartCount: Integer; Total: In
     end;
   end;
 begin
-  Encoding:=TEncoding.GetEncoding(28591); PartCount:=0; Total:=0;
+  Encoding:=TEncoding.GetEncoding(28591); PartCount:=0; Total:=0; FoundHTML:=False; FoundPlain:=False;
+  HTMLRoot:=Default(TReaderMHTMLRoot); PlainRoot:=Default(TReaderMHTMLRoot);
   try
     Raw:=Encoding.GetString(Bytes); Parse(Raw,0);
-    if HTML<>'' then Exit(HTML);
-    if Plain<>'' then Exit('<html><body><pre>'+TNetEncoding.HTML.Encode(Plain)+'</pre></body></html>');
+    if FoundHTML then
+    begin
+      if Root<>nil then Root^:=HTMLRoot;
+      Exit(HTML);
+    end;
+    if FoundPlain then
+    begin
+      if Root<>nil then Root^:=PlainRoot;
+      Exit('<html><body><pre>'+TNetEncoding.HTML.Encode(Plain)+'</pre></body></html>');
+    end;
+    if WantedRoot<>'' then raise Exception.Create('В MHTML не найден указанный основной документ.');
     raise Exception.Create('В MHTML не найден текст документа.');
   finally Encoding.Free; end;
 end;

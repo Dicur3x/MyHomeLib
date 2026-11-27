@@ -5,6 +5,7 @@ procedure RunPackingModuleRestartChild; forward;
 procedure RunSqlCatalogueModuleRestartChild; forward;
 procedure RunCompressionModuleRestartChild; forward;
 procedure RunPackedUpdateInstallerChild; forward;
+procedure RunPdfZipSaveRestartChild; forward;
 type
   TSaveModuleExceptionHandler = class
     Report: string;
@@ -86,6 +87,7 @@ var Head: TUpdateProposalServer; Server: TRepairServer; Dialog: TSaveModuleUpdat
     end;
   end;
 begin
+  if ParamStr(2)='pdf-zip' then begin RunPdfZipSaveRestartChild; Exit; end;
   if ParamStr(2)='kindle' then begin RunKindleSaveModuleRestartChild; Exit; end;
   if ParamStr(2)='packing' then begin RunPackingModuleRestartChild; Exit; end;
   if ParamStr(2)='sql' then begin RunSqlCatalogueModuleRestartChild; Exit; end;
@@ -199,6 +201,23 @@ begin
   end;
 end;
 
+procedure SetPdfRestartFixtureSubsystem(const FileName: string);
+var Stream: TFileStream; Header: Cardinal; Subsystem: Word;
+begin
+  // The real Reader is a GUI application. Its private test replacement must
+  // not ask Windows to allocate a console on restart from the GUI updater.
+  Stream:=TFileStream.Create(FileName,fmOpenReadWrite or fmShareExclusive);
+  try
+    Stream.Position:=$3C; Stream.ReadBuffer(Header,SizeOf(Header));
+    Stream.Position:=Header+24+68;
+    Stream.ReadBuffer(Subsystem,SizeOf(Subsystem));
+    Require(Subsystem=IMAGE_SUBSYSTEM_WINDOWS_CUI,'Expected a console test executable');
+    Subsystem:=IMAGE_SUBSYSTEM_WINDOWS_GUI;
+    Stream.Position:=Stream.Position-SizeOf(Subsystem);
+    Stream.WriteBuffer(Subsystem,SizeOf(Subsystem));
+  finally Stream.Free; end;
+end;
+
 procedure TestSaveModuleRestart;
 var Child, Command, Report, Text: string; Startup: TStartupInfo; Request: TJSONObject;
   Process: TProcessInformation; Started: UInt64; Code, SuccessorPID: Cardinal; Successor: THandle;
@@ -219,6 +238,7 @@ begin
   // Exercise the current shipping filename; the HomeLibre EXE migration is
   // separately queued and must cover every updater/reader filename consumer.
   if Child='kindle' then Child:='HomeLibReader.exe';
+  if Child='pdf-zip' then Child:='HomeLibreReader.exe';
   if (Child='legacy-request') or (Child='packing') or (Child='sql') then Child:='HomeLibRu.exe';
   if (Child='compression') or (Child='packed-update') then Child:='HomeLibre.exe';
   if Child='' then Child:='HomeLibReader.exe';
@@ -226,9 +246,11 @@ begin
   Writeln('TRACE actual installer application ',Child);
   Child:=Settings.AppPath+Child; Report:=Settings.AppPath+'save-module-result.txt';
   TFile.Copy(ParamStr(0),Child,False);
+  if ParamStr(2)='pdf-zip' then SetPdfRestartFixtureSubsystem(Child);
   Startup:=Default(TStartupInfo); Startup.cb:=SizeOf(Startup);
   Command:='"'+Child+'" save-module-restart-child';
   if ParamStr(2)='kindle' then Command:=Command+' kindle';
+  if ParamStr(2)='pdf-zip' then Command:=Command+' pdf-zip "--open='+Settings.AppPath+'module-source.zip"';
   if ParamStr(2)='packing' then Command:=Command+' packing';
   if ParamStr(2)='sql' then Command:=Command+' sql';
   if ParamStr(2)='compression' then Command:=Command+' compression';
@@ -264,4 +286,292 @@ begin
       try Require(WaitForSingleObject(Successor,10000)=WAIT_OBJECT_0,'Restored review process remains active');
       finally CloseHandle(Successor); end;
   finally CloseHandle(Process.hThread); CloseHandle(Process.hProcess); end;
+end;
+
+type
+  TPdfSaveCheckWorker = class(TComponentUpdateThread)
+  public
+    ReleaseJSON, FeedJSON: string;
+  protected
+    function FetchText(const URL: string): string; override;
+  end;
+
+  TPdfSaveUpdateForm = class(TfrmProgramUpdate)
+  public
+    Server: TRepairServer;
+    Bundles: string;
+  protected
+    function CreateComponentWorker(Window: HWND): TComponentUpdateThread; override;
+    function CreateDownloadWorker(Window: HWND; const Info: TProgramRelease;
+      const Job: string): TProgramDownloadThread; override;
+    function StartInstallationHelper(const Helper, Parameters, Directory: string): THandle; override;
+  end;
+
+  TPdfSaveHost = class(TfrmReaderHost)
+  public
+    Server: TRepairServer;
+    Bundles: string;
+  protected
+    function CreateUpdates: TfrmProgramUpdate; override;
+    function BookSaveProgressClass: TBookSaveProgressClass; override;
+  end;
+
+  TPdfSaveProgress = class(TExportToDeviceProgressForm)
+  protected
+    function ShowMessage(const Text: string; Flags: Longint = MB_OK): Integer; override;
+  public
+    class var CompleteNotice: string;
+  end;
+
+  TPdfSaveRestartDriver = class
+  public
+    Host: TPdfSaveHost;
+    Folder: string;
+    Successor, SaveStarted, DownloadStarted, InstallStarted, Done: Boolean;
+    ReviewCount: Integer;
+    procedure Tick(Sender: TObject);
+  end;
+
+function TPdfSaveCheckWorker.FetchText(const URL: string): string;
+begin
+  if URL=COMPONENT_MIRROR_API then Exit(ReleaseJSON);
+  if URL='https://github.com/Dicur3x/MyHomeLib/releases/download/'+ALREADER_FIXED_TAG+'/'+COMPONENT_FEED_NAME then
+    Exit(FeedJSON);
+  raise Exception.Create('Unexpected PDF save component request: '+URL);
+end;
+
+function TPdfSaveUpdateForm.CreateComponentWorker(Window: HWND): TComponentUpdateThread;
+var Probe: TPdfSaveCheckWorker;
+begin
+  Probe:=TPdfSaveCheckWorker.Create(Window,CreateHTTPClientGlobal,PROGRAM_RELEASES_API,'');
+  Probe.ReleaseJSON:=TFile.ReadAllText(Bundles+'local-mirror-release.json',TEncoding.UTF8);
+  Probe.FeedJSON:=TFile.ReadAllText(Bundles+COMPONENT_FEED_NAME,TEncoding.UTF8);
+  Result:=Probe;
+end;
+
+function TPdfSaveUpdateForm.CreateDownloadWorker(Window: HWND;
+  const Info: TProgramRelease; const Job: string): TProgramDownloadThread;
+begin
+  Result:=TRepairWorker.Create(Window,Info,Job,Server);
+end;
+
+function TPdfSaveUpdateForm.StartInstallationHelper(const Helper, Parameters, Directory: string): THandle;
+var Startup: TStartupInfo; Process: TProcessInformation; Command: string;
+begin
+  Require(not LaunchInstallation,'A reentrant installer launch was accepted before the first process handle arrived');
+  // Keep the actual helper on the test's private desktop.
+  Command:='"'+Helper+'" '+Parameters; UniqueString(Command);
+  Startup:=Default(TStartupInfo); Startup.cb:=SizeOf(Startup);
+  Win32Check(CreateProcess(PChar(Helper),PChar(Command),nil,nil,False,CREATE_NO_WINDOW,nil,
+    PChar(Directory),Startup,Process));
+  CloseHandle(Process.hThread);
+  Result:=Process.hProcess;
+end;
+
+function TPdfSaveHost.CreateUpdates: TfrmProgramUpdate;
+var Dialog: TPdfSaveUpdateForm;
+begin
+  Dialog:=TPdfSaveUpdateForm.CreateForReader(Self);
+  Dialog.Bundles:=Bundles; Dialog.Server:=Server;
+  Result:=Dialog;
+end;
+
+function TPdfSaveHost.BookSaveProgressClass: TBookSaveProgressClass;
+begin Result:=TPdfSaveProgress; end;
+
+function TPdfSaveProgress.ShowMessage(const Text: string; Flags: Longint): Integer;
+begin
+  if (Flags and $F)<>MB_OK then Exit(IDCANCEL);
+  CompleteNotice:=Text;
+  Result:=IDOK;
+end;
+
+procedure TPdfSaveRestartDriver.Tick(Sender: TObject);
+var View: TfrmBuiltinReader; Primary: TButton; Entry: TMenuItem;
+begin
+  for var I:=Screen.FormCount-1 downto 0 do
+  begin
+    var Form:=Screen.Forms[I];
+    if not Form.Visible then Continue;
+    if Form is TBookSendOptionsForm then
+    begin
+      Require(Assigned(Form.PopupParent) and (Form.PopupParent is TfrmBuiltinReader),
+        'Save As is not owned by the visible PDF reader');
+      Inc(ReviewCount); Require(ReviewCount=1,'The same save review was shown twice');
+      var FormatBox:=Form.FindComponent('SendFormat') as TComboBox;
+      var Destination:=Form.FindComponent('SendDestination') as TEdit;
+      var Mask:=Form.FindComponent('SaveNameTemplate') as TEdit;
+      var Images:=Form.FindComponent('SendImages') as TComboBox;
+      var Grayscale:=Form.FindComponent('SendGrayscale') as TCheckBox;
+      var Subfolders:=Form.FindComponent('SaveSubfolders') as TCheckBox;
+      if Successor then
+        Require((FormatBox.Text='Преобразовать в EPUB') and (Destination.Text=Folder+'module-output') and
+          (Mask.Text='После обновления') and (Images.ItemIndex=BOOK_QUALITY_MAXIMUM) and
+          Grayscale.Checked and not Subfolders.Checked,
+          'The restarted Save As lost the format, destination, name or image settings')
+      else
+      begin
+        FormatBox.ItemIndex:=FormatBox.Items.IndexOf('Преобразовать в EPUB');
+        Require(FormatBox.ItemIndex>=0,'PDF Save As offers no EPUB format');
+        FormatBox.OnChange(FormatBox);
+        Destination.Text:=Folder+'module-output'; Mask.Text:='После обновления';
+        Images.ItemIndex:=BOOK_QUALITY_MAXIMUM; Images.OnChange(Images);
+        Grayscale.Checked:=True; Subfolders.Checked:=False;
+      end;
+      Require(not (Form.FindComponent('SkipDamagedFB2Image') as TCheckBox).Visible,
+        'PDF in a ZIP shows a setting for FB2 images');
+      Require(not FileExists(Folder+'module-output\После обновления.epub'),
+        'Save As created output before approval');
+      Form.ModalResult:=mrOk;
+      Exit;
+    end;
+    if Form.Name='OptionalComponentPrompt' then
+    begin
+      Require(not Successor,'EPUB export requested another module after upgrading BookProcessing');
+      if InstallStarted then Exit;
+      Primary:=Form.FindComponent('ComponentPromptDownload') as TButton;
+      if not Primary.Enabled then Exit;
+      if DownloadStarted then
+      begin
+        Require(Primary.Caption='Установить и перезапустить',
+          'The compatible BookProcessing archive could not be prepared: '+
+          (Form.FindComponent('ComponentPromptReason') as TMemo).Text);
+        Require((Host.Server.Requests=2) and (Host.Server.Failure='') and
+          (BookProcessingSaveOptionsAPI(Folder)=8),
+          'Download changed the old module or fetched more than the two required packages');
+        InstallStarted:=True;
+        Primary.Click;
+        Require(FileExists(BookSaveContinuationFile(Settings.SettingsFileName)+'.ready'),
+          'The reader did not arm the pending save for its successor');
+        Done:=True;
+      end
+      else
+      begin
+        Require(string(Primary.Caption).StartsWith('Скачать'),
+          'The reader did not offer the compatible component: '+
+          (Form.FindComponent('ComponentPromptReason') as TMemo).Text);
+        DownloadStarted:=True; Primary.Click;
+      end;
+      Exit;
+    end;
+  end;
+  for var I:=0 to Host.ComponentCount-1 do
+    if Host.Components[I] is TfrmBuiltinReader then
+    begin
+      View:=TfrmBuiltinReader(Host.Components[I]);
+      if not (View.Visible and View.Ready) or View.PageLoading then Exit;
+      if Successor then
+      begin
+        if FileExists(BookSaveContinuationFile(Settings.SettingsFileName)) or
+          not FileExists(Folder+'module-output\После обновления.epub') then Exit;
+        Done:=True; View.Close; Exit;
+      end;
+      if SaveStarted then
+      begin
+        Require(not FileExists(Folder+'module-output\После обновления.epub'),
+          'The partial processing installation bypassed the update request');
+        Exit;
+      end;
+      for var J:=0 to View.Menu.Items[0].Count-1 do
+      begin
+        Entry:=View.Menu.Items[0].Items[J];
+        if Entry.Caption<>'Сохранить как…' then Continue;
+        SaveStarted:=True; Entry.Click; Exit;
+      end;
+      Require(False,'The real PDF reading window offers no Save As command');
+    end;
+end;
+
+procedure RunPdfZipSaveRestartChild;
+var Folder, Report, Source, Hash, BundleFolder, OutputFile, Content: string;
+  Host: TPdfSaveHost; Server: TRepairServer; Driver: TPdfSaveRestartDriver;
+  Timer: TTimer; ExceptionHandler: TSaveModuleExceptionHandler; Started: UInt64;
+  Fixture: TJSONObject; Archive: TZipFile; Data: TBytes;
+  Version: string;
+  procedure TraceStep(const Value: string);
+  begin
+    TFile.AppendAllText(Folder+'save-module-trace.txt',
+      IntToStr(GetCurrentProcessId)+' '+Value+sLineBreak,TEncoding.UTF8);
+  end;
+begin
+  Folder:=ExtractFilePath(ParamStr(0)); Report:=Folder+'save-module-result.txt';
+  Source:=Folder+'module-source.zip'; Hash:=UpdateSHA256(Source);
+  BundleFolder:=Folder+'save-module-fixture\';
+  try
+    TraceStep('child entry');
+    Require(SameText(Hash,TFile.ReadAllText(Folder+'module-source.sha256',TEncoding.ASCII)),
+      'The archived PDF changed between the old process and its successor');
+    Application.Initialize;
+    ExceptionHandler:=TSaveModuleExceptionHandler.Create; ExceptionHandler.Report:=Report;
+    Application.OnException:=ExceptionHandler.Handle;
+    Application.CreateForm(TDMUser,DMUser); DMUser.Init;
+    TraceStep('profile initialized');
+    Server:=TRepairServer.Create; Host:=TPdfSaveHost.Create(nil);
+    Driver:=TPdfSaveRestartDriver.Create; Timer:=TTimer.Create(nil);
+    try
+      Host.Server:=Server; Host.Bundles:=BundleFolder;
+      Fixture:=TJSONObject.ParseJSONValue(TFile.ReadAllText(BundleFolder+'fixture.json',TEncoding.UTF8)) as TJSONObject;
+      try
+        Version:=Fixture.GetValue<string>('version');
+        for var Entry in Fixture.GetValue<TJSONArray>('components') do
+        begin
+          Server.URLs.Add(Entry.GetValue<string>('url'));
+          Server.Files.Add(BundleFolder+Entry.GetValue<string>('name'));
+        end;
+        Require(Server.URLs.Count=2,'Fixture must contain exactly BookProcessing and ImageProcessing');
+        Driver.Successor:=InstalledComponentVersion(Folder,'BookProcessing')=Version;
+      finally Fixture.Free; end;
+      if Driver.Successor then
+      begin
+        TraceStep('successor with installed component');
+        Require((BookProcessingSaveOptionsAPI(Folder)>=BOOK_PROCESSING_EXTENDED_EXPORT_API) and
+          not ComponentNeedsRepair(Folder,'BookProcessing') and not ComponentNeedsRepair(Folder,'ImageProcessing'),
+          'The successor lacks one of the required modules');
+      end
+      else
+      begin
+        Require(not FileExists(Folder+'pdf-save-started.marker') and (BookProcessingSaveOptionsAPI(Folder)=8),
+          'The installer restarted without upgrading the old beta 16 module');
+        TFile.WriteAllText(Folder+'pdf-save-started.marker','Owned fixture, one install request');
+      end;
+      Driver.Host:=Host; Driver.Folder:=Folder;
+      Timer.Interval:=50; Timer.OnTimer:=Driver.Tick;
+      Host.OpenInitialFile(Source);
+      Started:=GetTickCount64;
+      repeat
+        Application.ProcessMessages; CheckSynchronize(2); Sleep(5);
+        Require(GetTickCount64-Started<120000,'Timed out opening, updating or exporting the archived PDF');
+      until Driver.Done;
+      TraceStep('reader workflow completed');
+      Require((Driver.ReviewCount=1) and (UpdateSHA256(Source)=Hash),'The PDF source changed or its save was duplicated');
+      if Driver.Successor then
+      begin
+        Require((Server.Requests=0) and not FileExists(BookSaveContinuationFile(Settings.SettingsFileName)),
+          'The export downloaded again or left a pending save');
+        Require(TPdfSaveProgress.CompleteNotice.StartsWith('Копии сохранены: 1 из 1. Ошибок сохранения нет.'),
+          'The resumed export did not report one complete save');
+        OutputFile:=Folder+'module-output\После обновления.epub';
+        Archive:=TZipFile.Create;
+        try
+          Archive.Open(OutputFile,zmRead);
+          Archive.Read('mimetype',Data);
+          Require(TEncoding.ASCII.GetString(Data)='application/epub+zip','Export did not create an EPUB');
+          Content:='';
+          for var Name in Archive.FileNames do
+            if Name.EndsWith('.xhtml') then
+            begin Archive.Read(Name,Data); Content:=Content+TEncoding.UTF8.GetString(Data); end;
+          Require(Content.Contains('First readable paragraph') and Content.Contains('Last paragraph'),
+            'EPUB lost the first or last text from the archived PDF');
+        finally Archive.Free; end;
+        TFile.WriteAllText(Report,'PASS beta 16 PDF in ZIP installs both required modules in one restart and exports with restored settings'+
+          sLineBreak+IntToStr(GetCurrentProcessId),TEncoding.UTF8);
+      end;
+    finally
+      Timer.Free; Driver.Free; Host.Free; Server.Free; FreeAndNil(DMUser);
+      Application.OnException:=nil; ExceptionHandler.Free;
+    end;
+  except
+    on E: Exception do
+    begin TFile.WriteAllText(Report,'FAIL '+E.ClassName+': '+E.Message,TEncoding.UTF8); raise; end;
+  end;
 end;

@@ -12,6 +12,7 @@ type
     FEdit: TRichEdit;
     FOle: IInterface;
     FStart, FLength, FOffsetX, FOffsetY: Integer;
+    FContent: TRect;
     FReady: Boolean;
     function CharacterPoint(Index: Integer): TPoint;
   public
@@ -20,7 +21,8 @@ type
     procedure Clear;
     procedure Prepare(Source: TRichEdit; Start, Count, Width, Height, DPI: Integer; const Content: TRect; OffsetX: Integer = 0; OffsetY: Integer = 0);
     function CharacterAt(X,Y: Integer): Integer;
-    function Rectangles(Start, Finish: Integer): TArray<TRect>;
+    function LocateCharacter(Index: Integer; out Location: TPoint; out Page, Content: TRect): Boolean;
+    function Rectangles(Start, Finish: Integer; FullLines: Boolean = False): TArray<TRect>;
     property Ready: Boolean read FReady;
   end;
 
@@ -85,7 +87,8 @@ begin
     SendMessage(FEdit.Handle,EM_SETZOOM,DPI,Max(1,FEdit.Font.PixelsPerInch));
     Bounds:=Content; SendMessage(FEdit.Handle,EM_SETRECT,0,LPARAM(@Bounds));
     Scroll:=Point(0,0); SendMessage(FEdit.Handle,EM_SETSCROLLPOS,0,LPARAM(@Scroll));
-    FOffsetX:=OffsetX; FOffsetY:=OffsetY; FStart:=Start; FLength:=Min(Count,ReaderTextLength(FEdit)); FReady:=True;
+    FOffsetX:=OffsetX; FOffsetY:=OffsetY; FStart:=Start; FLength:=Min(Count,ReaderTextLength(FEdit));
+    FContent:=Content; OffsetRect(FContent,FOffsetX,FOffsetY); FReady:=True;
   finally Stream.Free; end;
 end;
 
@@ -105,7 +108,17 @@ begin
   Result:=FStart+ReaderCharacterStart(FEdit,Index);
 end;
 
-function TReaderPageSelection.Rectangles(Start, Finish: Integer): TArray<TRect>;
+function TReaderPageSelection.LocateCharacter(Index: Integer; out Location: TPoint; out Page, Content: TRect): Boolean;
+begin
+  Result:=FReady and (Index>=FStart) and (Index-FStart<FLength);
+  if not Result then Exit;
+  Location:=CharacterPoint(Index-FStart);
+  Inc(Location.X,FOffsetX); Inc(Location.Y,FOffsetY);
+  Page:=Rect(FOffsetX,FOffsetY,FOffsetX+FEdit.ClientWidth,FOffsetY+FEdit.ClientHeight);
+  Content:=FContent;
+end;
+
+function TReaderPageSelection.Rectangles(Start, Finish: Integer; FullLines: Boolean): TArray<TRect>;
 var Boxes: TList<TRect>; First, Last, Line, LineStart, LineEnd, NextLine, A,B: Integer;
   P,Q,Next: TPoint; R: TRect;
 begin
@@ -132,7 +145,17 @@ begin
       if NextLine>=0 then Next:=CharacterPoint(NextLine)
       else Next:=Point(P.X,P.Y+Max(12,MulDiv(FEdit.Font.Size,96,60)));
       R:=Rect(Min(P.X,Q.X),P.Y,Max(P.X,Q.X),Max(P.Y+12,Next.Y));
-      if (R.Width>0) and (R.Top<FEdit.ClientHeight) then begin OffsetRect(R,FOffsetX,FOffsetY); Boxes.Add(R); end;
+      if FullLines then
+      begin
+        R.Bottom:=Max(P.Y+1,Next.Y);
+        OffsetRect(R,FOffsetX,FOffsetY);
+        R.Left:=FContent.Left; R.Right:=FContent.Right;
+        if IntersectRect(R,R,FContent) then Boxes.Add(R);
+      end
+      else if (R.Width>0) and (R.Top<FEdit.ClientHeight) then
+      begin
+        OffsetRect(R,FOffsetX,FOffsetY); Boxes.Add(R);
+      end;
       Inc(Line);
     end;
     Result:=Boxes.ToArray;

@@ -112,7 +112,7 @@ begin
     if not FileExists(Script) then
       raise EMHLComponentRequired.Create('Kindle','Для этой книги нужен модуль KindleUnpack (MOBI/AZW/KF8).');
     if not GetFileAttributesEx(PChar(SourceFile),GetFileExInfoStandard,@Attributes) then RaiseLastOSError;
-    ResultStamp := 'kindleunpack-bf0ca6e-v4|'+BookCacheInputStamp(SourceFile,OriginalSource);
+    ResultStamp := 'kindleunpack-bf0ca6e-v9|'+BookCacheInputStamp(SourceFile,OriginalSource);
     Result := ExistingBookCacheFile(TPath.Combine(BookCachePath,'homelib-kindle-'+
       Copy(THashSHA2.GetHashString(SourceFile),1,32)+'.epub'));
     StampFile := Result+'.source';

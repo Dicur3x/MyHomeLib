@@ -79,6 +79,7 @@ $helperSources = @{
     'HomeLibDjvu.dpr'='Utils\HomeLibDjvu\HomeLibDjvu.dpr';
     'HomeLibDjvu.dproj'='Utils\HomeLibDjvu\HomeLibDjvu.dproj';
     'unit_DjvuProtocol.pas'='Program\Units\unit_DjvuProtocol.pas';
+    'unit_DjvuRecovery.pas'='Utils\HomeLibDjvu\unit_DjvuRecovery.pas';
     'README.md'='Utils\HomeLibDjvu\README.md';
     'LICENSE'='Utils\HomeLibDjvu\LICENSE'
 }

@@ -117,6 +117,7 @@ internal static class HomeLibXps
             }
             if (args.Length == 3 && args[0] == "--image-pages") return ImagePages(args[1], args[2]);
             if (args.Length == 3 && args[0] == "--gif-first-frame") return GifFirstFrame(args[1], args[2]);
+            if (args.Length == 2 && args[0] == "--gif-first-frame-stream") return GifFirstFrameStream(args[1]);
             if (args.Length >= 4 && args.Length <= 6 && args[0] == "--export-images") {
                 bool grayscale = false, sameFormat = false;
                 for (int i = 4; i < args.Length; i++) {
@@ -711,6 +712,32 @@ internal static class HomeLibXps
             } else throw new IOException("GIF has no complete first image.");
         }
         throw new IOException("GIF has no complete first image.");
+    }
+
+    private static int GifFirstFrameStream(string directory)
+    {
+        // The command pipe carries no filenames. A private, per-book
+        // directory holds only the current input and output.
+        string prefix = directory.TrimEnd('\\', '/') + Path.DirectorySeparatorChar;
+        string input = prefix + "picture.bin", output = prefix + "picture.png";
+        Console.WriteLine("READY 1");
+        Console.Out.Flush();
+        for (int command; (command = Console.In.Read()) != -1;)
+        {
+            if (command != 'R') return 1;
+            try
+            {
+                GifFirstFrame(input, output);
+                Console.WriteLine("OK");
+            }
+            catch (Exception error)
+            {
+                Console.Error.WriteLine("GIF: " + error.Message);
+                Console.WriteLine("ERROR");
+            }
+            Console.Out.Flush();
+        }
+        return 0;
     }
 
     private static int GifFirstFrame(string source, string destination)

@@ -28,6 +28,7 @@ WRAPPED = (b'\x89PNG\r\n\x1a\n' + png_chunk(b'IHDR', struct.pack('>IIBBBBB', 1, 
 def rich_epub(source, destination, include_inline=False):
     with zipfile.ZipFile(source) as archive, zipfile.ZipFile(destination, 'x') as result:
         package = conversion.xml(archive.read('OPS/book.opf'))
+        conversion.first(package, 'metadata').append(conversion.element(conversion.DC, 'creator', 'Второй автор'))
         manifest = conversion.first(package, 'manifest')
         navigation = next(node for node in manifest if node.get('properties') == 'nav')
         old_path = 'OPS/' + navigation.get('href')
@@ -81,13 +82,71 @@ def run(exe, *args):
 def check_toc(archive, expected):
     nav = conversion.xhtml(archive.read('OEBPS/nav.xhtml'))
     actual = []
+    targets = {}
     for anchor in nav.iter(f'{{{conversion.XH}}}a'):
         label = ''.join(anchor.itertext()).strip()
         target, fragment = anchor.get('href').split('#', 1)
         assert any(node.get('id') == fragment for node in
                    conversion.xhtml(archive.read('OEBPS/' + target)).iter()), label
         actual.append(label)
+        targets[label] = anchor.get('href')
     assert actual == expected, actual
+    return targets
+
+
+def check_image_only_navigation(exe, root):
+    source = root / 'image-pages.epub'
+    cover = b64decode(PNG)
+    with zipfile.ZipFile(source, 'x') as archive:
+        archive.writestr('mimetype', 'application/epub+zip')
+        archive.writestr('META-INF/container.xml', '<container><rootfiles>'
+                         '<rootfile full-path="OPS/package.opf"/></rootfiles></container>')
+        archive.writestr('OPS/package.opf', f'''<package xmlns="{conversion.OP}" xmlns:dc="{conversion.DC}"
+          version="3.0"><metadata><dc:title>Image pages</dc:title><dc:language>en</dc:language></metadata>
+          <manifest>
+            <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+            <item id="cover" href="cover.xhtml" media-type="application/xhtml+xml"/>
+            <item id="title" href="title.xhtml" media-type="application/xhtml+xml"/>
+            <item id="text" href="text.xhtml" media-type="application/xhtml+xml"/>
+            <item id="picture" href="cover.png" media-type="image/png" properties="cover-image"/>
+            <item id="another" href="title.png" media-type="image/png"/>
+          </manifest><spine><itemref idref="cover"/><itemref idref="title"/><itemref idref="text"/></spine>
+          </package>''')
+        archive.writestr('OPS/nav.xhtml', f'<html xmlns="{conversion.XH}" xmlns:epub="{conversion.EP}"><body>'
+                         '<nav epub:type="toc"><ol>'
+                         '<li><a href="cover.xhtml">Cover</a><ol><li><a href="cover.xhtml#paper">Picture</a></li></ol></li>'
+                         '<li><a href="title.xhtml">Title</a></li><li><a href="text.xhtml#main">Text</a></li>'
+                         '</ol></nav></body></html>')
+        archive.writestr('OPS/cover.xhtml', f'<html xmlns="{conversion.XH}"><body>'
+                         '<div id="paper"><img id="cover-graphic" src="cover.png"/></div></body></html>')
+        archive.writestr('OPS/title.xhtml', f'<html xmlns="{conversion.XH}"><body>'
+                         '<div><img src="title.png"/></div></body></html>')
+        archive.writestr('OPS/text.xhtml', f'<html xmlns="{conversion.XH}"><body>'
+                         '<p id="main">Main text. <a href="cover.xhtml#paper">Back to the picture</a></p>'
+                         '</body></html>')
+        archive.writestr('OPS/cover.png', cover)
+        archive.writestr('OPS/title.png', WRAPPED)
+
+    original = source.read_bytes()
+    written = source.with_suffix('.kfx')
+    restored = source.with_suffix('.roundtrip.epub')
+    run(exe, 'convert', source, written)
+    info = json.loads(run(exe, 'info', '--json', written))
+    assert [item['title'] for item in info['toc'][0]['children']] == ['Picture']
+    run(exe, 'convert', written, restored)
+    with zipfile.ZipFile(restored) as archive:
+        targets = check_toc(archive, ['Cover', 'Picture', 'Title', 'Text'])
+        for title, original_image in (('Cover', cover), ('Picture', cover), ('Title', WRAPPED)):
+            chapter = 'OEBPS/' + targets[title].split('#', 1)[0]
+            tree = conversion.xhtml(archive.read(chapter))
+            image, = tree.iter(f'{{{conversion.XH}}}img')
+            path, _ = conversion.EpubArchive.resolve(None, chapter, image.get('src'))
+            assert archive.read(path) == original_image, title
+        text = conversion.xhtml(archive.read('OEBPS/' + targets['Text'].split('#', 1)[0]))
+        back, = text.iter(f'{{{conversion.XH}}}a')
+        assert back.get('href') == targets['Picture'], back.attrib
+    assert source.read_bytes() == original
+    print('PASS image-only chapter, its authored fragment, nested TOC and return link')
 
 
 def check_note_links(chapters, office):
@@ -176,6 +235,12 @@ def verify(exe, root, font, rasterizer=None):
         run(exe, 'convert', kfx, restored)
         with zipfile.ZipFile(restored) as archive:
             check_toc(archive, navigation)
+            if source == rich:
+                package_name, = (name for name in archive.namelist() if name.endswith('.opf'))
+                package = conversion.xml(archive.read(package_name))
+                metadata = conversion.first(package, 'metadata')
+                authors = [conversion.plain(node) for node in conversion.children(metadata, 'creator')]
+                assert authors == ['Sample Author', 'Второй автор'], authors
             chapters = {name: archive.read(name) for name in archive.namelist()
                         if name.startswith('OEBPS/chapter_') and name.endswith('.xhtml')}
             body = b'\n'.join(chapters.values()).decode('utf-8')
@@ -211,6 +276,7 @@ def verify(exe, root, font, rasterizer=None):
     info = json.loads(run(exe, 'info', '--json', kfx_alias))
     assert info['toc'][0]['title'] == 'Chapter one'
     print('PASS explicit AZW8 output parses as KFX')
+    check_image_only_navigation(exe, root)
 
 
 def main():

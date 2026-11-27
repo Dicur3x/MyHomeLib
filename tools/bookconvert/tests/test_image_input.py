@@ -5,8 +5,10 @@ import hashlib
 import importlib.util
 import os
 import struct
+import subprocess
 import tempfile
 import unittest
+from unittest import mock
 import xml.etree.ElementTree as ET
 import zipfile
 import zlib
@@ -88,6 +90,37 @@ class ImageInput(unittest.TestCase):
         self.assertEqual(c.plain(body[2]), '[Страница 3 не читается.]')
         self.assertTrue(any('страницы 2–3' in warning for warning in c.damaged_content_warnings(report['warnings'])))
 
+    def test_incomplete_rar_preserves_only_pages_with_valid_checksums(self):
+        source = self.root / 'partial.cbr'
+        source.write_bytes(b'Rar!\x1a\x07\0')
+        tool = self.root / '7zip' / '7z.exe'
+        tool.parent.mkdir()
+        tool.touch()
+        picture = fixed.png(b'\x30\x60\x90' * 4, 2, 2)
+        listed = {'1.png': picture, '2.png': picture, '3.png': picture}
+        listing = '\n\n'.join(f'Path = {name}\nSize = {len(data)}\nCRC = {zlib.crc32(data):08X}'
+                              for name, data in listed.items()).encode()
+
+        def archive_read(arguments, *, stdout, **_):
+            if arguments[2] == 'l':
+                stdout.write(listing)
+                return subprocess.CompletedProcess(arguments, 2, stderr=b'')
+            member = arguments[-1]
+            data = listed[member]
+            stdout.write(data if member != '2.png' else data[:-1] + bytes([data[-1] ^ 1]))
+            return subprocess.CompletedProcess(arguments, 2, stderr=b'Unexpected end of archive')
+
+        output = self.root / 'partial.epub'
+        with mock.patch.object(subprocess, 'run', side_effect=archive_read):
+            report = c.convert_book(source, output, tools_root=self.root)
+        with zipfile.ZipFile(output) as archive:
+            body = c.first(c.xml(archive.read('OEBPS/book.xhtml')), 'body')
+        self.assertEqual([node.get('id') for node in body], ['page-1', 'page-2', 'page-3'])
+        self.assertEqual(c.plain(body[1]), '[Страница 2 не читается.]')
+        messages = c.damaged_content_warnings(report['warnings'])
+        self.assertTrue(any(message.startswith('Архив комикса повреждён.') for message in messages))
+        self.assertTrue(any('страницы 2 (всего 1)' in message for message in messages))
+
     def test_cbz_with_checksums_exports_all_pages(self):
         source = self.root / 'checked.cbz'
         page = fixed.png(b'\x30\x60\x90' * 4, 2, 2)
@@ -99,6 +132,20 @@ class ImageInput(unittest.TestCase):
         other = source.with_suffix('.zip')
         other.write_bytes(source.read_bytes())
         self.assertEqual(c.detect_input(other), '.zip')
+
+    def test_cbz_with_page_images_and_text_appendix(self):
+        source = self.root / 'appendix.cbz'
+        picture = fixed.png(b'\x30\x60\x90' * 4, 2, 2)
+        with zipfile.ZipFile(source, 'w') as archive:
+            archive.writestr('chapter/1.png', picture)
+            archive.writestr('chapter/credits.txt', 'Подпись автора\nСтрока перевода')
+        output = self.root / 'appendix.epub'
+        c.convert_book(source, output)
+        with zipfile.ZipFile(output) as archive:
+            body = c.first(c.xml(archive.read('OEBPS/book.xhtml')), 'body')
+        self.assertEqual(body[0].get('id'), 'page-1')
+        self.assertEqual([c.plain(node) for node in body[1]],
+                         ['credits.txt', 'Подпись автора', 'Строка перевода'])
 
     def test_comic_expands_all_tiff_frames_in_page_order(self):
         source=self.root/'frames.cbz'
@@ -176,7 +223,7 @@ class ImageInput(unittest.TestCase):
         self.assertEqual([raw[4],raw[8],raw[13],raw[17]],[0,128,255,80])
 
     def test_comic_rejects_other_documents_and_ambiguous_names(self):
-        for index,name in enumerate(['../page.png','notes.txt']):
+        for index,name in enumerate(['../page.png','notes.docx']):
             source=self.root/('reject'+str(index)+'.cbz')
             with zipfile.ZipFile(source,'w') as z:z.writestr('1.png',fixed.png(bytes([20,40,60])*4,2,2));z.writestr(name,b'foreign')
             output=self.root/('reject'+str(index)+'.epub')

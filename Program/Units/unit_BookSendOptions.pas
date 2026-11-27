@@ -71,6 +71,7 @@ type
     function Choice: TBookSaveChoice;
     procedure EstimateSize(const Item: TBookSaveEstimateItem; Quality: Integer; out Bytes, Margin: Int64);
     function HasScanConversion: Boolean;
+    function CanCheckFB2Images: Boolean;
     function CheckOutputRuntime: Boolean;
   protected
     procedure DoShow; override;
@@ -207,8 +208,8 @@ begin
   FGrayscale.ShowHint:=True; FGrayscale.OnClick:=Changed;
   FSkipDamagedFB2Image:=TCheckBox.Create(Self); FSkipDamagedFB2Image.Parent:=FContent;
   FSkipDamagedFB2Image.Name:='SkipDamagedFB2Image';
-  FSkipDamagedFB2Image.Caption:='Проверять изображения в FB2';
-  FSkipDamagedFB2Image.Hint:='Проверяет FB2 и при сохранении в исходном формате. Если изображение повреждено, программа спросит, сохранить ли текст с отметкой.';
+  FSkipDamagedFB2Image.Caption:='Проверить картинки в исходных FB2';
+  FSkipDamagedFB2Image.Hint:='Проверяет картинки даже при копировании FB2 без преобразования. Если картинка повреждена, можно сохранить книгу с отметкой на её месте.';
   FSkipDamagedFB2Image.ShowHint:=True; FSkipDamagedFB2Image.OnClick:=Changed;
   FImages.ItemIndex:=0;
   FCalculate:=TButton.Create(Self); FCalculate.Parent:=FContent; FCalculate.Name:='EstimateSaveSize';
@@ -554,7 +555,7 @@ begin
   FImages.Enabled:=CanProcess;
   if not CanProcess then FImages.ItemIndex:=0;
   FGrayscale.Enabled:=CanProcess and (FImages.ItemIndex<>BOOK_QUALITY_NONE) and not Assigned(FEstimate);
-  FSkipDamagedFB2Image.Enabled:=CanProcess and (Choice.Mode<>emTxt) and not Assigned(FEstimate);
+  FSkipDamagedFB2Image.Enabled:=CanCheckFB2Images and not Assigned(FEstimate);
   FScans.Enabled:=HasScanConversion;
   FScanLabel.Visible:=FScans.Enabled; FScans.Visible:=FScans.Enabled;
   FExcept.Enabled:=FScans.Enabled and (FScans.ItemIndex>0);
@@ -589,6 +590,14 @@ function TBookSendOptionsForm.DisplayTitle(BookIndex: Integer): string;
 begin
   if FSingleBookTitle<>'' then Result:=FSingleBookTitle
   else Result:=FBooks[BookIndex].Title;
+end;
+
+function TBookSendOptionsForm.CanCheckFB2Images: Boolean;
+begin
+  if Choice.Mode=emTxt then Exit(False);
+  for var Item in FItems do
+    if SameText(Item.SourceExtension,'.fb2') then Exit(True);
+  Result:=False;
 end;
 
 procedure TBookSendOptionsForm.ListData(Sender: TObject; Item: TListItem);
@@ -785,7 +794,7 @@ begin
       FFormatLabel.Visible:=ShowSettings; FFormat.Visible:=ShowSettings;
       FMoreFormats.Visible:=ShowSettings and (FPrimaryChoiceCount<Length(FChoices));
       FImagesLabel.Visible:=ShowSettings; FImages.Visible:=ShowSettings; FGrayscale.Visible:=ShowSettings;
-      FSkipDamagedFB2Image.Visible:=ShowSettings and FImages.Enabled and (Choice.Mode<>emTxt);
+      FSkipDamagedFB2Image.Visible:=ShowSettings and CanCheckFB2Images;
       FNamesToggle.Visible:=ShowSettings and (FLayout<>2);
       FMaskLabel.Visible:=ShowNames; FMaskHelpToggle.Visible:=ShowNames; FNameMask.Visible:=ShowNames;
       FSubfolders.Visible:=ShowNames;

@@ -591,7 +591,30 @@ begin
 end;
 
 function TDownloader.HasCompleteBookResponse: Boolean;
-var Saved, Count: Int64; Head, Tail: TBytes; Header, Ending: string;
+var Saved, TailOffset: Int64; Head, Tail: TBytes; Encoding: TEncoding; UnitSize: Integer;
+
+  function ReadProbe(Offset: Int64; Count: Integer): TBytes;
+  begin
+    SetLength(Result, Count);
+    FResponse.Position := Offset;
+    SetLength(Result, FResponse.Read(Result[0], Count));
+    for var I := 0 to High(Result) do
+      if Result[I] in [$41..$5A] then Inc(Result[I], $20);
+  end;
+
+  function ContainsMarker(const Buffer: TBytes; const Marker: string): Boolean;
+  var Pattern: TBytes; Index: Integer;
+  begin
+    Pattern := Encoding.GetBytes(Marker);
+    Index := 0;
+    while Index <= Length(Buffer) - Length(Pattern) do
+    begin
+      if CompareMem(@Buffer[Index], @Pattern[0], Length(Pattern)) then Exit(True);
+      Inc(Index, UnitSize);
+    end;
+    Result := False;
+  end;
+
 begin
   Result:=False;
   if not Assigned(FResponse) or (FResponse.Size=0) then Exit;
@@ -604,16 +627,27 @@ begin
     try
       if TZipFile.IsValid(FResponse) then Exit(True);
     except on E: Exception do ; end;
-    Count:=FResponse.Size; if Count>512 then Count:=512;
-    SetLength(Head,Integer(Count)); SetLength(Tail,Integer(Count));
-    FResponse.Position:=0; FResponse.ReadBuffer(Head[0],Integer(Count));
-    FResponse.Position:=FResponse.Size-Count; FResponse.ReadBuffer(Tail[0],Integer(Count));
-    if (Length(Head)>=2) and (Head[0]=$FF) and (Head[1]=$FE) then
-    begin Header:=TEncoding.Unicode.GetString(Head); Ending:=TEncoding.Unicode.GetString(Tail); end
-    else if (Length(Head)>=2) and (Head[0]=$FE) and (Head[1]=$FF) then
-    begin Header:=TEncoding.BigEndianUnicode.GetString(Head); Ending:=TEncoding.BigEndianUnicode.GetString(Tail); end
-    else begin Header:=TEncoding.UTF8.GetString(Head); Ending:=TEncoding.UTF8.GetString(Tail); end;
-    Result:=ContainsText(Header,'<FictionBook') and ContainsText(Ending,'</FictionBook>');
+    Head := ReadProbe(0, 512);
+    // The probe windows can split a UTF-8 character or a UTF-16 surrogate
+    // pair. Search for the ASCII tags at the byte level instead of decoding.
+    Encoding := TEncoding.UTF8;
+    UnitSize := 1;
+    if Length(Head) >= 2 then
+      if (Head[0] = $FF) and (Head[1] = $FE) then
+      begin
+        Encoding := TEncoding.Unicode;
+        UnitSize := 2;
+      end
+      else if (Head[0] = $FE) and (Head[1] = $FF) then
+      begin
+        Encoding := TEncoding.BigEndianUnicode;
+        UnitSize := 2;
+      end;
+    TailOffset := FResponse.Size - 512;
+    if TailOffset < 0 then TailOffset := 0;
+    if TailOffset mod UnitSize <> 0 then Inc(TailOffset);
+    Tail := ReadProbe(TailOffset, 512);
+    Result := ContainsMarker(Head, '<fictionbook') and ContainsMarker(Tail, '</fictionbook>');
   finally FResponse.Position:=Saved; end;
 end;
 

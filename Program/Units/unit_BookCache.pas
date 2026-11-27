@@ -35,7 +35,7 @@ function OpenCachedBookFile(const FileName: string): TStream;
 function BookCacheSource(const FileName: string): string;
 // Input identity for chained preparation. LRU Touch is not a content change.
 // Call while retaining the input stream; raw originals keep their timestamps.
-function BookCacheInputStamp(const FileName, OriginalSource: string): string;
+function BookCacheInputStamp(const FileName, OriginalSource: string; MaxPayload: Int64 = 64*1024*1024): string;
 procedure RegisterBookCacheFile(const FileName, Source: string);
 procedure PinReaderCacheFile(const FileName: string);
 procedure TrimBookCache(const KeepFile: string = '');
@@ -47,7 +47,7 @@ implementation
 
 uses Winapi.Windows, System.IOUtils, System.Generics.Collections,
   System.Generics.Defaults, System.SyncObjs, System.JSON, System.Hash,
-  unit_Settings, unit_Consts, dm_user;
+  unit_Settings, unit_Consts, unit_BookOutput, dm_user;
 
 type
   TCacheEntry = record
@@ -85,23 +85,41 @@ var CacheGuard: TObject; SessionCachePath, LegacyRoot: string;
 procedure StartCacheMigration; forward;
 procedure StartMaintenance; forward;
 
+function CachePathKey(const Path: string): string;
+begin
+  // The extended spelling is used for Windows I/O. Cache identities and
+  // migration paths use the same spelling regardless of their length.
+  if Path='' then Exit('');
+  if Path.StartsWith('\\?\UNC\',True) then
+    Result:=TPath.GetFullPath('\\'+Path.Substring(8))
+  else if Path.StartsWith('\\?\') and (Length(Path)>=7) and (Path[6]=':') then
+    Result:=TPath.GetFullPath(Path.Substring(4))
+  else
+    Result:=TPath.GetFullPath(Path);
+end;
+
+function CacheFileExists(const Path: string): Boolean;
+begin
+  Result:=(Path<>'') and FileExists(BookOutputPath(Path));
+end;
+
 function WithinRoot(const Source, Root: string): Boolean;
 begin
-  Result:=(Root<>'') and TPath.GetFullPath(Source).StartsWith(
-    IncludeTrailingPathDelimiter(TPath.GetFullPath(Root)),True);
+  Result:=(Root<>'') and CachePathKey(Source).StartsWith(
+    IncludeTrailingPathDelimiter(CachePathKey(Root)),True);
 end;
 
 function SafeFolder(const Folder: string): Boolean;
 var Attributes: DWORD;
 begin
-  Attributes:=GetFileAttributes(PChar(Folder));
+  Attributes:=GetFileAttributes(PChar(BookOutputPath(Folder)));
   Result:=(Attributes<>INVALID_FILE_ATTRIBUTES) and
     (Attributes and FILE_ATTRIBUTE_DIRECTORY<>0) and (Attributes and FILE_ATTRIBUTE_REPARSE_POINT=0);
 end;
 
 function PrivateRoot(const Root: string): Boolean;
 begin
-  Result:=SameFileName(Root,TPath.Combine(Settings.DataPath,'BookCache')) or
+  Result:=SameFileName(Root,CachePathKey(TPath.Combine(Settings.DataPath,'BookCache'))) or
     SameText(ExtractFileName(ExcludeTrailingPathDelimiter(Root)),'HomeLibRu-BookCache') or
     ((LegacyRoot<>'') and SameFileName(Root,LegacyRoot));
 end;
@@ -125,7 +143,7 @@ procedure AddPendingRoot(const Root: string);
 var Existing, Normalized: string;
 begin
   if Root='' then Exit;
-  Normalized:=ExcludeTrailingPathDelimiter(TPath.GetFullPath(Root));
+  Normalized:=ExcludeTrailingPathDelimiter(CachePathKey(Root));
   if SameFileName(Normalized,SessionCachePath) or not PrivateRoot(Normalized) then Exit;
   for Existing in PendingRoots do if SameFileName(Existing,Normalized) then Exit;
   PendingRoots.Add(Normalized); RootHistory.AddOrSetValue(Normalized,SessionCachePath);
@@ -138,9 +156,9 @@ begin
   try
     if SessionCachePath='' then
     begin
-      if Settings.BookCacheDirectory='' then SessionCachePath:=TPath.Combine(Settings.DataPath,'BookCache')
-      else SessionCachePath:=TPath.Combine(TPath.GetFullPath(Settings.BookCacheDirectory),'HomeLibRu-BookCache');
-      if Settings.ReadDir<>'' then LegacyRoot:=ExcludeTrailingPathDelimiter(TPath.GetFullPath(Settings.ReadPath));
+      if Settings.BookCacheDirectory='' then SessionCachePath:=CachePathKey(TPath.Combine(Settings.DataPath,'BookCache'))
+      else SessionCachePath:=TPath.Combine(CachePathKey(Settings.BookCacheDirectory),'HomeLibRu-BookCache');
+      if Settings.ReadDir<>'' then LegacyRoot:=ExcludeTrailingPathDelimiter(CachePathKey(Settings.ReadPath));
       Root:=Settings.BookCachePreviousPath;
       if Root.StartsWith('[') then
       begin
@@ -154,14 +172,16 @@ begin
       if PendingRoots.Count>0 then begin SavePendingRoots; StartCacheMigration; end;
       StartMaintenance;
     end;
-    Result:=SessionCachePath;
+    Result:=BookOutputPath(SessionCachePath);
   finally TMonitor.Exit(CacheGuard); end;
 end;
 
 function ManagedFile(const FileName: string): Boolean;
 var Parent, Name, Root, Base: string; Attributes: DWORD; IsLegacy: Boolean;
 begin
-  Result:=False; Parent:=TPath.GetDirectoryName(TPath.GetFullPath(FileName));
+  Result:=False;
+  if FileName='' then Exit;
+  Parent:=TPath.GetDirectoryName(CachePathKey(FileName));
   Name:=LowerCase(ExtractFileName(FileName)); if not Name.StartsWith('homelib-') then Exit;
   Root:=''; TMonitor.Enter(CacheGuard);
   try
@@ -180,9 +200,9 @@ begin
     if Base.EndsWith('.origin',True) then Delete(Base,Length(Base)-6,7)
     else if Base.EndsWith('.source',True) then Delete(Base,Length(Base)-6,7)
     else if Base.EndsWith('.retire',True) then Delete(Base,Length(Base)-6,7);
-    if not FileExists(Base+'.source') and not FileExists(Base+'.origin') then Exit;
+    if not CacheFileExists(Base+'.source') and not CacheFileExists(Base+'.origin') then Exit;
   end;
-  Attributes:=GetFileAttributes(PChar(FileName));
+  Attributes:=GetFileAttributes(PChar(BookOutputPath(FileName)));
   Result:=(Attributes=INVALID_FILE_ATTRIBUTES) or
     (Attributes and (FILE_ATTRIBUTE_DIRECTORY or FILE_ATTRIBUTE_REPARSE_POINT)=0);
 end;
@@ -204,7 +224,7 @@ function DeleteStalePending(const Name: string): Boolean;
 var Handle: THandle;
 begin
   Result:=False; if PendingOwnerActive(Name) or not ManagedFile(Name) then Exit;
-  Handle:=CreateFile(PChar(Name),$00010000,0,nil,OPEN_EXISTING,
+  Handle:=CreateFile(PChar(BookOutputPath(Name)),$00010000,0,nil,OPEN_EXISTING,
     FILE_ATTRIBUTE_TEMPORARY or FILE_FLAG_DELETE_ON_CLOSE,0);
   if Handle=INVALID_HANDLE_VALUE then Exit;
   CloseHandle(Handle); Result:=True;
@@ -214,21 +234,21 @@ function ReadEntry(const Name: string; out Entry: TCacheEntry): Boolean;
 var Attributes: TWin32FileAttributeData;
 begin
   Entry:=Default(TCacheEntry); Result:=False;
-  if not GetFileAttributesEx(PChar(Name),GetFileExInfoStandard,@Attributes) then Exit;
+  if not GetFileAttributesEx(PChar(BookOutputPath(Name)),GetFileExInfoStandard,@Attributes) then Exit;
   if Attributes.dwFileAttributes and (FILE_ATTRIBUTE_DIRECTORY or FILE_ATTRIBUTE_REPARSE_POINT)<>0 then Exit;
-  Entry.Name:=Name;
+  Entry.Name:=CachePathKey(Name);
   Entry.Size:=Int64(Attributes.nFileSizeHigh) shl 32 or Attributes.nFileSizeLow;
   Entry.Used:=UInt64(Attributes.ftLastWriteTime.dwHighDateTime) shl 32 or Attributes.ftLastWriteTime.dwLowDateTime;
   Entry.Temporary:=LowerCase(ExtractFileName(Name)).Contains('.pending');
   if not Entry.Temporary then
   begin
-    if FileExists(Name+'.origin') then
+    if CacheFileExists(Name+'.origin') then
     begin
-      Inc(Entry.Size,TFile.GetSize(Name+'.origin'));
-      try Entry.Source:=TFile.ReadAllText(Name+'.origin',TEncoding.UTF8); except end;
+      Inc(Entry.Size,TFile.GetSize(BookOutputPath(Name+'.origin')));
+      try Entry.Source:=TFile.ReadAllText(BookOutputPath(Name+'.origin'),TEncoding.UTF8); except end;
     end;
-    if FileExists(Name+'.source') then Inc(Entry.Size,TFile.GetSize(Name+'.source'));
-    Entry.Retired:=FileExists(Name+'.retire');
+    if CacheFileExists(Name+'.source') then Inc(Entry.Size,TFile.GetSize(BookOutputPath(Name+'.source')));
+    Entry.Retired:=CacheFileExists(Name+'.retire');
   end;
   Result:=True;
 end;
@@ -238,7 +258,7 @@ var Folder, Name: string; Search: TSearchRec; Entry: TCacheEntry;
 begin
   Result:=TList<TCacheEntry>.Create; if not SafeFolder(Root) then Exit;
   for Folder in [Root,TPath.Combine(Root,WEBP_READER_CACHE_FOLDER)] do
-    if SafeFolder(Folder) and (FindFirst(TPath.Combine(Folder,'homelib-*'),faAnyFile,Search)=0) then
+    if SafeFolder(Folder) and (FindFirst(TPath.Combine(BookOutputPath(Folder),'homelib-*'),faAnyFile,Search)=0) then
     try
       repeat
         Name:=TPath.Combine(Folder,Search.Name);
@@ -251,22 +271,23 @@ begin
 end;
 
 procedure RemoveIndex(const Name: string);
-var Entry: TCacheEntry;
+var Entry: TCacheEntry; Key: string;
 begin
-  if CacheIndex.TryGetValue(Name,Entry) then
-  begin TInterlocked.Add(IndexBytes,-Entry.Size); CacheIndex.Remove(Name); Inc(CacheRevision); end;
-  ReaderPins.Remove(Name);
+  Key:=CachePathKey(Name);
+  if CacheIndex.TryGetValue(Key,Entry) then
+  begin TInterlocked.Add(IndexBytes,-Entry.Size); CacheIndex.Remove(Key); Inc(CacheRevision); end;
+  ReaderPins.Remove(Key);
 end;
 
 procedure UpdateIndex(const Name: string; const Written: Boolean = False);
 var Entry, Old: TCacheEntry;
 begin
   if not ReadEntry(Name,Entry) then begin RemoveIndex(Name); Exit; end;
-  if CacheIndex.TryGetValue(Name,Old) then
+  if CacheIndex.TryGetValue(Entry.Name,Old) then
   begin TInterlocked.Add(IndexBytes,-Old.Size); Entry.WriteRevision:=Old.WriteRevision; end;
   Inc(CacheRevision); if Written then Entry.WriteRevision:=CacheRevision;
   if Entry.Retired then CacheRetired:=True;
-  CacheIndex.AddOrSetValue(Name,Entry); TInterlocked.Add(IndexBytes,Entry.Size);
+  CacheIndex.AddOrSetValue(Entry.Name,Entry); TInterlocked.Add(IndexBytes,Entry.Size);
 end;
 
 procedure TCacheMaintenance.Execute;
@@ -368,11 +389,11 @@ end;
 function DeleteEntry(const Name: string): Boolean;
 var Suffix: string;
 begin
-  Result:=ManagedFile(Name) and (not FileExists(Name) or System.SysUtils.DeleteFile(Name));
+  Result:=ManagedFile(Name) and (not CacheFileExists(Name) or System.SysUtils.DeleteFile(BookOutputPath(Name)));
   if Result then
   begin
     for Suffix in ['.origin','.source','.retire'] do
-      if ManagedFile(Name+Suffix) then System.SysUtils.DeleteFile(Name+Suffix);
+      if ManagedFile(Name+Suffix) then System.SysUtils.DeleteFile(BookOutputPath(Name+Suffix));
     RemoveIndex(Name);
   end;
 end;
@@ -381,12 +402,12 @@ procedure RetireEntry(const Name: string);
 var Entry: TCacheEntry;
 begin
   if not ManagedFile(Name) then Exit;
-  TFile.WriteAllText(Name+'.retire','',TEncoding.UTF8); CacheRetired:=True;
+  TFile.WriteAllText(BookOutputPath(Name+'.retire'),'',TEncoding.UTF8); CacheRetired:=True;
   if CacheIndex.TryGetValue(Name,Entry) then begin Entry.Retired:=True; CacheIndex[Name]:=Entry; end;
 end;
 
 procedure TrimBookCache(const KeepFile: string);
-var List: TList<TCacheEntry>; Entry: TCacheEntry; Total, Limit: Int64; PinUntil, NowStamp, Cutoff, AgeSpan: UInt64;
+var List: TList<TCacheEntry>; Entry: TCacheEntry; KeepKey: string; Total, Limit: Int64; PinUntil, NowStamp, Cutoff, AgeSpan: UInt64;
   Removed, MirrorRemoved, BySize, ByAge, SweepAge: Boolean; Time: TFileTime;
 begin
   if Closing then Exit;
@@ -420,9 +441,10 @@ begin
       List.Sort(TComparer<TCacheEntry>.Construct(
         function(const A,B: TCacheEntry): Integer
         begin if A.Used<B.Used then Result:=-1 else if A.Used>B.Used then Result:=1 else Result:=0; end));
+      KeepKey:=CachePathKey(KeepFile);
       for Entry in List do
-        if not Entry.Temporary and not SameFileName(Entry.Name,KeepFile) and
-          ((Entry.Mirror='') or not SameFileName(Entry.Mirror,KeepFile)) and
+        if not Entry.Temporary and not SameFileName(Entry.Name,KeepKey) and
+          ((Entry.Mirror='') or not SameFileName(Entry.Mirror,KeepKey)) and
           ((BySize and (Total>Limit)) or (ByAge and (Entry.Used<Cutoff)) or Entry.Retired) then
           if (Entry.Retired or not ReaderPins.TryGetValue(Entry.Name,PinUntil) or (GetTickCount64>=PinUntil)) and
             ((Entry.Mirror='') or Entry.Retired or not ReaderPins.TryGetValue(Entry.Mirror,PinUntil) or (GetTickCount64>=PinUntil)) then
@@ -452,14 +474,14 @@ end;
 procedure Touch(const Name: string);
 var Handle: THandle; Used: TFileTime;
 begin
-  Handle:=CreateFile(PChar(Name),FILE_WRITE_ATTRIBUTES,FILE_SHARE_READ or FILE_SHARE_WRITE,
+  Handle:=CreateFile(PChar(BookOutputPath(Name)),FILE_WRITE_ATTRIBUTES,FILE_SHARE_READ or FILE_SHARE_WRITE,
     nil,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,0);
   if Handle=INVALID_HANDLE_VALUE then Exit;
   try GetSystemTimeAsFileTime(Used); SetFileTime(Handle,nil,nil,@Used); finally CloseHandle(Handle); end;
 end;
 
 function OpenCachedBookFile(const FileName: string): TStream;
-var Name: string; Input: TCacheReadStream; Digest: TCacheInputDigest;
+var Name, Key: string; Input: TCacheReadStream; Digest: TCacheInputDigest;
 begin
   BookCachePath; if not BookCacheIndexReady then RefreshBookCache(True);
   TMonitor.Enter(CacheGuard);
@@ -471,9 +493,10 @@ begin
       try
         // Track only handles which actually deny writes/deletion. An entry's
         // lifetime is exactly the overlapping lifetime of these read locks.
-        Input.FIdentityName:=Name;
-        if not InputDigests.TryGetValue(Name,Digest) then Digest:=Default(TCacheInputDigest);
-        Inc(Digest.Readers); InputDigests.AddOrSetValue(Name,Digest);
+        Key:=CachePathKey(Name);
+        Input.FIdentityName:=Key;
+        if not InputDigests.TryGetValue(Key,Digest) then Digest:=Default(TCacheInputDigest);
+        Inc(Digest.Readers); InputDigests.AddOrSetValue(Key,Digest);
         Input.FIdentityRegistered:=True;
         Result:=Input;
       except Input.Free; raise; end;
@@ -501,13 +524,13 @@ begin
   Result:=FileName; BookCachePath;
   TMonitor.Enter(CacheGuard);
   try
-    Name:=ExistingBookCacheFile(FileName);
+    Name:=CachePathKey(ExistingBookCacheFile(FileName));
     if CacheIndex.TryGetValue(Name,Entry) and (Entry.Source<>'') then Result:=Entry.Source;
   finally TMonitor.Exit(CacheGuard); end;
 end;
 
-function BookCacheInputStamp(const FileName, OriginalSource: string): string;
-const MaxPayload = 64*1024*1024; MaxSidecar = 1024*1024;
+function BookCacheInputStamp(const FileName, OriginalSource: string; MaxPayload: Int64): string;
+const MaxSidecar = 1024*1024;
 var Name, Original, Origin: string; Data: TWin32FileAttributeData;
   Dependency, OriginBytes, Buffer: TBytes; Stream: TFileStream;
   Hash, DependencyHash: THashSHA2; ReadCount: Integer;
@@ -516,20 +539,20 @@ var Name, Original, Origin: string; Data: TWin32FileAttributeData;
   var Input: TFileStream;
   begin
     Result:=False; Bytes:=nil;
-    if not ManagedFile(Name+Suffix) or not FileExists(Name+Suffix) then Exit;
-    Input:=TFileStream.Create(Name+Suffix,fmOpenRead or fmShareDenyWrite);
+    if not ManagedFile(Name+Suffix) or not CacheFileExists(Name+Suffix) then Exit;
+    Input:=TFileStream.Create(BookOutputPath(Name+Suffix),fmOpenRead or fmShareDenyWrite);
     try
       if (Input.Size<=0) or (Input.Size>MaxSidecar) then Exit;
       SetLength(Bytes,Input.Size); Input.ReadBuffer(Bytes[0],Length(Bytes)); Result:=True;
     finally Input.Free; end;
   end;
 begin
-  Name:=TPath.GetFullPath(FileName).Replace('/','\');
-  if not GetFileAttributesEx(PChar(Name),GetFileExInfoStandard,@Data) then RaiseLastOSError;
+  Name:=CachePathKey(FileName).Replace('/','\');
+  if not GetFileAttributesEx(PChar(BookOutputPath(Name)),GetFileExInfoStandard,@Data) then RaiseLastOSError;
   Result:=LowerCase(Name)+'|'+IntToStr(Data.nFileSizeHigh)+':'+IntToStr(Data.nFileSizeLow)+'|'+
     IntToStr(Data.ftLastWriteTime.dwHighDateTime)+':'+IntToStr(Data.ftLastWriteTime.dwLowDateTime);
   if not ManagedFile(Name) then Exit;
-  Original:=TPath.GetFullPath(OriginalSource).Replace('/','\');
+  Original:=CachePathKey(OriginalSource).Replace('/','\');
   if SameText(Name,Original) then Exit;
   // Never accept an old/unproved cache payload solely by mutable timestamps.
   // This bounded fallback deliberately regenerates the derived result.
@@ -539,8 +562,8 @@ begin
     if MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,PAnsiChar(@OriginBytes[0]),
       Length(OriginBytes),nil,0)=0 then Exit;
     Origin:=TEncoding.UTF8.GetString(OriginBytes).TrimStart([#$FEFF]);
-    if not SameText(TPath.GetFullPath(Origin).Replace('/','\'),Original) then Exit;
-    Stream:=TFileStream.Create(Name,fmOpenRead or fmShareDenyWrite);
+    if not SameText(CachePathKey(Origin).Replace('/','\'),Original) then Exit;
+    Stream:=TFileStream.Create(BookOutputPath(Name),fmOpenRead or fmShareDenyWrite);
     try
       if (Stream.Size<0) or (Stream.Size>MaxPayload) then Exit;
       if (GetCurrentThreadID<>MainThreadID) and TThread.CheckTerminated then Abort;
@@ -588,9 +611,9 @@ begin
   BookCachePath;
   TMonitor.Enter(CacheGuard);
   try
-    if not ManagedFile(FileName) or not FileExists(FileName) then Exit;
-    TFile.WriteAllText(FileName+'.origin',TPath.GetFullPath(Source),TEncoding.UTF8);
-    System.SysUtils.DeleteFile(FileName+'.retire'); Touch(FileName); UpdateIndex(FileName,True);
+    if not ManagedFile(FileName) or not CacheFileExists(FileName) then Exit;
+    TFile.WriteAllText(BookOutputPath(FileName+'.origin'),CachePathKey(Source),TEncoding.UTF8);
+    System.SysUtils.DeleteFile(BookOutputPath(FileName+'.retire')); Touch(FileName); UpdateIndex(FileName,True);
     TrimBookCache(FileName);
   finally TMonitor.Exit(CacheGuard); end;
 end;
@@ -598,13 +621,13 @@ end;
 procedure PinReaderCacheFile(const FileName: string);
 begin
   TMonitor.Enter(CacheGuard);
-  try if ManagedFile(FileName) then ReaderPins.AddOrSetValue(FileName,GetTickCount64+30000);
+  try if ManagedFile(FileName) then ReaderPins.AddOrSetValue(CachePathKey(FileName),GetTickCount64+30000);
   finally TMonitor.Exit(CacheGuard); end;
 end;
 
 constructor TBookCacheWrite.Create(const Source: string);
 begin
-  inherited Create; BookCachePath; FSource:=TPath.GetFullPath(Source);
+  inherited Create; BookCachePath; FSource:=CachePathKey(Source);
   TMonitor.Enter(CacheGuard); try FValid:=not Closing; Writers.Add(Self); finally TMonitor.Exit(CacheGuard); end;
 end;
 
@@ -615,7 +638,7 @@ begin
   try
     Writers.Remove(Self);
     for Name in FPending do
-    begin if ManagedFile(Name) then System.SysUtils.DeleteFile(Name); RemoveIndex(Name); end;
+    begin if ManagedFile(Name) then System.SysUtils.DeleteFile(BookOutputPath(Name)); RemoveIndex(Name); end;
   finally TMonitor.Exit(CacheGuard); end;
   inherited;
 end;
@@ -627,6 +650,7 @@ begin
   Result:=TPath.Combine(ExtractFileDir(Destination),'homelib-.pending-'+
     IntToStr(GetCurrentProcessId)+'-'+TGUID.NewGuid.ToString);
   if KeepExtension then Result:=Result+ExtractFileExt(Destination);
+  Result:=BookOutputPath(Result);
   TMonitor.Enter(CacheGuard); try FPending:=FPending+[Result]; finally TMonitor.Exit(CacheGuard); end;
 end;
 
@@ -637,12 +661,13 @@ begin
   TMonitor.Enter(CacheGuard);
   try
     if not FValid or Closing then raise EAbort.Create('Подготовка отменена: кэш очищен или источник отключён.');
-    Destination:=CurrentBookCacheFile(Destination); ForceDirectories(ExtractFileDir(Destination));
+    Destination:=BookOutputPath(CurrentBookCacheFile(Destination)); ForceDirectories(ExtractFileDir(Destination));
     if not ManagedFile(Destination) then raise Exception.Create('Папка кэша недоступна.');
-    if not MoveFileEx(PChar(Temporary),PChar(Destination),MOVEFILE_REPLACE_EXISTING or MOVEFILE_WRITE_THROUGH) then RaiseLastOSError;
+    if not MoveFileEx(PChar(BookOutputPath(Temporary)),PChar(Destination),MOVEFILE_REPLACE_EXISTING or MOVEFILE_WRITE_THROUGH) then RaiseLastOSError;
     if TemporaryStamp<>'' then
-      if not MoveFileEx(PChar(TemporaryStamp),PChar(Destination+'.source'),MOVEFILE_REPLACE_EXISTING or MOVEFILE_WRITE_THROUGH) then
-      begin System.SysUtils.DeleteFile(Destination+'.source'); RaiseLastOSError; end;
+      if not MoveFileEx(PChar(BookOutputPath(TemporaryStamp)),PChar(BookOutputPath(Destination+'.source')),
+        MOVEFILE_REPLACE_EXISTING or MOVEFILE_WRITE_THROUGH) then
+      begin System.SysUtils.DeleteFile(BookOutputPath(Destination+'.source')); RaiseLastOSError; end;
     RemoveIndex(Temporary); if TemporaryStamp<>'' then RemoveIndex(TemporaryStamp);
     RegisterBookCacheFile(Destination,FSource);
   finally TMonitor.Exit(CacheGuard); end;
@@ -687,8 +712,9 @@ end;
 function CurrentBookCacheFile(const FileName: string): string;
 var OldRoot, BestRoot, Relative, Name: string;
 begin
-  Result:=FileName; Name:=TPath.GetFullPath(FileName);
+  Result:=FileName; Name:=CachePathKey(FileName);
   if not LowerCase(ExtractFileName(Name)).StartsWith('homelib-') then Exit;
+  Result:=Name;
   TMonitor.Enter(CacheGuard);
   try
     BookCachePath; if WithinRoot(Name,SessionCachePath) then Exit;
@@ -705,13 +731,17 @@ var Candidate, Relative, Root: string;
 begin
   TMonitor.Enter(CacheGuard);
   try
-    Result:=CurrentBookCacheFile(FileName); if FileExists(Result) then Exit;
-    if FileExists(FileName) then Exit(FileName);
-    if not WithinRoot(Result,BookCachePath) then Exit;
+    Result:=CurrentBookCacheFile(FileName);
+    if Result='' then Exit;
+    if CacheFileExists(Result) then Exit(BookOutputPath(Result));
+    if CacheFileExists(FileName) then Exit(BookOutputPath(FileName));
+    BookCachePath;
+    if not WithinRoot(Result,SessionCachePath) then Exit(BookOutputPath(Result));
     Relative:=Copy(Result,Length(IncludeTrailingPathDelimiter(SessionCachePath))+1,MaxInt);
     for Root in PendingRoots do
     begin Candidate:=TPath.Combine(Root,Relative);
-      if ManagedFile(Candidate) and FileExists(Candidate) then Exit(Candidate); end;
+      if ManagedFile(Candidate) and CacheFileExists(Candidate) then Exit(BookOutputPath(Candidate)); end;
+    Result:=BookOutputPath(Result);
   finally TMonitor.Exit(CacheGuard); end;
 end;
 
@@ -748,7 +778,7 @@ begin
           finally TMonitor.Exit(CacheGuard); end;
           if not PreferDestination then
           begin
-            ForceDirectories(ExtractFilePath(Destination));
+            ForceDirectories(BookOutputPath(ExtractFileDir(Destination)));
             if not SafeFolder(NewRoot) or not SafeFolder(ExtractFileDir(Destination)) then
               raise Exception.Create('Папка кэша не должна быть ссылкой на другую папку.');
             Pending:=nil;
@@ -756,13 +786,14 @@ begin
               // Stage the whole entry before replacing an existing destination.
               for Suffix in ['','.origin','.source'] do
               begin
-                if not FileExists(Entry.Name+Suffix) then Continue;
+                if not CacheFileExists(Entry.Name+Suffix) then Continue;
                 Pending:=Pending+[Destination+Suffix+'.pending-transfer-'+IntToStr(GetCurrentProcessId)];
-                if not CopyFile(PChar(Entry.Name+Suffix),PChar(Pending[High(Pending)]),False) then RaiseLastOSError;
+                if not CopyFile(PChar(BookOutputPath(Entry.Name+Suffix)),
+                  PChar(BookOutputPath(Pending[High(Pending)])),False) then RaiseLastOSError;
               end;
               TMonitor.Enter(CacheGuard);
               try
-                PublishAllowed:=(Epoch=CacheEpoch) and FileExists(Entry.Name) and not Entry.Retired;
+                PublishAllowed:=(Epoch=CacheEpoch) and CacheFileExists(Entry.Name) and not Entry.Retired;
                 if CacheIndex.TryGetValue(Destination,TargetEntry) and (TargetEntry.WriteRevision>Revision) then PublishAllowed:=False;
                 if PublishAllowed and not Terminated then
                 begin
@@ -770,19 +801,20 @@ begin
                   begin
                     Suffix:=Copy(Pending[I],Length(Destination)+1,MaxInt);
                     Suffix:=Copy(Suffix,1,Pos('.pending-transfer-',Suffix)-1);
-                    if not MoveFileEx(PChar(Pending[I]),PChar(Destination+Suffix),MOVEFILE_REPLACE_EXISTING or MOVEFILE_WRITE_THROUGH) then
-                    begin System.SysUtils.DeleteFile(Destination+'.source'); RaiseLastOSError; end;
+                    if not MoveFileEx(PChar(BookOutputPath(Pending[I])),PChar(BookOutputPath(Destination+Suffix)),
+                      MOVEFILE_REPLACE_EXISTING or MOVEFILE_WRITE_THROUGH) then
+                    begin System.SysUtils.DeleteFile(BookOutputPath(Destination+'.source')); RaiseLastOSError; end;
                   end;
-                  if not FileExists(Entry.Name+'.source') then System.SysUtils.DeleteFile(Destination+'.source');
-                  if not FileExists(Entry.Name+'.origin') then System.SysUtils.DeleteFile(Destination+'.origin');
+                  if not CacheFileExists(Entry.Name+'.source') then System.SysUtils.DeleteFile(BookOutputPath(Destination+'.source'));
+                  if not CacheFileExists(Entry.Name+'.origin') then System.SysUtils.DeleteFile(BookOutputPath(Destination+'.origin'));
                   UpdateIndex(Destination,True);
                 end;
               finally TMonitor.Exit(CacheGuard); end;
-            finally for Suffix in Pending do System.SysUtils.DeleteFile(Suffix); end;
+            finally for Suffix in Pending do System.SysUtils.DeleteFile(BookOutputPath(Suffix)); end;
           end;
           TMonitor.Enter(CacheGuard);
           try
-            if (Epoch<>CacheEpoch) or not FileExists(Destination) or
+            if (Epoch<>CacheEpoch) or not CacheFileExists(Destination) or
               (GetTickCount64-Started<30000) or
               (ReaderPins.TryGetValue(Entry.Name,PinUntil) and (GetTickCount64<PinUntil)) or
               not DeleteEntry(Entry.Name) then Remaining:=True;
@@ -841,18 +873,19 @@ begin TMonitor.Enter(CacheGuard); try if Assigned(Migration) then Migration.Term
 procedure ChangeBookCacheDirectory(const Directory: string);
 var OldRoot, NewRoot, Root: string; Handle: THandle; Probe: string;
 begin
-  OldRoot:=BookCachePath;
-  if Directory='' then NewRoot:=TPath.Combine(Settings.DataPath,'BookCache')
-  else if SameFileName(TPath.GetFullPath(Directory),OldRoot) then NewRoot:=OldRoot
-  else NewRoot:=TPath.Combine(TPath.GetFullPath(Directory),'HomeLibRu-BookCache');
+  OldRoot:=CachePathKey(BookCachePath);
+  if Directory='' then NewRoot:=CachePathKey(TPath.Combine(Settings.DataPath,'BookCache'))
+  else if SameFileName(CachePathKey(Directory),OldRoot) then NewRoot:=OldRoot
+  else NewRoot:=TPath.Combine(CachePathKey(Directory),'HomeLibRu-BookCache');
   if SameFileName(OldRoot,NewRoot) then begin if not BookCacheMigrationBusy then RetryBookCacheMigration; Exit; end;
   if BookCacheMigrationBusy then raise Exception.Create('Дождитесь завершения переноса кэша или остановите его.');
   for Root in PendingRoots.ToArray+[OldRoot] do
     if WithinRoot(NewRoot,Root) or WithinRoot(Root,NewRoot) then
       raise Exception.Create('Новая папка кэша не должна быть вложена в прежнюю папку или содержать её.');
-  ForceDirectories(NewRoot); if not SafeFolder(NewRoot) then raise Exception.Create('Выберите обычную папку для кэша.');
+  ForceDirectories(BookOutputPath(NewRoot)); if not SafeFolder(NewRoot) then raise Exception.Create('Выберите обычную папку для кэша.');
   Probe:=TPath.Combine(NewRoot,'homelib-write-probe-'+TGUID.NewGuid.ToString);
-  Handle:=CreateFile(PChar(Probe),GENERIC_WRITE,0,nil,CREATE_NEW,FILE_ATTRIBUTE_TEMPORARY or FILE_FLAG_DELETE_ON_CLOSE,0);
+  Handle:=CreateFile(PChar(BookOutputPath(Probe)),GENERIC_WRITE,0,nil,CREATE_NEW,
+    FILE_ATTRIBUTE_TEMPORARY or FILE_FLAG_DELETE_ON_CLOSE,0);
   if Handle=INVALID_HANDLE_VALUE then RaiseLastOSError; CloseHandle(Handle);
   TMonitor.Enter(CacheGuard);
   try

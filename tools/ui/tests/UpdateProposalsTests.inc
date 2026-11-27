@@ -404,10 +404,12 @@ end;
 procedure TestUpdateReadyReleasePages;
 const ReleasesPage = 'https://github.com/Dicur3x/MyHomeLib/releases';
   BatchTag = '9999.1.0';
+  AlReaderRelative = 'Readers/AlReader/AlReader2.exe';
 var Dialog: TUpdateRestorePageForm; Page, Primary: TButton; List: TListView; Version: TLabel;
   CacheRoot, Cache, Job, Archive, Digest, ReadyFile, SavedLocal, AppHash, SQLiteHash: string;
   Manifest, Entry, Ready: TJSONObject; Files, Bundle: TJSONArray; Zip: TZipFile;
-  HadLocal, Restored, SavedAppCheck, SavedCatalogCheck: Boolean; EmptyValue: Char;
+  InstalledAlReader, HeldAlReader: string;
+  HadLocal, Restored, SavedAppCheck, SavedCatalogCheck, AlReaderHeld: Boolean; EmptyValue: Char;
   LengthBefore: DWORD; OriginalForms, Cases: Integer;
 
   function PayloadPath(const Name: string): string;
@@ -415,15 +417,13 @@ var Dialog: TUpdateRestorePageForm; Page, Primary: TButton; List: TListView; Ver
     Result:=TPath.Combine(TPath.Combine(Job,'payload'),StringReplace(Name,'/',PathDelim,[rfReplaceAll]));
   end;
 
-  procedure Payload(const Name: string);
+  procedure Payload(const Name, SourceFile: string);
   var FileName, ParentFolder: string;
   begin
     FileName:=PayloadPath(Name); ParentFolder:=ExtractFileDir(FileName); ForceDirectories(ParentFolder);
     Require(DirectoryExists(ParentFolder),'Owned restore payload parent was not created: '+ParentFolder);
+    TFile.Copy(SourceFile,FileName);
     Writeln('TRACE restored payload path=',FileName); Flush(Output);
-    // Restore reads metadata and verifies the archive hash. Installation, PE
-    // verification and process launch are deliberately outside this fixture.
-    TFile.WriteAllText(FileName,'Restore-only fixture bytes: '+Name,TEncoding.UTF8);
     Entry:=TJSONObject.Create; Entry.AddPair('path',Name);
     Entry.AddPair('sha256',UpdateSHA256(FileName)); Entry.AddPair('size',TJSONNumber.Create(TFile.GetSize(FileName)));
     Files.AddElement(Entry);
@@ -460,7 +460,8 @@ var Dialog: TUpdateRestorePageForm; Page, Primary: TButton; List: TListView; Ver
         'Restored component batch lost its real page, ready action, list or batch title');
       Require((Page.Caption=ExpectedCaption) and (Primary.Caption='Установить и перезапустить') and
         Assigned(List.Selected) and (List.Selected.Index=0) and List.Enabled,
-        'Restored batch has an ambiguous page caption, wrong selected row or non-ready action');
+        Format('Restored batch source %s: page "%s" (expected "%s"), action "%s", selected=%d enabled=%d',
+          [SourceURL,Page.Caption,ExpectedCaption,Primary.Caption,List.ItemIndex,Ord(List.Enabled)]));
       List.Items[1].Selected:=True;
       Require(Assigned(List.Selected) and (List.Selected.Index=0) and (Primary.Caption='Установить и перезапустить'),
         'Ready table changed its selected component or installation action');
@@ -538,13 +539,15 @@ var Dialog: TUpdateRestorePageForm; Page, Primary: TButton; List: TListView; Ver
   end;
 
 begin
-  RequireIsolatedRegression; OriginalForms:=Screen.FormCount; Cases:=0; Dialog:=nil;
+  RequireIsolatedRegression; OriginalForms:=Screen.FormCount; Cases:=0; Dialog:=nil; AlReaderHeld:=False;
   AppHash:=THashSHA2.GetHashStringFromFile(ParamStr(0));
   SQLiteHash:=THashSHA2.GetHashStringFromFile(Settings.AppPath+'sqlite3.dll');
   SavedLocal:=GetEnvironmentVariable('LOCALAPPDATA'); SetLastError(ERROR_SUCCESS);
   LengthBefore:=Winapi.Windows.GetEnvironmentVariableW('LOCALAPPDATA',nil,0);
   HadLocal:=(LengthBefore<>0) or (GetLastError<>ERROR_ENVVAR_NOT_FOUND);
   CacheRoot:=TPath.Combine(Settings.AppPath,'rup-'+TGUID.NewGuid.ToString); ForceDirectories(CacheRoot);
+  InstalledAlReader:=TPath.Combine(Settings.AppPath,StringReplace(AlReaderRelative,'/',PathDelim,[rfReplaceAll]));
+  HeldAlReader:=TPath.Combine(CacheRoot,'AlReader2.exe');
   if not SetEnvironmentVariableW('LOCALAPPDATA',PChar(CacheRoot)) then RaiseLastOSError;
   SavedAppCheck:=Settings.CheckUpdate; SavedCatalogCheck:=Settings.CheckExternalLibUpdate;
   Settings.CheckUpdate:=False; Settings.CheckExternalLibUpdate:=False;
@@ -552,6 +555,9 @@ begin
     Cache:=ProgramUpdateCache(Settings.AppPath); ForceDirectories(Cache);
     Job:=TPath.Combine(Cache,'HomeLibRu-update-'+TGUID.NewGuid.ToString); ForceDirectories(Job);
     Archive:=TPath.Combine(Job,'release.zip'); ReadyFile:=TPath.Combine(Cache,'ready.json');
+    // The batch will install the missing Reader. Use the fixture's real binaries
+    // and restore its originally installed Reader after the assertions.
+    TFile.Move(InstalledAlReader,HeldAlReader); AlReaderHeld:=True;
     Manifest:=TJSONObject.Create;
     try
       Manifest.AddPair('format',TJSONNumber.Create(1)); Manifest.AddPair('release',BatchTag);
@@ -559,29 +565,32 @@ begin
       Bundle:=TJSONArray.Create; Manifest.AddPair('bundle',Bundle);
       for var ID in TArray<string>.Create('SQLite','AlReader') do
       begin
-        Entry:=TJSONObject.Create; Entry.AddPair('component',ID); Entry.AddPair('version',BatchTag);
+        var SourceFile:=Settings.AppPath+'sqlite3.dll';
+        if ID='AlReader' then SourceFile:=HeldAlReader;
+        Entry:=TJSONObject.Create; Entry.AddPair('component',ID); Entry.AddPair('version',UpdateFileVersion(SourceFile));
         Entry.AddPair('official',TJSONBool.Create(False)); Bundle.AddElement(Entry);
       end;
       Files:=TJSONArray.Create; Manifest.AddPair('files',Files);
-      Payload('sqlite3.dll'); Payload('Readers/AlReader/AlReader2.exe');
+      Payload('sqlite3.dll',Settings.AppPath+'sqlite3.dll'); Payload(AlReaderRelative,HeldAlReader);
       TFile.WriteAllText(TPath.Combine(Job,'manifest.json'),Manifest.ToJSON,TEncoding.UTF8);
     finally Manifest.Free; end;
     Zip:=TZipFile.Create;
     try
       Zip.Open(Archive,zmWrite); Zip.Add(TPath.Combine(Job,'manifest.json'),UPDATE_MANIFEST);
       Zip.Add(PayloadPath('sqlite3.dll'),'sqlite3.dll');
-      Zip.Add(PayloadPath('Readers/AlReader/AlReader2.exe'),'Readers/AlReader/AlReader2.exe');
+      Zip.Add(PayloadPath(AlReaderRelative),AlReaderRelative);
       Zip.Close;
     finally Zip.Free; end;
     Digest:=UpdateSHA256(Archive);
-    Require(PreparedComponentsNewer(Job,Settings.AppPath),'Component-only batch fixture is not newer than the installed copies');
+    VerifyPreparedProgramUpdate(Job,BatchTag,ProgramUpdatePlatform);
+    Require(PreparedComponentsNewer(Job,Settings.AppPath),'Component-only batch fixture has no component to install');
     for var Info in UPDATE_COMPONENTS do
     begin
       Require((UpdateReleasePageURL(Info.ID,BatchTag,'')=Info.URL) and
         (UpdateReleasePageURL(Info.ID,BatchTag,'javascript:invalid')=Info.URL),
         'Legacy or unsafe component page fallback is missing for '+Info.ID);
       if (Info.ID='AlReader') or (Info.ID='WebP') then
-        RestorePage(Info.URL,Info.URL,'Постоянные компоненты HomeLibre')
+        RestorePage(Info.URL,Info.URL,'Компоненты на GitHub')
       else if Info.URL=ReleasesPage then
         RestorePage(Info.URL,Info.URL,'Выпуски HomeLibre')
       else if Info.ID='IBK' then
@@ -610,7 +619,9 @@ begin
     Writeln('PASS restored component-only batch page uses saved canonical sources for all components and safe legacy-invalid URL fallbacks without network or installation cases=',Cases);
     Flush(Output);
   finally
-    try FreeAndNil(Dialog);
+    try
+      FreeAndNil(Dialog);
+      if AlReaderHeld then TFile.Move(HeldAlReader,InstalledAlReader);
     finally
       EmptyValue:=#0;
       if not HadLocal then Restored:=SetEnvironmentVariableW('LOCALAPPDATA',nil)

@@ -9,6 +9,44 @@ import subprocess
 import sys
 
 
+class Mobi7ImageRecords:
+    def __init__(self, names):
+        self.names = names
+
+    def __getitem__(self, index):
+        # MOBI references are one-based, so the decoder's index -1 means
+        # an invalid reference to record zero, not the last illustration.
+        if 0 <= index < len(self.names) and self.names[index]:
+            return self.names[index]
+        # KindleUnpack generates imageNNNNN names for actual resources.
+        # Leave a distinct missing-image path for the regular HTML reader.
+        return f'homelibre-missing-mobi-image-{index + 1}.img'
+
+
+def explicit_asins(header):
+    # KindleUnpack generates a UUID when this EXTH field is absent.
+    start = 16 + int.from_bytes(header[20:24], 'big')
+    if start < 40 or start + 12 > len(header) or header[start:start + 4] != b'EXTH':
+        return []
+    length, count = struct.unpack_from('>II', header, start + 4)
+    position, end = start + 12, start + length
+    if not position <= end <= len(header) or count > (end - position) // 8:
+        return []
+    values = []
+    for _ in range(count):
+        if position + 8 > end:
+            return []
+        number, size = struct.unpack_from('>II', header, position)
+        if not 8 <= size <= end - position:
+            return []
+        if number == 113 and 8 < size <= 136:
+            value = header[position + 8:position + size].decode('ascii', errors='replace')
+            if value.isascii() and all(char.isalnum() or char in '-_.' for char in value) and value not in values:
+                values.append(value)
+        position += size
+    return values
+
+
 def main():
     source, manifest, work = [Path(p).resolve() for p in sys.argv[1:4]]
     if manifest.exists() or work.exists() or not source.is_file(): raise ValueError('Invalid owned conversion paths')
@@ -61,14 +99,31 @@ def main():
     sys.addaudithook(audit)
     kindle_root=Path(sys.argv[5]).resolve() if len(sys.argv)>5 else Path(__file__).resolve().parents[1]/'kindle'
     sys.path.insert(0,str(kindle_root))
-    from lib.kindleunpack import unpackBook
-    with contextlib.redirect_stdout(io.StringIO()): unpackBook(str(source), str(work), epubver='3', use_hd=True)
+    from lib.kindleunpack import HTMLProcessor, unpackBook
+
+    insert_hrefs = HTMLProcessor.insertHREFS
+    def insert_mobi7_hrefs(processor):
+        names = processor.rscnames
+        processor.rscnames = Mobi7ImageRecords(names)
+        try:
+            return insert_hrefs(processor)
+        finally:
+            processor.rscnames = names
+
+    HTMLProcessor.insertHREFS = insert_mobi7_hrefs
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            unpackBook(str(source), str(work), epubver='3', use_hd=True)
+    finally:
+        HTMLProcessor.insertHREFS = insert_hrefs
     files = [p for p in work.rglob('*') if p.is_file()]
     if len(files) > 20000 or sum(p.stat().st_size for p in files) > 256 * 1024 * 1024: raise ValueError('Kindle resources exceed conversion limits')
     epubs = [p for p in files if p.suffix.lower() == '.epub']
     if len(epubs) == 1: result = {'format': 'epub', 'path': str(epubs[0])}
     elif not epubs and (work / 'mobi7/book.html').is_file(): result = {'format': 'html', 'path': str(work / 'mobi7/book.html')}
     else: raise ValueError('KindleUnpack did not produce one readable book')
+    if result['format'] == 'html':
+        result['asins'] = explicit_asins(header)
     result['warnings']=compatibility_warnings
     with manifest.open('x', encoding='utf-8') as f: json.dump(result, f)
     print('OK unencrypted Kindle text and resources')

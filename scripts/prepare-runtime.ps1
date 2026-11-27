@@ -303,6 +303,7 @@ if (-not $CoreOnly) {
     (Join-Path $outputDirectory 'tools\doc\HomeLibDoc.exe'),
     (Join-Path $outputDirectory 'tools\djvu\HomeLibDjvu.exe'),
     (Join-Path $outputDirectory 'tools\djvu\HomeLibDjvu-source\HomeLibDjvu.dpr'),
+    (Join-Path $outputDirectory 'tools\djvu\HomeLibDjvu-source\unit_DjvuRecovery.pas'),
     $sevenZipDestination,
     (Join-Path $outputDirectory 'tools\7zip\License.txt'),
     $jpegXlDestination,

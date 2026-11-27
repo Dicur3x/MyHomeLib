@@ -15,6 +15,7 @@ type
     FBook: TBookRecord;
     FGeneration: Integer;
     FPending, FClosing, FCover, FAnnotation, FMetadata, FLocalSource: Boolean;
+    FOnRequestComponent: TProc<string>;
     procedure Tick(Sender: TObject);
     procedure Completed(Sender: TObject);
   public
@@ -25,6 +26,7 @@ type
       LocalSource: Boolean = True);
     procedure UpdateReadingProgress(const Book: TBookRecord);
     function Busy: Boolean;
+    property OnRequestComponent: TProc<string> read FOnRequestComponent write FOnRequestComponent;
   end;
 
 implementation
@@ -33,7 +35,7 @@ uses Winapi.Windows, Winapi.ActiveX, Vcl.Graphics, FictionBook_21, unit_FB2Utils
   unit_Interfaces, unit_ReaderCache, unit_Consts, System.Variants, dm_user,
   unit_BookMetadataCache, unit_PackageBookCover, unit_ReaderRaster, unit_ReaderPDFWorker,
   unit_XpsBookCover, unit_MHLExternalTools, unit_KindleBookCover, unit_KfxBookCover,
-  unit_SvgBookCover;
+  unit_SvgBookCover, unit_BookCache, unit_ReaderFormats;
 
 type
   TPreviewThread = class(TThread)
@@ -43,7 +45,7 @@ type
     Book: TBookRecord;
     Generation: Integer;
     NeedCover, NeedAnnotation, NeedMetadata, LocalSource: Boolean;
-    Annotation, MetadataXML, Status: string;
+    Annotation, MetadataXML, Status, RequiredCoverComponent: string;
     HasDescriptor, CoverAssigned, DamagedTitle, TitleDiffers: Boolean;
     MetadataTitle: string;
     Cover: TGraphic;
@@ -56,11 +58,17 @@ destructor TPreviewThread.Destroy;
 begin Cover.Free; inherited; end;
 
 procedure TPreviewThread.Execute;
-var Stream: TStream; Document: IXMLFictionBook; HR: HRESULT; NeedFileAnnotation: Boolean;
+var Stream, ArchiveStream, PreviewLease: TStream; Corrected: TFileStream; Document: IXMLFictionBook; HR: HRESULT; NeedFileAnnotation: Boolean;
   User: ISystemData; Collection: IBookCollection; Stored: TBookRecord;
-  CoverBytes:TBytes; CoverStatus,PreviewKind:string; Image:TBytesStream;
-  Raster:TReaderRaster; PDF:TReaderPDFWorker; GenericArchive,IsPDF:Boolean;
+  CoverBytes:TBytes; CoverStatus,PreviewKind,PreviewFile,PreviewExtension:string; Image:TBytesStream;
+  Raster:TReaderRaster; PDF:TReaderPDFWorker; IsPDF:Boolean;
+  function OpenCoverSource: TStream;
+  begin
+    if Assigned(PreviewLease) then Result:=OpenCachedBookFile(PreviewFile)
+    else Result:=OpenRawBookSource(Book,nil,function:Boolean begin Result:=Terminated; end);
+  end;
 begin
+  ArchiveStream:=nil; PreviewLease:=nil; PreviewExtension:=Book.FileExt;
   HR:=CoInitializeEx(nil,COINIT_APARTMENTTHREADED);
   try
     try
@@ -92,6 +100,11 @@ begin
           Stream:=Book.GetBookPreviewCoverStream(function:Boolean begin Result:=Terminated; end);
           try Cover:=CreateGraphicFromStream(Stream,64*1024*1024); finally Stream.Free; end;
         except on E:EAbort do Exit;
+          on E: EMHLComponentRequired do
+          begin
+            if E.ComponentID='JPEG XL' then RequiredCoverComponent:=E.ComponentID
+            else Status:='Не удалось прочитать отдельную обложку: '+E.Message;
+          end;
           on E: Exception do
           Status:='Не удалось прочитать отдельную обложку: '+E.Message;
         end;
@@ -113,7 +126,12 @@ begin
           TitleDiffers:=(MetadataTitle<>'') and (Trim(Book.Title)<>'') and
             not SameText(MetadataTitle,Trim(Book.Title));
           if NeedCover and not Assigned(Cover) then
-            try Cover:=GetBookCover(Document); except end;
+            try
+              Cover:=GetBookCover(Document,Settings.TempDir,function:Boolean begin Result:=Terminated; end);
+            except
+              on E:EAbort do raise;
+              on E:Exception do CoverStatus:='Не удалось прочитать обложку FB2: '+E.Message;
+            end;
           if NeedFileAnnotation then
             try Annotation:=GetBookAnnotation(Document); except Annotation:=''; end;
           // COM nodes stay in the worker apartment. Only the small description
@@ -128,12 +146,45 @@ begin
         end;
       end;
       if Terminated then Exit;
-      if LocalSource and NeedCover and not Assigned(Cover) and IsBookCoverPackage(Book.FileExt) then
+      if LocalSource and NeedCover and not Assigned(Cover) and IsReaderContainer(Book.FileName+Book.FileExt) then
+      begin
+        PreviewExtension:='';
+        try
+          ArchiveStream:=OpenRawBookSource(Book,nil,function:Boolean begin Result:=Terminated; end);
+          if not (ArchiveStream is TFileStream) then
+            raise EReadError.Create('Нет локального файла для предпросмотра.');
+          PreviewFile:=PrepareArchivePreviewFile(Book,TFileStream(ArchiveStream).FileName,
+            function:Boolean begin Result:=Terminated; end);
+          if Terminated then Exit;
+          if PreviewFile<>'' then
+          begin
+            PreviewLease:=OpenCachedBookFile(PreviewFile);
+            PreviewExtension:=ExtractFileExt(PreviewFile);
+          end;
+        except
+          on E:EAbort do Exit;
+          on E:Exception do CoverStatus:='Обложка книги в архиве недоступна. '+E.Message;
+        end;
+      end;
+      if Assigned(PreviewLease) and SameText(PreviewExtension,'.fb2') then
       begin
         try
-          Stream:=OpenRawBookSource(Book,nil,function:Boolean begin Result:=Terminated; end);
+          Document:=LoadFB2Description(PreviewLease,True);
+          CoverAssigned:=Document.Description.Titleinfo.Coverpage.Count>0;
+          Cover:=GetBookCover(Document,Settings.TempDir,function:Boolean begin Result:=Terminated; end);
+        except
+          on E:EAbort do Exit;
+          on E:Exception do CoverStatus:='Не удалось прочитать обложку FB2: '+E.Message;
+        end;
+        Document:=nil;
+      end;
+      if Terminated then Exit;
+      if LocalSource and NeedCover and not Assigned(Cover) and IsBookCoverPackage(PreviewExtension) then
+      begin
+        try
+          Stream:=OpenCoverSource;
           try
-            CoverBytes:=ReadPackageBookCover(Stream,Book.FileExt,CoverStatus,
+            CoverBytes:=ReadPackageBookCover(Stream,PreviewExtension,CoverStatus,
               function:Boolean begin Result:=Terminated; end,
               function(Data:TBytes):TBytes
               begin
@@ -155,10 +206,10 @@ begin
         end;
       end;
       if Terminated then Exit;
-      if LocalSource and NeedCover and not Assigned(Cover) and IsKindleCoverFormat(Book.FileExt) then
+      if LocalSource and NeedCover and not Assigned(Cover) and IsKindleCoverFormat(PreviewExtension) then
       begin
         try
-          Stream:=OpenRawBookSource(Book,nil,function:Boolean begin Result:=Terminated; end);
+          Stream:=OpenCoverSource;
           try
             CoverBytes:=ReadKindleBookCover(Stream,CoverStatus,function:Boolean begin Result:=Terminated; end);
           finally Stream.Free; end;
@@ -178,10 +229,10 @@ begin
       end;
       if Terminated then Exit;
       if LocalSource and NeedCover and not Assigned(Cover) and
-        (SameText(Book.FileExt,'.kfx') or SameText(Book.FileExt,'.azw8')) then
+        (SameText(PreviewExtension,'.kfx') or SameText(PreviewExtension,'.azw8')) then
       begin
         try
-          Stream:=OpenRawBookSource(Book,nil,function:Boolean begin Result:=Terminated; end);
+          Stream:=OpenCoverSource;
           try
             if not (Stream is TFileStream) then raise EReadError.Create('Нет локального файла для чтения обложки KFX.');
             CoverBytes:=ReadKfxBookCover(TFileStream(Stream).FileName,
@@ -202,10 +253,10 @@ begin
       end;
       if Terminated then Exit;
       if LocalSource and NeedCover and not Assigned(Cover) and
-        (SameText(Book.FileExt,'.xps') or SameText(Book.FileExt,'.oxps')) then
+        (SameText(PreviewExtension,'.xps') or SameText(PreviewExtension,'.oxps')) then
       begin
         try
-          Stream:=OpenRawBookSource(Book,nil,function:Boolean begin Result:=Terminated; end);
+          Stream:=OpenCoverSource;
           try
             if not (Stream is TFileStream) then raise EReadError.Create('Нет локального файла для предпросмотра.');
             CoverBytes:=ReadXpsBookCover(TFileStream(Stream).FileName,
@@ -224,36 +275,37 @@ begin
         end;
       end;
       if Terminated then Exit;
-      GenericArchive:=SameText(Book.FileExt,'.zip') or SameText(Book.FileExt,'.7z') or SameText(Book.FileExt,'.rar');
-      IsPDF:=SameText(Book.FileExt,'.pdf');
+      IsPDF:=SameText(PreviewExtension,'.pdf');
       if LocalSource and NeedCover and not Assigned(Cover) and
-        (IsRasterReaderFormat(Book.FileExt) or GenericArchive or IsPDF) then
+        (IsRasterReaderFormat(PreviewExtension) or IsPDF) then
       begin
-        // Decode only page 0. PDFium stays in its existing isolated worker,
-        // never in the catalogue's background apartment or Reader UI state.
-        // Keep the cache lease open while reading an outer archive's member.
+        // Decode only page 0. PDFium stays in its isolated worker.
         try
-          if IsPDF and not PDFWorkerAvailable then
-            raise EReadError.Create('Для предпросмотра PDF нужен модуль чтения PDF (PDFium).');
-          Stream:=OpenRawBookSource(Book,nil,function:Boolean begin Result:=Terminated; end);
+          Stream:=OpenCoverSource;
+          Corrected:=nil;
           try
             if not (Stream is TFileStream) then raise EReadError.Create('Нет локального файла для предпросмотра.');
+            PreviewFile:=TFileStream(Stream).FileName;
             if IsPDF then
             begin
-              PDF:=TReaderPDFWorker.Create(TFileStream(Stream).FileName);
+              if not PDFWorkerAvailable then
+                raise EReadError.Create('Для предпросмотра PDF нужен модуль чтения PDF (PDFium).');
+              Corrected:=OpenCorrectedPDF(PreviewFile);
+              if Assigned(Corrected) then PreviewFile:=Corrected.FileName;
+              PDF:=TReaderPDFWorker.Create(PreviewFile);
               try PDF.RenderPage(0,RasterPixels,RasterWidth,RasterHeight,600);
               finally PDF.Free; end;
             end
             else
             begin
-              Raster:=TReaderRaster.Create(TFileStream(Stream).FileName,600,GenericArchive);
+              Raster:=TReaderRaster.Create(PreviewFile,600);
               try
                 if Terminated then Exit;
                 RasterPixels:=Raster.PreparedPagePixels(0,RasterWidth,RasterHeight);
               finally Raster.Free; end;
             end;
             PreviewKind:='Предпросмотр первой страницы.';
-          finally Stream.Free; end;
+          finally Corrected.Free; Stream.Free; end;
         except
           on E:EAbort do Exit;
           on E:Exception do CoverStatus:='Предпросмотр первой страницы недоступен: '+E.Message;
@@ -269,7 +321,8 @@ begin
       if NeedCover and not Assigned(Cover) and (Length(RasterPixels)=0) then
       begin
         if Status<>'' then Status:=Status+sLineBreak;
-        if CoverStatus<>'' then Status:=Status+CoverStatus
+        if RequiredCoverComponent='JPEG XL' then Status:=Status+'Для этой обложки нужен декодер JPEG XL.'
+        else if CoverStatus<>'' then Status:=Status+CoverStatus
         else if CoverAssigned then Status:=Status+'Не удалось прочитать обложку из файла.'
         else if HasDescriptor then Status:=Status+'Обложка в метаданных не задана.'
         else Status:=Status+'Обложка для этого файла недоступна.';
@@ -295,7 +348,7 @@ begin
         sLineBreak+'Показаны данные каталога. Книга: '+Book.FileName+Book.FileExt;
     end;
   finally
-    Document:=nil; Collection:=nil;
+    Document:=nil; PreviewLease.Free; ArchiveStream.Free; Collection:=nil;
     if Assigned(User) then User.ClearCollectionCache;
     User:=nil;
     if Succeeded(HR) then CoUninitialize;
@@ -320,6 +373,7 @@ end;
 procedure TBookInfoPreview.Cancel;
 begin
   Inc(FGeneration); FPending:=False; FreeAndNil(FLoadStatus);
+  FPanel.SetPreviewAction('');
   if Assigned(FWorker) then FWorker.Terminate else FTimer.Enabled:=False;
 end;
 
@@ -362,7 +416,7 @@ end;
 
 procedure TBookInfoPreview.Completed(Sender: TObject);
 var Worker: TPreviewThread; Stream: TStringStream; Document: IXMLFictionBook;
-  Bitmap:TBitmap;
+  Bitmap:TBitmap; RequiredComponent: string; RequestComponent: TProc<string>;
 begin
   FreeAndNil(FLoadStatus);
   Worker:=TPreviewThread(Sender);
@@ -370,6 +424,14 @@ begin
   FPanel.BeginUpdate;
   try
     FPanel.SetPreviewStatus(Worker.Status);
+    RequiredComponent:=Worker.RequiredCoverComponent;
+    if (RequiredComponent='JPEG XL') and not Assigned(Worker.Cover) and
+      (Length(Worker.RasterPixels)=0) and Assigned(FOnRequestComponent) then
+    begin
+      RequestComponent:=FOnRequestComponent;
+      FPanel.SetPreviewAction('Установить JPEG XL…',
+        procedure begin RequestComponent(RequiredComponent); end);
+    end;
     if Worker.HasDescriptor then FPanel.Gallery.UseDescriptorImages;
     if Worker.NeedCover then
       if Length(Worker.RasterPixels)>0 then

@@ -1,0 +1,252 @@
+diff --git a/src/kf8.rs b/src/kf8.rs
+index 989c750..a7b627a 100644
+--- a/src/kf8.rs
++++ b/src/kf8.rs
+@@ -110,6 +110,83 @@ struct FragmentEntry {
+     length: usize,
+ }
+ 
++fn fragment_target(fragments: &[FragmentEntry], file: usize, offset: usize) -> (usize, usize) {
++    let start = fragments.partition_point(|fragment| fragment.file_number < file);
++    let end = fragments.partition_point(|fragment| fragment.file_number <= file);
++    let section = &fragments[start..end];
++    let position = section.partition_point(|fragment| fragment.start_pos <= offset);
++    section.get(position.saturating_sub(1)).map_or((file, offset), |fragment| {
++        (fragment.sequence_number, offset - fragment.start_pos)
++    })
++}
++
++const MAX_KF8_FRAGMENT_BYTES: usize = 8192;
++
++fn fragment_ends(body: &str, kindlegen_parity: bool) -> Vec<usize> {
++    if kindlegen_parity || body.len() <= MAX_KF8_FRAGMENT_BYTES {
++        return vec![body.len()];
++    }
++    let mut blocks = Vec::new();
++    let mut tag_edges = Vec::new();
++    let mut plain_text = Vec::new();
++    let mut previous_tag = 0;
++    links::for_each_tag(body, |tag, _| {
++        if previous_tag < tag.start && !body[previous_tag..tag.start].contains('<') {
++            plain_text.push(previous_tag..tag.start);
++        }
++        tag_edges.extend([tag.start, tag.end]);
++        if tag.closing && matches!(tag.name.as_str(),
++            "p" | "div" | "li" | "blockquote" | "section" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6") {
++            blocks.push(tag.end);
++        }
++        previous_tag = tag.end;
++    });
++    if previous_tag < body.len() && !body[previous_tag..].contains('<') {
++        plain_text.push(previous_tag..body.len());
++    }
++
++    let mut ends = Vec::new();
++    let mut start = 0;
++    while body.len() - start > MAX_KF8_FRAGMENT_BYTES {
++        let limit = start + MAX_KF8_FRAGMENT_BYTES;
++        let last_before = |edges: &[usize]| {
++            let offset = edges.partition_point(|end| *end <= limit);
++            offset.checked_sub(1).map(|i| edges[i]).filter(|end| *end > start)
++        };
++        let cut = last_before(&blocks).or_else(|| {
++            let index = plain_text.partition_point(|range| range.start < limit);
++            let range = plain_text.get(index.checked_sub(1)?)?;
++            if limit > range.end {
++                return None;
++            }
++            let lower = start.max(range.start);
++            let mut end = limit;
++            while !body.is_char_boundary(end) {
++                end -= 1;
++            }
++            // Keep an HTML character reference entirely within one fragment.
++            if let Some((prefix, suffix)) = body[lower..end].rsplit_once('&') {
++                if suffix.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'#') {
++                    end = lower + prefix.len();
++                }
++            }
++            (end > start).then_some(end)
++        }).or_else(|| last_before(&tag_edges)).unwrap_or_else(|| {
++            // A single unusually long tag is indivisible. Preserve its bytes
++            // and start the next fragment as soon as its closing > is reached.
++            let index = tag_edges.partition_point(|end| *end <= limit);
++            tag_edges.get(index).copied().unwrap_or(body.len())
++        });
++        if cut == body.len() {
++            break;
++        }
++        ends.push(cut);
++        start = cut;
++    }
++    ends.push(body.len());
++    ends
++}
++
+ /// Build the complete KF8 section for a book MOBI.
+ ///
+ /// `kindlegen_parity` routes the spine-item HTML transform through a
+@@ -385,11 +462,12 @@ fn build_ncx_nodes(
+             .and_then(|frag| find_anchor_offset(payload, frag))
+             .unwrap_or(0);
+ 
++        let (fid, frag_off) = fragment_target(fragment_entries, i, base_frag_off);
+         nodes.push(NcxNode {
+             offset: skel.start_pos,
+             label,
+-            fid: i,
+-            frag_off: base_frag_off,
++            fid,
++            frag_off,
+             depth: base_depth,
+         });
+ 
+@@ -401,11 +479,12 @@ fn build_ncx_nodes(
+             .filter_map(|p| {
+                 let frag = p.fragment.as_deref()?;
+                 let off = find_anchor_offset(payload, frag)?;
++                let (fid, frag_off) = fragment_target(fragment_entries, i, off);
+                 Some(NcxNode {
+                     offset: insert_pos + off,
+                     label: p.label.clone(),
+-                    fid: i,
+-                    frag_off: off,
++                    fid,
++                    frag_off,
+                     depth: Some(p.depth),
+                 })
+             })
+@@ -583,8 +662,7 @@ fn build_kf8_html(
+     let mut global_seq: usize = 0;
+     // Anchor tables and link sites, filled in as each part is emitted and
+     // resolved once every fragment's contents are final. `fragment_anchors`
+-    // holds offsets relative to a fragment's own text, which is exactly
+-    // what a `kindle:pos` offset means; `pending_links` holds absolute
++    // holds offsets relative to each spine item's body. `pending_links` holds absolute
+     // positions in `combined` where those offsets get written.
+     let mut fragment_anchors: Vec<std::collections::HashMap<String, usize>> = Vec::new();
+     // Ids on each document's wrapper elements, which live on the skeleton
+@@ -602,10 +680,7 @@ fn build_kf8_html(
+     const AID_PAGE_STRIDE: u32 = 1_000_000;
+     let mut global_aid_counter: u32 = 0;
+ 
+-    // `global_seq` numbers the fragments emitted so far, which is a
+-    // different quantity from `skel_idx` even though the two currently
+-    // agree, because each spine part emits exactly one fragment today.
+-    // Folding it into the iterator would bake that assumption in.
++    // Fragment sequence numbers continue across spine items.
+     #[allow(clippy::explicit_counter_loop)]
+     for (skel_idx, raw_part) in html_parts.iter().enumerate() {
+         let mut aid_counter: u32 = if kindlegen_parity {
+@@ -656,13 +731,10 @@ fn build_kf8_html(
+         //    fragment content belongs in the final rendered document).
+         let insert_pos = skel_start + split.body_inner_offset;
+ 
+-        // 5. Emit a single fragment that contains the body's inner
+-        //    content (everything between `<body ...>` and `</body>`).
+-        //    More complex pages could split the inner content further
+-        //    — for simple comic pages there is always one chunk.
++        // Emit the complete body as contiguous bytes. The fragment index
++        // identifies the slices used to reconstruct this body on the reader.
+         let frag_start = combined.len();
+         combined.extend_from_slice(body_inner);
+-        let frag_len = body_inner.len();
+ 
+         // 5b. Record what this part contributes to link resolution: the
+         //     anchors a link can land on, at offsets relative to the
+@@ -691,26 +763,26 @@ fn build_kf8_html(
+             pending_links.push((at, link.target));
+         }
+ 
+-        // Compute start_pos relative to the first fragment of this
+-        // skel's fragment block (which is `skel_start + skel_len`).
+-        // With one fragment per skel, this is 0.
+-        let relative_start = 0usize;
+-
+-        fragment_entries.push(FragmentEntry {
+-            insert_pos,
+-            selector: format!("P-//*[@aid='{}']", split.body_aid),
+-            file_number: skel_idx,
+-            sequence_number: global_seq,
+-            start_pos: relative_start,
+-            length: frag_len,
+-        });
+-        global_seq += 1;
++        let ends = fragment_ends(&split.body_inner, kindlegen_parity);
++        let mut relative_start = 0;
++        for end in &ends {
++            fragment_entries.push(FragmentEntry {
++                insert_pos: insert_pos + relative_start,
++                selector: format!("P-//*[@aid='{}']", split.body_aid),
++                file_number: skel_idx,
++                sequence_number: global_seq,
++                start_pos: relative_start,
++                length: end - relative_start,
++            });
++            global_seq += 1;
++            relative_start = *end;
++        }
+ 
+         skeleton_entries.push(SkeletonEntry {
+             label: format!("SKEL{:010}", skel_idx),
+             start_pos: skel_start,
+             length: skel_len,
+-            chunk_count: 1,
++            chunk_count: ends.len(),
+         });
+     }
+ 
+@@ -735,6 +807,10 @@ fn build_kf8_html(
+         };
+         match offset {
+             Some(offset) => {
++                let (fid, offset) = fragment_target(&fragment_entries, file, offset);
++                let fid_text = links::encode_base32(fid, KINDLE_POS_FID_LEN);
++                let fid_start = at + KINDLE_POS_SCHEME.len();
++                combined[fid_start..fid_start + fid_text.len()].copy_from_slice(fid_text.as_bytes());
+                 let encoded = links::encode_base32(offset, KINDLE_POS_OFF_LEN);
+                 let start = at + KINDLE_POS_OFF_AT;
+                 combined[start..start + encoded.len()].copy_from_slice(encoded.as_bytes());
+@@ -2093,8 +2169,8 @@ fn build_fragment_indx_with_cncx(frags: &[FragmentEntry]) -> (Vec<Vec<u8>>, Vec<
+ /// kindlegen does (the control byte marks them absent). Emitting one node
+ /// per spine item tiles the whole book so the device's reading-position /
+ /// progress bar advances across every chapter, and the node labels
+-/// populate the device table-of-contents. The fragment id in tag 6 is the
+-/// node's spine index (one fragment per spine item).
++/// populate the device table-of-contents. Tag 6 stores the fragment sequence
++/// number and the relative byte offset of the entry's target.
+ fn build_ncx_indx(title: &str, entries: &[NcxIndexEntry]) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
+     let mut ncx_cncx = CncxBuilder::new();
+ 
+@@ -2379,6 +2455,31 @@ fn _vwi_import_keepalive(v: u32) -> Vec<u8> {
+ mod tests {
+     use super::*;
+ 
++    #[test]
++    fn azw3_fragments_prefer_real_block_boundaries() {
++        let paragraph = format!("<p>{}</p>", "текст ".repeat(370));
++        let comment = "<!-- fake </p> boundary -->";
++        let quoted = "<span title=\"fake </div> boundary\">→</span>";
++        let body = format!("{paragraph}{comment}{quoted}{paragraph}{paragraph}");
++        let ends = fragment_ends(&body, false);
++        assert_eq!(ends, vec![paragraph.len(), body.len() - paragraph.len(), body.len()]);
++        assert_eq!(fragment_ends(&body, true), vec![body.len()]);
++    }
++
++    #[test]
++    fn large_text_fragments_keep_utf8_and_character_references_whole() {
++        let prefix = format!("<p>{}", "a".repeat(MAX_KF8_FRAGMENT_BYTES - 5));
++        let body = format!("{prefix}&amp;{}</p>", "я".repeat(MAX_KF8_FRAGMENT_BYTES));
++        let ends = fragment_ends(&body, false);
++        assert_eq!(ends[0], prefix.len());
++        let mut start = 0;
++        for end in ends {
++            assert!(body.is_char_boundary(end) && end - start <= MAX_KF8_FRAGMENT_BYTES);
++            start = end;
++        }
++        assert_eq!(start, body.len());
++    }
++
+     fn make_comic_page(aid_body: &str, img_src: &str) -> String {
+         format!(
+             "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE html>\n<html xmlns=\"http://www.w3.org/1999/xhtml\"><head><title>Page</title></head><body aid=\"{}\"><div aid=\"1\"><img src=\"{}\"/></div></body></html>",

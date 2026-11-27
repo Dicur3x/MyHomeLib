@@ -11,6 +11,7 @@ p.add_argument('--keep', action='store_true')
 p.add_argument('--epub-fixtures',type=pathlib.Path,help='Five read-only selected real EPUB fixtures')
 p.add_argument('--formatting-book',type=pathlib.Path,help='Optional read-only real FB2 fixture for formatting checks')
 p.add_argument('--feedback-pdf',type=pathlib.Path,help='Read-only scanned PDF fixture for cache checks')
+p.add_argument('--pdf-repair-fixture',type=pathlib.Path,help='Read-only PDF with legacy Cyrillic and a missing Unicode mapping for pdf-current-page-search')
 p.add_argument('--selection-fixtures',type=pathlib.Path,help='Read-only selected FB2 EPUB TXT fixtures')
 p.add_argument('--illustrated-book',type=pathlib.Path,help='Read-only restored Anthropoesthetics fixture for the reported illustration/paragraph')
 p.add_argument('--doc-fixtures',type=pathlib.Path,help='Read-only DOC plus independently checked text')
@@ -19,8 +20,10 @@ p.add_argument('--books-root', type=pathlib.Path, help='Read-only archive direct
 p.add_argument('--headers-json', type=pathlib.Path, help='Selected format header inventory for real-formats')
 p.add_argument('--raster-catalog', type=pathlib.Path, help='Selected DjVu/comic/TIFF archive inventory')
 p.add_argument('--jpeg-book',type=pathlib.Path,help='Read-only FB2 or single-FB2 ZIP for compressed-picture regression')
-p.add_argument('--case', choices=('jpeg-rtf','multilingual-fonts','export-picker-preview','feedback19-reader','optional-fonts','selection-contrast','word-selection','reader-lookup','reader-text-encoding','book-appearance','reader-toolbar','text-selection','illustrated-selection','selection-geometry','doc-reader','feedback16-reader','reader-note-ui','reader-additions','real-epub','large-book','reader-colors','loading-navigation','loading-preferences','same-position-navigation','precision-wheel','document-spacing','pdf-current-page-search','oct10-reader','oct11-reader','unspaced-history','footnotes','real-formats','raster-reader','release-pagination'))
+p.add_argument('--case', choices=('jpeg-rtf','multilingual-fonts','preformatted-book','html-image-sizes','export-picker-preview','feedback19-reader','optional-fonts','selection-contrast','word-selection','reader-lookup','reader-text-encoding','book-appearance','reader-toolbar','text-selection','illustrated-selection','selection-geometry','doc-reader','feedback16-reader','reader-note-ui','reader-additions','real-epub','epub-outline','large-book','reader-colors','loading-navigation','loading-preferences','same-position-navigation','precision-wheel','document-spacing','pdf-current-page-search','pdf-copy-hyphens','oct10-reader','oct11-reader','unspaced-history','footnotes','word-footnotes','real-formats','raster-reader','release-pagination'))
 a = p.parse_args()
+if a.pdf_repair_fixture and a.case != 'pdf-current-page-search':
+    p.error('--pdf-repair-fixture requires --case pdf-current-page-search')
 if a.case in ('real-formats', 'raster-reader', 'release-pagination'):
     if a.books_root is None or not a.books_root.is_dir():
         p.error('--books-root must name the existing read-only archive directory')
@@ -169,10 +172,16 @@ try:
             for name,img in (('1.png',pages[0]),('3.png',pages[2])):
                 stream=io.BytesIO(); img.save(stream,format='PNG'); z.writestr(name,stream.getvalue())
             z.writestr('2.png',b'corrupt page')
+        with zipfile.ZipFile(root/'broken-first.cbz','w',zipfile.ZIP_DEFLATED) as z:
+            z.writestr('1.png',b'corrupt page')
+            z.writestr('2.png',b'')
+            stream=io.BytesIO(); pages[2].save(stream,format='PNG'); z.writestr('3.png',stream.getvalue())
         Image.new('RGB',(4001,4001),'red').save(root/'large-page.tiff',compression='tiff_deflate')
         arch=root/'comic-input'; arch.mkdir()
         for name,img in zip(('page1.png','page2.png','page10.png'),pages):img.save(arch/name)
-        result=subprocess.run([str(root/'tools/7zip/7za.exe'),'a',str(root/'pages.cb7'),str(arch/'*.png'),'-t7z'],stdout=subprocess.PIPE,check=True)
+        sevenzip=root/'tools/7zip/7z.exe'
+        if not sevenzip.is_file(): sevenzip=root/'tools/7zip/7za.exe'
+        subprocess.run([str(sevenzip),'a',str(root/'pages.cb7'),str(arch/'*.png'),'-t7z'],stdout=subprocess.PIPE,check=True)
         real=root/'raster-real'; real.mkdir()
         catalog=json.loads(a.raster_catalog.read_text(encoding='utf8'))[-1]
         selected={}
@@ -214,11 +223,14 @@ try:
     location='file:///C:/Книги/рисунок.png'
     encoded_folder=base64.b64encode('file:///C:/Книги/'.encode('cp1251'))
     encoded_name=base64.b64encode('рисунок.png'.encode('cp1251'))
+    document_location='https://example.invalid/book.htm'
     html=(f'<html><body><p>Текст до картинок</p><img src=""><img width=12>'
-          f'<IMG align=left\r\nsrc="{location}"><img src=cid:cover><p>Текст после картинок</p></body></html>').encode('cp1251')
+          f'<IMG align=left\r\nsrc="{location}"><img src=cid:cover><p>Текст после картинок</p>'
+          f'<p><A\r\n href="{document_location}#part">Ссылка внутри архива</A></p>'
+          '<p><A NAME=part>Пункт из архива</A></p></body></html>').encode('cp1251')
     (root/'mime-location.mht').write_bytes(
         b'MIME-Version: 1.0\r\nContent-Type: multipart/related; boundary="fixture"\r\n\r\n--fixture\r\n'
-        b'Content-Type: text/html; charset=windows-1251\r\n\r\n'+html+
+        b'Content-Type: text/html; charset=windows-1251\r\nContent-Location: '+document_location.encode('ascii')+b'\r\n\r\n'+html+
         b'\r\n--fixture\r\nContent-Type: image/png\r\nContent-ID: <cover>\r\n'
         b'Content-Location: =?windows-1251?B?'+encoded_folder+b'?=\r\n =?windows-1251?B?'+encoded_name+b'?=\r\n'
         b'Content-Transfer-Encoding: base64\r\n\r\n'+base64.b64encode(png)+b'\r\n--fixture--\r\n')
@@ -312,15 +324,41 @@ try:
     (root/'sample.pdf').write_bytes(data)
     (root/'numeric.325949').write_bytes(data)
     content=b'BT /F1 18 Tf 40 500 Td (Needle needle NEEDLE needled) Tj ET\n'
-    objects=['<< /Type /Catalog /Pages 2 0 R >>','<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
-             '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 600] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>',
-             f'<< /Length {len(content)} >>\nstream\n'+content.decode()+'endstream','<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>']
-    data=b'%PDF-1.4\n'; offsets=[0]
-    for i,obj in enumerate(objects,1): offsets.append(len(data));data+=f'{i} 0 obj\n{obj}\nendobj\n'.encode()
-    start=len(data);data+=f'xref\n0 {len(objects)+1}\n0000000000 65535 f \n'.encode()
-    data+=b''.join(f'{v:010} 00000 n \n'.encode() for v in offsets[1:])
-    data+=f'trailer\n<< /Size {len(objects)+1} /Root 1 0 R >>\nstartxref\n{start}\n%%EOF\n'.encode()
-    (root/'search.pdf').write_bytes(data)
+    hyphen_content = (b'BT /F1 18 Tf 40 500 Td (Please keep this inter-) Tj ET\n'
+                      b'BT /F1 18 Tf 40 478 Td (national example and ordinary pre-existing hyphen.) Tj ET\n')
+    # The first 0041 has no Unicode mapping. PDFium returns the printable
+    # glyph index, whereas the final A from the standard font is valid text.
+    unmapped_content = (b'BT /F1 16 Tf 40 450 Td (First ) Tj /F2 16 Tf <004100420043> Tj /F1 16 Tf ( A final) Tj ET\n'
+                        b'BT /F1 16 Tf 40 400 Td (Valid inter-) Tj ET\n'
+                        b'BT /F1 16 Tf 40 380 Td (national) Tj ET\n')
+    cmap = ('/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n'
+            '/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n'
+            '/CMapName /FixtureMap def /CMapType 2 def\n1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n'
+            '2 beginbfchar\n<0042> <D83CDF0D>\n<0043> <0043>\nendbfchar\nendcmap\n'
+            'CMapName currentdict /CMap defineresource pop\nend\nend\n')
+    for filename, width, page_content in (('search.pdf', 400, content),
+                                          ('hyphen-copy.pdf', 500, hyphen_content),
+                                          ('unmapped-copy.pdf', 500, unmapped_content)):
+        unmapped = filename == 'unmapped-copy.pdf'
+        fonts = '/F1 5 0 R /F2 6 0 R' if unmapped else '/F1 5 0 R'
+        objects = ['<< /Type /Catalog /Pages 2 0 R >>', '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+                   f'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {width} 600] /Resources << /Font << {fonts} >> >> /Contents 4 0 R >>',
+                   f'<< /Length {len(page_content)} >>\nstream\n'+page_content.decode()+'endstream',
+                   '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>']
+        if unmapped:
+            objects.extend((
+                ('<< /Type /Font /Subtype /Type0 /BaseFont /HomeLibreUnknownFixture /Encoding /Identity-H '
+                 '/DescendantFonts [7 0 R] /ToUnicode 8 0 R >>'),
+                ('<< /Type /Font /Subtype /CIDFontType2 /BaseFont /HomeLibreUnknownFixture /DW 600 '
+                 '/CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /CIDToGIDMap /Identity >>'),
+                f'<< /Length {len(cmap)} >>\nstream\n{cmap}endstream',
+            ))
+        data=b'%PDF-1.4\n'; offsets=[0]
+        for i,obj in enumerate(objects,1): offsets.append(len(data));data+=f'{i} 0 obj\n{obj}\nendobj\n'.encode()
+        start=len(data);data+=f'xref\n0 {len(objects)+1}\n0000000000 65535 f \n'.encode()
+        data+=b''.join(f'{v:010} 00000 n \n'.encode() for v in offsets[1:])
+        data+=f'trailer\n<< /Size {len(objects)+1} /Root 1 0 R >>\nstartxref\n{start}\n%%EOF\n'.encode()
+        (root/filename).write_bytes(data)
     if a.case in ('word-selection','reader-lookup','book-appearance','reader-toolbar'):
         objects=['<< /Type /Catalog /Pages 2 0 R >>','<< /Type /Pages /Kids [3 0 R 5 0 R] /Count 2 >>']
         for n in range(2):
@@ -343,7 +381,9 @@ try:
     (root/'rtf-escapes.txt').write_bytes('A\\{}\t\r\nПривет 🌍 \u0080\u8000\uffff'.encode('utf-8'))
     (root/'nospace.txt').write_text('漢字'*10000+'БЕЗПРОБЕЛОВКОНЕЦ',encoding='utf-8')
     (root/'nospace-emoji.txt').write_text('🌍'*10000+'БЕЗПРОБЕЛОВКОНЕЦ',encoding='utf-8')
-    (root/'literal.xhtml').write_text('<html><body><p><![CDATA[Литерал &nbsp; &mdash;]]></p><p>Разрыв&nbsp;строки</p></body></html>',encoding='utf-8')
+    (root/'literal.xhtml').write_text('<html><body><p><![CDATA[Литерал &nbsp; &mdash; &eacute;]]></p>'
+                                    '<p>Разрыв&nbsp;строки &Eacute;t&eacute; d&eacute;j&agrave; &Alpha;&alpha;</p>'
+                                    '</body></html>',encoding='utf-8')
     (root/'literal-dtd.xhtml').write_text('<html><body><p><![CDATA[<!DOCTYPE html> обычный текст]]></p></body></html>',encoding='utf-8')
     (root/'encoding-attribute.xhtml').write_text('<html><body><p encoding="windows-1251">Русский текст с эмодзи 🌍</p></body></html>',encoding='utf-8')
     (root/'unmarked.fb2').write_text('<FictionBook><body><section><p>ВСТРЕЧА С КАРОЛИНКОЙ</p><p>Обычная фраза</p><p>НЕ КРИЧИТЕ!</p><poem><stanza><v>ЗАГЛАВНАЯ СТРОКА СТИХА</v></stanza></poem><p>'+('ПРОЗА '*30)+'</p></section></body></FictionBook>',encoding='utf-8')
@@ -389,6 +429,13 @@ try:
     if a.feedback_pdf:
         assert a.feedback_pdf.is_file() and a.feedback_pdf.suffix.lower()=='.pdf'
         shutil.copy2(a.feedback_pdf,root/'feedback-sky.pdf')
+    if a.pdf_repair_fixture:
+        shutil.copy2(a.pdf_repair_fixture,root/'mixed-encoding.pdf')
+        shutil.copytree(runtime/'tools/python',root/'tools/python')
+        for name in ('pdf_legacy_encoding.py','pdf_font_encoding.py','pdf_truetype_mapping.py','fixed_layout.py','pdf-runtime/pypdf.whl'):
+            destination=root/'tools/bookconvert'/name
+            destination.parent.mkdir(parents=True,exist_ok=True)
+            shutil.copy2(runtime/'tools/bookconvert'/name,destination)
     if a.case=='doc-reader':
         assert a.doc_fixtures and a.doc_fixtures.is_dir()
         shutil.copy2(a.doc_fixtures/'under-dome.doc',root/'doc-fixture.doc')
@@ -414,6 +461,8 @@ try:
         raise
     print(r.stdout,flush=True)
     assert r.returncode==0 and 'PASS experimental built-in reader native regressions' in r.stdout
+    if a.pdf_repair_fixture:
+        assert 'PASS native PDF applies both encoding repairs and preserves the source' in r.stdout
     if a.case=='jpeg-rtf':
         assert 'PASS failed RTF input restores native language options' in r.stdout
         assert r.stdout.count('PASS bounded picture reflow and font resize without whole-book import:')==(3 if a.jpeg_book else 2), 'Stale binary omitted illustrated interaction regressions'

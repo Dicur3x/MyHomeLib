@@ -1,5 +1,57 @@
 ﻿// Optional mode reader-pipeline-cache. All actual DOC/helper/cache files are
 // staged in a private G regression folder; no external reader is launched.
+procedure TestNativeFb3Package;
+const PictureBytes = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGMQMgn7DwAClAGcHVtGXwAAAABJRU5ErkJggg==';
+var Source, Prepared, Digest: string; Zip: TZipFile; Doc: TReaderDocument; Target: Integer;
+begin
+  Source:=TPath.Combine(Settings.TempPath,'fb3-native-'+TGUID.NewGuid.ToString+'.zip');
+  ForceDirectories(ExtractFileDir(Source));
+  try
+    Zip:=TZipFile.Create;
+    try
+      Zip.Open(Source,zmWrite);
+      Zip.Add(TEncoding.UTF8.GetBytes('<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'+
+        '<Override ContentType="application/fb3-body+xml" PartName="/Parts/%D0%A2%D0%B5%D0%BA%D1%81%D1%82"/>'+
+        '<Override ContentType="application/fb3-description+xml" PartName="/Meta/Info.xml"/></Types>'),'[Content_Types].xml');
+      Zip.Add(TEncoding.UTF8.GetBytes('<fb3-description xmlns="http://www.fictionbook.org/FictionBook3/description">'+
+        '<title><main>Заголовок книги</main></title><lang>ru</lang></fb3-description>'),'META/INFO.XML');
+      Zip.Add(TEncoding.UTF8.GetBytes('<fb3-body xmlns="http://www.fictionbook.org/FictionBook3/body">'+
+        '<section><title id="chapter"><p>Глава книги</p></title><p><a href="#chapter">К заголовку</a> '+
+        '<note href="n1">1</note><img src="drawing" alt="Схема"/></p>'+
+        '<p><a href="#child">К подглаве</a></p><table><tr><td>левая</td><td>правая</td></tr></table>'+
+        '<section><title id="child"><p>Подглава книги</p></title><p>Конец книги</p></section></section>'+
+        '<notes><notebody id="n1"><p>Исходный текст сноски</p></notebody></notes></fb3-body>'),
+        'parts/%D0%A2%D0%B5%D0%BA%D1%81%D1%82');
+      Zip.Add(TEncoding.UTF8.GetBytes('<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'+
+        '<Relationship Id="drawing" Type="http://www.fictionbook.org/FictionBook3/relationships/image" '+
+        'Target="../IMAGES/%D0%BF%D0%BB%D1%8E%D1%81+.PNG"/></Relationships>'),
+        'parts/_RELS/%D0%A2%D0%B5%D0%BA%D1%81%D1%82.rels');
+      Zip.Add(TNetEncoding.Base64.DecodeStringToBytes(PictureBytes),'images/плюс+.png');
+    finally Zip.Free; end;
+    Digest:=THashSHA2.GetHashStringFromFile(Source);
+    Require(DetectReaderExtension(Source)='.fb3','Declared FB3 body was treated as an ordinary ZIP');
+    Prepared:=PrepareDetectedReaderFile(Source,'FB3 reader fixture');
+    Require(SameText(ExtractFileExt(Prepared),'.fb3'),'Reader preparation did not retain the detected FB3 format');
+    Doc:=TReaderDocument.Create;
+    try
+      Doc.Load(Prepared);
+      Require((Doc.Title='Заголовок книги') and (Doc.Language='ru'),'The declared FB3 description was ignored');
+      Require(Doc.PlainText.StartsWith('Глава книги'),'An opening FB3 title gained a leading blank paragraph');
+      Require((Doc.ImageCount=1) and (Doc.SkippedImages=0),'The encoded FB3 illustration relationship was lost');
+      Require(Doc.HasTables and Doc.PlainText.Contains('правая'),'FB3 table content was lost');
+      Require((Length(Doc.Chapters)=2) and (Doc.Chapters[0].Title='Глава книги') and
+        (Doc.Chapters[1].Title='Подглава книги') and (Doc.Chapters[1].Depth=1),'FB3 outline differs from the authored chapters');
+      Require(Doc.FootnoteCount=1,'FB3 footnote target was lost');
+      Require((Length(Doc.Links)=2) and Doc.LinkTargetAt(Doc.Links[0].Start,Target) and
+        (Copy(Doc.PlainText,Target+1,Length('Глава книги'))='Глава книги'),'FB3 internal link no longer points to its heading');
+      Require(Doc.LinkTargetAt(Doc.Links[1].Start,Target) and
+        (Copy(Doc.PlainText,Target+1,Length('Подглава книги'))='Подглава книги'),'FB3 nested link points before its heading');
+    finally Doc.Free; end;
+    Require(THashSHA2.GetHashStringFromFile(Source)=Digest,'Opening FB3 modified the source archive');
+    Writeln('PASS native FB3 declared members preserve pictures, tables, footnotes and the authored outline');
+  finally TFile.Delete(Source); end;
+end;
+
 procedure TestReaderPipelineCache;
 const KindleMagic = 'BOOKMOBI'; MobiMagic = 'MOBI';
 var Root, CacheRoot, Original, Canonical, Stamp, ChangedStamp, OutputName,
@@ -154,11 +206,11 @@ begin
     var RealDOC:=Settings.AppPath+'reader-novel.doc';
     Require(FileExists(RealDOC),'Stage private reader-novel.doc before the actual DOC pipeline gate'); Protect(RealDOC);
     Stages.Clear;
-    RawResult:=PrepareDirectDOC(RealDOC,RealDOC,procedure(Stage: string) begin Stages.Add(Stage); end);
+    RawResult:=PrepareDirectDOC(RealDOC,RealDOC,Settings.AppPath,procedure(Stage: string) begin Stages.Add(Stage); end);
     Require((DOCStarts=1) and SameText(ExtractFileExt(RawResult),'.docx'),'Actual raw DOC was not prepared by the bundled helper');
     var RawOutputHash:=THashSHA2.GetHashStringFromFile(RawResult); Stages.Clear;
     Locked:=TFileStream.Create(RawResult,fmOpenRead or fmShareDenyWrite);
-    try Again:=PrepareDirectDOC(RealDOC,RealDOC,procedure(Stage: string) begin Stages.Add(Stage); end);
+    try Again:=PrepareDirectDOC(RealDOC,RealDOC,Settings.AppPath,procedure(Stage: string) begin Stages.Add(Stage); end);
       Require((DOCStarts=0) and SameFileName(Again,RawResult) and
         (THashSHA2.GetHashStringFromFile(Again)=RawOutputHash),'Actual raw DOC warm cache launched the helper or changed bytes');
     finally FreeAndNil(Locked); end;

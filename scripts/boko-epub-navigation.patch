@@ -460,3 +460,63 @@ diff --git a/src/kfx/storyline/import.rs b/src/kfx/storyline/import.rs
  }
 
  /// Extract the semantic type annotation (yj.semantics.type) if present.
+diff --git a/src/kfx/metadata.rs b/src/kfx/metadata.rs
+--- a/src/kfx/metadata.rs
++++ b/src/kfx/metadata.rs
+@@ -341,6 +341,17 @@
+     for rule in schema.iter().filter(|r| r.category == category) {
++        if matches!(&rule.source, MetadataSource::Dynamic(MetadataField::FirstAuthor)) {
++            // A KFX title's metadata list accepts repeated author entries.
++            // Keep each contributor separately and in the source order.
++            entries.extend(
++                meta.authors
++                    .iter()
++                    .filter(|name| !name.is_empty())
++                    .map(|name| (rule.key, name.clone())),
++            );
++            continue;
++        }
+         let value = match &rule.source {
+             MetadataSource::Static(s) => Some(s.to_string()),
+             MetadataSource::Dynamic(field) => {
+                 // Special handling for fields that need transformation
+                 match field {
+@@ -424,7 +435,7 @@
+     fn test_build_category_entries() {
+         let meta = Metadata {
+             title: "Test Book".to_string(),
+-            authors: vec!["Author".to_string()],
++            authors: vec!["Author".to_string(), "Co-author".to_string()],
+             language: "en".to_string(),
+             ..Default::default()
+         };
+@@ -439,6 +450,9 @@
+                 .any(|(k, v)| *k == "title" && v == "Test Book")
+         );
+         assert!(entries.iter().any(|(k, v)| *k == "language" && v == "en"));
+-        assert!(entries.iter().any(|(k, v)| *k == "author" && v == "Author"));
++        let authors: Vec<&str> = entries.iter()
++            .filter_map(|(key, value)| (*key == "author").then_some(value.as_str()))
++            .collect();
++        assert_eq!(authors, ["Author", "Co-author"]);
+         assert!(!entries.iter().any(|(k, _)| *k == "description"));
+     }
+diff --git a/src/export/kfx/content.rs b/src/export/kfx/content.rs
+--- a/src/export/kfx/content.rs
++++ b/src/export/kfx/content.rs
+@@ -173,6 +173,15 @@
+                 ctx.record_content_id(container_id);
+                 // Record length of 1 for image (per kfx_output algorithm)
+                 ctx.record_content_length(container_id, 1);
++                ctx.resolve_pending_chapter_anchor(container_id);
++
++                // The flat cover has a single visible position. Keep authored
++                // fragment targets on the image and on its flattened wrappers.
++                for anchor in chapter.iter_dfs() {
++                    if chapter.semantics.id(anchor).is_some() {
++                        ctx.create_anchor_if_needed(anchor, container_id, 0);
++                    }
++                }
+ 
+                 // Build the image struct directly (no container wrapper)
+                 let image_struct = IonValue::Struct(vec![

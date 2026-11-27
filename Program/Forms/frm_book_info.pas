@@ -195,7 +195,7 @@ uses
   unit_MHLHelpers,
   unit_FB2Utils,
   unit_Localization, Winapi.CommCtrl, unit_MHLTheme, Winapi.ActiveX, System.Win.ComObj,
-  unit_PublisherSeriesSource, unit_PackageBookMetadata, unit_FB2PublisherMetadataReader;
+  unit_PublisherSeriesSource, unit_PackageBookMetadata, unit_FB2PublisherMetadataReader, dm_user;
 
 
 {$R *.dfm}
@@ -833,7 +833,11 @@ begin
     FFileAnnotation := GetBookAnnotation(book);
     FFileAnnotationRead := True;
 
-    imgBookCover := GetBookCover(book);
+    try
+      imgBookCover := GetBookCover(book, Settings.TempDir);
+    except
+      on E: Exception do imgBookCover := nil;
+    end;
     if Assigned(imgBookCover) then
     begin
       try

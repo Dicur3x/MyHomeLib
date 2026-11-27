@@ -46,10 +46,24 @@ def select(runtime, component, version_reader, platform):
         return version_reader(runtime / prefix / '7z.exe'), files(prefix, ['7z.exe', '7z.dll', 'License.txt'])
     if component == 'DocSharp':
         prefix = 'tools/doc/'
-        return version_reader(runtime / prefix / 'DocSharp.Binary.Doc.dll'), files(prefix, [
+        payload = files(prefix, [
             'DocSharp.Binary.Doc.dll', 'DocSharp.Binary.Common.dll', 'DocSharp.Binary.Ppt.dll',
             'DocSharp.Binary.Xls.dll', 'HomeLibDoc.exe', 'DOC_RUNTIME.json', 'DocSharp-MIT.txt',
             'b2xtranslator-BSD-3-Clause.txt', 'HomeLibDoc-MIT.txt'])
+        descriptor = json.loads(payload[prefix + 'DOC_RUNTIME.json'])
+        version = descriptor['bundle_version']
+        upstream = version.rsplit('.', 1)[0]
+        parts = version.split('.')
+        if (len(parts) != 4 or not all(part.isascii() and part.isdecimal() for part in parts)
+                or not 0 < int(parts[-1]) <= 65535):
+            raise ValueError('Invalid HomeLibre DocSharp bundle version')
+        for suffix in ('Doc', 'Common', 'Ppt', 'Xls'):
+            library = runtime / prefix / f'DocSharp.Binary.{suffix}.dll'
+            if version_reader(library) != upstream + '.0':
+                raise ValueError('DocSharp library version differs from the bundle: ' + library.name)
+        if sha(payload[prefix + 'HomeLibDoc.exe']) != descriptor['helper_sha256']:
+            raise ValueError('DocSharp helper differs from the pinned build')
+        return version, payload
     if component == 'DjVuLibre':
         prefix = 'tools/djvu/'
         runtime_descriptor = json.loads((runtime / prefix / 'RUNTIME.json').read_bytes())
@@ -72,6 +86,7 @@ def select(runtime, component, version_reader, platform):
                 'HomeLibDjvu.dpr':'Utils/HomeLibDjvu/HomeLibDjvu.dpr',
                 'HomeLibDjvu.dproj':'Utils/HomeLibDjvu/HomeLibDjvu.dproj',
                 'unit_DjvuProtocol.pas':'Program/Units/unit_DjvuProtocol.pas',
+                'unit_DjvuRecovery.pas':'Utils/HomeLibDjvu/unit_DjvuRecovery.pas',
                 'LICENSE':'Utils/HomeLibDjvu/LICENSE',
                 'README.md':'Utils/HomeLibDjvu/README.md'}.items():
             member = prefix+'HomeLibDjvu-source/'+name
@@ -131,10 +146,20 @@ def main():
             digest, size = sha(path.read_bytes()), path.stat().st_size
             assets.append({'name': name, 'size': size, 'digest': 'sha256:' + digest,
                            'browser_download_url': PREFIX + name})
+            if component == 'DocSharp':
+                notes = ('В DOC восстанавливаются подчёркивания заголовков и вертикальные линии у внешнего поля. '
+                         'В DOC восстанавливаются разделители в больших промежутках перед абзацами. '
+                         'Тонкие прямоугольники и линии с выступом в левое поле сохраняются в DOC с исходными размерами. '
+                         'Обработчик HomeLibre сохраняет больше составных схем Word и разделители в начале страниц DOC. '
+                         'Восстановлены разделители DOC с выравниванием по абзацу. '
+                         'Фигуры, стрелки, картинки и подписи составных схем DOC сохраняются вместе. '
+                         'Сноски DOC сохраняются с исходными границами и связями. '
+                         'Версия библиотек DocSharp прежняя.')
+            else:
+                notes = ('Запасная копия проверенного компонента. Источник автора: ' + ORIGINS[component] +
+                         '. Лицензии сохранены в архиве; это зеркало, а не новая сборка автора.')
             feed.append({'id': component, 'platform': platform, 'version': version, 'archive': name,
-                         'history': [{'version': version, 'notes':
-                             'Запасная копия проверенного компонента. Источник автора: ' + ORIGINS[component] +
-                             '. Лицензии сохранены в архиве; это зеркало, а не новая сборка автора.'}]})
+                         'history': [{'version': version, 'notes': notes}]})
             report.append({'component': component, 'version': version, 'platform': platform,
                            'archive': name, 'sha256': digest, 'size': size, 'files': len(manifest['files']),
                            'native_installer_verified': False, 'upstream': ORIGINS[component]})

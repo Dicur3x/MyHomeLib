@@ -7,6 +7,58 @@
     procedure Poll(Sender: TObject);
   end;
 
+  TBookRelinkPromptProbe = class
+  public
+    PromptSeen, PickerSeen: Boolean;
+    Folder, LastCaption, NewFileName: string;
+    Deadline: UInt64;
+    procedure Poll(Sender: TObject);
+  end;
+
+procedure TBookRelinkPromptProbe.Poll(Sender: TObject);
+var Window: HWND; Caption: array[0..511] of Char; Picker: TFileOpenDialog;
+  FolderItem: IShellItem; Path: PWideChar;
+begin
+  Window := GetActiveWindow;
+  if (Window = 0) or (Window = frmMain.Handle) then Window := GetLastActivePopup(frmMain.Handle);
+  if (Window = 0) or (Window = frmMain.Handle) then Exit;
+  if GetTickCount64 >= Deadline then
+  begin
+    TTimer(Sender).Enabled := False;
+    PostMessage(Window, WM_CLOSE, 0, 0);
+    Exit;
+  end;
+  Caption[0] := #0;
+  GetWindowText(Window, Caption, Length(Caption));
+  LastCaption := string(PChar(@Caption[0]));
+  if (not PromptSeen) and (LastCaption = Application.Title) then
+  begin
+    PromptSeen := True;
+    PostMessage(Window, TDM_CLICK_BUTTON, mrOk, 0);
+  end
+  else if PromptSeen and not PickerSeen and (LastCaption = 'Укажите новое расположение исходного файла') then
+  begin
+    for var Index := 0 to frmMain.ComponentCount - 1 do
+      if frmMain.Components[Index] is TFileOpenDialog then
+      begin
+        Picker := TFileOpenDialog(frmMain.Components[Index]);
+        if (Picker.Title <> LastCaption) or not Assigned(Picker.Dialog) or
+          not Succeeded(Picker.Dialog.GetFolder(FolderItem)) then Continue;
+        if not Succeeded(FolderItem.GetDisplayName(SIGDN_FILESYSPATH, Path)) then Exit;
+        try Folder := Path; finally CoTaskMemFree(Path); end;
+        if (NewFileName <> '') and not Succeeded(Picker.Dialog.SetFileName(PWideChar(NewFileName))) then Exit;
+        PickerSeen := True;
+        if NewFileName = '' then
+        begin
+          TTimer(Sender).Enabled := False;
+          PostMessage(Window, WM_CLOSE, 0, 0);
+        end
+        else PostMessage(Window, WM_COMMAND, IDOK, 0);
+        Exit;
+      end;
+  end;
+end;
+
 procedure TFileDropPromptProbe.Poll(Sender: TObject);
 var Active: TCustomForm;
 begin
@@ -36,9 +88,10 @@ end;
 procedure TestExplorerFileDrop(const Catalog, OtherCatalog: IBookCollection);
 var
   Folder, First, Second, FirstHash, SecondHash, Name, SavedDirectory, LaunchDirectory, LinkedArchive: string;
+  ReaderReport, OldReaderMode, OldReaderReport: string;
   Watch: TTimer;
   Probe: TFileDropPromptProbe;
-  SavedDialogs: Boolean;
+  SavedDialogs, OldBuiltinReader: Boolean;
   LooseBook, ArchiveBook, Current: TBookRecord;
   MovedFile, MovedArchive, WrongArchive: string;
   GroupID: Integer;
@@ -133,7 +186,8 @@ begin
   ForceDirectories(Folder);
   First := TPath.Combine(Folder, 'Книга с пробелами.txt');
   Second := TPath.Combine(Folder, 'Вторая книга.txt');
-  TFile.WriteAllText(First, 'Первая тестовая книга.', TEncoding.UTF8);
+  TFile.WriteAllText(First, DupeString('Первая тестовая книга. Текст должен читаться по ссылке после перемещения файла.' +
+    sLineBreak, 240), TEncoding.UTF8);
   TFile.WriteAllText(Second, 'Вторая тестовая книга.', TEncoding.UTF8);
   FirstHash := THashSHA2.GetHashStringFromFile(First);
   SecondHash := THashSHA2.GetHashStringFromFile(Second);
@@ -234,10 +288,78 @@ begin
     Catalog.AddBookToGroup(LooseBook.BookKey,GroupID);
     MovedFile:=TPath.Combine(LaunchDirectory,'Перенесённая книга.txt');
     TFile.Move(First,MovedFile);
-    SystemDB.RelinkLocalBookSource(LooseBook,MovedFile);
+    begin
+      frmMain.pgControl.ActivePage := frmMain.tsByAuthor;
+      var RelinkProbe := TBookRelinkPromptProbe.Create;
+      var Tree := frmMain.tvBooksA;
+      var Node := Tree.AddChild(nil);
+      var Displayed: PBookRecord := Tree.GetNodeData(Node);
+      try
+        Displayed^ := LooseBook;
+        Displayed^.NodeType := ntBookInfo;
+        Tree.ClearSelection;
+        Tree.FocusedNode := Node;
+        Tree.Selected[Node] := True;
+        Watch.OnTimer := RelinkProbe.Poll;
+        RelinkProbe.Deadline := GetTickCount64 + 10000;
+        Watch.Enabled := True;
+        frmMain.ReadBookExecute(nil);
+        Require(RelinkProbe.PromptSeen and RelinkProbe.PickerSeen and
+          SameFileName(ExcludeTrailingPathDelimiter(RelinkProbe.Folder), ExcludeTrailingPathDelimiter(Folder)),
+          Format('Missing-file dialog: prompt=%d picker=%d caption="%s" folder="%s" expected="%s"',
+            [Ord(RelinkProbe.PromptSeen), Ord(RelinkProbe.PickerSeen), RelinkProbe.LastCaption, RelinkProbe.Folder, Folder]));
+        Catalog.GetBookRecord(LooseBook.BookKey, Current, False);
+        Require(SameFileName(Current.GetBookFileName, First), 'Cancelling the picker changed the source path');
+        Writeln('PASS a missing linked file offers relinking in the last source folder and cancellation keeps its path');
+
+        ReaderReport := TPath.Combine(Settings.AppPath, 'relinked-reader.ini');
+        OldBuiltinReader := Settings.UseBuiltinReaderByDefault;
+        OldReaderMode := GetEnvironmentVariable('HLRU_SESSION_TEST_MODE');
+        OldReaderReport := GetEnvironmentVariable('HLRU_READER_TEST_REPORT');
+        Settings.UseBuiltinReaderByDefault := True;
+        SetEnvironmentVariable('HLRU_SESSION_TEST_MODE','render');
+        SetEnvironmentVariable('HLRU_READER_TEST_REPORT',PChar(ReaderReport));
+        try
+          RelinkProbe.PromptSeen := False;
+          RelinkProbe.PickerSeen := False;
+          RelinkProbe.NewFileName := MovedFile;
+          RelinkProbe.Deadline := GetTickCount64 + 10000;
+          Watch.Enabled := True;
+          frmMain.ReadBookExecute(nil);
+          Watch.Enabled := False;
+          Require(RelinkProbe.PromptSeen and RelinkProbe.PickerSeen, 'The replacement picker was not accepted');
+          Catalog.GetBookRecord(LooseBook.BookKey, Current, True);
+          Require((Current.LibID = LooseBook.LibID) and SameFileName(Current.GetBookFileName, MovedFile) and
+            (Current.Progress = 42) and (Current.Annotation = 'Saved annotation'),
+            'The replacement picker did not save the path or discarded personal data');
+          var Deadline := GetTickCount64 + 25000;
+          while not FileExists(ReaderReport) and (GetTickCount64 < Deadline) do
+          begin Application.ProcessMessages; CheckSynchronize(5); Sleep(10); end;
+          Require(FileExists(ReaderReport), 'Choosing the replacement did not launch the built-in reader');
+          var Report := TMemIniFile.Create(ReaderReport, TEncoding.UTF8);
+          try
+            Require((Report.ReadString('Reader','error','missing') = '') and
+              (Report.ReadInteger('Reader','pages',0) = 5) and
+              (Cardinal(Report.ReadInteger('Reader','pid',0)) <> GetCurrentProcessID) and
+              Report.ReadString('Reader','caption','').Contains(LooseBook.Title),
+              'The reader did not render the replacement book: '+Report.ReadString('Reader','error','missing'));
+          finally Report.Free; end;
+          Writeln('PASS choosing a replacement in the missing-file dialog opens that book in the independent reader');
+        finally
+          Settings.UseBuiltinReaderByDefault := OldBuiltinReader;
+          SetEnvironmentVariable('HLRU_SESSION_TEST_MODE',PChar(OldReaderMode));
+          SetEnvironmentVariable('HLRU_READER_TEST_REPORT',PChar(OldReaderReport));
+        end;
+      finally
+        Watch.Enabled := False;
+        Watch.OnTimer := Probe.Poll;
+        RelinkProbe.Free;
+        Tree.DeleteNode(Node);
+      end;
+    end;
     Catalog.GetBookRecord(LooseBook.BookKey,Current,True);
     Require((Current.LibID=LooseBook.LibID) and Current.IsLinkedSource and
-      SameFileName(Current.GetBookFileName,MovedFile) and (Current.Progress=42) and
+      SameFileName(Current.GetBookFileName,MovedFile) and
       (Current.Annotation='Saved annotation') and
       (ReaderHistoryName(Current,'')=ReaderHistoryName(LooseBook,'')) and
       (THashSHA2.GetHashStringFromFile(PrepareReaderFile(Current,True))=FirstHash),
@@ -249,7 +371,7 @@ begin
     finally CatalogDB.Free; end;
     SystemDB.GetBookRecord(LooseBook.BookKey,Current);
     Require((Current.LibID=LooseBook.LibID) and SameFileName(Current.GetBookFileName,MovedFile) and
-      (Current.Progress=42) and (Current.Annotation='Saved annotation'),
+      (Current.Progress>0) and (Current.Annotation='Saved annotation'),
       'The group card did not retain its personal data and update its locator');
     var Rejected:=False;
     try SystemDB.RelinkLocalBookSource(LooseBook,MovedFile);
@@ -593,7 +715,8 @@ begin
   ForceDirectories(FolderRoot);
   FolderCID:=SystemData.CreateCollection('Folder import',FolderRoot,Root+'folder-scan.hlc2',
     CT_EXTERNAL_LOCAL_FB,Settings.SystemFileName[sfGenresFB2]);
-  TFile.Copy(ZipName,FolderRoot+'ordinary.fb2.zip');
+  var OrdinaryArchive := FolderRoot+'ordinary.fb2.zip';
+  TFile.Copy(ZipName,OrdinaryArchive);
   TFile.Copy(HtmlZip,FolderRoot+'html-only.zip');
   var Mixed:=FolderRoot+'mixed.zip';
   SourceZip:=TZipFile.Create;
@@ -618,6 +741,8 @@ begin
   try
     for var Scan:=1 to 2 do
     begin
+      if Scan=2 then
+        TFile.SetLastWriteTimeUtc(OrdinaryArchive,TFile.GetLastWriteTimeUtc(OrdinaryArchive)+2);
       var FolderWorker:=TOOFB2Worker.Create(FolderCID,afZip);
       FolderWorker.FixtureProfile:=Profile;
       var Messages:=TStringList.Create;
@@ -625,7 +750,7 @@ begin
         TOORun(FolderWorker,False,Messages);
         Require(FolderWorker.Success,'The folder scanner did not complete');
         Require(TOOBookCount(SystemData,FolderCID)=ExpectedFolderBooks,
-          'The folder scanner lost or duplicated an archive member: '+Messages.Text);
+          'The folder scanner lost or duplicated an archive member after repeated scanning: '+Messages.Text);
       finally
         Messages.Free;
         FolderWorker.Free;

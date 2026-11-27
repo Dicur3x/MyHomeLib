@@ -20,13 +20,13 @@ begin
     begin
       Reader.Show; Reader.OpenBook('export-picker.txt','Проверка экспорта','export-picker',Profile,'pdfium.dll'); WaitReady(Reader);
       var SavedHooks:=TStyleManager.SystemHooks;
-      TThread.ForceQueue(nil,procedure
+      QueueReaderDialog(procedure
         begin
           var Manager: TForm; Manager:=nil;
           for var I:=0 to Screen.FormCount-1 do
             if Screen.Forms[I].Visible and Assigned(Screen.Forms[I].FindComponent('ExportBookNotes')) then Manager:=Screen.Forms[I];
           Require(Assigned(Manager),'Visible notes manager not found for native picker');
-          TThread.ForceQueue(nil,procedure
+          QueueReaderDialog(procedure
             begin
               for var I:=0 to Screen.FormCount-1 do
                 if Screen.Forms[I].Visible and (Screen.Forms[I].Caption='Экспорт заметок — оформление') then

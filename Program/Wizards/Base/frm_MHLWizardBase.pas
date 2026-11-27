@@ -90,7 +90,11 @@ begin
   Localize(Self);
   Font.Name := 'Segoe UI'; Font.Size := 9;
   DoubleBuffered := True;
-  btnForward.Caption := 'Далее →'; btnBackward.Caption := '← Назад';
+  if btnForward.Caption = 'Вперёд >' then
+    btnForward.Caption := 'Далее →'
+  else
+    btnForward.Caption := StringReplace(btnForward.Caption, '>', '→', []);
+  btnBackward.Caption := StringReplace(btnBackward.Caption, '<', '←', []);
   btnForward.Width := 96; btnBackward.Width := 96; btnCancel.Width := 96;
   btnCancel.Left := ClientWidth - 12 - 96;
   btnForward.Left := btnCancel.Left - 8 - 96; btnBackward.Left := btnForward.Left - 8 - 96;

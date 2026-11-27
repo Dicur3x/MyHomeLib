@@ -52,6 +52,36 @@ class QualityHandshakeTests(unittest.TestCase):
                 wait_options(Path('unused-handshake-test.json'), .03, 'No estimate')
 
 
+    def test_generated_fb2_quality_rewrites_only_the_selected_binary(self):
+        script = Path(c.__file__).with_name('image_quality.py')
+        spec = importlib.util.spec_from_file_location('test_fb2_image_replacement', script)
+        image_quality = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(image_quality)
+        first = b'\x89PNG\r\n\x1a\n' + b'fixture-png'
+        second = b'\xff\xd8\xff' + b'fixture-jpeg'
+        gif = b'GIF89a' + b'fixture-gif'
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            source, target, expected_binary = (root/name for name in ('book.fb2','output.fb2','binary.xml'))
+            with source.open('wb') as stream:
+                stream.write(f'<FictionBook xmlns="{c.FB}"><body><!-- retain exactly -->'
+                             '<section><p>Текст &amp; пробелы.</p></section></body>'.encode())
+                entries = [c.write_fb2_binary(stream, 'icon', 'image/gif', gif),
+                           c.write_fb2_binary(stream, 'cover', 'image/png', first)]
+                stream.write(b'</FictionBook>')
+            original = source.read_bytes()
+            rasters, used = image_quality.generated_fb2_images(c, source, entries, None)
+            self.assertEqual((rasters, used), ([first], [entries[1]]))
+            markup = b''.join(image_quality.fb2_markup(source, used, None))
+            self.assertEqual(markup, original[:used[0].payload_start] + original[used[0].payload_end:])
+            image_quality.replace_generated_fb2_images(c, source, target, used, rasters, [second], None)
+            with expected_binary.open('wb') as stream:
+                c.write_fb2_binary(stream, 'cover', 'image/jpeg', second)
+            self.assertEqual(target.read_bytes(), original[:used[0].start] + expected_binary.read_bytes()
+                             + original[used[0].end:])
+            self.assertEqual(source.read_bytes(), original)
+
+
 class ImageQuality(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -77,6 +107,29 @@ class ImageQuality(unittest.TestCase):
         self.assertEqual(hashlib.sha256(self.source.read_bytes()).hexdigest(),self.original)
         self.assertFalse(list(self.root.glob('homelib-*')))
         self.assertFalse(list(self.root.glob('.homelib-*')))
+
+    @unittest.skipUnless(os.name == 'nt' and (TOOLS / 'images/HomeLibImages.exe').is_file(),
+                         'Windows image processor')
+    def test_balanced_unsplit_png_scans_match_the_full_quality_estimate(self):
+        script = Path(c.__file__).with_name('image_quality.py')
+        spec = importlib.util.spec_from_file_location('test_scan_quality', script)
+        image_quality = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(image_quality)
+
+        tool = TOOLS / 'images/HomeLibImages.exe'
+        tiny = fixed.png(b'\x30\x60\x90' * 24, 4, 6)
+        pictures = [self.picture, tiny]
+        for storage in ('epub', 'fb2-zip'):
+            with self.subTest(storage=storage):
+                reference = image_quality.run(c, tool, pictures, self.root, 'estimate', lambda *_: None,
+                                              layout='keep', storage=storage)
+                with patch.object(image_quality.subprocess, 'Popen', wraps=subprocess.Popen) as process:
+                    current = image_quality.run(c, tool, pictures, self.root, 'balanced', lambda *_: None,
+                                                layout='keep', storage=storage)
+                self.assertEqual(process.call_args.args[0][4:], ['balanced', 'keep'])
+                self.assertEqual(current, {name: reference[name] for name in ('balanced', '_unsplit')})
+                self.assertEqual(current['balanced'][1], [tiny])
+                self.assertLess(len(current['balanced'][0][0]), len(self.picture))
 
     @unittest.skipUnless(os.name == 'nt' and (TOOLS / 'images/HomeLibImages.exe').is_file(),
                          'Windows image processor')
@@ -279,7 +332,7 @@ class ImageQuality(unittest.TestCase):
         options = self.root/'estimate.json'
         choice = self.root/'choice.txt'
         output = self.root/'estimate.epub'
-        with subprocess.Popen([str(TOOLS/'kindle/python/python.exe'), '-I', '-B', '-X', 'utf8',
+        with subprocess.Popen([str(TOOLS/'python/python.exe'), '-I', '-B', '-X', 'utf8',
                 str(Path(c.__file__)), str(source), str(output), '--tools-root', str(TOOLS),
                 '--image-quality', 'ask', '--grayscale', '--measure-scans',
                 '--image-options', str(options), '--image-choice', str(choice)],
@@ -369,8 +422,11 @@ class ImageQuality(unittest.TestCase):
         thread.start()
         interactive = self.root/'interactive.epub'
         try:
-            c.convert_book(source, interactive, tools_root=TOOLS, image_quality='ask', grayscale=True,
-                           image_options=options, image_choice=choice)
+            # A mixed scan must use the same disk staging and size limit
+            # whether the profile is preset or selected during export.
+            with patch.object(c, 'MAX_TOTAL', 64):
+                c.convert_book(source, interactive, tools_root=TOOLS, image_quality='ask', grayscale=True,
+                               image_options=options, image_choice=choice)
         finally:
             thread.join(31)
         self.assertFalse(thread.is_alive())
@@ -446,7 +502,7 @@ class ImageQuality(unittest.TestCase):
                     base64.b64encode(data).decode('ascii') + '</binary>'
                     for name, data in originals.items()) + '</FictionBook>', encoding='utf-8')
         epub = self.root / 'illustrated.epub'
-        c.convert_book(source, epub, tools_root=TOOLS)
+        c.convert_book(source, epub, tools_root=TOOLS, _static_gifs=False)
         for input_path in (source, epub):
             source_hash = hashlib.sha256(input_path.read_bytes()).hexdigest()
             for extension in ('.fb2', '.epub'):
@@ -470,7 +526,10 @@ class ImageQuality(unittest.TestCase):
                 output = self.root / ('optimized-' + input_path.suffix[1:] + extension)
                 try:
                     c.convert_book(input_path, output, tools_root=TOOLS, image_quality='ask',
-                                   image_options=options, image_choice=choice)
+                                   image_options=options, image_choice=choice, _static_gifs=False)
+                except c.ConversionError:
+                    if failure: raise failure[0]
+                    raise
                 finally:
                     thread.join(46)
                 self.assertFalse(thread.is_alive()); self.assertFalse(failure, failure)
@@ -478,7 +537,7 @@ class ImageQuality(unittest.TestCase):
                 checked = output
                 if extension == '.epub':
                     checked = output.with_suffix('.checked.fb2')
-                    c.convert_book(output, checked, tools_root=TOOLS)
+                    c.convert_book(output, checked, tools_root=TOOLS, _static_gifs=False)
                 book = c.xml(checked.read_bytes(), c.MAX_TOTAL)
                 self.assertEqual([c.plain(n) for body in c.children(book, 'body')
                                   for n in body.iter() if c.tag(n) == 'p'],
@@ -496,7 +555,7 @@ class ImageQuality(unittest.TestCase):
 
     def test_cli_canceled_quality_never_publishes_output(self):
         options=self.root/'options.json';choice=self.root/'choice.txt';output=self.root/'canceled.epub'
-        process=subprocess.Popen([str(TOOLS/'kindle/python/python.exe'),'-I','-B','-X','utf8',str(Path(c.__file__)),str(self.source),str(output),
+        process=subprocess.Popen([str(TOOLS/'python/python.exe'),'-I','-B','-X','utf8',str(Path(c.__file__)),str(self.source),str(output),
                                   '--tools-root',str(TOOLS),'--image-quality','ask','--image-options',str(options),'--image-choice',str(choice)],
                                  stdout=subprocess.PIPE,stderr=subprocess.STDOUT,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
         try:

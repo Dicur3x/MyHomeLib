@@ -7,9 +7,12 @@
   ],
   "upstream": "https://github.com/manfromarce/DocSharp",
   "upstream_commit": "7c996f8f6934139d4a4a698963baeb59fd8d60df",
-  "source_sha256": "5a2c2fe6b13c4c75471c84fad93b96bf1190c1eb4da585cf7858af540c708902",
-  "helper_sha256": "ce522460dd287862eec2e022741141e31c005ad530e0800507cabc2ccb41cd5f",
-  "helper_bytes": 10240,
+  "source_sha256": "fb18dfe2889949e9ba916df029ca7c00773273570994ec9a33466b5a80c7ee65",
+  "vml_source_sha256": "3a7961030cdb0558e15cdde8d2eccab357d8ae78dadc90854efad7567ba2a9a6",
+  "drawingml_source_sha256": "cb6e97dd176de652d8562ab7248b5978e0ee877f2776a0d1d2aee887992d937b",
+  "helper_sha256": "b42d6aa14435ff188a4f5e64cb195dc3154a23ede028cac5ef3773a720a914a6",
+  "helper_bytes": 232960,
+  "bundle_version": "0.21.0.8",
   "packages": [
     {
       "id": "docsharp.binary.doc",

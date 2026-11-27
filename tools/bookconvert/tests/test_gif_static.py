@@ -36,11 +36,13 @@ class GifStaticBoundaries(unittest.TestCase):
         self.addCleanup(self.path.stop)
 
     def run_frame(self, result=PNG, check=None):
-        def run(_api, command, work, callback, timeout):
+        def run(_api, command, work, callback, timeout, *, use_working_directory):
             self.assertIs(_api, api)
             self.assertEqual(command[1], '--gif-first-frame')
             self.assertEqual(Path(command[2]).read_bytes(), GIF)
             self.assertEqual(Path(command[3]).parent, work)
+            self.assertTrue(all(Path(command[index]).is_absolute() for index in (0, 2, 3)))
+            self.assertFalse(use_working_directory)
             self.assertTrue(work.is_relative_to(self.work))
             self.assertEqual(timeout, 30)
             self.assertIs(callback, check)
@@ -79,6 +81,11 @@ class GifStaticBoundaries(unittest.TestCase):
             with self.subTest(value=value), self.assertRaises(api.ConversionError):
                 self.run_frame(value)
             self.assertFalse(list(self.work.glob('homelibre-gif-static-*')))
+
+    def test_runtime_without_stream_uses_the_single_image_tool(self):
+        with mock.patch.object(gif_static, 'ImageFileWorker') as worker:
+            self.assertEqual(self.run_frame(), PNG)
+        worker.assert_not_called()
 
     def test_cancellation_before_decoder(self):
         def cancel():
@@ -171,7 +178,7 @@ class GifStaticExportPolicy(unittest.TestCase):
         source = self.fb2()
         original = source.read_bytes()
         converted = self.work / 'converted.epub'
-        with mock.patch.object(gif_static, 'first_frame', return_value=PNG) as decode:
+        with mock.patch.object(gif_static.GifFrameDecoder, 'decode', return_value=PNG) as decode:
             result = api.convert_book(source, converted)
             self.assertEqual(decode.call_count, 1)
             reading = self.work / 'reading.epub'
@@ -188,13 +195,29 @@ class GifStaticExportPolicy(unittest.TestCase):
         with zipfile.ZipFile(reading) as z:
             self.assertTrue(any(z.read(n) == GIF for n in z.namelist()))
 
+    def test_epub_to_fb2_prepares_gif_while_writing_images(self):
+        source = self.epub()
+        original = source.read_bytes()
+        destination = self.work / 'streamed.fb2'
+        with mock.patch.object(gif_static.GifFrameDecoder, 'decode', return_value=PNG) as decode:
+            result = api.convert_book(source, destination)
+        self.assertEqual(decode.call_count, 1)
+        self.assertIn(gif_static.WARNING, result['warnings'])
+        root = api.xml(destination.read_bytes())
+        api.validate_fb2_output(root)
+        images = [base64.b64decode(node.text) for node in api.children(root, 'binary')]
+        self.assertIn(PNG, images)
+        self.assertNotIn(GIF, images)
+        self.assertIn('Before', api.plain(api.first(root, 'body')))
+        self.assertEqual(source.read_bytes(), original)
+
     def test_fb2_binary_id_text_and_references_are_retained(self):
         source = self.fb2()
         before = api.xml(source.read_bytes())
         text = [api.plain(n) for n in before if api.tag(n) != 'binary']
         warnings = set()
         progress = []
-        with mock.patch.object(gif_static, 'first_frame', return_value=PNG):
+        with mock.patch.object(gif_static.GifFrameDecoder, 'decode', return_value=PNG):
             self.assertEqual(gif_static.normalize_export(api, source, '.fb2', self.work, warnings,
                                                          progress=lambda *step: progress.append(step)), 1)
         self.assertEqual(progress, [('gif-preparation', 1, 0)])
@@ -209,7 +232,7 @@ class GifStaticExportPolicy(unittest.TestCase):
     def test_gif_only_epub_rewrites_references_and_preserves_svg_and_scripts(self):
         source = self.epub()
         warnings = set()
-        with mock.patch.object(gif_static, 'first_frame', return_value=PNG):
+        with mock.patch.object(gif_static.GifFrameDecoder, 'decode', return_value=PNG):
             self.assertEqual(gif_static.normalize_export(api, source, '.epub', self.work, warnings), 1)
         with zipfile.ZipFile(source) as z:
             self.assertNotIn('OPS/images/picture.gif', z.namelist())
@@ -231,7 +254,7 @@ class GifStaticExportPolicy(unittest.TestCase):
     def test_signature_prevents_partial_replacement(self):
         source = self.epub(signed=True)
         original = source.read_bytes()
-        with mock.patch.object(gif_static, 'first_frame') as decode, self.assertRaisesRegex(api.ConversionError, 'подпись'):
+        with mock.patch.object(gif_static.GifFrameDecoder, 'decode') as decode, self.assertRaisesRegex(api.ConversionError, 'подпись'):
             gif_static.normalize_export(api, source, '.epub', self.work, set())
         decode.assert_not_called()
         self.assertEqual(source.read_bytes(), original)
@@ -253,7 +276,7 @@ class GifStaticExportPolicy(unittest.TestCase):
         with zipfile.ZipFile(source, 'x') as z:
             for name, data in entries.items():
                 z.writestr(name, data)
-        with mock.patch.object(gif_static, 'first_frame', return_value=PNG) as decode:
+        with mock.patch.object(gif_static.GifFrameDecoder, 'decode', return_value=PNG) as decode:
             self.assertEqual(gif_static.normalize_export(api, source, '.epub', self.work, set()), 1)
         self.assertEqual(decode.call_count, 1)
         with zipfile.ZipFile(source) as z:
@@ -275,7 +298,7 @@ class GifStaticExportPolicy(unittest.TestCase):
                     data = data.replace(b'image/gif', b'image/png')
                 z.writestr(entry, data)
         before = source.read_bytes()
-        with mock.patch.object(gif_static, 'first_frame') as decode:
+        with mock.patch.object(gif_static.GifFrameDecoder, 'decode') as decode:
             self.assertEqual(gif_static.normalize_export(api, source, '.epub', self.work, set()), 0)
         decode.assert_not_called()
         self.assertEqual(source.read_bytes(), before)
@@ -283,7 +306,7 @@ class GifStaticExportPolicy(unittest.TestCase):
     def test_cancellation_keeps_the_private_fb2_unchanged(self):
         source = self.fb2()
         original = source.read_bytes()
-        with mock.patch.object(gif_static, 'first_frame', side_effect=RuntimeError('cancelled')), self.assertRaisesRegex(RuntimeError, 'cancelled'):
+        with mock.patch.object(gif_static.GifFrameDecoder, 'decode', side_effect=RuntimeError('cancelled')), self.assertRaisesRegex(RuntimeError, 'cancelled'):
             gif_static.normalize_export(api, source, '.fb2', self.work, set())
         self.assertEqual(source.read_bytes(), original)
         self.assertFalse(list(self.work.glob('homelibre-gif-export-*')))
@@ -301,7 +324,7 @@ class GifStaticExportPolicy(unittest.TestCase):
                         z.writestr(name, data)
                 original = source.read_bytes()
                 private.write_bytes(original)
-                with mock.patch.object(gif_static, 'first_frame', return_value=PNG):
+                with mock.patch.object(gif_static.GifFrameDecoder, 'decode', return_value=PNG):
                     self.assertEqual(gif_static.normalize_export(api, private, '.epub', self.work, set()), 1)
                 self.assertEqual(source.read_bytes(), original)
                 with zipfile.ZipFile(private) as z:
@@ -334,6 +357,16 @@ class NativeGifFirstFrame(unittest.TestCase):
         self.assertEqual(Image.open(io.BytesIO(data)).n_frames, 6)
         self.verify(data)
 
+    @unittest.skipUnless(os.name == 'nt', 'Windows process working-directory limit')
+    def test_native_decoder_keeps_files_in_a_long_workspace(self):
+        workspace = self.work
+        while len(str(workspace)) <= 260:
+            workspace /= 'Длинная временная папка с пробелами'
+        workspace.mkdir(parents=True)
+        result = gif_static.first_frame(api, GIF, self.tools, workspace)
+        self.assertEqual(result, gif_static.first_frame(api, GIF, self.tools, self.work))
+        self.assertEqual(list(workspace.iterdir()), [])
+
     def test_partial_first_frame_retains_offset_and_logical_canvas(self):
         from PIL import Image
         image = Image.new('P', (2, 2), 1)
@@ -354,6 +387,29 @@ class NativeGifFirstFrame(unittest.TestCase):
         stream = io.BytesIO()
         image.save(stream, format='GIF', transparency=0)
         self.verify(stream.getvalue())
+
+    def test_stream_reuses_the_helper_after_a_malformed_frame(self):
+        from PIL import Image
+        helper, can_stream = gif_static.gif_runtime(api, self.tools)
+        if not can_stream:
+            self.skipTest('Installed image helper supports only the single-image command')
+        corrupt = GIF[:GIF.index(b'\x2c')+11]
+        with gif_static.GifFrameDecoder(api, self.tools, self.work) as decoder:
+            first = decoder.decode(GIF)
+            self.assertIsNotNone(decoder.worker)
+            process = decoder.worker.process
+            with self.assertRaises(api.ConversionError):
+                decoder.decode(corrupt)
+            buffer = io.BytesIO()
+            Image.new('RGB', (14, 9), (205, 90, 54)).save(buffer, format='GIF')
+            second = decoder.decode(buffer.getvalue())
+            self.assertIs(decoder.worker.process, process)
+            self.assertIsNone(process.poll())
+            self.assertEqual(Image.open(io.BytesIO(second)).convert('RGB').getpixel((0, 0)), (205, 90, 54))
+        self.assertEqual(process.poll(), 0)
+        self.assertEqual(list(self.work.iterdir()), [])
+        # Both entry points must produce the same PNG for the same frame.
+        self.assertEqual(first, gif_static.single_frame(api, helper, GIF, (1, 1), self.work, None))
 
     def test_existing_output_and_original_are_preserved(self):
         source = self.work / 'image.gif'

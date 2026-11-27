@@ -10,6 +10,8 @@ const
   MAX_PDF_CONVERSION_SOURCE = 512*1024*1024;
   MAX_RTF_CONVERSION_SOURCE = 256*1024*1024;
   MAX_JPEG_CONVERSION_SOURCE = 255*1024*1024;
+  MAX_LARGE_FB2_CONVERSION_SOURCE = 512*1024*1024;
+  MAX_CHM_CONVERSION_SOURCE = 256*1024*1024;
   BOOK_IMAGE_PROFILES: array[0..BOOK_QUALITY_NONE] of string =
     ('original','balanced','economy','maximum','none');
   BOOK_IMAGE_PROFILE_CAPTIONS: array[0..BOOK_QUALITY_NONE] of string =
@@ -52,7 +54,38 @@ procedure ConvertBasicBook(const AppPath, TempRoot, SourceFile, SourceExtension,
 
 implementation
 
-uses Winapi.Windows, System.IOUtils, System.JSON, unit_MHLExternalTools, unit_ReaderDOC, unit_ReaderFormats, unit_FormatComponents, unit_BookConversionRequirements, unit_BookOutput, unit_Diagnostics, unit_ComponentUsage;
+uses Winapi.Windows, System.IOUtils, System.JSON, unit_MHLExternalTools, unit_ReaderDOC, unit_ReaderFormats, unit_ReaderDocument, unit_FormatComponents, unit_BookConversionRequirements, unit_BookOutput, unit_Diagnostics, unit_ComponentUsage;
+
+const
+  MAX_BASIC_CONVERSION_SOURCE = 64*1024*1024;
+  MAX_PACKAGED_CONVERSION_SOURCE = 256*1024*1024;
+
+procedure DeleteConversionWork(const Work, TempRoot: string);
+begin
+  if not Work.StartsWith(IncludeTrailingPathDelimiter(TPath.GetFullPath(TempRoot)),True) then Exit;
+  // Closing the converter job requests termination of its children. Windows
+  // can still be releasing their file handles when the caller reaches here.
+  var Deadline:=GetTickCount64+2000;
+  while DirectoryExists(Work) and
+    (GetFileAttributes(PChar(Work)) and FILE_ATTRIBUTE_REPARSE_POINT=0) do
+  begin
+    try
+      TDirectory.Delete(Work,True);
+    except
+      on E: EInOutError do
+        if GetTickCount64>=Deadline then LogDiagnosticError('conversion.cleanup',E);
+      on E: EOSError do
+        if GetTickCount64>=Deadline then LogDiagnosticError('conversion.cleanup',E);
+    end;
+    if not DirectoryExists(Work) then Exit;
+    if GetTickCount64>=Deadline then
+    begin
+      LogDiagnosticMessage('conversion.cleanup','Не удалось удалить временные файлы конвертации.');
+      Exit;
+    end;
+    Sleep(25);
+  end;
+end;
 
 procedure RecordReportedTools(Report: TJSONValue);
 var Tools: TJSONValue;
@@ -97,6 +130,7 @@ begin
       if SkipDamagedFB2Image then Exit;
       raise Exception.Create('Исходный FB2 повреждён или не содержит тела книги.');
     end;
+    if (SourceExtension='.epub') and not ReaderHasCompleteEpubSpine(Temporary,IsCanceled) then Exit;
     if Assigned(IsCanceled) and IsCanceled() then Abort;
     PublishBookOutput(Temporary,TargetFile,OverwriteExisting,ProtectedSourceFile);
     Temporary:=''; Result:=True;
@@ -106,14 +140,6 @@ begin
   end;
 end;
 
-
-function SaveOptionsAPI(const AppPath: string): Integer;
-begin
-  var Capability:=TPath.Combine(AppPath,'tools/bookconvert/SAVE_OPTIONS_API.txt');
-  Result:=0;
-  if FileExists(Capability) and (TFile.GetSize(Capability)<=16) then
-    Result:=StrToIntDef(Trim(TFile.ReadAllText(Capability,TEncoding.UTF8)),0);
-end;
 
 function IsValidScanPageExclusions(const Value: string): Boolean;
 var Parts: TArray<string>; First, Last: Integer;
@@ -237,9 +263,11 @@ var Work, InputName, OutputName, ReportName, ProgressName, Tool, Script, TargetT
   Input, Writer: TStream; SavedPosition: Int64; Log: TStringStream;
   Started, LastAdvance, LastPoll: UInt64; Report: TJSONValue; ArrayValue: TJSONValue; I: Integer;
   Extension, TargetExtension, Actual: string; Check, ReadProgress: TProc;
-  Paged, Finalizing, ImageProcessing, StreamingScans, KindleWriting, TextLayerOnly: Boolean;
+  Paged, Finalizing, ImageProcessing, StreamingScans, StreamingConversion, KindleWriting, TextLayerOnly: Boolean;
+  PreparingWordNotes: Boolean;
   LastSequence, CompletedPages, PageTotal, LastPercent, RenderedPages, KindleCompleted: Integer;
-  WrittenEpubResources, CheckedEpubResources, PreparedGifs: Integer;
+  WrittenEpubResources, CheckedEpubResources, PreparedGifs, PreparedDocumentChunks, PreparedWordTotal: Integer;
+  PreparedChmDocuments, WrittenFb2Resources, WrittenFb2Sections, CheckedFb2Sections: Integer;
   Header: TBytes; MaximumInput: Int64;
   ImageOptionsName, ImageChoiceName: string; ImageChoiceHandled: Boolean;
   EstimateCompleted, OptimizedCompleted: Integer;
@@ -312,7 +340,7 @@ begin
     var RequiredAPI:=1+Ord(TextLayerOnly);
     if Grayscale or (QualityProfile='maximum') then RequiredAPI:=3;
     if MeasureScans then RequiredAPI:=5;
-    if SaveOptionsAPI(AppPath)<RequiredAPI then
+    if BookProcessingSaveOptionsAPI(AppPath)<RequiredAPI then
       if (Length(Missing)=0) or (Missing[0]<>'BookProcessing') then
         Missing:=TArray<string>.Create('BookProcessing')+Missing;
   end;
@@ -327,7 +355,8 @@ begin
   if Length(Missing)>0 then
     raise EMHLComponentRequired.Create(Missing,'Для выбранной книги нужны дополнительные компоненты: '+
       String.Join(', ',Missing)+'.');
-  if not ForReading and Assigned(ConfirmDamagedContent) and (SaveOptionsAPI(AppPath)<8) then
+  if not ForReading and Assigned(ConfirmDamagedContent) and
+    (BookProcessingSaveOptionsAPI(AppPath)<BOOK_PROCESSING_PARTIAL_EXPORT_API) then
     raise EMHLComponentRequired.Create('BookProcessing',
       'Обновите модуль подготовки книг, чтобы программа могла предупредить о потерях перед частичным экспортом.');
   Tool:=FindBookProcessingPython(AppPath);
@@ -353,7 +382,10 @@ begin
   TargetTemporary:=''; Log:=TStringStream.Create('',TEncoding.UTF8);
   Started:=GetTickCount64; LastAdvance:=Started; LastPoll:=0;
   KindleWriting:=False; KindleCompleted:=0;
-  WrittenEpubResources:=-1; CheckedEpubResources:=-1; PreparedGifs:=0;
+  WrittenEpubResources:=-1; CheckedEpubResources:=-1; PreparedGifs:=0; PreparedDocumentChunks:=0; PreparedWordTotal:=0;
+  PreparingWordNotes:=False;
+  PreparedChmDocuments:=-1; WrittenFb2Resources:=-1;
+  WrittenFb2Sections:=0; CheckedFb2Sections:=0;
   Paged:=False; Finalizing:=False; LastSequence:=0; CompletedPages:=0; PageTotal:=0; LastPercent:=0; RenderedPages:=0;
   ReadProgress:=procedure
   var Value: TJSONValue; Sequence, Completed, Total, Percent: Integer; Stage: string; Advanced: Boolean;
@@ -393,14 +425,14 @@ begin
           // uncounted phase as activity instead of an invented 98 percent.
           KindleWriting:=True; KindleCompleted:=Completed;
         end
-        else if (Stage='scan-estimates') and (Total>0) and (Total<=9) and (Completed>0) and (Completed<=Total) then
+        else if (Stage='scan-estimates') and (Total>0) and (Total<=16) and (Completed>0) and (Completed<=Total) then
         begin
           Advanced:=True; StreamingScans:=True; Percent:=Completed*5 div Total;
         end
         else if (Stage='scan-images') and (Total>0) and (Total<=5000) and
           (Completed>OptimizedCompleted) and (Completed<=Total) then
         begin
-          Advanced:=True; StreamingScans:=True; OptimizedCompleted:=Completed; Percent:=5+Completed*90 div Total;
+          Advanced:=True; StreamingScans:=True; OptimizedCompleted:=Completed; Percent:=Completed*95 div Total;
         end
         else if (Stage='image-estimates') and (Total>0) and (Total<=9) and
           (Completed>EstimateCompleted) and (Completed<=Total) then
@@ -413,6 +445,30 @@ begin
         begin
           Advanced:=True; OptimizedCompleted:=Completed; ImageProcessing:=True;
           Percent:=65+Completed*32 div Total;
+        end
+        else if StreamingConversion and (Extension='.epub') and (TargetExtension='.fb2') and
+          (Stage='preparing-epub') and not Finalizing and (Total>0) and (Total<=20000) and
+          (Completed>PreparedDocumentChunks) and (Completed<=Total) then
+        begin
+          PreparedDocumentChunks:=Completed; Advanced:=True;
+        end
+        else if (Stage='preparing-docx') and not Finalizing and (Total>0) and (Total<=20000) and
+          ((PreparedWordTotal=0) or (PreparedWordTotal=Total)) and (Completed>=0) and (Completed<=Total) and
+          ((PreparedWordTotal=0) or (Completed>PreparedDocumentChunks)) then
+        begin
+          PreparedWordTotal:=Total; PreparedDocumentChunks:=Completed; Advanced:=True;
+        end
+        else if (Stage='preparing-docx-notes') and not Finalizing and (Total=0) and
+          (Completed>=0) and (Completed<=20000) and ((Completed>0) or not PreparingWordNotes) then
+        begin
+          PreparingWordNotes:=True; Advanced:=True;
+        end
+        else if StreamingConversion and
+          (((Extension='.docx') and (Stage='preparing-docx')) or ((Extension='.fb2') and (Stage='preparing-fb2'))) and
+          not Finalizing and (Total=0) and (Completed>PreparedDocumentChunks) and (Completed<=20000) then
+        begin
+          PreparedDocumentChunks:=Completed;
+          Advanced:=True;
         end
         else if (Stage='preparing-images') and (Pos('|'+Extension+'|','|.cbz|.cbr|.cb7|')>0) and
           not Finalizing and (PageTotal=0) and (Total=0) and (Completed>0) and (Completed<=5000) then
@@ -428,12 +484,14 @@ begin
         begin
           Advanced:=(PageTotal=0) or (Completed>CompletedPages);
           PageTotal:=Total; CompletedPages:=Completed;
-          if StreamingScans then Percent:=5+Completed*90 div Total
+          if Completed=0 then Percent:=0
+          else if StreamingScans or TextLayerOnly then Percent:=Completed*95 div Total
           else if ImageProcessing then Percent:=45+Completed*10 div Total
           else if Pos('|'+Extension+'|','|.xps|.bmp|.tif|.tiff|')>0 then Percent:=90+Completed*5 div Total
           else Percent:=Completed*95 div Total;
         end
-        else if (TargetExtension='.epub') and (Total>0) and (Total<=20000) and (Completed>=0) and (Completed<=Total) and
+        else if ((TargetExtension='.epub') or (StreamingConversion and (Extension='.chm'))) and
+          (Total>0) and (Total<=20000) and (Completed>=0) and (Completed<=Total) and
           (((Stage='writing-epub') and (CheckedEpubResources<0) and (Completed>WrittenEpubResources)) or
            ((Stage='checking-epub') and (Completed>CheckedEpubResources))) then
         begin
@@ -445,6 +503,29 @@ begin
           PreparedGifs:=Completed;
           Finalizing:=True;
           Advanced:=True;
+        end
+        else if StreamingConversion and (Extension='.chm') and (Stage='preparing-chm') and
+          (Total>0) and (Total<=20000) and (Completed>PreparedChmDocuments) and (Completed<=Total) then
+        begin
+          PreparedChmDocuments:=Completed; Advanced:=True;
+        end
+        else if (StreamingConversion or Paged) and (TargetExtension='.fb2') and (Stage='writing-fb2') and
+          (Total>0) and (Total<=20000) and (Completed>WrittenFb2Resources) and (Completed<=Total) then
+        begin
+          WrittenFb2Resources:=Completed; Advanced:=True; Finalizing:=True;
+        end
+        else if StreamingConversion and (Extension='.chm') and (TargetExtension='.fb2') and
+          (Stage='writing-fb2-sections') and (Total>0) and (Total<=20000) and
+          (Completed>WrittenFb2Sections) and (Completed<=Total) then
+        begin
+          WrittenFb2Sections:=Completed; Advanced:=True; Finalizing:=True;
+        end
+        else if StreamingConversion and (TargetExtension='.fb2') and
+          (Stage='checking-fb2-sections') and (Total=0) and (Completed>CheckedFb2Sections) and
+          (((Extension='.chm') and (Completed<=WrittenFb2Sections)) or
+           ((Extension='.epub') and (Completed<=10000000))) then
+        begin
+          CheckedFb2Sections:=Completed; Advanced:=True; Finalizing:=True;
         end
         else if (Stage='finalizing') and not Finalizing and
           (not Paged or ((Total>0) and (Total<=5000) and (Completed=Total) and
@@ -465,7 +546,9 @@ begin
     begin
       if Percent<LastPercent then Percent:=LastPercent;
       LastAdvance:=GetTickCount64; LastPercent:=Percent;
-      if Assigned(OnProgress) then OnProgress(Percent,CompletedPages,PageTotal,Stage);
+      if Assigned(OnProgress) then
+        if (Stage='preparing-docx') and (Total>0) then OnProgress(Percent,Completed,Total,Stage)
+        else OnProgress(Percent,CompletedPages,PageTotal,Stage);
     end;
   end;
   Check:=procedure
@@ -508,7 +591,7 @@ begin
         if GetTickCount64-LastAdvance>310000 then
           raise Exception.Create('Модуль сохранения не завершил работу за пять минут. Исходная книга сохранена.');
       end
-      else if Paged or ImageProcessing or (PreparedGifs>0) then
+      else if Paged or ImageProcessing or StreamingConversion or (PreparedGifs>0) then
       begin
         if GetTickCount64-LastAdvance>180000 then
           raise Exception.Create('Конвертация не продвигается более трёх минут. Исходная книга сохранена; неполный результат не записан.');
@@ -519,27 +602,31 @@ begin
         raise Exception.Create('Конвертация превысила допустимое время. Исходная книга сохранена.');
     end;
   try
+    StreamingConversion:=False;
     if Assigned(OnProgress) then OnProgress(0,0,0,'preparing');
     Check;
     Input:=Source;
     if not Assigned(Input) then Input:=TFileStream.Create(SourceFile,fmOpenRead or fmShareDenyWrite);
     try
-      MaximumInput:=64*1024*1024;
-      if ImageProcessing or (ForReading and SameText(Extension,'.fb2')) then MaximumInput:=256*1024*1024;
-      if Input.Size>64*1024*1024 then
+      MaximumInput:=MAX_BASIC_CONVERSION_SOURCE;
+      if ImageProcessing or (ForReading and SameText(Extension,'.fb2')) then MaximumInput:=MAX_PACKAGED_CONVERSION_SOURCE;
+      if (Extension='.fb2') and (TargetExtension='.epub') and (QualityProfile='original') and
+        not Grayscale and (OutputProfile='') then MaximumInput:=MAX_LARGE_FB2_CONVERSION_SOURCE;
+      if Input.Size>MAX_BASIC_CONVERSION_SOURCE then
       begin
         SavedPosition:=Input.Position;
         try
           Input.Position:=0; SetLength(Header,1024); Input.ReadBuffer(Header[0],Length(Header));
           if TEncoding.ASCII.GetString(Header,0,5)='{\rtf' then MaximumInput:=MAX_RTF_CONVERSION_SOURCE
           else if TEncoding.ASCII.GetString(Header).Contains('%PDF-') then MaximumInput:=MAX_PDF_CONVERSION_SOURCE
-          else if TEncoding.ASCII.GetString(Header,0,8)='AT&TFORM' then MaximumInput:=256*1024*1024
+          else if TEncoding.ASCII.GetString(Header,0,8)='AT&TFORM' then MaximumInput:=MAX_PACKAGED_CONVERSION_SOURCE
+          else if TEncoding.ASCII.GetString(Header,0,4)='ITSF' then MaximumInput:=MAX_CHM_CONVERSION_SOURCE
           else if (Header[0]=$FF) and (Header[1]=$D8) and (Header[2]=$FF) then MaximumInput:=MAX_JPEG_CONVERSION_SOURCE
           else if ((Header[0]=$49) and (Header[1]=$49) and (Header[2]=$2A) and (Header[3]=0)) or
              ((Header[0]=$4D) and (Header[1]=$4D) and (Header[2]=0) and (Header[3]=$2A)) or
              ((Header[0]=$50) and (Header[1]=$4B)) or
              ((Header[0]=$52) and (Header[1]=$61) and (Header[2]=$72) and (Header[3]=$21)) or
-             ((Header[0]=$37) and (Header[1]=$7A) and (Header[2]=$BC) and (Header[3]=$AF)) then MaximumInput:=256*1024*1024;
+             ((Header[0]=$37) and (Header[1]=$7A) and (Header[2]=$BC) and (Header[3]=$AF)) then MaximumInput:=MAX_PACKAGED_CONVERSION_SOURCE;
         finally Input.Position:=SavedPosition; end;
       end;
       if Input.Size>MaximumInput then raise Exception.Create('Книга превышает предел конвертации ('+IntToStr(MaximumInput div 1024 div 1024)+' МБ).');
@@ -566,19 +653,33 @@ begin
     finally if not Assigned(Source) then Input.Free; end;
     Check;
     Actual:=DetectReaderExtension(InputName);
-    if ((Actual='.rar') and (Extension='.cbr')) or ((Actual='.7z') and (Extension='.cb7')) then
+    // The signature recognizes the container. The converter still verifies
+    // which members belong to the comic, including ZIP files labelled CBZ.
+    if ((Actual='.zip') and (Extension='.cbz')) or ((Actual='.rar') and (Extension='.cbr')) or
+      ((Actual='.7z') and (Extension='.cb7')) then
       Actual:=Extension;
-    if not ForReading and SkipDamagedFB2Image and (Actual='.fb2') and (SaveOptionsAPI(AppPath)<6) then
+    if not ForReading and SkipDamagedFB2Image and (Actual='.fb2') and (BookProcessingSaveOptionsAPI(AppPath)<6) then
       raise EMHLComponentRequired.Create('BookProcessing','Для пропуска повреждённых изображений FB2 обновите модуль подготовки книг.');
-    var IsLargeInput:=TFile.GetSize(InputName)>64*1024*1024;
-    if IsLargeInput and (Actual='.pdf') and (SaveOptionsAPI(AppPath)<4) then
+    var IsLargeInput:=TFile.GetSize(InputName)>MAX_BASIC_CONVERSION_SOURCE;
+    if IsLargeInput and (Actual='.pdf') and (BookProcessingSaveOptionsAPI(AppPath)<4) then
       raise EMHLComponentRequired.Create('BookProcessing','Для конвертации больших PDF обновите модуль подготовки книг.');
-    if IsLargeInput and (Actual='.rtf') and (SaveOptionsAPI(AppPath)<7) then
+    if IsLargeInput and (Actual='.rtf') and (BookProcessingSaveOptionsAPI(AppPath)<7) then
       raise EMHLComponentRequired.Create('BookProcessing','Для обработки больших RTF обновите модуль подготовки книг.');
+    var StreamingEpub:=not ForReading and (Actual='.epub') and (QualityProfile='original') and
+      not Grayscale and (OutputProfile='') and ((TargetExtension='.fb2') or (TargetExtension='.epub'));
+    var StreamingFB2:=(Actual='.fb2') and (TargetExtension='.epub') and (QualityProfile='original') and
+      not Grayscale and (OutputProfile='');
+    StreamingConversion:=IsLargeInput and (StreamingEpub or StreamingFB2 or (Actual='.chm'));
+    if StreamingConversion and (BookProcessingSaveOptionsAPI(AppPath)<BOOK_PROCESSING_EXTENDED_EXPORT_API) then
+      raise EMHLComponentRequired.Create('BookProcessing','Для обработки этой большой книги обновите модуль подготовки книг.');
+    // The compressed file size does not measure the amount of book markup.
+    if ((Actual='.chm') or (not ForReading and (Actual='.epub') and (TargetExtension='.fb2') and
+      (OutputProfile=''))) and (BookProcessingSaveOptionsAPI(AppPath)>=BOOK_PROCESSING_EXTENDED_EXPORT_API) then
+      StreamingConversion:=True;
     if IsLargeInput and
       (Pos('|'+Actual+'|','|.pdf|.djvu|.djv|.dju|.djm|.djvm|.rtf|.jpg|.jpeg|.tif|.tiff|.cbz|.cbr|.cb7|')=0) and
       not ((ForReading and SameText(Actual,'.fb2')) or
-        (ImageProcessing and ((Actual='.fb2') or (Actual='.epub')))) then
+        (ImageProcessing and ((Actual='.fb2') or (Actual='.epub'))) or StreamingConversion) then
       raise Exception.Create('Для этого формата предел конвертации — 64 МБ.');
     if (Actual<>'') and IsBasicConversionSource(Actual) and not SameText(Actual,Extension) then
     begin
@@ -586,20 +687,29 @@ begin
       InputName:=TPath.ChangeExtension(InputName,Actual); Extension:=Actual;
     end;
     Paged:=Pos('|'+Extension+'|','|.pdf|.djvu|.djv|.dju|.djm|.djvm|.xps|.cbz|.cbr|.cb7|.tif|.tiff|.bmp|')>0;
+    // PDF and DjVu process images in page order. The worker can publish a
+    // page immediately after finishing an image batch, before this poll reads
+    // the batch record. Determine the progress scale before that first page.
+    StreamingScans:=not ForReading and (QualityProfile<>'none') and (OutputProfile='') and
+      ((TargetExtension='.epub') or (TargetExtension='.fb2')) and
+      (Pos('|'+Extension+'|','|.pdf|.djvu|.djv|.dju|.djm|.djvm|')>0);
     if IsDirectDOCFormat(Extension) then
     begin
       var DocWarning: string;
+      var DocPartial: Boolean;
       InputName:=PrepareBinaryDOC(InputName,TPath.Combine(Work,'prepared.docx'),
         TPath.Combine(Work,'prepared.txt'),AppPath,
         procedure
         begin
           Check;
-        end,DocWarning);
+        end,DocWarning,DocPartial);
       if (DocWarning<>'') and Assigned(Warnings) then Warnings.Add(DocWarning);
-      if not ForReading and (ExtractFileExt(InputName)='.txt') and (DocWarning<>'') then
+      if not ForReading and DocPartial and (DocWarning<>'') then
         DamageNotice:=DocWarning+sLineBreak;
       Extension:=ExtractFileExt(InputName);
     end;
+    if (Extension='.docx') and (BookProcessingSaveOptionsAPI(AppPath)>=BOOK_PROCESSING_EXTENDED_EXPORT_API) then
+      StreamingConversion:=True;
     // The Python same-format path validates and copies the exact bytes. Do
     // not publish an unchecked source merely because its suffix matches.
     try
@@ -611,8 +721,12 @@ begin
         begin
           Arguments:=Arguments+TArray<string>.Create('--image-quality',QualityProfile,'--scan-layout',ScanLayout);
           if Grayscale and (QualityProfile<>'none') then Arguments:=Arguments+TArray<string>.Create('--grayscale');
-          if RecoverDamagedFB2 and (Actual='.fb2') and (SaveOptionsAPI(AppPath)>=6) then
+          if RecoverDamagedFB2 and (Actual='.fb2') and (BookProcessingSaveOptionsAPI(AppPath)>=6) then
             Arguments:=Arguments+TArray<string>.Create('--skip-damaged-fb2-image');
+          if Assigned(ConfirmDamagedContent) and (Extension='.epub') and
+             ((TargetExtension='.fb2') or (TargetExtension='.epub')) and
+             (BookProcessingSaveOptionsAPI(AppPath)>=BOOK_PROCESSING_EXTENDED_EXPORT_API) then
+            Arguments:=Arguments+TArray<string>.Create('--allow-partial-epub');
           if OutputProfile<>'' then Arguments:=Arguments+TArray<string>.Create('--output-profile',OutputProfile);
           if TextLayerOnly then Arguments:=Arguments+TArray<string>.Create('--text-layer-only');
           if PackedOutput and (TargetExtension='.fb2') and
@@ -631,10 +745,15 @@ begin
           Arguments:=Arguments+TArray<string>.Create('--resource-root',ExtractFilePath(TPath.GetFullPath(SourceFile)));
         var ConverterMemoryLimit: NativeUInt;
         ConverterMemoryLimit:=NativeUInt(512)*1024*1024;
-        // Browser pagination/printing retains the layout of the whole book.
-        // Keep its process tree contained, but give this PDF route a separate
-        // bounded budget instead of the generic decoder's 512 MiB per process.
-        if (OutputProfile='pdf') and (Actual<>'.fb2') then
+        // PDFium's decoded page resources can exceed the ordinary converter
+        // limit even for a small on-disk PDF. Keep a bounded job for export.
+        if (Extension='.pdf') and not ForReading and (TargetExtension<>'.pdf') then
+          ConverterMemoryLimit:=NativeUInt(1024)*1024*1024;
+        // WebView2 needs the same bounded allocation for pagination and for
+        // MathML snapshots. The job still owns every process in the renderer.
+        if ((OutputProfile='pdf') and (Actual<>'.fb2')) or
+           (not ForReading and (Actual='.epub') and (TargetExtension='.fb2') and (QualityProfile<>'none') and
+            FileExists(TPath.Combine(AppPath,FormatComponentFile('EpubPdfExport')))) then
           ConverterMemoryLimit:=NativeUInt($80000000); // 2 GiB, including x86.
         RunExternalToolToStream(Tool,Arguments,Log,
           function: Boolean begin Check; Result:=False; end,0,True,ConverterMemoryLimit);
@@ -714,9 +833,7 @@ begin
     Check:=nil; ReadProgress:=nil;
     DeleteBookOutputStage(TargetTemporary);
     Log.Free;
-    if Work.StartsWith(IncludeTrailingPathDelimiter(TPath.GetFullPath(TempRoot)),True) and
-      DirectoryExists(Work) and (GetFileAttributes(PChar(Work)) and FILE_ATTRIBUTE_REPARSE_POINT=0) then
-      TDirectory.Delete(Work,True);
+    DeleteConversionWork(Work,TempRoot);
   end;
 end;
 

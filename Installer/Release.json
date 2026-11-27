@@ -1,17 +1,18 @@
 {
   "format": 1,
-  "release": "3.0.0_pre1.16",
-  "version": "3.0.0.16",
+  "release": "3.0.0_pre1.17",
+  "version": "3.0.0.17",
   "components_version": "3.0.0.5",
-  "display_version": "3.0 beta 16",
+  "display_version": "3.0 beta 17",
   "component_versions": {
-    "BookProcessing": "3.0.0.16",
-    "ImageProcessing": "3.0.0.14",
-    "KindleExport": "3.0.0.9",
-    "EpubPdfExport": "3.0.0.9",
+    "BookProcessing": "3.0.0.17",
+    "ImageProcessing": "3.0.0.17",
+    "Kindle": "3.0.0.17",
+    "KindleExport": "3.0.0.17",
+    "EpubPdfExport": "3.0.0.17",
     "FB2Export": "3.0.0.13",
-    "KfxExport": "3.0.0.16",
+    "KfxExport": "3.0.0.17",
     "LegacyBooks": "3.0.0.6",
-    "XPS": "3.0.0.6"
+    "XPS": "3.0.0.17"
   }
 }

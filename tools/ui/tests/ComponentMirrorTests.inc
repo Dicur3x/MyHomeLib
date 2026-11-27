@@ -18,6 +18,8 @@
   TCMCheck = class(TComponentUpdateThread)
     Metadata, Feed: string;
     Requests: Integer;
+    MetadataRequests, FeedRequests: Integer;
+    RetryMirror: Boolean;
     protected function FetchText(const URL: string): string; override;
   end;
 
@@ -82,10 +84,54 @@ end;
 
 function TCMCheck.FetchText(const URL: string): string;
 begin
-  Inc(Requests);
-  if URL=COMPONENT_MIRROR_API then Exit(Metadata);
-  if URL='https://github.com/Dicur3x/MyHomeLib/releases/download/'+ALREADER_FIXED_TAG+'/'+COMPONENT_FEED_NAME then Exit(Feed);
+  InterlockedIncrement(Requests);
+  if URL=COMPONENT_MIRROR_API then
+  begin
+    if (InterlockedIncrement(MetadataRequests)=1) and RetryMirror then
+      raise Exception.Create('Первая проверка списка файлов временно недоступна');
+    Exit(Metadata);
+  end;
+  if URL='https://github.com/Dicur3x/MyHomeLib/releases/download/'+ALREADER_FIXED_TAG+'/'+COMPONENT_FEED_NAME then
+  begin
+    if (InterlockedIncrement(FeedRequests)=1) and RetryMirror then
+      raise Exception.Create('Первая проверка списка компонентов временно недоступна');
+    Exit(Feed);
+  end;
   raise Exception.Create('Owned unavailable publisher');
+end;
+
+procedure TestPublishedComponentBatch;
+var Folder: string; Checker: TCMCheck; Entry: TProgramRelease; Started: UInt64;
+    Components: TArray<string>;
+begin
+  Folder:=GetEnvironmentVariable('HOMELIB_PUBLISHED_COMPONENT_FIXTURE');
+  if Folder='' then Exit;
+  Checker:=TCMCheck.Create(0,CreateHTTPClientGlobal,PROGRAM_RELEASES_API,'');
+  try
+    Checker.Metadata:=TFile.ReadAllText(TPath.Combine(Folder,'release.json'),TEncoding.UTF8);
+    Checker.Feed:=TFile.ReadAllText(TPath.Combine(Folder,COMPONENT_FEED_NAME),TEncoding.UTF8);
+    Checker.OnlyIDs:=TArray<string>.Create('WebP','LegacyBooks','KoboExport');
+    Checker.RetryMirror:=True;
+    Checker.Start; Started:=GetTickCount64;
+    while not Checker.Finished do
+    begin
+      Application.ProcessMessages; CheckSynchronize(5); Sleep(5);
+      Require(GetTickCount64-Started<10000,'Published component batch timed out');
+    end;
+    Checker.WaitFor;
+    Require(Checker.Successful,Checker.ErrorText);
+    Components:=ComponentIDs;
+    for var ID in Checker.OnlyIDs do
+    begin
+      Require(Checker.TryGetRelease(IndexText(ID,Components),Entry) and
+        (Entry.ComponentID=ID) and (Entry.ComponentError='') and (Entry.ComponentVersion<>'') and
+        (Entry.SHA256<>'') and (Entry.Size>0), 'Published component is unavailable: '+ID);
+      Writeln('PASS published component check ',ID,' ',Entry.ComponentVersion,' ',ProgramUpdatePlatform);
+    end;
+    Require((Checker.MetadataRequests=2) and (Checker.FeedRequests=2) and (Checker.Requests=4),
+      'Concurrent component checks repeated network requests after one retry');
+    Writeln('PASS published component checks share the GitHub list and recover from a temporary error'); Flush(Output);
+  finally Checker.Terminate; Checker.WaitFor; Checker.Free; end;
 end;
 
 procedure TestIBKOriginalMirror;
@@ -239,6 +285,7 @@ var Server: TCMServer; Zip: TZipFile; Manifest, FileInfo: TJSONObject; FileList:
   begin Worker.Terminate; Worker.WaitFor; Worker.Free; Worker:=nil; CleanProgramUpdate(Job); end;
 begin
   RequireIsolatedRegression;
+  TestPublishedComponentBatch;
   SourceHash:=UpdateSHA256(Settings.AppPath+'sqlite3.dll');
   Version:=UpdateFileVersion(Settings.AppPath+'sqlite3.dll');
   Require(Version<>'','Native mirror fixture needs actual SQLite');

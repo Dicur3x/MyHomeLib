@@ -30,10 +30,12 @@ def build(source, output, platform):
     if checked('git', 'status', '--porcelain', cwd=source):
         raise ValueError('Refusing a modified upstream source checkout')
     patches = [Path(__file__).with_name(name) for name in
-               ('kindling-windows-epub-paths.patch', 'kindling-svg-compat.patch')]
+               ('kindling-windows-epub-paths.patch', 'kindling-svg-compat.patch',
+                'kindling-mobi7-navigation.patch', 'kindling-kf8-fragments.patch')]
     for patch in patches:
-        subprocess.run(['git', 'apply', '--check', str(patch)], cwd=source, check=True)
-        subprocess.run(['git', 'apply', str(patch)], cwd=source, check=True)
+        diff = patch.read_bytes().replace(b'\r\n', b'\n')
+        subprocess.run(['git', 'apply', '--check'], input=diff, cwd=source, check=True)
+        subprocess.run(['git', 'apply'], input=diff, cwd=source, check=True)
     target, machine = TARGETS[platform]
     # Do not silently merge an old compiler output or overwrite a component.
     output.mkdir(parents=True, exist_ok=False)

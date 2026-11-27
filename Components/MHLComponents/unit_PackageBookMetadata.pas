@@ -12,7 +12,8 @@ function ReadPackageMetadata(Stream: TStream; const Extension: string;
 
 implementation
 
-uses System.Zip, System.Variants, System.Win.ComObj, Winapi.MSXML, Winapi.ActiveX;
+uses System.Zip, System.Variants, System.Win.ComObj, Winapi.MSXML, Winapi.ActiveX,
+  unit_Fb3Package;
 
 const DC='http://purl.org/dc/elements/1.1/';
 
@@ -34,6 +35,23 @@ begin
   begin A:=Node.attributes.item[I]; if SameText(A.baseName,Name) then Exit(A.text); end;
 end;
 
+function ChildText(const Parent: IXMLDOMNode; const Name: string): string;
+begin
+  Result:='';
+  if not Assigned(Parent) then Exit;
+  var Child:=Parent.selectSingleNode('./*[local-name()="'+Name+'"]');
+  if Assigned(Child) then Result:=Trim(Child.text);
+end;
+
+function Fb3Title(const Parent: IXMLDOMNode): string;
+begin
+  Result:='';
+  var Title:=Parent.selectSingleNode('./*[local-name()="title"]');
+  if not Assigned(Title) then Exit;
+  Result:=ChildText(Title,'main');
+  if Result='' then Result:=Trim(Title.text);
+end;
+
 function ReadPackageMetadata(Stream: TStream; const Extension: string;
   out Metadata: TFB2CatalogMetadata; out ErrorText: string; CaptureAnnotation: Boolean;
   const IsCanceled: TFunc<Boolean>): TFB2MetadataStatus;
@@ -45,8 +63,9 @@ var Zip: TZipFile; Document, Container: IXMLDOMDocument3; Root, Node, Ref: IXMLD
   var At,Matches: Integer; Bytes: TBytes; Buffer: TBytesStream; Input: OleVariant;
   begin
     Result:=nil; At:=-1; Matches:=0;
-    for var K:=0 to Zip.FileCount-1 do
-      if Zip.FileNames[K]=Entry then begin At:=K; Inc(Matches); end;
+    var Names:=Zip.FileNames;
+    for var K:=0 to High(Names) do
+      if Names[K]=Entry then begin At:=K; Inc(Matches); end;
     if (Matches=0) and Optional then Exit;
     if Matches<>1 then raise EReadError.Create('Описание книги не найдено однозначно: '+Entry);
     if Zip.FileInfo[At].UncompressedSize>2*1024*1024 then raise EReadError.Create('Описание книги превышает 2 МБ');
@@ -146,8 +165,14 @@ begin
     end
     else if SameText(Extension,'.fb3') then
     begin
-      Document:=Load('fb3/description.xml'); Root:=Document.documentElement;
+      var Package:=TFb3Package.Create(Zip);
+      try Path:=Package.Description;
+      finally Package.Free; end;
+      if Path='' then raise EReadError.Create('В FB3 не найдена однозначная часть с описанием книги.');
+      Document:=Load(Path); Root:=Document.documentElement;
       if not Assigned(Root) or (Root.baseName<>'fb3-description') then raise EReadError.Create('Некорректное описание FB3');
+      Metadata.Title:=Fb3Title(Root);
+      Metadata.Language:=ChildText(Root,'lang');
       Values:=Root.selectNodes('./*[local-name()="paper-publish-info"]');
       // Keep publication fields together instead of mixing paper editions.
       if Values.length>0 then
@@ -163,12 +188,25 @@ begin
       begin Node:=Root.selectSingleNode('./*[local-name()="document-info"]/*[local-name()="isbn"]'); if Assigned(Node) then AssignValue('isbn',Node.text); end;
       if CaptureAnnotation then
       begin Node:=Root.selectSingleNode('./*[local-name()="annotation"]'); if Assigned(Node) then Metadata.Annotation:=Trim(Node.text); end;
-      Values:=Root.selectNodes('./*[local-name()="fb3-relations"]/*[local-name()="subject" and @link="translator"]');
+      Values:=Root.selectNodes('./*[local-name()="fb3-relations"]/*[local-name()="subject" and (@link="author" or @link="translator")]');
       for I:=0 to Values.length-1 do
       begin
-        Node:=Values.item[I].selectSingleNode('./*[local-name()="title"]');
-        if Assigned(Node) then Value:=Trim(Node.text) else Value:='';
-        if Value<>'' then
+        if Canceled then Exit(fmsCanceled);
+        Node:=Values.item[I];
+        Value:=Fb3Title(Node);
+        if Value='' then
+          for var Part in TArray<string>.Create('first-name','middle-name','last-name') do
+          begin
+            Name:=ChildText(Node,Part);
+            if Name<>'' then Value:=Trim(Value+' '+Name);
+          end;
+        if Value='' then Continue;
+        if Attr(Node,'link')='author' then
+        begin
+          SetLength(Metadata.Authors,Length(Metadata.Authors)+1);
+          Metadata.Authors[High(Metadata.Authors)]:=Value;
+        end
+        else
         begin
           if Metadata.Translators<>'' then Metadata.Translators:=Metadata.Translators+'; ';
           Metadata.Translators:=Metadata.Translators+Value;

@@ -24,7 +24,7 @@ def getETreeBuilder(ElementTreeImplementation):
 
         2. The index of the element relative to its parent
 
-        3. A stack of ancestor elements
+        3. A stack of ancestor elements and their sibling indexes
 
         4. A flag "text", "tail" or None to indicate if the current node is a
            text node; either the text or tail of the current element (1)
@@ -81,7 +81,7 @@ def getETreeBuilder(ElementTreeImplementation):
                 if element.text:
                     return element, key, parents, "text"
                 elif len(element):
-                    parents.append(element)
+                    parents.append((element, key))
                     return element[0], 0, parents, None
                 else:
                     return None
@@ -94,15 +94,16 @@ def getETreeBuilder(ElementTreeImplementation):
 
             if flag == "text":
                 if len(element):
-                    parents.append(element)
+                    parents.append((element, key))
                     return element[0], 0, parents, None
                 else:
                     return None
             else:
                 if element.tail and flag != "tail":
                     return element, key, parents, "tail"
-                elif key < len(parents[-1]) - 1:
-                    return parents[-1][key + 1], key + 1, parents, None
+                parent, _ = parents[-1]
+                if key < len(parent) - 1:
+                    return parent[key + 1], key + 1, parents, None
                 else:
                     return None
 
@@ -118,12 +119,12 @@ def getETreeBuilder(ElementTreeImplementation):
                 else:
                     return element, key, parents, None
             else:
-                parent = parents.pop()
+                # Retain the index from descent to avoid scanning wide sibling lists.
+                parent, index = parents.pop()
                 if not parents:
                     return parent
                 else:
-                    assert list(parents[-1]).count(parent) == 1
-                    return parent, list(parents[-1]).index(parent), parents, None
+                    return parent, index, parents, None
 
     return locals()
 

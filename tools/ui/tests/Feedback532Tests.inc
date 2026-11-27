@@ -262,6 +262,7 @@ end;
 
 procedure TestContentDrivenBookNames;
 const Text='Проверка полного текста — ё, ї, ў. Последняя строка книги.';
+  Citation='<https://example.test/books/>';
 var Book: TBookRecord; Source, Prepared, Expected, OriginalHash, Folder: string;
   Document: TReaderDocument; Count: Integer;
 begin
@@ -274,11 +275,14 @@ begin
   Source:=TPath.Combine(Folder,'markup.txt');
   TFile.WriteAllText(Source,'<?xml version="1.0"?><catalogue/>',TEncoding.UTF8);
   Require(DetectReaderExtension(Source)='.xml','XML declaration lost to plain text fallback');
+  TFile.WriteAllText(Source,'<catalogue/>',TEncoding.UTF8);
+  Require(DetectReaderExtension(Source)='.xml','Self-closing XML root lost to plain text fallback');
   TFile.Delete(Source);
-  for var Kind in ['text','angle-text','html','fb2'] do
+  for var Kind in ['text','angle-text','url-text','html','fb2'] do
   begin
     Expected:=Text;
     if Kind='angle-text' then Expected:='<|title|>'+sLineBreak+Text
+    else if Kind='url-text' then Expected:=Citation+sLineBreak+Text
     else if Kind='html' then Expected:='<p>'+Text+'</p>'
     else if Kind='fb2' then Expected:='<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0"><body><section><p>'+Text+'</p></section></body></FictionBook>';
     for var Extension in ['.txt','.unknown','.dic','.317294','.pdf','.zip','.docx','.prc','.fb2','.приключение',''] do
@@ -294,6 +298,8 @@ begin
         Require(Document.PlainText.Contains(Text),'Wrong filename lost actual book text: '+Kind+Extension);
         if Kind='angle-text' then Require(Document.PlainText.Contains('<|title|>'),
           'Plain text marker was consumed as markup: '+Extension);
+        if Kind='url-text' then Require(Document.PlainText.Contains(Citation),
+          'Plain text URL was consumed as markup: '+Extension);
       finally Document.Free;end;
       Require(UpdateSHA256(Source)=OriginalHash,'Content detection changed the original file');
       Inc(Count);TFile.Delete(Source);

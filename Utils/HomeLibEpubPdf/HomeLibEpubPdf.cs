@@ -27,14 +27,19 @@ static class HomeLibEpubPdf
         Uri allowed;
         Uri viewer;
         long maximum;
-        if (args.Length != 3 || !Uri.TryCreate(args[0], UriKind.Absolute, out viewer)
+        int formulas = 0;
+        if ((args.Length != 3 && args.Length != 4) || !Uri.TryCreate(args[0], UriKind.Absolute, out viewer)
             || !Uri.TryCreate(args[1], UriKind.Absolute, out allowed)
             || allowed.Scheme != "http" || allowed.Host != "127.0.0.1"
             || !string.IsNullOrEmpty(allowed.UserInfo + allowed.Query + allowed.Fragment)
             || !allowed.AbsolutePath.EndsWith("/", StringComparison.Ordinal)
-            || viewer.GetLeftPart(UriPartial.Path) != allowed.AbsoluteUri + "viewer/index.html"
             || !long.TryParse(args[2], NumberStyles.None, CultureInfo.InvariantCulture, out maximum)
             || maximum <= 0)
+            return 1;
+        if (args.Length == 4 && (!int.TryParse(args[3], NumberStyles.None, CultureInfo.InvariantCulture, out formulas)
+            || formulas < 1 || formulas > 256))
+            return 1;
+        if (viewer.GetLeftPart(UriPartial.Path) != allowed.AbsoluteUri + (formulas > 0 ? "viewer/math.html" : "viewer/index.html"))
             return 1;
 
         int result = 1;
@@ -45,7 +50,7 @@ static class HomeLibEpubPdf
             {
                 try
                 {
-                    await Print(handle, viewer.AbsoluteUri, allowed, maximum);
+                    await Render(handle, viewer, allowed, maximum, formulas);
                     result = 0;
                 }
                 catch (OperationCanceledException)
@@ -76,7 +81,7 @@ static class HomeLibEpubPdf
             throw new OperationCanceledException();
     }
 
-    static async Task Print(IntPtr handle, string viewer, Uri allowed, long maximum)
+    static async Task Render(IntPtr handle, Uri viewer, Uri allowed, long maximum, int formulas)
     {
         CheckCancellation();
         var origin = allowed.GetLeftPart(UriPartial.Authority);
@@ -87,10 +92,12 @@ static class HomeLibEpubPdf
             "--proxy-server=" + origin + " --proxy-bypass-list=<-loopback>;" + allowed.Authority);
         options.ReleaseChannels = CoreWebView2ReleaseChannels.Stable;
         options.ExclusiveUserDataFolderAccess = true;
-        var environment = await CoreWebView2Environment.CreateAsync(null, Path.GetFullPath("browser-profile"), options);
+        string profile = Environment.GetEnvironmentVariable("WEBVIEW2_USER_DATA_FOLDER") ?? "browser-profile";
+        var environment = await CoreWebView2Environment.CreateAsync(null, Path.GetFullPath(profile), options);
         CheckCancellation();
         var controller = await environment.CreateCoreWebView2ControllerAsync(handle);
         Process engine = null;
+        bool controlledEngine = false;
         try
         {
             var web = controller.CoreWebView2;
@@ -101,6 +108,7 @@ static class HomeLibEpubPdf
                 || !string.Equals(Path.GetFileName(executable.ToString()), "msedgewebview2.exe",
                     StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException("Ожидалась среда Microsoft WebView2 Runtime.");
+            controlledEngine = true;
 
             controller.Bounds = new Rectangle(0, 0, 900, 1200);
             controller.IsVisible = true;
@@ -116,26 +124,32 @@ static class HomeLibEpubPdf
             web.WebResourceRequested += (sender, e) =>
             {
                 var request = e.Request;
-                if (request.Method != "GET" || !(request.Uri.StartsWith(prefix, StringComparison.Ordinal)
-                    || request.Uri.StartsWith("data:", StringComparison.Ordinal)
-                    || request.Uri.StartsWith("blob:" + origin + "/", StringComparison.Ordinal)))
+                bool allowedResource = formulas > 0 ? request.Uri == viewer.AbsoluteUri :
+                    (request.Uri.StartsWith(prefix, StringComparison.Ordinal) || request.Uri.StartsWith("data:", StringComparison.Ordinal)
+                    || request.Uri.StartsWith("blob:" + origin + "/", StringComparison.Ordinal));
+                if (request.Method != "GET" || !allowedResource)
                     e.Response = environment.CreateWebResourceResponse(null, 403, "Blocked", "");
             };
             CheckCancellation();
-            web.Navigate(viewer);
-            while (await web.ExecuteScriptAsync("window.coreViewer?.readyState") != "\"complete\"")
+            if (formulas > 0)
+                await WriteMath(web, viewer.AbsoluteUri, formulas, maximum);
+            else
             {
-                CheckCancellation();
-                var failure = Json.Deserialize<string>(await web.ExecuteScriptAsync("window.bookLoadFailed"));
-                if (!string.IsNullOrEmpty(failure))
-                    throw new InvalidDataException("Не удалось обработать содержимое EPUB. " +
-                        failure.Substring(0, Math.Min(failure.Length, 250)));
-                await Task.Delay(100);
+                web.Navigate(viewer.AbsoluteUri);
+                while (await web.ExecuteScriptAsync("window.coreViewer?.readyState") != "\"complete\"")
+                {
+                    CheckCancellation();
+                    var failure = Json.Deserialize<string>(await web.ExecuteScriptAsync("window.bookLoadFailed"));
+                    if (!string.IsNullOrEmpty(failure))
+                        throw new InvalidDataException("Не удалось обработать содержимое EPUB. " +
+                            failure.Substring(0, Math.Min(failure.Length, 250)));
+                    await Task.Delay(100);
+                }
+                if (await web.ExecuteScriptAsync("document.querySelectorAll('[data-vivliostyle-page-container]').length") == "0")
+                    throw new InvalidDataException("Модуль вёрстки не создал ни одной страницы PDF.");
+                await CollectOutline(web);
+                await WritePdf(web, maximum);
             }
-            if (await web.ExecuteScriptAsync("document.querySelectorAll('[data-vivliostyle-page-container]').length") == "0")
-                throw new InvalidDataException("Модуль вёрстки не создал ни одной страницы PDF.");
-            await CollectOutline(web);
-            await WritePdf(web, maximum);
         }
         finally
         {
@@ -147,8 +161,54 @@ static class HomeLibEpubPdf
             {
                 if (engine != null)
                     using (engine)
-                        engine.WaitForExit(4000);
+                    {
+                        if (!engine.WaitForExit(4000) && formulas > 0 && controlledEngine)
+                        {
+                            try { engine.Kill(); }
+                            catch (InvalidOperationException) { /* Already exited. */ }
+                            engine.WaitForExit(4000);
+                        }
+                    }
             }
+        }
+    }
+
+    static async Task WriteMath(CoreWebView2 web, string viewer, int formulas, long maximum)
+    {
+        await web.CallDevToolsProtocolMethodAsync("Emulation.setDeviceMetricsOverride",
+            "{\"width\":1200,\"height\":900,\"deviceScaleFactor\":1,\"mobile\":false}");
+        web.Navigate(viewer);
+        var deadline = Stopwatch.StartNew();
+        string positions = "null";
+        while (positions == "null" && deadline.ElapsedMilliseconds < 10000)
+        {
+            CheckCancellation();
+            await Task.Delay(50);
+            positions = await web.ExecuteScriptAsync(
+                "document.readyState==='complete' && document.fonts.status==='loaded' " +
+                "&& document.querySelectorAll('.formula').length ? Array.from(document.querySelectorAll('.formula'), box => { " +
+                "const r=box.getBoundingClientRect(), x=Math.floor(r.left+scrollX), y=Math.floor(r.top+scrollY); " +
+                "return {x,y,width:Math.ceil(r.right+scrollX)-x,height:Math.ceil(r.bottom+scrollY)-y}; }) : null");
+        }
+        var clips = Json.Deserialize<Dictionary<string, int>[]>(positions);
+        if (clips == null || clips.Length != formulas)
+            throw new InvalidDataException("Модуль не получил полный список формул.");
+        for (int i = 0; i < clips.Length; i++)
+        {
+            CheckCancellation();
+            var clip = clips[i];
+            if (clip["width"] <= 4 || clip["height"] <= 4 || clip["width"] > 1100 || clip["height"] > 480)
+                continue;
+            clip["scale"] = 2;
+            var image = Json.Deserialize<Dictionary<string, string>>(await web.CallDevToolsProtocolMethodAsync(
+                "Page.captureScreenshot", "{\"format\":\"png\",\"captureBeyondViewport\":true,\"clip\":" + Json.Serialize(clip) + "}"));
+            var bytes = Convert.FromBase64String(image["data"]);
+            if (bytes.LongLength > maximum)
+                throw new InvalidDataException("Изображения формул превысили предел конвертации.");
+            maximum -= bytes.LongLength;
+            using (var output = File.Open("formula-" + i.ToString("D4", CultureInfo.InvariantCulture) + ".png",
+                FileMode.CreateNew, FileAccess.Write))
+                output.Write(bytes, 0, bytes.Length);
         }
     }
 

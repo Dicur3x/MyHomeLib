@@ -19,6 +19,11 @@ type
     procedure WMNotify(var Message: TWMNotify); message WM_NOTIFY;
   end;
 
+  TReaderWindowsFontList = class(TListBox)
+  protected
+    procedure DrawItem(Index: Integer; Rect: TRect; State: TOwnerDrawState); override;
+  end;
+
   TReaderFontPreview = class(TPanel)
   private
     FSample: TLabel;
@@ -90,6 +95,19 @@ type
     destructor Destroy; override;
     property SelectedFamily: string read FSelected;
   end;
+
+procedure TReaderWindowsFontList.DrawItem(Index: Integer; Rect: TRect; State: TOwnerDrawState);
+var Text: string;
+begin
+  Canvas.Brush.Color:=Color;
+  Canvas.Font.Assign(Font);
+  if odSelected in State then Canvas.Brush.Color:=ReaderBlendColor(Color,Font.Color,44);
+  Canvas.FillRect(Rect);
+  if (Index<0) or (Index>=Items.Count) then Exit;
+  Text:=Items[Index]; Inc(Rect.Left,4); Dec(Rect.Right,4);
+  DrawText(Canvas.Handle,PChar(Text),Length(Text),Rect,DT_SINGLELINE or DT_VCENTER or DT_NOPREFIX);
+  if odFocused in State then Canvas.DrawFocusRect(Rect);
+end;
 
 procedure TReaderFontListView.WMNotify(var Message: TWMNotify);
 var Draw: PNMCustomDraw; Bounds: TRect; DCState: Integer; Brush: HBRUSH;
@@ -316,7 +334,9 @@ begin
   FSearch:=TEdit.Create(Self); FSearch.Parent:=Self; FSearch.Name:='ReaderWindowsFontSearch';
   FSearch.Text:=''; FSearch.Anchors:=[akLeft,akTop,akRight];
   FSearch.SetBounds(16,16,428,26); FSearch.TextHint:='Найти шрифт по названию'; FSearch.OnChange:=Filter;
-  FList:=TListBox.Create(Self); FList.Parent:=Self; FList.Name:='ReaderWindowsFontResults';
+  FList:=TReaderWindowsFontList.Create(Self); FList.Parent:=Self; FList.Name:='ReaderWindowsFontResults';
+  FList.Style:=lbOwnerDrawFixed;
+  Canvas.Font.Assign(FList.Font); FList.ItemHeight:=Canvas.TextHeight('Ag')+2;
   FList.SetBounds(16,50,428,242); FList.Anchors:=[akLeft,akTop,akRight,akBottom];
   FList.OnClick:=SelectionChanged; FList.OnDblClick:=Accept;
   FPreviewArea:=TReaderFontPreview.Create(Self); FPreviewArea.Parent:=Self;

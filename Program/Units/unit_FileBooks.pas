@@ -3,7 +3,10 @@
 interface
 
 uses System.Classes, System.SysUtils, unit_Globals, unit_BookSendOptions,
-  unit_BookExportResults;
+  unit_BookExportResults, frm_ExportToDeviceProgressForm;
+
+type
+  TBookSaveProgressClass = class of TExportToDeviceProgressForm;
 
 function FileBook(const FileName: string): TBookRecord;
 function SaveFileBook(const Book: TBookRecord; const Options: TBookSendOptions;
@@ -12,14 +15,14 @@ function SaveFileBooks(const Books: TArray<TBookRecord>; const Options: TBookSen
   out RequiredComponent: string): TBookExportResults; overload;
 
 function SaveFileBooks(const Books: TArray<TBookRecord>; const Options: TBookSendOptions;
-  out RequiredComponents: TArray<string>): TBookExportResults; overload;
+  out RequiredComponents: TArray<string>; ProgressClass: TBookSaveProgressClass = nil): TBookExportResults; overload;
 function SaveFileBook(const Book: TBookRecord; const Options: TBookSendOptions;
-  out RequiredComponents: TArray<string>): TBookExportResults; overload;
+  out RequiredComponents: TArray<string>; ProgressClass: TBookSaveProgressClass = nil): TBookExportResults; overload;
 
 implementation
 
 uses System.IOUtils, System.Hash, System.Win.ComObj, Winapi.ActiveX, ShlObj, Vcl.Forms,
-  unit_ExportToDeviceThread, frm_ExportToDeviceProgressForm;
+  unit_ExportToDeviceThread;
 
 function FileBook(const FileName: string): TBookRecord;
 var FullName: string; Probe: TFileStream;
@@ -54,11 +57,11 @@ begin
 end;
 
 function SaveFileBook(const Book: TBookRecord; const Options: TBookSendOptions;
-  out RequiredComponents: TArray<string>): TBookExportResults;
-begin Result:=SaveFileBooks([Book],Options,RequiredComponents); end;
+  out RequiredComponents: TArray<string>; ProgressClass: TBookSaveProgressClass): TBookExportResults;
+begin Result:=SaveFileBooks([Book],Options,RequiredComponents,ProgressClass); end;
 
 function SaveFileBooks(const Books: TArray<TBookRecord>; const Options: TBookSendOptions;
-  out RequiredComponents: TArray<string>): TBookExportResults;
+  out RequiredComponents: TArray<string>; ProgressClass: TBookSaveProgressClass): TBookExportResults;
 var Worker: TExportToDeviceThread; Progress: TExportToDeviceProgressForm;
   Marshalled: IStream;
 begin
@@ -81,7 +84,8 @@ begin
       OleCheck(CoMarshalInterThreadInterfaceInStream(IShellItem,Options.ShellItem,Marshalled));
       Worker.MarshalStream:=Marshalled;
     end;
-    Progress:=TExportToDeviceProgressForm.Create(Application);
+    if ProgressClass=nil then ProgressClass:=TExportToDeviceProgressForm;
+    Progress:=ProgressClass.Create(Application);
     try
       Progress.Caption:='Сохранить книгу как'; Progress.WorkerThread:=Worker;
       Progress.ShowModal;

@@ -4,6 +4,7 @@ import base64
 import importlib.util
 import re
 from pathlib import Path
+import struct
 import subprocess
 import tempfile
 from types import SimpleNamespace
@@ -23,9 +24,22 @@ def load(name, path):
 
 c = load('kindle_output_test_api', ROOT / 'convert_book.py')
 k = load('kindle_output_test_writer', ROOT / 'kindle_output.py')
+legacy_input = load('kindle_input_test_adapter', ROOT / 'kindle_input.py')
+reader = load('kindle_reflow_test_adapter', ROOT.parent / 'kindle' / 'convert_kf8.py')
 
 
 class KindleOutputTests(unittest.TestCase):
+    def test_legacy_mobi_reads_only_identifiers_present_in_the_source_header(self):
+        record = bytearray(248)
+        record[16:20] = b'MOBI'
+        struct.pack_into('>I', record, 20, 232)
+        self.assertEqual(legacy_input.explicit_asins(record), [])
+        values = (b'B012345678', b'B012345678', b'not an identifier')
+        fields = b''.join(struct.pack('>II', 113, 8 + len(value)) + value for value in values)
+        record.extend(b'EXTH' + struct.pack('>II', 12 + len(fields), len(values)) + fields)
+        self.assertEqual(legacy_input.explicit_asins(record), ['B012345678'])
+        self.assertEqual(legacy_input.explicit_asins(record[:-1]), [])
+
     def test_gif_cover_is_prepared_as_png_in_private_copy_and_animation_is_not_silently_lost(self):
         gif=base64.b64decode('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7')
         source=self.root/'gif.epub';output=self.root/'private-gif.epub'
@@ -87,6 +101,30 @@ class KindleOutputTests(unittest.TestCase):
         self.assertFalse(list(self.root.glob('homelibre-kindle-output-*')))
         self.assertFalse(list(self.root.glob('.homelib-convert-*')))
 
+    def test_mobi_reflow_uses_the_declared_outline_and_reports_bad_targets(self):
+        html = self.root / 'book.html'
+        html.write_text('<h1>Заголовок вне оглавления</h1><p id="filepos10">Начало</p>'
+                        '<p id="filepos20">Продолжение</p>', encoding='utf-8')
+        ncx = self.root / 'toc.ncx'
+        ncx.write_text('''<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/"><navMap>
+<navPoint><navLabel><text>Том</text></navLabel><content src="book.html#filepos10"/>
+  <navPoint><navLabel><text>Глава</text></navLabel><content src="#filepos20"/></navPoint>
+</navPoint>
+<navPoint><navLabel><text>Утрачено</text></navLabel><content src="book.html#filepos30"/></navPoint>
+</navMap></ncx>''', encoding='utf-8')
+        warnings = set()
+        outline = c.mobi_navigation(html, warnings)
+        output = self.root / 'reading.epub'
+        c.text_to_book(html, output, warnings, '.epub', document_outline=outline)
+        with zipfile.ZipFile(output) as archive:
+            nav = c.xml(archive.read('OEBPS/nav.xhtml'))
+            links = nav.findall('.//{*}nav/{*}ol/{*}li/{*}a')
+            self.assertEqual([(a.text, a.get('href')) for a in links], [('Том', 'book.xhtml#filepos10')])
+            nested = nav.find('.//{*}nav/{*}ol/{*}li/{*}ol/{*}li/{*}a')
+            self.assertEqual((nested.text, nested.get('href')), ('Глава', 'book.xhtml#filepos20'))
+            self.assertIn('Заголовок вне оглавления', c.plain(c.xml(archive.read('OEBPS/book.xhtml'))))
+        self.assertTrue(any(text.startswith(c.MOBI_NAVIGATION_LOSS) for text in c.damaged_content_warnings(warnings)))
+
     def test_private_adaptation_uses_manifest_and_preserves_content_and_metadata(self):
         output = self.root / 'private.epub'
         k.canonical_input(c, self.source, output)
@@ -127,6 +165,41 @@ class KindleOutputTests(unittest.TestCase):
             self.assertIn('Ёжик', ''.join(c.xhtml(z.read('OPS/chapter.xml')).itertext()))
         self.assertEqual(source.read_bytes(), before)
         self.assert_clean()
+
+    def test_legacy_layout_materializes_paragraph_css_without_changing_modern_epub(self):
+        source = self.root / 'layout.epub'
+        with zipfile.ZipFile(self.source) as original:
+            files = {name: original.read(name) for name in original.namelist()}
+        files['OPS/chapter.xml'] = files['OPS/chapter.xml'].replace(b'</html:head>',
+            b'<html:link rel="stylesheet" href="style.css"/></html:head>').replace(b'</html:body>',
+            b'<html:div class="verse" id="verse"><html:p class="signature" id="credit">Credit</html:p>'
+            b'<html:h3 style="text-align:center" id="heading">Heading</html:h3></html:div></html:body>')
+        files['OPS/style.css'] = b'p{text-align:justify;text-indent:1.3em;margin:.45em 0}' \
+                                b'.verse{margin:1em 2em}.signature{text-align:right;text-indent:0}'
+        with zipfile.ZipFile(source, 'w') as archive:
+            for name, data in files.items():
+                archive.writestr(name, data)
+        for legacy in (False, True):
+            output = self.root / f'layout-{legacy}.epub'
+            k.canonical_input(c, source, output, legacy=legacy)
+            with zipfile.ZipFile(output) as archive:
+                chapter = c.xhtml(archive.read('OPS/chapter.xml'))
+                self.assertEqual(archive.read('OPS/style.css'), files['OPS/style.css'])
+            nodes = {node.get('id'): node for node in chapter.iter() if node.get('id')}
+            self.assertEqual(c.plain(nodes['credit']), 'Credit')
+            if legacy:
+                self.assertEqual(c.tag(nodes['verse']), 'blockquote')
+                self.assertEqual(nodes['credit'].get('align'), 'right')
+                self.assertEqual(nodes['credit'].get('width'), '0pt')
+                self.assertEqual(nodes['anchor'].get('align'), 'justify')
+                self.assertEqual(nodes['anchor'].get('width'), '1.3em')
+                self.assertEqual(nodes['anchor'].get('height'), '.45em')
+                self.assertEqual(nodes['heading'].get('align'), 'center')
+                self.assertNotIn('style', nodes['heading'].attrib)
+            else:
+                self.assertEqual(c.tag(nodes['verse']), 'div')
+                self.assertIsNone(nodes['credit'].get('align'))
+                self.assertEqual(nodes['heading'].get('style'), 'text-align:center')
 
     def test_external_urls_are_encoded_without_changing_local_targets_or_prose(self):
         source, output = self.root/'urls.epub', self.root/'private-urls.epub'
@@ -327,6 +400,96 @@ class KindleOutputTests(unittest.TestCase):
                 c.convert_book(self.source, self.root / 'out.mobi', tools_root=self.root / 'tools')
         self.assertFalse((self.root / 'out.mobi').exists())
         self.assert_clean()
+
+    def test_legacy_mobi_removes_kf8_and_keeps_text_images_and_cover_metadata(self):
+        exth_items = ((121, b'\0\0\0\x04'), (129, b'kindle:embed:0001'),
+                      (201, b'\0'*4), (536, b'960x1280:0-2|'))
+        exth = b''.join(struct.pack('>II', identity, 8 + len(payload)) + payload for identity, payload in exth_items)
+        header = bytearray(280)
+        header[16:20] = b'MOBI'
+        struct.pack_into('>I', header, 20, 264)
+        struct.pack_into('>I', header, 36, 6)
+        struct.pack_into('>II', header, 84, len(header) + 12 + len(exth), 5)
+        struct.pack_into('>I', header, 128, 0x1850)
+        record = header + b'EXTH' + struct.pack('>II', 12 + len(exth), len(exth_items)) + exth + b'Title'
+        next_header = bytearray(40)
+        next_header[16:20] = b'MOBI'
+        struct.pack_into('>I', next_header, 36, 8)
+        records = (record, b'legacy text', b'legacy image', b'BOUNDARY', next_header, b'KF8 text', k.MOBI_EOF)
+        prefix = bytearray(78)
+        prefix[60:68] = b'BOOKMOBI'
+        struct.pack_into('>H', prefix, 76, len(records))
+        positions = []
+        offset = 80 + 8 * len(records)
+        for data in records:
+            positions.append(offset)
+            offset += len(data)
+        source = self.root / 'dual.mobi'
+        original = prefix + b''.join(struct.pack('>II', pos, 2*i) for i, pos in enumerate(positions))
+        source.write_bytes(original + b'\0\0' + b''.join(records))
+        original_hash = hashlib.sha256(source.read_bytes()).digest()
+        with self.assertRaisesRegex(c.ConversionError, 'самостоятельной книгой'):
+            k.validate_output(c, source, '.mobi')
+
+        output = self.root / 'legacy.mobi'
+        k.extract_legacy_mobi(c, source, output)
+        k.validate_output(c, output, '.mobi')
+        with output.open('rb') as stream:
+            _, _, offsets = k.palm_records(c, stream, output.stat().st_size)
+            stream.seek(offsets[0])
+            legacy_record = stream.read(offsets[1] - offsets[0])
+            _, _, _, title, items = k.mobi_exth(c, legacy_record)
+            self.assertEqual(legacy_record[title:title + 5], b'Title')
+            self.assertEqual(struct.unpack_from('>I', legacy_record, 128)[0], 0x50)
+            self.assertEqual(dict(items), {121: b'\xff'*4, 129: b'', 201: b'\0'*4})
+            self.assertEqual(len(offsets), 4)
+            self.assertEqual(stream.read(offsets[2] - offsets[1]), b'legacy text')
+            self.assertEqual(stream.read(offsets[3] - offsets[2]), b'legacy image')
+            self.assertEqual(stream.read(), k.MOBI_EOF)
+        self.assertEqual(hashlib.sha256(source.read_bytes()).digest(), original_hash)
+
+        metadata_output = self.root / 'metadata.mobi'
+        additions = [(101, b'Publisher'), (103, 'длинная аннотация\n'.encode('utf-8') * 1100),
+                     (104, b'9780000000000'), (105, b'first subject'), (105, b'second subject')]
+        output_hash = hashlib.sha256(output.read_bytes()).digest()
+        self.assertEqual(k.update_publication_records(c, output, metadata_output, additions), metadata_output)
+        k.validate_output(c, metadata_output, '.mobi')
+        with metadata_output.open('rb') as stream:
+            _, _, metadata_offsets = k.palm_records(c, stream, metadata_output.stat().st_size)
+            self.assertGreater(metadata_offsets[1], offsets[1])
+            stream.seek(metadata_offsets[0])
+            new_record = stream.read(metadata_offsets[1] - metadata_offsets[0])
+            _, _, _, new_title, new_items = k.mobi_exth(c, new_record)
+            self.assertEqual(new_items, items + additions)
+            self.assertEqual(new_record[new_title:new_title + 5], b'Title')
+            self.assertEqual(stream.read(), output.read_bytes()[offsets[1]:])
+        self.assertEqual(hashlib.sha256(output.read_bytes()).digest(), output_hash)
+
+    def test_kf8_reader_preserves_resources_and_removes_only_binary_package_diagnostics(self):
+        source = self.root / 'unpacked.epub'
+        output = self.root / 'reader.epub'
+        metadata = b'<package><metadata/><manifest/><spine/></package>'
+        diagnostics = b'<!-- BEGIN INFORMATION ONLY \n<meta name="Container_Id" content="_KS\x03"/>\nEND INFORMATION ONLY -->'
+        files = {'mimetype': b'application/epub+zip',
+                 'META-INF/container.xml': b'<container><rootfiles><rootfile full-path="OPS/package.opf"/></rootfiles></container>',
+                 'OPS/package.opf': metadata + diagnostics, 'OPS/chapter.xhtml': b'<html><body>Real content.</body></html>',
+                 'OPS/illustration.jpg': b'\xff\xd8\xff\x01\xff\xd9'}
+        with zipfile.ZipFile(source, 'w') as archive:
+            for name, data in files.items():
+                archive.writestr(name, data)
+        initial = source.read_bytes()
+        reader.write_reader_epub(source, output)
+        with zipfile.ZipFile(output) as archive:
+            self.assertIsNone(archive.testzip())
+            self.assertEqual(archive.namelist(), list(files))
+            self.assertEqual(archive.infolist()[0].compress_type, zipfile.ZIP_STORED)
+            self.assertEqual(archive.read('OPS/package.opf'), metadata)
+            for name in files.keys() - {'OPS/package.opf'}:
+                self.assertEqual(archive.read(name), files[name])
+        unchanged = self.root / 'clean-reader.epub'
+        reader.write_reader_epub(output, unchanged)
+        self.assertEqual(unchanged.read_bytes(), output.read_bytes())
+        self.assertEqual(source.read_bytes(), initial)
 
     def test_long_validation_report_keeps_the_error_before_the_warnings(self):
         self.writer()

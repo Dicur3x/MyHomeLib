@@ -1,6 +1,7 @@
 """Write an EPUB 2 package from compatible reflowable EPUB content."""
 
 import posixpath
+import re
 from urllib.parse import quote
 
 
@@ -13,8 +14,9 @@ NCX = 'http://www.daisy.org/z3986/2005/ncx/'
 SVG = '{http://www.w3.org/2000/svg}'
 XHTML = 'application/xhtml+xml'
 NCX_MEDIA = 'application/x-dtbncx+xml'
-BOOK_MEDIA = {XHTML, NCX_MEDIA, 'text/css', 'image/jpeg', 'image/png', 'image/gif',
-              'image/svg+xml', 'application/vnd.ms-opentype'}
+POSTER_MEDIA = {'image/jpeg', 'image/png', 'image/gif', 'image/svg+xml'}
+BOOK_MEDIA = POSTER_MEDIA | {XHTML, NCX_MEDIA, 'text/css', 'application/vnd.ms-opentype'}
+XHTML_11_DOCTYPE = b'<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">'
 FONT_MEDIA = {'font/ttf', 'font/otf', 'application/font-sfnt', 'application/x-font-ttf',
               'application/x-font-otf'}
 BLOCK_WRAPPERS = {'article', 'aside', 'figcaption', 'figure', 'footer', 'header', 'main', 'nav', 'section'}
@@ -24,8 +26,9 @@ XHTML_ELEMENTS = set(('a abbr acronym address area b base bdo big blockquote bod
                       'ol p pre q samp small span strong style sub sup table tbody td tfoot th thead title tr tt ul var').split())
 INLINE_DECORATIONS = {'s': 'line-through', 'strike': 'line-through', 'u': 'underline'}
 HTML_COMPATIBLE = XHTML_ELEMENTS | BLOCK_WRAPPERS | INLINE_WRAPPERS | INLINE_DECORATIONS.keys()
-UNSUPPORTED = {'audio', 'button', 'canvas', 'details', 'embed', 'form', 'iframe', 'input', 'meter',
-               'object', 'picture', 'progress', 'ruby', 'script', 'select', 'summary', 'template', 'textarea', 'video'}
+BLOCK_CONTENT = BLOCK_WRAPPERS | {'div', 'p', 'ul', 'ol', 'dl', 'table', 'pre', 'blockquote', 'hr'}
+UNSUPPORTED = {'button', 'canvas', 'details', 'embed', 'form', 'iframe', 'input', 'meter',
+               'object', 'picture', 'progress', 'ruby', 'script', 'select', 'summary', 'template', 'textarea'}
 
 
 def relative_href(source, target, fragment=''):
@@ -38,9 +41,103 @@ def append_style(node, value):
     node.set('style', (style + ';' if style else '') + value)
 
 
-def epub2_chapter(api, archive, path, document, resources, warnings):
-    changed = False
+def attached_media(media):
+    return media == 'text/vtt' or media.startswith(('audio/', 'video/'))
+
+
+def static_media(api, archive, path, node, resources, fallbacks, warnings):
+    kind = api.tag(node)
+    media, label = api.epub_media_label(node)
+    source_children = list(node)
+    media_nodes = [child for child in source_children if api.tag(child) in {'source', 'track'}]
+    for part in (node, *media_nodes):
+        if XML_BASE in part.attrib or any(name.startswith('on') for name in part.attrib) or 'srcset' in part.attrib:
+            raise api.ConversionError('Интерактивное или адаптивное содержимое нельзя перенести в EPUB 2.' + KEEP_EPUB)
+
+    poster, fallback_id = None, resources[path].get('id')
+    if address := node.get('poster'):
+        filename, fragment = archive.resolve(path, address)
+        item = resources.get(filename)
+        if item is None or item.get('media-type') not in POSTER_MEDIA:
+            warnings.add(f'{media} EPUB показано статично: «{label}». Не удалось показать исходную обложку.')
+        else:
+            size = {key: value for key in ('width', 'height') if
+                    re.fullmatch(r'[0-9]{1,6}%?', value := node.get(key, ''))}
+            poster = api.element(api.XH, 'img', src=relative_href(path, filename, fragment),
+                                 alt=node.get('aria-label') or label, **size)
+            fallback_id = item.get('id')
+
+    attachments = []
+    for part in (node, *media_nodes):
+        if not (address := part.get('src')):
+            continue
+        filename, fragment = archive.resolve(path, address)
+        item = resources.get(filename)
+        caption = part is not node and api.tag(part) == 'track'
+        mimetype = '' if item is None else item.get('media-type', '')
+        supported = mimetype == 'text/vtt' if caption else mimetype.startswith(kind + '/')
+        if not supported:
+            warnings.add(f'{media} EPUB не перенесено: «{address[:150]}». Файл недоступен или не указан в манифесте.')
+            continue
+        fallbacks.setdefault(filename, fallback_id)
+        name = posixpath.basename(filename)
+        text = (part.get('label') or 'Субтитры') + ' (' + name + ')' if caption else name
+        href = relative_href(path, filename)
+        if fragment:
+            href += '#' + quote(fragment, safe='=,&;:')
+        attachments.append((href, mimetype, text))
+        warnings.add(f'{media} EPUB показано статично: «{name}». Файл сохранён, но воспроизведение зависит от читалки.')
+
+    fallback_children = [child for child in source_children if child not in media_nodes]
+    if not attachments and poster is None and not fallback_children and not api.plain(node):
+        raise api.ConversionError(f'Для элемента {kind} нет доступной копии файла, обложки или текста.' + KEEP_EPUB)
+    has_blocks = any(api.tag(child) in BLOCK_CONTENT for child in fallback_children)
+    source_text = node.text
+    node.tag = '{' + api.XH + '}' + ('div' if has_blocks else 'span')
+    node.attrib = {key: value for key, value in node.attrib.items()
+                   if key in {'id', 'class', 'style', 'title', 'lang', XML_LANG, 'dir', 'hidden'}}
+    node.text = None
+    for child in source_children:
+        node.remove(child)
+
+    attachments = list(dict.fromkeys(attachments))
+    if poster is not None and not attachments:
+        node.append(poster)
+    if has_blocks and attachments:
+        attachment_container = api.element(api.XH, 'div')
+        node.append(attachment_container)
+    else:
+        attachment_container = node
+    generated = set()
+    for index, (address, mimetype, text) in enumerate(attachments):
+        content = api.element(api.XH, 'object', data=address, title=text, type=mimetype)
+        if index == 0 and poster is not None:
+            content.append(poster)
+        else:
+            api.append_text(attachment_container, ' ')
+            content.text = text
+        attachment_container.append(content)
+        generated.add(content)
+    api.append_text(node, source_text)
+    for child in source_children:
+        if child in media_nodes:
+            if identity := child.get('id'):
+                node.append(api.element(api.XH, 'span', id=identity))
+            api.append_text(node, child.tail)
+        else:
+            node.append(child)
+    return generated
+
+
+def epub2_chapter(api, archive, path, document, resources, fallbacks, warnings):
+    media_nodes = [node for node in document.iter() if node.tag in {'{' + api.XH + '}audio', '{' + api.XH + '}video'}]
+    generated = set()
+    for node in media_nodes:
+        generated.update(static_media(api, archive, path, node, resources, fallbacks, warnings))
+    changed = bool(media_nodes)
     for node in document.iter():
+        if node in generated:
+            continue
         name = api.tag(node)
         is_html = node.tag.startswith('{' + api.XH + '}')
         if (not is_html and not node.tag.startswith(SVG)) or name in UNSUPPORTED or XML_BASE in node.attrib:
@@ -89,6 +186,29 @@ def epub2_chapter(api, archive, path, document, resources, warnings):
         if is_html and name == 'img' and 'alt' not in node.attrib:
             node.set('alt', '')
             changed = True
+    for paragraph in document.iter('{' + api.XH + '}p'):
+        if any(child.tag.startswith('{' + api.XH + '}') and api.tag(child) in BLOCK_CONTENT for child in paragraph):
+            paragraph.tag = '{' + api.XH + '}div'
+            warnings.add('Абзацы с вложенными блоками EPUB сохранены как блоки. Исходный порядок текста сохранён.')
+            changed = True
+    for node in list(document.iter('{' + api.XH + '}a')):
+        if len(node) != 1 or (node.text or '').strip() or (node[0].tail or '').strip():
+            continue
+        block = node[0]
+        if (not block.tag.startswith('{' + api.XH + '}') or api.tag(block) not in {'div', 'p'} or
+                any(api.tag(child) in BLOCK_CONTENT for child in block)):
+            continue
+        # XHTML 1.1 links can contain inline content. Keep the source block
+        # and move the same link around its visible contents.
+        link = api.element(api.XH, 'a', (node.text or '') + (block.text or ''))
+        link.attrib.update(node.attrib)
+        link.extend(list(block))
+        link.tail = block.tail
+        node.remove(block)
+        node.tag, node.attrib, node.text = block.tag, block.attrib, None
+        node.append(link)
+        warnings.add('Ссылка вокруг блока EPUB перенесена на его содержимое для EPUB 2.')
+        changed = True
     return changed
 
 
@@ -170,6 +290,18 @@ def legacy_metadata(api, metadata, cover_id, warnings):
     dc, opf = '{' + api.DC + '}', '{' + api.OP + '}'
     by_id = {node.get('id'): node for node in metadata if node.tag.startswith(dc) and node.get('id')}
     fields = {'role': 'role', 'file-as': 'file-as', 'identifier-type': 'scheme'}
+    series = list(api.standard_epub_series(metadata))
+    mapped_series, mapped_fields = None, set()
+    has_legacy_series = any(node.get('name') in {'calibre:series', 'calibre:series_index'} for node in metadata)
+    if len(series) == 1 and not has_legacy_series:
+        entry, number = series[0]
+        if not entry.get('refines'):
+            mapped_series = entry
+            metadata.append(api.element(api.OP, 'meta', name='calibre:series', content=api.plain(entry)))
+            mapped_fields.add('collection-type')
+            if re.fullmatch(r'[0-9]+(?:\.[0-9]+)?', number):
+                metadata.append(api.element(api.OP, 'meta', name='calibre:series_index', content=number))
+                mapped_fields.add('group-position')
     for node in list(metadata):
         if node.tag.startswith(dc):
             continue
@@ -178,14 +310,27 @@ def legacy_metadata(api, metadata, cover_id, warnings):
                 metadata.remove(node)
             continue
         property_name = node.get('property', '')
+        if property_name in api.ROUNDTRIP_METADATA:
+            node.attrib.clear()
+            node.set('name', property_name)
+            node.set('content', api.plain(node))
+            node.text = None
+            continue
         if property_name == 'rendition:layout' and api.plain(node) != 'reflowable':
             raise api.ConversionError('Фиксированную вёрстку EPUB 3 нельзя перенести в EPUB 2.' + KEEP_EPUB)
+        if mapped_series is not None and (node is mapped_series or property_name in mapped_fields and
+                                          node.get('refines') == '#' + mapped_series.get('id', '')):
+            metadata.remove(node)
+            continue
         target = by_id.get(node.get('refines', '')[1:]) if node.get('refines', '').startswith('#') else None
         field = fields.get(property_name)
-        if (field and target is not None and api.plain(node) and
+        value = api.plain(node)
+        if (field and target is not None and value and
                 (field == 'scheme' and api.tag(target) == 'identifier' or
                  field != 'scheme' and api.tag(target) in ('creator', 'contributor'))):
-            target.set(opf + field, api.plain(node))
+            if field == 'scheme' and node.get('scheme') == 'onix:codelist5' and value in {'02', '15'}:
+                value = 'ISBN'
+            target.set(opf + field, value)
         elif property_name != 'dcterms:modified':
             warnings.add('Часть дополнительных сведений EPUB 3 не имеет аналога в EPUB 2.')
         metadata.remove(node)
@@ -210,7 +355,7 @@ def downgrade_package(api, archive, package_path, package, warnings, check):
             raise api.ConversionError('Сценарии, формулы MathML, аудиосинхронизацию или внешние ресурсы нельзя перенести в EPUB 2.' + KEEP_EPUB)
         if media in FONT_MEDIA:
             item.set('media-type', 'application/vnd.ms-opentype')
-        elif media not in BOOK_MEDIA:
+        elif media not in BOOK_MEDIA and not attached_media(media or ''):
             raise api.ConversionError(f'Этот ресурс не поддерживается EPUB 2: {path}.' + KEEP_EPUB)
         if 'nav' in properties:
             if nav_path is not None or media != XHTML:
@@ -241,21 +386,39 @@ def downgrade_package(api, archive, package_path, package, warnings, check):
         raise api.ConversionError('Для EPUB 2 нужны название, язык, идентификатор и главы книги.')
     legacy_metadata(api, metadata, cover_id, warnings)
 
-    replacements, chapters, nav = {}, {}, None
+    replacements, chapters, fallbacks, nav = {}, {}, {}, None
     for path, item in by_path.items():
         if check is not None:
             check()
         if item.get('media-type') != XHTML:
             continue
-        document = api.xhtml(archive.read(path))
+        source = archive.read(path)
+        document = api.xhtml(source)
         if document.tag != '{' + api.XH + '}html':
             raise api.ConversionError('Глава EPUB не является XHTML: ' + path)
         if path == nav_path:
             # Parse the original nav before simplifying it as a visible XHTML page.
             nav = api.xhtml(archive.read(path))
         chapters[path] = {node.get('id') for node in document.iter() if node.get('id')}
-        if epub2_chapter(api, archive, path, document, by_path, warnings):
+        changed = epub2_chapter(api, archive, path, document, by_path, fallbacks, warnings)
+        if re.search(br'<!DOCTYPE\s+html\s*>', source[:4096], re.I):
+            if changed:
+                data = api.serialized(document)
+                declaration, newline, content = data.partition(b'\n')
+                replacements[path] = declaration + newline + XHTML_11_DOCTYPE + b'\n' + content
+            else:
+                replacements[path] = re.sub(br'<!DOCTYPE\s+html\s*>', XHTML_11_DOCTYPE, source, count=1, flags=re.I)
+        elif changed:
             replacements[path] = api.serialized(document)
+    for path, item in by_path.items():
+        if not attached_media(item.get('media-type', '')):
+            continue
+        fallback = by_id.get(item.get('fallback'))
+        if fallback is not None and fallback.get('media-type') in POSTER_MEDIA | {XHTML}:
+            continue
+        if path not in fallbacks:
+            raise api.ConversionError(f'Для вложения EPUB 2 не найдено статическое представление: {path}.' + KEEP_EPUB)
+        item.set('fallback', fallbacks[path])
     existing_toc = by_id.get(spine.get('toc'))
     if existing_toc is None:
         existing_toc = next((item for item in manifest if item.get('media-type') == NCX_MEDIA), None)

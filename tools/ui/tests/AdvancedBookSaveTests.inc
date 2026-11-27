@@ -210,22 +210,22 @@ begin
     Require(Item.Mode<>emMarkdown,'An all-Markdown selection offers duplicate output');
   var EmptyRuntime:=Root+'without-modules';
   Required:=MissingBookConversionComponents(EmptyRuntime,Books[0].GetBookFileName,'.fb2',False,nil,'.kepub.epub','kepub');
-  Require(String.Join(',',Required)='BookProcessing,FB2Export','FB2 requests an unrelated Kobo module');
+  Require(String.Join(',',Required)='BookProcessing,KoboExport','FB2 to KEPUB did not select the shared Kobo writer');
   Required:=MissingBookConversionComponents(EmptyRuntime,Books[1].GetBookFileName,'.epub',False,nil,'.kepub.epub','kepub');
   Require(String.Join(',',Required)='BookProcessing,KoboExport','EPUB requests an unrelated FB2 writer');
   Required:=MissingBookConversionComponents(EmptyRuntime,Books[0].GetBookFileName,'.fb2',False,nil,'.pdf','pdf');
-  Require(String.Join(',',Required)='BookProcessing,FB2Export','FB2 to PDF must use only fb2cng');
+  Require(String.Join(',',Required)='BookProcessing,EpubPdfExport','FB2 to PDF did not select the shared PDF writer');
   Required:=MissingBookConversionComponents(EmptyRuntime,Books[1].GetBookFileName,'.epub',False,nil,'.pdf','pdf');
   Require(String.Join(',',Required)='BookProcessing,EpubPdfExport','EPUB to PDF must use only the EPUB writer');
   Required:=MissingBookConversionComponents(EmptyRuntime,Books[2].GetBookFileName,'.docx',False,nil,'.pdf','pdf');
   Require(String.Join(',',Required)='BookProcessing,EpubPdfExport','DOCX requested an unrelated module');
   Required:=MissingBookConversionComponents(EmptyRuntime,Books[0].GetBookFileName,'.fb2',False,nil,'.kfx','kfx');
-  Require(String.Join(',',Required)='BookProcessing,FB2Export','FB2 to KFX requested an unrelated module');
+  Require(String.Join(',',Required)='BookProcessing,KfxExport','FB2 to KFX did not select the shared KFX writer');
   Required:=MissingBookConversionComponents(EmptyRuntime,Books[1].GetBookFileName,'.epub',False,nil,'.kfx','kfx');
   Require(String.Join(',',Required)='BookProcessing,KfxExport','EPUB to KFX requested an unrelated module');
   Required:=MissingBookConversionComponents(EmptyRuntime,Books[2].GetBookFileName,'.docx',False,nil,'.azw8','azw8');
   Require(String.Join(',',Required)='BookProcessing,KfxExport','DOCX to AZW8 requested an unrelated module');
-  for var Index in [1,2] do
+  for var Index in [0,1,2] do
   begin
     Required:=MissingBookConversionComponents(EmptyRuntime,Books[Index].GetBookFileName,Books[Index].FileExt,False,nil,'.epub','epub3');
     Require(String.Join(',',Required)='BookProcessing','Direct EPUB 3 requested an unrelated writer');
@@ -244,6 +244,16 @@ begin
   var Capability:=TPath.Combine(Settings.AppPath,'tools/bookconvert/ADVANCED_EXPORT_API.txt');
   var CurrentAPI:=TFile.ReadAllBytes(Capability);
   try
+    TFile.WriteAllText(Capability,'7',TEncoding.ASCII);
+    Required:=MissingBookConversionComponents(Settings.AppPath,Books[0].GetBookFileName,'.fb2',False,nil,'.kfx','kfx');
+    Require(IndexText('BookProcessing',Required)>=0,'An old FB2 engine was accepted for KFX with the lossy writer');
+    Required:=MissingBookConversionComponents(Settings.AppPath,Books[0].GetBookFileName,'.fb2',False,nil,'.pdf','pdf');
+    Require(IndexText('BookProcessing',Required)>=0,'An old FB2 engine was accepted for the shared PDF writer');
+    TFile.WriteAllText(Capability,'6',TEncoding.ASCII);
+    Required:=MissingBookConversionComponents(Settings.AppPath,Books[0].GetBookFileName,'.fb2',False,nil,'.epub','epub2');
+    Require(String.Join(',',Required)='BookProcessing','An old engine was accepted for FB2 to explicit EPUB 2');
+    Required:=MissingBookConversionComponents(Settings.AppPath,Books[1].GetBookFileName,'.epub',False,nil,'.kepub.epub','kepub');
+    Require(String.Join(',',Required)='BookProcessing','An old KEPUB engine was accepted with duplicated line breaks');
     TFile.WriteAllText(Capability,'5',TEncoding.ASCII);
     Required:=MissingBookConversionComponents(Settings.AppPath,Books[1].GetBookFileName,'.epub',False,nil,'.kfx','kfx');
     Require(String.Join(',',Required)='BookProcessing,KfxExport','An old engine was accepted for EPUB to KFX');
@@ -259,8 +269,6 @@ begin
     TFile.WriteAllText(Capability,'1',TEncoding.ASCII);
     Required:=MissingBookConversionComponents(Settings.AppPath,Books[2].GetBookFileName,'.docx',False,nil,'.kepub.epub','kepub');
     Require(String.Join(',',Required)='BookProcessing','An old engine was accepted for DOCX to KEPUB');
-    Required:=MissingBookConversionComponents(Settings.AppPath,Books[1].GetBookFileName,'.epub',False,nil,'.kepub.epub','kepub');
-    Require(Length(Required)=0,'An old engine was unnecessarily upgraded for direct EPUB to KEPUB');
   finally TFile.WriteAllBytes(Capability,CurrentAPI); end;
   CheckContinuation;
   InstallWriter('EpubPdfExport','.pdf','pdf');

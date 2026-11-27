@@ -51,6 +51,23 @@ function PrepareOfficeReaderFile(const SourceFile, OriginalSource: string;
 var Input: TStream; Writer: TBookCacheWrite; Zip: TZipFile;
   Stamp, StampFile, Temporary, TemporaryStamp, Dependency: string;
   Attributes: TWin32FileAttributeData;
+  LargeDocx: Boolean;
+  function NeedsStreamedDocx: Boolean;
+  var Container: TZipFile; Body: Integer;
+  begin
+    Result:=False;
+    if not SameText(ExtractFileExt(SourceFile),'.docx') then Exit;
+    Container:=TZipFile.Create;
+    try
+      try
+        Container.Open(SourceFile,zmRead);
+        Body:=Container.IndexOf('word/document.xml');
+        Result:=(Body>=0) and (Container.FileInfo[Body].UncompressedSize>64*1024*1024);
+      except
+        // The ordinary reader reports an invalid package with its own details.
+      end;
+    finally Container.Free; end;
+  end;
   procedure CheckCanceled;
   begin
     if (Assigned(IsCanceled) and IsCanceled()) or
@@ -65,14 +82,16 @@ var Input: TStream; Writer: TBookCacheWrite; Zip: TZipFile;
       IntToStr(Attributes.ftLastWriteTime.dwHighDateTime)+':'+IntToStr(Attributes.ftLastWriteTime.dwLowDateTime);
   end;
 begin
-  Result:=SourceFile; if not IsOfficeReaderFormat(ExtractFileExt(SourceFile)) then Exit;
+  Result:=SourceFile;
+  LargeDocx:=NeedsStreamedDocx;
+  if not LargeDocx and not IsOfficeReaderFormat(ExtractFileExt(SourceFile)) then Exit;
   if IsDirectDOCFormat(ExtractFileExt(SourceFile)) then Exit(PrepareDirectDOC(SourceFile,OriginalSource,Settings.AppPath,OnStage,IsCanceled));
   CheckCanceled;
   var Missing:=MissingBookConversionComponents(Settings.AppPath,SourceFile,ExtractFileExt(SourceFile),False,IsCanceled);
   if Length(Missing)>0 then raise EMHLComponentRequired.Create(Missing,
     'Для подготовки документа нужны компоненты: '+String.Join(', ',Missing)+'.');
   if FindReaderOffice='' then raise EMHLComponentRequired.Create('BookProcessing','Для подготовки этого документа нужна общая обработка книг.');
-  if not OfficeReaderAvailable(ExtractFileExt(SourceFile)) then
+  if not LargeDocx and not OfficeReaderAvailable(ExtractFileExt(SourceFile)) then
   begin
     if Pos('|'+LowerCase(ExtractFileExt(SourceFile)).TrimLeft(['.'])+'|','|wps|wpd|')>0 then
     begin

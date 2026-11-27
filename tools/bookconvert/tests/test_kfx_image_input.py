@@ -7,7 +7,31 @@ import unittest
 import zipfile
 
 from test_epub3_output import conversion, legacy_epub, PNG
+from test_conversion import PNG as VALID_PNG
 from kfx_image_input import prepare
+
+
+def subtitled_epub(base, output):
+    chapter = ('<p>Before clip <video poster="../cover.png" src="../film.mp4">'
+               '<track src="../captions.vtt" label="English"/><track src="../repair.vtt" srclang="ru"/>'
+               '<track src="https://example.invalid/captions.vtt"/><em>Authored fallback.</em></video> After clip.</p>')
+    tracks = ('<item id="captions" href="captions.vtt" media-type="text/vtt"/>'
+              '<item id="repair" href="repair.vtt" media-type="text/vtt"/>')
+    cues = ('WEBVTT\r\n\r\nNOTE invisible editor note\r\n\r\nSTYLE\r\n::cue { color: yellow }\r\n\r\n'
+            'first-id\r\n00:01.200 --> 00:04.300 align:start\r\n<v Host><i>First line\r\nnext line</i></v>\r\n\r\n'
+            '00:07.500 --> 00:10.000\r\n<b>Second</b> <00:08.000>&amp; &lt;tag&gt; <ruby>字<rt>zi</rt></ruby>\r\n')
+    with zipfile.ZipFile(base) as archive, zipfile.ZipFile(output, 'x') as result:
+        for entry in archive.infolist():
+            data = archive.read(entry)
+            if entry.filename == 'OPS/text/chapter.xhtml':
+                data = data.replace(b'</body>', chapter.encode('utf-8') + b'</body>')
+            elif entry.filename == 'OPS/book.opf':
+                data = data.replace(b'</manifest>', tracks.encode('utf-8') + b'</manifest>')
+            elif entry.filename == 'OPS/cover.png':
+                data = VALID_PNG
+            result.writestr(entry, data)
+        result.writestr('OPS/captions.vtt', cues.encode('utf-8-sig'))
+        result.writestr('OPS/repair.vtt', 'WEBVTT\n\n00:bad --> 00:11.000\nЧитаемая реплика.\n'.encode('utf-8'))
 
 
 class KfxImageInputTest(unittest.TestCase):
@@ -101,6 +125,77 @@ class KfxImageInputTest(unittest.TestCase):
         self.assertEqual(prepare(conversion, self.base, self.output,
                                  lambda *_: self.fail('No SVG needs rendering.')), 0)
         self.assertFalse(self.output.exists())
+
+    def test_media_without_new_images_preserves_the_authored_poster_and_fallback(self):
+        self.with_vector(b'<p><video id="clip" poster="../cover.png" width="80" aria-label="Original cover">'
+                         b'<source id="video-source" src="../film.mp4"/>'
+                         b'<track src="../captions.vtt"/><em>Fallback text</em> and its tail.</video></p>'
+                         b'<p><audio id="track" src="../music.mp3"/></p>'
+                         b'<p><a href="#clip">Go to poster</a></p>')
+        original = self.source.read_bytes()
+        warnings = set()
+        self.assertEqual(prepare(conversion, self.source, self.output,
+                                 lambda *_: self.fail('The original PNG needs no rendering.'), warnings=warnings), 0)
+        self.assertTrue(self.output.is_file())
+        with zipfile.ZipFile(self.output) as archive:
+            self.assertEqual(archive.read('OPS/cover.png'), b64decode(PNG))
+            root = conversion.xhtml(archive.read('OPS/text/chapter.xhtml'))
+        ids = {node.get('id'): node for node in root.iter() if node.get('id')}
+        poster, = conversion.children(ids['clip'], 'img')
+        self.assertEqual((poster.get('src'), poster.get('width'), poster.get('alt')),
+                         ('../cover.png', '80', 'Original cover'))
+        self.assertEqual(conversion.plain(ids['clip']), 'Fallback text and its tail.')
+        self.assertEqual(conversion.plain(conversion.first(ids['clip'], 'em')), 'Fallback text')
+        self.assertEqual(conversion.plain(ids['track']), '[Аудио «music.mp3» доступно в исходном EPUB.]')
+        self.assertIn('video-source', ids)
+        self.assertTrue(any(node.get('href') == '#clip' for node in root.iter()))
+        self.assertFalse(any(conversion.tag(node) in {'video', 'audio', 'source', 'track'} for node in root.iter()))
+        notices = conversion.damaged_content_warnings(warnings)
+        self.assertEqual(len(notices), 3)
+        self.assertTrue(any('показано статично: «film.mp4»' in notice for notice in notices))
+        self.assertTrue(any('«../captions.vtt»' in notice for notice in notices))
+        self.assertEqual(self.source.read_bytes(), original)
+
+    def test_multimedia_subtitles_remain_readable_in_static_exports(self):
+        import markdown_output
+
+        subtitled_epub(self.base, self.source)
+        original = self.source.read_bytes()
+        warnings = set()
+        prepare(conversion, self.source, self.output, lambda *_: self.fail('Original PNG needs no rendering.'),
+                warnings=warnings)
+        with zipfile.ZipFile(self.output) as archive:
+            prepared = conversion.xhtml(archive.read('OPS/text/chapter.xhtml'))
+            self.assertEqual(archive.read('OPS/cover.png'), VALID_PNG)
+        fb2 = self.root / 'subtitles.fb2'
+        result = conversion.convert_book(self.source, fb2, allow_partial_epub=True)
+        book = conversion.xml(fb2.read_bytes())
+        self.assertIn(VALID_PNG, [b64decode(node.text) for node in conversion.children(book, 'binary')])
+        markdown = self.root / 'subtitles.md'
+        markdown_warnings = set()
+        markdown_output.convert(conversion, self.source, markdown, markdown_warnings, None)
+        for body in (conversion.plain(prepared), conversion.plain(conversion.first(book, 'body')),
+                     markdown.read_text(encoding='utf-8')):
+            for expected in ('Authored fallback.', 'Субтитры — English', '00:01.200 — 00:04.300',
+                             'Host —', 'First line', 'next line', '00:07.500 — 00:10.000',
+                             'Second', '字 (zi)', 'Читаемая реплика.', 'After clip.'):
+                self.assertIn(expected, body)
+            for omitted in ('first-id', 'invisible editor note', '::cue', '00:08.000'):
+                self.assertNotIn(omitted, body)
+            self.assertLess(body.index('First line'), body.index('next line'))
+            self.assertLess(body.index('next line'), body.index('Читаемая реплика.'))
+        self.assertEqual([conversion.plain(node) for node in prepared.iter() if conversion.tag(node) == 'em'],
+                         ['Authored fallback.', 'First line', 'next line'])
+        self.assertTrue({'Authored fallback.', 'First line', 'next line'} <=
+                        {conversion.plain(node) for node in book.iter() if conversion.tag(node) == 'emphasis'})
+        self.assertTrue(any('<tag>' in conversion.plain(node) for node in prepared.iter()))
+        self.assertFalse(any(conversion.tag(node) == 'tag' for node in prepared.iter()))
+        for messages in (warnings, result['warnings'], markdown_warnings):
+            notices = conversion.damaged_content_warnings(messages)
+            self.assertTrue(any('Субтитры EPUB восстановлены частично' in notice for notice in notices))
+            self.assertTrue(any('example.invalid' in notice for notice in notices))
+            self.assertFalse(any('Субтитры EPUB сохранены отдельным текстом' in notice for notice in notices))
+        self.assertEqual(self.source.read_bytes(), original)
 
     def test_webp_requests_its_decoder_and_remaps_the_existing_resource(self):
         webp = b64decode('UklGRh4AAABXRUJQVlA4TBEAAAAvAQAAEAdQqEYUuYaBiOh/AAA=')

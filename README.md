@@ -19,7 +19,7 @@ HomeLibre — программа для Windows, которая помогает
 
 ## Скачать и запустить
 
-[Скачать beta 16](https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.16) · [История выпусков](docs/releases/README.md)
+[Скачать beta 17](https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.17) · [История выпусков](docs/releases/README.md)
 
 Для HomeLibre нужна **Windows 10 или новее**. Выберите архив под разрядность Windows.
 

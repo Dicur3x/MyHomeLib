@@ -222,7 +222,7 @@ function AdvancedWriterComponent(const Ext, Profile: string): string;
 begin
   Result:='';
   if AdvancedBookOutputExtension(Profile)='' then Exit;
-  if Ext='.fb2' then Exit('FB2Export');
+  if (Ext='.fb2') and (Profile='md') then Exit('FB2Export');
   if not IsBasicConversionSource(Ext) then Exit;
   if (Profile='kfx') or (Profile='azw8') then Exit('KfxExport');
   if Profile='kepub' then Exit('KoboExport');
@@ -285,6 +285,8 @@ begin
       if (Writer='BookProcessing') and (OutputProfile='epub3') then RequiredAPI:=4;
       if (Writer='BookProcessing') and (OutputProfile='epub2') then RequiredAPI:=5;
       if Writer='KfxExport' then RequiredAPI:=6;
+      if (OutputProfile='kepub') or ((Ext='.fb2') and (IndexText(OutputProfile,['epub2','epub3'])>=0)) then RequiredAPI:=7;
+      if (Ext='.fb2') and (IndexText(OutputProfile,['pdf','kfx','azw8'])>=0) then RequiredAPI:=8;
       if FileExists(Capability) and (TFile.GetSize(Capability)<=16) then
         API:=StrToIntDef(Trim(TFile.ReadAllText(Capability,TEncoding.ASCII)),0);
       if (Writer='KfxExport') and
@@ -298,7 +300,7 @@ begin
   if IndexText(TargetExtension,['.mobi','.azw3'])>=0 then Need('KindleExport');
   if InspectImages and ComponentNeedsRepair(AppPath,'ImageProcessing') then
   begin
-    Images:=IndexText(Ext,['.djvu','.djv','.dju','.djm','.djvm','.cbz','.cbr','.cb7',
+    Images:=IndexText(Ext,['.pdf','.djvu','.djv','.dju','.djm','.djvm','.cbz','.cbr','.cb7',
       '.jpg','.jpeg','.png','.gif','.bmp','.tif','.tiff','.webp'])>=0;
     if FileExists(SourceFile) then
     begin

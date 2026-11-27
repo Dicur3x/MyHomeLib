@@ -93,6 +93,8 @@ def main():
                         help='Separate verified KindleExport archives, unless included with formats')
     parser.add_argument('--djvu-packages', type=Path,
                         help='Repaired mirror with the required reader bridge and matching source')
+    parser.add_argument('--docsharp-packages', type=Path,
+                        help='Revised HomeLibre DocSharp bundles alongside the legacy mirrors')
     parser.add_argument('--kfx-source', type=Path,
                         help='Corresponding source ZIP for both KfxExport archives')
     parser.add_argument('--output', type=Path, required=True)
@@ -118,7 +120,7 @@ def main():
     reader_keys = {('HomeLibReader', platform) for platform in ('Win32', 'Win64')}
     directories = [args.reader_packages.resolve()]
     if partial:
-        expected = reader_keys
+        expected = set(reader_keys)
         if args.selected_only:
             formats = args.format_packages.resolve()
             selected = set(entries(json.loads((formats / 'HomeLibRu.components.json').read_bytes())))
@@ -137,6 +139,14 @@ def main():
             directories.append(args.kindle_packages.resolve())
         if (stage / 'opds-tls').is_dir():
             directories.append(stage / 'opds-tls')
+    docsharp_keys = {('DocSharp', platform) for platform in ('Win32', 'Win64')} if args.docsharp_packages else set()
+    if docsharp_keys:
+        expected |= docsharp_keys
+        directories.append(args.docsharp_packages.resolve())
+    if args.selected_only and args.djvu_packages:
+        expected |= {('DjVuLibre', platform) for platform in ('Win32', 'Win64')}
+        directories.append(args.djvu_packages.resolve())
+    nested_keys = {**dict.fromkeys(reader_keys, 'minimal_reader'), **dict.fromkeys(docsharp_keys, 'docsharp_bundle')}
     includes_kfx = ('KfxExport', 'Win32') in expected
     if includes_kfx:
         if args.kfx_source is None:
@@ -155,7 +165,8 @@ def main():
     for directory in directories:
         for key, entry in entries(json.loads((directory / 'HomeLibRu.components.json').read_bytes())).items():
             assert key in expected and key not in replacement, 'Unexpected/duplicate replacement'
-            assert all(entry[field] == bootstrap[key][field] for field in ('id', 'platform', 'version', 'archive'))
+            configured = bootstrap[key]['docsharp_bundle'] if key in docsharp_keys else bootstrap[key]
+            assert all(entry[field] == configured[field] for field in ('id', 'platform', 'version', 'archive'))
             if key in reader_keys:
                 assert entry['version'] == identity['version']
             elif key in baseline and key[0] != 'DjVuLibre':
@@ -167,7 +178,7 @@ def main():
             if entry['archive'] in old_assets:
                 assert key[0]=='DjVuLibre' and entry['archive']==baseline[key]['archive'], 'Unexpected existing asset replacement'
             else:
-                assert key[0] in OWNED
+                assert key[0] in OWNED or key in docsharp_keys
             new_names.add(entry['archive'])
             with zipfile.ZipFile(path) as archive:
                 names = archive.namelist()
@@ -189,6 +200,10 @@ def main():
                     packaging = runpy.run_path(str(ROOT / 'scripts/package-format-components.py'))
                     descriptor = json.loads(archive.read(packaging['DESCRIPTORS']['BookProcessing']))
                     packaging['verify_book_processing_sources'](manifest, descriptor)
+                if key in docsharp_keys:
+                    descriptor = json.loads(archive.read('tools/doc/DOC_RUNTIME.json'))
+                    assert descriptor['bundle_version'] == entry['version']
+                    assert digest(archive.read('tools/doc/HomeLibDoc.exe')) == descriptor['helper_sha256']
                 if key[0] == 'EpubPdfExport':
                     packaging = runpy.run_path(str(ROOT / 'scripts/package-format-components.py'))
                     packaging['verify_epub_pdf_source'](manifest)
@@ -238,12 +253,12 @@ def main():
                     assert ('SHA-256: ' + fb2_source_asset['digest'].removeprefix('sha256:')).encode('ascii') in notice
             history = entry.get('history', [])
             if args.selected_only and key not in reader_keys:
-                history = [note for note in bootstrap[key]['history'] if note['version'] == entry['version']]
+                history = [note for note in configured['history'] if note['version'] == entry['version']]
                 assert len(history) == 1, 'Missing current component notes: ' + str(key)
             versions = {note['version'] for note in history}
             previous_entry = baseline.get(key, {})
-            if key in reader_keys:
-                previous_entry = previous_entry.get('minimal_reader', previous_entry)
+            if key in nested_keys:
+                previous_entry = previous_entry.get(nested_keys[key], previous_entry)
             replacement[key] = {**entry, 'history': history + [note for note in previous_entry.get('history', [])
                                                                  if note['version'] not in versions]}
             asset = dict(name=entry['archive'], size=len(data), digest='sha256:' + digest(data),
@@ -275,35 +290,40 @@ def main():
     assert added <= set(replacement)
     merged = {**baseline, **replacement}
     # Older clients keep their verified legacy archive. New clients choose the
-    # nested minimal archive using the same component ID and release metadata.
-    for key in reader_keys:
+    # nested updated archive using the same component ID and release metadata.
+    for key, field in nested_keys.items():
         legacy = baseline[key]
         assert archive_name(legacy) != replacement[key]['archive']
-        if 'minimal_reader' in legacy:
-            previous = tuple(map(int, legacy['minimal_reader']['version'].split('.')))
+        if field in legacy:
+            previous = tuple(map(int, legacy[field]['version'].split('.')))
             current = tuple(map(int, replacement[key]['version'].split('.')))
-            assert current > previous, 'Reader version must advance'
-        merged[key] = {**legacy, 'minimal_reader': replacement[key]}
+            assert current > previous, 'Nested component version must advance: ' + str(key)
+        merged[key] = {**legacy, field: replacement[key]}
     unchanged = set(baseline) - expected
-    for key in unchanged | reader_keys:
+    for key in unchanged | set(nested_keys):
         if key in unchanged and args.selected_only:
             assert all(baseline[key][field] == bootstrap[key][field] for field in ('id', 'platform', 'version', 'archive')), (
                 'Unchanged component identity drift: ' + str(key))
         elif key in unchanged and not partial:
-            assert baseline[key] == bootstrap[key], 'Unchanged component metadata drift: ' + str(key)
+            public_entry, local_entry = baseline[key], bootstrap[key]
+            if key[0] == 'DocSharp':
+                # This optional bundle can be staged separately from other components.
+                public_entry = {name: value for name, value in public_entry.items() if name != 'docsharp_bundle'}
+                local_entry = {name: value for name, value in local_entry.items() if name != 'docsharp_bundle'}
+            assert public_entry == local_entry, 'Unchanged component metadata drift: ' + str(key)
         entry = baseline[key]
         name = archive_name(entry)
         asset = old_assets[name]
         assert asset['browser_download_url'] == PREFIX + name
         assert asset['size'] > 0 and re.fullmatch(r'sha256:[0-9a-f]{64}', asset['digest'])
     replacing_existing = [old_assets[item['name']] for item in uploads if item['name'] in old_assets]
-    previous_owned = set(baseline) & (expected - reader_keys)
+    previous_owned = set(baseline) & (expected - set(nested_keys))
     previous_owned = {key for key in previous_owned if key[0] in OWNED}
     # A client can still request its bundled bootstrap version after the public
     # feed advances. Removal requires an independent check of shipped clients.
     superseded = [old_assets[baseline[key]['archive']] for key in sorted(previous_owned)]
-    superseded.extend(old_assets[baseline[key]['minimal_reader']['archive']]
-                      for key in sorted(reader_keys) if 'minimal_reader' in baseline[key])
+    superseded.extend(old_assets[baseline[key][field]['archive']]
+                      for key, field in sorted(nested_keys.items()) if field in baseline[key])
     feed = encoded(dict(format=1, components=list(merged.values())))
     retained_assets = [asset for name, asset in old_assets.items()
                        if name not in {asset['name'] for asset in replacing_existing} | {'HomeLibRu.components.json'}]

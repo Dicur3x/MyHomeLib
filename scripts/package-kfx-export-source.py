@@ -23,10 +23,10 @@ RESVG = 'resvg-0.49.0.tar.xz'
 README = b'''Corresponding source for HomeLibre KfxExport (Boko 0.6.0 and resvg 0.49.0).
 The two pinned upstream source archives retain their original licences.
 The accompanying patch fixes EPUB navigation and linked inline images during
-import and export. It also adds
-a bounded CLI read of the explicitly declared KFX/AZW8 cover without converting
-the book or choosing an arbitrary illustration. A missing cover stays missing.
-HomeLibre modification date: 2026-11-19. The modified Boko work remains
+import and export. It preserves separate author names and destinations in
+image-only chapters when writing KFX. Cover extraction reads only the declared
+KFX/AZW8 cover resource and leaves books with no declared cover unchanged.
+HomeLibre modification date: 2026-11-27. The modified Boko work remains
 GPL-3.0-or-later; see the upstream LICENSE and the accompanying patch.
 The vendor directory contains the dependency sources pinned by Boko's Cargo.lock.
 resvg includes its own vendor directory in its upstream source archive.
@@ -120,5 +120,6 @@ if __name__ == '__main__':
     parser.add_argument('--vendor', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True, help='Directory for the verified source ZIP')
     args = parser.parse_args()
+    args.output.mkdir(parents=True, exist_ok=True)
     package(args.boko, args.resvg, args.vendor, args.output / ARCHIVE)
     print('PASS verified KFX corresponding source: ' + str(args.output / ARCHIVE))

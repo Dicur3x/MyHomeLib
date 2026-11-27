@@ -1,13 +1,44 @@
 """Rebuild an unencrypted KF8 book as EPUB, retaining its original resources."""
 import contextlib
+import copy
 import io
 import os
 from pathlib import Path
+import re
 import shutil
 import struct
 import sys
+import xml.etree.ElementTree as ET
+from zipfile import ZipFile
 
-VERSION = "kindleunpack-bf0ca6e-v1"
+VERSION = "kindleunpack-bf0ca6e-v2"
+
+
+def write_reader_epub(source, destination):
+    """Remove the unpacker's binary EXTH diagnostics from the package comment."""
+    with ZipFile(source) as original:
+        container = ET.fromstring(original.read('META-INF/container.xml'))
+        packages = {node.get('full-path') for node in container.iter()
+                    if node.tag.rsplit('}', 1)[-1] == 'rootfile'}
+        replacements = {}
+        for member in packages.intersection(original.namelist()):
+            data = original.read(member)
+            # Container_Id can be binary. Its diagnostic copy is not a book
+            # resource or OPF metadata. Leave all other archive members intact.
+            content = re.sub(rb'<!-- BEGIN INFORMATION ONLY .*?END INFORMATION ONLY -->', b'', data, flags=re.DOTALL)
+            if content != data:
+                replacements[member] = content
+        if not replacements:
+            shutil.copyfile(source, destination)
+            return
+        with ZipFile(destination, 'x') as output:
+            output.comment = original.comment
+            for member in original.infolist():
+                if member.filename in replacements:
+                    output.writestr(copy.copy(member), replacements[member.filename])
+                else:
+                    with original.open(member) as raw, output.open(copy.copy(member), 'w') as saved:
+                        shutil.copyfileobj(raw, saved, length=1024 * 1024)
 
 def main():
     source, output = map(lambda x: Path(x).resolve(), sys.argv[1:3])
@@ -54,7 +85,7 @@ def main():
         epubs = list(work.rglob("*.epub"))
         if len(epubs) != 1:
             raise ValueError("KindleUnpack did not create one EPUB")
-        shutil.copyfile(epubs[0],output)
+        write_reader_epub(epubs[0],output)
         print("OK",VERSION)
     finally:
         shutil.rmtree(work)

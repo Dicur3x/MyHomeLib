@@ -2,7 +2,11 @@
 
 interface
 
-uses System.SysUtils;
+uses System.SysUtils, Winapi.MSXML;
+
+function StaticSvgRasterMime(const Data: TBytes): string;
+procedure EmbedStaticSvgRaster(const Attribute: IXMLDOMNode; const Data: TBytes);
+function SerializeStaticSvg(const Root: IXMLDOMElement): TBytes;
 
 // Accept only a self-contained static drawing. The package reader embeds its
 // declared local raster resources before calling this bounded renderer.
@@ -13,8 +17,8 @@ function RenderStaticSvg(const SVG: TBytes; const ToolPath, TempRoot: string;
 
 implementation
 
-uses System.Classes, System.IOUtils, System.RegularExpressions, System.Variants,
-  System.Win.ComObj, Winapi.Windows, Winapi.ActiveX, Winapi.MSXML,
+uses System.Classes, System.IOUtils, System.NetEncoding, System.RegularExpressions, System.Variants,
+  System.Win.ComObj, Winapi.Windows, Winapi.ActiveX,
   unit_MHLExternalTools, unit_ImageBounds;
 
 const SVGNamespace='http://www.w3.org/2000/svg';
@@ -31,6 +35,50 @@ begin
   if (Count<0) or (Size+Count>Limit) then
     raise EReadError.Create('Векторная обложка вернула слишком большое изображение.');
   Result:=inherited Write(Buffer,Count);
+end;
+
+function StaticSvgRasterMime(const Data:TBytes):string;
+var Image:TBytesStream; Width,Height:Integer;
+begin
+  Result:=''; if Length(Data)<12 then Exit;
+  if (Data[0]=$89) and (TEncoding.ASCII.GetString(Data,1,3)='PNG') then Result:='image/png'
+  else if (Data[0]=$FF) and (Data[1]=$D8) and (Data[2]=$FF) then Result:='image/jpeg'
+  else if (TEncoding.ASCII.GetString(Data,0,6)='GIF87a') or
+    (TEncoding.ASCII.GetString(Data,0,6)='GIF89a') then Result:='image/gif'
+  else if (TEncoding.ASCII.GetString(Data,0,4)='RIFF') and
+    (TEncoding.ASCII.GetString(Data,8,4)='WEBP') then Result:='image/webp';
+  if Result='' then Exit;
+  Image:=TBytesStream.Create(Data);
+  try
+    if not ImageDimensions(Image,Width,Height) or not ImageFitsMemory(Image,64*1024*1024) then
+      raise EReadError.Create('Изображение внутри SVG превышает допустимые размеры.');
+  finally Image.Free; end;
+end;
+
+procedure EmbedStaticSvgRaster(const Attribute:IXMLDOMNode; const Data:TBytes);
+var Mime:string;
+begin
+  if Length(Data)=0 then raise EReadError.Create('В книге отсутствует изображение внутри SVG.');
+  Mime:=StaticSvgRasterMime(Data);
+  if Mime='' then raise EReadError.Create('SVG использует неподдерживаемое изображение.');
+  Attribute.nodeValue:='data:'+Mime+';base64,'+TNetEncoding.Base64.EncodeBytesToString(Data).Replace(#13,'').Replace(#10,'');
+end;
+
+function SerializeStaticSvg(const Root:IXMLDOMElement):TBytes;
+var Serialized:string;
+begin
+  // MSXML copies inherited namespace bindings onto the detached clone.
+  Serialized:=Root.xml;
+  if Root.namespaceURI='' then
+  begin
+    // Start with one default namespace to avoid generating xmlns="" on
+    // descendants of older wrappers that omit the SVG namespace entirely.
+    if not Serialized.StartsWith('<svg') then raise EReadError.Create('Не удалось подготовить рисунок SVG.');
+    if Assigned(Root.attributes.getNamedItem('xmlns')) then
+      Serialized:=StringReplace(Serialized,' xmlns=""','',[]);
+    Insert(' xmlns="'+SVGNamespace+'"',Serialized,5);
+  end;
+  Result:=TEncoding.UTF8.GetBytes(Serialized);
 end;
 
 procedure CheckFragment(const Reference:string);
@@ -132,7 +180,8 @@ var Work,InputFile,Root:string; Data:TSVGOutput; Started,LastSpace:UInt64;
   begin if CheckCanceled() then Abort; end;
 begin
   Result:=nil; Work:=''; InputFile:=''; Started:=GetTickCount64; LastSpace:=0;
-  if (MaxWidth<=0) or (MaxHeight<=0) or (MaxWidth>2048) or (MaxHeight>2048) then
+  if (MaxWidth<=0) or (MaxHeight<=0) or (MaxWidth>4096) or (MaxHeight>4096) or
+    (Int64(MaxWidth)*MaxHeight>2048*2048) then
     raise EReadError.Create('Недопустимые размеры рисунка SVG.');
   if Assigned(IsCanceled) and IsCanceled() then Abort;
   if not FileExists(ToolPath) then

@@ -49,7 +49,7 @@ begin
     Require(Reader.SelectedText=Quote,'Actual native text selection changed quote'); Draft:=Reader.AnnotationDraft(Quote);
     Require((Draft.RangeStart=Position) and (Draft.RangeEnd=Position+Length(Quote)) and not Draft.RangeIsPageText,'Text note range differs from selection');
     Button:=Reader.FindComponent('ReaderAddNote') as TButton; Require(Assigned(Button),'Direct toolbar add-note control missing');
-    TThread.ForceQueue(nil,procedure begin FillFeedback19Note(Quote,'Первая мысль без заголовка.'); end); Button.OnClick(Button);
+    QueueReaderDialog(procedure begin FillFeedback19Note(Quote,'Первая мысль без заголовка.'); end); Button.OnClick(Button);
     Store:=TReaderAnnotations.Create(Profile);
     try
       Notes:=Store.Items; Require((Length(Notes)=1) and (Notes[0].Quote=Quote) and (Notes[0].Title=''),'Untitled selected note did not persist correctly');
@@ -84,12 +84,12 @@ begin
     Reader.ReloadAnnotations; Reader.GoToBookmark(0);
     Writeln('PASS long note hover explicitly previews without splitting emoji or changing the full stored thought');
     Reader.SelectText(Position,Length(Quote));
-    TThread.ForceQueue(nil,
+    QueueReaderDialog(
       procedure
       begin
         var Manager:=Screen.ActiveForm; Require(string(Manager.Caption).StartsWith('Закладки и заметки'),'Notes manager absent');
         var Add:=NoteDialogButton(Manager,'Добавить заметку…');
-        TThread.ForceQueue(nil,procedure begin FillFeedback19Note(Quote,'Вторая мысль из окна заметок.'); end); Add.OnClick(Add);
+        QueueReaderDialog(procedure begin FillFeedback19Note(Quote,'Вторая мысль из окна заметок.'); end); Add.OnClick(Add);
         var BookExport:=Manager.FindComponent('ExportBookNotes') as TMenuItem;
         var AllExport:=Manager.FindComponent('ExportAllNotes') as TMenuItem;
         Require(Assigned(BookExport) and Assigned(AllExport) and

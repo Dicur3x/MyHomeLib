@@ -22,7 +22,7 @@ type
     FArchive: TMHLZip;
     FOutline: TArray<TPDFChapter>;
     FArchiveEntries: TArray<Integer>;
-    FFileName: string;
+    FFileName, FFirstPageError: string;
     FPageCache: TDictionary<Integer,TReaderRasterPage>;
     FCacheLock: TObject;
     FVisiblePage, FVisibleFirst, FVisibleCount: Integer;
@@ -35,7 +35,7 @@ type
     function CachedPage(Index: Integer; out Page: TReaderRasterPage; Visible: Boolean = False): Boolean;
   public
     constructor Create(const FileName: string; RenderEdge: Integer = 4000;
-      RequireImageOnly: Boolean = False; DeferFirstDjvuPage: Boolean = False);
+      RequireImageOnly: Boolean = False; RecoverFirstPage: Boolean = False);
     destructor Destroy; override;
     function AsyncPages: Boolean; override;
     procedure PreparePage(Index: Integer; Prefetch: Boolean = False; RenderEdge: Integer = 4000; TargetWidth: Integer = 0); override;
@@ -55,13 +55,14 @@ type
       Backward: Boolean = False): Boolean; override;
     function FindAllOnPage(Page: Integer; const Query: string; MatchCase,
       WholeWord: Boolean): TArray<TPDFMatch>; override;
+    property FirstPageError: string read FFirstPageError;
   end;
 
 implementation
 
 uses Winapi.Windows, Winapi.ActiveX, Winapi.Wincodec, System.Math, System.IOUtils,
   System.Generics.Defaults, System.RegularExpressions, System.Win.ComObj,
-  unit_WebPCompat, unit_ReaderDjvu, unit_BookCache;
+  unit_WebPCompat, unit_ReaderDjvu, unit_BookCache, unit_MHLExternalTools;
 
 type TBitmap = Vcl.Graphics.TBitmap;
   TComicPageStream = class(TMemoryStream)
@@ -171,7 +172,7 @@ begin
   OleCheck(Factory.CreateDecoderFromFilename(PWideChar(FileName),GUID_NULL,GENERIC_READ,WICDecodeMetadataCacheOnDemand,Decoder));
 end;
 
-constructor TReaderRaster.Create(const FileName: string; RenderEdge: Integer; RequireImageOnly, DeferFirstDjvuPage: Boolean);
+constructor TReaderRaster.Create(const FileName: string; RenderEdge: Integer; RequireImageOnly, RecoverFirstPage: Boolean);
 var Names: TList<Integer>; I, SortChecks: Integer; Name, E: string; Factory: IWICImagingFactory;
   Decoder: IWICBitmapDecoder; Frames: Cardinal;
 begin
@@ -182,11 +183,16 @@ begin
   FDjvu:=Pos('|'+E+'|','|.djvu|.djv|.dju|.djm|.djvm|')>0;
   if FDjvu then
   begin
+    Name:=FFileName;
     if NativeDjvuAvailable then
-    begin FNativeDjvu:=TReaderDjvuNative.Create(FFileName); FPageCount:=FNativeDjvu.PageCount; end
+    begin
+      FNativeDjvu:=TReaderDjvuNative.Create(FFileName);
+      FPageCount:=FNativeDjvu.PageCount;
+      Name:=FNativeDjvu.SourceForReading;
+    end
     else FPageCount:=DjvuPageCount(FFileName);
     try
-      FOutline := DjvuOutline(FFileName, FPageCount);
+      FOutline := DjvuOutline(Name, FPageCount);
     except
       on E: EAbort do raise;
       // Optional damaged metadata must not prevent opening the pages.
@@ -215,7 +221,7 @@ begin
       begin
         if (I mod 256=0) and (GetCurrentThreadID<>MainThreadID) and TThread.CheckTerminated then Abort;
         Name:=FArchive.FileNames[I].Replace('\','/');
-        if IsComicPageName(Name) and (FArchive.FileSizes[I]>0) then Names.Add(I);
+        if IsComicPageName(Name) then Names.Add(I);
       end;
       SortChecks:=0;
       Names.Sort(TComparer<Integer>.Construct(
@@ -230,7 +236,20 @@ begin
     FPageCount:=Length(FArchiveEntries);
     if FPageCount=0 then raise Exception.Create('В комиксе не найдены изображения страниц.');
   end;
-  if not (DeferFirstDjvuPage and FDjvu and (FPageCount>1)) then PreparePage(0,False,RenderEdge);
+  if RecoverFirstPage and FDjvu and (FPageCount>1) then Exit;
+  try
+    PreparePage(0,False,RenderEdge);
+  except
+    on E: EMHLComponentRequired do raise;
+    on E: EAbort do raise;
+    on E: EOutOfMemory do raise;
+    on E: Exception do
+    begin
+      if not RecoverFirstPage or (FPageCount=1) then raise;
+      FFirstPageError:=E.Message;
+      if FFirstPageError='' then FFirstPageError:=E.ClassName;
+    end;
+  end;
 end;
 
 destructor TReaderRaster.Destroy;
@@ -363,7 +382,9 @@ begin
         // Keep the enumerated entry index through natural page sorting rather
         // than interpreting its literal filename as a wildcard search.
         var Entry:=FArchiveEntries[Index];
-        if (FArchive.FileSizes[Entry]<0) or (FArchive.FileSizes[Entry]>32*1024*1024) then raise Exception.Create('Изображение комикса превышает 32 МБ.');
+        var EntrySize:=FArchive.FileSizes[Entry];
+        if EntrySize=0 then raise EReadError.Create('Страница комикса пуста.');
+        if (EntrySize<0) or (EntrySize>32*1024*1024) then raise Exception.Create('Изображение комикса превышает 32 МБ.');
         Stream:=TComicPageStream.Create; FArchive.ExtractToStream(Entry,Stream);
       end else Stream:=TFileStream.Create(FFileName,fmOpenRead or fmShareDenyNone);
       Stream.Position:=0; Converted:=ConvertWebPStreamToPNG(Stream);

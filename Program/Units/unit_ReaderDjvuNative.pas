@@ -9,7 +9,7 @@ type
   // finished BGRA pixels; no TIFF, WIC decode or per-page process is required.
   TReaderDjvuNative = class
   private
-    FFileName: string;
+    FFileName, FSourceForReading, FRecoveryDir: string;
     FProcess, FJob, FInput, FOutput, FMapping: THandle;
     FView: Pointer;
     FPageCount: Integer;
@@ -17,19 +17,22 @@ type
     procedure Stop;
     procedure Send(const Request: TDjvuRequest; const Text: UTF8String='');
     procedure Receive(out Response: TDjvuResponse);
+    procedure PrepareSource;
+    procedure RemoveRecovery;
   public
     constructor Create(const FileName: string);
     destructor Destroy; override;
     procedure RenderPage(Index: Integer; out Pixels: TBytes; out Width, Height: Integer;
       MaxEdge: Integer = 0);
     property PageCount: Integer read FPageCount;
+    property SourceForReading: string read FSourceForReading;
   end;
 
 function NativeDjvuAvailable: Boolean;
 
 implementation
 
-uses System.Classes, System.IOUtils, System.Math, unit_MHLExternalTools, unit_ComponentUsage;
+uses System.Classes, System.IOUtils, System.Math, unit_MHLExternalTools, unit_ComponentUsage, dm_user;
 
 function NativeDjvuAvailable: Boolean;
 begin Result:=FindExternalTool('HomeLibDjvu.exe','djvu')<>''; end;
@@ -134,7 +137,7 @@ begin
     if ChildOut<>0 then CloseHandle(ChildOut);
     if NullError<>INVALID_HANDLE_VALUE then CloseHandle(NullError);
   end;
-  Text:=UTF8String(FFileName);
+  Text:=UTF8String(FSourceForReading);
   Request:=Default(TDjvuRequest); Request.Magic:=DJVU_PROTOCOL; Request.Command:=DJVU_OPEN; Request.Length:=Length(Text);
   Send(Request,Text); Receive(Response);
   if (Response.Count<=0) or (Response.Count>100000) then raise Exception.Create('Некорректное число страниц DjVu.');
@@ -154,11 +157,67 @@ begin
   if FMapping<>0 then begin CloseHandle(FMapping); FMapping:=0; end;
 end;
 
+procedure TReaderDjvuNative.RemoveRecovery;
+begin
+  if FRecoveryDir='' then Exit;
+  try
+    if DirectoryExists(FRecoveryDir) and
+       (GetFileAttributes(PChar(FRecoveryDir)) and FILE_ATTRIBUTE_REPARSE_POINT = 0) then
+      TDirectory.Delete(FRecoveryDir,True);
+  except
+    // The session temporary directory remains available for cleanup.
+  end;
+  FRecoveryDir:='';
+end;
+
+procedure TReaderDjvuNative.PrepareSource;
+var Source: TFileStream; Header: array[0..15] of AnsiChar;
+  Declared: Cardinal; Tool, Directory, Index: string; Output: TMemoryStream; Started: UInt64;
+  Signature, FormKind: AnsiString;
+begin
+  FSourceForReading:=FFileName;
+  Source:=TFileStream.Create(FFileName,fmOpenRead or fmShareDenyWrite);
+  try
+    if Source.Read(Header[0],SizeOf(Header))<>SizeOf(Header) then Exit;
+    SetString(Signature,PAnsiChar(@Header[0]),8);
+    SetString(FormKind,PAnsiChar(@Header[12]),4);
+    if (Signature<>'AT&TFORM') or (FormKind<>'DJVM') then Exit;
+    Declared:=Cardinal(Byte(Header[8])) shl 24 or Cardinal(Byte(Header[9])) shl 16 or
+      Cardinal(Byte(Header[10])) shl 8 or Cardinal(Byte(Header[11]));
+    if Int64(Declared)+12<=Source.Size then Exit;
+  finally Source.Free; end;
+  Tool:=FindExternalTool('HomeLibDjvu.exe','djvu');
+  if Tool='' then Exit;
+  Directory:=TPath.Combine(Settings.TempDir,'homelibre-djvu-'+TGUID.NewGuid.ToString);
+  if not CreateDirectory(PChar(Directory),nil) then Exit;
+  FRecoveryDir:=Directory;
+  Index:=TPath.Combine(Directory,'index.djvu');
+  Output:=TMemoryStream.Create;
+  try
+    try
+      Started:=GetTickCount64;
+      RunExternalToolToStream(Tool,['--recover-bundled',FFileName,Directory],Output,
+        function: Boolean
+        begin
+          if GetTickCount64-Started>30000 then raise EReadError.Create('Восстановление DjVu заняло больше 30 секунд.');
+          Result:=Canceled;
+        end,0,True,512*1024*1024);
+      if FileExists(Index) then FSourceForReading:=Index;
+    except
+      on E: EAbort do raise;
+      on E: Exception do ;
+    end;
+  finally
+    Output.Free;
+    if FSourceForReading=FFileName then RemoveRecovery;
+  end;
+end;
+
 constructor TReaderDjvuNative.Create(const FileName: string);
-begin inherited Create; FFileName:=TPath.GetFullPath(FileName); Start; end;
+begin inherited Create; FFileName:=TPath.GetFullPath(FileName); PrepareSource; Start; end;
 
 destructor TReaderDjvuNative.Destroy;
-begin Stop; inherited; end;
+begin Stop; RemoveRecovery; inherited; end;
 
 procedure TReaderDjvuNative.RenderPage(Index: Integer; out Pixels: TBytes; out Width, Height: Integer;
   MaxEdge: Integer);

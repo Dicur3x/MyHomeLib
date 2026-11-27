@@ -7,10 +7,18 @@ for the matching Windows architecture. The original runtime license ships in
 `tools/python/LICENSE.txt`. The upstream archives are pinned by SHA-256 in
 [`Installer/KINDLE_RUNTIME.json`](../../Installer/KINDLE_RUNTIME.json).
 
+BookProcessing 3.0.0.17 bundles the unmodified [pypdf 7.1.1 wheel](https://pypi.org/project/pypdf/7.1.1/#files)
+at `tools/bookconvert/pdf-runtime/pypdf.whl` for restoring missing PDF font mappings.
+The wheel includes the BSD-3-Clause license. The package builder verifies the
+wheel checksum before including it in the component.
+
 For Word 6/95, HomeLibre builds `HomeLibLegacyDocRich.exe` with **Docboss
 0.2.1**, pinned to commit
 [`373b563`](https://github.com/4thel00z/docboss/tree/373b563b7a60d97f875a733da5635d0d15c4839e)
 in [`Utils/HomeLibLegacyDocRich/Cargo.lock`](../../Utils/HomeLibLegacyDocRich/Cargo.lock).
+Build this worker with `scripts/build-legacy-doc-rich.py`. The script applies
+HomeLibre's `docboss-drawings.patch` to the pinned source so curve adjustments
+from binary Word drawings reach the export renderer.
 The installed `tools/bookconvert/legacy-doc/DOCBOSS-NOTICE.txt` includes the
 upstream MIT and Apache license texts and the Rust dependency notices.
 
@@ -81,6 +89,8 @@ Saved web pages (MHTML/CHM) use **html5lib 1.1** (MIT), **six 1.17.0** (MIT)
 and **webencodings 0.5.1** (BSD-3-Clause), from their official PyPI wheels.
 Production Python modules are in `vendor`; the complete original licenses are
 `HTML5LIB_LICENSE.txt`, `SIX_LICENSE.txt`, and `WEBENCODINGS_LICENSE.txt` there.
+HomeLibre patches the html5lib ElementTree walker to retain sibling indexes
+during traversal of documents with many elements under one parent.
 No browser engine, network loader or package installation is used at runtime.
 Together these sources add about 0.55 MB before compression.
 

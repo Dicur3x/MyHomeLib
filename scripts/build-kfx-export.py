@@ -19,7 +19,7 @@ SOURCES = (
     ('resvg', '0.49.0', 'a1b167d575d0be44e303c76b46fe0aefc5c5748a46979ebae6a7dc3276c2ce8c'),
 )
 TARGETS = {'Win32': ('i686-pc-windows-gnu', 0x14c), 'Win64': ('x86_64-pc-windows-gnu', 0x8664)}
-SOURCE_ARCHIVE = 'Boko-0.6.0-HomeLibre-source-3.0.0.7.zip'
+SOURCE_ARCHIVE = 'Boko-0.6.0-HomeLibre-source-3.0.0.17.zip'
 
 
 def digest(data):

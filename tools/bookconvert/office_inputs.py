@@ -4,14 +4,19 @@ Only package XML and embedded resources are read. Macros, external links and
 spreadsheet formulae are never executed. Slides are reflowed in document order;
 worksheets retain cell addresses. The original office page layout is not rendered.
 """
+from contextlib import ExitStack, contextmanager
+from decimal import Decimal
 from datetime import datetime, timedelta
+import importlib.util
 from pathlib import Path
+from queue import Empty
 import posixpath
 import re
 import subprocess
 import tempfile
 import time
 import os
+import zipfile
 
 P = 'http://schemas.openxmlformats.org/presentationml/2006/main'
 A = 'http://schemas.openxmlformats.org/drawingml/2006/main'
@@ -26,6 +31,166 @@ XL = 'http://www.w3.org/1999/xlink'
 OFFICE = {'.docm', '.dotx', '.dotm', '.ppt', '.pps', '.pot', '.pptx', '.pptm',
           '.ppsx', '.ppsm', '.potx', '.potm', '.xls', '.xlt', '.xlsx', '.xlsm',
           '.xltx', '.xltm', '.ods', '.ots', '.odp', '.otp', '.ott', '.wps', '.wpd'}
+
+METAFILE_TIMEOUT = 15
+WINDOWLESS = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+
+
+def load_advanced_output():
+    spec = importlib.util.spec_from_file_location('homelib_advanced_output', Path(__file__).with_name('advanced_output.py'))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def render_office_image(book, worker, data):
+    reply = worker.request(data, METAFILE_TIMEOUT)
+    if reply == b'ERROR':
+        raise book.c.UnreadableImage('Не удалось декодировать встроенное офисное изображение.')
+    if reply != b'OK' or not worker.target.is_file():
+        raise BrokenPipeError('Office image worker stopped without producing a PNG.')
+    try:
+        return read_office_png(book, worker.target)
+    finally:
+        worker.target.unlink(missing_ok=True)
+
+
+def read_office_png(book, target):
+    if target.stat().st_size > 16 * 1024 * 1024:
+        book.fail('Преобразованное изображение превышает 16 МБ.')
+    png = target.read_bytes()
+    if not png.startswith(b'\x89PNG\r\n\x1a\n'):
+        book.fail('Компонент создал некорректное изображение.')
+    return png
+
+
+@contextmanager
+def office_metafile_workspace(book):
+    preferred = getattr(book, 'work_root', None)
+    parents = (Path(preferred).absolute(), None) if preferred else (None,)
+    for parent in parents:
+        try:
+            workspace = tempfile.TemporaryDirectory(prefix='homelibre-metafiles-', dir=parent)
+        except OSError as error:
+            if getattr(error, 'winerror', None) != 206:  # ERROR_FILENAME_EXCED_RANGE
+                raise
+            continue
+        with workspace as folder:
+            # The installed .NET helper can still enforce its legacy limits.
+            # Leave room for both picture.bin and picture.png.
+            if os.name == 'nt' and len(folder.encode('utf-16-le', 'surrogatepass')) // 2 >= 248:
+                continue
+            yield Path(folder)
+            return
+    book.fail('Слишком длинный путь к временной папке для обработки иллюстраций Word. Выберите более короткую временную папку.')
+
+
+def rasterize_metafile(book, tool, data):
+    resources = getattr(book, 'work_resources', None)
+    if resources is not None and not hasattr(book, '_office_image_worker'):
+        book._office_image_worker = None
+        folder = resources.enter_context(office_metafile_workspace(book))
+        worker = load_advanced_output().ImageFileWorker(tool, folder, '--image-to-png-stream')
+        resources.callback(worker.close)
+        try:
+            ready = worker.response(METAFILE_TIMEOUT) == b'READY 1'
+        except Empty:
+            ready = False
+        if ready:
+            book._office_image_worker = worker
+        else:
+            worker.close()
+
+    worker = getattr(book, '_office_image_worker', None)
+    if worker is not None:
+        try:
+            return render_office_image(book, worker, data)
+        except BrokenPipeError:
+            worker.close()
+            book._office_image_worker = None
+        except Empty:
+            worker.close()
+            book.fail('Декодирование изображения превысило 15 секунд.')
+
+    # Older installed DocSharp helpers support only one image per process.
+    with office_metafile_workspace(book) as work:
+        source = work / 'picture.bin'
+        target = work / 'picture.png'
+        source.write_bytes(data)
+        try:
+            result = subprocess.run([str(tool), '--image-to-png', str(source), str(target)],
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                    timeout=METAFILE_TIMEOUT, creationflags=WINDOWLESS)
+        except subprocess.TimeoutExpired:
+            book.fail('Декодирование изображения превысило 15 секунд.')
+        if result.returncode or not target.is_file():
+            raise book.c.UnreadableImage('Не удалось декодировать встроенное офисное изображение.')
+        return read_office_png(book, target)
+
+
+def rasterize_word_drawing(book, data):
+    resources = getattr(book, 'work_resources', None)
+    if resources is None or len(data) > 4 * 1024 * 1024:
+        return None
+    if not hasattr(book, '_word_drawing_worker'):
+        book._word_drawing_worker = None
+        tool = book.tools_root / 'doc' / 'HomeLibDoc.exe'
+        if os.name != 'nt' or not tool.is_file():
+            return None
+        try:
+            folder = resources.enter_context(office_metafile_workspace(book))
+            worker = load_advanced_output().ImageFileWorker(tool, folder, '--drawingml-to-png-stream')
+        except (OSError, book.c.ConversionError):
+            return None
+        resources.callback(worker.close)
+        try:
+            if worker.response(METAFILE_TIMEOUT) == b'READY 1':
+                book._word_drawing_worker = worker
+            else:
+                worker.close()
+        except Empty:
+            worker.close()
+    worker = book._word_drawing_worker
+    if worker is None:
+        return None
+    try:
+        return render_office_image(book, worker, data)
+    except book.c.UnreadableImage:
+        return None  # This figure uses features the renderer cannot preserve.
+    except (OSError, Empty, book.c.ConversionError):
+        worker.close()
+        book._word_drawing_worker = None
+        return None
+
+
+def rasterize_word_frame_pages(book, request, count):
+    if os.name != 'nt' or not 1 <= count <= 128 or len(request) > 16 * 1024 * 1024:
+        return None
+    tool = book.tools_root / 'doc' / 'HomeLibDoc.exe'
+    if not tool.is_file():
+        return None
+    writer = load_advanced_output()
+    try:
+        with office_metafile_workspace(book) as work:
+            source, target = work / 'pages.xml', work / 'pages.zip'
+            source.write_bytes(request)
+            writer.run_writer(book.c, [str(tool), '--drawingml-to-png-batch', source, target], work,
+                              book.cancel_check, timeout=45)
+            with zipfile.ZipFile(target) as archive:
+                names = [f'{page}.png' for page in range(count)]
+                if sorted(archive.namelist()) != sorted(names):
+                    return None
+                sizes = [archive.getinfo(name).file_size for name in names]
+                if any(not 24 < size <= 16 * 1024 * 1024 for size in sizes) or sum(sizes) > 64 * 1024 * 1024:
+                    return None
+                pages = [archive.read(name) for name in names]
+                if any(not page.startswith(b'\x89PNG\r\n\x1a\n') or not all(book.c.raster_header_size(page)) for page in pages):
+                    return None
+                return pages
+    except (OSError, zipfile.BadZipFile, book.c.ConversionError):
+        if book.cancel_check is not None:
+            book.cancel_check()
+        return None
 
 
 def rasterize_image(book, data):
@@ -58,21 +223,121 @@ def rasterize_image(book, data):
         raise book.c.UnreadableImage('Не удалось распознать встроенное изображение документа.')
     tool = book.tools_root / 'doc' / 'HomeLibDoc.exe'
     if not tool.is_file(): book.require('DocSharp', 'Для этого офисного изображения нужен компонент DocSharp.')
-    with tempfile.TemporaryDirectory(prefix='homelib-image-',dir=getattr(book,'work_root',None)) as work:
-        source = Path(work) / 'picture.bin'; target = Path(work) / 'picture.png'
+    return rasterize_metafile(book, tool, data)
+
+
+def picture_crop(book, data, rectangle):
+    # Word percentages can be expressed in thousandths of a percent or with
+    # a percent sign. Negative edges extend the viewport beyond the image.
+    offsets = []
+    for edge in ('l', 't', 'r', 'b'):
+        value = rectangle.get(edge, '0').strip()
+        if not re.fullmatch(r'[+-]?(?:[0-9]{1,10}|[0-9]{0,8}\.[0-9]{1,8})%?', value):
+            raise ValueError('Invalid drawing crop')
+        percent = value.endswith('%')
+        offsets.append(Decimal(value.removesuffix('%')) / (100 if percent else 100000))
+    return crop_raster_image(book, data, offsets)
+
+
+def crop_raster_image(book, data, offsets, *, fills=()):
+    if not any(offsets) and not fills:
+        return data
+    if (os.name != 'nt' or len(data) > 16 * 1024 * 1024 or offsets[0] + offsets[2] >= 1 or
+            offsets[1] + offsets[3] >= 1):
+        raise ValueError('Unavailable drawing crop')
+
+    import ctypes as ct
+    from uuid import UUID
+    ptr, number, uint = ct.c_void_p, ct.c_int, ct.c_uint
+    gdip = ct.WinDLL('gdiplus.dll', winmode=0x800)  # LOAD_LIBRARY_SEARCH_SYSTEM32
+
+    class Startup(ct.Structure):
+        _fields_ = [('version', uint), ('callback', ptr), ('no_thread', number), ('built_in_only', number)]
+
+    class BitmapData(ct.Structure):
+        _fields_ = [('width', uint), ('height', uint), ('stride', number), ('format', number),
+                    ('scan', ptr), ('reserved', ct.c_size_t)]
+
+    functions = dict(GdiplusStartup=(ptr, ptr, ptr), GdiplusShutdown=(ct.c_size_t,),
+        GdipLoadImageFromFile=(ct.c_wchar_p, ptr), GdipDisposeImage=(ptr,),
+        GdipGetImageWidth=(ptr, ptr), GdipGetImageHeight=(ptr, ptr),
+        GdipCreateBitmapFromScan0=(number, number, number, number, ptr, ptr),
+        GdipBitmapLockBits=(ptr, ptr, uint, number, ptr), GdipBitmapUnlockBits=(ptr, ptr),
+        GdipSaveImageToFile=(ptr, ct.c_wchar_p, ptr, ptr))
+    for name, arguments in functions.items():
+        function = getattr(gdip, name)
+        function.argtypes = arguments
+        function.restype = None if name == 'GdiplusShutdown' else number
+
+    def checked(function, *args):
+        status = function(*args)
+        if status:
+            raise ValueError(f'{function.__name__} returned GDI+ status {status}')
+
+    book.c.check_embedded_raster(data)
+    gif = data.startswith((b'GIF87a', b'GIF89a'))
+    if not data.startswith((b'\x89PNG\r\n\x1a\n', b'\xff\xd8\xff', b'GIF87a', b'GIF89a')):
+        data = rasterize_image(book, data)
+    with office_metafile_workspace(book) as folder, ExitStack() as cleanup:
+        source, output = folder / 'picture.bin', folder / 'picture.png'
         source.write_bytes(data)
+        token, image, bitmap = ct.c_size_t(), ptr(), ptr()
+        checked(gdip.GdiplusStartup, ct.byref(token), ct.byref(Startup(1, None, 0, 1)), None)
+        cleanup.callback(gdip.GdiplusShutdown, token)
+        checked(gdip.GdipLoadImageFromFile, str(source), ct.byref(image))
+        cleanup.callback(gdip.GdipDisposeImage, image)
+        width, height = uint(), uint()
+        checked(gdip.GdipGetImageWidth, image, ct.byref(width))
+        checked(gdip.GdipGetImageHeight, image, ct.byref(height))
+        w, h = width.value, height.value
+        left, top, right, bottom = (round(dimension * offset)
+                                    for dimension, offset in zip((w, h, w, h), offsets))
+        if not any((left, top, right, bottom)) and not fills:
+            return data
+        viewport_w, viewport_h = w-left-right, h-top-bottom
+        x1, y1, x2, y2 = max(0, left), max(0, top), min(w, w-right), min(h, h-bottom)
+        if (not 0 < w*h <= 64_000_000 or not 0 < viewport_w <= 16384 or not 0 < viewport_h <= 16384 or
+                viewport_w*viewport_h > 16_777_216 or x1 >= x2 or y1 >= y2):
+            raise ValueError('Invalid drawing crop dimensions')
+        # Copy the decoded rows in straight ARGB, preserving their colors and
+        # alpha without resampling. Outsets use the buffer's transparent pixels.
+        argb = 0x26200A  # PixelFormat32bppARGB
+        stride = viewport_w * 4
+        buffer = ct.create_string_buffer(stride * viewport_h)
+        region = (number * 4)(x1, y1, x2 - x1, y2 - y1)
+        locked = BitmapData()
+        checked(gdip.GdipBitmapLockBits, image, ct.byref(region), 1, argb, ct.byref(locked))
         try:
-            with (Path(work) / 'output.log').open('wb') as log:
-                result = subprocess.run([str(tool), '--image-to-png', str(source), str(target)],
-                                        stdout=log, stderr=subprocess.STDOUT, timeout=15,
-                                        creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
-            if result.returncode or not target.is_file():
-                raise book.c.UnreadableImage('Не удалось декодировать встроенное офисное изображение.')
-            if target.stat().st_size > 16 * 1024 * 1024: book.fail('Преобразованное изображение превышает 16 МБ.')
-            png = target.read_bytes()
-            if not png.startswith(b'\x89PNG\r\n\x1a\n'): book.fail('Компонент создал некорректное изображение.')
-            return png
-        except subprocess.TimeoutExpired: book.fail('Декодирование изображения превысило 15 секунд.')
+            rows, row_bytes = y2 - y1, (x2 - x1) * 4
+            if (locked.width, locked.height) != (x2 - x1, rows) or not locked.scan or abs(locked.stride) < row_bytes:
+                raise ValueError('Invalid decoded drawing pixels')
+            destination = ct.addressof(buffer) + (y1 - top) * stride + (x1 - left) * 4
+            for row in range(rows):
+                ct.memmove(destination + row * stride, locked.scan + row * locked.stride, row_bytes)
+        finally:
+            checked(gdip.GdipBitmapUnlockBits, image, ct.byref(locked))
+        for x, y, end_x, end_y, color in fills:
+            # Coordinates are fractions of the input image, even when the
+            # output viewport extends above or beside it.
+            x, end_x = round(w * x) - left, round(w * end_x) - left
+            y, end_y = round(h * y) - top, round(h * end_y) - top
+            start_x, stop_x = max(0, x), min(viewport_w, max(x + 1, end_x))
+            start_y, stop_y = max(0, y), min(viewport_h, max(y + 1, end_y))
+            if start_x >= stop_x or start_y >= stop_y:
+                raise ValueError('Drawing mark is outside the viewport')
+            pixels = (color[::-1] + b'\xff') * (stop_x - start_x)
+            address = ct.addressof(buffer) + start_x * 4
+            for row in range(start_y, stop_y):
+                ct.memmove(address + row * stride, pixels, len(pixels))
+        checked(gdip.GdipCreateBitmapFromScan0, viewport_w, viewport_h, stride, argb, buffer, ct.byref(bitmap))
+        cleanup.callback(gdip.GdipDisposeImage, bitmap)
+        png_encoder = (ct.c_ubyte * 16).from_buffer_copy(UUID('557cf406-1a04-11d3-9a73-0000f81ef32e').bytes_le)
+        checked(gdip.GdipSaveImageToFile, bitmap, str(output), ct.byref(png_encoder), None)
+        if output.stat().st_size > 16 * 1024 * 1024:
+            raise ValueError('Cropped picture exceeds the embedded image limit')
+        if gif:
+            book.warnings.add('GIF сохранены статичными изображениями PNG: используется первый кадр. Исходные файлы не изменены.')
+        return read_office_png(book, output)
 
 
 def _odf_image(book, package, node, out):
@@ -375,7 +640,13 @@ def read(book, extension, package_factory, read_docx, read_odt, read_html):
                 else:
                     if not prepared.is_file() or prepared.stat().st_size > book.c.MAX_FILE: book.fail('Компонент создал неполный или слишком большой документ.')
                     book.source = prepared
-                    if suffix == '.docx': read_docx(book)
+                    if suffix == '.docx':
+                        with log.open('rb') as diagnostics:
+                            if any(line.strip() in {b'NOTE_LAYOUT footnote', b'NOTE_LAYOUT endnote'}
+                                   for line in diagnostics.read(4096).splitlines()):
+                                book.warnings.add(book.c.DOC_NOTE_LAYOUT_LOSS +
+                                                  '. Номера и текст отдельных сносок могут не совпадать.')
+                        read_docx(book)
                     else: read(book, suffix, package_factory, read_docx, read_odt, read_html)
             except subprocess.TimeoutExpired: book.fail('Чтение офисного документа превысило 30 секунд.')
             finally: book.source = original

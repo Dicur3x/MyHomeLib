@@ -36,6 +36,7 @@ function PrepareProgramUpdate(const Archive, SHA256, Tag, Platform, Job: string;
   const ComponentVersion: string = ''): TUpdateFiles;
 function UpdateFileVersion(const FileName: string): string;
 function CompareComponentVersions(const Left, Right: string; out Comparison: Integer): Boolean;
+function IsDocSharpBundleRevision(const LibraryVersion, BundleVersion: string): Boolean;
 function ComponentFileName(const ID: string): string;
 function InstalledComponentFileName(const AppPath, ID: string): string;
 function InstalledComponentVersion(const AppPath, ID: string): string;
@@ -195,7 +196,8 @@ begin
     (Name='tools/djvu/HomeLibDjvu-source/HomeLibDjvu.dproj') or
     (Name='tools/djvu/HomeLibDjvu-source/LICENSE') or
     (Name='tools/djvu/HomeLibDjvu-source/README.md') or
-    (Name='tools/djvu/HomeLibDjvu-source/unit_DjvuProtocol.pas'));
+    (Name='tools/djvu/HomeLibDjvu-source/unit_DjvuProtocol.pas') or
+    (Name='tools/djvu/HomeLibDjvu-source/unit_DjvuRecovery.pas'));
   if ID='PDFium' then Exit(SafeUpdateName(Name) and Name.StartsWith('tools/pdfium/') and
     ((Name='tools/pdfium/pdfium.dll') or (Name='tools/pdfium/HomeLibPDF.exe') or
      (Name='tools/pdfium/RUNTIME.json') or (Name='tools/pdfium/WORKER_RUNTIME.json') or
@@ -228,6 +230,7 @@ begin
     (Name='tools/djvu/COPYING.txt') or (Name='tools/djvu/COPYRIGHT') or
     (Name='tools/djvu/IJG-README.txt') or (Name='tools/djvu/LIBTIFF-COPYRIGHT.txt') or
     (Name='tools/djvu/ZLIB-README.txt') or (Name='tools/djvu/RUNTIME.json') or
+    (Name='tools/djvu/HomeLibDjvu-source/unit_DjvuRecovery.pas') or
     TRegEx.IsMatch(Name,'^tools/djvu/djvulibre-[0-9]+\.[0-9]+\.[0-9]+\.tar\.gz$'));
   if ID = 'SumatraPDF' then
     Exit((Name = 'Readers/SumatraPDF/SumatraPDF.exe') or
@@ -263,6 +266,17 @@ begin
   Result := True;
 end;
 
+function IsDocSharpBundleRevision(const LibraryVersion, BundleVersion: string): Boolean;
+var Parts: TArray<string>; Comparison: Integer;
+begin
+  // NuGet supplies the first three numbers; HomeLibre owns the fourth.
+  Parts:=BundleVersion.Split(['.']);
+  Result:=(Length(Parts)=4) and
+    CompareComponentVersions(BundleVersion,LibraryVersion,Comparison) and (Comparison>0) and
+    CompareComponentVersions(LibraryVersion,Parts[0]+'.'+Parts[1]+'.'+Parts[2],Comparison) and
+    (Comparison=0);
+end;
+
 function UpdateFileVersion(const FileName: string): string;
 var Size, Dummy: DWORD; Buffer: TBytes; Fixed: PVSFixedFileInfo; Len: UINT;
 begin
@@ -278,7 +292,7 @@ end;
 
 function InstalledComponentVersion(const AppPath, ID: string): string;
 var Root: TJSONValue; Metadata, Hashes: TJSONObject; HashValue: TJSONValue;
-  FileName, MetadataFile, Version, Hash: string; Comparison: Integer;
+  FileName, MetadataFile, Version, Hash, DocFolder, DocHelper: string; Comparison: Integer;
 begin
   FileName:=UpdateIOPath(IncludeTrailingPathDelimiter(AppPath)+
     StringReplace(InstalledComponentFileName(AppPath,ID),'/',PathDelim,[rfReplaceAll]));
@@ -355,12 +369,31 @@ begin
   end;
   if ID='DocSharp' then
   begin
-    if not FileExists(ExtractFilePath(FileName)+'HomeLibDoc.exe') or
-      not SameText(Result,UpdateFileVersion(ExtractFilePath(FileName)+'DocSharp.Binary.Common.dll')) then Result:='';
-    if FileExists(ExtractFilePath(FileName)+'DocSharp.Binary.Ppt.dll') or
-      FileExists(ExtractFilePath(FileName)+'DocSharp.Binary.Xls.dll') then
+    DocFolder:=ExtractFilePath(FileName);
+    DocHelper:=DocFolder+'HomeLibDoc.exe';
+    if not FileExists(DocHelper) or
+      not SameText(Result,UpdateFileVersion(DocFolder+'DocSharp.Binary.Common.dll')) then Exit('');
+    if FileExists(DocFolder+'DocSharp.Binary.Ppt.dll') or FileExists(DocFolder+'DocSharp.Binary.Xls.dll') then
       for var Name in ['DocSharp.Binary.Ppt.dll','DocSharp.Binary.Xls.dll'] do
-        if not SameText(Result,UpdateFileVersion(ExtractFilePath(FileName)+Name)) then Result:='';
+        if not SameText(Result,UpdateFileVersion(DocFolder+Name)) then Exit('');
+    if Result='' then Exit;
+    Root:=nil;
+    try
+      try
+        MetadataFile:=DocFolder+'DOC_RUNTIME.json';
+        if not FileExists(MetadataFile) or (TFile.GetSize(MetadataFile)>65536) then Exit;
+        Root:=TJSONObject.ParseJSONValue(TFile.ReadAllText(MetadataFile,TEncoding.UTF8));
+        if (Root is TJSONObject) and Root.TryGetValue<string>('bundle_version',Version) and
+          IsDocSharpBundleRevision(Result,Version) and
+          FileExists(DocFolder+'DocSharp.Binary.Ppt.dll') and FileExists(DocFolder+'DocSharp.Binary.Xls.dll') and
+          Root.TryGetValue<string>('helper_sha256',Hash) and IsUpdateSHA256(Hash) and
+          SameText(UpdateSHA256(DocHelper),Hash) then Result:=Version;
+      except
+        // A legacy or unreadable descriptor leaves the detectable library version.
+        on E: Exception do Exit;
+      end;
+    finally Root.Free; end;
+    Exit;
   end;
   if (ID<>'DjVuLibre') or (Result<>'') or not FileExists(FileName) then Exit;
   Root:=nil;
@@ -384,6 +417,8 @@ end;
 function ComponentNeedsRepair(const AppPath, ID: string): Boolean;
 var Names: TArray<string>; Name, FullName, Version: string; Comparison: Integer;
 begin
+  if (ID='BookProcessing') and
+    (BookProcessingSaveOptionsAPI(AppPath)<BOOK_PROCESSING_EXTENDED_EXPORT_API) then Exit(True);
   if IsFormatComponent(ID) then Exit(FormatComponentVersion(AppPath,ID)='');
   Result:=True;
   try
@@ -1037,7 +1072,8 @@ end;
 
 procedure VerifyPreparedProgramUpdateIdentity(Manifest: TJSONObject;
   const Stage, Tag, Platform: string);
-var Component, Version, Architecture, ApplicationFile: string; Official: Boolean; Bundle: TJSONArray; Part: TJSONValue;
+var Component, Version, Architecture, ApplicationFile, LibraryVersion: string;
+  Official: Boolean; Bundle: TJSONArray; Part: TJSONValue; Comparison: Integer;
 begin
   Component := ''; Manifest.TryGetValue<string>('component', Component);
   if Manifest.TryGetValue<TJSONArray>('bundle', Bundle) then
@@ -1079,6 +1115,9 @@ begin
         VerifyUpdateExecutable(ChildPath(Stage,'tools/kfx-export/resvg.exe'),'',Architecture,True);
       if InstalledComponentVersion(Stage,Component)<>Version then
         raise Exception.Create('Версия или контрольная сумма модуля '+Component+' не совпадает с описанием пакета.');
+      if (Component='BookProcessing') and BookProcessingExtendedExportVersion(Version) and
+        (BookProcessingSaveOptionsAPI(Stage)<BOOK_PROCESSING_EXTENDED_EXPORT_API) then
+        raise Exception.Create('Скачанный модуль подготовки книг не поддерживает нужный режим экспорта.');
     end
     else if Component='IBK' then
     begin
@@ -1106,7 +1145,8 @@ begin
       for var Name in ['ddjvu.exe','libdjvulibre.dll','libjpeg.dll','libtiff.dll','libz.dll'] do
         VerifyUpdateExecutable(ChildPath(Stage,'tools/djvu/'+Name),'',Architecture,True);
     end
-    else VerifyUpdateExecutable(ChildPath(Stage, InstalledComponentFileName(Stage,Component)), Version, Architecture, True);
+    else if Component<>'DocSharp' then
+      VerifyUpdateExecutable(ChildPath(Stage, InstalledComponentFileName(Stage,Component)), Version, Architecture, True);
     if Component='HomeLibReader' then
     begin
       for var Name in ['HomeLibRuUpdater.exe','sqlite3.dll'] do
@@ -1117,6 +1157,10 @@ begin
     end;
     if Component='DocSharp' then
     begin
+      if not CompareComponentVersions(InstalledComponentVersion(Stage,Component),Version,Comparison) or
+        (Comparison<>0) then
+        raise Exception.Create('Версия библиотеки или обработчика DocSharp не совпадает с описанием пакета.');
+      LibraryVersion:=UpdateFileVersion(ChildPath(Stage,ComponentFileName(Component)));
       for var Name in ['DocSharp.Binary.Doc.dll','DocSharp.Binary.Common.dll','DocSharp.Binary.Ppt.dll','DocSharp.Binary.Xls.dll','HomeLibDoc.exe'] do
       begin
         if ((Name='DocSharp.Binary.Ppt.dll') or (Name='DocSharp.Binary.Xls.dll')) and
@@ -1124,7 +1168,7 @@ begin
         VerifyManagedAnyCPU(ChildPath(Stage,'tools/doc/'+Name));
         if Name='HomeLibDoc.exe' then
           VerifyUpdateExecutable(ChildPath(Stage,'tools/doc/'+Name),'',Architecture,True)
-        else VerifyUpdateExecutable(ChildPath(Stage,'tools/doc/'+Name),Version,Architecture,True);
+        else VerifyUpdateExecutable(ChildPath(Stage,'tools/doc/'+Name),LibraryVersion,Architecture,True);
       end;
     end;
     if Component='7-Zip' then
@@ -1226,8 +1270,8 @@ begin
       ID := TJSONObject(Part).GetValue<string>('component');
       Version := TJSONObject(Part).GetValue<string>('version');
       Installed := InstalledComponentVersion(AppPath,ID);
-      if (Installed = '') or
-         (CompareComponentVersions(Version, Installed, Comparison) and (Comparison > 0)) then Exit(True);
+      if (Installed = '') or (CompareComponentVersions(Version,Installed,Comparison) and
+        ((Comparison>0) or ((Comparison=0) and ComponentNeedsRepair(AppPath,ID)))) then Exit(True);
     end;
   finally Manifest.Free; end;
 end;

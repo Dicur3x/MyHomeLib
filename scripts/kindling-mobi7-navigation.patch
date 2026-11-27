@@ -1,0 +1,222 @@
+diff --git a/src/mobi.rs b/src/mobi.rs
+index 576803f..27dced9 100644
+--- a/src/mobi.rs
++++ b/src/mobi.rs
+@@ -1484,7 +1484,10 @@ fn build_book_mobi(
+         // devices that would have to parse it (issue #33).)
+         eprintln!("Building KF7 text content...");
+         let recindex_lookup = build_recindex_lookup(&href_to_recindex, &opf.spine_items);
+-        let text_content = build_text_content(opf, false, &recindex_lookup);
++        let legacy_nav = crate::nav::read_mobi7_nav_points(opf);
++        let (text_content, kf7_navigation) = build_text_content(opf, &recindex_lookup, &legacy_nav);
++        let (kf7_ncx, kf7_cncx) = crate::kf8::build_kf7_ncx_indx(&kf7_navigation);
++        let kf7_ncx_records = kf7_ncx.len() + kf7_cncx.len();
+ 
+         // Build KF7 text records
+         let (text_records, text_length) = if no_compress {
+@@ -1516,7 +1519,9 @@ fn build_book_mobi(
+         } else {
+             0xFFFFFFFF
+         };
+-        let kf7_flis = text_records.len() + 1 + num_image_records + num_font_records;
++        let after_resources = text_records.len() + 1 + num_image_records + num_font_records;
++        let kf7_ncx_index = (!kf7_ncx.is_empty()).then_some(after_resources);
++        let kf7_flis = after_resources + kf7_ncx_records;
+         let kf7_fcis = kf7_flis + 1;
+         let kf7_srcs_idx = if srcs_record.is_some() {
+             Some(kf7_fcis + 1)
+@@ -1524,11 +1529,9 @@ fn build_book_mobi(
+             None
+         };
+ 
+-        let boundary_idx =
+-            1 + text_records.len() + num_image_records + num_font_records + 2 + num_optional;
++        let boundary_idx = kf7_fcis + 1 + num_optional;
+         let kf8_record0_global = boundary_idx + 1;
+-        let kf7_total =
+-            1 + text_records.len() + num_image_records + num_font_records + 2 + num_optional;
++        let kf7_total = boundary_idx;
+ 
+         // --- KF8 Section record layout (KF8-relative indices) ---
+         let kf8_text_count = kf8_section.text_records.len();
+@@ -1605,7 +1608,7 @@ fn build_book_mobi(
+             (num_image_records + num_font_records) as u32,
+             None, // books keep PalmDOC; huffdic is a dictionary option
+             None, // books and comics are never huffdic, so no DATP
+-            None, // books carry their NCX in the KF8 section
++            kf7_ncx_index,
+         );
+ 
+         // Build KF8 record 0 (version=8, KF8-relative indices)
+@@ -1661,6 +1664,8 @@ fn build_book_mobi(
+         all_records.extend(text_records);
+         all_records.extend(image_records);
+         all_records.extend(font_records);
++        all_records.extend(kf7_ncx);
++        all_records.extend(kf7_cncx);
+         all_records.push(kf7_flis_rec);
+         all_records.push(kf7_fcis_rec);
+         if let Some(srcs) = srcs_record {
+@@ -2474,9 +2479,9 @@ struct PendingFilepos {
+ /// would move every anchor out from under the offsets computed here.
+ fn build_text_content(
+     opf: &OPFData,
+-    strip_idx: bool,
+     recindex_lookup: &std::collections::HashMap<String, usize>,
+-) -> Vec<u8> {
++    nav_points: &[crate::nav::NavPoint],
++) -> (Vec<u8>, Vec<crate::kf8::Kf7NcxEntry>) {
+     let body_re = Regex::new(r"(?s)<body[^>]*>(.*?)</body>").unwrap();
+     let head_re = Regex::new(r"(?s)<head[^>]*>.*?</head>").unwrap();
+ 
+@@ -2494,11 +2499,7 @@ fn build_text_content(
+ 
+     for (index, html_path) in opf.get_content_html_paths().iter().enumerate() {
+         let content = std::fs::read_to_string(html_path).unwrap_or_default();
+-        let cleaned = if strip_idx {
+-            strip_idx_markup(&content)
+-        } else {
+-            clean_book_html(&content)
+-        };
++        let cleaned = clean_book_html(&content);
+         // Both of these change byte lengths, so they have to happen before
+         // anything measures an offset.
+         let cleaned = apply_recindex_lookup(&cleaned, recindex_lookup);
+@@ -2552,24 +2553,27 @@ fn build_text_content(
+         })
+         .collect();
+ 
++    let target_offset = |file: usize, fragment: Option<&str>| match fragment {
++        None => doc_start.get(file).copied(),
++        Some(fragment) => anchor_offsets
++            .get(file)
++            .and_then(|anchors| anchors.get(fragment))
++            .copied()
++            .or_else(|| {
++                wrapper_anchors
++                    .get(file)
++                    .filter(|anchors| anchors.contains(fragment))
++                    .map(|_| doc_start[file])
++            }),
++    };
+     let mut bytes = combined.into_bytes();
+     let mut unresolved = 0usize;
+     for (i, pending) in body_links.iter().enumerate() {
+         for link in pending {
+-            let resolved = match &link.target {
+-                Some((file, None)) => Some(doc_start[*file]),
+-                Some((file, Some(fragment))) => anchor_offsets
+-                    .get(*file)
+-                    .and_then(|m| m.get(fragment.as_str()))
+-                    .copied()
+-                    .or_else(|| {
+-                        wrapper_anchors
+-                            .get(*file)
+-                            .filter(|w| w.contains(fragment.as_str()))
+-                            .map(|_| doc_start[*file])
+-                    }),
+-                None => None,
+-            };
++            let resolved = link
++                .target
++                .as_ref()
++                .and_then(|(file, fragment)| target_offset(*file, fragment.as_deref()));
+             let at = doc_start[i] + link.digits;
+             match resolved {
+                 Some(offset) => {
+@@ -2587,7 +2591,32 @@ fn build_text_content(
+             unresolved
+         );
+     }
+-    bytes
++    let mut resolved: Vec<_> = nav_points
++        .iter()
++        .filter_map(|point| {
++            let &file = documents.get(&point.file_href)?;
++            let fragment = point.fragment.as_deref().map(links::percent_decode);
++            let offset = target_offset(file, fragment.as_deref())?;
++            Some((offset, point))
++        })
++        .collect();
++    resolved.sort_by_key(|(offset, _)| *offset);
++    let navigation = resolved
++        .iter()
++        .map(|&(offset, point)| {
++            // Entries that share a target extend to the next distinct target.
++            let end = resolved
++                .get(resolved.partition_point(|entry| entry.0 <= offset))
++                .map_or(bytes.len(), |entry| entry.0);
++            crate::kf8::Kf7NcxEntry {
++                offset,
++                length: end - offset,
++                label: point.label.clone(),
++                depth: point.depth,
++            }
++        })
++        .collect();
++    (bytes, navigation)
+ }
+ 
+ /// Replace every internal `<a href>` in one document's body with a
+diff --git a/src/nav.rs b/src/nav.rs
+index a4e05b4..2df4d5c 100644
+--- a/src/nav.rs
++++ b/src/nav.rs
+@@ -33,6 +33,15 @@ pub struct NavPoint {
+ /// spine `toc` idref or any `application/x-dtbncx+xml` manifest item).
+ /// Returns an empty Vec when neither exists or neither yields entries.
+ pub fn parse_nav_points(opf: &OPFData) -> Vec<NavPoint> {
++    read_nav_points(opf, false)
++}
++
++/// User-facing legacy book navigation excludes HomeLibre's EPUB start marker.
++pub(crate) fn read_mobi7_nav_points(opf: &OPFData) -> Vec<NavPoint> {
++    read_nav_points(opf, true)
++}
++
++fn read_nav_points(opf: &OPFData, ignore_start_only: bool) -> Vec<NavPoint> {
+     // EPUB 3 nav document.
+     if let Some(item) = opf
+         .manifest_items
+@@ -41,7 +50,8 @@ pub fn parse_nav_points(opf: &OPFData) -> Vec<NavPoint> {
+     {
+         let path = opf.base_dir.join(&item.href);
+         if let Ok(content) = std::fs::read_to_string(&path) {
+-            let points = parse_nav_xhtml(&content, parent_dir(&item.href));
++            let points =
++                parse_nav_xhtml_with_options(&content, parent_dir(&item.href), ignore_start_only);
+             if !points.is_empty() {
+                 return points;
+             }
+@@ -80,7 +90,16 @@ fn find_ncx_href(opf: &OPFData) -> Option<String> {
+ /// `role="doc-toc"`) element's `<a href="...">label</a>` entries in
+ /// document order. Falls back to the first `<nav>` element when no nav is
+ /// marked as the TOC.
++#[cfg(test)]
+ fn parse_nav_xhtml(content: &str, nav_dir: &str) -> Vec<NavPoint> {
++    parse_nav_xhtml_with_options(content, nav_dir, false)
++}
++
++fn parse_nav_xhtml_with_options(
++    content: &str,
++    nav_dir: &str,
++    ignore_start_only: bool,
++) -> Vec<NavPoint> {
+     let mut reader = Reader::from_str(content);
+     reader.config_mut().check_end_names = false;
+ 
+@@ -124,7 +143,13 @@ fn parse_nav_xhtml(content: &str, nav_dir: &str) -> Vec<NavPoint> {
+                     }
+                 } else if name == "ol" && in_toc_nav {
+                     ol_depth += 1;
+-                } else if name == "a" && in_toc_nav && current.is_none() {
++                } else if name == "a"
++                    && in_toc_nav
++                    && current.is_none()
++                    && !(ignore_start_only && e.attributes().flatten().any(|a| {
++                        a.key.as_ref() == b"data-homelib-start-only" && a.value.as_ref() == b"1"
++                    }))
++                {
+                     let href = e
+                         .attributes()
+                         .flatten()

@@ -303,3 +303,89 @@ begin
     Writeln('PASS bounded compressed JPEG books preserve all native pictures, exact text, navigation and source bytes cases=',Cases);
   finally DMUser.Free; DMUser:=nil; end;
 end;
+
+procedure AuditComplexReaderTable;
+const
+  FileName = 'reader-nested-table.epub';
+  PNG = 'iVBORw0KGgoAAAANSUhEUgAAAEgAAAAkCAIAAACluesxAAAAV0lEQVR4nN3OAQ0AIAzAsDEfiMG/Bryg4iFZFXTdsymSKImSKImSKImSKImSKImSKImSKImSKImSKImSKImSKImSKImSKImSKImSKImSKImSKInyd2DKA/YxAYPynVXDAAAAAElFTkSuQmCC';
+var
+  Zip: TZipFile;
+  Document: TReaderDocument;
+  Reader: TfrmBuiltinReader;
+  BeforeText, SourceHash: string;
+  Loads: Integer;
+  Deadline: UInt64;
+
+  procedure AddText(const Name, Value: string);
+  begin
+    Zip.Add(TEncoding.UTF8.GetBytes(Value),Name);
+  end;
+
+  procedure CheckNativeTable;
+  var Edit: TRichEdit; Stream: TMemoryStream; Encoded: RawByteString;
+  begin
+    Edit:=nil;
+    for var Index:=0 to Reader.ComponentCount-1 do
+    begin
+      var Component:=Reader.Components[Index];
+      if (Component is TRichEdit) and (ReaderPictureCount(TRichEdit(Component))=1) and
+        (ReaderTextLength(TRichEdit(Component))=Reader.TextLength) then
+      begin Edit:=TRichEdit(Component); Break; end;
+    end;
+    Require(Assigned(Edit),'Native table formatting buffer missing');
+    Stream:=TMemoryStream.Create;
+    try
+      ReaderSaveRTFRange(Edit,Stream,0,Reader.TextLength);
+      SetLength(Encoded,Stream.Size);
+      if Encoded<>'' then Move(Stream.Memory^,Encoded[1],Length(Encoded));
+      Require(Pos('\nestrow',string(Encoded))>0,'RichEdit flattened the nested row');
+      Require(Pos('\pict',string(Encoded))>0,'RichEdit lost the inline table picture');
+    finally Stream.Free; end;
+  end;
+
+begin
+  RequireIsolatedRegression;
+  Zip:=TZipFile.Create;
+  try
+    Zip.Open(FileName,zmWrite);
+    AddText('META-INF/container.xml','<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container">'+
+      '<rootfiles><rootfile full-path="p.opf"/></rootfiles></container>');
+    AddText('p.opf','<package xmlns="http://www.idpf.org/2007/opf" version="3.0">'+
+      '<manifest><item id="h" href="book.xhtml" media-type="application/xhtml+xml"/>'+
+      '<item id="p" href="picture.png" media-type="image/png"/></manifest>'+
+      '<spine><itemref idref="h"/></spine></package>');
+    AddText('book.xhtml','<html xmlns="http://www.w3.org/1999/xhtml"><body><table><tr>'+
+      '<td style="width:50%">Outer before<table><tr><td style="width:10%">Before image '+
+      '<img src="picture.png"/> after image</td><td style="width:90%">Nested right</td></tr></table>Outer after</td>'+
+      '<td style="width:50%">Outer right</td></tr></table><p>After the table</p></body></html>');
+    Zip.Add(TNetEncoding.Base64.DecodeStringToBytes(PNG),'picture.png');
+  finally Zip.Free; end;
+  SourceHash:=THashSHA2.GetHashStringFromFile(FileName);
+  Document:=TReaderDocument.Create;
+  try
+    Document.Load(FileName);
+    Require(Document.HasTables and (Document.ImageCount=1),'Complex table lost its illustration');
+    Require(Document.PictureExtent(0,600,500).X<450,'Illustration exceeds its nested cell');
+    Require(Document.PictureExtent(0,900,500).X>Document.PictureExtent(0,600,500).X,
+      'Illustration width is not reflowed with its cell');
+  finally Document.Free; end;
+  Reader:=TfrmBuiltinReader.Create(nil);
+  try
+    Reader.OpenBook(FileName,FileName,'nested-table','reader-nested-table.ini','');
+    WaitReady(Reader);
+    BeforeText:=Reader.BookText;
+    Require(BeforeText.Contains('Nested right') and BeforeText.Contains('Outer right') and
+      (Reader.DecodedPictureCount>0),'Opening dropped table text or the decoded picture');
+    CheckNativeTable;
+    Loads:=Reader.PresentationLoads;
+    Reader.Width:=Reader.Width+125;
+    Deadline:=GetTickCount64+5000;
+    while (Reader.PresentationLoads=Loads) and (GetTickCount64<Deadline) do
+    begin Application.ProcessMessages; CheckSynchronize(5); end;
+    Require(Reader.Ready and (Reader.PresentationLoads>Loads) and (Reader.BookText=BeforeText),
+      'Resizing changed the text of the table');
+    CheckNativeTable;
+    Require(THashSHA2.GetHashStringFromFile(FileName)=SourceHash,'Reading rewrote the complex table');
+  finally Reader.Free; end;
+  Writeln('PASS nested EPUB table, inline picture, native layout and resize');
+end;

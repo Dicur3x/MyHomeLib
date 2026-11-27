@@ -5,7 +5,7 @@ interface
 uses System.Classes, System.SysUtils, Winapi.Messages, Vcl.Forms, Vcl.Controls, Vcl.Menus, Vcl.StdCtrls,
   Vcl.ExtCtrls, Vcl.ComCtrls, Vcl.ImgList, System.IniFiles, System.Generics.Collections, unit_Globals, frm_ProgramUpdate,
   System.Threading, unit_ReaderSession, unit_BookSaveContinuation,
-  unit_ReaderAnnotations;
+  unit_ReaderAnnotations, unit_FileBooks;
 
 type
   TfrmReaderHost = class(TForm)
@@ -103,6 +103,8 @@ type
     procedure HostCloseQuery(Sender: TObject; var CanClose: Boolean);
   protected
     procedure CreateParams(var Params: TCreateParams); override;
+    function CreateUpdates: TfrmProgramUpdate; virtual;
+    function BookSaveProgressClass: TBookSaveProgressClass; virtual;
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
@@ -117,7 +119,7 @@ var ReaderHost: TfrmReaderHost;
 implementation
 
 uses System.IOUtils, System.JSON, System.Math, System.NetEncoding, Vcl.Dialogs, Vcl.Imaging.jpeg,
-  Vcl.Graphics, Winapi.Windows, Winapi.ShellAPI, unit_FileBooks, unit_Settings, unit_AtomicIniFile, unit_FileMutex,
+  Vcl.Graphics, Winapi.Windows, Winapi.ShellAPI, unit_Settings, unit_AtomicIniFile, unit_FileMutex,
   unit_ReaderCache, unit_ReaderDocument, unit_ReaderFormats, unit_ReaderRaster, unit_BookCache,
   unit_BookSendOptions, unit_BookExportResults, unit_ComponentUpdates,
   unit_ProgramUpdateInstaller, unit_Diagnostics, unit_MHLTheme, unit_MHLExternalTools, dm_user,
@@ -463,7 +465,7 @@ begin
     Dialog.ClientWidth:=650; Dialog.ClientHeight:=420;
     Dialog.Constraints.MinWidth:=460; Dialog.Constraints.MinHeight:=300;
     Text:=TMemo.Create(Dialog); Text.Parent:=Dialog; Text.Name:='ReaderFormatsText';
-    Text.ReadOnly:=True; Text.ScrollBars:=ssVertical; Text.WordWrap:=True;
+    Text.ReadOnly:=True; Text.ScrollBars:=ssVertical; Text.WordWrap:=True; Text.BorderStyle:=bsNone;
     Text.SetBounds(16,16,618,340); Text.Anchors:=[akLeft,akTop,akRight,akBottom];
     Text.Text:=Formats;
     CloseButton:=TReaderPaletteButton.Create(Dialog); CloseButton.Parent:=Dialog; CloseButton.Caption:='Закрыть';
@@ -727,6 +729,9 @@ begin
   Result:=(FSession.ID='') or ((FBook.BookKey.DatabaseID=0) and FBook.LibID.StartsWith('local-file:'));
 end;
 
+function TfrmReaderHost.BookSaveProgressClass: TBookSaveProgressClass;
+begin Result:=nil; end;
+
 procedure TfrmReaderHost.SaveClick(Sender: TObject);
 var Options: TBookSendOptions; Results: TBookExportResults; Required: TArray<string>;
   DisplayTitle, SourceName, Member: string;
@@ -754,7 +759,7 @@ begin
       end;
       Exit;
     end;
-    Results:=SaveFileBook(FExportBook,Options,Required);
+    Results:=SaveFileBook(FExportBook,Options,Required,BookSaveProgressClass);
     if Length(Required)>0 then
     begin
       StoreBookSaveContinuation(Settings.SettingsFileName,Required[0],Options,nil,FCurrentFile);
@@ -793,9 +798,14 @@ end;
 procedure TfrmReaderHost.EnsureUpdates;
 begin
   if Assigned(FUpdates) then Exit;
-  FUpdates:=TfrmProgramUpdate.Create(Self);
-  FUpdates.UseReaderComponents; FUpdates.OnRestart:=RestartForUpdate;
+  FUpdates:=CreateUpdates;
+  FUpdates.OnRestart:=RestartForUpdate;
   FUpdates.OnComponentCancelled:=ComponentCancelled;
+end;
+
+function TfrmReaderHost.CreateUpdates: TfrmProgramUpdate;
+begin
+  Result:=TfrmProgramUpdate.CreateForReader(Self);
 end;
 
 procedure TfrmReaderHost.ComponentCancelled(Sender: TObject);
@@ -845,7 +855,7 @@ procedure TfrmReaderHost.ComponentsClick(Sender: TObject);
 begin
   EnsureUpdates;
   FUpdates.UseFullWindow;
-  FUpdates.CheckComponents(False); FUpdates.Show;
+  FUpdates.Show; FUpdates.CheckComponents(False);
 end;
 
 procedure TfrmReaderHost.CacheSettingsClick(Sender: TObject);

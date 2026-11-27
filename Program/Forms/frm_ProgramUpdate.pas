@@ -11,6 +11,8 @@ type
     Selections, SelectionMS, NotesMS, RowsMS, LayoutMS, ChangesMS, ReleaseMS: UInt64;
   end;
 {$ENDIF}
+  TComponentVersionSnapshot = array[Low(UPDATE_COMPONENTS)..High(UPDATE_COMPONENTS)] of string;
+
   TfrmProgramUpdate = class(TForm)
   private
     FStatus, FVersion, FBytes: TLabel;
@@ -44,7 +46,9 @@ type
     FComponentRestartArgument: TFunc<string>;
     FComponentRestartAborted:TProc;
     FRequestedCheckPending: Boolean;
-    FReaderOnly: Boolean;
+    FReaderOnly, FAsyncReaderInventory, FInventoryAutomatic: Boolean;
+    FInventoryWorker: TThread;
+    FInventoryRetryID: string;
     FOperationComponent: string;
     FCompactForm: TForm;
     FCompactStatus: TMemo;
@@ -52,6 +56,9 @@ type
     FCompactProgress: TProgressBar;
     FCompactPrimary, FCompactLater: TButton;
     FRowIDs: TArray<Integer>;
+    constructor CreateWindow(AOwner: TComponent; ReaderInventory: Boolean);
+    procedure InventoryCompleted(var Message: TMessage);
+    procedure RunComponentCheck(Automatic: Boolean; const RetryID: string);
     procedure ManageComponentsClick(Sender: TObject);
     function RequestedReleases: TArray<TProgramRelease>;
     procedure ShowRequestedComponents;
@@ -68,7 +75,7 @@ type
     FComponentError, FComponentErrorDetails: string;
     FComponentNotified: array[Low(UPDATE_COMPONENTS)..High(UPDATE_COMPONENTS)] of string;
     FApplicationRelease: TProgramRelease;
-    FInstalledVersions: array[Low(UPDATE_COMPONENTS)..High(UPDATE_COMPONENTS)] of string;
+    FInstalledVersions: TComponentVersionSnapshot;
     FReadyVersions: TArray<string>;
     FRepairComponents: string;
     FApplicationStatus, FApplicationHistory: string;
@@ -81,6 +88,7 @@ type
     FRelease: TProgramRelease;
     FJob, FCache, FLegacyCache, FReadyFile: string;
     FInstallerProcess: THandle;
+    FLaunchingInstaller: Boolean;
     FReady, FPendingInstall, FNeedsCheck, FRecovery: Boolean;
     FRestart, FCheck, FComponentCancelled: TNotifyEvent;
     procedure NotificationChanged(Sender: TObject);
@@ -145,6 +153,7 @@ type
     procedure CopyUpdateText(const Text: string); virtual;
   public
     constructor Create(AOwner: TComponent); override;
+    constructor CreateForReader(AOwner: TComponent);
     destructor Destroy; override;
     procedure SetRelease(const ReleaseInfo: TProgramRelease);
     procedure BeginCheck;
@@ -184,7 +193,7 @@ uses System.StrUtils, System.IOUtils, System.JSON, System.RegularExpressions, Sy
   Vcl.Graphics, Vcl.Menus, Vcl.Clipbrd, dm_user, unit_Settings, unit_Globals,
   unit_ProgramUpdateInstaller, unit_MHLHttpClient, unit_UpdateTextCache, unit_BookSaveContinuation,
   unit_MHLExternalTools, unit_Diagnostics, frm_ComponentMaintenance, unit_HelpTopics,
-  unit_OperationErrorDialog, Vcl.Themes;
+  unit_OperationErrorDialog, unit_FormatComponents, Vcl.Themes;
 
 type
   TUpdateTabs = class(TTabControl);
@@ -282,12 +291,71 @@ begin
   inherited;
 end;
 
+const WM_READER_COMPONENT_INVENTORY = WM_APP + $0506;
+
+type
+  TReaderComponentInventory = class(TThread)
+  private
+    FPath: string;
+    FWindow: HWND;
+  protected
+    procedure Execute; override;
+  public
+    Versions: TComponentVersionSnapshot;
+    constructor Create(const AppPath: string; Window: HWND);
+  end;
+
+function ReaderComponentAllowed(const ID: string): Boolean;
+begin
+  Result:=IndexText(ID,['SQLite','AlReader','SumatraPDF','MHLMcpServer',
+    'Zstandard',JPEG_XL_ENCODER_COMPONENT])<0;
+end;
+
+constructor TReaderComponentInventory.Create(const AppPath: string; Window: HWND);
+begin
+  inherited Create(True); FPath:=AppPath; FWindow:=Window;
+end;
+
+procedure TReaderComponentInventory.Execute;
+begin
+  for var I:=Low(UPDATE_COMPONENTS) to High(UPDATE_COMPONENTS) do
+  begin
+    if Terminated then Exit;
+    var ID:=UPDATE_COMPONENTS[I].ID;
+    if not ReaderComponentAllowed(ID) then Continue;
+    try
+      var Version:=ComponentInstalledVersion(FPath,ID);
+      if Version='' then Continue;
+      if IsFormatComponent(ID) then
+      begin
+        if (ID='BookProcessing') and (BookProcessingSaveOptionsAPI(FPath)<BOOK_PROCESSING_EXTENDED_EXPORT_API) then
+          Continue;
+      end
+      else if ComponentNeedsRepair(FPath,ID) then Continue;
+      Versions[I]:=Version;
+    except on E:Exception do LogDiagnosticError('reader-component-inventory',E); end;
+  end;
+  if not Terminated then PostMessage(FWindow,WM_READER_COMPONENT_INVENTORY,WPARAM(Self),0);
+end;
+
 constructor TfrmProgramUpdate.Create(AOwner: TComponent);
+begin
+  CreateWindow(AOwner,False);
+end;
+
+constructor TfrmProgramUpdate.CreateForReader(AOwner: TComponent);
+begin
+  CreateWindow(AOwner,True);
+end;
+
+constructor TfrmProgramUpdate.CreateWindow(AOwner: TComponent; ReaderInventory: Boolean);
 var HistoryFile: string; Menu: TPopupMenu; Entry: TMenuItem;
 begin
   inherited CreateNew(AOwner);
+  FReaderOnly:=ReaderInventory; FAsyncReaderInventory:=ReaderInventory;
   LogDiagnosticTrace('program-update-window','initializing controls');
-  Caption := 'Обновление HomeLibre'; BorderStyle := bsSizeable;
+  if FReaderOnly then Caption:='Компоненты HomeLibre Reader' else Caption:='Обновление HomeLibre';
+  BorderStyle := bsSizeable;
   BorderIcons := [biSystemMenu, biMinimize, biMaximize];
   Position := poMainFormCenter; ClientWidth := 960; ClientHeight := 760;
   Constraints.MinWidth := 760; Constraints.MinHeight := 560;
@@ -339,8 +407,8 @@ begin
   FNotifyOptional:=TUpdateNotifyCheckBox.Create(Self); FNotifyOptional.Parent:=Self;
   FNotifyOptional.Name:='NotifyOptionalComponent';
   FNotifyOptional.Caption:='Сообщать об обновлениях этого компонента'; FNotifyOptional.OnClick:=NotificationChanged;
-  RefreshInstalledComponents; UpdateComponentList; SelectRow(0);
-  LogDiagnosticTrace('program-update-window','installed components loaded');
+  if not FAsyncReaderInventory then RefreshInstalledComponents;
+  UpdateComponentList; SelectRow(0);
   FStatus.SetBounds(20, 88, 700, 60); FStatus.AutoSize := False; FStatus.WordWrap := True;
   FNotes := TUpdateNotesView.Create(Self); FNotes.Parent := Self;
   FNotes.SetBounds(20, 155, 700, 238);
@@ -417,6 +485,8 @@ begin
   if Assigned(FTabs) then FTabs.OnChange:=nil;
   if Assigned(FHistorySelector) then FHistorySelector.OnChange:=nil;
   SaveViewPreferences;
+  if Assigned(FInventoryWorker) then
+  begin FInventoryWorker.Terminate; FreeAndNil(FInventoryWorker); end;
   if Assigned(FComponentThread) then
   // TThread.Destroy joins and also resumes a canceled Create(True) thread
   // after a pre-Start UI failure; an explicit WaitFor would deadlock there.
@@ -427,7 +497,7 @@ begin
   if FMessageWindow <> 0 then
   begin
     while PeekMessage(Message, FMessageWindow, WM_PROGRAM_UPDATE_DOWNLOADED,
-      WM_COMPONENT_UPDATE_PROGRESS, PM_REMOVE) do ;
+      WM_READER_COMPONENT_INVENTORY, PM_REMOVE) do ;
     DeallocateHWnd(FMessageWindow); FMessageWindow := 0;
   end;
   // Keep a verified ready update when installation is postponed or the app exits.
@@ -823,10 +893,7 @@ end;
 function TfrmProgramUpdate.ComponentAllowed(Index: Integer): Boolean;
 begin
   Result:=(Index>=Low(UPDATE_COMPONENTS)) and (Index<=High(UPDATE_COMPONENTS));
-  if Result and FReaderOnly then
-    Result:=(UPDATE_COMPONENTS[Index].ID<>'SQLite') and (UPDATE_COMPONENTS[Index].ID<>'AlReader') and
-      (UPDATE_COMPONENTS[Index].ID<>'SumatraPDF') and (UPDATE_COMPONENTS[Index].ID<>'MHLMcpServer') and
-      (UPDATE_COMPONENTS[Index].ID<>'Zstandard') and (UPDATE_COMPONENTS[Index].ID<>JPEG_XL_ENCODER_COMPONENT);
+  if Result and FReaderOnly then Result:=ReaderComponentAllowed(UPDATE_COMPONENTS[Index].ID);
 end;
 
 function TfrmProgramUpdate.RowVisible(Value: Integer): Boolean;
@@ -1095,7 +1162,9 @@ begin
   FPage.Caption:=UpdateReleasePageCaption(UPDATE_COMPONENTS[I].ID,FComponents[I].URL);
   FVersion.Caption := ComponentTitle(I) + ': ' + ComponentDisplayVersion(UPDATE_COMPONENTS[I].ID,Version);
   if Version = '' then FVersion.Caption := ComponentTitle(I) + ': не установлен';
-  if ComponentNewer(FComponents[I], Version) then
+  var SuitablePackage:=(FRequestedComponent<>'BookProcessing') or
+    (UPDATE_COMPONENTS[I].ID<>'BookProcessing') or BookProcessingExtendedExportVersion(FComponents[I].ComponentVersion);
+  if SuitablePackage and ComponentNewer(FComponents[I], Version) then
   begin
     {$IFDEF MHL_RELEASE_PERFORMANCE}ChangesStarted:=GetTickCount64;{$ENDIF}
     FComponents[I].Changelog := ComponentChanges(FComponents[I], Version);
@@ -1126,6 +1195,8 @@ begin
     if FComponents[I].ComponentError <> '' then FStatus.Caption := FStatus.Caption + FComponents[I].ComponentError
     else if FComponentError <> '' then FStatus.Caption := FStatus.Caption + FComponentError
     else if FComponents[I].ComponentWarning<>'' then FStatus.Caption:=FStatus.Caption+FComponents[I].ComponentWarning
+    else if FRequestedComponent=UPDATE_COMPONENTS[I].ID then
+      FStatus.Caption:=FStatus.Caption+'Подходящий пакет для этой операции пока недоступен. Можно повторить проверку позже.'
     else if FComponents[I].DownloadURL <> '' then
       FStatus.Caption := FStatus.Caption + 'Обновлений нет. Установлена актуальная версия.'
     else FStatus.Caption := FStatus.Caption + 'Нажмите «Проверить всё», чтобы узнать о новой версии.';
@@ -1357,6 +1428,7 @@ end;
 procedure TfrmProgramUpdate.MessageWindowProc(var Message: TMessage);
 begin
   case Message.Msg of
+    WM_READER_COMPONENT_INVENTORY: InventoryCompleted(Message);
     WM_COMPONENT_UPDATE_CHECKED: ComponentsChecked(Message);
     WM_COMPONENT_UPDATE_PROGRESS: ComponentProgress(Message);
     WM_PROGRAM_UPDATE_DOWNLOADED: DownloadCompleted(Message);
@@ -1511,6 +1583,7 @@ begin
         if FComponentWaiting[I] or (FComponents[I].ComponentError<>'') or
           (FComponents[I].DownloadURL='') or FComponents[I].CheckOnly or
           (FComponents[I].Size<=0) then Exit(nil);
+        if (ID='BookProcessing') and not BookProcessingExtendedExportVersion(FComponents[I].ComponentVersion) then Exit(nil);
         Result:=Result+TArray<TProgramRelease>.Create(FComponents[I]);
         Break;
       end;
@@ -1530,6 +1603,8 @@ begin
         if FComponentWaiting[I] then Text:=Text+'проверяется…'
         else if FComponents[I].ComponentError<>'' then Text:=Text+FComponents[I].ComponentError
         else if FComponents[I].DownloadURL='' then Text:=Text+'пакет пока недоступен'
+        else if (ID='BookProcessing') and not BookProcessingExtendedExportVersion(FComponents[I].ComponentVersion) then
+          Text:=Text+'совместимый пакет пока недоступен'
         else Text:=Text+ComponentDownloadSize(FComponents[I].Size);
         Inc(Total,FComponents[I].Size); Break;
       end;
@@ -1578,7 +1653,7 @@ begin
     end;
   end;
   UpdateComponentList;
-  if FCheckingCycle or Assigned(FComponentThread) then
+  if FCheckingCycle or Assigned(FComponentThread) or Assigned(FInventoryWorker) then
   begin
     FRequestedCheckPending:=True; SelectRow(Index+1); ComponentSelected(nil); Present; Exit;
   end;
@@ -1589,6 +1664,34 @@ begin
 end;
 
 procedure TfrmProgramUpdate.CheckComponents(Automatic: Boolean; const RetryID: string);
+begin
+  if Assigned(FComponentThread) or Assigned(FInventoryWorker) then Exit;
+  if FAsyncReaderInventory and not FReady then
+  begin
+    EnsureMessageWindow;
+    FInventoryAutomatic:=Automatic; FInventoryRetryID:=RetryID;
+    FComponentCheck.Enabled:=False; FPrimary.Enabled:=False;
+    FStatus.Caption:='Проверяем установленные компоненты…'; LayoutWindow;
+    FInventoryWorker:=TReaderComponentInventory.Create(Settings.AppPath,FMessageWindow);
+    FInventoryWorker.Start;
+  end
+  else RunComponentCheck(Automatic,RetryID);
+end;
+
+procedure TfrmProgramUpdate.InventoryCompleted(var Message: TMessage);
+begin
+  Message.Result:=0;
+  if not Assigned(FInventoryWorker) or (Message.WParam<>WPARAM(FInventoryWorker)) then Exit;
+  FInventoryWorker.WaitFor;
+  FInstalledVersions:=TReaderComponentInventory(FInventoryWorker).Versions;
+  FreeAndNil(FInventoryWorker);
+  FRequestedCheckPending:=False;
+  FComponentCheck.Enabled:=True;
+  UpdateComponentList;
+  RunComponentCheck(FInventoryAutomatic,FInventoryRetryID);
+end;
+
+procedure TfrmProgramUpdate.RunComponentCheck(Automatic: Boolean; const RetryID: string);
 var IDs: TArray<string>;
 begin
   if Assigned(FComponentThread) then Exit;
@@ -1596,7 +1699,7 @@ begin
   // network check. Explicit format requests keep their own dependency list.
   if not FReady and (FRequestedComponent='') and (FOperationComponent='') then RestoreReady;
   if FReady then begin if not Automatic then Present; Exit; end;
-  if not FCheckingCycle then RefreshInstalledComponents;
+  if not FCheckingCycle and not FAsyncReaderInventory then RefreshInstalledComponents;
   FComponentAutomatic := Automatic; FComponentError := ''; FComponentErrorDetails:='';
   EnsureMessageWindow;
   FComponentThread := CreateComponentWorker(FMessageWindow);
@@ -1808,6 +1911,7 @@ end;
 procedure TfrmProgramUpdate.PrimaryClick(Sender: TObject);
 var ReleaseInfo: TProgramRelease; PreviousRepair: string;
 begin
+  if FPendingInstall then Exit;
   if FReady then
   begin
     if FOperationComponent<>'' then
@@ -1842,7 +1946,12 @@ begin
     end;
     LogDiagnosticTrace('program-update-install','Подтверждена установка '+FRelease.Tag);
     FPendingInstall := True;
-    if Assigned(FRestart) then FRestart(Self);
+    try
+      if Assigned(FRestart) then FRestart(Self);
+    except
+      FPendingInstall:=False;
+      raise;
+    end;
     Exit;
   end;
   if Assigned(FThread) then Exit;
@@ -2229,6 +2338,7 @@ var Root: TJSONObject; Helper, Parameters, SourceHelper, Argument, CommandLine: 
   DialogOwner: HWND;
 begin
   Result := False;
+  if FLaunchingInstaller then Exit;
   Stage := 'Подготовка запуска установки';
   Guidance := '';
   try
@@ -2287,7 +2397,10 @@ begin
     Parameters := '--job "' + FJob + '"';
     ArmBookSaveContinuation(Settings.SettingsFileName,FRequestedComponent);
     Stage := 'Запуск механизма обновления';
-    FInstallerProcess:=StartInstallationHelper(Helper,Parameters,FJob);
+    // ShellExecuteEx can dispatch messages before it returns a process handle.
+    FLaunchingInstaller:=True;
+    try FInstallerProcess:=StartInstallationHelper(Helper,Parameters,FJob);
+    finally FLaunchingInstaller:=False; end;
     Result := True;
   except
     on E: Exception do

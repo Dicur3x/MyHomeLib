@@ -11,6 +11,10 @@ path = "src/main.rs"
 [dependencies]
 docboss-cfb = { git = "https://github.com/4thel00z/docboss", rev = "373b563b7a60d97f875a733da5635d0d15c4839e" }
 docboss-doc = { git = "https://github.com/4thel00z/docboss", rev = "373b563b7a60d97f875a733da5635d0d15c4839e" }
+docboss-font = { git = "https://github.com/4thel00z/docboss", rev = "373b563b7a60d97f875a733da5635d0d15c4839e" }
+docboss-layout = { git = "https://github.com/4thel00z/docboss", rev = "373b563b7a60d97f875a733da5635d0d15c4839e" }
+docboss-model = { git = "https://github.com/4thel00z/docboss", rev = "373b563b7a60d97f875a733da5635d0d15c4839e" }
+docboss-render = { git = "https://github.com/4thel00z/docboss", rev = "373b563b7a60d97f875a733da5635d0d15c4839e" }
 docboss-write = { git = "https://github.com/4thel00z/docboss", rev = "373b563b7a60d97f875a733da5635d0d15c4839e" }
 
 [profile.release]

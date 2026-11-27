@@ -14,6 +14,10 @@ const
   LEGACY_DOC_COMPONENT_VERSION = '3.0.0.16';
   LEGACY_DOC_WORKER = 'tools/bookconvert/legacy-doc/HomeLibLegacyDoc.exe';
   LEGACY_DOC_RICH_WORKER = 'tools/bookconvert/legacy-doc/HomeLibLegacyDocRich.exe';
+  BOOK_PROCESSING_PARTIAL_EXPORT_API = 8;
+  BOOK_PROCESSING_EXTENDED_EXPORT_API = 9;
+  BOOK_PROCESSING_MHTML_LAYOUT_API = 9;
+  BOOK_PROCESSING_EXTENDED_EXPORT_VERSION = '3.0.0.17';
   SELECTED_COMPRESSION_IMAGE_VERSION = '3.0.0.14';
   SELECTED_COMPRESSION_WORKER = 'tools/bookconvert/prepare_book_compression.py';
   SQL_CATALOGUE_WORKER = 'tools/bookconvert/catalogdump/build_index.py';
@@ -27,6 +31,8 @@ function SafeFormatComponentFile(const ID, Name: string): Boolean;
 function FormatComponentVersion(const AppPath, ID: string): string;
 function FindBookProcessingPython(const AppPath: string): string;
 function ModularBookProcessingAvailable(const AppPath: string): Boolean;
+function BookProcessingSaveOptionsAPI(const AppPath: string): Integer;
+function BookProcessingExtendedExportVersion(const Version: string): Boolean;
 
 implementation
 
@@ -93,6 +99,10 @@ begin
     if CompareComponentVersions(Version,LEGACY_DOC_COMPONENT_VERSION,Comparison) and (Comparison>=0) then
       Result:=Result+[LEGACY_DOC_RICH_WORKER,LEGACY_DOC_WORKER,LEGACY_DOC_WORKER+'.config',
         'tools/bookconvert/legacy-doc/NOTICE.txt','tools/bookconvert/legacy-doc/DOCBOSS-NOTICE.txt'];
+    if BookProcessingExtendedExportVersion(Version) then
+      Result:=Result+['tools/bookconvert/SAVE_OPTIONS_API.txt','tools/bookconvert/pdf_legacy_encoding.py',
+        'tools/bookconvert/epub_recovery.py','tools/bookconvert/pdf_font_encoding.py',
+        'tools/bookconvert/pdf-runtime/pypdf.whl'];
   end;
   if ID='ImageProcessing' then Result:=TArray<string>.Create('tools/images/HomeLibImages.exe',
     'tools/images/RUNTIME.json','tools/images/HomeLibImages-MIT.txt');
@@ -206,6 +216,22 @@ begin
       FileExists(TPath.Combine(AppPath,'tools/bookconvert/convert_book.py')) and FileExists(Marker) and
       (TFile.GetSize(Marker)<=16) and (Trim(TFile.ReadAllText(Marker,TEncoding.ASCII))='1');
   except Result:=False; end;
+end;
+
+function BookProcessingSaveOptionsAPI(const AppPath: string): Integer;
+begin
+  Result:=0;
+  try
+    var Marker:=TPath.Combine(AppPath,'tools/bookconvert/SAVE_OPTIONS_API.txt');
+    if FileExists(Marker) and (TFile.GetSize(Marker)<=16) then
+      Result:=StrToIntDef(Trim(TFile.ReadAllText(Marker,TEncoding.ASCII)),0);
+  except Result:=0; end;
+end;
+
+function BookProcessingExtendedExportVersion(const Version: string): Boolean;
+var Comparison: Integer;
+begin
+  Result:=CompareComponentVersions(Version,BOOK_PROCESSING_EXTENDED_EXPORT_VERSION,Comparison) and (Comparison>=0);
 end;
 
 end.
