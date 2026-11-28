@@ -185,6 +185,9 @@ begin
   if (Info.ReaderAdapterSize<0) or (Info.ReaderAdapterSize>Info.Size) then
     raise EArgumentException.Create('Некорректный размер вспомогательного модуля.');
   Dec(Info.Size,Info.ReaderAdapterSize); Info.ReaderAdapterSize:=0;
+  // HomeLibre's DocSharp archives already contain the matching helper and licences.
+  // Only the upstream NuGet packages need a separate adapter.
+  if (Info.ComponentID='DocSharp') and not Info.OfficialComponent then Exit;
   if (Info.DownloadURL<>'') and not Info.CheckOnly and (Info.Size>0) and
     ReaderAdapterPackage(Info.ComponentID,Package) and ReaderAdapterRequired(AppPath,Info.ComponentID) then
   begin Info.ReaderAdapterSize:=Package.Size; Inc(Info.Size,Package.Size); end;

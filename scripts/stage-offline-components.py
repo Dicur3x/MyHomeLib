@@ -59,7 +59,7 @@ def stage(payload, definition, native, *, required=COMPONENTS):
         raise ValueError('Invalid offline component list.')
     ids = [row['id'] for row in rows]
     if len(ids) != len(set(ids)) or set(ids) != set(required):
-        raise ValueError('The full distribution must contain every current component exactly once: ' +
+        raise ValueError('The distribution must contain the requested components exactly once: ' +
                          repr(sorted(set(required).symmetric_difference(ids))))
     # The old monolithic BookConverter writes the same paths as BookProcessing.
     # Shipping both can replace current conversion/compression workers with old
@@ -183,7 +183,9 @@ if __name__ == '__main__':
     parser.add_argument('--definition', required=True, type=Path)
     parser.add_argument('--native', required=True, type=Path)
     parser.add_argument('--report', required=True, type=Path)
+    parser.add_argument('--docsharp-bridge', action='store_true')
     args = parser.parse_args()
-    result = stage(args.payload, args.definition.resolve(strict=True), args.native)
+    required = frozenset(('DocSharp',)) if args.docsharp_bridge else COMPONENTS
+    result = stage(args.payload, args.definition.resolve(strict=True), args.native, required=required)
     with args.report.open('x', encoding='utf-8') as output:
         json.dump(result, output, ensure_ascii=False, indent=2)

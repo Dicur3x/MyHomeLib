@@ -454,7 +454,7 @@ begin
     begin
       Guard(ParamStr(2)); CleanProgramUpdate(ParamStr(2));
     end
-    else if (Mode = '--download') or (Mode = '--download-doc') then
+    else if (Mode = '--download') or (Mode = '--download-doc') or (Mode='--download-doc-bundle') then
     begin
       Job := ParamStr(6); Guard(Job);
       if Mode='--download-doc' then
@@ -469,18 +469,25 @@ begin
       begin
         Info := Default(TProgramRelease); Info.DownloadURL := ParamStr(2);
         Info.Size := StrToInt64(ParamStr(3)); Info.SHA256 := ParamStr(4); Info.Tag := ParamStr(5);
+        if Mode='--download-doc-bundle' then
+        begin
+          Guard(ParamStr(8));
+          Info.ComponentID:='DocSharp'; Info.ComponentVersion:=ParamStr(7);
+        end;
       end;
       Window := CreateWindowEx(0, 'STATIC', 'update test', 0, 0, 0, 0, 0, HWND_MESSAGE, 0, HInstance, nil);
       HTTP := THTTPClient.Create;
       HTTP.ProxySettings := TProxySettings.Create('direct', 80, '', '', 'http');
       Thread := TProgramDownloadThread.Create(Window, HTTP, Info, Job);
       try
+        if Mode='--download-doc-bundle' then Thread.RuntimePath:=ParamStr(8);
         Thread.Start;
         if ParamStr(7) = '--cancel' then begin Sleep(100); Thread.Terminate; end;
         Thread.WaitFor;
         if not PeekMessage(Msg, Window, WM_PROGRAM_UPDATE_DOWNLOADED, WM_PROGRAM_UPDATE_DOWNLOADED,
           PM_REMOVE) then raise Exception.Create('missing completion message');
         if not Thread.Successful then raise Exception.Create(Thread.ErrorText);
+        if Mode='--download-doc-bundle' then Writeln('ADAPTER ',Thread.ReleaseInfo.ReaderAdapterSize);
       finally Thread.Free; DestroyWindow(Window); end;
     end
     else raise Exception.Create('unknown test mode');

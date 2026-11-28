@@ -6,6 +6,7 @@ param(
 
     [string]$OutputDirectory,
     [switch]$Full,
+    [switch]$DocSharpBridge,
     [string]$OfflineComponents,
     [string]$OfflineVerifier,
     [string]$OfflinePrerequisiteInputs,
@@ -14,14 +15,17 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-if ($Full -and [string]::IsNullOrWhiteSpace($OfflineComponents)) {
-    throw 'Полная сборка требует -OfflineComponents: проверенный список архивов всех компонентов с SHA-256.'
+if (($Full -or $DocSharpBridge) -and [string]::IsNullOrWhiteSpace($OfflineComponents)) {
+    throw 'Сборка с компонентами требует -OfflineComponents: проверенный список архивов с SHA-256.'
+}
+if ($DocSharpBridge -and ($Full -or $OfflinePrerequisiteInputs)) {
+    throw '-DocSharpBridge предназначен для компактного архива.'
 }
 if ($Full -and [string]::IsNullOrWhiteSpace($OfflinePrerequisiteInputs)) {
     throw 'Полная сборка требует -OfflinePrerequisiteInputs: папку с закреплёнными полными установщиками Microsoft.'
 }
-if (-not $Full -and ($OfflineComponents -or $OfflineVerifier -or $OfflinePrerequisiteInputs)) {
-    throw 'Параметры автономных компонентов разрешены только вместе с -Full.'
+if (-not ($Full -or $DocSharpBridge) -and ($OfflineComponents -or $OfflineVerifier -or $OfflinePrerequisiteInputs)) {
+    throw 'Параметры компонентов разрешены с -Full или -DocSharpBridge.'
 }
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $releaseIdentity = Get-Content -LiteralPath (Join-Path $repositoryRoot 'Installer\Release.json') -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -98,16 +102,20 @@ try {
     # Genre/update metadata is shared catalogue data. Fonts belong to the
     # optional Reader package; native format adapters arrive with their modules.
     $offline = $null
-    if ($Full) {
+    if ($Full -or $DocSharpBridge) {
         if (-not $OfflineVerifier) {
             $OfflineVerifier = Join-Path $repositoryRoot "Program/Tests/Out/$Platform/ProgramUpdateInstallerTest.exe"
         }
         $offlineReport = Join-Path $stagingRoot 'offline-components.json'
+        $componentOptions = @()
+        if ($DocSharpBridge) { $componentOptions += '--docsharp-bridge' }
         & python -B (Join-Path $PSScriptRoot 'stage-offline-components.py') `
-            --payload $payloadDirectory --definition $OfflineComponents --native $OfflineVerifier --report $offlineReport | Out-Host
+            --payload $payloadDirectory --definition $OfflineComponents --native $OfflineVerifier --report $offlineReport @componentOptions | Out-Host
         if ($LASTEXITCODE -ne 0) { throw 'Не удалось проверить и собрать автономные компоненты.' }
         $offline = Get-Content -LiteralPath $offlineReport -Raw -Encoding UTF8 | ConvertFrom-Json
         if ($offline.platform -cne $Platform) { throw 'Разрядность списка автономных компонентов не совпадает.' }
+    }
+    if ($Full) {
         $fontSource = Join-Path $repositoryRoot 'Installer/ReaderFonts'
         $fontDestination = Join-Path $toolsDestination 'fonts'
         $fontManifest = Get-Content -LiteralPath (Join-Path $fontSource 'manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -142,7 +150,8 @@ try {
     })
     $manifest = [ordered]@{ format = 1; release = $release; platform = $Platform;
         distribution = $(if ($Full) { 'full' } else { 'minimal' }); files = $manifestFiles }
-    if ($Full) { $manifest.bundle = @($offline.components); $manifest.offline_prerequisites = $true }
+    if ($null -ne $offline) { $manifest.bundle = @($offline.components) }
+    if ($Full) { $manifest.offline_prerequisites = $true }
     # Keep this transport manifest at the legacy ZIP root: older clients read
     # it before running the new updater. It is not an installed payload file.
     [IO.File]::WriteAllText((Join-Path $payloadDirectory 'HomeLibRu.update.json'),
@@ -174,6 +183,9 @@ try {
             foreach ($entry in $archive.Entries) {
                 $coreResource = $entry.FullName -ceq 'tools/updates/COMPONENTS.json' -or
                     $entry.FullName -cmatch '^tools/genres/genres_(fb2|nonfb2)(_(bg|en|uk))?\.glst$'
+                if ($DocSharpBridge -and $entry.FullName.StartsWith('tools/doc/', [StringComparison]::Ordinal)) {
+                    $coreResource = $true
+                }
                 if (($entry.FullName.StartsWith('tools/') -and -not $coreResource) -or
                     $entry.FullName.StartsWith('Readers/') -or $entry.FullName.StartsWith('converters/') -or
                     $entry.FullName -in @('HomeLibReader.exe', 'HomeLibreReader.exe', 'MHLMcpServer.exe', 'HomeLibRu.url', 'HomeLibre.url', 'libzstd.dll')) {

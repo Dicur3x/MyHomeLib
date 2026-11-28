@@ -84,6 +84,7 @@ type
     FQueue: TArray<TProgramRelease>;
     FQueueJobs: TArray<string>;
     FQueueIndex: Integer;
+    FRetryQueue: Boolean;
     FQueueBytes, FQueueTotal: Int64;
     FRelease: TProgramRelease;
     FJob, FCache, FLegacyCache, FReadyFile: string;
@@ -801,6 +802,7 @@ begin
   begin FApplicationRelease:=ReleaseInfo; FApplicationVerified:=True; FApplicationFailed:=False; end;
   if FRecovery or Assigned(FThread) or FReady then
   begin Present; Exit; end;
+  if FRetryQueue then ClearQueueJobs;
   if ReleaseInfo.ComponentID = '' then
   begin SelectRow(0); FVersion.Caption := 'Текущая версия: ' + ReleaseDisplayVersion(PROGRAM_RELEASE_VERSION); end;
   FReady := False; FNeedsCheck := False; FRecovery := False; DiscardJob; FRelease := ReleaseInfo;
@@ -1050,6 +1052,7 @@ begin
   end;
   if (Item.Index<0) or (Item.Index>High(FRowIDs)) then Exit;
   if FSelectedRow=FRowIDs[Item.Index] then Exit;
+  if FRetryQueue then ClearQueueJobs;
   FRequestedComponent:=''; FRequestedComponents:=nil; FRequestReason:='';
   FComponentRestartArgument:=nil; FComponentRestartAborted:=nil;
   FSelectedRow:=FRowIDs[Item.Index]; ComponentSelected(nil);
@@ -1408,6 +1411,7 @@ end;
 procedure TfrmProgramUpdate.ComponentCheckClick(Sender: TObject);
 begin
   if Assigned(FThread) or FReady or FCheckingCycle then Exit;
+  if FRetryQueue then ClearQueueJobs;
   if Sender<>nil then
   begin
     FRequestedComponent:=''; FRequestedComponents:=nil; FRequestReason:='';
@@ -1969,6 +1973,12 @@ begin
     Exit;
   end;
   if FRelease.CheckOnly and not FNeedsCheck then begin ComponentCheckClick(nil); Exit; end;
+  if FRetryQueue then
+  begin
+    FRetryQueue:=False;
+    StartQueuedDownload;
+    Exit;
+  end;
   PreviousRepair:=FRepairComponents; RefreshInstalledComponents;
   if (FRepairComponents<>'') and (FRepairComponents<>PreviousRepair) and
     (FApplicationRelease.Tag='') then
@@ -2020,6 +2030,7 @@ var Job: string;
 begin
   for Job in FQueueJobs do try CleanProgramUpdate(Job); except end;
   FQueueJobs := nil;
+  FRetryQueue := False;
 end;
 
 procedure TfrmProgramUpdate.LaterClick(Sender: TObject);
@@ -2031,7 +2042,11 @@ begin
     FThread.Terminate; FLater.Enabled := False;
     FStatus.Caption := 'Отмена подготовки обновления…';
   end
-  else Hide;
+  else
+  begin
+    if FRetryQueue then ClearQueueJobs;
+    Hide;
+  end;
   if FReaderOnly and (FRequestedComponent<>'') and Assigned(FComponentCancelled) then
     FComponentCancelled(Self);
 end;
@@ -2078,15 +2093,16 @@ begin
 end;
 
 procedure TfrmProgramUpdate.DownloadCompleted(var Message: TMessage);
-var Error: string; WorkerRelease: TProgramRelease; PreparingBundle: Boolean;
+var Error: string; WorkerRelease: TProgramRelease; PreparingBundle, Canceled: Boolean;
 begin
   Message.Result := 0;
   if not Assigned(FThread) then Exit;
   PreparingBundle:=FQueueIndex>=Length(FQueue);
   FThread.WaitFor;
-  FReady:=FThread.Successful and FLater.Enabled;
+  Canceled:=not FLater.Enabled;
+  FReady:=FThread.Successful and not Canceled;
   Error:=FThread.ErrorText;
-  if not FLater.Enabled then Error:='Подготовка обновления отменена.';
+  if Canceled then Error:='Подготовка обновления отменена.';
   WorkerRelease:=FThread.ReleaseInfo;
   FreeAndNil(FThread);
   if FReady and PreparingBundle then
@@ -2166,7 +2182,11 @@ begin
   begin
     FComponentCheck.Enabled:=True;
     FPrimary.Caption := 'Повторить загрузку'; FStatus.Caption := Error;
-    DiscardJob; ClearQueueJobs;
+    DiscardJob;
+    // Earlier jobs in this exact queue already passed package validation.
+    FRetryQueue:=not Canceled and not PreparingBundle and (FQueueIndex<Length(FQueue)) and
+      (FQueueIndex>0) and (FQueueIndex=Length(FQueueJobs));
+    if not FRetryQueue then ClearQueueJobs;
   end;
   LayoutWindow;
   if FReady then Present;
